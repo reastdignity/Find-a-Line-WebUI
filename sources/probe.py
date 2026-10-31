@@ -46,7 +46,8 @@ from .layers.wcs import WcsTiles
 from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
-from .layers.gridtiles import GridTiles, grid_tile_name
+from .layers.gridtiles import GridTiles
+from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
 from .catalogue import SOURCES
 from .choose import source_unavailable
