@@ -7,6 +7,7 @@ from rasterio.warp import transform_bounds
 
 from grid import Grid
 
+from ..layer import _hemi
 from ..composed import Index
 from ..readers.tilebases import grid_tile_name
 
@@ -37,3 +38,19 @@ class MetricTiling(Index):
 
     def path(self, cache_dir: str, tile) -> str:
         return os.path.join(cache_dir, self.folder, grid_tile_name(*tile))
+
+
+class DegreeTiling(Index):
+    """1°×1° tiles in WGS84 (lat, lon of the south-west corner), cached as <folder>/N50E019.tif."""
+
+    def __init__(self, folder: str):
+        self.folder = folder
+
+    def tiles(self, grid: Grid):
+        west, south, east, north = transform_bounds(grid.crs, "EPSG:4326", *grid.bounds)
+        return [(lat, lon) for lat in range(math.floor(south), math.floor(north) + 1)
+                for lon in range(math.floor(west), math.floor(east) + 1)]
+
+    def path(self, cache_dir: str, tile) -> str:
+        lat, lon = tile
+        return os.path.join(cache_dir, self.folder, f"{_hemi(lat, 'N', 'S', 2)}{_hemi(lon, 'E', 'W', 3)}.tif")
