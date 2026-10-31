@@ -572,3 +572,33 @@ def test_country_code_offline(monkeypatch, tmp_path):
                 assert country_code(lat, lon, cache_dir) == expected, (lat, lon)
                 checked += 1
     assert checked > 100_000
+
+
+# Names tests and tools patch, each in one module only: patched there, they take effect for every
+# caller (the code calls them through their module: net._get(...)); on the package itself such a
+# patch would fail loudly instead of silently missing the code
+PATCHED = {"_get": "net", "_sleep": "net"}
+
+
+def test_patched_names_have_one_home():
+    import importlib
+    for name, module in PATCHED.items():
+        assert hasattr(importlib.import_module(f"sources.{module}"), name), (module, name)
+        assert not hasattr(src, name), name
+
+
+def test_patched_names_are_never_imported_by_name():
+    """`from .net import _get` would bind a copy that a patch of net._get never reaches."""
+    import ast
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    paths = [os.path.join(folder, f) for folder, _, files in os.walk(os.path.join(root, "sources"))
+             for f in files if f.endswith(".py")]
+    paths += [os.path.join(root, d, f) for d in ("", "tests", "tools") for f in os.listdir(os.path.join(root, d))
+              if f.endswith(".py")]
+    for path in paths:
+        with open(path, encoding="utf-8") as f:
+            tree = ast.parse(f.read())
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and (node.level or (node.module or "").startswith("sources")):
+                named = {alias.name for alias in node.names} & set(PATCHED)
+                assert not named, f"{os.path.relpath(path, root)}:{node.lineno} imports {named} by name"

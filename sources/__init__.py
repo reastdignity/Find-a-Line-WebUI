@@ -66,111 +66,20 @@ from grid import Grid, nad83_utm_crs, utm_crs
 from messages import ServiceError
 from progress import progress
 
+from . import net
+from .net import (HOST_SLOTS, HOST_SLOTS_OF, LOCK_WAIT_S, RETRIES, TILE_LOCKS, _gdal_http, _locks, _part, _remote,
+                  host_slot, tile_lock)
+
+
 DOWNLOAD_THREADS = 8  # tiles of one download (all its layers) at a time; each connection is slow
 # Threads of GDAL's reprojection of a mosaic (the same values with any number: checked on FABDEM over
 # a 7600 px grid, 2.6 s on one thread, 0.8 s on 4, 0.5 s on 8): the cores numba may use
 # (NUMBA_NUM_THREADS, WORKER_CPUS in the container), at most 8
 WARP_THREADS = max(1, min(8, int(os.environ.get("NUMBA_NUM_THREADS") or os.cpu_count() or 1)))
-# Tile downloads from one host at a time across all processes of a data folder (several jobs
-# of the web worker download at once), through lock files in cache/locks/hosts (host_slot);
-# HOST_SLOTS_OF holds the hosts that need another number
-HOST_SLOTS = 8
-HOST_SLOTS_OF: Dict[str, int] = {}
-TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
-LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
-RETRIES = 3
 VALID_MIN = -500  # metres; anything lower is treated as "no data"
 # Finest working resolution: finer grids bring nothing for highlines (clearances are
 # metres; 0.5 m LiDAR grids are partly interpolated) and cost 4x per halving
 MIN_RESOLUTION = 1.0
-
-
-def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
-    """GET with retries; raises RuntimeError with the server message on failure."""
-    last_error = None
-    for attempt in range(RETRIES):
-        try:
-            response = requests.get(url, params=params, timeout=timeout, headers=cache.http_headers())
-            content_type = response.headers.get("content-type", "")
-            if response.status_code == 404:
-                return None
-            if response.status_code != 200 or not any(t in content_type for t in binary_types):
-                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
-            return response
-        except (requests.RequestException, RuntimeError) as e:
-            last_error = e
-            _sleep(attempt)
-    raise RuntimeError(cache.clean_error(last_error))  # no API key from a query in the message
-
-
-def _sleep(attempt: int):
-    """Exponential backoff with jitter (swisstopo's fair use asks for it), 0.5-1.5 times 2^attempt s."""
-    time.sleep(2 ** attempt * (0.5 + random.random()))
-
-
-def _locks(cache_dir: str, kind: str) -> str:
-    folder = os.path.join(cache_dir, cache.LOCKS, kind)
-    os.makedirs(folder, exist_ok=True)
-    return folder
-
-
-@contextlib.contextmanager
-def host_slot(cache_dir: str, url: Optional[str]):
-    """One of the HOST_SLOTS (HOST_SLOTS_OF) download slots of the host of url, across the
-    threads and processes of a data folder: lock files <host>.<n>.lock, each tried in turn,
-    waiting while all are taken. A file lock of the OS: a killed process releases it, and the
-    files are a fixed few per host. Nothing to wait for without a remote host (a local mirror)."""
-    host = urlsplit(url).hostname if url and re.match(r"https?://", url) else None
-    if not host:
-        yield
-        return
-    folder = _locks(cache_dir, "hosts")
-    slots = list(range(HOST_SLOTS_OF.get(host, HOST_SLOTS)))
-    deadline = time.monotonic() + LOCK_WAIT_S
-    while True:
-        random.shuffle(slots)  # waiters spread over the slots
-        for n in slots:
-            # A new instance per attempt: filelock's instances are per thread, and two of them
-            # on one file exclude each other also within a process (Windows LockFileEx, flock)
-            lock = FileLock(os.path.join(folder, f"{host}.{n}.lock"))
-            try:
-                lock.acquire(blocking=False)
-            except Timeout:
-                continue
-            try:
-                yield
-            finally:
-                lock.release()
-            return
-        if time.monotonic() > deadline:
-            raise RuntimeError(f"{host} is busy with the downloads of other searches "
-                               f"(waited {LOCK_WAIT_S // 60} min); try again later")
-        time.sleep(0.1 + 0.2 * random.random())
-
-
-@contextlib.contextmanager
-def tile_lock(cache_dir: str, path: str):
-    """The lock of a cached file, so two searches never download it at once (the second waits
-    and then finds it cached). One of TILE_LOCKS lock files chosen by the path, so their number
-    stays fixed (on Linux filelock leaves its files behind); two tiles sharing one only wait
-    for each other."""
-    digest = hashlib.sha256(cache.relative(cache_dir, path).encode()).digest()
-    name = f"{int.from_bytes(digest[:4], 'big') % TILE_LOCKS:04d}.lock"
-    lock = FileLock(os.path.join(_locks(cache_dir, "tiles"), name))
-    try:
-        lock.acquire(timeout=LOCK_WAIT_S)
-    except Timeout:
-        raise RuntimeError(f"{cache.relative(cache_dir, path)} is being downloaded by another search "
-                           f"(waited {LOCK_WAIT_S // 60} min); try again later") from None
-    try:
-        yield
-    finally:
-        lock.release()
-
-
-def _part(path: str) -> str:
-    """A temporary name next to path, unique per process and thread (searches may run in parallel)."""
-    return f"{path}.{os.getpid()}-{threading.get_ident()}.part"
 
 
 def _write_tile(path: str, band: np.ndarray, crs: str, transform, tags: Optional[Dict[str, str]] = None):
@@ -521,7 +430,7 @@ class WcsTiles(Layer):
             params.append(("SCALESIZE", f"{ax}({round((right - left) / res)}),{ay}({round((top - bottom) / res)})"))
             if self.interpolation:
                 params.append(("INTERPOLATION", self.interpolation))
-        return _get(self.url, params)
+        return net._get(self.url, params)
 
     def download_tile(self, tile, path: str) -> Fetched:
         res, i, j = tile
@@ -690,7 +599,7 @@ class GridTiles(Layer):
                 continue
             url = f"{base}/{name}"
             try:
-                response = _get(url)
+                response = net._get(url)
             except RuntimeError as e:
                 error = e
                 continue
@@ -733,7 +642,7 @@ class DegreeTiles(Layer):
         lat, lon = tile
         url = self.url(lat, lon)
         try:
-            response = _get(url)
+            response = net._get(url)
         except RuntimeError as e:
             raise RuntimeError(f"Could not download {self.description} tile {lat},{lon}: {e}")
         if response is None:  # no tile there (sea)
@@ -1029,7 +938,7 @@ class SheetTiles(IndexedTiles):
 
     def download_tile(self, tile, path: str) -> Fetched:
         try:
-            response = _get(tile.url, binary_types=("octet", "zip", "text", "image"))
+            response = net._get(tile.url, binary_types=("octet", "zip", "text", "image"))
         except RuntimeError as e:
             raise RuntimeError(f"Could not download {self.description} sheet {tile.godlo}: {e}")
         if response is None:
@@ -1130,14 +1039,14 @@ class StacTiles(IndexedTiles):
     def download_tile(self, tile, path: str) -> Fetched:
         for attempt in range(RETRIES):
             try:
-                response = _get(tile.url, binary_types=("tiff", "octet"))
+                response = net._get(tile.url, binary_types=("tiff", "octet"))
             except RuntimeError as e:
                 raise RuntimeError(f"Could not download {self.description} tile {tile.godlo} ({tile.year}): {e}")
             if response is None:
                 return Fetched(0, tile.url)
             if not tile.sha256 or hashlib.sha256(response.content).hexdigest() == tile.sha256:
                 break
-            _sleep(attempt)
+            net._sleep(attempt)
         else:
             raise RuntimeError(f"{self.description} tile {tile.godlo} ({tile.year}): wrong checksum")
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -1146,21 +1055,6 @@ class StacTiles(IndexedTiles):
             f.write(response.content)
         os.replace(tmp, path)
         return Fetched.of(response, tile.url)
-
-
-def _remote(url: str) -> str:
-    """What rasterio opens for a file of an index: /vsicurl/ (HTTP range requests) for a URL,
-    a local path as it is (tests)."""
-    return f"/vsicurl/{url}" if re.match(r"https?://", url) else url
-
-
-def _gdal_http() -> rio.Env:
-    """GDAL's settings for reading windows of remote files: our User-Agent, no directory
-    listing, retries of failed requests, neighbouring blocks in one request."""
-    return rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"],
-                   GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif",
-                   GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
-                   GDAL_HTTP_MULTIRANGE="YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
 
 
 def _same_crs(a, b) -> bool:
@@ -1319,7 +1213,7 @@ class TnmBlocks(IndexedTiles):
                 except (requests.RequestException, ValueError) as e:  # the API is sometimes slow or down
                     if attempt == RETRIES - 1:
                         raise requests.RequestException(f"TNM API: {e}")
-                    _sleep(attempt)
+                    net._sleep(attempt)
             products = page.get("items") or []
             for product in products:
                 item = self._item(product)

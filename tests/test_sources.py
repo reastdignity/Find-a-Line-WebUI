@@ -62,7 +62,7 @@ def fake_describe(url, params=None, **kwargs):
 
 @pytest.fixture
 def layer(monkeypatch):
-    monkeypatch.setattr(src, "_get", fake_get)
+    monkeypatch.setattr(src.net, "_get", fake_get)
     monkeypatch.setattr(src.requests, "get", fake_describe)
     return src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
                         tile_px=100, fetch_res=1.0, axes=("E", "N"))
@@ -154,7 +154,7 @@ def test_slovak_tiles_cut_and_downloaded(tmp_path, monkeypatch):
             raise RuntimeError("HTTP 503")                   # the first server is down: the next is asked
         path = root / url.split("/test/1m/", 1)[1]
         return FakeResponse(path.read_bytes()) if path.exists() else None
-    monkeypatch.setattr(src, "_get", fake_server)
+    monkeypatch.setattr(src.net, "_get", fake_server)
     layer = src.GridTiles("Test DSM", ["https://down.example/test/1m", "https://hf.example/test/1m"],
                           "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6)
     grid = gd.make_grid((left + 500, top - 2800, left + 4600, top - 100), 1.0, "EPSG:8353")
@@ -175,7 +175,7 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
     import grid as gd
     import cache
     mirror, root, band, left, top = _cut(tmp_path, monkeypatch, extract=True)
-    monkeypatch.setattr(src, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setattr(src.net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
     layer = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
     monkeypatch.delenv(src.MIRROR_ENV, raising=False)
     assert "set FINDALINE_MIRROR" in layer.unavailable()
@@ -286,8 +286,8 @@ def test_stac_tiles(tmp_path, monkeypatch):
     import osm
     stac = FakeStac([(2019, 26000, 12000), (2025, 26000, 12000), (2019, 26001, 12000)])
     monkeypatch.setattr(src.requests, "get", stac.get)
-    monkeypatch.setattr(src, "_get", stac.download)
-    monkeypatch.setattr(src, "_sleep", lambda attempt: None)
+    monkeypatch.setattr(src.net, "_get", stac.download)
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
     make = lambda: src.StacTiles("Test", "https://stac.example", "test", "ch/test", "EPSG:2056",
                                  sizes={0.5: 1e5, 2.0: 1e4}, tile_m=100)
     layer, cache_dir = make(), str(tmp_path / "cache")
@@ -476,7 +476,7 @@ def test_usgs_1m_blocks(tmp_path, monkeypatch, capsys):
     import osm
     tnm, files = FakeTnm(), tmp_path / "files"
     monkeypatch.setattr(src.requests, "get", tnm.get)
-    monkeypatch.setattr(src, "_sleep", lambda attempt: None)
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
     _tile_1m(tnm, files, "CO_West_2020_B20", 1020, columns=slice(0, 106))     # the western half (E < 475 000)
     _tile_1m(tnm, files, "CO_Full_2013", 1013)
     _tile_1m(tnm, files, "CO_Older_2010", 1010, name="USGS_one_meter_x47y443_CO_Older_2010.tif")  # no zone
