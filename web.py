@@ -60,6 +60,7 @@ from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_para
 from settings import AccountSettings, Limits, PublicSettings
 
 PORT = 8765
+METRICS_PORT = 8766  # the Prometheus metrics of `web --public` (metrics.py)
 PING = 15           # seconds between the keep-alive comments of the event stream
 SEND_TIMEOUT = 30   # seconds a client may take to accept a message of the event stream
 QUICK_POLL = 0.1    # seconds between looks for the answer of an estimate or a profile
@@ -383,7 +384,10 @@ SESSION_CHECK = 30  # seconds between checks of the session inside an open event
 REFUSAL_WINDOW = 600
 PLACE_CHARS_MAX = 200  # of a name the place box looks up
 RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "place": "place lookups",  # Limits.<kind>_rate
-              "report": "problem reports", "job": "searches started"}
+              "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
+TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
+EVERYONE_SECONDS = 300     # the sign-in page's total of everyone's searched area is counted again after it
+QUICK_RESULTS = ("ok", "no_worker", "busy", "gone")  # how a wait for the quick lane ended (metrics.py)
 WELCOME_COOKIE = "__Host-findaline-welcome"  # set by a sign-in for 10 minutes: the page shows the beta notice
 WELCOME_SECONDS = 600
 # The files of a run the public site serves (what mapping.save_map and runs.save_results write, without
@@ -451,6 +455,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     scheduler = Scheduler(jobs, limits=limits)
     users = ac.Accounts(data_dir, accounts) if public else None
     audit = Audit(data_dir) if public else None  # the local app keeps no audit log
+    quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
+    quick_lock = threading.Lock()
+
+    def quick_ended(result: str):
+        with quick_lock:
+            quick_answers[result] += 1
 
     def record(action: str, user: Optional[ac.User] = None, target=None, detail: Optional[Dict] = None):
         """An event of the audit log (the public site only; audit.py). It writes to a database: from
@@ -499,6 +509,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     app = FastAPI(title="Find-a-Line", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.jobs, app.state.scheduler, app.state.token, app.state.limits = jobs, scheduler, token, limits
     app.state.accounts, app.state.account_settings = users, accounts
+    app.state.quick_answers = quick_answers  # read by the metrics (metrics.py)
     if public:
         hosts, origins = [public.host], {public.origin}
     else:
@@ -589,7 +600,15 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         if found and found[0].approved:
             return APP_HTML.format(token=found[1], user=html.escape(json.dumps(found[0].public())),
                                    contact=html.escape(public.contact))
-        return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None))
+        return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None), total=everyone())
+
+    everyone_cache = {"at": -math.inf, "total": (0.0, 0)}
+
+    def everyone() -> Tuple[float, int]:
+        """(km², searches) of everyone's finished searches, counted again after EVERYONE_SECONDS."""
+        if time.monotonic() - everyone_cache["at"] > EVERYONE_SECONDS:
+            everyone_cache.update(at=time.monotonic(), total=jobs.area_of_everyone())
+        return everyone_cache["total"]
 
     @app.get("/login/{provider}")
     async def login(request: Request, provider: str, next: str = "/"):
@@ -815,7 +834,28 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         of = (lambda name: getattr(quotas, name)) if quotas is not None else (lambda name: None)
         answer["search"] = {"area_km2": of("area_km2_max"), "radius_m": of("radius_max"),
                             "max_length_m": of("max_length_max"), "bbox_km": of("bbox_km_max")}
+        # The area the user's finished searches covered (jobs.Jobs.area), for every user; the country of
+        # the account's time zone (none locally)
+        answer["area"] = jobs.area(user.id)
+        answer["country"] = users.country(user.id) if public and user.id is not None else None
         return answer
+
+    @app.post("/api/me/time-zone")
+    def set_time_zone(body: Dict, user: ac.User = Depends(current_user)):
+        """The browser's IANA time zone ({"time_zone": "Europe/Warsaw"}), sent by the app after a sign-in:
+        its country (accounts.country_of_zone) is stored with the account when it differs, and only
+        then recorded. An unknown zone, or one of no country, stores nothing; locally nothing either.
+        Answers {"country": code or null}."""
+        zone = body.get("time_zone") if isinstance(body, dict) else None
+        if not isinstance(zone, str) or not zone or len(zone) > TIME_ZONE_CHARS_MAX:
+            raise HTTPException(400, f"time_zone: an IANA time zone name of at most {TIME_ZONE_CHARS_MAX} characters")
+        if not public:
+            return {"country": None}
+        within_rate("time_zone", user)
+        country = ac.country_of_zone(zone)
+        if country is not None and users.set_country(user.id, country):
+            record("country", user, user.id, {"country": country})
+        return {"country": country}
 
     def parse(body: Dict, user: ac.User) -> Tuple[Dict, pm.SearchParams]:
         """The checked request and its validated parameters (400 otherwise); in a thread (a drawn
@@ -832,6 +872,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         time limit for each task ahead and this one (QUICK_WAIT_MAX at most), or when the client
         goes away; the task is deleted then, unless the lane works on it already."""
         if not await run_in_threadpool(jobs.worker_alive):
+            quick_ended("no_worker")
             raise HTTPException(503, no_worker)
         try:
             task = await run_in_threadpool(jobs.quick_add, kind, request, user.id, unlimited(user), public is not None)
@@ -851,14 +892,17 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             while (answer := await run_in_threadpool(jobs.quick_take, task)) is None:
                 await asyncio.sleep(QUICK_POLL)
                 if gone.done():
+                    quick_ended("gone")
                     raise HTTPException(503, "the client went away")  # nobody reads it
                 if time.monotonic() - started > wait:
+                    quick_ended("busy")
                     raise HTTPException(504, messages.UserError(
                         f"no answer within {wait:g} s: the worker is busy, try again later", "busy",
                         seconds=round(wait, 1)).detail())
                 if time.monotonic() - looked > 5:
                     looked = time.monotonic()
                     if not await run_in_threadpool(jobs.worker_alive):
+                        quick_ended("no_worker")
                         raise HTTPException(503, no_worker)
         except BaseException:  # also a cancelled request (the server stops): nobody waits for the task
             jobs.quick_forget(task)
@@ -866,6 +910,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         finally:
             if gone is not None:
                 gone.cancel()
+        quick_ended("ok")  # answered by the lane (an error of the request too)
         if answer["code"] != 200:
             raise HTTPException(answer["code"], answer["body"])
         return answer["body"]
@@ -1451,7 +1496,7 @@ SIGNIN_HTML = """<!doctype html>
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-signin">
 <header class="p-brand"><h1 class="u-logo">{logo}<span class="u-sr">Find-a-Line</span></h1>
-<p class="p-lead">Finds possible highlines in elevation data.</p></header>
+<p class="p-lead">Finds possible highlines in elevation data.</p>{total}</header>
 {body}
 {footer}
 </main></body></html>
@@ -1480,17 +1525,19 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
     items = [
         ("Your account", "The sign-in provider (GitHub or Google), its user id for you and your display name there, "
          "whether an administrator approved or blocked the account or lifted its limits, when it was made and when "
-         "you last signed in. No e-mail address, no password. Why: to sign you in and to give you your searches. "
-         "Kept as long as the account exists."),
+         "you last signed in, and the country of your browser's time zone (only the country, e.g. PL), for "
+         "statistics of where users come from; shown in your account menu. No e-mail address, no password. Why: to "
+         "sign you in and to give you your searches. Kept as long as the account exists."),
         ("Sessions", f"A random token in a cookie (__Host-findaline); the site stores only its SHA-256 hash, with a "
          f"token against cross-site requests and when it was made and last used. A session ends when you sign out, "
          f"after {ac.SESSION_DAYS} days, or after {ac.IDLE_DAYS} days without a visit, and is then deleted. "
          f"Signing in uses a second, signed cookie for at most {ac.OAUTH_SECONDS // 60} minutes, and leaves a third "
          f"one ({WELCOME_COOKIE}, no data) for at most {WELCOME_SECONDS // 60} minutes, which only tells the page to "
          f"show its notice once."),
-        ("Searches", f"What you search (the place, the drawn or loaded area, the options), its title and status "
-         f"(with the reason when it failed), and its messages and progress. Why: to run the search and show it to you. The messages are deleted "
-         f"{events} after the search ended; the search itself stays in your queue."),
+        ("Searches", f"What you search (the place, the drawn or loaded area, the options), its area in km² and the "
+         f"country it lies in, its title and status (with the reason when it failed), and its messages and progress. "
+         f"Why: to run the search and show it to you. The messages are deleted {events} after the search ended; the "
+         f"search itself stays in your queue. Your totals of searched area are counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
          "their size. Kept until you delete them in Runs. A share link is stored as a SHA-256 hash only; it can be "
          "renewed or revoked."),
@@ -1526,7 +1573,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
         "of the elevation data, with the places of the search, not who you are. Maps in your browser load "
         "background tiles (OpenStreetMap, OpenTopoMap, Esri, orthophoto services) directly: those services see "
         "your IP address.",
-        "No analytics, no advertising, no tracking cookies.",
+        "No third-party analytics, no advertising, no tracking cookies. The operator keeps statistics of the site's "
+        "operation without personal data (counts, sums and times, e.g. km² searched per day or users per country) "
+        "without a time limit.",
     ]
     body = ["<p>What this site stores about you, why, and for how long.</p><dl class='p-facts'>"]
     body += [f"<dt>{e(name)}</dt><dd>{e(text)}</dd>" for name, text in items]
@@ -1589,11 +1638,27 @@ def demo_list(demos: List[Dict]) -> str:
             + "</ul></section>")
 
 
+def thousands(value: float) -> str:
+    """A whole number with commas between its thousands (48,300), as the app writes numbers."""
+    return f"{round(value):,}"
+
+
+def area_total(total: Optional[Tuple[float, int]]) -> str:
+    """The sign-in page's line of everyone's searched area ("48,300 km² searched in 1,234 searches"), or
+    nothing before the first finished search."""
+    km2, searches = total or (0.0, 0)
+    if not searches:
+        return ""
+    return (f"<p class='u-small'>{thousands(km2)} km² searched in {thousands(searches)} "
+            f"search{'' if searches == 1 else 'es'}</p>")
+
+
 def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, note: str = "",
-                demos: Optional[List[Dict]] = None) -> str:
+                demos: Optional[List[Dict]] = None, total: Optional[Tuple[float, int]] = None) -> str:
     """The page of the public site for a visitor not signed in, or whose account is not approved
     (pending or blocked): sign-in links, or the account's state and signing out; the demo runs
-    (their maps, read-only). No script, and nothing that changes state but signing out."""
+    (their maps, read-only); `total`: (km², searches) of everyone (area_total). No script, and
+    nothing that changes state but signing out."""
     e = html.escape
     card = [f"<p class='p-error' role='alert'>{e(note)}</p>"] if note else []
     if user is None:
@@ -1610,7 +1675,7 @@ def signin_page(providers: List[str], user=None, csrf: Optional[str] = None, not
         card.append(f"<form method='post' action='/logout'><input type='hidden' name='csrf' value='{e(csrf or '')}'>"
                     "<button class='u-btn' type='submit'>Sign out</button></form>")
     parts = ["<section class='p-card'>" + "\n".join(card) + "</section>", demo_list(demos or [])]
-    return SIGNIN_HTML.format(body="\n".join(parts), logo=LOGO_SVG, footer=PAGE_FOOTER)
+    return SIGNIN_HTML.format(body="\n".join(parts), logo=LOGO_SVG, footer=PAGE_FOOTER, total=area_total(total))
 
 
 class EventHub:
@@ -1752,6 +1817,10 @@ def main(argv: List[str]) -> int:
                              "FINDALINE_TRUSTED_PROXY, FINDALINE_CONTACT, FINDALINE_SESSION_SECRET and a sign-in "
                              "provider (FINDALINE_GITHUB_CLIENT_ID/_SECRET, FINDALINE_GOOGLE_CLIENT_ID/_SECRET); implies --no-worker and --no-browser "
                              "(the worker runs as `findaline.py worker --public`)")
+    parser.add_argument("--metrics-port", type=int,
+                        help=f"port of the Prometheus metrics (metrics.py; aggregates only), served by a thread of "
+                             f"this process: with --public on all addresses of the container, default "
+                             f"{METRICS_PORT} (0: none); locally on 127.0.0.1, none unless given")
     args = parser.parse_args(argv)
     if not args.public and not is_loopback(args.host):
         parser.error("--host other than a loopback address needs --public (the local app has no sign-in)")
@@ -1761,6 +1830,15 @@ def main(argv: List[str]) -> int:
     data = cache.data_dir(args.data_dir)
     cache.check_layout(os.path.join(data, "cache"))
     app = create_app(data, port=args.port, start_scheduler=not args.no_worker, public=public, accounts=accounts)
+    metrics_port = args.metrics_port if args.metrics_port is not None else (METRICS_PORT if public else 0)
+    if metrics_port:
+        import metrics
+        # In the container on every address (compose publishes it on the host's loopback only, never
+        # behind nginx); locally on the loopback
+        metrics.serve(metrics_port, "0.0.0.0" if public else "127.0.0.1", data, app.state.limits,
+                      accounts_dir=(accounts.accounts_dir or data) if accounts else None,
+                      quick_answers=app.state.quick_answers)
+        print(f"Metrics on port {metrics_port} (/metrics)")
     server = {"host": args.host, "port": args.port, "log_level": "warning", "server_header": False,
               "timeout_graceful_shutdown": GRACEFUL_SECONDS, "timeout_keep_alive": KEEP_ALIVE_SECONDS}
     if public:

@@ -131,7 +131,50 @@ MIGRATIONS = [
                                       "favourites": ("created",), "favourite_folders": ("created",),
                                       "reports": ("created",), "workers": ("started",)},
                                  json_columns={("events", "data"): ("created", "finished")}),
+    # 13: the area of a search in km² and the country it lies in (sources.country_code, lower case), set
+    # by the worker when it plans the search; when the job's phases started (UTC, as `created`). Jobs of
+    # before get the area where their request gives it without any service (request_km2)
+    lambda db: _area_columns(db),
 ]
+PHASE_TIME = {"downloading": "downloading_at", "computing": "computing_at"}  # the column of a status's start
+
+
+def request_km2(request: Dict) -> Optional[float]:
+    """The km² of a job's request when it gives them without any service (migration 13 for the jobs
+    of before): a circle (pi r²) or a drawn area (its buffered geometry, clipped to a box `within`);
+    None for coast, cliffs, osm: areas, a drawn area within an osm: area, OSM extract jobs and
+    requests that do not validate."""
+    if not isinstance(request, dict) or not isinstance(request.get("params"), dict):
+        return None
+    try:
+        p = search_params(request)
+        if p.geometry is not None:
+            if p.within is not None and p.within.startswith("osm:"):
+                return None
+            import area as ar
+            return ar.size_km2(ar.from_geometry(p.geometry, p.buffer, p.within, "").geometry)
+        if p.area is None:
+            return math.pi * p.radius ** 2 / 1e6
+    except Exception:  # a request of an older version that no longer validates
+        return None
+    return None
+
+
+def _area_columns(db: sqlite3.Connection):
+    """Migration 13: the columns, and the area of the jobs of before (request_km2)."""
+    for column in ("area_km2 REAL", "country TEXT", "downloading_at TEXT", "computing_at TEXT"):
+        db.execute(f"ALTER TABLE jobs ADD COLUMN {column}")
+    found = []
+    for rowid, text in db.execute("SELECT rowid, request FROM jobs").fetchall():
+        try:
+            km2 = request_km2(json.loads(text))
+        except (TypeError, ValueError):
+            km2 = None
+        if km2 is not None:
+            found.append((km2, rowid))
+    db.executemany("UPDATE jobs SET area_km2 = ? WHERE rowid = ?", found)
+
+
 FAVOURITES_MAX = 10000  # favourite lines of a user (a safeguard of the database, the same for everyone)
 FOLDERS_MAX = 1000      # folders of favourites of a user
 FOLDER_DEPTH_MAX = 8    # folders inside one another (a top-level folder is at depth 1)
@@ -201,6 +244,7 @@ def _with_info(job: Dict) -> Dict:
 
 
 DAY = 86400.0  # seconds of the daily quotas (a moving 24 hours)
+AREA_DAYS = 30  # days of a user's searched area by day (/api/usage `area`)
 USAGE = {"km2": "km² of search areas", "nominatim": "uncached Nominatim requests (place names, osm: areas)",
          "download_mb": "MB of downloads (the estimates of your searches)"}
 
@@ -367,6 +411,36 @@ class Jobs:
         with self._db() as db:
             return db.execute("DELETE FROM usage WHERE at < ?", (time.time() - 2 * DAY,)).rowcount
 
+    def set_area(self, job_id: str, km2: Optional[float], country: Optional[str]):
+        """The area of a job's search in km² and the country it lies in (the worker, when it plans it)."""
+        with self._db() as db:
+            db.execute("UPDATE jobs SET area_km2 = ?, country = ? WHERE id = ?", (km2, country, job_id))
+
+    def area(self, user_id: Optional[int], days: float = AREA_DAYS) -> Dict:
+        """The area a user's finished searches (status done, with an area) covered: in total, their
+        number, and [finished, km²] of those finished in the last `days`, oldest first. user_id None:
+        the local app's jobs (those without an owner)."""
+        db = self._db()
+        try:
+            total, count = db.execute("SELECT COALESCE(SUM(area_km2), 0), COUNT(*) FROM jobs WHERE user_id IS ? "
+                                      "AND status = 'done' AND area_km2 IS NOT NULL", (user_id,)).fetchone()
+            recent = db.execute("SELECT finished, area_km2 FROM jobs WHERE user_id IS ? AND status = 'done' AND "
+                                "area_km2 IS NOT NULL AND finished >= ? ORDER BY finished",
+                                (user_id, cache.now_iso(ago=days * DAY))).fetchall()
+        finally:
+            db.close()
+        return {"total_km2": total, "searches": count, "recent": [[r[0], r[1]] for r in recent]}
+
+    def area_of_everyone(self) -> Tuple[float, int]:
+        """(km², searches) of every user's finished searches with an area (the sign-in page)."""
+        db = self._db()
+        try:
+            total, count = db.execute("SELECT COALESCE(SUM(area_km2), 0), COUNT(*) FROM jobs WHERE status = 'done' "
+                                      "AND area_km2 IS NOT NULL").fetchone()
+        finally:
+            db.close()
+        return total, count
+
     def get(self, job_id: str) -> Optional[Dict]:
         with self._db() as db:
             row = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
@@ -412,12 +486,14 @@ class Jobs:
 
         One statement in one write transaction, so two workers never take the same job.
         """
+        started = f", {PHASE_TIME[status]} = ?" if status in PHASE_TIME else ""  # when the phase started
         with self._write() as db:
             rows = db.execute(
-                "UPDATE jobs SET status = ?, worker_id = ? WHERE id = (SELECT j.id FROM jobs j "
+                f"UPDATE jobs SET status = ?, worker_id = ?{started} WHERE id = (SELECT j.id FROM jobs j "
                 "WHERE j.status = ? AND j.cancel_requested = 0 ORDER BY (SELECT COUNT(*) FROM jobs r "
                 f"WHERE r.status IN {_in(ACTIVE)} AND r.user_id IS j.user_id), j.created, j.rowid LIMIT 1) "
-                "AND status = ? RETURNING *", (status, worker_id, waiting, *ACTIVE, waiting)).fetchall()
+                "AND status = ? RETURNING *",
+                (status, worker_id, *((cache.now_iso(),) if started else ()), waiting, *ACTIVE, waiting)).fetchall()
             if rows:
                 self._insert_event(db, rows[0]["id"], "status", {"status": status})
         return dict(rows[0]) if rows else None
@@ -1007,15 +1083,37 @@ def check_disk(data_dir: str, limits: Optional[Limits], phase: str):
                             f"its {phase}; try again later", 503, "disk_full_search")
 
 
-def charge_area(jobs: Jobs, user_id: Optional[int], plan, limits: Optional[Limits]):
-    """Count the km² of a search's area for its user against Limits.km2_day_max (QuotaExceeded over
-    it); known only here for osm:<name> and coast/cliffs areas. A circle counts as π r²."""
+def plan_km2(plan) -> float:
+    """The km² of a planned search's area; known only here for osm:<name> and coast/cliffs areas. A
+    circle counts as π r²."""
     from area import Polygon, size_km2
+    area = plan.area
+    return size_km2(area.geometry) if isinstance(area, Polygon) else math.pi * area.radius ** 2 / 1e6
+
+
+def charge_area(jobs: Jobs, user_id: Optional[int], plan, limits: Optional[Limits]):
+    """Count the km² of a search's area for its user against Limits.km2_day_max (QuotaExceeded over it)."""
     if limits is None or limits.km2_day_max is None or user_id is None:
         return
-    area = plan.area
-    km2 = size_km2(area.geometry) if isinstance(area, Polygon) else math.pi * area.radius ** 2 / 1e6
-    jobs.use(user_id, "km2", km2, limits.km2_day_max)
+    jobs.use(user_id, "km2", plan_km2(plan), limits.km2_day_max)
+
+
+def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
+    """Store the km² of a job's search and the country of its centre (sources.country_code, usually
+    cached already by --source auto) for every user: the users' totals and the site's statistics.
+    The lookup does not count against the user's quota of Nominatim requests (the statistics are
+    the site's); it never fails the search."""
+    import osm
+    import sources as src
+    before, osm.BEFORE_REQUEST = osm.BEFORE_REQUEST, None
+    try:
+        lat, lon = plan.area.center
+        country = src.country_code(lat, lon, cache_dir)
+    except Exception:  # the statistics never fail a search
+        country = None
+    finally:
+        osm.BEFORE_REQUEST = before
+    jobs.set_area(job_id, plan_km2(plan), country)
 
 
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
@@ -1080,6 +1178,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory)
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
         if phase == "download":
+            note_area(jobs, job_id, plan, paths.cache)
             charge_area(jobs, job["user_id"], plan, limits)
             if limits and (limits.download_mb_max or limits.download_mb_day_max):  # the estimate asks the indexes
                 estimate = search.estimate_search(plan)
@@ -1236,6 +1335,36 @@ def _remove_old(folder: str, days: float, keep: Iterable[str] = ()):
                 shutil.rmtree(entry.path) if entry.is_dir() else os.remove(entry.path)
 
 
+CACHE_SIZES = "cache-sizes.json"  # in the work folder: the bytes of each top-level cache folder (metrics.py)
+
+
+def cache_sizes(cache_dir: str) -> Dict[str, int]:
+    """The bytes of the files in each top-level folder of the cache (symbolic links not followed)."""
+    sizes = {}
+    if not os.path.isdir(cache_dir):
+        return sizes
+    for top in os.scandir(cache_dir):
+        if not top.is_dir(follow_symlinks=False):
+            continue
+        total = 0
+        for folder, _, names in os.walk(top.path):
+            for name in names:
+                with contextlib.suppress(OSError):  # gone meanwhile
+                    total += os.lstat(os.path.join(folder, name)).st_size
+        sizes[top.name] = total
+    return sizes
+
+
+def write_cache_sizes(data_dir: str):
+    """Housekeeping: <data>/work/cache-sizes.json, {"time": epoch seconds, "folders": {folder: bytes}},
+    replaced at once (cache.replacing) so the metrics never read half a file."""
+    sizes = cache_sizes(os.path.join(data_dir, "cache"))
+    path = os.path.join(data_dir, "work", CACHE_SIZES)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with cache.replacing(path, "w", encoding="utf-8") as f:
+        json.dump({"time": round(time.time()), "folders": sizes}, f)
+
+
 def kill_tree(pid: int):
     """Kill a process and every process it started (download pools, numba, GDAL helpers)."""
     import psutil
@@ -1263,14 +1392,25 @@ class Scheduler:
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
         self.slots = {"download": self.limits.download_slots, "compute": self.limits.compute_slots}
         self.running: Dict[str, List[Running]] = {phase: [] for phase in self.slots}  # the jobs of each phase
-        self.memory: Optional[int] = None  # the budget of a compute slot (search.slot_memory), with several
-        if self.slots["compute"] > 1:  # the memory free now, before any search, shared by the slots
-            import search
-            self.memory = search.slot_memory(self.limits)
+        self._memory: Optional[int] = None
+        self._measured = False
         self.lock = threading.Lock()
         self.context = multiprocessing.get_context("spawn")  # the same on every OS
         self.stopped = threading.Event()
         self.beat = 0.0  # time of the last heartbeat
+
+    @property
+    def memory(self) -> Optional[int]:
+        """The budget of a compute slot (search.slot_memory), with several: the memory free before any
+        search, shared by the slots. Measured at the first use (the worker's start, _begin), so a
+        scheduler that never runs (the public site's web process, whose settings may name the worker's
+        slots for its metrics) imports no search code."""
+        if not self._measured:
+            self._measured = True
+            if self.slots["compute"] > 1:
+                import search
+                self._memory = search.slot_memory(self.limits)
+        return self._memory
 
     def start(self):
         """Run the worker in a thread of this process (findaline.py web)."""
@@ -1286,6 +1426,7 @@ class Scheduler:
             self.stop()
 
     def _begin(self):
+        self.memory  # measured now, before any search
         self.jobs.register(self.worker_id)
         self.beat = time.time()
         self.jobs.interrupted()  # jobs of workers that are gone
@@ -1294,9 +1435,11 @@ class Scheduler:
         """Clean the data folder up: temporary files of downloads killed while writing; events of
         jobs finished more than Limits.keep_events_days ago; answers of the quick lane nobody took;
         work folders of ended jobs (kept after an unexpected error) after KEEP_WORK_DAYS, and those
-        of estimates and profiles (left by a killed quick lane) after a day."""
+        of estimates and profiles (left by a killed quick lane) after a day. Measures the cache by
+        top-level folder for the metrics (write_cache_sizes)."""
         data = self.jobs.data_dir
         cache.remove_stale_parts(os.path.join(data, "cache"))
+        write_cache_sizes(data)
         import audit
         audit.purge(data)  # events of the audit log older than audit.KEEP_DAYS
         if self.limits.keep_events_days:

@@ -20,8 +20,12 @@ accounts: its one user is LOCAL, an administrator.
   cookie SESSION_COOKIE (Secure, HttpOnly, SameSite=Lax), only its sha256 in the database;
   they end after SESSION_DAYS, or IDLE_DAYS without a request; every sign-in makes a new
   one. Each session has its CSRF token, which the page sends as X-Findaline-Token.
+- The country of a user's browser's time zone (users.country, for the site's statistics and the
+  account menu): the app sends the zone after a sign-in, country_of_zone maps it with tzdata's
+  zone.tab; only the country code is kept.
 """
 
+import functools
 import hashlib
 import os
 import secrets
@@ -55,6 +59,9 @@ MIGRATIONS = [
     """ALTER TABLE users ADD COLUMN unlimited INTEGER NOT NULL DEFAULT 0;""",
     # 3: times in UTC with their offset; those of before were the local time of the process
     lambda db: cache.utc_columns(db, {"users": ("created", "last_login")}),
+    # 4: the country of the user's browser's time zone (lower-case ISO 3166-1 alpha-2; NULL: not known),
+    # sent by the app after a sign-in (POST /api/me/time-zone, country_of_zone)
+    """ALTER TABLE users ADD COLUMN country TEXT;""",
 ]
 # The providers: Authlib's registration and how to read the user's id and name
 GITHUB = {"authorize_url": "https://github.com/login/oauth/authorize",
@@ -213,6 +220,18 @@ class Accounts:
         with self._db() as db:
             db.execute("UPDATE users SET unlimited = ? WHERE id = ?", (int(bool(unlimited)), user_id))
 
+    def country(self, user_id: int) -> Optional[str]:
+        """The country of a user's time zone (lower-case alpha-2), None when not known."""
+        with self._db() as db:
+            row = db.execute("SELECT country FROM users WHERE id = ?", (user_id,)).fetchone()
+        return row["country"] if row else None
+
+    def set_country(self, user_id: int, country: str) -> bool:
+        """Store the country of a user's time zone; whether it changed."""
+        with self._db() as db:
+            return bool(db.execute("UPDATE users SET country = ? WHERE id = ? AND country IS NOT ?",
+                                   (country, user_id, country)).rowcount)
+
     # --- Sessions ---
 
     def new_session(self, user_id: int) -> Tuple[str, str]:
@@ -286,6 +305,30 @@ async def identity(client, provider: str, token: Dict) -> Tuple[str, Optional[st
     if not isinstance(data.get("id"), int):
         raise ValueError("no GitHub user id")
     return str(data["id"]), data.get("login")
+
+
+@functools.lru_cache(maxsize=1)
+def _zones() -> Dict[str, str]:
+    """IANA time zones -> lower-case country codes: zone.tab of the tzdata package, and the links of
+    its tzdata.zi to those zones (old names browsers still give: Asia/Calcutta, Europe/Kiev)."""
+    from importlib import resources
+    folder = resources.files("tzdata").joinpath("zoneinfo")
+    zones = {}
+    for line in folder.joinpath("zone.tab").read_text(encoding="utf-8").splitlines():
+        if line and not line.startswith("#"):
+            code, _, zone = line.split("	")[:3]
+            zones[zone] = code.lower()
+    for line in folder.joinpath("tzdata.zi").read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) == 3 and parts[0] == "L" and parts[1] in zones:  # L <target> <link>
+            zones.setdefault(parts[2], zones[parts[1]])
+    return zones
+
+
+def country_of_zone(zone: str) -> Optional[str]:
+    """The country (lower-case alpha-2) of an IANA time zone, None for an unknown zone or one of no
+    country (UTC, Etc/GMT+1)."""
+    return _zones().get(zone)
 
 
 def local_path(value: Optional[str]) -> str:

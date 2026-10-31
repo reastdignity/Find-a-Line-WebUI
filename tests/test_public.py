@@ -1074,6 +1074,36 @@ def test_nominatim_and_area_quotas_in_the_worker(tmp_path, monkeypatch):
     charge_area(jobs, None, plan, Limits(km2_day_max=0.1))  # the local app: nobody to count
 
 
+def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
+    """The worker stores a search's km² and the country of its centre for every user (jobs.note_area);
+    the country's lookup does not count against the user's Nominatim quota, and a failed lookup only
+    leaves the country out."""
+    import math
+
+    import osm
+    import sources as src
+    from jobs import Jobs, nominatim_quota, note_area
+    from settings import Limits
+    jobs = Jobs(str(tmp_path))
+    job = jobs.add({"params": {}}, "a job", 7)
+    plan = _plan(tmp_path, None, northing=254608, easting=553966, radius=150)
+    quota_during = []
+    monkeypatch.setattr(src, "country_code", lambda lat, lon, cache_dir: quota_during.append(osm.BEFORE_REQUEST) or "pl")
+    nominatim_quota(jobs, 7, Limits(nominatim_day_max=1))
+    counting = osm.BEFORE_REQUEST
+    note_area(jobs, job, plan, str(tmp_path / "cache"))
+    assert quota_during == [None] and osm.BEFORE_REQUEST is counting  # not counted, and set back
+    stored = jobs.get(job)
+    assert stored["area_km2"] == pytest.approx(math.pi * 0.15 ** 2) and stored["country"] == "pl"
+
+    def broken(lat, lon, cache_dir):
+        raise RuntimeError("no service")
+    monkeypatch.setattr(src, "country_code", broken)
+    note_area(jobs, job, plan, str(tmp_path / "cache"))
+    assert jobs.get(job)["country"] is None and jobs.get(job)["area_km2"] > 0
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", None)
+
+
 def test_profiles_and_deleting_runs(run_people, tmp_path):
     """Profiles of the public site: points in the run's box with a margin of its --max-length, at most
     --max-length apart, and the rate of a user; the owner deletes a run (folder and row), nobody else."""
@@ -1423,7 +1453,10 @@ def test_privacy_and_about_pages(run_people):
         assert "<style" not in page.text and "admin@example.org" in page.text
     text = privacy.text
     for fact in ("display name", "SHA-256", "30 days", "7 days", "90 days", "Audit log", "open every run",
-                 "orthophoto tiles", "stores none", "No analytics"):
+                 "orthophoto tiles", "stores none", "No third-party analytics", "statistics of the site&#x27;s "
+                 "operation without personal data", "its area in km² and the country it lies in",
+                 "Your totals of searched area are counted from these", "the country of your browser&#x27;s time "
+                 "zone (only the country, e.g. PL)", "shown in your account menu"):
         assert fact in text, fact
     for source in src.SOURCES.values():
         for credit in source.credits:
@@ -1740,7 +1773,7 @@ def test_jobs_database_gets_error_codes(tmp_path):
     db.close()
     jobs = jb.Jobs(str(tmp_path), public=True)
     db = sqlite3.connect(tmp_path / "jobs.sqlite")
-    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 12
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 12
     db.close()
     assert [(j["id"], j["error"], j["error_info"]) for j in jobs.all()] == [("old", "it broke", None)]
     job = jobs.add({"params": {}, "geometry": None}, "New")
@@ -1759,6 +1792,197 @@ def test_jobs_database_gets_error_codes(tmp_path):
     assert (jobs.get(job)["error"], jobs.get(job)["error_info"]) == ("a text", None)
     jobs.set(job, "done", error=None)
     assert (jobs.get(job)["error"], jobs.get(job)["error_info"]) == (None, None)
+
+
+def test_jobs_database_gets_areas(tmp_path):
+    """jobs.sqlite of version 12 gets the area, country and phase times of migration 13: the jobs of
+    before get the km² their request gives without any service (a circle, a drawn area, also within a
+    box), none for coast, cliffs, osm: areas, a drawn area within an osm: area, OSM extracts and
+    requests that no longer validate; no country, no times. A claim stores its phase's start."""
+    import math
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    from area import size_km2
+    from shapely.geometry import shape
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:12])
+    point = {"lat": 50.1, "lon": 19.7}
+    requests = {
+        "circle": {"params": {**point, "radius": 500}, "geometry": None},
+        "default radius": {"params": point, "geometry": None},
+        "drawn": {"params": {}, "geometry": SQUARE},
+        "drawn in a box": {"params": {"within": "50.1546,19.7522,50.1580,19.7556"}, "geometry": SQUARE},
+        "drawn in osm": {"params": {"within": "osm:Gozo"}, "geometry": SQUARE},
+        "coast": {"params": {"area": "coast", "within": "osm:Gozo"}, "geometry": None},
+        "osm name": {"params": {"area": "osm:Gozo"}, "geometry": None},
+        "extract": {"osm": {"action": "download", "region": "malta"}},
+        "invalid": {"params": {**point, "radius": -5}, "geometry": None},
+        "not a request": [],
+    }
+    for name, request in requests.items():
+        db.execute("INSERT INTO jobs (id, created, status, request, title) VALUES (?, '2026-10-01T10:00:00+00:00', "
+                   "'done', ?, ?)", (name, json.dumps(request), name))
+    db.execute("INSERT INTO jobs (id, created, status, request, title) VALUES ('broken', '', 'done', 'not json', 'x')")
+    db.commit()
+    db.close()
+    jobs = jb.Jobs(str(tmp_path))
+    areas = {name: jobs.get(name)["area_km2"] for name in [*requests, "broken"]}
+    square = size_km2(shape(SQUARE))
+    assert areas["circle"] == pytest.approx(math.pi * 0.25) and areas["default radius"] == pytest.approx(math.pi)
+    assert areas["drawn"] == pytest.approx(square, rel=1e-9)
+    assert 0 < areas["drawn in a box"] < square * 0.6  # the box takes half of the square
+    for name in ("drawn in osm", "coast", "osm name", "extract", "invalid", "not a request", "broken"):
+        assert areas[name] is None, name
+    old = jobs.get("circle")
+    assert (old["country"], old["downloading_at"], old["computing_at"]) == (None, None, None)
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 13
+    db.close()
+    assert jobs.area(None)["searches"] == 4 and jobs.area_of_everyone()[1] == 4  # "done" with an area
+
+    job = jobs.add({"params": point}, "new")
+    claimed = jobs.claim("queued", "downloading", "w")
+    assert claimed["id"] == job and claimed["downloading_at"] and claimed["computing_at"] is None
+    jobs.set(job, "ready")
+    claimed = jobs.claim("ready", "computing", "w")
+    assert claimed["downloading_at"] <= claimed["computing_at"] and claimed["computing_at"].endswith("+00:00")
+
+
+def test_accounts_database_gets_countries(tmp_path, account_settings):
+    """accounts.sqlite of version 3 gets users.country (migration 4): unknown for its users."""
+    import sqlite3
+
+    import cache
+    db = sqlite3.connect(tmp_path / "accounts.sqlite")
+    cache.migrate(db, ac.MIGRATIONS[:3])
+    db.execute("INSERT INTO users (provider, subject, name, status) VALUES ('github', '11', 'a', 'approved')")
+    db.commit()
+    db.close()
+    users = ac.Accounts(str(tmp_path), account_settings)
+    user = users.users()[0]
+    assert users.country(user.id) is None
+    assert users.set_country(user.id, "pl") and not users.set_country(user.id, "pl")
+    assert users.country(user.id) == "pl" and users.country(999) is None
+    db = sqlite3.connect(tmp_path / "accounts.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(ac.MIGRATIONS) >= 4
+    db.close()
+
+
+def test_country_of_time_zone():
+    """IANA zones to countries with tzdata's zone.tab, old names through its links; none for zones of no
+    country and unknown names."""
+    assert ac.country_of_zone("Europe/Warsaw") == "pl" and ac.country_of_zone("America/New_York") == "us"
+    assert ac.country_of_zone("Asia/Calcutta") == "in" and ac.country_of_zone("Europe/Kiev") == "ua"
+    for zone in ("UTC", "Etc/GMT+1", "Mars/Olympus", "", "europe/warsaw"):
+        assert ac.country_of_zone(zone) is None, zone
+
+
+def test_time_zone(tmp_path, settings, account_settings, providers):
+    """POST /api/me/time-zone: the country of the browser's zone is stored with the account and
+    recorded in the audit log only when it changed; an unknown zone stores nothing; a wrong body is
+    400; only approved users (the route's access rule), within the rate of a limited user; locally
+    nothing is stored. /api/usage gives the account's country."""
+    import audit
+    from settings import Limits
+    limits = Limits.load(public=True).model_copy(update={"time_zone_rate": "4/minute"})
+    app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
+    people = _clients(app, tmp_path, account_settings, ("a", "admin"))
+    a, admin = people["a"], people["admin"]
+    users = app.state.accounts
+
+    def changes():
+        return [e["detail"] for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "country"]
+    assert a.get("/api/usage").json()["country"] is None
+    answers = [a.post("/api/me/time-zone", json={"time_zone": zone}) for zone in
+               ("Europe/Warsaw", "Europe/Warsaw", "Mars/Olympus", "America/New_York")]
+    assert [r.status_code for r in answers] == [200] * 4
+    assert [r.json()["country"] for r in answers] == ["pl", "pl", None, "us"]
+    assert users.country(a.user_id) == "us" and a.get("/api/usage").json()["country"] == "us"
+    assert changes() == [{"country": "pl"}, {"country": "us"}]
+    entry = next(e for e in audit.Audit(str(tmp_path)).entries() if e["action"] == "country")
+    assert (entry["user_id"], entry["target"]) == (a.user_id, str(a.user_id))
+    limited = a.post("/api/me/time-zone", json={"time_zone": "Europe/Warsaw"})  # the fifth in a minute
+    assert limited.status_code == 429 and limited.json()["detail"]["code"] == "rate_time_zone"
+    assert users.country(a.user_id) == "us"
+    for _ in range(5):  # an administrator has no rate
+        assert admin.post("/api/me/time-zone", json={"time_zone": "Europe/Zurich"}).json() == {"country": "ch"}
+    for body in ({}, {"time_zone": 5}, {"time_zone": "x" * 101}, {"time_zone": ""}):
+        assert admin.post("/api/me/time-zone", json=body).status_code == 400, body
+    for who, status in (("anonymous", 401), ("pending", 403)):
+        client = TestClient(app, base_url=URL)
+        client.headers["origin"] = URL
+        if who == "pending":
+            _, cookie, csrf = session_of(tmp_path, account_settings, who)
+            client.cookies.set(ac.SESSION_COOKIE, cookie, domain="lines.example.org")
+            client.headers["x-findaline-token"] = csrf
+        assert client.post("/api/me/time-zone", json={"time_zone": "Europe/Warsaw"}).status_code == status, who
+        client.close()
+    without_token = TestClient(app, base_url=URL, cookies=a.cookies, headers={"origin": URL})
+    assert without_token.post("/api/me/time-zone", json={"time_zone": "Europe/Warsaw"}).status_code == 403
+    without_token.close()
+    for client in people.values():
+        client.close()
+    local = tmp_path / "local"
+    local.mkdir()
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        answer = client.post("/api/me/time-zone", json={"time_zone": "Europe/Warsaw"}, headers={"x-findaline-token": TOKEN})
+        assert answer.status_code == 200 and answer.json() == {"country": None}
+        assert client.get("/api/usage").json()["country"] is None
+    assert not (local / "accounts.sqlite").exists() and not (local / "audit.sqlite").exists()
+
+
+def test_searched_area_for_users_and_everyone(tmp_path, settings, account_settings, providers, monkeypatch):
+    """/api/usage `area`: a user's finished searches with an area (their total, number and the pairs of
+    the last 30 days, oldest first), for every user, the local app's too; the sign-in page shows the
+    total of everyone (none before the first), counted again after EVERYONE_SECONDS."""
+    import cache
+    app = _public_app(tmp_path, settings, account_settings, providers)
+    people = _clients(app, tmp_path, account_settings, ("a", "b", "admin"))
+    jobs = app.state.jobs
+    monkeypatch.setattr(web, "EVERYONE_SECONDS", 0)
+
+    def finished(user_id, km2, days_ago=0.0, status="done", country="pl"):
+        job = jobs.add({"params": {}}, "x", user_id)
+        jobs.set_area(job, km2, country)
+        jobs.set(job, status)
+        if days_ago:
+            with jobs._write() as db:
+                db.execute("UPDATE jobs SET finished = ? WHERE id = ?", (cache.now_iso(ago=days_ago * 86400), job))
+        return jobs.get(job)["finished"]
+    anonymous = TestClient(app, base_url=URL)
+    assert "km² searched" not in anonymous.get("/").text  # nothing yet
+    a = people["a"].user_id
+    old = finished(a, 1000.25, days_ago=40)
+    month = finished(a, 2.5, days_ago=3)
+    today = finished(a, 1.25)
+    finished(a, 99, status="failed")
+    finished(a, 99, status="cancelled")
+    finished(people["b"].user_id, 47_000, country=None)
+    jobs.add({"params": {}}, "waiting", a)
+    area = people["a"].get("/api/usage").json()["area"]
+    assert area == {"total_km2": 1004.0, "searches": 3, "recent": [[month, 2.5], [today, 1.25]]}, (area, old)
+    assert people["admin"].get("/api/usage").json()["area"] == {"total_km2": 0, "searches": 0, "recent": []}
+    page = anonymous.get("/").text
+    assert "48,004 km² searched in 4 searches" in page, page
+    monkeypatch.setattr(web, "EVERYONE_SECONDS", 3600)
+    finished(a, 1)
+    assert "48,004 km² searched in 4 searches" in anonymous.get("/").text  # kept for a while
+    monkeypatch.setattr(web, "EVERYONE_SECONDS", 0)
+    assert "48,005 km² searched in 5 searches" in anonymous.get("/").text
+    assert "<script" not in anonymous.get("/").text
+    assert web.area_total((0.4, 1)) == "<p class='u-small'>0 km² searched in 1 search</p>"
+    for client in [*people.values(), anonymous]:
+        client.close()
+    local = tmp_path / "local"
+    local.mkdir()
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        local_jobs = client.app.state.jobs
+        job = local_jobs.add({"params": {}}, "local")
+        local_jobs.set_area(job, 3.0, "pl")
+        local_jobs.set(job, "done")
+        assert client.get("/api/usage").json()["area"]["total_km2"] == 3.0
 
 
 def test_local_headers(tmp_path):

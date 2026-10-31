@@ -3,6 +3,7 @@ real worker processes (offline: local files, any request goes to a closed port).
 
 import contextlib
 import json
+import math
 import os
 import sys
 import time
@@ -289,6 +290,13 @@ def test_job_through_the_queue(tmp_path, monkeypatch):
     assert {"status", "info", "progress"} <= kinds
     statuses = [e["data"]["status"] for e in jobs.events(0, job) if e["kind"] == "status"]
     assert statuses == ["queued", "downloading", "ready", "computing", "done"]
+    # The worker stored the area of the search, its country (offline: sources.OFFLINE_BOXES) and the
+    # start times of its phases (migration 13; metrics.py)
+    assert result["area_km2"] == pytest.approx(math.pi * 0.15 ** 2) and result["country"] == "pl", result
+    assert result["created"] <= result["downloading_at"] <= result["computing_at"] <= result["finished"], result
+    assert jobs.area(None) == {"total_km2": result["area_km2"], "searches": 1,
+                               "recent": [[result["finished"], result["area_km2"]]]}
+    assert jobs.get(other)["area_km2"] is None and jobs.get(other)["downloading_at"] is None  # cancelled waiting
     steps = {e["data"]["step"].split(":")[0] for e in jobs.events(0, job) if e["kind"] == "progress"} - {""}
     assert steps == {f"Step {n}/5" for n in range(1, 6)}, steps
     stages = {e["data"]["stage"] for e in jobs.events(0, job) if e["kind"] == "progress"}
