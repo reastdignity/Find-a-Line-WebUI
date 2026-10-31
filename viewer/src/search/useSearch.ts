@@ -7,6 +7,7 @@ import type { FeatureCollection } from "geojson";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { api, ApiError, type Estimate, type Field, type Schema, type SearchRequest, type Usage } from "../app/api";
 import { countAreas } from "../app/areas";
+import { COUNTRY_EVENT } from "../app/timeZone";
 import { readAreaFile } from "../app/files";
 import type { Mode, PlaceMap } from "../app/PlaceMap";
 import { buildRequest, fromRequest, valueProblem, withValue, type AreaFile, type Place } from "../app/request";
@@ -106,14 +107,19 @@ export interface UsageState {
   refresh(): void;
 }
 
-/** The user's use of the quotas and the quotas (/api/usage), asked for once and on refresh(). */
+/** The user's use of the quotas and the quotas (/api/usage), asked for once, on refresh() and when the
+ *  server has taken the browser's time zone (the account's country, app/timeZone.ts). */
 export function useUsage(): UsageState {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [error, setError] = useState("");
   const refresh = useCallback(() => {
     api.usage().then((u) => { setUsage(u); setError(""); }, (e) => setError(e.message));
   }, []);
-  useEffect(refresh, [refresh]);
+  useEffect(() => {
+    refresh();
+    window.addEventListener(COUNTRY_EVENT, refresh);
+    return () => window.removeEventListener(COUNTRY_EVENT, refresh);
+  }, [refresh]);
   return {usage, error, refresh};
 }
 

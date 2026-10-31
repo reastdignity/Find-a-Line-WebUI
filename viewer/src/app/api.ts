@@ -46,6 +46,18 @@ export interface Usage {
   usage: Record<"km2" | "download_mb" | "nominatim" | "jobs_day" | "jobs_active" | "runs_gb", UsageItem>;
   /** The limits of one search (null each: none). */
   search?: {area_km2: number | null; radius_m: number | null; max_length_m: number | null; bbox_km: number | null};
+  /** The area of the user's finished searches (absent from an older server). */
+  area?: AreaUsage;
+  /** The account's country (ISO 3166-1 alpha-2, lower case; from the browser's time zone), null when not known or locally. */
+  country?: string | null;
+}
+
+/** /api/usage `area`: the km² and the number of all the user's finished searches with an area, and the
+ *  [finished (ISO, UTC), km²] of those finished in the last 30 days, oldest first. */
+export interface AreaUsage {
+  total_km2: number;
+  searches: number;
+  recent: [string, number][];
 }
 
 export interface Estimate {
@@ -164,6 +176,8 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
 export const api = {
   schema: () => call<Schema>("GET", "/api/schema"),
   usage: () => call<Usage>("GET", "/api/usage"),
+  /** The browser's IANA time zone: the server keeps the account's country from it (the public site). */
+  timeZone: (time_zone: string) => call<{country: string | null}>("POST", "/api/me/time-zone", {time_zone}),
   /** `signal` aborts the request: the server forgets its waiting task (a newer one replaces it). */
   estimate: (request: SearchRequest, signal?: AbortSignal) => call<Estimate>("POST", "/api/estimate", request, signal),
   places: (q: string) => call<{places: Place[]}>("POST", "/api/place", {q}),
