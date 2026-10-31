@@ -305,7 +305,7 @@ def test_grafana_provisioning_valid():
         for receiver in point["receivers"]:
             assert receiver["settings"]["url"] == "${FINDALINE_NTFY_URL}"
     entrypoint = _compose()["services"]["grafana"]["entrypoint"][-1]
-    assert 'url="$$(cat /run/secrets/ntfy_url)"' in entrypoint and "grafana://noop" in entrypoint
+    assert "< /run/secrets/ntfy_url" in entrypoint and r"tr -d '\r\n'" in entrypoint and "grafana://noop" in entrypoint
 
 
 def test_alert_rules():
