@@ -1,0 +1,17 @@
+# The store of the monitoring project: VictoriaMetrics' Prometheus API (PromQL and MetricsQL).
+# The uid is fixed: every panel and alert rule of the provisioning names it
+# (tests/test_monitoring.py checks it).
+apiVersion: 1
+
+datasources:
+  - name: VictoriaMetrics
+    uid: victoriametrics
+    type: prometheus
+    access: proxy
+    url: http://victoriametrics:8428
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      timeInterval: 30s          # Telegraf's interval: the shortest step of $__rate_interval
+      prometheusType: Prometheus

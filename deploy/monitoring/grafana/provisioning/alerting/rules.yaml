@@ -1,0 +1,988 @@
+# Alert rules of docs/monitoring.md, phase 1 (rows A-E, G). Every rule names its row, a level
+# (alert or info: the notification policy sends info more quietly, once a day) and the server
+# (FINDALINE_PUBLIC_URL of findaline.env); Grafana evaluates them every minute, and a condition
+# must hold for the rule's `for` before it fires. No data is OK for every rule: a source that
+# stops reporting has its own rules (G2), which fire only after 10 minutes without samples, so a
+# fresh start stays quiet. A failing query keeps the last state; only g2-store-unreachable turns
+# an error of the data source into an alert.
+#
+# Grafana expands environment variables in provisioning files: no literal dollar sign in the
+# texts below (templates use .Values and .Labels, not their dollar aliases).
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: vps
+    folder: Find-a-Line
+    interval: 1m
+    rules:
+      - uid: a1-cpu-steal
+        title: "A1 CPU steal"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (avg_over_time(cpu_usage_steal[5m]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [20]}
+        for: 15m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "CPU steal {{ humanize (index .Values \"A\").Value }} % for 15 min: the provider's other customers take the cores."
+          __dashboardUid__: vps
+          __panelId__: "2"
+        isPaused: false
+      - uid: a2-memory
+        title: "A2 Memory available"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "min by (host) (mem_available_percent)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [5]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "Only {{ humanize (index .Values \"A\").Value }} % of the memory available for 5 min."
+          __dashboardUid__: vps
+          __panelId__: "4"
+        isPaused: false
+      - uid: a2-oom-kill
+        title: "A2 OOM kill"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (increase_prometheus(kernel_vmstat_oom_kill[10m]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The kernel killed a process for lack of memory (a search's phase, a container or a service of the host)."
+          __dashboardUid__: vps
+          __panelId__: "5"
+        isPaused: false
+      - uid: a3-disk-docker
+        title: "A3 Free disk on /srv/docker"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "min by (host) (disk_free{path=\"/srv/docker\"})"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [30000000000]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }}B free on /srv/docker (the site refuses searches below 20 GB)."
+          __dashboardUid__: vps
+          __panelId__: "6"
+        isPaused: false
+      - uid: a3-disk-root
+        title: "A3 Free disk on /"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "min by (host) (disk_free{path=\"/\"})"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [10000000000]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }}B free on /."
+          __dashboardUid__: vps
+          __panelId__: "7"
+        isPaused: false
+      - uid: a3-inodes
+        title: "A3 Inodes"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host, path) (disk_inodes_used_percent{path=~\"/|/srv/docker\"})"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [90]}
+        for: 15m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} % of the inodes of {{ index .Labels \"path\" }} used."
+          __dashboardUid__: vps
+          __panelId__: "6"
+        isPaused: false
+      - uid: a4-image-holes
+        title: "A4 Holes in the disk image"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_facts_image_holes_bytes)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [1073741824]}
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A4
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize1024 (index .Values \"A\").Value }}B of the disk image are holes (vps.sh check: at most 1 GiB)."
+          __dashboardUid__: vps
+          __panelId__: "8"
+        isPaused: false
+      - uid: a7-reboot
+        title: "A7 Reboot required"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (reboot_required_exists)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 1h
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A7
+          level: info
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "An update needs a reboot (/run/reboot-required)."
+          __dashboardUid__: vps
+          __panelId__: "10"
+        isPaused: false
+      - uid: a7-security-updates
+        title: "A7 Security updates pending"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_facts_updates_security)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 24h
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A7
+          level: info
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} security updates pending for a day (unattended-upgrades should have installed them)."
+          __dashboardUid__: vps
+          __panelId__: "11"
+        isPaused: false
+      - uid: a8-clock
+        title: "A8 Clock offset"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (abs(chrony_system_time))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [1]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: A8
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The clock is {{ humanize (index .Values \"A\").Value }} s off (chrony)."
+          __dashboardUid__: vps
+          __panelId__: "12"
+        isPaused: false
+      - uid: b1-not-running
+        title: "B1 Container not running"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "absent_over_time(docker_container_status_uptime_ns{container_name=\"findaline-web-1\",container_status=\"running\"}[3m]) or absent_over_time(docker_container_status_uptime_ns{container_name=\"findaline-worker-1\",container_status=\"running\"}[3m])"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 2m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: B1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ index .Labels \"container_name\" }} is not running."
+          __dashboardUid__: vps
+          __panelId__: "14"
+        isPaused: false
+      - uid: b1-web-unhealthy
+        title: "B1 web unhealthy"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (docker_container_health_health_code{container_name=\"findaline-web-1\"})"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: within_range, params: [1.5, 2.5]}
+        for: 2m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: B1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The web service has failed its healthcheck for 2 min."
+          __dashboardUid__: vps
+          __panelId__: "14"
+        isPaused: false
+      - uid: b1-restart
+        title: "B1 Container restarted"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host, container_name) (increase_prometheus(docker_container_status_restart_count{container_name=~\"findaline-.+\"}[10m]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: B1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ index .Labels \"container_name\" }} restarted (its restart policy brought it back)."
+          __dashboardUid__: vps
+          __panelId__: "15"
+        isPaused: false
+      - uid: b1-oom-killed
+        title: "B1 Container OOM-killed"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host, container_name) (last_over_time(docker_container_status_oomkilled{container_name=~\"findaline-.+\"}[2m]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: B1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ index .Labels \"container_name\" }} was killed for exceeding its memory limit."
+          __dashboardUid__: vps
+          __panelId__: "14"
+        isPaused: false
+      - uid: b2-worker-memory
+        title: "B2 worker memory"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (docker_container_mem_usage_percent{container_name=\"findaline-worker-1\"})"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [90]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: B2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The worker uses {{ humanize (index .Values \"A\").Value }} % of WORKER_MEMORY for 5 min."
+          __dashboardUid__: vps
+          __panelId__: "16"
+        isPaused: false
+  - orgId: 1
+    name: site
+    folder: Find-a-Line
+    interval: 1m
+    rules:
+      - uid: c1-5xx
+        title: "C1 5xx answers"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "sum by (host) (sum_over_time(nginx_requests_request_time_count{class=\"5xx\"}[5m])) / sum by (host) (sum_over_time(nginx_requests_request_time_count[5m])) * 100 and sum by (host) (sum_over_time(nginx_requests_request_time_count[5m])) >= 20"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [2]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: C1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} % of the answers were 5xx (over 5 min, at least 20 requests)."
+          __dashboardUid__: site
+          __panelId__: "2"
+        isPaused: false
+      - uid: c2-api-p95
+        title: "C2 Slow API"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (avg_over_time(nginx_times_request_time_095{group=\"api\"}[5m]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [2]}
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: C2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "p95 of the API's response time {{ humanize (index .Values \"A\").Value }} s for 10 min."
+          __dashboardUid__: site
+          __panelId__: "4"
+        isPaused: false
+      - uid: c5-certificate
+        title: "C5 Certificate expires"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "min by (host) (x509_cert_expiry{type=\"leaf\"}) / 86400"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [14]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: C5
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The site's certificate expires in {{ humanize (index .Values \"A\").Value }} days (certbot renews from 30)."
+          __dashboardUid__: site
+          __panelId__: "8"
+        isPaused: false
+      - uid: c6-site
+        title: "C6 Site not answering"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (last_over_time(http_response_result_code[2m])) > 0 or max by (host) (last_over_time(http_response_http_response_code[2m])) != 200"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 2m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: C6
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The home page, asked from the server through its public address, did not answer 200 for 2 min."
+          __dashboardUid__: site
+          __panelId__: "10"
+        isPaused: false
+      - uid: d1-unit-failed
+        title: "D1 systemd unit failed"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host, name) (last_over_time(systemd_units_active_code[10m]) == 3 or last_over_time(systemd_units_load_code[10m]) > 0)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: D1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ index .Labels \"name\" }} has failed or is not loaded."
+          __dashboardUid__: site
+          __panelId__: "12"
+        isPaused: false
+      - uid: d2-bans-findaline
+        title: "D2 fail2ban: bans of the site"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (increase_prometheus(findaline_facts_fail2ban_findaline_banned_total[1h]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [10]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: D2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} addresses banned by the jail findaline in an hour: an attack, or users caught by the limits."
+          __dashboardUid__: site
+          __panelId__: "15"
+        isPaused: false
+      - uid: d2-bans-sshd
+        title: "D2 fail2ban: bans of SSH"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (increase_prometheus(findaline_facts_fail2ban_sshd_banned_total[1h]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [100]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: D2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} addresses banned by the jail sshd in an hour."
+          __dashboardUid__: site
+          __panelId__: "15"
+        isPaused: false
+      - uid: d3-check-failed
+        title: "D3 vps.sh check failed"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_check_failed)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: D3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The daily vps.sh check found {{ humanize (index .Values \"A\").Value }} FAIL lines: run sudo deploy/vps.sh check."
+          __dashboardUid__: site
+          __panelId__: "16"
+        isPaused: false
+      - uid: d3-check-stale
+        title: "D3 vps.sh check not run"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "time() - max by (host) (findaline_check_time)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [93600]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: D3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The daily vps.sh check last ran {{ humanizeDuration (index .Values \"A\").Value }} ago."
+          __dashboardUid__: site
+          __panelId__: "17"
+        isPaused: false
+      - uid: e1-backup
+        title: "E1 No backup"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "time() - max by (host) (findaline_backup_last_success)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [93600]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: E1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The last successful backup was {{ humanizeDuration (index .Values \"A\").Value }} ago."
+          __dashboardUid__: site
+          __panelId__: "18"
+        isPaused: false
+  - orgId: 1
+    name: monitoring
+    folder: Find-a-Line
+    interval: 1m
+    rules:
+      - uid: g2-telegraf-write
+        title: "G2 Telegraf cannot write"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (increase_prometheus(internal_write_errors[10m])) or max by (host) (increase_prometheus(internal_write_metrics_dropped[10m]))"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: G2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "Telegraf's writes to VictoriaMetrics fail (or samples were dropped) for 10 min."
+          __dashboardUid__: vps
+          __panelId__: "40"
+        isPaused: false
+      - uid: g2-source-silent
+        title: "G2 A source stopped reporting"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "label_set(absent_over_time(cpu_usage_idle[10m]), \"source\", \"telegraf\") or label_set(absent_over_time(docker_n_containers[10m]), \"source\", \"docker\") or label_set(absent_over_time(nginx_active[10m]), \"source\", \"nginx stub_status\") or label_set(absent_over_time(http_response_result_code[10m]), \"source\", \"http_response\") or label_set(absent_over_time(x509_cert_expiry[30m]), \"source\", \"x509_cert\") or label_set(absent_over_time(systemd_units_active_code[30m]), \"source\", \"systemd units\") or label_set(absent_over_time(findaline_facts_time[30m]), \"source\", \"facts.json\")"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 10m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: G2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "No samples of {{ index .Labels \"source\" }} for 10 min or more."
+          __dashboardUid__: vps
+          __panelId__: "40"
+        isPaused: false
+      - uid: g2-daily-file-missing
+        title: "G2 A daily file is missing"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "label_set(absent_over_time(findaline_check_time[30m]), \"source\", \"check.json\") or label_set(absent_over_time(findaline_backup_time[30m]), \"source\", \"backup.json\")"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 26h
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: G2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "/var/lib/findaline-monitoring/{{ index .Labels \"source\" }} has been missing for 26 h."
+          __dashboardUid__: site
+          __panelId__: "18"
+        isPaused: false
+      - uid: g2-facts-stale
+        title: "G2 Host facts stale"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "time() - max by (host) (findaline_facts_time)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [900]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: G2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "facts.json was written {{ humanizeDuration (index .Values \"A\").Value }} ago (its timer runs every 5 min)."
+          __dashboardUid__: site
+          __panelId__: "22"
+        isPaused: false
+      - uid: g2-store-unreachable
+        title: "G2 VictoriaMetrics unreachable"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "vector(0)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 5m
+        noDataState: OK
+        execErrState: Alerting
+        labels:
+          row: G2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "Grafana cannot query VictoriaMetrics: no other alert can fire."
+          __dashboardUid__: vps
+          __panelId__: "40"
+        isPaused: false

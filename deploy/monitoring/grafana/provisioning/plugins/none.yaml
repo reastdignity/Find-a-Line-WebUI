@@ -1,0 +1,5 @@
+# No plugin apps: this file only keeps the folder, which Grafana reads at every start (and logs an
+# error when it is missing).
+apiVersion: 1
+
+apps: []

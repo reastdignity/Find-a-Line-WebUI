@@ -1,0 +1,14 @@
+# The dashboards VPS and Site from the JSON files of deploy/monitoring/grafana/dashboards (mounted
+# read-only at /etc/grafana/dashboards): changed in the repository, not in Grafana.
+apiVersion: 1
+
+providers:
+  - name: findaline
+    folder: Find-a-Line         # the folder of the alert rules too (found by its title)
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 60
+    options:
+      path: /etc/grafana/dashboards
+      foldersFromFilesStructure: false

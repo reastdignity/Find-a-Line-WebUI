@@ -1,0 +1,16 @@
+# Every alert goes to ntfy, grouped per rule (one message for the containers of one rule, say);
+# the info rows (A7) go to the quieter contact point and are repeated once a day at most.
+apiVersion: 1
+
+policies:
+  - orgId: 1
+    receiver: ntfy
+    group_by: [grafana_folder, alertname]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+    routes:
+      - receiver: ntfy-info
+        object_matchers:
+          - [level, "=", info]
+        repeat_interval: 24h

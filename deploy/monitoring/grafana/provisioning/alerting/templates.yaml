@@ -1,0 +1,23 @@
+# The title and text of a notification, short enough for a phone: "<server>: <row> <what>" (and the
+# number of alerts when several are grouped), then one line per alert and the link to its
+# dashboard (through the SSH tunnel: GF_SERVER_ROOT_URL). The server is the site's host name, from
+# the label `server` of every rule. No dollar sign (provisioning expands environment variables).
+apiVersion: 1
+
+templates:
+  - orgId: 1
+    name: findaline
+    template: |
+      {{ define "findaline.server" }}{{ reReplaceAll "^https?://" "" .CommonLabels.server }}{{ end }}
+
+      {{ define "findaline.title" -}}
+      {{ template "findaline.server" . }}: {{ .CommonLabels.alertname }}
+      {{- if gt (len .Alerts) 1 }} ({{ len .Alerts }}){{ end }}
+      {{- end }}
+
+      {{ define "findaline.message" -}}
+      {{ range .Alerts -}}
+      {{ if eq .Status "resolved" }}Resolved: {{ end }}{{ if .Annotations.summary }}{{ .Annotations.summary }}{{ else }}{{ .Labels.alertname }}{{ end }}
+      {{ end -}}
+      {{ with index .Alerts 0 }}{{ if .DashboardURL }}{{ .DashboardURL }}{{ else }}{{ .GeneratorURL }}{{ end }}{{ end }}
+      {{- end }}
