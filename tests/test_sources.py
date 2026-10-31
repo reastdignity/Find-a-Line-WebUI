@@ -218,7 +218,7 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
 
 def test_slovakia_chosen_only_with_its_tiles(tmp_path, monkeypatch):
     """--source auto picks Slovakia only when a copy of the tiles is set up, else the Europe-wide model."""
-    monkeypatch.setattr(src, "country_code", lambda lat, lon, cache_dir: "sk")
+    monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: "sk")
     monkeypatch.delenv(src.MIRROR_ENV, raising=False)
     source, reason = src.choose_source("auto", 49.17, 18.58, str(tmp_path))
     assert source.id == "europe" and "FINDALINE_MIRROR" in reason
@@ -605,7 +605,7 @@ def test_usa_chosen_by_country_and_data(tmp_path, monkeypatch):
     1 m data near the centre, else its IfSAR; the working CRS is NAD83 / UTM."""
     import grid as gd
     codes = {}
-    monkeypatch.setattr(src, "country_code", lambda lat, lon, cache_dir: codes[(lat, lon)])
+    monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: codes[(lat, lon)])
     codes.update({(37.73, -119.64): "us", (18.2, -66.5): "pr", (58.3, -134.4): "us", (61.2, -149.9): "us"})
     near = {(58.3, -134.4): False, (61.2, -149.9): True}
     monkeypatch.setattr(src.USGS_1M, "has_data_near", lambda lat, lon, cache_dir: near[(lat, lon)])

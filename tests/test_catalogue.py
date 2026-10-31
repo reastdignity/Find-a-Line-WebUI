@@ -559,7 +559,7 @@ def test_country_code_offline(monkeypatch, tmp_path):
     def offline(*args, **kwargs):
         raise ValueError("offline")
     monkeypatch.setattr(osm, "reverse", offline)
-    country_code = src.country_code
+    country_code = src.choose.country_code
     cache_dir = str(tmp_path)
     checked = 0
     for _, (s, n, w, e) in BOXES:
@@ -577,7 +577,7 @@ def test_country_code_offline(monkeypatch, tmp_path):
 # Names tests and tools patch, each in one module only: patched there, they take effect for every
 # caller (the code calls them through their module: net._get(...)); on the package itself such a
 # patch would fail loudly instead of silently missing the code
-PATCHED = {"_get": "net", "_sleep": "net", "DOWNLOAD_THREADS": "layer"}
+PATCHED = {"_get": "net", "_sleep": "net", "DOWNLOAD_THREADS": "layer", "country_code": "choose"}
 
 
 def test_patched_names_have_one_home():
