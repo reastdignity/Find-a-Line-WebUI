@@ -1,10 +1,13 @@
 """The parts of the layers (sources/indexes, sources/readers, sources/composed.py) and the local HTTP
 server they are tested against (tests/http_server.py)."""
 
+import json
 import os
 import sys
+from urllib.parse import urlencode, urlsplit
 
 import numpy as np
+import pytest
 import rasterio as rio
 import requests
 from rasterio.windows import Window
@@ -12,6 +15,7 @@ from rasterio.windows import Window
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
 import sources as src  # noqa: E402
+from http_server import key_of  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIP = os.path.join(HERE, "data", "zabi_kon_nmt.tif")
@@ -59,4 +63,55 @@ def test_server_windows_through_gdal(http_server):
     assert asked and all(r.user_agent == cache.http_headers()["User-Agent"] for r in asked)
     assert any("range" in r.headers for r in asked)
     assert not http_server.stray()
+
+
+# Recorded answers of the index services (tools/record_answers.py)
+
+RECORDED = os.path.join(HERE, "data", "recorded")
+CASES = sorted(os.path.relpath(folder, RECORDED).replace(os.sep, "/")
+               for folder, _, files in os.walk(RECORDED) if "answers.json" in files)
+
+
+def _on_server(layer, server):
+    """A layer as the catalogue's, but asking its index on the local server."""
+    path = urlsplit(layer.index_url).path
+    if isinstance(layer, src.SheetTiles):
+        return src.SheetTiles(layer.description, server.url(path), layer.prefix, layer.folder, layer.native_res,
+                              layer.min_res)
+    if isinstance(layer, src.StacTiles):
+        api = path[:path.index("/collections/")]
+        return src.StacTiles(layer.description, server.url(api), layer.prefix, layer.folder, layer.crs,
+                             layer.sizes, layer.tile_m)
+    if isinstance(layer, src.TnmBlocks):
+        return type(layer)(layer.description, layer.dataset, layer.prefix, layer.folder, layer.native_res,
+                           layer.block_m, layer.bytes_per_tile(), api=server.url(path))
+    raise AssertionError(f"no recorded case for {type(layer).__name__}")
+
+
+def test_recorded_cases_exist():
+    assert CASES == ["stac/swisstopo-swissalti3d", "tnm/dem1m", "tnm/ifsar5m", "wfs/geoportal-nmt"]
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_recorded_index_answers(case, http_server, tmp_path):
+    """The recorded answers of a service give the index JSON of the code that recorded them,
+    byte for byte, with the same requests and nothing else asked."""
+    folder = os.path.join(RECORDED, case)
+    with open(os.path.join(folder, "answers.json"), encoding="utf-8") as f:
+        recorded = json.load(f)
+    http_server.add_cassette(folder)
+    lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
+    layer = _on_server(getattr(src.SOURCES[recorded["case"]["source"]], recorded["case"]["layer"]), http_server)
+    cache_dir = str(tmp_path / "cache")
+    assert layer.update_index_tile(cache_dir, lat, lon) == (0, 0, 0)  # nothing cached: nothing downloaded
+    with open(layer.index_path(cache_dir, lat, lon), "rb") as f:
+        written = f.read()
+    host, = recorded["hosts"]
+    with open(os.path.join(folder, "expected.json"), "rb") as f:
+        assert written.replace(http_server.base.encode(), host.encode()) == f.read()
+    assert not http_server.stray()
+    asked = [key_of(r.method, r.path + "?" + urlencode(r.query)) for r in http_server.log]
+    assert asked == [key_of(a["method"], urlsplit(a["url"])._replace(scheme="", netloc="").geturl())
+                     for a in recorded["answers"]]
+    assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
 

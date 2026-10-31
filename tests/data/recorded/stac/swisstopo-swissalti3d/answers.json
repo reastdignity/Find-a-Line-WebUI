@@ -1,0 +1,29 @@
+{
+ "recipe": "stac-swisstopo",
+ "recorded": "2026-10-31",
+ "case": {
+  "source": "swisstopo",
+  "layer": "nmt",
+  "lat": 47.75,
+  "lon": 8.5
+ },
+ "hosts": [
+  "https://data.geo.admin.ch"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://data.geo.admin.ch/api/stac/v1/collections/ch.swisstopo.swissalti3d/items?bbox=8.5%2C47.75%2C8.75%2C48.0&limit=100",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "001.json.gz"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geo.admin.ch/api/stac/v1/collections/ch.swisstopo.swissalti3d/items?bbox=8.5%2C47.75%2C8.75%2C48.0&cursor=cD1zd2lzc2FsdGkzZF8yMDI2XzI2NzktMTI4OQ%3D%3D&limit=100",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "002.json.gz"
+  }
+ ]
+}

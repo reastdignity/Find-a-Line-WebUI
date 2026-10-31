@@ -1,0 +1,22 @@
+{
+ "recipe": "tnm-ifsar",
+ "recorded": "2026-10-31",
+ "case": {
+  "source": "alaska_ifsar",
+  "layer": "nmt",
+  "lat": 59.75,
+  "lon": -141.0
+ },
+ "hosts": [
+  "https://tnmaccess.nationalmap.gov"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Alaska+IFSAR+5+meter+DEM&max=500&offset=0&bbox=-141.0%2C59.75%2C-140.75%2C60.0",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "001.json"
+  }
+ ]
+}

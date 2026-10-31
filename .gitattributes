@@ -8,3 +8,5 @@ viewer/src/ui/logo/*.svg text eol=lf
 *.bat text eol=crlf
 # Deployment files (scripts, nginx and fail2ban configuration, firewall rules) go to Linux
 deploy/** text eol=lf
+# Recorded answers of services are served and compared byte for byte (tests/test_parts.py)
+tests/data/recorded/** -text

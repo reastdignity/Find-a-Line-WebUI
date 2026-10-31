@@ -17,7 +17,9 @@ from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import cache  # noqa: E402
 import sources as src  # noqa: E402
+from http_server import Answer  # noqa: E402
 
 EXTENT = (-1000.0, -1000.0, 1000.0, 63.4)  # the coverage ends 63.4 m above the bottom of tile 0_0
 
@@ -243,21 +245,27 @@ def _stac_tile(east, north, res, year, tile_m=100):
 
 
 class FakeStac:
-    """A STAC API with items <product>_<year>_<E>-<N> holding GeoTIFFs at 0.5 and 2 m (and an XYZ zip)."""
+    """A STAC API with items <product>_<year>_<E>-<N> holding GeoTIFFs at 0.5 and 2 m (and an XYZ zip),
+    on the local HTTP server: the items endpoint at /stac/collections/test/items, the files at /files/."""
 
-    def __init__(self, items):
-        self.items, self.files, self.asked = items, {}, []
+    def __init__(self, server, items):
+        self.server, self.items, self.files, self.asked = server, items, {}, []
         for year, east, north in items:
             self._add(year, east, north)
+        server.route("/stac/collections/test/items", self.page)
+        server.route("/files/", self.download)
+
+    def url(self, year, east, north, res):
+        return self.server.url(f"/files/t_{year}_{east}-{north}_{res:g}.tif")
 
     def _add(self, year, east, north):
         for res in (0.5, 2.0):
-            self.files[f"https://files.example/t_{year}_{east}-{north}_{res:g}.tif"] = _stac_tile(east, north, res, year)
+            self.files[self.url(year, east, north, res)] = _stac_tile(east, north, res, year)
 
     def item(self, year, east, north):
         assets = {}
         for res in (0.5, 2.0):
-            url = f"https://files.example/t_{year}_{east}-{north}_{res:g}.tif"
+            url = self.url(year, east, north, res)
             sha = hashlib.sha256(self.files[url]).hexdigest()
             assets[url] = {"href": url, "gsd": res, "file:checksum": "1220" + sha,
                            "type": "image/tiff; application=geotiff; profile=cloud-optimized"}
@@ -265,34 +273,30 @@ class FakeStac:
                                              "type": "application/x.ascii-xyz+zip"}
         return {"id": f"test_{year}_{east}-{north}", "assets": assets}
 
-    def get(self, url, params=None, **kwargs):
+    def page(self, request):
         """The items endpoint in pages of two (bbox ignored: every item is near)."""
-        if url.startswith("offline"):
-            raise requests.ConnectionError("offline")
-        start = int(url.split("page=")[1]) if "page=" in url else 0
+        start = int(dict(request.query).get("page", 0))
         self.asked.append(start)
         page = [self.item(*i) for i in self.items[start:start + 2]]
-        links = [{"rel": "next", "href": f"https://stac.example/items?page={start + 2}"}]             if start + 2 < len(self.items) else []
-        response = FakeResponse()
-        response.json = lambda: {"features": page, "links": links}
-        return response
+        links = [{"rel": "next", "href": self.server.url(f"/stac/collections/test/items?page={start + 2}")}]             if start + 2 < len(self.items) else []
+        return Answer(body=json.dumps({"features": page, "links": links}).encode(),
+                      headers={"Content-Type": "application/geo+json"})
 
-    def download(self, url, params=None, **kwargs):
-        return FakeResponse(self.files[url]) if url in self.files else None
+    def download(self, request):
+        data = self.files.get(self.server.url(request.path))
+        return Answer(body=data, headers={"Content-Type": "image/tiff"}) if data is not None else None
 
 
-def test_stac_tiles(tmp_path, monkeypatch):
+def test_stac_tiles(tmp_path, monkeypatch, http_server):
     """StacTiles: newest survey per tile, the resolution for the grid, checksums, updates
     replacing older surveys, the cached tiles when the index cannot be reached."""
     import grid as gd
     import osm
-    stac = FakeStac([(2019, 26000, 12000), (2025, 26000, 12000), (2019, 26001, 12000)])
-    monkeypatch.setattr(requests, "get", stac.get)
-    monkeypatch.setattr(src.net, "_get", stac.download)
+    stac = FakeStac(http_server, [(2019, 26000, 12000), (2025, 26000, 12000), (2019, 26001, 12000)])
     monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
-    make = lambda: src.StacTiles("Test", "https://stac.example", "test", "ch/test", "EPSG:2056",
-                                 sizes={0.5: 1e5, 2.0: 1e4}, tile_m=100)
-    layer, cache_dir = make(), str(tmp_path / "cache")
+    make = lambda api: src.StacTiles("Test", api, "test", "ch/test", "EPSG:2056",  # noqa: E731
+                                     sizes={0.5: 1e5, 2.0: 1e4}, tile_m=100)
+    layer, cache_dir = make(http_server.url("/stac")), str(tmp_path / "cache")
     coarse = gd.make_grid((2600010, 1200010, 2600190, 1200090), 2.0, "EPSG:2056")
     fine = gd.make_grid((2600010, 1200010, 2600190, 1200090), 1.0, "EPSG:2056")
 
@@ -317,16 +321,18 @@ def test_stac_tiles(tmp_path, monkeypatch):
     assert sorted(os.listdir(folder / "2m")) == ["2025_26000-12000.tif", "2026_26001-12000.tif"]
 
     # A file that does not match its checksum is not kept
-    stac.files["https://files.example/t_2025_26000-12000_2.tif"] = b"broken"
+    broken = stac.url(2025, 26000, 12000, 2.0)
+    stac.files[broken] = b"broken"
     with pytest.raises(RuntimeError, match="checksum"):
         layer.download_tile(layer._sheet({"year": 2025, "godlo": "26000-12000", "res": 2.0, "crs": "EPSG:2056",
-                                          "url": "https://files.example/t_2025_26000-12000_2.tif",
-                                          "sha256": "0" * 64}), str(tmp_path / "x.tif"))
+                                          "url": broken, "sha256": "0" * 64}), str(tmp_path / "x.tif"))
     assert not os.path.exists(tmp_path / "x.tif")
+    assert not http_server.stray()
+    assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
 
-    # Offline, with the index due for a check: the cached files of the grid's resolution
-    offline = make()
-    offline.index_url = "offline"
+    # Offline (nothing listens there), with the index due for a check: the cached files of the
+    # grid's resolution
+    offline = make("http://127.0.0.1:9")
     assert offline.missing(coarse, cache_dir, "all") == []
     assert sorted(os.path.basename(p) for p in offline.files(coarse, cache_dir)) ==         ["2025_26000-12000.tif", "2026_26001-12000.tif"]
     assert os.path.dirname(offline.files(fine, cache_dir)[0]).endswith("0.5m")

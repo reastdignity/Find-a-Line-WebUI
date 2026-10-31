@@ -1,0 +1,85 @@
+{
+ "recipe": "wfs-geoportal",
+ "recorded": "2026-10-31",
+ "case": {
+  "source": "geoportal",
+  "layer": "nmt",
+  "lat": 54.75,
+  "lon": 18.5
+ },
+ "hosts": [
+  "https://mapy.geoportal.gov.pl"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetCapabilities",
+   "status": 200,
+   "content_type": "text/xml; charset=UTF-8",
+   "body": "001.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2018&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "002.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2019&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "003.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2020&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "004.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2021&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "005.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2022&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "006.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2023&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "007.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2024&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "008.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2025&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "009.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=gugik%3ASkorowidzNMT2026&COUNT=10000&PROPERTYNAME=godlo%2Cakt_rok%2Cchar_przestrz%2Cformat%2Cuklad_xy%2Curl_do_pobrania%2CmsGeometry&BBOX=54.75%2C18.5%2C55.0%2C18.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "text/xml; subtype=\"gml/3.2.1\"; charset=UTF-8",
+   "body": "010.xml"
+  }
+ ]
+}

@@ -1,0 +1,216 @@
+<?xml version='1.0' encoding="UTF-8" ?>
+<wfs:FeatureCollection
+   xmlns:gugik="http://www.gugik.gov.pl"
+   xmlns:gml="http://www.opengis.net/gml/3.2"
+   xmlns:wfs="http://www.opengis.net/wfs/2.0"
+   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+   xsi:schemaLocation="http://www.gugik.gov.pl https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelTerenuEVRF2007/WFS/Skorowidze?SERVICE=WFS&amp;VERSION=2.0.0&amp;REQUEST=DescribeFeatureType&amp;TYPENAME=gugik:SkorowidzNMT2022&amp;OUTPUTFORMAT=application%2Fgml%2Bxml%3B%20version%3D3.2 http://www.opengis.net/wfs/2.0 http://schemas.opengis.net/wfs/2.0/wfs.xsd http://www.opengis.net/gml/3.2 http://schemas.opengis.net/gml/3.2.1/gml.xsd"
+   timeStamp="2026-10-31T18:52:32" numberMatched="8" numberReturned="8">
+      <wfs:boundedBy>
+      	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+      		<gml:lowerCorner>762898.340000 465816.170000</gml:lowerCorner>
+      		<gml:upperCorner>769915.770000 475870.180000</gml:upperCorner>
+      	</gml:Envelope>
+      </wfs:boundedBy>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230637">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>765252.190000 467826.970000</gml:lowerCorner>
+        		<gml:upperCorner>767583.640000 469853.250000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230637.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">767004.190000 467839.360000 767583.640000 467843.490000 767580.080000 468345.930000 767576.580000 468848.370000 767573.140000 469350.810000 767569.760000 469853.250000 766990.310000 469849.380000 766410.860000 469845.510000 765831.630000 469841.640000 765252.190000 469837.770000 765255.570000 469335.070000 765259.020000 468832.370000 765262.510000 468329.670000 765266.070000 467826.970000 765845.510000 467831.100000 766424.740000 467835.230000 767004.190000 467839.360000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-38-C-a-3-3</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230637_N-34-38-C-a-3-3.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230552">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>767583.640000 465833.720000</gml:lowerCorner>
+        		<gml:upperCorner>769915.770000 467860.010000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230552.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">769336.530000 465846.890000 769915.770000 465851.280000 769911.990000 466353.460000 769908.270000 466855.640000 769904.610000 467357.830000 769901.000000 467860.010000 769321.760000 467855.880000 768742.320000 467851.750000 768162.870000 467847.620000 767583.640000 467843.490000 767587.240000 467341.050000 767590.910000 466838.610000 767594.630000 466336.170000 767598.410000 465833.720000 768177.640000 465838.110000 768757.090000 465842.500000 769336.530000 465846.890000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-37-D-b-4-2</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230552_N-34-37-D-b-4-2.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230648">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>762898.340000 473845.960000</gml:lowerCorner>
+        		<gml:upperCorner>765227.110000 475870.180000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230648.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">764647.660000 473856.020000 765227.110000 473859.380000 765224.230000 474362.080000 765221.400000 474864.780000 765218.630000 475367.480000 765215.910000 475870.180000 764636.470000 475867.090000 764057.230000 475863.990000 763477.790000 475860.890000 762898.340000 475857.800000 762901.060000 475354.840000 762903.830000 474851.880000 762906.660000 474348.920000 762909.540000 473845.960000 763488.980000 473849.310000 764068.430000 473852.670000 764647.660000 473856.020000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-38-C-c-2-2</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230648_N-34-38-C-c-2-2.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230640">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>765239.200000 469837.770000</gml:lowerCorner>
+        		<gml:upperCorner>767569.760000 471863.020000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230640.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">766990.310000 469849.380000 767569.760000 469853.250000 767566.430000 470355.700000 767563.150000 470858.140000 767559.930000 471360.580000 767556.770000 471863.020000 766977.330000 471859.410000 766397.880000 471855.800000 765818.650000 471852.180000 765239.200000 471848.570000 765242.360000 471345.870000 765245.580000 470843.170000 765248.860000 470340.470000 765252.190000 469837.770000 765831.630000 469841.640000 766410.860000 469845.510000 766990.310000 469849.380000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-38-C-a-3-4</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230640_N-34-38-C-a-3-4.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230553">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>765266.070000 465816.170000</gml:lowerCorner>
+        		<gml:upperCorner>767598.410000 467843.490000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230553.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">767018.970000 465829.340000 767598.410000 465833.720000 767594.630000 466336.170000 767590.910000 466838.610000 767587.240000 467341.050000 767583.640000 467843.490000 767004.190000 467839.360000 766424.740000 467835.230000 765845.510000 467831.100000 765266.070000 467826.970000 765269.680000 467324.270000 765273.350000 466821.570000 765277.070000 466318.870000 765280.850000 465816.170000 765860.290000 465820.560000 766439.520000 465824.950000 767018.970000 465829.340000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-37-D-b-4-4</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230553_N-34-37-D-b-4-4.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230643">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>762921.630000 469822.290000</gml:lowerCorner>
+        		<gml:upperCorner>765252.190000 471848.570000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230643.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">764672.740000 469833.900000 765252.190000 469837.770000 765248.860000 470340.470000 765245.580000 470843.170000 765242.360000 471345.870000 765239.200000 471848.570000 764659.750000 471844.960000 764080.520000 471841.350000 763501.080000 471837.730000 762921.630000 471834.120000 762924.800000 471331.160000 762928.020000 470828.200000 762931.290000 470325.240000 762934.620000 469822.290000 763514.070000 469826.160000 764093.510000 469830.030000 764672.740000 469833.900000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-38-C-c-1-2</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230643_N-34-38-C-c-1-2.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230645">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>762909.540000 471834.120000</gml:lowerCorner>
+        		<gml:upperCorner>765239.200000 473859.380000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230645.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">764659.750000 471844.960000 765239.200000 471848.570000 765236.090000 472351.270000 765233.040000 472853.970000 765230.050000 473356.670000 765227.110000 473859.380000 764647.660000 473856.020000 764068.430000 473852.670000 763488.980000 473849.310000 762909.540000 473845.960000 762912.480000 473343.000000 762915.480000 472840.040000 762918.530000 472337.080000 762921.630000 471834.120000 763501.080000 471837.730000 764080.520000 471841.350000 764659.750000 471844.960000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-38-C-c-2-1</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230645_N-34-38-C-c-2-1.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+    <wfs:member>
+      <gugik:SkorowidzNMT2022 gml:id="SkorowidzNMT2022.1230641">
+        <gml:boundedBy>
+        	<gml:Envelope srsName="urn:ogc:def:crs:EPSG::2180">
+        		<gml:lowerCorner>762934.620000 467810.450000</gml:lowerCorner>
+        		<gml:upperCorner>765266.070000 469837.770000</gml:upperCorner>
+        	</gml:Envelope>
+        </gml:boundedBy>
+        <gugik:msGeometry>
+          <gml:Polygon gml:id="SkorowidzNMT2022.1230641.1" srsName="urn:ogc:def:crs:EPSG::2180">
+            <gml:exterior>
+              <gml:LinearRing>
+                <gml:posList srsDimension="2">764686.630000 467822.840000 765266.070000 467826.970000 765262.510000 468329.670000 765259.020000 468832.370000 765255.570000 469335.070000 765252.190000 469837.770000 764672.740000 469833.900000 764093.510000 469830.030000 763514.070000 469826.160000 762934.620000 469822.290000 762938.010000 469319.330000 762941.460000 468816.370000 762944.960000 468313.410000 762948.510000 467810.450000 763527.950000 467814.580000 764107.400000 467818.710000 764686.630000 467822.840000 </gml:posList>
+              </gml:LinearRing>
+            </gml:exterior>
+          </gml:Polygon>
+        </gugik:msGeometry>
+        <gugik:godlo>N-34-38-C-c-1-1</gugik:godlo>
+        <gugik:akt_rok>2022</gugik:akt_rok>
+        <gugik:format>ARC/INFO ASCII GRID</gugik:format>
+        <gugik:char_przestrz>1.00 m</gugik:char_przestrz>
+        <gugik:uklad_xy>PL-1992</gugik:uklad_xy>
+        <gugik:url_do_pobrania>https://opendata.geoportal.gov.pl/NumDaneWys/NMT/76564/76564_1230641_N-34-38-C-c-1-1.asc</gugik:url_do_pobrania>
+      </gugik:SkorowidzNMT2022>
+    </wfs:member>
+</wfs:FeatureCollection>
+

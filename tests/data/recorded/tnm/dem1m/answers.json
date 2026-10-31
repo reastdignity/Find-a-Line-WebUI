@@ -1,0 +1,22 @@
+{
+ "recipe": "tnm-1m",
+ "recorded": "2026-10-31",
+ "case": {
+  "source": "usa",
+  "layer": "nmt",
+  "lat": 48.75,
+  "lon": -95.25
+ },
+ "hosts": [
+  "https://tnmaccess.nationalmap.gov"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://tnmaccess.nationalmap.gov/api/v1/products?datasets=Digital+Elevation+Model+%28DEM%29+1+meter&max=500&offset=0&bbox=-95.25%2C48.75%2C-95.0%2C49.0",
+   "status": 200,
+   "content_type": "application/json",
+   "body": "001.json"
+  }
+ ]
+}
