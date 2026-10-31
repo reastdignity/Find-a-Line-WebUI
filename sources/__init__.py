@@ -66,68 +66,18 @@ from grid import Grid, nad83_utm_crs, utm_crs
 from messages import ServiceError
 from progress import progress
 
-from . import net
+from . import credit, layer, net, source
 from .net import (HOST_SLOTS, HOST_SLOTS_OF, LOCK_WAIT_S, RETRIES, TILE_LOCKS, _gdal_http, _locks, _part, _remote,
                   host_slot, tile_lock)
+from .credit import CC_BY, Credit, OSM_CREDIT
+from .layer import Fetched, Layer, VALID_MIN, _clean, _hemi, _write_tile, download_layers
+from .source import MIN_RESOLUTION, OrthoService, Source
 
 
-DOWNLOAD_THREADS = 8  # tiles of one download (all its layers) at a time; each connection is slow
 # Threads of GDAL's reprojection of a mosaic (the same values with any number: checked on FABDEM over
 # a 7600 px grid, 2.6 s on one thread, 0.8 s on 4, 0.5 s on 8): the cores numba may use
 # (NUMBA_NUM_THREADS, WORKER_CPUS in the container), at most 8
 WARP_THREADS = max(1, min(8, int(os.environ.get("NUMBA_NUM_THREADS") or os.cpu_count() or 1)))
-VALID_MIN = -500  # metres; anything lower is treated as "no data"
-# Finest working resolution: finer grids bring nothing for highlines (clearances are
-# metres; 0.5 m LiDAR grids are partly interpolated) and cost 4x per halving
-MIN_RESOLUTION = 1.0
-
-
-def _write_tile(path: str, band: np.ndarray, crs: str, transform, tags: Optional[Dict[str, str]] = None):
-    """Save a float32 tile as a compressed GeoTIFF (atomically)."""
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = _part(path)
-    with rio.open(tmp, "w", driver="GTiff", height=band.shape[0], width=band.shape[1], count=1,
-                  dtype="float32", crs=crs, transform=transform, nodata=np.nan,
-                  compress="deflate", predictor=3, tiled=True) as dst:
-        dst.write(band.astype(np.float32), 1)
-        if tags:
-            dst.update_tags(**tags)
-    os.replace(tmp, path)
-
-
-class Fetched(NamedTuple):
-    """What a tile download got: bytes received (0: the service has no data there) and the source."""
-    received: int
-    url: Optional[str] = None
-    etag: Optional[str] = None
-    last_modified: Optional[str] = None
-
-    @staticmethod
-    def of(response, url: Optional[str] = None) -> "Fetched":
-        return Fetched(len(response.content), url or response.url, response.headers.get("ETag"),
-                       response.headers.get("Last-Modified"))
-
-
-def _clean(band: np.ndarray, zero_is_nodata: bool = False) -> np.ndarray:
-    band = band.astype(np.float32)
-    band[band < VALID_MIN] = np.nan
-    if zero_is_nodata:
-        band[band == 0.0] = np.nan
-    return band
-
-
-@dataclass(frozen=True)
-class Credit:
-    """Who a dataset must be credited to and under which terms: recorded with every run
-    that used it (run.json), shown in its map and written to its ATTRIBUTION.txt."""
-    data: str         # the dataset
-    attribution: str  # the notice to show with what is made from it (plain text)
-    licence: str      # short name of the licence or terms of use
-    url: str = ""     # where the licence or terms are stated
-    notice: str = ""  # more the licence asks for in a notice (citation, disclaimer): ATTRIBUTION.txt only
-
-    def as_dict(self) -> Dict:
-        return asdict(self)
 
 
 # Checked 2026-10-27 (docs/roadmap.md, "Before going public")
@@ -138,7 +88,6 @@ COPERNICUS_DISCLAIMER = ("The organisations in charge of the Copernicus programm
                          "not incur any liability for any use of the Copernicus WorldDEM-30.")
 COPERNICUS_LICENCE = ("Copernicus DEM licence", "https://docs.sentinel-hub.com/api/latest/static/files/data/dem/"
                                                 "resources/license/License-COPDEM-30.pdf")
-CC_BY = ("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
 GUGIK_CREDIT = Credit("NMT / NMPT (GUGiK, Poland)",
                       "Source: Główny Urząd Geodezji i Kartografii (GUGiK), geoportal.gov.pl",
                       "geoportal.gov.pl terms (free use, source stated)",
@@ -180,143 +129,6 @@ USGS_TERMS = ("public domain (USGS)",
 USGS_1M_CREDIT = Credit("3DEP 1 m DEM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
 USGS_IFSAR_CREDIT = Credit("3DEP Alaska IfSAR 5 m DTM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
 USGS_13_CREDIT = Credit("3DEP 1/3 arc-second DEM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
-OSM_CREDIT = Credit("OpenStreetMap", "© OpenStreetMap contributors", "ODbL 1.0",
-                    "https://www.openstreetmap.org/copyright")
-
-
-class Layer:
-    """One elevation model of a source, cached in cache/<folder> (see cache.py)."""
-    description = ""
-    folder = ""
-    credit: Optional[Credit] = None  # the source's, unless set for this layer (Source.__post_init__)
-    # Correction (east, north) in metres of the layer CRS for data whose service is
-    # georeferenced wrongly; applied when tiles are placed on the grid
-    shift: Tuple[float, float] = (0.0, 0.0)
-    # Version of what download_tile does with the data; tiles made by another version are fetched again
-    processing = 1
-
-    @property
-    def ttl_days(self) -> Optional[int]:
-        """Days between update checks; None for a release that never changes (see cache.py)."""
-        return cache.TTL_DAYS["live"] if "/live" in self.folder else None
-
-    def tiles(self, grid: Grid) -> list:
-        raise NotImplementedError
-
-    def tile_path(self, cache_dir: str, tile) -> str:
-        raise NotImplementedError
-
-    def bytes_per_tile(self) -> float:
-        return 0
-
-    def missing(self, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
-        """Tiles to download: not cached yet, or due for a check with update ("stale" or "all")."""
-        return [t for t in self.tiles(grid)
-                if cache.due(cache_dir, self.tile_path(cache_dir, t), self.processing, update, self.ttl_days)]
-
-    def estimate(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[int, int, float]:
-        """(tiles, tiles to download, MB to download)."""
-        missing = self.missing(grid, cache_dir, update)
-        return len(self.tiles(grid)), len(missing), len(missing) * self.bytes_per_tile() / 1e6
-
-    def download_tile(self, tile, path: str) -> Fetched:
-        """Download one tile to path (received 0 and no file if the service has no data there)."""
-        raise NotImplementedError
-
-    def download(self, grid: Grid, cache_dir: str, update: Optional[str], label: str):
-        download_layers([(self, label)], grid, cache_dir, update)
-
-    def to_download(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[list, Optional[str]]:
-        """The tiles download_layers fetches, and the line saying how many there are (None: none)."""
-        todo = self.missing(grid, cache_dir, update)
-        total = len(self.tiles(grid))
-        return todo, f"{self.description}: {total} tiles ({total - len(todo)} cached, {len(todo)} to download)"
-
-    def downloaded(self, grid: Grid, cache_dir: str):
-        """What a layer does once its tiles are downloaded (IndexedTiles: deletes older surveys)."""
-
-    def tile_url(self, tile) -> Optional[str]:
-        """Where a tile comes from, for the limit per host (host_slot); None: a local copy."""
-        return None
-
-    def unavailable(self) -> Optional[str]:
-        """Why this layer cannot be used here (e.g. no copy of our own tiles is set up), or None."""
-        return None
-
-    def tile_of(self, path: str):
-        """The tile of a cached file (path relative to the cache, with /), or None if it
-        is not one of this layer's tiles. Used by update.py for data that can change."""
-        return None
-
-    def has_data_near(self, lat: float, lon: float, cache_dir: str) -> Optional[bool]:
-        """Whether the layer has data near a point, when its index can tell (None: unknown)."""
-        return None
-
-    def _download_and_record(self, tile, cache_dir: str, update: Optional[str] = None,
-                             if_due: bool = False) -> int:
-        """Download a tile under its lock (tile_lock) and a slot of its host (host_slot); with
-        if_due only if it is still due then (another search may have just downloaded it)."""
-        path = self.tile_path(cache_dir, tile)
-        with tile_lock(cache_dir, path):
-            if if_due and not cache.due(cache_dir, path, self.processing, update, self.ttl_days):
-                return 0
-            with host_slot(cache_dir, self.tile_url(tile)):
-                fetched = self.download_tile(tile, path)
-            # A tile outside the data (e.g. sea) is remembered as missing
-            cache.record(cache_dir, path, "ok" if os.path.exists(path) else "missing", fetched.url,
-                         fetched.etag, fetched.last_modified, self.source_date(tile), self.processing)
-        return fetched.received
-
-    def source_date(self, tile) -> Optional[str]:
-        """Date (or year) of the survey in the tile, when the service says it."""
-        return None
-
-    def files(self, grid: Grid, cache_dir: str) -> List[str]:
-        return [p for p in (self.tile_path(cache_dir, t) for t in self.tiles(grid)) if os.path.exists(p)]
-
-    def used(self, grid: Grid, cache_dir: str) -> Dict:
-        """What a run records about the data it used (see runs.py)."""
-        files = self.files(grid, cache_dir)
-        info = {"layer": self.description, "folder": self.folder, "files": len(files),
-                "fetched": cache.touch(cache_dir, files),
-                "paths": sorted(cache.relative(cache_dir, p) for p in files)}
-        if self.credit:
-            info["credit"] = self.credit.as_dict()
-        return info
-
-
-def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: str,
-                    update: Optional[str] = None):
-    """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
-    so a slow tile of one layer does not hold the others: one progress bar for all their tiles,
-    a line per layer of how many it has. Each tile under its lock and a slot of its host
-    (Layer._download_and_record), skipped when another search downloaded it meanwhile."""
-    # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
-    # seconds), each layer once; the lines in the order of the layers
-    distinct = list({id(layer): layer for layer, _ in layers}.values())
-    with ThreadPoolExecutor(max_workers=len(distinct)) as pool:
-        listed = list(pool.map(lambda layer: layer.to_download(grid, cache_dir, update), distinct))
-    todo = []
-    for layer, (tiles, line) in zip(distinct, listed):
-        if line:
-            print(line)
-        todo += [(layer, tile) for tile in tiles]
-    if todo:
-        labels = list(dict.fromkeys(label for layer, label in layers if any(t[0] is layer for t in todo)))
-        progress.download.start(f"{', '.join(labels)} tiles", len(todo), unit="tile")
-        received = 0
-        pool = ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS)
-        try:
-            futures = [pool.submit(layer._download_and_record, tile, cache_dir, update, True)
-                       for layer, tile in todo]
-            for future in as_completed(futures):
-                received += future.result()
-                progress.download.update(1, MB=f"{received / 1e6:.0f}")
-        finally:
-            pool.shutdown(cancel_futures=True)  # after an error: the tiles not started yet are not
-        progress.download.finish(f"{received / 1e6:.0f} MB")
-    for layer, _ in layers:
-        layer.downloaded(grid, cache_dir)
 
 
 class WcsTiles(Layer):
@@ -482,10 +294,6 @@ def _extract_multipart(content: bytes, content_type: str) -> bytes:
         if kind and not re.search(rb"xml|gml|text/", kind.group(1), re.I):
             return body.rstrip(b"\r\n")
     raise RuntimeError("WCS response did not contain coverage data")
-
-
-def _hemi(value: int, positive: str, negative: str, digits: int) -> str:
-    return f"{positive if value >= 0 else negative}{abs(value):0{digits}d}"
 
 
 def grid_tile_name(i: int, j: int, block: int = 10) -> str:
@@ -1534,88 +1342,6 @@ class FileLayer(Layer):
 
     def used(self, grid: Grid, cache_dir: str) -> Dict:
         return {"layer": self.description, "file": os.path.abspath(self.path)}
-
-
-@dataclass
-class OrthoService:
-    """A WMS with orthophotos, requested in WGS84, and/or tiles in Web Mercator (see orthophoto.py)."""
-    name: str
-    url: Optional[str]  # the WMS; None: the base tiles only
-    layer: str
-    folder: str      # in the cache; tiles go to <folder>/wm256/{z}/{x}/{y}.jpg
-    attribution: str
-    # Tiles ({z}/{x}/{y} in Web Mercator, up to base_max_zoom, enlarged above it) with full
-    # coverage under this service, where it has no imagery and answers with white
-    # (geoportal's HighResolution covers only sheets of 10 cm or finer)
-    base_url: Optional[str] = None
-    base_max_zoom: int = 19
-    # Fair use: detailed tiles (zoom 17 and more) for at most this many groups, circles too
-    # (--ortho-detail overrides it)
-    detail: Optional[int] = None
-
-    @property
-    def ttl_days(self) -> Optional[int]:
-        """Days between update checks; None for a dated orthophoto that never changes."""
-        return cache.TTL_DAYS["live"] if "/live" in self.folder else None
-
-
-@dataclass
-class Source:
-    id: str
-    name: str
-    description: str
-    nmt: Layer
-    nmpt: Optional[Layer] = None
-    countries: Tuple[str, ...] = ()
-    crs: Optional[str] = None       # working CRS; None = UTM zone of the search centre
-    default_resolution: Optional[float] = None  # None: the terrain data's own, at least MIN_RESOLUTION
-    ortho: Optional[OrthoService] = None
-    note: str = ""                  # licence or quality note printed at the start
-    fallback: Optional[str] = "europe"  # source that fills gaps in the data on land
-    # Sources that fill, in turn, what the fallback left (Alaska: its IfSAR, then 1/3″)
-    more_fallbacks: Tuple[str, ...] = ()
-    bbox: Optional[Tuple[float, float, float, float]] = None  # (south, north, west, east) for --source auto
-    grid_origin: Tuple[float, float] = (0.0, 0.0)  # pixel edges of the data in the working CRS (grid.make_grid)
-    # Licences and notices of the data; a source with one credit gives it to its layers,
-    # one with more sets each layer's own (europe: FABDEM and Copernicus)
-    credits: Tuple[Credit, ...] = ()
-    # The working CRS of a centre when crs is None (the USA: NAD83 / UTM, the CRS of the 1 m tiles)
-    local_crs: Callable[[float, float], str] = utm_crs
-    # The source --source auto takes instead when the terrain layer has no data near the
-    # centre (Alaska: its IfSAR where there is no 1 m lidar)
-    instead_without_data: Optional[str] = None
-
-    def __post_init__(self):
-        if self.default_resolution is None:
-            self.default_resolution = max(float(self.nmt.native_res), MIN_RESOLUTION)
-        for layer in (self.nmt, self.nmpt):
-            if layer is not None and layer.credit is None and len(self.credits) == 1:
-                layer.credit = self.credits[0]
-
-    @property
-    def licence(self) -> str:
-        """The licences of the source's data ("" for local files)."""
-        return "; ".join(dict.fromkeys(f"{c.data}: {c.licence}" if len(self.credits) > 1 else c.licence
-                                       for c in self.credits))
-
-    @property
-    def attribution(self) -> str:
-        """The notice its data must be shown with ("" for local files)."""
-        return "; ".join(dict.fromkeys(c.attribution for c in self.credits))
-
-    def covers(self, lat: float, lon: float) -> bool:
-        if self.bbox is None:
-            return True
-        south, north, west, east = self.bbox
-        return south <= lat <= north and west <= lon <= east
-
-    def working_crs(self, lat: float, lon: float) -> str:
-        return self.crs or self.local_crs(lat, lon)
-
-    @property
-    def fallbacks(self) -> List[str]:
-        """The sources that fill gaps on land, in turn."""
-        return [self.fallback, *self.more_fallbacks] if self.fallback else []
 
 
 GEOPORTAL = "https://mapy.geoportal.gov.pl/wss/service/PZGIK"

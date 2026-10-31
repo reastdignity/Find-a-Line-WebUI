@@ -4,7 +4,7 @@ Run by hand: how fast the download phase of a search is with N download threads 
 For each count of threads: a new data folder under <out> whose cache holds only the OSM data
 of --osm-from (themes and Nominatim answers, no world files or extracts), so the elevation
 tiles and the water mask are downloaded from scratch; then search.download_data, as the web
-worker's download phase runs it, with sources.DOWNLOAD_THREADS set. Prints wall time, MB
+worker's download phase runs it, with sources.layer.DOWNLOAD_THREADS set. Prints wall time, MB
 received, MB/s and the CPU time of the process. The real cache is never written.
 
     uv run tools/perf_download.py --out <scratch> --osm-from cache/osm --threads 2 4 8 -- --lat ... --lon ...
@@ -58,7 +58,7 @@ def main():
             f.write(str(cache.LAYOUT))
         paths = search.Paths(data, cache.new_work(data))
         plan = search.plan_search(params, paths)
-        sources.DOWNLOAD_THREADS = threads
+        sources.layer.DOWNLOAD_THREADS = threads
         cpu0, t0 = sum(me.cpu_times()[:2]), time.monotonic()
         search.download_data(plan)
         wall, cpu = time.monotonic() - t0, sum(me.cpu_times()[:2]) - cpu0

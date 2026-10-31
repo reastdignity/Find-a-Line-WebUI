@@ -577,7 +577,7 @@ def test_country_code_offline(monkeypatch, tmp_path):
 # Names tests and tools patch, each in one module only: patched there, they take effect for every
 # caller (the code calls them through their module: net._get(...)); on the package itself such a
 # patch would fail loudly instead of silently missing the code
-PATCHED = {"_get": "net", "_sleep": "net"}
+PATCHED = {"_get": "net", "_sleep": "net", "DOWNLOAD_THREADS": "layer"}
 
 
 def test_patched_names_have_one_home():

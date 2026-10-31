@@ -668,7 +668,7 @@ class _Tiles(src.Layer):
 def test_layers_downloaded_in_one_pool(tmp_path, monkeypatch, capsys):
     """A slow tile of the terrain does not hold the surface: both layers share one pool."""
     import threading
-    monkeypatch.setattr(src, "DOWNLOAD_THREADS", 3)
+    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 3)
     surface_done = threading.Semaphore(0)
 
     def slow(tile):  # waits for every tile of the other layer (it would time out one layer after another)
