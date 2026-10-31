@@ -26,8 +26,9 @@ What the site needs from the outside, and what stays closed:
 **The script.** `deploy/vps.sh` runs the commands of these sections on the server; the sections
 say what each step does and why, and remain the way to do it by hand. Left to you: the server
 and, if the provider has them, a block volume for Docker (section 1), the DNS record (3), the sign-in apps at GitHub and
-Google (7), the restic repository (11) and the checks that need a browser or another network
-(12). After cloning the checkout (section 1):
+Google (7), the restic repository (11), the checks that need a browser or another network
+(12), and the two checks at healthchecks.io and the ntfy topic of the monitoring (15). After
+cloning the checkout (section 1):
 
 ```sh
 cd /srv/find-a-line-webui
@@ -42,10 +43,11 @@ installs nginx and, once the A record points at the server, the certificate (4),
 and the automatic updates (6), writes `findaline.env`, `.env` (the worker's cores and, on a
 server with less than 10 GB, its memory) and the secrets (8; in a terminal it asks for the
 sign-in apps' client ids and secrets and for the GitHub login or id of the administrator), builds and
-starts the site (9), installs the daily backup once `/etc/findaline-backup.env` exists (11) and
-runs the checks of `deploy/vps.sh check`. Each step looks at what is already there, so run it
-again after it stops: it ends with a list of what is still missing (the DNS record, a secret, a
-reboot). Options:
+starts the site (9), installs the daily backup once `/etc/findaline-backup.env` exists (11),
+sets up the monitoring (15; in a terminal it asks for the healthchecks.io ping URLs and the ntfy
+topic) and runs the checks of `deploy/vps.sh check`. Each step looks at what is already there,
+so run it again after it stops: it ends with a list of what is still missing (the DNS record, a
+secret, a reboot). Options:
 - `--site`, the site's name (afterwards read from `FINDALINE_PUBLIC_URL`);
 - `--email`, for Let's Encrypt's expiry notices and, without `--contact`, `FINDALINE_CONTACT`;
 - `--my-ip`, a fixed address of your own: SSH from it only (`allow OpenSSH` is removed; the
@@ -58,9 +60,9 @@ reboot). Options:
   (section 1, *Disk*; only before the site's volumes exist);
 - `--yes`, yes to its questions.
 
-Later: `sudo deploy/vps.sh update` (section 13) and `sudo deploy/vps.sh check` (sections 2 and
-12: the answers of nginx, the firewall from inside the containers, the jail, the certificate's
-timer, SSH, the free disk).
+Later: `sudo deploy/vps.sh update` (section 13) and `sudo deploy/vps.sh check` (sections 2, 12
+and 15: the answers of nginx, the firewall from inside the containers, the jail, the certificate's
+timer, SSH, the free disk, the monitoring; a timer runs it daily, section 15).
 
 ## 1. Prerequisites
 - A VPS with Ubuntu 26.04 LTS and a public IPv4 address, with Docker Engine and the Compose plugin
@@ -172,10 +174,11 @@ the web service on `127.0.0.1:8765` only (compose.yaml), which nothing outside t
 the rules below.
 
 **The containers** may reach the internet only. They sit on the bridges `br-fal-web` and
-`br-fal-worker` (named in compose.yaml). Two sets of rules:
+`br-fal-worker` (named in compose.yaml), the monitoring's on `br-fal-mon` (section 15). Two sets
+of rules:
 - forwarded traffic (`DOCKER-USER`): nothing from these bridges to 10.0.0.0/8, 172.16.0.0/12
-  (other Docker networks; their own bridge stays allowed), 192.168.0.0/16 (the provider's private
-  networks are usually in these three), 169.254.0.0/16 (link local: the provider's metadata
+  (other Docker networks; traffic within each bridge stays allowed), 192.168.0.0/16 (the
+  provider's private networks are usually in these three), 169.254.0.0/16 (link local: the provider's metadata
   service at 169.254.169.254, which may hand out the server's own credentials or startup data) and
   100.64.0.0/10 (carrier-grade NAT, Tailscale);
 - traffic from these bridges to the host itself (`INPUT`, `ufw`): nothing, its public address
@@ -273,8 +276,9 @@ fail2ban would hit everyone at once, and the provider would buffer the event str
 ## 4. nginx and the certificate
 The files are in `deploy/nginx/` of the checkout:
 - `findaline-http.conf` → `/etc/nginx/conf.d/`: the upstream (`127.0.0.1:8765`), the rate limit
-  zones, the masked log format, the timeouts for slow clients. Ubuntu's `nginx.conf` includes
-  `conf.d/*.conf` inside its `http` block before `sites-enabled/*`;
+  zones, the masked log format, the metrics log's format and route groups, the timeouts for slow
+  clients, and a server of nginx's `stub_status` on `127.0.0.1:8081` only (section 15). Ubuntu's
+  `nginx.conf` includes `conf.d/*.conf` inside its `http` block before `sites-enabled/*`;
 - `findaline-tls.conf` → `/etc/nginx/snippets/`: the TLS settings (Mozilla's "intermediate":
   TLS 1.2 and 1.3);
 - `findaline-acme.conf` → `/etc/nginx/sites-available/findaline-acme`: port 80, certbot's
@@ -355,6 +359,10 @@ Ubuntu's logrotate rotates them daily and keeps 14, compressed):
   map's page would show the token in the Referer; the viewer makes none, but a browser may ask for
   `/favicon.ico` with it. Warnings (an answer buffered to a temporary file) and the refusals of the
   limits (`info`) are not logged.
+- `findaline.metrics.log`, one JSON line per request of the site on port 443, for the monitoring
+  (section 15): the time, the route group (`api`, `events`, `cache`, `share`, `auth`, `app`,
+  `page`), the method, the status, the response times, the size and whether a rate limit let it
+  through. No address, no path or query, no Referer, no User-Agent.
 - `access.log` gets the requests for other names (masked the same way), `error.log` what nginx
   logs before a request is matched to a site (TLS handshakes, malformed requests).
 
@@ -550,7 +558,12 @@ in `.env` and `docker compose up -d`. The worker sees it read-only at `/mirror`;
    site can no longer open;
 2. backs up these copies and `runs/` (read by root from the data volume's folder) with
    [restic](https://restic.net/) (encrypted, deduplicated) to a repository outside the VPS,
-   then forgets old snapshots (7 daily, 5 weekly, 12 monthly) and checks the repository.
+   then forgets old snapshots (7 daily, 5 weekly, 12 monthly) and checks the repository;
+3. at the end of every run, also a failed one, writes
+   `/var/lib/findaline-monitoring/backup.json` for the monitoring (the time, success, the time of
+   the last success, the duration, what the run added, the repository's size and number of
+   snapshots) and, when `BACKUP_PING_URL` is set in `/etc/findaline-monitoring.env`, pings that
+   check of healthchecks.io (its `/fail` address after a failure; section 15).
 
 Any failure (a copy that fails its check, restic) ends the script with an error before the next
 step, and the systemd unit below reports it.
@@ -608,6 +621,7 @@ OnFailure=notify-failure@%N.service
 [Service]
 Type=oneshot
 EnvironmentFile=/etc/findaline-backup.env
+EnvironmentFile=-/etc/findaline-monitoring.env
 ExecStart=/srv/find-a-line-webui/deploy/backup.sh
 EOF
 sudo tee /etc/systemd/system/findaline-backup.timer >/dev/null <<'EOF'
@@ -629,9 +643,12 @@ systemctl list-timers findaline-backup.timer
 ```
 
 `journalctl -u findaline-backup` shows each run. The same `OnFailure=` line fits any other unit
-of yours. (With cron instead: `30 3 * * * root set -a; . /etc/findaline-backup.env;
-/srv/find-a-line-webui/deploy/backup.sh` in `/etc/cron.d/findaline-backup`; cron mails a failed run's
-output to root only if the host can send mail.)
+of yours. The second `EnvironmentFile=` (its `-`: optional) gives `backup.sh` the ping URL of the
+monitoring (section 15); the backup check of healthchecks.io also reports a backup that does not
+run at all, which `OnFailure=` cannot. (With cron instead: `30 3 * * * root set -a;
+. /etc/findaline-backup.env; /srv/find-a-line-webui/deploy/backup.sh` in
+`/etc/cron.d/findaline-backup`; cron mails a failed run's output to root only if the host can
+send mail.)
 
 **Test a restore** (once now, then every few months):
 
@@ -712,7 +729,8 @@ so (section 5).
 7. **Sign-in** with the real GitHub app (and Google): the account of an administrator lands in
    the app, another one on *waiting for approval*; approve it in *Admin*.
 8. **The firewall test** of section 2, and a **restore test** of section 11.
-9. **The visitors' real addresses**: open the site from a phone on mobile data, look up the
+9. **The monitoring**: the checks of section 15.
+10. **The visitors' real addresses**: open the site from a phone on mobile data, look up the
    phone's public address (a "what is my IP" page), then
    `sudo tail -n 5 /var/log/nginx/findaline.access.log`: the lines start with that address. The app
    sees the same address only if it trusts nginx: `FINDALINE_TRUSTED_PROXY` must be the gateway of
@@ -723,8 +741,9 @@ so (section 5).
 check runs of the newest one; a private repository's are not readable without a token, so it
 asks, and `--skip-ci` leaves the check out), pulls them, installs the files of `deploy/` again
 where they changed (nginx reloaded, fail2ban restarted, the blocks of `ufw`'s files replaced and
-`ufw` reloaded), builds the image, restarts the services and warns when the examples of the
-settings changed. By hand:
+`ufw` reloaded), builds the image, restarts the services, installs the monitoring's units and
+pulls and starts its containers (section 15; a failure there is listed at the end and leaves the
+site running) and warns when the examples of the settings changed. By hand:
 
 1. Check the CI first: the commit you are about to deploy must have passed GitHub Actions (tests
    on Linux and Windows, the audits and the Docker job, which also runs nginx and fail2ban with
@@ -740,7 +759,11 @@ settings changed. By hand:
    docker image prune -f
    ```
    A search running at that moment is stopped by the restart of the worker and marked
-   interrupted (a large area resumes when it is run again).
+   interrupted (a large area resumes when it is run again). The monitoring (section 15):
+   ```sh
+   docker compose -f deploy/monitoring/compose.yaml pull
+   docker compose -f deploy/monitoring/compose.yaml up -d --wait
+   ```
 3. Read the commit messages for changes to `deploy/` (`deploy/vps.sh update` installs them) (copy the nginx files again with the commands
    of section 4 from `SITE=` on, without the certificate, then `sudo nginx -t && sudo systemctl
    reload nginx`; the fail2ban files of section 5 and `sudo systemctl restart fail2ban`; the
@@ -798,3 +821,98 @@ depend on the folder's name.
   `FINDALINE_DATA_VOLUME`/`FINDALINE_ACCOUNTS_VOLUME` in `/etc/findaline-backup.env` name others.
   **`Unable to find image 'findaline:local'`**: the site was never built on this host
   (section 9), or `FINDALINE_IMAGE` names another image.
+
+## 15. Monitoring
+What is watched, why and with which thresholds is planned in [monitoring.md](monitoring.md): the
+server (CPU, memory, disks), the containers, nginx's requests and the certificate, the systemd
+units, fail2ban, the backup and the site seen from outside. Alerts arrive as push messages
+through a secret [ntfy](https://ntfy.sh) topic, the channel of a failed backup (section 11).
+Nothing new is open to the internet: everything listens on the host's loopback.
+
+| Part | Where | What it does |
+| --- | --- | --- |
+| Telegraf, VictoriaMetrics, Grafana, a Docker socket proxy | compose project `findaline-monitoring` (`deploy/monitoring/compose.yaml`); VictoriaMetrics on `127.0.0.1:8428`, Grafana on `127.0.0.1:3000`, the proxy on `127.0.0.1:2375` | Telegraf (in the host's network) reads the host, the containers (through the proxy: a few GET requests only), nginx, the certificate and the files below every 30 s or 5 min into VictoriaMetrics, which keeps the samples without a time limit (about 1–2 GB a year, in a volume on Docker's data root); Grafana shows them (dashboards *VPS* and *Site*) and sends its alerts to the ntfy topic. Their network is the bridge `br-fal-mon` (section 2). |
+| nginx | `/var/log/nginx/findaline.metrics.log`; `http://127.0.0.1:8081/nginx_status` | A second access log of the site, one JSON line per request without any address (section 4); nginx's connection counts (`stub_status`) on the loopback only. |
+| `findaline-facts.timer` | the host, as root, every 5 minutes | `deploy/monitoring/facts.sh`: fail2ban's counts per jail (never the addresses), the holes of the disk image (section 1), the pending updates (and those of the security pocket) into `/var/lib/findaline-monitoring/facts.json`. |
+| `findaline-check.timer` | the host, as root, daily at 06:00 (± 15 min) | `deploy/vps.sh check` (sections 2, 12, 15); the numbers of its ok and FAIL lines into `check.json` there. Its output is in `journalctl -u findaline-check`. |
+| `findaline-backup.service` | the host (section 11) | `backup.sh` writes `backup.json` there after every run and pings the backup check of healthchecks.io. |
+| `findaline-heartbeat.timer` | the host, every minute, as a throwaway user | `deploy/monitoring/heartbeat.sh`: `https://<site>/` through nginx on the host (its certificate checked) and, when it answers 200, a ping of the heartbeat check of healthchecks.io. |
+| [healthchecks.io](https://healthchecks.io) | outside | Reports a missing ping to the ntfy topic: the server, nginx or the site down, or the backup not run; Grafana on the same server could not report its own loss. |
+
+**What `deploy/vps.sh` does** (step *Monitoring* of `setup` and `update`): creates
+`/var/lib/findaline-monitoring` (0755) and `/etc/findaline-monitoring.env` (root, 0600) with
+`HEARTBEAT_URL=` and `BACKUP_PING_URL=` (empty: not configured, listed among the TODOs at the end;
+`setup` in a terminal asks for them); writes `secrets/grafana_admin_password` (random) and creates
+`secrets/ntfy_url` (`setup` in a terminal asks for the topic's URL), both owned by Grafana's user
+(uid 472, mode 0400); installs the units of `deploy/monitoring/systemd/` with the checkout's path
+into `/etc/systemd/system`, enables the three timers and runs the facts once; writes
+`deploy/monitoring/.env` (`DOCKER_GID`, `ADM_GID`: the groups of Docker's socket and of nginx's
+logs), then `docker compose -f deploy/monitoring/compose.yaml pull` and `up -d --wait`. Every part
+is left as it is when it is already so. A failure of the monitoring's containers is listed at the
+end and leaves the site running. The backup's unit (section 11) gets
+`EnvironmentFile=-/etc/findaline-monitoring.env`.
+
+**The ntfy topic.** Pick a topic name nobody can guess (it is the only protection of a topic on
+ntfy.sh; or use your own ntfy server) and subscribe to it in ntfy's app on your phone; the topic
+of `notify-failure@.service` (section 11) is fine. Its whole URL goes into `secrets/ntfy_url`
+(`setup` asks for it), and Grafana reads it when it starts:
+
+```sh
+cd /srv/find-a-line-webui
+echo 'https://ntfy.sh/<your secret topic>' | sudo tee secrets/ntfy_url >/dev/null
+sudo chown 472:472 secrets/ntfy_url && sudo chmod 400 secrets/ntfy_url
+docker compose -f deploy/monitoring/compose.yaml restart grafana
+```
+
+**healthchecks.io.** Sign up (the free plan is enough), then in *Integrations* add *ntfy* with the
+same topic URL, and create two checks, each sending to that integration:
+- **heartbeat**: period 1 minute, grace 5 minutes (a missing ping is reported after about 6
+  minutes: the server, nginx or the site down, or the timer stopped);
+- **backup**: period 1 day, grace 3 hours (the backup starts between 03:30 and 04:00; a failed one
+  pings its `/fail` address and is reported at once).
+
+Copy each check's ping URL (`https://hc-ping.com/<uuid>`) into `/etc/findaline-monitoring.env`
+(`setup` asks for them; the units read the file at every start, so nothing needs a restart):
+
+```sh
+sudo nano /etc/findaline-monitoring.env
+#   HEARTBEAT_URL=https://hc-ping.com/<uuid of the heartbeat check>
+#   BACKUP_PING_URL=https://hc-ping.com/<uuid of the backup check>
+sudo systemctl start findaline-heartbeat.service    # the check turns green
+```
+
+**Grafana** through an SSH tunnel, from your computer:
+
+```sh
+ssh -L 3000:127.0.0.1:3000 you@findaline.example.org
+```
+
+then open `http://localhost:3000` and sign in as `admin` with the password of
+`sudo cat /srv/find-a-line-webui/secrets/grafana_admin_password`. Its dashboards, alert rules and
+contact point come from `deploy/monitoring/grafana/` in the checkout (changes made in Grafana's
+interface to them are not kept). The password counts when Grafana makes its database (the first
+start); to change it later: `docker compose -f deploy/monitoring/compose.yaml exec grafana grafana
+cli admin reset-admin-password <new>`. A test message: *Alerting*, *Contact points*, *Test*.
+
+**Check it** (also part of `sudo deploy/vps.sh check`: VictoriaMetrics, Grafana and `stub_status`
+answer, the timers are active, `facts.json` is younger than 15 minutes, the heartbeat's URL is
+set):
+
+```sh
+cd /srv/find-a-line-webui
+docker compose -f deploy/monitoring/compose.yaml ps        # all healthy
+systemctl list-timers 'findaline-*'
+cat /var/lib/findaline-monitoring/facts.json /var/lib/findaline-monitoring/check.json
+cat /var/lib/findaline-monitoring/backup.json             # after the first backup
+sudo tail -n 3 /var/log/nginx/findaline.metrics.log       # JSON, no addresses
+curl -s http://127.0.0.1:8081/nginx_status
+journalctl -u findaline-heartbeat -n 5                     # nothing: each minute's run was fine
+```
+
+To see an alert arrive: `curl -fsS https://hc-ping.com/<uuid of the heartbeat check>/fail` (the
+check turns red and ntfy gets the message; the next minute's ping makes it green again).
+
+The four containers need about 1.2 GB of memory together: `WORKER_MEMORY` in `.env` (section 8)
+must leave that room. To stop the monitoring without touching the site:
+`docker compose -f deploy/monitoring/compose.yaml down` (the samples stay in their volume) and
+`sudo systemctl disable --now findaline-facts.timer findaline-check.timer findaline-heartbeat.timer`.
