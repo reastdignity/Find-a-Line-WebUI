@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import OrthoService, Source
+from ..source import Listing, OrthoService, Source
 from ..layers.gridtiles import GridTiles
 
 UGKK_CREDIT = Credit("DMR 5.0 / DMP 1.0 (ÚGKK SR, Slovakia)", "© ÚGKK SR", *CC_BY)
@@ -27,5 +27,9 @@ SOURCES: List[Source] = [
         nmpt=GridTiles("DMP 1.0 (trees, buildings)", [f"{base}/dmp1/1m" for base in SLOVAK_TILES], "EPSG:8353",
                        "slovakia/dmp1/1.0/epsg8353-1m-2km", 2000, 1.0, 5.7e6, mirror="slovakia/dmp1/1m"),
         countries=("sk",), crs="EPSG:8353", ortho=ZBGIS_ORTHO, credits=(UGKK_CREDIT,),
+        listing=Listing("Slovakia", "ÚGKK SR DMR 5.0, ALS 1 m (2017–2023)", "ÚGKK SR DMP 1.0, 1 m",
+                        "ZBGIS (ÚGKK SR)"),
+        # Poland's box overlaps it in the north: Poland comes first in SOURCES
+        offline=(("sk", (47.7, 49.65, 16.8, 22.6)),), sample=(49.1700, 18.5750),
         note="Data © ÚGKK SR, CC BY 4.0 (laser scanning 2017-2023)."),
 ]

@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import OrthoService, Source
+from ..source import Listing, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
 MSDI = "https://msdi.data.gov.mt/geonetwork/"
@@ -23,6 +23,12 @@ MALTA = "https://malta.coverage.wetransform.eu"
 MALTA_2012_SHIFT = (-56.0, -196.0)
 
 
+MALTA_LISTINGS = {
+    2018: Listing("Malta", "MSDI DTM 2018, LiDAR 1 m (heights in whole metres)", "MSDI DSM 2018, 1 m", "MSDI 2018"),
+    2012: Listing("Malta", "MSDI DTM 2012, centimetre heights, gaps filled from 2018", "MSDI DSM 2012", "MSDI 2018"),
+}
+
+
 def _malta(year: int, note: str = "") -> Source:
     crs = "EPSG:25833" if year == 2012 else "EPSG:32633"
     layer = lambda kind, desc: WcsTiles(
@@ -37,7 +43,8 @@ def _malta(year: int, note: str = "") -> Source:
         fallback="malta" if year == 2012 else "europe", credits=(MALTA_CREDITS[year],),
         ortho=OrthoService("Orthophoto Malta 2018 (MSDI)", f"{MALTA}/wms/ortho_2018/ows",
                            "OI.OrthoimageCoverage", "malta/ortho/2018", "Planning Authority Malta"),
-        note=note)
+        listing=MALTA_LISTINGS[year], offline=(("mt", (35.78, 36.10, 14.15, 14.60)),) if year == 2018 else (),
+        sample=(35.8565, 14.3830), note=note)
 
 
 SOURCES: List[Source] = [

@@ -10,14 +10,11 @@ import osm
 
 from .source import MIN_RESOLUTION, Source
 from .layers.files import FileLayer
-from .catalogue.usa import ALASKA_BOX
 from .catalogue import SOURCES
 
-# Rough boxes used when the country cannot be looked up (offline)
-OFFLINE_BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
-                 ("es", (27.0, 43.9, -18.6, 4.4)), ("sk", (47.7, 49.65, 16.8, 22.6)),
-                 ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", ALASKA_BOX),
-                 ("pr", (17.8, 18.6, -67.4, -65.2))]
+# Rough boxes used when the country cannot be looked up (offline): the sources' own
+# (Source.offline), in the order of SOURCES; the first box holding a point wins
+OFFLINE_BOXES = [box for source in SOURCES.values() for box in source.offline]
 
 
 def country_code(lat: float, lon: float, cache_dir: str) -> Optional[str]:

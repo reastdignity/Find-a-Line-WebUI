@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import OrthoService, Source
+from ..source import Listing, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
 # IGN's form of a credit for a derived work (Orden FOM/2807/2015): "Obra derivada de <product> CC-BY 4.0 ign.es"
@@ -35,6 +35,12 @@ def _spain(canary: bool) -> Source:
                       "spain/mds05/live", native_res=5.0, fetch_res=5.0, fmt="application/asc", bytes_per_px=8),
         countries=("es",), crs=crs, ortho=SPAIN_ORTHO, credits=(IGN_CREDIT,),
         bbox=(27.0, 29.6, -18.6, -13.0) if canary else None,
+        listing=Listing("Canary Islands", "IGN MDT05 (REGCAN95 / UTM 28N), 5 m", "IGN MDS05, 5 m", "PNOA (IGN)")
+        if canary else Listing("Spain (peninsula, Balearic Islands)", "IGN MDT05, PNOA-LiDAR 5 m", "IGN MDS05, 5 m",
+                               "PNOA (IGN)"),
+        # The box of Spain holds the Canary Islands too
+        offline=() if canary else (("es", (27.0, 43.9, -18.6, 4.4)),),
+        sample=(28.2640, -16.8460) if canary else (41.5930, 1.8100),
         note="IGN Spain data is available at 5 m: lines shorter than about 30 m are not reliable.")
 
 

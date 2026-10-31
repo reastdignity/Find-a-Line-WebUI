@@ -1,7 +1,7 @@
 """Source: the layers of a data source, its working CRS, orthophoto, credits and fallbacks."""
 
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, NamedTuple, Optional, Tuple
 
 import cache
 from grid import utm_crs
@@ -37,6 +37,14 @@ class OrthoService:
         return cache.TTL_DAYS["live"] if "/live" in self.folder else None
 
 
+class Listing(NamedTuple):
+    """The cells of a source's row in README's "Data sources" table (Markdown; tools/source_docs.py)."""
+    where: str
+    terrain: str
+    surface: str = "–"
+    ortho: str = "–"
+
+
 @dataclass
 class Source:
     id: str
@@ -62,6 +70,14 @@ class Source:
     # The source --source auto takes instead when the terrain layer has no data near the
     # centre (Alaska: its IfSAR where there is no 1 m lidar)
     instead_without_data: Optional[str] = None
+    # Its row in README's "Data sources" table (tools/source_docs.py)
+    listing: Optional[Listing] = None
+    # Rough boxes (country code, (south, north, west, east)) for the country of a point when it
+    # cannot be looked up (offline): choose.OFFLINE_BOXES, in the order of SOURCES
+    offline: Tuple[Tuple[str, Tuple[float, float, float, float]], ...] = ()
+    # (lat, lon) of a point with data in every layer, for the source probe (sources/probe.py) and
+    # tools/check_source.py; None: no such point (Alaska's 1 m DEM has no data yet)
+    sample: Optional[Tuple[float, float]] = None
 
     def __post_init__(self):
         if self.default_resolution is None:

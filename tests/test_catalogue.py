@@ -574,6 +574,24 @@ def test_country_code_offline(monkeypatch, tmp_path):
     assert checked > 100_000
 
 
+def test_listing_offline_and_sample():
+    """Every source has its row of README's table; its offline boxes name its own countries, and its
+    sample point (the probe's and tools/check_source.py's) lies where the source is used."""
+    assert sorted(src.OFFLINE_BOXES) == sorted(BOXES)
+    for sid, s in src.SOURCES.items():
+        assert s.listing is not None and s.listing.where and s.listing.terrain, sid
+        for code, _ in s.offline:
+            assert code in s.countries, (sid, code)
+        if s.sample is None:
+            assert sid == "alaska"  # no 1 m DEM in Alaska yet
+            continue
+        lat, lon = s.sample
+        assert s.covers(lat, lon), sid
+        if s.offline:
+            assert any(south <= lat <= north and west <= lon <= east
+                       for _, (south, north, west, east) in s.offline), sid
+
+
 # Names tests and tools patch, each in one module only: patched there, they take effect for every
 # caller (the code calls them through their module: net._get(...)); on the package itself such a
 # patch would fail loudly instead of silently missing the code

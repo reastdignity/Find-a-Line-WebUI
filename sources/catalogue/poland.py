@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import OrthoService, Source
+from ..source import Listing, OrthoService, Source
 from ..layers.sheets import SheetTiles
 
 GUGIK_CREDIT = Credit("NMT / NMPT (GUGiK, Poland)",
@@ -29,6 +29,9 @@ SOURCES: List[Source] = [
                         f"{GEOPORTAL}/NumerycznyModelPokryciaTerenuEVRF2007/WFS/Skorowidze",
                         "SkorowidzNMPT", "poland/nmpt", native_res=1.0),
         countries=("pl",), crs="EPSG:2180", grid_origin=(0.5, 0.5), credits=(GUGIK_CREDIT,),
+        listing=Listing("Poland", "GUGiK NMT sheets, 1 m, newest survey",
+                        "GUGiK NMPT sheets, 0.5–1 m (about 85% of Poland)", "geoportal.gov.pl"),
+        offline=(("pl", (49.0, 54.9, 14.1, 24.2)),), sample=(50.1559508, 19.7562722),
         ortho=OrthoService("Orthophoto (geoportal.gov.pl)", f"{GEOPORTAL}/ORTO/WMS/HighResolution",
                            "Raster", "poland/ortho/live", "GUGiK",
                            # the WMS of StandardResolution answers about half of the requests

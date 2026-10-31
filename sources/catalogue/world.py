@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from ..credit import Credit
 from ..layer import _hemi
-from ..source import Source
+from ..source import Listing, Source
 from ..layers.degree import DegreeTiles, OpenTopographyTiles
 
 # Checked 2026-10-27 (docs/roadmap.md, "Before going public")
@@ -64,11 +64,18 @@ SOURCES: List[Source] = [
         nmpt=DegreeTiles("Copernicus DEM GLO-30 (surface)", "copernicus30/2021/dem", _copernicus_url,
                          native_res=30, bytes_per_tile=20e6, credit=COPERNICUS_CREDIT),
         fallback=None, credits=(FABDEM_CREDIT, COPERNICUS_CREDIT),
+        listing=Listing("anywhere", "[FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, "
+                                    "30 m (trees and buildings removed)",
+                        "[Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m"),
+        sample=(39.7217, 21.6306),
         note="FABDEM is licensed for non-commercial use only (CC BY-NC-SA 4.0): results made from it may "
              "be shared only under the same terms. At 30 m only long lines can be found reliably."),
     Source(
         id="nasadem", name="NASADEM (OpenTopography)",
         description="NASADEM 30 m (SRTM, includes some vegetation), from the OpenTopography API",
         nmt=OpenTopographyTiles("NASADEM", "nasadem/v1", "NASADEM"), credits=(NASADEM_CREDIT,),
-        note="NASADEM is a radar surface model at 30 m: only long lines can be found reliably."),
+        note="NASADEM is a radar surface model at 30 m: only long lines can be found reliably.",
+        listing=Listing("anywhere",
+                        "NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/)"),
+        sample=(39.7217, 21.6306)),
 ]
