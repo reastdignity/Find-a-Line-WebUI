@@ -41,6 +41,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pyyaml>=6.0.3",  # tests/test_monitoring.py reads the compose file and Grafana's provisioning
 ]
 tools = [
     "huggingface-hub>=2.3.0",

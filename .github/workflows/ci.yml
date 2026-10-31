@@ -169,9 +169,9 @@ jobs:
         with:
           python-version: "3.13"
 
-      # PyYAML comes with the group tools (huggingface-hub); the tests job runs without it and skips
+      # Also part of the tests job (PyYAML is in the dev group); here before the stack starts
       - name: Offline checks of the provisioning
-        run: uv run --frozen --group tools pytest -q tests/test_monitoring.py
+        run: uv run --frozen pytest -q tests/test_monitoring.py
 
       - name: Settings, secrets and the host's files
         run: |
@@ -228,7 +228,7 @@ jobs:
           FINDALINE_GRAFANA_URL: http://127.0.0.1:3000
         run: |
           export FINDALINE_GRAFANA_PASSWORD="$(cat secrets/grafana_admin_password)"
-          uv run --frozen --group tools pytest -q tests/test_monitoring.py -k live
+          uv run --frozen pytest -q tests/test_monitoring.py -k live
 
       - name: Logs
         if: always()

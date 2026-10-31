@@ -577,6 +577,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
+    { name = "pyyaml" },
 ]
 tools = [
     { name = "huggingface-hub" },
@@ -621,7 +622,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = ">=8" }]
+dev = [
+    { name = "pytest", specifier = ">=8" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
+]
 tools = [{ name = "huggingface-hub", specifier = ">=2.3.0" }]
 ui = [{ name = "playwright", specifier = ">=1.64.1" }]
 
