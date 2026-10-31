@@ -6,8 +6,9 @@ whole country only as one ZIP each with one huge TIFF inside (about 155–200 GB
 cannot be read in parts over the network. This script turns such a TIFF into 2 km COG
 tiles in its own grid (S-JTSK [JTSK03] EPSG:8353, Baltic 1957 heights EPSG:8357) and
 writes them into a folder laid out as a Hugging Face dataset. Until it is uploaded, that
-folder is a local mirror: sources.GridTiles reads it through FINDALINE_MIRROR (the folder
-above it, see sources.mirror_urls), later it downloads the same tiles from Hugging Face.
+folder is a local mirror: sources.GridTiles (sources/layers/gridtiles.py) reads it through
+FINDALINE_MIRROR (the folder above it; SLOVAK_TILES in sources/catalogue/slovakia.py), later it
+downloads the same tiles from Hugging Face.
 Licence CC BY 4.0, author ÚGKK SR (the licence PDF in the ZIPs).
 
     python tools/sk_tiles.py download dmp1 --zips C:\\sk-zips                    # the ZIP (resumable)
