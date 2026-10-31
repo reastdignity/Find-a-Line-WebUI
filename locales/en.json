@@ -350,5 +350,21 @@
   "intro.result.easy_off": "Turn grouping off only when you look at a small part of the map.",
   "intro.result.check": "<b>Check on the spot.</b> The result comes from terrain data. It does not see loose rock, small trees or new buildings, and it does not check a fall onto the backup. Check every line before you rig it.",
 
-  "ui.try": "Try interface {{ui}}"
+  "ui.try": "Try interface {{ui}}",
+  "ui.searched.title": "Area searched",
+  "ui.searched.today": "{{area}} km² today",
+  "ui.searched.total_one": "{{area}} km² in {{searches}} search",
+  "ui.searched.total_other": "{{area}} km² in {{searches}} searches",
+  "ui.searched.country": "Country: {{country}}, from your browser's time zone",
+  "ui.searched.empty": "No finished searches yet. The area of every search you finish is added up here, day by day.",
+  "ui.searched.stat_total": "in total",
+  "ui.searched.stat_searches_one": "search",
+  "ui.searched.stat_searches_other": "searches",
+  "ui.searched.stat_today": "today",
+  "ui.searched.month": "{{area}} km² in the last 30 days",
+  "ui.searched.day_zero": "{{day}}: no searches",
+  "ui.searched.day_one": "{{day}}: {{area}} km² in {{searches}} search",
+  "ui.searched.day_other": "{{day}}: {{area}} km² in {{searches}} searches",
+  "ui.searched.chart": "Area searched per day, the last 30 days",
+  "ui.searched.today_axis": "Today"
 }

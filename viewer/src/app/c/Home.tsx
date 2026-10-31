@@ -1,6 +1,6 @@
 // C's home (c1, c4 on phones): "New search", an example run, the user's searches as cards (the jobs of
 // useJobs merged with the saved runs: status, progress, mini map, a menu), the favourite lines as a
-// trip list and the usage meters aside.
+// trip list, the area searched (Searched.tsx) and the usage meters aside (on phones the area under the cards).
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Button, Chip, Chips, IconButton, Panel, Progress, StatusChip } from "../../ui/components";
@@ -15,6 +15,7 @@ import { beingSaved, jobProgress, type JobsState, type JobView } from "../useJob
 import { editHash, go, runHash } from "./route";
 import { Thumb, THUMB_CREDIT, type ThumbSource } from "./Thumb";
 import { Trip } from "./Trip";
+import { SearchedCard } from "./Searched";
 import { timeOf, when } from "../../time";
 
 export interface RunsState {
@@ -250,6 +251,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
             <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
                         highlight={!!highlight && c.job?.id === highlight} />)}</div>}
       {runs.runs !== null && shown.length > 0 && <p class="u-small c-thumb-credit">{THUMB_CREDIT}</p>}
+      {!wide && <SearchedCard usage={usage.usage} />}
       {!wide && example && <a class="c-example c-example-phone" href={runHash(example.id)} data-run={example.id}>
         <span class="c-example-icon"><Icon name="rope" /></span>
         <span><b>{runs.public ? "Explore an example" : "Open the latest result"}</b>
@@ -257,6 +259,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
     </div>
     {wide && <aside class="c-home-aside">
       <Panel title="Favourite lines" class="c-favs"><Trip limit={8} /></Panel>
+      <SearchedCard usage={usage.usage} />
       {usage.usage && <Panel title="Today" class="c-usage"><UsageMeters usage={usage.usage} /></Panel>}
     </aside>}
   </div>;

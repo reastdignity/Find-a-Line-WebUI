@@ -1,5 +1,6 @@
 // C's account: the user (the public site: name, privacy and about, sign out; Admin for administrators),
-// the OSM extracts locally and for administrators, the theme and the way to the other interfaces. A menu
+// the OSM extracts locally and for administrators, the area searched (Searched.tsx), the theme and the way
+// to the other interfaces. A menu
 // under the header's account button on desktops, a page (#account) on phones. The Admin page (AdminC) is a
 // page of panels; the OSM page (OsmC) a panel next to the map it needs (the regions around its centre).
 
@@ -13,7 +14,8 @@ import { api, user } from "../api";
 import { canReport, openReport } from "../../report";
 import { t } from "../../i18n";
 import { PlaceMap } from "../PlaceMap";
-import type { Job } from "../api";
+import type { Job, Usage } from "../api";
+import { SearchedLine } from "./Searched";
 import { AdminC } from "./AdminC";
 import { OsmC } from "./OsmC";
 import { go } from "./route";
@@ -24,8 +26,9 @@ const THEMES = [{value: "auto" as const, label: "Auto"}, {value: "light" as cons
 /** The other interfaces the account links to (C: B and D). */
 export const TRIES_C: UiChoice[] = ["b", "d"];
 
-export function AccountBody({theme, setTheme, onPick, tries = TRIES_C}:
-                            {theme: Theme; setTheme(t: Theme): void; onPick?(): void; tries?: UiChoice[]}) {
+export function AccountBody({theme, setTheme, onPick, tries = TRIES_C, usage}:
+                            {theme: Theme; setTheme(t: Theme): void; onPick?(): void; tries?: UiChoice[];
+                             usage?: Usage | null}) {
   const pick = () => onPick?.();
   return <div class="c-account">
     <div class="c-account-who">
@@ -33,6 +36,7 @@ export function AccountBody({theme, setTheme, onPick, tries = TRIES_C}:
       <span><b>{user.local ? "This computer" : user.name}</b>
         <span class="u-small">{user.local ? "the local app: no account" : user.admin ? "administrator" : "signed in"}</span></span>
     </div>
+    <SearchedLine usage={usage} />
     <nav class="c-account-links">
       {!user.local && user.admin && <a class="c-menu-item" href="#admin" onClick={pick}><Icon name="user" />Admin</a>}
       {(user.local || user.admin) && <a class="c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />OpenStreetMap extracts</a>}
@@ -50,7 +54,8 @@ export function AccountBody({theme, setTheme, onPick, tries = TRIES_C}:
 }
 
 /** The header's account button with its menu. */
-export function AccountMenu({theme, setTheme, tries}: {theme: Theme; setTheme(t: Theme): void; tries?: UiChoice[]}) {
+export function AccountMenu({theme, setTheme, tries, usage}:
+                            {theme: Theme; setTheme(t: Theme): void; tries?: UiChoice[]; usage?: Usage | null}) {
   const [open, setOpen] = useState(false);
   return <Popover label="Account" align="right" open={open} onOpen={setOpen}
                   button={(on, toggle) => <button type="button" class={`c-account-btn${on ? " u-on" : ""}`}
@@ -58,7 +63,7 @@ export function AccountMenu({theme, setTheme, tries}: {theme: Theme; setTheme(t:
                     <span class="c-avatar"><Icon name="user" /></span>
                     <span class="c-account-name">{user.local ? "Local" : user.name}</span>
                     <Icon name="down" /></button>}>
-    <AccountBody theme={theme} setTheme={setTheme} onPick={() => setOpen(false)} tries={tries} />
+    <AccountBody theme={theme} setTheme={setTheme} onPick={() => setOpen(false)} tries={tries} usage={usage} />
   </Popover>;
 }
 

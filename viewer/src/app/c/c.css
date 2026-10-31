@@ -244,3 +244,23 @@
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .ui .c-report-done .c-report-text { color: var(--ink-2); }
 .ui .c-report-agent { overflow-wrap: anywhere; margin-top: 2px; }
+
+/* The area searched (Searched.tsx): the account's line, the home page's card with the 30 days as bars */
+.ui .c-searched-line { display: flex; flex-direction: column; gap: 2px; color: var(--ink-2); background: var(--surface-2);
+  border-radius: 10px; padding: 8px 10px; text-wrap: balance; }
+.ui .c-searched-empty { margin: 0; }
+.ui .c-searched-chart { display: flex; flex-direction: column; gap: 4px; }
+.ui .c-searched-readout { font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+.ui .c-searched-bars { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 88px; padding-top: 16px;
+  border-bottom: 1px solid var(--line); touch-action: pan-y; cursor: default; border-radius: 2px; }
+.ui .c-searched-bars:focus-visible { outline: none; box-shadow: var(--focus); }
+/* A recessive line at the top of the scale (the largest day), its value above it */
+.ui .c-searched-bars::before { content: ""; position: absolute; left: 0; right: 0; top: 16px; border-top: 1px dashed var(--line); }
+.ui .c-searched-top { position: absolute; top: 0; left: 0; font-size: 11px; line-height: 1; font-variant-numeric: tabular-nums; }
+.ui .c-searched-day { flex: 1; min-width: 0; height: 100%; display: flex; align-items: flex-end; }
+.ui .c-searched-day i { display: block; width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; }
+.ui .c-searched-day.c-zero i { height: 2px; background: var(--line); border-radius: 1px; }
+.ui .c-searched-bars.c-picked .c-searched-day:not(.u-on) i { opacity: .45; }
+.ui .c-searched-day.u-on { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 3px 3px 0 0; }
+.ui .c-searched-bars.c-picked .c-searched-day.c-zero.u-on i { background: var(--muted); }
+.ui .c-searched-axis { display: flex; justify-content: space-between; font-size: 11px; }

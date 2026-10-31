@@ -460,3 +460,23 @@ console.log(JSON.stringify({json.dumps(details)}.map((d) => m.detailMessage(d, "
                      messages.Note("x", "coast_pieces_left_out", count=1, near=200, far=400, lat=1, lon=2).web_text(),
                      "A newer server's text", "a plain text", "fallback"]
     assert found[2].startswith("1 part of the coast is 200–400 m")
+
+
+def test_area_searched_by_local_day(tmp_path):
+    """searched.ts: the finished searches of /api/usage `area` grouped by the viewer's day (Warsaw here: a UTC
+    time before midnight is the next day there), 30 days ending today across the clock change of 25 Oct,
+    today's km², the numbers for people and the country's name."""
+    found = run_ts(tmp_path, "app/searched", """
+process.env.TZ = "Europe/Warsaw";
+const now = new Date("2026-10-31T12:00:00+00:00");
+const area = {total_km2: 1234.567, searches: 4, recent: [
+  ["2026-10-01T10:00:00+00:00", 5],          // 31 days ago: not on the chart
+  ["2026-10-25T00:30:00+00:00", 2.5],        // the day of the clock change
+  ["2026-10-30T23:30:00+00:00", 0.07],       // 31 Oct in Warsaw: today
+  ["2026-10-31T09:00:00+00:00", 12.25]]};
+const days = m.daysOf(area, now);
+console.log(JSON.stringify([days.length, days[0].key, days[29].key, new Set(days.map((d) => d.key)).size,
+  days.filter((d) => d.searches).map((d) => [d.key, d.km2, d.searches]), m.todayKm2(area, now),
+  [0.004, 0.07, 3.14159, 12.25, 99.96, 1234.567, 48300].map(m.km2Text), m.countText(1234), m.countryName("pl")]));""")
+    assert found == [30, "2026-10-02", "2026-10-31", 30, [["2026-10-25", 2.5, 1], ["2026-10-31", 12.32, 2]], 12.32,
+                     ["< 0.01", "0.07", "3.14", "12.3", "100", "1,235", "48,300"], "1,234", "Poland"]

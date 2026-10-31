@@ -11,7 +11,7 @@ import { BottomNav, DESKTOP, Panel, Screen, useMedia, type NavItem, type Theme }
 import { Icon, Logo } from "../../ui/icons";
 import { storedTheme, type UiChoice } from "../../ui/choice";
 import { useUsage } from "../../search";
-import { api, type RunListed, type Schema } from "../api";
+import { api, type RunListed, type Schema, type Usage } from "../api";
 import { useJobs } from "../useJobs";
 import { AccountBody, AccountMenu, AdminPage, OsmPage, TRIES_C } from "./Account";
 import { Home, type RunsState } from "./Home";
@@ -48,7 +48,8 @@ function useRuns(): RunsState {
 }
 
 /** The desktop header: the logo, Home and Favourites, the account. */
-function Header({route, theme, setTheme, tries}: {route: Route; theme: Theme; setTheme(t: Theme): void; tries: UiChoice[]}) {
+function Header({route, theme, setTheme, tries, usage}:
+                {route: Route; theme: Theme; setTheme(t: Theme): void; tries: UiChoice[]; usage: Usage | null}) {
   const on = (page: Route["page"]) => route.page === page ? "c-nav-item u-on" : "c-nav-item";
   return <header class="c-top">
     <a class="c-logo" href="#home" aria-label="Find-a-Line: home"><Logo /></a>
@@ -58,7 +59,7 @@ function Header({route, theme, setTheme, tries}: {route: Route; theme: Theme; se
         <Icon name="star" />Favourites</a>
     </nav>
     <span class="u-grow" />
-    <AccountMenu theme={theme} setTheme={setTheme} tries={tries} />
+    <AccountMenu theme={theme} setTheme={setTheme} tries={tries} usage={usage} />
   </header>;
 }
 
@@ -140,7 +141,7 @@ export function ShellC({ui, tries, result}: ShellProps) {
         <FavouritesPage wide={wide} /></Panel></div>;
       break;
     case "account":
-      page = <div class="c-page"><Panel title="Account"><AccountBody theme={theme} setTheme={setTheme} tries={tries} /></Panel></div>;
+      page = <div class="c-page"><Panel title="Account"><AccountBody theme={theme} setTheme={setTheme} tries={tries} usage={usage.usage} /></Panel></div>;
       break;
     case "admin":
       page = <AdminPage jobs={jobs.jobs} />;
@@ -153,7 +154,7 @@ export function ShellC({ui, tries, result}: ShellProps) {
   }
 
   return <Screen theme={theme} class={`${ui} c-app${wide ? " c-wide" : " c-narrow"}${nav && !wide ? " c-has-nav" : ""}`}>
-    {!focused && (wide ? <Header route={route} theme={theme} setTheme={setTheme} tries={tries} /> : <PhoneHeader />)}
+    {!focused && (wide ? <Header route={route} theme={theme} setTheme={setTheme} tries={tries} usage={usage.usage} /> : <PhoneHeader />)}
     {error && <p class="c-error c-app-error">{error}</p>}
     <main class={`c-main c-main-${route.page}`}>{page}</main>
     {!wide && nav && <BottomNav items={NAV} value={nav} onChange={(v) => go("#" + v)} />}

@@ -38,3 +38,8 @@ export function shortWhen(iso: string | null | undefined, now: Date = new Date()
   const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   return day(iso) === day(now.toISOString()) ? time : `${day(iso)} ${time}`;
 }
+
+/** "31 Oct" of a moment, in the viewer's time zone. */
+export function dayMonth(d: Date): string {
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
