@@ -113,15 +113,54 @@ Notes on the options:
   the cached files (GTI, GDAL ≥ 3.9; rasterio 1.5.2 ships GDAL 3.12 with GTI, STACIT and WCS). It cannot replace
   the cache, the index answers, the choice of the newest survey, the composing per block or `cache update`.
 
-## Libraries
-Checked 2026-10-31 (PyPI, OSV):
+## Ready implementations of the interfaces
+The rule (the user, 2026-10-31): for every interface a part speaks, first a maintained library or a GDAL driver
+that ships already; where none fits, the existing implementations become the source of the tests (their recorded
+answers, and the library itself as an oracle in a test), and our own code follows the interface's official
+documentation, our own knowledge only where it is silent.
 
-| Library | Version, date | Licence, advisories | Would replace | Recommendation |
-| --- | --- | --- | --- | --- |
-| GDAL drivers (in rasterio 1.5.2: GDAL 3.12) | ships with rasterio | already a dependency | window reads (used), mosaicking of cached files (GTI) | use as today; consider GTI only if the mosaic step becomes a bottleneck |
-| `pystac-client` | 0.9.1, 2026-10-20 (3 releases in 2 years) | Apache-2.0, none known | the paging of `StacTiles` (~20 lines) | not needed now; reconsider when a second STAC *search* (not a static catalogue) is added: Canada, ArcticDEM |
-| `OWSLib` | 0.36.0, 2026-06-04 | BSD-3, an XXE fixed in 0.28.1 | parsing of WFS/WCS capabilities | not needed: the requests are fixed and the capabilities are read by hand during the research |
-| `odc-stac`, `stackstac` | 0.5.3 (2026-07) / 0.5.1 (2024-08, no release since) | – | loading STAC items into xarray | not a fit: the app needs files on its own grid, not xarray cubes |
+Checked 2026-10-31: PyPI (version, releases, licence), OSV (all advisories listed are fixed in these versions), the
+libraries' and GDAL's own documentation; GDAL 3.12 as shipped by rasterio 1.5.2 and pyogrio 0.13.0, both installed
+already (pyogrio through geopandas).
+
+| Interface | Sources (survey) | Ready implementations | At run time | For the tests | Our own code from |
+| --- | --- | --- | --- | --- | --- |
+| STAC API search (paging, GET/POST, CQL2) | Switzerland (today), Lower Saxony, Sweden, Canada, ArcticDEM | `pystac-client` 0.9.1 (2026-10-20, Apache-2.0; pystac, requests, python-dateutil) | **use**: paging by `next` links, POST and CQL2, our headers; replaces the paging of `StacTiles`, the cached index JSON unchanged | its recorded cassettes; a recorded swisstopo page must give today's JSON | – |
+| Static STAC catalogue | New Zealand | `pystac` 1.15.2 (2026-07, Apache-2.0, comes with pystac-client) | **use** | – | – |
+| WFS 2.0 GetFeature (bbox, paging, GML) | Poland (today: regex), France's tile index, Tuscany | GDAL's WFS driver through pyogrio; `OWSLib` 0.36.0 (BSD-3: builds the request, the parsing stays ours) | **use pyogrio**: paging, GML geometries, axis order | GDAL's WFS test data (MIT), OWSLib's recorded capabilities (BSD-3); a recorded geoportal answer must give the same sheets with pyogrio as with today's regex before the switch | – |
+| ArcGIS FeatureServer query | Ireland, Colombia's catalogue | GDAL's ESRIJSON driver through pyogrio (`FEATURE_SERVER_PAGING`); `esridump` 1.13 (MIT, no release since 2023-02); `arcgis` 2.4.4 (Esri Master License Agreement, 15 MB and 32 dependencies) | **use pyogrio**; not `arcgis` (licence, size) | the fixtures of esridump and GDAL (MIT) | – |
+| ArcGIS ImageServer exportImage | Czechia, Sicily, Ontario, Queensland, Colombia | only `arcgis` (as above); GDAL's WMS driver speaks to a MapServer's `export` (rendered pictures), not to exportImage of heights | **own** | recorded small answers of two services; consistency tests (a box and its halves give the same pixels; a request on the service's grid returns its raw values) | [Esri REST API: Export Image](https://developers.arcgis.com/rest/services-reference/enterprise/export-image/) |
+| WCS 1.0.0 / 1.1.1 / 2.0.1 GetCoverage | Spain, Malta (today), Hesse, MV, Saxony-Anhalt, Bolzano, Liguria, Denmark, England, Bulgaria, Caribbean NL (1.1.1), Norway (1.0.0) | GDAL's WCS driver (in rasterio: a block-cached remote raster, versions 1.0.0–2.0.1, switches for server quirks, a cache folder of its own); `OWSLib` (builds requests) | **keep our `WcsTiles`**: it works and the regression set covers it; the driver's cache would be a second one outside `cache/` | GDAL's recorded DescribeCoverage and GetCoverage of ArcGIS, GeoServer, MapServer and Rasdaman for every version (113 files, MIT): our reader and the GDAL driver read the same local server and must give the same pixels | [OGC WCS](https://www.ogc.org/standards/wcs/) 2.0.1 Core and KVP binding, 1.1.1, 1.0.0 |
+| WMS GetMap as raw GeoTIFF | France (WMS-R) | GDAL's WMS driver (its own block grid, so resampling); `OWSLib` (builds the URL) | **own**: one GET; exact pixels need each tile's own box | recorded IGN answers; the survey's shift test (a one-pixel shift gives the same values) | [OGC WMS](https://www.ogc.org/standards/wms/) 1.3.0, IGN's Géoplateforme documentation |
+| Atom feeds (INSPIRE predefined download service) | Norway, Thuringia, Austria's editions, Czechia, MV | `feedparser` 6.0.14 (BSD-2, maintained, GeoRSS; depends on `sgmllib3k`, no release since 2010; a lenient parser of web feeds with HTML sanitising we do not need) | **own**: a small fixed schema (entries, `describedby`/`alternate` links, georss polygons, dataset identifiers) with the standard library | feedparser as the oracle of a test (entries, links, polygons of recorded feeds of Norway and Austria) | [RFC 4287](https://www.rfc-editor.org/rfc/rfc4287), [INSPIRE Technical Guidance for Download Services](https://inspire.ec.europa.eu/documents/technical-guidance-implementation-inspire-download-services) |
+| Metalink 4 (`.meta4`) | Bavaria, Rhineland-Palatinate | `metalink` 0.3.8 (GPL-3.0, first release 2026-10-12) | **own**: the licence (the project has none declared, GPL would bind it) and two weeks of history | recorded files of both Länder, the RFC's examples | [RFC 5854](https://www.rfc-editor.org/rfc/rfc5854) |
+| S3 bucket listing (ListObjectsV2) | Scotland, Shizuoka, New Zealand's surveys | `obstore` 0.12.1 (MIT, Rust, 5.9 MB, very active); `s3fs`, `boto3` (large) | **own for now**: one anonymous GET with a continuation token; obstore if bucket sources grow or need its parallel reads | recorded listings | [Amazon S3 API: ListObjectsV2](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html) |
+| Index files (shapefile, GeoPackage, GeoJSON) | Trento, British Columbia, Tokyo | pyogrio | **use** (XML and HTML listings: own, small) | – | – |
+| Windows of COGs over HTTP | Austria, Wales, Norway, Canada, New Zealand (USA today) | rasterio `/vsicurl/` | **use**, as today | – | – |
+| Whole files (GeoTIFF, ASCII grid, XYZ, ZIP) | most Länder, Trento, Shizuoka (Poland today) | rasterio (AAIGrid, XYZ), `zipfile` | **use**, as today | – | – |
+| XYZ elevation tiles | Japan (GSI PNG) | tile maths: `mercantile` 1.2.1 (in the lock through contextily, no release since 2021), `morecantile` 7.1 (MIT, maintained), and `orthophoto.py`'s own; no decoder of GSI's tiles | **own** decoder, tile maths as `orthophoto.py` | GSI's text tiles of the same tile as the decoder's oracle | [GSI elevation tile specification](https://maps.gsi.go.jp/development/demtile.html) |
+| A service's own search API | USGS TNM (today), Portugal's CDD, INEGI | none (pystac-client if the CDD proves STAC-conformant) | **own** adapters | recorded answers | the providers' documentation |
+
+Not a fit: `odc-stac` and `stackstac` load STAC items into xarray cubes; the app needs files on its own grid.
+
+Effect on the dependencies: `pystac-client` (with `pystac` and `python-dateutil`, pure Python) joins the run time;
+`pyogrio` is declared directly, since the code would use it; `feedparser` only in a development group of oracles.
+GDAL's HTTP in pyogrio takes our User-Agent as `/vsicurl/` does (`_gdal_http`).
+
+### Tests before our own code
+- **Order per interface**: (1) the official document gives the list of requests and answers the code must handle;
+  (2) fixtures from it, from the libraries' tests and from the services; (3) the tests, failing; (4) the code, with
+  the section of the document it implements named in its docstring.
+- **Recorded answers** in `tests/data/recorded/<interface>/`, with a README naming origin, date and licence (GDAL's
+  test data MIT, OWSLib BSD-3, esridump MIT, pystac-client Apache-2.0; samples of the services under their data
+  licences, a few hundred kB in all).
+- **A local HTTP server** in the tests (standard library, with Range requests) serves them to our code (requests)
+  and to GDAL (`/vsicurl/`, pyogrio) alike, so the GDAL oracles and readers run offline too. `pytest-httpserver`
+  1.2.0 (MIT, on Werkzeug) has no Range support of its own, so it would save little.
+- **Oracles** that are not run-time dependencies (`feedparser`) go into a development group of `pyproject.toml`,
+  like `ui`; GDAL is installed anyway.
+- Today's hand-written fakes (`tests/test_sources.py`) stay for the edge cases (coverage edges, 404); the recorded
+  answers add what real servers do.
 
 ## Improvements whatever the choice
 1. **`tools/check_source.py`**: the data checks of a new source as one command (shift against Copernicus/FABDEM,
@@ -153,6 +192,8 @@ Each step its own branch; refactoring commits never change results (the regressi
    layer class, and `catalogue/` with the 13 sources of today.
 2. **Parts inside**: the index and reader halves of the existing classes split out (`IndexedTiles` is already an
    index base; `TnmBlocks` and `DegreeBlocks` share the window reads); the old class names stay as compositions.
+   `pystac-client` and pyogrio take over the STAC paging and Poland's WFS parsing here, each only after a test on
+   recorded answers shows the same cached index (see "Ready implementations of the interfaces").
 3. **Generated lists, `tools/check_source.py`, the source probe.**
 4. **Regions and neighbours** (a behaviour change: new regression entries at borders).
 5. **Sources by value and cost**: first those whose parts exist (England, Lower Saxony, Saxony-Anhalt, Hesse,
