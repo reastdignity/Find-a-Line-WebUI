@@ -28,8 +28,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project --no-build
 COPY . .
 # The scripts' bytecode, valid whatever the files' times after the copy (the root filesystem is
-# read-only at run time, so nothing could be cached later)
-RUN python -m compileall -q -l --invalidation-mode unchecked-hash .
+# read-only at run time, so nothing could be cached later); -l leaves out the package sources/
+RUN python -m compileall -q -l --invalidation-mode unchecked-hash . \
+    && python -m compileall -q --invalidation-mode unchecked-hash sources
 
 # Runtime: Python and the environment, no uv, no build tools
 FROM ${PYTHON_IMAGE}

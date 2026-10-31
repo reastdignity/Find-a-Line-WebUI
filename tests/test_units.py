@@ -786,9 +786,10 @@ def _error_codes() -> dict:
         return []
 
     found = {}
-    for name in sorted(os.listdir(root)):
-        if not name.endswith(".py"):
-            continue
+    names = [name for name in sorted(os.listdir(root)) if name.endswith(".py")]
+    for folder, _, files in sorted(os.walk(os.path.join(root, "sources"))):  # the package sources/
+        names += [os.path.relpath(os.path.join(folder, f), root) for f in sorted(files) if f.endswith(".py")]
+    for name in names:
         with open(os.path.join(root, name), encoding="utf-8") as f:
             tree = ast.parse(f.read())
         for node in ast.walk(tree):

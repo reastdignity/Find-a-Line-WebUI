@@ -5,7 +5,7 @@ Find-a-Line - Highline Location Finder
 This application finds locations with significant highline potential by analyzing
 elevation data: terrain (NMT/DTM) and surface (NMPT/DSM) models from national
 LiDAR services (geoportal.gov.pl, Malta), Europe-wide models (FABDEM, Copernicus),
-NASADEM or local files. See sources.py.
+NASADEM or local files. See sources/.
 
 This file is the command line: the options come from params.py, the search itself
 is search.py.

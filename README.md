@@ -105,7 +105,7 @@ LiDAR models usually have no data over water. Without it, lines across the sea b
 - The details of a line tell how much of it is over water and over filled gaps, the profile shows water in blue, and `lines.csv` has `water_m` and `filled_m` columns.
 
 ### Adding a country
-Most European countries publish LiDAR terrain models as open data, many through an INSPIRE WCS service. To add one, add a `Source` to `SOURCES` in [sources.py](sources.py), modelled on the Malta entry:
+Most European countries publish LiDAR terrain models as open data, many through an INSPIRE WCS service. To add one, add a `Source` to `SOURCES` in [sources/](sources/), modelled on the Malta entry:
 
 ```python
 Source(
