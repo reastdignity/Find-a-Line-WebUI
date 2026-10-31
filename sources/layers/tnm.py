@@ -24,7 +24,7 @@ from .. import net
 from ..net import RETRIES, _part
 from ..layer import Fetched
 from .indexed import IndexedTiles
-from .blocks import _read_block, _same_crs
+from ..readers.windows import _read_block, _same_crs
 
 TNM_API = "https://tnmaccess.nationalmap.gov/api/v1/products"
 

@@ -41,7 +41,7 @@ re-exported: call and patch them through their module.
 """
 
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
-from .readers import download, tilebases
+from .readers import download, tilebases, windows
 from .indexes import tilings
 from .layers import blocks, degree, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import malta, poland, slovakia, spain, switzerland, usa, world
@@ -56,7 +56,8 @@ from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles, Sheet
 from .layers.sheets import SheetTiles
 from .layers.stac import StacTiles
-from .layers.blocks import DegreeBlocks, _same_crs
+from .readers.windows import _same_crs
+from .layers.blocks import DegreeBlocks
 from .layers.tnm import Block, IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
 from .layers.files import FileLayer
 from .catalogue.poland import GUGIK_CREDIT
