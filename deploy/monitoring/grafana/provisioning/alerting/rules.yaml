@@ -1,10 +1,18 @@
-# Alert rules of docs/monitoring.md, phase 1 (rows A-E, G). Every rule names its row, a level
-# (alert or info: the notification policy sends info more quietly, once a day) and the server
-# (FINDALINE_PUBLIC_URL of findaline.env); Grafana evaluates them every minute, and a condition
-# must hold for the rule's `for` before it fires. No data is OK for every rule: a source that
-# stops reporting has its own rules (G2), which fire only after 10 minutes without samples, so a
-# fresh start stays quiet. A failing query keeps the last state; only g2-store-unreachable turns
-# an error of the data source into an alert.
+# Alert rules of docs/monitoring.md: phase 1 (rows A-E, G) and phase 2 (the application's
+# /metrics, rows F, group findaline). Every rule names its row, a level (alert or info: the
+# notification policy sends info more quietly, once a day) and the server (FINDALINE_PUBLIC_URL
+# of findaline.env); Grafana evaluates them every minute, and a condition must hold for the
+# rule's `for` before it fires. No data is OK for every rule: a source that stops reporting has
+# its own rules (G2), which fire only after 10 minutes without samples, so a fresh start stays
+# quiet. A failing query keeps the last state; only g2-store-unreachable turns an error of the
+# data source into an alert.
+#
+# The application's totals are counted from its rows, and a label value without rows has no
+# series (the first internal error makes its series appear with 1): what grew in a window is
+# now minus then, each side 0 while the application reports (findaline_build_info); not
+# increase_prometheus(), which misses a new series' first value, nor increase(), which guesses
+# from its size. Nothing when the application did not report a window ago (a fresh start of
+# the monitoring stays quiet).
 #
 # Grafana expands environment variables in provisioning files: no literal dollar sign in the
 # texts below (templates use .Values and .Labels, not their dollar aliases).
@@ -985,4 +993,329 @@ groups:
           summary: "Grafana cannot query VictoriaMetrics: no other alert can fire."
           __dashboardUid__: vps
           __panelId__: "40"
+        isPaused: false
+  - orgId: 1
+    name: findaline
+    folder: Find-a-Line
+    interval: 1m
+    rules:
+      - uid: f1-no-worker
+        title: "F1 No live worker"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "sum by (host) (findaline_workers_alive)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: lt, params: [1]}
+        for: 2m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F1
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "No worker has renewed its lease for 2 min: searches wait and estimates fail (docker compose ps worker)."
+          __dashboardUid__: findaline
+          __panelId__: "2"
+        isPaused: false
+      - uid: f2-oldest-waiting
+        title: "F2 Search waiting long"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_job_oldest_waiting_seconds)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [1800]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "A search has waited {{ humanizeDuration (index .Values \"A\").Value }} for the worker (alert above 30 min)."
+          __dashboardUid__: findaline
+          __panelId__: "4"
+        isPaused: false
+      - uid: f2-queue-full
+        title: "F2 Queue nearly full"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "sum by (host) (findaline_jobs) / max by (host) (findaline_queue_max) * 100"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [80]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The queue is at {{ humanize (index .Values \"A\").Value }} % of queue_max for 5 min: new searches are refused at 100 %."
+          __dashboardUid__: findaline
+          __panelId__: "3"
+        isPaused: false
+      - uid: f3-internal-error
+        title: "F3 Internal error"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "(sum by (host) (findaline_jobs_finished_total{error=\"internal\"}) or max by (host) (findaline_build_info) * 0) - (sum by (host) (findaline_jobs_finished_total{error=\"internal\"} offset 10m) or max by (host) (findaline_build_info offset 10m) * 0)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "A search failed by an internal error: its ref is in the worker's log (docker compose logs worker)."
+          __dashboardUid__: findaline
+          __panelId__: "6"
+        isPaused: false
+      - uid: f3-failed-share
+        title: "F3 Many searches failed"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 4200, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "((sum by (host) (findaline_jobs_finished_total{status=\"failed\"}) or max by (host) (findaline_build_info) * 0) - (sum by (host) (findaline_jobs_finished_total{status=\"failed\"} offset 1h) or max by (host) (findaline_build_info offset 1h) * 0)) / ((sum by (host) (findaline_jobs_finished_total) or max by (host) (findaline_build_info) * 0) - (sum by (host) (findaline_jobs_finished_total offset 1h) or max by (host) (findaline_build_info offset 1h) * 0)) * 100 and ((sum by (host) (findaline_jobs_finished_total) or max by (host) (findaline_build_info) * 0) - (sum by (host) (findaline_jobs_finished_total offset 1h) or max by (host) (findaline_build_info offset 1h) * 0)) >= 3"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [30]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F3
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} % of the searches finished in the last hour failed (alert above 30 %, at least 3 finished)."
+          __dashboardUid__: findaline
+          __panelId__: "7"
+        isPaused: false
+      - uid: f5-quick-waiting
+        title: "F5 Quick lane slow"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_quick_oldest_waiting_seconds)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [30]}
+        for: 1m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F5
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "An estimate or profile has waited {{ humanize (index .Values \"A\").Value }} s for the quick lane (alert above 30 s)."
+          __dashboardUid__: findaline
+          __panelId__: "8"
+        isPaused: false
+      - uid: f6-pending-account
+        title: "F6 New account to approve"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_users{status=\"pending\"}) and on (host) ((max by (host) (findaline_users{status=\"pending\"}) or max by (host) (findaline_build_info) * 0) - (max by (host) (findaline_users{status=\"pending\"} offset 10m) or max by (host) (findaline_build_info offset 10m) * 0)) > 0"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F6
+          level: info
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "A new account waits for approval ({{ humanize (index .Values \"A\").Value }} pending): the Admin page."
+          __dashboardUid__: findaline
+          __panelId__: "10"
+        isPaused: false
+      - uid: f7-refusals
+        title: "F7 Jump of refusals"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "sum by (host) (findaline_refusals_last_hour) > 3 * (sum by (host) (avg_over_time(findaline_refusals_last_hour[1d] offset 1h)) or max by (host) (findaline_build_info) * 0)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [20]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F7
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} requests refused by rates or quotas in the last hour, over 3 times the usual: an abuse, or limits too tight."
+          __dashboardUid__: findaline
+          __panelId__: "12"
+        isPaused: false
+      - uid: f8-report
+        title: "F8 New problem report"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 1200, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "max by (host) (findaline_reports_open) and on (host) ((max by (host) (findaline_reports_open) or max by (host) (findaline_build_info) * 0) - (max by (host) (findaline_reports_open offset 10m) or max by (host) (findaline_build_info offset 10m) * 0)) > 0"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F8
+          level: info
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "A new problem report ({{ humanize (index .Values \"A\").Value }} open): the Admin page."
+          __dashboardUid__: findaline
+          __panelId__: "11"
+        isPaused: false
+      - uid: g2-app-silent
+        title: "G2 Application metrics stopped"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "absent_over_time(findaline_build_info[5m])"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [0]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: G2
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "No samples of the application's /metrics (127.0.0.1:8766) for 10 min: the web service is down, or its metrics thread."
+          __dashboardUid__: findaline
+          __panelId__: "2"
         isPaused: false
