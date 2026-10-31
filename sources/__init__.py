@@ -33,14 +33,16 @@ source) names its licence and the notice its data must be shown with (`Credit`):
 each run records them for the layers it used (run.json, the map, ATTRIBUTION.txt).
 
 The modules, each importing only those before it: net (HTTP, host slots, tile locks),
-credit, layer, composed (a layer of an index and a reader), source,
+credit, layer, composed (a layer of an index and a reader), readers/, indexes/, source,
 layers/, catalogue/, choose (the source of a search), mosaic (layers on the working grid),
 filling (water and gaps). This package re-exports what the rest of the app uses. The names
 tests patch (net._get, net._sleep, choose.country_code, layer.DOWNLOAD_THREADS) are not
 re-exported: call and patch them through their module.
 """
 
-from . import catalogue, choose, composed, credit, filling, layer, layers, mosaic, net, source
+from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
+from .readers import tilebases
+from .indexes import tilings
 from .layers import blocks, degree, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import malta, poland, slovakia, spain, switzerland, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
@@ -48,7 +50,8 @@ from .credit import CC_BY, Credit, OSM_CREDIT
 from .layer import Fetched, Layer, download_layers
 from .source import MIN_RESOLUTION, OrthoService, Source
 from .layers.wcs import WcsTiles
-from .layers.gridtiles import GridTiles, MIRROR_ENV, grid_tile_name
+from .readers.tilebases import MIRROR_ENV, grid_tile_name
+from .layers.gridtiles import GridTiles
 from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles, Sheet
 from .layers.sheets import SheetTiles
