@@ -152,11 +152,13 @@ def test_compose_volumes():
 
 
 def test_compose_ports():
-    """Only the web service publishes a port, on the host's loopback (nginx on the host proxies to
-    it, deploy/nginx/findaline-http.conf); its network has the fixed gateway that
-    findaline.env.example trusts as the proxy."""
+    """Only the web service publishes ports, on the host's loopback: the site's (nginx on the host
+    proxies to it, deploy/nginx/findaline-http.conf) and its metrics' (Telegraf on the host reads
+    them, deploy/monitoring/telegraf.conf; nginx never proxies to them); its network has the fixed
+    gateway that findaline.env.example trusts as the proxy."""
     services = _services()
-    assert services["web"]["ports"] == '["127.0.0.1:${WEB_PORT:-8765}:8765"]'
+    assert services["web"]["ports"] == '["127.0.0.1:${WEB_PORT:-8765}:8765", "127.0.0.1:${METRICS_PORT:-8766}:8766"]'
+    assert "--metrics-port" not in services["web"]["command"]  # web --public's default: 8766
     assert services["worker"]["ports"] == "[]"
     with open(os.path.join(ROOT, "compose.yaml"), encoding="utf-8") as f:
         assert "gateway: 172.30.0.1" in f.read()

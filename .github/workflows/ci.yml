@@ -118,6 +118,16 @@ jobs:
           docker compose up --detach --wait --wait-timeout 120
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: findaline.example.org' http://127.0.0.1:8765/)" = 200
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/)" = 400  # any other host
+          # The app's metrics (metrics.py) on their own published loopback port, with a live worker;
+          # never on the site's port, which nginx proxies (the app has no such route)
+          for _ in $(seq 30); do
+            curl -sf http://127.0.0.1:8766/metrics > metrics.txt && grep -qE '^findaline_workers_alive 1\.0$' metrics.txt && break
+            sleep 1
+          done
+          grep -E '^findaline_build_info\{version="[^"]+"\} 1\.0$' metrics.txt
+          grep -E '^findaline_workers_alive 1\.0$' metrics.txt
+          grep -E '^findaline_users\{status="pending"\} ' metrics.txt
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: findaline.example.org' http://127.0.0.1:8765/metrics)" = 404
           # numba's threads follow WORKER_CPUS, not the cores the container sees
           test "$(docker compose exec -T worker python -c 'import numba; print(numba.config.NUMBA_NUM_THREADS)')" = 2
           docker compose stop worker

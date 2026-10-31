@@ -10,7 +10,8 @@
 # - optionally .env next to this file (copy .env.example): resources and the Slovak mirror.
 #
 # Networks (docs/deployment.md, sections 2 and 4): nginx on the host reaches the web service on
-# 127.0.0.1:8765, the only published port (WEB_PORT in .env changes the host's side); the app sees
+# 127.0.0.1:8765 (WEB_PORT in .env changes the host's side), Telegraf its metrics on 127.0.0.1:8766
+# (METRICS_PORT; section 15), the only published ports; the app sees
 # those connections come from the gateway of the network `web`, 172.30.0.1, the
 # FINDALINE_TRUSTED_PROXY of findaline.env. The same network takes the web service to the internet
 # (the OAuth providers' token endpoints, Google's metadata and keys); the worker gets out through
@@ -47,6 +48,9 @@ services:
     pids_limit: 256
     environment:
       FINDALINE_ACCOUNTS_DIR: /accounts
+      # The worker's slots, as the worker gets them below: only reported by the metrics (findaline_slots)
+      FINDALINE_LIMIT_COMPUTE_SLOTS: ${WORKER_COMPUTE_SLOTS:-1}
+      FINDALINE_LIMIT_DOWNLOAD_SLOTS: ${WORKER_DOWNLOAD_SLOTS:-1}
       # The home, numba's compiled code and matplotlib's settings of this service only, gone at
       # every restart (the image's defaults are in the shared /data)
       HOME: /tmp/home
@@ -62,8 +66,9 @@ services:
       - findaline_session_secret
       - findaline_github_client_secret
       - findaline_google_client_secret
-    # The loopback only: nginx on the host proxies to it (deploy/nginx/findaline-http.conf)
-    ports: ["127.0.0.1:${WEB_PORT:-8765}:8765"]
+    # The loopback only: nginx on the host proxies to the site's port (deploy/nginx/findaline-http.conf);
+    # the metrics (metrics.py, --metrics-port 8766) are read by Telegraf on the host, never through nginx
+    ports: ["127.0.0.1:${WEB_PORT:-8765}:8765", "127.0.0.1:${METRICS_PORT:-8766}:8766"]
     networks: [web]
     # GET / with the public host as Host (TrustedHostMiddleware answers 400 to any other);
     # the host comes from the same settings as the server's (settings.PublicSettings)
