@@ -28,6 +28,12 @@
       "type": "link",
       "url": "/d/vps",
       "icon": "dashboard"
+    },
+    {
+      "title": "Find-a-Line",
+      "type": "link",
+      "url": "/d/findaline",
+      "icon": "dashboard"
     }
   ],
   "panels": [
