@@ -37,7 +37,7 @@ class OrthoService:
         return cache.TTL_DAYS["live"] if "/live" in self.folder else None
 
 
-class Listing(NamedTuple):
+class ReadmeRow(NamedTuple):
     """The cells of a source's row in README's "Data sources" table (Markdown; tools/source_docs.py)."""
     where: str
     terrain: str
@@ -71,7 +71,7 @@ class Source:
     # centre (Alaska: its IfSAR where there is no 1 m lidar)
     instead_without_data: Optional[str] = None
     # Its row in README's "Data sources" table (tools/source_docs.py)
-    listing: Optional[Listing] = None
+    listing: Optional[ReadmeRow] = None
     # Rough boxes (country code, (south, north, west, east)) for the country of a point when it
     # cannot be looked up (offline): choose.OFFLINE_BOXES, in the order of SOURCES
     offline: Tuple[Tuple[str, Tuple[float, float, float, float]], ...] = ()

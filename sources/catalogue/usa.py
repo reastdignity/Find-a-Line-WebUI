@@ -5,7 +5,7 @@ from typing import List
 from grid import nad83_utm_crs
 
 from ..credit import Credit
-from ..source import Listing, OrthoService, Source
+from ..source import ReadmeRow, OrthoService, Source
 from ..layers.blocks import DegreeBlocks
 from ..layers.tnm import IfsarBlocks, Usgs1mBlocks
 
@@ -46,7 +46,7 @@ SOURCES: List[Source] = [
         nmt=USGS_1M, countries=("us",), bbox=ALASKA_BOX, local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
         fallback="alaska_ifsar", more_fallbacks=("usgs10m",), instead_without_data="alaska_ifsar",
         credits=(USGS_1M_CREDIT,), note=USA_NOTE,
-        listing=Listing("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM",
+        listing=ReadmeRow("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM",
                         "–", "USGS Imagery"),
         offline=(("us", ALASKA_BOX),), sample=None),  # no 1 m DEM in Alaska yet (2026-10)
     Source(
@@ -55,7 +55,7 @@ SOURCES: List[Source] = [
         nmt=USGS_IFSAR, local_crs=nad83_utm_crs, ortho=USGS_ORTHO, fallback="usgs10m",
         credits=(USGS_IFSAR_CREDIT,),
         note=USA_NOTE + " Alaska's IfSAR is a radar model at 5 m: lines shorter than about 30 m are not reliable.",
-        listing=Listing("Alaska", "USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019)", "–",
+        listing=ReadmeRow("Alaska", "USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019)", "–",
                         "USGS Imagery"),
         sample=(58.3093, -134.3890)),
     Source(
@@ -65,7 +65,7 @@ SOURCES: List[Source] = [
         # 10 km files of 10-450 MB per project: blocks of 1 km read by HTTP range requests
         nmt=USGS_1M, countries=("us", "pr", "vi"), local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
         fallback="usgs10m", credits=(USGS_1M_CREDIT,), note=USA_NOTE,
-        listing=Listing("USA, Puerto Rico, US Virgin Islands",
+        listing=ReadmeRow("USA, Puerto Rico, US Virgin Islands",
                         "USGS 3DEP 1 m DEM (lidar), newest project first", "–",
                         "USGS Imagery (NAIP, up to zoom 16)"),
         offline=(("us", (24.4, 49.4, -125.0, -66.9)), ("pr", (17.8, 18.6, -67.4, -65.2))),
@@ -75,7 +75,7 @@ SOURCES: List[Source] = [
         description="USGS 3DEP seamless 1/3 arc-second DEM (about 10 m): the USA, Hawaii and the territories",
         nmt=USGS_13, local_crs=nad83_utm_crs, ortho=USGS_ORTHO, credits=(USGS_13_CREDIT,),
         note="The 1/3 arc-second DEM has pixels of about 10 m: lines shorter than about 60 m are not reliable.",
-        listing=Listing("USA and its territories", "USGS 3DEP seamless 1/3 arc-second DEM (about 10 m)", "–",
+        listing=ReadmeRow("USA and its territories", "USGS 3DEP seamless 1/3 arc-second DEM (about 10 m)", "–",
                         "USGS Imagery"),
         sample=(38.5610, -109.5680)),
 ]

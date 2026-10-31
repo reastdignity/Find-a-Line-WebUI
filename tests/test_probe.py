@@ -11,6 +11,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
 import update  # noqa: E402
 from sources import probe  # noqa: E402
+from sources.indexes.cached import CachedIndex, Listing  # noqa: E402
+from sources.indexes.versions import NewestPerSheet  # noqa: E402
+from sources.readers.download import Download  # noqa: E402
 
 SAMPLE = (50.5, 19.5)
 ORTHO = src.OrthoService("Fake orthophoto", None, "", "fake/ortho", "fake",
@@ -27,16 +30,28 @@ class Tiles(src.DegreeTiles):
         return super().tiles(grid)
 
 
-class Index(src.IndexedTiles):
-    """An index that cannot be reached (error), or lists nothing there (an empty list)."""
+class FakeListing(Listing):
+    """A listing that cannot be reached (error), or lists nothing there."""
+    url = "https://index.example/wfs"
+
     def __init__(self, error: bool):
-        super().__init__("Fake index", "https://index.example/wfs", "fake", "fake/index", 1.0, 1e6)
         self.error = error
 
-    def _query(self, grid, cache_dir):
+    def fetch(self, lat, lon):
         if self.error:
             raise requests.ConnectionError("refused")
-        return []
+        return {"sheets": []}
+
+
+class Index(src.IndexedTiles):
+    """An index that cannot be reached (error), or lists nothing there (an empty list)."""
+    index_crs = "EPSG:2180"
+
+    def __init__(self, error: bool):
+        super().__init__("Fake index", FakeListing.url, "fake", "fake/index", 1.0, 1e6)
+        self.index = CachedIndex(self.description, FakeListing(error),
+                                 NewestPerSheet(self.folder, self.index_crs, self.native_res), self.prefix, "fake")
+        self.reader = Download(self.description, lambda tile: tile.url, lambda tile: tile.godlo)
 
 
 def _source(sid: str, nmt, nmpt=None, sample=SAMPLE, ortho=None) -> src.Source:

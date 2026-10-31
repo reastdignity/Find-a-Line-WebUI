@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import Listing, OrthoService, Source
+from ..source import ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 
 SWISSTOPO_CREDIT = Credit("swissALTI3D / swissSURFACE3D (swisstopo)", "© swisstopo",
@@ -31,7 +31,7 @@ SOURCES: List[Source] = [
                        "ch.swisstopo.swisssurface3d-raster", "switzerland/swisssurface3d", "EPSG:2056",
                        sizes={0.5: 17e6}),
         countries=("ch", "li"), crs="EPSG:2056", ortho=SWISSIMAGE, credits=(SWISSTOPO_CREDIT,),
-        listing=Listing("Switzerland, Liechtenstein",
+        listing=ReadmeRow("Switzerland, Liechtenstein",
                         "swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey",
                         "swissSURFACE3D Raster, 0.5 m", "SWISSIMAGE (swisstopo)"),
         offline=(("ch", (45.8, 47.85, 5.9, 10.5)),), sample=(46.5960, 7.9070),
