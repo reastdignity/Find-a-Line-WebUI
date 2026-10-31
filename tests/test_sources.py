@@ -11,8 +11,10 @@ import sys
 import numpy as np
 import pytest
 import rasterio as rio
+import requests
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
+from rasterio.warp import transform_bounds
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
@@ -63,7 +65,7 @@ def fake_describe(url, params=None, **kwargs):
 @pytest.fixture
 def layer(monkeypatch):
     monkeypatch.setattr(src.net, "_get", fake_get)
-    monkeypatch.setattr(src.requests, "get", fake_describe)
+    monkeypatch.setattr(requests, "get", fake_describe)
     return src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
                         tile_px=100, fetch_res=1.0, axes=("E", "N"))
 
@@ -266,7 +268,7 @@ class FakeStac:
     def get(self, url, params=None, **kwargs):
         """The items endpoint in pages of two (bbox ignored: every item is near)."""
         if url.startswith("offline"):
-            raise src.requests.ConnectionError("offline")
+            raise requests.ConnectionError("offline")
         start = int(url.split("page=")[1]) if "page=" in url else 0
         self.asked.append(start)
         page = [self.item(*i) for i in self.items[start:start + 2]]
@@ -285,7 +287,7 @@ def test_stac_tiles(tmp_path, monkeypatch):
     import grid as gd
     import osm
     stac = FakeStac([(2019, 26000, 12000), (2025, 26000, 12000), (2019, 26001, 12000)])
-    monkeypatch.setattr(src.requests, "get", stac.get)
+    monkeypatch.setattr(requests, "get", stac.get)
     monkeypatch.setattr(src.net, "_get", stac.download)
     monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
     make = lambda: src.StacTiles("Test", "https://stac.example", "test", "ch/test", "EPSG:2056",
@@ -309,7 +311,7 @@ def test_stac_tiles(tmp_path, monkeypatch):
     # A newer survey: the update downloads it for both resolutions and deletes the older files
     stac.items.append((2026, 26001, 12000))
     stac._add(2026, 26001, 12000)
-    west, south, east, north = src.transform_bounds("EPSG:2056", "EPSG:4326", *coarse.bounds)
+    west, south, east, north = transform_bounds("EPSG:2056", "EPSG:4326", *coarse.bounds)
     (lat, lon), = osm.tiles(west, south, east, north)
     assert layer.update_index_tile(cache_dir, lat, lon)[0::2] == (2, 2)
     assert sorted(os.listdir(folder / "2m")) == ["2025_26000-12000.tif", "2026_26001-12000.tif"]
@@ -437,13 +439,13 @@ class FakeTnm:
 
     def add(self, path, crs, extent, published="2024-01-01"):
         """A product whose file is at path; extent (in crs) gives its box."""
-        west, south, east, north = src.transform_bounds(crs, "EPSG:4326", *extent)
+        west, south, east, north = transform_bounds(crs, "EPSG:4326", *extent)
         self.products.append({"downloadURL": path, "publicationDate": published,
                               "boundingBox": {"minX": west, "minY": south, "maxX": east, "maxY": north}})
 
     def get(self, url, params=None, **kwargs):
         if self.offline:
-            raise src.requests.ConnectionError("offline")
+            raise requests.ConnectionError("offline")
         offset = params["offset"]
         self.asked.append((params["datasets"], offset))
         response = FakeResponse()
@@ -475,7 +477,7 @@ def test_usgs_1m_blocks(tmp_path, monkeypatch, capsys):
     import grid as gd
     import osm
     tnm, files = FakeTnm(), tmp_path / "files"
-    monkeypatch.setattr(src.requests, "get", tnm.get)
+    monkeypatch.setattr(requests, "get", tnm.get)
     monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
     _tile_1m(tnm, files, "CO_West_2020_B20", 1020, columns=slice(0, 106))     # the western half (E < 475 000)
     _tile_1m(tnm, files, "CO_Full_2013", 1013)
@@ -509,7 +511,7 @@ def test_usgs_1m_blocks(tmp_path, monkeypatch, capsys):
 
     # A new project over the tile: an update reads the blocks again and deletes the old ones
     _tile_1m(tnm, files, "CO_New_2025", 1025, published="2026-01-01")
-    west, south, east, north = src.transform_bounds("EPSG:26913", "EPSG:4326", *grid.bounds)
+    west, south, east, north = transform_bounds("EPSG:26913", "EPSG:4326", *grid.bounds)
     results = [layer.update_index_tile(cache_dir, lat, lon) for lat, lon in osm.tiles(west, south, east, north)]
     assert sum(r[0] for r in results) == 4 and sum(r[2] for r in results) == 4
     assert len(os.listdir(folder)) == 4 and all(n.startswith("2025_") for n in os.listdir(folder))
@@ -529,11 +531,11 @@ def test_usgs_1m_blocks(tmp_path, monkeypatch, capsys):
 def test_usgs_1m_zone_of_old_names():
     """A tile named without its zone gets the zone in which its extent lands on its box."""
     extent = [470000, 4420000, 480000, 4430000]
-    west, south, east, north = src.transform_bounds("EPSG:26913", "EPSG:4326", *extent)
+    west, south, east, north = transform_bounds("EPSG:26913", "EPSG:4326", *extent)
     assert src._utm_zone_of({"minX": west, "minY": south, "maxX": east, "maxY": north}, extent) == 13
     # near the edge of a zone the tile of the next zone is told apart by its box
     extent = [760000, 4420000, 770000, 4430000]
-    west, south, east, north = src.transform_bounds("EPSG:26912", "EPSG:4326", *extent)
+    west, south, east, north = transform_bounds("EPSG:26912", "EPSG:4326", *extent)
     assert int(((west + east) / 2 + 180) // 6) + 1 == 13 and \
         src._utm_zone_of({"minX": west, "minY": south, "maxX": east, "maxY": north}, extent) == 12
     assert src._survey_year("https://x/1m/Projects/UT_WestEast_B22/TIFF/a.tif", "2024-10-30") == 2022
@@ -549,7 +551,7 @@ def test_ifsar_blocks(tmp_path, monkeypatch):
     (as USGS's files are), composed into blocks on a fixed grid of EPSG:3338."""
     import grid as gd
     tnm, files = FakeTnm(), tmp_path / "files"
-    monkeypatch.setattr(src.requests, "get", tnm.get)
+    monkeypatch.setattr(requests, "get", tnm.get)
     for name, left, value in (("a", 1100000, 300), ("b", 1107500, 400)):  # meet inside a 5 km block
         path = (files / "Projects" / "AK_IFSAR_2012" / f"Cell_{name}_2012" / "TIFF" / f"USGS_AK5M_{name}.tif")
         _usgs_file(path.as_posix(), rio.crs.CRS.from_proj4(ALBERS_GRS80), left, 1200000, RES,
@@ -582,7 +584,7 @@ def test_degree_blocks(tmp_path):
     layer = src.DegreeBlocks("Test 1/3", "usa/test13/live", lambda name: str(tmp_path / "files" / f"{name}.tif"),
                              "EPSG:4269", px_per_degree=px, native_res=1000)
     cache_dir = str(tmp_path / "cache")
-    x, y = src.rio.warp.transform("EPSG:4326", "EPSG:26911", [-119.55], [37.95])
+    x, y = rio.warp.transform("EPSG:4326", "EPSG:26911", [-119.55], [37.95])
     grid = gd.make_grid((x[0] - 2000, y[0] - 2000, x[0] + 2000, y[0] + 9000), 100, "EPSG:26911")
     tiles = layer.tiles(grid)
     assert (-1196, 379) in tiles and (-1196, 380) in tiles                     # 38.0° N is in the next file
