@@ -3,9 +3,10 @@
 # functions of deploy/vps.sh that setup and update run (docs/deployment.md, sections 4 and 5), in
 # front of the running web service of compose.yaml: nginx -t, then the answers through it (headers
 # once each, HTTP/2, gzip, Upgrade refused, http to https, www to the site's name, unknown names
-# refused, the masked log,
-# the rate limits, the tiles' own) and fail2ban's filter on the log it wrote (not the tiles' 429);
-# also the script's edits of ufw's stock rules files (section 2). A self-signed certificate stands in for certbot's. Run it in a fresh
+# refused, the masked log, the metrics log without addresses and its route groups, stub_status on
+# the loopback only, logrotate covering the logs, the rate limits, the tiles' own) and fail2ban's
+# filter on the log it wrote (not the tiles' 429); also the script's edits of ufw's stock rules
+# files (section 2). A self-signed certificate stands in for certbot's. Run it in a fresh
 # container on the network of the web service (CI: the docker job):
 #   docker run --rm --network findaline_web -v "$PWD:/src:ro" \
 #     ubuntu:26.04@sha256:<digest of .github/workflows/ci.yml> bash /src/tests/nginx_check.sh
@@ -21,7 +22,8 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 echo "== packages"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq --no-install-recommends nginx fail2ban ufw curl openssl ca-certificates >/dev/null
+apt-get install -y -qq --no-install-recommends nginx fail2ban ufw curl openssl ca-certificates logrotate \
+  iproute2 python3 >/dev/null
 nginx -v
 
 echo "== install (deploy/vps.sh: nginx_files, fail2ban_files)"
@@ -43,7 +45,10 @@ CHANGED=0; nginx_files
 { [ "$CHANGED" = 1 ] && [ -L /etc/nginx/sites-enabled/findaline ]; } || fail "the site of port 443 not enabled with its certificate"
 CHANGED=0; nginx_files
 [ "$CHANGED" = 0 ] || fail "nginx_files changed something the second time"
-fail2ban_files
+CHANGED=0; fail2ban_files
+[ "$CHANGED" = 1 ] || fail "fail2ban_files changed nothing"
+CHANGED=0; fail2ban_files
+[ "$CHANGED" = 0 ] || fail "fail2ban_files changed something the second time"
 # Only for this test: the upstream
 sed -i "s/server 127\.0\.0\.1:8765;/server $UPSTREAM;/" /etc/nginx/conf.d/findaline-http.conf
 nginx -t
@@ -119,6 +124,52 @@ grep -q '"GET /s/<token>/map.html HTTP/2.0"' $log || fail "the masked share link
 grep -q '"GET /auth/github?<query> HTTP/2.0"' $log || fail "the masked sign-in callback"
 grep -q '"https://findaline.example.org/s/<token>/map.html"' $log || fail "the masked Referer"
 
+echo "== the metrics log"
+metrics=/var/log/nginx/findaline.metrics.log
+here=$(ip -4 -o addr show scope global | awk '{sub(/\/.*/, "", $4); print $4; exit}')  # this container's address
+# The group of each request's line (written when the request ends, so in this order)
+for pair in "/api/schema api" "/api/events events" "/cache/none.png cache" "/s/$TOKEN/map.html share" \
+            "/login/github auth" "/auth/github?code=secretcode&state=x auth" "/app/app.js app" "/ page" "/privacy page"; do
+  path=${pair% *}; group=${pair##* }
+  code "https://$SITE$path" >/dev/null
+  last=$(tail -n 1 $metrics)
+  grep -q "\"group\":\"$group\"" <<< "$last" || fail "$path: group not $group in $last"
+done
+tail -n 2 $metrics
+lines=$(wc -l < $metrics)
+code "https://www.$SITE/app/" >/dev/null
+code "http://$SITE/app/" >/dev/null
+[ "$(wc -l < $metrics)" = "$lines" ] || fail "the redirects of www and port 80 in the metrics log"
+# Every line JSON with the contract's fields, numbers as numbers, nothing of an address
+python3 - "$metrics" <<'PY' || fail "the metrics log's lines"
+import json, sys
+keys = {"time", "group", "method", "status", "request_time", "upstream_time", "bytes", "limit"}
+for line in open(sys.argv[1]):
+    entry = json.loads(line)
+    assert set(entry) == keys, entry
+    assert all(isinstance(entry[k], (int, float)) for k in ("time", "status", "request_time", "bytes")), entry
+    assert all(isinstance(entry[k], str) for k in ("group", "method", "upstream_time", "limit")), entry
+PY
+for address in 127.0.0.1 "$here" "$TOKEN" secret github privacy /api /cache Mozilla curl; do
+  ! grep -qF -- "$address" $metrics || fail "$address in the metrics log"
+done
+
+echo "== stub_status"
+"${C[@]}" http://127.0.0.1:8081/nginx_status | grep -q '^Active connections:' || fail "stub_status on 127.0.0.1:8081"
+[ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/)" = 404 ] || fail "more than stub_status on 127.0.0.1:8081"
+if curl -s --max-time 5 "http://$here:8081/nginx_status" -o /dev/null; then
+  fail "stub_status answers on $here"
+fi
+for url in "https://$SITE/nginx_status" "http://$SITE/nginx_status" "https://www.$SITE/nginx_status"; do
+  ! "${C[@]}" "$url" | grep -q 'Active connections' || fail "stub_status through $url"
+done
+! ss -Hltn | awk '{print $4}' | grep ':8081$' | grep -qvx '127.0.0.1:8081' || fail "nginx listens on 8081 beyond the loopback"
+
+echo "== logrotate"
+for file in findaline.access.log findaline.error.log findaline.metrics.log; do
+  logrotate -d /etc/logrotate.d/nginx 2>&1 | grep -q "/var/log/nginx/$file" || fail "logrotate leaves out $file"
+done
+
 echo "== rate limits and the jail's filter"
 counts=$(seq 400 | xargs -P 16 -I{} "${C[@]}" -o /dev/null -w '%{http_code}\n' "https://$SITE/api/schema" | sort | uniq -c)
 echo "$counts"
@@ -130,6 +181,8 @@ echo "$tiles"
 logins=$(for _ in $(seq 15); do code "https://$SITE/login/github"; echo; done | sort | uniq -c)
 echo "$logins"
 echo "$logins" | grep -q ' 429$' || fail "no 429 beyond the sign-in burst"
+grep -q '"status":429,.*"limit":"REJECTED"' $metrics || fail "nginx's refusals not in the metrics log"
+grep -q '"limit":"PASSED"' $metrics || fail "no request let through by a limit in the metrics log"
 matched=$(fail2ban-regex $log /etc/fail2ban/filter.d/findaline.conf | sed -n 's/^Lines: .* \([0-9]*\) matched.*/\1/p')
 echo "fail2ban-regex: $matched lines matched"
 [ "${matched:-0}" -gt 100 ] || fail "the filter matched ${matched:-0} refusals"
