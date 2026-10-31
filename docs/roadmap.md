@@ -23,6 +23,7 @@ Planned features and the decisions already made for them. Nothing here is implem
 | Runs in public (stage 4) | Private to their owner, shared by an unguessable link (renewable, revocable); an admin can mark a run as a public demo. |
 | Orthophoto in public (stage 4) | Ordinary users get a cache limited per job; above the limit the map loads the orthophoto online. |
 | Own code or library (stage 4) | Popular, maintained libraries first (table under "Stage 4"); the job queue and the Nominatim cache stay our own. |
+| Monitoring (2026-10-31) | Telegraf on the host → VictoriaMetrics → Grafana (opened through an SSH tunnel only), alerts to ntfy, statistics kept without a time limit, aggregates only; users by country from the browser's time zone and from the searched areas; the area searched shown to each user and its total on the sign-in page ([monitoring.md](monitoring.md)). |
 
 ## Order
 Chosen to keep the cost and the risk of errors low: a safety net first, foundations before what builds on them, nothing built twice.
@@ -148,6 +149,17 @@ FastAPI and Starlette stay pinned in `uv.lock` and are raised deliberately (Fast
 - Orthophoto tiles the cache cannot have (planned 2026-10-30, branch `ortho-cache-bounds`): a map asks the cache first for every tile (`layers.ts`, `createCachedTile`) and takes the service's after a 404, so outside a run's area and zooms almost half of the requests to `/cache/` are 404s (182 of 402 when a map was zoomed from 17 to 10 on 2026-10-30, which also got its user banned: the tiles' own limit and the filter's `ignoreregex` since then). The map knows where the cache can hold tiles (`orthophoto.OVERVIEW_ZOOMS` over the area, `DETAIL_ZOOMS` near the lines): outside it, ask the service directly.
 - Very large runs (numpy columns, a viewer served by the app; see "Very large areas"); this stage only limits the lines and compresses.
 - **Own Nominatim and Overpass instances.** Used for: Nominatim for `osm:<name>`, run names and `country_code`; Overpass for the `coastline`/`cliff` theme tiles, which the Geofabrik extracts already replace. Needed when the traffic exceeds the public instances' policies despite the cache, quotas and limiters, or for areas without extracts. Cost (estimates): Nominatim is PostgreSQL+PostGIS, for the planet ≥ 64 GB RAM and about 900 GB NVMe, a country much less; Overpass for a region tens of GB of disk and a few GB of RAM; both need updating with diffs. A cheaper step first: `country_code` from the outlines of the Geofabrik index (to check at borders where the outlines overlap).
+
+## Monitoring (planned 2026-10-31)
+
+[monitoring.md](monitoring.md) holds the plan: what to watch on the VPS and in the application (the
+table of rows A–G with their alerts, priorities and phases), the architecture, the storage and the
+changes of the privacy page. Phase 1 (the host, Docker, nginx, systemd, the backup, an outside
+heartbeat) needs no application code; phase 2 adds `/metrics` to the web process, migration 13 of
+`jobs.sqlite` (the start times of the phases, `area_km2`, `country`), `users.country` in
+`accounts.sqlite`, the area searched in the app and on the sign-in page, and the privacy page's
+changes. Open: which rows first, the outside check (healthchecks.io or UptimeRobot), the Docker
+socket proxy, Telegraf's package source, `prometheus_client` or OpenTelemetry.
 
 ## Lines list, group choice and favourites (done 2026-10-28)
 
