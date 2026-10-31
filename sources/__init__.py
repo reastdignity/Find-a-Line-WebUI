@@ -33,13 +33,14 @@ source) names its licence and the notice its data must be shown with (`Credit`):
 each run records them for the layers it used (run.json, the map, ATTRIBUTION.txt).
 
 The modules, each importing only those before it: net (HTTP, host slots, tile locks),
-credit, layer, source, layers/, catalogue/, choose (the source of a search), mosaic (layers
-on the working grid), filling (water and gaps). This package re-exports what the rest of
-the app uses. The names tests patch (net._get, net._sleep, choose.country_code,
-layer.DOWNLOAD_THREADS) are not re-exported: call and patch them through their module.
+credit, layer, composed (a layer of an index and a reader), source,
+layers/, catalogue/, choose (the source of a search), mosaic (layers on the working grid),
+filling (water and gaps). This package re-exports what the rest of the app uses. The names
+tests patch (net._get, net._sleep, choose.country_code, layer.DOWNLOAD_THREADS) are not
+re-exported: call and patch them through their module.
 """
 
-from . import catalogue, choose, credit, filling, layer, layers, mosaic, net, source
+from . import catalogue, choose, composed, credit, filling, layer, layers, mosaic, net, source
 from .layers import blocks, degree, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import malta, poland, slovakia, spain, switzerland, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock

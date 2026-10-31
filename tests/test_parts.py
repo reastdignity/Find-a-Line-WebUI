@@ -115,3 +115,75 @@ def test_recorded_index_answers(case, http_server, tmp_path):
                      for a in recorded["answers"]]
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
 
+
+# The composed layer, with fake parts
+
+class FakeIndex(src.composed.Index):
+    """Tiles 0..n-1 of a fake grid; tile 2 is where the service has no data."""
+
+    def __init__(self, n):
+        self.n = n
+
+    def tiles(self, grid):
+        return list(range(self.n))
+
+    def path(self, cache_dir, tile):
+        return os.path.join(cache_dir, "fake", "layer", f"{tile}.bin")
+
+    def request(self, tile):
+        return {"tile": tile, "url": f"https://fake.example/{tile}.bin"}
+
+    def tile_of(self, path):
+        name = path.removeprefix("fake/layer/")
+        return int(name[:-4]) if name != path and name.endswith(".bin") else None
+
+    def bounds_wgs84(self, tile):
+        return tile, 0, tile + 1, 1
+
+
+class FakeReader(src.composed.Reader):
+    def __init__(self):
+        self.fetched = []
+
+    def fetch(self, request, path):
+        self.fetched.append(request["tile"])
+        if request["tile"] == 2:
+            return src.Fetched(0, request["url"])
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(b"x" * 10)
+        return src.Fetched(10, request["url"])
+
+    def url(self, request):
+        return request["url"]
+
+    def unavailable(self):
+        return "not here" if not self.fetched else None
+
+
+class FakeLayer(src.composed.ComposedLayer):
+    description, folder, native_res, _bytes = "Fake", "fake/layer", 1.0, 1e6
+
+    def __init__(self, n):
+        self.index, self.reader = FakeIndex(n), FakeReader()
+
+
+def test_composed_layer(tmp_path, capsys):
+    """A composed layer is a Layer made of its index and its reader: tiles, paths, estimates,
+    the download of every layer with its locks and the cache's records."""
+    layer, cache_dir = FakeLayer(4), str(tmp_path)
+    assert layer.tiles(None) == [0, 1, 2, 3]
+    assert layer.tile_path(cache_dir, 1) == os.path.join(cache_dir, "fake", "layer", "1.bin")
+    assert layer.tile_of("fake/layer/3.bin") == 3 and layer.tile_of("other/3.bin") is None
+    assert layer.tile_url(1) == "https://fake.example/1.bin" and layer.bounds_wgs84(1) == (1, 0, 2, 1)
+    assert layer.has_data_near(0, 0, cache_dir) is None and layer.unavailable() == "not here"
+    assert layer.estimate(None, cache_dir, None) == (4, 4, 4.0)
+    src.download_layers([(layer, "fake")], None, cache_dir)
+    assert sorted(layer.reader.fetched) == [0, 1, 2, 3] and layer.unavailable() is None
+    assert "Fake: 4 tiles (0 cached, 4 to download)" in capsys.readouterr().out
+    assert [cache.state(cache_dir, layer.tile_path(cache_dir, t)) for t in range(4)] == ["ok", "ok", "missing", "ok"]
+    assert layer.estimate(None, cache_dir, None) == (4, 0, 0.0)
+    assert layer.used(None, cache_dir)["paths"] == ["fake/layer/0.bin", "fake/layer/1.bin", "fake/layer/3.bin"]
+    layer.reader.fetched.clear()
+    src.download_layers([(layer, "fake")], None, cache_dir)
+    assert layer.reader.fetched == []  # all cached or missing
