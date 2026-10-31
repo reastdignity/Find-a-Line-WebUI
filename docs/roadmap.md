@@ -23,7 +23,7 @@ Planned features and the decisions already made for them. Nothing here is implem
 | Runs in public (stage 4) | Private to their owner, shared by an unguessable link (renewable, revocable); an admin can mark a run as a public demo. |
 | Orthophoto in public (stage 4) | Ordinary users get a cache limited per job; above the limit the map loads the orthophoto online. |
 | Own code or library (stage 4) | Popular, maintained libraries first (table under "Stage 4"); the job queue and the Nominatim cache stay our own. |
-| Monitoring (2026-10-31) | Telegraf on the host → VictoriaMetrics → Grafana (opened through an SSH tunnel only), alerts to ntfy, statistics kept without a time limit, aggregates only; users by country from the browser's time zone and from the searched areas; the area searched shown to each user and its total on the sign-in page ([monitoring.md](monitoring.md)). |
+| Monitoring (2026-10-31) | Telegraf (a container with the host's network) → VictoriaMetrics → Grafana (opened through an SSH tunnel only), alerts to ntfy, statistics kept without a time limit, aggregates only; users by country from the browser's time zone and from the searched areas; the area searched shown to each user and its total on the sign-in page ([monitoring.md](monitoring.md)). |
 
 ## Order
 Chosen to keep the cost and the risk of errors low: a safety net first, foundations before what builds on them, nothing built twice.
@@ -158,8 +158,9 @@ changes of the privacy page. Phase 1 (the host, Docker, nginx, systemd, the back
 heartbeat) needs no application code; phase 2 adds `/metrics` to the web process, migration 13 of
 `jobs.sqlite` (the start times of the phases, `area_km2`, `country`), `users.country` in
 `accounts.sqlite`, the area searched in the app and on the sign-in page, and the privacy page's
-changes. Open: which rows first, the outside check (healthchecks.io or UptimeRobot), the Docker
-socket proxy, Telegraf's package source, `prometheus_client` or OpenTelemetry.
+changes. Decided too: phase 1 before phase 2, Telegraf as the official Docker image with the
+host's network, wollomatic/socket-proxy for Docker's API, healthchecks.io as the outside check,
+`prometheus_client` for `/metrics`.
 
 ## Lines list, group choice and favourites (done 2026-10-28)
 
