@@ -188,6 +188,53 @@ def test_evaluate_lines_matches_evaluate_line(model):
         assert 0 < sum(0 < line.high_pct < 100 for line in fast)  # the threshold is crossed
 
 
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_kernels_independent_of_threads(model):
+    """The parallel kernels give the same results (==, in the same order) with any number of
+    threads (--threads, NUMBA_NUM_THREADS): no float sum across prange iterations, every
+    result written at its iteration's place. Odd counts move the borders between threads."""
+    import numba
+
+    import helpers as sh
+    import linesearch as ls
+    import sag
+    import terrain
+    rng = np.random.default_rng(11)
+    z = (rng.random((160, 160)) * 3 + 100).astype(np.float32)
+    z[:, :20] += 60                                          # a canyon between two walls
+    z[:, 140:] += 55 + rng.random((160, 20)).astype(np.float32) * 10
+    z[rng.random((160, 160)) < 0.003] = np.nan
+    surface = (z + rng.random((160, 160)) * 20).astype(np.float32)
+    anchors = np.vstack([np.column_stack([np.arange(0, 160, 2), np.full(80, 19)]),
+                         np.column_stack([np.arange(1, 160, 2), np.full(80, 140)]),
+                         rng.integers(0, 160, (60, 2))])
+    first = rng.random(len(anchors)) < 0.7
+    table = sag.EnvelopeTable(sag.Rigging(), 20, 200) if model == "sag" else None
+    mask = rng.random((160, 160)) < 0.2
+    most = numba.config.NUMBA_NUM_THREADS
+    results = []
+    try:
+        for threads in sorted({1, min(3, most), min(7, most), most}):
+            numba.set_num_threads(threads)
+            values = np.column_stack([terrain.prominence(z, anchors, 1.0, 40), terrain.drop(z, anchors, 1.0, 30)])
+            found = ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", threads=threads,
+                                        sag_table=table, max_dh_ratio=0.3, first=first,
+                                        limits=sh.LineLimits(max_wall_angle=120), anchor_values=values)
+            covered = ls.covered_metres(found.columns["a1"], found.columns["a2"], 1.0, mask)
+            results.append((threads, values, found.columns, covered))
+    finally:
+        numba.set_num_threads(most)
+    _, values, columns, covered = results[0]
+    assert len(columns["a1"]) > 100
+    for threads, other_values, other_columns, other_covered in results[1:]:
+        assert np.array_equal(other_values, values, equal_nan=True), threads
+        assert other_columns.keys() == columns.keys(), threads
+        for name in columns:
+            assert np.array_equal(other_columns[name], columns[name], equal_nan=columns[name].dtype.kind == "f"), \
+                (threads, name)
+        assert other_covered == covered, threads
+
+
 def test_wall_angles():
     """The downslope direction of a slope and the angle of lines leaving it."""
     import helpers as sh
