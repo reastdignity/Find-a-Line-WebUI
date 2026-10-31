@@ -1,5 +1,6 @@
 # ntfy (docs/monitoring.md, "Alerts"): a webhook to the secret topic, whose whole URL is the Docker
-# secret ntfy_url (Grafana reads the file when it provisions). Grafana's own JSON payload carries a
+# secret ntfy_url (FINDALINE_NTFY_URL, set from it by Grafana's entrypoint in compose.yaml;
+# grafana://noop while the secret is empty). Grafana's own JSON payload carries a
 # short title and message (the templates of templates.yaml); ntfy's built-in `grafana` template
 # (header X-Template) turns them into the notification's title (with a mark for firing or
 # resolved) and text, instead of the raw JSON. The info notices go with a low priority.
@@ -13,7 +14,7 @@ contactPoints:
         type: webhook
         disableResolveMessage: false
         settings:
-          url: $__file{/run/secrets/ntfy_url}
+          url: ${FINDALINE_NTFY_URL}
           httpMethod: POST
           title: '{{ template "findaline.title" . }}'
           message: '{{ template "findaline.message" . }}'
@@ -28,7 +29,7 @@ contactPoints:
         type: webhook
         disableResolveMessage: true
         settings:
-          url: $__file{/run/secrets/ntfy_url}
+          url: ${FINDALINE_NTFY_URL}
           httpMethod: POST
           title: '{{ template "findaline.title" . }}'
           message: '{{ template "findaline.message" . }}'

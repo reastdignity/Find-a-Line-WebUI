@@ -114,6 +114,16 @@ services:
     <<: *hardening
     image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
     user: "472:472"
+    # The ntfy topic's URL from its secret into FINDALINE_NTFY_URL (the contact points'); an empty
+    # secret (before setup has a topic) becomes Grafana's grafana://noop, which sends nothing:
+    # an empty URL would fail the provisioning and with it Grafana's start
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        url="$$(cat /run/secrets/ntfy_url)"
+        export FINDALINE_NTFY_URL="$${url:-grafana://noop}"
+        exec /run.sh
     mem_limit: 512m
     memswap_limit: 512m
     pids_limit: 256

@@ -196,7 +196,7 @@ def test_telegraf_reads_the_contract_paths():
     units = " ".join(i["pattern"] for i in config["inputs"]["systemd_units"]).split()
     assert sorted(units) == sorted([
         "nginx.service", "docker.service", "fail2ban.service", "ssh.service", "certbot.timer",
-        "findaline-backup.timer", "findaline-facts.timer", "findaline-heartbeat.timer",
+        "findaline-backup.timer", "findaline-facts.timer", "findaline-check.timer", "findaline-heartbeat.timer",
         "unattended-upgrades.service"])
 
 
@@ -212,7 +212,9 @@ def test_grafana_provisioning_valid():
     points = yaml.safe_load(_load("grafana", "provisioning", "alerting", "contact-points.yaml"))["contactPoints"]
     for point in points:
         for receiver in point["receivers"]:
-            assert receiver["settings"]["url"] == "$__file{/run/secrets/ntfy_url}"
+            assert receiver["settings"]["url"] == "${FINDALINE_NTFY_URL}"
+    entrypoint = _compose()["services"]["grafana"]["entrypoint"][-1]
+    assert 'url="$$(cat /run/secrets/ntfy_url)"' in entrypoint and "grafana://noop" in entrypoint
 
 
 def test_alert_rules():
