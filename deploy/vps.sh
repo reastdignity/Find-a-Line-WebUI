@@ -830,7 +830,7 @@ check() {
         out=$(compose exec -T -e ADDRESSES="$addresses" "$service" python -c "
 import os, socket, urllib.request
 targets = [(a, 22) for a in os.environ['ADDRESSES'].split()] + [(a, 443) for a in os.environ['ADDRESSES'].split()]
-targets += [('172.30.0.1', 8765), ('169.254.169.254', 80), ('10.0.0.1', 80), ('192.168.0.1', 80), ('100.64.0.1', 80)]
+targets += [('172.30.0.1', 8765), ('172.30.0.1', 8766), ('169.254.169.254', 80), ('10.0.0.1', 80), ('192.168.0.1', 80), ('100.64.0.1', 80)]
 for host, port in targets:
     try:
         socket.create_connection((host, port), 3).close()

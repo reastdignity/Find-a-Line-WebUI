@@ -278,6 +278,7 @@
   "error.rate_estimate": "Too many estimates in a short time. Wait a minute and try again.",
   "error.rate_profile": "Too many profiles in a short time. Wait a minute and try again.",
   "error.rate_place": "Too many place searches in a short time. Wait a minute and try again.",
+  "error.rate_time_zone": "Too many time zone updates in a short time. Wait a minute and try again.",
   "error.rate_report": "Too many problem reports in a short time. Wait a minute and try again.",
   "error.rate_job": "Too many searches started in a short time. Wait a minute and try again.",
   "error.disk_full": "The server is short of disk space. New searches cannot start now. Try again later.",

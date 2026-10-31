@@ -1555,7 +1555,7 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
          f"time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
         ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
          f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
-         f"folders of favourites made, changed and deleted (not their names), problem reports sent (not their "
+         f"folders of favourites made, changed and deleted (not their names), changes of your account's country, problem reports sent (not their "
          f"text), other "
          f"administrators' actions and refusals by a "
          f"limit: the time, the action, the user id and what it concerned. Why: to find abuse and mistakes. "
