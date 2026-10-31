@@ -1,6 +1,7 @@
 # Data sources at scale: how to add many countries (proposal, 2026-10-31)
 
-A proposal for a decision, not a description of the code. The goal is to support as many countries as possible
+A proposal, not a description of the code. **Decided 2026-10-31** (the user): option B, with steps 1–3 (the
+refactoring and the tools) before new sources; see the roadmap, "New data sources". The goal is to support as many countries as possible
 at a cost per country that stays low, with code that others can read and extend. The numbers come from the
 survey of 2026-10-31 ([source-survey.md](source-survey.md): 231 sources in Europe, the Americas, Oceania and
 Asia). Decisions taken from it go into the roadmap.

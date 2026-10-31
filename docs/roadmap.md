@@ -196,10 +196,10 @@ Users found the app hard to navigate.
 ## New data sources
 Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a hosted copy, see below), then Switzerland (done first, 2026-10-26: it needed no hosting); Greece has no usable national source. The USA was researched on 2026-10-26 and its terrain added on 2026-10-30 (below); its surface model is still to come.
 
-### Survey of 2026-10-31: Europe, the Americas, Oceania, Asia (decision pending)
+### Survey of 2026-10-31: Europe, the Americas, Oceania, Asia
 - **What**: 231 sources (countries and regions) researched with quick read-only tests: [source-survey.md](source-survey.md), with notes per continent and the rows as data in `source-survey/`. 19 of high priority (1–2 m, open terms, automatic access, highline terrain), 41 medium, 63 low, 108 with nothing better than FABDEM (most of Asia, South America and the Middle East).
 - **Proposal** ([sources-architecture.md](sources-architecture.md)): the 55 deliveries of high or medium priority combine 9 ways of finding files with 8 ways of reading them in 21 combinations, of which today's classes cover 5. Recommended: the sources as parts (indexes and readers) composed by a generic layer, one data-only Python module per source in a `sources/` package; first the package split and the parts without any change of results, then generated lists, `tools/check_source.py` and a source probe, then regions (ISO 3166-2) and neighbours across borders, then the sources in the survey's suggested order (England, Lower Saxony, Austria, Wales... then France, Norway, Canada, the ImageServer reader).
-- **To decide** (the user): the architecture, and which sources come first.
+- **Decided** (the user, 2026-10-31): option B of the proposal (parts composed by a generic layer, one data-only module per source), and the refactoring and tools first (steps 1–3: the package and its parts without any change of results, generated lists, `tools/check_source.py`, the source probe), the sources after them in the survey's suggested order.
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
