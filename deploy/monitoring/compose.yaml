@@ -1,6 +1,6 @@
 # Monitoring of the public site (docs/monitoring.md): Telegraf reads the host, the containers,
 # nginx and the facts files of the host's timers and writes to VictoriaMetrics; Grafana shows the
-# dashboards VPS and Site and sends its alerts to ntfy. A project of its own, so monitoring is
+# dashboards VPS, Site and Find-a-Line and sends its alerts to ntfy. A project of its own, so monitoring is
 # started, updated and stopped without touching the site (compose.yaml of the checkout's root).
 #
 # deploy/vps.sh runs it from the checkout's root (docker compose -f deploy/monitoring/compose.yaml
@@ -121,7 +121,7 @@ services:
       - /bin/sh
       - -c
       - |
-        url="$$(cat /run/secrets/ntfy_url)"
+        url="$$(tr -d '\r\n' < /run/secrets/ntfy_url)"
         export FINDALINE_NTFY_URL="$${url:-grafana://noop}"
         exec /run.sh
     mem_limit: 512m

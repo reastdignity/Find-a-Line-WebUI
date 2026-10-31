@@ -1,8 +1,8 @@
 # Monitoring
 
 What to watch on the VPS of the public site and in the application, where each value comes
-from, how it is stored and when it raises an alert. Planned 2026-10-31; phase 1 is built
-(`deploy/monitoring/`, docs/deployment.md section 15), phase 2 is not yet. The public site and its server are described in
+from, how it is stored and when it raises an alert. Planned 2026-10-31; phases 1 and 2 are built
+(`deploy/monitoring/`, `metrics.py`, docs/deployment.md section 15), phase 3 is not. The public site and its server are described in
 [deployment.md](deployment.md); the plans of the project in [roadmap.md](roadmap.md).
 
 Today the operator checks by hand (`sudo deploy/vps.sh check`, the *Admin* page, `docker compose
@@ -142,7 +142,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | F1 | Worker alive: age of its lease, number of workers | alert: no live worker for 2 min (the worker healthcheck deferred in the roadmap) | table `workers`, as `Jobs.worker_alive` | P1 | 2 |
 | F2 | Queue by status, age of the oldest waiting job, against `queue_max`; jobs per phase against `compute_slots` / `download_slots` | alert: the oldest waits > 30 min; > 80 % of `queue_max` | table `jobs` | P1 | 2 |
 | F3 | Finished jobs by result and error code | alert: any internal error; > 30 % failed in 1 h | `error_info` code, or a category from the text (time limit, worker stopped, internal, interrupted); counters as `COUNT(*) GROUP BY` (job rows are kept) | P1 | 2 |
-| F4 | Duration of jobs: in total, waiting, downloading, computing | trend; close to the time limits | the total from `finished - created`; the phases need columns of their start times (migration 13 of `jobs.sqlite`) | P2 | 2 |
+| F4 | Duration of jobs: in total, waiting, downloading (until computing starts, so the wait for a compute slot too), computing (`findaline_job_phase_seconds`, a summary) | trend; close to the time limits | the total from `finished - created`; the phases need columns of their start times (migration 13 of `jobs.sqlite`) | P2 | 2 |
 | F5 | The quick lane (estimates, profiles, places): waiting, age of the oldest, 503/504 answers | alert: the oldest waits > 30 s | table `quick`; counters in the memory of the web process | P2 | 2 |
 | F6 | Accounts by status | info: a new account is pending approval | `accounts.sqlite` | P1 | 2 |
 | F7 | Activity: sessions seen in 15 min and 24 h; sign-ins, sign-ups, jobs added, share links, refusals (rate, quota) in the last hour | alert: a sudden jump of refusals | `sessions.seen`; `audit` (a window of 1 h) | P2 | 2 |
