@@ -228,3 +228,5 @@ findaline.env
 compose.override.yaml
 secrets/*
 !secrets/README.md
+# The monitoring project's variables (written by deploy/vps.sh; .env.example is committed)
+deploy/monitoring/.env

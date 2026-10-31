@@ -1,0 +1,217 @@
+# Monitoring of the public site (docs/monitoring.md): Telegraf reads the host, the containers,
+# nginx and the facts files of the host's timers and writes to VictoriaMetrics; Grafana shows the
+# dashboards VPS and Site and sends its alerts to ntfy. A project of its own, so monitoring is
+# started, updated and stopped without touching the site (compose.yaml of the checkout's root).
+#
+# deploy/vps.sh runs it from the checkout's root (docker compose -f deploy/monitoring/compose.yaml
+# pull, then up -d --wait); the project directory is this folder. Before that:
+# - .env next to this file (copy .env.example): DOCKER_GID and ADM_GID of the host;
+# - ../../findaline.env (the site's settings): Telegraf reads FINDALINE_PUBLIC_URL from it;
+# - ../../secrets/grafana_admin_password and ../../secrets/ntfy_url, readable by uid 472
+#   (Grafana's user); secrets/README.md.
+#
+# Nothing is reachable from outside: VictoriaMetrics, Grafana and the socket proxy publish their
+# ports on the host's loopback only (Grafana is opened through an SSH tunnel, docs/deployment.md);
+# Telegraf runs in the host's network namespace and listens on nothing. Their network has a fixed
+# bridge name, br-fal-mon, so the host's firewall keeps it away from private addresses and the
+# host like the site's networks (deploy/firewall/ufw-after.rules).
+
+name: findaline-monitoring
+
+x-hardening: &hardening
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+services:
+  # The host through read-only mounts: /proc, /sys and the mount table of the host under /hostfs
+  # (HOST_* point gopsutil there, HOST_MOUNT_PREFIX is stripped from the disk paths), nginx's
+  # logs (group adm), systemd's units through the D-Bus socket and the facts files of the host's
+  # timers; the containers through the socket proxy, never the Docker socket itself (root on the
+  # host). In the host's network namespace, so it reaches the loopback ports (VictoriaMetrics,
+  # the proxy, nginx's stub_status) and the site's own address like a process of the host: on a
+  # network of its own, ufw-before.rules would cut it off from them.
+  telegraf:
+    <<: *hardening
+    image: telegraf:1.40.2@sha256:3992a56245a9477dfad5b98d9354d3ea7c1bced0aab6630ba49f23ac9a4d269e
+    network_mode: host
+    # The image's user telegraf (its entrypoint drops root itself only when started as root);
+    # the group adm reads nginx's logs (0640 www-data adm)
+    user: "999:999"
+    group_add: ["${ADM_GID:?ADM_GID missing: copy .env.example to .env}"]
+    mem_limit: 192m
+    memswap_limit: 192m
+    pids_limit: 128
+    env_file: [../../findaline.env]   # FINDALINE_PUBLIC_URL: the certificate and the site (C5, C6)
+    environment:
+      HOST_PROC: /hostfs/proc
+      HOST_SYS: /hostfs/sys
+      HOST_ETC: /hostfs/etc
+      HOST_VAR: /hostfs/var
+      HOST_RUN: /hostfs/run
+      HOST_DEV: /hostfs/dev
+      HOST_MOUNT_PREFIX: /hostfs
+    # Long syntax with create_host_path: false: a missing path fails the start instead of Docker
+    # creating an empty directory in its place (the D-Bus socket above all)
+    volumes:
+      - {type: bind, source: ./telegraf.conf, target: /etc/telegraf/telegraf.conf, read_only: true}
+      - type: bind
+        source: /
+        target: /hostfs
+        read_only: true
+        bind: {propagation: rslave, create_host_path: false}   # rslave: mounts made later appear too
+      - {type: bind, source: /var/log/nginx, target: /var/log/nginx, read_only: true,
+         bind: {create_host_path: false}}
+      - {type: bind, source: /run/dbus/system_bus_socket, target: /run/dbus/system_bus_socket,
+         read_only: true, bind: {create_host_path: false}}
+      - {type: bind, source: /var/lib/findaline-monitoring, target: /var/lib/findaline-monitoring,
+         read_only: true, bind: {create_host_path: false}}
+    # Healthy once its own samples of the last two minutes are in VictoriaMetrics: Telegraf has
+    # started with this configuration and its output works (it listens on nothing to ask)
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf 'http://127.0.0.1:8428/api/v1/query?query=count_over_time(internal_agent_metrics_written%5B2m%5D)' | grep -q '\"value\"'"]
+      interval: 60s
+      timeout: 10s
+      start_period: 3m
+      start_interval: 10s
+      retries: 3
+    depends_on:
+      victoriametrics: {condition: service_healthy}
+      socket-proxy: {condition: service_healthy}
+
+  victoriametrics:
+    <<: *hardening
+    image: victoriametrics/victoria-metrics:v1.154.0@sha256:4bd592341587d669b7f57d54bbb82bd21ac8675f4e24234b7703a7c0f85197d8
+    user: "65534:65534"
+    # The volume is mounted on the image's /var/tmp: a new volume takes the mode of the directory
+    # it covers (1777), so the non-root user can create its folder there; any other directory of
+    # the image belongs to root and would leave the volume read-only for it
+    command:
+      - -storageDataPath=/var/tmp/victoria-metrics
+      - -retentionPeriod=100y            # the maximum: no time limit (docs/monitoring.md, "Retention")
+      - -httpListenAddr=:8428
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 128
+    volumes:
+      - victoriametrics:/var/tmp
+    ports: ["127.0.0.1:8428:8428"]
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8428/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      start_interval: 2s
+      retries: 3
+    stop_grace_period: 30s
+
+  grafana:
+    <<: *hardening
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    user: "472:472"
+    mem_limit: 512m
+    memswap_limit: 512m
+    pids_limit: 256
+    # FINDALINE_PUBLIC_URL: the server the alerts name (label `server` of the rules; Grafana
+    # expands environment variables in its provisioning files)
+    env_file: [../../findaline.env]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      # Read when Grafana creates its database only; to change it later: grafana cli
+      # admin reset-admin-password in the container (docs/deployment.md)
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_SERVER_ROOT_URL: http://localhost:3000/   # the SSH tunnel's end: the links of the alerts
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      # Nothing sent to Grafana Labs or fetched from it: no usage reports, update checks, news,
+      # plugin installs at start, external snapshots
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_ANALYTICS_FEEDBACK_LINKS_ENABLED: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
+      GF_LOG_MODE: console
+    secrets: [grafana_admin_password, ntfy_url]
+    volumes:
+      - grafana:/var/lib/grafana   # its database: nothing that cannot be provisioned again
+      - {type: bind, source: ./grafana/provisioning, target: /etc/grafana/provisioning, read_only: true}
+      - {type: bind, source: ./grafana/dashboards, target: /etc/grafana/dashboards, read_only: true}
+      - type: tmpfs
+        target: /tmp
+        tmpfs: {size: 67108864}   # 64 MB
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [monitoring]   # egress: the ntfy server only
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      start_interval: 2s
+      retries: 3
+    depends_on:
+      victoriametrics: {condition: service_healthy}
+
+  # Telegraf's docker input through an allowlist (Go regular expressions, anchored by the proxy):
+  # the API version check, /info, the container list, a container's inspect and its stats, all
+  # GET; no logs, exec, events or anything that changes state. Telegraf reaches it on the host's
+  # loopback; such connections arrive from the network's gateway (172.30.2.1), the only address
+  # allowed in.
+  socket-proxy:
+    <<: *hardening
+    image: wollomatic/socket-proxy:1.13.1@sha256:3935b709275e4ec35d6ed5a5c4a1f0d01ed31eec5e7234efc3357ecd47689002
+    user: "65534:${DOCKER_GID:?DOCKER_GID missing: copy .env.example to .env}"   # the socket's group
+    mem_limit: 32m
+    memswap_limit: 32m
+    pids_limit: 64
+    command:
+      - -listenip=0.0.0.0
+      - -allowfrom=172.30.2.1/32
+      - -allowHEAD=/_ping
+      - -allowGET=/_ping
+      - -allowGET=/v1\.[0-9]+/(info|containers/json|containers/[0-9a-f]{64}/(json|stats))
+      - -allowhealthcheck
+      - -watchdoginterval=300   # a broken socket (after a Docker update) stops it; restart brings it back
+      - -stoponwatchdog
+      - -shutdowngracetime=5
+    volumes:
+      - {type: bind, source: /var/run/docker.sock, target: /var/run/docker.sock, read_only: true,
+         bind: {create_host_path: false}}
+    ports: ["127.0.0.1:2375:2375"]
+    networks: [monitoring]
+    healthcheck:
+      test: ["CMD", "./healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 2s
+      retries: 3
+
+volumes:
+  victoriametrics:   # the samples, without a time limit; no backup (docs/monitoring.md, "Storage")
+  grafana:
+
+networks:
+  monitoring:
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.name: br-fal-mon
+    # A fixed gateway: the address the published ports' connections come from, which the socket
+    # proxy allows (-allowfrom)
+    ipam:
+      config:
+        - subnet: 172.30.2.0/24
+          gateway: 172.30.2.1
+
+secrets:
+  grafana_admin_password:
+    file: ../../secrets/grafana_admin_password
+  ntfy_url:
+    file: ../../secrets/ntfy_url
