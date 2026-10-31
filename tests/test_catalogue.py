@@ -602,3 +602,36 @@ def test_patched_names_are_never_imported_by_name():
             if isinstance(node, ast.ImportFrom) and (node.level or (node.module or "").startswith("sources")):
                 named = {alias.name for alias in node.names} & set(PATCHED)
                 assert not named, f"{os.path.relpath(path, root)}:{node.lineno} imports {named} by name"
+
+
+def _homes():
+    """The one module of the package that defines each top-level name."""
+    import ast
+    root = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "sources")
+    homes = {}
+    for folder, _, files in os.walk(root):
+        for f in files:
+            if not f.endswith(".py") or f == "__init__.py" and folder == root:
+                continue
+            path = os.path.relpath(os.path.join(folder, f), root)[:-3].replace(os.sep, ".")
+            module = "sources." + path.removesuffix(".__init__").removesuffix("__init__").rstrip(".")
+            with open(os.path.join(folder, f), encoding="utf-8") as file:
+                tree = ast.parse(file.read())
+            for node in tree.body:
+                targets = [node.target] if isinstance(node, ast.AnnAssign) else getattr(node, "targets", [])
+                names = [node.name] if isinstance(node, (ast.FunctionDef, ast.ClassDef)) else \
+                    [n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name)]
+                for name in names:
+                    if name == "SOURCES" and module.startswith("sources.catalogue."):
+                        continue  # a family's own list, joined in sources.catalogue.SOURCES
+                    assert homes.get(name, module) == module, (name, homes[name], module)
+                    homes[name] = module
+    return homes
+
+
+def test_exports_are_the_objects_of_their_modules():
+    import importlib
+    homes = _homes()
+    assert len(set(src.__all__)) == len(src.__all__)
+    for name in src.__all__:
+        assert getattr(src, name) is getattr(importlib.import_module(homes[name]), name), name
