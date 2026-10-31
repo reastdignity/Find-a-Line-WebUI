@@ -58,9 +58,11 @@ Scripts from the 2026-10-25 research lived in the session scratchpad; the comman
 - **Index APIs** (USGS TNM Access: `/api/v1/products?datasets=<name>&bbox=W,S,E,N&max=…&offset=…`): list the products at a few known places (climbing areas), note how many files a tile has and their sizes; for coverage, sample a lattice of points over the country (a point counts where a gap filler exists, so sea and neighbours fall out) and compare with the program's status map.
 - **Window reads**: open a remote file with `rasterio.open("/vsicurl/<url>")` under `GDAL_DISABLE_READDIR_ON_OPEN=EMPTY_DIR`: CRS, transform (pixel edges on whole units?), block shapes, compression, nodata, and the time to read a 1 km window.
 - **Orthophoto**: one `GetMap` in EPSG:4326 (WMS 1.3.0 axis order lat, lon) and, for WMTS, one tile in EPSG:3857; look at the image (watermarks, blank tiles).
-- Then the data checks of docs/regression-tests.md: shift against Copernicus, valid pixels at 5 m, a cached tile against the source file, the grid alignment.
+- Then the data checks of docs/regression-tests.md, all of them one command once the source is declared: `uv run tools/check_source.py <id> --lat .. --lon .. --data-dir <scratch>` (shift against FABDEM / Copernicus, valid pixels at 1 and 5 m, cached tiles against the source files, the grid alignment, whole-metre heights, tiles without data).
 
 ## 4. After adding a source
+- The source's `listing` (its row of README's "Data sources", then `uv run tools/source_docs.py`), its `offline` boxes (the country without a lookup) and its `sample` point (with data in every layer), and `tools/check_source.py` on its sample and a characteristic place, the numbers in docs/regression-tests.md.
+- `findaline.py sources check <id>` (and `--deep`): the probe asks its index and files at the sample point; run it for all sources now and then, services change their addresses.
 - A regression test in a characteristic place (cliffs, coast, border), with the coverage and `empty_tiles` values stored; a pytest against a fake server for new download code (see `tests/test_sources.py`).
 - Attribution in the map (`OrthoService.attribution`, the source's `note`) and in README's "Data" section; the licence in the roadmap's licence list.
 - Update policy (cache.py `TTL_DAYS`): versioned releases never, "live" services after their interval, sheet indexes after 180 days.
