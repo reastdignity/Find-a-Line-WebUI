@@ -1,0 +1,12 @@
+# Find-a-Line monitoring: the heartbeat every minute (findaline-heartbeat.service). Grafana's alert
+# on failed units watches this timer (docs/monitoring.md, D1); healthchecks.io notices its pings
+# missing (G1).
+[Unit]
+Description=Find-a-Line monitoring: heartbeat every minute
+
+[Timer]
+OnCalendar=minutely
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

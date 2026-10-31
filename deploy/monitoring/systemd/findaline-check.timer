@@ -1,0 +1,12 @@
+# Find-a-Line monitoring: `deploy/vps.sh check` once a day (findaline-check.service); a check that
+# fails reaches Grafana through check.json (docs/monitoring.md, D3).
+[Unit]
+Description=Find-a-Line monitoring: daily checks
+
+[Timer]
+OnCalendar=*-*-* 06:00
+RandomizedDelaySec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

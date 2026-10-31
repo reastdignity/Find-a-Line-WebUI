@@ -1,9 +1,13 @@
 """The deployment files: what each service of compose.yaml may write and publish, and the files of
-the host (deploy/nginx, deploy/fail2ban): the fail2ban filter and the masking of the access log,
-with Python's re (fail2ban's own engine; nginx's PCRE patterns differ only in the spelling of named
-groups). nginx itself runs in tests/nginx_check.sh (CI, the docker job)."""
+the host (deploy/nginx, deploy/fail2ban, deploy/firewall, deploy/monitoring): the fail2ban filter
+and the masking of the access log, with Python's re (fail2ban's own engine; nginx's PCRE patterns
+differ only in the spelling of named groups), the metrics log without addresses and its route
+groups, the monitoring's bridge in the firewall and the monitoring's systemd units. nginx itself
+runs in tests/nginx_check.sh (CI, the docker job)."""
 
 import configparser
+import glob
+import json
 import os
 import re
 
@@ -80,7 +84,7 @@ def test_access_log_masking():
     and the other paths stay as they are."""
     maps = _maps()
     assert {name: source for name, (source, _) in maps.items()} == {
-        "findaline_request": "request", "findaline_referer": "http_referer"}
+        "findaline_request": "request", "findaline_referer": "http_referer", "findaline_group": "uri"}
     token = "-Ab_9" + "x" * 38
     request = lambda path: _masked(maps, "findaline_request", f"GET {path} HTTP/2.0")  # noqa: E731
     assert request(f"/s/{token}/data.js") == "GET /s/<token>/data.js HTTP/2.0"
@@ -160,3 +164,119 @@ def test_compose_ports():
         assert "FINDALINE_TRUSTED_PROXY=172.30.0.1\n" in f.read()
     with open(os.path.join(DEPLOY, "nginx", "findaline-http.conf"), encoding="utf-8") as f:
         assert "server 127.0.0.1:8765;" in f.read()
+
+
+def _read(*path):
+    with open(os.path.join(DEPLOY, *path), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_metrics_log_format():
+    """The metrics log (docs/monitoring.md, C1-C3; parsed by deploy/monitoring/telegraf.conf) holds
+    one JSON object per request with the fields of the contract and no address of any kind: no
+    client address, X-Forwarded-For, path, query, Referer or User-Agent."""
+    text = _read("nginx", "findaline-http.conf")
+    match = re.search(r"log_format findaline_metrics escape=json ((?:'[^']*'\s*)+);", text)
+    assert match, "log_format findaline_metrics escape=json '...'"
+    fmt = "".join(re.findall(r"'([^']*)'", match.group(1)))
+    variables = set(re.findall(r"\$(\w+)", fmt))
+    assert variables == {"msec", "findaline_group", "request_method", "status", "request_time",
+                         "upstream_response_time", "body_bytes_sent", "limit_req_status"}
+    # Values as nginx writes them, the strings escaped by escape=json
+    sample = {"msec": "1761900000.123", "findaline_group": "api", "request_method": "GET",
+              "status": "200", "request_time": "0.004", "upstream_response_time": "0.004, 0.001",
+              "body_bytes_sent": "312", "limit_req_status": ""}
+    line = re.sub(r"\$(\w+)", lambda m: sample[m.group(1)], fmt)
+    assert json.loads(line) == {"time": 1761900000.123, "group": "api", "method": "GET", "status": 200,
+                                "request_time": 0.004, "upstream_time": "0.004, 0.001", "bytes": 312,
+                                "limit": ""}
+    # Its log in the site's server of port 443 only (not www's redirect, not port 80, not the
+    # default servers that refuse other names)
+    log = "access_log /var/log/nginx/findaline.metrics.log findaline_metrics;"
+    servers = re.split(r"\nserver \{", _read("nginx", "findaline.conf"))
+    assert [server.count(log) for server in servers[1:]] == [0, 0, 1]
+    assert "findaline_metrics" not in _read("nginx", "findaline-acme.conf")
+
+
+def _group(uri):
+    """$findaline_group for a path as nginx's map gives it: exact strings first, then the patterns
+    in their order, else the default."""
+    text = _read("nginx", "findaline-http.conf")
+    body = re.search(r"map \$uri \$findaline_group \{(.*?)\n\}", text, re.S).group(1)
+    entries = re.findall(r'^\s*"(.*)" "(.*)";$', body, re.M)
+    exact = {key: value for key, value in entries if not key.startswith("~")}
+    if uri in exact:
+        return exact[uri]
+    for key, value in entries:
+        if key.startswith("~") and re.search(key[1:], uri):
+            return value
+    return re.search(r'^\s*default "(.*)";$', body, re.M).group(1)
+
+
+def test_metrics_log_groups():
+    """The route groups of the metrics log: a handful of values, never the path itself."""
+    expected = {
+        "/api/events": "events", "/api/events/x": "api", "/api/jobs": "api", "/api/runs/x/share": "api",
+        "/cache/poland/ortho/live/wm256/13/4551/2774.jpg": "cache", "/s/<token>/map.html": "share",
+        "/s/_viewer/viewer.js": "share", "/login/github": "auth", "/auth/github": "auth", "/logout": "auth",
+        "/loginx": "page", "/app/app.js": "app", "/runs/x/data.js": "app", "/runs/runs.js": "app",
+        "/": "page", "/privacy": "page", "/about": "page", "/favicon.ico": "page", "/apps": "page",
+    }
+    assert {uri: _group(uri) for uri in expected} == expected
+
+
+def test_stub_status_on_loopback():
+    """nginx's stub_status listens on the host's loopback only, in a server of its own."""
+    text = _read("nginx", "findaline-http.conf")
+    assert re.findall(r"^\s*listen (\S+?)[ ;]", text, re.M) == ["127.0.0.1:8081"]
+    assert "stub_status;" in text[text.index("listen 127.0.0.1:8081;"):]
+    assert "stub_status" not in _read("nginx", "findaline.conf") + _read("nginx", "findaline-acme.conf")
+
+
+def test_firewall_monitoring_bridge():
+    """The monitoring's network (br-fal-mon, deploy/monitoring/compose.yaml) talks within itself
+    like the site's two; the drops of br-fal-+ come after the three RETURN lines."""
+    lines = _read("firewall", "ufw-after.rules").splitlines()
+    returns = [f"-A DOCKER-USER -i {bridge} -o {bridge} -j RETURN"
+               for bridge in ("br-fal-web", "br-fal-worker", "br-fal-mon")]
+    for line in returns:
+        assert line in lines
+    first_drop = next(i for i, line in enumerate(lines) if line.endswith("-j DROP"))
+    assert max(lines.index(line) for line in returns) < first_drop
+
+
+def _unit(name):
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str
+    parser.read(os.path.join(DEPLOY, "monitoring", "systemd", name), encoding="utf-8")
+    return parser
+
+
+def test_monitoring_units():
+    """The units deploy/vps.sh installs: three timers with their services (Grafana's alert on
+    failed units names the facts and heartbeat timers, docs/monitoring.md D1), the scripts by the
+    checkout's path (@REPO@), the heartbeat as a throwaway user without capabilities."""
+    names = sorted(os.path.basename(path) for path in glob.glob(os.path.join(DEPLOY, "monitoring", "systemd", "*")))
+    assert names == sorted(f"findaline-{name}.{kind}" for name in ("facts", "check", "heartbeat")
+                           for kind in ("service", "timer"))
+    calendars = {"facts": "*:0/5", "check": "*-*-* 06:00", "heartbeat": "minutely"}
+    for name, calendar in calendars.items():
+        timer, service = _unit(f"findaline-{name}.timer"), _unit(f"findaline-{name}.service")
+        assert timer["Timer"]["OnCalendar"] == calendar
+        assert timer["Install"]["WantedBy"] == "timers.target"
+        assert service["Service"]["Type"] == "oneshot"
+        start = service["Service"]["ExecStart"]
+        assert re.fullmatch(r"/bin/bash @REPO@/deploy/monitoring/(facts|heartbeat)\.sh( check)?", start), start
+        script = start.split()[1].replace("@REPO@/deploy/", "")
+        assert os.path.isfile(os.path.join(DEPLOY, script)), script
+        assert service["Service"]["NoNewPrivileges"] == "yes"
+    heartbeat = _unit("findaline-heartbeat.service")["Service"]
+    assert heartbeat["DynamicUser"] == "yes" and heartbeat["CapabilityBoundingSet"] == ""
+    assert heartbeat["EnvironmentFile"] == "-/etc/findaline-monitoring.env"
+    facts = _unit("findaline-facts.service")["Service"]
+    assert facts["CapabilityBoundingSet"] == "" and facts["PrivateNetwork"] == "yes"
+    assert facts["StateDirectory"] == "findaline-monitoring"
+    # vps.sh: the same timers enabled and checked, the backup's unit with the ping URL's file
+    vps = _read("vps.sh")
+    assert "MONITORING_TIMERS=(findaline-facts.timer findaline-check.timer findaline-heartbeat.timer)" in vps
+    assert "EnvironmentFile=-$MONITORING_ENV" in vps and "MONITORING_ENV=/etc/findaline-monitoring.env" in vps

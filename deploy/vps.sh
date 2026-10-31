@@ -9,13 +9,14 @@
 # setup: packages and Docker (section 1), SSH with a key only and the firewall (2), the DNS check
 # (3), nginx and the certificate (4), fail2ban (5), automatic security updates (6), the settings
 # and secrets (8: asks for the sign-in apps' values of section 7 when run in a terminal), the
-# start (9), the daily backup when /etc/findaline-backup.env exists (11), then check. Every step
-# looks at what is there first, so setup can run again: after a stop (it says what is missing, e.g.
-# DNS not pointing here yet), or to apply changed options.
+# start (9), the daily backup when /etc/findaline-backup.env exists (11), the monitoring (15: asks
+# for the healthchecks.io ping URLs and the ntfy topic when run in a terminal), then check. Every
+# step looks at what is there first, so setup can run again: after a stop (it says what is missing,
+# e.g. DNS not pointing here yet), or to apply changed options.
 # update: the CI of the new commits (GitHub's check runs), git pull, the files of deploy/ again
 # where they changed (nginx reloaded, fail2ban restarted, ufw reloaded), the image built again and
-# the services restarted (section 13).
-# check: the checks of sections 2 and 12 that can run on the server.
+# the services restarted (section 13), then the monitoring's timers and containers (15).
+# check: the checks of sections 2, 12 and 15 that can run on the server.
 #
 # Options:
 #   --site NAME      the site's name (setup; later read from FINDALINE_PUBLIC_URL in findaline.env)
@@ -357,8 +358,12 @@ firewall() {
     ufw --force enable >/dev/null
     [ "$CHANGED" = 1 ] && ufw reload >/dev/null
     # iptables -S prints a rule's options in its own order (-d before -i), not the file's
-    local rules range
+    local rules range bridge
     rules=$(iptables -S DOCKER-USER)
+    for bridge in br-fal-web br-fal-worker br-fal-mon; do
+        grep -qxF -- "-A DOCKER-USER -i $bridge -o $bridge -j RETURN" <<< "$rules" \
+            || die "DOCKER-USER lacks the rules of ufw-after.rules ($bridge; iptables -S DOCKER-USER)"
+    done
     for range in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 169.254.0.0/16 100.64.0.0/10; do
         grep -qxF -- "-A DOCKER-USER -d $range -i br-fal-+ -j DROP" <<< "$rules" \
             || die "DOCKER-USER lacks the rules of ufw-after.rules ($range; iptables -S DOCKER-USER)"
@@ -654,6 +659,7 @@ $on_failure
 [Service]
 Type=oneshot
 EnvironmentFile=$env
+EnvironmentFile=-$MONITORING_ENV
 ExecStart=$DEPLOY/backup.sh
 EOF
     put /etc/systemd/system/findaline-backup.timer 644 <<'EOF'
@@ -673,6 +679,112 @@ EOF
     note "$(systemctl list-timers findaline-backup.timer --no-legend | awk '{print "next backup:", $1, $2, $3}')"
 }
 
+# --- Section 15 --------------------------------------------------------------------------------
+
+MONITORING_DIR=/var/lib/findaline-monitoring
+MONITORING_ENV=/etc/findaline-monitoring.env
+MONITORING_TIMERS=(findaline-facts.timer findaline-check.timer findaline-heartbeat.timer)
+
+# The units of deploy/monitoring/systemd with the checkout's path; sets CHANGED=1 if any changed
+monitoring_units() {
+    local file
+    for file in "$DEPLOY"/monitoring/systemd/*.service "$DEPLOY"/monitoring/systemd/*.timer; do
+        put "/etc/systemd/system/${file##*/}" 644 < <(sed "s#@REPO@#$REPO#g" "$file")
+    done
+}
+
+# A ping URL of healthchecks.io ($1, the variable of /etc/findaline-monitoring.env; $2 its check):
+# asked for when empty and $3 is "ask" in a terminal, a TODO while empty
+ping_url() {
+    local value
+    value=$(env_get "$MONITORING_ENV" "$1")
+    if [ -z "$value" ] && [ "$3" = ask ] && [ -t 0 ]; then
+        read -r -p "   healthchecks.io ping URL of the $2 check (section 15; empty: later): " value
+        if [ -n "$value" ]; then
+            [[ $value =~ ^https://[^[:space:]]+$ ]] || die "not an https URL: $value"
+            env_set "$MONITORING_ENV" "$1" "$value"
+        fi
+    fi
+    [ -n "$value" ] || todo "no $2 ping: $1 in $MONITORING_ENV, a check of healthchecks.io (section 15)"
+}
+
+# The monitoring (section 15): the facts, checks and heartbeat timers on the host, their settings
+# and the secrets of Grafana, then the containers of deploy/monitoring/compose.yaml. With "ask"
+# (setup, in a terminal) it asks for what is still empty. A failure here leaves the site as it is:
+# it says what failed and goes on.
+monitoring() {
+    step "Monitoring (section 15)"
+    local key value file user group
+    install -d -m 755 "$MONITORING_DIR"
+    [ -f "$MONITORING_ENV" ] || install -m 600 /dev/null "$MONITORING_ENV"
+    for key in HEARTBEAT_URL BACKUP_PING_URL; do
+        grep -q "^$key=" "$MONITORING_ENV" || printf '%s=\n' "$key" >> "$MONITORING_ENV"
+    done
+    ping_url HEARTBEAT_URL heartbeat "${1:-}"
+    if [ -f /etc/systemd/system/findaline-backup.service ]; then
+        ping_url BACKUP_PING_URL backup "${1:-}"
+    fi
+
+    # Grafana's secrets (secrets/README.md), readable by its uid (472) only
+    user=$(owner)
+    group=$(id -gn "$user")
+    [ -d "$REPO/secrets" ] || install -d -m 755 -o "$user" -g "$group" "$REPO/secrets"
+    for file in grafana_admin_password ntfy_url; do
+        [ -e "$REPO/secrets/$file" ] || install -m 600 /dev/null "$REPO/secrets/$file"
+    done
+    if ! secret_set "$REPO/secrets/grafana_admin_password"; then
+        python3 -c "import secrets; print(secrets.token_urlsafe(24))" > "$REPO/secrets/grafana_admin_password"
+        note "secrets/grafana_admin_password: a new one (Grafana's user admin)"
+    fi
+    if ! secret_set "$REPO/secrets/ntfy_url" && [ "${1:-}" = ask ] && [ -t 0 ]; then
+        read -r -p "   ntfy topic URL for the alerts, e.g. https://ntfy.sh/<secret topic> (section 15; empty: later): " value
+        if [ -n "$value" ]; then
+            [[ $value =~ ^https?://[^[:space:]]+$ ]] || die "not a URL: $value"
+            printf '%s\n' "$value" > "$REPO/secrets/ntfy_url"
+        fi
+    fi
+    secret_set "$REPO/secrets/ntfy_url" || todo "no alerts from Grafana: the ntfy topic's URL in secrets/ntfy_url (section 15)"
+    chown 472:472 "$REPO/secrets/grafana_admin_password" "$REPO/secrets/ntfy_url"
+    chmod 400 "$REPO/secrets/grafana_admin_password" "$REPO/secrets/ntfy_url"
+
+    CHANGED=0
+    monitoring_units
+    [ "$CHANGED" = 1 ] && systemctl daemon-reload
+    systemctl enable -q --now "${MONITORING_TIMERS[@]}"
+    systemctl start findaline-facts.service || warn "findaline-facts.service failed: journalctl -u findaline-facts"
+    note "timers: ${MONITORING_TIMERS[*]}"
+
+    local compose_file=$DEPLOY/monitoring/compose.yaml docker_gid adm_gid
+    if [ ! -f "$compose_file" ]; then
+        note "no $compose_file: the monitoring's containers are left out"
+        return 0
+    fi
+    # The groups whose files Telegraf reads: Docker's socket (through the proxy) and nginx's logs
+    docker_gid=$(getent group docker | cut -d: -f3)
+    adm_gid=$(getent group adm | cut -d: -f3)
+    if [ -z "$docker_gid" ] || [ -z "$adm_gid" ]; then
+        todo "the monitoring's containers: no group docker or adm on this host"
+        return 0
+    fi
+    put "$DEPLOY/monitoring/.env" 644 <<EOF
+# Written by deploy/vps.sh (section 15): the host's groups for deploy/monitoring/compose.yaml
+DOCKER_GID=$docker_gid
+ADM_GID=$adm_gid
+EOF
+    chown "$user:$group" "$DEPLOY/monitoring/.env"
+    if ! docker compose -f "$compose_file" pull --quiet; then
+        todo "the monitoring's images could not be pulled: docker compose -f $compose_file pull"
+        return 0
+    fi
+    if ! docker compose -f "$compose_file" up -d --wait --wait-timeout 180; then
+        docker compose -f "$compose_file" ps
+        docker compose -f "$compose_file" logs --tail 30
+        todo "the monitoring's containers did not become healthy (above; section 15)"
+        return 0
+    fi
+    note "Grafana on 127.0.0.1:3000 (ssh -L 3000:127.0.0.1:3000 <server>; user admin, secrets/grafana_admin_password)"
+}
+
 # --- Checks (sections 2, 12) -------------------------------------------------------------------
 
 FAILED=0
@@ -681,7 +793,7 @@ bad() { printf 'FAIL: %s\n' "$*" >&2; FAILED=1; }
 
 # shellcheck disable=SC2015  # "A && ok || bad": ok never fails
 check() {
-    step "Checks (sections 2, 12)"
+    step "Checks (sections 2, 12, 15)"
     site_name
     local code headers name addresses service out
     code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: $SITE" "http://127.0.0.1:$(web_port)/") || true
@@ -758,7 +870,31 @@ except OSError as e:
             bad "$IMAGE_FILE has $(numfmt --to=iec "$holes") of holes: sudo fallocate -l $(stat -c %s "$IMAGE_FILE") $IMAGE_FILE (section 1, Disk)"
         fi
     fi
+    check_monitoring
     return "$FAILED"
+}
+
+# The monitoring (section 15): its containers answer, the timers run, the facts are fresh, the
+# heartbeat reaches healthchecks.io
+# shellcheck disable=SC2015  # "A && ok || bad": ok never fails
+check_monitoring() {
+    local timer age=
+    if [ -f "$DEPLOY/monitoring/compose.yaml" ]; then
+        [ "$(curl -fsS --max-time 5 http://127.0.0.1:8428/health 2>/dev/null)" = OK ] \
+            && ok "VictoriaMetrics" || bad "VictoriaMetrics does not answer on 127.0.0.1:8428 (section 15)"
+        curl -fsS --max-time 5 http://127.0.0.1:3000/api/health 2>/dev/null | grep -q '"database": *"ok"' \
+            && ok "Grafana" || bad "Grafana does not answer on 127.0.0.1:3000 (section 15)"
+    fi
+    curl -fsS --max-time 5 http://127.0.0.1:8081/nginx_status 2>/dev/null | grep -q '^Active connections:' \
+        && ok "nginx's stub_status" || bad "nginx's stub_status does not answer on 127.0.0.1:8081 (sections 4, 15)"
+    for timer in "${MONITORING_TIMERS[@]}"; do
+        systemctl is-active -q "$timer" && ok "$timer" || bad "$timer is not active (section 15)"
+    done
+    [ -f "$MONITORING_DIR/facts.json" ] && age=$(( $(date +%s) - $(stat -c %Y "$MONITORING_DIR/facts.json") ))
+    [ -n "$age" ] && [ "$age" -lt 900 ] && ok "facts.json written $((age / 60)) min ago" \
+        || bad "$MONITORING_DIR/facts.json is ${age:+$((age / 60)) min }old or missing: journalctl -u findaline-facts"
+    [ -n "$(env_get "$MONITORING_ENV" HEARTBEAT_URL)" ] && ok "the heartbeat's ping URL" \
+        || bad "HEARTBEAT_URL is empty in $MONITORING_ENV: nobody hears when the server stops (section 15)"
 }
 
 # --- Updates (section 13) ----------------------------------------------------------------------
@@ -835,6 +971,7 @@ update() {
 
     start
     compose logs --tail 20
+    monitoring
     local item
     for item in "${TODO[@]}"; do note "- $item"; done
 }
@@ -864,6 +1001,7 @@ setup() {
     if [ "$SETTINGS_READY" = 1 ]; then
         start
         backups
+        monitoring ask
         check || todo "some checks failed (above)"
     fi
     step "Summary"

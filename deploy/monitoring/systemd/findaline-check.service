@@ -1,0 +1,24 @@
+# Find-a-Line monitoring: `deploy/vps.sh check` once a day into check.json (deploy/monitoring/
+# facts.sh check), from findaline-check.timer. deploy/vps.sh installs it into /etc/systemd/system
+# with the checkout's path in place of @REPO@ (docs/deployment.md, section 15).
+[Unit]
+Description=Find-a-Line monitoring: the checks of deploy/vps.sh check
+Wants=network-online.target
+After=network-online.target docker.service nginx.service fail2ban.service
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash @REPO@/deploy/monitoring/facts.sh check
+TimeoutStartSec=10min
+StateDirectory=findaline-monitoring
+StateDirectoryMode=0755
+UMask=0022
+# The checks are the operator's, as root: ufw's and iptables' rules, `sshd -T`, fail2ban, the
+# containers through Docker, the site over the network; only what none of them needs is closed
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectHostname=yes

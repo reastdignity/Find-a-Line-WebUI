@@ -1,0 +1,11 @@
+# Find-a-Line monitoring: facts.json every 5 minutes (deploy/monitoring/facts.sh). Grafana's alert
+# on failed units watches this timer (docs/monitoring.md, D1).
+[Unit]
+Description=Find-a-Line monitoring: facts of the host every 5 minutes
+
+[Timer]
+OnCalendar=*:0/5
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target
