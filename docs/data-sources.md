@@ -20,7 +20,7 @@ For the terrain model (DTM, ground only) and the surface model (DSM, trees and b
 | Does a DSM exist and is it reachable the same way? | without it, lines over trees are not marked | Slovakia: DSM only in 155 GB ZIPs |
 | Orthophoto WMS/WMTS: CRS (EPSG:4326 or 3857), terms, watermarks | the map background, offline tiles | Greece: watermark; EPSG:900913 gives blank images |
 
-Where to look: the national mapping agency's geoportal and its "download" or "open data" pages; the INSPIRE geoportal of the country (CSW search for "Elevation"); data.europa.eu with a country filter; the JRC survey of open LiDAR in Europe (publications.jrc.ec.europa.eu, JRC126223); OpenTopography's catalogue for small LiDAR sets. Read the terms page itself, and the licence files inside downloads (Slovakia's ZIPs carry a PDF).
+Start with the survey of 2026-10-31 ([source-survey.md](source-survey.md)): what was found for 231 countries and regions of Europe, the Americas, Oceania and Asia, with links, quick tests and open questions; check that it still holds. Where to look: the national mapping agency's geoportal and its "download" or "open data" pages; the INSPIRE geoportal of the country (CSW search for "Elevation"); data.europa.eu with a country filter; the JRC survey of open LiDAR in Europe (publications.jrc.ec.europa.eu, JRC126223); OpenTopography's catalogue for small LiDAR sets. Read the terms page itself, and the licence files inside downloads (Slovakia's ZIPs carry a PDF).
 
 ## 2. Ways to get the data, best first
 
@@ -35,6 +35,9 @@ Where to look: the national mapping agency's geoportal and its "download" or "op
 
 Rules of thumb:
 - Ask for the native resolution and downsample locally (`fetch_res`); never trust server-side downsampling without checking the share of valid pixels at 5 m.
+- Read every download with a byte cap: some servers ignore HTTP Range and stream the whole file (Wallonia's 50 GB ZIPs, an English survey tile, seen 2026-10-31).
+- When a service refuses scripts (403, a CAPTCHA, a firewall), note it and ask the agency; never work around it with another User-Agent.
+- Try older protocol versions before giving up: Norway's WCS 2.0.1 answers 400 where 1.0.0 works.
 - Clip requests to the coverage extent; a `missing` tile at the edge of the data is suspicious (Malta's north coast of Gozo was lost this way).
 - Compressed archives (ZIP Deflate/Deflate64) cannot be read in parts; a TIFF inside may still be tiled, so after one extraction it reads fast. Python's `zipfile` cannot read Deflate64: use 7-Zip.
 - Huge ZIPs: read the central directory with range requests first (the end of the file, then the ZIP64 record): the compression method of each member (8 = Deflate: Python's `zipfile` and GDAL `/vsizip/` read it; 9 = Deflate64: neither does, extract with 7-Zip) and the sizes inside. Extract a huge member once instead of reading it through `/vsizip/`: for Slovakia's 122 GB TIFF GDAL managed about 7 MB/s, `zipfile` inflates 400 MB/s (13 min), and the plain file reads in any order.
