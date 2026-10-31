@@ -62,6 +62,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 - The list of valid lines is then converted into GPS coordinates, printed, and displayed on a map.
 
 ## Data sources
+<!-- sources-table:start -->
 | `--source` | Where | Terrain (DTM) | Surface (DSM, trees/buildings) | Orthophoto (cached) |
 | --- | --- | --- | --- | --- |
 | `geoportal` | Poland | GUGiK NMT sheets, 1 m, newest survey | GUGiK NMPT sheets, 0.5–1 m (about 85% of Poland) | geoportal.gov.pl |
@@ -78,6 +79,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `europe` | anywhere | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – |
 | `nasadem` | anywhere | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – |
 | `files` | your files | `--elevation-file` | `--surface-file` (optional) | – |
+<!-- sources-table:end -->
 
 - With the default `--source auto`, the country of the search centre is looked up in OpenStreetMap: Poland uses `geoportal`, Malta uses `malta` (2018), Spain uses `spain` (or `spain_canarias` on the Canary Islands), Switzerland and Liechtenstein use `swisstopo`, Slovakia uses `slovakia` when its tiles are set up (else `europe`, with the reason), the USA, Puerto Rico and the US Virgin Islands use `usa`, Alaska uses `alaska` where the 1 m DEM has data near the centre and `alaska_ifsar` elsewhere (today everywhere: USGS publishes no 1 m DEM in Alaska yet), anywhere else uses `europe`. Giving `--elevation-file` selects `files`.
 - Downloaded data is kept in `cache/`, with one folder per country or Europe-wide dataset (`poland`, `malta`, `spain`, `switzerland`, `slovakia`, `usa`, `copernicus30`, `fabdem`, `nasadem`, `osm`): switching between sources (or back) never downloads again what is already there, and deleting such a folder frees its space (it is downloaded again when needed). Inside, the path names the dataset, its edition and the tiling, e.g. `malta/dtm/2018/epsg32633-1m-2000px-tif/` or `copernicus30/2021/dem/`; `live` marks services that always serve their current state. Each folder has an `index.sqlite` listing its files with when and where they were fetched; every run records in `run.json` which data it used. Polish data is cached per map sheet (1:5000, about 2.3 × 2.3 km, one GeoTIFF of about 9 MB each), Swiss data per 1 km tile and survey as published (0.5 m: about 17–20 MB, 2 m: about 1.3 MB), Slovak data in our own 2 km tiles, US data in blocks read from the USGS files (1 km of the 1 m DEM, about 2 MB; 5 km of Alaska's IfSAR; 0.1° of the 1/3 arc-second DEM), Malta and Spain in WCS tiles of 2000 × 2000 pixels at native resolution (2 km and 10 km), the 30 m models in 1°×1° tiles; the same files serve every working resolution.
@@ -231,7 +233,7 @@ The web service publishes its port on the host's loopback only (`127.0.0.1:8765`
 | `--area` / `--buffer` / `--within` | – / 100 / – | Search an area instead of a circle: `coast`, `cliffs`, a GeoJSON/KML/GPX file or `osm:<name>`; `--buffer` around coastline, cliffs, points and lines; `--within` (needed for `coast` and `cliffs`): `osm:<name>` takes the coastline or cliffs within `--max-length` of that area, a box `S,W,N,E` clips the band |
 | `--tile-size` | from the free memory | Side of the square tiles a large area is computed in, metres |
 | `--ortho-detail` | 50 for an area, all for a circle; swisstopo: 20 | Detailed orthophoto only around this many best groups; the others load it online |
-| `--source` | `auto` | Data source: `auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain`, `spain_canarias`, `usa`, `alaska`, `alaska_ifsar`, `usgs10m`, `europe`, `nasadem`, `files` (see *Data sources*) |
+| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain`, `spain_canarias`, `usa`, `alaska`, `alaska_ifsar`, `usgs10m`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
 | `--elevation-file` / `--surface-file` | | Your own terrain / surface raster (GeoTIFF, ASC...) |
 | `--water` | `fill` | Fill the sea and lakes where the data has none (`off` to skip) |
 | `--coastline` | `overpass` | Where the sea is: `overpass`, `world` or `copernicus` (see *Sea, lakes and gaps*) |

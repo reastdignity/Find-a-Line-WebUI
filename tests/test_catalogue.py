@@ -7,7 +7,8 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
 import osm  # noqa: E402
 import sources as src  # noqa: E402
 
@@ -653,3 +654,15 @@ def test_exports_are_the_objects_of_their_modules():
     assert len(set(src.__all__)) == len(src.__all__)
     for name in src.__all__:
         assert getattr(src, name) is getattr(importlib.import_module(homes[name]), name), name
+
+
+def test_docs_list_every_source():
+    """README's "Data sources" table and the ids of --source are generated from the catalogue:
+    run `uv run tools/source_docs.py` after changing a source."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import source_docs
+    with open(os.path.join(REPO, "README.md"), encoding="utf-8") as f:
+        text = f.read()
+    assert source_docs.render(text) == text, "README.md is out of date: run `uv run tools/source_docs.py`"
+    for sid in src.SOURCES:
+        assert f"| `{sid}` |" in text and f"`{sid}`" in source_docs.ids()
