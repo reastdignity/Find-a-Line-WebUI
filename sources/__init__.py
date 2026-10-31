@@ -41,7 +41,7 @@ re-exported: call and patch them through their module.
 """
 
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
-from .readers import download, tilebases, windows
+from .readers import download, tilebases, wcsreader, windows
 from .indexes import tilings
 from .layers import blocks, degree, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import malta, poland, slovakia, spain, switzerland, usa, world

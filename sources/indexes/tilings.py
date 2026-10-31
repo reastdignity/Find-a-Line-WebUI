@@ -3,7 +3,7 @@
 import math
 import os
 import re
-from typing import Callable, Tuple
+from typing import Callable, Optional, Tuple
 
 from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
@@ -108,3 +108,65 @@ class TenthDegreeTiling(Index):
         px = self.px_per_degree // 10
         transform = from_origin(i / 10, (j + 1) / 10, 1 / self.px_per_degree, 1 / self.px_per_degree)
         return BlockRequest([(name, self.url(name), 0)], self.crs, transform, (px, px))
+
+
+class WcsTiling(Index):
+    """Square tiles of tile_px pixels on a fixed grid in the service's CRS, at fetch_res
+    (None: the working resolution), cached as <folder>/<crs>-<res>m-<px>px-<format>/<i>_<j>.tif.
+
+    The tiles of a circle are those reaching into the circle inscribed in the grid's box;
+    of an area, those under its outline. Tiles hold the data where the service puts it,
+    i.e. before the shift correction of the layer.
+    """
+
+    def __init__(self, crs: str, folder: str, tile_px: int, fmt: str, fetch_res: Optional[float],
+                 shift: Tuple[float, float] = (0.0, 0.0)):
+        self.crs, self.folder, self.tile_px, self.fmt = crs, folder, tile_px, fmt
+        self.fetch_res, self.shift = fetch_res, shift
+
+    def tiles(self, grid: Grid):
+        res = self.fetch_res or grid.res
+        size = self.tile_px * res
+        left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        # Tiles hold the data where the service puts it, i.e. before the shift correction
+        cx, cy, radius = (left + right) / 2 - self.shift[0], (bottom + top) / 2 - self.shift[1], (right - left) / 2
+        shape = None
+        if grid.area_shape is not None:
+            from area import project
+            from shapely.affinity import translate
+            shape = translate(project(grid.area_shape, grid.crs, self.crs), -self.shift[0], -self.shift[1])
+        tiles = []
+        for i in range(math.floor((cx - radius) / size), math.floor((cx + radius) / size) + 1):
+            for j in range(math.floor((cy - radius) / size), math.floor((cy + radius) / size) + 1):
+                if shape is not None:  # any area: the tiles under its outline
+                    from shapely.geometry import box
+                    if shape.intersects(box(i * size, j * size, (i + 1) * size, (j + 1) * size)):
+                        tiles.append((res, i, j))
+                    continue
+                dx = max(i * size - cx, 0, cx - (i + 1) * size)  # nearest point of the tile
+                dy = max(j * size - cy, 0, cy - (j + 1) * size)
+                if dx * dx + dy * dy <= radius * radius:
+                    tiles.append((res, i, j))
+        return tiles
+
+    def _tiling(self, res: float) -> str:
+        # The tiling in the path: tiles of another CRS, size or format never mix
+        fmt = "asc" if re.search(r"aaigrid|asc", self.fmt) else "tif"
+        return f"{self.crs.lower().replace(':', '')}-{res:g}m-{self.tile_px}px-{fmt}"
+
+    def path(self, cache_dir: str, tile) -> str:
+        res, i, j = tile
+        return os.path.join(cache_dir, self.folder, self._tiling(res), f"{i}_{j}.tif")
+
+    def tile_of(self, path: str):
+        match = re.fullmatch(rf"{re.escape(self.folder)}/([^/]+)/(-?\d+)_(-?\d+)\.tif", path)
+        if not match:
+            return None
+        res = float(re.search(r"-([\d.]+)m-", match.group(1)).group(1))
+        return (res, int(match.group(2)), int(match.group(3))) if match.group(1) == self._tiling(res) else None
+
+    def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
+        """(west, south, east, north) of a tile."""
+        res, i, j = tile
+        size = self.tile_px * res
+        return transform_bounds(self.crs, "EPSG:4326", i * size, j * size, (i + 1) * size, (j + 1) * size)
