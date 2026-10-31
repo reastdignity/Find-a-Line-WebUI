@@ -14,7 +14,8 @@ Example:
     python findaline.py --lat 50.1559508 --lon 19.7562722
 
 Run `python findaline.py --help` for all options. The cache commands
-(`python findaline.py cache status|update`, `osm download|update`) are update.py,
+(`python findaline.py cache status|update`, `osm download|update`) and the source probe
+(`python findaline.py sources check`) are update.py,
 the web application (`python findaline.py web`) is web.py, its worker as a process of
 its own (`python findaline.py worker`, with `web --no-worker`) jobs.py.
 """
@@ -132,7 +133,7 @@ if __name__ == "__main__":
     # Output redirected to a file gets the Windows code page, which has no "²" and the like
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(encoding="utf-8", errors="replace")
-    if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm"):
+    if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm", "sources"):
         import update
         sys.exit(update.main(sys.argv[1:]))
     if len(sys.argv) > 1 and sys.argv[1] == "web":

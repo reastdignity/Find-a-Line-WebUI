@@ -1,10 +1,11 @@
 """
-Cache commands of findaline.py: what is cached, and updating it.
+Cache commands of findaline.py: what is cached, and updating it; the probe of the sources.
 
     python findaline.py cache status [FOLDER]
     python findaline.py cache update [FOLDER] [--all] [--bbox S,W,N,E | --point LAT,LON]
     python findaline.py osm download REGION
     python findaline.py osm update [REGION]
+    python findaline.py sources check [ID ...] [--deep]   (sources/probe.py)
 
 Nothing is updated during a search unless it is asked for (--update stale|all of a
 search checks the data of its area). How each kind of data is checked:
@@ -41,6 +42,7 @@ import coast
 import orthophoto
 import osm
 import osmextract
+import settings
 import sources as src
 from progress import progress
 
@@ -297,7 +299,7 @@ def _box(text: str) -> Tuple[float, float, float, float]:
 
 
 def main(argv: List[str]) -> int:
-    parser = argparse.ArgumentParser(prog="findaline.py", description="Cache and OpenStreetMap commands.")
+    parser = argparse.ArgumentParser(prog="findaline.py", description="Cache, OpenStreetMap and source commands.")
     parser.add_argument("--data-dir", help="data folder (default: FINDALINE_DATA or the folder of the scripts)")
     commands = parser.add_subparsers(dest="group", required=True)
     cache_cmd = commands.add_parser("cache", help="what is cached, and updating it")
@@ -317,7 +319,13 @@ def main(argv: List[str]) -> int:
     dl.add_argument("region", help="Geofabrik id or name, see https://download.geofabrik.de")
     ou = osm_sub.add_parser("update", help="apply the daily diffs to the downloaded extracts")
     ou.add_argument("region", nargs="?", help="only this extract")
-    for sub in (st, up, dl, ou):
+    sources_cmd = commands.add_parser("sources", help="the data sources")
+    sources_sub = sources_cmd.add_subparsers(dest="command", required=True)
+    sc = sources_sub.add_parser("check", help="whether the services of the sources still answer (a few small "
+                                              "requests each; nothing is written to the cache)")
+    sc.add_argument("ids", nargs="*", metavar="ID", help="only these sources (nasadem only when named)")
+    sc.add_argument("--deep", action="store_true", help="also download the first tile of every layer")
+    for sub in (st, up, dl, ou, sc):
         sub.add_argument("--data-dir", default=argparse.SUPPRESS, help="data folder")
     args = parser.parse_args(argv)
 
@@ -332,6 +340,9 @@ def main(argv: List[str]) -> int:
                 where = args.bbox or args.point
                 return 1 if run_update(cache_dir, args.folder, "all" if args.all else "stale",
                                        _box(where) if where else None) else 0
+            elif args.group == "sources":
+                from sources import probe
+                return probe.run(cache_dir, args.ids, args.deep, settings.opentopography_key())
             elif args.command == "download":
                 osmextract.download(cache_dir, args.region)
             else:
