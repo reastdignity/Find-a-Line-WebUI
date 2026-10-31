@@ -1,8 +1,8 @@
 # Monitoring
 
 What to watch on the VPS of the public site and in the application, where each value comes
-from, how it is stored and when it raises an alert. Planned 2026-10-31; nothing of it is
-implemented yet. The public site and its server are described in
+from, how it is stored and when it raises an alert. Planned 2026-10-31; phase 1 is built
+(`deploy/monitoring/`, docs/deployment.md section 15), phase 2 is not yet. The public site and its server are described in
 [deployment.md](deployment.md); the plans of the project in [roadmap.md](roadmap.md).
 
 Today the operator checks by hand (`sudo deploy/vps.sh check`, the *Admin* page, `docker compose
@@ -32,7 +32,7 @@ failed backup (deployment.md, section 11).
 | VictoriaMetrics | the same project, `127.0.0.1:8428` | Stores the samples; its own metrics are scraped by Telegraf too (G2). |
 | Grafana | the same project, `127.0.0.1:3000` | Dashboards, alert rules and the ntfy contact point, all provisioned from files in the repository (the ntfy topic from a Docker secret); its own database holds nothing that cannot be provisioned again. |
 | Docker socket proxy | the same project, `127.0.0.1:2375` (wollomatic/socket-proxy) | Lets Telegraf's `docker` input read the containers (GET of the container list, their stats and inspect, and `/info`; no logs, nothing else) without the Docker socket itself, which is equivalent to root. |
-| Host facts | a systemd timer on the host, as root (`deploy/monitoring/facts.sh`, every 5 min) | Writes what only root can read as JSON into `/var/lib/findaline-monitoring/` (mounted read-only into Telegraf, input `file`): fail2ban's counts per jail, the holes of the disk image (`image_holes` of `deploy/vps.sh`), pending updates, and once a day the result of `vps.sh check`. `backup.sh` writes its own `last.json` there. |
+| Host facts | a systemd timer on the host, as root (`deploy/monitoring/facts.sh`, every 5 min) | Writes what only root can read as JSON into `/var/lib/findaline-monitoring/` (mounted read-only into Telegraf, input `file`): fail2ban's counts per jail, the holes of the disk image (`image_holes` of `deploy/vps.sh`), pending updates (`facts.json`); a second timer (`findaline-check.timer`, daily) writes the result of `vps.sh check` (`check.json`). `backup.sh` writes its own `backup.json` there. |
 | Heartbeat | a systemd timer on the host, every minute | Asks the site (`https://<site>/` through nginx on the host) and, when it answers 200, pings healthchecks.io; the ping URL is in a root-only file (`/etc/findaline-monitoring.env`). |
 | `/metrics` of the application (phase 2) | a thread of the `web` process on its own port, published as `127.0.0.1:8766`, never behind nginx | The Prometheus text format (`prometheus_client`); its collectors read `jobs.sqlite`, `accounts.sqlite` and `audit.sqlite` at every scrape (aggregates only). The web process already has the accounts volume, so the volumes stay as they are. |
 
@@ -110,7 +110,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | # | What | Why / alert | How | Priority | Phase |
 | --- | --- | --- | --- | --- | --- |
 | B1 | `web` and `worker`: running, health, restarts, OOMKilled | alert: `web` unhealthy > 2 min; a restart; OOMKilled | `docker` through the socket proxy (wollomatic/socket-proxy) | P1 | 1 |
-| B2 | CPU, memory and pids of the containers against their limits | alert: `worker` > 90 % of `WORKER_MEMORY` for 5 min | `docker` | P1 | 1 |
+| B2 | CPU and memory of the containers against their limits (Telegraf reports no pids) | alert: `worker` > 90 % of `WORKER_MEMORY` for 5 min | `docker` | P1 | 1 |
 
 **C. The site (nginx)**
 | # | What | Why / alert | How | Priority | Phase |
@@ -133,7 +133,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 **E. Backup**
 | # | What | Why / alert | How | Priority | Phase |
 | --- | --- | --- | --- | --- | --- |
-| E1 | Age of the last successful backup, its duration and what it added | alert: no success for 26 h (healthchecks.io also reports a missing ping) | `deploy/backup.sh` writes `last.json` → input `file` (JSON) | P1 | 1 |
+| E1 | Age of the last successful backup, its duration and what it added | alert: no success for 26 h (healthchecks.io also reports a missing ping) | `deploy/backup.sh` writes `backup.json` → input `file` (JSON) | P1 | 1 |
 | E2 | Size of the restic repository, number of snapshots | trend | `restic stats` in `backup.sh`, the same file | P2 | 1 |
 
 **F. The application** (`/metrics`, aggregates only)
@@ -229,7 +229,7 @@ these rows). No application code.
   started with `--wait`).
 - `deploy/nginx/findaline-http.conf` and `findaline.conf`: the metrics log format and log, the
   route `map`, `stub_status` on a loopback-only port.
-- `deploy/firewall/ufw-after.rules` (`br-fal-mon`), `deploy/backup.sh` (`last.json`, the heartbeat).
+- `deploy/firewall/ufw-after.rules` (`br-fal-mon`), `deploy/backup.sh` (`backup.json`, the healthchecks.io ping).
 - Tests: `tests/nginx_check.sh` (the metrics log without addresses, `stub_status` not reachable from
   outside), `tests/test_deploy.py` (the monitoring project: ports on loopback only, hardening),
   `.github/workflows/ci.yml` (`docker compose config` of the project, `telegraf --test` of the

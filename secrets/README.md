@@ -4,7 +4,7 @@ compose.yaml gives each of these files to one service as a Docker secret
 (`/run/secrets/<name>`, read by the app's settings): the `findaline_*` files to `web`,
 `opentopography_api_key` to `worker`; `deploy/monitoring/compose.yaml` gives
 `grafana_admin_password` and `ntfy_url` to Grafana (docs/deployment.md, section 15). Put the value alone in the file, no
-quotes; the files are git-ignored and never enter the image.
+quotes, one line ending in LF (not CRLF: Grafana keeps the carriage return in its password); the files are git-ignored and never enter the image.
 
 | File | Value |
 | --- | --- |

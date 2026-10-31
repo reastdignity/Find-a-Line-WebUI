@@ -855,13 +855,14 @@ end and leaves the site running. The backup's unit (section 11) gets
 **The ntfy topic.** Pick a topic name nobody can guess (it is the only protection of a topic on
 ntfy.sh; or use your own ntfy server) and subscribe to it in ntfy's app on your phone; the topic
 of `notify-failure@.service` (section 11) is fine. Its whole URL goes into `secrets/ntfy_url`
-(`setup` asks for it), and Grafana reads it when it starts:
+(`setup` asks for it), one line ending in LF, and Grafana reads it when it starts (until then
+alerts go nowhere):
 
 ```sh
 cd /srv/find-a-line-webui
 echo 'https://ntfy.sh/<your secret topic>' | sudo tee secrets/ntfy_url >/dev/null
 sudo chown 472:472 secrets/ntfy_url && sudo chmod 400 secrets/ntfy_url
-docker compose -f deploy/monitoring/compose.yaml restart grafana
+docker compose -f deploy/monitoring/compose.yaml up -d --force-recreate grafana
 ```
 
 **healthchecks.io.** Sign up (the free plan is enough), then in *Integrations* add *ntfy* with the
