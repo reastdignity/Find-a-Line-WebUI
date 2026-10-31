@@ -17,6 +17,7 @@ What the site needs from the outside, and what stays closed:
 | From | To | What |
 | --- | --- | --- |
 | the internet | nginx on the host (80, 443) | the site; nginx sends it to `web` on `127.0.0.1:8765` |
+| Telegraf on the host | `web` on `127.0.0.1:8766` | the application's metrics (section 15); never through nginx |
 | the internet | the host (22) | SSH, with a key only |
 | `web` | the internet (HTTPS) | sign-in: GitHub's and Google's token endpoints, Google's OpenID metadata and keys |
 | `worker` | the internet (HTTP/HTTPS) | the data services, Nominatim, Overpass, OpenStreetMap extracts |
@@ -169,7 +170,7 @@ in. If the provider has a firewall of its own in front of the server, allow 22, 
 there too (and nothing else): a second layer that does not depend on the host.
 
 nginx runs on the host, so `ufw` applies to its ports as to any other service. Docker publishes
-the web service on `127.0.0.1:8765` only (compose.yaml), which nothing outside the host can reach
+the web service on `127.0.0.1:8765` and its metrics on `127.0.0.1:8766` only (compose.yaml), which nothing outside the host can reach
 (Docker 28+, section 1); `ufw` does not see Docker's own rules, which is why the containers have
 the rules below.
 
@@ -835,6 +836,7 @@ Nothing new is open to the internet: everything listens on the host's loopback.
 | nginx | `/var/log/nginx/findaline.metrics.log`; `http://127.0.0.1:8081/nginx_status` | A second access log of the site, one JSON line per request without any address (section 4); nginx's connection counts (`stub_status`) on the loopback only. |
 | `findaline-facts.timer` | the host, as root, every 5 minutes | `deploy/monitoring/facts.sh`: fail2ban's counts per jail (never the addresses), the holes of the disk image (section 1), the pending updates (and those of the security pocket) into `/var/lib/findaline-monitoring/facts.json`. |
 | `findaline-check.timer` | the host, as root, daily at 06:00 (± 15 min) | `deploy/vps.sh check` (sections 2, 12, 15); the numbers of its ok and FAIL lines into `check.json` there. Its output is in `journalctl -u findaline-check`. |
+| The application's metrics | `web` (`findaline.py web --public --metrics-port 8766`, the default), published on `127.0.0.1:8766` (`METRICS_PORT` in `.env`) | `metrics.py`: the queue and the worker, finished jobs by result and error, the times of their phases, the quick lane, accounts by status and by the country of their time zone, sessions, audit events and refusals of the last hour, reports, runs, favourites, the cache by folder (measured by the worker's housekeeping every 6 hours into `work/cache-sizes.json` of the data volume), the free disk, the searched km² and searches by country. Aggregates only: no user ids, addresses, titles or paths. Telegraf reads `http://127.0.0.1:8766/metrics` every 30 s for the dashboard *Find-a-Line* and its alert rules. nginx never proxies to it: on the site's port `/metrics` is a 404. |
 | `findaline-backup.service` | the host (section 11) | `backup.sh` writes `backup.json` there after every run and pings the backup check of healthchecks.io. |
 | `findaline-heartbeat.timer` | the host, every minute, as a throwaway user | `deploy/monitoring/heartbeat.sh`: `https://<site>/` through nginx on the host (its certificate checked) and, when it answers 200, a ping of the heartbeat check of healthchecks.io. |
 | [healthchecks.io](https://healthchecks.io) | outside | Reports a missing ping to the ntfy topic: the server, nginx or the site down, or the backup not run; Grafana on the same server could not report its own loss. |
@@ -907,6 +909,7 @@ cat /var/lib/findaline-monitoring/facts.json /var/lib/findaline-monitoring/check
 cat /var/lib/findaline-monitoring/backup.json             # after the first backup
 sudo tail -n 3 /var/log/nginx/findaline.metrics.log       # JSON, no addresses
 curl -s http://127.0.0.1:8081/nginx_status
+curl -s http://127.0.0.1:8766/metrics | grep -E '^findaline_(build_info|workers_alive|jobs)'  # the app's
 journalctl -u findaline-heartbeat -n 5                     # nothing: each minute's run was fine
 ```
 
