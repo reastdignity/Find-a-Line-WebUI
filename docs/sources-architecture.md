@@ -134,7 +134,7 @@ already (pyogrio through geopandas).
 | WMS GetMap as raw GeoTIFF | France (WMS-R) | GDAL's WMS driver (its own block grid, so resampling); `OWSLib` (builds the URL) | **own**: one GET; exact pixels need each tile's own box | recorded IGN answers; the survey's shift test (a one-pixel shift gives the same values) | [OGC WMS](https://www.ogc.org/standards/wms/) 1.3.0, IGN's Géoplateforme documentation |
 | Atom feeds (INSPIRE predefined download service) | Norway, Thuringia, Austria's editions, Czechia, MV | `feedparser` 6.0.14 (BSD-2, maintained, GeoRSS; depends on `sgmllib3k`, no release since 2010; a lenient parser of web feeds with HTML sanitising we do not need) | **own**: a small fixed schema (entries, `describedby`/`alternate` links, georss polygons, dataset identifiers) with the standard library | feedparser as the oracle of a test (entries, links, polygons of recorded feeds of Norway and Austria) | [RFC 4287](https://www.rfc-editor.org/rfc/rfc4287), [INSPIRE Technical Guidance for Download Services](https://inspire.ec.europa.eu/documents/technical-guidance-implementation-inspire-download-services) |
 | Metalink 4 (`.meta4`) | Bavaria, Rhineland-Palatinate | `metalink` 0.3.8 (GPL-3.0, first release 2026-10-12) | **own**: the licence (the project has none declared, GPL would bind it) and two weeks of history | recorded files of both Länder, the RFC's examples | [RFC 5854](https://www.rfc-editor.org/rfc/rfc5854) |
-| S3 bucket listing (ListObjectsV2) | Scotland, Shizuoka, New Zealand's surveys | `obstore` 0.12.1 (MIT, Rust, 5.9 MB, very active); `s3fs`, `boto3` (large) | **own for now**: one anonymous GET with a continuation token; obstore if bucket sources grow or need its parallel reads | recorded listings | [Amazon S3 API: ListObjectsV2](https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html) |
+| S3 bucket listing (ListObjectsV2) | Scotland, Shizuoka, New Zealand's surveys | `obstore` 0.12.1 (MIT, Rust, 5.9 MB, very active); `s3fs`, `boto3` (large) | **use obstore** (decided; anonymous access, its parallel reads available later) | recorded listings | – |
 | Index files (shapefile, GeoPackage, GeoJSON) | Trento, British Columbia, Tokyo | pyogrio | **use** (XML and HTML listings: own, small) | – | – |
 | Windows of COGs over HTTP | Austria, Wales, Norway, Canada, New Zealand (USA today) | rasterio `/vsicurl/` | **use**, as today | – | – |
 | Whole files (GeoTIFF, ASCII grid, XYZ, ZIP) | most Länder, Trento, Shizuoka (Poland today) | rasterio (AAIGrid, XYZ), `zipfile` | **use**, as today | – | – |
@@ -143,8 +143,12 @@ already (pyogrio through geopandas).
 
 Not a fit: `odc-stac` and `stackstac` load STAC items into xarray cubes; the app needs files on its own grid.
 
-Effect on the dependencies: `pystac-client` (with `pystac` and `python-dateutil`, pure Python) joins the run time;
-`pyogrio` is declared directly, since the code would use it; `feedparser` only in a development group of oracles.
+**Decided** (the user, 2026-10-31): `pystac-client` for STAC indexes, pyogrio for WFS and FeatureServer indexes,
+`obstore` for bucket listings, and the tests as below, in full; the rest own code from the documents named.
+
+Effect on the dependencies: `pystac-client` (with `pystac` and `python-dateutil`, pure Python) and `obstore` join the
+run time; `pyogrio` is declared directly, since the code uses it; `feedparser` only in a development group of oracles.
+Each is added with the source that first needs it, after a check of its current version and advisories.
 GDAL's HTTP in pyogrio takes our User-Agent as `/vsicurl/` does (`_gdal_http`).
 
 ### Tests before our own code
