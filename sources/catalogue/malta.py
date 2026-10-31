@@ -25,7 +25,7 @@ MALTA_2012_SHIFT = (-56.0, -196.0)
 
 MALTA_LISTINGS = {
     2018: Listing("Malta", "MSDI DTM 2018, LiDAR 1 m (heights in whole metres)", "MSDI DSM 2018, 1 m", "MSDI 2018"),
-    2012: Listing("Malta", "MSDI DTM 2012, centimetre heights, gaps filled from 2018", "MSDI DSM 2012", "MSDI 2018"),
+    2012: Listing("Malta", "MSDI DTM 2012, centimetre heights", "MSDI DSM 2012", "MSDI 2018"),
 }
 
 

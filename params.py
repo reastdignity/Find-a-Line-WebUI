@@ -71,9 +71,8 @@ class SearchParams(BaseModel):
                                   "centre")
 
     # Elevation data
-    source: str = field("auto", "data source; 'auto' picks the national source for the country of "
-                                "the centre (Poland, Malta, Spain, Switzerland, Slovakia when its tiles are "
-                                "set up, the USA) or the Europe-wide model elsewhere", "data",
+    source: str = field("auto", "data source; 'auto' picks the national or regional source for the country "
+                                "of the centre, or the Europe-wide model elsewhere (README, Data sources)", "data",
                         choices=SOURCE_CHOICES)
     elevation_file: Optional[str] = field(None, "your own terrain model (GeoTIFF/ASC, e.g. NASADEM from "
                                                 "OpenTopography); implies --source files", "data", cli_only=True)
@@ -88,9 +87,8 @@ class SearchParams(BaseModel):
                     "download of about 900 MB), or the Copernicus water body mask (30 m, less accurate)", "data")
     shore_buffer: float = field(20, "metres around the sea (from --coastline) where pixels without data are "
                                     "still taken as water", "data")
-    fill_gaps: Literal["on", "off"] = field("on", "fill gaps in the data on land from another source (Malta "
-                                                  "2012 from 2018, the USA from USGS 10 m, Alaska from its "
-                                                  "5 m IfSAR first, others from FABDEM 30 m)", "data")
+    fill_gaps: Literal["on", "off"] = field("on", "fill gaps in the data on land from other sources, in turn "
+                                                  "(each source's are in README, Data sources)", "data")
     opentopo_key: Optional[str] = field(settings.opentopography_key,
                                         "OpenTopography API key for --source nasadem", "data", cli_only=True,
                                         default_text="the OPENTOPOGRAPHY_API_KEY environment variable or "
@@ -100,9 +98,8 @@ class SearchParams(BaseModel):
     radius: float = field(1000, "search radius around the centre in metres", "search")
     resolution: Optional[float] = field(None, "working resolution in metres (data is resampled to it), at "
                                               "least 1", "search",
-                                        default_text="the resolution of the data, at least 1: 1 for the national "
-                                                     "LiDAR sources, 5 for Spain and Alaska's IfSAR, 10 for "
-                                                     "USGS 1/3 arc-second, 30 for Europe-wide/NASADEM")
+                                        default_text="the resolution of the data, at least 1; see README, Data "
+                                                     "sources")
     min_length: float = field(30, "minimum line length in metres", "search")
     max_length: float = field(1000, "maximum line length in metres", "search")
     max_anchor_diff: float = field(5, "maximum height difference of the anchors in % of the line length",

@@ -46,7 +46,7 @@ SOURCES: List[Source] = [
         nmt=USGS_1M, countries=("us",), bbox=ALASKA_BOX, local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
         fallback="alaska_ifsar", more_fallbacks=("usgs10m",), instead_without_data="alaska_ifsar",
         credits=(USGS_1M_CREDIT,), note=USA_NOTE,
-        listing=Listing("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM, gaps from `alaska_ifsar`, then `usgs10m`",
+        listing=Listing("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM",
                         "–", "USGS Imagery"),
         offline=(("us", ALASKA_BOX),), sample=None),  # no 1 m DEM in Alaska yet (2026-10)
     Source(
@@ -55,7 +55,7 @@ SOURCES: List[Source] = [
         nmt=USGS_IFSAR, local_crs=nad83_utm_crs, ortho=USGS_ORTHO, fallback="usgs10m",
         credits=(USGS_IFSAR_CREDIT,),
         note=USA_NOTE + " Alaska's IfSAR is a radar model at 5 m: lines shorter than about 30 m are not reliable.",
-        listing=Listing("Alaska", "USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019), gaps from `usgs10m`", "–",
+        listing=Listing("Alaska", "USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019)", "–",
                         "USGS Imagery"),
         sample=(58.3093, -134.3890)),
     Source(
@@ -66,7 +66,7 @@ SOURCES: List[Source] = [
         nmt=USGS_1M, countries=("us", "pr", "vi"), local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
         fallback="usgs10m", credits=(USGS_1M_CREDIT,), note=USA_NOTE,
         listing=Listing("USA, Puerto Rico, US Virgin Islands",
-                        "USGS 3DEP 1 m DEM (lidar), newest project first, gaps from `usgs10m`", "–",
+                        "USGS 3DEP 1 m DEM (lidar), newest project first", "–",
                         "USGS Imagery (NAIP, up to zoom 16)"),
         offline=(("us", (24.4, 49.4, -125.0, -66.9)), ("pr", (17.8, 18.6, -67.4, -65.2))),
         sample=(38.5610, -109.5680)),

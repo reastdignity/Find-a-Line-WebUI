@@ -6,7 +6,7 @@ This guide takes you from nothing to your first map of possible highlines. You d
 - An internet connection (the elevation data and aerial photos are downloaded automatically)
 - About 1 GB of free disk space for a few searches
 
-The tool works best in Poland, Malta, Switzerland and the USA, where it uses very detailed national elevation data (1 m; in the USA without trees and buildings for now), and in Spain and Alaska (5 m). It also works anywhere else in Europe with less detailed data (30 m), which is good enough to find long lines only. It picks the right data by itself.
+The tool works best in the countries with detailed national elevation data (1 m or 5 m; the list is in the README, [Data sources](README.md#data-sources)). It also works anywhere else with less detailed data (30 m), which is good enough to find long lines only. It picks the right data by itself.
 
 ## 1. Install the tools (once)
 You need two tools: **Git** downloads the project, **uv** installs Python and everything the script needs (you don't install Python yourself).
@@ -86,7 +86,7 @@ Add options to the command to change what is searched. Some useful ones:
 | `--radius 2000` | Search area around the centre, in metres | 1000 |
 | `--min-length 50 --max-length 300` | Shortest and longest line, in metres | 30 and 1000 |
 | `--slope-threshold 60` | How steep the ground must be for an anchor (degrees); higher means only cliffs, fewer lines and a faster search | 45 |
-| `--resolution 2` | Detail of the terrain in metres; 1 is the most detailed, 2 is about four times faster | 1 with detailed national data (5 in Spain, 30 elsewhere) |
+| `--resolution 2` | Detail of the terrain in metres; 1 is the most detailed, 2 is about four times faster | the detail of the data: 1 with detailed national data (see [Data sources](README.md#data-sources)), 30 elsewhere |
 | `--nmpt reject` | Leave out lines that pass too close to trees or buildings; `--nmpt off` doesn't check trees at all (faster, less to download) | lines are marked in orange |
 | `--model sag` | Check the clearance with the webbing sag calculation instead of the simple formula; set your setup with `--pretension 3` (kN), `--stretch 4` (% at 10 kN), `--webbing-weight 60` (g/m), `--athlete-mass 75` (kg), `--fall-zone 4` (m) | simple formula |
 | `--min-height 40` | Only lines that get at least this many metres above the ground; in big mountains it keeps the outstanding lines out of thousands | all lines |
@@ -108,8 +108,7 @@ uv run findaline.py --point 50.15595,19.75627,"Zabi Kon" --point 50.17332,19.740
 To see all options, run `uv run findaline.py --help`.
 
 ## Outside Poland
-- **Malta** works the same way as Poland, with detailed data and aerial photos.
-- **Spain** (including the Balearic and Canary Islands) uses the national data with a 5 m grid and Spanish aerial photos. It finds lines from about 30 m.
+- **Other countries with national data** work the same way as Poland: the list, with the detail of each country's data and its aerial photos, is in the README, [Data sources](README.md#data-sources). With 5 m data lines are found from about 30 m.
 - **Lines over the sea** (between sea cliffs) are found too. Their box on the map says how many metres are over water, and the profile shows the water in blue.
 - **Elsewhere** the script uses Europe-wide data with a 30 m grid. It finds long lines (roughly 100 m and more) reliably, short ones not. These data are free for non-commercial use only. Aerial photos are shown online (choose *Esri World Imagery* in the top-right corner).
 - If you have your own elevation file (for example NASADEM from [OpenTopography](https://portal.opentopography.org)), use it with `--elevation-file path/to/file.tif`.
@@ -169,6 +168,6 @@ uv run findaline.py osm download poland
 ## If something goes wrong
 - **`uv` is not recognised / command not found:** close the window and open a new one after installing uv. If it still isn't found, run the install command from step 1 again.
 - **It takes too long:** use a smaller `--radius`, a higher `--slope-threshold`, or a coarser `--resolution 2` (or 5). You can stop the script at any time with Ctrl+C.
-- **"No lines found":** try a lower `--slope-threshold`, a larger `--radius` or other line lengths. Outside Poland and Malta the data is less detailed, so try longer lines, for example `--min-length 100`.
+- **"No lines found":** try a lower `--slope-threshold`, a larger `--radius` or other line lengths. Where the data is less detailed (5 m or 30 m, see [Data sources](README.md#data-sources)), try longer lines, for example `--min-length 100`.
 - **Download errors:** the data servers are sometimes busy. Run the same command again; what was already downloaded is kept.
 - **Not enough disk space:** inside the `cache` folder, delete the folders of countries or datasets you no longer need (for example `cache/spain`), or the whole `cache` folder; everything is downloaded again when needed. Old searches can be deleted from the `runs` folder.

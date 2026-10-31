@@ -12,6 +12,7 @@ tests/test_catalogue.py::test_docs_list_every_source fails while README is out o
 """
 
 import argparse
+import dataclasses
 import os
 import re
 import sys
@@ -24,27 +25,33 @@ import sources as src  # noqa: E402
 README = os.path.join(HERE, "README.md")
 TABLE = ("<!-- sources-table:start -->", "<!-- sources-table:end -->")
 IDS = ("<!-- source-ids:start -->", "<!-- source-ids:end -->")
-# The rows of README before they were generated (2026-10-31), in its order
-TABLE_ORDER = ["geoportal", "malta", "malta2012", "spain", "spain_canarias", "swisstopo", "slovakia", "usa",
-               "alaska", "alaska_ifsar", "usgs10m", "europe", "nasadem"]
-IDS_ORDER = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain", "spain_canarias", "usa",
-             "alaska", "alaska_ifsar", "usgs10m", "europe", "nasadem"]
+
+
+def _gaps(source) -> str:
+    return ", then ".join(f"`{f}`" for f in source.fallbacks) or "–"
 
 
 def table() -> str:
-    """The "Data sources" table, a row per source and one for --elevation-file."""
-    rows = ["| `--source` | Where | Terrain (DTM) | Surface (DSM, trees/buildings) | Orthophoto (cached) |",
-            "| --- | --- | --- | --- | --- |"]
-    for sid in TABLE_ORDER:
-        where, terrain, surface, ortho = src.SOURCES[sid].listing
-        rows.append(f"| `{sid}` | {where} | {terrain} | {surface} | {ortho} |")
-    rows.append("| `files` | your files | `--elevation-file` | `--surface-file` (optional) | – |")
+    """The "Data sources" table: a row per source in the order --source auto tries them, and one
+    for --elevation-file."""
+    rows = ["| `--source` | Where | `auto` | Terrain (DTM) | Surface (DSM, trees/buildings) | Orthophoto (cached) "
+            "| Resolution | Gaps from |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for sid, source in src.SOURCES.items():
+        where, terrain, surface, ortho = source.listing
+        auto = ", ".join(code.upper() for code in source.countries) or "–"
+        rows.append(f"| `{sid}` | {where} | {auto} | {terrain} | {surface} | {ortho} "
+                    f"| {source.default_resolution:g} m | {_gaps(source)} |")
+    # choose_source makes a Source of --elevation-file with the default fallback
+    fallback = next(f.default for f in dataclasses.fields(src.Source) if f.name == "fallback")
+    rows.append(f"| `files` | your files | – | `--elevation-file` | `--surface-file` (optional) | – "
+                f"| the file's | `{fallback}` |")
     return "\n".join(rows)
 
 
 def ids() -> str:
     """The values of --source."""
-    return ", ".join(f"`{sid}`" for sid in ["auto", *IDS_ORDER, "files"])
+    return ", ".join(f"`{sid}`" for sid in ["auto", *src.SOURCES, "files"])
 
 
 def _between(text: str, markers, content: str, block: bool) -> str:
