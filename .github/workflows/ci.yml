@@ -1,5 +1,6 @@
 # Offline tests on Linux and Windows, and audits of the locked dependencies.
-# macOS is left out until it is needed (docs/roadmap.md, "Deferred"). The docker job builds and smoke-tests the image.
+# macOS is left out until it is needed (docs/roadmap.md, "Deferred"). The docker job builds and smoke-tests the image;
+# the monitoring job runs the monitoring project (deploy/monitoring).
 name: CI
 
 on:
@@ -151,3 +152,88 @@ jobs:
         run: |
           docker compose down --volumes
           docker rm -f probe || true
+
+  # The monitoring project (deploy/monitoring, docs/monitoring.md) on the runner as the host: its
+  # compose file, then the four services with dummy secrets and stand-ins of what the host's side
+  # writes (the nginx metrics log, the facts files); the runner's systemd answers over D-Bus.
+  # Checks that VictoriaMetrics holds Telegraf's samples and that Grafana has its provisioning.
+  monitoring:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE: docker compose -f deploy/monitoring/compose.yaml
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
+        with:
+          python-version: "3.13"
+
+      # PyYAML comes with the group tools (huggingface-hub); the tests job runs without it and skips
+      - name: Offline checks of the provisioning
+        run: uv run --frozen --group tools pytest -q tests/test_monitoring.py
+
+      - name: Settings, secrets and the host's files
+        run: |
+          cp findaline.env.example findaline.env
+          python3 -c "import secrets; print(secrets.token_urlsafe(24))" > secrets/grafana_admin_password
+          echo "https://ntfy.invalid/ci" > secrets/ntfy_url   # nothing is sent
+          chmod 0644 secrets/grafana_admin_password secrets/ntfy_url   # Grafana runs as uid 472
+          printf 'DOCKER_GID=%s\nADM_GID=%s\n' "$(getent group docker | cut -d: -f3)" "$(getent group adm | cut -d: -f3)" \
+            > deploy/monitoring/.env
+          test -S /run/dbus/system_bus_socket
+          sudo install -d -m 0755 /var/log/nginx /var/lib/findaline-monitoring
+          sudo install -m 0640 -o root -g adm /dev/null /var/log/nginx/findaline.metrics.log
+          now=$(date +%s)
+          echo "{\"time\": $now, \"fail2ban\": {\"findaline\": {\"banned\": 0, \"banned_total\": 3, \"failed\": 1, \"failed_total\": 9}, \"sshd\": {\"banned\": 2, \"banned_total\": 40, \"failed\": 5, \"failed_total\": 300}}, \"updates_pending\": 2, \"updates_security\": 0}" \
+            | sudo tee /var/lib/findaline-monitoring/facts.json
+          echo "{\"time\": $now, \"ok\": 40, \"failed\": 0}" | sudo tee /var/lib/findaline-monitoring/check.json
+          echo "{\"time\": $now, \"success\": 1, \"last_success\": $now, \"seconds\": 60, \"added_bytes\": 1000, \"repo_bytes\": 100000, \"snapshots\": 3}" \
+            | sudo tee /var/lib/findaline-monitoring/backup.json
+
+      - name: Compose file
+        run: $COMPOSE config --quiet
+
+      # --wait: Telegraf is healthy once its first samples are in VictoriaMetrics
+      - name: Services
+        run: |
+          $COMPOSE pull --quiet
+          $COMPOSE up --detach --wait --wait-timeout 240
+          $COMPOSE ps
+
+      # Requests in the metrics log format of deploy/nginx (one JSON object per line); the inputs of
+      # 5 minutes (the facts files, systemd's units) report at the next 5-minute mark
+      - name: Samples
+        run: |
+          query() { curl -sf http://127.0.0.1:8428/api/v1/query --data-urlencode "query=$1" | grep -q '"value"'; }
+          for _ in $(seq 70); do
+            for status in 200 200 304 404 429 500; do
+              echo "{\"time\":$(date +%s.%3N),\"group\":\"api\",\"method\":\"GET\",\"status\":$status,\"request_time\":0.042,\"upstream_time\":\"0.040\",\"bytes\":512,\"limit\":\"\"}" \
+                | sudo tee -a /var/log/nginx/findaline.metrics.log > /dev/null
+            done
+            if query nginx_requests_request_time_count && query findaline_backup_time && query systemd_units_active_code; then
+              break
+            fi
+            sleep 5
+          done
+          for name in cpu_usage_idle docker_container_mem_usage_percent nginx_requests_request_time_count \
+                      findaline_facts_time findaline_backup_time systemd_units_active_code; do
+            query "$name" || { echo "no samples of $name"; exit 1; }
+          done
+
+      # Grafana's API with the admin's password: health, the data source, the dashboards, every rule,
+      # the contact points, and every query of the rules and panels
+      - name: Grafana
+        env:
+          FINDALINE_GRAFANA_URL: http://127.0.0.1:3000
+        run: |
+          export FINDALINE_GRAFANA_PASSWORD="$(cat secrets/grafana_admin_password)"
+          uv run --frozen --group tools pytest -q tests/test_monitoring.py -k live
+
+      - name: Logs
+        if: always()
+        run: $COMPOSE logs --no-color
+
+      - name: Clean up
+        if: always()
+        run: $COMPOSE down --volumes
