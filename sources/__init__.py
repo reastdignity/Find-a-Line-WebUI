@@ -41,8 +41,8 @@ re-exported: call and patch them through their module.
 """
 
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
-from .readers import download, tilebases, wcsreader, windows
-from .indexes import tilings
+from .readers import download, sheetfile, tilebases, wcsreader, windows
+from .indexes import cached, listings, tilings, versions
 from .layers import blocks, degree, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import malta, poland, slovakia, spain, switzerland, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
@@ -53,12 +53,13 @@ from .layers.wcs import WcsTiles
 from .readers.tilebases import MIRROR_ENV, grid_tile_name
 from .layers.gridtiles import GridTiles
 from .layers.degree import DegreeTiles, OpenTopographyTiles
-from .layers.indexed import IndexedTiles, Sheet
+from .indexes.versions import Block, Sheet
+from .layers.indexed import IndexedTiles
 from .layers.sheets import SheetTiles
 from .layers.stac import StacTiles
 from .readers.windows import _same_crs
 from .layers.blocks import DegreeBlocks
-from .layers.tnm import Block, IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
+from .layers.tnm import IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
 from .layers.files import FileLayer
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS

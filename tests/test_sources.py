@@ -278,7 +278,8 @@ class FakeStac:
         start = int(dict(request.query).get("page", 0))
         self.asked.append(start)
         page = [self.item(*i) for i in self.items[start:start + 2]]
-        links = [{"rel": "next", "href": self.server.url(f"/stac/collections/test/items?page={start + 2}")}]             if start + 2 < len(self.items) else []
+        links = [{"rel": "next", "href": self.server.url(f"/stac/collections/test/items?page={start + 2}")}] \
+            if start + 2 < len(self.items) else []
         return Answer(body=json.dumps({"features": page, "links": links}).encode(),
                       headers={"Content-Type": "application/geo+json"})
 
@@ -324,8 +325,9 @@ def test_stac_tiles(tmp_path, monkeypatch, http_server):
     broken = stac.url(2025, 26000, 12000, 2.0)
     stac.files[broken] = b"broken"
     with pytest.raises(RuntimeError, match="checksum"):
-        layer.download_tile(layer._sheet({"year": 2025, "godlo": "26000-12000", "res": 2.0, "crs": "EPSG:2056",
-                                          "url": broken, "sha256": "0" * 64}), str(tmp_path / "x.tif"))
+        sheet = layer.index.versions.sheet({"year": 2025, "godlo": "26000-12000", "res": 2.0, "crs": "EPSG:2056",
+                                            "url": broken, "sha256": "0" * 64})
+        layer.download_tile(sheet, str(tmp_path / "x.tif"))
     assert not os.path.exists(tmp_path / "x.tif")
     assert not http_server.stray()
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
@@ -334,7 +336,8 @@ def test_stac_tiles(tmp_path, monkeypatch, http_server):
     # grid's resolution
     offline = make("http://127.0.0.1:9")
     assert offline.missing(coarse, cache_dir, "all") == []
-    assert sorted(os.path.basename(p) for p in offline.files(coarse, cache_dir)) ==         ["2025_26000-12000.tif", "2026_26001-12000.tif"]
+    assert sorted(os.path.basename(p) for p in offline.files(coarse, cache_dir)) == \
+        ["2025_26000-12000.tif", "2026_26001-12000.tif"]
     assert os.path.dirname(offline.files(fine, cache_dir)[0]).endswith("0.5m")
 
 
