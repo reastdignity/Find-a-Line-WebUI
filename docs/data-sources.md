@@ -38,6 +38,7 @@ Rules of thumb:
 - Read every download with a byte cap: some servers ignore HTTP Range and stream the whole file (Wallonia's 50 GB ZIPs, an English survey tile, seen 2026-10-31).
 - When a service refuses scripts (403, a CAPTCHA, a firewall), note it and ask the agency; never work around it with another User-Agent.
 - Try older protocol versions before giving up: Norway's WCS 2.0.1 answers 400 where 1.0.0 works.
+- Look at the edges of the data: South Tyrol's WCS blends the pixels next to its nodata edge with 0 (false steps of more than 1000 m; `edge_px`), Saxony-Anhalt's answers 0 without nodata outside the Land (`zero_is_nodata`), and the Environment Agency answers HTTP 500 outside its coverage.
 - Clip requests to the coverage extent; a `missing` tile at the edge of the data is suspicious (Malta's north coast of Gozo was lost this way).
 - Compressed archives (ZIP Deflate/Deflate64) cannot be read in parts; a TIFF inside may still be tiled, so after one extraction it reads fast. Python's `zipfile` cannot read Deflate64: use 7-Zip.
 - Huge ZIPs: read the central directory with range requests first (the end of the file, then the ZIP64 record): the compression method of each member (8 = Deflate: Python's `zipfile` and GDAL `/vsizip/` read it; 9 = Deflate64: neither does, extract with 7-Zip) and the sizes inside. Extract a huge member once instead of reading it through `/vsizip/`: for Slovakia's 122 GB TIFF GDAL managed about 7 MB/s, `zipfile` inflates 400 MB/s (13 min), and the plain file reads in any order.

@@ -13,11 +13,17 @@ Where a country publishes airborne LiDAR data, the tool uses it: a terrain model
 | USA, Puerto Rico, US Virgin Islands | USGS 3DEP 1 m DEM (lidar; terrain only, no surface model yet) | 1 m |
 | Alaska | USGS 3DEP IfSAR DTM (radar; terrain only) | 5 m |
 | Austria | BEV ALS DTM / DSM (national edition) | 1 m |
+| United Kingdom: England | Environment Agency LIDAR Composite DTM / first-return DSM 2022 | 1 m |
+| United Kingdom: Wales | Welsh Government LiDAR 2020–22 DTM / DSM | 1 m |
+| Germany: Lower Saxony | LGLN DGM1 / DOM1 | 1 m |
+| Germany: Saxony-Anhalt | LVermGeo DGM1 / DOM1 | 1 m |
+| Italy: South Tyrol | Province of Bolzano DTM / DSM (LiDAR 2004–2006 in the mountains) | 2.5 m |
 
 Other countries can be added (see *Data sources*). Everywhere else in Europe (and the world) the tool uses 30 m global models (FABDEM and Copernicus DEM), which is enough for long lines only. NASADEM and your own raster files are supported too. The sea and lakes are filled in where the data has none, so lines between sea cliffs are found as well.
 
 **Limitations and future scope**
-- High-resolution data is built in for Poland, Malta, Spain, Switzerland, Slovakia, Austria and the USA only; elsewhere the 30 m models find long lines only, and at 5 m (Spain, Alaska) lines shorter than about 30 m are not reliable.
+- High-resolution data is built in for Poland, Malta, Spain, Switzerland, Slovakia, Austria, England, Wales, Lower Saxony, Saxony-Anhalt, South Tyrol and the USA only; elsewhere the 30 m models find long lines only, at 5 m (Spain, Alaska) lines shorter than about 30 m are not reliable, and at 2.5 m (South Tyrol) lines shorter than about 15 m. On steep rock South Tyrol's 2.5 m surface model stands metres above its terrain model, so most lines there are marked as over trees or buildings.
+- England and Wales have no open orthophoto: their maps show the map's own base layers. England's LIDAR Composite merges surveys of 2000–2022 and is not updated; newer surveys exist only as 5 km archives.
 - In the USA there is no surface model yet: lines over trees and buildings are not recognised there.
 - Trees and buildings are taken into account through NMPT (on by default, `--nmpt off` to skip it). Other factors that make rigging difficult are not.
 - It would be nice to overlay with property maps.
