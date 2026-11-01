@@ -1,6 +1,6 @@
 """
 The metrics of the application for the monitoring of the public site (docs/monitoring.md, rows
-F1-F10 and F14-F16): `findaline.py web --public` serves them in the Prometheus text format on
+F1-F17): `findaline.py web --public` serves them in the Prometheus text format on
 its own port (--metrics-port, 8766; compose.yaml publishes it on the host's loopback only, and
 nginx never proxies to it), read by Telegraf (deploy/monitoring/telegraf.conf) for the dashboard
 and the alert rules of deploy/monitoring/grafana.
@@ -9,7 +9,11 @@ and the alert rules of deploy/monitoring/grafana.
   through read-only connections of its own (aggregates only, short queries), the cache sizes
   the worker's housekeeping measures (jobs.write_cache_sizes) and the free disk. Totals are
   counted from the rows (COUNT, SUM), so they include what happened before the metrics; the
-  answers of the quick lane are the web process's own counts since its start.
+  answers of the quick lane, the requests per route and the open event streams are the web
+  process's own counts since its start (web.RouteCounts, web.EventHub). The requests of the
+  worker's processes to outside services are the running totals of the table service_requests
+  (servicecounts); what the housekeeping removed and the coverage of the searches come from the
+  files it writes (jobs.HOUSEKEEPING_FILE, jobs.COVERAGE_FILE), absent before its first round.
 - Its own registry: only these metrics (no process or platform metrics of the client library).
 - No label carries a user id, an IP address, a title, a place name or a path: statuses, phases,
   error codes, actions, countries (ISO 3166-1 alpha-2) and top-level cache folders only.
@@ -25,7 +29,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, Optional
+from typing import Callable, Dict, Iterable, Iterator, Optional
 
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric, SummaryMetricFamily
 from prometheus_client.registry import Collector, CollectorRegistry
@@ -102,11 +106,14 @@ class Metrics(Collector):
     """The collector of the application's metrics (see the module's docstring). `limits`: the web
     process's settings.Limits (queue_max, the worker's slots); `accounts_dir`: the folder of
     accounts.sqlite (None: the local app, no accounts); `quick_answers`: the web app's counts of
-    the waits for the quick lane (web.create_app's app.state.quick_answers)."""
+    the waits for the quick lane (web.create_app's app.state.quick_answers); `routes`: its
+    web.RouteCounts; `event_streams`: the number of open event streams (web.EventHub)."""
 
     def __init__(self, data_dir: str, limits=None, accounts_dir: Optional[str] = None,
-                 quick_answers: Optional[Dict[str, int]] = None):
+                 quick_answers: Optional[Dict[str, int]] = None, routes=None,
+                 event_streams: Optional[Callable[[], int]] = None):
         self.data_dir = data_dir
+        self.routes, self.event_streams = routes, event_streams
         self.limits = limits
         self.jobs = os.path.join(data_dir, "jobs.sqlite")
         self.accounts = os.path.join(accounts_dir, "accounts.sqlite") if accounts_dir else None
@@ -118,14 +125,86 @@ class Metrics(Collector):
 
     def collect(self) -> Iterator[Metric]:
         yield gauge("findaline_build_info", "The version of the application", {cache.VERSION: 1}, "version")
-        for part in (self._jobs, self._accounts, self._audit, self._disk):
+        for part in (self._jobs, self._services, self._accounts, self._audit, self._disk, self._housekeeping,
+                     self._coverage):
             try:
                 yield from part()
-            except (sqlite3.Error, OSError, ValueError) as e:  # this scrape goes on without them
+            except (sqlite3.Error, OSError, ValueError, KeyError, TypeError) as e:  # this scrape goes on without them
                 print(f"metrics: {part.__name__}: {type(e).__name__}: {e}", file=sys.stderr)
         if self.quick_answers is not None:
             yield counter("findaline_quick_answers", "Waits for the quick lane by how they ended, since the start",
                           dict(self.quick_answers), "result", QUICK_RESULTS)
+        if self.routes is not None:
+            yield from self._routes()
+        if self.event_streams is not None:
+            yield gauge("findaline_event_streams", "Open event streams of the web process", self.event_streams())
+
+    def _routes(self) -> Iterator[Metric]:
+        found, seconds = self.routes.snapshot()
+        requests = CounterMetricFamily("findaline_http_requests", "Requests of the web process by route template, "
+                                       "method and status class, since its start", labels=["route", "method", "status"])
+        for (route, method, status), n in sorted(found.items()):
+            requests.add_metric([route, method, status], n)
+        yield requests
+        times = SummaryMetricFamily("findaline_http_request_seconds", "Time until the answer's headers per route "
+                                    "template (the event stream left out), since the start", labels=["route"])
+        for route, (n, total) in sorted(seconds.items()):
+            times.add_metric([route], n, total)
+        yield times
+
+    def _services(self) -> Iterator[Metric]:
+        db = _read(self.jobs)
+        if db is None:
+            return
+        try:
+            rows = db.execute("SELECT host, outcome, requests, bytes, seconds FROM service_requests").fetchall()
+        except sqlite3.OperationalError:  # a database from before migration 14 (the web process migrates it)
+            return
+        finally:
+            db.close()
+        requests = CounterMetricFamily("findaline_service_requests", "Requests of the worker to outside services by "
+                                       "host and outcome (each retry is a request)", labels=["host", "outcome"])
+        size: Dict[str, float] = {}
+        seconds: Dict[str, float] = {}
+        for host, outcome, n, b, s in sorted(rows):
+            requests.add_metric([host, outcome], n)
+            size[host] = size.get(host, 0) + b
+            seconds[host] = seconds.get(host, 0.0) + s
+        yield requests
+        yield counter("findaline_service_bytes", "Bytes received from outside services by host", size, "host")
+        yield counter("findaline_service_seconds", "Seconds of the requests to outside services by host", seconds,
+                      "host")
+
+    def _work_file(self, name: str) -> Optional[Dict]:
+        path = os.path.join(self.data_dir, "work", name)
+        if not os.path.exists(path):
+            return None
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+
+    def _housekeeping(self) -> Iterator[Metric]:
+        found = self._work_file(jb.HOUSEKEEPING_FILE)
+        if found is None:  # no round yet
+            return
+        removed = {str(k): v for k, v in (found.get("removed") or {}).items() if isinstance(v, (int, float))}
+        yield gauge("findaline_housekeeping_removed", "What the last round of the housekeeping removed", removed,
+                    "what")
+        yield gauge("findaline_housekeeping_last_run_timestamp_seconds", "When the last round of the housekeeping "
+                    "ended (Unix time)", float(found["time"]))
+        yield gauge("findaline_housekeeping_seconds", "How long the last round of the housekeeping took",
+                    float(found.get("seconds") or 0.0))
+
+    def _coverage(self) -> Iterator[Metric]:
+        found = self._work_file(jb.COVERAGE_FILE)
+        if found is None:
+            return
+        yield gauge("findaline_coverage_km2", "Square kilometres searched at least once (finished searches)",
+                    float(found["km2"]))
+        cells = GaugeMetricFamily("findaline_searches_by_cell", "Finished searches whose area touches a cell of "
+                                  "0.25 degrees, by the cell's south-west corner", labels=["lat", "lon"])
+        for lat, lon, n in found.get("cells") or []:
+            cells.add_metric([f"{lat:.2f}", f"{lon:.2f}"], n)
+        yield cells
 
     def _jobs(self) -> Iterator[Metric]:
         db = _read(self.jobs)
@@ -258,16 +337,19 @@ class Metrics(Collector):
 
 
 def registry(data_dir: str, limits=None, accounts_dir: Optional[str] = None,
-             quick_answers: Optional[Dict[str, int]] = None) -> CollectorRegistry:
+             quick_answers: Optional[Dict[str, int]] = None, routes=None,
+             event_streams: Optional[Callable[[], int]] = None) -> CollectorRegistry:
     """A registry with the application's metrics only."""
     found = CollectorRegistry(auto_describe=False)
-    found.register(Metrics(data_dir, limits, accounts_dir, quick_answers))
+    found.register(Metrics(data_dir, limits, accounts_dir, quick_answers, routes, event_streams))
     return found
 
 
 def serve(port: int, addr: str, data_dir: str, limits=None, accounts_dir: Optional[str] = None,
-          quick_answers: Optional[Dict[str, int]] = None):
+          quick_answers: Optional[Dict[str, int]] = None, routes=None,
+          event_streams: Optional[Callable[[], int]] = None):
     """Serve the metrics on `addr`:`port` from a thread of this process (prometheus_client's own
     HTTP server, any path); returns (server, thread)."""
     from prometheus_client import start_http_server
-    return start_http_server(port, addr=addr, registry=registry(data_dir, limits, accounts_dir, quick_answers))
+    return start_http_server(port, addr=addr, registry=registry(data_dir, limits, accounts_dir, quick_answers,
+                                                                routes, event_streams))

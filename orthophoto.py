@@ -24,6 +24,7 @@ from shapely.ops import unary_union
 from shapely.prepared import prep
 
 import cache
+import servicecounts
 from progress import progress
 
 TILE_PX = 256
@@ -123,9 +124,12 @@ def _get(url: str, params: Optional[Dict], z: int, x: int, y: int) -> bytes:
     last_error = None
     for attempt in range(RETRIES):
         try:
-            response = requests.get(url, params=params, timeout=60, headers=cache.http_headers())
-            if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
-                return response.content
+            with servicecounts.request(url) as counted:  # every attempt
+                response = counted.got(requests.get(url, params=params, timeout=60, headers=cache.http_headers()))
+                if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
+                    return response.content
+                if response.status_code == 200:
+                    counted.outcome = "other"  # an error page instead of an image
             last_error = RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
         except requests.RequestException as e:
             last_error = e

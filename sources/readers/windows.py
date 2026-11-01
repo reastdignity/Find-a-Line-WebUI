@@ -12,6 +12,7 @@ from rasterio.warp import Resampling, reproject
 from rasterio.windows import Window
 
 import cache
+import servicecounts
 
 from ..net import _gdal_http, _remote
 from ..layer import Fetched, _clean, _write_tile
@@ -87,16 +88,21 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     used, years = [], []
     with _gdal_http():
         for name, url, year in files:
-            try:
-                with rio.open(_remote(url)) as src:
-                    if src.crs is not None and not _same_crs(src.crs, crs):
-                        print(f"{what}: {name} is in {src.crs.to_string()}, not {crs}; not used")
-                        continue
-                    values = _read_window(src, transform, shape)
-            except rio.errors.RasterioIOError as e:
-                if re.search(r"\b404\b|No such file", str(e)):
-                    continue  # listed, but not (or no longer) there
-                raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
+            # One request counted per file read for the block (servicecounts; GDAL's own HTTP requests,
+            # their bytes and its retries are not seen)
+            with servicecounts.request(url) as counted:
+                try:
+                    with rio.open(_remote(url)) as src:
+                        if src.crs is not None and not _same_crs(src.crs, crs):
+                            print(f"{what}: {name} is in {src.crs.to_string()}, not {crs}; not used")
+                            continue
+                        values = _read_window(src, transform, shape)
+                except rio.errors.RasterioIOError as e:
+                    if re.search(r"\b404\b|No such file", str(e)):
+                        counted.outcome = "not_found"
+                        continue  # listed, but not (or no longer) there
+                    counted.outcome = "http_5xx" if re.search(r"\b5\d\d\b", str(e)) else "other"
+                    raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
             new = np.isnan(block) & np.isfinite(values)
             if new.any():
                 block[new] = values[new]

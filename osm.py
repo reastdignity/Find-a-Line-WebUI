@@ -30,6 +30,7 @@ import requests
 from shapely.geometry import LineString, MultiLineString, Point, shape
 
 import cache
+import servicecounts
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 # Tried in turn when a server is overloaded (502, 504, timeouts); both serve the whole planet
@@ -112,7 +113,8 @@ def fetch_tile(theme: str, lat: float, lon: float, cache_dir: str):
     with _overpass_turn(cache_dir):
         for url in OVERPASS_URLS:
             try:
-                response = requests.get(url, params={"data": query}, headers=cache.http_headers(), timeout=120)
+                response = servicecounts.get(url, params={"data": query}, headers=cache.http_headers(),
+                                             timeout=120)
                 response.raise_for_status()
                 break
             except requests.RequestException as e:
@@ -262,7 +264,7 @@ def _ask(url: str, params: Dict, timeout: int, cache_dir: str):
     if BEFORE_REQUEST is not None:
         BEFORE_REQUEST()
     _nominatim_turn(cache_dir)
-    response = requests.get(url, headers=cache.http_headers(), timeout=timeout, params=params)
+    response = servicecounts.get(url, headers=cache.http_headers(), timeout=timeout, params=params)
     response.raise_for_status()
     return response.json()
 

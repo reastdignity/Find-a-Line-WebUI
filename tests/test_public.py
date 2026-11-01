@@ -1454,7 +1454,10 @@ def test_privacy_and_about_pages(run_people):
     text = privacy.text
     for fact in ("display name", "SHA-256", "30 days", "7 days", "90 days", "Audit log", "open every run",
                  "orthophoto tiles", "stores none", "No third-party analytics", "statistics of the site&#x27;s "
-                 "operation without personal data", "its area in km² and the country it lies in",
+                 "operation without personal data", "its area in km², its outline and the country it lies in",
+                 "Server logs", "Messages of the application and errors of the web server, without IP addresses",
+                 "Deleted after 30 days; Docker&#x27;s own copy is overwritten once it reaches 50 MB",
+                 "or the number of searches per area of about 25 km",
                  "Your totals of searched area are counted from these", "the country of your browser&#x27;s time "
                  "zone (only the country, e.g. PL)", "shown in your account menu"):
         assert fact in text, fact
@@ -1848,6 +1851,60 @@ def test_jobs_database_gets_areas(tmp_path):
     jobs.set(job, "ready")
     claimed = jobs.claim("ready", "computing", "w")
     assert claimed["downloading_at"] <= claimed["computing_at"] and claimed["computing_at"].endswith("+00:00")
+
+
+def test_jobs_database_gets_outlines(tmp_path):
+    """jobs.sqlite of version 13 gets migration 14: an empty table service_requests and the outline of
+    the jobs of before where their request gives it without any service (a circle, also in PL-1992,
+    and a drawn area, also within a box), none for coast, cliffs, osm: areas, OSM extracts and
+    requests that no longer validate; the jobs and their km² stay."""
+    import math
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    from area import size_km2
+    from shapely.geometry import shape
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:13])
+    point = {"lat": 50.1, "lon": 19.7}
+    requests = {
+        "circle": {"params": {**point, "radius": 500}, "geometry": None},
+        "pl1992": {"params": {"northing": 254608, "easting": 553966, "radius": 1000}, "geometry": None},
+        "drawn": {"params": {}, "geometry": SQUARE},
+        "drawn in a box": {"params": {"within": "50.1546,19.7522,50.1580,19.7556"}, "geometry": SQUARE},
+        "drawn in osm": {"params": {"within": "osm:Gozo"}, "geometry": SQUARE},
+        "coast": {"params": {"area": "coast", "within": "osm:Gozo"}, "geometry": None},
+        "extract": {"osm": {"action": "download", "region": "malta"}},
+        "invalid": {"params": {**point, "radius": -5}, "geometry": None},
+    }
+    for name, request in requests.items():
+        db.execute("INSERT INTO jobs (id, created, status, request, title, area_km2) VALUES (?, "
+                   "'2026-10-01T10:00:00+00:00', 'done', ?, ?, 1.5)", (name, json.dumps(request), name))
+    db.commit()
+    db.close()
+    jobs = jb.Jobs(str(tmp_path))
+    outlines = {name: jobs.get(name)["area_outline"] for name in requests}
+    for name in ("drawn in osm", "coast", "extract", "invalid"):
+        assert outlines[name] is None, name
+    circle = shape(json.loads(outlines["circle"]))
+    assert circle.centroid.distance(shape({"type": "Point", "coordinates": [19.7, 50.1]})) < 1e-4
+    assert 0.85 * math.pi * 0.25 < size_km2(circle) < math.pi * 0.25  # an octagon: simplified to about 50 m
+    pl = shape(json.loads(outlines["pl1992"])).centroid
+    assert 50.1 < pl.y < 50.2 and 19.7 < pl.x < 19.8  # Żabi Koń
+    assert size_km2(shape(json.loads(outlines["drawn"]))) == pytest.approx(size_km2(shape(SQUARE)), rel=0.05)
+    assert size_km2(shape(json.loads(outlines["drawn in a box"]))) < size_km2(shape(SQUARE)) * 0.6
+    assert jobs.get("circle")["area_km2"] == 1.5  # migration 13's values stay
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 14
+    assert db.execute("SELECT COUNT(*) FROM service_requests").fetchone()[0] == 0
+    db.close()
+    jobs.add_service_requests([("a.example", "ok", 2, 10, 0.5)])
+    jobs.add_service_requests([("a.example", "ok", 1, 5, 0.25), ("a.example", "other", 1, 0, 1.0)])
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert sorted(db.execute("SELECT * FROM service_requests")) == [("a.example", "ok", 3, 15, 0.75),
+                                                                    ("a.example", "other", 1, 0, 1.0)]
+    db.close()
 
 
 def test_accounts_database_gets_countries(tmp_path, account_settings):

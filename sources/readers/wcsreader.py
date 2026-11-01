@@ -11,6 +11,7 @@ from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject
 
 import cache
+import servicecounts
 
 from .. import net
 from ..layer import Fetched, _clean, _write_tile
@@ -39,7 +40,7 @@ class WcsReader(Reader):
         """(left, bottom, right, top) of the coverage in the service CRS, or None if unknown."""
         if self._extent is None:
             try:
-                response = requests.get(self.service_url, timeout=60, headers=cache.http_headers(), params={
+                response = servicecounts.get(self.service_url, timeout=60, headers=cache.http_headers(), params={
                     "SERVICE": "WCS", "VERSION": "2.0.1", "REQUEST": "DescribeCoverage", "COVERAGEID": self.coverage})
                 response.raise_for_status()
                 text = response.text

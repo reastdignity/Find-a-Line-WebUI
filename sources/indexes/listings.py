@@ -9,6 +9,7 @@ import requests
 
 import cache
 import osm
+import servicecounts
 
 from .. import net
 from ..net import RETRIES
@@ -79,8 +80,8 @@ class WfsSheets(Listing):
         self._years: Optional[List[str]] = None
 
     def _wfs(self, **params) -> bytes:
-        response = requests.get(self.url, timeout=300, headers=cache.http_headers(),
-                                params={"SERVICE": "WFS", "VERSION": "2.0.0", **params})
+        response = servicecounts.get(self.url, timeout=300, headers=cache.http_headers(),
+                                     params={"SERVICE": "WFS", "VERSION": "2.0.0", **params})
         response.raise_for_status()
         error = ows_exception(response.content)
         if error:  # answered with HTTP 200: not an answer to cache
@@ -133,6 +134,9 @@ class StacItems(Listing):
         from pystac_client.stac_api_io import StacApiIO
 
         stac_io = StacApiIO(headers=cache.http_headers(), timeout=120, max_retries=0)
+        send = stac_io.session.send  # each page counted (servicecounts), as our own requests
+        stac_io.session.send = lambda prepared, **kwargs: servicecounts.call(
+            prepared.url, lambda: send(prepared, **kwargs))
         search = ItemSearch(self.url, method="GET", bbox=(lon, lat, lon + osm.TILE_DEG, lat + osm.TILE_DEG),
                             limit=100, stac_io=stac_io)
         try:
@@ -175,7 +179,7 @@ class TnmProducts(Listing):
         while offset < total:  # pages of up to 500 products
             for attempt in range(RETRIES):
                 try:
-                    response = requests.get(self.url, timeout=120, headers=cache.http_headers(), params={
+                    response = servicecounts.get(self.url, timeout=120, headers=cache.http_headers(), params={
                         "datasets": self.dataset, "max": 500, "offset": offset,
                         "bbox": f"{lon},{lat},{lon + osm.TILE_DEG},{lat + osm.TILE_DEG}"})
                     response.raise_for_status()

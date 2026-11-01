@@ -388,6 +388,58 @@ RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "place": "place lo
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
 EVERYONE_SECONDS = 300     # the sign-in page's total of everyone's searched area is counted again after it
 QUICK_RESULTS = ("ok", "no_worker", "busy", "gone")  # how a wait for the quick lane ended (metrics.py)
+HTTP_METHODS = ("GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")  # others count as "other"
+EVENT_STREAM = "/api/events"  # its time is that of the open page: left out of the time per route
+
+
+class RouteCounts:
+    """The requests of the web process per route template, method and status class, and their time
+    (until the answer's headers) per route, since the start (docs/monitoring.md F12; read by
+    metrics.py from another thread). Templates only: no path, user or address."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.requests: Dict[Tuple[str, str, str], int] = {}
+        self.seconds: Dict[str, List[float]] = {}  # route -> [count, sum]
+
+    def add(self, route: str, method: str, status: int, seconds: float):
+        method = method if method in HTTP_METHODS else "other"
+        key = (route, method, f"{min(max(status // 100, 1), 5)}xx")
+        with self.lock:
+            self.requests[key] = self.requests.get(key, 0) + 1
+            if route != EVENT_STREAM:
+                found = self.seconds.setdefault(route, [0, 0.0])
+                found[0] += 1
+                found[1] += seconds
+
+    def snapshot(self) -> Tuple[Dict[Tuple[str, str, str], int], Dict[str, Tuple[int, float]]]:
+        with self.lock:
+            return dict(self.requests), {route: (n, total) for route, (n, total) in self.seconds.items()}
+
+
+def route_template(app, scope) -> str:
+    """The template of the route a request matched (`/api/runs/{run}/favourites`; a mount's
+    `/runs/{path}`), "unmatched" without one. FastAPI's routes leave themselves in the scope, a
+    mount its app (the endpoint; it changed the scope's root path, so it cannot be matched again);
+    a request answered before the routing (a refusal of the guard) is matched here as the router
+    would."""
+    from starlette.routing import Match, Mount
+    route = scope.get("route")
+    if route is None and "endpoint" in scope:
+        route = next((r for r in app.router.routes if isinstance(r, Mount) and r.app is scope["endpoint"]), None)
+    elif route is None:
+        for candidate in app.router.routes:
+            try:
+                match, _ = candidate.matches(scope)
+            except Exception:
+                continue
+            if match == Match.FULL:
+                route = candidate
+                break
+    path = getattr(route, "path", None)
+    if not path:
+        return "unmatched"
+    return f"{path}/{{path}}" if isinstance(route, Mount) else path
 WELCOME_COOKIE = "__Host-findaline-welcome"  # set by a sign-in for 10 minutes: the page shows the beta notice
 WELCOME_SECONDS = 600
 # The files of a run the public site serves (what mapping.save_map and runs.save_results write, without
@@ -457,6 +509,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     audit = Audit(data_dir) if public else None  # the local app keeps no audit log
     quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
     quick_lock = threading.Lock()
+    route_counts = RouteCounts()  # requests per route, since the start (metrics.py)
 
     def quick_ended(result: str):
         with quick_lock:
@@ -510,6 +563,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     app.state.jobs, app.state.scheduler, app.state.token, app.state.limits = jobs, scheduler, token, limits
     app.state.accounts, app.state.account_settings = users, accounts
     app.state.quick_answers = quick_answers  # read by the metrics (metrics.py)
+    app.state.route_counts = route_counts
     if public:
         hosts, origins = [public.host], {public.origin}
     else:
@@ -537,6 +591,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         # Anything that changes state only from our own page (CSRF): its Origin (required in the
         # public mode; locally a client without one, e.g. curl, is no browser) and its token
         # (/logout takes it from its form too: the sign-in page has no script)
+        started = time.monotonic()
         changes = request.method not in ("GET", "HEAD")
         origin = request.headers.get("origin")
         path = request.url.path
@@ -547,9 +602,15 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         elif changes and path != "/logout" and not csrf_ok(request, request.headers.get("x-findaline-token")):
             response = JSONResponse({"detail": "missing or wrong token"}, status_code=403)
         else:
-            response = await call_next(request)
+            try:
+                response = await call_next(request)
+            except Exception:  # answered 500 by Starlette's error handler outside the guard
+                route_counts.add(route_template(app, request.scope), request.method, 500, time.monotonic() - started)
+                raise
         response.headers.update(SECURITY_HEADERS)
         response.headers["Cache-Control"] = cache_control(request, path)
+        route_counts.add(route_template(app, request.scope), request.method, response.status_code,
+                         time.monotonic() - started)
         return response
 
     def cache_control(request: Request, path: str) -> str:
@@ -1534,8 +1595,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
          f"Signing in uses a second, signed cookie for at most {ac.OAUTH_SECONDS // 60} minutes, and leaves a third "
          f"one ({WELCOME_COOKIE}, no data) for at most {WELCOME_SECONDS // 60} minutes, which only tells the page to "
          f"show its notice once."),
-        ("Searches", f"What you search (the place, the drawn or loaded area, the options), its area in km² and the "
-         f"country it lies in, its title and status (with the reason when it failed), and its messages and progress. "
+        ("Searches", f"What you search (the place, the drawn or loaded area, the options), its area in km², its "
+         f"outline and the country it lies in, its title and status (with the reason when it failed), and its "
+         f"messages and progress. "
          f"Why: to run the search and show it to you. The messages are deleted {events} after the search ended; the "
          f"search itself stays in your queue. Your totals of searched area are counted from these."),
         ("Runs", "The results of your searches (lines, maps, parameters, the place's name from OpenStreetMap) and "
@@ -1560,6 +1622,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
          f"administrators' actions and refusals by a "
          f"limit: the time, the action, the user id and what it concerned. Why: to find abuse and mistakes. "
          f"Deleted after {AUDIT_DAYS} days."),
+        ("Server logs", "Messages of the application and errors of the web server, without IP addresses; they may "
+         "name the place of a search. Why: to find faults. Deleted after 30 days; Docker's own copy is overwritten "
+         "once it reaches 50 MB."),
         ("IP addresses", "The application stores none. The reverse proxy in front of it may log requests with "
          "their addresses to protect the site (its operator's configuration); sign-in requests are counted per "
          "address in memory only."),
@@ -1574,8 +1639,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
         "background tiles (OpenStreetMap, OpenTopoMap, Esri, orthophoto services) directly: those services see "
         "your IP address.",
         "No third-party analytics, no advertising, no tracking cookies. The operator keeps statistics of the site's "
-        "operation without personal data (counts, sums and times, e.g. km² searched per day or users per country) "
-        "without a time limit.",
+        "operation without personal data (counts, sums and times, e.g. km² searched per day or users per country, or "
+        "the number of searches per area of about 25 km) without a time limit.",
     ]
     body = ["<p>What this site stores about you, why, and for how long.</p><dl class='p-facts'>"]
     body += [f"<dt>{e(name)}</dt><dd>{e(text)}</dd>" for name, text in items]
@@ -1837,7 +1902,8 @@ def main(argv: List[str]) -> int:
         # behind nginx); locally on the loopback
         metrics.serve(metrics_port, "0.0.0.0" if public else "127.0.0.1", data, app.state.limits,
                       accounts_dir=(accounts.accounts_dir or data) if accounts else None,
-                      quick_answers=app.state.quick_answers)
+                      quick_answers=app.state.quick_answers, routes=app.state.route_counts,
+                      event_streams=lambda: len(app.state.hub.listeners))
         print(f"Metrics on port {metrics_port} (/metrics)")
     server = {"host": args.host, "port": args.port, "log_level": "warning", "server_header": False,
               "timeout_graceful_shutdown": GRACEFUL_SECONDS, "timeout_keep_alive": KEEP_ALIVE_SECONDS}

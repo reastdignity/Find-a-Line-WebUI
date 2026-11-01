@@ -31,6 +31,7 @@ from shapely.ops import polygonize, unary_union
 
 import cache
 import osm
+import servicecounts
 from area import project
 from grid import Grid
 from messages import Note
@@ -97,7 +98,8 @@ def world_newer(cache_dir: str) -> bool:
     if not shapefile:
         return True
     folder = os.path.dirname(os.path.dirname(shapefile))
-    response = requests.head(WORLD_URL, headers=cache.http_headers(), timeout=60, allow_redirects=True)
+    response = servicecounts.call(WORLD_URL, lambda: requests.head(WORLD_URL, headers=cache.http_headers(), timeout=60,
+                                                                  allow_redirects=True))
     response.raise_for_status()
     modified = response.headers.get("Last-Modified")
     day = email.utils.parsedate_to_datetime(modified).date().isoformat() if modified else ""
@@ -122,7 +124,9 @@ def world_polygons(cache_dir: str, update: Optional[str] = None) -> str:
     if shapefile and not (cache.stale(cache.info(cache_dir, shapefile), cache.TTL_DAYS["water-polygons"], update)
                           and world_newer(cache_dir)):
         return shapefile
-    with requests.get(WORLD_URL, stream=True, headers=cache.http_headers(), timeout=120) as response:
+    with (servicecounts.request(WORLD_URL) as counted,
+          requests.get(WORLD_URL, stream=True, headers=cache.http_headers(), timeout=120) as response):
+        counted.got(response, read=False)
         response.raise_for_status()
         modified = response.headers.get("Last-Modified")
         day = email.utils.parsedate_to_datetime(modified).date() if modified else date.today()
@@ -134,6 +138,7 @@ def world_polygons(cache_dir: str, update: Optional[str] = None) -> str:
         with cache.replacing(archive) as f:
             for chunk in response.iter_content(chunk_size=1 << 20):
                 f.write(chunk)
+                counted.add(len(chunk))
                 progress.download.update(len(chunk) / 1e6)
         progress.download.finish()
     with zipfile.ZipFile(archive) as z:

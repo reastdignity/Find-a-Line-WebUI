@@ -17,6 +17,7 @@ Overpass. After a download or an update every cached theme tile the extracts cov
 is built again.
 """
 
+import contextlib
 import glob
 import json
 import os
@@ -29,6 +30,7 @@ from shapely.ops import unary_union
 
 import cache
 import osm
+import servicecounts
 from progress import progress
 
 INDEX_URL = "https://download.geofabrik.de/index-v1.json"
@@ -39,7 +41,7 @@ def _index(cache_dir: str, refresh: bool = False) -> Dict[str, Dict]:
     """The Geofabrik regions by id (cached in cache/osm/geofabrik-index.json)."""
     path = os.path.join(cache_dir, "osm", "geofabrik-index.json")
     if refresh or not os.path.exists(path):
-        response = requests.get(INDEX_URL, headers=cache.http_headers(), timeout=120)
+        response = servicecounts.get(INDEX_URL, headers=cache.http_headers(), timeout=120)
         response.raise_for_status()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with cache.replacing(path) as f:
@@ -274,13 +276,16 @@ def download(cache_dir: str, name: str):
     pbf, outline, themes = _paths(cache_dir, _country(regions, rid), rid)
     url = feature["properties"]["urls"]["pbf"]
     os.makedirs(os.path.dirname(pbf), exist_ok=True)
-    with requests.get(url, stream=True, headers=cache.http_headers(), timeout=120) as response:
+    with (servicecounts.request(url) as counted,
+          requests.get(url, stream=True, headers=cache.http_headers(), timeout=120) as response):
+        counted.got(response, read=False)
         response.raise_for_status()
         total = int(response.headers.get("content-length", 0))
         progress.download.start(f"OSM extract {rid}", total / 1e6, unit="MB")
         with cache.replacing(pbf) as f:
             for chunk in response.iter_content(chunk_size=1 << 20):
                 f.write(chunk)
+                counted.add(len(chunk))
                 progress.download.update(len(chunk) / 1e6)
         progress.download.finish()
     with open(outline, "w", encoding="utf-8") as f:
@@ -289,13 +294,30 @@ def download(cache_dir: str, name: str):
     _finish(cache_dir, rid, pbf, themes, url)
 
 
+def _replication_server(url: str):
+    """pyosmium's ReplicationServer with its requests counted (servicecounts; its own retries are not
+    seen)."""
+    from osmium.replication.server import ReplicationServer
+
+    @contextlib.contextmanager
+    def counted_open(address: str, opened):
+        with servicecounts.request(address) as counted, opened as response:
+            counted.got(response)
+            yield response
+
+    class Counted(ReplicationServer):
+        def open_url(self, url):
+            return counted_open(url.get_full_url(), super().open_url(url))
+
+    return Counted(url)
+
+
 def update(cache_dir: str, rid: str, pbf: str) -> bool:
     """Apply the replication diffs to an extract; whether there was anything new.
 
     When the diffs cannot be applied (too old for the server), the extract is
     downloaded again.
     """
-    from osmium.replication.server import ReplicationServer
     from osmium.replication.utils import get_replication_header
     header = get_replication_header(pbf)
     themes = pbf[:-len(".osm.pbf")] + ".themes.json"
@@ -303,7 +325,7 @@ def update(cache_dir: str, rid: str, pbf: str) -> bool:
         print(f"OSM extract {rid}: no replication information, downloading it again")
         download(cache_dir, rid)
         return True
-    server = ReplicationServer(header.url)
+    server = _replication_server(header.url)
     server.set_request_parameter("headers", cache.http_headers())
     newest = server.get_state_info()
     if newest is None:

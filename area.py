@@ -368,3 +368,25 @@ def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: floa
 def size_km2(geometry) -> float:
     """Area of a WGS84 geometry in km²."""
     return project(geometry, "EPSG:4326", _metric(geometry)).area / 1e6
+
+
+OUTLINE_TOLERANCE_M = 50.0  # simplification of the outline of a search kept with its job (outline_geojson)
+OUTLINE_DECIMALS = 6        # degrees in its text (about 0.1 m)
+
+
+def outline_geojson(area: Area) -> str:
+    """The outline of a search's area as GeoJSON geometry text in WGS84 (lon, lat), simplified to
+    about OUTLINE_TOLERANCE_M metres in a local metric CRS: what jobs.sqlite keeps for the coverage
+    of the site (jobs.area_outline, docs/monitoring.md F17). A part that would vanish keeps its
+    exact shape."""
+    shape = area.shape_wgs84()
+    crs = _metric(shape)
+    metric = project(shape, "EPSG:4326", crs)
+    simple = metric.simplify(OUTLINE_TOLERANCE_M, preserve_topology=True)
+    if simple.is_empty or not simple.is_valid:
+        simple = metric
+    back = project(simple, crs, "EPSG:4326")
+    back = shapely.transform(back, lambda xy: np.round(xy, OUTLINE_DECIMALS))
+    if not back.is_valid:
+        back = shapely.make_valid(back)
+    return shapely.to_geojson(back)

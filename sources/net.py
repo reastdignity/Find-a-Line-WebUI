@@ -15,6 +15,7 @@ import requests
 from filelock import FileLock, Timeout
 
 import cache
+import servicecounts
 
 # Tile downloads from one host at a time across all processes of a data folder (several jobs
 # of the web worker download at once), through lock files in cache/locks/hosts (host_slot);
@@ -27,16 +28,21 @@ RETRIES = 3
 
 
 def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
-    """GET with retries; raises RuntimeError with the server message on failure."""
+    """GET with retries; raises RuntimeError with the server message on failure. Every attempt is
+    counted (servicecounts; a 200 that is not data counts as `other`)."""
     last_error = None
     for attempt in range(RETRIES):
         try:
-            response = requests.get(url, params=params, timeout=timeout, headers=cache.http_headers())
-            content_type = response.headers.get("content-type", "")
-            if response.status_code == 404:
-                return None
-            if response.status_code != 200 or not any(t in content_type for t in binary_types):
-                raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+            with servicecounts.request(url) as counted:
+                response = counted.got(requests.get(url, params=params, timeout=timeout,
+                                                    headers=cache.http_headers()))
+                content_type = response.headers.get("content-type", "")
+                if response.status_code == 404:
+                    return None
+                if response.status_code != 200 or not any(t in content_type for t in binary_types):
+                    if response.status_code == 200:
+                        counted.outcome = "other"
+                    raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
             return response
         except (requests.RequestException, RuntimeError) as e:
             last_error = e

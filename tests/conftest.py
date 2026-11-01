@@ -17,3 +17,14 @@ def http_server(monkeypatch):
     server = HttpServer()
     yield server
     server.close()
+
+
+@pytest.fixture(autouse=True)
+def no_service_counts():
+    """A test that calls a phase of the worker in the test's process (jobs.run_phase) turns the
+    counting of servicecounts on: it is off again after every test, so no later test counts into
+    a data folder that is gone."""
+    yield
+    module = sys.modules.get("servicecounts")
+    if module is not None:
+        module.disable()

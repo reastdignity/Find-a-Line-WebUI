@@ -1,7 +1,8 @@
-"""The application's metrics (metrics.py; docs/monitoring.md, rows F1-F10 and F14-F16): the names
-and labels of the contract with deploy/monitoring (Grafana's dashboard and alert rules, Telegraf),
-their values on a scratch data folder, no personal data in any label, the port of `web --public`
-and the cache sizes of the worker's housekeeping."""
+"""The application's metrics (metrics.py; docs/monitoring.md, rows F1-F17): the names and labels of
+the contract with deploy/monitoring (Grafana's dashboard and alert rules, Telegraf), their values on
+a scratch data folder, no personal data in any label, the port of `web --public`, the cache sizes,
+what the worker's housekeeping removed and the coverage of the searches (with shapes of known
+areas), and the requests per route of the web process."""
 
 import json
 import os
@@ -20,6 +21,7 @@ import audit  # noqa: E402
 import cache  # noqa: E402
 import jobs as jb  # noqa: E402
 import metrics  # noqa: E402
+import servicecounts  # noqa: E402
 from settings import AccountSettings, Limits  # noqa: E402
 
 pytest.importorskip("prometheus_client")
@@ -57,20 +59,35 @@ CONTRACT = {
     "findaline_area_km2_total": {"country"},
     "findaline_searches_total": {"country"},
     "findaline_favourites": set(),
+    "findaline_service_requests_total": {"host", "outcome"},
+    "findaline_service_bytes_total": {"host"},
+    "findaline_service_seconds_total": {"host"},
+    "findaline_http_requests_total": {"route", "method", "status"},
+    "findaline_http_request_seconds_sum": {"route"},
+    "findaline_http_request_seconds_count": {"route"},
+    "findaline_event_streams": set(),
+    "findaline_housekeeping_removed": {"what"},
+    "findaline_housekeeping_last_run_timestamp_seconds": set(),
+    "findaline_housekeeping_seconds": set(),
+    "findaline_coverage_km2": set(),
+    "findaline_searches_by_cell": {"lat", "lon"},
 }
+# A square of about 1 km (0.009 degrees of latitude) in the cell of 50.00 N, 19.75 E
+SQUARE = {"type": "Polygon", "coordinates": [[[19.80, 50.10], [19.81, 50.10], [19.81, 50.109], [19.80, 50.109],
+                                              [19.80, 50.10]]]}
 SECRET = {"title": "Secret Title of Zakopane", "name": "Secret Name", "run": "run-secret-4242", "user": 4242}
 ACCOUNTS = AccountSettings(session_secret="s" * 40, github_client_id="id", github_client_secret="secret",
                            admins="github:1")
 
 
-def _job(jobs, user_id, status, error=None, area=None, country=None, title="a search", phases=()):
+def _job(jobs, user_id, status, error=None, area=None, country=None, title="a search", phases=(), outline=None):
     job = jobs.add({"params": {}}, title, user_id)
     for waiting, working in phases:  # ("queued", "downloading"), ("ready", "computing")
         if waiting == "ready":
             jobs.set(job, "ready")
         assert jobs.claim(waiting, working, "w")["id"] == job
     if area is not None:
-        jobs.set_area(job, area, country)
+        jobs.set_area(job, area, country, outline)
     if status != "queued":
         jobs.set(job, status, error=error)
     return job
@@ -92,7 +109,7 @@ def data(tmp_path):
     users.new_session(ids["a"])
     jobs = jb.Jobs(str(tmp_path), public=True)
     both = (("queued", "downloading"), ("ready", "computing"))
-    _job(jobs, ids["a"], "done", area=10.5, country="pl", phases=both)
+    _job(jobs, ids["a"], "done", area=10.5, country="pl", phases=both, outline=json.dumps(SQUARE))
     _job(jobs, ids["a"], "done", area=4.5, country="pl", phases=both)
     _job(jobs, ids[SECRET["name"]], "done", area=2.0, country="sk", title=SECRET["title"], phases=both)
     _job(jobs, SECRET["user"], "done", area=1.0, phases=both)  # its country unknown
@@ -124,7 +141,9 @@ def data(tmp_path):
     os.makedirs(tmp_path / "cache" / "poland" / "sheets")
     (tmp_path / "cache" / "poland" / "sheets" / "a.asc").write_bytes(b"x" * 1000)
     (tmp_path / "cache" / "LAYOUT").write_text("1\n")
-    jb.write_cache_sizes(str(tmp_path))
+    jobs.add_service_requests([("nominatim.openstreetmap.org", "ok", 3, 3000, 1.5),
+                               ("nominatim.openstreetmap.org", "timeout", 1, 0, 30.0)])
+    jb.Scheduler(jobs, limits=Limits()).housekeeping()  # the cache sizes, housekeeping.json, coverage.json
     return tmp_path, ids
 
 
@@ -133,8 +152,19 @@ def messages_error():
     return search.SearchError("Not enough steep terrain", "no_steep_terrain")
 
 
-def scrape(data_dir, limits=None, accounts_dir=None, quick=None) -> str:
-    return generate_latest(metrics.registry(str(data_dir), limits, accounts_dir, quick)).decode()
+def scrape(data_dir, limits=None, accounts_dir=None, quick=None, routes=None, event_streams=None) -> str:
+    return generate_latest(metrics.registry(str(data_dir), limits, accounts_dir, quick, routes,
+                                            event_streams)).decode()
+
+
+def route_counts():
+    import web
+    counts = web.RouteCounts()
+    counts.add("/api/runs/{run}/favourites", "GET", 200, 0.25)
+    counts.add("/api/runs/{run}/favourites", "GET", 404, 0.75)
+    counts.add("/api/events", "GET", 200, 300.0)  # counted, but not in the time per route
+    counts.add("unmatched", "BREW", 404, 0.01)
+    return counts
 
 
 def samples(text: str) -> dict:
@@ -155,7 +185,8 @@ def test_names_labels_and_values(data):
     the rows of the databases."""
     data_dir, ids = data
     limits = Limits.load(public=True).model_copy(update={"compute_slots": 3, "download_slots": 2})
-    text = scrape(data_dir, limits, str(data_dir), {"ok": 5, "no_worker": 1, "busy": 0, "gone": 2})
+    text = scrape(data_dir, limits, str(data_dir), {"ok": 5, "no_worker": 1, "busy": 0, "gone": 2}, route_counts(),
+                  lambda: 2)
     found = samples(text)
     names = {}
     for name, labels in found:
@@ -206,22 +237,47 @@ def test_names_labels_and_values(data):
         "pl": 15.0, "sk": 2.0, "unknown": 1.0}
     assert {dict(k)["country"]: v for (n, k), v in found.items() if n == "findaline_searches_total"} == {
         "pl": 2, "sk": 1, "unknown": 1}
+    host = "nominatim.openstreetmap.org"
+    assert value(found, "findaline_service_requests_total", host=host, outcome="ok") == 3
+    assert value(found, "findaline_service_requests_total", host=host, outcome="timeout") == 1
+    assert value(found, "findaline_service_bytes_total", host=host) == 3000
+    assert value(found, "findaline_service_seconds_total", host=host) == 31.5
+    route = "/api/runs/{run}/favourites"
+    assert value(found, "findaline_http_requests_total", route=route, method="GET", status="2xx") == 1
+    assert value(found, "findaline_http_requests_total", route=route, method="GET", status="4xx") == 1
+    assert value(found, "findaline_http_requests_total", route="unmatched", method="other", status="4xx") == 1
+    assert value(found, "findaline_http_request_seconds_count", route=route) == 2
+    assert value(found, "findaline_http_request_seconds_sum", route=route) == 1.0
+    assert ("findaline_http_request_seconds_count", frozenset({("route", "/api/events")})) not in found
+    assert value(found, "findaline_event_streams") == 2
+    assert {dict(k)["what"]: v for (n, k), v in found.items() if n == "findaline_housekeeping_removed"} == {
+        "parts": 0, "events": 0, "quick": 0, "usage": 0, "audit": 0, "work": 0}
+    assert abs(value(found, "findaline_housekeeping_last_run_timestamp_seconds") - time.time()) < 60
+    assert 0 <= value(found, "findaline_housekeeping_seconds") < 60
+    assert value(found, "findaline_coverage_km2") == pytest.approx(0.715 * 1.0, rel=0.01)
+    assert {(dict(k)["lat"], dict(k)["lon"]): v for (n, k), v in found.items()
+            if n == "findaline_searches_by_cell"} == {("50.00", "19.75"): 1}
 
 
 def test_no_personal_data_in_labels(data):
     """No label value is a user id, a name, a title, a run or a path: each label takes values of its
     own small set (statuses, phases, codes, actions, alpha-2 countries, cache folders)."""
     data_dir, ids = data
-    text = scrape(data_dir, Limits.load(public=True), str(data_dir), dict.fromkeys(metrics.QUICK_RESULTS, 0))
+    text = scrape(data_dir, Limits.load(public=True), str(data_dir), dict.fromkeys(metrics.QUICK_RESULTS, 0),
+                  route_counts(), lambda: 0)
     for secret in (SECRET["title"], SECRET["name"], SECRET["run"], "secret text", str(data_dir), "worker-1"):
         assert secret not in text, secret
     allowed = {
         "version": re.compile(r"[\w.+-]+"), "status": re.compile(r"queued|ready|downloading|computing|done|failed|"
-                                                                   r"cancelled|pending|approved|blocked"),
+                                                                   r"cancelled|pending|approved|blocked|[1-5]xx"),
         "phase": re.compile(r"waiting|download|compute"), "error": re.compile(r"[a-z0-9_]*"),
         "result": re.compile("|".join(metrics.QUICK_RESULTS)), "country": re.compile(r"[a-z]{2}|unknown"),
         "window": re.compile(r"15m|24h"), "action": re.compile("|".join(audit.ACTIONS)),
         "kind": re.compile(r"rate|quota|other"), "folder": re.compile(r"[\w.-]+"),
+        "host": re.compile(r"[a-z0-9.-]+"), "outcome": re.compile("|".join(servicecounts.OUTCOMES)),
+        "route": re.compile(r"/[\w/{}.-]*|unmatched"), "method": re.compile(r"[A-Z]+|other"),
+        "what": re.compile(r"parts|events|quick|usage|audit|work"), "lat": re.compile(r"-?\d+\.\d\d"),
+        "lon": re.compile(r"-?\d+\.\d\d"),
     }
     for (name, labels), _ in samples(text).items():
         for label, label_value in labels:
@@ -309,3 +365,129 @@ def test_port_of_web_public(tmp_path, monkeypatch):
     assert not [r for r in public_app.routes if "metrics" in getattr(r, "path", "")]
     with TestClient(public_app, base_url="https://lines.example.org") as client:
         assert client.get("/metrics").status_code == 404
+
+
+def test_housekeeping_writes_what_it_removed(tmp_path):
+    """work/housekeeping.json: what the round removed (stale .part files, work folders of ended jobs,
+    old quick answers, usage rows), when it ended and how long it took; replaced at once."""
+    jobs = jb.Jobs(str(tmp_path))
+    os.makedirs(tmp_path / "cache" / "europe")
+    old = time.time() - 30 * 86400
+    for name in ("a.tif.1-2.part", "b.tif.3-4.part"):
+        (tmp_path / "cache" / "europe" / name).write_bytes(b"x")
+        os.utime(tmp_path / "cache" / "europe" / name, (old, old))
+    os.makedirs(tmp_path / "work" / "jobs" / "ended")
+    os.utime(tmp_path / "work" / "jobs" / "ended", (old, old))
+    os.makedirs(tmp_path / "work" / "estimates" / "left")
+    os.utime(tmp_path / "work" / "estimates" / "left", (old, old))
+    task = jobs.quick_add("estimate", {"params": {}})
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    db.execute("UPDATE quick SET status = 'done', created = ? WHERE id = ?", (old, task))
+    db.execute("INSERT INTO usage (user_id, kind, at, amount) VALUES (1, 'km2', ?, 3)", (old,))
+    db.commit()
+    db.close()
+    jb.Scheduler(jobs, limits=Limits()).housekeeping()
+    with open(tmp_path / "work" / jb.HOUSEKEEPING_FILE, encoding="utf-8") as f:
+        found = json.load(f)
+    assert found["removed"] == {"parts": 2, "events": 0, "quick": 1, "usage": 1, "audit": 0, "work": 2}
+    assert abs(found["time"] - time.time()) < 60 and 0 <= found["seconds"] < 60
+    assert not [n for n in os.listdir(tmp_path / "work") if n.endswith(".part")]
+    with open(tmp_path / "work" / jb.COVERAGE_FILE, encoding="utf-8") as f:
+        assert json.load(f)["cells"] == []  # no finished searches yet
+
+
+def _done(jobs, outline, status="done"):
+    job = jobs.add({"params": {}}, "a search")
+    jobs.set_area(job, 1.0, None, json.dumps(outline) if isinstance(outline, dict) else outline)
+    jobs.set(job, status)
+    return job
+
+
+def _square(west, south, size, height=None):
+    north = south + (size if height is None else height)
+    return {"type": "Polygon", "coordinates": [[[west, south], [west + size, south], [west + size, north],
+                                                [west, north], [west, south]]]}
+
+
+def test_coverage_of_known_shapes(tmp_path):
+    """jb.coverage: the union of the outlines of finished searches on the ellipsoid (a search repeated
+    or overlapping counts its area once), the searches per cell of 0.25 degrees by its south-west
+    corner (a shape across a cell border in both cells, every search counted), only status done,
+    unreadable outlines left out."""
+    import area as ar
+    from pyproj import Geod
+    from shapely.geometry import shape
+    jobs = jb.Jobs(str(tmp_path))
+    first = _square(19.80, 50.10, 0.01)
+    _done(jobs, first)
+    _done(jobs, first)  # repeated: area once, counted twice in its cell
+    _done(jobs, _square(19.805, 50.10, 0.01))  # overlapping half of it
+    _done(jobs, _square(19.995, 50.245, 0.01))  # across the corner of four cells
+    _done(jobs, _square(-0.005, -0.005, 0.01))  # across the equator and the prime meridian
+    _done(jobs, _square(10.0, 10.0, 1.0), status="failed")  # not finished: left out
+    _done(jobs, "not geojson")
+    circle = ar.Circle(-33.9, 151.2, 2000)
+    _done(jobs, ar.outline_geojson(circle))
+    found = jb.coverage(jobs)
+    geod = Geod(ellps="WGS84")
+
+    def km2(outline):
+        return abs(geod.geometry_area_perimeter(shape(outline))[0]) / 1e6
+    expected = km2(_square(19.80, 50.10, 0.015, 0.01)) + km2(_square(19.995, 50.245, 0.01)) \
+        + km2(_square(-0.005, -0.005, 0.01)) + km2(json.loads(ar.outline_geojson(circle)))
+    assert found["km2"] == pytest.approx(expected, rel=1e-6)
+    assert km2(json.loads(ar.outline_geojson(circle))) == pytest.approx(3.14159 * 4, rel=0.03)  # simplified to 50 m
+    assert {(lat, lon): n for lat, lon, n in found["cells"]} == {
+        (50.0, 19.75): 4, (50.0, 20.0): 1, (50.25, 19.75): 1, (50.25, 20.0): 1,
+        (-0.25, -0.25): 1, (-0.25, 0.0): 1, (0.0, -0.25): 1, (0.0, 0.0): 1, (-34.0, 151.0): 1}
+    os.makedirs(tmp_path / "empty")
+    assert jb.coverage(jb.Jobs(str(tmp_path / "empty"))) == {"time": pytest.approx(time.time(), abs=60),
+                                                            "km2": 0.0, "cells": []}
+
+
+def test_outline_of_every_area_kind(tmp_path):
+    """area.outline_geojson: WGS84 GeoJSON simplified to about 50 m (a circle of 1 km keeps its area
+    within a few per cent, far fewer points), coordinates of 6 decimals; jb.note_area stores it with
+    the km² for a circle and a polygon (coast, cliffs and osm: areas are Polygons of the region)."""
+    import area as ar
+    from shapely.geometry import shape
+    circle = ar.Circle(50.15, 19.75, 1000)
+    outline = json.loads(ar.outline_geojson(circle))
+    assert outline["type"] == "Polygon" and len(outline["coordinates"][0]) < 100
+    assert ar.size_km2(shape(outline)) == pytest.approx(3.14159, rel=0.03)
+    assert all(len(str(c).split(".")[-1]) <= 6 for ring in outline["coordinates"] for p in ring for c in p)
+    polygon = ar.Polygon(shape(_square(19.80, 50.10, 0.01)))
+    assert ar.size_km2(shape(json.loads(ar.outline_geojson(polygon)))) == pytest.approx(0.795, rel=0.01)
+
+    class Plan:
+        def __init__(self, area):
+            self.area = area
+    jobs = jb.Jobs(str(tmp_path))
+    for area in (circle, polygon):
+        job = jobs.add({"params": {}}, "a search")
+        jb.note_area(jobs, job, Plan(area), str(tmp_path / "missing-cache"))
+        row = jobs.get(job)
+        assert row["area_km2"] > 0 and json.loads(row["area_outline"])["type"] == "Polygon"
+
+
+def test_requests_per_route(tmp_path):
+    """The guard counts every request by the template of its route (a mount's /{path}), "unmatched"
+    without one, a refusal of the guard by the route it was meant for; the status as a class; the
+    event stream left out of the time per route."""
+    import web
+    from fastapi.testclient import TestClient
+    app = web.create_app(str(tmp_path), port=8799, start_scheduler=False)
+    with TestClient(app, base_url="http://127.0.0.1:8799") as client:
+        assert client.get("/api/jobs").status_code == 200
+        assert client.get("/api/jobs/nope").status_code == 404
+        assert client.get("/no/such/page").status_code == 404
+        assert client.post("/api/jobs", json={}).status_code == 403  # no token: refused by the guard
+        client.get("/app/viewer.js")
+    found, seconds = app.state.route_counts.snapshot()
+    assert found[("/api/jobs", "GET", "2xx")] == 1
+    assert found[("/api/jobs/{job_id}", "GET", "4xx")] == 1
+    assert found[("unmatched", "GET", "4xx")] == 1
+    assert found[("/api/jobs", "POST", "4xx")] == 1
+    assert [key for key in found if key[0] == "/app/{path}"]
+    assert seconds["/api/jobs"][0] == 2 and "/api/events" not in seconds
+    assert app.state.hub.listeners == {}  # findaline_event_streams: len() of these

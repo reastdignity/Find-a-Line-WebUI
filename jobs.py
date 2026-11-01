@@ -46,6 +46,7 @@ from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Se
 import cache
 import messages
 import params as pm
+import servicecounts
 from messages import UserError
 from settings import Limits, PublicSettings
 
@@ -135,29 +136,62 @@ MIGRATIONS = [
     # by the worker when it plans the search; when the job's phases started (UTC, as `created`). Jobs of
     # before get the area where their request gives it without any service (request_km2)
     lambda db: _area_columns(db),
+    # 14: the requests of the worker's processes to outside services, running totals per host and outcome
+    # (servicecounts; never deleted: a few hundred rows at most), and the outline of a search's area
+    # (GeoJSON geometry in WGS84, simplified to about 50 m: area.outline_geojson), set with area_km2. Jobs of
+    # before get it where their request gives it without any service (request_area)
+    lambda db: _outline_column(db),
 ]
 PHASE_TIME = {"downloading": "downloading_at", "computing": "computing_at"}  # the column of a status's start
 
 
-def request_km2(request: Dict) -> Optional[float]:
-    """The km² of a job's request when it gives them without any service (migration 13 for the jobs
-    of before): a circle (pi r²) or a drawn area (its buffered geometry, clipped to a box `within`);
-    None for coast, cliffs, osm: areas, a drawn area within an osm: area, OSM extract jobs and
-    requests that do not validate."""
+def request_area(request: Dict):
+    """The area (area.Circle or area.Polygon) of a job's request when it gives it without any service
+    (migrations 13 and 14 for the jobs of before): a circle or a drawn area (its buffered geometry,
+    clipped to a box `within`); None for coast, cliffs, osm: areas, a drawn area within an osm: area,
+    OSM extract jobs and requests that do not validate."""
     if not isinstance(request, dict) or not isinstance(request.get("params"), dict):
         return None
     try:
         p = search_params(request)
+        import area as ar
         if p.geometry is not None:
             if p.within is not None and p.within.startswith("osm:"):
                 return None
-            import area as ar
-            return ar.size_km2(ar.from_geometry(p.geometry, p.buffer, p.within, "").geometry)
+            return ar.from_geometry(p.geometry, p.buffer, p.within, "")
         if p.area is None:
-            return math.pi * p.radius ** 2 / 1e6
+            if p.lat is not None:
+                lat, lon = p.lat, p.lon
+            else:  # PL-1992, as mapping.pl1992_to_wgs84 (without importing the map's code)
+                from pyproj import Transformer
+                to_wgs84 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+                lon, lat = to_wgs84.transform(p.easting, p.northing)
+            return ar.Circle(lat, lon, p.radius)
     except Exception:  # a request of an older version that no longer validates
         return None
     return None
+
+
+def area_km2(area) -> float:
+    """The km² of an area (area.Circle: pi r², as the km² quota counts it; area.Polygon: its geometry)."""
+    from area import Polygon, size_km2
+    return size_km2(area.geometry) if isinstance(area, Polygon) else math.pi * area.radius ** 2 / 1e6
+
+
+def request_km2(request: Dict) -> Optional[float]:
+    """The km² of a job's request when it gives them without any service (request_area), else None."""
+    area = request_area(request)
+    return None if area is None else area_km2(area)
+
+
+def area_outline(area) -> Optional[str]:
+    """The outline of an area kept with its job (area.outline_geojson); None when it cannot be made
+    (the statistics never fail a search)."""
+    try:
+        import area as ar
+        return ar.outline_geojson(area)
+    except Exception:
+        return None
 
 
 def _area_columns(db: sqlite3.Connection):
@@ -173,6 +207,24 @@ def _area_columns(db: sqlite3.Connection):
         if km2 is not None:
             found.append((km2, rowid))
     db.executemany("UPDATE jobs SET area_km2 = ? WHERE rowid = ?", found)
+
+
+def _outline_column(db: sqlite3.Connection):
+    """Migration 14: the table of the requests to outside services, the column of the outline and the
+    outlines of the jobs of before (request_area)."""
+    db.execute("CREATE TABLE service_requests (host TEXT NOT NULL, outcome TEXT NOT NULL, requests INTEGER NOT NULL, "
+               "bytes INTEGER NOT NULL, seconds REAL NOT NULL, PRIMARY KEY (host, outcome))")
+    db.execute("ALTER TABLE jobs ADD COLUMN area_outline TEXT")
+    found = []
+    for rowid, text in db.execute("SELECT rowid, request FROM jobs").fetchall():
+        try:
+            area = request_area(json.loads(text))
+        except (TypeError, ValueError):
+            area = None
+        outline = area_outline(area) if area is not None else None
+        if outline is not None:
+            found.append((outline, rowid))
+    db.executemany("UPDATE jobs SET area_outline = ? WHERE rowid = ?", found)
 
 
 FAVOURITES_MAX = 10000  # favourite lines of a user (a safeguard of the database, the same for everyone)
@@ -411,10 +463,21 @@ class Jobs:
         with self._db() as db:
             return db.execute("DELETE FROM usage WHERE at < ?", (time.time() - 2 * DAY,)).rowcount
 
-    def set_area(self, job_id: str, km2: Optional[float], country: Optional[str]):
-        """The area of a job's search in km² and the country it lies in (the worker, when it plans it)."""
+    def set_area(self, job_id: str, km2: Optional[float], country: Optional[str], outline: Optional[str] = None):
+        """The area of a job's search in km², the country it lies in and its outline (GeoJSON text,
+        area.outline_geojson), set by the worker when it plans it."""
         with self._db() as db:
-            db.execute("UPDATE jobs SET area_km2 = ?, country = ? WHERE id = ?", (km2, country, job_id))
+            db.execute("UPDATE jobs SET area_km2 = ?, country = ?, area_outline = ? WHERE id = ?",
+                       (km2, country, outline, job_id))
+
+    def add_service_requests(self, rows: Iterable[Tuple[str, str, int, int, float]]):
+        """Add counts of requests to outside services (host, outcome, requests, bytes, seconds) to their
+        running totals, in one write transaction (servicecounts.flush of the worker's processes)."""
+        with self._write() as db:
+            db.executemany("INSERT INTO service_requests (host, outcome, requests, bytes, seconds) "
+                           "VALUES (?, ?, ?, ?, ?) ON CONFLICT (host, outcome) DO UPDATE SET "
+                           "requests = requests + excluded.requests, bytes = bytes + excluded.bytes, "
+                           "seconds = seconds + excluded.seconds", list(rows))
 
     def area(self, user_id: Optional[int], days: float = AREA_DAYS) -> Dict:
         """The area a user's finished searches (status done, with an area) covered: in total, their
@@ -1086,9 +1149,7 @@ def check_disk(data_dir: str, limits: Optional[Limits], phase: str):
 def plan_km2(plan) -> float:
     """The km² of a planned search's area; known only here for osm:<name> and coast/cliffs areas. A
     circle counts as π r²."""
-    from area import Polygon, size_km2
-    area = plan.area
-    return size_km2(area.geometry) if isinstance(area, Polygon) else math.pi * area.radius ** 2 / 1e6
+    return area_km2(plan.area)
 
 
 def charge_area(jobs: Jobs, user_id: Optional[int], plan, limits: Optional[Limits]):
@@ -1099,8 +1160,9 @@ def charge_area(jobs: Jobs, user_id: Optional[int], plan, limits: Optional[Limit
 
 
 def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
-    """Store the km² of a job's search and the country of its centre (sources.country_code, usually
-    cached already by --source auto) for every user: the users' totals and the site's statistics.
+    """Store the km² of a job's search, its outline (area_outline: for coast, cliffs and osm: areas the
+    region the search covers) and the country of its centre (sources.country_code, usually cached
+    already by --source auto) for every user: the users' totals and the site's statistics.
     The lookup does not count against the user's quota of Nominatim requests (the statistics are
     the site's); it never fails the search."""
     import osm
@@ -1113,7 +1175,7 @@ def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
         country = None
     finally:
         osm.BEFORE_REQUEST = before
-    jobs.set_area(job_id, plan_km2(plan), country)
+    jobs.set_area(job_id, plan_km2(plan), country, area_outline(plan.area))
 
 
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
@@ -1137,6 +1199,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
     if job["unlimited"]:
         limits = None  # a user without limits: the time limits of the phase (Scheduler) still apply
     nominatim_quota(jobs, job["user_id"], limits)
+    servicecounts.enable(jobs.add_service_requests)  # flushed every minute and at the end of the phase
     sys.stdout = _EventWriter(jobs, job_id)
     pg.TEXT_INTERVAL = float("inf")  # the progress goes to the page as events, not as text
     last = [0.0]
@@ -1211,6 +1274,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
                      error=f"{type(e).__name__}: {cache.clean_error(e)} (working grids kept in {paths.work})")
         raise
     finally:
+        servicecounts.flush()
         if not failed:
             import gc
             gc.collect()  # close the memory-mapped grids before deleting them (Windows)
@@ -1287,6 +1351,7 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
     global SLOT_MEMORY
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
     jobs = Jobs(data_dir, public)
+    servicecounts.enable(jobs.add_service_requests)  # flushed every minute and after each task
     reader = jobs._db()  # one connection for the idle looks (reads, so no write lock 1/QUICK_POLL times a second)
     looked = time.time()
     while True:
@@ -1313,6 +1378,8 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
             traceback.print_exc()
             jobs.quick_answer(task["id"], 500, f"internal error, ref {ref}" if public else
                               f"internal error: {type(e).__name__}: {cache.clean_error(e)}")
+        finally:
+            servicecounts.flush()
 
 
 class Running(NamedTuple):
@@ -1324,15 +1391,17 @@ class Running(NamedTuple):
     what: str = "phase"            # for the error over the limit: "the download phase", "the OSM extract job"
 
 
-def _remove_old(folder: str, days: float, keep: Iterable[str] = ()):
-    """Delete the entries of a folder not changed for `days`, except those named in `keep`."""
-    limit, keep = time.time() - days * 86400, set(keep)
+def _remove_old(folder: str, days: float, keep: Iterable[str] = ()) -> int:
+    """Delete the entries of a folder not changed for `days`, except those named in `keep`; their number."""
+    limit, keep, removed = time.time() - days * 86400, set(keep), 0
     if not os.path.isdir(folder):
-        return
+        return 0
     for entry in os.scandir(folder):
         with contextlib.suppress(OSError):
             if entry.name not in keep and entry.stat().st_mtime < limit:
                 shutil.rmtree(entry.path) if entry.is_dir() else os.remove(entry.path)
+                removed += 1
+    return removed
 
 
 CACHE_SIZES = "cache-sizes.json"  # in the work folder: the bytes of each top-level cache folder (metrics.py)
@@ -1363,6 +1432,61 @@ def write_cache_sizes(data_dir: str):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with cache.replacing(path, "w", encoding="utf-8") as f:
         json.dump({"time": round(time.time()), "folders": sizes}, f)
+
+
+HOUSEKEEPING_FILE = "housekeeping.json"  # in the work folder: the last round of the housekeeping (metrics.py)
+COVERAGE_FILE = "coverage.json"          # in the work folder: the area searched at least once (metrics.py)
+CELL_DEG = 0.25                          # the cells of the searches per area in coverage.json
+
+
+def _write_json(data_dir: str, name: str, value: Dict):
+    """A file of the work folder replaced at once (cache.replacing), so the metrics never read half of it."""
+    path = os.path.join(data_dir, "work", name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with cache.replacing(path, "w", encoding="utf-8") as f:
+        json.dump(value, f)
+
+
+def coverage(jobs: "Jobs") -> Dict:
+    """The coverage of the site's searches (docs/monitoring.md F17): the km² of the union of the
+    outlines of all finished searches (status done; on the WGS84 ellipsoid, pyproj.Geod), and per cell
+    of CELL_DEG degrees the number of those searches whose outline touches it, as [lat, lon of its
+    south-west corner, searches] (no users: a count per cell only)."""
+    import shapely
+    from pyproj import Geod
+    from shapely.geometry import box
+    from shapely.geometry.polygon import orient
+    db = jobs._db()
+    try:
+        texts = [row[0] for row in db.execute("SELECT area_outline FROM jobs WHERE status = 'done' AND "
+                                              "area_outline IS NOT NULL")]
+    finally:
+        db.close()
+    shapes, cells = [], {}
+    for text in texts:
+        try:
+            shape = shapely.from_geojson(text)
+        except Exception:  # not GeoJSON: left out
+            continue
+        if not shape.is_valid:
+            shape = shapely.make_valid(shape)
+        shape = shapely.union_all([part for part in shapely.get_parts(shape)
+                                   if part.geom_type in ("Polygon", "MultiPolygon")])
+        if shape.is_empty:
+            continue
+        shapes.append(shape)
+        shapely.prepare(shape)
+        west, south, east, north = shape.bounds
+        for i in range(math.floor(south / CELL_DEG), math.floor(north / CELL_DEG) + 1):
+            for j in range(math.floor(west / CELL_DEG), math.floor(east / CELL_DEG) + 1):
+                if shape.intersects(box(j * CELL_DEG, i * CELL_DEG, (j + 1) * CELL_DEG, (i + 1) * CELL_DEG)):
+                    cells[(i, j)] = cells.get((i, j), 0) + 1
+    union = shapely.union_all(shapes) if shapes else None
+    geod = Geod(ellps="WGS84")
+    km2 = sum(abs(geod.geometry_area_perimeter(orient(part, 1.0))[0])
+              for part in shapely.get_parts(union) if part.geom_type == "Polygon") / 1e6 if union is not None else 0.0
+    return {"time": round(time.time()), "km2": km2,
+            "cells": [[i * CELL_DEG, j * CELL_DEG, n] for (i, j), n in sorted(cells.items())]}
 
 
 def kill_tree(pid: int):
@@ -1436,20 +1560,31 @@ class Scheduler:
         jobs finished more than Limits.keep_events_days ago; answers of the quick lane nobody took;
         work folders of ended jobs (kept after an unexpected error) after KEEP_WORK_DAYS, and those
         of estimates and profiles (left by a killed quick lane) after a day. Measures the cache by
-        top-level folder for the metrics (write_cache_sizes)."""
+        top-level folder (write_cache_sizes) and the coverage of the searches (COVERAGE_FILE), and
+        writes what this round removed, when it ended and how long it took (HOUSEKEEPING_FILE), for
+        the metrics."""
+        started = time.monotonic()
         data = self.jobs.data_dir
-        cache.remove_stale_parts(os.path.join(data, "cache"))
+        removed = dict.fromkeys(("parts", "events", "quick", "usage", "audit", "work"), 0)
+        removed["parts"] = cache.remove_stale_parts(os.path.join(data, "cache"))
         write_cache_sizes(data)
         import audit
-        audit.purge(data)  # events of the audit log older than audit.KEEP_DAYS
+        removed["audit"] = audit.purge(data)  # events of the audit log older than audit.KEEP_DAYS
         if self.limits.keep_events_days:
-            self.jobs.forget_events(self.limits.keep_events_days)
-        self.jobs.forget_quick()
-        self.jobs.forget_usage()
+            removed["events"] = self.jobs.forget_events(self.limits.keep_events_days)
+        removed["quick"] = self.jobs.forget_quick()
+        removed["usage"] = self.jobs.forget_usage()
         unfinished = {job["id"] for job in self.jobs.waiting_or_running()}
-        _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
+        removed["work"] = _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
         for name in ("estimates", "profiles"):
-            _remove_old(os.path.join(data, "work", name), 1)
+            removed["work"] += _remove_old(os.path.join(data, "work", name), 1)
+        try:
+            _write_json(data, COVERAGE_FILE, coverage(self.jobs))
+        except Exception:  # the statistics never stop the housekeeping
+            import traceback
+            print("coverage:", traceback.format_exc(), file=sys.stderr)
+        _write_json(data, HOUSEKEEPING_FILE, {"time": round(time.time()), "seconds": time.monotonic() - started,
+                                              "removed": removed})
 
     def _remove_folder(self, job_id: str):
         """The work folder of a job whose processes were killed (their memory-mapped grids are closed)."""
