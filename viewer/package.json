@@ -17,6 +17,7 @@
   "devDependencies": {
     "@types/leaflet": "1.9.22",
     "esbuild": "0.28.2",
+    "generate-license-file": "4.2.5",
     "typescript": "7.0.2"
   }
 }

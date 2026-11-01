@@ -74,6 +74,7 @@ NO_WORKER = messages.UserError("the worker is not running (findaline.py worker, 
                                "--no-worker)", "no_worker_local")
 NO_WORKER_PUBLIC = messages.UserError.web("no_worker")
 APP_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer", "dist")
+THIRD_PARTY_LICENCES = "THIRD-PARTY-LICENSES.txt"  # the bundled libraries' licences in APP_DIST (viewer/build.mjs)
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]  # tests use them too (TestClient's base_url)
 GRACEFUL_SECONDS = 5    # open event streams are closed this long after a stop
 KEEP_ALIVE_SECONDS = 5  # an idle connection is closed after it
@@ -1730,6 +1731,8 @@ def about_page(contact: str, esri: bool = False) -> str:
         esri_terms() if esri else "",
         "<p>Each run names the data it used in its map and in its ATTRIBUTION.txt; results made from FABDEM may be "
         "shared only for non-commercial use, under the same licence.</p>",
+        "<h2>Software</h2><p>The maps and the app include open-source libraries (Leaflet, Preact, i18next and others); "
+        f"their licences and copyright notices: <a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>.</p>",
         f"<p>Contact: {e(contact)}.</p>",
     ]
     return PAGE_HTML.format(title="About / data licences", body="\n".join(body), logo=LOGO_SVG,

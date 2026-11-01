@@ -1504,6 +1504,12 @@ def test_privacy_and_about_pages(run_people):
     assert favicon.status_code == 200 and favicon.headers["content-type"].startswith("image/svg+xml")
     bundle = a.get("/app/app.js").text
     assert "/privacy" in bundle and "/about" in bundle
+    # the licences of the bundled libraries: linked from about, open to anyone, named by every bundle
+    assert f"href='/app/{web.THIRD_PARTY_LICENCES}'" in about.text
+    licences = anonymous.get(f"/app/{web.THIRD_PARTY_LICENCES}")
+    assert licences.status_code == 200 and licences.headers["content-type"].startswith("text/plain")
+    assert " - preact@" in licences.text and " - leaflet@" in licences.text and " - typescript@" not in licences.text
+    assert bundle.startswith(f"/*! Licences of the bundled libraries: {web.THIRD_PARTY_LICENCES} */")
 
 
 def _edge(url: str, profile) -> str:
