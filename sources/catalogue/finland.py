@@ -63,9 +63,9 @@ def paituli_files(i: int, j: int):
     return [(name, f"{PAITULI}/{name[:2]}/{name[:3]}/{name}.tif", 0)] if name else []
 
 
-# Blocks of 2 km (1000 x 1000 px, 16-25 of the files' 256 px tiles)
+# Blocks of 2 km (1000 x 1000 px, 16-25 of the files' 256 px tiles): about 2 MB each, about 0.5 s
 FI_DEM = FileBlocks("NLS elevation model 2 m (terrain)", "finland/dem2m/live", TM35FIN, 2.0, BLOCK_M,
-                    paituli_files, extent=FI_EXTENT, bytes_per_tile=2.5e6)
+                    paituli_files, extent=FI_EXTENT, bytes_per_tile=2e6)
 
 
 SOURCES: List[Source] = [
@@ -73,7 +73,8 @@ SOURCES: List[Source] = [
         id="finland", name="NLS Finland (elevation model 2 m)",
         description="National Land Survey of Finland: elevation model 2 m from laser scanning (2008-, updated), "
                     "ETRS-TM35FIN, N2000 heights",
-        # The sheets read in blocks on their own pixels, so the working grid is ETRS-TM35FIN too
+        # The sheets read in blocks on their own pixels, so the working grid is ETRS-TM35FIN too. The model
+        # covers Åland (ISO "ax"; Nominatim names it "fi": a centre at Mariehamn is "in FI")
         nmt=FI_DEM, countries=("fi", "ax"), crs=TM35FIN, credits=(NLS_CREDIT,),
         listing=ReadmeRow("Finland (with Åland)", "NLS elevation model 2 m", "–",
                           "– (NLS's orthophoto needs an API key)"),
