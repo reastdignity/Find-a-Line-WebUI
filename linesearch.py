@@ -12,7 +12,8 @@ Three steps, none of which loses a valid line:
    the anchor's rings can reach) are skipped whole.
 3. Exact check. The pixels of the line are checked from both anchors inwards and
    the check stops at the first pixel that is too high (most lines fail next to an
-   anchor).
+   anchor); lines of 130 to 1024 pixels test their middle in bit-reversal order after
+   two pixels at each end (long lines over a valley or a bay fail in the middle too).
 The kernels keep pairs within EPS of the limit; the pairs found are evaluated
 once more by helpers.evaluate_line, which makes the final decision and gives the
 clearances, so the results are exactly those of the plain pixel-by-pixel search.
@@ -34,6 +35,10 @@ RINGS = 64     # rings of pixels around an anchor checked per sector
 EPS = 1e-6     # metres; borderline pairs are passed on to evaluate_line
 CHUNKS = 200   # anchors are processed in this many parts (progress updates)
 RING_CHUNK = 1 << 16  # anchors per call of _free_rings (only the rows of the open ones are kept)
+# _line_ok tests the middle of lines of more than LINE_ORDER_SPLIT and at most LINE_ORDER_MAX steps
+# in bit-reversal order (longer ones lose more to the jumps along the line than they gain)
+LINE_ORDER_SPLIT = 2 * RINGS + 1   # the rings screen about RINGS pixels at each end
+LINE_ORDER_MAX = 1024
 
 
 @njit(cache=True)
@@ -52,7 +57,12 @@ def _index(x, xs):
 def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zone):
     """Whether the terrain stays below the maximum safe elevation along the line.
 
-    The same limit as helpers.max_safe_elevation (formula or sag table), within EPS.
+    The same limit as helpers.max_safe_elevation (formula or sag table), within EPS. The
+    pixels are tested from both ends inwards (most lines fail next to an anchor); lines of
+    more than LINE_ORDER_SPLIT and at most LINE_ORDER_MAX steps test two pixels at each
+    end so, then the others in bit-reversal order (a long line over a valley or a bay
+    fails in its middle often). Every pixel is tested (the middle one of the ends-inward
+    order twice), so the order changes only how soon a failing line is noticed.
     """
     dr, dc = r2 - r1, c2 - c1
     steps = max(abs(dr), abs(dc))
@@ -67,9 +77,9 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
         ri = _index((e1 - e2) / length, ratios)
         i0, j0 = min(int(si), log_spans.size - 2), min(int(ri), ratios.size - 2)
         a, b = si - i0, ri - j0
-
+    rounds = 2 if LINE_ORDER_SPLIT < steps <= LINE_ORDER_MAX else steps
     lo, hi = 1, steps - 1
-    while lo <= hi:
+    while lo <= hi and lo <= rounds:
         for k in (lo, hi):
             t = k / steps
             r = r1 + int(np.rint(dr * t))  # the pixels of helpers.evaluate_line
@@ -89,6 +99,38 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
                 return False
         lo += 1
         hi -= 1
+    if lo > hi:
+        return True
+    # the pixels lo .. hi: the bit reversal of 0 .. 2^bits - 1 (bits: those of steps - 1)
+    bits = 0
+    while (steps - 1) >> bits:
+        bits += 1
+    top = 1 << (bits - 1)
+    rev = 0
+    for _ in range(1 << bits):
+        k = rev
+        bit = top  # the next number in bit-reversed counting
+        while rev & bit:
+            rev ^= bit
+            bit >>= 1
+        rev |= bit
+        if lo <= k <= hi:
+            t = k / steps
+            r = r1 + int(np.rint(dr * t))  # the pixels of helpers.evaluate_line
+            c = c1 + int(np.rint(dc * t))
+            if use_sag:
+                x = t * (points - 1)
+                f = min(int(x), points - 2)
+                w = x - f
+                s0 = ((1 - a) * (1 - b) * table[i0, j0, f] + a * (1 - b) * table[i0 + 1, j0, f]
+                      + (1 - a) * b * table[i0, j0 + 1, f] + a * b * table[i0 + 1, j0 + 1, f])
+                s1 = ((1 - a) * (1 - b) * table[i0, j0, f + 1] + a * (1 - b) * table[i0 + 1, j0, f + 1]
+                      + (1 - a) * b * table[i0, j0 + 1, f + 1] + a * b * table[i0 + 1, j0 + 1, f + 1])
+                limit = e1 + (e2 - e1) * t - (s0 * (1 - w) + s1 * w) - fall_zone
+            else:
+                limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
+            if not (limit - np.float64(z[r, c]) > -EPS):  # NaN (no data) fails too
+                return False
     return True
 
 

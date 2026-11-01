@@ -347,7 +347,7 @@ def self_check(a, folder: str = "", sample_every: int = 1) -> List:
         h = np.zeros((len(todo), K.N_HIST), dtype=np.int64)
         sample = (np.arange(q0, q0 + len(todo)) % sample_every) == 0
         K.funnel_pairs(*a.args, todo, *a.tail, f.rmax, f.big_k, f.cell_mask, f.cell_emin, f.cell_emax, f.d0,
-                       f.far2, sample, c, s, h)
+                       f.far2, ls.LINE_ORDER_SPLIT, ls.LINE_ORDER_MAX, sample, c, s, h)
         if not np.array_equal(c[:, [K.C_CANDIDATES, K.C_CHECKED, K.C_FOUND]], ref_counts):
             raise SelfCheckError(f"{folder}: funnel_pairs counts differ from ref_pairs")
         counts, out = ls.pair_chunk(head, todo, tail)

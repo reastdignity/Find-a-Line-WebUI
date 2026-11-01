@@ -288,6 +288,40 @@ def test_pairs_match_reference(model, first, strong, wall, max_dh, max_length):
     assert candidates >= checked > found > 10
 
 
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_line_ok_matches_reference(model):
+    """linesearch._line_ok (bit-reversal order for lines of LINE_ORDER_SPLIT to LINE_ORDER_MAX
+    steps) decides as the frozen ref_line_ok on lines of every length class."""
+    import linesearch as ls
+    import sag
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import line_funnel_kernels as K
+    rng = np.random.default_rng(5)
+    z = (rng.random((1300, 1300)) * 2 + 100).astype(np.float32)
+    z[rng.random(z.shape) < 1e-5] = np.nan
+    if model == "sag":
+        table = sag.EnvelopeTable(sag.Rigging(), 2, 1300)
+        args = (True, np.log(table.spans), table.RATIOS.astype(np.float64), np.ascontiguousarray(table.sag),
+                float(table.rig.fall_zone))
+    else:
+        args = (False, np.zeros(2), np.zeros(2), np.zeros((2, 2, 2)), 0.0)
+    decided = {True: 0, False: 0}
+    for _ in range(3000):
+        r1, c1 = rng.integers(0, 1300, 2)
+        steps = int(rng.choice([2, 5, 60, 129, 130, 400, 1024, 1025, 1200]))
+        r2, c2 = r1 + int(rng.integers(-steps, steps + 1)), c1 + steps * int(rng.choice([-1, 1]))
+        if not (0 <= r2 < 1300 and 0 <= c2 < 1300):
+            continue
+        z[r1, c1] = z[r2, c2] = 140.0 + rng.random() * 20  # anchors high above the terrain
+        if rng.random() < 0.5:  # one pixel too high somewhere
+            k = int(rng.integers(1, steps))
+            z[r1 + int(np.rint((r2 - r1) * k / steps)), c1 + int(np.rint((c2 - c1) * k / steps))] = 200
+        ok = ls._line_ok(z, r1, c1, r2, c2, 1.0, *args)
+        assert ok == K.ref_line_ok(z, r1, c1, r2, c2, 1.0, *args)
+        decided[bool(ok)] += 1
+    assert min(decided.values()) > 100
+
+
 def test_wall_angles():
     """The downslope direction of a slope and the angle of lines leaving it."""
     import helpers as sh
