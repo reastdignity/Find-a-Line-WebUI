@@ -44,7 +44,9 @@ def _lvermgeo(kind: str, description: str, zero_is_nodata: bool) -> WcsTiles:
 # downloaded is not kept, so the year of the run (YEAR) stands for it (the user's decision, 2026-11-01)
 LGLN_CREDIT = Credit("DGM1 / DOM1 (LGLN, Lower Saxony)", f"© GeoBasis-DE/LGLN {YEAR}, Daten geändert", *CC_BY)
 # The items of LGLN's collections: dgm1_32_<E>_<N>_1_ni_<year> (E and N in km of EPSG:25832, the
-# survey's year), one GeoTIFF asset each without a gsd or checksum
+# survey's year), one GeoTIFF asset each without a gsd or checksum. LGLN replaced files in place in March
+# 2026 (the same item, new content, no checksum to notice it), so the folders are "live": a tile is
+# fetched again after cache.TTL_DAYS["live"]
 LGLN_ITEM = r"^d[go]m1_32_(?P<east>\d+)_(?P<north>\d+)_1_ni_(?P<year>\d{4})$"
 # DOP20 of LGLN, a WMS in EPSG:4326; CC BY 4.0, credited "LGLN (<year of the download>)" (its
 # AccessConstraints); no request limits published
@@ -55,7 +57,8 @@ LGLN_DOP = OrthoService("DOP20 Niedersachsen (LGLN)", "https://opendata.lgln.nie
 def _lgln(kind: str, description: str) -> StacTiles:
     """DGM1 or DOM1 of LGLN: 1 km COG tiles of 1 m (float32, LZW, about 5 MB) from its own STAC API."""
     return StacTiles(description, f"https://{kind}.stac.lgln.niedersachsen.de", f"{kind}1",
-                     f"lower_saxony/{kind}1", "EPSG:25832", sizes={1.0: 5e6}, asset=f"{kind}1-tif", item=LGLN_ITEM)
+                     f"lower_saxony/{kind}1/live", "EPSG:25832", sizes={1.0: 5e6}, asset=f"{kind}1-tif",
+                     item=LGLN_ITEM)
 
 
 # HVBG's open data (since 2022-02-01, the WCS's Fees: Datenlizenz Deutschland - Zero - 2.0; § 18 HVGG):
