@@ -275,6 +275,8 @@ def check_valid(layer, args, data, work, cache_dir) -> Check:
 
 
 def check_files(layer, grid, cache_dir, samples: int) -> Check:
+    if isinstance(layer, src.FileLayer):  # not in the cache (it may lie on another drive): nothing to compare
+        return Check("files", NA, "a local file")
     tiles = _cached_tiles(layer, grid, cache_dir)
     if not tiles or _sources_of(layer, tiles[0]) is None:
         why = "no cached tiles" if not tiles else f"{type(layer).__name__}: no source file to compare with"
