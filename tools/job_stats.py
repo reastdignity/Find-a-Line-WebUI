@@ -230,10 +230,14 @@ def summarise(jobs: List[Dict]) -> List[Dict]:
                 row[f"{kind} {k} s"] = sum(s for s, _ in pairs) if pairs else None
                 cpus = [c for _, c in pairs if c is not None]
                 row[f"{kind} {k} cpu"] = sum(cpus) if cpus else None
-        totals = {k: sum(j["funnel"].get(k, 0) for j in members) for k in FUNNEL_STEPS}
-        row.update({f"funnel {k}": totals[k] for k in FUNNEL_STEPS})
+        # A count only where every search of the class has it (the events of a tiled search from before
+        # migration 16 do not tell its lines); a ratio over the searches that have both of its counts
+        row.update({f"funnel {k}": sum(j["funnel"][k] for j in members)
+                    if all(k in j["funnel"] for j in members) else None for k in FUNNEL_STEPS})
         for top, bottom in RATIOS:
-            row[f"{top}/{bottom}"] = totals[top] / totals[bottom] if totals[bottom] else None
+            both = [j["funnel"] for j in members if top in j["funnel"] and bottom in j["funnel"]]
+            under = sum(f[bottom] for f in both)
+            row[f"{top}/{bottom}"] = sum(f[top] for f in both) / under if under else None
         rows.append(row)
     return rows
 
