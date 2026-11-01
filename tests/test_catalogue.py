@@ -1170,3 +1170,14 @@ def test_about_page_links_and_note():
     assert html.escape(src.credit.PROCESSED_NOTE) in page
     assert "href='https://www.openstreetmap.org/fixthemap'" in page
     assert "Esri" not in page and "<script" not in page
+
+
+def test_processed_note_in_the_viewer():
+    """The map's credits (viewer/src/layers.ts PROCESSED_NOTE) repeat the note of ATTRIBUTION.txt and the
+    about page (sources.credit.PROCESSED_NOTE) word for word."""
+    import re
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "viewer", "src", "layers.ts")
+    with open(path, encoding="utf-8") as f:
+        ts = f.read()
+    declaration = re.search(r"export const PROCESSED_NOTE = (.*?);", ts, re.S).group(1)
+    assert "".join(re.findall(r'"([^"]*)"', declaration)) == src.credit.PROCESSED_NOTE
