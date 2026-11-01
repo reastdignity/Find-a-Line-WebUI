@@ -38,6 +38,9 @@ export function useCornersAboveSheet(root: Box, mapBox: Box, on: boolean) {
     const observer = new ResizeObserver(update);  // the sheet's height animates: every frame of it
     observer.observe(sheet);
     observer.observe(map);
+    // the attribution grows when its data credits unfold, and the scale above it moves up
+    const attribution = map.querySelector<HTMLElement>(".leaflet-bottom.leaflet-right");
+    if (attribution) observer.observe(attribution);
     return () => { observer.disconnect(); place(map, 0); };
   }, [on]);
 }

@@ -246,4 +246,15 @@
 .ui .leaflet-control-attribution a { color: var(--accent); }
 /* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts) */
 @media (max-width: 767px) { .ui .leaflet-control-attribution { font-size: 10px; line-height: 1.35; } }
+/* A run's data credits (layers.ts creditsHtml): on a phone folded behind their button, the tile credits beside
+   them always in sight; on a desktop no button */
+.ui .u-credits-toggle { display: none; font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: underline; }
+.ui .u-credits-toggle::after { content: " \25B8"; }
+.ui .u-credits-toggle[aria-expanded="true"]::after { content: " \25BE"; }
+@media (max-width: 767px) {
+  .ui .u-credits-toggle { display: inline; }
+  .ui .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }
+  .ui .u-credits:not(.u-open) { display: none; }
+}
 .ui .leaflet-tooltip { background: var(--surface); color: var(--ink); border-color: var(--line); }

@@ -1226,6 +1226,8 @@ run({
     // the map was opened with #line= of a line hidden by the filters: the note clears them and opens it
     result.back = $$(".b-pill .b-back").map((b) => b.getAttribute("aria-label"));
     result.credits = credits();
+    result.creditsFolded = {button: getComputedStyle($(".u-credits-toggle")).display,
+                            credits: getComputedStyle($(".u-credits")).display};
     result.note = text(".r-note");
     button("clear filters").click();
     wait(() => rows().length, () => {
@@ -1332,7 +1334,10 @@ def test_run_map(tmp_path, monkeypatch):
     """A run's map.html served by the app shows the app's result view: the way back to the app, the credits of
     its data as text (no markup, http(s) links only, ATTRIBUTION.txt), #line= of a line hidden by the filters
     named and opened, a row selects its line (profile, hash), a favourite kept by the server, the downloads
-    beside it, another run (named like an HTML tag) compared, measuring; no CSP violations."""
+    beside it, another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
+    data credits are not folded; without ESRI_API_KEY no satellite layer."""
+    monkeypatch.delenv("ESRI_API_KEY", raising=False)
+    monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
     run_id = _clip_run(tmp_path, monkeypatch)
     other = _clip_run(tmp_path, monkeypatch, "--name", XSS_NAME, "--easting", "554066")  # lines of its own
     row = _lines_of(tmp_path, run_id)[3]
@@ -1353,6 +1358,7 @@ def test_run_map(tmp_path, monkeypatch):
     assert "resampled and combined onto a working grid (changed)" in r["credits"]["text"], r
     assert {"https://www.openstreetmap.org/copyright", "https://www.openstreetmap.org/fixthemap"} <= set(links), r
     assert r["layers"] == ["OpenTopoMap", "OpenStreetMap", "Ortho test"], r
+    assert r["creditsFolded"] == {"button": "none", "credits": "inline"}, r
     assert "<img src=x onerror=window.XSS=3> © Test" in r["orthoCredits"]["text"], r
     assert "https://example.invalid/terms" in r["orthoCredits"]["links"] and r["orthoCredits"]["imgs"] == 0, r
     assert r["note"].startswith("The line of the link is hidden by the filters"), r
@@ -1368,6 +1374,78 @@ def test_run_map(tmp_path, monkeypatch):
     assert "<style" not in index and "_viewer/index.css" in index and XSS_NAME not in index
     assert os.path.exists(tmp_path / "runs" / "_viewer" / "index.css")
     assert other in index
+
+
+# A map on a phone's width with the satellite map's key: the data credits folded behind their button, the tile
+# credits in sight, the Esri layer with the key in its tiles' address and Esri's credit
+PHONE_CREDITS_SCRIPT = MAP_HELPERS + """
+const shown = (e) => !!e && getComputedStyle(e).display !== "none";
+const visibleLinks = () => $$(".leaflet-control-attribution a").filter((a) => a.offsetParent !== null)
+  .map((a) => a.getAttribute("href"));
+const toggle = () => $(".u-credits-toggle");
+const label = (name) => $$(".leaflet-control-layers-base label").find((l) => l.textContent.trim() === name);
+run({
+  folded(next) { wait(() => model() && toggle(), () => {
+    result.layers = $$(".leaflet-control-layers-base label").map((l) => l.textContent.trim());
+    result.folded = {expanded: toggle().getAttribute("aria-expanded"), button: shown(toggle()), label: toggle().textContent,
+                     credits: shown($(".u-credits")), links: visibleLinks()};
+    toggle().click();
+    wait(() => toggle().getAttribute("aria-expanded") === "true", () => {
+      result.open = {credits: shown($(".u-credits")), links: visibleLinks(),
+                     focused: document.activeElement === toggle()};
+      next();
+    });
+  }); },
+  esri(next) {
+    label("Esri World Imagery").querySelector("input").click();
+    later(() => {
+      result.tiles = $$(".leaflet-tile").map((t) => t.src).filter((s) => s.includes("arcgis")).slice(0, 1);
+      result.esri = credits();
+      result.esriLinks = visibleLinks();
+      toggle().click();
+      wait(() => toggle().getAttribute("aria-expanded") === "false", () => {
+        result.refolded = {credits: shown($(".u-credits")), links: visibleLinks(), text: credits().text};
+        next();
+      });
+    }, 1000);
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
+    """A run's map at a phone's width with ESRI_API_KEY set: the data credits, the processed note and the notices
+    folded behind a "Data credits" button (aria-expanded, the focus kept on it), the tile credits (OSM's with
+    its fixthemap link, Esri's "Powered by Esri") always in sight; the layer "Esri World Imagery" asks
+    ibasemaps-api.arcgis.com with the key; no CSP violations."""
+    key = "AAPTfake-esri-key_0123456789"
+    monkeypatch.setenv("ESRI_API_KEY", key)
+    run_id = _clip_run(tmp_path, monkeypatch)
+    folder = tmp_path / "runs" / run_id
+    page = _map_page(folder, "phone_test", PHONE_CREDITS_SCRIPT, before_data=CSP_STUB, after_data=CREDITS_STUB)
+    dom = _edge_page(tmp_path, f"runs/{run_id}/{page}", size="500,900")
+    r = _result_in(dom)
+    assert "timeout" not in r and r.get("at") == "end", r
+    assert r["layers"] == ["OpenTopoMap", "OpenStreetMap", "Esri World Imagery", "Ortho test"], r
+    folded = r["folded"]
+    assert folded["button"] and folded["expanded"] == "false" and folded["label"] == "Data credits", r
+    assert not folded["credits"] and "ATTRIBUTION.txt" not in folded["links"], r
+    osm = {"https://www.openstreetmap.org/copyright", "https://www.openstreetmap.org/fixthemap"}
+    assert osm <= set(folded["links"]), r
+    assert r["open"]["credits"] and r["open"]["focused"] and "ATTRIBUTION.txt" in r["open"]["links"], r
+    assert r["tiles"] and r["tiles"][0].startswith(
+        "https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/"), r
+    assert r["tiles"][0].endswith("?token=" + key), r
+    assert "Powered by Esri" in r["esri"]["text"] and "https://www.esri.com" in r["esriLinks"], r
+    assert "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community" in r["esri"]["text"], r
+    assert r["esri"]["imgs"] == 0, r
+    assert not r["refolded"]["credits"] and "https://www.esri.com" in r["refolded"]["links"], r
+    assert _violations(dom) == []
+    for top, _, names in os.walk(tmp_path / "runs"):  # the key in no file of the run or the runs' list
+        for name in names:
+            with open(os.path.join(top, name), "rb") as f:
+                assert key.encode() not in f.read(), name
 
 
 # A map opened from disk: no server, so no profiles, measuring or favourites; the other runs from ../runs.js

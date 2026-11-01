@@ -353,6 +353,7 @@
   "intro.result.check": "<b>Check on the spot.</b> The result comes from terrain data. It does not see loose rock, small trees or new buildings, and it does not check a fall onto the backup. Check every line before you rig it.",
 
   "ui.try": "Try interface {{ui}}",
+  "ui.credits.toggle": "Data credits",
   "ui.searched.title": "Area searched",
   "ui.searched.today": "{{area}} km² today",
   "ui.searched.total_one": "{{area}} km² in {{searches}} search",
