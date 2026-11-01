@@ -375,14 +375,18 @@ The whole jobs (`tools/perf_profile.py`, cached data, `--exclusive`):
 
 | Job | cores | wall s | CPU s | line search wall | line search CPU | free directions / pairs / checking, CPU s |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| R9 | 24 threads | 23.2 | 48.7 | 5.5 (24 %) | 24.7 (51 %) | 7.2 / 14.2 / 3.3 |
-| R22 | 24 threads | 6.2 | 33.9 | 2.3 (37 %) | 24.3 (72 %) | 7.1 / 13.0 / 4.2 |
+| R9 | 24 threads | 12.0 | 28.7 | 0.5 (4 %) | 12.7 (44 %) | 4.3 / 7.6 / 0.8 |
+| R22 | 24 threads | 5.1 | 31.0 | 1.1 (22 %) | 21.2 (68 %) | 7.0 / 13.2 / 1.0 |
 | R22 `typical` | 24 threads | 4.4 | 23.2 | 0.8 (18 %) | 14.0 (60 %) | 7.5 / 5.8 / 0.7 |
 | R22 `typical` | 7 | 4.7 | 11.5 | 1.3 (28 %) | 6.6 (57 %) | 3.9 / 2.6 / 0.1 |
 | Gozo coast | 24 threads | 69.3 | 201.9 | 3.8 (5 %) | 79.7 (39 %) | 27.8 / 45.7 / 6.2 |
 | Gozo coast | 7 | 70.7 | 122.7 | 6.5 (9 %) | 41.3 (34 %) | 16.7 / 22.7 / 1.9 |
 | swiss-long | 24 threads | 57.5 | 278.6 | 9.7 (17 %) | 211.8 (76 %) | 18.6 / 170.3 / 22.9 |
 | swiss-long | 7 | 64.3 | 165.2 | 16.3 (25 %) | 111.4 (67 %) | 12.9 / 88.8 / 9.7 |
+
+(R9 and R22 corrected the same day: their first runs had compiled numba's kernels, R9 those of steps
+2 to 4 and R22 `_evaluate` without a surface model, about 11 s and 1 s of their wall time; these two
+rows are of a second run with the cache warm, as the others were.)
 
 The line search is the only parallel part of a job, so it is a small share of the wall time but
 **a third to two thirds of a job's CPU on 7 cores**: on the VPS, where three compute slots share 7
@@ -453,12 +457,82 @@ By the fit above, F1 with F2 + N1 takes about 45 % off the pair search of swiss-
 R22's (whose pairs are nearly all visits), F8a about two thirds off the free directions, and on the
 Gozo coast F6 adds the most (65 % fewer pixel tests). Together, F1 + F2 + N1 + F8a (and F6 on
 coasts) would take roughly 45-70 % off the line search's CPU and 15-40 % off these jobs' CPU (R22
-and R22 `typical` about 40 %, R9 about 34 %, swiss-long 30-38 %, the Gozo coast 15-22 %, where step
+and R22 `typical` about 40 %, R9 about 30 %, swiss-long 30-38 %, the Gozo coast 15-22 %, where step
 1 is the larger part), with the same results. Not recommended: F4 (small); a screen beyond 64 rings
 (few failures there, and it would change the counters); other SECTORS or RINGS (they change the
 counters); other cell sizes (L/16 saves 0-25 % of the visits, less than the cell rules, and the
 found pairs are written cell by cell, so their order and that of `lines.csv` would change); and an
 order chosen at run time (the best order is the same in every search measured).
+
+### Done (2026-11-01, branch `line-kernels`)
+
+F1, F2 + N1 + N3, F8a with F5a, N4 and F6, one commit each in `linesearch.py`. Each was checked by
+the self-check of `analyse` on the 15 captures (the rings equal to the references' capped at
+`largest_need`, the useful anchors, the checked and found counts per anchor and the written pairs
+equal); all of them together by `pytest` (`test_free_rings_match_reference`,
+`test_pairs_match_reference`, `test_line_ok_matches_reference` and the tests before), the regression
+set (R1-R5, R9, R13, R14, R16, R21, R22: the same checksums, open and checked counts) and byte for
+byte (R9, R22, R22 `typical`, the Gozo coast with `--tile-size 5000` and swiss-long, on 24 threads
+and on 7 cores).
+
+| # | In the code |
+| --- | --- |
+| F1 | `pair_chunk`: the counting pass over a chunk, the writing pass over its anchors that found lines |
+| F2 + N1 + N3 | `_pairs` skips the cells without a partner of a higher index (with a tile's `first`, those left of the anchor's) and starts within a cell at the first higher index (a binary search); per row of cells it visits the columns that can lie within `max_length` + 2 px only; it skips the partners farther than 2R + 1 px from an anchor whose largest ring R is below `largest_need`, and it tests the height difference against its bound at `max_length` before `hypot` |
+| F8a + F5a | `_free_rings` with the sectors of every ring pixel as a bit mask (`_sector_masks`: the old atan2 and asin expressions, computed once), no read of a pixel none of whose sectors is open, rings up to `largest_need` (half the longest line in pixels, at most 64) |
+| N4 | `free_directions`: `_free_rings` on 65 536 anchors at a time, the rings kept as uint8 for the anchors with an open direction only (`slot`: their row) |
+| F6 | `_line_ok`: lines of more than 129 and at most 1024 steps test two pixels at each end, then the others in bit-reversal order; the other lines as before |
+
+The kernels alone (the first call of each capture, 23 threads, median of 3, `--exclusive`; free
+directions s / the two passes of the pair search s; about ±5 % from run to run):
+
+| Change | Gozo coast | swiss-long | R9 | R22 | R22 `typical` | R5 |
+| --- | --- | --- | --- | --- | --- | --- |
+| before | 0.47 / 0.69 | 1.01 / 7.66 | 0.17 / 0.30 | 0.47 / 0.46 | 0.46 / 0.22 | 0.13 / 0.28 |
+| F1 | 0.48 / 0.50 | 1.00 / 5.22 | 0.17 / 0.21 | 0.47 / 0.28 | 0.47 / 0.13 | 0.12 / 0.19 |
+| + F2, N1, N3 | 0.48 / 0.42 | 1.00 / 2.93 | 0.17 / 0.12 | 0.47 / 0.08 | 0.47 / 0.03 | 0.12 / 0.20 |
+| + F8a, F5a | 0.09 / 0.46 | 0.20 / 3.19 | 0.03 / 0.11 | 0.08 / 0.08 | 0.09 / 0.03 | 0.02 / 0.19 |
+| + N4 | 0.10 / 0.42 | 0.22 / 2.88 | 0.04 / 0.12 | 0.08 / 0.09 | 0.08 / 0.04 | 0.02 / 0.23 |
+| + F6 | 0.10 / 0.36 | 0.22 / 3.16 | 0.03 / 0.11 | 0.08 / 0.08 | 0.08 / 0.03 | 0.02 / 0.18 |
+| less, both together | 60 % | 61 % | 70 % | 83 % | 84 % | 52 % |
+
+The whole jobs (`tools/perf_profile.py`, cached data, `--exclusive`, numba's cache warm before and
+after; the line search: its three bars):
+
+| Job | cores | wall s | CPU s | line search CPU s | free directions / pairs / checking, CPU s | peak RSS MB |
+| --- | --- | ---: | ---: | ---: | --- | ---: |
+| R9 | 24 threads | 12.0 → 11.6 | 28.7 → 21.6 (-25 %) | 12.7 → 5.1 (-60 %) | 4.3 / 7.6 / 0.8 → 1.2 / 3.1 / 0.8 | 817 → 820 |
+| R22 | 24 threads | 5.1 → 4.1 | 31.0 → 14.3 (-54 %) | 21.2 → 4.6 (-78 %) | 7.0 / 13.2 / 1.0 → 1.9 / 2.3 / 0.4 | 388 → 411 |
+| R22 `typical` | 24 threads | 4.4 → 3.7 | 23.0 → 13.8 (-40 %) | 14.2 → 4.0 (-72 %) | 7.4 / 6.4 / 0.4 → 2.2 / 1.4 / 0.4 | 345 → 342 |
+| R22 `typical` | 7 | 4.8 → 3.6 | 11.9 → 6.4 (-46 %) | 6.9 → 1.5 (-78 %) | 3.9 / 2.9 / 0.1 → 0.9 / 0.5 / 0.1 | 341 → 343 |
+| Gozo coast | 24 threads | 70.7 → 66.6 | 199.7 → 158.2 (-21 %) | 79.0 → 38.5 (-51 %) | 28.0 / 45.2 / 5.8 → 6.2 / 26.5 / 5.8 | 2775 → 2822 |
+| Gozo coast | 7 | 71.9 → 66.1 | 124.4 → 99.0 (-20 %) | 41.7 → 17.2 (-59 %) | 16.9 / 22.8 / 2.0 → 3.0 / 12.3 / 1.9 | 2869 → 2736 |
+| swiss-long | 24 threads | 58.0 → 51.6 | 283.7 → 163.6 (-42 %) | 215.4 → 97.2 (-55 %) | 19.0 / 171.9 / 24.5 → 5.3 / 67.4 / 24.5 | 1186 → 1192 |
+| swiss-long | 7 | 66.1 → 54.3 | 169.7 → 98.6 (-42 %) | 114.1 → 44.1 (-61 %) | 13.1 / 91.1 / 9.9 → 2.4 / 32.0 / 9.7 | 1317 → 1114 |
+
+- **CPU**: the line search takes 51-78 % less CPU, the jobs 20-54 % less (the forecast above: 45-70 %
+  and 15-40 %). The wall time drops by 3-25 % only: the line search was a small part of it, and the
+  rest of the steps is mostly on one core. "checking lines" (`_evaluate`) is unchanged and now a
+  quarter of swiss-long's line search.
+- **Memory**: the rings take 4 B per anchor and 65 B per open anchor instead of 256 B per anchor,
+  plus 4 MB for a chunk of `_free_rings`. One `find_valid_lines` call peaks 119 MB lower on
+  swiss-long's 522 000 anchors (psutil's peak working set, 960 → 841 MB) and 30 MB lower on the Gozo
+  coast's first tile (142 000); a tile of 3 million anchors, the public site's `anchors_max`, would
+  hold about 700 MB less. The jobs' peak RSS stays within the noise of its sampling (about ±100 MB):
+  the rings were never its largest part.
+- **F6**: production's order needs 35 % of the pixel tests of the order before on the Gozo coast,
+  57-65 % on R4, R5 and R16, 99.5 % on swiss-long and 99.8 % on R9. Starting at the higher anchor's
+  end saves nothing (99.4-99.9 % of the tests: the loop tested the first pixel of both ends first
+  already), so it was left out. The bit reversal stops at lines of 1024 steps: on swiss-long's lines (up to 2500 px) it
+  saved 18 % of the tests but cost 8 % more time, its jumps along a long line missing the cache. A
+  helper function for the pixel test made the pair search 2-3 times slower, so `_line_ok` writes the
+  test out twice.
+- **"Candidate pairs"** no longer counts the pairs N1 skips (they fail the rings' test, which comes
+  after the count): 46 % of the count before on R14, 77 % on R9, 80-86 % on R4, R16 and the Gozo
+  coast, 97-99 % on R22, R22 `typical` and swiss-long. Open, checked and found are unchanged; F19's
+  `candidates` changed alike (docs/monitoring.md).
+- **Still open**: F8c (high effort); F1′ (the writing pass is still about a third of swiss-long's pair
+  search); L; the middle of lines over 1024 px in an order kinder to the cache; `_evaluate`.
 
 ### What the server collects
 

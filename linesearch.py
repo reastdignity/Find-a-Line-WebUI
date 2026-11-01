@@ -60,7 +60,7 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
     The same limit as helpers.max_safe_elevation (formula or sag table), within EPS. The
     pixels are tested from both ends inwards (most lines fail next to an anchor); lines of
     more than LINE_ORDER_SPLIT and at most LINE_ORDER_MAX steps test two pixels at each
-    end so, then the others in bit-reversal order (a long line over a valley or a bay
+    end first, then the others in bit-reversal order (a long line over a valley or a bay
     fails in its middle often). Every pixel is tested (the middle one of the ends-inward
     order twice), so the order changes only how soon a failing line is noticed.
     """
