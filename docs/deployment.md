@@ -479,7 +479,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   name it): an ArcGIS Location Platform account with pay-as-you-go left off, and in it an API key
   credential of the kind "Public application" with the Basemaps privilege only, its referrer
   restricted to the site's https address (the browsers send it with every tile) and an expiry of
-  at most one year. Renew it yearly before it expires, put the new key in the file and
+  at most one year. Esri did not enforce the referrer list for World Imagery tiles when checked on 2026-11-01 (a tile came for
+  another site's referrer and for none), so a key copied from the page works elsewhere: prefer a short expiry
+  (e.g. three months), keep the second key slot for rotation, watch the usage in the dashboard and revoke the key
+  if it jumps; with pay-as-you-go off the worst case is the satellite layer stopping until the next month. Renew it yearly before it expires, put the new key in the file and
   `docker compose up -d --force-recreate web`. Each service gets only its own: the sign-in
   secrets and the satellite map's key the web service, the keys of data services the worker.
   They must be readable by the containers' user (uid 10001) and nobody else:
