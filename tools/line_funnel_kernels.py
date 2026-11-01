@@ -295,7 +295,8 @@ C_F8C_PARTNERS = 34  # F8c by the partners' sector masks only
 C_SAMPLED = 35      # 1: the anchor's checked pairs were simulated
 C_SAMPLED_TESTS = 36  # its counted _line_ok tests
 C_SIM_MISMATCH = 37  # simulated decision != _line_ok's (must stay 0)
-N_COUNTERS = 38
+C_N1_CANDIDATES = 38  # candidates N1 skips (production skips them before counting the candidates)
+N_COUNTERS = 39
 
 ORDERS = ("ends_inward", "natural", "middle_out", "bit_reversal", "unscreened_first", "two_ends_bit_reversal")
 N_ORDERS = 6
@@ -629,6 +630,8 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                             counters[q, C_WALL] += 1
                             continue
                     counters[q, C_CANDIDATES] += 1
+                    if n1:
+                        counters[q, C_N1_CANDIDATES] += 1
                     need = min(RINGS, max(abs(dr), abs(dc)) // 2)
                     if rings[a, ref_sector(dr, dc)] < need:
                         counters[q, C_RINGS_A] += 1

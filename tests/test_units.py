@@ -279,10 +279,9 @@ def test_pairs_match_reference(model, first, strong, wall, max_dh):
     frozen reference (ref_pairs), with and without a tile's first mask, --min-prominence's strong
     anchors, a wall-angle limit and a height difference limit."""
     plf, a = _reference_case(model, first, strong, wall, max_dh)
-    refs = plf.self_check(a)  # raises SelfCheckError when they differ
-    found = sum(len(out) for _, out in refs)
-    checked = sum(int(counts[:, 1].sum()) for counts, _ in refs)
-    assert checked > found > 10
+    chunks = plf.self_check(a)  # raises SelfCheckError when they differ
+    candidates, checked, found = sum(counts.sum(axis=0) for _, counts, *_ in chunks)
+    assert candidates >= checked > found > 10
 
 
 def test_wall_angles():
