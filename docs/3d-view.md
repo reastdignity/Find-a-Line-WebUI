@@ -73,7 +73,7 @@ Taken by the user after reading the report:
 | Privacy wording | Approved **at implementation** (the 3D view, Esri, Mapterhorn). |
 | Mails | **Mapterhorn only** (draft in the user's `local/mail-drafts.md`). |
 | Research notes | Kept on the branch: [docs/3d-view-research/](3d-view-research/). |
-| Licence notices | **A separate task**, starting with a comparison of tools. |
+| Licence notices | **A separate task**: done on `main` (b0d5f74, 2026-11-01) with `generate-license-file`, the user's choice of four: `viewer/dist/THIRD-PARTY-LICENSES.txt`, a comment in every bundle, a link on the About page. |
 | Phone test | The user tests on an iPhone of the 11/SE class under iOS 18. |
 | Next | **A plan of the implementation in waves**, for the user's approval before any code. |
 
@@ -492,10 +492,10 @@ the providers' terms (Google's EEA terms, Esri's agreement, Earth Pro's end).
 - GUGiK: the legal basis for reusing NMPT (and the 3D mesh) free of charge.
 
 ## Side findings for `main`
-- **Licence notices** of the bundled libraries are stripped (`viewer/build.mjs:17`, `legalComments: "none"`): a
-  `THIRD-PARTY-LICENSES.txt` built from esbuild's metafile into `dist`, a banner pointing to it and a link from the
-  About page would fix it (the tool is the user's choice: generate-license-file, license-checker-rseidelsohn,
-  esbuild-plugin-license, or a short script).
+- **Licence notices** of the bundled libraries were stripped (`viewer/build.mjs:17`, `legalComments: "none"`).
+  Fixed on `main` (b0d5f74): `generate-license-file` writes `viewer/dist/THIRD-PARTY-LICENSES.txt`, every bundle
+  names it in its first line, the About page links it. The 3D bundle's libraries (three.js, 3DTilesRendererJS,
+  martini) will join that file as runtime dependencies.
 - **Base64 through `Redact`:** `ABSOLUTE_PATH` (`jobs.py:280`) turns `+/…` in a quick-lane answer into `<path>` on
   the public site only; any future binary payload must be base64url.
 - **NMPT's legal basis** is not in Prawo geodezyjne art. 40a ust. 2 (NMT and orthophotos are); ask GUGiK.

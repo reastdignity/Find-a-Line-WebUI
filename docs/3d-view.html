@@ -161,7 +161,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       <tr><td>Local app</td><td>a setting for the user's own ArcGIS Location Platform key</td></tr>
       <tr><td>Esri's terms</td><td>the About page's sentence extended to the 3D view</td></tr>
       <tr><td>Privacy wording</td><td>approved at implementation</td></tr>
-      <tr><td>Licence notices</td><td>a separate task, starting with a comparison of tools</td></tr>
+      <tr><td>Licence notices</td><td><span class="chip ok">done on main</span> generate-license-file: THIRD-PARTY-LICENSES.txt, linked from About</td></tr>
       <tr><td>Phone test</td><td>on the user's own iPhone of the 11/SE class (iOS 18)</td></tr>
       <tr><td>Next</td><td><span class="chip info">a wave plan for approval</span> before any code</td></tr>
     </tbody>
@@ -574,7 +574,8 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       </ul>
       <h3>Side findings for main</h3>
       <ul class="plain">
-        <li>The bundles ship without the licence notices of their libraries (<code>legalComments: "none"</code>).</li>
+        <li>The bundles shipped without the licence notices of their libraries: fixed on main with
+        generate-license-file.</li>
         <li>Standard base64 in a quick-lane answer would be damaged by the public site's path redaction.</li>
         <li>NMPT's free reuse lacks a stated legal basis.</li>
       </ul>
