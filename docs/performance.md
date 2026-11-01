@@ -294,3 +294,180 @@ R2, R4, R9-R11, R13-R16, R18-R20 ok; the four files of the Gozo coast the same a
 - The geoportal sheet index is the most variable part of a download (12-150 s a run).
 - Four compute slots admitted by an estimate of each job's memory (three fixed slots now).
 - Recommendation 4, the tiles of a large area in parallel: deferred, see above.
+
+## Order of elimination (2026-11-01, branch `line-order`)
+
+The question: is the order in which the line search drops potential lines optimal, how can that be
+checked, and what should the server collect so the code can follow what users run?
+
+### How it was measured
+
+`tools/perf_line_funnel.py` (with `tools/line_funnel_kernels.py`) measures the line search without
+changing it. `capture -- <findaline options>` runs a search with `linesearch.find_valid_lines`
+wrapped and saves the inputs of each call (a grid, or one call per tile): copies of its grids,
+anchors and masks, its parameters, and the wall and CPU seconds of the bars "free directions",
+"anchor pairs" and "checking lines". `analyse` rebuilds the arguments the kernels get and first
+checks that production's `_free_rings` and `_pairs` give the results of frozen reference copies
+(rings, per-anchor counts and the pairs written: equal arrays). It then runs instrumented copies
+with integer counters at each anchor's own index (so the counts do not depend on the threads):
+
+- the free directions: rings, pixel reads and atan2 calls (also those whose sectors were all
+  closed already), per ring the anchors and sectors still alive, and the reads a scan of the alive
+  sectors only would make;
+- the pair search: every visit of a partner slot and the test that rejects it, in today's order
+  (dedup, strong, max and min length, height difference, wall angle, the rings of each anchor,
+  `_line_ok`); on the same visits, without applying them, the visits candidate rules would skip,
+  alone and cumulatively, and the pairs checked pixel by pixel each rule would skip (must be 0: a
+  rule may skip only what fails before `_line_ok`, so the lines and the regression's counters
+  stay); the share of the work held by the anchors that find lines;
+- `_line_ok`: for every checked pair (every M-th anchor's with `--sample-every`) the test of every
+  pixel, the tests until the first failure under six orders, and where the first failure lies.
+
+The candidate rules: **F2a** cells with no partner the dedup rule keeps (the cell's largest index
+<= i; in a tile the cells left of the anchor's), **F2b** cells whose nearest pixel is beyond
+`max_length` + 2 px, **N1** partners beyond 2R+1 px of an anchor whose rings stop at R, **F8c**
+cells entirely in closed sectors of the anchor or with no partner open towards it, **cell Δh**
+cells whose anchors' heights all miss e ± D0 (D0 = min(ratio · L, `max_dh`)), **N3** the height
+difference tested before `hypot`. **F1** is the writing pass of `_pairs` restricted to the anchors
+that found lines (today both passes run over every anchor of a chunk).
+
+15 searches on cached data: R4, R5, R9, R13, R14, R16, R21, R22 as in the regression set; the Gozo
+coast at 1 m (`--area coast --buffer 100 --within osm:Gozo --slope-threshold 60 --tile-size 5000`, the
+first two of six tiles); "swiss-long", a 1 m circle of 2 km in the Lauterbrunnen valley with lines
+of 150-2500 m (`--lat 46.55 --lon 7.88 --radius 2000 --resolution 1 --min-length 150 --max-length
+2500 --slope-threshold 60`); and the web form's presets `typical` (30-150 m, Δh 10 m) and `long`
+(100-400 m) at R20's, R22's and the Gozo coast's places. Counts from shared runs of the test lock;
+times from `--exclusive` runs of `tools/perf_profile.py`.
+
+### The funnel today
+
+| Search | anchors | open | visits | dedup kept | length kept | Δh kept | candidates | rings kept | checked | found of checked | pixel tests per checked |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| R13 | 2 797 | 86 % | 5.5 M | 50 % | 86 % | 7.5 % | 177 k | 4.9 % | 9 k | 6.6 % | 4.7 |
+| R9 | 27 401 | 77 % | 399.8 M | 50 % | 61 % | 11.8 % | 14.5 M | 3.8 % | 549 k | 15.6 % | 8.5 |
+| R4 | 20 460 | 14 % | 8.6 M | 50 % | 99 % | 57.2 % | 2.4 M | 1.5 % | 37 k | 5.3 % | 13.0 |
+| R5 | 20 460 | 51 % | 109.9 M | 50 % | 99 % | 58.6 % | 31.9 M | 4.1 % | 1.3 M | 4.0 % | 20.7 |
+| R14 | 129 270 | 14 % | 1.6 M | 50 % | 92 % | 55.6 % | 403 k | 3.5 % | 14 k | 9.0 % | 8.3 |
+| R16 | 65 681 | 63 % | 35.3 M | 50 % | 75 % | 78.6 % | 10.3 M | 5.1 % | 528 k | 4.9 % | 12.8 |
+| R21 | 62 990 | 4 % | 6.5 M | 50 % | 73 % | 8.3 % | 199 k | 3.6 % | 7 k | 23.0 % | 20.3 |
+| R22 | 150 738 | 19 % | 752.2 M | 50 % | 72 % | 3.2 % | 8.5 M | 3.1 % | 262 k | 7.2 % | 8.7 |
+| R20-typical | 27 953 | 7 % | 2.4 M | 50 % | 60 % | 5.7 % | 42 k | 7.9 % | 3 k | 22.3 % | 24.5 |
+| R20-long | 27 953 | 7 % | 3.5 M | 50 % | 61 % | 7.2 % | 77 k | 11.4 % | 9 k | 22.3 % | 43.5 |
+| R22-typical | 150 738 | 19 % | 371.7 M | 50 % | 57 % | 1.6 % | 1.7 M | 8.0 % | 136 k | 14.7 % | 10.2 |
+| R22-long | 150 738 | 19 % | 749.2 M | 50 % | 60 % | 3.5 % | 7.9 M | 2.5 % | 200 k | 3.7 % | 7.5 |
+| gozo | 166 351 | 31 % | 436.5 M | 53 % | 57 % | 54.0 % | 71.4 M | 8.1 % | 5.8 M | 4.4 % | 48.6 |
+| gozo-typical | 123 673 | 33 % | 54.4 M | 49 % | 54 % | 14.0 % | 2.0 M | 6.8 % | 140 k | 17.2 % | 17.9 |
+| swiss-long | 522 387 | 19 % | 9.8 G | 50 % | 75 % | 7.9 % | 289.5 M | 15.7 % | 45.4 M | 3.7 % | 45.9 |
+
+(Visits: partner slots of the 11 × 11 cells around each anchor, one pass; the kept shares are of
+what reaches each test.)
+
+### Where the time goes
+
+A least-squares fit of the bars' CPU seconds over seven captures gives about **3.8 ns per visit,
+8.7 ns per pixel test of `_line_ok` and 5.7 ns per pixel read of the free directions**. The visits
+are 97-100 % of the pair search's CPU on R9 and R22, 64-67 % on R5 and swiss-long, 40 % on the Gozo
+coast (long lines over the sea: 48.6 pixel tests per checked pair). For the short lines of
+`typical` the free directions are the largest part (R22 `typical`: 3.9 of 6.6 CPU-s on 7 cores):
+they scan up to 64 rings whatever the lines' length.
+
+The whole jobs (`tools/perf_profile.py`, cached data, `--exclusive`):
+
+| Job | cores | wall s | CPU s | line search wall | line search CPU | free directions / pairs / checking, CPU s |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| R9 | 24 threads | 23.2 | 48.7 | 5.5 (24 %) | 24.7 (51 %) | 7.2 / 14.2 / 3.3 |
+| R22 | 24 threads | 6.2 | 33.9 | 2.3 (37 %) | 24.3 (72 %) | 7.1 / 13.0 / 4.2 |
+| R22 `typical` | 24 threads | 4.4 | 23.2 | 0.8 (18 %) | 14.0 (60 %) | 7.5 / 5.8 / 0.7 |
+| R22 `typical` | 7 | 4.7 | 11.5 | 1.3 (28 %) | 6.6 (57 %) | 3.9 / 2.6 / 0.1 |
+| Gozo coast | 24 threads | 69.3 | 201.9 | 3.8 (5 %) | 79.7 (39 %) | 27.8 / 45.7 / 6.2 |
+| Gozo coast | 7 | 70.7 | 122.7 | 6.5 (9 %) | 41.3 (34 %) | 16.7 / 22.7 / 1.9 |
+| swiss-long | 24 threads | 57.5 | 278.6 | 9.7 (17 %) | 211.8 (76 %) | 18.6 / 170.3 / 22.9 |
+| swiss-long | 7 | 64.3 | 165.2 | 16.3 (25 %) | 111.4 (67 %) | 12.9 / 88.8 / 9.7 |
+
+The line search is the only parallel part of a job, so it is a small share of the wall time but
+**a third to two thirds of a job's CPU on 7 cores**: on the VPS, where three compute slots share 7
+cores, it is what limits the jobs per hour of these kinds. (On 24 threads the CPU seconds of the
+hyperthreads inflate it; the 7-core rows are one thread per core.)
+
+### Answers
+
+1. **The order of the tests within a pair is right.** Cheap tests come first and `_line_ok` last.
+   The height difference is the most selective after the length in the mountains (it keeps 1.6-14 %
+   of the pairs that pass the length; 54-79 % in the Polish valleys and on the Gozo coast), so
+   testing it before `hypot` (N3) makes most visits cheaper, but they remain visits.
+2. **The order of the pixels is close to optimal.** 75-98 % of the checked pairs that fail, fail at
+   the first pixel next to an anchor, mostly the higher one's (swiss-long: 1.63 M at the higher end,
+   0.53 M at the lower; the limit follows the lower anchor's height, so the terrain beside the higher
+   anchor is too high). Orders that start in the middle or run along the line need more tests
+   (natural 1.2-6.7 times today's, middle-out 1.6-19 times; the unscreened middle first and a plain
+   bit reversal are better only on R16 and R5, 72 %, and worse up to 14 times elsewhere). Only long
+   lines across bays and valleys fail in the middle often enough to matter: two pixels at each end,
+   then a bit-reversal order needs 35 % of today's tests on the Gozo coast, 46-63 % on R4, R5 and
+   R16, 83-103 % elsewhere. The rings' screen covers the failures: 0-10 % lie
+   outside the screened zone, so a screen beyond 64 rings would gain little.
+3. **The time is lost in the enumeration and the repetition, not in the order.**
+
+| Search | F2a | +F2b | +N1 | +F8c | +cell Δh | N3 alone | checked skipped | F1: visits / pixel tests of anchors with lines | ring reads in alive sectors | atan2 for dead sectors only | best pixel order vs today | first failure at the 1st pixel |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| R13 | 37 % | 39 % | 39 % | 74 % | 77 % | 82 % | 0 | 10 % / 82 % | 23 % | 49 % | 85 % (two ends bit reversal) | 92 % |
+| R9 | 42 % | 56 % | 67 % | 83 % | 89 % | 80 % | 0 | 38 % / 97 % | 19 % | 56 % | 98 % (two ends bit reversal) | 97 % |
+| R4 | 39 % | 39 % | 51 % | 70 % | 70 % | 10 % | 0 | 9 % / 71 % | 26 % | 49 % | 63 % (two ends bit reversal) | 95 % |
+| R5 | 39 % | 39 % | 40 % | 63 % | 63 % | 10 % | 0 | 19 % / 83 % | 31 % | 51 % | 46 % (two ends bit reversal) | 75 % |
+| R14 | 37 % | 37 % | 68 % | 78 % | 78 % | 5 % | 0 | 20 % / 89 % | 21 % | 52 % | 85 % (two ends bit reversal) | 96 % |
+| R16 | 44 % | 51 % | 57 % | 71 % | 71 % | 0 % | 0 | 20 % / 84 % | 37 % | 34 % | 58 % (two ends bit reversal) | 78 % |
+| R21 | 41 % | 45 % | 51 % | 74 % | 80 % | 76 % | 0 | 8 % / 91 % | 25 % | 51 % | 93 % (two ends bit reversal) | 94 % |
+| R22 | 42 % | 48 % | 49 % | 76 % | 79 % | 93 % | 0 | 10 % / 95 % | 33 % | 36 % | 94 % (two ends bit reversal) | 97 % |
+| R20-typical | 44 % | 50 % | 50 % | 67 % | 67 % | 88 % | 0 | 11 % / 96 % | 38 % | 22 % | 100 % (ends inward) | 86 % |
+| R20-long | 40 % | 40 % | 40 % | 56 % | 57 % | 77 % | 0 | 7 % / 98 % | 38 % | 22 % | 100 % (ends inward) | 91 % |
+| R22-typical | 43 % | 55 % | 56 % | 82 % | 87 % | 97 % | 0 | 9 % / 97 % | 33 % | 36 % | 100 % (two ends bit reversal) | 98 % |
+| R22-long | 42 % | 48 % | 49 % | 76 % | 79 % | 93 % | 0 | 6 % / 89 % | 33 % | 36 % | 91 % (two ends bit reversal) | 96 % |
+| gozo | 32 % | 50 % | 60 % | 79 % | 79 % | 15 % | 0 | 19 % / 82 % | 38 % | 26 % | 35 % (two ends bit reversal) | 88 % |
+| gozo-typical | 39 % | 50 % | 56 % | 73 % | 73 % | 78 % | 0 | 12 % / 96 % | 37 % | 25 % | 98 % (two ends bit reversal) | 94 % |
+| swiss-long | 40 % | 45 % | 45 % | 71 % | 76 % | 90 % | 0 | 20 % / 95 % | 33 % | 32 % | 83 % (two ends bit reversal) | 97 % |
+
+   Half of all visits are rejected by the dedup rule, which a cell's largest index decides before
+   any of its partners is read; the cell rules together would skip 57-89 % of the visits, and no
+   rule skipped a single checked pair in any of the 15 searches. The writing pass repeats the work
+   of every anchor although the anchors with lines hold 6-38 % of the visits (but 71-98 % of the
+   pixel tests). 62-81 % of the free directions' pixel reads lie in sectors closed already. The
+   prominence and drop of the open anchors only (F4) give the same values in 0-43 % less time of
+   that stage, at most 0.2 s a grid.
+
+### Recommendations
+
+All of them keep the lines, the order of the found pairs (the stable sorts carry it into
+`lines.csv`) and the regression's counters; `analyse` checks each against the frozen references.
+Effort as for an agent: low, medium, high.
+
+| # | Change | What the measurements say it removes | Effort |
+| --- | --- | --- | --- |
+| F1 | the writing pass only for the anchors with lines | 62-94 % of the second pass's visits | low |
+| F2 + N1 + N3 | cells skipped by the dedup rule (a `searchsorted` within the cell), the distance and the anchor's own reach; the height difference before `hypot` | 39-68 % of the visits skipped, most of the rest cheaper in the mountains | medium |
+| F8a | the free directions over the alive sectors only (sector masks instead of atan2) | 62-81 % of the ring reads | medium |
+| F6 | `_line_ok` from the higher anchor's end, two pixels at each end, then bit reversal | 0-65 % of the pixel tests (most on coasts) | low |
+| F8c | cells outside the anchor's open sectors, or without a partner open towards it | a further 10-35 % of the visits | high |
+| F1′ | one pass with a buffer per anchor | the second pass's pixel tests (95 % of all on swiss-long) | medium |
+| L | the partners' data in cell order | the cost per visit (to be measured) | medium |
+
+By the fit above, F1 with F2 + N1 takes about 45 % off the pair search of swiss-long and 70 % off
+R22's (whose pairs are nearly all visits), F8a about two thirds off the free directions, and on the
+Gozo coast F6 adds the most (65 % fewer pixel tests). Together, F1 + F2 + N1 + F8a (and F6 on
+coasts) would take roughly 45-70 % off the line search's CPU and 15-40 % off these jobs' CPU (R22
+and R22 `typical` about 40 %, R9 about 34 %, swiss-long 30-38 %, the Gozo coast 15-22 %, where step
+1 is the larger part), with the same results. Not recommended: F4 (small); a screen beyond 64 rings
+(few failures there, and it would change the counters); other SECTORS or RINGS (they change the
+counters); other cell sizes (L/16 saves 0-25 % of the visits, less than the cell rules, and the
+found pairs are written cell by cell, so their order and that of `lines.csv` would change); and an
+order chosen at run time (the best order is the same in every search measured).
+
+### What the server collects
+
+Per job, since migration 16 (docs/monitoring.md, F19): the CPU seconds of every step, the seconds
+and CPU seconds of the line search's stages and its funnel (`job_steps`, `job_stages`,
+`job_funnel`), read by `tools/job_stats.py` (also on the VPS host) by model, resolution, longest
+line, circle or area and preset. It does not tune the order: the best variant follows from the
+terrain and the parameters, not from who asks, and the results are the same in any order. It
+answers which kinds of searches use the site's CPU (the presets of the form or long lines at 1 m),
+so it says which of the changes above to make first, whether `max_length_max`, `anchors_max` and
+`compute_seconds` fit the cost, and which classes the local measurements should cover.
+
