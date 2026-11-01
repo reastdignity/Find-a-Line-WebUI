@@ -18,7 +18,7 @@ clearances, so the results are exactly those of the plain pixel-by-pixel search.
 
 import math
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 import numba
 import numpy as np
@@ -379,8 +379,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      sag_table=None, max_dh_ratio: float = np.inf,
                      max_dh: float = np.inf, first: Optional[np.ndarray] = None,
                      high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
-                     anchor_values: Optional[np.ndarray] = None, strong: Optional[np.ndarray] = None
-                     ) -> sh.LineTable:
+                     anchor_values: Optional[np.ndarray] = None, strong: Optional[np.ndarray] = None,
+                     stats: Optional[Dict[str, int]] = None) -> sh.LineTable:
     """Finds valid lines between anchors.
 
     Args:
@@ -401,6 +401,9 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
             that do not reach them are left out (counted in limits.left_out)
         anchor_values: [prominence, drop] of every anchor (terrain.py), saved with the lines
         strong: Optional mask of the anchors one of which every line must have (--min-prominence)
+        stats: Optional dict the counts of this call are added to (the funnel of the line search,
+            jobs.FUNNEL_STEPS): anchors with an open direction, those pairs start from, candidate
+            pairs, pairs checked pixel by pixel, pairs found, valid lines, lines left out by limits
 
     Returns:
         Valid lines, longest first
@@ -483,6 +486,11 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         print(f"Left out by the line limits ({limits.describe()}): {limits.left_out}")
     print(f"Found {len(valid_lines)} valid lines")
     print(f"{'=' * 60}")
+    if stats is not None:
+        for key, n in (("open", len(useful)), ("todo", len(todo_all)), ("candidates", candidates),
+                       ("checked", checked), ("found", len(found)), ("valid", len(valid_lines)),
+                       ("left_out", limits.left_out if limits is not None else 0)):
+            stats[key] = stats.get(key, 0) + int(n)
 
     # Longest first; lines of the same length keep their order (as sorted(reverse=True) did)
     return valid_lines.take(np.argsort(-valid_lines.columns["length"], kind="stable"))

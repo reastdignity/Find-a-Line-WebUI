@@ -14,7 +14,7 @@
 # (METRICS_PORT; section 15), the only published ports; the app sees
 # those connections come from the gateway of the network `web`, 172.30.0.1, the
 # FINDALINE_TRUSTED_PROXY of findaline.env. The same network takes the web service to the internet
-# (the OAuth providers' token endpoints, Google's metadata and keys); the worker gets out through
+# (the OAuth providers' token endpoints, Google's and Microsoft's metadata and keys); the worker gets out through
 # `worker` and shares no network with the web service. The bridges have fixed names (br-fal-*), so
 # the host's firewall can keep both away from private addresses.
 
@@ -66,6 +66,7 @@ services:
       - findaline_session_secret
       - findaline_github_client_secret
       - findaline_google_client_secret
+      - findaline_microsoft_client_secret
       # The keys the page gets (settings.WebKeys; an empty file means none): ArcGIS Location
       # Platform's for the satellite map, restricted to the site's address
       - esri_api_key
@@ -161,6 +162,8 @@ secrets:
     file: ./secrets/findaline_github_client_secret
   findaline_google_client_secret:
     file: ./secrets/findaline_google_client_secret
+  findaline_microsoft_client_secret:
+    file: ./secrets/findaline_microsoft_client_secret
   opentopography_api_key:
     file: ./secrets/opentopography_api_key
   datafordeler_api_key:

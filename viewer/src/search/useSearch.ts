@@ -123,12 +123,21 @@ export function useUsage(): UsageState {
   return {usage, error, refresh};
 }
 
-/** Whether an estimate fits the user's daily quotas (km², downloads): null without quotas or estimate.
- *  `area`: the km² of the search (the estimate's, or a circle's), null when not known before it runs. */
+/** Whether an estimate fits the user's daily quotas (Mpx, km², downloads): null without quotas or estimate.
+ *  `area`: the km² of the search (the estimate's, or a circle's), null when not known before it runs.
+ *  The Mpx quota (km² / resolution²) is shown as km² at the search's resolution. */
 export function withinLimits(usage: Usage | null, estimate: Estimate | null,
                              area: number | null = estimate?.km2 ?? null): {ok: boolean; text: string} | null {
   if (!usage || !estimate || !usage.limited) return null;
-  const {km2, download_mb} = usage.usage;
+  const {mpx, km2, download_mb} = usage.usage;
+  const scale = estimate.resolution ** 2;  // km² of one Mpx at this resolution
+  const atRes = ` km² at ${fmt(estimate.resolution)} m`;
+  const pixels = mpx?.limit != null && mpx.used !== null && area !== null
+    ? {used: mpx.used * scale, limit: mpx.limit * scale, area} : null;
+  if (pixels && pixels.used + pixels.area > pixels.limit) {
+    return {ok: false, text: `Over your daily limit: ${fmt(pixels.used)} of ${fmt(pixels.limit)}${atRes} used, ` +
+                             `this search needs ${fmt(pixels.area)}`};
+  }
   if (km2.limit !== null && km2.used !== null && area !== null) {
     if (km2.used + area > km2.limit) {
       return {ok: false, text: `Over your daily limit: ${fmt(km2.used)} of ${fmt(km2.limit)} km² used, ` +
@@ -139,6 +148,9 @@ export function withinLimits(usage: Usage | null, estimate: Estimate | null,
       download_mb.used + estimate.download_mb > download_mb.limit) {
     return {ok: false, text: `Over your daily download limit: ${fmt(download_mb.used)} of ` +
                              `${fmt(download_mb.limit)} MB used`};
+  }
+  if (pixels) {
+    return {ok: true, text: `Within your daily limit (${fmt(pixels.used + pixels.area)} of ${fmt(pixels.limit)}${atRes})`};
   }
   if (km2.limit !== null && km2.used !== null && area !== null) {
     return {ok: true, text: `Within your daily limit (${fmt(km2.used + area)} of ${fmt(km2.limit)} km²)`};

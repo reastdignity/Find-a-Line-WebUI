@@ -16,13 +16,20 @@ other things. A command waits in one first-come-first-served queue until it may 
 
 A command waits for a running one it conflicts with (either exclusive, or a resource in common)
 and for every earlier waiting one it conflicts with, so a waiting --exclusive keeps new shared
-commands out, and shared commands take the free slots in their order. The queue is a SQLite
-database in the git common directory (<.git>/findaline-locks/, the same for every worktree,
-never in `git status`); every entry holds an OS lock (filelock) for as long as its wrapper
-lives, so the entry of a killed wrapper is dropped by the next one that looks. Killing the
-wrapper itself leaves its command running: stop a hung command, not the wrapper.
+commands out, and shared commands take the free slots in their order. One exception (backfill):
+a waiting command held up by running ones has a reservation, the time the last of them is
+expected to end; a later command may pass it when it is expected to end before that, so the
+slots left free meanwhile are used without delaying it. A command's expected time is --expect,
+or the longest of the last runs of the same command, or the 90th percentile of the last runs of
+its kind (pytest, regression.py, perf_profile.py, ...), from the table `history`; without one it
+passes nobody, and a running command without one, or past it, leaves no time to pass in. An
+estimate can be wrong: the command passed is then late by the overrun.
+The queue is a SQLite database in the git common directory (<.git>/findaline-locks/, the same
+for every worktree, never in `git status`); every entry holds an OS lock (filelock) for as long
+as its wrapper lives, so the entry of a killed wrapper is dropped by the next one that looks.
+Killing the wrapper itself leaves its command running: stop a hung command, not the wrapper.
 
-    python tools/test_lock.py run [--exclusive] [--resource data] [--owner NAME] -- pytest
+    python tools/test_lock.py run [--exclusive] [--resource data] [--owner NAME] [--expect S] -- pytest
     python tools/test_lock.py status
 
 Runs with the standard library and filelock (any Python of the repository's environment;
@@ -41,7 +48,7 @@ import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Set
 
 from filelock import FileLock, Timeout
 
@@ -50,6 +57,10 @@ POLL = float(os.environ.get("FINDALINE_TEST_LOCK_POLL", "2"))  # seconds between
 REPORT = 300                                                    # seconds between "still waiting" lines
 TIMEOUT = {"shared": 3600, "exclusive": 3 * 3600}               # default --timeout per mode
 WAIT = 4 * 3600                                                 # default --wait
+SAME_RUNS = 5         # an estimate: the longest of the last runs of the same command,
+KIND_RUNS = 10        # else the 90th percentile of the last runs of its kind
+HISTORY_ROWS = 2000   # rows of `history` kept
+WRAPPERS = ("uv", "uvx", "run", "-m", "-I", "-u", "-B")   # skipped to find the kind of a command
 THREAD_VARS = ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                "GDAL_NUM_THREADS")
 TASKKILL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
@@ -57,7 +68,12 @@ TASKKILL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32",
 SCHEMA = """CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL, mode TEXT NOT NULL,
     resources TEXT NOT NULL, owner TEXT NOT NULL, pid INTEGER NOT NULL, command TEXT NOT NULL,
-    queued REAL NOT NULL, started REAL)"""
+    queued REAL NOT NULL, started REAL);
+CREATE TABLE IF NOT EXISTS history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, kind TEXT, seconds REAL NOT NULL,
+    code INTEGER NOT NULL, ended REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS history_key ON history (key);
+CREATE INDEX IF NOT EXISTS history_kind ON history (kind)"""
 
 
 @dataclass
@@ -70,7 +86,8 @@ class Entry:
     pid: int
     command: str
     queued: float
-    started: Optional[float]  # None while waiting
+    started: Optional[float]        # None while waiting
+    expect: Optional[float] = None  # seconds given by --expect
 
 
 def conflicts(a: Entry, b: Entry) -> bool:
@@ -78,18 +95,59 @@ def conflicts(a: Entry, b: Entry) -> bool:
     return a.mode == "exclusive" or b.mode == "exclusive" or bool(set(a.resources) & set(b.resources))
 
 
-def may_start(entry: Entry, others: Sequence[Entry], slots: int = SLOTS) -> bool:
-    """Whether a waiting entry may start now, given the other live entries: no running one it
-    conflicts with, no earlier waiting one it conflicts with (first come, first served), and
-    for a shared one a slot left after the running shared ones and the earlier waiting ones."""
-    running = [e for e in others if e.started is not None]
-    ahead = [e for e in others if e.started is None and e.id < entry.id]
-    if any(conflicts(entry, e) for e in running + ahead):
-        return False
-    if entry.mode == "shared":
-        used = sum(e.mode == "shared" for e in running) + sum(e.mode == "shared" for e in ahead)
-        return used < slots
-    return True
+def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], Optional[float]],
+              slots: int = SLOTS) -> Set[int]:
+    """The ids of the waiting entries that may start now. The waiting ones are taken in their
+    order, each one admitted counting as started: one may start with no running or admitted one
+    it conflicts with and, if shared, a slot left by them; and with no earlier waiting one it
+    conflicts with, unless it is expected to end before that one's reservation (backfill). A
+    reservation is the latest expected end of the running and admitted ones the waiting one
+    conflicts with: their start plus their estimate, not before now, and now when unknown."""
+    started = {e.id: e.started for e in entries if e.started is not None}
+    by_id = {e.id: e for e in entries}
+    seconds = {e.id: estimate(e) for e in entries}
+
+    def end(id: int) -> float:
+        return now if seconds[id] is None else max(now, started[id] + seconds[id])
+
+    held: Dict[int, float] = {}   # waiting ones not admitted → their reservation
+    for entry in sorted((e for e in entries if e.started is None), key=lambda e: e.id):
+        blocking = [i for i in started if conflicts(entry, by_id[i])]
+        full = entry.mode == "shared" and sum(by_id[i].mode == "shared" for i in started) >= slots
+        passes = all(seconds[entry.id] is not None and now + seconds[entry.id] <= held[i]
+                     for i in held if conflicts(entry, by_id[i]))
+        if not blocking and not full and passes:
+            started[entry.id] = now
+        else:
+            held[entry.id] = max((end(i) for i in blocking), default=now)
+    return {i for i in started if by_id[i].started is None}
+
+
+def may_start(entry: Entry, others: Sequence[Entry], slots: int = SLOTS,
+              estimate: Callable[[Entry], Optional[float]] = lambda e: None, now: Optional[float] = None) -> bool:
+    """Whether a waiting entry may start now, given the other live entries (startable)."""
+    return entry.id in startable([entry, *others], time.time() if now is None else now, estimate, slots)
+
+
+def command_key(command: Sequence[str]) -> str:
+    """The command as text, its program by name only (the same in every checkout)."""
+    return shlex.join([_name(command[0]), *command[1:]]) if command else ""
+
+
+def command_kind(command: Sequence[str]) -> Optional[str]:
+    """pytest, regression.py, npm, ...: the program, or the script run by Python or uv; None for
+    `python -c`."""
+    words = [w for w in command if w not in WRAPPERS]
+    while words and _name(words[0]).startswith("python"):
+        words = [w for w in words[1:] if w not in WRAPPERS]
+    if not words or words[0].startswith("-"):
+        return None
+    return _name(words[0])
+
+
+def _name(path: str) -> str:
+    name = os.path.basename(path)
+    return name[:-4] if name.lower().endswith(".exe") else name
 
 
 def lock_dir() -> str:
@@ -123,13 +181,18 @@ class Queue:
         self.folder = folder
         self.db = sqlite3.connect(os.path.join(folder, "queue.sqlite"), timeout=60, isolation_level=None)
         self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.execute(SCHEMA)
+        self.db.executescript(SCHEMA)
+        if "expect" not in [row[1] for row in self.db.execute("PRAGMA table_info(entries)")]:
+            try:  # added later; wrappers of older checkouts leave it NULL
+                self.db.execute("ALTER TABLE entries ADD COLUMN expect REAL")
+            except sqlite3.OperationalError:  # another wrapper added it meanwhile
+                pass
 
     def _entries(self) -> List[Entry]:
-        rows = self.db.execute("SELECT id, token, mode, resources, owner, pid, command, queued, started "
+        rows = self.db.execute("SELECT id, token, mode, resources, owner, pid, command, queued, started, expect "
                                "FROM entries ORDER BY id").fetchall()
-        return [Entry(i, t, m, [r for r in res.split(",") if r], o, p, c, q, s)
-                for i, t, m, res, o, p, c, q, s in rows]
+        return [Entry(i, t, m, [r for r in res.split(",") if r], o, p, c, q, s, x)
+                for i, t, m, res, o, p, c, q, s, x in rows]
 
     def live(self, own: Optional[str] = None) -> List[Entry]:
         """The entries whose wrapper still holds its lock (the others are deleted); call it inside
@@ -149,23 +212,48 @@ class Queue:
             self.db.execute("DELETE FROM entries WHERE id = ?", (entry.id,))
         return alive
 
-    def add(self, token: str, mode: str, resources: Sequence[str], owner: str, command: str) -> int:
-        cursor = self.db.execute("INSERT INTO entries (token, mode, resources, owner, pid, command, queued) "
-                                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
+    def add(self, token: str, mode: str, resources: Sequence[str], owner: str, command: str,
+            expect: Optional[float] = None) -> int:
+        cursor = self.db.execute("INSERT INTO entries (token, mode, resources, owner, pid, command, queued, expect) "
+                                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                                  (token, mode, ",".join(sorted(set(resources))), owner, os.getpid(), command,
-                                  time.time()))
+                                  time.time(), expect))
         return cursor.lastrowid
 
+    def estimate(self, entry: Entry) -> Optional[float]:
+        """The seconds the entry's command is expected to take (see the module's docstring)."""
+        if entry.expect is not None:
+            return entry.expect
+        try:
+            command = shlex.split(entry.command)
+        except ValueError:  # not written by shlex.join: no estimate
+            return None
+        same =self.db.execute("SELECT max(seconds) FROM (SELECT seconds FROM history WHERE key = ? "
+                               "ORDER BY id DESC LIMIT ?)", (command_key(command), SAME_RUNS)).fetchone()[0]
+        kind = command_kind(command)
+        if same is not None or kind is None:
+            return same
+        runs = sorted(s for (s,) in self.db.execute("SELECT seconds FROM history WHERE kind = ? "
+                                                     "ORDER BY id DESC LIMIT ?", (kind, KIND_RUNS)))
+        return runs[(9 * len(runs) + 9) // 10 - 1] if runs else None   # the nearest rank
+
+    def record(self, command: Sequence[str], seconds: float, code: int) -> None:
+        """A finished command's time, for the estimates."""
+        self.db.execute("INSERT INTO history (key, kind, seconds, code, ended) VALUES (?, ?, ?, ?, ?)",
+                        (command_key(command), command_kind(command), seconds, code, time.time()))
+        self.db.execute("DELETE FROM history WHERE id <= (SELECT max(id) FROM history) - ?", (HISTORY_ROWS,))
+
     def try_start(self, token: str) -> tuple:
-        """(started, entries ahead of it that it waits for)."""
+        """(started, the entries it waits for or, once started, the earlier waiting ones it passed)."""
         self.db.execute("BEGIN IMMEDIATE")
         try:
             entries = self.live(own=token)
             entry = next(e for e in entries if e.token == token)
             others = [e for e in entries if e.token != token]
-            if may_start(entry, others):
-                self.db.execute("UPDATE entries SET started = ? WHERE id = ?", (time.time(), entry.id))
-                return True, []
+            now = time.time()
+            if entry.id in startable(entries, now, self.estimate):
+                self.db.execute("UPDATE entries SET started = ? WHERE id = ?", (now, entry.id))
+                return True, [e for e in others if e.started is None and e.id < entry.id and conflicts(entry, e)]
             blocking = [e for e in others if (e.started is not None or e.id < entry.id)
                         and (conflicts(entry, e) or e.mode == entry.mode == "shared")]
             return False, blocking
@@ -176,9 +264,11 @@ class Queue:
         self.db.execute("DELETE FROM entries WHERE token = ?", (token,))
 
 
-def _describe(entry: Entry, now: float) -> str:
+def _describe(entry: Entry, now: float, expected: Optional[float] = None) -> str:
     state = (f"running {(now - entry.started) / 60:.0f} min" if entry.started is not None
              else f"waiting {(now - entry.queued) / 60:.0f} min")
+    if expected is not None:
+        state += f" (takes ~{expected / 60:.1f} min)"
     resources = f" +{','.join(entry.resources)}" if entry.resources else ""
     return f"#{entry.id} {entry.mode}{resources} {state} owner={entry.owner} pid={entry.pid}: {entry.command}"
 
@@ -213,11 +303,14 @@ def run(args) -> int:
     holder.acquire(timeout=0)  # before the entry exists, so nobody takes it for a dead one
     process = None
     try:
-        queue.add(token, mode, args.resource, args.owner, text)
+        queue.add(token, mode, args.resource, args.owner, text, args.expect)
         start, reported = time.time(), None
         while True:
             started, blocking = queue.try_start(token)
             if started:
+                if blocking:
+                    print(f"test lock: {mode} starts ahead of #{', #'.join(str(e.id) for e in blocking)}, "
+                          f"expected to end before they may start", file=sys.stderr)
                 break
             now = time.time()
             if now - start >= args.wait:
@@ -230,14 +323,17 @@ def run(args) -> int:
                     print(f"  {_describe(entry, now)}", file=sys.stderr)
                 sys.stderr.flush()
             time.sleep(POLL)
+        began = time.time()
         process = subprocess.Popen(command, env=_environment(mode), start_new_session=os.name != "nt")
         try:
-            return process.wait(timeout=args.timeout)
+            code = process.wait(timeout=args.timeout)
         except subprocess.TimeoutExpired:
             print(f"test lock: command still running after {args.timeout / 60:.0f} min, killing its process tree",
                   file=sys.stderr)
             _kill_tree(process)
-            return 124
+            code = 124
+        queue.record(command, time.time() - began, code)  # not after Ctrl-C: cut short
+        return code
     except KeyboardInterrupt:
         if process is not None:
             _kill_tree(process)
@@ -257,7 +353,7 @@ def status(_args) -> int:
     now = time.time()
     print(f"{queue.folder} ({SLOTS} shared slots, {datetime.now():%H:%M:%S})")
     for entry in entries:
-        print(f"  {_describe(entry, now)}")
+        print(f"  {_describe(entry, now, queue.estimate(entry))}")
     if not entries:
         print("  (empty)")
     return 0
@@ -276,6 +372,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                                       f"(default {TIMEOUT['shared']} shared, "
                                                       f"{TIMEOUT['exclusive']} exclusive)")
     runner.add_argument("--wait", type=float, default=WAIT, help=f"seconds to wait at most (default {WAIT})")
+    runner.add_argument("--expect", type=float, metavar="SECONDS",
+                        help="how long the command takes (default: from the runs before); a command with an "
+                             "estimate may pass waiting ones if it ends before they may start")
     runner.add_argument("command", nargs=argparse.REMAINDER)
     commands.add_parser("status", help="the running and waiting commands")
     args = parser.parse_args(argv)

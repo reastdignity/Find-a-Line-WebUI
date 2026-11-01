@@ -3,7 +3,7 @@
 What to watch on the VPS of the public site and in the application, where each value comes
 from, how it is stored and when it raises an alert. Planned 2026-10-31; phases 1 and 2 are built
 (`deploy/monitoring/`, `metrics.py`, docs/deployment.md section 15); phase 3 is built too (decisions
-of 2026-11-01, see "Phases"). The public site and its server are described in
+of 2026-11-01, see "Phases"), and the speed of downloads and computing (F18, F19, "Phase 4"). The public site and its server are described in
 [deployment.md](deployment.md); the plans of the project in [roadmap.md](roadmap.md).
 
 Today the operator checks by hand (`sudo deploy/vps.sh check`, the *Admin* page, `docker compose
@@ -28,6 +28,7 @@ failed backup (deployment.md, section 11).
 | Counts of the outside services (F11, 2026-11-01) | The worker's processes count their requests per host and outcome in memory and add them to a table of `jobs.sqlite`; the web process's `/metrics` reads it, as everything else the two share. Rejected: `prometheus_client`'s multiprocess mode (a file per process, and every phase is a new process), a `/metrics` of the worker (a new port, counts lost at its restart). |
 | Coverage (F17, 2026-11-01) | The worker keeps a simplified outline of every search's area; the housekeeping unions them (km² searched at least once) and counts the searches per cell of 0.25°, shown on Grafana's Geomap. |
 | SSH logins (D4, 2026-11-01) | `pam_exec` in sshd's session sends a message to the ntfy topic at once, independent of the monitoring stack. |
+| Downloads and computing apart (F18, F19, 2026-11-01) | The area of a day shows twice: computed (every search, repeats included) and downloaded (new terrain data; the rest is cached). Download speed per layer in Mpx/s of the data's own resolution (km²/s at 1 m: comparable between sources) and km²/s (what a user waits for); computing in Mpx (km² / resolution²), the measure of the compute quota (`mpx_day_max`), with its seconds per Mpx by class of resolution to check that the cost follows the pixels. |
 | Logs (2026-11-01) | [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) in the monitoring project: the `web` and `worker` containers' output and nginx's error log (addresses masked), 30 days, read in Grafana. |
 
 ## Architecture
@@ -105,6 +106,13 @@ number each.
 | A new item "Server logs" | "Messages of the application and errors of the web server, without IP addresses; they may name the place of a search. Why: to find faults. Deleted after 30 days; Docker's own copy is overwritten once it reaches 50 MB." |
 | The facts | The example of the statistics gains "or the number of searches per area of about 25 km". |
 
+**Phase 4** changes the item "Quotas" (wording accepted 2026-11-01): "How many km² your searches
+covered and how many uncached Nominatim requests they made" becomes "How many km² your searches
+covered (counted as pixels at their resolution), how many MB they downloaded and how many uncached
+Nominatim requests they made". F18 and F19 are counts without users. So are the CPU seconds, the
+stages and the funnel of the line search that F19 gained with migration 16 (2026-11-01, decided with
+the user): the privacy page stays unchanged, as for F19.
+
 F11, F12 and F13 are counts without users; D4 concerns the operator's own logins. The logs keep no
 IP address: the application logs none (uvicorn's access log is off), and Telegraf masks the
 `client:` field of nginx's error log before it is stored. nginx's own files are as before
@@ -162,7 +170,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | F1 | Worker alive: age of its lease, number of workers | alert: no live worker for 2 min (the worker healthcheck deferred in the roadmap) | table `workers`, as `Jobs.worker_alive` | P1 | 2 |
 | F2 | Queue by status, age of the oldest waiting job, against `queue_max`; jobs per phase against `compute_slots` / `download_slots` | alert: the oldest waits > 30 min; > 80 % of `queue_max` | table `jobs` | P1 | 2 |
 | F3 | Finished jobs by result and error code | alert: any internal error; > 30 % failed in 1 h | `error_info` code, or a category from the text (time limit, worker stopped, internal, interrupted); counters as `COUNT(*) GROUP BY` (job rows are kept) | P1 | 2 |
-| F4 | Duration of jobs: in total, waiting, downloading (until computing starts, so the wait for a compute slot too), computing (`findaline_job_phase_seconds`, a summary) | trend; close to the time limits | the total from `finished - created`; the phases need columns of their start times (migration 13 of `jobs.sqlite`) | P2 | 2 |
+| F4 | Duration of jobs: in total, waiting, downloading, ready (downloaded, waiting for a compute slot), computing (`findaline_job_phase_seconds`, a summary) | trend; close to the time limits; which kind of slot is short | the total from `finished - created`; the phases from the columns of their start times (migration 13 of `jobs.sqlite`; `ready_at` migration 15: before it the download phase holds the wait for a compute slot) | P2 | 2, 4 |
 | F5 | The quick lane (estimates, profiles, places): waiting, age of the oldest, 503/504 answers | alert: the oldest waits > 30 s | table `quick`; counters in the memory of the web process | P2 | 2 |
 | F6 | Accounts by status | info: a new account is pending approval | `accounts.sqlite` | P1 | 2 |
 | F7 | Activity: sessions seen in 15 min and 24 h; sign-ins, sign-ups, jobs added, share links, refusals (rate, quota) in the last hour | alert: a sudden jump of refusals | `sessions.seen`; `audit` (a window of 1 h) | P2 | 2 |
@@ -172,10 +180,12 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | F11 | External services: Nominatim, Overpass, Geofabrik, the orthophotos and the data sources: requests by host and outcome, MB, seconds (each retry is a request) | alert: > 20 % of a host's requests failed in 30 min (at least 10) | counters in the worker's processes, added to table `service_requests` of `jobs.sqlite` (see "Phases") | P3 | 3 |
 | F12 | Requests of the application per route template, method and status class; time per route; open event streams | finer than nginx's route groups | the `guard` middleware of `web.py` and `EventHub`, counters in the web process | P3 | 3 |
 | F13 | What the housekeeping removed, when it last ran and how long it took | alert: no round for 3 × `HOUSEKEEPING` | `work/housekeeping.json`, written as `cache-sizes.json` | P3 | 3 |
-| F14 | Area searched: km² of finished searches per day and in total, by country of the area | trend; the same numbers in the application | columns `area_km2` and `country` of `jobs` (see "The area searched"); counter `findaline_area_km2_total{country}`: daily bars (`increase(...[1d])`) and the total | P2 | 2 |
+| F14 | Area searched: km² of finished searches per day and in total, by country of the area; beside it the km² of new terrain data (F18) | trend; the same numbers in the application; computed against downloaded shows the cache at work | columns `area_km2` and `country` of `jobs` (see "The area searched"); counter `findaline_area_km2_total{country}`: daily bars (`increase(...[1d])`) and the total | P2 | 2 |
 | F15 | Users by country | trend | `users.country` (variant B) and the users who searched in each country (variant A, from `jobs.country`); `COUNT(*) GROUP BY country` | P2 | 2 |
 | F16 | Favourite lines: the total | trend | `COUNT(*)` of table `favourites` | P2 | 2 |
 | F17 | Coverage (km² searched at least once) and a map of searches in cells of 0.25° (Grafana's Geomap) | where people search | column `area_outline` of `jobs`; the union and the cells in the worker's housekeeping (`work/coverage.json`); cells without users | P3 | 3 |
+| F18 | Tiles of the elevation layers per layer and role: downloaded (pixels, km², bytes, seconds in the host's slot), found in the cache, seconds waited for the tile's lock and a host slot | Mpx/s and km²/s per source (a service slowing down), the share of waiting (parallel downloads competing for `HOST_SLOTS`), the cache's share; new km² per day | `sources.layer.download_layers` counts through `servicecounts.tiles` (the pixels and km² from the cached file's header), table `layer_downloads` of `jobs.sqlite` (migration 15); `findaline_download_{tiles,tiles_cached,pixels,km2,bytes,seconds,wait_seconds}_total{layer,role}` | P3 | 4 |
+| F19 | Computing: Mpx (km² / resolution²) and seconds of the finished searches by class of resolution (≤ 1, 2, 5, 10, 30 m); seconds and CPU seconds per step of the computing phase (1–5, the orthophoto tiles of step 5, other); seconds and CPU seconds of the stages of the line search (steps 2 and 3: finding anchors, anchor prominence and drop, sag estimator table, free directions, anchor pairs, checking lines); the funnel of the line search (grids, anchors, anchors kept after the prominence and drop limits, with an open direction, pairs started from, candidate pairs, checked pixel by pixel, found, valid, left out by the line limits, lines of the tiles' cores) | the Mpx a day (the compute quota's measure), whether the seconds follow the pixels at every resolution, which step and stage to speed up next and how many cores it keeps busy (CPU seconds over seconds), where the pairs are lost, the orthophoto held in a compute slot | columns `source` and `resolution` of `jobs` and table `job_steps` (migration 15; `jobs.StepClock` from the progress bars' states), `job_steps.cpu_seconds`, tables `job_stages` and `job_funnel` (migration 16; `search.Plan.funnel`, `linesearch.find_valid_lines(stats=)`); `findaline_computed_mpx_total{resolution}`, `findaline_computed_seconds_total{resolution}`, `findaline_compute_step_seconds{step}`, `findaline_compute_step_cpu_seconds{step}`, `findaline_compute_stage_seconds{stage}`, `findaline_compute_stage_cpu_seconds{stage}` (summaries), `findaline_line_funnel_total{level}`; per class of search: `tools/job_stats.py` | P3 | 4 |
 
 **G. Monitoring of the monitoring**
 | # | What | Why / alert | How | Priority | Phase |
@@ -330,6 +340,44 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   docker job replayed, the monitoring stack with a fake exporter and a log line, `vps.sh` on real
   Ubuntu 26.04 (stubs have let VPS bugs through before), and the visual review of the privacy
   page.
+
+**Phase 4** (F18, F19, the compute quota in Mpx; decided and built 2026-11-01).
+- **Why apart.** A download is paid once (the cache keeps a tile until its TTL), a computation by
+  every search: the same place searched ten times with other values is ten computations and one
+  download. And they depend on different resolutions: a download on the data's own (a 5 m search in
+  Poland still downloads the 1 m sheets; only WCS layers without `fetch_res` and swisstopo's two
+  resolutions follow the grid), a computation on the search's (pixels = km² / resolution²; most
+  of its steps are linear in the pixels, docs/performance.md).
+- **Migration 15 of `jobs.sqlite`** (automatic): `jobs.ready_at`, `jobs.source`, `jobs.resolution`,
+  table `job_steps` (job, step, seconds) and table `layer_downloads` (running totals per layer and
+  role, as `service_requests`). Jobs of before get none of them.
+- **F18.** `Layer._download_and_record` measures the wait for the tile's lock and a host slot apart
+  from the download in the slot; `download_layers` counts the tiles found in the cache, by the role
+  of its label (terrain, surface, water mask, gap fill). `servicecounts.flush` writes them with the
+  requests of F11, so the CLI and the regression set count nothing. The speed is that of one
+  connection (the seconds of every tile summed), so it compares sources; the format still counts
+  (zipped ASCII sheets, float32 COGs, whole metres), and the network alone is F11's MB/s per host.
+- **F19.** The worker stores a job's source and resolution when it plans the download phase, and the
+  seconds of the steps of its computing phase when it ends (`jobs.StepClock` listens to the
+  progress bars: the step of their text, the orthophoto tiles while their bar runs).
+- **Migration 16 of `jobs.sqlite`** (automatic, 2026-11-01, branch `line-order`): `job_steps.cpu_seconds`
+  (the CPU seconds of a step: `time.process_time` of the phase's process, numba's threads included),
+  table `job_stages` (job, stage, seconds, CPU seconds: the stages of the line search while their
+  Compute bar runs, summed over the tiles) and table `job_funnel` (job, step, count:
+  `search.Plan.funnel`, which `search._lines` and `linesearch.find_valid_lines(stats=)` fill, summed
+  over the tiles; a tile a resumed search had saved already adds nothing). `run_phase` writes them
+  after a computing phase that saved its run; a failed write never fails the search (a line to
+  stderr). Jobs of before get none of these; `tools/job_stats.py` (read-only, standard library only,
+  for the host's `python3`) reads their funnel and the stages' whole seconds from their info events.
+  The dashboard's row F18/F19 has three panels of them (mean CPU per step, seconds and CPU per stage,
+  the funnel per day). Why: docs/performance.md, "Order of elimination" — which kind of search uses
+  the site's CPU decides which part of the line search to speed up first.
+- **The quota.** The daily quota of a user's searches counts Mpx (`mpx_day_max`), not km²: 250 km² is
+  250 Mpx at 1 m but 10 Mpx at 5 m, so a quota in km² punished coarse overviews (the cheapest) and
+  told fine searches from each other not at all. The downloads keep their quota in MB
+  (`download_mb_day_max`): it follows the data's resolution and the cache already. Seconds of CPU
+  were rejected as a quota: known only afterwards, dependent on the server's load and absent from the
+  estimate; F19 shows them instead.
 
 ## Not collected, and approaches rejected
 - **Not collected:** IP addresses, unique visitors, series per user (the privacy page: the

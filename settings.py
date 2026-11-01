@@ -17,7 +17,7 @@ Settings and limits of the web app, from environment variables (pydantic-setting
   secrets (/run/secrets/findaline_<name>) when that folder exists.
 - AccountSettings: the sign-in of the public site (`web --public` only; accounts.py):
   FINDALINE_SESSION_SECRET, FINDALINE_GITHUB_CLIENT_ID / _SECRET, FINDALINE_GOOGLE_CLIENT_ID /
-  _SECRET, FINDALINE_ADMINS, FINDALINE_SIGNUP, FINDALINE_ACCOUNTS_DIR; secrets from the same
+  _SECRET, FINDALINE_MICROSOFT_CLIENT_ID / _SECRET, FINDALINE_ADMINS, FINDALINE_SIGNUP, FINDALINE_ACCOUNTS_DIR; secrets from the same
   Docker secrets folder (file names as the variables, in any case). A provider without its
   client id and secret is not offered.
 - ServiceKeys: keys, tokens and accounts of data services (OPENTOPOGRAPHY_API_KEY,
@@ -53,7 +53,7 @@ PUBLIC = {
     "radius_max": 3500, "resolution_max": 30,
     "region_km2_max": 2500, "area_km2_max": 50, "bbox_km_max": 75, "grid_mpx_max": 36, "tiles_max": 300, "anchors_max": 3_000_000,
     "lines_max": 1_500_000, "download_mb_max": 3000, "ortho_minutes": 10,
-    "jobs_active_max": 2, "jobs_day_max": 20, "km2_day_max": 250, "runs_gb_max": 5, "nominatim_day_max": 50,
+    "jobs_active_max": 2, "jobs_day_max": 20, "mpx_day_max": 250, "runs_gb_max": 5, "nominatim_day_max": 50,
     "download_mb_day_max": 10000,
     "estimate_rate": "20/minute;300/hour", "profile_rate": "30/minute;500/hour", "job_rate": "10/minute;60/hour",
     "place_rate": "10/minute;100/hour", "report_rate": "3/minute;20/day", "time_zone_rate": "5/minute;20/day",
@@ -130,9 +130,14 @@ class Limits(BaseSettings):
     # Quotas of a user (web.py, jobs.py); users without limits and administrators have none
     jobs_active_max: Optional[int] = Field(None, gt=0, description="searches of a user waiting or running at once")
     jobs_day_max: Optional[int] = Field(None, gt=0, description="searches a user may start in 24 hours")
+    mpx_day_max: Optional[float] = Field(
+        None, gt=0, description="millions of pixels of the search areas of a user in 24 hours: km² / resolution², "
+                                "so 1 km² at 1 m is 1, at 5 m 0.04 (what a search's computing costs follows its pixels; "
+                                "counted by the worker, which knows the area of osm: and coast/cliffs searches and the "
+                                "resolution; circles count too)")
     km2_day_max: Optional[float] = Field(
-        None, gt=0, description="km² of the search areas of a user in 24 hours (counted by the worker, which knows "
-                                "the area of osm: and coast/cliffs searches; circles count too)")
+        None, gt=0, description="km² of the search areas of a user in 24 hours, whatever their resolution (counted by "
+                                "the worker, which knows the area of osm: and coast/cliffs searches; circles count too)")
     download_mb_day_max: Optional[float] = Field(
         None, gt=0, description="MB a user's searches may download in 24 hours: the estimate of each search (the "
                                 "tiles not cached yet), counted when its download starts")
@@ -321,7 +326,7 @@ class PublicSettings(BaseSettings):
                              + describe_error(e, "FINDALINE_"))
 
 
-PROVIDERS = ("github", "google")  # the sign-in providers (accounts.py)
+PROVIDERS = ("github", "google", "microsoft")  # the sign-in providers (accounts.CLIENTS)
 
 
 class AccountSettings(BaseSettings):
@@ -335,8 +340,13 @@ class AccountSettings(BaseSettings):
     github_client_secret: Optional[SecretStr] = Field(None, description="client secret of the GitHub OAuth app")
     google_client_id: Optional[str] = Field(None, description="client id of the Google OAuth client")
     google_client_secret: Optional[SecretStr] = Field(None, description="client secret of the Google OAuth client")
+    microsoft_client_id: Optional[str] = Field(
+        None, description="application (client) id of the Microsoft Entra app (personal accounts)")
+    microsoft_client_secret: Optional[SecretStr] = Field(
+        None, description="client secret of the Microsoft Entra app")
     admins: str = Field("", description="administrators as <provider>:<id>, comma-separated (github:12345 with "
-                                        "the numeric GitHub user id, google:<sub>); the first one owns the runs "
+                                        "the numeric GitHub user id, google:<sub>, microsoft:<sub>); the first one "
+                                        "owns the runs "
                                         "from before the public mode")
     accounts_dir: Optional[str] = Field(
         None, description="folder of accounts.sqlite (default: the data folder); only the web process opens it, so "
@@ -391,9 +401,8 @@ class AccountSettings(BaseSettings):
             raise SystemExit("--public needs these settings (environment or Docker secrets):\n"
                              + describe_error(e, "FINDALINE_"))
         if not settings.providers:
-            raise SystemExit("--public needs a sign-in provider: FINDALINE_GITHUB_CLIENT_ID and "
-                             "FINDALINE_GITHUB_CLIENT_SECRET, or FINDALINE_GOOGLE_CLIENT_ID and "
-                             "FINDALINE_GOOGLE_CLIENT_SECRET")
+            raise SystemExit("--public needs a sign-in provider: " + ", or ".join(
+                f"FINDALINE_{p.upper()}_CLIENT_ID and FINDALINE_{p.upper()}_CLIENT_SECRET" for p in PROVIDERS))
         return settings
 
 

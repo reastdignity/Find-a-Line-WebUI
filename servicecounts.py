@@ -16,6 +16,13 @@ local path (a mirror, the tests' files) is not counted. Outcomes (OUTCOMES): the
 HTTP status (`ok` for 2xx and 3xx, `not_found` for 404) or of the exception (`timeout`,
 `connection`, `other`); a caller may set another (`Counted.outcome`, e.g. `other` for a 200 with
 an error page instead of data).
+
+The tiles of the elevation layers (row F18) are counted alike, by layer (`Layer.folder`, fixed by
+the catalogue) and role (ROLES: what the search used the layer for): downloaded tiles with their
+pixels and km² (from the header of the cached file), bytes, the seconds of the download (in the
+host's slot) and of the wait for the tile's lock and a slot of its host, and the tiles found in
+the cache. `flush` adds them to the table `layer_downloads` (Jobs.add_layer_downloads), when
+`enable` got its writer.
 """
 
 import contextlib
@@ -27,11 +34,16 @@ from urllib.parse import urlsplit
 import requests
 
 OUTCOMES = ("ok", "not_found", "http_4xx", "http_5xx", "timeout", "connection", "other")
+ROLES = ("terrain", "surface", "water mask", "gap fill", "other")  # of a layer's tiles (download_layers' labels)
 FLUSH_SECONDS = 60.0
+TileRow = Tuple[str, str, int, int, float, float, int, float, float]
 
 _lock = threading.Lock()
 _counts: Dict[Tuple[str, str], List[float]] = {}  # (host, outcome) -> [requests, bytes, seconds]
 _writer: Optional[Callable[[List[Tuple[str, str, int, int, float]]], None]] = None
+# (layer, role) -> [tiles, tiles cached, pixels, km², bytes, seconds, wait seconds]
+_tiles: Dict[Tuple[str, str], List[float]] = {}
+_tile_writer: Optional[Callable[[List[TileRow]], None]] = None
 _timer: Optional[threading.Thread] = None
 _stop = threading.Event()
 
@@ -83,6 +95,23 @@ def record(url: Optional[str], outcome: str, size: int = 0, seconds: float = 0.0
         found[0] += 1
         found[1] += int(size)
         found[2] += float(seconds)
+
+
+def role_of(label: str) -> str:
+    """The role of a layer's tiles from the label download_layers got ("gap fill (FABDEM)": gap fill)."""
+    role = label.split(" (")[0]
+    return role if role in ROLES else "other"
+
+
+def tiles(layer: str, role: str, downloaded: int = 0, cached: int = 0, pixels: int = 0, km2: float = 0.0,
+          size: int = 0, seconds: float = 0.0, waited: float = 0.0):
+    """Count tiles of a layer (nothing while the counting is off or without the tiles' writer)."""
+    if _writer is None or _tile_writer is None or not layer:
+        return
+    with _lock:
+        found = _tiles.setdefault((layer, role if role in ROLES else "other"), [0, 0, 0, 0.0, 0, 0.0, 0.0])
+        for k, v in enumerate((downloaded, cached, pixels, km2, size, seconds, waited)):
+            found[k] += v
 
 
 class Counted:
@@ -148,6 +177,16 @@ def take() -> List[Tuple[str, str, int, int, float]]:
             for (host, outcome), (n, size, seconds) in sorted(counts.items())]
 
 
+def take_tiles() -> List[TileRow]:
+    """The tile counts since the last take, as rows (layer, role, tiles, tiles cached, pixels, km²,
+    bytes, seconds, wait seconds); cleared."""
+    global _tiles
+    with _lock:
+        counts, _tiles = _tiles, {}
+    return [(layer, role, int(n), int(cached), int(px), km2, int(size), seconds, waited)
+            for (layer, role), (n, cached, px, km2, size, seconds, waited) in sorted(counts.items())]
+
+
 def _put_back(rows):
     with _lock:
         for host, outcome, n, size, seconds in rows:
@@ -157,20 +196,32 @@ def _put_back(rows):
             found[2] += seconds
 
 
+def _put_back_tiles(rows):
+    with _lock:
+        for layer, role, *values in rows:
+            found = _tiles.setdefault((layer, role), [0, 0, 0, 0.0, 0, 0.0, 0.0])
+            for k, v in enumerate(values):
+                found[k] += v
+
+
 def flush():
-    """Add the counts to the writer's table; on an error (the database locked for longer than its
+    """Add the counts to the writers' tables; on an error (the database locked for longer than its
     timeout) they stay for the next flush."""
-    writer = _writer
+    writer, tile_writer = _writer, _tile_writer
     if writer is None:
         return
-    rows = take()
-    if not rows:
-        return
-    try:
-        writer(rows)
-    except Exception as e:  # never fails the work that was counted
-        _put_back(rows)
-        print(f"service counts not written: {type(e).__name__}: {e}")
+    for take_rows, write, put_back, what in ((take, writer, _put_back, "service"),
+                                            (take_tiles, tile_writer, _put_back_tiles, "tile")):
+        if write is None:
+            continue
+        rows = take_rows()
+        if not rows:
+            continue
+        try:
+            write(rows)
+        except Exception as e:  # never fails the work that was counted
+            put_back(rows)
+            print(f"{what} counts not written: {type(e).__name__}: {e}")
 
 
 def _flushing(stop: threading.Event):
@@ -178,12 +229,13 @@ def _flushing(stop: threading.Event):
         flush()
 
 
-def enable(writer: Callable[[List[Tuple[str, str, int, int, float]]], None], interval: bool = True):
+def enable(writer: Callable[[List[Tuple[str, str, int, int, float]]], None], interval: bool = True,
+           tile_writer: Optional[Callable[[List[TileRow]], None]] = None):
     """Count the requests of this process from now on, `writer(rows)` storing them (the web worker's
-    processes: Jobs.add_service_requests); with `interval` a daemon thread flushes every
-    FLUSH_SECONDS."""
-    global _writer, _timer, _stop
-    _writer = writer
+    processes: Jobs.add_service_requests), and the tiles of the layers with `tile_writer`
+    (Jobs.add_layer_downloads); with `interval` a daemon thread flushes every FLUSH_SECONDS."""
+    global _writer, _tile_writer, _timer, _stop
+    _writer, _tile_writer = writer, tile_writer
     if interval and (_timer is None or not _timer.is_alive()):
         _stop = threading.Event()  # each thread its own, so a stopped one never runs on
         _timer = threading.Thread(target=_flushing, args=(_stop,), name="service-counts", daemon=True)
@@ -192,8 +244,9 @@ def enable(writer: Callable[[List[Tuple[str, str, int, int, float]]], None], int
 
 def disable():
     """Stop counting (the counts not flushed are dropped) and the flushing thread (tests)."""
-    global _writer, _timer
-    _writer = None
+    global _writer, _tile_writer, _timer
+    _writer = _tile_writer = None
     _stop.set()
     _timer = None
     take()
+    take_tiles()

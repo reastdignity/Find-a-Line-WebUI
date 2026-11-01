@@ -23,8 +23,12 @@ CHILD = ("import os, sys, time\n"
          "    time.sleep(0.05)\n")
 
 
-def entry(id, mode="shared", resources=(), started=True):
-    return tl.Entry(id, f"t{id}", mode, list(resources), "x", 1, "c", 0.0, 1.0 if started else None)
+def entry(id, mode="shared", resources=(), started=True, at=1.0, expect=None):
+    return tl.Entry(id, f"t{id}", mode, list(resources), "x", 1, "c", 0.0, at if started else None, expect)
+
+
+def admitted(entries, now=10.0, slots=3):
+    return tl.startable(entries, now, lambda e: e.expect, slots)
 
 
 def test_who_may_start():
@@ -44,6 +48,66 @@ def test_who_may_start():
     assert not tl.may_start(data, [entry(1, resources=["data", "docker"])])
     assert tl.may_start(data, [entry(1, resources=["docker"])])
     assert not tl.may_start(data, [entry(2, resources=["data"], started=False)])
+
+
+def test_backfill():
+    """A later entry passes a waiting one it conflicts with only when it is expected to end
+    before the running ones holding that one up."""
+    running = entry(1, at=0.0, expect=100.0)             # expected to end at 100
+    exclusive = entry(2, "exclusive", started=False)     # so it may start at 100
+    assert admitted([running, exclusive, entry(3, started=False, expect=50.0)]) == {3}   # ends at 60
+    assert admitted([running, exclusive, entry(3, started=False, expect=90.0)]) == {3}   # ends at 100
+    assert admitted([running, exclusive, entry(3, started=False, expect=95.0)]) == set()
+    assert admitted([running, exclusive, entry(3, started=False)]) == set()              # no estimate
+    unknown = entry(1, at=0.0)
+    assert admitted([unknown, exclusive, entry(3, started=False, expect=1.0)]) == set()
+    assert admitted([running, exclusive, entry(3, started=False, expect=1.0)], now=150.0) == set()  # overrun
+    # The slots: taken by the running and the admitted, not by a waiting one that may not pass
+    assert admitted([running, exclusive, *(entry(i, started=False, expect=10.0) for i in (3, 4, 5))]) == {3, 4}
+    assert admitted([running, exclusive, entry(3, started=False), entry(4, started=False, expect=10.0)]) == {4}
+    # Two exclusive ones waiting: the earlier reservation counts
+    assert admitted([running, exclusive, entry(3, "exclusive", started=False, expect=5.0),
+                     entry(4, started=False, expect=50.0)]) == {4}
+    # Resources: one without them is not held up; one with them waits for the running one anyway
+    data = entry(1, resources=["data"], at=0.0, expect=100.0)
+    assert admitted([data, entry(2, resources=["data"], started=False), entry(3, started=False)]) == {3}
+    assert admitted([data, entry(2, resources=["data"], started=False),
+                     entry(3, resources=["data"], started=False, expect=1.0)]) == set()
+    # A resource waiting behind an exclusive: one naming it passes only in time
+    assert admitted([running, exclusive, entry(3, resources=["docker"], started=False, expect=50.0),
+                     entry(4, resources=["docker"], started=False, expect=80.0)]) == {3}
+    # Nothing running: the first waiting one starts, as before
+    assert admitted([entry(1, "exclusive", started=False), entry(2, started=False, expect=1.0)]) == {1}
+
+
+def test_command_kind_and_key():
+    assert tl.command_kind(["pytest", "-q"]) == "pytest"
+    assert tl.command_kind(["uv", "run", "pytest", "tests/test_web.py"]) == "pytest"
+    assert tl.command_kind([r"C:\x\.venv\Scripts\python.exe", "-I", "tests/regression.py", "--only", "R1"]) \
+        == "regression.py"
+    assert tl.command_kind(["uv", "run", "python", "-m", "pytest"]) == "pytest"
+    assert tl.command_kind(["python", "tools/perf_profile.py", "--cores", "4"]) == "perf_profile.py"
+    assert tl.command_kind(["npm", "run", "build"]) == "npm"
+    assert tl.command_kind(["python", "-c", "print(1)"]) is None
+    assert tl.command_key([r"C:\x\.venv\Scripts\python.exe", "tests/regression.py"]) == "python tests/regression.py"
+
+
+def test_estimates_from_history(tmp_path):
+    queue = tl.Queue(str(tmp_path))
+
+    def estimate(command, expect=None):
+        return queue.estimate(tl.Entry(1, "t", "shared", [], "x", 1, tl.shlex.join(command), 0.0, None, expect))
+
+    assert estimate(["pytest"]) is None
+    for seconds in (100, 30, 20, 10, 10, 10):                  # the longest of the last five
+        queue.record(["pytest"], seconds, 0)
+    assert estimate(["pytest"]) == 30
+    assert estimate(["pytest"], expect=7.0) == 7.0
+    for seconds in range(1, 11):                               # another pytest: its kind's 90th percentile
+        queue.record(["pytest", f"tests/test_{seconds}.py"], seconds * 10.0, 0)
+    assert estimate(["pytest", "tests/test_new.py"]) == 90.0
+    queue.record(["python", "-c", "pass"], 1.0, 0)
+    assert estimate(["python", "-c", "pass"]) == 1.0 and estimate(["python", "-c", "other"]) is None
 
 
 class Runs:
@@ -128,6 +192,33 @@ def test_shared_together_exclusive_alone(runs):
     runs.go("c")
     assert c.wait(timeout=60) == 0
     assert runs.queued("shared") == runs.queued("exclusive") == 0
+
+
+def test_backfill_while_an_exclusive_waits(runs):
+    """A shared one expected to end in time starts while an exclusive waits for a running one; one
+    that would not, waits; a finished command's time goes into the history."""
+    a = runs.start("a", "--expect", "600")
+    runs.wait_for(lambda: runs.started("a"))
+    e = runs.start("e", "--exclusive")
+    runs.wait_for(lambda: runs.queued("exclusive") == 1)
+    late = runs.start("b", "--expect", "3600")
+    c = runs.start("c", "--expect", "1")
+    runs.wait_for(lambda: runs.started("c"))
+    runs.go("c")
+    assert c.wait(timeout=60) == 0 and "starts ahead of" in c.stderr.read()
+    time.sleep(0.5)
+    assert not runs.started("e") and not runs.started("b")
+    runs.go("a")
+    runs.wait_for(lambda: runs.started("e"))
+    runs.go("e")
+    runs.wait_for(lambda: runs.started("b"))
+    runs.go("b")
+    assert a.wait(timeout=60) == e.wait(timeout=60) == late.wait(timeout=60) == 0
+    db = sqlite3.connect(os.path.join(runs.env["FINDALINE_TEST_LOCK_DIR"], "queue.sqlite"))
+    try:
+        assert db.execute("SELECT count(*) FROM history WHERE code = 0").fetchone()[0] == 4
+    finally:
+        db.close()
 
 
 def test_resources_one_at_a_time(runs):

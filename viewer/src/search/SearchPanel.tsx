@@ -346,18 +346,19 @@ export function EstimateBar({search: s, usage, layout = "box", label}:
 // ---- usage -----------------------------------------------------------------------------------
 
 const METERS: Record<keyof Usage["usage"], [string, (v: number) => string, string]> = {
-  km2: ["Area today", fmt, " km²"], runs_gb: ["Storage", fmt, " GB"], jobs_day: ["Searches today", String, ""],
+  mpx: ["Area today at 1 m", fmt, " km²"], km2: ["Area today", fmt, " km²"], runs_gb: ["Storage", fmt, " GB"], jobs_day: ["Searches today", String, ""],
   jobs_active: ["Waiting or running", String, ""], download_mb: ["Downloads today", fmt, " MB"],
   nominatim: ["Place lookups today", String, ""],
 };
 
-/** The user's quotas as meters ("Area today · 3.1 of 250 km²"); without quotas, what is used. */
-export function UsageMeters({usage, items = ["km2", "runs_gb", "jobs_day", "jobs_active"], compact}:
+/** The user's quotas as meters ("Area today at 1 m · 3.1 of 250 km²"); without quotas, what is used
+ *  (a quota of USAGE counts nothing without it: not shown). */
+export function UsageMeters({usage, items = ["mpx", "km2", "runs_gb", "jobs_day", "jobs_active"], compact}:
                             {usage: Usage | null; items?: (keyof Usage["usage"])[]; compact?: boolean}) {
   if (!usage) return null;
   const meter = (key: keyof Usage["usage"], item: UsageItem) => {
     const [title, show, unit] = METERS[key];
-    if (item.used === null) return null;
+    if (!item || item.used === null) return null;
     const text = item.limit === null ? `${title} · ${show(item.used)}${unit}`
       : `${title} · ${show(item.used)} of ${show(item.limit)}${unit}`;
     return <div class="s-meter" key={key} data-usage={key}>

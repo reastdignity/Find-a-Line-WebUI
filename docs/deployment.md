@@ -19,7 +19,7 @@ What the site needs from the outside, and what stays closed:
 | the internet | nginx on the host (80, 443) | the site; nginx sends it to `web` on `127.0.0.1:8765` |
 | Telegraf on the host | `web` on `127.0.0.1:8766` | the application's metrics (section 15); never through nginx |
 | the internet | the host (22) | SSH, with a key only |
-| `web` | the internet (HTTPS) | sign-in: GitHub's and Google's token endpoints, Google's OpenID metadata and keys |
+| `web` | the internet (HTTPS) | sign-in: the token endpoints of GitHub, Google and Microsoft, Google's and Microsoft's OpenID metadata and keys |
 | `worker` | the internet (HTTP/HTTPS) | the data services, Nominatim, Overpass, OpenStreetMap extracts |
 | `web`, `worker` | the host, private addresses (the provider's private network, its metadata service), other containers | nothing: the firewall rules of section 2 |
 | `worker` | `web` | nothing: they share no network (they talk through the data volume) |
@@ -402,8 +402,9 @@ restart with it). Some updates (the kernel) need a reboot: `cat /var/run/reboot-
 or set `Unattended-Upgrade::Automatic-Reboot "true";` there (with `-Time "04:00"`). The image of
 Find-a-Line is updated by section 13.
 
-## 7. Sign-in: GitHub and Google
-The site keeps no passwords: visitors sign in with GitHub or Google (one of them is enough).
+## 7. Sign-in: GitHub, Google and Microsoft
+The site keeps no passwords: visitors sign in with GitHub, Google or Microsoft (one of them is
+enough).
 The callback addresses must match exactly.
 
 **GitHub** (no scopes: the site reads the public user id and name):
@@ -431,6 +432,23 @@ The callback addresses must match exactly.
    copy the *Client ID* (`FINDALINE_GOOGLE_CLIENT_ID`) and the *Client secret*
    (`secrets/findaline_google_client_secret`).
 
+**Microsoft** (personal accounts: Outlook.com, Hotmail, Xbox, Skype; scopes `openid` and
+`profile`: an id and a name, no e-mail address). The app is registered in a Microsoft Entra
+tenant (the one of an Azure account, or any work tenant you administer):
+1. entra.microsoft.com, *Entra ID*, *App registrations*, *New registration*: name `Find-a-Line`,
+   *Supported account types* *Personal Microsoft accounts only* (the site asks the `consumers`
+   endpoint: work or school accounts cannot sign in), *Redirect URI* platform *Web*,
+   `https://findaline.example.org/auth/microsoft`. *Register*.
+2. *Overview*: copy the *Application (client) ID* (`FINDALINE_MICROSOFT_CLIENT_ID`).
+3. *Certificates & secrets*, *Client secrets*, *New client secret*, the longest expiry (24
+   months); copy its *Value* at once (not the *Secret ID*) into
+   `secrets/findaline_microsoft_client_secret`. The secret expires: put a reminder in the
+   calendar and make a new one before (then `docker compose up -d`). After its end the sign-in
+   with Microsoft fails, the other providers go on.
+4. *Branding & properties*: the home page `https://findaline.example.org`, the privacy statement
+   `https://findaline.example.org/privacy`. *API permissions*: the default `User.Read` of
+   Microsoft Graph is not needed (*Remove permission*); `openid` and `profile` need no entry.
+
 ## 8. Settings and secrets
 ```sh
 cd /srv/find-a-line-webui
@@ -443,8 +461,8 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
 - `findaline.env` (both services): `FINDALINE_PUBLIC_URL=https://findaline.example.org`,
   `FINDALINE_TRUSTED_PROXY=172.30.0.1` (as in the example: the gateway of the network `web` of
   compose.yaml, the address nginx's connections arrive from; only its `X-Forwarded-For` is
-  believed), `FINDALINE_CONTACT`, `FINDALINE_GITHUB_CLIENT_ID` and/or
-  `FINDALINE_GOOGLE_CLIENT_ID`, `FINDALINE_ADMINS` (below), `FINDALINE_SIGNUP` (`approval` by
+  believed), `FINDALINE_CONTACT`, `FINDALINE_GITHUB_CLIENT_ID`,
+  `FINDALINE_GOOGLE_CLIENT_ID` and/or `FINDALINE_MICROSOFT_CLIENT_ID`, `FINDALINE_ADMINS` (below), `FINDALINE_SIGNUP` (`approval` by
   default: new accounts wait for an administrator), the limits (README, *Limits of the web app*).
   The public site has time limits by default: an hour for a search's download, two hours for
   its computing and for an OpenStreetMap extract, two minutes for an estimate or a profile
@@ -493,9 +511,10 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
 
 **Administrators** (`FINDALINE_ADMINS`, comma-separated): `github:<numeric id>`, the id from
 `curl -s https://api.github.com/users/<your login> | grep '"id"'` (the first `"id"`), and/or
-`google:<sub>`. Google shows the `sub` nowhere: start the site with GitHub as administrator
-(or with `FINDALINE_ADMINS` empty), sign in with Google once (the account waits for approval),
-and read it:
+`google:<sub>`, `microsoft:<sub>`. Google and Microsoft show the `sub` nowhere (Microsoft's is
+made for this app alone): start the site with GitHub as administrator (or with
+`FINDALINE_ADMINS` empty), sign in with Google or Microsoft once (the account waits for
+approval), and read it:
 
 ```sh
 docker compose exec web python -c "
@@ -504,7 +523,7 @@ for row in sqlite3.connect('/accounts/accounts.sqlite').execute('SELECT id, prov
     print(row)"
 ```
 
-Then add `google:<subject>` to `FINDALINE_ADMINS`, `docker compose up -d` (the web service is
+Then add `google:<subject>` (or `microsoft:<subject>`) to `FINDALINE_ADMINS`, `docker compose up -d` (the web service is
 created again with the new settings) and sign in again: administrators are approved at sign-in.
 The first administrator also owns the runs from before the public mode.
 
@@ -773,7 +792,7 @@ so (section 5).
    `docker stats findaline-worker-1`; afterwards
    `docker inspect -f '{{.State.OOMKilled}}' findaline-worker-1` says `false` and the search
    finished (the search sizes its tiles from the container's memory limit).
-7. **Sign-in** with the real GitHub app (and Google): the account of an administrator lands in
+7. **Sign-in** with the real GitHub app (and Google, Microsoft): the account of an administrator lands in
    the app, another one on *waiting for approval*; approve it in *Admin*.
 8. **The firewall test** of section 2, and a **restore test** of section 11.
 9. **The monitoring**: the checks of section 15.

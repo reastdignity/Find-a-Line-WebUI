@@ -1,6 +1,8 @@
 """Layer, one elevation model of a source cached in tiles, and the download of several layers at once."""
 
+import math
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
@@ -8,6 +10,7 @@ import numpy as np
 import rasterio as rio
 
 import cache
+import servicecounts
 import settings
 from grid import Grid
 from progress import progress
@@ -43,6 +46,20 @@ class Fetched(NamedTuple):
     def of(response, url: Optional[str] = None) -> "Fetched":
         return Fetched(len(response.content), url or response.url, response.headers.get("ETag"),
                        response.headers.get("Last-Modified"))
+
+
+def _extent(path: str) -> Tuple[int, float]:
+    """Pixels and km² of a cached tile from its header ((0, 0.0) when there is no file or it is not a
+    raster), for the counts of the downloaded tiles (servicecounts.tiles)."""
+    try:
+        with rio.open(path) as src:
+            pixels = src.width * src.height
+            area = abs(src.transform.a * src.transform.e)
+            if src.crs is not None and src.crs.is_geographic:  # degrees: their metres at the tile's latitude
+                area *= 111_320.0 ** 2 * math.cos(math.radians((src.bounds.bottom + src.bounds.top) / 2))
+            return pixels, pixels * area / 1e6
+    except Exception:  # a tile outside the data (no file), or a file rasterio cannot read
+        return 0, 0.0
 
 
 def _clean(band: np.ndarray, zero_is_nodata: bool = False) -> np.ndarray:
@@ -127,18 +144,27 @@ class Layer:
         return None
 
     def _download_and_record(self, tile, cache_dir: str, update: Optional[str] = None,
-                             if_due: bool = False) -> int:
+                             if_due: bool = False, role: str = "other") -> int:
         """Download a tile under its lock (tile_lock) and a slot of its host (host_slot); with
-        if_due only if it is still due then (another search may have just downloaded it)."""
+        if_due only if it is still due then (another search may have just downloaded it). Counted
+        for the monitoring (servicecounts.tiles, as `role`) where the web worker turned that on."""
         path = self.tile_path(cache_dir, tile)
+        asked = time.monotonic()
         with tile_lock(cache_dir, path):
             if if_due and not cache.due(cache_dir, path, self.processing, update, self.ttl_days):
+                servicecounts.tiles(self.folder, role, cached=1, waited=time.monotonic() - asked)
                 return 0
             with host_slot(cache_dir, self.tile_url(tile)):
+                started = time.monotonic()
                 fetched = self.download_tile(tile, path)
+                seconds = time.monotonic() - started
             # A tile outside the data (e.g. sea) is remembered as missing
             cache.record(cache_dir, path, "ok" if os.path.exists(path) else "missing", fetched.url,
                          fetched.etag, fetched.last_modified, self.source_date(tile), self.processing)
+        if servicecounts.enabled():
+            pixels, km2 = _extent(path)
+            servicecounts.tiles(self.folder, role, 1, 0, pixels, km2, fetched.received, seconds,
+                                started - asked)
         return fetched.received
 
     def source_date(self, tile) -> Optional[str]:
@@ -170,18 +196,21 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
     distinct = list({id(layer): layer for layer, _ in layers}.values())
     with ThreadPoolExecutor(max_workers=len(distinct)) as pool:
         listed = list(pool.map(lambda layer: layer.to_download(grid, cache_dir, update), distinct))
+    roles = {id(layer): servicecounts.role_of(label) for layer, label in reversed(layers)}  # the first label's
     todo = []
     for layer, (tiles, line) in zip(distinct, listed):
         if line:
             print(line)
         todo += [(layer, tile) for tile in tiles]
+        if servicecounts.enabled():  # the tiles found in the cache (the index may be unreachable: None)
+            servicecounts.tiles(layer.folder, roles[id(layer)], cached=len(layer.tiles(grid) or []) - len(tiles))
     if todo:
         labels = list(dict.fromkeys(label for layer, label in layers if any(t[0] is layer for t in todo)))
         progress.download.start(f"{', '.join(labels)} tiles", len(todo), unit="tile")
         received = 0
         pool = ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS)
         try:
-            futures = [pool.submit(layer._download_and_record, tile, cache_dir, update, True)
+            futures = [pool.submit(layer._download_and_record, tile, cache_dir, update, True, roles[id(layer)])
                        for layer, tile in todo]
             for future in as_completed(futures):
                 received += future.result()

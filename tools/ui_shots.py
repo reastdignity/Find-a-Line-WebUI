@@ -33,9 +33,10 @@ import time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 
-# Dummy settings of the public site: nobody signs in through a provider, the session is made here
-ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_GITHUB_CLIENT_ID": "id",
-            "FINDALINE_GITHUB_CLIENT_SECRET": "secret", "FINDALINE_ADMINS": "github:1"}
+# Dummy settings of the public site: nobody signs in through a provider, the session is made here;
+# every provider, so the sign-in page shows all their buttons
+ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "github:1",
+            **{f"FINDALINE_{p}_CLIENT_{k}": "dummy" for p in ("GITHUB", "GOOGLE", "MICROSOFT") for k in ("ID", "SECRET")}}
 
 # name -> (interface ("map": the run's map.html, "shared": it by its share link), hash, actions after loading or None: a CSS selector to click, "scroll:<selector>" to
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
@@ -50,6 +51,7 @@ ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')]
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
+    "d-home-limited": ("d", "", None, "walker"),  # the usage meters of a user with the site's limits
     "d-menu": ("d", "", ".c-account-btn"),        # the account menu (desktop: a popover)
     "d-account": ("d", "#account", None),         # the account page (phones)
     "d-account-end": ("d", "#account", "scroll:.c-main"),

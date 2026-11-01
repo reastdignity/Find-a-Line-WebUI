@@ -43,7 +43,8 @@ export interface UsageItem { used: number | null; limit: number | null }
 export interface Usage {
   limited: boolean;
   hours: number;
-  usage: Record<"km2" | "download_mb" | "nominatim" | "jobs_day" | "jobs_active" | "runs_gb", UsageItem>;
+  /** mpx: millions of pixels (km² / resolution², so km² at 1 m), the quota of the area searched. */
+  usage: Record<"mpx" | "km2" | "download_mb" | "nominatim" | "jobs_day" | "jobs_active" | "runs_gb", UsageItem>;
   /** The limits of one search (null each: none). */
   search?: {area_km2: number | null; radius_m: number | null; max_length_m: number | null; bbox_km: number | null};
   /** The area of the user's finished searches (absent from an older server). */

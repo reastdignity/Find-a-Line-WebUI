@@ -141,8 +141,47 @@ MIGRATIONS = [
     # (GeoJSON geometry in WGS84, simplified to about 50 m: area.outline_geojson), set with area_km2. Jobs of
     # before get it where their request gives it without any service (request_area)
     lambda db: _outline_column(db),
+    # 15: when a job's data was downloaded (so the wait for a compute slot shows apart from the download),
+    # the source and resolution of its search (set by the worker when it plans it), the seconds of the steps
+    # of its computing phase (job_steps: STEP_KEYS), and the tiles of the elevation layers the worker's
+    # processes downloaded or found cached, running totals per layer and role (servicecounts.tiles; a few
+    # dozen rows). Jobs of before get none of these (their times cannot be told again)
+    """ALTER TABLE jobs ADD COLUMN ready_at TEXT;
+       ALTER TABLE jobs ADD COLUMN source TEXT;
+       ALTER TABLE jobs ADD COLUMN resolution REAL;
+       CREATE TABLE job_steps (job_id TEXT NOT NULL, step TEXT NOT NULL, seconds REAL NOT NULL,
+                               PRIMARY KEY (job_id, step));
+       CREATE TABLE layer_downloads (layer TEXT NOT NULL, role TEXT NOT NULL, tiles INTEGER NOT NULL,
+                                     tiles_cached INTEGER NOT NULL, pixels INTEGER NOT NULL, km2 REAL NOT NULL,
+                                     bytes INTEGER NOT NULL, seconds REAL NOT NULL, wait_seconds REAL NOT NULL,
+                                     PRIMARY KEY (layer, role));""",
+    # 16: where the CPU of a computing phase goes: the CPU seconds of its steps (job_steps.cpu_seconds, the
+    # whole process with numba's threads), the seconds and CPU seconds of the stages of the line search
+    # (job_stages: STAGE_KEYS, summed over the tiles) and its funnel (job_funnel: FUNNEL_STEPS, the counts of
+    # search.Plan.funnel). Counts without users, like job_steps. Jobs of before get none of these
+    # (tools/job_stats.py reads what it can of them from their events)
+    """ALTER TABLE job_steps ADD COLUMN cpu_seconds REAL;
+       CREATE TABLE job_stages (job_id TEXT NOT NULL, stage TEXT NOT NULL, seconds REAL NOT NULL,
+                                cpu_seconds REAL NOT NULL, PRIMARY KEY (job_id, stage));
+       CREATE TABLE job_funnel (job_id TEXT NOT NULL, step TEXT NOT NULL, count INTEGER NOT NULL,
+                                PRIMARY KEY (job_id, step));""",
 ]
-PHASE_TIME = {"downloading": "downloading_at", "computing": "computing_at"}  # the column of a status's start
+# The column of a status's start (claim), or of the end of the download ("ready", set by its process)
+PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
+# What the time of a computing phase is counted as (job_steps.step): its steps (search.STEPS), the
+# orthophoto tiles of step 5 (downloaded while the job holds its compute slot), and "other" (before the
+# first step, between the tiles of an area)
+STEP_KEYS = ("1", "2", "3", "4", "5", "orthophoto", "other")
+# The stages of the line search (job_stages.stage): the names of the Compute bars of steps 2 and 3
+# (helpers.find_significant_slopes, search._lines, sag.EnvelopeTable, linesearch.find_valid_lines)
+STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator table", "free directions",
+              "anchor pairs", "checking lines")
+# The funnel of the line search (job_funnel.step, search.Plan.funnel): grids searched, anchors found
+# and kept after the prominence and drop limits, anchors with an open direction and those pairs start
+# from, candidate pairs, pairs checked pixel by pixel and found, valid lines, lines left out by the
+# line limits, and the lines in the tiles' cores
+FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates", "checked", "found", "valid",
+                "left_out", "lines")
 
 
 def request_area(request: Dict):
@@ -300,7 +339,7 @@ def _with_info(job: Dict) -> Dict:
 
 DAY = 86400.0  # seconds of the daily quotas (a moving 24 hours)
 AREA_DAYS = 30  # days of a user's searched area by day (/api/usage `area`)
-USAGE = {"km2": "km² of search areas", "nominatim": "uncached Nominatim requests (place names, osm: areas)",
+USAGE = {"km2": "km² of search areas", "mpx": "Mpx of search areas (km² / resolution²)", "nominatim": "uncached Nominatim requests (place names, osm: areas)",
          "download_mb": "MB of downloads (the estimates of your searches)"}
 
 
@@ -353,7 +392,7 @@ class Jobs:
         """The check of a new job (for add(check=...), so it runs in the insert's transaction and two
         requests at once cannot both pass): the safeguards of the server for everyone (free disk,
         queue length), the quotas of `limits` for a limited user (jobs at once and per day, size of
-        their runs, km² of the last 24 hours). Raises QuotaExceeded."""
+        their runs, Mpx and km² of the last 24 hours). Raises QuotaExceeded."""
         def check(db: sqlite3.Connection):
             if limits is None:
                 return
@@ -390,6 +429,12 @@ class Jobs:
                     raise QuotaExceeded(f"your runs take {size / 1e9:.1f} GB, at most {limits.runs_gb_max:g} GB: "
                                         f"delete some in Runs", code="quota_runs_gb", gb=round(size / 1e9, 1),
                                         max=limits.runs_gb_max)
+            if limits.mpx_day_max is not None:
+                used = self._used(db, user_id, "mpx")
+                if used >= limits.mpx_day_max:
+                    raise QuotaExceeded(f"your searches covered {used:.0f} Mpx (km² at 1 m) in 24 hours, at most "
+                                        f"{limits.mpx_day_max:g}: try again later", code="quota_mpx",
+                                        used=round(used), max=limits.mpx_day_max)
             if limits.km2_day_max is not None:
                 used = self._used(db, user_id, "km2")
                 if used >= limits.km2_day_max:
@@ -413,7 +458,7 @@ class Jobs:
                           (user_id, kind, time.time() - DAY)).fetchone()[0]
 
     def use(self, user_id: int, kind: str, amount: float, limit: Optional[float]):
-        """Count what a user uses (USAGE: "km2", "nominatim") against its quota of 24 hours; over it,
+        """Count what a user uses (USAGE: "km2", "mpx", "nominatim") against its quota of 24 hours; over it,
         QuotaExceeded and nothing is counted (checked and counted in one write transaction)."""
         with self._write() as db:
             used = self._used(db, user_id, kind)
@@ -434,7 +479,7 @@ class Jobs:
     def usage(self, user_id: Optional[int], limits: Optional[Limits]) -> Dict:
         """A user's use of the quotas, as admission() and use() count it (the last 24 hours, the jobs
         waiting or running now, the size of the runs), each with its quota of `limits` (None: no
-        quotas; then the counts of USAGE, kept only against a quota, are None as well). user_id None:
+        quotas; the counts of USAGE, kept only against their quota, are None without it). user_id None:
         the local app's jobs and runs (those without an owner)."""
         owner = "user_id IS ?" if user_id is None else "user_id = ?"
         active = WAITING + ACTIVE
@@ -442,7 +487,8 @@ class Jobs:
         db = self._db()
         try:
             counted = limits is not None and user_id is not None
-            used = {kind: self._used(db, user_id, kind) if counted else None for kind in USAGE}
+            used = {kind: self._used(db, user_id, kind) if counted and getattr(limits, f"{kind}_day_max") is not None
+                    else None for kind in USAGE}
             jobs_active = db.execute(f"SELECT COUNT(*) FROM jobs WHERE {owner} AND status IN {_in(active)}",
                                      (user_id, *active)).fetchone()[0]
             jobs_day = db.execute(f"SELECT COUNT(*) FROM jobs WHERE {owner} AND created >= ?",
@@ -453,6 +499,7 @@ class Jobs:
             db.close()
         quota = (lambda name: getattr(limits, name)) if limits is not None else (lambda name: None)
         return {"limited": limits is not None, "hours": DAY / 3600, "usage": {
+            "mpx": {"used": used["mpx"], "limit": quota("mpx_day_max")},
             "km2": {"used": used["km2"], "limit": quota("km2_day_max")},
             "download_mb": {"used": used["download_mb"], "limit": quota("download_mb_day_max")},
             "nominatim": {"used": used["nominatim"], "limit": quota("nominatim_day_max")},
@@ -472,6 +519,44 @@ class Jobs:
         with self._db() as db:
             db.execute("UPDATE jobs SET area_km2 = ?, country = ?, area_outline = ? WHERE id = ?",
                        (km2, country, outline, job_id))
+
+    def set_search(self, job_id: str, source: Optional[str], resolution: Optional[float]):
+        """The source (sources.Source.id) and resolution of a job's search, set by the worker when it
+        plans it (the compute side of the statistics: Mpx = km² / resolution²)."""
+        with self._db() as db:
+            db.execute("UPDATE jobs SET source = ?, resolution = ? WHERE id = ?", (source, resolution, job_id))
+
+    def set_steps(self, job_id: str, seconds: Dict[str, float], cpu: Optional[Dict[str, float]] = None):
+        """The seconds of the steps of a job's computing phase (STEP_KEYS -> seconds), and their CPU
+        seconds (None: unknown)."""
+        cpu = cpu or {}
+        with self._db() as db:
+            db.executemany("INSERT OR REPLACE INTO job_steps (job_id, step, seconds, cpu_seconds) VALUES (?, ?, ?, ?)",
+                           [(job_id, step, s, cpu.get(step)) for step, s in seconds.items()])
+
+    def set_stages(self, job_id: str, stages: Dict[str, Tuple[float, float]]):
+        """The seconds and CPU seconds of the stages of a job's line search (STAGE_KEYS)."""
+        with self._db() as db:
+            db.executemany("INSERT OR REPLACE INTO job_stages (job_id, stage, seconds, cpu_seconds) "
+                           "VALUES (?, ?, ?, ?)", [(job_id, stage, s, c) for stage, (s, c) in stages.items()])
+
+    def set_funnel(self, job_id: str, counts: Dict[str, int]):
+        """The counts of a job's line search (FUNNEL_STEPS, search.Plan.funnel)."""
+        with self._db() as db:
+            db.executemany("INSERT OR REPLACE INTO job_funnel (job_id, step, count) VALUES (?, ?, ?)",
+                           [(job_id, step, int(n)) for step, n in counts.items()])
+
+    def add_layer_downloads(self, rows: Iterable[Tuple[str, str, int, int, int, float, int, float, float]]):
+        """Add counts of the tiles of the elevation layers (layer, role, tiles, tiles cached, pixels, km²,
+        bytes, seconds, wait seconds) to their running totals, in one write transaction
+        (servicecounts.flush of the worker's processes)."""
+        with self._write() as db:
+            db.executemany("INSERT INTO layer_downloads (layer, role, tiles, tiles_cached, pixels, km2, bytes, "
+                           "seconds, wait_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (layer, role) "
+                           "DO UPDATE SET tiles = tiles + excluded.tiles, tiles_cached = tiles_cached + "
+                           "excluded.tiles_cached, pixels = pixels + excluded.pixels, km2 = km2 + excluded.km2, "
+                           "bytes = bytes + excluded.bytes, seconds = seconds + excluded.seconds, "
+                           "wait_seconds = wait_seconds + excluded.wait_seconds", list(rows))
 
     def add_service_requests(self, rows: Iterable[Tuple[str, str, int, int, float]]):
         """Add counts of requests to outside services (host, outcome, requests, bytes, seconds) to their
@@ -580,14 +665,15 @@ class Jobs:
             fields["error_info"] = self.redact(info)
         if fields.get("error_info") is not None:
             fields["error_info"] = json.dumps(fields["error_info"])
-        names = "".join(f", {k} = ?" for k in fields)
+        stamp = {PHASE_TIME[status]: cache.now_iso()} if status == "ready" else {}  # not in the event
+        names = "".join(f", {k} = ?" for k in {**fields, **stamp})
         condition, values = "", ()
         if when is not None:
             values = tuple(when)
             condition = f" AND status IN {_in(values)}"
         with self._write() as db:
             changed = db.execute(f"UPDATE jobs SET status = ?{names} WHERE id = ?{condition}",
-                                 (status, *fields.values(), job_id, *values)).rowcount
+                                 (status, *fields.values(), *stamp.values(), job_id, *values)).rowcount
             if changed:
                 self._insert_event(db, job_id, "status", _with_info({"status": status, **fields}))
         return bool(changed)
@@ -1155,11 +1241,21 @@ def plan_km2(plan) -> float:
     return area_km2(plan.area)
 
 
+def plan_mpx(plan) -> float:
+    """The millions of pixels of a planned search's area at its resolution (km² / resolution²): what
+    its computing costs follows (the compute quota, Limits.mpx_day_max)."""
+    return plan_km2(plan) / plan.resolution ** 2
+
+
 def charge_area(jobs: Jobs, user_id: Optional[int], plan, limits: Optional[Limits]):
-    """Count the km² of a search's area for its user against Limits.km2_day_max (QuotaExceeded over it)."""
-    if limits is None or limits.km2_day_max is None or user_id is None:
+    """Count the Mpx and km² of a search's area for its user against Limits.mpx_day_max and
+    km2_day_max (QuotaExceeded over one; the Mpx first)."""
+    if limits is None or user_id is None:
         return
-    jobs.use(user_id, "km2", plan_km2(plan), limits.km2_day_max)
+    if limits.mpx_day_max is not None:
+        jobs.use(user_id, "mpx", plan_mpx(plan), limits.mpx_day_max)
+    if limits.km2_day_max is not None:
+        jobs.use(user_id, "km2", plan_km2(plan), limits.km2_day_max)
 
 
 def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
@@ -1179,6 +1275,71 @@ def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
     finally:
         osm.BEFORE_REQUEST = before
     jobs.set_area(job_id, plan_km2(plan), country, area_outline(plan.area))
+
+
+class StepClock:
+    """The seconds and CPU seconds of a computing phase per step (STEP_KEYS), from the states of the
+    progress bars (progress.subscribe): the time until a state goes to what the previous state was in,
+    the step of its text ("Tile 2/6 · Step 3/5: ...") or the orthophoto tiles while their bar runs.
+    Also those of the stages of the line search (STAGE_KEYS) while their Compute bar runs (from a state
+    of that stage, not done, to the next state), summed over the tiles. CPU: time.process_time, the
+    whole process (numba's threads too)."""
+
+    def __init__(self):
+        self.seconds: Dict[str, float] = {}
+        self.cpu_seconds: Dict[str, float] = {}
+        self.stage_times: Dict[str, List[float]] = {}  # stage -> [seconds, CPU seconds]
+        self.key, self.stage = "other", None
+        self.since, self.cpu_since = time.monotonic(), time.process_time()
+
+    def __call__(self, state: Dict):
+        self._add()
+        if state.get("bar") == "Download" and state.get("stage") == "orthophoto tiles" and not state.get("done"):
+            self.key = "orthophoto"
+        else:
+            found = re.search(r"Step (\d)/", state.get("step") or "")
+            self.key = found.group(1) if found and found.group(1) in STEP_KEYS else "other"
+        running = state.get("bar") == "Compute" and not state.get("done")
+        self.stage = state.get("stage") if running and state.get("stage") in STAGE_KEYS else None
+
+    def _add(self):
+        now, cpu = time.monotonic(), time.process_time()
+        seconds, cpu_seconds = now - self.since, cpu - self.cpu_since
+        self.seconds[self.key] = self.seconds.get(self.key, 0.0) + seconds
+        self.cpu_seconds[self.key] = self.cpu_seconds.get(self.key, 0.0) + cpu_seconds
+        if self.stage is not None:
+            times = self.stage_times.setdefault(self.stage, [0.0, 0.0])
+            times[0] += seconds
+            times[1] += cpu_seconds
+        self.since, self.cpu_since = now, cpu
+
+    def result(self) -> Dict[str, float]:
+        """The seconds per step until now."""
+        self._add()
+        return dict(self.seconds)
+
+    def cpu(self) -> Dict[str, float]:
+        """The CPU seconds per step until now."""
+        self._add()
+        return dict(self.cpu_seconds)
+
+    def stages(self) -> Dict[str, Tuple[float, float]]:
+        """The seconds and CPU seconds of the stages of the line search until now."""
+        self._add()
+        return {stage: (s, c) for stage, (s, c) in self.stage_times.items()}
+
+
+def _write_statistics(jobs: Jobs, job_id: str, steps: StepClock, funnel: Dict[str, int]):
+    """The statistics of a finished computing phase (F19): the seconds and CPU seconds per step, the
+    stages and the funnel of the line search. They never fail the search: a line to stderr (stdout of
+    a phase is the job's events)."""
+    try:
+        seconds, cpu, stages = steps.result(), steps.cpu(), steps.stages()
+        jobs.set_steps(job_id, seconds, cpu)
+        jobs.set_stages(job_id, stages)
+        jobs.set_funnel(job_id, funnel)
+    except Exception as e:  # statistics only
+        print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
@@ -1202,7 +1363,8 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
     if job["unlimited"]:
         limits = None  # a user without limits: the time limits of the phase (Scheduler) still apply
     nominatim_quota(jobs, job["user_id"], limits)
-    servicecounts.enable(jobs.add_service_requests)  # flushed every minute and at the end of the phase
+    servicecounts.enable(jobs.add_service_requests, tile_writer=jobs.add_layer_downloads)  # flushed every minute
+    # and at the end of the phase
     sys.stdout = _EventWriter(jobs, job_id)
     pg.TEXT_INTERVAL = float("inf")  # the progress goes to the page as events, not as text
     last = [0.0]
@@ -1217,6 +1379,9 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         jobs.event(job_id, kind, text.web_text() if getattr(text, "code", None) else text)  # messages.Note
 
     progress.subscribe(on_progress)
+    steps = StepClock()
+    if phase == "compute":
+        progress.subscribe(steps)
     paths = search.Paths(data_dir, os.path.join(jobs.folder(job_id), phase))  # removed with the job when killed
     os.makedirs(paths.work, exist_ok=True)
     failed = True
@@ -1245,6 +1410,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
         if phase == "download":
             note_area(jobs, job_id, plan, paths.cache)
+            jobs.set_search(job_id, plan.source.id, plan.resolution)
             charge_area(jobs, job["user_id"], plan, limits)
             if limits and (limits.download_mb_max or limits.download_mb_day_max):  # the estimate asks the indexes
                 estimate = search.estimate_search(plan)
@@ -1262,6 +1428,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             result = search.save_run(plan, lines, ortho_confirm(limits or Limits(), on_event), run)
             import runs as rn
             jobs.add_run(result.run["id"], job["user_id"], rn.folder_bytes(result.run["path"]))  # its owner
+            _write_statistics(jobs, job_id, steps, plan.funnel)
             jobs.set(job_id, "done", when=working, run_id=result.run["id"], error=None)
         failed = False
     except (search.SearchError, ValueError, RuntimeError, requests.RequestException) as e:  # ValueError: parameters
@@ -1354,7 +1521,8 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
     global SLOT_MEMORY
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
     jobs = Jobs(data_dir, public)
-    servicecounts.enable(jobs.add_service_requests)  # flushed every minute and after each task
+    servicecounts.enable(jobs.add_service_requests, tile_writer=jobs.add_layer_downloads)  # flushed every
+    # minute and after each task
     reader = jobs._db()  # one connection for the idle looks (reads, so no write lock 1/QUICK_POLL times a second)
     looked = time.time()
     while True:

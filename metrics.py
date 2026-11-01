@@ -1,6 +1,6 @@
 """
 The metrics of the application for the monitoring of the public site (docs/monitoring.md, rows
-F1-F17): `findaline.py web --public` serves them in the Prometheus text format on
+F1-F19): `findaline.py web --public` serves them in the Prometheus text format on
 its own port (--metrics-port, 8766; compose.yaml publishes it on the host's loopback only, and
 nginx never proxies to it), read by Telegraf (deploy/monitoring/telegraf.conf) for the dashboard
 and the alert rules of deploy/monitoring/grafana.
@@ -11,12 +11,14 @@ and the alert rules of deploy/monitoring/grafana.
   counted from the rows (COUNT, SUM), so they include what happened before the metrics; the
   answers of the quick lane, the requests per route and the open event streams are the web
   process's own counts since its start (web.RouteCounts, web.EventHub). The requests of the
-  worker's processes to outside services are the running totals of the table service_requests
-  (servicecounts); what the housekeeping removed and the coverage of the searches come from the
+  worker's processes to outside services and the tiles of the elevation layers they downloaded are
+  the running totals of the tables service_requests and layer_downloads (servicecounts); what the housekeeping removed and the coverage of the searches come from the
   files it writes (jobs.HOUSEKEEPING_FILE, jobs.COVERAGE_FILE), absent before its first round.
 - Its own registry: only these metrics (no process or platform metrics of the client library).
 - No label carries a user id, an IP address, a title, a place name or a path: statuses, phases,
-  error codes, actions, countries (ISO 3166-1 alpha-2) and top-level cache folders only.
+  error codes, actions, countries (ISO 3166-1 alpha-2), top-level cache folders, the layers' cache
+  folders of the catalogue (Layer.folder), roles, steps, stages and levels of the line search and
+  classes of resolution only.
 - The names are those of the contract with deploy/monitoring (grafana, telegraf.conf): renaming
   one breaks a panel or an alert rule there. A database that cannot be read (not there yet, or
   locked for longer than the timeout) leaves out its metrics in that scrape only.
@@ -29,7 +31,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Iterator, Optional
+from typing import Callable, Dict, Iterable, Iterator, List, Optional
 
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric, SummaryMetricFamily
 from prometheus_client.registry import Collector, CollectorRegistry
@@ -54,14 +56,34 @@ ERROR_SQL = """CASE WHEN status != 'failed' THEN ''
     WHEN error LIKE 'internal error%' OR error LIKE '%(working grids kept in %' THEN 'internal'
     WHEN error LIKE 'interrupted%' THEN 'interrupted'
     ELSE 'other' END"""
-# The phases of a job from the start times of migration 13 (rows from before have none): waiting for a
-# download slot; downloading, until the computing starts (so with the wait for a compute slot in
-# "ready") or the job ended in that phase; computing, until it ended. (start, end, which rows)
+# The phases of a job from the start times of migrations 13 and 15 (rows from before have none): waiting
+# for a download slot; downloading, until its data is downloaded ("ready"; rows from before migration 15
+# have no ready_at: until the computing starts, so with the wait for a compute slot) or the job ended in
+# that phase; ready, waiting for a compute slot; computing, until it ended. (start, end, which rows)
 PHASES = {
     "waiting": ("created", "downloading_at", "downloading_at IS NOT NULL"),
-    "download": ("downloading_at", "COALESCE(computing_at, finished)",
-                 f"downloading_at IS NOT NULL AND (computing_at IS NOT NULL OR status IN {_FINISHED})"),
+    "download": ("downloading_at", "COALESCE(ready_at, computing_at, finished)",
+                 f"downloading_at IS NOT NULL AND (ready_at IS NOT NULL OR computing_at IS NOT NULL OR status IN "
+                 f"{_FINISHED})"),
+    "ready": ("ready_at", "COALESCE(computing_at, finished)",
+              f"ready_at IS NOT NULL AND (computing_at IS NOT NULL OR status IN {_FINISHED})"),
     "compute": ("computing_at", "finished", f"computing_at IS NOT NULL AND status IN {_FINISHED}"),
+}
+# Classes of a search's resolution (the label `resolution`: up to so many metres), so the seconds of
+# computing per Mpx (km2 / resolution^2) show for each
+RESOLUTIONS = ("1", "2", "5", "10", "30")
+RESOLUTION_SQL = """CASE WHEN resolution <= 1 THEN '1' WHEN resolution <= 2 THEN '2' WHEN resolution <= 5 THEN '5'
+    WHEN resolution <= 10 THEN '10' ELSE '30' END"""
+# The counts of the tiles of the elevation layers (table layer_downloads): metric -> (column, help)
+LAYER_COUNTS = {
+    "findaline_download_tiles": ("tiles", "Tiles of the elevation layers downloaded by the worker"),
+    "findaline_download_tiles_cached": ("tiles_cached", "Tiles of the elevation layers a search found in the cache"),
+    "findaline_download_pixels": ("pixels", "Pixels of the downloaded tiles (the data's own resolution)"),
+    "findaline_download_km2": ("km2", "Square kilometres of the downloaded tiles"),
+    "findaline_download_bytes": ("bytes", "Bytes received for the downloaded tiles"),
+    "findaline_download_seconds": ("seconds", "Seconds of the tile downloads (in a slot of their host)"),
+    "findaline_download_wait_seconds": ("wait_seconds", "Seconds tile downloads waited for the tile's lock and a "
+                                                        "slot of its host"),
 }
 
 
@@ -102,6 +124,38 @@ def counter(name: str, text: str, values: Dict, label: str, defaults: Iterable =
     return _family(CounterMetricFamily, name, text, label, values, defaults)
 
 
+def _compute(db: sqlite3.Connection) -> List[Metric]:
+    """Where the CPU of the computing phases goes (F19, migration 16): CPU seconds per step, the seconds
+    and CPU seconds of the stages of the line search, its funnel; every label value, 0 too. Nothing on a
+    database from before migration 16 (the web process migrates it)."""
+    try:
+        cpu = {step: (n, total or 0.0) for step, n, total in db.execute(
+            "SELECT step, COUNT(*), SUM(cpu_seconds) FROM job_steps WHERE cpu_seconds IS NOT NULL GROUP BY step")}
+        stages = {stage: (n, s or 0.0, c or 0.0) for stage, n, s, c in db.execute(
+            "SELECT stage, COUNT(*), SUM(seconds), SUM(cpu_seconds) FROM job_stages GROUP BY stage")}
+        funnel = dict(db.execute("SELECT step, SUM(count) FROM job_funnel GROUP BY step").fetchall())
+    except sqlite3.OperationalError:
+        return []
+    steps = SummaryMetricFamily("findaline_compute_step_cpu_seconds", "CPU seconds of the steps of the computing "
+                                "phases of finished searches (the whole process)", labels=["step"])
+    for step in jb.STEP_KEYS:
+        n, total = cpu.get(step, (0, 0.0))
+        steps.add_metric([step], n, total)
+    metrics: List[Metric] = [steps]
+    for name, k, text in (("findaline_compute_stage_seconds", 1, "Seconds"),
+                          ("findaline_compute_stage_cpu_seconds", 2, "CPU seconds")):
+        family = SummaryMetricFamily(name, f"{text} of the stages of the line search (steps 2 and 3) of finished "
+                                     "searches", labels=["stage"])
+        for stage in jb.STAGE_KEYS:
+            row = stages.get(stage, (0, 0.0, 0.0))
+            family.add_metric([stage], row[0], row[k])
+        metrics.append(family)
+    metrics.append(counter("findaline_line_funnel", "Counts of the line search of finished searches, from the "
+                           "anchors to the lines", {level: n or 0 for level, n in funnel.items()
+                                                    if level in jb.FUNNEL_STEPS}, "level", jb.FUNNEL_STEPS))
+    return metrics
+
+
 class Metrics(Collector):
     """The collector of the application's metrics (see the module's docstring). `limits`: the web
     process's settings.Limits (queue_max, the worker's slots); `accounts_dir`: the folder of
@@ -125,7 +179,7 @@ class Metrics(Collector):
 
     def collect(self) -> Iterator[Metric]:
         yield gauge("findaline_build_info", "The version of the application", {cache.VERSION: 1}, "version")
-        for part in (self._jobs, self._services, self._accounts, self._audit, self._disk, self._housekeeping,
+        for part in (self._jobs, self._services, self._layers, self._accounts, self._audit, self._disk, self._housekeeping,
                      self._coverage):
             try:
                 yield from part()
@@ -174,6 +228,23 @@ class Metrics(Collector):
         yield counter("findaline_service_bytes", "Bytes received from outside services by host", size, "host")
         yield counter("findaline_service_seconds", "Seconds of the requests to outside services by host", seconds,
                       "host")
+
+    def _layers(self) -> Iterator[Metric]:
+        db = _read(self.jobs)
+        if db is None:
+            return
+        try:
+            columns = ", ".join(column for column, _ in LAYER_COUNTS.values())
+            rows = db.execute(f"SELECT layer, role, {columns} FROM layer_downloads ORDER BY layer, role").fetchall()
+        except sqlite3.OperationalError:  # a database from before migration 15 (the web process migrates it)
+            return
+        finally:
+            db.close()
+        for k, (name, (_, text)) in enumerate(LAYER_COUNTS.items()):
+            family = CounterMetricFamily(name, f"{text}, by layer and role", labels=["layer", "role"])
+            for row in rows:
+                family.add_metric([row[0], row[1]], row[2 + k])
+            yield family
 
     def _work_file(self, name: str) -> Optional[Dict]:
         path = os.path.join(self.data_dir, "work", name)
@@ -260,6 +331,26 @@ class Metrics(Collector):
                 n, total = db.execute(f"SELECT COUNT(*), SUM({_seconds(start, end)}) FROM jobs WHERE {rows}").fetchone()
                 phases.add_metric([phase], n, total or 0.0)
             metrics.append(phases)
+            done = "status = 'done' AND area_km2 IS NOT NULL AND resolution > 0"
+            computed = {r: (mpx, s or 0.0) for r, mpx, s in q(
+                f"SELECT {RESOLUTION_SQL}, SUM(area_km2 / (resolution * resolution)), "
+                f"SUM(CASE WHEN computing_at IS NOT NULL THEN {_seconds('computing_at', 'finished')} END) "
+                f"FROM jobs WHERE {done} GROUP BY 1")}
+            metrics.append(counter("findaline_computed_mpx", "Millions of pixels of finished searches (km2 / "
+                                   "resolution^2) by the class of their resolution",
+                                   {r: v[0] for r, v in computed.items()}, "resolution", RESOLUTIONS))
+            metrics.append(counter("findaline_computed_seconds", "Seconds of the computing phase of finished searches "
+                                   "by the class of their resolution", {r: v[1] for r, v in computed.items()},
+                                   "resolution", RESOLUTIONS))
+            steps = SummaryMetricFamily("findaline_compute_step_seconds", "Seconds of the steps of the computing "
+                                        "phases of finished searches", labels=["step"])
+            found = {step: (n, total) for step, n, total in q(
+                "SELECT step, COUNT(*), SUM(seconds) FROM job_steps GROUP BY step")}
+            for step in jb.STEP_KEYS:
+                n, total = found.get(step, (0, 0.0))
+                steps.add_metric([step], n, total)
+            metrics.append(steps)
+            metrics.extend(_compute(db))
             waiting, first = db.execute("SELECT COUNT(*), MIN(created) FROM quick WHERE status = 'waiting'").fetchone()
             metrics.append(gauge("findaline_quick_waiting", "Tasks waiting in the quick lane", waiting))
             metrics.append(gauge("findaline_quick_oldest_waiting_seconds", "Age of the oldest waiting task of the "

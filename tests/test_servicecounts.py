@@ -1,5 +1,6 @@
 """The counts of the requests to outside services (servicecounts.py; docs/monitoring.md F11): the
-outcomes, the totals in jobs.sqlite (Jobs.add_service_requests, migration 14), nothing counted
+outcomes, the totals in jobs.sqlite (Jobs.add_service_requests, migration 14), the tiles of the
+elevation layers (F18: Jobs.add_layer_downloads, migration 15), nothing counted
 unless the web worker turns the counting on (the command line, tests/regression.py), and the
 hooks of the code that asks outside services, against the local HTTP server (tests/http_server.py)."""
 
@@ -202,3 +203,75 @@ def test_metrics_of_the_totals(counting, tmp_path):
     assert 'findaline_service_requests_total{host="a.example",outcome="timeout"} 1.0' in text
     assert 'findaline_service_bytes_total{host="a.example"} 100.0' in text
     assert 'findaline_service_seconds_total{host="a.example"} 121.5' in text
+
+
+def _clip_layer():
+    """A layer of two tiles: the Żabi Koń clip (600 × 600 px of 1 m) and one without data."""
+    import shutil
+
+    import sources as src
+
+    class Clip(src.Layer):
+        description, folder = "Clip", "test/clip"
+
+        def tiles(self, grid):
+            return [0, 1]
+
+        def tile_path(self, cache_dir, tile):
+            return os.path.join(cache_dir, "test", "clip", f"{tile}.tif")
+
+        def tile_url(self, tile):
+            return f"https://tiles.example/{tile}.tif"
+
+        def download_tile(self, tile, path):
+            if tile == 1:
+                return src.Fetched(0)  # the service has no data there
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            shutil.copyfile(CLIP, path)
+            return src.Fetched(1234, self.tile_url(tile))
+    return Clip()
+
+
+def test_tiles_of_the_layers(tmp_path):
+    """download_layers counts each layer's tiles by role (F18): downloaded with their pixels and km² from
+    the cached file's header, bytes and seconds; those found in the cache the next time; nothing while
+    the counting is off; a failed write keeps them."""
+    import sources as src
+    jobs = jb.Jobs(str(tmp_path))
+    cache_dir = str(tmp_path / "cache")
+    os.makedirs(cache_dir)
+    layer = _clip_layer()
+    src.download_layers([(layer, "terrain")], None, cache_dir)  # not counting: nothing kept
+    assert sc.take_tiles() == []
+
+    def rows():
+        db = sqlite3.connect(tmp_path / "jobs.sqlite")
+        try:
+            return {(r[0], r[1]): r[2:] for r in db.execute("SELECT * FROM layer_downloads")}
+        finally:
+            db.close()
+    sc.enable(jobs.add_service_requests, interval=False, tile_writer=jobs.add_layer_downloads)
+    try:
+        other = str(tmp_path / "other-cache")
+        os.makedirs(other)
+        src.download_layers([(layer, "gap fill (FABDEM)")], None, other)
+        sc.flush()
+        tiles, cached, pixels, km2, size, seconds, waited = rows()[("test/clip", "gap fill")]
+        assert (tiles, cached, pixels, size) == (2, 0, 360_000, 1234)
+        assert km2 == pytest.approx(0.36) and seconds >= 0 and waited >= 0
+        src.download_layers([(layer, "terrain"), (layer, "surface")], None, other)  # cached: the first role
+        sc.flush()
+        assert rows()[("test/clip", "terrain")][:2] == (0, 2) and ("test/clip", "surface") not in rows()
+
+        def broken(rows):
+            raise sqlite3.OperationalError("database is locked")
+        sc.enable(jobs.add_service_requests, interval=False, tile_writer=broken)
+        sc.tiles("test/clip", "bogus", cached=3)  # an unknown role is "other"
+        sc.flush()
+        sc.enable(jobs.add_service_requests, interval=False, tile_writer=jobs.add_layer_downloads)
+        sc.flush()
+        assert rows()[("test/clip", "other")][:2] == (0, 3)
+    finally:
+        sc.disable()
+    assert sc.role_of("water mask") == "water mask" and sc.role_of("gap fill (Copernicus DEM)") == "gap fill"
+    assert sc.role_of("fake") == "other"
