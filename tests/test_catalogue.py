@@ -13,7 +13,7 @@ import osm  # noqa: E402
 import sources as src  # noqa: E402
 
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "europe", "nasadem"]
+       "alaska_ifsar", "usa", "usgs10m", "at", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -355,6 +355,34 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                 'credit': '3DEP 1/3 arc-second DEM (USGS)',
                                 'shift': (0.0, 0.0)},
                         'nmpt': None},
+            'at': {'crs': 'EPSG:3035',
+                   'countries': ('at',),
+                   'bbox': None,
+                   'fallbacks': ['europe'],
+                   'grid_origin': (0.5, 0.5),
+                   'default_resolution': 1.0,
+                   'instead_without_data': None,
+                   'local_crs': 'utm_crs',
+                   'ortho': 'austria/ortho/live',
+                   'credits': ['ALS DTM / DSM Höhenraster 1 m (BEV, Austria)'],
+                   'nmt': {'class': 'FileBlocks',
+                           'description': 'ALS DTM 1 m (terrain)',
+                           'folder': 'austria/als-dtm/20250915',
+                           'prefix': None,
+                           'native_res': 1.0,
+                           'processing': 1,
+                           'ttl_days': None,
+                           'credit': 'ALS DTM / DSM Höhenraster 1 m (BEV, Austria)',
+                           'shift': (0.0, 0.0)},
+                   'nmpt': {'class': 'FileBlocks',
+                            'description': 'ALS DSM 1 m (trees, buildings)',
+                            'folder': 'austria/als-dsm/20250915',
+                            'prefix': None,
+                            'native_res': 1.0,
+                            'processing': 1,
+                            'ttl_days': None,
+                            'credit': 'ALS DTM / DSM Höhenraster 1 m (BEV, Austria)',
+                            'shift': (0.0, 0.0)}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -468,6 +496,8 @@ PATHS = [
     ("usa", "nmt", "block", "usa/3dep-1m/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("alaska_ifsar", "nmt", "block", "usa/ifsar-5m/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("usgs10m", "nmt", (-1195, 375), "usa/3dep-13/live/n38w120/-1195_375.tif", (-1195, 375)),
+    ("at", "nmt", (4420, 2685), "austria/als-dtm/20250915/88_53/4420_2685.tif", (4420, 2685)),
+    ("at", "nmpt", (4420, 2685), "austria/als-dsm/20250915/88_53/4420_2685.tif", (4420, 2685)),
 ]
 
 
@@ -551,7 +581,7 @@ ALASKA = (51.0, 71.5, -180.0, -129.9)
 BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("es", (27.0, 43.9, -18.6, 4.4)), ("sk", (47.7, 49.65, 16.8, 22.6)),
          ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", ALASKA),
-         ("pr", (17.8, 18.6, -67.4, -65.2))]
+         ("pr", (17.8, 18.6, -67.4, -65.2)), ("at", (46.37, 49.02, 9.53, 17.17))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):

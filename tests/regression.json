@@ -639,5 +639,31 @@
     },
     "notes": "the reason printed: alaska has no terrain data near it; 5 m by default; first run on an empty cache: 11 s, 2 blocks of 5 km, 4 MB",
     "seconds": 9.8
+  },
+  "R25": {
+    "place": "Martinswand near Innsbruck, Austria: BEV's ALS DTM and DSM, 1 m blocks read by HTTP range requests from the 50 km COGs of the 2025 edition, on a working grid in EPSG:3035",
+    "args": "--lat 47.2740 --lon 11.3120 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "at"
+    ],
+    "expected": {
+      "anchors": 267158,
+      "open": 19093,
+      "checked": 52290,
+      "lines": 2602,
+      "spots": 39,
+      "csv_sha256": "78e9fea96612b370d9bf51244cdda9ebb72f80f25300706f4f0264c77b159737",
+      "length_km": 413.407,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.489,
+      "clearance_max": 14.78,
+      "over_trees": 2602,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "BEV (ALS DTM / DSM)"
+    },
+    "notes": "--source auto picks at (the centre is in AT); first run on an empty cache: 9 blocks of 1 km per layer, about 2 MB each; every line crosses the forest below the wall (over_trees)",
+    "seconds": 13.4
   }
 }

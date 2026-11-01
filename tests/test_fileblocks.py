@@ -180,3 +180,19 @@ def test_probe_reads_a_window(http_server, tmp_path, capsys):
     assert "window 100% with data" in capsys.readouterr().out
     assert probe.run(str(tmp_path / "cache"), ["gone"], sources=sources) == 1
     assert "FAIL" in capsys.readouterr().out
+
+
+def test_austria_files():
+    """BEV's 50 km files of a block of 1 km: the tile holding the block whole (edges at x.5, the
+    tiles overlap by one pixel), none outside the 55 tiles."""
+    from sources.catalogue import austria
+    assert len(austria.BEV_FILES) == 55
+    dtm = austria.BEV_DTM
+    url = "https://data.bev.gv.at/download/ALS/DTM/20250915/ALS_DTM_CRS3035RES50000mN2650000E4400000.tif"
+    assert dtm.index.request((4400, 2650)).files == [(url.rsplit("/", 1)[1], url, 2025)]
+    request = dtm.index.request((4449, 2699))                 # the last block of that tile
+    assert request.files[0][1] == url and request.shape == (1000, 1000)
+    assert (request.transform.c, request.transform.f) == (4449000.5, 2700000.5)  # its edge: 4450000.5
+    assert "N2650000E4450000" in dtm.index.request((4450, 2699)).files[0][0]
+    assert dtm.index.request((4000, 2650)).files == []         # no tile there (Switzerland's west)
+    assert "/DSM/20250915/ALS_DSM_" in austria.BEV_DSM.index.request((4400, 2650)).files[0][1]
