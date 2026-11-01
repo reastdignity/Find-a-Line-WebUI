@@ -113,7 +113,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   sagging under a walker and anchors you can drag? Yes, but not with Google's 3D tiles, which are closed to European
   projects. This page compares what is left: services, licences, cost and legality.</p>
   <nav class="toc" aria-label="Contents">
-    <a href="#answer">The answer</a><a href="#gates">Gates</a><a href="#variants">Variants</a>
+    <a href="#decisions">Decided</a><a href="#answer">The answer</a><a href="#gates">Gates</a><a href="#variants">Variants</a>
     <a href="#editing">Editing and walker</a><a href="#heights">Heights</a><a href="#library">Library</a>
     <a href="#size">Size and phones</a><a href="#privacy">Privacy</a><a href="#legal">Legal</a>
     <a href="#effort">Effort and money</a><a href="#checks">Checks</a><a href="#sources">Sources</a>
@@ -143,6 +143,31 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   between anchors at one height, at the default rigging, a largest sag of 5.5 m with an 80 kg walker and 0.34 m
   without (dashed).</figcaption>
 </figure>
+
+<section id="decisions">
+  <h2>Decided</h2>
+  <p class="prose">The choices made after reading this report, on 1 November 2026. The rest of the page is the
+  research they rest on.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Topic</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td>Path</td><td><span class="chip ok">B + C now</span> our own 3D view with Esri layers; A (KML) and D (Google) not planned</td></tr>
+      <tr><td>Library</td><td>three.js + 3DTilesRendererJS: our DEM near the line, a coarse ring of terrain around it</td></tr>
+      <tr><td>Phones</td><td>simplified (view, walker slider and walk), full editing on the desktop</td></tr>
+      <tr><td>Orthophoto</td><td>our cache first, then the service from the browser, as the 2D map</td></tr>
+      <tr><td>Mesh</td><td>built in the browser (martini, copied into the repository)</td></tr>
+      <tr><td>Ring terrain</td><td>Mapterhorn, after asking its maintainer about the public endpoint</td></tr>
+      <tr><td>Local app</td><td>a setting for the user's own ArcGIS Location Platform key</td></tr>
+      <tr><td>Esri's terms</td><td>the About page's sentence extended to the 3D view</td></tr>
+      <tr><td>Privacy wording</td><td>approved at implementation</td></tr>
+      <tr><td>Licence notices</td><td>a separate task, starting with a comparison of tools</td></tr>
+      <tr><td>Phone test</td><td>on the user's own iPhone of the 11/SE class (iOS 18)</td></tr>
+      <tr><td>Next</td><td><span class="chip info">a wave plan for approval</span> before any code</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
 
 <section id="answer">
   <h2>The answer</h2>

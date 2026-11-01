@@ -1,0 +1,83 @@
+== cesium: 0 advisories
+== @cesium/engine: 0 advisories
+== @cesium/widgets: 0 advisories
+== three: 1 advisories
+  GHSA-fq6p-x6j3-cmmq [CVE-2020-28496] 2021-03-01 fixed:0.125.0 :: Denial of service in three
+== 3d-tiles-renderer: 0 advisories
+== @giro3d/giro3d: 0 advisories
+== itowns: 0 advisories
+== maplibre-gl: 1 advisories
+  GHSA-jrc7-96c5-q579 [CVE-2026-85061] 2026-09-08 fixed:6.4.1 :: MapLibre GL JS: XSS Sanitizer Bypass in DOM.sanitize() via Live NamedNodeMap Removal Skip
+== deck.gl: 0 advisories
+== @deck.gl/core: 0 advisories
+== @loaders.gl/core: 0 advisories
+== @arcgis/core: 0 advisories
+== three-mesh-bvh: 0 advisories
+== geotiff: 0 advisories
+== ol: 0 advisories
+== protobufjs: 17 advisories
+  GHSA-2pr8-phx7-x9h3 [CVE-2026-44294] 2026-05-12 fixed:7.5.6|8.0.2 :: protobuf.js: Denial of service from crafted field names in generated code
+  GHSA-66ff-xgx4-vchm [CVE-2026-44293] 2026-05-12 fixed:7.5.6|8.0.2 :: protobuf.js: Code injection through bytes field defaults in generated toObject code
+  GHSA-685m-2w69-288q [CVE-2026-44289] 2026-05-12 fixed:7.5.6|8.0.2 :: protobuf.js: Denial of service through unbounded protobuf recursion
+  GHSA-75px-5xx7-5xc7 [CVE-2026-44291] 2026-05-12 fixed:7.5.6|8.0.2 :: protobuf.js: Code generation gadget after prototype pollution
+  GHSA-762f-c2wg-m8c8 [CVE-2018-3738] 2018-10-09 fixed:6.8.6|5.0.3 :: Denial of Service in protobufjs
+  GHSA-94rc-8x27-4472 [CVE-2026-54270] 2026-06-15 fixed:8.5.0 :: protobufjs: Memory amplification from preserved unknown fields in binary decode
+  GHSA-f38q-mgvj-vph7 [CVE-2026-54269] 2026-06-15 fixed:7.6.3|2.5.1|1.3.3|8.6.0 :: protobufjs : Schema-derived names can shadow runtime-significant properties
+  GHSA-fx83-v9x8-x52w [CVE-2026-44292] 2026-05-12 fixed:7.5.6|8.0.2 :: protobuf.js: Prototype injection in generated message constructors
+  GHSA-g954-5hwp-pp24 [CVE-2022-25878] 2022-05-28 fixed:6.11.3|6.10.3 :: Prototype Pollution in protobufjs
+  GHSA-h755-8qp9-cq85 [CVE-2023-36665] 2023-07-05 fixed:7.2.5|6.11.4 :: protobufjs Prototype Pollution vulnerability
+  GHSA-j3f2-48v5-ccww [CVE-2026-59877] 2026-07-20 fixed:7.6.5|8.6.6 :: protobufjs: Denial of Service via infinite loop in .proto option parsing
+  GHSA-jfj6-75fj-8934 [CVE-2026-59876] 2026-07-20 fixed:8.6.5 :: protobufjs: Text Format string map parsing can mutate returned map object prototype
+  GHSA-jggg-4jg4-v7c6 [CVE-2026-45740] 2026-05-19 fixed:7.5.8|8.2.0 :: protobufjs: Denial of Service via unbounded recursive JSON descriptor expansion
+  GHSA-jvwf-75h9-cwgg [CVE-2026-44290] 2026-05-12 fixed:7.5.6|8.0.2 :: protobuf.js: Process-wide denial of service through unsafe option paths
+  GHSA-q6x5-8v7m-xcrf [CVE-2026-44288] 2026-05-12 fixed:7.5.6|8.0.2|1.1.1 :: protobufjs has overlong UTF-8 decoding
+  GHSA-wcpc-wj8m-hjx6 [CVE-2026-48712] 2026-06-15 fixed:7.6.1|8.4.1 :: protobufjs: Denial of service through unbounded Any expansion during JSON conversion
+  GHSA-xq3m-2v4x-88gg [CVE-2026-41242] 2026-04-16 fixed:8.0.1|7.5.5 :: Arbitrary code execution in protobufjs
+== dompurify: 33 advisories
+  GHSA-39q2-94rc-95cp [CVE-2026-65903] 2026-04-16 fixed:3.4.0 :: DOMPurify's ADD_TAGS function form bypasses FORBID_TAGS due to short-circuit evaluation
+  GHSA-55q2-fjhq-7xh7 [CVE-2026-75838] 2026-08-07 fixed:3.4.13 :: DOMPurify: IN_PLACE hook removal leaves a detached subtree executable, causing XSS
+  GHSA-63q7-h895-m982 [CVE-2020-26870] 2020-12-18 fixed:2.0.17 :: Cross-site Scripting in dompurify
+  GHSA-6688-9rhm-gjv2 [CVE-2026-109345] 2026-10-05 fixed:3.4.16 :: DOMPurify: IN_PLACE returns a force-removed rawtext root whose text carries attacker markup — pure HTML reparse executes
+  GHSA-76mc-f452-cxcm [CVE-2026-65902] 2026-06-15 fixed:3.4.7 :: DOMPurify: Hook mutation of `data.allowedTags` / `data.allowedAttributes` permanently pollutes `DEFAULT_ALLOWED_TAGS` / `DEFAULT_ALLOWED_ATT
+  GHSA-87xg-pxx2-7hvx [CVE-2026-47423] 2026-06-01 fixed:3.4.5 :: DOMPurify XSS via selectedcontent re-clone
+  GHSA-8hgg-xxm5-3873 [CVE-2019-25155] 2023-11-14 fixed:1.0.11 :: DOMPurify Open Redirect vulnerability
+  GHSA-c2j3-45gr-mqc4 [CVE-2026-66010] 2026-07-21 fixed:3.4.12 :: DOMPurify: `CUSTOM_ELEMENT_HANDLING` bypasses `afterSanitizeElements` for allowed custom elements.
+  GHSA-c6gr-qvv4-5v3f [CVE-2026-116802] 2026-10-22 fixed:3.4.17 :: DOMPurify: SMIL attributeName=href guard is skipped when PARSER_MEDIA_TYPE is application/xhtml+xml
+  GHSA-cg2g-xh64-v4q7 [CVE-2026-116804] 2026-10-22 fixed:3.4.17 :: DOMPurify SAFE_FOR_TEMPLATES bypass: split template expressions survive in attached shadow root content on DOM output modes
+  GHSA-chqj-j4fh-rw7m [CVE-2019-16728] 2020-08-28 fixed:2.0.3 :: Cross-Site Scripting in dompurify
+  GHSA-cj63-jhhr-wcxv [CVE-2026-65913] 2026-04-03 fixed:3.3.2 :: DOMPurify USE_PROFILES prototype pollution allows event handlers
+  GHSA-cjmm-f4jc-qw8r [CVE-2026-65912] 2026-04-03 fixed:3.3.2 :: DOMPurify ADD_ATTR predicate skips URI validation
+  GHSA-cmwh-pvxp-8882 [CVE-2026-65898] 2026-06-18 fixed:3.4.11 :: DOMPurify: Permanent `ALLOWED_ATTR` pollution via `setConfig()` bypassing the hook clone-guard (incomplete fix of the 3.4.7 hook-pollution p
+  GHSA-crv5-9vww-q3g8 [CVE-2026-41239] 2026-04-22 fixed:3.4.0 :: DOMPurify has a SAFE_FOR_TEMPLATES bypass in RETURN_DOM mode
+  GHSA-gvmj-g25r-r7wr [CVE-2026-65900] 2026-06-15 fixed:3.4.8 :: DOMPurify: SAFE_FOR_TEMPLATES bypass - template expressions survive sanitization inside <template> content when using DOM output modes
+  GHSA-gx9m-whjm-85jf [CVE-2024-47875] 2024-10-11 fixed:2.5.0|3.1.3 :: DOMpurify has a nesting-based mXSS
+  GHSA-h7mw-gpvr-xq4m [CVE-2026-41240] 2026-04-22 fixed:3.4.0 :: DOMPurify: FORBID_TAGS bypassed by function-based ADD_TAGS predicate (asymmetry with FORBID_ATTR fix)
+  GHSA-h8r8-wccr-v5f2 [CVE-2026-65914] 2026-03-27 fixed:3.3.2 :: DOMPurify is vulnerable to mutation-XSS via Re-Contextualization 
+  GHSA-hpcv-96wg-7vj8 [CVE-2026-49458] 2026-06-15 fixed:3.4.6 :: DOMPurify: Cross-realm IN_PLACE sanitization leaves executable markup intact via realm-bound `instanceof` checks
+  GHSA-mjjq-c88q-qhr6 [] 2020-09-03 fixed:2.0.7 :: Cross-Site Scripting in dompurify
+  GHSA-mmhx-hmjr-r674 [CVE-2024-45801] 2024-09-16 fixed:2.5.4|3.1.3 :: DOMPurify allows tampering by prototype pollution
+  GHSA-mrv2-3pqr-j5jr [CVE-2026-116803] 2026-10-22 fixed:3.4.17 :: DOMPurify IN_PLACE: hook that removes a parent or sibling leaves the detached subtree's event handlers armed (incomplete fix for GHSA-p98j-9
+  GHSA-p3vf-v8qc-cwcr [CVE-2024-48910] 2024-10-31 fixed:2.4.2 :: DOMPurify vulnerable to tampering by prototype polution
+  GHSA-p98j-92pf-mc4p [CVE-2026-109344] 2026-09-30 fixed:3.4.16 :: DOMPurify: IN_PLACE: node-removing afterSanitize hook leaves detached subtree event handlers armed, causing DOM XSS
+  GHSA-r47g-fvhr-h676 [CVE-2026-49459] 2026-06-15 fixed:3.4.6 :: DOMPurify: IN_PLACE mode preserves attributes of a clobbered root element, allowing XSS via attacker-controlled root DOM
+  GHSA-rp9w-3fw7-7cwq [CVE-2026-49978] 2026-06-15 fixed:3.4.7 :: DOMPurify IN_PLACE Sanitization Bypass via Attached Shadow Root Inside <template>.content
+  GHSA-v2wj-7wpq-c8vv [CVE-2026-0540] 2026-03-03 fixed:3.3.2|2.5.9 :: DOMPurify contains a Cross-site Scripting vulnerability
+  GHSA-v8jm-5vwx-cfxm [CVE-2025-15599] 2026-03-03 fixed:3.2.7|last_affected 2.5.8 :: DOMPurify contains a Cross-site Scripting vulnerability
+  GHSA-v9jr-rg53-9pgp [CVE-2026-41238] 2026-04-22 fixed:3.4.0 :: DOMPurify: Prototype Pollution to XSS Bypass via CUSTOM_ELEMENT_HANDLING Fallback
+  GHSA-vhxf-7vqr-mrjg [CVE-2025-26791] 2025-02-14 fixed:3.2.4 :: DOMPurify allows Cross-site Scripting (XSS)
+  GHSA-vxr8-fq34-vvx9 [CVE-2026-65899] 2026-06-15 fixed:3.4.9 :: DOMPurify: Trusted Types policy survives `clearConfig()` and can poison later `RETURN_TRUSTED_TYPE` output
+  GHSA-x4vx-rjvf-j5p4 [CVE-2026-65901] 2026-06-15 fixed:last_affected 3.4.6 :: DOMPurify: `IN_PLACE` mode trusts attacker-controlled `nodeName` on live non-form nodes, allowing script retention and XSS via attacker-supp
+== urijs: 8 advisories
+  GHSA-3329-pjwv-fjpg [CVE-2020-26291] 2020-12-30 fixed:1.19.4 :: Hostname spoofing via backslashes in URL
+  GHSA-3vjf-82ff-p4r3 [CVE-2022-1243] 2022-04-06 fixed:1.19.11 :: Incorrect protocol extraction via \r, \n and \t characters
+  GHSA-89gv-h8wf-cg8r [CVE-2021-3647] 2021-07-19 fixed:1.19.7 :: URIjs Vulnerable to Hostname spoofing via backslashes in URL 
+  GHSA-8h2f-7jc4-7m3m [CVE-2022-0868] 2022-03-07 fixed:1.19.10 :: Open Redirect in urijs
+  GHSA-g694-m8vq-gv9h [CVE-2022-1233] 2022-04-05 fixed:1.19.11 :: URL Confusion When Scheme Not Supplied in medialize/uri.js
+  GHSA-gcv8-gh4r-25x6 [CVE-2022-0613] 2022-02-17 fixed:1.19.8 :: Authorization Bypass Through User-Controlled Key in urijs
+  GHSA-gmv4-r438-p67f [CVE-2022-24723] 2022-03-03 fixed:1.19.9 :: Leading white space bypasses protocol validation
+  GHSA-p6j9-7xhc-rhwp [CVE-2021-27516] 2021-03-01 fixed:1.19.6 :: URIjs Hostname spoofing via backslashes in URL
+== lerc: 0 advisories
+== draco3d: 0 advisories
+== pako: 0 advisories
+== jsep: 0 advisories
+== autolinker: 0 advisories

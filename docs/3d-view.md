@@ -11,6 +11,9 @@ report says so and names whom to ask. Costs of implementing are given as Claude 
 only for the services.
 
 ## Summary
+The user's choices after this report are in [Decisions](#decisions-2026-11-01): B with C, drawn with three.js and
+3DTilesRendererJS.
+
 The mock (an orange sagging line and a mannequin over the photorealistic cliffs of Dolina Bolechowicka) can be
 built, but not with Google's 3D tiles: since 8 July 2025 Google refuses Photorealistic 3D Tiles to projects with an
 EEA billing address. Four variants remain.
@@ -53,6 +56,26 @@ Sentinel-2, Esri's resold Google 3D (internal use only). Details: [Gates](#gates
    Fathom (donations and FABDEM), GUGiK (the legal basis of NMPT).
 8. The local app: a provider's 3D only with the user's own key (a setting), or our own data only.
 9. Which phone level to aim for, and who tests on an iPhone of the 11/SE class under iOS 18.
+
+## Decisions (2026-11-01)
+Taken by the user after reading the report:
+
+| Topic | Decision |
+| --- | --- |
+| Path | **B + C now**: our own 3D view with Esri layers. A (KML) and D (Google 3D Maps) are not planned. |
+| Library | **three.js + 3DTilesRendererJS**: the patch of our DEM near the line, a coarse ring of terrain around it. |
+| Phones | **Simplified on phones** (view, walker slider and walk; no anchor dragging), full on the desktop. |
+| Orthophoto | **Our cache first, then the service** from the browser, as the 2D map does. |
+| Mesh | **In the browser** (`@mapbox/martini`, copied into the repository: 2 KB, unchanged since 2020). |
+| Ring terrain | **Mapterhorn** (terrarium tiles); its maintainer is asked about the public endpoint first. |
+| Local app | **The user's own key**: a setting for a local user's ArcGIS Location Platform key; without it, no Esri imagery locally. |
+| Esri's terms | **Extend the About page's approved sentence** to the 3D view (wording approved at implementation). |
+| Privacy wording | Approved **at implementation** (the 3D view, Esri, Mapterhorn). |
+| Mails | **Mapterhorn only** (draft in the user's `local/mail-drafts.md`). |
+| Research notes | Kept on the branch: [docs/3d-view-research/](3d-view-research/). |
+| Licence notices | **A separate task**, starting with a comparison of tools. |
+| Phone test | The user tests on an iPhone of the 11/SE class under iOS 18. |
+| Next | **A plan of the implementation in waves**, for the user's approval before any code. |
 
 ## What was asked and agreed
 Fixed with the user on 2026-11-01:

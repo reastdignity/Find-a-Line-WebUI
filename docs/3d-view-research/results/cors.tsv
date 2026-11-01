@@ -1,0 +1,20 @@
+geoportal WMS HighResolution	200	https://findaline.lukawski.org	image/jpeg	11763	Origin
+geoportal WMTS StandardResolution	200	*	image/jpeg	3534	
+swisstopo WMTS SWISSIMAGE	200	*	image/jpeg	21777	
+USGS ImageryOnly tiles	200	*	image/jpeg	27037	
+IGN Spain WMS pnoa-ma	200	*	image/jpeg	20380	
+ZBGIS WMS orthophoto	200	https://findaline.lukawski.org	image/jpeg	16207	Origin,Origin
+Malta WMS ortho_2018	200	*	image/jpeg	34464	
+Esri World Imagery (server.arcgisonline.com, keyless)	200	*	image/jpeg	13702	
+Esri World Imagery (ibasemaps-api, no token)	200	*	text/plain	63	
+basemap.at Orthofoto	200	*	image/jpeg	18458	Origin
+LVermGeo DOP20 WMS (Saxony-Anhalt)	200	https://findaline.lukawski.org	image/jpeg	53602	Origin
+LGLN DOP20 WMS (Lower Saxony)	200	*	image/jpeg	14710	Origin,Access-Control-Request-Method,Access-Control-Request-Headers
+HVBG DOP WMS (Hesse)	200	*	image/jpeg	9723	
+LAiV DOP WMS (Mecklenburg-Vorpommern)	200	*	image/jpeg	11186	
+South Tyrol orthophoto 2023 WMTS	200	https://findaline.lukawski.org	image/jpeg	12125	Origin
+geoportail.lu orthophoto WMTS	200	*	image/jpeg	28466	
+Esri Terrain3D LERC tile (elevation3d)	200	*	application/octet-stream	55798	
+AWS Terrain Tiles terrarium	200	*	image/png	93624	Origin, Access-Control-Request-Headers, Access-Control-Request-Method
+Mapterhorn terrarium webp	200	*	image/webp	110148	Origin
+swisstopo terrain quantized mesh (doc example)	200	*	application/vnd.quantized-mesh	202821	Origin
