@@ -92,6 +92,41 @@ def test_tile_outside_the_coverage(layer, tmp_path):
     assert not os.path.exists(path)
 
 
+def test_error_outside_the_coverage(monkeypatch, tmp_path):
+    """A service answering an error (the Environment Agency's HTTP 500), not a 404, for a request
+    wholly outside its coverage: such a tile is missing, the next one outside is not asked at all;
+    a tile partly outside is still requested (the server clips it); an error inside still fails."""
+    asked = []
+
+    def failing_outside(url, params=None, **kwargs):
+        boxes = dict(re.fullmatch(r"(\w+)\(([^,]+),([^)]+)\)", v).group(1, 2) for k, v in params if k == "SUBSET")
+        asked.append(boxes)
+        left, bottom = float(boxes["E"]), float(boxes["N"])
+        if left >= EXTENT[2] or bottom >= EXTENT[3]:
+            raise RuntimeError("HTTP 500: Internal Server Error")  # what net._get raises after its retries
+        top = min(bottom + 100, EXTENT[3])
+        clipped = [(k, f"N({bottom:.3f},{top:.3f})" if v.startswith("N(") else v) for k, v in params]
+        return fake_get(url, clipped)
+    monkeypatch.setattr(src.net, "_get", failing_outside)
+    monkeypatch.setattr(requests, "get", fake_describe)
+    layer = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         tile_px=100, fetch_res=1.0, axes=("E", "N"))
+    assert layer.download_tile((1.0, 0, 3), str(tmp_path / "a.tif")).received == 0   # wholly outside: missing
+    assert len(asked) == 1
+    assert layer.download_tile((1.0, 12, 0), str(tmp_path / "b.tif")).received == 0  # outside the known extent
+    assert len(asked) == 1                                                          # nothing asked
+    assert layer.download_tile((1.0, 0, 0), str(tmp_path / "c.tif")).received > 0   # partly outside
+    assert len(asked) == 2
+    with rio.open(tmp_path / "c.tif") as tile:
+        assert np.isfinite(tile.read(1)[-1]).all() and np.isnan(tile.read(1)[0]).all()
+
+    def failing(url, params=None, **kwargs):
+        raise RuntimeError("HTTP 500: Internal Server Error")
+    monkeypatch.setattr(src.net, "_get", failing)
+    with pytest.raises(RuntimeError, match="Could not download"):
+        layer.download_tile((1.0, -1, -1), str(tmp_path / "d.tif"))
+
+
 def test_tiles_from_an_origin(monkeypatch, tmp_path):
     """A coverage whose pixel edges are at 0.5 m: its tiles start there, are requested on its
     own pixels and cached in a folder of their own; without an origin, as before."""

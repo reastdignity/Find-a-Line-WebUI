@@ -29,6 +29,11 @@ class WcsReader(Reader):
     (DescribeCoverage), on whole pixels of the tile grid, and the rest of the tile
     stays without data.
 
+    Others (the Environment Agency's) answer a request wholly outside the coverage with an
+    error (HTTP 500), not a 404: when a request fails, the tile is missing if it does not
+    reach into the coverage extent. Once the extent is known (asked after the first 404 or
+    failure, once per reader), a tile wholly outside it is missing without a request.
+
     params: more parameters of every GetCoverage (GeoServer's GEOTIFF:COMPRESSION=DEFLATE
     makes South Tyrol's float32 tiles a quarter of their size).
     """
@@ -80,8 +85,17 @@ class WcsReader(Reader):
         res, i, j = tile
         size, px = self.tile_px * res, self.tile_px
         left, bottom = i * size + self.origin[0], j * size + self.origin[1]
+        box = (left, bottom, left + size, bottom + size)
+        if self._extent and not _overlaps(box, self._extent):  # known to lie outside: nothing asked
+            return Fetched(0, self.service_url)
         try:
-            response = self._request(left, bottom, left + size, bottom + size, res)
+            try:
+                response = self._request(*box, res)
+            except RuntimeError:
+                extent = self.coverage_extent()
+                if extent and not _overlaps(box, extent):
+                    return Fetched(0, self.service_url)
+                raise
             extent = self.coverage_extent() if response is None else None
             if extent:
                 # Inside the coverage, on whole pixels of the tile
@@ -114,6 +128,11 @@ class WcsReader(Reader):
             band = resampled
         _write_tile(path, _clean(band, self.zero_is_nodata), self.crs, dst_transform)
         return Fetched.of(response)
+
+
+def _overlaps(box: tuple, extent: tuple) -> bool:
+    """Whether two boxes (left, bottom, right, top) share more than an edge."""
+    return box[0] < extent[2] and extent[0] < box[2] and box[1] < extent[3] and extent[1] < box[3]
 
 
 def _extract_multipart(content: bytes, content_type: str) -> bytes:
