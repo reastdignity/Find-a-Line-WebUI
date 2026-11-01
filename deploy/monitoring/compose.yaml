@@ -102,8 +102,11 @@ services:
         url="$$(tr -d '\r\n' < /run/secrets/ntfy_url)"
         export FINDALINE_NTFY_URL="$${url:-grafana://noop}"
         exec /run.sh
-    mem_limit: 512m
-    memswap_limit: 512m
+    # Grafana 13 idles at about 250 MiB; opening the dashboard Find-a-Line (77 panels queried at
+    # once) took it past 512 MiB and the kernel killed it (2026-11-02). GOMEMLIMIT below makes
+    # Go's collector work harder before this hard limit is reached
+    mem_limit: 1g
+    memswap_limit: 1g
     pids_limit: 256
     # FINDALINE_PUBLIC_URL: the server the alerts name (label `server` of the rules; Grafana
     # expands environment variables in its provisioning files)
@@ -130,6 +133,7 @@ services:
       GF_PATHS_PLUGINS: /var/lib/grafana-plugins
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_LOG_MODE: console
+      GOMEMLIMIT: 800MiB   # Go's soft limit, below mem_limit (see there)
     secrets: [grafana_admin_password, ntfy_url]
     volumes:
       - grafana:/var/lib/grafana   # its database: nothing that cannot be provisioned again

@@ -59,8 +59,8 @@ containers send to the host would cut it off from `stub_status`, the site and it
 (C4–C6), and it would have to join the site's network for `/metrics`.
 
 **Hardening** as in compose.yaml: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, a non-root
-user, images pinned by digest, memory limits (about 1.3 GB for the four containers together,
-VictoriaLogs included, and 192 MB for Telegraf). Telegraf accepts no connections and runs in a
+user, images pinned by digest, memory limits (about 1.9 GB for the four containers together,
+VictoriaLogs included, 1 GB of it Grafana's, and 192 MB for Telegraf). Telegraf accepts no connections and runs in a
 systemd sandbox (its drop-in): no capabilities, no new privileges, the file system read-only,
 `/home` hidden, a private `/tmp`, no device opened, the system calls of `@system-service`, no
 writable and executable memory, 192 MB without swap; `systemd-analyze security telegraf` rates it.
