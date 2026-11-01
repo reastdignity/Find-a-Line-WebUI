@@ -799,6 +799,59 @@
     "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); first run on an empty cache: 2 tiles of 5 km per layer, DEFLATE-compressed by the server (1.4-8 MB each); the 3 pixels next to the province's edge (blended with zero) are dropped and filled from FABDEM (before: 18678 anchors, coverage 90.67%, the same lines); on steep rock the DSM stands metres above the DTM (2.5 m pixels: the DSM their highest points), so nearly every line is over_trees; at --resolution 1 (bilinear from 2.5 m) the same search finds 295 lines in 6 spots",
     "seconds": 12.6
   },
+  "R31": {
+    "place": "Diorite quarry at Waschenbach (Mühltal) in the Odenwald, Hesse, Germany: HVBG's DGM1 and DOM1 1 m from its rasdaman WCSs (2 km tiles, axes E/N)",
+    "args": "--lat 49.7965 --lon 8.7009 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 34617,
+      "open": 1841,
+      "checked": 79250,
+      "lines": 5562,
+      "spots": 118,
+      "csv_sha256": "fcec43e7e574bb7a2aadc467fa6c6888b61096eba0d9870c3a1bdd1d87ce6713",
+      "length_km": 1582.375,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.888,
+      "clearance_max": 7.01,
+      "over_trees": 5220,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "HVBG (DGM1 / DOM1)"
+    },
+    "seconds": 4.6,
+    "notes": "--source auto picks hesse (the centre is in DE-HE); first run on an empty cache: 4 tiles of 2 km per layer, 16 MB each, about 1 s per tile; Hesse has few natural cliffs (the Rheingau above Assmannshausen, the Edersee, the Werra valley near Bad Sooden-Allendorf and the Vogelsberg gave 0 lines at radius 400 m): the Odenwald's quarries are its steepest walls (also measured: the basalt quarry of Rossdorf 27225 lines in 315 spots, the quarry of Gross-Bieberau 28688 in 748, Moerlenbach 701 in 30, Neckarsteinach 129 in 6)"
+  },
+  "R32": {
+    "place": "Königsstuhl in the Jasmund chalk cliffs on Rügen, Mecklenburg-Vorpommern, Germany: LAiV's DGM1 and DOM1 1 m from its MapServer WCSs (2 km tiles, the sea stored as 0 and taken as no data)",
+    "args": "--lat 54.5735 --lon 13.6640 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 29978,
+      "open": 1430,
+      "checked": 6788,
+      "lines": 315,
+      "spots": 14,
+      "csv_sha256": "fdac53e49250a8fe281a5d3c693a25e06b18994a2b26b2b0a6fb18f10183e20f",
+      "length_km": 58.611,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.713,
+      "clearance_max": 4.28,
+      "over_trees": 312,
+      "coverage": 46.61,
+      "empty_tiles": 0,
+      "source": "LAiV M-V (DGM1 / DOM1)",
+      "sea_km2": 1.07
+    },
+    "seconds": 3.5,
+    "notes": "--source auto picks mecklenburg_vorpommern (the centre, at the edge of the cliff, is in DE-MV); first run on an empty cache: 4 tiles of 2 km per layer, 16 MB each; the sea (0 in the DGM) is no data and filled as sea (coverage: the land's share of the circle); the DOM holds values near 0 over the sea, not 0; points 1-2 km north and south along the cliffs found 0 lines"
+  },
   "R33": {
     "place": "Sandstone gorges west of Berdorf (Mullerthal climbing area), Luxembourg: ACT's BD-L-Lidar2024 MNT and MNS, 0.5 m blocks of 1 km read by HTTP range requests from the national COGs, averaged onto a 1 m grid in LUREF / Luxembourg TM",
     "args": "--lat 49.8240 --lon 6.3385 --radius 400 --min-length 50 --max-length 400",

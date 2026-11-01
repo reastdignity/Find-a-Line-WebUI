@@ -497,5 +497,146 @@
     "11.9628023"
    ]
   }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 51.183,
+   "lon": 9.05,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-01T10:17:49+00:00",
+  "answer": {
+   "place_id": 136332352,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 51477,
+   "lat": "51.1638175",
+   "lon": "10.4478313",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9528343247777981,
+   "addresstype": "country",
+   "name": "Deutschland",
+   "display_name": "Deutschland",
+   "address": {
+    "country": "Deutschland",
+    "country_code": "de"
+   },
+   "boundingbox": [
+    "47.2701114",
+    "55.0991610",
+    "5.8663153",
+    "15.0419309"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 51.183,
+   "lon": 9.05,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-01T10:17:50+00:00",
+  "answer": {
+   "place_id": 138452925,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 62563,
+   "lat": "51.1434800",
+   "lon": "8.8660519",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.5211656388683081,
+   "addresstype": "county",
+   "name": "Landkreis Waldeck-Frankenberg",
+   "display_name": "Landkreis Waldeck-Frankenberg, Hessen, Deutschland",
+   "address": {
+    "county": "Landkreis Waldeck-Frankenberg",
+    "state": "Hessen",
+    "ISO3166-2-lvl4": "DE-HE",
+    "country": "Deutschland",
+    "country_code": "de"
+   },
+   "boundingbox": [
+    "50.9354961",
+    "51.5189199",
+    "8.4732746",
+    "9.2218375"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 54.5735,
+   "lon": 13.664,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-01T10:18:11+00:00",
+  "answer": {
+   "place_id": 136043259,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 51477,
+   "lat": "51.1638175",
+   "lon": "10.4478313",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9528343247777981,
+   "addresstype": "country",
+   "name": "Deutschland",
+   "display_name": "Deutschland",
+   "address": {
+    "country": "Deutschland",
+    "country_code": "de"
+   },
+   "boundingbox": [
+    "47.2701114",
+    "55.0991610",
+    "5.8663153",
+    "15.0419309"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 54.5735,
+   "lon": 13.664,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-01T10:18:13+00:00",
+  "answer": {
+   "place_id": 145706349,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 28322,
+   "lat": "53.7735064",
+   "lon": "12.5755471",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.6885719299755643,
+   "addresstype": "state",
+   "name": "Mecklenburg-Vorpommern",
+   "display_name": "Mecklenburg-Vorpommern, Deutschland",
+   "address": {
+    "state": "Mecklenburg-Vorpommern",
+    "ISO3166-2-lvl4": "DE-MV",
+    "country": "Deutschland",
+    "country_code": "de"
+   },
+   "boundingbox": [
+    "53.1103525",
+    "54.8849662",
+    "10.5936133",
+    "14.4122208"
+   ]
+  }
  }
 ]

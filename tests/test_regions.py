@@ -138,3 +138,29 @@ def test_catalogue_regions(tmp_path, recorded):
             == (src.SOURCES["lower_saxony"], "the centre is in DE-NI"))
     assert (src.choose_source("auto", *BROCKEN, str(tmp_path))
             == (src.SOURCES["saxony_anhalt"], "the centre is in DE-ST"))
+
+
+EDERSEE = (51.183, 9.05)           # the Edersee: DE-HE
+KOENIGSSTUHL = (54.5735, 13.664)   # the Jasmund cliffs on Rügen: DE-MV
+
+
+def test_catalogue_hesse_and_mecklenburg_vorpommern(tmp_path, recorded):
+    """Hesse's source at the Edersee, Mecklenburg-Vorpommern's at the Königsstuhl (a centre at the
+    shore: the region holds its coastal waters)."""
+    assert (src.choose_source("auto", *EDERSEE, str(tmp_path))
+            == (src.SOURCES["hesse"], "the centre is in DE-HE"))
+    assert (src.choose_source("auto", *KOENIGSSTUHL, str(tmp_path))
+            == (src.SOURCES["mecklenburg_vorpommern"], "the centre is in DE-MV"))
+
+
+def test_offline_boxes_of_hesse_and_mecklenburg_vorpommern(tmp_path, monkeypatch):
+    """Offline, northern Hesse and Schwerin lie in Lower Saxony's box too: Hesse's and M-V's boxes
+    come first, so their own sources win there."""
+    def offline(*args, **kwargs):
+        raise requests.ConnectionError("offline")
+    monkeypatch.setattr(osm, "reverse", offline)
+    cache_dir = str(tmp_path)
+    for (lat, lon), sid in (((51.45, 9.6), "hesse"), ((53.63, 11.41), "mecklenburg_vorpommern"),
+                            (EDERSEE, "hesse"), (KOENIGSSTUHL, "mecklenburg_vorpommern"),
+                            ((52.4, 9.7), "lower_saxony")):
+        assert src.choose_source("auto", lat, lon, cache_dir)[0].id == sid, (lat, lon)
