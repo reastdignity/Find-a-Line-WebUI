@@ -45,6 +45,8 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_GITHUB_CLIEN
 # Leaflet's layer control opened as its expand() does (hover on a desktop, a tap on a phone: neither is the
 # same click on every device)
 LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
+ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => "
+           "l.textContent.trim() === 'Esri World Imagery')?.querySelector('input').click()")
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
@@ -79,6 +81,7 @@ PAGES = {
     "map-shared": ("shared", "", None),
     "map-credits": ("map", "", ".u-credits-toggle"),  # the data credits unfolded (phones: on a desktop no button)
     "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
+    "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
     "map-shared-credits": ("shared", "", ".u-credits-toggle"),
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
@@ -121,7 +124,21 @@ def clip_run(data: str) -> str:
     if result.returncode:
         sys.exit(result.stdout + result.stderr)
     runs = os.path.join(data, "runs")
-    return next(d for d in os.listdir(runs) if os.path.isfile(os.path.join(runs, d, "run.json")))
+    run = next(d for d in os.listdir(runs) if os.path.isfile(os.path.join(runs, d, "run.json")))
+    with_credits(os.path.join(runs, run, "data.js"))
+    return run
+
+
+def with_credits(path: str):
+    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js (a run of local files has
+    none), so the map's attribution is as long as a real run's (on a phone: folded behind its button)."""
+    import sources as src
+    with open(path, encoding="utf-8") as f:
+        prefix, _, text = f.read().partition(" = ")
+    data = json.loads(text.rstrip().rstrip(";"))
+    data["attribution"] = [c.as_dict() for c in src.SOURCES["geoportal"].credits] + [src.FABDEM_CREDIT.as_dict()]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(f"{prefix} = {json.dumps(data, ensure_ascii=False)};\n")
 
 
 def certificate(folder: str):
