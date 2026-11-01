@@ -187,6 +187,9 @@ class Data:
     water: Optional[np.ndarray]
     filled: Optional[np.ndarray]
     slope: Optional[np.ndarray]
+    # Pixels filled from the national data of a neighbour (Source.neighbours): not "filled gaps"
+    # of less precise data (filled), but a seam of two surveys where they meet
+    joined: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -594,7 +597,12 @@ def estimate_search(plan: Plan) -> Estimate:
 
 def _water_mask(plan: Plan) -> bool:
     """Whether the search needs the Copernicus water body mask."""
-    return plan.params.water == "fill" or (plan.params.fill_gaps == "on" and bool(plan.source.fallback))
+    return plan.params.water == "fill" or _fills_gaps(plan)
+
+
+def _fills_gaps(plan: Plan) -> bool:
+    """Whether the search fills gaps on land (from neighbours at a border, then fallbacks)."""
+    return plan.params.fill_gaps == "on" and bool(plan.source.fallback or plan.source.neighbours)
 
 
 def _download_layers(plan: Plan):
@@ -641,7 +649,7 @@ def prepare_data(plan: Plan) -> Data:
             surface_path = src.prepare_layer(source.nmpt, grid, cache_dir,
                                              os.path.join(work, "nmpt.npy"), "surface", p.update, download=False)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
-        water_path = filled_path = sea_zone = None
+        water_path = filled_path = joined_path = sea_zone = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
             sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update)
@@ -651,15 +659,21 @@ def prepare_data(plan: Plan) -> Data:
             if warning:
                 emit("warning", warning)
             sea_zone = src.near(sea, p.shore_buffer, grid.res)
-        elif p.fill_gaps == "on" and source.fallback:
+        elif _fills_gaps(plan):
             # Without --water fill the sea stays without data; keep the gap filling off it too
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
             sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
-        if p.fill_gaps == "on" and source.fallback:
-            filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
-                                                      [src.SOURCES[f] for f in source.fallbacks], cache_dir,
-                                                      os.path.join(work, "filled.npy"), p.update, exclude=sea_zone)
-            for fallback, filled_px in filled:
+        if _fills_gaps(plan):
+            # The neighbours' national data at a border first, then the fallbacks
+            joined_path, joined = src.filling.fill_from_neighbours(
+                elevation_path, surface_path, grid, [src.SOURCES[n] for n in source.neighbours], cache_dir,
+                os.path.join(work, "joined.npy"), p.update, exclude=sea_zone)
+            filled = []
+            if source.fallback:
+                filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
+                                                          [src.SOURCES[f] for f in source.fallbacks], cache_dir,
+                                                          os.path.join(work, "filled.npy"), p.update, exclude=sea_zone)
+            for fallback, filled_px in joined + filled:
                 if filled_px:
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
                                  f"from {fallback.name}")
@@ -684,7 +698,8 @@ def prepare_data(plan: Plan) -> Data:
         slope = np.load(slope_path, mmap_mode="r")
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
-                np.load(filled_path, mmap_mode="r") if filled_path else None, slope)
+                np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
+                np.load(joined_path, mmap_mode="r") if joined_path else None)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
@@ -709,10 +724,12 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 2, "finding significant slopes")
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
                                          plan.area.mask(grid), data.slope)
-    if data.filled is not None:
+    for seams in (data.filled, data.joined):
+        if seams is None:
+            continue
         # Slopes across the edge of a filled gap mix two surveys: not reliable anchors there
         from scipy import ndimage
-        gaps = np.asarray(data.filled)
+        gaps = np.asarray(seams)
         unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
             ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
         anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]

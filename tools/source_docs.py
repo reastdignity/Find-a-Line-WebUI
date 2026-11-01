@@ -28,7 +28,9 @@ IDS = ("<!-- source-ids:start -->", "<!-- source-ids:end -->")
 
 
 def _gaps(source) -> str:
-    return ", then ".join(f"`{f}`" for f in source.fallbacks) or "–"
+    """The sources that fill gaps on land: the neighbours at the border, then the fallbacks."""
+    steps = [f"{', '.join(f'`{n}`' for n in source.neighbours)} at the border"] if source.neighbours else []
+    return ", then ".join(steps + [f"`{f}`" for f in source.fallbacks]) or "–"
 
 
 def table() -> str:

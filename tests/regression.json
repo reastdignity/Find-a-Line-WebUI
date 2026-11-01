@@ -876,5 +876,121 @@
     },
     "notes": "--source auto picks luxembourg (the centre is in LU); first run on an empty cache: 4 blocks of 1 km per layer, about 11 MB of float64 read and 6-7 MB cached (float32) each; every line crosses the forest of the gorges (over_trees); also measured (radius 400 m): east of Berdorf (49.8180, 6.3720) 10800 lines in 222 spots, Mullerthal south-west of Berdorf (49.8172, 6.3328) 494 lines in 11 spots, the Sûre at Bourscheid and the Our at Vianden none",
     "seconds": 4.5
+  },
+  "R34": {
+    "place": "Mięguszowieckie Szczyty above Morskie Oko, Tatras, Poland: the Slovak side of the border ridge filled from our ÚGKK SR tiles (neighbours across a border)",
+    "args": "--lat 49.1880 --lon 20.0600 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "border",
+      "pl",
+      "sk"
+    ],
+    "needs_env": "FINDALINE_MIRROR",
+    "expected": {
+      "anchors": 313116,
+      "open": 13170,
+      "checked": 25484,
+      "lines": 2063,
+      "spots": 69,
+      "csv_sha256": "6c63b2d35b25371f41cd78dd7c6065633ad230160f300ab0b5ce1c9784fd02e9",
+      "length_km": 371.166,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.116,
+      "clearance_max": 11.54,
+      "over_trees": 368,
+      "coverage": 97.1,
+      "empty_tiles": 0,
+      "filled_km2": 0.34,
+      "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
+    },
+    "notes": "skipped without FINDALINE_MIRROR (without it the Slovak side comes from FABDEM); --source auto picks geoportal (the centre is in PL); the border ridge: 0.34 km² filled from 2 Slovak DMR/DMP tiles of 2 km, nothing left for FABDEM; geoportal has no NMPT sheet here",
+    "seconds": 5.1
+  },
+  "R35": {
+    "place": "Inn gorge at Finstermünz, Austria: the Swiss bank filled from swisstopo (neighbours across a border)",
+    "args": "--lat 46.9000 --lon 10.4780 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "border",
+      "at",
+      "ch"
+    ],
+    "expected": {
+      "anchors": 332241,
+      "open": 17660,
+      "checked": 487938,
+      "lines": 33275,
+      "spots": 244,
+      "csv_sha256": "0174c689f9d2f7e6625ec215d7b9918617801423a4b9d9ddf3bfb0cbebb8a67c",
+      "length_km": 10206.605,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.466,
+      "clearance_max": 16.32,
+      "over_trees": 33275,
+      "coverage": 71.61,
+      "empty_tiles": 2,
+      "filled_km2": 1.19,
+      "filled_from": "swisstopo (swissALTI3D / swissSURFACE3D)"
+    },
+    "notes": "--source auto picks austria (the centre is in AT); the Swiss bank of the Inn: 1.19 km² from 4 swissALTI3D / swissSURFACE3D tiles, 0.05 km² left for FABDEM; the 2 BEV blocks without data lie in Switzerland (empty_tiles); before the neighbours FABDEM filled the Swiss side",
+    "seconds": 6.2
+  },
+  "R36": {
+    "place": "Brenner pass, South Tyrol (IT-BZ): the Austrian side filled from BEV's ALS DTM and DSM (neighbours across a border)",
+    "args": "--lat 47.0040 --lon 11.5070 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "border",
+      "it",
+      "at"
+    ],
+    "expected": {
+      "anchors": 19561,
+      "open": 1224,
+      "checked": 38,
+      "lines": 6,
+      "spots": 1,
+      "csv_sha256": "0578184d3d133a466597f7a04c5186f7e793720fa988474afa698b28f279b9f5",
+      "length_km": 0.315,
+      "clearance_min": 0.01,
+      "clearance_mean": 0.282,
+      "clearance_max": 0.57,
+      "over_trees": 6,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "filled_km2": 0.14,
+      "filled_from": "BEV (ALS DTM / DSM)"
+    },
+    "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); the Tyrolean side: 0.14 km² from 2 BEV blocks of 1 km, 0.03 km² left for FABDEM; few lines (a pass, not a crag): the test is the fill",
+    "seconds": 2.8
+  },
+  "R37": {
+    "place": "Ecker valley below the Ecker dam, Harz, Lower Saxony: the Saxony-Anhalt bank filled from LVermGeo's DGM1 and DOM1 (neighbours across a border)",
+    "args": "--lat 51.8700 --lon 10.6150 --radius 600 --slope-threshold 55 --min-length 30 --max-length 400",
+    "sets": [
+      "sources",
+      "border",
+      "de"
+    ],
+    "expected": {
+      "anchors": 8225,
+      "open": 316,
+      "checked": 129,
+      "lines": 10,
+      "spots": 2,
+      "csv_sha256": "883ef0f011602bde5460bf1fe28ec8fbeca1d593ead5620c2922dd8e6f1e4afa",
+      "length_km": 3.438,
+      "clearance_min": 0.03,
+      "clearance_mean": 1.282,
+      "clearance_max": 3.34,
+      "over_trees": 10,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "filled_km2": 0.05,
+      "filled_from": "LVermGeo (DGM1 / DOM1)"
+    },
+    "notes": "--source auto picks lower_saxony (the centre is in DE-NI); the Ecker is the border: 0.05 km² from 1 LVermGeo WCS tile of 2 km (LGLN's tiles reach across the river), 0.04 km² left for FABDEM; the Harz has no crags at the border: few lines",
+    "seconds": 3.5
   }
 }

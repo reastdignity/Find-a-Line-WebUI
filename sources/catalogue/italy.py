@@ -53,6 +53,7 @@ SOURCES: List[Source] = [
         nmpt=_bz_layer("DigitalElevationModel", "DSM 2.5 m (trees, buildings)"),
         countries=("it",), regions=("it-bz",), crs="EPSG:25832", grid_origin=BZ_ORIGIN,
         ortho=BZ_ORTHO, credits=(BZ_CREDIT,),
+        neighbours=("austria", "swisstopo"),
         listing=ReadmeRow("South Tyrol (IT)", "Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006)",
                           "Province of Bolzano DSM, 2.5 m", "Province of Bolzano 2023"),
         offline=(("it-bz", (46.21, 47.10, 10.38, 12.48)),), sample=(46.5208, 11.7325),

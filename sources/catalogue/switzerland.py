@@ -31,6 +31,7 @@ SOURCES: List[Source] = [
                        "ch.swisstopo.swisssurface3d-raster", "switzerland/swisssurface3d", "EPSG:2056",
                        sizes={0.5: 17e6}),
         countries=("ch", "li"), crs="EPSG:2056", ortho=SWISSIMAGE, credits=(SWISSTOPO_CREDIT,),
+        neighbours=("austria", "south_tyrol"),
         listing=ReadmeRow("Switzerland, Liechtenstein",
                         "swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey",
                         "swissSURFACE3D Raster, 0.5 m", "SWISSIMAGE (swisstopo)"),

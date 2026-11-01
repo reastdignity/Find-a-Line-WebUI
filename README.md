@@ -72,9 +72,9 @@ Anchors are taken at ground level, as with the formula. With the default values 
 <!-- sources-table:start -->
 | `--source` | Where | `auto` | Terrain (DTM) | Surface (DSM, trees/buildings) | Orthophoto (cached) | Resolution | Gaps from |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `geoportal` | Poland | PL | GUGiK NMT sheets, 1 m, newest survey | GUGiK NMPT sheets, 0.5–1 m (about 85% of Poland) | geoportal.gov.pl | 1 m | `europe` |
-| `swisstopo` | Switzerland, Liechtenstein | CH, LI | swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey | swissSURFACE3D Raster, 0.5 m | SWISSIMAGE (swisstopo) | 1 m | `europe` |
-| `slovakia` | Slovakia | SK | ÚGKK SR DMR 5.0, ALS 1 m (2017–2023) | ÚGKK SR DMP 1.0, 1 m | ZBGIS (ÚGKK SR) | 1 m | `europe` |
+| `geoportal` | Poland | PL | GUGiK NMT sheets, 1 m, newest survey | GUGiK NMPT sheets, 0.5–1 m (about 85% of Poland) | geoportal.gov.pl | 1 m | `slovakia`, `mecklenburg_vorpommern` at the border, then `europe` |
+| `swisstopo` | Switzerland, Liechtenstein | CH, LI | swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey | swissSURFACE3D Raster, 0.5 m | SWISSIMAGE (swisstopo) | 1 m | `austria`, `south_tyrol` at the border, then `europe` |
+| `slovakia` | Slovakia | SK | ÚGKK SR DMR 5.0, ALS 1 m (2017–2023) | ÚGKK SR DMP 1.0, 1 m | ZBGIS (ÚGKK SR) | 1 m | `geoportal`, `austria` at the border, then `europe` |
 | `malta` | Malta | MT | MSDI DTM 2018, LiDAR 1 m (heights in whole metres) | MSDI DSM 2018, 1 m | MSDI 2018 | 1 m | `europe` |
 | `malta2012` | Malta | – | MSDI DTM 2012, centimetre heights | MSDI DSM 2012 | MSDI 2018 | 1 m | `malta` |
 | `spain_canarias` | Canary Islands | ES | IGN MDT05 (REGCAN95 / UTM 28N), 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `europe` |
@@ -83,14 +83,14 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | USGS Imagery | 5 m | `usgs10m` |
 | `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `usgs10m` |
 | `usgs10m` | USA and its territories | – | USGS 3DEP seamless 1/3 arc-second DEM (about 10 m) | – | USGS Imagery | 10 m | `europe` |
-| `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `europe` |
-| `wales` | Wales (GB) | GB | Welsh Government LiDAR 2020-22 DTM, 1 m | Welsh Government LiDAR DSM, 1 m | – (no open orthophoto) | 1 m | `europe` |
-| `england` | England (GB) | GB | Environment Agency LIDAR Composite DTM 2022, 1 m | EA LIDAR Composite First Return DSM 2022, 1 m | – (no open orthophoto) | 1 m | `europe` |
-| `hesse` | Hesse (DE) | DE | HVBG DGM1, 1 m (WCS) | HVBG DOM1, 1 m (WCS) | HVBG DOP | 1 m | `europe` |
-| `mecklenburg_vorpommern` | Mecklenburg-Vorpommern (DE) | DE | LAiV DGM1, 1 m (WCS) | LAiV DOM1, 1 m (WCS) | LAiV DOP | 1 m | `europe` |
-| `saxony_anhalt` | Saxony-Anhalt (DE) | DE | LVermGeo DGM1, 1 m (WCS) | LVermGeo DOM1, 1 m (WCS) | LVermGeo DOP20 | 1 m | `europe` |
-| `lower_saxony` | Lower Saxony (DE) | DE | LGLN DGM1, 1 m; newest survey | LGLN DOM1, 1 m | LGLN DOP20 | 1 m | `europe` |
-| `south_tyrol` | South Tyrol (IT) | IT | Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006) | Province of Bolzano DSM, 2.5 m | Province of Bolzano 2023 | 2.5 m | `europe` |
+| `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `swisstopo`, `south_tyrol`, `slovakia` at the border, then `europe` |
+| `wales` | Wales (GB) | GB | Welsh Government LiDAR 2020-22 DTM, 1 m | Welsh Government LiDAR DSM, 1 m | – (no open orthophoto) | 1 m | `england` at the border, then `europe` |
+| `england` | England (GB) | GB | Environment Agency LIDAR Composite DTM 2022, 1 m | EA LIDAR Composite First Return DSM 2022, 1 m | – (no open orthophoto) | 1 m | `wales` at the border, then `europe` |
+| `hesse` | Hesse (DE) | DE | HVBG DGM1, 1 m (WCS) | HVBG DOM1, 1 m (WCS) | HVBG DOP | 1 m | `lower_saxony` at the border, then `europe` |
+| `mecklenburg_vorpommern` | Mecklenburg-Vorpommern (DE) | DE | LAiV DGM1, 1 m (WCS) | LAiV DOM1, 1 m (WCS) | LAiV DOP | 1 m | `lower_saxony`, `geoportal` at the border, then `europe` |
+| `saxony_anhalt` | Saxony-Anhalt (DE) | DE | LVermGeo DGM1, 1 m (WCS) | LVermGeo DOM1, 1 m (WCS) | LVermGeo DOP20 | 1 m | `lower_saxony` at the border, then `europe` |
+| `lower_saxony` | Lower Saxony (DE) | DE | LGLN DGM1, 1 m; newest survey | LGLN DOM1, 1 m | LGLN DOP20 | 1 m | `saxony_anhalt`, `hesse`, `mecklenburg_vorpommern` at the border, then `europe` |
+| `south_tyrol` | South Tyrol (IT) | IT | Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006) | Province of Bolzano DSM, 2.5 m | Province of Bolzano 2023 | 2.5 m | `austria`, `swisstopo` at the border, then `europe` |
 | `luxembourg` | Luxembourg | LU | ACT BD-L-Lidar2024 MNT, 0.5 m | ACT BD-L-Lidar2024 MNS, 0.5 m | geoportail.lu orthophoto | 1 m | `europe` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
 | `nasadem` | anywhere | – | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – | 30 m | `europe` |
