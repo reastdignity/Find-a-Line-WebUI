@@ -39,6 +39,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import rasterio as rio
+import rasterio.cache
 from rasterio.enums import Resampling
 from rasterio.vrt import WarpedVRT
 
@@ -182,14 +183,26 @@ def _gdal_path(url: str) -> str:
 
 def _read_source(url: str, profile: Dict) -> np.ndarray:
     """A source file's values on the pixels of a cached tile (nearest: the same pixels when the
-    tile is on the file's own grid), NaN without data."""
+    tile is on the file's own grid), NaN without data. A read GDAL could not complete although it
+    returned (src.net.gdal_errors: what it could not fetch comes back as nodata or zeros) raises
+    RuntimeError with GDAL's error, never a false difference. GDAL's settings as
+    src.net._gdal_http's (retries of requests without an answer, the blocks read in this thread)
+    but for the extensions: the sources here include zips and ASCII grids."""
     env = rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"], GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
-                  GDAL_HTTP_TIMEOUT="120", GDAL_HTTP_MAX_RETRY="3", GDAL_HTTP_RETRY_DELAY="2")
-    with env, rio.open(_gdal_path(url)) as source:
-        kwargs = {} if source.crs else {"src_crs": profile["crs"]}  # ASCII grids name no CRS
-        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                       height=profile["height"], resampling=Resampling.nearest, **kwargs) as vrt:
-            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+                  GDAL_HTTP_TIMEOUT="120", GDAL_HTTP_MAX_RETRY="3", GDAL_HTTP_RETRY_DELAY="2",
+                  GDAL_HTTP_RETRY_CODES=src.net.GDAL_RETRY_CODES, GDAL_NUM_THREADS="1")
+    try:
+        with env, src.net.gdal_errors() as errors, rio.open(_gdal_path(url)) as source:
+            kwargs = {} if source.crs else {"src_crs": profile["crs"]}  # ASCII grids name no CRS
+            with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                           height=profile["height"], resampling=Resampling.nearest, **kwargs) as vrt:
+                values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+        if errors:
+            raise RuntimeError("not read completely: " + "; ".join(dict.fromkeys(errors)))
+    except (RuntimeError, rio.errors.RasterioError):
+        if url.startswith(("http://", "https://")):
+            rio.cache.invalidate(url)  # not the short answer again from GDAL's cache
+        raise
     values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
     return values
 
@@ -278,7 +291,7 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         for url in _sources_of(layer, tile):
             try:
                 source = _read_source(url, profile)
-            except rio.errors.RasterioIOError as e:
+            except (rio.errors.RasterioIOError, RuntimeError) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
                 break
             if blocks and not np.isfinite(source).any():

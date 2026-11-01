@@ -40,6 +40,7 @@ from rasterio.warp import transform as warp
 import cache
 from grid import make_grid
 
+from . import net
 from .net import _gdal_http, _remote, host_slot
 from .layer import Layer
 from .source import OrthoService, Source
@@ -48,7 +49,7 @@ from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
-from .readers.windows import _read_window, _same_crs
+from .readers.windows import _forget, _read_window, _same_crs
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
@@ -163,15 +164,23 @@ def _read(cache_dir: str, url: Optional[str]) -> str:
 
 def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
     """WINDOW_PX x WINDOW_PX pixels at the top left of a block, from its first file; raises with the
-    reason."""
+    reason. A read GDAL could not complete although it returned (net.gdal_errors: what it could not
+    fetch comes back as nodata or zeros) fails with GDAL's error, never as a share of the window."""
     request = layer.index.request(tile)
     if not request.files:
         raise RuntimeError("no file for the first block")
     name, url, _ = request.files[0]
-    with host_slot(cache_dir, url), _gdal_http(), rio.open(_remote(url)) as remote:
-        if remote.crs is not None and not _same_crs(remote.crs, request.crs):
-            raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
-        values = _read_window(remote, request.transform, (WINDOW_PX, WINDOW_PX))
+    try:
+        with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
+            with rio.open(_remote(url)) as remote:
+                if remote.crs is not None and not _same_crs(remote.crs, request.crs):
+                    raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
+                values = _read_window(remote, request.transform, (WINDOW_PX, WINDOW_PX))
+        if errors:
+            raise RuntimeError(f"{name} not read completely: " + "; ".join(dict.fromkeys(errors)))
+    except (RuntimeError, rio.errors.RasterioError):
+        _forget(url)  # not the short answer again from GDAL's cache, should this process read it later
+        raise
     share = float(np.isfinite(values).mean())
     if not share:
         raise RuntimeError(f"no data in a window of {name}")

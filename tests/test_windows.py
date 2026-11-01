@@ -143,3 +143,47 @@ def test_gdal_errors_per_thread():
             logging.getLogger("rasterio._err").info("GDAL signalled an error: err_no=%r, msg=%r", 1, "test")
         assert inner == ["test"] and errors == ["test"]
 
+
+
+def _block_layer(server, name):
+    """A FileBlocks layer of the one file at name, and the block at the middle of the file."""
+    import grid as gd
+    from sources.layers.fileblocks import FileBlocks
+    layer = FileBlocks("Big", "test/big", CRS, 1.0, 40, server.url(name), extent=(0, 0, SIZE, SIZE))
+    tiles = layer.tiles(gd.make_grid((1000, SIZE - 1040, 1040, SIZE - 1000), 1.0, CRS))
+    return layer, tiles[0]
+
+
+def _header_once(n, range_header):
+    """The first reads of a file cut short: its header and the arrays of its tiles' offsets."""
+    return n <= 5 and not _tile(n, range_header)
+
+
+def test_probe_window_cut_short(http_server, tiff, tmp_path):
+    """The probe's window (sources check): an answer cut short fails with GDAL's error, never as a
+    share of the window with data; a whole answer gives the share."""
+    from sources import probe
+    http_server.add("/big.tif", tiff[0], "image/tiff")
+    layer, tile = _block_layer(http_server, "/big.tif")
+    assert probe._window(str(tmp_path), layer, tile) == "window 100% with data"
+    http_server.add("/cut.tif", tiff[0], "image/tiff")
+    http_server.fault("/cut.tif", "truncate", _header_once)
+    layer, tile = _block_layer(http_server, "/cut.tif")
+    with pytest.raises(RuntimeError, match="cut.tif not read completely: .*strile"):
+        probe._window(str(tmp_path), layer, tile)
+    # Read again in this process: GDAL's cache of the short answer was dropped
+    assert probe._window(str(tmp_path), layer, tile) == "window 100% with data"
+
+
+def test_check_source_file_cut_short(http_server, tiff):
+    """tools/check_source.py's comparison with a source file: an answer cut short raises with GDAL's
+    error (reported as a problem of the check), never values to compare."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    data, band = tiff
+    profile = {"crs": CRS, "transform": from_origin(1000, SIZE - 1000, 1, 1), "width": 40, "height": 40}
+    http_server.add("/cut.tif", data, "image/tiff")
+    http_server.fault("/cut.tif", "truncate", _header_once)
+    with pytest.raises(RuntimeError, match="not read completely"):
+        cs._read_source(http_server.url("/cut.tif"), profile)
+    assert (cs._read_source(http_server.url("/cut.tif"), profile) == band[1000:1040, 1000:1040]).all()
