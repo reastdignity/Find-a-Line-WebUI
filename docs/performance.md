@@ -620,6 +620,75 @@ first; every run byte for byte the same as the reference runs):
   `LINE_BYTES` measured again, and F7 (the evaluation stops as soon as the lines are over
   `lines_max` or the memory).
 
+### Done, wave 4 (2026-11-01, branch `lines-memory`)
+
+The memory of steps 3 and 4 (M), the memory model measured again, and F7, one commit each. They
+were checked as before: `pytest`, the regression set, the self-check of `analyse`, and byte for
+byte (R9, R22, the Gozo coast with `--tile-size 5000` and swiss-long, the last two on 24 threads and
+on 7 cores). The `pytest` tests include `test_valid_lines_in_parts_as_before`: it keeps the old end
+of step 3 as the reference, and every column and dtype must be equal with parts of 1 to 10 000
+pairs and 1 to 200 chunks. `test_evaluation_parts` and `test_early_stop_of_the_evaluation` are new
+too.
+
+| # | In the code |
+| --- | --- |
+| step 3 | `find_valid_lines` evaluates the found pairs straight from the chunks' arrays (`evaluation_parts`: parts of at least `EVAL_PART`, 10 000 pairs, each chunk released once handed out) instead of joining all of them first, then joins the valid lines' parts column by column (`join_tables`) and sorts them in place (`LineTable.reorder`) |
+| step 4 | `search.line_coordinates`: `mapping.coordify` writes into the final columns `COORDINATE_PART` (131 072) lines at a time, a tile's core is taken in place, and `covered_metres` gives an array, `COVERED_PART` lines at a time |
+| model | `tools/perf_lines_memory.py --call`: the traced heap of steps 3, 4 and 5 per line, from a capture of `tools/perf_line_funnel.py` |
+| F7 | `find_valid_lines(check=)` after each evaluated part: `search._early_check` refuses as soon as the lines so far (with those of the tiles done already) are over `lines_max`, or would not fit with the grids into `Plan.memory`; `Limits.lines_early_stop` (`FINDALINE_LIMIT_LINES_EARLY_STOP`, true by default), carried by `Plan.early_stop` also for a user without limits, whose compute slot's budget still applies |
+
+The traced heap per valid line (tracemalloc; "→": before → after, single values unchanged):
+
+| Capture | lines | step 3 peak | step 4: coordinates, core, water | step 4: grouping | step 4: profiles | held | step 5 peak |
+| --- | ---: | --- | --- | ---: | ---: | ---: | ---: |
+| swiss-long | 1 695 554 | 494 → 190 B | 350 → 234 B | 389 B | 306 B | 276 B | 327 B |
+| Gozo coast, its large tile | 252 534 | 504 → 199 B | 553 → 287 B | 439 B | 311 B | 261 B | 459 B |
+| R9 | 85 671 | 501 → 196 B | 306 → 305 B | 413 B | 389 B | 294 B | 834 B |
+
+The peak RSS per step (MB, sampled, `tools/perf_profile.py` in one session, before and after in
+turn):
+
+| Job | step 3 | step 4 | job |
+| --- | --- | --- | --- |
+| R9 | 216 → 204 | 374 → 365 | 421 → 419 |
+| R22 | 256 → 227 | 323 → 264 | 339 → 277 |
+| Gozo coast | 827 → 826 | 867 → 813 | 2828 → 2911 (step 1) |
+| Gozo coast, 7 cores | 756 → 742 | 858 → 797 | 2849 → 2804 (step 1) |
+| swiss-long | 1087 → 697 | 1066 → 1073 | 1087 → 1073 |
+| swiss-long, 7 cores | 1073 → 698 | 1071 → 1067 | 1073 → 1067 |
+
+- **Step 3** holds about 195 B per line instead of 500: swiss-long's step 3 peaks at 697 MB instead
+  of about 1080 (its heap 915 → 423 MB). Its job's peak, about 1.07 GB, is now set by step 4's
+  grouping and by step 5, whose code did not change.
+- **Step 4**'s coordinates keep one table: 234-305 B per line instead of 306-553 (the most on a
+  tile, whose core's `take` copied the table). R9's fit into one part, so its number did not move.
+  Step 4's peak is now `mapping.group_lines` (389-439 B per line: its cell index holds the cells of
+  every line as Python lists of ints).
+- **The model**: `LINE_BYTES` stays 500, 14 % over the largest peak (439 B, the Gozo tile's
+  grouping); before wave 4, step 3 alone reached 500 B, so the old value had no margin. The found
+  pairs need no term of their own: on all 15 captures there are as many as valid lines (at most
+  1.0001 times), and a pair waiting for its check takes 16 B. `PROFILE_POINT_BYTES` (100 B, 30 % over
+  the measured 77 B) and `CIRCLE_PROFILES_BYTES` are unchanged: the same circles keep every profile.
+  R9's step 5 per line is mostly a fixed part of about 40 MiB (about 300 B per line on the larger
+  captures).
+- **Times** are unchanged within the noise: swiss-long's "checking lines" 1.1 → 1.2 s wall, its step
+  4 19.1 s before and after. The jobs are within ±3 %, apart from two runs whose "before" was slow
+  (R22: its "checking lines" took 3.7 CPU s).
+- **F7**, on the swiss-long capture with `lines_max` 200 000:
+  - The search is refused after 210 000 of its 1 695 554 lines were checked (12 %, 0.22 s instead
+    of 1.17 s), without building the table of all of them (about 250 MB).
+  - The pair search (8-16 s) still runs to its end.
+  - The page says "More than 200000 lines found, the limit of this site: the search stopped there."
+    Only the command line's text names the number checked so far: it depends on the size of the
+    parts.
+  - With the switch off, the search is refused once all its lines are checked ("1695554 lines
+    found").
+- **Still open**:
+  - `group_lines`' cell index without Python lists: about 150 B per line less, after which
+    `LINE_BYTES` could fall to about 400 B.
+  - Step 5: about 300 B per line plus about 40 MiB.
+  - F8c, the middle of lines over 1024 px in an order kinder to the cache, `_evaluate`.
+
 ### What the server collects
 
 Per job, since migration 16 (docs/monitoring.md, F19): the CPU seconds of every step, the seconds
