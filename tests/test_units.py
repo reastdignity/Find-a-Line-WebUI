@@ -417,6 +417,95 @@ def test_valid_lines_in_parts_as_before(model, case, monkeypatch):
         assert stats["found"] == found and stats["valid"] == len(old) and stats["left_out"] == old_limits.left_out
 
 
+def _old_group_lines(lines, distance, by="clearance"):
+    """mapping.group_lines of 746fa2f (its cell index a dict of Python lists), the reference of
+    test_grouping_as_before."""
+    import mapping
+    first, second = mapping._rank(lines, by)
+    over_all = lines.columns["over_obstacles"]
+    d2 = distance ** 2
+    reps, members = [], []
+    for over in (False, True):
+        rows = np.flatnonzero(over_all == over)
+        if not len(rows):
+            continue
+        rows = rows[np.lexsort((-second[rows], -first[rows]))]
+        a1 = lines.columns["a1_xy"][rows]
+        a2 = lines.columns["a2_xy"][rows]
+        free = np.ones(len(rows), dtype=bool)
+        cells = {}
+        for k, cell in enumerate(map(tuple, np.floor(a1 / distance).astype(np.int64).tolist())):
+            cells.setdefault(cell, []).append(k)
+
+        def near(point):
+            cx, cy = (int(v) for v in np.floor(point / distance))
+            return [k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in cells.get((cx + dx, cy + dy), ())]
+
+        for i in range(len(rows)):
+            if not free[i]:
+                continue
+            candidates = np.unique(np.array(near(a1[i]) + near(a2[i]), dtype=np.int64))
+            candidates = candidates[free[candidates]]
+            c1, c2 = a1[candidates], a2[candidates]
+            same = (((c1 - a1[i]) ** 2).sum(1) <= d2) & (((c2 - a2[i]) ** 2).sum(1) <= d2)
+            flipped = (((c1 - a2[i]) ** 2).sum(1) <= d2) & (((c2 - a1[i]) ** 2).sum(1) <= d2)
+            found = candidates[same | flipped]
+            free[found] = False
+            reps.append(int(rows[i]))
+            members.append(rows[found])
+    rep = np.array(reps, dtype=np.int64)
+    order = np.lexsort((-second[rep], -first[rep], over_all[rep])) if len(rep) else np.zeros(0, dtype=np.int64)
+    members = [members[g] for g in order.tolist()]
+    start = np.concatenate([[0], np.cumsum([len(m) for m in members], dtype=np.int64)]).astype(np.int64)
+    return rep[order], np.concatenate(members).astype(np.int64) if members else np.zeros(0, dtype=np.int64), start
+
+
+def _grouping_table(n, seed, offset, spread, distance):
+    """n lines for test_grouping_as_before: anchors on a lattice of steps of `distance` / 2 and in
+    between (lines exactly `distance` apart), some flipped and some copied, ranks with ties."""
+    import helpers as sh
+    rng = np.random.default_rng(seed)
+    a1 = rng.integers(-spread, spread, (n, 2)) * (distance / 2)
+    a1[n // 3:] += rng.random((n - n // 3, 2)) * distance
+    a2 = a1 + rng.integers(5, 40, (n, 2)) * distance / 2
+    near = rng.random(n) < 0.3  # a line next to one before it, exactly `distance` away or less
+    source = rng.integers(0, max(n // 2, 1), n)
+    step = rng.choice(np.array([[distance, 0], [0, -distance], [distance * 0.6, distance * 0.8],
+                                [0.3 * distance, 0.1], [0, 0]]), n)
+    a1[near], a2[near] = a1[source[near]] + step[near], a2[source[near]] - step[near]
+    flip = rng.random(n) < 0.2
+    a1[flip], a2[flip] = a2[flip].copy(), a1[flip].copy()
+    a1, a2 = a1 + offset, a2 + offset
+    columns = {"a1_xy": a1, "a2_xy": a2, "over_obstacles": rng.random(n) < 0.3,
+               "clearance": rng.integers(0, 4, n).astype(np.float64),
+               "length": rng.integers(20, 23, n).astype(np.float64),
+               "height_max": np.round(rng.random(n) * 3, 1)}
+    return sh.LineTable(columns)
+
+
+@pytest.mark.parametrize("by", ["clearance", "longest", "height", "other"])
+@pytest.mark.parametrize("distance", [1.0, 2.5, 5.0, 20.0])
+@pytest.mark.parametrize("offset", [(0.0, 0.0), (-3.2e5, -1.7e4), (6.1e5, 5.4e6), (-7.0e5, 5.0e6)])
+def test_grouping_as_before(by, distance, offset):
+    """mapping.group_lines with its cell index as numpy arrays: the groups of before (rep, members,
+    start), equal ranks, lines exactly `distance` apart, flipped lines, lines over obstacles,
+    negative and large coordinates; an empty table and a single line."""
+    import helpers as sh
+    import mapping
+    tables = [_grouping_table(n, seed, np.array(offset), spread, distance)
+              for n, seed, spread in ((600, 1, 20), (2000, 2, 200), (300, 3, 3), (1, 4, 5), (40, 5, 1))]
+    tables.append(sh.LineTable({k: np.zeros((0, 2)) if k.endswith("_xy") else np.zeros(0, dtype=bool)
+                                if k == "over_obstacles" else np.zeros(0)
+                                for k in ("a1_xy", "a2_xy", "over_obstacles", "clearance", "length", "height_max")}))
+    for k, lines in enumerate(tables):
+        old = _old_group_lines(lines, distance, by)
+        new = mapping.group_lines(lines, distance, by)
+        for name, a, b in zip(("rep", "members", "start"), old, (new.rep, new.members, new.start)):
+            assert b.dtype == a.dtype and np.array_equal(a, b), (k, name)
+        if k == 0:
+            assert 0 < len(new.rep) < len(lines) and new.sizes().max() > 2  # groups formed
+
+
 def test_early_stop_of_the_evaluation(monkeypatch):
     """find_valid_lines' check is called after every evaluated part with the valid lines so far; when
     it raises, the evaluation stops there, the "checking lines" bar is closed and the counts so far

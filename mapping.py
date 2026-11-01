@@ -105,6 +105,48 @@ def _rank(lines: LineTable, by: str) -> Tuple[np.ndarray, np.ndarray]:
     return c["clearance"], c["length"]
 
 
+class _CellIndex:
+    """Lines by the cell (of size `distance`) of their first anchor, as numpy arrays.
+
+    The cell numbers are those of `np.floor(xy / distance)`; one int64 key per line numbers
+    the cells within the box of the first anchors (x, then y), the lines are sorted by it
+    (stably: the lines of a cell in their order) and a cell's lines found by `searchsorted`.
+    """
+
+    def __init__(self, a1: np.ndarray, distance: float):
+        self.distance = distance
+        cell = np.floor(a1 / distance).astype(np.int64)
+        if len(cell):
+            self.low, self.high = cell.min(0), cell.max(0)
+        else:
+            self.low = self.high = np.zeros(2, dtype=np.int64)
+        self.width = int(self.high[1] - self.low[1]) + 1
+        key = (cell[:, 0] - self.low[0]) * self.width + (cell[:, 1] - self.low[1])
+        del cell
+        self.order = np.argsort(key, kind="stable")
+        self.keys = key[self.order]
+
+    def near(self, *points: np.ndarray) -> np.ndarray:
+        """The lines in the 3 x 3 cells around each point, sorted, each once (as np.unique)."""
+        parts = []
+        for point in points:
+            cx, cy = (int(v) for v in np.floor(point / self.distance))
+            xs = [x for x in (cx - 1, cx, cx + 1) if self.low[0] <= x <= self.high[0]]
+            ys = [y for y in (cy - 1, cy, cy + 1) if self.low[1] <= y <= self.high[1]]
+            if not xs or not ys:
+                continue
+            for x in xs:
+                # The cells (x, ys[0]) to (x, ys[-1]) have consecutive keys: one slice
+                row = (x - int(self.low[0])) * self.width - int(self.low[1])
+                lo = int(np.searchsorted(self.keys, row + ys[0], side="left"))
+                hi = int(np.searchsorted(self.keys, row + ys[-1], side="right"))
+                if hi > lo:
+                    parts.append(self.order[lo:hi])
+        if not parts:
+            return np.zeros(0, dtype=np.int64)
+        return np.unique(np.concatenate(parts)).astype(np.int64, copy=False)
+
+
 def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Groups:
     """Group near-identical lines (both anchors within `distance` metres).
 
@@ -132,18 +174,12 @@ def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Gro
         # Lines by the cell (of size `distance`) of their first anchor: a member's first
         # anchor lies within `distance` of one of the representative's anchors, so in
         # one of the 3 x 3 cells around it
-        cells: Dict[Tuple[int, int], List[int]] = {}
-        for k, cell in enumerate(map(tuple, np.floor(a1 / distance).astype(np.int64).tolist())):
-            cells.setdefault(cell, []).append(k)
-
-        def near(point) -> List[int]:
-            cx, cy = (int(v) for v in np.floor(point / distance))
-            return [k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in cells.get((cx + dx, cy + dy), ())]
+        cells = _CellIndex(a1, distance)
 
         for i in range(len(rows)):
             if not free[i]:
                 continue
-            candidates = np.unique(np.array(near(a1[i]) + near(a2[i]), dtype=np.int64))
+            candidates = cells.near(a1[i], a2[i])
             candidates = candidates[free[candidates]]
             c1, c2 = a1[candidates], a2[candidates]
             same = (((c1 - a1[i]) ** 2).sum(1) <= d2) & (((c2 - a2[i]) ** 2).sum(1) <= d2)
