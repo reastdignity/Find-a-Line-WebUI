@@ -29,8 +29,9 @@ RETRIES = 3
 
 
 def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
-    """GET with retries; raises RuntimeError with the server message on failure. Every attempt is
-    counted (servicecounts; a 200 that is not data counts as `other`)."""
+    """GET with retries; raises RuntimeError with the server message on failure (without the
+    query of the URL or a key's value: cache.clean_error). Every attempt is counted (servicecounts,
+    the host only; a 200 that is not data counts as `other`)."""
     last_error = None
     for attempt in range(RETRIES):
         try:
@@ -48,7 +49,9 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
             _sleep(attempt)
-    raise RuntimeError(cache.clean_error(last_error))  # no API key from a query in the message
+    # No API key from a query in the message, and no value of a service key anywhere in it (a
+    # server's answer may echo the token of its request: settings.redact through clean_error)
+    raise RuntimeError(cache.clean_error(last_error))
 
 
 def _sleep(attempt: int):

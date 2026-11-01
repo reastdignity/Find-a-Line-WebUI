@@ -993,5 +993,18 @@
     },
     "notes": "--source auto picks lower_saxony (the centre is in DE-NI); the Ecker is the border: 0.05 km² from 1 LVermGeo WCS tile of 2 km (LGLN's tiles reach across the river), 0.04 km² left for FABDEM; the Harz has no crags at the border: few lines",
     "seconds": 3.5
+  },
+  "R38": {
+    "place": "Møns Klint, Denmark: Klimadatastyrelsen's DHM (0.4 m, Datafordeler's WCS 1.0.0) with the server's API key (needs `DATAFORDELER_API_KEY`)",
+    "args": "--lat 54.9700 --lon 12.5420 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "dk"
+    ],
+    "needs_env": "DATAFORDELER_API_KEY",
+    "expected": {
+      "source": "Klimadatastyrelsen (DHM)"
+    },
+    "notes": "skipped without DATAFORDELER_API_KEY; --source auto picks Denmark (the centre is in DK); chalk cliffs up to 128 m; the expected values are still to be recorded (`--update` with a key) before `--write-doc`"
   }
 }

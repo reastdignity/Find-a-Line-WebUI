@@ -253,8 +253,12 @@ def http_headers() -> Dict[str, str]:
 
 
 def clean_url(url: Optional[str]) -> Optional[str]:
-    """The URL without API keys."""
-    return re.sub(r"((?:api_?key|key|token)=)[^&]+", r"\1...", url, flags=re.I) if url else url
+    """The URL without API keys: the values of key and token parameters, and the values of the
+    service keys wherever they are (settings.redact)."""
+    if not url:
+        return url
+    from settings import redact
+    return redact(re.sub(r"((?:api_?key|key|token)=)[^&]+", r"\1...", url, flags=re.I))
 
 
 def clean_error(error) -> str:
@@ -262,9 +266,11 @@ def clean_error(error) -> str:
 
     requests puts the whole URL into its errors ("... for url: https://...?API_Key=..."),
     and these messages reach the terminal, job events and the web page; a key or token
-    in a query must not. A query is "?" followed by text with "=" and no spaces.
+    in a query must not. A query is "?" followed by text with "=" and no spaces. The values of
+    the service keys are masked wherever they are (settings.redact: a server may echo one).
     """
-    return re.sub(r"\?[^\s'\"()<>?]*=[^\s'\"()<>]*", "?...", str(error))
+    from settings import redact
+    return redact(re.sub(r"\?[^\s'\"()<>?]*=[^\s'\"()<>]*", "?...", str(error)))
 
 
 def _split(cache_dir: str, path: str):

@@ -48,7 +48,7 @@ import messages
 import params as pm
 import servicecounts
 from messages import UserError
-from settings import Limits, PublicSettings
+from settings import Limits, PublicSettings, redact as redact_keys
 
 TICK = 0.5                # seconds between looks at the queue
 PROGRESS_INTERVAL = 0.3   # seconds between progress events of a job
@@ -263,8 +263,11 @@ class Redact:
         return sorted(found, key=len, reverse=True)  # the longest first
 
     def __call__(self, value: Any) -> Any:
-        """The value (a text, or texts in lists and dicts) without server paths."""
+        """The value (a text, or texts in lists and dicts) without server paths, and without the
+        values of the service keys (settings.redact: a line a library printed may hold a request
+        with a key that no clean_error saw)."""
         if isinstance(value, str):
+            value = redact_keys(value)
             for pattern in self.data:
                 value = pattern.sub(lambda m: "" if m.group(0)[-1] in "\\/" else "<data folder>", value)
             for pattern in self.app:

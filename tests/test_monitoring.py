@@ -369,6 +369,11 @@ LOG_LINES = [
      'Zx9_secretToken-1/map.html#line=1"', ["192.0.2.10", "Zx9_secretToken-1"]),
     ('2026/11/01 12:00:05 [error] 812#812: *46 upstream timed out, client: 192.0.2.11, request: "GET '
      '/auth/github?code=abc123&state=xyz HTTP/2.0"', ["192.0.2.11", "abc123", "xyz"]),
+    ("requests.exceptions.ConnectionError: HTTPSConnectionPool(host='wcs.datafordeler.dk', port=443): Max "
+     "retries exceeded with url: /DHMNedboer/dhm_wcs/1.0.0/WCS?SERVICE=WCS&REQUEST=GetCoverage&apikey=0f3c9e1a2b4d6f8e7a&WIDTH=2000 "
+     "(Caused by ConnectTimeoutError(198.51.100.20))", ["0f3c9e1a2b4d6f8e7a", "198.51.100.20"]),
+    ("RuntimeError: HTTP 401 for https://portal.opentopography.org/API/globaldem?demtype=NASADEM&API_Key=Ab12Cd34"
+     " from 203.0.113.9", ["Ab12Cd34", "203.0.113.9"]),
 ]
 
 
@@ -418,6 +423,8 @@ def test_telegraf_logs():
     assert "client: <address>, server: findaline.example.org" in masked and "excess: 10.500" in _mask(LOG_LINES[1][0])
     assert '"https://findaline.example.org/s/<token>/map.html#line=1"' in _mask(LOG_LINES[5][0])
     assert '"GET /auth/github?<query> HTTP/2.0"' in _mask(LOG_LINES[6][0])
+    assert "&apikey=<secret>&WIDTH=2000 " in _mask(LOG_LINES[7][0])
+    assert "&API_Key=<secret> from" in _mask(LOG_LINES[8][0])
     for text in ("Saved run 2026-11-01_12-00-00 at 50.1559508, 19.7562722 in 12:03:44", "lines: 1.2.3 of 4"):
         assert _mask(text) == text
 
