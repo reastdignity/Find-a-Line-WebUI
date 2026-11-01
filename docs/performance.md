@@ -174,7 +174,8 @@ Step 5 was the highest peak, above the 2.5 KB that `search.LINE_BYTES` counted; 
   about 0.45 GB of profiles (its peak 1.02 → 0.81 GB). The memory model counted none of this, so a
   public 1 m circle with a million lines would have needed about 20 GB; `search.memory_needed`
   now counts a circle's profile points (`PROFILE_POINT_BYTES`) and refuses lines that would not
-  fit with them.
+  fit with them. Since 2026-11-01 a profile is held as arrays, 21-30 B per point ("Done, wave 3" of
+  the order of elimination).
 - **The largest public search** (`grid_mpx_max` 36 Mpx, `lines_max` 1.5 million) now needs
   3.6 + 0.75 = 4.35 GB where it needed 3.6 + 3.75 GB by the model (and about 8.2 GB in step 5).
 
@@ -290,7 +291,8 @@ R2, R4, R9-R11, R13-R16, R18-R20 ok; the four files of the Gozo coast the same a
   `WORKER_DOWNLOAD_SLOTS=2` (docs/deployment.md), then one large search there with
   `tools/perf_profile.py` to check these numbers on its cores.
 - The peak memory of a job is now the gap filling of step 1 (`sources.fill_gaps` and its mosaics).
-- A circle's profiles of every line are computed on one core (R9: 7 s of 15).
+- A circle's profiles of every line are computed on one core (R9: 7 s of 15). Done 2026-11-01
+  ("Done, wave 3" of the order of elimination, below).
 - The geoportal sheet index is the most variable part of a download (12-150 s a run).
 - Four compute slots admitted by an estimate of each job's memory (three fixed slots now).
 - Recommendation 4, the tiles of a large area in parallel: deferred, see above.
@@ -533,6 +535,90 @@ after; the line search: its three bars):
   `candidates` changed alike (docs/monitoring.md).
 - **Still open**: F8c (high effort); F1′ (the writing pass is still about a third of swiss-long's pair
   search); L; the middle of lines over 1024 px in an order kinder to the cache; `_evaluate`.
+
+### Done, wave 3 (2026-11-01, branch `line-kernels`)
+
+F1′, and the profiles of a search as arrays computed in parallel, one commit each; L was measured as
+a prototype and left out. Both were checked as wave 2 was: the self-check of `analyse` on the 15
+captures, `pytest` (also `test_pair_buffer_overflow_matches_reference`,
+`test_line_profiles_match_line_profile` and `test_line_profiles_independent_of_threads`), the
+regression set and byte for byte (R9, R22, R22 `typical`, the Gozo coast with `--tile-size 5000` and
+swiss-long, on 24 threads and on 7 cores).
+
+| # | In the code |
+| --- | --- |
+| F1′ | `pair_chunk`: one pass of `_pairs` over a chunk, each anchor's first `PAIR_BUFFER` (1024) pairs held in a buffer (int32, at most `PAIR_BUFFER_BYTES`, 16 MB, a chunk) and copied in the order of `todo`; the writing pass of before only for the anchors that found more |
+| profiles | `lineprofiles.line_profiles`: the profiles of all wanted lines in one numba kernel (`prange` over the lines), held as numpy arrays (`helpers.Profiles`; one line of it is a `helpers.Profile`) and rounded as `helpers.line_profile` rounds; `line_profile` stays for `profile_of_line` (a profile measured on the map, the lines at tile edges) |
+
+- **F1′, the buffer.** On the 15 captures the anchors with lines found a median of 2-31 pairs each,
+  a p99 of 10-577 and at most 1221 (swiss-long). 1024 holds every pair of 99.96 % of swiss-long's
+  anchors with lines (99.5 % of its pairs) and of all of them elsewhere; swiss-long's largest chunk
+  (496 anchors) takes 4 MB. The 16 MB cap matters from 2048 anchors a chunk (more than about 410 000
+  open anchors in one call): a tile of 3 million anchors with a fifth of them open would hold about
+  700 pairs per anchor.
+- **F1′, the pair search alone** (old and new interleaved in one process, chunk by chunk, median of
+  3, `--exclusive`; 23 / 7 threads):
+
+| Capture | before (two passes) | F1′ |
+| --- | --- | --- |
+| swiss-long | 3.06 / 4.90 s | 2.04 / 3.32 s (-33 / -32 %) |
+| Gozo coast | 0.364 / 0.587 | 0.267 / 0.429 (-27 %) |
+| R9 | 0.111 / 0.181 | 0.076 / 0.119 (-31 / -34 %) |
+| R5 | 0.168 / 0.246 | 0.121 / 0.178 (-28 %) |
+| R22 | 0.084 / 0.151 | 0.077 / 0.139 (-8 %) |
+| R22 `typical` | 0.031 / 0.051 | 0.030 / 0.047 (-2 / -8 %) |
+
+- **L, left out.** The partners' row, column, elevation, `strong`, `down`, rings and largest ring
+  copied into cell order and read by position (the best of three variants) was exact and never
+  slower, but only 3-11 % faster than F1′ (swiss-long -8 % on 23 threads and -10 % on 7, the Gozo
+  coast -8 / -11 %, R9 and R22 -7 to -8 %), below the 10 % asked for. It would cost 29 B per open
+  anchor, and 65 B more while the rings are held twice. To reconsider with F8c, which changes the
+  same loop.
+- **The profiles.** `helpers.line_profile` returned a dict of Python lists per line (83-129 B per
+  point), and `search._lines` called it line by line on one core: R9 (a 5 m circle keeping the
+  profile of each of its 85 671 lines) spent 7.0 of its 11.6 s there, and its profiles were about
+  0.5 GB of its 820 MB peak. As arrays a point takes 21-30 B, up to 77 B while the profiles are
+  computed (tracemalloc, 20 000 lines):
+
+| Lines | dicts of lists, held | arrays, held | arrays, peak |
+| --- | ---: | ---: | ---: |
+| 40 points, surface and water | 129 B | 30 B | 77 B |
+| 40 points, terrain only | 83 B | 21 B | 68 B |
+| 101 points, surface and water | 115 B | 27 B | 51 B |
+
+  The memory model is unchanged (`PROFILE_POINT_BYTES` 100, `CIRCLE_PROFILES_BYTES` 500 MB), so the
+  same circles keep every profile; it now counts more than they hold.
+
+The whole jobs, wave 2's code against wave 3's in one session (`tools/perf_profile.py`, cached data,
+`--exclusive`; a warm-up run of each version first, then the two in turn, alternating which went
+first; every run byte for byte the same as the reference runs):
+
+| Job | cores | wall s | CPU s | anchor pairs CPU s | line search CPU s | line profiles wall / CPU s | peak RSS MB |
+| --- | --- | ---: | ---: | ---: | ---: | --- | ---: |
+| R9 | 24 threads | 11.8 → 5.2 | 21.4 → 16.5 (-23 %) | 3.3 → 2.5 (-24 %) | 5.3 → 4.5 (-15 %) | 7.0 / 7.0 → 0.3 / 2.7 | 818 → 408 |
+| R22 | 24 threads | 4.4 → 2.7 | 14.9 → 15.1 (+1 %) | 2.9 → 2.6 (-10 %) | 5.6 → 4.9 (-12 %) | 1.6 / 2.3 → 0.1 / 2.8 | 409 → 289 |
+| R22 `typical` | 7 | 4.0 → 2.7 | 6.8 → 5.4 (-21 %) | 0.6 → 0.4 (-33 %) | 1.7 → 1.4 (-18 %) | 1.4 / 1.7 → 0.1 / 0.8 | 344 → 257 |
+| Gozo coast | 7 | 72.4 → 66.7 | 106.9 → 101.3 (-5 %) | 14.1 → 10.5 (-26 %) | 19.7 → 15.8 (-20 %) | 0.6 / 0.7 → 0.1 / 0.3 | 2963 → 2717 |
+| swiss-long | 24 threads | 62.4 → 51.5 | 173.7 → 147.7 (-15 %) | 69.0 → 48.7 (-29 %) | 99.5 → 80.1 (-19 %) | 2.8 / 2.8 → 0.2 / 2.9 | 1094 → 1219 |
+| swiss-long | 7 | 55.6 → 52.3 | 106.5 → 93.3 (-12 %) | 37.1 → 25.5 (-31 %) | 51.8 → 39.6 (-24 %) | 2.3 / 2.3 → 0.2 / 0.9 | 1165 → 1192 |
+
+- **Circles**: the profiles were most of R9's wall time and a third of R22's. R9 11.8 → 5.2 s (-56 %), R22
+  4.4 → 2.7 s, R22 `typical` 4.0 → 2.7 s; their peak memory falls by a quarter to a half (R9 818 →
+  408 MB, now in step 5, saving the map). On 24 threads the profiles take as much CPU as before,
+  spread over the threads (R22 2.3 → 2.8 s); on 7 cores less (1.7 → 0.8 s).
+- **The pair search** takes 24-33 % less CPU (R22's 10 %: its anchors find few pairs each, so its
+  writing pass was small), the line search 12-24 %, the jobs up to 23 % (R22 on 24 threads the same).
+- **Areas**: the Gozo coast and swiss-long take 5-15 % less CPU; their wall time is set by steps 1,
+  4 and 5 on one core. The stages whose code did not change differ by up to 15 % between the runs
+  (swiss-long's grouping 21.1 and 17.9 s, its saving 22.2 and 19.2 s), and so do these jobs' wall
+  times; their peak RSS is within its noise too (swiss-long's, between the bars of step 3, where the
+  lines are joined and sorted: 1090-1220 MB over nine runs of both versions; the Gozo coast's, step
+  1: 2700-2960 MB).
+- **Still open**: F8c; L (above); the middle of lines over 1024 px in an order kinder to the cache;
+  `_evaluate` ("checking lines", now about a third of swiss-long's line search CPU). Planned next:
+  the memory of steps 3 and 4 (the pairs and lines copied where they are joined and sorted),
+  `LINE_BYTES` measured again, and F7 (the evaluation stops as soon as the lines are over
+  `lines_max` or the memory).
 
 ### What the server collects
 
