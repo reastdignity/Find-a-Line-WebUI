@@ -75,6 +75,13 @@ CONTRACT = {
     "findaline_computed_seconds_total": {"resolution"},
     "findaline_compute_step_seconds_sum": {"step"},
     "findaline_compute_step_seconds_count": {"step"},
+    "findaline_compute_step_cpu_seconds_sum": {"step"},
+    "findaline_compute_step_cpu_seconds_count": {"step"},
+    "findaline_compute_stage_seconds_sum": {"stage"},
+    "findaline_compute_stage_seconds_count": {"stage"},
+    "findaline_compute_stage_cpu_seconds_sum": {"stage"},
+    "findaline_compute_stage_cpu_seconds_count": {"stage"},
+    "findaline_line_funnel_total": {"level"},
     **{f"{name}_total": {"layer", "role"} for name in metrics.LAYER_COUNTS},
 }
 # A square of about 1 km (0.009 degrees of latitude) in the cell of 50.00 N, 19.75 E
@@ -122,7 +129,9 @@ def data(tmp_path):
     _job(jobs, ids["a"], "done", area=4.5, country="pl", phases=both, resolution=5.0)
     _job(jobs, ids[SECRET["name"]], "done", area=2.0, country="sk", title=SECRET["title"], phases=both,
          resolution=0.5)
-    jobs.set_steps(first, {"1": 2.5, "3": 1.0, "orthophoto": 4.0})
+    jobs.set_steps(first, {"1": 2.5, "3": 1.0, "orthophoto": 4.0}, {"1": 9.5})  # the CPU of step 1 only
+    jobs.set_stages(first, {"anchor pairs": (0.75, 6.0), "checking lines": (0.25, 1.5)})
+    jobs.set_funnel(first, {"grids": 2, "anchors": 500, "open": 40, "lines": 7})
     _job(jobs, SECRET["user"], "done", area=1.0, phases=both)  # its country unknown
     _job(jobs, ids["a"], "done")  # no area (an OSM extract)
     _job(jobs, ids["a"], "failed", error="time limit: the compute phase was stopped after 7200 s", phases=both)
@@ -279,6 +288,17 @@ def test_names_labels_and_values(data):
     assert value(found, "findaline_compute_step_seconds_count", step="orthophoto") == 1
     assert value(found, "findaline_compute_step_seconds_sum", step="1") == 2.5
     assert value(found, "findaline_compute_step_seconds_count", step="5") == 0  # every step, 0 too
+    assert value(found, "findaline_compute_step_cpu_seconds_count", step="1") == 1
+    assert value(found, "findaline_compute_step_cpu_seconds_sum", step="1") == 9.5
+    assert value(found, "findaline_compute_step_cpu_seconds_count", step="3") == 0  # its CPU not known
+    assert value(found, "findaline_compute_stage_seconds_sum", stage="anchor pairs") == 0.75
+    assert value(found, "findaline_compute_stage_cpu_seconds_sum", stage="anchor pairs") == 6.0
+    assert value(found, "findaline_compute_stage_cpu_seconds_count", stage="checking lines") == 1
+    assert value(found, "findaline_compute_stage_seconds_count", stage="free directions") == 0
+    assert {dict(k)["level"]: v for (n, k), v in found.items() if n == "findaline_line_funnel_total"} == {
+        **dict.fromkeys(jb.FUNNEL_STEPS, 0), "grids": 2, "anchors": 500, "open": 40, "lines": 7}
+    assert {dict(k)["stage"] for (n, k), _ in found.items() if n == "findaline_compute_stage_seconds_sum"} == set(
+        jb.STAGE_KEYS)
     layer = {"layer": "poland/nmt", "role": "terrain"}
     assert value(found, "findaline_download_tiles_total", **layer) == 3
     assert value(found, "findaline_download_tiles_cached_total", **layer) == 5
@@ -312,6 +332,7 @@ def test_no_personal_data_in_labels(data):
         "lon": re.compile(r"-?\d+\.\d\d"), "layer": re.compile(r"[a-z0-9_.-]+(/[a-z0-9_.-]+)*"),
         "role": re.compile("|".join(servicecounts.ROLES)), "step": re.compile("|".join(jb.STEP_KEYS)),
         "resolution": re.compile("|".join(metrics.RESOLUTIONS)),
+        "stage": re.compile("|".join(jb.STAGE_KEYS)), "level": re.compile("|".join(jb.FUNNEL_STEPS)),
     }
     for (name, labels), _ in samples(text).items():
         for label, label_value in labels:
@@ -549,3 +570,91 @@ def test_step_clock_and_ready_time(tmp_path, monkeypatch):
     jobs.set(job, "ready", when=("downloading",))
     assert jobs.get(job)["ready_at"] is not None
     assert jobs.job_events(job)["events"][-1]["data"] == {"status": "ready"}
+
+
+def test_step_clock_cpu_and_stages(monkeypatch):
+    """jobs.StepClock (F19, migration 16): the CPU seconds per step and the seconds and CPU seconds of
+    the stages of the line search while their Compute bar runs, summed over the tiles; the time between
+    the bars stays with the step only."""
+    now = iter([0.0, 1.0, 3.0, 4.0, 8.0, 9.0, 10.0, 12.0, 20.0, 20.0, 20.0, 20.0])
+    cpu = iter([0.0, 1.0, 9.0, 10.0, 40.0, 41.0, 45.0, 53.0, 60.0, 60.0, 60.0, 60.0])
+    monkeypatch.setattr(jb.time, "monotonic", lambda: next(now))
+    monkeypatch.setattr(jb.time, "process_time", lambda: next(cpu))
+    clock = jb.StepClock()  # 0
+    step3 = "Tile 1/2 · Step 3/5: evaluating anchor pairs"
+    clock({"bar": "Compute", "stage": "anchor pairs", "done": False, "step": step3})  # 1: before it "other"
+    clock({"bar": "Compute", "stage": "anchor pairs", "done": True, "step": step3})  # 3: 2 s, 8 CPU of the pairs
+    clock({"bar": "Compute", "stage": "checking lines", "done": False, "step": step3})  # 4: between the bars
+    clock({"bar": "Compute", "stage": "checking lines", "done": True, "step": step3})  # 8: 4 s, 30 CPU
+    step3 = "Tile 2/2 · Step 3/5: evaluating anchor pairs"
+    clock({"bar": "Compute", "stage": "anchor pairs", "done": False, "step": step3})  # 9
+    clock({"bar": "Compute", "stage": "anchor pairs", "done": True, "step": step3})  # 10: 1 s, 4 CPU more
+    clock({"bar": "Compute", "stage": "line profiles", "done": False, "step": "Step 4/5: profiles"})  # 12
+    seconds, cpus = clock.result(), clock.cpu()  # 20: step 4 until now
+    assert seconds == {"other": 1.0, "3": 11.0, "4": 8.0}
+    assert cpus == {"other": 1.0, "3": 52.0, "4": 7.0}
+    assert clock.stages() == {"anchor pairs": (3.0, 12.0), "checking lines": (4.0, 30.0)}
+    assert set(clock.stages()) <= set(jb.STAGE_KEYS)
+
+
+def test_stage_keys_are_compute_bars():
+    """Every stage of STAGE_KEYS is the name of a Compute bar of the code (F19's stages)."""
+    code = ""
+    for name in ("helpers.py", "search.py", "sag.py", "linesearch.py"):
+        with open(os.path.join(REPO, name), encoding="utf-8") as f:
+            code += f.read()
+    for stage in jb.STAGE_KEYS:
+        assert f'progress.compute.start("{stage}"' in code, stage
+    assert len(set(jb.STAGE_KEYS)) == len(jb.STAGE_KEYS) and len(set(jb.FUNNEL_STEPS)) == len(jb.FUNNEL_STEPS)
+
+
+def test_migration_16_and_its_rows(tmp_path):
+    """A jobs.sqlite of version 15 gets job_steps.cpu_seconds, job_stages and job_funnel (its jobs none
+    of these); before the migration the metrics of these are absent and the others still there; the
+    rows of set_steps, set_stages and set_funnel read back."""
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:15])
+    db.execute("INSERT INTO jobs (id, created, status, request, title) VALUES ('old', '2026-10-01T10:00:00', "
+               "'done', '{}', 'Old job')")
+    db.execute("INSERT INTO job_steps (job_id, step, seconds) VALUES ('old', '3', 12.0)")
+    db.commit()
+    db.close()
+    found = {name for name, _ in samples(scrape(tmp_path))}
+    assert "findaline_compute_step_seconds_sum" in found and "findaline_jobs" in found
+    assert not {n for n in found if n.startswith(("findaline_compute_step_cpu", "findaline_compute_stage",
+                                                   "findaline_line_funnel"))}
+    jobs = jb.Jobs(str(tmp_path))
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 16
+    assert db.execute("SELECT step, seconds, cpu_seconds FROM job_steps").fetchall() == [("3", 12.0, None)]
+    assert db.execute("SELECT COUNT(*) FROM job_stages").fetchone()[0] == 0
+    assert db.execute("SELECT COUNT(*) FROM job_funnel").fetchone()[0] == 0
+    db.close()
+    job = jobs.add({"params": {}}, "a search", None)
+    jobs.set_steps(job, {"2": 1.5, "3": 4.0}, {"2": 1.0, "3": 30.0})
+    jobs.set_stages(job, {"anchor pairs": (3.0, 25.0)})
+    jobs.set_funnel(job, {"anchors": 10, "lines": 3})
+    jobs.set_funnel(job, {"anchors": 11})  # replaced
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("SELECT step, seconds, cpu_seconds FROM job_steps WHERE job_id = ? ORDER BY step",
+                      (job,)).fetchall() == [("2", 1.5, 1.0), ("3", 4.0, 30.0)]
+    assert db.execute("SELECT stage, seconds, cpu_seconds FROM job_stages").fetchall() == [("anchor pairs", 3.0, 25.0)]
+    assert dict(db.execute("SELECT step, count FROM job_funnel").fetchall()) == {"anchors": 11, "lines": 3}
+    db.close()
+    found = samples(scrape(tmp_path))
+    assert value(found, "findaline_compute_step_cpu_seconds_count", step="3") == 1  # the old job's CPU unknown
+    assert value(found, "findaline_compute_step_seconds_count", step="3") == 2
+    assert value(found, "findaline_line_funnel_total", level="anchors") == 11
+
+
+def test_statistics_never_fail_a_search(tmp_path, capsys):
+    """A write of the statistics that fails (here a database without migration 16's tables) prints a
+    line to stderr, nothing to stdout (the job's events), and raises nothing."""
+    jobs = jb.Jobs(str(tmp_path))
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    db.execute("DROP TABLE job_stages")
+    db.commit()
+    db.close()
+    jb._write_statistics(jobs, "a-job", jb.StepClock(), {"anchors": 1})
+    out, err = capsys.readouterr()
+    assert out == "" and "statistics of job a-job not written" in err

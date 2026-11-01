@@ -4823,6 +4823,202 @@
           "sort": "desc"
         }
       }
+    },
+    {
+      "id": 98,
+      "type": "timeseries",
+      "title": "Mean CPU seconds per step of computing (F19)",
+      "description": "CPU seconds of each step of the computing phase per finished search, over a day: the whole process with numba's threads, so CPU seconds over the seconds of the same step (the panel beside) is the number of cores the step kept busy. Searches from before migration 16 have none.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 187,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (step) (increase(findaline_compute_step_cpu_seconds_sum[1d])) / sum by (step) (increase(findaline_compute_step_cpu_seconds_count[1d]))",
+          "legendFormat": "{{step}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 99,
+      "type": "timeseries",
+      "title": "Line search: seconds and CPU per stage (F19)",
+      "description": "Seconds and CPU seconds of the stages of the line search (steps 2 and 3) per finished search that ran them, over a day: finding anchors, their prominence and drop, the sag estimator's table (--model sag), the free directions of the anchors, the pairs, the pixel-by-pixel check of the lines found. A tiled area sums its tiles.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 187,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (stage) (increase(findaline_compute_stage_seconds_sum[1d])) / sum by (stage) (increase(findaline_compute_stage_seconds_count[1d]))",
+          "legendFormat": "{{stage}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum by (stage) (increase(findaline_compute_stage_cpu_seconds_sum[1d])) / sum by (stage) (increase(findaline_compute_stage_cpu_seconds_count[1d]))",
+          "legendFormat": "{{stage}} (CPU)",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 89,
+      "type": "timeseries",
+      "title": "Line search funnel per day (F19)",
+      "description": "The counts of the line search of the searches finished in each day (UTC) of the last 30 days, from the grids and anchors to the lines (log scale): anchors found, kept after the prominence and drop limits, with an open direction, those pairs start from; candidate pairs, checked pixel by pixel, found; valid lines, left out by the line limits, the lines of the tiles' cores.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 187,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (level) (increase(findaline_line_funnel_total[1d]))",
+          "legendFormat": "{{level}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "scaleDistribution": {
+              "type": "log",
+              "log": 10
+            }
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1d",
+      "maxDataPoints": 31,
+      "timeFrom": "30d"
     }
   ]
 }

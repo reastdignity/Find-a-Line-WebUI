@@ -17,7 +17,8 @@ and the alert rules of deploy/monitoring/grafana.
 - Its own registry: only these metrics (no process or platform metrics of the client library).
 - No label carries a user id, an IP address, a title, a place name or a path: statuses, phases,
   error codes, actions, countries (ISO 3166-1 alpha-2), top-level cache folders, the layers' cache
-  folders of the catalogue (Layer.folder), roles, steps and classes of resolution only.
+  folders of the catalogue (Layer.folder), roles, steps, stages and levels of the line search and
+  classes of resolution only.
 - The names are those of the contract with deploy/monitoring (grafana, telegraf.conf): renaming
   one breaks a panel or an alert rule there. A database that cannot be read (not there yet, or
   locked for longer than the timeout) leaves out its metrics in that scrape only.
@@ -30,7 +31,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
-from typing import Callable, Dict, Iterable, Iterator, Optional
+from typing import Callable, Dict, Iterable, Iterator, List, Optional
 
 from prometheus_client.core import CounterMetricFamily, GaugeMetricFamily, Metric, SummaryMetricFamily
 from prometheus_client.registry import Collector, CollectorRegistry
@@ -121,6 +122,38 @@ def gauge(name: str, text: str, values, label: Optional[str] = None, defaults: I
 
 def counter(name: str, text: str, values: Dict, label: str, defaults: Iterable = ()) -> Metric:
     return _family(CounterMetricFamily, name, text, label, values, defaults)
+
+
+def _compute(db: sqlite3.Connection) -> List[Metric]:
+    """Where the CPU of the computing phases goes (F19, migration 16): CPU seconds per step, the seconds
+    and CPU seconds of the stages of the line search, its funnel; every label value, 0 too. Nothing on a
+    database from before migration 16 (the web process migrates it)."""
+    try:
+        cpu = {step: (n, total or 0.0) for step, n, total in db.execute(
+            "SELECT step, COUNT(*), SUM(cpu_seconds) FROM job_steps WHERE cpu_seconds IS NOT NULL GROUP BY step")}
+        stages = {stage: (n, s or 0.0, c or 0.0) for stage, n, s, c in db.execute(
+            "SELECT stage, COUNT(*), SUM(seconds), SUM(cpu_seconds) FROM job_stages GROUP BY stage")}
+        funnel = dict(db.execute("SELECT step, SUM(count) FROM job_funnel GROUP BY step").fetchall())
+    except sqlite3.OperationalError:
+        return []
+    steps = SummaryMetricFamily("findaline_compute_step_cpu_seconds", "CPU seconds of the steps of the computing "
+                                "phases of finished searches (the whole process)", labels=["step"])
+    for step in jb.STEP_KEYS:
+        n, total = cpu.get(step, (0, 0.0))
+        steps.add_metric([step], n, total)
+    metrics: List[Metric] = [steps]
+    for name, k, text in (("findaline_compute_stage_seconds", 1, "Seconds"),
+                          ("findaline_compute_stage_cpu_seconds", 2, "CPU seconds")):
+        family = SummaryMetricFamily(name, f"{text} of the stages of the line search (steps 2 and 3) of finished "
+                                     "searches", labels=["stage"])
+        for stage in jb.STAGE_KEYS:
+            row = stages.get(stage, (0, 0.0, 0.0))
+            family.add_metric([stage], row[0], row[k])
+        metrics.append(family)
+    metrics.append(counter("findaline_line_funnel", "Counts of the line search of finished searches, from the "
+                           "anchors to the lines", {level: n or 0 for level, n in funnel.items()
+                                                    if level in jb.FUNNEL_STEPS}, "level", jb.FUNNEL_STEPS))
+    return metrics
 
 
 class Metrics(Collector):
@@ -317,6 +350,7 @@ class Metrics(Collector):
                 n, total = found.get(step, (0, 0.0))
                 steps.add_metric([step], n, total)
             metrics.append(steps)
+            metrics.extend(_compute(db))
             waiting, first = db.execute("SELECT COUNT(*), MIN(created) FROM quick WHERE status = 'waiting'").fetchone()
             metrics.append(gauge("findaline_quick_waiting", "Tasks waiting in the quick lane", waiting))
             metrics.append(gauge("findaline_quick_oldest_waiting_seconds", "Age of the oldest waiting task of the "

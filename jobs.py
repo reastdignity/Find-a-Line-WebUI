@@ -155,6 +155,16 @@ MIGRATIONS = [
                                      tiles_cached INTEGER NOT NULL, pixels INTEGER NOT NULL, km2 REAL NOT NULL,
                                      bytes INTEGER NOT NULL, seconds REAL NOT NULL, wait_seconds REAL NOT NULL,
                                      PRIMARY KEY (layer, role));""",
+    # 16: where the CPU of a computing phase goes: the CPU seconds of its steps (job_steps.cpu_seconds, the
+    # whole process with numba's threads), the seconds and CPU seconds of the stages of the line search
+    # (job_stages: STAGE_KEYS, summed over the tiles) and its funnel (job_funnel: FUNNEL_STEPS, the counts of
+    # search.Plan.funnel). Counts without users, like job_steps. Jobs of before get none of these
+    # (tools/job_stats.py reads what it can of them from their events)
+    """ALTER TABLE job_steps ADD COLUMN cpu_seconds REAL;
+       CREATE TABLE job_stages (job_id TEXT NOT NULL, stage TEXT NOT NULL, seconds REAL NOT NULL,
+                                cpu_seconds REAL NOT NULL, PRIMARY KEY (job_id, stage));
+       CREATE TABLE job_funnel (job_id TEXT NOT NULL, step TEXT NOT NULL, count INTEGER NOT NULL,
+                                PRIMARY KEY (job_id, step));""",
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
 PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
@@ -162,6 +172,16 @@ PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing":
 # orthophoto tiles of step 5 (downloaded while the job holds its compute slot), and "other" (before the
 # first step, between the tiles of an area)
 STEP_KEYS = ("1", "2", "3", "4", "5", "orthophoto", "other")
+# The stages of the line search (job_stages.stage): the names of the Compute bars of steps 2 and 3
+# (helpers.find_significant_slopes, search._lines, sag.EnvelopeTable, linesearch.find_valid_lines)
+STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator table", "free directions",
+              "anchor pairs", "checking lines")
+# The funnel of the line search (job_funnel.step, search.Plan.funnel): grids searched, anchors found
+# and kept after the prominence and drop limits, anchors with an open direction and those pairs start
+# from, candidate pairs, pairs checked pixel by pixel and found, valid lines, lines left out by the
+# line limits, and the lines in the tiles' cores
+FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates", "checked", "found", "valid",
+                "left_out", "lines")
 
 
 def request_area(request: Dict):
@@ -503,11 +523,25 @@ class Jobs:
         with self._db() as db:
             db.execute("UPDATE jobs SET source = ?, resolution = ? WHERE id = ?", (source, resolution, job_id))
 
-    def set_steps(self, job_id: str, seconds: Dict[str, float]):
-        """The seconds of the steps of a job's computing phase (STEP_KEYS -> seconds)."""
+    def set_steps(self, job_id: str, seconds: Dict[str, float], cpu: Optional[Dict[str, float]] = None):
+        """The seconds of the steps of a job's computing phase (STEP_KEYS -> seconds), and their CPU
+        seconds (None: unknown)."""
+        cpu = cpu or {}
         with self._db() as db:
-            db.executemany("INSERT OR REPLACE INTO job_steps (job_id, step, seconds) VALUES (?, ?, ?)",
-                           [(job_id, step, s) for step, s in seconds.items()])
+            db.executemany("INSERT OR REPLACE INTO job_steps (job_id, step, seconds, cpu_seconds) VALUES (?, ?, ?, ?)",
+                           [(job_id, step, s, cpu.get(step)) for step, s in seconds.items()])
+
+    def set_stages(self, job_id: str, stages: Dict[str, Tuple[float, float]]):
+        """The seconds and CPU seconds of the stages of a job's line search (STAGE_KEYS)."""
+        with self._db() as db:
+            db.executemany("INSERT OR REPLACE INTO job_stages (job_id, stage, seconds, cpu_seconds) "
+                           "VALUES (?, ?, ?, ?)", [(job_id, stage, s, c) for stage, (s, c) in stages.items()])
+
+    def set_funnel(self, job_id: str, counts: Dict[str, int]):
+        """The counts of a job's line search (FUNNEL_STEPS, search.Plan.funnel)."""
+        with self._db() as db:
+            db.executemany("INSERT OR REPLACE INTO job_funnel (job_id, step, count) VALUES (?, ?, ?)",
+                           [(job_id, step, int(n)) for step, n in counts.items()])
 
     def add_layer_downloads(self, rows: Iterable[Tuple[str, str, int, int, int, float, int, float, float]]):
         """Add counts of the tiles of the elevation layers (layer, role, tiles, tiles cached, pixels, km²,
@@ -1241,13 +1275,19 @@ def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
 
 
 class StepClock:
-    """The seconds of a computing phase per step (STEP_KEYS), from the states of the progress bars
-    (progress.subscribe): the time until a state goes to what the previous state was in, the step of
-    its text ("Tile 2/6 · Step 3/5: ...") or the orthophoto tiles while their bar runs."""
+    """The seconds and CPU seconds of a computing phase per step (STEP_KEYS), from the states of the
+    progress bars (progress.subscribe): the time until a state goes to what the previous state was in,
+    the step of its text ("Tile 2/6 · Step 3/5: ...") or the orthophoto tiles while their bar runs.
+    Also those of the stages of the line search (STAGE_KEYS) while their Compute bar runs (from a state
+    of that stage, not done, to the next state), summed over the tiles. CPU: time.process_time, the
+    whole process (numba's threads too)."""
 
     def __init__(self):
         self.seconds: Dict[str, float] = {}
-        self.key, self.since = "other", time.monotonic()
+        self.cpu_seconds: Dict[str, float] = {}
+        self.stage_times: Dict[str, List[float]] = {}  # stage -> [seconds, CPU seconds]
+        self.key, self.stage = "other", None
+        self.since, self.cpu_since = time.monotonic(), time.process_time()
 
     def __call__(self, state: Dict):
         self._add()
@@ -1256,16 +1296,47 @@ class StepClock:
         else:
             found = re.search(r"Step (\d)/", state.get("step") or "")
             self.key = found.group(1) if found and found.group(1) in STEP_KEYS else "other"
+        running = state.get("bar") == "Compute" and not state.get("done")
+        self.stage = state.get("stage") if running and state.get("stage") in STAGE_KEYS else None
 
     def _add(self):
-        now = time.monotonic()
-        self.seconds[self.key] = self.seconds.get(self.key, 0.0) + now - self.since
-        self.since = now
+        now, cpu = time.monotonic(), time.process_time()
+        seconds, cpu_seconds = now - self.since, cpu - self.cpu_since
+        self.seconds[self.key] = self.seconds.get(self.key, 0.0) + seconds
+        self.cpu_seconds[self.key] = self.cpu_seconds.get(self.key, 0.0) + cpu_seconds
+        if self.stage is not None:
+            times = self.stage_times.setdefault(self.stage, [0.0, 0.0])
+            times[0] += seconds
+            times[1] += cpu_seconds
+        self.since, self.cpu_since = now, cpu
 
     def result(self) -> Dict[str, float]:
         """The seconds per step until now."""
         self._add()
         return dict(self.seconds)
+
+    def cpu(self) -> Dict[str, float]:
+        """The CPU seconds per step until now."""
+        self._add()
+        return dict(self.cpu_seconds)
+
+    def stages(self) -> Dict[str, Tuple[float, float]]:
+        """The seconds and CPU seconds of the stages of the line search until now."""
+        self._add()
+        return {stage: (s, c) for stage, (s, c) in self.stage_times.items()}
+
+
+def _write_statistics(jobs: Jobs, job_id: str, steps: StepClock, funnel: Dict[str, int]):
+    """The statistics of a finished computing phase (F19): the seconds and CPU seconds per step, the
+    stages and the funnel of the line search. They never fail the search: a line to stderr (stdout of
+    a phase is the job's events)."""
+    try:
+        seconds, cpu, stages = steps.result(), steps.cpu(), steps.stages()
+        jobs.set_steps(job_id, seconds, cpu)
+        jobs.set_stages(job_id, stages)
+        jobs.set_funnel(job_id, funnel)
+    except Exception as e:  # statistics only
+        print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
@@ -1354,7 +1425,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             result = search.save_run(plan, lines, ortho_confirm(limits or Limits(), on_event), run)
             import runs as rn
             jobs.add_run(result.run["id"], job["user_id"], rn.folder_bytes(result.run["path"]))  # its owner
-            jobs.set_steps(job_id, steps.result())
+            _write_statistics(jobs, job_id, steps, plan.funnel)
             jobs.set(job_id, "done", when=working, run_id=result.run["id"], error=None)
         failed = False
     except (search.SearchError, ValueError, RuntimeError, requests.RequestException) as e:  # ValueError: parameters

@@ -75,6 +75,12 @@ APP_METRICS = {
     "findaline_computed_seconds_total": {"resolution"},
     "findaline_compute_step_seconds_sum": {"step"},
     "findaline_compute_step_seconds_count": {"step"},
+    # F19 extended (migration 16): CPU per step, the stages and the funnel of the line search
+    "findaline_compute_step_cpu_seconds_sum": {"step"},
+    "findaline_compute_step_cpu_seconds_count": {"step"},
+    **{f"findaline_compute_stage_{what}_{part}": {"stage"} for what in ("seconds", "cpu_seconds")
+       for part in ("sum", "count")},
+    "findaline_line_funnel_total": {"level"},
 }
 # The measurements of the host's files (phase 1; ssh.json phase 3): findaline_facts_*,
 # findaline_check_*, findaline_backup_*, findaline_ssh_*
