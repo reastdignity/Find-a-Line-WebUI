@@ -994,6 +994,35 @@
     "notes": "--source auto picks lower_saxony (the centre is in DE-NI); the Ecker is the border: 0.05 km² from 1 LVermGeo WCS tile of 2 km (LGLN's tiles reach across the river), 0.04 km² left for FABDEM; the Harz has no crags at the border: few lines",
     "seconds": 3.5
   },
+  "R38": {
+    "place": "Møns Klint, Denmark: Klimadatastyrelsen's DHM/Terræn and DHM/Overflade from Datafordeler's WCS with the server's API key (the sea, stored as 0, taken as no data)",
+    "args": "--lat 54.9700 --lon 12.5500 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "dk"
+    ],
+    "needs_env": "DATAFORDELER_API_KEY",
+    "expected": {
+      "anchors": 39137,
+      "open": 2232,
+      "checked": 7854,
+      "lines": 71,
+      "spots": 7,
+      "csv_sha256": "3f5e850b1e509bd32e0566d8c714b55ba0a7f0efb45123e9d216ddca8b10ddf1",
+      "length_km": 14.537,
+      "clearance_min": 0.02,
+      "clearance_mean": 0.827,
+      "clearance_max": 2.63,
+      "over_trees": 71,
+      "coverage": 59.38,
+      "empty_tiles": 0,
+      "filled_km2": 0.01,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 0.9
+    },
+    "notes": "--source auto picks denmark (the centre is in DK); the chalk cliff on the east coast of Møn, 400 m around the source's sample; at 12.5420 (560 m west of the cliff) 0 lines",
+    "seconds": 5.2
+  },
   "R39": {
     "place": "Korouoma canyon, Posio, Finland: NLS's elevation model 2 m, blocks of 2 km read by HTTP range requests from the 6 km TM35 sheets on CSC's Paituli mirror, in ETRS-TM35FIN",
     "args": "--lat 66.1695 --lon 27.4881 --radius 1500 --min-length 50 --max-length 400",
