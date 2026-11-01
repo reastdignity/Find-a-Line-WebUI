@@ -371,3 +371,20 @@ def test_ssh_login_notice_runs(tmp_path):
     result = subprocess.run(["bash", str(tmp_path / "ssh-login")], env={"PAM_TYPE": "open_session"},
                             capture_output=True, timeout=30)
     assert result.returncode == 0
+
+
+def test_osm_data_step():
+    """vps.sh downloads the OSM world water polygons and the catalogue's Geofabrik extracts in the
+    worker container with the app's own functions and commands (setup and update, after the start);
+    the extracts it leaves out are among those of the catalogue."""
+    vps = _read("vps.sh")
+    body = vps[vps.index("osm_data() {"):vps.index("\nbackups() {")]
+    assert "coast.world_polygons(\"/data/cache\")" in body
+    assert "osm.catalogue_extracts(\"/data/cache\")" in body
+    assert "compose exec -T worker python findaline.py osm download \"$region\"" in body
+    for function in ("setup", "update"):
+        steps = vps[vps.index(f"\n{function}() {{"):]
+        steps = steps[:steps.index("\n}")]
+        assert steps.index("start\n") < steps.index("osm_data\n"), function
+    skipped = re.search(r"^OSM_EXTRACTS_SKIP=\((.*)\)$", vps, re.M).group(1).split()
+    assert skipped == ["us", "us/puerto-rico", "us/us-virgin-islands"]

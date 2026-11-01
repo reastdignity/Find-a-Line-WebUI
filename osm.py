@@ -225,6 +225,42 @@ def fetch_tile(theme: str, lat: float, lon: float, cache_dir: str):
     cache.record(cache_dir, path, url=response.url.split("?")[0])
 
 
+# Geofabrik's regions for what its index does not name: it gives ISO 3166-1 codes to countries
+# ("iso3166-1:alpha2", "iso3166-2" for a few territories) but none to the regions of a country.
+# By the codes of Source.regions and Source.countries (Åland lies within Geofabrik's Finland) ...
+GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", "de-mv": "mecklenburg-vorpommern",
+                     "de-st": "sachsen-anhalt", "de-ni": "niedersachsen", "it-bz": "nord-est", "ax": "finland"}
+# ... and by source, for a source covering a part of its country that Geofabrik keeps apart
+GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",)}
+
+
+def catalogue_extracts(cache_dir: str) -> Tuple[List[str], List[str]]:
+    """The Geofabrik extracts covering the countries and regions of the catalogue's sources
+    (sources.SOURCES: a source's regions, else its countries), from Geofabrik's index
+    (osmextract._index): (region ids in the order of SOURCES, codes without a region). The VPS
+    downloads them (deploy/vps.sh, osm_data), so the public site rarely needs Overpass."""
+    import osmextract
+    import sources
+    regions = osmextract._index(cache_dir)
+    by_code: Dict[str, str] = {}
+    for rid, feature in regions.items():
+        properties = feature["properties"]
+        for code in properties.get("iso3166-1:alpha2", []) + properties.get("iso3166-2", []):
+            by_code.setdefault(code.lower(), rid)
+    found, missing = [], []
+    for source in sources.SOURCES.values():
+        wanted = GEOFABRIK_OF_SOURCE.get(source.id)
+        if wanted is None:
+            codes = source.regions or source.countries
+            wanted = [GEOFABRIK_OF_CODE.get(code) or by_code.get(code) or code for code in codes]
+        for rid in wanted:
+            if rid not in regions:
+                missing.append(rid)
+            elif rid not in found:
+                found.append(rid)
+    return found, sorted(set(missing))
+
+
 def from_extract(row: Optional[Dict]) -> bool:
     """Whether an index row is a theme tile built from extracts (updated with them)."""
     return bool(row and (row.get("url") or "").startswith("geofabrik:"))

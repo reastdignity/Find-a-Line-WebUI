@@ -512,9 +512,41 @@ docker compose logs --tail 20
 `web` must become `healthy` within a minute, the worker says `Find-a-Line worker ... is running
 on /data`. From the host, `curl -s -o /dev/null -w '%{http_code}\n' -H "Host: $SITE"
 http://127.0.0.1:8765/` says `200`. Open `https://findaline.example.org/`: the sign-in page. Sign
-in as the administrator: the *Admin* tab shows the worker, the free disk and the queue; in it,
-*OSM* downloads the OpenStreetMap extracts the site needs (Poland, Malta, Spain, Switzerland,
-Slovakia), so the coast and cliffs come without Overpass.
+in as the administrator: the *Admin* tab shows the worker, the free disk and the queue.
+
+**The OpenStreetMap data.** The public Overpass server asks an application to stay below 100
+queries a day, summed over all its users (the OSM wiki, *Overpass API*); the app sends at most 50
+a UTC day per data folder (`osm.OVERPASS_DAY_MAX`, `FINDALINE_OVERPASS_DAY_MAX` in
+`findaline.env` changes it), and over that a search near the sea takes the Copernicus water mask
+and a coast or cliffs area is refused until the next day. So the site keeps the data that make
+Overpass rarely needed, in the data volume, downloaded once by the worker's own commands:
+```sh
+cd /srv/find-a-line-webui
+# The world's water polygons (about 900 MB): the sea of every search, never from Overpass
+docker compose exec -T worker python -c 'import coast; print(coast.world_polygons("/data/cache"))'
+# The Geofabrik extracts of the countries and regions of the sources: the coastline and cliffs
+docker compose exec -T worker python -c 'import osm; print(*osm.catalogue_extracts("/data/cache")[0])'
+docker compose exec -T worker python findaline.py osm download poland   # one by one, each of the list
+```
+`osm.catalogue_extracts` takes the countries of the catalogue's sources (`Source.countries`, a
+source with regions its `Source.regions`) and finds each in Geofabrik's index by its ISO code;
+the regions Geofabrik keeps without a code are named in `osm.GEOFABRIK_OF_CODE` (`gb-eng` →
+`england`, `de-he` → `hessen`, `it-bz` → `nord-est`, `ax` → `finland`, ...) and
+`osm.GEOFABRIK_OF_SOURCE` (`spain_canarias` → `canary-islands`). On 2026-11-01 that is poland,
+switzerland, liechtenstein, slovakia, malta, canary-islands, spain, austria, wales, england,
+hessen, mecklenburg-vorpommern, sachsen-anhalt, niedersachsen, nord-est, luxembourg, denmark and
+finland: about 10.4 GB of extracts (Poland 2.1 GB, England 1.7 GB, Spain 1.5 GB, the rest below
+1 GB each) and the world file's 1.2 GB unpacked; at Geofabrik's usual speed the downloads take
+some minutes each and reading the themes from an extract about 10 s per 2 GB. Left out
+(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB; the features of its themes, Alaska's
+long coastline, would be read by every search process building a theme tile there, and its sea
+comes from the world file anyway) and Puerto Rico and the US Virgin Islands (their ids,
+`us/puerto-rico`, put the extract into a nested folder where the app does not find it); a coast
+or cliffs area there still asks Overpass. `deploy/vps.sh` does all of this after the start
+(`osm_data`, in `setup` and `update`): it downloads only what is not there yet, so it costs
+nothing once done. The extracts are kept up to date with Geofabrik's daily diffs by
+`docker compose exec -T worker python findaline.py osm update` (or the *OSM* page of the
+administrator, which also downloads further regions).
 
 The containers' logs are rotated by Docker (10 MB, 5 files each: compose.yaml, `logging`).
 
@@ -749,7 +781,8 @@ so (section 5).
 check runs of the newest one; a private repository's are not readable without a token, so it
 asks, and `--skip-ci` leaves the check out), pulls them, installs the files of `deploy/` again
 where they changed (nginx reloaded, fail2ban restarted, the blocks of `ufw`'s files replaced and
-`ufw` reloaded), builds the image, restarts the services, installs the monitoring's units and
+`ufw` reloaded), builds the image, restarts the services, downloads the OpenStreetMap data not there yet
+(section 9), installs the monitoring's units and
 pulls and starts its containers (section 15; a failure there is listed at the end and leaves the
 site running) and warns when the examples of the settings changed. By hand:
 

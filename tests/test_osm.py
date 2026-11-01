@@ -356,3 +356,34 @@ def test_overpass_no_fallback(tmp_path, monkeypatch):
     assert len(served) == 1 and osm.overpass_queries_today(str(tmp_path)) == 1
     monkeypatch.setenv("FINDALINE_OVERPASS_URL", "https://example.org/api/interpreter")
     assert osm.overpass_url() == "https://example.org/api/interpreter"
+
+
+def test_catalogue_extracts(tmp_path):
+    """The Geofabrik extracts of the catalogue's countries and regions (the VPS downloads them):
+    countries by the ISO codes of Geofabrik's index, its regions without codes by GEOFABRIK_OF_CODE
+    and GEOFABRIK_OF_SOURCE. A new source's country or region lands here: check its Geofabrik id."""
+    import osm
+    countries = {"poland": "PL", "switzerland": "CH", "liechtenstein": "LI", "slovakia": "SK", "malta": "MT",
+                 "spain": "ES", "us": "US", "austria": "AT", "luxembourg": "LU", "denmark": "DK", "finland": "FI",
+                 "germany": "DE", "italy": "IT", "united-kingdom": "GB"}
+    features = [{"properties": {"id": rid, "name": rid, "parent": "europe", "iso3166-1:alpha2": [code]},
+                 "geometry": None} for rid, code in countries.items()]
+    features += [{"properties": {"id": rid, "name": rid, "parent": "us", "iso3166-1:alpha2": [code],
+                                 "iso3166-2": [f"US-{code}"]}, "geometry": None}
+                 for rid, code in (("us/puerto-rico", "PR"), ("us/us-virgin-islands", "VI"))]
+    features += [{"properties": {"id": rid, "name": rid, "parent": "x"}, "geometry": None}
+                 for rid in ("canary-islands", "england", "wales", "hessen", "mecklenburg-vorpommern",
+                             "sachsen-anhalt", "niedersachsen", "nord-est")]
+    (tmp_path / "osm").mkdir()
+    (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps({"features": features}))
+    found, missing = osm.catalogue_extracts(str(tmp_path))
+    assert missing == []
+    assert sorted(found) == sorted(
+        ["poland", "switzerland", "liechtenstein", "slovakia", "malta", "canary-islands", "spain", "us",
+         "us/puerto-rico", "us/us-virgin-islands", "austria", "wales", "england", "hessen",
+         "mecklenburg-vorpommern", "sachsen-anhalt", "niedersachsen", "nord-est", "luxembourg", "denmark",
+         "finland"])
+    # A region Geofabrik does not have: named among the missing, not guessed
+    (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
+        {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))
+    assert osm.catalogue_extracts(str(tmp_path))[1] == ["hessen"]
