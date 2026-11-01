@@ -5,6 +5,7 @@ import os
 from typing import List, Optional, Tuple
 
 import numpy as np
+import requests
 from rasterio.warp import transform_bounds
 
 import cache
@@ -22,6 +23,10 @@ GAP_MATCH_SLOPE = 15  # degrees; only gentler ground is used to match heights
 GAP_MAX_LOCAL_SHIFT = 3  # m; local height offsets differing more from the overall one are ignored
 SHORE_BUFFER = 45  # m around water in the mask that may still be water (the mask is 30 m)
 SEA_LEVEL_TOLERANCE = 1.0  # m; data at most this high inside the sea counts as water
+# A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
+# least this large (a sliver of another country at the edge is left to the fallback)
+NEIGHBOUR_MIN_GAP_M2 = 2500
+NEIGHBOUR_PAD = GAP_RING + 3  # pixels of the neighbour's data around its gaps (offsets, slopes)
 
 
 def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[str] = None,
@@ -133,7 +138,8 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     window (rows, columns): the fallback is brought onto that part of the grid only (a
     neighbour: around the gaps at the border), nothing is filled outside it. Without a surface
     model of its own the fallback fills the surface gaps from its terrain, unless
-    surface_from_terrain is False (a neighbour: they are left to the next source).
+    surface_from_terrain is False (a neighbour: they are left to the next source). A layer
+    that filled no pixel is left out of the record of the data used (used_data).
     """
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
@@ -154,13 +160,21 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         gaps = np.isnan(target) if exclude is None else np.isnan(target) & ~exclude
         if not gaps.any():
             continue
-        path = prepare_layer(layer, sub, cache_dir, os.path.join(work, name), f"gap fill ({fallback.name})", update)
+        path, label = os.path.join(work, name), f"gap fill ({fallback.name})"
+        if window is None:
+            prepare_layer(layer, grid, cache_dir, path, label, update)
+        else:  # a neighbour has no data beyond its border: no line about its tiles without data
+            layer.download(sub, cache_dir, update, label)
+            build_mosaic(layer.files(sub, cache_dir), sub, path, label, shift=layer.shift)
+            used_data.append(layer.used(sub, cache_dir))
+        record = used_data[-1]
         if window is None:
             other = np.asarray(np.load(path, mmap_mode="r"))
         else:
             other = np.full(target.shape, np.nan, np.float32)
             other[window] = np.load(path, mmap_mode="r")
-        _fill(target, other, gaps, grid.res)
+        if _fill(target, other, gaps, grid.res) == 0:
+            used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
     return out_path, int(filled.sum())
@@ -232,4 +246,94 @@ def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid
         elif pixels:
             filled |= np.load(step)
             np.save(out_path, filled)
+    return out_path, counts
+
+
+def border_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid,
+                exclude: Optional[np.ndarray] = None) -> np.ndarray:
+    """The gaps on land (no terrain or no surface data, outside exclude: the sea) that may lie
+    across a border: those reaching the edge of the grid's footprint (the area or the circle
+    its tiles are picked under, and the edge of a tile of a large area), at least
+    NEIGHBOUR_MIN_GAP_M2 large. A hole inside the data (a lake, a lost tile) is no border."""
+    from rasterio.features import geometry_mask
+    from scipy import ndimage
+
+    gaps = np.isnan(np.load(elevation_path, mmap_mode="r"))
+    if surface_path:
+        gaps |= np.isnan(np.load(surface_path, mmap_mode="r"))
+    if exclude is not None:
+        gaps &= ~exclude
+    if not gaps.any():
+        return gaps
+    footprint = geometry_mask([_footprint_shape(grid)], (grid.height, grid.width), grid.transform,
+                              invert=True, all_touched=True)
+    gaps &= footprint
+    edge = footprint & ~ndimage.binary_erosion(footprint, border_value=0)
+    labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
+    if not count:
+        return gaps
+    size = np.bincount(labels.ravel(), minlength=count + 1)
+    keep = np.zeros(count + 1, bool)
+    keep[np.unique(labels[edge & gaps])] = True
+    keep &= size * grid.res ** 2 >= NEIGHBOUR_MIN_GAP_M2
+    keep[0] = False
+    return keep[labels]
+
+
+def neighbour_window(neighbour: Source, grid: Grid, gaps: np.ndarray) -> Optional[Tuple[slice, slice]]:
+    """The part of the grid (rows, columns) a neighbour fills: the border gaps (border_gaps)
+    inside its rough boxes (Source.offline, bbox), with NEIGHBOUR_PAD pixels around them for
+    the heights the offsets are matched with; None when no such gap lies inside them. Asks
+    nothing of the neighbour's services: a neighbour far away is never queried. A neighbour
+    without boxes may fill any border gap."""
+    boxes = [box for _, box in neighbour.offline] + ([neighbour.bbox] if neighbour.bbox else [])
+    inside = np.zeros_like(gaps) if boxes else np.ones_like(gaps)
+    for south, north, west, east in boxes:
+        left, bottom, right, top = transform_bounds("EPSG:4326", grid.crs, west, south, east, north)
+        c0, c1 = max(0, int((left - grid.left) // grid.res)), min(grid.width, int((right - grid.left) // grid.res) + 1)
+        r0, r1 = max(0, int((grid.top - top) // grid.res)), min(grid.height, int((grid.top - bottom) // grid.res) + 1)
+        if r0 < r1 and c0 < c1:
+            inside[r0:r1, c0:c1] = True
+    reached = gaps & inside
+    rows, cols = np.flatnonzero(reached.any(axis=1)), np.flatnonzero(reached.any(axis=0))
+    if not rows.size:
+        return None
+    return (slice(max(0, int(rows[0]) - NEIGHBOUR_PAD), min(grid.height, int(rows[-1]) + 1 + NEIGHBOUR_PAD)),
+            slice(max(0, int(cols[0]) - NEIGHBOUR_PAD), min(grid.width, int(cols[-1]) + 1 + NEIGHBOUR_PAD)))
+
+
+def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid: Grid, neighbours: List[Source],
+                         cache_dir: str, out_path: str, update: Optional[str] = None,
+                         exclude: Optional[np.ndarray] = None) -> Tuple[Optional[str], List[Tuple[Source, int]]]:
+    """Fill the gaps on land at a border from the national data of the neighbours, in turn,
+    before the fallbacks (fill_gaps_chain): each only what the ones before it left, the same
+    offset per gap as fill_gaps, its surface gaps from its surface model only. A neighbour
+    is used where its boxes reach a border gap (neighbour_window) and while it is available
+    (choose.source_unavailable; a line says why not); one whose download fails leaves its
+    gaps to the next. Saves the mask of the terrain pixels filled to out_path; returns
+    (out_path, or None when they filled nothing, [(neighbour, filled pixels)])."""
+    from .choose import source_unavailable
+
+    joined, counts = None, []
+    for n, neighbour in enumerate(neighbours):
+        window = neighbour_window(neighbour, grid, border_gaps(elevation_path, surface_path, grid, exclude))
+        if window is None:
+            continue
+        why = source_unavailable(neighbour)
+        if why:
+            print(f"Gaps at the border not filled from {neighbour.name}: {why}")
+            continue
+        step = f"{os.path.splitext(out_path)[0]}{n}.npy"
+        try:
+            _, pixels = fill_gaps(elevation_path, surface_path, grid, neighbour, cache_dir, step, update,
+                                  exclude=exclude, name=f"border{n}", window=window, surface_from_terrain=False)
+        except (RuntimeError, requests.RequestException) as e:
+            print(f"Gaps at the border not filled from {neighbour.name}: {cache.clean_error(e)}")
+            continue
+        counts.append((neighbour, pixels))
+        if pixels:
+            joined = np.load(step) if joined is None else joined | np.load(step)
+    if joined is None:
+        return None, counts
+    np.save(out_path, joined)
     return out_path, counts

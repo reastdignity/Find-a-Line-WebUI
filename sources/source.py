@@ -64,6 +64,10 @@ class Source:
     fallback: Optional[str] = "europe"  # source that fills gaps in the data on land
     # Sources that fill, in turn, what the fallback left (Alaska: its IfSAR, then 1/3″)
     more_fallbacks: Tuple[str, ...] = ()
+    # Sources of the neighbouring countries or regions that fill, in turn, the gaps on land at the
+    # border before the fallback (filling.fill_from_neighbours: only where their offline boxes or
+    # bbox reach such a gap, and only when available)
+    neighbours: Tuple[str, ...] = ()
     bbox: Optional[Tuple[float, float, float, float]] = None  # (south, north, west, east) for --source auto
     grid_origin: Tuple[float, float] = (0.0, 0.0)  # pixel edges of the data in the working CRS (grid.make_grid)
     # Licences and notices of the data; a source with one credit gives it to its layers,
