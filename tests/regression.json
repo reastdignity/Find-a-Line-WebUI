@@ -693,30 +693,30 @@
     "seconds": 13.2
   },
   "R27": {
-    "place": "Llanberis Pass (Carreg Wastad, Dinas Cromlech), Wales: the Welsh Government LiDAR 2020-22 DTM and DSM, 1 m blocks read by HTTP range requests from the two national COGs, on a working grid in British National Grid (EPSG:27700)",
-    "args": "--lat 53.0950 --lon -4.0560 --radius 400 --min-length 50 --max-length 400",
+    "place": "Dinorwig slate quarries, Llanberis, Wales: the Welsh Government LiDAR 2020-22 DTM and DSM, 1 m blocks read by HTTP range requests from the two national COGs, on a working grid in British National Grid (EPSG:27700)",
+    "args": "--lat 53.1245 --lon -4.1100 --radius 400 --min-length 50 --max-length 400",
     "sets": [
       "sources",
       "gb"
     ],
     "expected": {
-      "anchors": 117393,
-      "open": 3774,
-      "checked": 1090,
-      "lines": 32,
-      "spots": 4,
-      "csv_sha256": "a06b6b7e3f1a30978d5eca8f1ae5931dddbe0766ac636391910ed6db6989bb48",
-      "length_km": 2.545,
+      "anchors": 33688,
+      "open": 1318,
+      "checked": 5233,
+      "lines": 934,
+      "spots": 20,
+      "csv_sha256": "cf08435c5c8d522a67cb054f0a1923369a08d5af8e5fed90f0311bff7b05be72",
+      "length_km": 77.468,
       "clearance_min": 0.0,
-      "clearance_mean": 0.649,
-      "clearance_max": 1.83,
-      "over_trees": 32,
+      "clearance_mean": 1.213,
+      "clearance_max": 6.99,
+      "over_trees": 934,
       "coverage": 100.0,
       "empty_tiles": 0,
       "source": "Welsh Government LiDAR (DTM / DSM)"
     },
-    "notes": "--source auto picks wales (the centre is in GB-WLS); first run on an empty cache: 6 blocks of 1 km per layer, about 2 MB each; few lines, all short and over trees",
-    "seconds": 8.2
+    "notes": "--source auto picks wales (the centre is in GB-WLS); quarry walls of 50-100 m spans; replaced Llanberis Pass (32 short lines) on 2026-11-01",
+    "seconds": 3.0
   },
   "R28": {
     "place": "Hohenstein in the Süntel, Lower Saxony, Germany: LGLN's DGM1 and DOM1 1 m tiles from its STAC APIs (newest survey per 1 km tile)",
