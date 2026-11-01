@@ -117,7 +117,8 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
 
 def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fallback: "Source",
               cache_dir: str, out_path: str, update: Optional[str] = None,
-              exclude: Optional[np.ndarray] = None, name: str = "gap") -> Tuple[str, int]:
+              exclude: Optional[np.ndarray] = None, name: str = "gap",
+              window: Optional[Tuple[slice, slice]] = None, surface_from_terrain: bool = True) -> Tuple[str, int]:
     """Fill the remaining gaps in the data on land from another source.
 
     Each gap gets the other source shifted by the median height difference in a
@@ -129,9 +130,11 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     Saves a boolean mask of the filled pixels to out_path; returns
     (out_path, number of filled pixels). Pixels in `exclude` (the sea) are left alone.
     The fallback's grids are saved next to out_path as <name>_nmt.npy and <name>_nmpt.npy.
+    window (rows, columns): the fallback is brought onto that part of the grid only (a
+    neighbour: around the gaps at the border), nothing is filled outside it. Without a surface
+    model of its own the fallback fills the surface gaps from its terrain, unless
+    surface_from_terrain is False (a neighbour: they are left to the next source).
     """
-    from scipy import ndimage
-
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
     filled = np.isnan(elevation)
@@ -143,35 +146,73 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy")]
     if surface_path:
         surface = np.load(surface_path, mmap_mode="r+")
-        pairs.append((surface, fallback.nmpt or fallback.nmt, f"{name}_nmpt.npy"))
+        layer = fallback.nmpt or (fallback.nmt if surface_from_terrain else None)
+        if layer is not None:
+            pairs.append((surface, layer, f"{name}_nmpt.npy"))
+    sub = _subgrid(grid, window) if window is not None else grid
     for target, layer, name in pairs:
         gaps = np.isnan(target) if exclude is None else np.isnan(target) & ~exclude
         if not gaps.any():
             continue
-        other = np.asarray(np.load(prepare_layer(layer, grid, cache_dir, os.path.join(work, name),
-                                                 f"gap fill ({fallback.name})", update), mmap_mode="r"))
-        values = np.asarray(target)
-        gy, gx = np.gradient(np.where(np.isfinite(values), values, other), grid.res)
-        flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
-        both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
-        overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
-        # Offset of every gap from the ring of pixels around it
-        labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
-        ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
-        offsets = np.full(count + 1, overall)
-        if ring.any():
-            # Only the ring pixels: scipy sorts every pixel it is given (10 s for a 58 Mpx tile)
-            near = ring > 0
-            local = ndimage.median(values[near] - other[near], ring[near], index=np.arange(1, count + 1))
-            local = np.asarray(local, dtype=float)
-            # A local offset far from the overall one comes from misaligned edges, not heights
-            usable = np.isfinite(local) & (np.abs(local - overall) <= GAP_MAX_LOCAL_SHIFT)
-            offsets[1:] = np.where(usable, local, overall)
-        target[gaps] = other[gaps] + offsets[labels[gaps]]
-        target.flush()
+        path = prepare_layer(layer, sub, cache_dir, os.path.join(work, name), f"gap fill ({fallback.name})", update)
+        if window is None:
+            other = np.asarray(np.load(path, mmap_mode="r"))
+        else:
+            other = np.full(target.shape, np.nan, np.float32)
+            other[window] = np.load(path, mmap_mode="r")
+        _fill(target, other, gaps, grid.res)
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
     return out_path, int(filled.sum())
+
+
+def _subgrid(grid: Grid, window: Tuple[slice, slice]) -> Grid:
+    """The part of the grid in window (rows, columns), its tiles those under the grid's own
+    footprint (the area, or the circle inscribed in the grid) within that part."""
+    from shapely.geometry import box
+    rows, cols = window
+    sub = Grid(left=grid.left + cols.start * grid.res, top=grid.top - rows.start * grid.res, res=grid.res,
+               height=rows.stop - rows.start, width=cols.stop - cols.start, crs=grid.crs)
+    sub.area_shape = box(*sub.bounds).intersection(_footprint_shape(grid))
+    return sub
+
+
+def _footprint_shape(grid: Grid):
+    """The outline the grid's data tiles are picked under (sources/indexes/tilings.py): its area,
+    or the circle inscribed in its box."""
+    from shapely.geometry import Point
+    if grid.area_shape is not None:
+        return grid.area_shape
+    left, bottom, right, top = grid.bounds
+    return Point((left + right) / 2, (bottom + top) / 2).buffer(min(right - left, top - bottom) / 2)
+
+
+def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float) -> int:
+    """Fill the gaps of target (a memory-mapped grid) from other, each gap shifted to the heights
+    around it (fill_gaps); returns the number of pixels filled."""
+    from scipy import ndimage
+
+    values = np.asarray(target)
+    gy, gx = np.gradient(np.where(np.isfinite(values), values, other), res)
+    flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
+    both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
+    overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
+    # Offset of every gap from the ring of pixels around it
+    labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
+    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
+    offsets = np.full(count + 1, overall)
+    if ring.any():
+        # Only the ring pixels: scipy sorts every pixel it is given (10 s for a 58 Mpx tile)
+        near = ring > 0
+        local = ndimage.median(values[near] - other[near], ring[near], index=np.arange(1, count + 1))
+        local = np.asarray(local, dtype=float)
+        # A local offset far from the overall one comes from misaligned edges, not heights
+        usable = np.isfinite(local) & (np.abs(local - overall) <= GAP_MAX_LOCAL_SHIFT)
+        offsets[1:] = np.where(usable, local, overall)
+    count = int((gaps & np.isfinite(other)).sum())
+    target[gaps] = other[gaps] + offsets[labels[gaps]]
+    target.flush()
+    return count
 
 
 def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid, fallbacks: List["Source"],
