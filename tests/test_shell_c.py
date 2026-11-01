@@ -591,7 +591,7 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
         port = sock.getsockname()[1]
     site = f"http://localhost:{port}"
     providers = FakeProviders(site)
-    monkeypatch.setitem(ac.GITHUB, "authorize_url", f"{site}/test-provider/authorize")
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     (stubs / "stubs.js").write_text(C_STUBS, encoding="utf-8")

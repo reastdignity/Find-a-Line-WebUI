@@ -1,17 +1,20 @@
 """
-Accounts of the public site (`findaline.py web --public`): sign-in with GitHub or Google,
-the users and their sessions (accounts.sqlite in the data folder, or in FINDALINE_ACCOUNTS_DIR:
+Accounts of the public site (`findaline.py web --public`): sign-in with GitHub, Google or
+Microsoft, the users and their sessions (accounts.sqlite in the data folder, or in FINDALINE_ACCOUNTS_DIR:
 only the web process opens it). The local app has no
 accounts: its one user is LOCAL, an administrator.
 
 - Sign-in: OAuth 2 through Authlib's Starlette client. The state, the OpenID nonce and the
-  PKCE verifier (S256, both providers) of a sign-in in progress live in a signed cookie of
+  PKCE verifier (S256, every provider) of a sign-in in progress live in a signed cookie of
   Starlette's SessionMiddleware (OAUTH_COOKIE, ten minutes), which binds the callback to
-  the browser that started it (no login CSRF). Authlib's cache is not configured. Google
-  is OpenID Connect (server metadata; Authlib checks the ID token: signature from the JWKS,
-  iss, aud, exp, nonce), GitHub plain OAuth 2 (`GET /user` gives the id). The callback
-  address comes from FINDALINE_PUBLIC_URL, never from the request.
-- A user is (provider, its id: Google's `sub`, GitHub's numeric id), no e-mail. New accounts
+  the browser that started it (no login CSRF). Authlib's cache is not configured. The
+  providers are CLIENTS: Google and Microsoft are OpenID Connect (server metadata; Authlib
+  checks the ID token: signature from the JWKS, iss, aud, exp, nonce), GitHub plain OAuth 2
+  (`GET /user` gives the id). Microsoft is its `consumers` tenant: personal accounts, whose
+  tokens have one fixed issuer, as Authlib's check of iss needs (work accounts would have one
+  per tenant). The callback address comes from FINDALINE_PUBLIC_URL, never from the request.
+- A user is (provider, its id: the `sub` of Google's or Microsoft's ID token, GitHub's numeric
+  id), no e-mail. New accounts
   are `pending` until an administrator approves them (FINDALINE_SIGNUP=approval), approved
   at once (open), or refused (closed). Administrators are FINDALINE_ADMINS (github:12345):
   always approved, never blocked. An administrator can lift the limits of the site for a
@@ -63,13 +66,32 @@ MIGRATIONS = [
     # sent by the app after a sign-in (POST /api/me/time-zone, country_of_zone)
     """ALTER TABLE users ADD COLUMN country TEXT;""",
 ]
-# The providers: Authlib's registration and how to read the user's id and name
-GITHUB = {"authorize_url": "https://github.com/login/oauth/authorize",
-          "access_token_url": "https://github.com/login/oauth/access_token",
-          "api_base_url": "https://api.github.com/"}
-GOOGLE = {"server_metadata_url": "https://accounts.google.com/.well-known/openid-configuration"}
-SCOPES = {"github": None, "google": "openid profile"}  # GitHub: no scope (public data only)
-NAMES = {"github": "GitHub", "google": "Google"}
+
+
+@dataclass(frozen=True)
+class Client:
+    """A sign-in provider: its name on the button, Authlib's registration (the endpoints, or the
+    OpenID metadata), the scope (None: none asked), and for plain OAuth 2 where the user's id and
+    name are (the API path and its two fields; None: the `sub` and `name` of the ID token)."""
+    name: str
+    register: Dict[str, str]
+    scope: Optional[str]
+    userinfo: Optional[Tuple[str, str, str]] = None
+
+
+# The providers (their names are settings.PROVIDERS)
+CLIENTS = {
+    "github": Client("GitHub", {"authorize_url": "https://github.com/login/oauth/authorize",
+                                "access_token_url": "https://github.com/login/oauth/access_token",
+                                "api_base_url": "https://api.github.com/"},
+                     None, ("user", "id", "login")),  # no scope: public data only
+    "google": Client("Google", {"server_metadata_url": "https://accounts.google.com/.well-known/openid-configuration"},
+                     "openid profile"),
+    "microsoft": Client("Microsoft", {"server_metadata_url": "https://login.microsoftonline.com/consumers/v2.0/"
+                                                             ".well-known/openid-configuration"},
+                        "openid profile"),
+}
+NAMES = {provider: client.name for provider, client in CLIENTS.items()}
 
 
 @dataclass(frozen=True)
@@ -285,26 +307,28 @@ def oauth_clients(settings: AccountSettings, transport=None):
     for provider in settings.providers:
         client_id, secret = settings.client(provider)
         kwargs = {"code_challenge_method": "S256", **extra}
-        if SCOPES[provider]:
-            kwargs["scope"] = SCOPES[provider]
+        if CLIENTS[provider].scope:
+            kwargs["scope"] = CLIENTS[provider].scope
         oauth.register(provider, client_id=client_id, client_secret=secret, client_kwargs=kwargs,
-                       **(GITHUB if provider == "github" else GOOGLE))
+                       **CLIENTS[provider].register)
     return oauth
 
 
 async def identity(client, provider: str, token: Dict) -> Tuple[str, Optional[str]]:
     """(id, display name) of the user who signed in, from the token Authlib fetched."""
-    if provider == "google":
+    spec = CLIENTS[provider]
+    if spec.userinfo is None:
         info = token.get("userinfo")  # the ID token, checked by Authlib (nonce, iss, aud, exp, signature)
         if not info or not info.get("sub"):
             raise ValueError("no ID token")
         return str(info["sub"]), info.get("name")
-    response = await client.get("user", token=token)
+    path, id_field, name_field = spec.userinfo
+    response = await client.get(path, token=token)
     response.raise_for_status()
     data = response.json()
-    if not isinstance(data.get("id"), int):
-        raise ValueError("no GitHub user id")
-    return str(data["id"]), data.get("login")
+    if not isinstance(data.get(id_field), int):
+        raise ValueError(f"no {spec.name} user id")
+    return str(data[id_field]), data.get(name_field)
 
 
 @functools.lru_cache(maxsize=1)

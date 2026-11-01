@@ -571,9 +571,10 @@ settings() {
     fi
     ask_provider github GitHub
     ask_provider google Google
+    ask_provider microsoft Microsoft
     if [ -z "$(env_get "$env" FINDALINE_ADMINS)" ] && [ -t 0 ]; then
         local login id
-        read -r -p "   GitHub login or numeric id of the administrator (empty: none yet; Google: section 8): " login
+        read -r -p "   GitHub login or numeric id of the administrator (empty: none yet; Google, Microsoft: section 8): " login
         if [ -n "$login" ]; then
             [[ $login =~ ^[A-Za-z0-9-]+$ ]] || die "not a GitHub login: $login"
             # A number is an id (/user/<id>), anything else a login (/users/<login>)
@@ -593,7 +594,7 @@ settings() {
     local missing=() provider
     [ "$(env_get "$env" FINDALINE_CONTACT)" = you@example.org ] && missing+=("FINDALINE_CONTACT in findaline.env (--contact)")
     local providers=0 ids=0
-    for provider in github google; do
+    for provider in github google microsoft; do
         if [ -n "$(env_get "$env" "FINDALINE_${provider^^}_CLIENT_ID")" ]; then
             ids=$((ids + 1))
             if secret_set "$REPO/secrets/findaline_${provider}_client_secret"; then
@@ -604,7 +605,7 @@ settings() {
         fi
     done
     [ "$ids" -gt 0 ] \
-        || missing+=("a sign-in app (section 7): FINDALINE_GITHUB_CLIENT_ID or _GOOGLE_ in findaline.env, its secret in secrets/")
+        || missing+=("a sign-in app (section 7): FINDALINE_GITHUB_CLIENT_ID, _GOOGLE_ or _MICROSOFT_ in findaline.env, its secret in secrets/")
     [ -n "$(env_get "$env" FINDALINE_ADMINS)" ] || warn "FINDALINE_ADMINS is empty: nobody is an administrator (section 8)"
     if [ "${#missing[@]}" -gt 0 ]; then
         local item
@@ -1046,6 +1047,13 @@ update() {
     ufw_files
     if [ "$CHANGED" = 1 ]; then ufw reload >/dev/null; note "ufw reloaded"; fi
     [ -f /etc/systemd/system/findaline-backup.service ] && backups
+    # A secret added since (a new sign-in provider): compose needs its file, empty is not offered
+    local file
+    for file in "$DEPLOY"/secrets.example/findaline_*; do
+        [ -e "$REPO/secrets/${file##*/}" ] && continue
+        install -m 400 -o 10001 -g 10001 /dev/null "$REPO/secrets/${file##*/}"
+        note "secrets/${file##*/}: a new, empty one (section 7)"
+    done
     note "up to date"
 
     start

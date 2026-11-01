@@ -1,5 +1,5 @@
 """The public mode of the web app (web.py --public, settings.PublicSettings): settings, guards
-and headers; signing in with GitHub and Google (accounts.py) against fake providers (an
+and headers; signing in with GitHub, Google and Microsoft (accounts.py) against fake providers (an
 httpx2.MockTransport given to Authlib's clients), sessions, and who may do what."""
 
 import base64
@@ -32,15 +32,27 @@ SETTINGS = {"FINDALINE_PUBLIC_URL": URL, "FINDALINE_TRUSTED_PROXY": "172.30.0.2"
 ADMIN = ("github", "1")  # FINDALINE_ADMINS=github:1
 ACCOUNTS = {"FINDALINE_SESSION_SECRET": "s3cret-" * 6, "FINDALINE_GITHUB_CLIENT_ID": "gh-client",
             "FINDALINE_GITHUB_CLIENT_SECRET": "gh-secret", "FINDALINE_GOOGLE_CLIENT_ID": "google-client",
-            "FINDALINE_GOOGLE_CLIENT_SECRET": "google-secret", "FINDALINE_ADMINS": "github:1"}
+            "FINDALINE_GOOGLE_CLIENT_SECRET": "google-secret", "FINDALINE_MICROSOFT_CLIENT_ID": "ms-client",
+            "FINDALINE_MICROSOFT_CLIENT_SECRET": "ms-secret", "FINDALINE_ADMINS": "github:1"}
 
 
 class FakeProviders:
-    """GitHub and Google as Authlib's clients see them (an httpx2.MockTransport): codes are given out by
-    `authorize` (what the user's browser would get from the provider) and taken once, with the PKCE
-    verifier of their challenge; Google answers with an ID token signed by its own key."""
+    """GitHub, Google and Microsoft as Authlib's clients see them (an httpx2.MockTransport): codes are
+    given out by `authorize` (what the user's browser would get from the provider) and taken once, with
+    the PKCE verifier of their challenge; the OpenID providers answer with an ID token signed by their
+    own key."""
 
-    ISSUER = "https://accounts.google.com"
+    # The OpenID providers: (host of their sign-in page, issuer, client id, metadata, token and keys URLs)
+    OIDC = {
+        "google": ("accounts.google.com", "https://accounts.google.com", "google-client",
+                   "https://accounts.google.com/.well-known/openid-configuration",
+                   "https://oauth2.googleapis.com/token", "https://www.googleapis.com/oauth2/v3/certs"),
+        "microsoft": ("login.microsoftonline.com",
+                      "https://login.microsoftonline.com/9188040d-6c67-4c5b-b112-36a304b66dad/v2.0", "ms-client",
+                      "https://login.microsoftonline.com/consumers/v2.0/.well-known/openid-configuration",
+                      "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+                      "https://login.microsoftonline.com/consumers/discovery/v2.0/keys"),
+    }
 
     def __init__(self, url: str = URL):
         from joserfc.jwk import RSAKey
@@ -55,9 +67,9 @@ class FakeProviders:
         url = urlsplit(location)
         query = {k: v[0] for k, v in parse_qs(url.query).items()}
         assert query["code_challenge_method"] == "S256" and len(query["code_challenge"]) == 43
-        provider = "google" if url.hostname == "accounts.google.com" else "github"
+        provider = next((p for p, o in self.OIDC.items() if o[0] == url.hostname), "github")
         assert query["redirect_uri"] == f"{self.url}/auth/{provider}"
-        if provider == "google":
+        if provider in self.OIDC:
             assert query["scope"] == "openid profile" and query["nonce"]
         else:
             assert "scope" not in query  # GitHub: public data only
@@ -70,15 +82,14 @@ class FakeProviders:
         from joserfc import jwt
         url = str(request.url)
         self.calls.append(url)
-        if url == "https://accounts.google.com/.well-known/openid-configuration":
-            return httpx2.Response(200, json={
-                "issuer": self.ISSUER, "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
-                "token_endpoint": "https://oauth2.googleapis.com/token",
-                "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
-                "id_token_signing_alg_values_supported": ["RS256"]})
-        if url == "https://www.googleapis.com/oauth2/v3/certs":
-            return httpx2.Response(200, json={"keys": [self.key.as_dict(private=False)]})
-        if url in ("https://github.com/login/oauth/access_token", "https://oauth2.googleapis.com/token"):
+        for host, issuer, _, metadata, token_url, keys in self.OIDC.values():
+            if url == metadata:
+                return httpx2.Response(200, json={
+                    "issuer": issuer, "authorization_endpoint": f"https://{host}/authorize",
+                    "token_endpoint": token_url, "jwks_uri": keys, "id_token_signing_alg_values_supported": ["RS256"]})
+            if url == keys:
+                return httpx2.Response(200, json={"keys": [self.key.as_dict(private=False)]})
+        if url in ["https://github.com/login/oauth/access_token"] + [o[4] for o in self.OIDC.values()]:
             form = {k: v[0] for k, v in parse_qs(request.content.decode()).items()}
             grant = self.codes.pop(form.get("code"), None)  # a code is taken once
             if grant is None:
@@ -90,12 +101,11 @@ class FakeProviders:
             access = os.urandom(8).hex()
             self.tokens[access] = grant["user"]
             answer = {"access_token": access, "token_type": "bearer"}
-            if grant["provider"] == "google":
+            if grant["provider"] in self.OIDC:
+                _, issuer, client_id, *_ = self.OIDC[grant["provider"]]
                 now = int(time.time())
-                claims = {"iss": self.ISSUER, "aud": "google-client", "sub": grant["user"]["sub"],
-                          "name": grant["user"].get("name"), "nonce": grant["nonce"], "iat": now, "exp": now + 600,
-                          "at_hash": None}
-                claims.pop("at_hash")
+                claims = {"iss": issuer, "aud": client_id, "sub": grant["user"]["sub"],
+                          "name": grant["user"].get("name"), "nonce": grant["nonce"], "iat": now, "exp": now + 600}
                 claims.update(self.id_token_changes)
                 answer["id_token"] = jwt.encode({"alg": "RS256", "kid": "k1"}, claims, self.key)
             return httpx2.Response(200, json=answer)
@@ -213,7 +223,7 @@ def test_public_guards(public, providers):
     only from the site's Origin and with the session's token; the security headers on every answer;
     no worker in the web process."""
     page = public.get("/")
-    assert page.status_code == 200 and "Sign in with GitHub" in page.text and "Sign in with Google" in page.text
+    assert page.status_code == 200 and all(f"Sign in with {name}" in page.text for name in ("GitHub", "Google", "Microsoft"))
     assert TOKEN not in page.text and "<script" not in page.text
     assert public.get("/app/app.js").status_code == 200
     assert "FINDALINE_RUNS = [];" in public.get("/runs/runs.js").text  # the demo runs: none
@@ -280,8 +290,10 @@ def test_account_settings(monkeypatch, tmp_path):
     for wrong in ({"session_secret": "short"}, {"admins": "12345"}, {"admins": "gitlab:1"}, {"signup": "maybe"}):
         with pytest.raises(ValueError):
             AccountSettings(**{"session_secret": "z" * 40, **wrong})
-    assert AccountSettings(session_secret="z" * 40, admins=" github:1, google:abc ").admin_ids == \
-        [("github", "1"), ("google", "abc")]
+    assert AccountSettings(session_secret="z" * 40, admins=" github:1, google:abc, microsoft:m-1").admin_ids == \
+        [("github", "1"), ("google", "abc"), ("microsoft", "m-1")]
+    import settings
+    assert tuple(ac.CLIENTS) == settings.PROVIDERS  # every provider has its client, in the order of the buttons
 
 
 def test_sign_in_with_github(public, providers, tmp_path):
@@ -326,20 +338,24 @@ def test_sign_in_with_github(public, providers, tmp_path):
     db.close()
 
 
-def test_sign_in_with_google(public, providers, tmp_path):
-    """Google: OpenID Connect; Authlib checks the ID token (nonce, audience, issuer, expiry, signature)."""
-    answer = sign_in(public, providers, {"sub": "g-123", "name": "Gina"}, provider="google")
+@pytest.mark.parametrize("provider", ["google", "microsoft"])
+def test_sign_in_with_openid(public, providers, tmp_path, provider):
+    """Google and Microsoft: OpenID Connect; Authlib checks the ID token (nonce, audience, issuer, expiry,
+    signature). Microsoft's issuer is the fixed one of its personal accounts (the consumers tenant): a
+    token of a work tenant is refused."""
+    answer = sign_in(public, providers, {"sub": "g-123", "name": "Gina"}, provider=provider)
     assert answer.status_code == 303, answer.text
     assert "Gina" in public.get("/").text
+    work_tenant = "https://login.microsoftonline.com/72f988bf-86f1-41af-91ab-2d7cd011db47/v2.0"
     for change in ({"nonce": "other"}, {"aud": "someone-else"}, {"iss": "https://evil.example"},
-                   {"exp": int(time.time()) - 3600}):
+                   {"iss": work_tenant}, {"exp": int(time.time()) - 3600}):
         providers.id_token_changes = change
         with TestClient(public.app, base_url=URL) as other:
-            answer = sign_in(other, providers, {"sub": "g-456", "name": "Mallory"}, provider="google")
+            answer = sign_in(other, providers, {"sub": "g-456", "name": "Mallory"}, provider=provider)
             assert answer.status_code == 400 and ac.SESSION_COOKIE not in other.cookies, change
     import sqlite3
     db = sqlite3.connect(tmp_path / "accounts.sqlite")
-    assert db.execute("SELECT provider, subject FROM users").fetchall() == [("github", "1"), ("google", "g-123")]
+    assert db.execute("SELECT provider, subject FROM users").fetchall() == [("github", "1"), (provider, "g-123")]
     db.close()
 
 
@@ -1552,7 +1568,7 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
         port = sock.getsockname()[1]
     site = f"http://localhost:{port}"
     providers = FakeProviders(site)
-    monkeypatch.setitem(ac.GITHUB, "authorize_url", f"{site}/test-provider/authorize")
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     (stubs / "app_stubs.js").write_text(APP_STUBS, encoding="utf-8")

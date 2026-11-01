@@ -17,7 +17,7 @@ Settings and limits of the web app, from environment variables (pydantic-setting
   secrets (/run/secrets/findaline_<name>) when that folder exists.
 - AccountSettings: the sign-in of the public site (`web --public` only; accounts.py):
   FINDALINE_SESSION_SECRET, FINDALINE_GITHUB_CLIENT_ID / _SECRET, FINDALINE_GOOGLE_CLIENT_ID /
-  _SECRET, FINDALINE_ADMINS, FINDALINE_SIGNUP, FINDALINE_ACCOUNTS_DIR; secrets from the same
+  _SECRET, FINDALINE_MICROSOFT_CLIENT_ID / _SECRET, FINDALINE_ADMINS, FINDALINE_SIGNUP, FINDALINE_ACCOUNTS_DIR; secrets from the same
   Docker secrets folder (file names as the variables, in any case). A provider without its
   client id and secret is not offered.
 - ServiceKeys: API keys of data services (OPENTOPOGRAPHY_API_KEY), from the environment or a
@@ -315,7 +315,7 @@ class PublicSettings(BaseSettings):
                              + describe_error(e, "FINDALINE_"))
 
 
-PROVIDERS = ("github", "google")  # the sign-in providers (accounts.py)
+PROVIDERS = ("github", "google", "microsoft")  # the sign-in providers (accounts.CLIENTS)
 
 
 class AccountSettings(BaseSettings):
@@ -329,8 +329,13 @@ class AccountSettings(BaseSettings):
     github_client_secret: Optional[SecretStr] = Field(None, description="client secret of the GitHub OAuth app")
     google_client_id: Optional[str] = Field(None, description="client id of the Google OAuth client")
     google_client_secret: Optional[SecretStr] = Field(None, description="client secret of the Google OAuth client")
+    microsoft_client_id: Optional[str] = Field(
+        None, description="application (client) id of the Microsoft Entra app (personal accounts)")
+    microsoft_client_secret: Optional[SecretStr] = Field(
+        None, description="client secret of the Microsoft Entra app")
     admins: str = Field("", description="administrators as <provider>:<id>, comma-separated (github:12345 with "
-                                        "the numeric GitHub user id, google:<sub>); the first one owns the runs "
+                                        "the numeric GitHub user id, google:<sub>, microsoft:<sub>); the first one "
+                                        "owns the runs "
                                         "from before the public mode")
     accounts_dir: Optional[str] = Field(
         None, description="folder of accounts.sqlite (default: the data folder); only the web process opens it, so "
@@ -385,9 +390,8 @@ class AccountSettings(BaseSettings):
             raise SystemExit("--public needs these settings (environment or Docker secrets):\n"
                              + describe_error(e, "FINDALINE_"))
         if not settings.providers:
-            raise SystemExit("--public needs a sign-in provider: FINDALINE_GITHUB_CLIENT_ID and "
-                             "FINDALINE_GITHUB_CLIENT_SECRET, or FINDALINE_GOOGLE_CLIENT_ID and "
-                             "FINDALINE_GOOGLE_CLIENT_SECRET")
+            raise SystemExit("--public needs a sign-in provider: " + ", or ".join(
+                f"FINDALINE_{p.upper()}_CLIENT_ID and FINDALINE_{p.upper()}_CLIENT_SECRET" for p in PROVIDERS))
         return settings
 
 

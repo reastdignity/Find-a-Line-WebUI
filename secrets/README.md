@@ -11,11 +11,12 @@ quotes, one line ending in LF (not CRLF: Grafana keeps the carriage return in it
 | `findaline_session_secret` | A long random string that signs the sign-in cookie: `python -c "import secrets; print(secrets.token_urlsafe(48))"` |
 | `findaline_github_client_secret` | The client secret of the GitHub OAuth app |
 | `findaline_google_client_secret` | The client secret of the Google OAuth client |
+| `findaline_microsoft_client_secret` | The client secret (its *Value*) of the Microsoft Entra app; it expires (24 months at most): a new one before then |
 | `grafana_admin_password` | The password of Grafana's user `admin` (the monitoring), used when Grafana's database is made: `deploy/vps.sh` writes a random one when the file is empty; changing it later needs `grafana cli admin reset-admin-password` in the container |
 | `ntfy_url` | The whole URL of the secret [ntfy](https://ntfy.sh) topic Grafana sends its alerts to, one line, e.g. `https://ntfy.sh/<secret topic>`; pick a name nobody can guess |
 | `opentopography_api_key` | The OpenTopography API key for `--source nasadem` (admins only on the public site; free at [opentopography.org](https://portal.opentopography.org/myopentopo)). OpenTopography allows one user per key: your own key only when you are the site's only administrator, otherwise empty |
 
-`deploy/secrets.example/` holds the six files empty: `cp -n deploy/secrets.example/* secrets/`,
+`deploy/secrets.example/` holds the seven files empty: `cp -n deploy/secrets.example/* secrets/`,
 then put the values in. Every file must exist (compose refuses to start without it): leave the file of a provider you do not
 use empty (with its client id unset), and it is not offered; an empty `opentopography_api_key`
 means no NASADEM. The session secret must have at least 32

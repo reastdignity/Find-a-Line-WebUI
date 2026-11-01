@@ -418,7 +418,7 @@ def test_on_the_public_site(tmp_path, clip_run, account_settings, monkeypatch):
         port = sock.getsockname()[1]
     site = f"http://localhost:{port}"
     providers = FakeProviders(site)
-    monkeypatch.setitem(ac.GITHUB, "authorize_url", f"{site}/test-provider/authorize")
+    monkeypatch.setitem(ac.CLIENTS["github"].register, "authorize_url", f"{site}/test-provider/authorize")
     stubs = tmp_path / "stubs"
     stubs.mkdir()
     (stubs / "stubs.js").write_text(B_STUBS + f"window.TEST_RUN = {json.dumps(RUN_A)};\n", encoding="utf-8")

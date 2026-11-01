@@ -91,7 +91,8 @@ jobs:
           # web --public starts only with a sign-in provider; the ids (and secrets below) are dummies
           printf 'FINDALINE_GITHUB_CLIENT_ID=ci-dummy\nFINDALINE_GOOGLE_CLIENT_ID=ci-dummy\n' >> findaline.env
           printf 'WORKER_CPUS=2\nWORKER_MEMORY=4g\n' > .env
-          for name in findaline_session_secret findaline_github_client_secret findaline_google_client_secret; do
+          for name in findaline_session_secret findaline_github_client_secret findaline_google_client_secret \
+              findaline_microsoft_client_secret; do
             python3 -c "import secrets; print(secrets.token_urlsafe(48))" > "secrets/$name"
           done
           : > secrets/opentopography_api_key  # empty: no NASADEM
