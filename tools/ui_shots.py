@@ -38,10 +38,13 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_GITHUB_CLIEN
             "FINDALINE_GITHUB_CLIENT_SECRET": "secret", "FINDALINE_ADMINS": "github:1"}
 
 # name -> (interface ("map": the run's map.html, "shared": it by its share link), hash, actions after loading or None: a CSS selector to click, "scroll:<selector>" to
-# scroll that element (or the page) to its end, "low:<selector>" to click the last one scrolled to the
+# scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
 # bottom of its panel (a "?" near the bottom: its bubble opens upwards), or a list of such steps[, the user:
 # "admin" (default), "walker", an approved user with the site's limits, or "visitor", not signed in]);
 # "{run}" is the clip's run; an interface starting with "/" is a path of web.py's server-rendered pages
+# Leaflet's layer control opened as its expand() does (hover on a desktop, a tap on a phone: neither is the
+# same click on every device)
+LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
@@ -58,6 +61,7 @@ PAGES = {
     "d-new-limited-hint": ("d", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
     "d-result": ("d", "#run={run}", None),
     "d-result-intro": ("d", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
+    "d-result-credits": ("d", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones)
     "d-favourites": ("d", "#favourites", None),
     "d-admin": ("d", "#admin", None),
     "d-osm": ("d", "#osm", None),
@@ -73,6 +77,9 @@ PAGES = {
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
+    "map-credits": ("map", "", ".u-credits-toggle"),  # the data credits unfolded (phones: on a desktop no button)
+    "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
+    "map-shared-credits": ("shared", "", ".u-credits-toggle"),
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
@@ -244,6 +251,10 @@ def main():
                                 page.evaluate("(sel) => { const e = document.querySelector(sel) || "
                                               "document.scrollingElement; e.scrollTop = e.scrollHeight; }", step[7:])
                                 page.wait_for_timeout(400)
+                                continue
+                            if step.startswith("js:"):
+                                page.evaluate(step[3:])
+                                page.wait_for_timeout(600)
                                 continue
                             if step.startswith("low:"):  # the last one, at the bottom of its panel
                                 page.evaluate(LOWEST, step[4:])
