@@ -24,7 +24,9 @@ import contextlib
 import json
 import math
 import os
+import random
 import sqlite3
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -296,6 +298,7 @@ MAX_ANSWER_BYTES = 5_000_000
 NOMINATIM_INTERVAL_MS = 1100
 NOMINATIM_WAIT_S = 300  # how long a request waits for its turn
 _limiters: Dict[str, object] = {}  # pyrate_limiter.Limiter per data folder, made once per process
+_limiters_lock = threading.Lock()  # threads of a process make one Limiter per data folder
 # Called before every request to Nominatim (not for cached answers); the web worker sets it per job
 # or quick task to count the requests of its user (jobs.nominatim_quota), None elsewhere
 BEFORE_REQUEST: Optional[Callable[[], None]] = None
@@ -375,16 +378,27 @@ def _nominatim_turn(cache_dir: str):
     """Wait until this process may send a request to Nominatim (all processes of the data folder
     share one limit: a pyrate-limiter SQLite bucket, its writes serialised by a file lock)."""
     path = os.path.join(cache_dir, "osm", "nominatim-rate.sqlite")
-    limiter = _limiters.get(path)
-    if limiter is None:
-        from pyrate_limiter import Limiter, Rate, SQLiteBucket
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        bucket = SQLiteBucket.init_from_file([Rate(1, NOMINATIM_INTERVAL_MS)], table="nominatim", db_path=path,
-                                             use_file_lock=True)
-        limiter = _limiters[path] = Limiter(bucket)
-    if not limiter.try_acquire("nominatim", timeout=NOMINATIM_WAIT_S):
-        raise requests.Timeout(f"Nominatim is busy with the requests of other searches (waited "
-                               f"{NOMINATIM_WAIT_S // 60} min); try again later")
+    with _limiters_lock:
+        limiter = _limiters.get(path)
+        if limiter is None:
+            from pyrate_limiter import Limiter, Rate, SQLiteBucket
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            bucket = SQLiteBucket.init_from_file([Rate(1, NOMINATIM_INTERVAL_MS)], table="nominatim",
+                                                 db_path=path, use_file_lock=True)
+            limiter = _limiters[path] = Limiter(bucket)
+    # Asked with no wait (timeout 0), polled: pyrate-limiter's own wait (4.5.1) stamps the permit
+    # with the time it planned to wake at, not the time it woke, so after an oversleep (Windows'
+    # timer, ~15 ms) the next permit came early; a permit asked now is stamped with the bucket's
+    # clock now. (blocking=False fails with a file lock: the limiter passes False to
+    # FileLock.acquire as its timeout.) A timeout of 0 also gives up while another process holds
+    # the bucket's file lock: the next poll asks again. As sources.net.rate_turn.
+    interval = NOMINATIM_INTERVAL_MS / 1000
+    deadline = time.monotonic() + NOMINATIM_WAIT_S
+    while not limiter.try_acquire("nominatim", timeout=0):
+        if time.monotonic() > deadline:
+            raise requests.Timeout(f"Nominatim is busy with the requests of other searches (waited "
+                                   f"{NOMINATIM_WAIT_S // 60} min); try again later")
+        time.sleep(interval * (0.1 + 0.2 * random.random()))  # waiters spread; late, never early
 
 
 def _ask(url: str, params: Dict, timeout: int, cache_dir: str):

@@ -241,6 +241,29 @@ def test_nominatim_one_request_per_second_across_processes(tmp_path):
     assert min(b - a for a, b in zip(starts, starts[1:])) >= 1.0
 
 
+def test_nominatim_turns_never_early(tmp_path):
+    """Threads asking for Nominatim turns at once get them NOMINATIM_INTERVAL_MS apart, never less
+    (pyrate-limiter's own blocking wait let one in about a timer's oversleep early)."""
+    import osm
+    turns, lock = [], threading.Lock()
+
+    def ask():
+        for _ in range(3):
+            osm._nominatim_turn(str(tmp_path))
+            with lock:
+                turns.append(time.monotonic())
+
+    threads = [threading.Thread(target=ask) for _ in range(3)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(60)
+    turns.sort()
+    assert len(turns) == 9
+    # 2 ms for the way from the permit to the list
+    assert min(b - a for a, b in zip(turns, turns[1:])) >= osm.NOMINATIM_INTERVAL_MS / 1000 - 0.002
+
+
 def test_overpass_one_query_at_a_time_across_processes(tmp_path):
     """Two processes building theme tiles at once: their Overpass queries never overlap."""
     with _fake_server(b'{"elements": []}', seconds=0.5) as (url, served):
