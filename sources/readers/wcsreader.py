@@ -28,14 +28,18 @@ class WcsReader(Reader):
     coast of Gozo). Then the request is clipped to the coverage extent
     (DescribeCoverage), on whole pixels of the tile grid, and the rest of the tile
     stays without data.
+
+    params: more parameters of every GetCoverage (GeoServer's GEOTIFF:COMPRESSION=DEFLATE
+    makes South Tyrol's float32 tiles a quarter of their size).
     """
 
     def __init__(self, description: str, url: str, coverage: str, crs: str, native_res: float, tile_px: int,
                  fmt: str, axes: Tuple[str, str], interpolation: Optional[str], zero_is_nodata: bool,
-                 origin: Tuple[float, float] = (0.0, 0.0)):
+                 origin: Tuple[float, float] = (0.0, 0.0), params: Tuple[Tuple[str, str], ...] = ()):
         self.description, self.service_url, self.coverage, self.crs = description, url, coverage, crs
         self.native_res, self.tile_px, self.fmt, self.axes = native_res, tile_px, fmt, axes
         self.interpolation, self.zero_is_nodata, self.origin = interpolation, zero_is_nodata, origin
+        self.params = tuple(params)
         self._extent: Optional[tuple] = None  # (left, bottom, right, top) of the coverage; () if unknown
 
     def coverage_extent(self) -> Optional[tuple]:
@@ -70,7 +74,7 @@ class WcsReader(Reader):
             params.append(("SCALESIZE", f"{ax}({round((right - left) / res)}),{ay}({round((top - bottom) / res)})"))
             if self.interpolation:
                 params.append(("INTERPOLATION", self.interpolation))
-        return net._get(self.service_url, params)
+        return net._get(self.service_url, params + list(self.params))
 
     def fetch(self, tile, path: str) -> Fetched:
         res, i, j = tile

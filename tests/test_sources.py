@@ -120,6 +120,20 @@ def test_tiles_from_an_origin(monkeypatch, tmp_path):
         assert np.array_equal(tile.read(1), height(0.5 + xs + 0.5, 0.5 - ys - 0.5).astype(np.float32))
 
 
+def test_more_getcoverage_parameters(monkeypatch, tmp_path):
+    """A layer's own GetCoverage parameters (GeoServer's compression) go with every request."""
+    asked = []
+
+    def recording(url, params=None, **kwargs):
+        asked.append(list(params))
+        return fake_get(url, params, **kwargs)
+    monkeypatch.setattr(src.net, "_get", recording)
+    layer = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         tile_px=100, fetch_res=1.0, axes=("E", "N"), params=(("GEOTIFF:COMPRESSION", "DEFLATE"),))
+    assert layer.download_tile((1.0, 0, -1), str(tmp_path / "t.tif")).received > 0
+    assert asked and asked[0][-1] == ("GEOTIFF:COMPRESSION", "DEFLATE")
+
+
 UGKK_CRS = ('COMPD_CS["S-JTSK [JTSK03] / Krovak East North + Baltic 1957 height",'
             'LOCAL_CS["S-JTSK [JTSK03] / Krovak East North",UNIT["metre",1,AUTHORITY["EPSG","9001"]],'
             'AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","8353"]],'
