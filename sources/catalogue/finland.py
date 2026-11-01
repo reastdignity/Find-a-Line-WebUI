@@ -18,8 +18,10 @@ TM35FIN = "EPSG:3067"
 # 10 408 sheets (the mirror's dem2m_direct.vrt, 2026-11-01); a sheet without a file (open sea, beyond the eastern
 # border) answers 404 and its blocks are missing. The files are replaced in place one by one as NLS updates them
 # (Last-Modified of 2020-2026 side by side), so the cache folder is "live": cache update reads its blocks again
-# after cache.TTL_DAYS["live"]. NLS's own services (WCS, OGC API Processes) need an api-key.
-PAITULI = "https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/2008_latest"
+# after cache.TTL_DAYS["live"]. NLS's own services (WCS, OGC API Processes) need an api-key. www.nic.funet.fi is
+# the base Paituli documents (mirrors.nic.funet.fi serves the same files; until 2026-11-01 it was read): the
+# same paths, so the cache folder stays.
+PAITULI = "https://www.nic.funet.fi/index/geodata/mml/dem2m/2008_latest"
 FI_EXTENT = (62000.0, 6624000.0, 734000.0, 7782000.0)  # the mirror's VRT: blocks outside make no request
 # NLS asks for the licensor, the dataset and the time ("contains data from the National Land Survey of Finland
 # Topographic Database 06/2014"); the date of the files read is not kept, so the year of the run stands for it.

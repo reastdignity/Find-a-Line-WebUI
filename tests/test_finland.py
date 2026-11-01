@@ -44,7 +44,7 @@ def test_block_files():
     i, j = 261, 3669  # 522-524 km E, 7338-7340 km N: Korouoma
     (name, url, year), = finland.paituli_files(i, j)
     assert name == "T5111G" and year == 0
-    assert url == "https://mirrors.nic.funet.fi/index/geodata/mml/dem2m/2008_latest/T5/T51/T5111G.tif"
+    assert url == "https://www.nic.funet.fi/index/geodata/mml/dem2m/2008_latest/T5/T51/T5111G.tif"
     m = finland.BLOCK_M
     assert finland.tm35_sheet((i + 1) * m - 1, (j + 1) * m - 1) == name
     assert finland.paituli_files(-100, 3669) == []
