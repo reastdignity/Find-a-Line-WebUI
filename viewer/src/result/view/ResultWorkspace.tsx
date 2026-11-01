@@ -14,6 +14,7 @@ import type { RunListed } from "../../app/api";
 import { IconButton, Sheet, type Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { creditsHtml } from "../../layers";
+import { useCornersAboveSheet, useCornersBesidePanel } from "./corners";
 import type { Line, RunData } from "../../types";
 import { loadRun } from "../load";
 import { ResultModel } from "../model";
@@ -125,6 +126,12 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
     return () => { control.removeAttribution(html); };
   }, [data]);
 
+  // The attribution and the scale stay in sight: above the sheet on a phone, beside the panel and above
+  // the profile on a desktop
+  const phoneRef = useRef<HTMLDivElement>(null);
+  useCornersAboveSheet(phoneRef, () => map.getContainer(), !wide);
+  useCornersBesidePanel(() => map.getContainer(), dockRef, PANEL + 12, 12, wide);
+
   useEffect(() => {
     const resultMap = new ResultMap(map, model);
     (window as any).FINDALINE_RESULT = {model, view: resultMap};  // for tests and the browser console
@@ -174,7 +181,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
 
   if (!wide) {
-    return <div class="r-ws">
+    return <div class="r-ws" ref={phoneRef}>
       <div class="b-top b-top-run">{menu}{pill}{actions?.(true)}
         <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} {...files} />
       </div>

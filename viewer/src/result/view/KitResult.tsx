@@ -15,6 +15,7 @@ import type { Line, RunData } from "../../types";
 import { loadRun, orthoForApp } from "../load";
 import { ResultModel } from "../model";
 import { ResultMap, type Padding } from "../ResultMap";
+import { useCornersAboveSheet } from "./corners";
 import { FilterBar } from "./FilterBar";
 import { LineDetails } from "./LineDetails";
 import { LinesTable } from "./LinesTable";
@@ -111,6 +112,8 @@ function Result({data}: {data: RunData}) {
   const zoom = (l: Line) => view?.zoomTo(l, padding());
   const measuredNow = (l: Line | null) => { setMeasured(l); if (l && !wide) setSnap("half"); };
   const closeMeasured = () => { setMeasured(null); view?.clearMeasure(); };
+  const kitRef = useRef<HTMLDivElement>(null);
+  useCornersAboveSheet(kitRef, mapRef, !wide);  // the attribution and the scale above the sheet
   const details = <LineDetails model={model} onZoom={zoom} onStep={reveal} />;
   const title = <div class="r-pill">
     <a class="u-ib u-plain u-round" href={uiHref("kit-result")} aria-label="All runs" title="All runs">‹</a>
@@ -119,7 +122,7 @@ function Result({data}: {data: RunData}) {
   </div>;
 
   return <div class="r-kit-main">
-    <div class="r-kit-map">
+    <div class="r-kit-map" ref={kitRef}>
       <div class="r-kit-leaflet" ref={mapRef} />
       <div class="r-kit-top">{title}
         {!wide && <RunActions model={model} view={view} onMeasured={measuredNow} compact />}</div>

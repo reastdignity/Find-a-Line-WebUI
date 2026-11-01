@@ -244,4 +244,6 @@
 .ui .leaflet-control-scale-line { background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--ink); border-color: var(--ink-2); }
 .ui .leaflet-control-attribution { background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--ink-2); }
 .ui .leaflet-control-attribution a { color: var(--accent); }
+/* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts) */
+@media (max-width: 767px) { .ui .leaflet-control-attribution { font-size: 10px; line-height: 1.35; } }
 .ui .leaflet-tooltip { background: var(--surface); color: var(--ink); border-color: var(--line); }
