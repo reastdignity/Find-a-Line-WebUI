@@ -576,13 +576,16 @@ def test_country_code_offline(monkeypatch, tmp_path):
 
 
 def test_listing_offline_and_sample():
-    """Every source has its row of README's table; its offline boxes name its own countries, and its
+    """Every source has its row of README's table; its offline boxes name its own countries (or
+    regions, for a source with regions), and its
     sample point (the probe's and tools/check_source.py's) lies where the source is used."""
     assert sorted(src.OFFLINE_BOXES) == sorted(BOXES)
     for sid, s in src.SOURCES.items():
         assert s.listing is not None and s.listing.where and s.listing.terrain, sid
-        for code, _ in s.offline:
-            assert code in s.countries, (sid, code)
+        for region in s.regions:  # ISO 3166-2 in lower case, of its countries
+            assert region == region.lower() and region.split("-")[0] in s.countries, (sid, region)
+        for code, _ in s.offline:  # a region's box (gb-wls) for a source with regions
+            assert code in (s.regions or s.countries), (sid, code)
         if s.sample is None:
             assert sid == "alaska"  # no 1 m DEM in Alaska yet
             continue

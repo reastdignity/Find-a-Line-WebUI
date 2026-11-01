@@ -20,3 +20,9 @@ order: method, URL, status, content type, body file), the bodies (`001.xml`, `00
 `expected.json`, its test checks that nothing is cached, also when the same report comes with HTTP 200.
 Record again with `uv run tools/record_answers.py [recipe]`; a new recording changes `expected.json` only
 when the service's data changed.
+
+`nominatim/reverse.json`: Nominatim's reverse answers (`osm.reverse`, zoom 3 and 8) of seven points in Wales,
+England, Lower Saxony, Saxony-Anhalt, South Tyrol and Trentino (mountains, forest, a coast, the sea off a cliff),
+recorded once on 2026-11-01 for the offline tests of the regions of `--source auto` (`tests/test_regions.py`):
+each row the query, the time and the answer as `osm.reverse` stored it. Data © OpenStreetMap contributors,
+[ODbL 1.0](https://osm.org/copyright).

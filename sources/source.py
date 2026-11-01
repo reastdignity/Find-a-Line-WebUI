@@ -53,7 +53,11 @@ class Source:
     nmt: Layer
     nmpt: Optional[Layer] = None
     countries: Tuple[str, ...] = ()
-    crs: Optional[str] = None       # working CRS; None = UTM zone of the search centre
+    # ISO 3166-2 codes in lower case (gb-wls, it-bz): --source auto takes the source only where the
+    # centre lies in one of them (and its country is one of countries), before the sources of its
+    # country without regions, whatever the order of SOURCES (choose.choose_source); () = the countries
+    regions: Tuple[str, ...] = ()
+    crs:Optional[str] = None       # working CRS; None = UTM zone of the search centre
     default_resolution: Optional[float] = None  # None: the terrain data's own, at least MIN_RESOLUTION
     ortho: Optional[OrthoService] = None
     note: str = ""                  # licence or quality note printed at the start
@@ -73,7 +77,8 @@ class Source:
     # Its row in README's "Data sources" table (tools/source_docs.py)
     listing: Optional[ReadmeRow] = None
     # Rough boxes (country code, (south, north, west, east)) for the country of a point when it
-    # cannot be looked up (offline): choose.OFFLINE_BOXES, in the order of SOURCES
+    # cannot be looked up (offline): choose.OFFLINE_BOXES, in the order of SOURCES. A region's
+    # code (gb-wls) gives its country and that region; a source with regions has region boxes only
     offline: Tuple[Tuple[str, Tuple[float, float, float, float]], ...] = ()
     # (lat, lon) of a point with data in every layer, for the source probe (sources/probe.py) and
     # tools/check_source.py; None: no such point (Alaska's 1 m DEM has no data yet)
