@@ -619,7 +619,7 @@ def test_stale_temporary_files(tmp_path):
 
 def test_quick_lane(tmp_path, monkeypatch):
     """Estimates are answered by the worker's quick lane: without a worker the server says so; a
-    task over the time limit gets its process killed, and a new one answers the next task."""
+    task over the time limit gets its process killed, and a new one takes its place."""
     headers = {"x-findaline-token": TOKEN}
     hanging = {"params": {"area": "coast", "within": "osm:Nowhere at all"}}  # Nominatim never answers
     with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
@@ -643,7 +643,11 @@ def test_quick_lane(tmp_path, monkeypatch):
                 response = client.post("/api/estimate", json={"params": {"lat": 95, "lon": 19.7}}, headers=headers)
                 assert response.status_code == 400 and response.json()["detail"] == {
                     "message": messages.text("error.lat_lon_range"), "code": "lat_lon_range", "params": {}},                     response.text
-                assert scheduler.quick.pid != first
+                # The server refused that one itself; the scheduler starts the new lane on its own tick
+                while (lane := scheduler.quick) is None or lane.pid == first:
+                    assert time.time() - started < 30, "no new quick lane"
+                    time.sleep(0.1)
+                assert lane.is_alive()
         finally:
             scheduler.stop()
     assert Jobs(str(tmp_path))._db().execute("SELECT COUNT(*) FROM quick").fetchone()[0] == 0

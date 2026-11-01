@@ -1646,10 +1646,11 @@ class Scheduler:
                 self.quick = None
                 self.jobs.quick_answer(task["id"], 504, f"time limit: stopped after {self.limits.quick_seconds:g} s")
         if self.quick is None:
-            self.quick = self.context.Process(target=run_quick, daemon=True,
-                                              args=(self.jobs.data_dir, self.worker_id, os.getpid(), self.limits,
-                                                    self.public, self.memory))
-            self.quick.start()
+            quick = self.context.Process(target=run_quick, daemon=True,
+                                         args=(self.jobs.data_dir, self.worker_id, os.getpid(), self.limits,
+                                               self.public, self.memory))
+            quick.start()
+            self.quick = quick  # only a started process: one read without the lock has its pid
 
     def _kill(self, phase: str, running: "Running"):
         """Kill the process tree of one running phase of a job and remove the job's work folder."""
