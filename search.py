@@ -86,11 +86,18 @@ PIXEL_BYTES = 100  # 64 of them, and the union-find of the anchor prominence (te
 # pairs held once, the tables joined and sorted column by column) 190-199 B per line, was 494-504;
 # step 4 at most 389-439 B (mapping.group_lines; its coordinates 234-305 B, was 306-553 with the
 # core's second table), 261-294 B held; step 5 327-459 B (and about 40 MiB whatever the number
-# of lines). The largest, 439 B, plus 14 %. The found pairs need no term of their own: as many
+# of lines). After wave 5 (the same captures): the grouping 266-268 B (its cell index as arrays,
+# its loop in numba: grouping.py), was 380-439; 229-262 B held (the pixel columns dropped after
+# the profiles); step 5 246-315 B (the rows' order part by part, 1 000 lines a chunk: about 5 MiB
+# whatever the number of lines); the join of a tiled search's lines 319 B (the Gozo coast's 6
+# tiles column by column, was 560: concat held them twice). The largest is step 4's profiles,
+# 306-389 B: R9's 389 B, plus 16 % (its 22 lines per group make the representatives' profiles
+# weigh more per line than on the larger searches' 158-167; they are counted within this, so a
+# search of smaller groups holds more). The found pairs need no term of their own: as many
 # as the valid lines on all 15 captures (at most 1.0001 times; lines left out by --min-height or
 # --max-wall-angle would add about 190 B per pair to step 3, still below step 4 up to 2.3 pairs
 # per line)
-LINE_BYTES = 500
+LINE_BYTES = 450
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
 # (lineprofiles.line_profiles, wave 3) 51-77 B per point at the peak of computing them, 21-30 B
