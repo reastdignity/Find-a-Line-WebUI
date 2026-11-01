@@ -1,0 +1,14 @@
+# The logs of the monitoring project: VictoriaLogs' LogsQL through its Grafana plugin
+# (victoriametrics-logs-datasource, put in Grafana's read-only plugins folder by deploy/vps.sh at
+# the version and sha256 pinned there). The uid is fixed: the dashboard Logs names it
+# (tests/test_monitoring.py checks it).
+apiVersion: 1
+
+datasources:
+  - name: VictoriaLogs
+    uid: victorialogs
+    type: victoriametrics-logs-datasource
+    access: proxy
+    url: http://victorialogs:9428
+    isDefault: false
+    editable: false

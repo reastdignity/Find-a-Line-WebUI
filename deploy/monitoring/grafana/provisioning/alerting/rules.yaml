@@ -1,4 +1,4 @@
-# Alert rules of docs/monitoring.md: phase 1 (rows A-E, G) and phase 2 (the application's
+# Alert rules of docs/monitoring.md: phase 1 (rows A-E, G) and phases 2 and 3 (the application's
 # /metrics, rows F, group findaline). Every rule names its row, a level (alert or info: the
 # notification policy sends info more quietly, once a day) and the server (FINDALINE_PUBLIC_URL
 # of findaline.env); Grafana evaluates them every minute, and a condition must hold for the
@@ -1286,6 +1286,70 @@ groups:
           summary: "A new problem report ({{ humanize (index .Values \"A\").Value }} open): the Admin page."
           __dashboardUid__: findaline
           __panelId__: "11"
+        isPaused: false
+      - uid: f11-service-failing
+        title: "F11 Outside service failing"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 3600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "((sum by (host) (findaline_service_requests_total{outcome!~\"ok|not_found\"}) or sum by (host) (findaline_service_requests_total) * 0) - (sum by (host) (findaline_service_requests_total{outcome!~\"ok|not_found\"} offset 30m) or sum by (host) (findaline_service_requests_total) * 0 and on () max(findaline_build_info offset 30m))) / (sum by (host) (findaline_service_requests_total) - (sum by (host) (findaline_service_requests_total offset 30m) or sum by (host) (findaline_service_requests_total) * 0 and on () max(findaline_build_info offset 30m))) * 100 and (sum by (host) (findaline_service_requests_total) - (sum by (host) (findaline_service_requests_total offset 30m) or sum by (host) (findaline_service_requests_total) * 0 and on () max(findaline_build_info offset 30m))) >= 10"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [20]}
+        for: 0s
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F11
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "{{ humanize (index .Values \"A\").Value }} % of the requests to {{ index .Labels \"host\" }} failed in the last 30 min (alert above 20 %, at least 10 requests): the service is down, slow or refuses us."
+          __dashboardUid__: findaline
+          __panelId__: "71"
+        isPaused: false
+      - uid: f13-housekeeping-stale
+        title: "F13 Housekeeping not run"
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: victoriametrics
+            model:
+              refId: A
+              expr: "time() - max by (host) (findaline_housekeeping_last_run_timestamp_seconds)"
+              instant: true
+              range: false
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              refId: C
+              type: threshold
+              expression: A
+              conditions:
+                - evaluator: {type: gt, params: [64800]}
+        for: 5m
+        noDataState: OK
+        execErrState: KeepLast
+        labels:
+          row: F13
+          level: alert
+          server: ${FINDALINE_PUBLIC_URL}
+        annotations:
+          summary: "The worker's housekeeping last ended {{ humanizeDuration (index .Values \"A\").Value }} ago (it runs every 6 h; alert after 18 h): old events, .part files and work folders pile up."
+          __dashboardUid__: findaline
+          __panelId__: "79"
         isPaused: false
       - uid: g2-app-silent
         title: "G2 Application metrics stopped"

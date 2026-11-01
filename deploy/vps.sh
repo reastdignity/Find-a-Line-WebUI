@@ -684,6 +684,17 @@ EOF
 MONITORING_DIR=/var/lib/findaline-monitoring
 MONITORING_ENV=/etc/findaline-monitoring.env
 MONITORING_TIMERS=(findaline-facts.timer findaline-check.timer findaline-heartbeat.timer)
+# D4: the notice of an SSH login (deploy/monitoring/ssh-login.sh) and its line in sshd's PAM stack
+SSH_LOGIN_SCRIPT=/usr/local/sbin/findaline-ssh-login
+SSH_LOGIN_PAM="session optional pam_exec.so quiet $SSH_LOGIN_SCRIPT"
+# Grafana's one plugin, VictoriaLogs' data source, from Grafana's catalogue (a package signed by
+# Grafana Labs): pinned by version and sha256, unpacked into a folder Grafana reads read-only
+# (deploy/monitoring/compose.yaml), so Grafana itself fetches nothing. To update it: the version
+# and the sha256 of https://grafana.com/api/plugins/<id>/versions (packages.any.sha256).
+GRAFANA_PLUGINS_DIR=/var/lib/findaline-grafana-plugins
+GRAFANA_PLUGIN=victoriametrics-logs-datasource
+GRAFANA_PLUGIN_VERSION=0.33.1
+GRAFANA_PLUGIN_SHA256=73e7ce379ae9a9ce6fdb978e5d6d43f67029b4c3e4d970f1ca8f7f4617f331c5
 
 # The units of deploy/monitoring/systemd with the checkout's path; sets CHANGED=1 if any changed
 monitoring_units() {
@@ -706,6 +717,54 @@ ping_url() {
         fi
     fi
     [ -n "$value" ] || todo "no $2 ping: $1 in $MONITORING_ENV, a check of healthchecks.io (section 15)"
+}
+
+# The version of the plugin unpacked in $GRAFANA_PLUGINS_DIR (empty if none)
+grafana_plugin_version() {
+    python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["info"]["version"])' \
+        "$GRAFANA_PLUGINS_DIR/$GRAFANA_PLUGIN/plugin.json" 2>/dev/null || true
+}
+
+# Grafana's plugin at the pinned version: downloaded, its sha256 checked, unpacked (the backend's
+# programs made executable) and put in place at once; nothing done when it is there already.
+# Sets CHANGED=1 when it put a new one (Grafana loads plugins at its start). Also run by CI's
+# monitoring job (sourced, as root).
+grafana_plugins() {
+    local tmp dir=$GRAFANA_PLUGINS_DIR/$GRAFANA_PLUGIN
+    install -d -m 755 "$GRAFANA_PLUGINS_DIR"
+    [ "$(grafana_plugin_version)" = "$GRAFANA_PLUGIN_VERSION" ] && return 0
+    tmp=$(mktemp -d)
+    if ! curl -fsSL --max-time 300 -o "$tmp/plugin.zip" \
+            "https://grafana.com/api/plugins/$GRAFANA_PLUGIN/versions/$GRAFANA_PLUGIN_VERSION/download"; then
+        rm -rf "$tmp"
+        warn "Grafana's plugin $GRAFANA_PLUGIN $GRAFANA_PLUGIN_VERSION could not be downloaded"
+        return 1
+    fi
+    if ! echo "$GRAFANA_PLUGIN_SHA256  $tmp/plugin.zip" | sha256sum -c --quiet - >/dev/null 2>&1; then
+        rm -rf "$tmp"
+        warn "Grafana's plugin $GRAFANA_PLUGIN $GRAFANA_PLUGIN_VERSION: not the sha256 of deploy/vps.sh"
+        return 1
+    fi
+    python3 -m zipfile -e "$tmp/plugin.zip" "$tmp/x"
+    chmod -R u=rwX,go=rX "$tmp/x"
+    chmod 755 "$tmp/x/$GRAFANA_PLUGIN"/*_backend_plugin_linux_*
+    rm -rf "$dir.old"
+    [ -d "$dir" ] && mv "$dir" "$dir.old"
+    mv "$tmp/x/$GRAFANA_PLUGIN" "$dir"
+    rm -rf "$dir.old" "$tmp"
+    CHANGED=1
+    note "Grafana's plugin $GRAFANA_PLUGIN $GRAFANA_PLUGIN_VERSION in $GRAFANA_PLUGINS_DIR"
+}
+
+# D4: the SSH login notice installed with the checkout's path, and its line at the end of sshd's
+# PAM stack (`optional`: the script's failure never refuses a login)
+ssh_login_notice() {
+    put "$SSH_LOGIN_SCRIPT" 755 < <(sed "s#@REPO@#$REPO#g" "$DEPLOY/monitoring/ssh-login.sh")
+    if ! grep -qxF "$SSH_LOGIN_PAM" /etc/pam.d/sshd; then
+        printf '\n# Find-a-Line: a notice of every SSH login (deploy/monitoring/ssh-login.sh, section 15)\n%s\n' \
+            "$SSH_LOGIN_PAM" >> /etc/pam.d/sshd
+        note "wrote /etc/pam.d/sshd: $SSH_LOGIN_PAM"
+    fi
 }
 
 # The monitoring (section 15): the facts, checks and heartbeat timers on the host, their settings
@@ -753,6 +812,8 @@ monitoring() {
     systemctl enable -q --now "${MONITORING_TIMERS[@]}"
     systemctl start findaline-facts.service || warn "findaline-facts.service failed: journalctl -u findaline-facts"
     note "timers: ${MONITORING_TIMERS[*]}"
+    ssh_login_notice
+    secret_set "$REPO/secrets/ntfy_url" && note "SSH logins: a notice to the ntfy topic and a count in $MONITORING_DIR/ssh.json"
 
     local compose_file=$DEPLOY/monitoring/compose.yaml docker_gid adm_gid
     if [ ! -f "$compose_file" ]; then
@@ -772,6 +833,12 @@ DOCKER_GID=$docker_gid
 ADM_GID=$adm_gid
 EOF
     chown "$user:$group" "$DEPLOY/monitoring/.env"
+    CHANGED=0
+    if ! grafana_plugins; then
+        todo "Grafana's plugin $GRAFANA_PLUGIN: the logs cannot be read in Grafana until setup or update gets it (section 15)"
+        [ -d "$GRAFANA_PLUGINS_DIR/$GRAFANA_PLUGIN" ] || return 0
+    fi
+    local plugin_changed=$CHANGED
     if ! docker compose -f "$compose_file" pull --quiet; then
         todo "the monitoring's images could not be pulled: docker compose -f $compose_file pull"
         return 0
@@ -781,6 +848,9 @@ EOF
         docker compose -f "$compose_file" logs --tail 30
         todo "the monitoring's containers did not become healthy (above; section 15)"
         return 0
+    fi
+    if [ "$plugin_changed" = 1 ]; then
+        docker compose -f "$compose_file" restart grafana >/dev/null && note "Grafana restarted: its new plugin"
     fi
     note "Grafana on 127.0.0.1:3000 (ssh -L 3000:127.0.0.1:3000 <server>; user admin, secrets/grafana_admin_password)"
 }
@@ -875,7 +945,7 @@ except OSError as e:
 }
 
 # The monitoring (section 15): its containers answer, the timers run, the facts are fresh, the
-# heartbeat reaches healthchecks.io
+# heartbeat reaches healthchecks.io, the SSH login notice is in place, Grafana has its plugin
 # shellcheck disable=SC2015  # "A && ok || bad": ok never fails
 check_monitoring() {
     local timer age=
@@ -895,6 +965,15 @@ check_monitoring() {
         || bad "$MONITORING_DIR/facts.json is ${age:+$((age / 60)) min }old or missing: journalctl -u findaline-facts"
     [ -n "$(env_get "$MONITORING_ENV" HEARTBEAT_URL)" ] && ok "the heartbeat's ping URL" \
         || bad "HEARTBEAT_URL is empty in $MONITORING_ENV: nobody hears when the server stops (section 15)"
+    grep -qxF "$SSH_LOGIN_PAM" /etc/pam.d/sshd && sed "s#@REPO@#$REPO#g" "$DEPLOY/monitoring/ssh-login.sh" \
+        | cmp -s - "$SSH_LOGIN_SCRIPT" && [ -x "$SSH_LOGIN_SCRIPT" ] && ok "the SSH login notice (D4)" \
+        || bad "the SSH login notice: $SSH_LOGIN_SCRIPT or its line in /etc/pam.d/sshd missing or old (section 15)"
+    if [ -f "$DEPLOY/monitoring/compose.yaml" ]; then
+        [ "$(curl -fsS --max-time 5 http://127.0.0.1:9428/health 2>/dev/null)" = OK ] \
+            && ok "VictoriaLogs" || bad "VictoriaLogs does not answer on 127.0.0.1:9428 (section 15)"
+        [ "$(grafana_plugin_version)" = "$GRAFANA_PLUGIN_VERSION" ] && ok "Grafana's plugin $GRAFANA_PLUGIN $GRAFANA_PLUGIN_VERSION" \
+            || bad "Grafana's plugin $GRAFANA_PLUGIN is not $GRAFANA_PLUGIN_VERSION in $GRAFANA_PLUGINS_DIR: sudo deploy/vps.sh update (section 15)"
+    fi
 }
 
 # --- Updates (section 13) ----------------------------------------------------------------------

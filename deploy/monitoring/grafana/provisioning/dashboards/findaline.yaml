@@ -1,5 +1,6 @@
-# The dashboards VPS, Site and Find-a-Line from the JSON files of deploy/monitoring/grafana/dashboards
-# (mounted read-only at /etc/grafana/dashboards): changed in the repository, not in Grafana.
+# The dashboards VPS, Site, Find-a-Line and Logs from the JSON files of
+# deploy/monitoring/grafana/dashboards (mounted read-only at /etc/grafana/dashboards): changed in
+# the repository, not in Grafana.
 apiVersion: 1
 
 providers:
