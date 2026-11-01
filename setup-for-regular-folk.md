@@ -110,7 +110,7 @@ To see all options, run `uv run findaline.py --help`.
 ## Outside Poland
 - **Other countries with national data** work the same way as Poland: the list, with the detail of each country's data and its aerial photos, is in the README, [Data sources](README.md#data-sources). With 5 m data lines are found from about 30 m.
 - **Lines over the sea** (between sea cliffs) are found too. Their box on the map says how many metres are over water, and the profile shows the water in blue.
-- **Elsewhere** the script uses Europe-wide data with a 30 m grid. It finds long lines (roughly 100 m and more) reliably, short ones not. These data are free for non-commercial use only. Aerial photos are shown online (choose *Esri World Imagery* in the top-right corner).
+- **Elsewhere** the script uses Europe-wide data with a 30 m grid. It finds long lines (roughly 100 m and more) reliably, short ones not. These data are free for non-commercial use only. No aerial photos are available there yet.
 - If you have your own elevation file (for example NASADEM from [OpenTopography](https://portal.opentopography.org)), use it with `--elevation-file path/to/file.tif`.
 - To download NASADEM automatically (`--source nasadem`), you need a free OpenTopography API key, see below.
 
