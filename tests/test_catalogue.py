@@ -598,7 +598,7 @@ def test_country_code_offline(monkeypatch, tmp_path):
             lat = a / 20
             for b in range(round((w - 0.1) * 20), round((e + 0.1) * 20) + 1):
                 lon = b / 20
-                expected = next((code for code, (s2, n2, w2, e2) in BOXES
+                expected = next((code.split("-")[0] for code, (s2, n2, w2, e2) in BOXES
                                  if s2 <= lat <= n2 and w2 <= lon <= e2), None)
                 assert country_code(lat, lon, cache_dir) == expected, (lat, lon)
                 checked += 1
