@@ -21,7 +21,7 @@ a waiting command held up by running ones has a reservation, the time the last o
 expected to end; a later command may pass it when it is expected to end before that, so the
 slots left free meanwhile are used without delaying it. A command's expected time is --expect,
 or the longest of the last runs of the same command, or the 90th percentile of the last runs of
-its kind (pytest, regression.py, perf_profile.py, ...), from the table `history`; without one it
+its kind (pytest of chosen tests, pytest-all, regression.py, perf_profile.py, ...), from the table `history`; without one it
 passes nobody, and a running command without one, or past it, leaves no time to pass in. An
 estimate can be wrong: the command passed is then late by the overrun.
 The queue is a SQLite database in the git common directory (<.git>/findaline-locks/, the same
@@ -61,6 +61,8 @@ SAME_RUNS = 5         # an estimate: the longest of the last runs of the same co
 KIND_RUNS = 10        # else the 90th percentile of the last runs of its kind
 HISTORY_ROWS = 2000   # rows of `history` kept
 WRAPPERS = ("uv", "uvx", "run", "-m", "-I", "-u", "-B")   # skipped to find the kind of a command
+PYTEST_VALUES = ("-p", "-W", "-o", "-c", "-n", "-r", "--deselect", "--ignore", "--ignore-glob", "--rootdir",
+                 "--tb", "--maxfail", "--basetemp", "--timeout", "--durations")  # options taking a value
 THREAD_VARS = ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                "GDAL_NUM_THREADS")
 TASKKILL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
@@ -135,14 +137,31 @@ def command_key(command: Sequence[str]) -> str:
 
 
 def command_kind(command: Sequence[str]) -> Optional[str]:
-    """pytest, regression.py, npm, ...: the program, or the script run by Python or uv; None for
-    `python -c`."""
-    words = [w for w in command if w not in WRAPPERS]
-    while words and _name(words[0]).startswith("python"):
-        words = [w for w in words[1:] if w not in WRAPPERS]
-    if not words or words[0].startswith("-"):
+    """pytest, pytest-all, regression.py, npm, ...: the program, or the script run by Python or uv;
+    None for `python -c`. A pytest of the whole suite (no test named or selected) is pytest-all:
+    it takes ten minutes where most chosen tests take seconds."""
+    i = 0
+    while i < len(command) and (command[i] in WRAPPERS or _name(command[i]).startswith("python")):
+        i += 1
+    if i == len(command) or command[i].startswith("-"):
         return None
-    return _name(words[0])
+    kind = _name(command[i])
+    return "pytest-all" if kind == "pytest" and not _selects(command[i + 1:]) else kind
+
+
+def _selects(args: Sequence[str]) -> bool:
+    """Whether pytest's arguments name or select tests (paths, node ids, -k, -m), not only deselect."""
+    value = False  # the next one is an option's value
+    for arg in args:
+        if value:
+            value = False
+        elif arg in ("-k", "-m") or (arg[:2] in ("-k", "-m") and not arg.startswith("--")):
+            return True
+        elif arg in PYTEST_VALUES:
+            value = True
+        elif not arg.startswith("-"):
+            return True
+    return False
 
 
 def _name(path: str) -> str:

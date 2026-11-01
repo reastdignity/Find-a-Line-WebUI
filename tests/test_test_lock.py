@@ -81,11 +81,18 @@ def test_backfill():
 
 
 def test_command_kind_and_key():
-    assert tl.command_kind(["pytest", "-q"]) == "pytest"
+    assert tl.command_kind(["pytest", "-q"]) == "pytest-all"
     assert tl.command_kind(["uv", "run", "pytest", "tests/test_web.py"]) == "pytest"
+    assert tl.command_kind(["python", "-m", "pytest", "-q", "-W", "default::DeprecationWarning", "-p",
+                            "no:cacheprovider", "--deselect", "tests/test_test_lock.py::test_x"]) == "pytest-all"
+    assert tl.command_kind(["python", "-m", "pytest", "-q", "--deselect=tests/test_x.py", "-rs"]) == "pytest-all"
+    assert tl.command_kind(["python", "-m", "pytest", "-q", "-k", "grouping"]) == "pytest"
+    assert tl.command_kind(["python", "-m", "pytest", "-kgrouping"]) == "pytest"
+    assert tl.command_kind(["python", "-m", "pytest", "-m", "slow"]) == "pytest"
+    assert tl.command_kind(["python", "-m", "pytest", "tests/test_units.py::test_a"]) == "pytest"
     assert tl.command_kind([r"C:\x\.venv\Scripts\python.exe", "-I", "tests/regression.py", "--only", "R1"]) \
         == "regression.py"
-    assert tl.command_kind(["uv", "run", "python", "-m", "pytest"]) == "pytest"
+    assert tl.command_kind(["uv", "run", "python", "-m", "pytest"]) == "pytest-all"
     assert tl.command_kind(["python", "tools/perf_profile.py", "--cores", "4"]) == "perf_profile.py"
     assert tl.command_kind(["npm", "run", "build"]) == "npm"
     assert tl.command_kind(["python", "-c", "print(1)"]) is None
