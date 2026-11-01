@@ -635,9 +635,8 @@ start() {
 
 # The Geofabrik extracts osm_data leaves out (docs/deployment.md, section 9): the US (12 GB; the
 # features of its themes, Alaska's long coastline, would be loaded by every search process that
-# builds a theme tile there, and its sea comes from the world file anyway); Puerto Rico and the
-# Virgin Islands (ids with a slash land in a nested folder the app does not find its extracts in)
-OSM_EXTRACTS_SKIP=(us us/puerto-rico us/us-virgin-islands)
+# builds a theme tile there, and its sea comes from the world file anyway)
+OSM_EXTRACTS_SKIP=(us)
 
 osm_data() {
     step "OpenStreetMap data (section 9)"
