@@ -46,6 +46,7 @@ PAIR_BUFFER_BYTES = 16 << 20
 # The pairs found are evaluated in parts of at least EVAL_PART pairs (and of at least 1/CHUNKS of
 # them): the chunks' arrays as they are, small ones joined, large ones cut
 EVAL_PART = 10_000
+COVERED_PART = 1 << 16  # lines per part of covered_metres
 
 
 @njit(cache=True)
@@ -603,19 +604,25 @@ def _covered_pixels(a1, a2, mask, out):
         out[k] = n
 
 
-def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np.ndarray]) -> List[float]:
+def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np.ndarray]) -> np.ndarray:
     """Metres of each line over the pixels of a mask (water, filled gaps): the values of
-    helpers.line_profile ("water_m", "filled_m") without the rest of the profile."""
+    helpers.line_profile ("water_m", "filled_m") without the rest of the profile (float64).
+    Python's round() of every value, COVERED_PART lines at a time (its lists stay small)."""
+    out = np.zeros(len(a1))
     if mask is None or len(a1) == 0:
-        return [0.0] * len(a1)
-    a1, a2 = np.ascontiguousarray(a1, dtype=np.int64), np.ascontiguousarray(a2, dtype=np.int64)
-    counts = np.zeros(len(a1), dtype=np.int64)
-    _covered_pixels(a1, a2, np.ascontiguousarray(mask, dtype=np.bool_), counts)
-    d = a2 - a1
-    steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
-    lengths = np.hypot(d[:, 0], d[:, 1]) * res
-    return [round(float(n) * length / s, 1) if n else 0.0
-            for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+        return out
+    mask = np.ascontiguousarray(mask, dtype=np.bool_)
+    for at in range(0, len(a1), COVERED_PART):
+        p = np.ascontiguousarray(a1[at:at + COVERED_PART], dtype=np.int64)
+        q = np.ascontiguousarray(a2[at:at + COVERED_PART], dtype=np.int64)
+        counts = np.zeros(len(p), dtype=np.int64)
+        _covered_pixels(p, q, mask, counts)
+        d = q - p
+        steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
+        lengths = np.hypot(d[:, 0], d[:, 1]) * res
+        out[at:at + len(p)] = [round(float(n) * length / s, 1) if n else 0.0
+                               for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+    return out
 
 
 def evaluation_parts(chunks: List[Optional[np.ndarray]], size: int) -> Iterator[np.ndarray]:

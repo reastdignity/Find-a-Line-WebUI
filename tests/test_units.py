@@ -135,8 +135,8 @@ def test_update_checks(tmp_path):
     assert len(update.checks(str(tmp_path), bbox=(west, south, west, south))) == 1
 
 
-def test_covered_metres_match_profiles():
-    """The metres over water of every line (numba) equal those of its profile."""
+def test_covered_metres_match_profiles(monkeypatch):
+    """The metres over water of every line (numba) equal those of its profile, in parts of any size."""
     import helpers as sh
     import linesearch as ls
     rng = np.random.default_rng(5)
@@ -146,9 +146,13 @@ def test_covered_metres_match_profiles():
     a2 = rng.integers(0, 200, (300, 2))
     keep = np.abs(a2 - a1).max(axis=1) >= 2
     a1, a2 = a1[keep], a2[keep]
-    fast = ls.covered_metres(a1, a2, 2.0, mask)
+    fast = ls.covered_metres(a1, a2, 2.0, mask).tolist()
     slow = [sh.line_profile(tuple(p), tuple(q), elevation, 2.0, water=mask)["water_m"] for p, q in zip(a1, a2)]
     assert fast == slow
+    monkeypatch.setattr(ls, "COVERED_PART", 7)
+    parts = ls.covered_metres(a1, a2, 2.0, mask)
+    assert parts.dtype == np.float64 and parts.tolist() == slow
+    assert ls.covered_metres(a1, a2, 2.0, None).tolist() == [0.0] * len(a1)
 
 
 def _profile_case(seed=13, size=300):
@@ -210,9 +214,9 @@ def test_line_profiles_match_line_profile(model):
             seen |= {"no terrain"} if None in fast["z"] else set()
             seen |= {"water"} if fast["w"] is not None else set()
         if w is not None:
-            assert batch.small[:, 6].tolist() == ls.covered_metres(a1, a2, res, w)
+            assert batch.small[:, 6].tolist() == ls.covered_metres(a1, a2, res, w).tolist()
         if g is not None:
-            assert batch.small[:, 7].tolist() == ls.covered_metres(a1, a2, res, g)
+            assert batch.small[:, 7].tolist() == ls.covered_metres(a1, a2, res, g).tolist()
     assert seen == {"no nmpt", "no terrain", "water"}
     # A table with these profiles, through a tile file, gives the dicts of before
     columns = {"a1": a1, "a2": a2, "clearance_nmpt": np.zeros(len(a1))}
@@ -317,7 +321,7 @@ def test_kernels_independent_of_threads(model):
             found = ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", threads=threads,
                                         sag_table=table, max_dh_ratio=0.3, first=first,
                                         limits=sh.LineLimits(max_wall_angle=120), anchor_values=values)
-            covered = ls.covered_metres(found.columns["a1"], found.columns["a2"], 1.0, mask)
+            covered = ls.covered_metres(found.columns["a1"], found.columns["a2"], 1.0, mask).tolist()
             results.append((threads, values, found.columns, covered))
     finally:
         numba.set_num_threads(most)

@@ -785,18 +785,10 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
 
     # Step 4: coordinates, water and gaps, groups, profiles
     _step(plan, 4, "coordinates, groups and profiles")
-    results = mp.coordify(valid_lines, grid, plan.nmpt)
-    if core is not None:
-        left, bottom, right, top = core
-        x, y = mp.first_anchor(results).T
-        results = results.take((left <= x) & (x < right) & (bottom <= y) & (y < top))
+    results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled, core)
+    del valid_lines  # the same table (in place)
     _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
-    progress.compute.start("over water and filled gaps", 2, unit="mask")
-    results.columns["water_m"] = np.array(ls.covered_metres(a1, a2, plan.resolution, data.water), dtype=np.float64)
-    progress.compute.update(1)
-    results.columns["filled_m"] = np.array(ls.covered_metres(a1, a2, plan.resolution, data.filled), dtype=np.float64)
-    progress.compute.finish()
     groups = mp.group_lines(results, plan.group_distance, p.group_by)
     wanted = np.arange(len(results)) if every_profile else np.unique(groups.rep)
     progress.compute.start("line profiles", len(wanted), unit="line")
@@ -806,6 +798,28 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
     progress.compute.finish()
     return results, groups
+
+
+def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
+                     filled: Optional[np.ndarray], core: Optional[tuple] = None) -> sh.LineTable:
+    """Step 4 before the groups, in place (no second table of the lines): their coordinates
+    (mapping.coordify), only the lines whose first anchor lies in core (a tile's bounds) when
+    given, and their metres over water and over filled gaps. Returns the lines."""
+    results = mp.coordify(lines, grid, nmpt)
+    if core is not None:
+        left, bottom, right, top = core
+        x, y = mp.first_anchor(results).T
+        inside = (left <= x) & (x < right) & (bottom <= y) & (y < top)
+        del x, y
+        results.reorder(inside)
+        del inside
+    a1, a2 = results.columns["a1"], results.columns["a2"]
+    progress.compute.start("over water and filled gaps", 2, unit="mask")
+    results.columns["water_m"] = ls.covered_metres(a1, a2, res, water)
+    progress.compute.update(1)
+    results.columns["filled_m"] = ls.covered_metres(a1, a2, res, filled)
+    progress.compute.finish()
+    return results
 
 
 def _count(plan: Plan, key: str, n: int):

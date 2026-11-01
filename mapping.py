@@ -21,6 +21,7 @@ from runs import column_texts
 from sag import Rigging
 
 MAX_ZOOM = 21  # about 5 cm per pixel, the detail of the best geoportal orthophotos
+COORDINATE_PART = 1 << 17  # lines per part of coordify
 
 COLOR_VALID = "#FF10F0"     # neon pink
 COLOR_OBSTACLE = "#FF8C00"  # orange: line passes too close to trees/buildings (NMPT)
@@ -39,20 +40,24 @@ def coordify(lines: LineTable, grid: Grid, nmpt_mode: Optional[str]) -> LineTabl
     """Add the coordinates of the anchors to the lines (in place): "anchor1", "anchor2" (lat, lon),
     "a1_xy", "a2_xy" (easting, northing in metres of the grid CRS, used for grouping) and
     "over_obstacles" (the line passes over trees/buildings with --nmpt mark). Returns the lines."""
-    c = lines.columns
-    rows = np.column_stack([c["a1"][:, 0], c["a2"][:, 0]]).ravel()
-    cols = np.column_stack([c["a1"][:, 1], c["a2"][:, 1]]).ravel()
-    progress.compute.start("coordinates", len(lines), unit="line")
-    if len(lines):
+    c, n = lines.columns, len(lines)
+    progress.compute.start("coordinates", n, unit="line")
+    names = ("anchor1", "anchor2", "a1_xy", "a2_xy")
+    out = {name: np.empty((n, 2)) for name in names}
+    transformer = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True) if n else None
+    for at in range(0, n, COORDINATE_PART):  # in parts: the temporaries of all lines would be ~130 B a line
+        end = min(n, at + COORDINATE_PART)
+        rows = np.column_stack([c["a1"][at:end, 0], c["a2"][at:end, 0]]).ravel()
+        cols = np.column_stack([c["a1"][at:end, 1], c["a2"][at:end, 1]]).ravel()
         easting, northing = grid.pixel_to_xy(rows, cols)
-        lon, lat = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform(easting, northing)
-    else:
-        easting = northing = lon = lat = np.zeros(0)
-    pair = lambda a, b, first: np.column_stack([np.asarray(a, dtype=np.float64)[first::2],
-                                                np.asarray(b, dtype=np.float64)[first::2]])
-    c["anchor1"], c["anchor2"] = pair(lat, lon, 0), pair(lat, lon, 1)
-    c["a1_xy"], c["a2_xy"] = pair(easting, northing, 0), pair(easting, northing, 1)
-    c["over_obstacles"] = (c["clearance_nmpt"] <= 0) if nmpt_mode == "mark" else np.zeros(len(lines), dtype=bool)
+        lon, lat = transformer.transform(easting, northing)
+        for name, (a, b, first) in zip(names, ((lat, lon, 0), (lat, lon, 1), (easting, northing, 0),
+                                               (easting, northing, 1))):
+            out[name][at:end, 0] = np.asarray(a, dtype=np.float64)[first::2]
+            out[name][at:end, 1] = np.asarray(b, dtype=np.float64)[first::2]
+        progress.compute.update(end - at)
+    c.update(out)
+    c["over_obstacles"] = (c["clearance_nmpt"] <= 0) if nmpt_mode == "mark" else np.zeros(n, dtype=bool)
     progress.compute.finish()
     return lines
 
