@@ -474,7 +474,7 @@ def report(name: str, r: Dict) -> List[str]:
     lines += ["", f"Visits {p['visits']}, candidates {p['candidates']}, checked {p['checked']}, found {p['found']}, "
               f"`_line_ok` pixel tests {p['line_ok_tests']}.", "",
               "### Visits candidate rules would skip", "",
-              "| Rule | alone | cumulative | found pairs skipped (must be 0) |", "| --- | ---: | ---: | ---: |"]
+              "| Rule | alone | cumulative | checked pairs skipped (must be 0) |", "| --- | ---: | ---: | ---: |"]
     for rule in RULES:
         lines.append(f"| {rule} | {pct(r['skip_alone'][rule], p['visits'])} | "
                      f"{pct(r['skip_cumulative'][rule], p['visits'])} | {r['skip_unsafe'][rule]} |")

@@ -287,7 +287,8 @@ C_VISITS, C_DEDUP, C_STRONG, C_MAX_LENGTH, C_MIN_LENGTH, C_HEIGHT, C_WALL = 0, 1
 C_CANDIDATES, C_RINGS_A, C_RINGS_B, C_CHECKED, C_LINE_FAIL, C_FOUND, C_TESTS = 7, 8, 9, 10, 11, 12, 13
 C_SKIP = 14         # 6 rules alone: F2a, F2b, N1, F8c, cell elevation, N3
 C_CUM = 20          # the same, cumulative in that order
-C_UNSAFE = 26       # found pairs a rule would skip (must stay 0)
+C_UNSAFE = 26       # checked pairs a rule would skip (must stay 0: a rule may skip only what fails before
+                    # _line_ok, so that the lines and the counters of the regression stay as they are)
 C_PREFIX = 32       # F2a with the within-cell prefix (order[p] <= i)
 C_F8C_OWN = 33      # F8c by the anchor's own rings only
 C_F8C_PARTNERS = 34  # F8c by the partners' sector masks only
@@ -599,7 +600,6 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                     if f8_partners:
                         counters[q, C_F8C_PARTNERS] += 1
                     # Today's tests, in their order
-                    found = False
                     if first_only:
                         dedup = anchors[j, 1] < ci or (anchors[j, 1] == ci and anchors[j, 0] >= ri)
                     else:
@@ -637,19 +637,17 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                         counters[q, C_RINGS_B] += 1
                         continue
                     counters[q, C_CHECKED] += 1
+                    for r in range(6):
+                        if rules[r]:
+                            counters[q, C_UNSAFE + r] += 1
                     r1, c1, r2, c2 = anchors[a, 0], anchors[a, 1], anchors[b, 0], anchors[b, 1]
                     ok, tests = counted_line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table,
                                                 fall_zone)
                     counters[q, C_TESTS] += tests
                     if ok:
                         counters[q, C_FOUND] += 1
-                        found = True
                     else:
                         counters[q, C_LINE_FAIL] += 1
-                    if found:
-                        for r in range(6):
-                            if rules[r]:
-                                counters[q, C_UNSAFE + r] += 1
                     if sample[q]:
                         counters[q, C_SAMPLED_TESTS] += tests
                         steps = line_fails(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table,
