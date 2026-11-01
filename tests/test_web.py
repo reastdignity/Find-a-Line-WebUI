@@ -1180,6 +1180,9 @@ window.FINDALINE_RUN.attribution = [
    url: "https://creativecommons.org/licenses/by-nc-sa/4.0/", notice: ""},
   {data: "Bad", attribution: "<img src=x onerror=window.XSS=1>", licence: "<b>x</b>",
    url: "javascript:window.XSS=2", notice: ""}];
+window.FINDALINE_RUN.ortho = {name: "Ortho test", url: null, layer: "", cache: null,
+  attribution: "<img src=x onerror=window.XSS=3> © Test", attribution_url: "https://example.invalid/terms",
+  base: {url: "https://example.invalid/{z}/{x}/{y}.jpg", max_zoom: 18}};
 """
 
 # The steps of a test of a run's map.html (the result view of the app, result/view/RunOnMap): each step
@@ -1233,6 +1236,17 @@ run({
       next();
     });
   }); },
+  layers(next) {
+    // the base layers (no Esri), the orthophoto's attribution as a link to its terms
+    const label = (name) => $$(".leaflet-control-layers-base label").find((l) => l.textContent.trim() === name);
+    result.layers = $$(".leaflet-control-layers-base label").map((l) => l.textContent.trim());
+    label("Ortho test").querySelector("input").click();
+    later(() => {
+      result.orthoCredits = credits();
+      label("OpenTopoMap").querySelector("input").click();
+      next();
+    });
+  },
   select(next) {
     // the linked line is selected: until the page is drawn again, the details are still its own
     rows()[0].click();
@@ -1336,6 +1350,11 @@ def test_run_map(tmp_path, monkeypatch):
     links = r["credits"]["links"]
     assert "https://creativecommons.org/licenses/by-nc-sa/4.0/" in links and "ATTRIBUTION.txt" in links, r
     assert not any(link.startswith("javascript") for link in links if link) and r["credits"]["imgs"] == 0, r
+    assert "resampled and combined onto a working grid (changed)" in r["credits"]["text"], r
+    assert {"https://www.openstreetmap.org/copyright", "https://www.openstreetmap.org/fixthemap"} <= set(links), r
+    assert r["layers"] == ["OpenTopoMap", "OpenStreetMap", "Ortho test"], r
+    assert "<img src=x onerror=window.XSS=3> © Test" in r["orthoCredits"]["text"], r
+    assert "https://example.invalid/terms" in r["orthoCredits"]["links"] and r["orthoCredits"]["imgs"] == 0, r
     assert r["note"].startswith("The line of the link is hidden by the filters"), r
     assert r["linked"] == line and r["hashKept"] == "#line=" + line, r
     assert r["profile"].startswith("Profile: ") and r["hash"], r

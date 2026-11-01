@@ -138,6 +138,35 @@ def test_bundle_is_built_from_sources(tmp_path):
             assert a.read() == b.read(), f"viewer/dist/{name} is out of date: run `npm run build` in viewer/"
 
 
+def test_ortho_attribution_url(tmp_path):
+    """data.js names the orthophoto's attribution link when its service has one (layers.ts makes the
+    attribution a link to it), and leaves the field out otherwise, as in the maps of before."""
+    from types import SimpleNamespace
+
+    from shapely.geometry import Point
+
+    class Area:
+        center = (50.0, 19.1)
+
+        @staticmethod
+        def shape_wgs84():
+            return Point(19.1, 50.0).buffer(0.01)
+
+    run = {"id": "r", "name": "r", "created": "2026-11-01T10:00:00+00:00"}
+    found = []
+    for url in ("https://example.org/terms", None):
+        service = SimpleNamespace(name="Ortho", url=None, layer="", attribution="© Test", base_url="https://x/{z}",
+                                  base_max_zoom=18, **({"attribution_url": url} if url else {}))
+        folder = tmp_path / ("with" if url else "without")
+        folder.mkdir()
+        mapping.save_map(helpers.LineTable.empty(), Area, str(folder), str(tmp_path / "runs"), run, "EPSG:2180",
+                         ortho_service=service)
+        text = (folder / "data.js").read_text(encoding="utf-8")
+        found.append(json.loads(text.partition(" = ")[2].rstrip().rstrip(";"))["ortho"])
+    assert found[0]["attribution_url"] == "https://example.org/terms" and found[0]["attribution"] == "© Test"
+    assert "attribution_url" not in found[1]
+
+
 @pytest.fixture(scope="module")
 def clip_data(tmp_path_factory):
     """data.js of a run of the Żabi Koń clip with the surface model (clear lines and lines over trees),

@@ -291,7 +291,9 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
             "attribution": ortho_service.attribution,
             "base": {"url": ortho_service.base_url, "max_zoom": ortho_service.base_max_zoom}
                     if ortho_service.base_url else None,
-            "cache": _relative_url(ortho_cache, path) if ortho_cache else None},
+            "cache": _relative_url(ortho_cache, path) if ortho_cache else None,
+            # a link for the attribution, when the service has one (a licence page, the provider's site)
+            **({"attribution_url": url} if (url := getattr(ortho_service, "attribution_url", None)) else {})},
         "attribution": run.get("attribution", []),  # credits of the data used (sources.Credit)
         "distance": group_distance, "by": group_by, "model": model,
         "rigging": dataclasses.asdict(rigging or Rigging()),
