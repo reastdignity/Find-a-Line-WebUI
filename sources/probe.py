@@ -14,7 +14,8 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
 
 Nothing is written to the cache: index answers and files go to a temporary folder, deleted at
 the end; the requests of the probe itself take a slot of their host in the real data folder
-(host_slot; its lock files are not data). Sources are probed one after another, each within
+(host_slot; its lock files are not data) and wait for their turn where the host has a rate
+(net.rate_turn). Sources are probed one after another, each within
 TIMEOUT_S. Skipped: a source that cannot be used here (Slovakia without its mirror), one without
 a sample point, and nasadem unless named and an OpenTopography key is set (its calls are
 limited to 50 a day).
@@ -129,6 +130,7 @@ def _http(url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, s
 
 def _ask(cache_dir: str, url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, str, bytes]:
     with host_slot(cache_dir, url):
+        net.rate_turn(url)
         return _http(url, params, headers)
 
 
@@ -172,6 +174,7 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
     name, url, _ = request.files[0]
     try:
         with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
+            net.rate_turn(url)  # the window read counts as one request (net.HOST_RATES_OF)
             with rio.open(_remote(url)) as remote:
                 if remote.crs is not None and not _same_crs(remote.crs, request.crs):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")

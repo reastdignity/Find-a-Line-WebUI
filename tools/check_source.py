@@ -191,6 +191,7 @@ def _read_source(url: str, profile: Dict) -> np.ndarray:
     env = rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"], GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR",
                   GDAL_HTTP_TIMEOUT="120", GDAL_HTTP_MAX_RETRY="3", GDAL_HTTP_RETRY_DELAY="2",
                   GDAL_HTTP_RETRY_CODES=src.net.GDAL_RETRY_CODES, GDAL_NUM_THREADS="1")
+    src.net.rate_turn(url)  # the file's read counts as one request where its host has a rate (net.HOST_RATES_OF)
     try:
         with env, src.net.gdal_errors() as errors, rio.open(_gdal_path(url)) as source:
             kwargs = {} if source.crs else {"src_crs": profile["crs"]}  # ASCII grids name no CRS
