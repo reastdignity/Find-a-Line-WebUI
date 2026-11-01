@@ -116,15 +116,23 @@ class WfsSheets(Listing):
         return {"layers": self._year_layers(), "sheets": sheets}
 
 
-class StacItems(Listing):
-    """Items of a STAC collection (swisstopo), one per tile and survey year
-    (`<product>_<year>_<E>-<N>`, E and N in tile_m units), searched with pystac-client
-    (GET, pages of 100 following the `next` links); every GeoTIFF asset at a resolution of
-    sizes is listed, with the sha256 of its file:checksum (a multihash) and the tile's extent
-    in crs."""
+# The item ids of swisstopo's collections: <product>_<year>_<E>-<N>, E and N in km
+SWISSTOPO_ITEM = r"_(?P<year>\d{4})_(?P<east>\d+)-(?P<north>\d+)$"
 
-    def __init__(self, url: str, crs: str, sizes: Dict[float, float], tile_m: float):
+
+class StacItems(Listing):
+    """Items of a STAC collection, one per tile and survey year, searched with pystac-client
+    (GET, pages of 100 following the `next` links). The tile and the year come from the item
+    id (item: a regular expression with the groups year, east and north, in tile_m units;
+    swisstopo's `<product>_<year>_<E>-<N>` by default). Every GeoTIFF asset at a resolution of
+    sizes (its gsd) is listed, or with asset only the asset of that key (LGLN's items name no
+    gsd: it is then the finest of sizes), with the sha256 of its file:checksum (a multihash)
+    when there is one and the tile's extent in crs."""
+
+    def __init__(self, url: str, crs: str, sizes: Dict[float, float], tile_m: float,
+                 asset: Optional[str] = None, item: str = SWISSTOPO_ITEM):
         self.url, self.crs, self.sizes, self.tile_m = url, crs, sizes, tile_m
+        self.asset, self.item = asset, re.compile(item)
 
     def _pages(self, lat: float, lon: float) -> List[Dict]:
         """The answers of the search, page by page; IndexUnavailable when one cannot be had."""
@@ -148,12 +156,16 @@ class StacItems(Listing):
         sheets = []
         for page in self._pages(lat, lon):
             for item in page["features"]:
-                name = re.search(r"_(\d{4})_(\d+)-(\d+)$", item["id"])
+                name = self.item.search(item["id"])
                 if not name:
                     continue
-                year, east, north = int(name.group(1)), int(name.group(2)), int(name.group(3))
-                for asset in item["assets"].values():
-                    res = float(asset.get("gsd") or 0)
+                year, east, north = int(name.group("year")), int(name.group("east")), int(name.group("north"))
+                if self.asset is None:
+                    assets = list(item["assets"].values())
+                else:
+                    assets = [item["assets"][self.asset]] if self.asset in item["assets"] else []
+                for asset in assets:
+                    res = float(asset.get("gsd") or (min(self.sizes) if self.asset else 0))
                     if "tiff" not in asset.get("type", "") or res not in self.sizes:
                         continue
                     checksum = asset.get("file:checksum", "").lower()

@@ -13,8 +13,8 @@ import osm  # noqa: E402
 import sources as src  # noqa: E402
 
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "austria", "wales", "england", "europe",
-       "nasadem"]
+       "alaska_ifsar", "usa", "usgs10m", "austria", "wales", "england", "saxony_anhalt",
+       "lower_saxony", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -456,6 +456,78 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                  'fmt': 'image/tiff',
                                  'fetch_res': 1.0,
                                  'tile_px': 2000}},
+            'saxony_anhalt': {'crs': 'EPSG:25832',
+                          'countries': ('de',),
+                          'bbox': None,
+                          'fallbacks': ['europe'],
+                          'grid_origin': (0.0, 0.0),
+                          'default_resolution': 1.0,
+                          'instead_without_data': None,
+                          'local_crs': 'utm_crs',
+                          'ortho': 'saxony_anhalt/ortho/live',
+                          'credits': ['DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)'],
+                          'nmt': {'class': 'WcsTiles',
+                                  'description': 'DGM1 (terrain)',
+                                  'folder': 'saxony_anhalt/dgm1/live',
+                                  'prefix': None,
+                                  'native_res': 1.0,
+                                  'processing': 1,
+                                  'ttl_days': 730,
+                                  'credit': 'DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)',
+                                  'shift': (0.0, 0.0),
+                                  'url': 'https://geodatenportal.sachsen-anhalt.de/ows_INSPIRE_LVermGeo_ATKIS_EL_DGM_WCS',
+                                  'coverage': 'Coverage1',
+                                  'crs': 'EPSG:25832',
+                                  'axes': ('x', 'y'),
+                                  'fmt': 'image/tiff',
+                                  'fetch_res': 1.0,
+                                  'tile_px': 2000},
+                          'nmpt': {'class': 'WcsTiles',
+                                  'description': 'DOM1 (trees, buildings)',
+                                  'folder': 'saxony_anhalt/dom1/live',
+                                  'prefix': None,
+                                  'native_res': 1.0,
+                                  'processing': 1,
+                                  'ttl_days': 730,
+                                  'credit': 'DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)',
+                                  'shift': (0.0, 0.0),
+                                  'url': 'https://geodatenportal.sachsen-anhalt.de/ows_INSPIRE_LVermGeo_ATKIS_EL_DOM_WCS',
+                                  'coverage': 'Coverage1',
+                                  'crs': 'EPSG:25832',
+                                  'axes': ('x', 'y'),
+                                  'fmt': 'image/tiff',
+                                  'fetch_res': 1.0,
+                                  'tile_px': 2000}},
+            'lower_saxony': {'crs': 'EPSG:25832',
+                         'countries': ('de',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': 'lower_saxony/ortho/live',
+                         'credits': ['DGM1 / DOM1 (LGLN, Lower Saxony)'],
+                         'nmt': {'class': 'StacTiles',
+                                 'description': 'DGM1 (terrain)',
+                                 'folder': 'lower_saxony/dgm1',
+                                 'prefix': 'dgm1',
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'DGM1 / DOM1 (LGLN, Lower Saxony)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://dgm.stac.lgln.niedersachsen.de/collections/dgm1/items'},
+                         'nmpt': {'class': 'StacTiles',
+                                 'description': 'DOM1 (trees, buildings)',
+                                 'folder': 'lower_saxony/dom1',
+                                 'prefix': 'dom1',
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'DGM1 / DOM1 (LGLN, Lower Saxony)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://dom.stac.lgln.niedersachsen.de/collections/dom1/items'}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -550,6 +622,7 @@ def test_declarations():
 SHEET = dict(year=2023, name="77532_1356765_M-34-64-D-a-1-1", godlo="M-34-64-D-a-1-1", url="https://example/a.asc",
              crs="EPSG:2180", res=1.0)
 STAC = dict(year=2025, name="26000-12000", godlo="26000-12000", url="https://example/b.tif", crs="EPSG:2056", res=2.0)
+LGLN = dict(year=2018, name="599-5748", godlo="599-5748/1m", url="https://example/c.tif", crs="EPSG:25832", res=1.0)
 BLOCK = dict(crs="EPSG:26913", i=532, j=4211, size=1000.0, year=2020, key="ab12cd34")
 # (source, layer, tile, its path in the cache, what tile_of gives for that path)
 PATHS = [
@@ -577,12 +650,19 @@ PATHS = [
      (1.0, 211, 192)),
     ("england", "nmpt", (1.0, 211, 192), "england/lidar-composite-dsm/2022/epsg27700-1m-2000px-tif/211_192.tif",
      (1.0, 211, 192)),
+    ("saxony_anhalt", "nmt", (1.0, 320, 2866), "saxony_anhalt/dgm1/live/epsg25832-1m-2000px-tif/320_2866.tif",
+     (1.0, 320, 2866)),
+    ("saxony_anhalt", "nmpt", (1.0, 320, 2866), "saxony_anhalt/dom1/live/epsg25832-1m-2000px-tif/320_2866.tif",
+     (1.0, 320, 2866)),
+    ("lower_saxony", "nmt", "lgln", "lower_saxony/dgm1/1m/2018_599-5748.tif", None),
+    ("lower_saxony", "nmpt", "lgln", "lower_saxony/dom1/1m/2018_599-5748.tif", None),
 ]
 
 
 @pytest.mark.parametrize("sid, kind, tile, path, tile_of", PATHS)
 def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
     tile = {"sheet": lambda: src.Sheet(**SHEET), "stac": lambda: src.Sheet(**STAC),
+            "lgln": lambda: src.Sheet(**LGLN),
             "block": lambda: src.Block(**BLOCK)}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
@@ -613,6 +693,7 @@ def test_water_mask_and_tile_urls(tmp_path):
     ("geoportal", "nmpt", 50.15, 19.75, "poland/sheet-index/SkorowidzNMPT/N50.15_E019.75.json"),
     ("swisstopo", "nmt", 46.59, 7.91, "switzerland/sheet-index/ch.swisstopo.swissalti3d/N46.59_E007.91.json"),
     ("usa", "nmt", 37.7, -119.6, "usa/sheet-index/dem1m/N37.70_W119.60.json"),
+    ("lower_saxony", "nmpt", 51.88, 10.44, "lower_saxony/sheet-index/dom1/N51.88_E010.44.json"),
     ("alaska_ifsar", "nmt", 61.2, -149.9, "usa/sheet-index/ifsar5m/N61.20_W149.90.json"),
 ])
 def test_index_paths(tmp_path, sid, kind, lat, lon, path):
@@ -643,9 +724,9 @@ def test_layer_surface():
             assert callable(layer.index_path) and callable(layer.update_index_tile)
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
-    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa"}
+    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
-    assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england"}
+    assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "saxony_anhalt"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
     for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks):
@@ -661,7 +742,8 @@ BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("es", (27.0, 43.9, -18.6, 4.4)), ("sk", (47.7, 49.65, 16.8, 22.6)),
          ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", ALASKA),
          ("pr", (17.8, 18.6, -67.4, -65.2)), ("at", (46.37, 49.02, 9.53, 17.17)),
-         ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77))]
+         ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77)),
+         ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):

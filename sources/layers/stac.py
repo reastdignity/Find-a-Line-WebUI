@@ -1,36 +1,40 @@
-"""StacTiles: tiles of a STAC collection (swisstopo)."""
+"""StacTiles: tiles of a STAC collection (swisstopo, LGLN)."""
 
 from typing import Dict, Optional, Tuple
 
 from grid import Grid
 
 from ..indexes.cached import CachedIndex
-from ..indexes.listings import StacItems
+from ..indexes.listings import SWISSTOPO_ITEM, StacItems
 from ..indexes.versions import NewestPerSheet
 from ..readers.download import Download
 from .indexed import IndexedTiles
 
 
 class StacTiles(IndexedTiles):
-    """Square tiles of a STAC collection, one item per tile and survey year (swisstopo).
+    """Square tiles of a STAC collection, one item per tile and survey year (swisstopo, LGLN).
 
-    An item (`<product>_<year>_<E>-<N>`, E and N in km) holds the tile as a
+    An item (swisstopo: `<product>_<year>_<E>-<N>`, E and N in km; another naming is given
+    as item, a regular expression of StacItems) holds the tile as a
     cloud-optimized GeoTIFF at one or more resolutions (swissALTI3D: 0.5 and 2 m): the
     coarsest one not coarser than the working grid is used, cached in
     <folder>/<res>m/<year>_<E>-<N>.tif as published. Every file is checked against the
-    sha256 of its item (file:checksum). The index answers (items per 0.25° tile) are
+    sha256 of its item (file:checksum) when it has one. With asset, only the asset of that
+    key is read (LGLN: one GeoTIFF per item, no gsd). The index answers (items per 0.25° tile) are
     cached and updated like a sheet index, so a newer survey of a tile replaces the
     older one. A CachedIndex of StacItems with NewestPerSheet per resolution, read by
     Download with the checksums.
     """
 
     def __init__(self, description: str, api: str, collection: str, folder: str, crs: str,
-                 sizes: Dict[float, float], tile_m: float = 1000):
+                 sizes: Dict[float, float], tile_m: float = 1000, asset: Optional[str] = None,
+                 item: str = SWISSTOPO_ITEM):
         """sizes: bytes per tile of every resolution used."""
         super().__init__(description, f"{api}/collections/{collection}/items", collection, folder,
                          native_res=min(sizes), bytes_per_tile=max(sizes.values()))
         self.index_crs, self.crs, self.sizes, self.tile_m = crs, crs, sizes, tile_m
-        self.index = CachedIndex(description, StacItems(self.index_url, crs, sizes, tile_m),
+        self.asset, self.item = asset, item
+        self.index = CachedIndex(description, StacItems(self.index_url, crs, sizes, tile_m, asset, item),
                                  NewestPerSheet(folder, crs, self.native_res, sizes), collection,
                                  folder.split("/")[0])
         self.reader = Download(description, self._url_of, self._label, binary_types=("tiff", "octet"),

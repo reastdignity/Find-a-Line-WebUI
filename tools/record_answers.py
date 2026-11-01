@@ -42,6 +42,7 @@ GZIP_ABOVE = 64_000
 RECIPES = {
     "wfs-geoportal": ("wfs", "geoportal-nmt", "geoportal", "nmt", 54.75, 18.5),
     "stac-swisstopo": ("stac", "swisstopo-swissalti3d", "swisstopo", "nmt", 47.75, 8.5),
+    "stac-lgln": ("stac", "lgln-dgm1", "lower_saxony", "nmt", 52.75, 11.5),
     "tnm-1m": ("tnm", "dem1m", "usa", "nmt", 48.75, -95.25),
     "tnm-ifsar": ("tnm", "ifsar5m", "alaska_ifsar", "nmt", 59.75, -141.0),
     "wfs-geoportal-error": ("wfs", "geoportal-error", "geoportal", "nmt", 54.75, 18.5),

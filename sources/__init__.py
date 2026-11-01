@@ -45,7 +45,7 @@ from . import catalogue, choose, composed, credit, filling, indexes, layer, laye
 from .readers import download, sheetfile, tilebases, wcsreader, windows
 from .indexes import cached, listings, tilings, versions
 from .layers import blocks, degree, fileblocks, files, gridtiles, indexed, sheets, stac, tnm, wcs
-from .catalogue import austria, malta, poland, slovakia, spain, switzerland, uk, usa, world
+from .catalogue import austria, germany, malta, poland, slovakia, spain, switzerland, uk, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, Credit, OSM_CREDIT
 from .layer import Fetched, Layer, download_layers
