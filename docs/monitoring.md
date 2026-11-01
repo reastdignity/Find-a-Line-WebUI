@@ -2,7 +2,7 @@
 
 What to watch on the VPS of the public site and in the application, where each value comes
 from, how it is stored and when it raises an alert. Planned 2026-10-31; phases 1 and 2 are built
-(`deploy/monitoring/`, `metrics.py`, docs/deployment.md section 15); phase 3 is planned (decisions
+(`deploy/monitoring/`, `metrics.py`, docs/deployment.md section 15); phase 3 is built too (decisions
 of 2026-11-01, see "Phases"). The public site and its server are described in
 [deployment.md](deployment.md); the plans of the project in [roadmap.md](roadmap.md).
 
@@ -269,16 +269,16 @@ these rows). No application code.
   `tests/test_metrics.py` (names and labels, no personal labels, the port not reachable through the
   public one) and the visual review of the changed pages (`tools/ui_shots.py`).
 
-**Phase 3** (F11–F13, F17, D4, the logs; decided 2026-11-01). First `monitoring` is rebased onto
+**Phase 3** (F11–F13, F17, D4, the logs; decided and built 2026-11-01). First `monitoring` is rebased onto
 `main` (the `sources/` package of the sources refactor, where F11 counts). Then two agents in
 parallel, as in phase 2: *app* (the Python modules, migration 14, the metrics, the privacy page,
 their tests, README, CLAUDE.md) and *deploy* (`deploy/`, Grafana, Telegraf, VictoriaLogs, the
 PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.md section 15).
 - **Migration 14 of `jobs.sqlite`** (automatic): table `service_requests` (`host`, `outcome`,
   `requests`, `bytes`, `seconds`; key (`host`, `outcome`); running totals, never deleted: a few
-  hundred rows at most) and column `jobs.area_outline` (GeoJSON in WGS84, simplified to about 50 m).
+  hundred rows at most) and column `jobs.area_outline` (GeoJSON in WGS84, simplified to about 50 m, less for small areas: `area.outline_geojson`).
   Jobs of before get an outline where the request gives it (a circle, a drawn area), as `area_km2`.
-- **F11.** One small module counts requests in the memory of a process (host, outcome, bytes,
+- **F11.** One small module (`servicecounts.py`, its writer `Jobs.add_service_requests`) counts requests in the memory of a process (host, outcome, bytes,
   seconds) and adds them to `service_requests` in one write transaction: at the end of every
   phase and quick task, and every 60 s during a phase. Only where the web worker sets the data
   folder (as `osm.BEFORE_REQUEST`): the CLI and the regression set count nothing. Counted at each
