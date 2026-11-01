@@ -14,7 +14,7 @@ import sources as src  # noqa: E402
 
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "austria", "wales", "england", "saxony_anhalt",
-       "lower_saxony", "europe", "nasadem"]
+       "lower_saxony", "south_tyrol", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -528,6 +528,48 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                  'credit': 'DGM1 / DOM1 (LGLN, Lower Saxony)',
                                  'shift': (0.0, 0.0),
                                  'index_url': 'https://dom.stac.lgln.niedersachsen.de/collections/dom1/items'}},
+            'south_tyrol': {'crs': 'EPSG:25832',
+                            'countries': ('it',),
+                            'bbox': None,
+                            'fallbacks': ['europe'],
+                            'grid_origin': (1.25, 1.25),
+                            'default_resolution': 2.5,
+                            'instead_without_data': None,
+                            'local_crs': 'utm_crs',
+                            'ortho': 'italy/bz-ortho/2023',
+                            'credits': ['DTM / DSM 2.5 m (Autonomous Province of Bolzano - South Tyrol)'],
+                            'nmt': {'class': 'WcsTiles',
+                               'description': 'DTM 2.5 m (terrain) South Tyrol',
+                               'folder': 'italy/bz-dtm/2.5m',
+                               'prefix': None,
+                               'native_res': 2.5,
+                               'processing': 1,
+                               'ttl_days': None,
+                               'credit': 'DTM / DSM 2.5 m (Autonomous Province of Bolzano - South Tyrol)',
+                               'shift': (0.0, 0.0),
+                               'url': 'https://geoservices9.civis.bz.it/geoserver/ows',
+                               'coverage': 'p_bz-Elevation__DigitalTerrainModel-2.5m',
+                               'crs': 'EPSG:25832',
+                               'axes': ('E', 'N'),
+                               'fmt': 'image/tiff',
+                               'fetch_res': 2.5,
+                               'tile_px': 2000},
+                            'nmpt': {'class': 'WcsTiles',
+                               'description': 'DSM 2.5 m (trees, buildings) South Tyrol',
+                               'folder': 'italy/bz-dsm/2.5m',
+                               'prefix': None,
+                               'native_res': 2.5,
+                               'processing': 1,
+                               'ttl_days': None,
+                               'credit': 'DTM / DSM 2.5 m (Autonomous Province of Bolzano - South Tyrol)',
+                               'shift': (0.0, 0.0),
+                               'url': 'https://geoservices9.civis.bz.it/geoserver/ows',
+                               'coverage': 'p_bz-Elevation__DigitalElevationModel-2.5m',
+                               'crs': 'EPSG:25832',
+                               'axes': ('E', 'N'),
+                               'fmt': 'image/tiff',
+                               'fetch_res': 2.5,
+                               'tile_px': 2000}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -656,6 +698,10 @@ PATHS = [
      (1.0, 320, 2866)),
     ("lower_saxony", "nmt", "lgln", "lower_saxony/dgm1/1m/2018_599-5748.tif", None),
     ("lower_saxony", "nmpt", "lgln", "lower_saxony/dom1/1m/2018_599-5748.tif", None),
+    ("south_tyrol", "nmt", (2.5, 142, 1031), "italy/bz-dtm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25-e3/142_1031.tif",
+     (2.5, 142, 1031)),
+    ("south_tyrol", "nmpt", (2.5, 142, 1030), "italy/bz-dsm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25-e3/142_1030.tif",
+     (2.5, 142, 1030)),
 ]
 
 
@@ -726,7 +772,7 @@ def test_layer_surface():
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
-    assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "saxony_anhalt"}
+    assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "saxony_anhalt", "south_tyrol"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
     for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks):
@@ -743,7 +789,8 @@ BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", ALASKA),
          ("pr", (17.8, 18.6, -67.4, -65.2)), ("at", (46.37, 49.02, 9.53, 17.17)),
          ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77)),
-         ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6))]
+         ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6)),
+         ("it-bz", (46.21, 47.10, 10.38, 12.48))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):

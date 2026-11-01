@@ -92,6 +92,175 @@ def test_tile_outside_the_coverage(layer, tmp_path):
     assert not os.path.exists(path)
 
 
+def test_error_outside_the_coverage(monkeypatch, tmp_path):
+    """A service answering an error (the Environment Agency's HTTP 500), not a 404, for a request
+    wholly outside its coverage: such a tile is missing, the next one outside is not asked at all;
+    a tile partly outside is still requested (the server clips it); an error inside still fails."""
+    asked = []
+
+    def failing_outside(url, params=None, **kwargs):
+        boxes = dict(re.fullmatch(r"(\w+)\(([^,]+),([^)]+)\)", v).group(1, 2) for k, v in params if k == "SUBSET")
+        asked.append(boxes)
+        left, bottom = float(boxes["E"]), float(boxes["N"])
+        if left >= EXTENT[2] or bottom >= EXTENT[3]:
+            raise RuntimeError("HTTP 500: Internal Server Error")  # what net._get raises after its retries
+        top = min(bottom + 100, EXTENT[3])
+        clipped = [(k, f"N({bottom:.3f},{top:.3f})" if v.startswith("N(") else v) for k, v in params]
+        return fake_get(url, clipped)
+    monkeypatch.setattr(src.net, "_get", failing_outside)
+    monkeypatch.setattr(requests, "get", fake_describe)
+    layer = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         tile_px=100, fetch_res=1.0, axes=("E", "N"))
+    assert layer.download_tile((1.0, 0, 3), str(tmp_path / "a.tif")).received == 0   # wholly outside: missing
+    assert len(asked) == 1
+    assert layer.download_tile((1.0, 12, 0), str(tmp_path / "b.tif")).received == 0  # outside the known extent
+    assert len(asked) == 1                                                          # nothing asked
+    assert layer.download_tile((1.0, 0, 0), str(tmp_path / "c.tif")).received > 0   # partly outside
+    assert len(asked) == 2
+    with rio.open(tmp_path / "c.tif") as tile:
+        assert np.isfinite(tile.read(1)[-1]).all() and np.isnan(tile.read(1)[0]).all()
+
+    def failing(url, params=None, **kwargs):
+        raise RuntimeError("HTTP 500: Internal Server Error")
+    monkeypatch.setattr(src.net, "_get", failing)
+    with pytest.raises(RuntimeError, match="Could not download"):
+        layer.download_tile((1.0, -1, -1), str(tmp_path / "d.tif"))
+
+
+def blended(x, y):
+    """A coverage with data west of x = 150 m and around a hole, blended with zero next to its edges
+    as South Tyrol's 2.5 m models are at the province's border; NaN where it has none."""
+    value = (2000 + x + y / 1000).astype(np.float32)
+    hole = (x - 60) ** 2 + (y + 120) ** 2 < 15 ** 2
+    value[(x > 150) | hole] = np.nan
+    near = ((x > 147) & (x <= 150)) | (((x - 60) ** 2 + (y + 120) ** 2 < 18 ** 2) & ~hole)
+    value[near] *= 0.1
+    return value
+
+
+def fake_blended(url, params=None, **kwargs):
+    """GetCoverage of any box of the blended coverage, on whole metres."""
+    boxes = {}
+    for key, value in params:
+        if key == "SUBSET":
+            axis, low, high = re.fullmatch(r"(\w+)\(([^,]+),([^)]+)\)", value).groups()
+            boxes[axis] = (float(low), float(high))
+    (left, right), (bottom, top) = boxes["E"], boxes["N"]
+    width, rows = round(right - left), round(top - bottom)
+    ys, xs = np.mgrid[0:rows, 0:width]
+    band = blended(left + xs + 0.5, top - ys - 0.5)
+    with MemoryFile() as memfile:
+        with memfile.open(driver="GTiff", width=width, height=rows, count=1, dtype="float32",
+                          crs="EPSG:32633", transform=from_origin(left, top, 1, 1)) as dst:
+            dst.write(band, 1)
+        return FakeResponse(memfile.read())
+
+
+def _blended_layer(tile_px, edge_px):
+    return src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                        tile_px=tile_px, fetch_res=1.0, axes=("E", "N"), edge_px=edge_px)
+
+
+def test_edge_pixels_dropped(monkeypatch, tmp_path):
+    """edge_px: the pixels next to no data (blended with zero) are dropped, the others kept; the
+    tile is requested edge_px pixels larger on each side and has its folder of its own; without
+    it, the request is the tile and the blended pixels stay."""
+    asked = []
+
+    def recording(url, params=None, **kwargs):
+        asked.append([v for k, v in params if k == "SUBSET"])
+        return fake_blended(url, params)
+    monkeypatch.setattr(src.net, "_get", recording)
+    ys, xs = np.mgrid[0:200, 0:200]
+    truth = blended(xs + 0.5, -ys - 0.5)
+    for edge_px in (0, 3):
+        layer = _blended_layer(200, edge_px)
+        path = str(tmp_path / f"e{edge_px}.tif")
+        layer.download_tile((1.0, 0, -1), path)
+        low, high = f"{-edge_px:.3f}", f"{200 + edge_px:.3f}"
+        assert asked.pop() == [f"E({low},{high})", f"N({-200 - edge_px:.3f},{edge_px:.3f})"]
+        with rio.open(path) as tile:
+            assert tile.transform == from_origin(0, 0, 1, 1)
+            band = tile.read(1)
+        if not edge_px:
+            assert np.array_equal(band, truth, equal_nan=True)  # the blended pixels as served
+            assert layer.tile_path("c", (1.0, 0, -1)).replace(os.sep, "/") == \
+                "c/fake/dtm/1/epsg32633-1m-200px-tif/0_-1.tif"
+            continue
+        assert layer.tile_path("c", (1.0, 0, -1)).replace(os.sep, "/") == \
+            "c/fake/dtm/1/epsg32633-1m-200px-tif-e3/0_-1.tif"
+        # Every pixel left is a true value, and every true value 3 pixels from no data is left
+        assert np.nanmin(band) >= 2000 - 1
+        far = ndimage_far(np.isfinite(truth), 3)
+        assert np.array_equal(np.isfinite(band), far)
+        assert np.array_equal(band[far], truth[far])
+
+
+def ndimage_far(valid, n):
+    """The pixels more than n pixels (3 x 3 neighbourhood) from no data."""
+    from scipy import ndimage
+    return ndimage.binary_erosion(valid, structure=np.ones((3, 3), bool), iterations=n, border_value=1)
+
+
+def test_edge_pixels_not_at_tile_borders(monkeypatch, tmp_path):
+    """A tile border inside the data is no edge: four tiles of 100 px give the pixels of one of 200 px."""
+    monkeypatch.setattr(src.net, "_get", fake_blended)
+    big = str(tmp_path / "big.tif")
+    _blended_layer(200, 3).download_tile((1.0, 0, -1), big)
+    with rio.open(big) as tile:
+        whole = tile.read(1)
+    small = _blended_layer(100, 3)
+    for i, j in ((0, -1), (1, -1), (0, -2), (1, -2)):
+        path = str(tmp_path / f"{i}_{j}.tif")
+        small.download_tile((1.0, i, j), path)
+        with rio.open(path) as tile:
+            r0, c0 = (-1 - j) * 100, i * 100
+            assert tile.transform == from_origin(c0, -r0, 1, 1)
+            assert np.array_equal(tile.read(1), whole[r0:r0 + 100, c0:c0 + 100], equal_nan=True)
+
+
+def test_tiles_from_an_origin(monkeypatch, tmp_path):
+    """A coverage whose pixel edges are at 0.5 m: its tiles start there, are requested on its
+    own pixels and cached in a folder of their own; without an origin, as before."""
+    import grid as gd
+    monkeypatch.setattr(src.net, "_get", fake_get)
+    monkeypatch.setattr(requests, "get", fake_describe)
+    kwargs = dict(tile_px=100, fetch_res=1.0, axes=("E", "N"))
+    plain = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         **kwargs)
+    moved = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         origin=(0.5, 0.5), **kwargs)
+    assert plain.tile_path("c", (1.0, -1, -1)).replace(os.sep, "/") == "c/fake/dtm/1/epsg32633-1m-100px-tif/-1_-1.tif"
+    path = moved.tile_path("c", (1.0, -1, -1)).replace(os.sep, "/")
+    assert path == "c/fake/dtm/1/epsg32633-1m-100px-tif-o0.5_0.5/-1_-1.tif"
+    assert moved.tile_of(path[2:]) == (1.0, -1, -1) and plain.tile_of(path[2:]) is None
+    # A grid from 0.1 to 0.4 m: in tile 0 of the plain tiling, in tile -1 of the moved one (it ends at 0.5)
+    grid = gd.make_grid((0.1, 0.1, 0.4, 0.4), 0.1, "EPSG:32633")
+    assert plain.tiles(grid) == [(1.0, 0, 0)]
+    assert moved.tiles(grid) == [(1.0, -1, -1)]
+    assert moved.index.edges((1.0, -1, -1)) == (-99.5, -99.5, 0.5, 0.5)
+    out = str(tmp_path / "t.tif")
+    assert moved.download_tile((1.0, 0, -1), out).received > 0
+    with rio.open(out) as tile:
+        assert tile.transform == from_origin(0.5, 0.5, 1, 1)
+        ys, xs = np.mgrid[0:100, 0:100]
+        assert np.array_equal(tile.read(1), height(0.5 + xs + 0.5, 0.5 - ys - 0.5).astype(np.float32))
+
+
+def test_more_getcoverage_parameters(monkeypatch, tmp_path):
+    """A layer's own GetCoverage parameters (GeoServer's compression) go with every request."""
+    asked = []
+
+    def recording(url, params=None, **kwargs):
+        asked.append(list(params))
+        return fake_get(url, params, **kwargs)
+    monkeypatch.setattr(src.net, "_get", recording)
+    layer = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         tile_px=100, fetch_res=1.0, axes=("E", "N"), params=(("GEOTIFF:COMPRESSION", "DEFLATE"),))
+    assert layer.download_tile((1.0, 0, -1), str(tmp_path / "t.tif")).received > 0
+    assert asked and asked[0][-1] == ("GEOTIFF:COMPRESSION", "DEFLATE")
+
+
 UGKK_CRS = ('COMPD_CS["S-JTSK [JTSK03] / Krovak East North + Baltic 1957 height",'
             'LOCAL_CS["S-JTSK [JTSK03] / Krovak East North",UNIT["metre",1,AUTHORITY["EPSG","9001"]],'
             'AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","8353"]],'
