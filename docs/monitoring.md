@@ -97,7 +97,7 @@ country shown publicly would merge countries of fewer than 5 users into "other".
 The total of everyone on the sign-in page and the total of favourites change nothing: they are one
 number each.
 
-**Phase 3** changes the privacy page in three more places (proposed 2026-11-01, to be accepted):
+**Phase 3** changes the privacy page in three more places (wording accepted 2026-11-01):
 
 | Where | Change |
 | --- | --- |
@@ -346,6 +346,5 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   free plan sends no webhook to ntfy, according to most sources.
 
 ## Open decisions
-None for phases 1 and 2. Phase 3: the wording of its privacy changes (see "Privacy") waits for
-acceptance; the threshold of F11 (20 %, at least 10 requests in 30 min) is a first guess, to be
+None for phases 1 and 2. Phase 3: the threshold of F11 (20 %, at least 10 requests in 30 min) is a first guess, to be
 tuned after a few weeks.
