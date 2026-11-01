@@ -2,7 +2,8 @@
 
 What to watch on the VPS of the public site and in the application, where each value comes
 from, how it is stored and when it raises an alert. Planned 2026-10-31; phases 1 and 2 are built
-(`deploy/monitoring/`, `metrics.py`, docs/deployment.md section 15), phase 3 is not. The public site and its server are described in
+(`deploy/monitoring/`, `metrics.py`, docs/deployment.md section 15); phase 3 is planned (decisions
+of 2026-11-01, see "Phases"). The public site and its server are described in
 [deployment.md](deployment.md); the plans of the project in [roadmap.md](roadmap.md).
 
 Today the operator checks by hand (`sudo deploy/vps.sh check`, the *Admin* page, `docker compose
@@ -24,6 +25,10 @@ failed backup (deployment.md, section 11).
 | Users by country | The country of the browser's time zone, stored with the account (variant B below), and the countries of the searched areas (variant A). |
 | Area searched | Every user sees their own km² (today, the last 30 days, in total); the sign-in page shows the total of everyone; monitoring keeps the sums per day and country. |
 | Privacy | Monitoring holds aggregates only: no IP addresses, user ids, titles or paths. The privacy page changes as described in "Privacy". |
+| Counts of the outside services (F11, 2026-11-01) | The worker's processes count their requests per host and outcome in memory and add them to a table of `jobs.sqlite`; the web process's `/metrics` reads it, as everything else the two share. Rejected: `prometheus_client`'s multiprocess mode (a file per process, and every phase is a new process), a `/metrics` of the worker (a new port, counts lost at its restart). |
+| Coverage (F17, 2026-11-01) | The worker keeps a simplified outline of every search's area; the housekeeping unions them (km² searched at least once) and counts the searches per cell of 0.25°, shown on Grafana's Geomap. |
+| SSH logins (D4, 2026-11-01) | `pam_exec` in sshd's session sends a message to the ntfy topic at once, independent of the monitoring stack. |
+| Logs (2026-11-01) | [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) in the monitoring project: the `web` and `worker` containers' output and nginx's error log (addresses masked), 30 days, read in Grafana. |
 
 ## Architecture
 | Part | Where | What it does |
@@ -31,9 +36,11 @@ failed backup (deployment.md, section 11).
 | Telegraf | compose project `findaline-monitoring` (`deploy/monitoring/compose.yaml`), `network_mode: host` | Reads the host through read-only mounts (`/` as `/hostfs`, with `HOST_PROC`, `HOST_SYS`, `HOST_MOUNT_PREFIX`; `/var/log/nginx`; the D-Bus socket for systemd's units), the containers through the socket proxy, nginx (its metrics log and `stub_status`), the certificate and the site, the facts files and, in phase 2, the application's `/metrics`; writes to `http://127.0.0.1:8428`. A non-root user with the group `adm` (nginx's logs). |
 | VictoriaMetrics | the same project, `127.0.0.1:8428` | Stores the samples; its own metrics are scraped by Telegraf too (G2). |
 | Grafana | the same project, `127.0.0.1:3000` | Dashboards, alert rules and the ntfy contact point, all provisioned from files in the repository (the ntfy topic from a Docker secret); its own database holds nothing that cannot be provisioned again. |
-| Docker socket proxy | the same project, `127.0.0.1:2375` (wollomatic/socket-proxy) | Lets Telegraf's `docker` input read the containers (GET of the container list, their stats and inspect, and `/info`; no logs, nothing else) without the Docker socket itself, which is equivalent to root. |
+| Docker socket proxy | the same project, `127.0.0.1:2375` (wollomatic/socket-proxy) | Lets Telegraf's `docker` input read the containers (GET of the container list, their stats and inspect, and `/info`; from phase 3 also the logs of a container, which Telegraf asks only for `web` and `worker`; nothing else) without the Docker socket itself, which is equivalent to root. |
 | Host facts | a systemd timer on the host, as root (`deploy/monitoring/facts.sh`, every 5 min) | Writes what only root can read as JSON into `/var/lib/findaline-monitoring/` (mounted read-only into Telegraf, input `file`): fail2ban's counts per jail, the holes of the disk image (`image_holes` of `deploy/vps.sh`), pending updates (`facts.json`); a second timer (`findaline-check.timer`, daily) writes the result of `vps.sh check` (`check.json`). `backup.sh` writes its own `backup.json` there. |
 | Heartbeat | a systemd timer on the host, every minute | Asks the site (`https://<site>/` through nginx on the host) and, when it answers 200, pings healthchecks.io; the ping URL is in a root-only file (`/etc/findaline-monitoring.env`). |
+| VictoriaLogs (phase 3) | the same project, `127.0.0.1:9428` | Stores the log lines Telegraf sends (`inputs.docker_log` of `web` and `worker` through the socket proxy, `inputs.tail` of `findaline.error.log` with the client's address masked) for 30 days; Grafana reads it with VictoriaMetrics' logs data source plugin. |
+| SSH login notice (phase 3) | `pam_exec` in `/etc/pam.d/sshd` (`session optional`), a script of `deploy/monitoring/` | Posts "SSH login: user from address on server" to the ntfy topic (the URL from the root-only `/etc/findaline-monitoring.env`) with a short timeout, and counts the logins in `ssh.json` of the facts folder. `optional`: a failure of the script never refuses a login. |
 | `/metrics` of the application (phase 2) | a thread of the `web` process on its own port, published as `127.0.0.1:8766`, never behind nginx | The Prometheus text format (`prometheus_client`); its collectors read `jobs.sqlite`, `accounts.sqlite` and `audit.sqlite` at every scrape (aggregates only). The web process already has the accounts volume, so the volumes stay as they are. |
 
 **Why a project of its own:** monitoring is started, updated and stopped without touching the site,
@@ -51,7 +58,7 @@ whatever the containers send to the host would cut it off from `stub_status`, th
 certificate (C4–C6), and it would have to join the site's network for `/metrics`.
 
 **Hardening** as in compose.yaml: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, a non-root
-user, images pinned by digest, memory limits (about 1.2 GB for the four containers together).
+user, images pinned by digest, memory limits (about 1.2 GB for the four containers together; phase 3 adds VictoriaLogs, about 0.3 GB).
 Telegraf accepts no connections; its mounts are read-only. On the server, check that
 `WORKER_MEMORY` in `.env` leaves this room (the VPS has 24 GB).
 
@@ -89,6 +96,19 @@ country shown publicly would merge countries of fewer than 5 users into "other".
 
 The total of everyone on the sign-in page and the total of favourites change nothing: they are one
 number each.
+
+**Phase 3** changes the privacy page in three more places (proposed 2026-11-01, to be accepted):
+
+| Where | Change |
+| --- | --- |
+| Searches | "its area in km² and the country it lies in" becomes "its area in km², its outline and the country it lies in". The outline comes from what you search (for a coast, cliffs or a named place: the area the search covered) and is kept as long as the search. |
+| A new item "Server logs" | "Messages of the application and errors of the web server, without IP addresses; they may name the place of a search. Why: to find faults. Deleted after 30 days; Docker's own copy is overwritten once it reaches 50 MB." |
+| The facts | The example of the statistics gains "or the number of searches per area of about 25 km". |
+
+F11, F12 and F13 are counts without users; D4 concerns the operator's own logins. The logs keep no
+IP address: the application logs none (uvicorn's access log is off), and Telegraf masks the
+`client:` field of nginx's error log before it is stored. nginx's own files are as before
+(deployment.md, "What the logs of this site contain").
 
 ## What to monitor
 Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 does (see "Phases").
@@ -128,7 +148,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | D1 | systemd units: nginx, docker, fail2ban, ssh, `certbot.timer`, `findaline-backup.timer`, the facts and heartbeat timers, unattended-upgrades | alert: a unit in state failed | `systemd_units` through the D-Bus socket (mounted read-only) | P1 | 1 |
 | D2 | fail2ban: banned now and bans per hour (jails `findaline`, `sshd`), counts only | alert: a sudden jump (an attack, or a legitimate user banned) | the host facts (`fail2ban-client status <jail>`, numbers only) → input `file` | P2 | 1 |
 | D3 | `vps.sh check` once a day (the firewall from inside the containers, headers, SSH, the jail) | alert: any FAIL | the host facts (the number of FAIL lines and the time of the check) → input `file` | P2 | 1 |
-| D4 | Successful SSH logins | info, each one | needs logs (the journal), not metrics | P3 | 3 |
+| D4 | Successful SSH logins | info, each one (straight from the host to ntfy) | `pam_exec` in sshd's session: a message to ntfy and a count in `ssh.json` → input `file` | P3 | 3 |
 
 **E. Backup**
 | # | What | Why / alert | How | Priority | Phase |
@@ -149,13 +169,13 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | F8 | Open problem reports | info: a new report | table `reports` | P2 | 2 |
 | F9 | Runs (number, size), the cache per top-level folder, free disk as the application sees it | days until full | `runs.bytes`; the cache measured by the worker's housekeeping | P2 | 2 |
 | F10 | Version, and deployments marked on the charts | what changed after an update | `findaline_build_info`; `vps.sh update` adds a Grafana annotation | P2 | 2 |
-| F11 | External services: Nominatim, Overpass, the data sources (MB, errors, retries) | alert: a jump of a source's errors | new counters in `osm.py` and `sources.py` | P3 | 3 |
-| F12 | Requests of the application per endpoint, open event streams | finer than nginx's route groups | a middleware and counters | P3 | 3 |
-| F13 | What the housekeeping removed | background | the counts it returns and throws away today | P3 | 3 |
+| F11 | External services: Nominatim, Overpass, Geofabrik, the orthophotos and the data sources: requests by host and outcome, MB, seconds (each retry is a request) | alert: > 20 % of a host's requests failed in 30 min (at least 10) | counters in the worker's processes, added to table `service_requests` of `jobs.sqlite` (see "Phases") | P3 | 3 |
+| F12 | Requests of the application per route template, method and status class; time per route; open event streams | finer than nginx's route groups | the `guard` middleware of `web.py` and `EventHub`, counters in the web process | P3 | 3 |
+| F13 | What the housekeeping removed, when it last ran and how long it took | alert: no round for 3 × `HOUSEKEEPING` | `work/housekeeping.json`, written as `cache-sizes.json` | P3 | 3 |
 | F14 | Area searched: km² of finished searches per day and in total, by country of the area | trend; the same numbers in the application | columns `area_km2` and `country` of `jobs` (see "The area searched"); counter `findaline_area_km2_total{country}`: daily bars (`increase(...[1d])`) and the total | P2 | 2 |
 | F15 | Users by country | trend | `users.country` (variant B) and the users who searched in each country (variant A, from `jobs.country`); `COUNT(*) GROUP BY country` | P2 | 2 |
 | F16 | Favourite lines: the total | trend | `COUNT(*)` of table `favourites` | P2 | 2 |
-| F17 | Optional: coverage (km² searched at least once) and a map of searches in cells of 0.25° (Grafana's Geomap) | where people search | the union of the areas in the worker's housekeeping; cells without users | P3 | 3 |
+| F17 | Coverage (km² searched at least once) and a map of searches in cells of 0.25° (Grafana's Geomap) | where people search | column `area_outline` of `jobs`; the union and the cells in the worker's housekeeping (`work/coverage.json`); cells without users | P3 | 3 |
 
 **G. Monitoring of the monitoring**
 | # | What | Why / alert | How | Priority | Phase |
@@ -170,7 +190,7 @@ one message too.
 
 | Level | Rows |
 | --- | --- |
-| alert | A1, A2, A3, A4, A8, B1, B2, C1, C2, C5, C6, D1, D2, D3, E1, F1, F2, F3, F5, F7, F11, G1, G2 |
+| alert | A1, A2, A3, A4, A8, B1, B2, C1, C2, C5, C6, D1, D2, D3, E1, F1, F2, F3, F5, F7, F11, F13, G1, G2 |
 | info | A7, D4, F6, F8 |
 
 ## Dashboards
@@ -178,7 +198,8 @@ one message too.
 | --- | --- |
 | VPS | A, B, G2 |
 | Site | C, D, E, G1 |
-| Find-a-Line | F (the queue and the worker first, then use: area, users by country, favourites) |
+| Find-a-Line | F (the queue and the worker first, then use: area, users by country, favourites; phase 3: the outside services, the routes, the housekeeping, the coverage map) |
+| Logs (phase 3) | the lines of `web`, `worker` and nginx's error log, filtered by container and level, next to the rate of error lines |
 
 ## The area searched
 - **Data.** Migration 13 of `jobs.sqlite` (automatic) adds `area_km2` and `country` to `jobs`. The
@@ -248,8 +269,65 @@ these rows). No application code.
   `tests/test_metrics.py` (names and labels, no personal labels, the port not reachable through the
   public one) and the visual review of the changed pages (`tools/ui_shots.py`).
 
-**Phase 3** (F11–F13, F17, D4): counters of the external services and the endpoints, coverage, logs
-(VictoriaLogs for the containers' stderr and nginx's error log).
+**Phase 3** (F11–F13, F17, D4, the logs; decided 2026-11-01). First `monitoring` is rebased onto
+`main` (the `sources/` package of the sources refactor, where F11 counts). Then two agents in
+parallel, as in phase 2: *app* (the Python modules, migration 14, the metrics, the privacy page,
+their tests, README, CLAUDE.md) and *deploy* (`deploy/`, Grafana, Telegraf, VictoriaLogs, the
+PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.md section 15).
+- **Migration 14 of `jobs.sqlite`** (automatic): table `service_requests` (`host`, `outcome`,
+  `requests`, `bytes`, `seconds`; key (`host`, `outcome`); running totals, never deleted: a few
+  hundred rows at most) and column `jobs.area_outline` (GeoJSON in WGS84, simplified to about 50 m).
+  Jobs of before get an outline where the request gives it (a circle, a drawn area), as `area_km2`.
+- **F11.** One small module counts requests in the memory of a process (host, outcome, bytes,
+  seconds) and adds them to `service_requests` in one write transaction: at the end of every
+  phase and quick task, and every 60 s during a phase. Only where the web worker sets the data
+  folder (as `osm.BEFORE_REQUEST`): the CLI and the regression set count nothing. Counted at each
+  request: `sources.net._get` (every attempt, so retries show), the listings of
+  `sources/indexes/listings.py`, `WcsReader`'s DescribeCoverage, `osm._ask`, the queries under
+  `osm._overpass_turn`, `osmextract`, `coast`'s world file, `orthophoto`; `Windows` per block read
+  (GDAL's own HTTP requests and retries are not seen). Outcomes: `ok`, `not_found`, `http_4xx`,
+  `http_5xx`, `timeout`, `connection`, `other`; the host is the URL's (fixed by the catalogue and
+  the OSM services). Metrics `findaline_service_requests_total{host,outcome}`,
+  `findaline_service_bytes_total{host}`, `findaline_service_seconds_total{host}`; the alert as in
+  the table.
+- **F12.** In `web.py`'s `guard`: `findaline_http_requests_total{route,method,status}` (the
+  template of the matched route, `unmatched` without one; the status as a class `2xx`...`5xx`),
+  `findaline_http_request_seconds{route}` (a summary, without the event stream), and
+  `findaline_event_streams` from `EventHub`. Counters of the web process, from zero after a
+  restart (`rate()` and `increase()` cope).
+- **F13.** `Scheduler.housekeeping` collects what its calls return (`.part` files, events, quick
+  answers, usage rows, audit events, work folders) and writes `work/housekeeping.json` (`time`,
+  `seconds`, `removed`) atomically; metrics `findaline_housekeeping_removed{what}` (the last
+  round), `findaline_housekeeping_last_run_timestamp_seconds`, `findaline_housekeeping_seconds`.
+- **F17.** The worker sets `area_outline` with `area_km2` for every kind of area (for a coast, cliffs
+  or `osm:` the region the search covered). The housekeeping unions the outlines of finished jobs
+  (shapely; the area on the ellipsoid with `pyproj.Geod`) and counts the searches whose outline
+  touches each 0.25° cell, into `work/coverage.json`; metrics `findaline_coverage_km2` and
+  `findaline_searches_by_cell{lat,lon}` (the cell's south-west corner). The dashboard shows the
+  number and a Geomap (a "labels to fields" transformation gives it the coordinates).
+- **D4.** `deploy/monitoring/ssh-login.sh`, installed by `vps.sh monitoring` with one line in
+  `/etc/pam.d/sshd` (`session optional pam_exec.so quiet ...`, idempotent; `check` looks for it):
+  on `open_session` it posts to ntfy in the background with a 5 s timeout and counts the login in
+  `ssh.json`; the Site dashboard shows the count. Tested on Ubuntu 26.04 in a container with sshd:
+  a key login sends the message to a fake ntfy, and still works when ntfy cannot be reached or the
+  script fails.
+- **The logs.** VictoriaLogs (single node, pinned by digest, `127.0.0.1:9428`,
+  `-retentionPeriod=30d`, a volume, hardened like the others). Telegraf: `inputs.docker_log` of
+  `web` and `worker` (the socket proxy's allowlist gains a container's `logs`), `inputs.tail` of
+  `findaline.error.log` with a processor masking `client: <address>`; logs routed only to
+  VictoriaLogs and metrics only to VictoriaMetrics (`namepass`/`namedrop`), through the ingestion
+  API VictoriaLogs' current docs give for Telegraf. Grafana: the plugin
+  `victoriametrics-logs-datasource` at a pinned version (installed at start, so Grafana needs a
+  writable plugins folder and egress to grafana.com; or an image with the plugin, if that is
+  simpler to keep pinned), a provisioned data source and the Logs dashboard. The firewall:
+  VictoriaLogs joins `br-fal-mon`, no egress.
+- **Tests:** `tests/test_metrics.py` (the new names and labels, no personal ones), units of
+  migration 14, the counting module and the coverage (shapes with known areas),
+  `tests/test_monitoring.py` (the rules, the dashboards, the routing of Telegraf's outputs, the
+  proxy's allowlist), `tests/test_deploy.py` (VictoriaLogs on loopback only, the PAM line), the CI
+  docker job replayed, the monitoring stack with a fake exporter and a log line, `vps.sh` on real
+  Ubuntu 26.04 (stubs have let VPS bugs through before), and the visual review of the privacy
+  page.
 
 ## Not collected, and approaches rejected
 - **Not collected:** IP addresses, unique visitors, series per user (the privacy page: the
@@ -268,5 +346,6 @@ these rows). No application code.
   free plan sends no webhook to ntfy, according to most sources.
 
 ## Open decisions
-None for phases 1 and 2. The rows of phase 3 (F11–F13, F17, D4) are decided one by one when it
-comes.
+None for phases 1 and 2. Phase 3: the wording of its privacy changes (see "Privacy") waits for
+acceptance; the threshold of F11 (20 %, at least 10 requests in 30 min) is a first guess, to be
+tuned after a few weeks.

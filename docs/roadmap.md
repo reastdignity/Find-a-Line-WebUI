@@ -160,7 +160,11 @@ heartbeat) needs no application code; phase 2 adds `/metrics` to the web process
 `accounts.sqlite`, the area searched in the app and on the sign-in page, and the privacy page's
 changes. Decided too: phase 1 before phase 2, Telegraf as the official Docker image with the
 host's network, wollomatic/socket-proxy for Docker's API, healthchecks.io as the outside check,
-`prometheus_client` for `/metrics`.
+`prometheus_client` for `/metrics`. Phase 3 (decided 2026-11-01, planned in monitoring.md
+"Phases"): the outside services counted by the worker into a table of `jobs.sqlite` (F11), the
+routes and event streams of the web process (F12), the housekeeping (F13), the coverage from an
+outline of each search with a map in cells of 0.25° (F17), SSH logins straight to ntfy through
+`pam_exec` (D4), and VictoriaLogs for the containers' output and nginx's error log (30 days).
 
 ## Lines list, group choice and favourites (done 2026-10-28)
 
