@@ -174,9 +174,10 @@ def test_places_of_a_name(tmp_path, monkeypatch):
 
 
 @contextlib.contextmanager
-def _fake_server(body: bytes, seconds: float = 0.0):
-    """A local HTTP server answering every GET with `body` after `seconds`; yields its URL and the
-    list of (start, end) times of the requests it served."""
+def _fake_server(body: bytes, seconds: float = 0.0, statuses=()):
+    """A local HTTP server answering every GET with `body` after `seconds` (the first ones with the
+    HTTP statuses of `statuses`, then 200); yields its URL and the list of (start, end) times of the
+    requests it served."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
     served = []
 
@@ -184,7 +185,7 @@ def _fake_server(body: bytes, seconds: float = 0.0):
         def do_GET(self):
             start = time.time()
             time.sleep(seconds)
-            self.send_response(200)
+            self.send_response(statuses[len(served)] if len(served) < len(statuses) else 200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -210,7 +211,7 @@ def _in_turn(kind: str, url: str, cache_dir: str, names, start: float):
     import osm
     import osmextract
     osmextract.build_tile = lambda *args: False  # no extracts: Overpass
-    osm.SEARCH_URL = osm.OVERPASS_URLS[0] = url
+    osm.SEARCH_URL = osm.OVERPASS_URL = url
     time.sleep(max(0.0, start - time.time()))  # both processes begin together
     for name in names:
         if kind == "nominatim":
@@ -263,3 +264,95 @@ def test_overpass_busy(tmp_path, monkeypatch):
     with FileLock(str(tmp_path / "osm" / "overpass.lock")):  # another search's query
         with pytest.raises(requests.Timeout, match="Overpass is busy"):
             osm.fetch_tile("cliff", 50.0, 10.0, str(tmp_path))
+
+
+def _overpass_here(monkeypatch, url):
+    """Overpass at the fake server, no extracts, nothing slept."""
+    import osm
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1")
+    monkeypatch.setattr(osmextract, "build_tile", lambda *args: False)
+    monkeypatch.setattr(osm, "OVERPASS_URL", url)
+    slept = []
+    monkeypatch.setattr(osm, "_sleep", slept.append)
+    return slept
+
+
+def test_overpass_daily_cap(tmp_path, monkeypatch):
+    """At most FINDALINE_OVERPASS_DAY_MAX queries a day per data folder (osm.OVERPASS_DAY_MAX without
+    it): one more is not sent but refused with a coded requests error; cached tiles never count."""
+    import pytest
+    import requests
+
+    import osm
+    import search
+    assert osm.overpass_day_max() == osm.OVERPASS_DAY_MAX == 50
+    monkeypatch.setenv("FINDALINE_OVERPASS_DAY_MAX", "2")
+    cache_dir = str(tmp_path)
+    with _fake_server(b'{"elements": []}') as (url, served):
+        _overpass_here(monkeypatch, url)
+        osm.fetch_tile("cliff", 50.0, 10.0, cache_dir)
+        osm.theme("cliff", 10.1, 50.1, 10.2, 50.2, cache_dir)  # the same tile, cached: not asked again
+        osm.theme("cliff", 10.3, 50.1, 10.4, 50.2, cache_dir)
+        assert len(served) == 2 and osm.overpass_queries_today(cache_dir) == 2
+        with pytest.raises(osm.OverpassDayMax) as error:
+            osm.fetch_tile("cliff", 50.0, 10.5, cache_dir)
+        assert len(served) == 2  # not sent
+    assert isinstance(error.value, requests.RequestException)  # callers that go on without Overpass do
+    assert error.value.code == "overpass_day_max" and error.value.params == {"max": 2}
+    assert "FINDALINE_OVERPASS_DAY_MAX" in str(error.value)
+    assert "2 OpenStreetMap queries" in error.value.web_text()
+    assert search.SearchError.of(error.value, "Area: ...", "area_failed").code == "overpass_day_max"
+    # Yesterday's queries do not count today
+    db = osm._overpass_db(cache_dir)
+    with db:
+        db.execute("UPDATE days SET day = '2000-01-01'")
+    db.close()
+    assert osm.overpass_queries_today(cache_dir) == 0
+
+
+def test_cliffs_area_refused_by_the_cap(tmp_path, monkeypatch):
+    """--area cliffs needs Overpass where no extract covers it: the cap refuses it with its code."""
+    import pytest
+
+    import area
+    import osm
+    monkeypatch.setenv("FINDALINE_OVERPASS_DAY_MAX", "0")
+    _overpass_here(monkeypatch, "http://127.0.0.1:9/")  # never asked
+    with pytest.raises(osm.OverpassDayMax):
+        area.from_spec("cliffs", 50.0, "50.0,10.0,50.1,10.1", str(tmp_path), 300.0)
+
+
+def test_overpass_pause_after_refusal(tmp_path, monkeypatch):
+    """A 429 or 406: no other server tried, at least OVERPASS_PAUSE_S of rest, then one more query."""
+    import osm
+    cache_dir = str(tmp_path)
+    with _fake_server(b'{"elements": []}', statuses=(429,)) as (url, served):
+        slept = _overpass_here(monkeypatch, url)
+        osm.fetch_tile("cliff", 50.0, 10.0, cache_dir)
+    assert len(served) == 2 and osm.overpass_queries_today(cache_dir) == 2
+    assert len(slept) == 1 and osm.OVERPASS_PAUSE_S - 1 < slept[0] <= osm.OVERPASS_PAUSE_S
+    cache_dir = str(tmp_path / "other")  # without the pause of the 429 above (nothing really slept)
+    with _fake_server(b'{"elements": []}', statuses=(406, 406)) as (url, served):
+        slept = _overpass_here(monkeypatch, url)
+        import pytest
+        import requests
+        with pytest.raises(requests.HTTPError):
+            osm.fetch_tile("cliff", 50.0, 10.25, cache_dir)
+        assert len(served) == 2
+        osm.fetch_tile("cliff", 50.0, 10.5, cache_dir)  # the next query waits for the pause too
+    assert len(slept) == 2 and len(served) == 3
+
+
+def test_overpass_no_fallback(tmp_path, monkeypatch):
+    """A 504 is an error at once: no second server, one query counted."""
+    import pytest
+    import requests
+
+    import osm
+    with _fake_server(b"busy", statuses=(504,)) as (url, served):
+        _overpass_here(monkeypatch, url)
+        with pytest.raises(requests.HTTPError):
+            osm.fetch_tile("cliff", 50.0, 10.0, str(tmp_path))
+    assert len(served) == 1 and osm.overpass_queries_today(str(tmp_path)) == 1
+    monkeypatch.setenv("FINDALINE_OVERPASS_URL", "https://example.org/api/interpreter")
+    assert osm.overpass_url() == "https://example.org/api/interpreter"
