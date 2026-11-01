@@ -31,8 +31,8 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Herunterladen von Datenbankinhalten" misuse, without a number: two at once until BEV answers
     "data.bev.gv.at": 2,
     # Funet's README: "we had to limit the maximum connections from one IP address to 10 or even
-    # block them": well below that (Paituli's files, Finland; www is Paituli's documented base,
-    # mirrors the name the catalogue used before: the same servers)
+    # block them": well below that (Paituli's files, Finland; www is Paituli's documented base and
+    # the catalogue's host, mirrors the old host of the same servers, capped too for old links)
     "www.nic.funet.fi": 4,
     "mirrors.nic.funet.fi": 4,
     # National and INSPIRE download services without published numbers (INSPIRE guarantees 10

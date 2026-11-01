@@ -233,3 +233,32 @@ def test_probe_wcs_2_0_1_as_before(monkeypatch):
     assert coverage == [("SERVICE", "WCS"), ("VERSION", "2.0.1"), ("REQUEST", "GetCoverage"), ("COVERAGEID", "dtm"),
                         ("FORMAT", "image/tiff"), ("SUBSET", f"E({x - 16:.3f},{x + 16:.3f})"),
                         ("SUBSET", f"N({y - 16:.3f},{y + 16:.3f})"), ("SCALESIZE", "E(16),N(16)")]
+
+
+def test_describe_coverage_waits(http_server, monkeypatch):
+    """WcsReader's DescribeCoverage (coverage_extent) waits for its turn; without one in time the
+    extent is unknown, nothing asked."""
+    from sources.readers.wcsreader import WcsReader
+    turns = []
+    monkeypatch.setattr(net, "rate_turn", lambda url: turns.append(url))
+    http_server.add("/wcs?SERVICE=WCS&VERSION=2.0.1&REQUEST=DescribeCoverage&COVERAGEID=dem",
+                    b"<gml:lowerCorner>0 0</gml:lowerCorner><gml:upperCorner>10 20</gml:upperCorner>", "text/xml")
+    reader = WcsReader("test", http_server.url("/wcs"), "dem", "EPSG:3035", 1.0, 100, "image/tiff", ("x", "y"),
+                       None, False)
+    assert reader.coverage_extent() == (0.0, 0.0, 10.0, 20.0)
+    assert turns == [http_server.url("/wcs")]
+
+    def busy(url):
+        raise RuntimeError("busy")
+    monkeypatch.setattr(net, "rate_turn", busy)
+    other = WcsReader("test", http_server.url("/other"), "dem", "EPSG:3035", 1.0, 100, "image/tiff", ("x", "y"),
+                      None, False)
+    assert other.coverage_extent() is None
+    assert not http_server.requests("/other")
+
+
+def test_probe_time_per_source():
+    """Two minutes per source: swisstopo's STAC pages alone take about 40 s at 36 requests a minute."""
+    import inspect
+    assert probe.TIMEOUT_S == 120
+    assert inspect.signature(probe.run).parameters["timeout"].default == 120

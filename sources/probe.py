@@ -16,7 +16,8 @@ Nothing is written to the cache: index answers and files go to a temporary folde
 the end; the requests of the probe itself take a slot of their host in the real data folder
 (host_slot; its lock files are not data) and wait for their turn where the host has a rate
 (net.rate_turn). Sources are probed one after another, each within
-TIMEOUT_S. Skipped: a source that cannot be used here (Slovakia without its mirror), one without
+TIMEOUT_S (two minutes: swisstopo's STAC pages alone take about 40 s at its rate of 36 a
+minute, longer while another search downloads from it). Skipped: a source that cannot be used here (Slovakia without its mirror), one without
 a sample point, and nasadem unless named and an OpenTopography key is set (its calls are
 limited to 50 a day).
 """
@@ -57,7 +58,7 @@ from .layers.files import FileLayer
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
-TIMEOUT_S = 60          # per source
+TIMEOUT_S = 120         # per source (the turns of hosts with a rate included: net.HOST_RATES_OF)
 REQUEST_TIMEOUT_S = 30  # per request of the probe itself
 GRID_HALF_M = 50        # the tiny grid: this many metres around the sample, at least two pixels
 ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
