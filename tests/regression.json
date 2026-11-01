@@ -665,5 +665,32 @@
     },
     "notes": "--source auto picks austria (the centre is in AT); first run on an empty cache: 9 blocks of 1 km per layer, about 2 MB each; every line crosses the forest below the wall (over_trees)",
     "seconds": 13.4
+  },
+  "R30": {
+    "place": "Sella towers above Passo Sella, South Tyrol (IT-BZ): the province's DTM and DSM 2.5 m (LiDAR 2004-2006) from its GeoServer WCS, tiles on the coverage's half-pixel grid (origin 1.25 m), the part in Trentino filled from FABDEM",
+    "args": "--lat 46.5105 --lon 11.7745 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "expected": {
+      "anchors": 18678,
+      "open": 10825,
+      "checked": 67328,
+      "lines": 11347,
+      "spots": 115,
+      "csv_sha256": "ca2f8937ba3b7d3524a268a02a6a9ec78f17ea0db5fd23f199b3886505011408",
+      "length_km": 1208.986,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.199,
+      "clearance_max": 11.11,
+      "over_trees": 11172,
+      "coverage": 90.67,
+      "empty_tiles": 0,
+      "filled_km2": 0.47,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); first run on an empty cache: 2 tiles of 5 km per layer, DEFLATE-compressed by the server (1.4-8 MB each); on steep rock the DSM stands metres above the DTM (2.5 m pixels: the DSM their highest points), so nearly every line is over_trees; at --resolution 1 (bilinear from 2.5 m) the same search finds 295 lines in 6 spots",
+    "seconds": 16.3
   }
 }
