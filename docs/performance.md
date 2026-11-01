@@ -19,7 +19,8 @@ first out. What limits it when many people queue jobs?
 | `tools/perf_download.py --out <dir> --osm-from cache/osm --threads 2 4 8 -- <findaline options>` | The download phase (`search.download_data`) on an empty cache (only the OSM themes and Nominatim answers copied), with `sources.layer.DOWNLOAD_THREADS` set |
 | `tools/perf_sqlite.py --out <dir> --jobs 1 4 8 16 --pages 30 [--burst]` | `jobs.sqlite` with the real `jobs.Jobs` under K phase processes, the worker, the quick lane and M open pages |
 | `tools/perf_profile.py ... --tracemalloc` | The same, with the peak of Python's heap per stage (numpy arrays included, memory-mapped grids not; several times slower) |
-| `tools/perf_lines_memory.py --tiles <run>/tiles --out <dir> [--repo <checkout> --legacy]` | The lines of a tiled run through steps 4 and 5 by the code of a checkout: bytes per line as found, at the peak of step 4, held, at the peak of step 5 (`search.LINE_BYTES`) |
+| `tools/perf_lines_memory.py --call <capture>/call-<k> --out <dir> [--repo <checkout>]` | A call captured by `tools/perf_line_funnel.py` through steps 3, 4 and 5 by the code of a checkout: the traced heap per line at the peaks of step 3, of step 4's coordinates, groups and profiles, held, and at the peak of step 5 (`search.LINE_BYTES`) |
+| `tools/perf_lines_memory.py --tiles <run>/tiles --out <dir> [--repo <checkout> --legacy]` | The tiles of a tiled run joined as `search.search_lines` joins them, and (tile files written before wave 5, which still hold the pixel columns) their lines through steps 4 and 5 by the code of a checkout: bytes per line as found, at the peak of step 4, held, at the peak of step 5 |
 
 The searches ran on cached data (a scratch data folder whose `cache` is a junction to the real one)
 with `--ortho never`, one at a time. Their results equal the regression table: R13 566 lines / 143
@@ -157,7 +158,7 @@ Bytes per line, the 403 026 lines of the Gozo coast through steps 4 and 5
 | peak of step 5 (saving) | **3 050** | 382 |
 
 Step 5 was the highest peak, above the 2.5 KB that `search.LINE_BYTES` counted; it is now
-500 B. The whole search (no tracemalloc, tiles of 5 km, the same lines):
+500 B (450 B since wave 5 of the line search). The whole search (no tracemalloc, tiles of 5 km, the same lines):
 
 | Gozo coast, 403 026 lines | before | now |
 | --- | ---: | ---: |
@@ -177,7 +178,8 @@ Step 5 was the highest peak, above the 2.5 KB that `search.LINE_BYTES` counted; 
   fit with them. Since 2026-11-01 a profile is held as arrays, 21-30 B per point ("Done, wave 3" of
   the order of elimination).
 - **The largest public search** (`grid_mpx_max` 36 Mpx, `lines_max` 1.5 million) now needs
-  3.6 + 0.75 = 4.35 GB where it needed 3.6 + 3.75 GB by the model (and about 8.2 GB in step 5).
+  3.6 + 0.75 = 4.35 GB where it needed 3.6 + 3.75 GB by the model (and about 8.2 GB in step 5);
+  since wave 5 of the line search (`LINE_BYTES` 450 B, "Done, wave 5" below) 3.6 + 0.68 = 4.28 GB.
 
 ## The VPS: 8 cores, 24 GB
 
@@ -187,7 +189,8 @@ the page cache that the memory-mapped grids rely on).
 - **Cores.** One job at a time uses 1.4 of 7. Four compute slots would keep about 5-6 cores busy
   (each job 1.2-1.5, the line search of several jobs sharing the cores now and then), leaving
   room for the download slots and the quick lane.
-- **Memory.** A worst-case public job (a 36 Mpx tile and 1.5 million lines) needs 4.35 GB, a
+- **Memory.** A worst-case public job (a 36 Mpx tile and 1.5 million lines) needs 4.28 GB (4.35
+  GB before wave 5 of the line search), a
   job like Gozo about 3.5 GB, R9 0.8 GB, R13 0.2 GB. Beside the computing jobs the worker holds the
   quick lane (a profile measured on the map builds a grid of up to 6 000 × 6 000 px,
   `MAX_MEASURED_PX`: up to 3.6 GB) and its download processes (a few hundred MB each). Of about
@@ -218,8 +221,9 @@ the page cache that the memory-mapped grids rely on).
    blocks the downloads of all other jobs.
 4. **SQLite fits**; the web's polling per page is what grows with many users.
 5. **Memory per job is now set by its grids**, not its lines: the lines as columns take about a
-   seventh of the memory (500 B per line instead of 2.5-3 KB), so a worst-case public job needs
-   4.35 GB instead of 7.4-8.2 GB, and three of them fit the VPS's worker. A circle's profiles of
+   seventh of the memory (500 B per line instead of 2.5-3 KB; 450 B since wave 5 of the line
+   search), so a worst-case public job needs 4.28 GB instead of 7.4-8.2 GB, and three of them fit
+   the VPS's worker. A circle's profiles of
    every line are the exception (about 19 KB per line at 1 m) and are now counted.
 
 ## Recommendations (ranked by gain against effort)
@@ -688,6 +692,77 @@ turn):
     `LINE_BYTES` could fall to about 400 B.
   - Step 5: about 300 B per line plus about 40 MiB.
   - F8c, the middle of lines over 1024 px in an order kinder to the cache, `_evaluate`.
+
+### Done, wave 5 (2026-11-01, branches `group-memory` and `save-memory`)
+
+The memory of step 4's grouping (G) and of step 5 and the join of a tiled search (S), one commit
+each, checked as before: `pytest`, the regression set, and byte for byte (R9, R22, the Gozo coast
+with `--tile-size 5000` and swiss-long, the last two on 24 threads and on 7 cores; 18 runs of the
+two branches together, all the same). New tests keep the old code as the reference:
+`test_grouping_as_before` (the dict version of `group_lines`, 64 cases: ranks with ties, lines
+exactly `distance` apart, flipped lines, lines over obstacles, coordinates up to 5.4e6 m, parts of
+7 lines), `test_row_order_in_parts_as_before` (the old lexsort, parts of 1 to 10 000 rows),
+`test_join_of_tiles_as_concat` and `test_tiles_without_pixels`.
+
+| # | In the code |
+| --- | --- |
+| grouping | `mapping.group_lines`: the cell index as arrays (`_cell_index`: one int64 key per line within the box of the first anchors' cells, a stable argsort, the lines of a row of cells found by `searchsorted`) instead of a dict of Python lists, and the greedy loop in numba (`grouping.greedy`, one thread; `GROUP_PART` lines between progress updates; `gather` writes the groups in their final order) |
+| rows | `runs.row_order(groups, lo, hi, at)` gives the rows of one part only (`rep_positions`: where each representative stands, 8 B per group) instead of the order of every line (25 B per line held, about 60 B at its lexsort's peak) |
+| chunks | `runs.LINES_CHUNK` and `mapping.LINES_CHUNK` 10 000 → 1 000 lines: a chunk's texts take about 4.5 KB per line (the features of lines.geojson alone 1.7 KB, joined and encoded once more) |
+| join | `search_lines` joins the tiles with `LineTable.join`, one column at a time, each tile's column released (`concat` held every line twice, which the model did not know) |
+| pixels | `search._lines` ends with `LineTable.without_pixels` ("a1"/"a2", 32 B per line, not read after the profiles); new tile files do not hold them, old ones lose them on loading (no migration) |
+| model | `LINE_BYTES` 500 → 450 B |
+
+The traced heap per line (tracemalloc, `tools/perf_lines_memory.py`, 746fa2f → both branches;
+step 3, 181-199 B, and the coordinates, 225-305 B, did not change):
+
+| Capture | lines | lines per group | step 4: grouping | step 4: profiles | held | step 5 peak |
+| --- | ---: | ---: | --- | --- | --- | --- |
+| swiss-long | 1 695 554 | 158 | 380 → 267 B | 297 → 306 B | 266 → 244 B | 318 → 246 B |
+| Gozo coast, its large tile | 252 534 | 158 | 439 → 268 B | 311 B | 261 → 229 B | 459 → 246 B |
+| R9 | 85 671 | 22 | 413 → 266 B | 389 B | 294 → 262 B | 834 → 315 B |
+| the Gozo coast's 6 tiles (`--tiles`) | 689 150 | 167 | 426 → 266 B (step 4 peak) | | 234 → 202 B | 322 → 208 B |
+
+The join of those 6 tiles peaks at 560 → 319 B per line (the tiles held 335 → 303 B).
+swiss-long's values after are about 9 B higher in every mark, its unchanged step 3 too: what the
+warm-up leaves behind.
+
+Whole jobs (`tools/perf_profile.py` in one session, before and after in turn; R22's three more
+pairs, since one run after had a slow "checking lines", 4.0 CPU s against 0.4-0.7, as runs before
+had in wave 4: that stage did not change):
+
+| Job | cores | wall s | CPU s | grouping wall / CPU s | step 4 wall / CPU s | step 5 wall / CPU s | peak RSS MB (step 4 / step 5 / job) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| R9 | 24 threads | 5.1 → 4.5 (-12 %) | 16.0 → 15.7 | 0.5 / 2.5 → 0.0 / 1.1 | 0.8 / 6.4 → 0.3 / 6.1 | 2.9 / 2.9 → 2.9 / 2.9 | 376 / 410 / 410 → 375 / 370 / 375 |
+| R22 | 24 threads | 2.7-2.8 → 2.5-2.7 | 14.7-15.4 → 14.4-14.5 | | | | job 280-300 → 270-297 |
+| Gozo coast | 24 threads | 64.4 → 58.9 (-9 %) | 156.7 → 149.1 (-5 %) | 7.2 / 13.3 → 0.4 / 5.2 | 10.3 / 40.5 → 3.5 / 31.3 | 7.2 / 7.2 → 7.0 / 7.0 | 815 / 593 / 2722 → 818 / 515 / 2780 |
+| Gozo coast | 7 | 70.3 → 65.1 (-7 %) | 103.8 → 97.9 (-6 %) | 8.1 / 10.2 → 0.4 / 1.7 | 11.3 / 19.6 → 3.3 / 10.6 | 7.6 / 7.6 → 7.7 / 7.7 | 804 / 577 / 2753 → 757 / 514 / 2714 |
+| swiss-long | 24 threads | 56.0 → 34.2 (-39 %) | 155.6 → 135.4 (-13 %) | 20.9 / 22.7 → 0.9 / 2.9 | 22.9 / 39.2 → 2.7 / 18.5 | 20.9 / 20.9 → 19.1 / 18.8 | 1069 / 1037 / 1069 → 906 / 908 / 908 |
+| swiss-long | 7 | 52.6 → 34.7 (-34 %) | 93.4 → 76.4 (-18 %) | 17.8 / 18.2 → 0.8 / 1.4 | 19.8 / 24.2 → 2.7 / 7.3 | 18.8 / 18.6 → 18.0 / 17.8 | 1067 / 1010 / 1067 → 908 / 887 / 908 |
+
+- **The grouping** is 20-25 times faster (`group_lines` alone, warm: swiss-long 17.7 → 0.75 s,
+  the Gozo tile 1.4 → 0.06 s, R9 0.5 → 0.03 s) and its own peak is 33-43 B per line instead of
+  155-214. Loading its kernels takes about 21 MiB once per process (numba itself is loaded by the
+  line search). swiss-long's job takes a third less time, and the Gozo coast's 7-9 % less.
+- **Step 5** adds about 5 MiB above the lines it saves (`save_results`; `save_map` about 3 MiB),
+  whatever their number; before it was 44-83 MiB and 18-19 MiB. It is also a little faster.
+- **The join** of a tiled search holds at most one column twice (16 B per line) instead of every
+  line.
+- **The peaks**: swiss-long's job 1067-1069 → 906-908 MB, now steps 4 and 5 alike; R9's 410 →
+  375 MB; the Gozo coast's is step 1's grids (about 2.7-2.8 GB), unchanged.
+- **The model**: `LINE_BYTES` 500 → 450 B, 16 % over the largest peak (R9's profiles, 389 B) and
+  about 40 % over the larger searches' (311-319 B). R9's groups are small (22 lines each), so its
+  representatives' profiles weigh more per line. They are counted within `LINE_BYTES`, so a search
+  of much smaller groups would hold more than the model says. The largest public search now needs
+  3.6 + 0.68 = 4.28 GB (4.35 GB with 500 B): three of the VPS's compute slots still fit it (5.6 GB
+  each), four still do not (4.2 GB each; `test_memory_of_compute_slots`).
+- `tools/perf_lines_memory.py --tiles` now warms the grouping up before measuring. Without the
+  warm-up, numba's import added 58 B per line on the Gozo tiles. Tile files written since this
+  wave have no pixel columns, so for them it measures only the join.
+- **Still open**:
+  - The representatives' profiles counted apart from `LINE_BYTES`: their points are known after
+    the grouping, so they could be checked as a circle's every profile is (`profile_points`).
+  - F8c, the middle of lines over 1024 px in an order kinder to the cache, and `_evaluate`.
 
 ### What the server collects
 
