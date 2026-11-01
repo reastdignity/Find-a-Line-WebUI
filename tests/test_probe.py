@@ -165,3 +165,20 @@ def test_command(tmp_path, monkeypatch, asked, capsys):
     with pytest.raises(SystemExit, match="unknown source: nowhere"):
         update.main(["--data-dir", data, "sources", "check", "nowhere"])
     assert sorted(os.listdir(tmp_path / "cache")) == ["LAYOUT", "locks"]
+
+
+def test_wcs_multipart_answer(tmp_path, capsys, monkeypatch):
+    """A multipart GetCoverage answer whose parameters name an XML part (Saxony-Anhalt:
+    multipart/related; ... type="text/xml") is a coverage; an XML answer itself is a failure."""
+    multipart = 'multipart/related; boundary="wcs"; start="GML-Part"; type="text/xml"'
+
+    def fake(url, params=None, headers=None):
+        if dict(params).get("REQUEST") == "GetCoverage":
+            return 200, (multipart if "ok.example" in url else "text/xml; charset=UTF-8"), b"--wcs"
+        return 200, "text/xml", b"<wcs:CoverageDescriptions>"
+    monkeypatch.setattr(probe, "_http", fake)
+    layer = lambda host: src.WcsTiles(f"WCS of {host}", f"https://{host}/wcs", "dtm", "EPSG:32633",  # noqa: E731
+                                      "fake/wcs", native_res=1.0, fetch_res=1.0, axes=("E", "N"))
+    assert _run(tmp_path, {"ok": _source("ok", layer("ok.example"))}, ["ok"]) == 0
+    assert _run(tmp_path, {"bad": _source("bad", layer("bad.example"))}, ["bad"]) == 1
+    assert "GetCoverage: HTTP 200" in capsys.readouterr().out

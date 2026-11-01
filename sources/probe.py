@@ -204,7 +204,7 @@ def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[
     if not math.isclose(res, layer.native_res):
         params.append(("SCALESIZE", f"{ax}(16),{ay}(16)"))
     status, kind, body = _ask(cache_dir, layer.url, params)
-    if status != 200 or "xml" in kind:
+    if status != 200 or "xml" in kind.split(";")[0]:
         raise RuntimeError(f"GetCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
     return OK, OK
 
