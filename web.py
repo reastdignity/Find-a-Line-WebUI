@@ -1616,8 +1616,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
          "run and line it was sent from, the size of the window and your browser's identification (its User-Agent: "
          "browser, version, system). Why: to find and fix what goes wrong. Read by the administrators; kept until "
          "an administrator deletes it (ask the contact below to have yours deleted)."),
-        ("Quotas", f"How many km² your searches covered and how many uncached Nominatim requests they made, with the "
-         f"time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
+        ("Quotas", f"How many km² your searches covered (counted as pixels at their resolution), how many MB they "
+         f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
         ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
          f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
          f"folders of favourites made, changed and deleted (not their names), changes of your account's country, problem reports sent (not their "

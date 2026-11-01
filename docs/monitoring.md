@@ -106,6 +106,11 @@ number each.
 | A new item "Server logs" | "Messages of the application and errors of the web server, without IP addresses; they may name the place of a search. Why: to find faults. Deleted after 30 days; Docker's own copy is overwritten once it reaches 50 MB." |
 | The facts | The example of the statistics gains "or the number of searches per area of about 25 km". |
 
+**Phase 4** changes the item "Quotas" (wording accepted 2026-11-01): "How many km² your searches
+covered and how many uncached Nominatim requests they made" becomes "How many km² your searches
+covered (counted as pixels at their resolution), how many MB they downloaded and how many uncached
+Nominatim requests they made". F18 and F19 are counts without users.
+
 F11, F12 and F13 are counts without users; D4 concerns the operator's own logins. The logs keep no
 IP address: the application logs none (uvicorn's access log is off), and Telegraf masks the
 `client:` field of nginx's error log before it is stored. nginx's own files are as before
