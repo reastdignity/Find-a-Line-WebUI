@@ -15,7 +15,10 @@ from rasterio.windows import Window
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
 import sources as src  # noqa: E402
+from grid import Grid  # noqa: E402
 from http_server import key_of  # noqa: E402
+from sources.indexes.cached import IndexUnavailable  # noqa: E402
+from sources.indexes.listings import ows_exception  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIP = os.path.join(HERE, "data", "zabi_kon_nmt.tif")
@@ -72,12 +75,25 @@ CASES = sorted(os.path.relpath(folder, RECORDED).replace(os.sep, "/")
                for folder, _, files in os.walk(RECORDED) if "answers.json" in files)
 
 
-def _on_server(layer, server):
-    """A layer as the catalogue's, but asking its index on the local server."""
+def _recorded(case):
+    with open(os.path.join(RECORDED, case, "answers.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+ANSWER_CASES = [case for case in CASES if "raises" not in _recorded(case)]
+ERROR_CASES = [case for case in CASES if "raises" in _recorded(case)]
+
+
+def _on_server(layer, server, years=None):
+    """A layer as the catalogue's, but asking its index on the local server (a WFS sheet
+    index: these year layers instead of those of its capabilities, if given)."""
     path = urlsplit(layer.index_url).path
     if isinstance(layer, src.SheetTiles):
-        return src.SheetTiles(layer.description, server.url(path), layer.prefix, layer.folder, layer.native_res,
-                              layer.min_res)
+        layer = src.SheetTiles(layer.description, server.url(path), layer.prefix, layer.folder, layer.native_res,
+                               layer.min_res)
+        if years:
+            layer.index.listing._years = list(years)
+        return layer
     if isinstance(layer, src.StacTiles):
         api = path[:path.index("/collections/")]
         return src.StacTiles(layer.description, server.url(api), layer.prefix, layer.folder, layer.crs,
@@ -89,16 +105,17 @@ def _on_server(layer, server):
 
 
 def test_recorded_cases_exist():
-    assert CASES == ["stac/swisstopo-swissalti3d", "tnm/dem1m", "tnm/ifsar5m", "wfs/geoportal-nmt"]
+    assert CASES == ["stac/swisstopo-swissalti3d", "tnm/dem1m", "tnm/ifsar5m", "wfs/geoportal-error",
+                     "wfs/geoportal-nmt"]
+    assert ERROR_CASES == ["wfs/geoportal-error"]
 
 
-@pytest.mark.parametrize("case", CASES)
+@pytest.mark.parametrize("case", ANSWER_CASES)
 def test_recorded_index_answers(case, http_server, tmp_path):
     """The recorded answers of a service give the index JSON of the code that recorded them,
     byte for byte, with the same requests and nothing else asked."""
     folder = os.path.join(RECORDED, case)
-    with open(os.path.join(folder, "answers.json"), encoding="utf-8") as f:
-        recorded = json.load(f)
+    recorded = _recorded(case)
     http_server.add_cassette(folder)
     lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
     layer = _on_server(getattr(src.SOURCES[recorded["case"]["source"]], recorded["case"]["layer"]), http_server)
@@ -113,6 +130,62 @@ def test_recorded_index_answers(case, http_server, tmp_path):
     asked = [key_of(r.method, r.path + "?" + urlencode(r.query)) for r in http_server.log]
     assert asked == [key_of(a["method"], urlsplit(a["url"])._replace(scheme="", netloc="").geturl())
                      for a in recorded["answers"]]
+    assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
+
+
+def test_ows_exception():
+    with open(os.path.join(RECORDED, "wfs", "geoportal-error", "001.xml"), "rb") as f:
+        assert "TYPENAME 'SkorowidzNMT1900' doesn't exist" in ows_exception(f.read())
+    assert ows_exception(b"<?xml version='1.0'?>\n<!-- old -->\n<ServiceExceptionReport version='1.2.0'>"
+                         b"<ServiceException code='x'> busy </ServiceException></ServiceExceptionReport>") == "busy"
+    assert ows_exception(b"<ows:ExceptionReport xmlns:ows='o'/>") == "an exception report"
+    for answer in ("wfs/geoportal-nmt/001.xml", "wfs/geoportal-nmt/003.xml"):  # capabilities, features
+        with open(os.path.join(RECORDED, answer), "rb") as f:
+            assert ows_exception(f.read()) is None
+    assert ows_exception(b"") is None and ows_exception(b"<html>busy</html>") is None
+
+
+@pytest.mark.parametrize("case", ERROR_CASES)
+def test_recorded_error_answers(case, http_server, tmp_path, capsys):
+    """A recorded exception report of a WFS sheet index caches nothing, whether the service
+    answers it with an error status (as geoportal does) or with HTTP 200; with an older
+    cached answer of the tile, the search goes on without the index."""
+    recorded = _recorded(case)
+    http_server.add_cassette(os.path.join(RECORDED, case))
+    lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
+    catalogue = getattr(src.SOURCES[recorded["case"]["source"]], recorded["case"]["layer"])
+    cache_dir = str(tmp_path / "cache")
+
+    layer = _on_server(catalogue, http_server, recorded["case"]["years"])
+    with pytest.raises(requests.RequestException) as raised:
+        layer.update_index_tile(cache_dir, lat, lon)
+    assert type(raised.value).__name__ == recorded["raises"]
+    path = layer.index_path(cache_dir, lat, lon)
+    assert not os.path.exists(path)
+
+    # The same report with HTTP 200
+    entry, = recorded["answers"]
+    with open(os.path.join(RECORDED, case, entry["body"]), "rb") as f:
+        report = f.read()
+    url = urlsplit(entry["url"])._replace(scheme="", netloc="").geturl()
+    http_server.add(url, report, entry["content_type"])
+    layer = _on_server(catalogue, http_server, recorded["case"]["years"])
+    with pytest.raises(IndexUnavailable, match="doesn't exist"):
+        layer.update_index_tile(cache_dir, lat, lon)
+    assert not os.path.exists(path)
+
+    # An older answer of the tile stays; the search uses the cached files
+    os.makedirs(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"layers": [], "sheets": []}, f)
+    cache.record(cache_dir, path, url=layer.index.listing.url)
+    layer = _on_server(catalogue, http_server, recorded["case"]["years"])
+    grid = Grid(left=475500.0, top=778500.0, res=5.0, height=100, width=100, crs="EPSG:2180")  # in the tile
+    assert layer.to_download(grid, cache_dir, "all") == ([], None)
+    assert "index not available (IndexUnavailable); using the cached files" in capsys.readouterr().out
+    with open(path, encoding="utf-8") as f:
+        assert json.load(f) == {"layers": [], "sheets": []}
+    assert not http_server.stray()
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
 
 

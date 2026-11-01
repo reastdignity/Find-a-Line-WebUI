@@ -19,6 +19,21 @@ SHEET_CRS = {"PL-1992": "EPSG:2180", "PL-2000:S5": "EPSG:2176", "PL-2000:S6": "E
              "PL-2000:S7": "EPSG:2178", "PL-2000:S8": "EPSG:2179"}
 SHEET_FORMATS = ("ARC/INFO ASCII GRID", "ASCII XYZ GRID")
 
+# The root element of an XML answer (after its declaration, comments and doctype)
+XML_ROOT = re.compile(rb"\s*(?:<\?.*?\?>\s*|<!--.*?-->\s*|<!DOCTYPE[^>]*>\s*)*<(?:[\w.-]+:)?([\w.-]+)", re.DOTALL)
+# OGC exception reports: OWS 1.x/2.0 (WFS 2.0) and the older WFS/WMS ones
+EXCEPTION_ROOTS = (b"ExceptionReport", b"ServiceExceptionReport")
+
+
+def ows_exception(body: bytes) -> Optional[str]:
+    """The text of an OGC exception report (None if body is no such report): a service may answer an
+    error with HTTP 200."""
+    root = XML_ROOT.match(body)
+    if not root or root.group(1) not in EXCEPTION_ROOTS:
+        return None
+    text = re.search(rb"<(?:[\w.-]+:)?(?:ExceptionText|ServiceException)(?:\s[^>]*)?>([^<]*)<", body)
+    return text.group(1).decode("utf-8", "replace").strip() if text else "an exception report"
+
 
 def _gml_features(gml: bytes) -> List[Tuple[Dict, Optional[Tuple[float, float, float, float]]]]:
     """The features of a GML FeatureCollection (a WFS GetFeature answer), read by GDAL's GML
@@ -56,7 +71,7 @@ class WfsSheets(Listing):
     """Map sheets of a WFS sheet index (geoportal.gov.pl): one layer per year
     (`<prefix><year>`), every sheet linking to a file (ASCII grid or XYZ, sometimes zipped).
     The requests are ours (requests: GetCapabilities, GetFeature per year), the GML answers
-    are read by pyogrio. Sheets with a resolution between min_res and native_res are listed;
+    are read by pyogrio; an exception report is IndexUnavailable, also with HTTP 200. Sheets with a resolution between min_res and native_res are listed;
     extents in EPSG:2180 (the bounds of the sheet outline)."""
 
     def __init__(self, url: str, prefix: str, native_res: float, min_res: float):
@@ -67,6 +82,9 @@ class WfsSheets(Listing):
         response = requests.get(self.url, timeout=300, headers=cache.http_headers(),
                                 params={"SERVICE": "WFS", "VERSION": "2.0.0", **params})
         response.raise_for_status()
+        error = ows_exception(response.content)
+        if error:  # answered with HTTP 200: not an answer to cache
+            raise IndexUnavailable(f"WFS {params.get('REQUEST')}: {error}")
         return response.content
 
     def _year_layers(self) -> List[str]:
