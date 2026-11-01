@@ -33,6 +33,7 @@ SECTORS = 64   # direction sectors per anchor
 RINGS = 64     # rings of pixels around an anchor checked per sector
 EPS = 1e-6     # metres; borderline pairs are passed on to evaluate_line
 CHUNKS = 200   # anchors are processed in this many parts (progress updates)
+RING_CHUNK = 1 << 16  # anchors per call of _free_rings (only the rows of the open ones are kept)
 
 
 @njit(cache=True)
@@ -138,7 +139,7 @@ def largest_need(min_length: float, max_length: float, res: float) -> int:
 @njit(parallel=True, cache=True)
 def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
     """For every anchor and sector: the number of rings a line can cross from the anchor, up
-    to kmax (the largest need of a pair: larger values would change no decision).
+    to kmax (the largest need of a pair: larger values would change no decision; uint8).
 
     The k-th pixel of a line (DDA) lies on ring k (Chebyshev distance k) and at most
     half a pixel from the exact line, so its direction differs from the line's by at
@@ -150,7 +151,7 @@ def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
     """
     n = anchors.shape[0]
     h, w = z.shape
-    rings = np.zeros((n, SECTORS), dtype=np.int32)
+    rings = np.zeros((n, SECTORS), dtype=np.uint8)
     side = 2 * RINGS + 1
     zero, one = np.uint64(0), np.uint64(1)
     for a in prange(n):
@@ -180,8 +181,30 @@ def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
                 break
             for s in range(SECTORS):
                 if (alive >> np.uint64(s)) & one:
-                    rings[a, s] = k
+                    rings[a, s] = np.uint8(k)
     return rings
+
+
+def free_directions(z: np.ndarray, anchors: np.ndarray, res: float, gain: float, cap: float, offset: float,
+                    min_length: float, max_length: float):
+    """Step 1: the anchors with an open direction (useful: those with a sector open up to the
+    need of the shortest line), their rings (_free_rings, one uint8 row each, in the order of
+    useful) and the row of every anchor (slot, int32; -1 for the others). _free_rings runs on
+    RING_CHUNK anchors at a time, so the rings of the anchors without an open direction (most
+    of them) are never held all at once."""
+    kmax, masks = largest_need(min_length, max_length, res), sector_masks()
+    need_min = min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
+    useful, rows = [], []
+    for start in range(0, len(anchors), RING_CHUNK):
+        rings = _free_rings(z, anchors[start:start + RING_CHUNK], res, gain, cap, offset, kmax, masks)
+        keep = np.flatnonzero(rings.max(axis=1) >= need_min)
+        useful.append(keep + start)
+        rows.append(rings[keep])
+    useful = np.concatenate(useful).astype(np.int64) if useful else np.zeros(0, dtype=np.int64)
+    rows = np.concatenate(rows) if rows else np.zeros((0, SECTORS), dtype=np.uint8)
+    slot = np.full(len(anchors), -1, dtype=np.int32)
+    slot[useful] = np.arange(len(useful), dtype=np.int32)
+    return useful, rows, slot
 
 
 @njit(cache=True)
@@ -201,7 +224,7 @@ def _isqrt(n):
 
 
 @njit(parallel=True, cache=True)
-def _pairs(z, anchors, elev, rings, rmax, todo, order, starts, cell, cells_x, res,
+def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells_x, res,
            min_length, max_length, max_dh_ratio, max_dh, d0, far2, kmax, down, cos_limit, strong,
            use_sag, log_spans, ratios, table, fall_zone, first_only, offsets, out, counts):
     """Partners of the anchors in todo that pass all tests: only partners with a higher index,
@@ -210,7 +233,9 @@ def _pairs(z, anchors, elev, rings, rmax, todo, order, starts, cell, cells_x, re
     written from its lower index: the pixels sampled depend on the direction (rint).
     With cos_limit > -1, the line must leave both anchors within the wall angle whose
     cosine it is (down: helpers.downslope; within EPS, evaluate_lines decides). One of the
-    two anchors must be strong (--min-prominence; all are without it).
+    two anchors must be strong (--min-prominence; all are without it). The rings and their
+    largest value (rmax) of an anchor are rows slot[anchor] (the anchors with an open
+    direction only: todo and the partners are all such).
 
     The partners are visited cell by cell in the order of the cells and of order (by index
     within a cell), skipping only partners that fail a test: cells all of whose anchors have
@@ -231,7 +256,8 @@ def _pairs(z, anchors, elev, rings, rmax, todo, order, starts, cell, cells_x, re
         ri, ci = anchors[i, 0], anchors[i, 1]
         cy, cx = ri // cell, ci // cell
         ei = elev[i]
-        span = 2 * np.int64(rmax[i]) + 1 if rmax[i] < kmax else np.int64(1) << 40  # Chebyshev reach
+        ri_max = rmax[slot[i]]
+        span = 2 * np.int64(ri_max) + 1 if ri_max < kmax else np.int64(1) << 40  # Chebyshev reach
         candidates, checked, found = 0, 0, 0
         gy0 = max(max(0, cy - reach), max(0, ri - span) // cell)
         gy1 = min(min(cells_y - 1, cy + reach), (ri + span) // cell)
@@ -273,7 +299,10 @@ def _pairs(z, anchors, elev, rings, rmax, todo, order, starts, cell, cells_x, re
                     if abs(elev[j] - ei) > d0:  # the height test below at the longest length
                         continue
                     cheb = max(abs(anchors[j, 0] - ri), abs(anchors[j, 1] - ci))
-                    if cheb > span or (rmax[j] < kmax and cheb > 2 * np.int64(rmax[j]) + 1):
+                    if cheb > span:
+                        continue
+                    rj_max = rmax[slot[j]]
+                    if rj_max < kmax and cheb > 2 * np.int64(rj_max) + 1:
                         continue
                     a, b = (i, j) if i < j else (j, i)
                     dr, dc = anchors[b, 0] - anchors[a, 0], anchors[b, 1] - anchors[a, 1]
@@ -289,7 +318,7 @@ def _pairs(z, anchors, elev, rings, rmax, todo, order, starts, cell, cells_x, re
                             continue
                     candidates += 1
                     need = min(RINGS, max(abs(dr), abs(dc)) // 2)
-                    if rings[a, _sector(dr, dc)] < need or rings[b, _sector(-dr, -dc)] < need:
+                    if rings[slot[a], _sector(dr, dc)] < need or rings[slot[b], _sector(-dr, -dc)] < need:
                         continue
                     checked += 1
                     if _line_ok(z, anchors[a, 0], anchors[a, 1], anchors[b, 0], anchors[b, 1], res,
@@ -301,13 +330,14 @@ def _pairs(z, anchors, elev, rings, rmax, todo, order, starts, cell, cells_x, re
         counts[q, 0], counts[q, 1], counts[q, 2] = candidates, checked, found
 
 
-def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, rings: np.ndarray, useful: np.ndarray,
-                   first: Optional[np.ndarray], res: float, min_length: float, max_length: float,
+def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful: np.ndarray, rings: np.ndarray,
+                   slot: np.ndarray, first: Optional[np.ndarray], res: float, min_length: float, max_length: float,
                    max_dh_ratio: float, max_dh: float, down: np.ndarray, cos_limit: float,
                    strong: Optional[np.ndarray], use_sag: bool, log_spans, ratios, table, fall_zone: float):
     """The anchors pairs are searched from (the useful ones; with first, those of a tile's
     core) and _pairs' arguments before and after todo, with the useful anchors (the only
-    partners) bucketed into cells of a quarter of max_length."""
+    partners) bucketed into cells of a quarter of max_length. useful, rings, slot: those of
+    free_directions."""
     todo_all = useful if first is None else useful[np.asarray(first)[useful]]
     cell = max(1, int(max_length / res) // 4)
     cells_x = z.shape[1] // cell + 1
@@ -319,7 +349,7 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, rings: 
     kmax = largest_need(min_length, max_length, res)
     d0 = min(float(max_dh_ratio) * float(max_length), float(max_dh))
     far2 = int(math.floor((max_length / res + 2) ** 2))
-    head = (z, anchors, elev, rings, rmax)
+    head = (z, anchors, elev, rings, slot, rmax)
     tail = (order, starts, cell, cells_x, res, float(min_length), float(max_length),
             float(max_dh_ratio), float(max_dh), d0, far2, kmax, down, cos_limit,
             np.ones(len(anchors), dtype=np.bool_) if strong is None else np.asarray(strong, dtype=np.bool_),
@@ -569,18 +599,15 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
 
     # Step 1: open directions of every anchor
     progress.compute.start("free directions", 1, unit="step")
-    rings = _free_rings(z, anchors, res, gain, cap, offset, largest_need(min_length, max_length, res),
-                        sector_masks())
+    useful, rings, slot = free_directions(z, anchors, res, gain, cap, offset, min_length, max_length)
     progress.compute.finish()
-    need_min = min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
-    useful = np.flatnonzero(rings.max(axis=1) >= need_min)
     print(f"Anchors with an open direction: {len(useful)} of {len(anchors)}")
 
     # Step 2 + 3: bucket the useful anchors, then find and check the pairs
     down = sh.downslope(z, anchors, res)
     max_angle = limits.max_wall_angle if limits is not None and limits.max_wall_angle is not None else 180.0
     cos_limit = -2.0 if max_angle >= 180 else math.cos(math.radians(max_angle))
-    todo_all, args, tail = pair_arguments(z, anchors, elev, rings, useful, first, res, min_length, max_length,
+    todo_all, args, tail = pair_arguments(z, anchors, elev, useful, rings, slot, first, res, min_length, max_length,
                                           max_dh_ratio, max_dh, down, cos_limit, strong, use_sag, log_spans,
                                           ratios, table, fall_zone)
     pairs, candidates, checked = [], 0, 0

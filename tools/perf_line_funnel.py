@@ -278,9 +278,15 @@ def two_passes(kernel, a, todo):
 
 
 def production_rings(a):
-    """Production's free directions of the call (what find_valid_lines computes in step 1)."""
+    """Production's rings of every anchor of the call (linesearch._free_rings on all at once)."""
     return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset,
                           ls.largest_need(a.min_length, a.max_length, a.res), ls.sector_masks())
+
+
+def production_directions(a):
+    """Production's step 1 (linesearch.free_directions): the useful anchors, their rings, the
+    row of every anchor."""
+    return ls.free_directions(a.z, a.anchors, a.res, a.gain, a.cap, a.offset, a.min_length, a.max_length)
 
 
 def capped_rings(a):
@@ -290,10 +296,12 @@ def capped_rings(a):
     return np.minimum(a.rings, ls.largest_need(a.min_length, a.max_length, a.res))
 
 
-def production_args(a, rings):
-    """Production's arguments of the pair search (linesearch.pair_arguments): (the anchors pairs
-    are searched from, _pairs' arguments before and after todo)."""
-    todo_all, head, tail = ls.pair_arguments(a.z, a.anchors, a.elev, rings, a.useful, a.first, a.res,
+def production_args(a, directions):
+    """Production's arguments of the pair search (linesearch.pair_arguments) from those of
+    production_directions: (_pairs' arguments before and after todo, the anchors pairs are
+    searched from)."""
+    useful, rows, slot = directions
+    todo_all, head, tail = ls.pair_arguments(a.z, a.anchors, a.elev, useful, rows, slot, a.first, a.res,
                                              a.min_length, a.max_length, a.max_dh_ratio, a.max_dh, a.down,
                                              a.cos_limit, a.strong, a.use_sag, a.log_spans, a.ratios, a.table,
                                              a.fall_zone)
@@ -319,10 +327,15 @@ def self_check(a, folder: str = "", sample_every: int = 1) -> List:
     candidates are the references' less those N1 skips (production skips them before counting:
     they fail the rings' test, which comes after the count). Returns per chunk (todo, the
     references' counts, funnel_pairs' counters, simulated tests, histograms)."""
-    rings = production_rings(a)
-    if not np.array_equal(rings, capped_rings(a)):
+    capped = capped_rings(a)
+    if not np.array_equal(production_rings(a), capped):
         raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
-    head, tail, todo_all = production_args(a, rings)
+    directions = production_directions(a)
+    useful, rows, slot = directions
+    if not (np.array_equal(useful, a.useful) and np.array_equal(rows, capped[a.useful])
+            and np.array_equal(slot[useful], np.arange(len(useful))) and (np.delete(slot, useful) == -1).all()):
+        raise SelfCheckError(f"{folder}: linesearch.free_directions differs from ref_free_rings")
+    head, tail, todo_all = production_args(a, directions)
     if not np.array_equal(todo_all, a.todo_all):
         raise SelfCheckError(f"{folder}: linesearch.pair_arguments starts from other anchors")
     f = funnel_inputs(a)
