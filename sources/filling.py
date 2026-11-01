@@ -160,14 +160,10 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         gaps = np.isnan(target) if exclude is None else np.isnan(target) & ~exclude
         if not gaps.any():
             continue
-        path, label = os.path.join(work, name), f"gap fill ({fallback.name})"
-        if window is None:
-            prepare_layer(layer, grid, cache_dir, path, label, update)
-        else:  # a neighbour has no data beyond its border: no line about its tiles without data
-            layer.download(sub, cache_dir, update, label)
-            build_mosaic(layer.files(sub, cache_dir), sub, path, label, shift=layer.shift)
-            used_data.append(layer.used(sub, cache_dir))
-        record = used_data[-1]
+        # A neighbour has no data beyond its border: no line about its tiles without data
+        path = prepare_layer(layer, sub, cache_dir, os.path.join(work, name), f"gap fill ({fallback.name})", update,
+                             quiet=window is not None)
+        record = used_data[-1]  # prepare_layer's
         if window is None:
             other = np.asarray(np.load(path, mmap_mode="r"))
         else:
