@@ -111,7 +111,7 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
                          src.transform).round_offsets().round_lengths()
     window = window.intersection(rio.windows.Window(0, 0, src.width, src.height))
     band = src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
-    reproject(clean(band), values, src_transform=moved * src.window_transform(window), src_crs=src_crs,
+    reproject(clean(band), values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
               src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
     target = mosaic[r0:r1, c0:c1]

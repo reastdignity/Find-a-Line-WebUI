@@ -590,7 +590,7 @@ ui = [
 
 [package.metadata]
 requires-dist = [
-    { name = "affine", specifier = ">=2.4" },
+    { name = "affine", specifier = ">=3.0" },
     { name = "authlib", specifier = ">=1.9.1" },
     { name = "contextily", specifier = ">=1.6" },
     { name = "fastapi", specifier = ">=0.162.0" },

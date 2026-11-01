@@ -5,7 +5,7 @@ description = "Finds possible highlines in elevation data"
 readme = "README.md"
 requires-python = ">=3.12"  # scipy 1.18 needs it
 dependencies = [
-    "affine>=2.4",
+    "affine>=3.0",  # 3.0: the @ operator (`*` of transforms is deprecated)
     "authlib>=1.9.1",  # 1.9.1: fixes up to GHSA-8m4g-j4wp-wgcg (empty HMAC keys); 1.8+: its client on httpx2
     "contextily>=1.6",
     "fastapi>=0.162.0",
