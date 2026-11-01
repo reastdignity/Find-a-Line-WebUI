@@ -13,7 +13,7 @@ import { api, jobError, user, type RunListed } from "../api";
 import { errorText } from "../../i18n";
 import { beingSaved, jobProgress, type JobsState, type JobView } from "../useJobs";
 import { editHash, go, runHash } from "./route";
-import { Thumb, THUMB_CREDIT, type ThumbSource } from "./Thumb";
+import { Thumb, ThumbCredit, type ThumbSource } from "./Thumb";
 import { Trip } from "./Trip";
 import { SearchedCard } from "./Searched";
 import { timeOf, when } from "../../time";
@@ -250,7 +250,7 @@ export function Home({jobs, runs, usage, highlight, wide}: HomeProps) {
         : <div class="c-cards">{shown.map((c) =>
             <SearchCard key={c.key} card={c} runs={runs} jobs={jobs} publicSite={runs.public}
                         highlight={!!highlight && c.job?.id === highlight} />)}</div>}
-      {runs.runs !== null && shown.length > 0 && <p class="u-small c-thumb-credit">{THUMB_CREDIT}</p>}
+      {runs.runs !== null && shown.length > 0 && <ThumbCredit />}
       {!wide && <SearchedCard usage={usage.usage} />}
       {!wide && example && <a class="c-example c-example-phone" href={runHash(example.id)} data-run={example.id}>
         <span class="c-example-icon"><Icon name="rope" /></span>

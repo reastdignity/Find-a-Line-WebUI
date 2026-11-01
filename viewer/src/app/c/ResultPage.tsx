@@ -14,6 +14,7 @@ import { loadRun, orthoForApp } from "../../result/load";
 import { ResultModel } from "../../result/model";
 import { ResultMap, type Padding } from "../../result/ResultMap";
 import { FilterBar, LineDetails, LinesTable, ProfileDock, ResultSummary, RunActions, useModel } from "../../result/view";
+import { useCornersAboveSheet } from "../../result/view/corners";
 import { editHash, parseRoute, runHash } from "./route";
 import { when } from "../../time";
 
@@ -135,6 +136,8 @@ function Phone({model, data, line, nav, editJob}: ViewProps) {
   const [snap, setSnap] = useState<Snap>("half");
   const padding = (): Padding => ({top: 64, right: 0, bottom: Math.round(innerHeight * 0.5), left: 0});
   const {ref, view} = useResultMap(model, data, padding);
+  const phoneRef = useRef<HTMLDivElement>(null);
+  useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
   useLinkedLine(model, line, view, padding, nav);
   useEffect(() => {  // a new selection ends a measurement and shows the line in the sheet
     let last = model.selected?.line;
@@ -155,7 +158,7 @@ function Phone({model, data, line, nav, editJob}: ViewProps) {
   const measuredNow = (l: Line | null) => { setMeasured(l); if (l) setSnap("half"); };
   const closeMeasured = () => { setMeasured(null); view?.clearMeasure(); };
 
-  return <div class="c-result c-result-phone">
+  return <div class="c-result c-result-phone" ref={phoneRef}>
     <div class="c-col-map"><div class="c-leaflet" ref={ref} /></div>
     <div class="c-phone-top">
       <div class="c-pill">

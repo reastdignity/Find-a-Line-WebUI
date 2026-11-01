@@ -108,7 +108,16 @@ function shapeOf(source: ThumbSource): Promise<Shape> | null {
 // ---- drawing ---------------------------------------------------------------------------------
 
 const TILE = 256, MAX_ZOOM = 17;  // OpenTopoMap's tiles, the run maps' first base layer (layers.ts)
-export const THUMB_CREDIT = "Mini maps: © OpenStreetMap contributors, SRTM | map style © OpenTopoMap (CC-BY-SA)";
+/** The credit of the mini maps' tiles, as layers.ts gives OpenTopoMap's (with the OSM link where map errors
+ *  are reported). */
+export function ThumbCredit() {
+  const link = (href: string, text: string) => <a href={href} target="_blank" rel="noopener">{text}</a>;
+  return <p class="u-small c-thumb-credit">
+    Mini maps: © {link("https://www.openstreetmap.org/copyright", "OpenStreetMap")} contributors
+    ({link("https://www.openstreetmap.org/fixthemap", "report a map issue")}), SRTM | map style
+    © {link("https://opentopomap.org", "OpenTopoMap")} ({link("https://creativecommons.org/licenses/by-sa/3.0/", "CC-BY-SA")})
+  </p>;
+}
 
 /** Web Mercator pixels of a point at zoom 0 (one 256 px tile for the world). */
 function mercator([lon, lat]: Position): [number, number] {

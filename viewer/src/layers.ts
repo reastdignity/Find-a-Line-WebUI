@@ -1,11 +1,15 @@
-// Background layers: OpenTopoMap, OpenStreetMap, the orthophoto of the data source
+// Background layers: OpenTopoMap, OpenStreetMap and the orthophoto of the data source
 // (from the local tile cache when there, else its WMS over its base tiles, if any, or
-// the base tiles alone) and Esri World Imagery.
+// the base tiles alone). Esri World Imagery was removed on 2026-11-01: its terms cover use with
+// Esri's software or an ArcGIS subscription, not keyless tiles on a public site.
 
 import L from "leaflet";
 import type { Credit, Ortho } from "./types";
 
-const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+// The OSM tile usage policy and attribution guidelines: "© OpenStreetMap contributors" linked to the
+// copyright page, and the link where map errors are reported (FOSSGIS's terms ask for fixthemap)
+const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ' +
+  'contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">report a map issue</a>)';
 
 /** A tile that tries the cached one ({cache}/{z}/{x}/{y}.jpg) first, then the service. */
 function createCachedTile(this: L.TileLayer & {_cache: string | null}, coords: L.Coords, done: L.DoneCallback) {
@@ -39,7 +43,7 @@ export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string,
   if (ortho && !ortho.url && ortho.base) {
     // Tiles in the map's own tiling, no WMS (SWISSIMAGE)
     const layer = new (CachedTiles as any)(ortho.base.url, {
-      maxZoom, maxNativeZoom: ortho.base.max_zoom, attribution: ortho.attribution}) as L.TileLayer;
+      maxZoom, maxNativeZoom: ortho.base.max_zoom, attribution: orthoHtml(ortho)}) as L.TileLayer;
     (layer as any)._cache = ortho.cache;
     layers[ortho.name] = layer;
   } else if (ortho && ortho.url) {
@@ -48,19 +52,13 @@ export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string,
     const base = ortho.base;
     const layer = new (CachedWMS as any)(ortho.url, {
       layers: ortho.layer, format: base ? "image/png" : "image/jpeg", version: "1.3.0", transparent: !!base,
-      attribution: ortho.attribution, maxZoom, crs: L.CRS.EPSG4326}) as L.TileLayer.WMS;
+      attribution: orthoHtml(ortho), maxZoom, crs: L.CRS.EPSG4326}) as L.TileLayer.WMS;
     (layer as any)._cache = ortho.cache;
     // Where the WMS has no imagery its PNG is transparent and shows the base under it
     // (cached tiles have both already and cover the base)
     layers[ortho.name] = base ? L.layerGroup([L.tileLayer(base.url, {maxZoom, maxNativeZoom: base.max_zoom}), layer])
       : layer;
   }
-  // Worldwide imagery, online only (Esri's terms do not allow caching tiles for offline use)
-  layers["Esri World Imagery (online)"] = L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-      maxZoom, maxNativeZoom: 18,
-      attribution: "Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, " +
-        "Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community"});
   return layers;
 }
 
@@ -68,12 +66,26 @@ function escape(text: string): string {
   return text.replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
 }
 
+/** Plain text as HTML, a link when `url` is http(s) (Leaflet's attribution control renders HTML). */
+function linked(text: string, url: string | null | undefined): string {
+  return url && /^https?:\/\//.test(url)
+    ? '<a href="' + escape(url) + '" target="_blank" rel="noopener">' + escape(text) + "</a>" : escape(text);
+}
+
+/** The orthophoto's attribution: its text, a link to `attribution_url` when the service has one. */
+export function orthoHtml(ortho: Ortho): string {
+  return linked(ortho.attribution, ortho.attribution_url);
+}
+
+/** What every run's credits add (ATTRIBUTION.txt and the about page say the same: runs.py, web.py): the
+ *  data were changed. */
+export const PROCESSED_NOTE = "Find-a-Line's lines, heights, profiles and maps are computed from these data, " +
+  "which were resampled and combined onto a working grid (changed).";
+
 /** The data credits of a run for Leaflet's attribution control, which renders HTML: escaped text, links
  *  to http(s) only, and the run's ATTRIBUTION.txt (`notices`, a URL of ours) with the full notices. */
 export function creditsHtml(credits: Credit[], notices: string): string {
-  const parts = credits.map((c) => escape(c.attribution) + " (" + (/^https?:\/\//.test(c.url)
-    ? '<a href="' + escape(c.url) + '" target="_blank" rel="noopener">' + escape(c.licence) + "</a>"
-    : escape(c.licence)) + ")");
-  return "Data: " + Array.from(new Set(parts)).join(" | ") +
-    ' · <a href="' + escape(notices) + '" target="_blank">notices</a>';
+  const parts = credits.map((c) => escape(c.attribution) + " (" + linked(c.licence, c.url) + ")");
+  return "Data: " + Array.from(new Set(parts)).join(" | ") + ". " + escape(PROCESSED_NOTE) +
+    ' <a href="' + escape(notices) + '" target="_blank">Notices</a>';
 }

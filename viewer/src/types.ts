@@ -66,6 +66,7 @@ export interface Ortho {
   url: string | null;   // WMS; null: the base tiles only
   layer: string;
   attribution: string;
+  attribution_url?: string;  // a link for the attribution (OrthoService.attribution_url; maps of before have none)
   // tiles ({z}/{x}/{y}) with full coverage under the WMS, where it has no imagery (the WMS
   // is then requested as a transparent PNG; cached tiles have both already), or the
   // orthophoto itself without a WMS
