@@ -68,6 +68,13 @@ APP_METRICS = {
     "findaline_housekeeping_seconds": set(),
     "findaline_coverage_km2": set(),
     "findaline_searches_by_cell": {"lat", "lon"},
+    # F18, F19: the tiles of the layers, the computed Mpx and the steps of computing
+    **{f"findaline_download_{what}_total": {"layer", "role"}
+       for what in ("tiles", "tiles_cached", "pixels", "km2", "bytes", "seconds", "wait_seconds")},
+    "findaline_computed_mpx_total": {"resolution"},
+    "findaline_computed_seconds_total": {"resolution"},
+    "findaline_compute_step_seconds_sum": {"step"},
+    "findaline_compute_step_seconds_count": {"step"},
 }
 # The measurements of the host's files (phase 1; ssh.json phase 3): findaline_facts_*,
 # findaline_check_*, findaline_backup_*, findaline_ssh_*

@@ -1,4 +1,4 @@
-"""The application's metrics (metrics.py; docs/monitoring.md, rows F1-F17): the names and labels of
+"""The application's metrics (metrics.py; docs/monitoring.md, rows F1-F19): the names and labels of
 the contract with deploy/monitoring (Grafana's dashboard and alert rules, Telegraf), their values on
 a scratch data folder, no personal data in any label, the port of `web --public`, the cache sizes,
 what the worker's housekeeping removed and the coverage of the searches (with shapes of known
@@ -71,6 +71,11 @@ CONTRACT = {
     "findaline_housekeeping_seconds": set(),
     "findaline_coverage_km2": set(),
     "findaline_searches_by_cell": {"lat", "lon"},
+    "findaline_computed_mpx_total": {"resolution"},
+    "findaline_computed_seconds_total": {"resolution"},
+    "findaline_compute_step_seconds_sum": {"step"},
+    "findaline_compute_step_seconds_count": {"step"},
+    **{f"{name}_total": {"layer", "role"} for name in metrics.LAYER_COUNTS},
 }
 # A square of about 1 km (0.009 degrees of latitude) in the cell of 50.00 N, 19.75 E
 SQUARE = {"type": "Polygon", "coordinates": [[[19.80, 50.10], [19.81, 50.10], [19.81, 50.109], [19.80, 50.109],
@@ -80,7 +85,8 @@ ACCOUNTS = AccountSettings(session_secret="s" * 40, github_client_id="id", githu
                            admins="github:1")
 
 
-def _job(jobs, user_id, status, error=None, area=None, country=None, title="a search", phases=(), outline=None):
+def _job(jobs, user_id, status, error=None, area=None, country=None, title="a search", phases=(), outline=None,
+         resolution=None):
     job = jobs.add({"params": {}}, title, user_id)
     for waiting, working in phases:  # ("queued", "downloading"), ("ready", "computing")
         if waiting == "ready":
@@ -88,6 +94,8 @@ def _job(jobs, user_id, status, error=None, area=None, country=None, title="a se
         assert jobs.claim(waiting, working, "w")["id"] == job
     if area is not None:
         jobs.set_area(job, area, country, outline)
+    if resolution is not None:
+        jobs.set_search(job, "poland", resolution)
     if status != "queued":
         jobs.set(job, status, error=error)
     return job
@@ -109,9 +117,12 @@ def data(tmp_path):
     users.new_session(ids["a"])
     jobs = jb.Jobs(str(tmp_path), public=True)
     both = (("queued", "downloading"), ("ready", "computing"))
-    _job(jobs, ids["a"], "done", area=10.5, country="pl", phases=both, outline=json.dumps(SQUARE))
-    _job(jobs, ids["a"], "done", area=4.5, country="pl", phases=both)
-    _job(jobs, ids[SECRET["name"]], "done", area=2.0, country="sk", title=SECRET["title"], phases=both)
+    first = _job(jobs, ids["a"], "done", area=10.5, country="pl", phases=both, outline=json.dumps(SQUARE),
+                 resolution=1.0)
+    _job(jobs, ids["a"], "done", area=4.5, country="pl", phases=both, resolution=5.0)
+    _job(jobs, ids[SECRET["name"]], "done", area=2.0, country="sk", title=SECRET["title"], phases=both,
+         resolution=0.5)
+    jobs.set_steps(first, {"1": 2.5, "3": 1.0, "orthophoto": 4.0})
     _job(jobs, SECRET["user"], "done", area=1.0, phases=both)  # its country unknown
     _job(jobs, ids["a"], "done")  # no area (an OSM extract)
     _job(jobs, ids["a"], "failed", error="time limit: the compute phase was stopped after 7200 s", phases=both)
@@ -143,6 +154,9 @@ def data(tmp_path):
     (tmp_path / "cache" / "LAYOUT").write_text("1\n")
     jobs.add_service_requests([("nominatim.openstreetmap.org", "ok", 3, 3000, 1.5),
                                ("nominatim.openstreetmap.org", "timeout", 1, 0, 30.0)])
+    jobs.add_layer_downloads([("poland/nmt", "terrain", 2, 5, 8_000_000, 8.0, 40_000_000, 20.0, 1.5),
+                              ("poland/nmt", "terrain", 1, 0, 4_000_000, 4.0, 20_000_000, 10.0, 0.5),
+                              ("europe/copernicus", "gap fill", 0, 3, 0, 0.0, 0, 0.0, 0.0)])
     jb.Scheduler(jobs, limits=Limits()).housekeeping()  # the cache sizes, housekeeping.json, coverage.json
     return tmp_path, ids
 
@@ -211,6 +225,7 @@ def test_names_labels_and_values(data):
     # waiting: every claimed job; downloading: those that went on or ended; computing: those that ended
     assert value(found, "findaline_job_phase_seconds_count", phase="waiting") == 7
     assert value(found, "findaline_job_phase_seconds_count", phase="download") == 6
+    assert value(found, "findaline_job_phase_seconds_count", phase="ready") == 5  # downloaded, then computed
     assert value(found, "findaline_job_phase_seconds_count", phase="compute") == 5
     assert value(found, "findaline_quick_waiting") == 1 and value(found, "findaline_quick_oldest_waiting_seconds") >= 0
     assert value(found, "findaline_quick_answers_total", result="ok") == 5
@@ -257,11 +272,28 @@ def test_names_labels_and_values(data):
     assert value(found, "findaline_coverage_km2") == pytest.approx(0.715 * 1.0, rel=0.01)
     assert {(dict(k)["lat"], dict(k)["lon"]): v for (n, k), v in found.items()
             if n == "findaline_searches_by_cell"} == {("50.00", "19.75"): 1}
+    # Mpx = km2 / resolution^2 by the class of the resolution (the search of 1 km2 has none)
+    assert {dict(k)["resolution"]: v for (n, k), v in found.items() if n == "findaline_computed_mpx_total"} == {
+        "1": pytest.approx(10.5 + 2.0 / 0.25), "2": 0, "5": pytest.approx(4.5 / 25), "10": 0, "30": 0}
+    assert value(found, "findaline_computed_seconds_total", resolution="1") >= 0
+    assert value(found, "findaline_compute_step_seconds_count", step="orthophoto") == 1
+    assert value(found, "findaline_compute_step_seconds_sum", step="1") == 2.5
+    assert value(found, "findaline_compute_step_seconds_count", step="5") == 0  # every step, 0 too
+    layer = {"layer": "poland/nmt", "role": "terrain"}
+    assert value(found, "findaline_download_tiles_total", **layer) == 3
+    assert value(found, "findaline_download_tiles_cached_total", **layer) == 5
+    assert value(found, "findaline_download_pixels_total", **layer) == 12_000_000
+    assert value(found, "findaline_download_km2_total", **layer) == 12.0
+    assert value(found, "findaline_download_bytes_total", **layer) == 60_000_000
+    assert value(found, "findaline_download_seconds_total", **layer) == 30.0
+    assert value(found, "findaline_download_wait_seconds_total", **layer) == 2.0
+    assert value(found, "findaline_download_tiles_cached_total", layer="europe/copernicus", role="gap fill") == 3
 
 
 def test_no_personal_data_in_labels(data):
     """No label value is a user id, a name, a title, a run or a path: each label takes values of its
-    own small set (statuses, phases, codes, actions, alpha-2 countries, cache folders)."""
+    own small set (statuses, phases, codes, actions, alpha-2 countries, cache folders, the catalogue's
+    layers, roles, steps, classes of resolution)."""
     data_dir, ids = data
     text = scrape(data_dir, Limits.load(public=True), str(data_dir), dict.fromkeys(metrics.QUICK_RESULTS, 0),
                   route_counts(), lambda: 0)
@@ -270,19 +302,22 @@ def test_no_personal_data_in_labels(data):
     allowed = {
         "version": re.compile(r"[\w.+-]+"), "status": re.compile(r"queued|ready|downloading|computing|done|failed|"
                                                                    r"cancelled|pending|approved|blocked|[1-5]xx"),
-        "phase": re.compile(r"waiting|download|compute"), "error": re.compile(r"[a-z0-9_]*"),
+        "phase": re.compile(r"waiting|download|ready|compute"), "error": re.compile(r"[a-z0-9_]*"),
         "result": re.compile("|".join(metrics.QUICK_RESULTS)), "country": re.compile(r"[a-z]{2}|unknown"),
         "window": re.compile(r"15m|24h"), "action": re.compile("|".join(audit.ACTIONS)),
         "kind": re.compile(r"rate|quota|other"), "folder": re.compile(r"[\w.-]+"),
         "host": re.compile(r"[a-z0-9.-]+"), "outcome": re.compile("|".join(servicecounts.OUTCOMES)),
         "route": re.compile(r"/[\w/{}.-]*|unmatched"), "method": re.compile(r"[A-Z]+|other"),
         "what": re.compile(r"parts|events|quick|usage|audit|work"), "lat": re.compile(r"-?\d+\.\d\d"),
-        "lon": re.compile(r"-?\d+\.\d\d"),
+        "lon": re.compile(r"-?\d+\.\d\d"), "layer": re.compile(r"[a-z0-9_.-]+(/[a-z0-9_.-]+)*"),
+        "role": re.compile("|".join(servicecounts.ROLES)), "step": re.compile("|".join(jb.STEP_KEYS)),
+        "resolution": re.compile("|".join(metrics.RESOLUTIONS)),
     }
     for (name, labels), _ in samples(text).items():
         for label, label_value in labels:
             assert allowed[label].fullmatch(label_value), (name, label, label_value)
-            assert label_value not in {str(i) for i in [*ids.values(), SECRET["user"]]}, (name, label, label_value)
+            if label not in ("step", "resolution"):  # fixed sets of small numbers, which ids may equal
+                assert label_value not in {str(i) for i in [*ids.values(), SECRET["user"]]}, (name, label, label_value)
 
 
 def test_parts_that_are_missing(tmp_path):
@@ -491,3 +526,26 @@ def test_requests_per_route(tmp_path):
     assert [key for key in found if key[0] == "/app/{path}"]
     assert seconds["/api/jobs"][0] == 2 and "/api/events" not in seconds
     assert app.state.hub.listeners == {}  # findaline_event_streams: len() of these
+
+
+def test_step_clock_and_ready_time(tmp_path, monkeypatch):
+    """The computing phase's seconds per step (jobs.StepClock, F19) from the states of the progress bars,
+    the orthophoto apart from step 5; a job's ready_at stamped when its download ends, not in the event."""
+    now = iter([0.0, 1.0, 4.0, 5.0, 7.0, 8.0])
+    monkeypatch.setattr(jb.time, "monotonic", lambda: next(now))
+    clock = jb.StepClock()
+    clock({"bar": "Compute", "stage": "x", "done": False, "step": "Step 1/5: downloading elevation data (A)"})
+    clock({"bar": "Compute", "stage": "x", "done": False, "step": "Tile 1/2 · Step 3/5: evaluating anchor pairs"})
+    clock({"bar": "Download", "stage": "orthophoto tiles", "done": False, "step": "Step 5/5: saving"})
+    clock({"bar": "Download", "stage": "orthophoto tiles", "done": True, "step": "Step 5/5: saving"})
+    seconds = clock.result()
+    assert seconds == {"other": 1.0, "1": 3.0, "3": 1.0, "orthophoto": 2.0, "5": 1.0}
+    assert set(seconds) <= set(jb.STEP_KEYS)
+    monkeypatch.undo()
+    jobs = jb.Jobs(str(tmp_path))
+    job = jobs.add({"params": {}}, "a search", None)
+    jobs.claim("queued", "downloading", "w")
+    assert jobs.get(job)["ready_at"] is None
+    jobs.set(job, "ready", when=("downloading",))
+    assert jobs.get(job)["ready_at"] is not None
+    assert jobs.job_events(job)["events"][-1]["data"] == {"status": "ready"}

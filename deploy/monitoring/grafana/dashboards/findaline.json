@@ -1,7 +1,7 @@
 {
   "uid": "findaline",
   "title": "Find-a-Line",
-  "description": "The application: queue, worker, searches, quick lane, accounts, use and storage, the outside services, the routes, the housekeeping and the coverage (docs/monitoring.md, rows F1-F17).",
+  "description": "The application: queue, worker, searches, quick lane, accounts, use and storage, the outside services, the routes, the housekeeping, the coverage and the speed of downloads and computing (docs/monitoring.md, rows F1-F19).",
   "tags": [
     "findaline"
   ],
@@ -962,8 +962,8 @@
     {
       "id": 14,
       "type": "stat",
-      "title": "Area (F14)",
-      "description": "km\u00b2 of the searches finished in the last 24 hours (in total: the panel to the right).",
+      "title": "Area today (F14, F18)",
+      "description": "km\u00b2 of the searches finished in the last 24 hours (computed; in total: the panel to the right) and km\u00b2 of new terrain data downloaded for them (the rest came from the cache).",
       "datasource": {
         "type": "prometheus",
         "uid": "victoriametrics"
@@ -982,7 +982,18 @@
           },
           "refId": "A",
           "expr": "(sum(findaline_area_km2_total) or max(findaline_build_info) * 0) - (sum(findaline_area_km2_total offset 24h) or max(findaline_build_info offset 24h) * 0)",
-          "legendFormat": "__auto",
+          "legendFormat": "computed",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "(sum(findaline_download_km2_total{role=\"terrain\"}) or max(findaline_build_info) * 0) - (sum(findaline_download_km2_total{role=\"terrain\"} offset 24h) or max(findaline_build_info offset 24h) * 0)",
+          "legendFormat": "downloaded",
           "instant": true,
           "range": false
         }
@@ -1018,7 +1029,7 @@
         "colorMode": "none",
         "graphMode": "none",
         "justifyMode": "center",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "orientation": "auto",
         "wideLayout": true,
         "showPercentChange": false
@@ -1878,7 +1889,7 @@
       "id": 32,
       "type": "timeseries",
       "title": "Mean time per phase (F4)",
-      "description": "Mean of the searches finished in the 3 hours before each point: waiting in the queue, download (until computing starts, so with the wait for a compute slot), computing (stacked: the whole search).",
+      "description": "Mean of the searches finished in the 3 hours before each point: waiting in the queue, download, ready (downloaded, waiting for a compute slot), computing (stacked: the whole search). Searches from before ready was stored count that wait in download.",
       "datasource": {
         "type": "prometheus",
         "uid": "victoriametrics"
@@ -2190,8 +2201,8 @@
     {
       "id": 50,
       "type": "timeseries",
-      "title": "Area searched per day (F14)",
-      "description": "km\u00b2 of the searches finished in each day (UTC) of the last 30 days, repeats included.",
+      "title": "Area per day: computed and downloaded (F14, F18)",
+      "description": "km\u00b2 of the searches finished in each day (UTC) of the last 30 days, repeats included (computed), and km\u00b2 of new terrain data downloaded (each place once until its tiles expire: the cache).",
       "datasource": {
         "type": "prometheus",
         "uid": "victoriametrics"
@@ -2210,7 +2221,17 @@
           },
           "refId": "A",
           "expr": "sum(increase(findaline_area_km2_total[1d]))",
-          "legendFormat": "km\u00b2",
+          "legendFormat": "computed",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum(increase(findaline_download_km2_total{role=\"terrain\"}[1d]))",
+          "legendFormat": "downloaded",
           "range": true
         }
       ],
@@ -2231,8 +2252,7 @@
             "barAlignment": 1
           },
           "color": {
-            "mode": "fixed",
-            "fixedColor": "blue"
+            "mode": "palette-classic"
           }
         },
         "overrides": []
@@ -2241,10 +2261,10 @@
         "legend": {
           "displayMode": "list",
           "placement": "bottom",
-          "showLegend": false
+          "showLegend": true
         },
         "tooltip": {
-          "mode": "single",
+          "mode": "multi",
           "sort": "desc"
         }
       },
@@ -4300,6 +4320,507 @@
         ],
         "tooltip": {
           "mode": "details"
+        }
+      }
+    },
+    {
+      "id": 110,
+      "type": "row",
+      "title": "Speed of downloads and computing (F18, F19)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 162,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 90,
+      "type": "timeseries",
+      "title": "Download speed per layer, Mpx/s (F18)",
+      "description": "Millions of pixels (the data's own resolution) per second of a tile's download, over 3 hours: the speed of one connection, comparable between sources (km\u00b2/s at 1 m). Each search downloads several tiles at once.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 163,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (layer) (increase(findaline_download_pixels_total[3h])) / 1e6 / sum by (layer) (increase(findaline_download_seconds_total[3h]))",
+          "legendFormat": "{{layer}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 91,
+      "type": "timeseries",
+      "title": "Download speed per layer, km\u00b2/s (F18)",
+      "description": "Square kilometres per second of a tile's download, over 3 hours: what a user waits for on each source.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 163,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (layer) (increase(findaline_download_km2_total[3h])) / sum by (layer) (increase(findaline_download_seconds_total[3h]))",
+          "legendFormat": "{{layer}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 92,
+      "type": "timeseries",
+      "title": "Waiting for tile locks and host slots (F18)",
+      "description": "Share of a tile's time spent waiting for its lock (another search downloads it) or a slot of its host (other downloads of that host), over 3 hours: high when parallel downloads compete, not when a service slows down.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 163,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (layer) (increase(findaline_download_wait_seconds_total[3h])) / (sum by (layer) (increase(findaline_download_wait_seconds_total[3h])) + sum by (layer) (increase(findaline_download_seconds_total[3h])))",
+          "legendFormat": "{{layer}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 93,
+      "type": "timeseries",
+      "title": "Tiles found in the cache (F18)",
+      "description": "Share of the tiles searches needed that were cached already, per layer, over a day.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 171,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (layer) (increase(findaline_download_tiles_cached_total[1d])) / (sum by (layer) (increase(findaline_download_tiles_cached_total[1d])) + sum by (layer) (increase(findaline_download_tiles_total[1d])))",
+          "legendFormat": "{{layer}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 94,
+      "type": "timeseries",
+      "title": "New data per day by role (F18)",
+      "description": "km\u00b2 of the tiles downloaded in each day (UTC) of the last 30 days: terrain, surface, the water mask and gap filling (done while computing).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 171,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (role) (increase(findaline_download_km2_total[1d]))",
+          "legendFormat": "{{role}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: km\u00b2",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0,
+            "barAlignment": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1d",
+      "maxDataPoints": 31,
+      "timeFrom": "30d"
+    },
+    {
+      "id": 95,
+      "type": "timeseries",
+      "title": "Computed per day by resolution, Mpx (F19)",
+      "description": "Millions of pixels (km\u00b2 / resolution\u00b2) of the searches finished in each day (UTC) of the last 30 days, by the class of their resolution (up to so many metres): the measure of the compute quota.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 171,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (resolution) (increase(findaline_computed_mpx_total[1d]))",
+          "legendFormat": "\u2264 {{resolution}} m",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0,
+            "barAlignment": 1
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "interval": "1d",
+      "maxDataPoints": 31,
+      "timeFrom": "30d"
+    },
+    {
+      "id": 96,
+      "type": "timeseries",
+      "title": "Seconds of computing per Mpx by resolution (F19)",
+      "description": "Seconds of the computing phase per million pixels of the finished searches, over 7 days: whether the cost follows the pixels at every resolution (the compute quota assumes it).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 179,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (resolution) (increase(findaline_computed_seconds_total[7d])) / sum by (resolution) (increase(findaline_computed_mpx_total[7d]))",
+          "legendFormat": "\u2264 {{resolution}} m",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 97,
+      "type": "timeseries",
+      "title": "Mean time per step of computing (F19)",
+      "description": "Seconds of each step of the computing phase per finished search, over a day: 1 the grids (and gap filling), 2 the slopes and anchors, 3 the pairs, 4 coordinates, groups and profiles, 5 saving, orthophoto its tiles (downloaded within step 5, holding the compute slot), other between steps and tiles.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 179,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (step) (increase(findaline_compute_step_seconds_sum[1d])) / sum by (step) (increase(findaline_compute_step_seconds_count[1d]))",
+          "legendFormat": "{{step}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       }
     }

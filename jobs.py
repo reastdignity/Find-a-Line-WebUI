@@ -141,8 +141,27 @@ MIGRATIONS = [
     # (GeoJSON geometry in WGS84, simplified to about 50 m: area.outline_geojson), set with area_km2. Jobs of
     # before get it where their request gives it without any service (request_area)
     lambda db: _outline_column(db),
+    # 15: when a job's data was downloaded (so the wait for a compute slot shows apart from the download),
+    # the source and resolution of its search (set by the worker when it plans it), the seconds of the steps
+    # of its computing phase (job_steps: STEP_KEYS), and the tiles of the elevation layers the worker's
+    # processes downloaded or found cached, running totals per layer and role (servicecounts.tiles; a few
+    # dozen rows). Jobs of before get none of these (their times cannot be told again)
+    """ALTER TABLE jobs ADD COLUMN ready_at TEXT;
+       ALTER TABLE jobs ADD COLUMN source TEXT;
+       ALTER TABLE jobs ADD COLUMN resolution REAL;
+       CREATE TABLE job_steps (job_id TEXT NOT NULL, step TEXT NOT NULL, seconds REAL NOT NULL,
+                               PRIMARY KEY (job_id, step));
+       CREATE TABLE layer_downloads (layer TEXT NOT NULL, role TEXT NOT NULL, tiles INTEGER NOT NULL,
+                                     tiles_cached INTEGER NOT NULL, pixels INTEGER NOT NULL, km2 REAL NOT NULL,
+                                     bytes INTEGER NOT NULL, seconds REAL NOT NULL, wait_seconds REAL NOT NULL,
+                                     PRIMARY KEY (layer, role));""",
 ]
-PHASE_TIME = {"downloading": "downloading_at", "computing": "computing_at"}  # the column of a status's start
+# The column of a status's start (claim), or of the end of the download ("ready", set by its process)
+PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
+# What the time of a computing phase is counted as (job_steps.step): its steps (search.STEPS), the
+# orthophoto tiles of step 5 (downloaded while the job holds its compute slot), and "other" (before the
+# first step, between the tiles of an area)
+STEP_KEYS = ("1", "2", "3", "4", "5", "orthophoto", "other")
 
 
 def request_area(request: Dict):
@@ -470,6 +489,30 @@ class Jobs:
             db.execute("UPDATE jobs SET area_km2 = ?, country = ?, area_outline = ? WHERE id = ?",
                        (km2, country, outline, job_id))
 
+    def set_search(self, job_id: str, source: Optional[str], resolution: Optional[float]):
+        """The source (sources.Source.id) and resolution of a job's search, set by the worker when it
+        plans it (the compute side of the statistics: Mpx = km² / resolution²)."""
+        with self._db() as db:
+            db.execute("UPDATE jobs SET source = ?, resolution = ? WHERE id = ?", (source, resolution, job_id))
+
+    def set_steps(self, job_id: str, seconds: Dict[str, float]):
+        """The seconds of the steps of a job's computing phase (STEP_KEYS -> seconds)."""
+        with self._db() as db:
+            db.executemany("INSERT OR REPLACE INTO job_steps (job_id, step, seconds) VALUES (?, ?, ?)",
+                           [(job_id, step, s) for step, s in seconds.items()])
+
+    def add_layer_downloads(self, rows: Iterable[Tuple[str, str, int, int, int, float, int, float, float]]):
+        """Add counts of the tiles of the elevation layers (layer, role, tiles, tiles cached, pixels, km²,
+        bytes, seconds, wait seconds) to their running totals, in one write transaction
+        (servicecounts.flush of the worker's processes)."""
+        with self._write() as db:
+            db.executemany("INSERT INTO layer_downloads (layer, role, tiles, tiles_cached, pixels, km2, bytes, "
+                           "seconds, wait_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (layer, role) "
+                           "DO UPDATE SET tiles = tiles + excluded.tiles, tiles_cached = tiles_cached + "
+                           "excluded.tiles_cached, pixels = pixels + excluded.pixels, km2 = km2 + excluded.km2, "
+                           "bytes = bytes + excluded.bytes, seconds = seconds + excluded.seconds, "
+                           "wait_seconds = wait_seconds + excluded.wait_seconds", list(rows))
+
     def add_service_requests(self, rows: Iterable[Tuple[str, str, int, int, float]]):
         """Add counts of requests to outside services (host, outcome, requests, bytes, seconds) to their
         running totals, in one write transaction (servicecounts.flush of the worker's processes)."""
@@ -577,14 +620,15 @@ class Jobs:
             fields["error_info"] = self.redact(info)
         if fields.get("error_info") is not None:
             fields["error_info"] = json.dumps(fields["error_info"])
-        names = "".join(f", {k} = ?" for k in fields)
+        stamp = {PHASE_TIME[status]: cache.now_iso()} if status == "ready" else {}  # not in the event
+        names = "".join(f", {k} = ?" for k in {**fields, **stamp})
         condition, values = "", ()
         if when is not None:
             values = tuple(when)
             condition = f" AND status IN {_in(values)}"
         with self._write() as db:
             changed = db.execute(f"UPDATE jobs SET status = ?{names} WHERE id = ?{condition}",
-                                 (status, *fields.values(), job_id, *values)).rowcount
+                                 (status, *fields.values(), *stamp.values(), job_id, *values)).rowcount
             if changed:
                 self._insert_event(db, job_id, "status", _with_info({"status": status, **fields}))
         return bool(changed)
@@ -1178,6 +1222,34 @@ def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
     jobs.set_area(job_id, plan_km2(plan), country, area_outline(plan.area))
 
 
+class StepClock:
+    """The seconds of a computing phase per step (STEP_KEYS), from the states of the progress bars
+    (progress.subscribe): the time until a state goes to what the previous state was in, the step of
+    its text ("Tile 2/6 · Step 3/5: ...") or the orthophoto tiles while their bar runs."""
+
+    def __init__(self):
+        self.seconds: Dict[str, float] = {}
+        self.key, self.since = "other", time.monotonic()
+
+    def __call__(self, state: Dict):
+        self._add()
+        if state.get("bar") == "Download" and state.get("stage") == "orthophoto tiles" and not state.get("done"):
+            self.key = "orthophoto"
+        else:
+            found = re.search(r"Step (\d)/", state.get("step") or "")
+            self.key = found.group(1) if found and found.group(1) in STEP_KEYS else "other"
+
+    def _add(self):
+        now = time.monotonic()
+        self.seconds[self.key] = self.seconds.get(self.key, 0.0) + now - self.since
+        self.since = now
+
+    def result(self) -> Dict[str, float]:
+        """The seconds per step until now."""
+        self._add()
+        return dict(self.seconds)
+
+
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
               memory: Optional[int] = None):
     """A worker process: download the data of a job, or compute it. It ends the phase only if the
@@ -1199,7 +1271,8 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
     if job["unlimited"]:
         limits = None  # a user without limits: the time limits of the phase (Scheduler) still apply
     nominatim_quota(jobs, job["user_id"], limits)
-    servicecounts.enable(jobs.add_service_requests)  # flushed every minute and at the end of the phase
+    servicecounts.enable(jobs.add_service_requests, tile_writer=jobs.add_layer_downloads)  # flushed every minute
+    # and at the end of the phase
     sys.stdout = _EventWriter(jobs, job_id)
     pg.TEXT_INTERVAL = float("inf")  # the progress goes to the page as events, not as text
     last = [0.0]
@@ -1214,6 +1287,9 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         jobs.event(job_id, kind, text.web_text() if getattr(text, "code", None) else text)  # messages.Note
 
     progress.subscribe(on_progress)
+    steps = StepClock()
+    if phase == "compute":
+        progress.subscribe(steps)
     paths = search.Paths(data_dir, os.path.join(jobs.folder(job_id), phase))  # removed with the job when killed
     os.makedirs(paths.work, exist_ok=True)
     failed = True
@@ -1242,6 +1318,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
         if phase == "download":
             note_area(jobs, job_id, plan, paths.cache)
+            jobs.set_search(job_id, plan.source.id, plan.resolution)
             charge_area(jobs, job["user_id"], plan, limits)
             if limits and (limits.download_mb_max or limits.download_mb_day_max):  # the estimate asks the indexes
                 estimate = search.estimate_search(plan)
@@ -1259,6 +1336,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             result = search.save_run(plan, lines, ortho_confirm(limits or Limits(), on_event), run)
             import runs as rn
             jobs.add_run(result.run["id"], job["user_id"], rn.folder_bytes(result.run["path"]))  # its owner
+            jobs.set_steps(job_id, steps.result())
             jobs.set(job_id, "done", when=working, run_id=result.run["id"], error=None)
         failed = False
     except (search.SearchError, ValueError, RuntimeError, requests.RequestException) as e:  # ValueError: parameters
@@ -1351,7 +1429,8 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
     global SLOT_MEMORY
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
     jobs = Jobs(data_dir, public)
-    servicecounts.enable(jobs.add_service_requests)  # flushed every minute and after each task
+    servicecounts.enable(jobs.add_service_requests, tile_writer=jobs.add_layer_downloads)  # flushed every
+    # minute and after each task
     reader = jobs._db()  # one connection for the idle looks (reads, so no write lock 1/QUICK_POLL times a second)
     looked = time.time()
     while True:
