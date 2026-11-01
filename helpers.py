@@ -173,6 +173,25 @@ class LineTable:
         return cls({name: np.concatenate([t.columns[name] for t in tables]) for name in tables[0].columns},
                    profiles)
 
+    @classmethod
+    def join(cls, tables: List["LineTable"]) -> "LineTable":
+        """concat of tables that are not needed afterwards, one column after another: each column of
+        the tables is released once joined, so at most one column is held twice (concat holds every
+        line twice). The tables are left without columns and profiles."""
+        kept = [t for t in tables if len(t)] or tables[:1] or [cls.empty()]
+        profiles, start = {}, 0
+        for t in kept:
+            profiles.update({start + k: p for k, p in t.profiles.items()})
+            start += len(t)
+        columns = {}
+        for name in list(kept[0].columns):
+            parts = [t.columns.pop(name) for t in kept]
+            columns[name] = np.concatenate(parts)
+            del parts
+        for t in tables:
+            t.columns, t.profiles = {}, {}
+        return cls(columns, profiles)
+
     def row(self, k: int) -> Dict:
         """Row k as a dict of Python values: pairs as tuples, clearance_nmpt None when not measured."""
         out = {}

@@ -1000,7 +1000,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         _check_lines(plan, count)
     if not count:
         raise SearchError("No lines found matching elevation requirements.", "no_lines")
-    results = sh.LineTable.concat(tables)
+    results = sh.LineTable.join(tables)  # column by column, each tile's column released once joined
     del tables
     progress.set_step(f"Step 4/{STEPS}: groups of all tiles")
     groups = mp.group_lines(results, plan.group_distance, plan.params.group_by)

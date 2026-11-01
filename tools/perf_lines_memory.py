@@ -20,7 +20,11 @@ A first call on a few thousand anchors loads the numba code before the measureme
 
 --tiles <run>/tiles: the lines of a tiled run (its tiles/<k>.table.pkl.gz) through steps 4 and 5
 (--legacy: the code of --repo keeps a dict per line):
-    lines found     the output of the line search (find_valid_lines)
+    tiles held      the tiles' tables loaded, as search_lines holds them before the join (not --legacy)
+    join peak       the join of their lines (LineTable.join; concat in a version without it)
+    joined          the joined table alone
+then, from the joined columns again:
+    lines found    the output of the line search (find_valid_lines)
     step 4 peak     coordify and group_lines over them (the peak of a tile's step 4, the grids apart)
     held            the lines with their coordinates, as a finished tile keeps them
     step 5 peak     save_results and save_map of all of them
@@ -215,6 +219,25 @@ def measure_tiles(args):
     import mapping as mp
     import runs as rn
 
+    # The join of the tiles' lines as search.search_lines does it (LineTable.join, or concat before)
+    join = {}
+    if not args.legacy:
+        joining = _Marks()
+        tables = []
+        for path in sorted(glob.glob(os.path.join(args.tiles, "*.table.pkl.gz"))):
+            with gzip.open(path, "rb") as f:
+                table = _Unpickler(f).load()
+            tables.append(sh.LineTable(table.columns, table.profiles))
+            del table
+        joining.mark("tiles held")
+        joined = (sh.LineTable.join if hasattr(sh.LineTable, "join") else sh.LineTable.concat)(tables)
+        joining.mark("join peak", peak=True)
+        del tables
+        joining.mark("joined")
+        tracemalloc.stop()
+        join = {name: value / max(len(joined), 1) for name, value in joining.bytes.items()}
+        print(f"{len(joined)} lines joined: " + ", ".join(f"{k} {v:.0f}" for k, v in join.items()) + " bytes per line")
+        del joined
     tables = []
     for path in sorted(glob.glob(os.path.join(args.tiles, "*.table.pkl.gz"))):
         with gzip.open(path, "rb") as f:
@@ -274,7 +297,7 @@ def measure_tiles(args):
           f"step 5 {time.time() - t:.1f} s")
     for name, value in marks.bytes.items():
         print(f"  {name:12} {value / n:8.0f} bytes per line")
-    return {"tiles": args.tiles, "lines": n, "bytes": marks.bytes}
+    return {"tiles": args.tiles, "lines": n, "bytes": marks.bytes, "join per line": join}
 
 
 def main():

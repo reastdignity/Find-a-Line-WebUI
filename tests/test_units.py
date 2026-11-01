@@ -1449,3 +1449,29 @@ def test_row_order_in_parts_as_before(monkeypatch):
         monkeypatch.setattr(rn, "LINES_CHUNK", chunk)
         with pytest.raises(ValueError):
             rn.rep_positions(twice)
+
+
+def test_join_of_tiles_as_concat(tmp_path):
+    """LineTable.join (the lines of a tiled search, column by column, each tile's columns released):
+    the same columns, dtypes, values and profiles as concat, also with empty tables and tile files
+    saved by _save_tile; the joined tables are left empty."""
+    import helpers as sh
+    import search
+    lines = _fake_lines(9)
+    cases = [[], [sh.LineTable.empty()], [sh.LineTable.empty(), sh.LineTable.empty()], [lines.take(np.arange(9))],
+             [lines.take([4, 1, 0]), sh.LineTable.empty(), lines.take(np.arange(9) % 2 == 1), lines.take([8, 4])],
+             [sh.LineTable.empty(), lines.take([0]), lines.take([4, 0, 4])]]
+    paths = []
+    for k, table in enumerate(cases[4]):
+        paths.append(str(tmp_path / search.TILE_FILE.format(k)))
+        search._save_tile(paths[-1], table)
+    cases.append([search._load_tile(path) for path in paths])
+    for tables in cases:
+        old = sh.LineTable.concat(tables)
+        new = sh.LineTable.join(tables)
+        assert list(new.columns) == list(old.columns) and new.profiles == old.profiles
+        assert set(new.profiles) == set(old.profiles)
+        for name, column in old.columns.items():
+            assert new.columns[name].dtype == column.dtype and new.columns[name].shape == column.shape, name
+            assert np.array_equal(new.columns[name], column, equal_nan=column.dtype.kind == "f"), name
+        assert all(t.columns == {} and t.profiles == {} for t in tables)
