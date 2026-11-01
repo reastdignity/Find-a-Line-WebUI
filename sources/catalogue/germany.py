@@ -1,5 +1,6 @@
-"""The German Länder: Saxony-Anhalt (LVermGeo's DGM1 and DOM1 from WCS) and Lower Saxony (LGLN's DGM1
-and DOM1 from STAC)."""
+"""The German Länder: Saxony-Anhalt (LVermGeo's DGM1 and DOM1 from WCS), Lower Saxony (LGLN's DGM1
+and DOM1 from STAC), Hesse (HVBG's DGM1 and DOM1 from WCS) and Mecklenburg-Vorpommern (LAiV's DGM1 and
+DOM1 from WCS)."""
 
 from typing import List
 
@@ -50,7 +51,76 @@ def _lgln(kind: str, description: str) -> StacTiles:
                      f"lower_saxony/{kind}1", "EPSG:25832", sizes={1.0: 5e6}, asset=f"{kind}1-tif", item=LGLN_ITEM)
 
 
+# HVBG's open data (since 2022-02-01, the WCS's Fees: Datenlizenz Deutschland - Zero - 2.0; § 18 HVGG):
+# any use without condition, no attribution asked; a credit given must point out changes ("Daten
+# geändert": a mosaic on our grid is one)
+HVBG_CREDIT = Credit("DGM1 / DOM1 (HVBG, Hesse)", "HVBG, Daten geändert", "dl-de/zero-2.0",
+                     "https://www.govdata.de/dl-de/zero-2-0")
+# HVBG's free DOP WMS (EPSG:4326 offered; § 24 HVGG: automated retrieval free of charge, any use
+# allowed); he_dop_rgb, the DOP at every scale (he_dop20_rgb alone is white below about zoom 14)
+HVBG_DOP = OrthoService("DOP Hessen (HVBG)", "https://www.gds-srv.hessen.de/cgi-bin/lika-services/ogc-free-images.ows",
+                        "he_dop_rgb", "hesse/ortho/live", "HVBG")
+
+
+def _hvbg(kind: str, coverage: str, description: str, zero_is_nodata: bool) -> WcsTiles:
+    """DGM1 or DOM1 of HVBG from its INSPIRE WCS (rasdaman, axes E/N, extent 411000-587000 /
+    5471000-5724000): uncompressed GeoTIFF float32 with EPSG:25832, pixel edges on whole metres;
+    2 km tiles at the native 1 m (16 MB, about 1 s; 5 km answered too). A request reaching beyond
+    the extent is answered 404 (WcsReader clips it to the extent); inside the extent but outside
+    the Land the DGM answers its nodata -9999, the DOM 0 without nodata."""
+    return WcsTiles(description, f"https://inspire-hessen.de/raster/{kind}1/ows", coverage, "EPSG:25832",
+                    f"hesse/{kind}1/live", native_res=1.0, fetch_res=1.0, tile_px=2000, axes=("E", "N"),
+                    zero_is_nodata=zero_is_nodata)
+
+
+# LAiV M-V's open data (CC BY 4.0; the WCS's AccessConstraints): a clearly visible "© GeoBasis-DE/M-V
+# <year of the last delivery>"; the year of the run (YEAR) stands for it, as for LGLN
+LAIV_ATTRIBUTION = f"© GeoBasis-DE/M-V {YEAR}"
+LAIV_CREDIT = Credit("DGM1 / DOM1 (LAiV, Mecklenburg-Vorpommern)", LAIV_ATTRIBUTION, *CC_BY)
+# LAiV's DOP WMS (EPSG:4326, CC BY 4.0, the same notice); its images carry "© GeoBasis-DE/M-V" in
+# their top left corner (in every tile), and nothing above 1:400000
+LAIV_DOP = OrthoService("DOP Mecklenburg-Vorpommern (LAiV)", "https://www.geodaten-mv.de/dienste/adv_dop", "mv_dop",
+                        "mecklenburg_vorpommern/ortho/live", f"{LAIV_ATTRIBUTION}, CC BY 4.0")
+
+
+def _laiv(url: str, coverage: str, kind: str, description: str) -> WcsTiles:
+    """DGM1 or DOM1 of LAiV from its WCS (MapServer, extent 200000-465000 / 5886000-6075000 in
+    EPSG:25833): uncompressed GeoTIFF float32 with the CRS, pixel edges on whole metres; 2 km tiles
+    at the native 1 m (16 MB, about 1.5 s; 5 km answered too). Sea, other water and the extent
+    outside the Land are 0 without nodata (zero_is_nodata; land at exactly 0.000 m is a few
+    hundred scattered pixels per 2 km tile on the lowest coasts, filled like gaps). A request
+    partly beyond the extent is answered clipped, one wholly beyond it HTTP 400."""
+    return WcsTiles(description, url, coverage, "EPSG:25833", f"mecklenburg_vorpommern/{kind}1/live",
+                    native_res=1.0, fetch_res=1.0, tile_px=2000, zero_is_nodata=True)
+
+
 SOURCES: List[Source] = [
+    # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
+    # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
+    Source(
+        id="hesse", name="HVBG (DGM1 / DOM1)",
+        description="HVBG (Hesse, Germany): terrain and surface models 1 m from its WCS, ETRS89 / UTM 32N, "
+                    "DHHN2016",
+        nmt=_hvbg("dgm", "he_dgm1", "DGM1 (terrain)", False), nmpt=_hvbg("dom", "dom1", "DOM1 (trees, buildings)", True),
+        countries=("de",), regions=("de-he",), crs="EPSG:25832", ortho=HVBG_DOP,
+        credits=(HVBG_CREDIT,),
+        listing=ReadmeRow("Hesse (DE)", "HVBG DGM1, 1 m (WCS)", "HVBG DOM1, 1 m (WCS)", "HVBG DOP"),
+        offline=(("de-he", (49.39, 51.66, 7.77, 10.24)),), sample=(51.1830, 9.0500),
+        note="Data HVBG, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
+             "survey years."),
+    Source(
+        id="mecklenburg_vorpommern", name="LAiV M-V (DGM1 / DOM1)",
+        description="LAiV (Mecklenburg-Vorpommern, Germany): terrain and surface models 1 m from its WCS, "
+                    "ETRS89 / UTM 33N, DHHN2016",
+        nmt=_laiv("https://www.geodaten-mv.de/dienste/inspire_el_dgm_wcs", "mv_dgm", "dgm", "DGM1 (terrain)"),
+        nmpt=_laiv("https://www.geodaten-mv.de/dienste/dom_wcs", "mv_dom1", "dom", "DOM1 (trees, buildings)"),
+        countries=("de",), regions=("de-mv",), crs="EPSG:25833", ortho=LAIV_DOP,
+        credits=(LAIV_CREDIT,),
+        listing=ReadmeRow("Mecklenburg-Vorpommern (DE)", "LAiV DGM1, 1 m (WCS)", "LAiV DOM1, 1 m (WCS)",
+                          "LAiV DOP"),
+        offline=(("de-mv", (53.1, 54.7, 10.59, 14.42)),), sample=(54.5735, 13.6640),
+        note=f"Data {LAIV_ATTRIBUTION}, CC BY 4.0. The sea is stored as 0 m, taken as no data. The WCS "
+             f"names no survey years."),
     # Before Lower Saxony: their offline boxes overlap in the Harz (the first holding a point wins)
     Source(
         id="saxony_anhalt", name="LVermGeo (DGM1 / DOM1)",
