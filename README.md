@@ -95,6 +95,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `lower_saxony` | Lower Saxony (DE) | DE | LGLN DGM1, 1 m; newest survey | LGLN DOM1, 1 m | LGLN DOP20 | 1 m | `saxony_anhalt`, `hesse`, `mecklenburg_vorpommern` at the border, then `europe` |
 | `south_tyrol` | South Tyrol (IT) | IT | Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006) | Province of Bolzano DSM, 2.5 m | Province of Bolzano 2023 | 2.5 m | `austria`, `swisstopo` at the border, then `europe` |
 | `luxembourg` | Luxembourg | LU | ACT BD-L-Lidar2024 MNT, 0.5 m | ACT BD-L-Lidar2024 MNS, 0.5 m | geoportail.lu orthophoto | 1 m | `europe` |
+| `denmark` | Denmark | DK | Klimadatastyrelsen DHM/Terræn, 0.4 m (WCS, API key) | Klimadatastyrelsen DHM/Overflade, 0.4 m (WCS, API key) | – | 1 m | `europe` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
 | `nasadem` | anywhere | – | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – | 30 m | `europe` |
 | `files` | your files | – | `--elevation-file` | `--surface-file` (optional) | – | the file's | `europe` |
@@ -254,7 +255,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--area` / `--buffer` / `--within` | – / 100 / – | Search an area instead of a circle: `coast`, `cliffs`, a GeoJSON/KML/GPX file or `osm:<name>`; `--buffer` around coastline, cliffs, points and lines; `--within` (needed for `coast` and `cliffs`): `osm:<name>` takes the coastline or cliffs within `--max-length` of that area, a box `S,W,N,E` clips the band |
 | `--tile-size` | from the free memory | Side of the square tiles a large area is computed in, metres |
 | `--ortho-detail` | 50 for an area, all for a circle; swisstopo: 20 | Detailed orthophoto only around this many best groups; the others load it online |
-| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `austria`, `wales`, `england`, `hesse`, `mecklenburg_vorpommern`, `saxony_anhalt`, `lower_saxony`, `south_tyrol`, `luxembourg`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
+| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `austria`, `wales`, `england`, `hesse`, `mecklenburg_vorpommern`, `saxony_anhalt`, `lower_saxony`, `south_tyrol`, `luxembourg`, `denmark`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
 | `--elevation-file` / `--surface-file` | | Your own terrain / surface raster (GeoTIFF, ASC...) |
 | `--water` | `fill` | Fill the sea and lakes where the data has none (`off` to skip) |
 | `--coastline` | `overpass` | Where the sea is: `overpass`, `world` or `copernicus` (see *Sea, lakes and gaps*) |
