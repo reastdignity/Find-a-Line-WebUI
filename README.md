@@ -84,8 +84,8 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `malta2012` | Malta | – | MSDI DTM 2012, centimetre heights | MSDI DSM 2012 | MSDI 2018 | 1 m | `malta` |
 | `spain_canarias` | Canary Islands | ES | IGN MDT05 (REGCAN95 / UTM 28N), 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `europe` |
 | `spain` | Spain (peninsula, Balearic Islands) | ES | IGN MDT05, PNOA-LiDAR 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `europe` |
-| `alaska` | Alaska, where it has 1 m data | US | USGS 3DEP 1 m DEM | – | USGS Imagery | 1 m | `alaska_ifsar`, then `usgs10m` |
-| `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | USGS Imagery | 5 m | `usgs10m` |
+| `alaska` | Alaska, where it has 1 m data | US | USGS 3DEP 1 m DEM | – | – (USGS's Alaska imagery: licence restrictions) | 1 m | `alaska_ifsar`, then `usgs10m` |
+| `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | – (USGS's Alaska imagery: licence restrictions) | 5 m | `usgs10m` |
 | `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `usgs10m` |
 | `usgs10m` | USA and its territories | – | USGS 3DEP seamless 1/3 arc-second DEM (about 10 m) | – | USGS Imagery | 10 m | `europe` |
 | `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `swisstopo`, `south_tyrol`, `slovakia` at the border, then `europe` |

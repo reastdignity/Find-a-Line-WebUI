@@ -282,7 +282,7 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                        'default_resolution': 1.0,
                        'instead_without_data': 'alaska_ifsar',
                        'local_crs': 'nad83_utm_crs',
-                       'ortho': 'usa/ortho/live',
+                       'ortho': None,
                        'credits': ['3DEP 1 m DEM (USGS)'],
                        'nmt': {'class': 'Usgs1mBlocks',
                                'description': '3DEP 1 m DEM (terrain)',
@@ -303,7 +303,7 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                              'default_resolution': 5.0,
                              'instead_without_data': None,
                              'local_crs': 'nad83_utm_crs',
-                             'ortho': 'usa/ortho/live',
+                             'ortho': None,
                              'credits': ['3DEP Alaska IfSAR 5 m DTM (USGS)'],
                              'nmt': {'class': 'IfsarBlocks',
                                      'description': '3DEP Alaska IfSAR 5 m DTM (terrain)',
@@ -1137,6 +1137,8 @@ def test_credit_wording():
     for sid, (text, url) in ORTHOS.items():
         ortho = src.SOURCES[sid].ortho
         assert (ortho.attribution, ortho.attribution_url) == (text, url), sid
+    for sid in ("alaska", "alaska_ifsar"):  # until USGS answers about its Alaska imagery (licence restrictions)
+        assert src.SOURCES[sid].ortho is None
     assert src.SOURCES["malta"].credits[0].url == "https://portal.data.gov.mt/dataset/digital-terrain-model-2018"
     assert "196 m south" in src.SOURCES["malta2012"].credits[0].notice
     assert "NSF Award Numbers 2410799, 2410800 & 2410801." in src.SOURCES["nasadem"].credits[0].notice
