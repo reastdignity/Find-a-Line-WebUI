@@ -38,6 +38,7 @@ Exit codes: the command's, 75 gave up waiting (--wait), 124 killed after --timeo
 """
 
 import argparse
+import ntpath
 import os
 import secrets
 import shlex
@@ -165,7 +166,7 @@ def _selects(args: Sequence[str]) -> bool:
 
 
 def _name(path: str) -> str:
-    name = os.path.basename(path)
+    name = ntpath.basename(path)  # after / or \: a Windows path names its program on Linux too
     return name[:-4] if name.lower().endswith(".exe") else name
 
 

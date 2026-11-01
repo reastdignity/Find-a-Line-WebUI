@@ -1,6 +1,7 @@
 """TnmBlocks: blocks of the files of The National Map (USGS 3DEP), found through its API and composed newest
 survey first."""
 
+import math
 import re
 from typing import Dict, List, Optional
 
@@ -127,8 +128,11 @@ class IfsarBlocks(TnmBlocks):
         url, box = product.get("downloadURL") or "", product.get("boundingBox")
         if not url.lower().endswith(".tif") or not box:
             return None
-        extent = transform_bounds("EPSG:4326", self.crs, box["minX"], box["minY"], box["maxX"], box["maxY"],
-                                  densify_pts=21)
+        left, bottom, right, top = transform_bounds("EPSG:4326", self.crs, box["minX"], box["minY"], box["maxX"],
+                                                    box["maxY"], densify_pts=21)
+        # Whole metres, outwards: PROJ's last digits differ between platforms (their libm), the cached
+        # index must not
+        extent = [math.floor(left), math.floor(bottom), math.ceil(right), math.ceil(top)]
         published = product.get("publicationDate") or ""
-        return {"name": url.rsplit("/", 1)[-1][:-4], "url": url, "crs": self.crs, "extent": list(extent),
+        return {"name": url.rsplit("/", 1)[-1][:-4], "url": url, "crs": self.crs, "extent": extent,
                 "year": _survey_year(url, published), "published": published}

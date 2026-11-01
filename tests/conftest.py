@@ -6,6 +6,9 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The app's modules for the fixtures below, also when only a module that imports none of them runs
+# (the CI's monitoring job: tests/test_monitoring.py alone)
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from http_server import HttpServer  # noqa: E402
 
 
