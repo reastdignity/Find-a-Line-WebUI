@@ -474,12 +474,18 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   is valid for 2 years: renew it in Datafordeler's self-service before then, put the new key in
   the file and `docker compose up -d --force-recreate worker`; `lantmateriet_user`,
   `lantmateriet_password` and `nls_api_key` stay empty for now (Sweden and Finland's
-  orthophoto, not used yet). Each service gets only its own: the sign-in secrets
-  the web service, the keys of data services the worker. They must be readable by the containers'
-  user (uid 10001) and nobody else:
+  orthophoto, not used yet). `esri_api_key` with an API key of ArcGIS Location Platform for the
+  maps' satellite layer, Esri World Imagery (empty: no such layer, and the about page does not
+  name it): an ArcGIS Location Platform account with pay-as-you-go left off, and in it an API key
+  credential of the kind "Public application" with the Basemaps privilege only, its referrer
+  restricted to the site's https address (the browsers send it with every tile) and an expiry of
+  at most one year. Renew it yearly before it expires, put the new key in the file and
+  `docker compose up -d --force-recreate web`. Each service gets only its own: the sign-in
+  secrets and the satellite map's key the web service, the keys of data services the worker.
+  They must be readable by the containers' user (uid 10001) and nobody else:
   ```sh
-  sudo chown 10001:10001 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key
-  sudo chmod 400 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key
+  sudo chown 10001:10001 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key secrets/esri_api_key
+  sudo chmod 400 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key secrets/esri_api_key
   ```
 
 **Administrators** (`FINDALINE_ADMINS`, comma-separated): `github:<numeric id>`, the id from

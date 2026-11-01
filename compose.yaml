@@ -66,6 +66,9 @@ services:
       - findaline_session_secret
       - findaline_github_client_secret
       - findaline_google_client_secret
+      # The keys the page gets (settings.WebKeys; an empty file means none): ArcGIS Location
+      # Platform's for the satellite map, restricted to the site's address
+      - esri_api_key
     # The loopback only: nginx on the host proxies to the site's port (deploy/nginx/findaline-http.conf);
     # the metrics (metrics.py, --metrics-port 8766) are read by Telegraf on the host, never through nginx
     ports: ["127.0.0.1:${WEB_PORT:-8765}:8765", "127.0.0.1:${METRICS_PORT:-8766}:8766"]
@@ -168,3 +171,5 @@ secrets:
     file: ./secrets/lantmateriet_password
   nls_api_key:
     file: ./secrets/nls_api_key
+  esri_api_key:
+    file: ./secrets/esri_api_key

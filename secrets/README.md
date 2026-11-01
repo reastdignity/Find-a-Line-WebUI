@@ -1,7 +1,7 @@
 # Secrets of the public site
 
 compose.yaml gives each of these files to one service as a Docker secret
-(`/run/secrets/<name>`, read by the app's settings): the `findaline_*` files to `web`,
+(`/run/secrets/<name>`, read by the app's settings): the `findaline_*` files and `esri_api_key` to `web`,
 the keys of data services (`opentopography_api_key`, `datafordeler_api_key`,
 `lantmateriet_user`, `lantmateriet_password`, `nls_api_key`) to `worker`; `deploy/monitoring/compose.yaml` gives
 `grafana_admin_password` and `ntfy_url` to Grafana (docs/deployment.md, section 15). Put the value alone in the file, no
@@ -19,10 +19,11 @@ quotes, one line ending in LF (not CRLF: Grafana keeps the carriage return in it
 | `lantmateriet_user` | The user name of a Lantmäteriet account for `--source sweden` (not used yet); empty: no Sweden |
 | `lantmateriet_password` | That account's password |
 | `nls_api_key` | An API key of Maanmittauslaitos (NLS Finland) for Finland's orthophoto (not used yet); empty: none |
+| `esri_api_key` | An API key of [ArcGIS Location Platform](https://location.arcgis.com) for the maps' satellite layer, Esri World Imagery (docs/deployment.md, section 8); the page gets it, so it must be restricted to the site's address; empty: no satellite layer |
 
-`deploy/secrets.example/` holds the ten files empty: `cp -n deploy/secrets.example/* secrets/`,
+`deploy/secrets.example/` holds the eleven files empty: `cp -n deploy/secrets.example/* secrets/`,
 then put the values in. Every file must exist (compose refuses to start without it): leave the file of a provider you do not
 use empty (with its client id unset), and it is not offered; an empty `opentopography_api_key`
-means no NASADEM, an empty key of another data service no source that needs it. The session secret must have at least 32
-characters. The container user (uid 10001) must be able to read it, e.g. `sudo chown 10001:10001 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key && sudo chmod 400 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key`;
+means no NASADEM, an empty key of another data service no source that needs it, an empty `esri_api_key` no satellite layer. The session secret must have at least 32
+characters. The container user (uid 10001) must be able to read it, e.g. `sudo chown 10001:10001 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key secrets/esri_api_key && sudo chmod 400 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key secrets/esri_api_key`;
 Grafana's two files belong to Grafana's user (uid 472): `sudo chown 472:472 secrets/grafana_admin_password secrets/ntfy_url && sudo chmod 400 secrets/grafana_admin_password secrets/ntfy_url` (`deploy/vps.sh` does both).

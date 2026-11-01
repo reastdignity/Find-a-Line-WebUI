@@ -98,6 +98,8 @@ jobs:
           for name in opentopography_api_key datafordeler_api_key lantmateriet_user lantmateriet_password nls_api_key; do
             : > "secrets/$name"
           done
+          # the web service's key of the satellite map empty: no Esri layer
+          : > secrets/esri_api_key
 
       - name: Compose files
         run: docker compose config --quiet

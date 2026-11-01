@@ -25,6 +25,9 @@ Settings and limits of the web app, from environment variables (pydantic-setting
   needed (service_key); params.SearchParams.opentopo_key defaults to the OpenTopography key. A
   layer naming keys it needs is unavailable without them (sources.Layer.keys); redact masks their
   values in messages.
+- WebKeys: keys the web process hands to the browser (ESRI_API_KEY: the satellite map of ArcGIS
+  Location Platform, restricted to the site's address by its referrer), from the environment or a
+  Docker secret of the same name given to the web service only (web_key); none: no such layer.
 """
 
 import ipaddress
@@ -423,13 +426,41 @@ SECRET_MASK = "***"
 _handed_out: set = set()  # the values service_key gave in this process, for redact; never written anywhere
 
 
+class WebKeys(BaseSettings):
+    """Keys the web process puts into the page (window.FINDALINE_APP of runs.js, the app page's meta), for
+    services the browser asks itself: from the environment (the field's name in upper case) or a Docker
+    secret of the same name in lower case, which compose gives to the web service only. Such a key is no
+    secret to the browser (its service restricts it to the site's address by the Referer), but it is
+    never written to a file: not into a run, the viewer's bundle or a log. An empty value means none."""
+    model_config = SettingsConfigDict(extra="ignore")
+
+    esri_api_key: Optional[SecretStr] = Field(
+        None, description="ArcGIS Location Platform API key of the satellite map, Esri World Imagery (ESRI_API_KEY)")
+
+    @classmethod
+    def load(cls, secrets_dir: Optional[str] = None) -> "WebKeys":
+        secrets_dir = secrets_dir or SECRETS_DIR
+        return cls(_secrets_dir=secrets_dir if os.path.isdir(secrets_dir) else None)
+
+
+def _read_key(keys, name: str, secrets_dir: Optional[str]) -> Optional[str]:
+    """A key of the settings class `keys` (its field name), read now; None when not set or empty."""
+    if name not in keys.model_fields:
+        raise KeyError(f"no such key: {name}")
+    key = getattr(keys.load(secrets_dir), name)
+    return (key.get_secret_value().strip() or None) if key else None
+
+
+def web_key(name: str, secrets_dir: Optional[str] = None) -> Optional[str]:
+    """A key of WebKeys (its field name) from the environment or its Docker secret, read now; None when
+    not set or empty. KeyError for a name that is no field."""
+    return _read_key(WebKeys, name, secrets_dir)
+
+
 def service_key(name: str, secrets_dir: Optional[str] = None) -> Optional[str]:
     """A key of ServiceKeys (its field name) from the environment or its Docker secret, read now;
     None when not set or empty. KeyError for a name that is no field."""
-    if name not in ServiceKeys.model_fields:
-        raise KeyError(f"no such service key: {name}")
-    key = getattr(ServiceKeys.load(secrets_dir), name)
-    value = (key.get_secret_value().strip() or None) if key else None
+    value = _read_key(ServiceKeys, name, secrets_dir)
     if value:
         _handed_out.add(value)
     return value

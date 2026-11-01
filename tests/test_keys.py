@@ -32,7 +32,7 @@ EXTENT = (500000.0, 6000000.0, 504000.0, 6004000.0)  # the fake coverage in EPSG
 @pytest.fixture(autouse=True)
 def no_keys(monkeypatch, tmp_path):
     """No key from the environment or a secrets folder of the machine running the tests."""
-    for name in settings.ServiceKeys.model_fields:
+    for name in [*settings.ServiceKeys.model_fields, *settings.WebKeys.model_fields]:
         monkeypatch.delenv(name.upper(), raising=False)
     monkeypatch.setattr(settings, "SECRETS_DIR", str(tmp_path / "no-secrets"))
 
@@ -203,16 +203,49 @@ def test_wcs20_requests_unchanged():
 
 
 def test_keys_are_the_workers_secrets():
-    """The keys of ServiceKeys are Docker secrets of the worker only (compose.yaml), with an empty
-    example file each (deploy/secrets.example) and the owner set by deploy/vps.sh."""
-    names = set(settings.ServiceKeys.model_fields)
+    """The keys of ServiceKeys are Docker secrets of the worker only (compose.yaml), those of WebKeys of
+    the web service only, with an empty example file each (deploy/secrets.example), the owner set by
+    deploy/vps.sh (WORKER_SECRETS, WEB_SECRETS), and a row in secrets/README.md and the CI's examples."""
+    names, web = set(settings.ServiceKeys.model_fields), set(settings.WebKeys.model_fields)
     with open(os.path.join(ROOT, "compose.yaml"), encoding="utf-8") as f:
         compose = yaml.safe_load(f)
     assert set(compose["services"]["worker"]["secrets"]) == names
     assert not names & set(compose["services"]["web"].get("secrets", []))
-    assert all(compose["secrets"][n] == {"file": f"./secrets/{n}"} for n in names)
+    assert web <= set(compose["services"]["web"]["secrets"])
+    assert not web & set(compose["services"]["worker"]["secrets"])
+    assert all(compose["secrets"][n] == {"file": f"./secrets/{n}"} for n in names | web)
     examples = os.path.join(ROOT, "deploy", "secrets.example")
-    assert all(os.path.getsize(os.path.join(examples, n)) == 0 for n in names)
+    assert all(os.path.getsize(os.path.join(examples, n)) == 0 for n in names | web)
     with open(os.path.join(ROOT, "deploy", "vps.sh"), encoding="utf-8") as f:
-        listed = re.search(r"^WORKER_SECRETS=\(([^)]*)\)", f.read(), re.M).group(1).split()
+        script = f.read()
+    listed = re.search(r"^WORKER_SECRETS=\(([^)]*)\)", script, re.M).group(1).split()
     assert set(listed) == names
+    assert set(re.search(r"^WEB_SECRETS=\(([^)]*)\)", script, re.M).group(1).split()) == web
+    with open(os.path.join(ROOT, "secrets", "README.md"), encoding="utf-8") as f:
+        readme = f.read()
+    with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as f:
+        ci = f.read()
+    with open(os.path.join(ROOT, "docs", "deployment.md"), encoding="utf-8") as f:
+        deployment = f.read()
+    for name in names | web:
+        assert f"| `{name}` |" in readme and name in ci and name in deployment, name
+
+
+def test_web_keys(monkeypatch, tmp_path):
+    """WebKeys: the satellite map's key from ESRI_API_KEY or the web service's Docker secret, the
+    environment first, empty means none; not a key of the worker's (service_key refuses its name)."""
+    assert set(settings.WebKeys.model_fields) == {"esri_api_key"}
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    assert settings.web_key("esri_api_key", str(secrets)) is None
+    (secrets / "esri_api_key").write_text("from-secret\n")
+    assert settings.web_key("esri_api_key", str(secrets)) == "from-secret"
+    monkeypatch.setenv("ESRI_API_KEY", "from-env")
+    assert settings.web_key("esri_api_key", str(secrets)) == "from-env"
+    monkeypatch.setenv("ESRI_API_KEY", " ")
+    (secrets / "esri_api_key").write_text("")
+    assert settings.web_key("esri_api_key", str(secrets)) is None
+    with pytest.raises(KeyError):
+        settings.service_key("esri_api_key")
+    with pytest.raises(KeyError):
+        settings.web_key("nls_api_key")
