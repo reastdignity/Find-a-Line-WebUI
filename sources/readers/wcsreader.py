@@ -136,12 +136,21 @@ def _overlaps(box: tuple, extent: tuple) -> bool:
 
 
 def _extract_multipart(content: bytes, content_type: str) -> bytes:
-    """Pull the coverage out of a multipart/related WCS response."""
+    """Pull the coverage out of a multipart/related WCS response.
+
+    Part headers end with an empty line of CRLF or of a bare LF (Saxony-Anhalt's ArcGIS
+    server); a part's body ends with exactly one line break of the same kind before the next
+    boundary, so only that is removed (an uncompressed TIFF may end in the bytes 0x0A or 0x0D).
+    """
     boundary = re.search(r'boundary="?([^";]+)"?', content_type).group(1).encode()
     for part in content.split(b"--" + boundary):
-        head, _, body = part.partition(b"\r\n\r\n")
+        blank = re.search(rb"\r?\n\r?\n", part)
+        if not blank:
+            continue
+        head, body = part[:blank.start()], part[blank.end():]
         kind = re.search(rb"Content-Type:\s*([^\r\n;]+)", head, re.I)
         # The coverage itself (image/tiff, image/x-aaigrid, application/asc...), not its XML description
         if kind and not re.search(rb"xml|gml|text/", kind.group(1), re.I):
-            return body.rstrip(b"\r\n")
+            eol = b"\r\n" if blank.group().startswith(b"\r") else b"\n"
+            return body[:-len(eol)] if body.endswith(eol) else body
     raise RuntimeError("WCS response did not contain coverage data")
