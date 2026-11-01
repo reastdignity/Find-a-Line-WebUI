@@ -749,6 +749,65 @@ GRAFANA_PLUGINS_DIR=/var/lib/findaline-grafana-plugins
 GRAFANA_PLUGIN=victoriametrics-logs-datasource
 GRAFANA_PLUGIN_VERSION=0.33.1
 GRAFANA_PLUGIN_SHA256=73e7ce379ae9a9ce6fdb978e5d6d43f67029b4c3e4d970f1ca8f7f4617f331c5
+# Telegraf on the host (docs/monitoring.md, "Decisions"): InfluxData's package of this version from
+# dl.influxdata.com, pinned by sha256 (no apt repository, so nothing updates it unasked); its
+# signature was checked once with InfluxData's package key (24C9 75CB A61A 024E E1B6 3178 7C3D 5715
+# 9FC2 F927, https://repos.influxdata.com/influxdata-archive.key). To update it: the version and
+# the sha256 of each architecture's .deb, after checking its .asc the same way.
+TELEGRAF_VERSION=1.40.2-1
+TELEGRAF_SHA256_AMD64=08968d96e764819cb7c16649e8e9e13d4f24b641edb9883b06b8daf321c9e877
+TELEGRAF_SHA256_ARM64=0214c0837a6bc504e53957e95a62620530e8725c18b9ed10dbed4400186f91b6
+TELEGRAF_DROPIN=/etc/systemd/system/telegraf.service.d/findaline.conf
+
+# Telegraf's package (TELEGRAF_VERSION, checked against its sha256), our configuration
+# (/etc/telegraf/telegraf.conf, readable by the group telegraf only) and the sandbox of its drop-in
+# with the checkout's path; restarted when any of them changed, started when it is not running.
+# Warns and returns 1 when the package cannot be had.
+telegraf_install() {
+    local arch sha tmp deb changed=0
+    arch=$(dpkg --print-architecture)
+    case $arch in
+        amd64) sha=$TELEGRAF_SHA256_AMD64 ;;
+        arm64) sha=$TELEGRAF_SHA256_ARM64 ;;
+        *) warn "Telegraf: no package pinned for $arch"; return 1 ;;
+    esac
+    if [ "$(dpkg-query -W -f '${Version}' telegraf 2>/dev/null)" != "$TELEGRAF_VERSION" ]; then
+        tmp=$(mktemp -d)
+        deb=$tmp/telegraf_${TELEGRAF_VERSION}_$arch.deb
+        if ! curl -fsSL --max-time 600 -o "$deb" "https://dl.influxdata.com/telegraf/releases/${deb##*/}"; then
+            rm -rf "$tmp"
+            warn "Telegraf $TELEGRAF_VERSION could not be downloaded"
+            return 1
+        fi
+        if ! echo "$sha  $deb" | sha256sum -c --quiet - >/dev/null 2>&1; then
+            rm -rf "$tmp"
+            warn "Telegraf $TELEGRAF_VERSION: not the sha256 of deploy/vps.sh"
+            return 1
+        fi
+        # A fresh install enables the unit without starting it; an update restarts a running one
+        if ! DEBIAN_FRONTEND=noninteractive dpkg -i "$deb" >/dev/null; then
+            rm -rf "$tmp"
+            warn "Telegraf $TELEGRAF_VERSION could not be installed (dpkg -i)"
+            return 1
+        fi
+        rm -rf "$tmp"
+        changed=1
+        note "Telegraf $TELEGRAF_VERSION installed"
+    fi
+    CHANGED=0
+    put /etc/telegraf/telegraf.conf 640 < "$DEPLOY/monitoring/telegraf.conf"
+    chown root:telegraf /etc/telegraf/telegraf.conf
+    install -d -m 755 "${TELEGRAF_DROPIN%/*}"
+    put "$TELEGRAF_DROPIN" 644 < <(sed "s#@REPO@#$REPO#g" "$DEPLOY/monitoring/systemd/telegraf.service.d/findaline.conf")
+    [ "$CHANGED" = 1 ] && changed=1
+    systemctl daemon-reload
+    systemctl enable -q telegraf
+    if [ "$changed" = 1 ]; then
+        systemctl restart telegraf
+    else
+        systemctl start telegraf
+    fi
+}
 
 # The units of deploy/monitoring/systemd with the checkout's path; sets CHANGED=1 if any changed
 monitoring_units() {
@@ -869,22 +928,20 @@ monitoring() {
     ssh_login_notice
     secret_set "$REPO/secrets/ntfy_url" && note "SSH logins: a notice to the ntfy topic and a count in $MONITORING_DIR/ssh.json"
 
-    local compose_file=$DEPLOY/monitoring/compose.yaml docker_gid adm_gid
+    local compose_file=$DEPLOY/monitoring/compose.yaml docker_gid
     if [ ! -f "$compose_file" ]; then
         note "no $compose_file: the monitoring's containers are left out"
         return 0
     fi
-    # The groups whose files Telegraf reads: Docker's socket (through the proxy) and nginx's logs
+    # The group of Docker's socket, the socket proxy's
     docker_gid=$(getent group docker | cut -d: -f3)
-    adm_gid=$(getent group adm | cut -d: -f3)
-    if [ -z "$docker_gid" ] || [ -z "$adm_gid" ]; then
-        todo "the monitoring's containers: no group docker or adm on this host"
+    if [ -z "$docker_gid" ]; then
+        todo "the monitoring's containers: no group docker on this host"
         return 0
     fi
     put "$DEPLOY/monitoring/.env" 644 <<EOF
-# Written by deploy/vps.sh (section 15): the host's groups for deploy/monitoring/compose.yaml
+# Written by deploy/vps.sh (section 15): the host's group for deploy/monitoring/compose.yaml
 DOCKER_GID=$docker_gid
-ADM_GID=$adm_gid
 EOF
     chown "$user:$group" "$DEPLOY/monitoring/.env"
     CHANGED=0
@@ -897,7 +954,8 @@ EOF
         todo "the monitoring's images could not be pulled: docker compose -f $compose_file pull"
         return 0
     fi
-    if ! docker compose -f "$compose_file" up -d --wait --wait-timeout 180; then
+    # --remove-orphans: the Telegraf container of before (now on the host)
+    if ! docker compose -f "$compose_file" up -d --wait --wait-timeout 180 --remove-orphans; then
         docker compose -f "$compose_file" ps
         docker compose -f "$compose_file" logs --tail 30
         todo "the monitoring's containers did not become healthy (above; section 15)"
@@ -905,6 +963,11 @@ EOF
     fi
     if [ "$plugin_changed" = 1 ]; then
         docker compose -f "$compose_file" restart grafana >/dev/null && note "Grafana restarted: its new plugin"
+    fi
+    if telegraf_install; then
+        note "Telegraf $TELEGRAF_VERSION on the host (journalctl -u telegraf)"
+    else
+        todo "Telegraf: not installed or not up to date, nothing is measured (above; section 15)"
     fi
     note "Grafana on 127.0.0.1:3000 (ssh -L 3000:127.0.0.1:3000 <server>; user admin, secrets/grafana_admin_password)"
 }
@@ -1032,6 +1095,11 @@ check_monitoring() {
     if [ -f "$DEPLOY/monitoring/compose.yaml" ]; then
         [ "$(curl -fsS --max-time 5 http://127.0.0.1:9428/health 2>/dev/null)" = OK ] \
             && ok "VictoriaLogs" || bad "VictoriaLogs does not answer on 127.0.0.1:9428 (section 15)"
+        [ "$(dpkg-query -W -f '${Version}' telegraf 2>/dev/null)" = "$TELEGRAF_VERSION" ] && systemctl is-active -q telegraf \
+            && ok "Telegraf $TELEGRAF_VERSION" || bad "Telegraf is not $TELEGRAF_VERSION or not running: journalctl -u telegraf (section 15)"
+        curl -fsS --max-time 5 'http://127.0.0.1:8428/api/v1/query?query=count_over_time(internal_agent_metrics_written%5B2m%5D)' \
+            2>/dev/null | grep -q '"value"' && ok "Telegraf's samples of the last 2 min in VictoriaMetrics" \
+            || bad "no samples of Telegraf in VictoriaMetrics for 2 min: journalctl -u telegraf (section 15)"
         [ "$(grafana_plugin_version)" = "$GRAFANA_PLUGIN_VERSION" ] && ok "Grafana's plugin $GRAFANA_PLUGIN $GRAFANA_PLUGIN_VERSION" \
             || bad "Grafana's plugin $GRAFANA_PLUGIN is not $GRAFANA_PLUGIN_VERSION in $GRAFANA_PLUGINS_DIR: sudo deploy/vps.sh update (section 15)"
     fi

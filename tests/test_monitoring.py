@@ -19,7 +19,7 @@ MONITORING = os.path.join(ROOT, "deploy", "monitoring")
 GRAFANA = os.path.join(MONITORING, "grafana")
 DATASOURCE = "victoriametrics"
 LOGS_DATASOURCE = "victorialogs"
-SERVICES = {"telegraf", "victoriametrics", "victorialogs", "grafana", "socket-proxy"}
+SERVICES = {"victoriametrics", "victorialogs", "grafana", "socket-proxy"}   # Telegraf runs on the host
 DASHBOARDS = ["findaline", "logs", "site", "vps"]
 # The measurements of the log lines: to VictoriaLogs only
 LOG_MEASUREMENTS = ["docker_log", "nginx_error"]
@@ -92,8 +92,21 @@ def _load(*parts):
         return f.read()
 
 
+class _UniqueKeys(yaml.SafeLoader):
+    """PyYAML keeps the last of two equal keys; docker compose refuses the file."""
+
+    def construct_mapping(self, node, deep=False):
+        keys = [key.value for key, _ in node.value
+                if isinstance(key, yaml.ScalarNode) and key.tag != "tag:yaml.org,2002:merge"]
+        duplicates = {key for key in keys if keys.count(key) > 1}
+        if duplicates:
+            raise yaml.constructor.ConstructorError(None, None, f"keys defined twice: {sorted(duplicates)}",
+                                                    node.start_mark)
+        return super().construct_mapping(node, deep=deep)
+
+
 def _compose():
-    return yaml.safe_load(_load("compose.yaml"))
+    return yaml.load(_load("compose.yaml"), Loader=_UniqueKeys)
 
 
 def _telegraf():
@@ -149,9 +162,8 @@ def _queries():
 
 
 def test_compose_services_and_ports():
-    """The five services; only VictoriaMetrics, VictoriaLogs, Grafana and the socket proxy publish a
-    port, each on the host's loopback; Telegraf shares the host's network namespace and publishes
-    nothing."""
+    """The four services (Telegraf runs on the host: test_telegraf_on_the_host), each publishing
+    its port on the host's loopback only."""
     compose = _compose()
     assert compose["name"] == "findaline-monitoring"
     services = compose["services"]
@@ -160,8 +172,6 @@ def test_compose_services_and_ports():
     assert services["victorialogs"]["ports"] == ["127.0.0.1:9428:9428"]
     assert services["grafana"]["ports"] == ["127.0.0.1:3000:3000"]
     assert services["socket-proxy"]["ports"] == ["127.0.0.1:2375:2375"]
-    assert services["telegraf"]["network_mode"] == "host"
-    assert "ports" not in services["telegraf"]
     for name, service in services.items():
         for port in service.get("ports", []):
             assert port.startswith("127.0.0.1:"), (name, port)
@@ -170,12 +180,12 @@ def test_compose_services_and_ports():
 def test_compose_hardening():
     """As compose.yaml of the site: read-only root, no capabilities, no new privileges, a non-root
     user, a memory limit without swap, rotated logs, a healthcheck (up --wait), an image pinned by
-    digest. VictoriaLogs' distroless image has no tool to ask its /health: Telegraf's healthcheck
-    asks it (and `disable: true` would make `up --wait` fail)."""
+    digest. VictoriaLogs' distroless image has no tool to ask its /health: vps.sh check asks it
+    (and `disable: true` would make `up --wait` fail)."""
     services = _compose()["services"]
     assert "healthcheck" not in services["victorialogs"]
-    assert "http://127.0.0.1:9428/health" in services["telegraf"]["healthcheck"]["test"][-1]
-    assert services["telegraf"]["depends_on"]["victorialogs"] == {"condition": "service_started"}
+    assert services["grafana"]["depends_on"]["victorialogs"] == {"condition": "service_started"}
+    assert "http://127.0.0.1:9428/health" in _vps()
     for name, service in services.items():
         assert service["read_only"] is True, name
         assert service["cap_drop"] == ["ALL"], name
@@ -190,22 +200,10 @@ def test_compose_hardening():
 
 
 def test_compose_mounts():
-    """Telegraf reads the host read-only (and never creates a missing host path); the socket proxy
-    alone has the Docker socket; secrets come from the checkout's secrets/."""
+    """The socket proxy alone has the Docker socket; secrets come from the checkout's secrets/;
+    Grafana's plugin from the host's folder deploy/vps.sh fills."""
     compose = _compose()
     services = compose["services"]
-    telegraf = services["telegraf"]
-    binds = {v["target"]: v for v in telegraf["volumes"]}
-    assert set(binds) == {"/etc/telegraf/telegraf.conf", "/hostfs", "/var/log/nginx",
-                          "/run/dbus/system_bus_socket", "/var/lib/findaline-monitoring"}
-    for target, volume in binds.items():
-        assert volume["type"] == "bind" and volume["read_only"] is True, target
-        if target != "/etc/telegraf/telegraf.conf":
-            assert volume["bind"]["create_host_path"] is False, target
-    assert binds["/hostfs"]["source"] == "/" and binds["/hostfs"]["bind"]["propagation"] == "rslave"
-    assert telegraf["environment"]["HOST_MOUNT_PREFIX"] == "/hostfs"
-    assert telegraf["environment"]["HOST_PROC"] == "/hostfs/proc"
-    assert telegraf["group_add"] == ["${ADM_GID:?ADM_GID missing: copy .env.example to .env}"]
     for name, service in services.items():
         mounts = [v if isinstance(v, str) else v.get("source", "") for v in service.get("volumes", [])]
         assert ("/var/run/docker.sock" in str(mounts)) == (name == "socket-proxy"), name
@@ -224,8 +222,7 @@ def test_compose_mounts():
     plugins = [v for v in services["grafana"]["volumes"] if isinstance(v, dict) and v["target"] == "/var/lib/grafana-plugins"]
     assert plugins == [{"type": "bind", "source": "/var/lib/findaline-grafana-plugins", "target": "/var/lib/grafana-plugins",
                         "read_only": True, "bind": {"create_host_path": False}}]
-    with open(os.path.join(ROOT, "deploy", "vps.sh"), encoding="utf-8") as f:
-        vps = f.read()
+    vps = _vps()
     assert "GRAFANA_PLUGINS_DIR=/var/lib/findaline-grafana-plugins\n" in vps
     assert "GRAFANA_PLUGIN=victoriametrics-logs-datasource\n" in vps
     assert re.search(r"^GRAFANA_PLUGIN_VERSION=\d+\.\d+\.\d+$", vps, re.M)
@@ -235,9 +232,52 @@ def test_compose_mounts():
     assert "-retentionPeriod=30d" in command and "-httpListenAddr=:9428" in command
     assert services["victorialogs"]["volumes"] == ["victorialogs:/home/nonroot"]
     env = _load(".env.example")
-    assert re.search(r"^DOCKER_GID=\d+$", env, re.M) and re.search(r"^ADM_GID=4$", env, re.M)
+    assert re.search(r"^DOCKER_GID=\d+$", env, re.M) and "ADM_GID" not in env
     with open(os.path.join(ROOT, ".gitignore"), encoding="utf-8") as f:
         assert "deploy/monitoring/.env\n" in f.read()
+
+
+def _vps():
+    with open(os.path.join(ROOT, "deploy", "vps.sh"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_telegraf_on_the_host():
+    """Telegraf from InfluxData's package, pinned by version and sha256 in vps.sh, runs as the
+    package's user telegraf (dbus-daemon refuses a uid without a user, so no DynamicUser) in the
+    group adm, with our configuration only and a sandbox: no capabilities, the file system read-only,
+    /home hidden, no device opened, the system calls of a service, its memory capped. Its
+    configuration reads the host's paths directly (no /hostfs of the container it was)."""
+    import configparser
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str
+    parser.read(os.path.join(MONITORING, "systemd", "telegraf.service.d", "findaline.conf"), encoding="utf-8")
+    with open(os.path.join(MONITORING, "systemd", "telegraf.service.d", "findaline.conf"), encoding="utf-8") as f:
+        text = f.read()
+    service = parser["Service"]
+    assert re.search(r"^ExecStart=\nExecStart=/usr/bin/telegraf -config /etc/telegraf/telegraf.conf$", text, re.M)
+    assert service["EnvironmentFile"] == "@REPO@/findaline.env"   # FINDALINE_PUBLIC_URL
+    assert service["SupplementaryGroups"] == "adm"
+    for key in ("User", "Group", "DynamicUser"):
+        assert key not in service, key
+    sandbox = {"NoNewPrivileges": "yes", "CapabilityBoundingSet": "", "AmbientCapabilities": "",
+               "ProtectSystem": "strict", "ProtectHome": "yes", "PrivateTmp": "yes", "DevicePolicy": "closed",
+               "ProtectKernelTunables": "yes", "ProtectKernelModules": "yes", "ProtectControlGroups": "yes",
+               "RestrictSUIDSGID": "yes", "MemoryDenyWriteExecute": "yes", "SystemCallFilter": "@system-service",
+               "MemoryMax": "192M", "MemorySwapMax": "0"}
+    for key, value in sandbox.items():
+        assert service[key] == value, key
+    vps = _vps()
+    assert re.search(r"^TELEGRAF_VERSION=\d+\.\d+\.\d+-\d+$", vps, re.M)
+    for arch in ("AMD64", "ARM64"):
+        assert re.search(rf"^TELEGRAF_SHA256_{arch}=[0-9a-f]{{64}}$", vps, re.M), arch
+    assert "TELEGRAF_DROPIN=/etc/systemd/system/telegraf.service.d/findaline.conf\n" in vps
+    assert "https://dl.influxdata.com/telegraf/releases/" in vps
+    assert 'put /etc/telegraf/telegraf.conf 640 < "$DEPLOY/monitoring/telegraf.conf"' in vps
+    assert vps.count("telegraf_install") == 2   # defined and called by monitoring (CI calls it too)
+    assert "--remove-orphans" in vps   # the Telegraf container of before
+    config = _load("telegraf.conf")
+    assert "/hostfs" not in config and "HOST_" not in config
 
 
 def test_compose_network():

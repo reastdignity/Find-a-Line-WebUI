@@ -170,11 +170,11 @@ jobs:
           docker rm -f probe || true
 
   # The monitoring project (deploy/monitoring, docs/monitoring.md) on the runner as the host: its
-  # compose file, then the five services with dummy secrets, Grafana's plugin as deploy/vps.sh
-  # gets it, and stand-ins of what the host's side writes (the nginx metrics and error logs, the
-  # facts files); the runner's systemd answers over D-Bus. Checks that VictoriaMetrics holds
-  # Telegraf's samples, that a line of nginx's error log reaches VictoriaLogs with its address
-  # masked, and that Grafana has its provisioning.
+  # compose file, then the four services with dummy secrets, Grafana's plugin and Telegraf on the
+  # host as deploy/vps.sh installs them (the pinned package, its sandbox), and stand-ins of what the
+  # host's side writes (the nginx metrics and error logs, the facts files); the runner's systemd
+  # answers over D-Bus. Checks that VictoriaMetrics holds Telegraf's samples, that a line of nginx's
+  # error log reaches VictoriaLogs with its address masked, and that Grafana has its provisioning.
   monitoring:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -197,9 +197,7 @@ jobs:
           python3 -c "import secrets; print(secrets.token_urlsafe(24))" > secrets/grafana_admin_password
           echo "https://ntfy.invalid/ci" > secrets/ntfy_url   # nothing is sent
           chmod 0644 secrets/grafana_admin_password secrets/ntfy_url   # Grafana runs as uid 472
-          printf 'DOCKER_GID=%s\nADM_GID=%s\n' "$(getent group docker | cut -d: -f3)" "$(getent group adm | cut -d: -f3)" \
-            > deploy/monitoring/.env
-          test -S /run/dbus/system_bus_socket
+          printf 'DOCKER_GID=%s\n' "$(getent group docker | cut -d: -f3)" > deploy/monitoring/.env
           sudo install -d -m 0755 /var/log/nginx /var/lib/findaline-monitoring
           sudo install -m 0640 -o root -g adm /dev/null /var/log/nginx/findaline.metrics.log
           sudo install -m 0640 -o root -g adm /dev/null /var/log/nginx/findaline.error.log
@@ -218,12 +216,19 @@ jobs:
       - name: Compose file
         run: $COMPOSE config --quiet
 
-      # --wait: Telegraf is healthy once its first samples are in VictoriaMetrics
       - name: Services
         run: |
           $COMPOSE pull --quiet
           $COMPOSE up --detach --wait --wait-timeout 240
           $COMPOSE ps
+
+      # Downloaded and checked against the sha256 of deploy/vps.sh, our configuration and the
+      # sandbox's drop-in, started as on the server
+      - name: Telegraf on the host
+        run: |
+          sudo bash -c '. deploy/vps.sh; telegraf_install'
+          systemctl is-active telegraf
+          systemd-analyze security --no-pager telegraf | tail -n 1
 
       # Requests in the metrics log format of deploy/nginx (one JSON object per line); the inputs of
       # 5 minutes (the facts files, systemd's units) report at the next 5-minute mark
@@ -271,7 +276,9 @@ jobs:
 
       - name: The stack's logs
         if: always()
-        run: $COMPOSE logs --no-color
+        run: |
+          $COMPOSE logs --no-color
+          sudo journalctl --no-pager -u telegraf
 
       - name: Clean up
         if: always()

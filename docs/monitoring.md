@@ -14,7 +14,7 @@ failed backup (deployment.md, section 11).
 | Topic | Decision (2026-10-31) |
 | --- | --- |
 | Collector and store | [Telegraf](https://docs.influxdata.com/telegraf/) writes the InfluxDB line protocol to [VictoriaMetrics](https://docs.victoriametrics.com/) (single node); Grafana reads it as a Prometheus data source (PromQL/MetricsQL). Moving to another store that takes the line protocol is one output section of Telegraf. |
-| Telegraf | The official Docker image `telegraf`, pinned by digest, in the monitoring project with `network_mode: host`; it reads the host through read-only mounts. Ubuntu dropped its `telegraf` package in 24.04, and InfluxData's apt repository would have been the other way. What only root can read comes from a timer on the host (see "Architecture"). |
+| Telegraf (changed 2026-11-01) | On the host: InfluxData's `.deb` of a pinned version from `dl.influxdata.com`, checked against its sha256 in `deploy/vps.sh` (its signature checked once with InfluxData's package key), running as the package's user `telegraf` in the group `adm`, in a systemd sandbox (a drop-in). Not InfluxData's apt repository (any `apt upgrade` would update Telegraf, whose defaults change between versions), and Ubuntu dropped its own `telegraf` package in 24.04. First it ran as the official Docker image with `network_mode: host`: its uid had no user on the host, which the host's dbus-daemon refuses, so systemd's units (D1) failed in CI, and it read the host through a read-only mount of the whole `/` (`/home` too). The projects of host agents advise running them on the host. What only root can read comes from a timer on the host (see "Architecture"). |
 | Docker's API | [wollomatic/socket-proxy](https://github.com/wollomatic/socket-proxy): an allowlist of regular expressions per HTTP method lets through only the GET requests Telegraf's `docker` input makes; it runs as a non-root user with the socket's group. |
 | Outside check | [healthchecks.io](https://healthchecks.io): the host pings every minute while the site answers, `backup.sh` after each successful backup; a missing ping goes to the same ntfy topic. |
 | Metrics of the application | [`prometheus_client`](https://github.com/prometheus/client_python), the official Prometheus client, chosen over OpenTelemetry's SDK (several packages, its Prometheus exporter still in beta versions, observable callbacks for values read at each scrape). |
@@ -34,11 +34,11 @@ failed backup (deployment.md, section 11).
 ## Architecture
 | Part | Where | What it does |
 | --- | --- | --- |
-| Telegraf | compose project `findaline-monitoring` (`deploy/monitoring/compose.yaml`), `network_mode: host` | Reads the host through read-only mounts (`/` as `/hostfs`, with `HOST_PROC`, `HOST_SYS`, `HOST_MOUNT_PREFIX`; `/var/log/nginx`; the D-Bus socket for systemd's units), the containers through the socket proxy, nginx (its metrics log and `stub_status`), the certificate and the site, the facts files and, in phase 2, the application's `/metrics`; writes to `http://127.0.0.1:8428`. A non-root user with the group `adm` (nginx's logs). |
+| Telegraf | the host: `telegraf.service` of InfluxData's package with the drop-in `deploy/monitoring/systemd/telegraf.service.d/findaline.conf`, its configuration `deploy/monitoring/telegraf.conf` copied to `/etc/telegraf/telegraf.conf` (`vps.sh`, `telegraf_install`) | Reads the host (`/proc`, `/sys`, `/var/log/nginx`, systemd's units over D-Bus), the containers through the socket proxy, nginx (its metrics log and `stub_status`), the certificate and the site, the facts files and, in phase 2, the application's `/metrics`; writes to `http://127.0.0.1:8428` (and the logs to `127.0.0.1:9428`). The package's user `telegraf` with the group `adm` (nginx's logs). |
 | VictoriaMetrics | the same project, `127.0.0.1:8428` | Stores the samples; its own metrics are scraped by Telegraf too (G2). |
 | Grafana | the same project, `127.0.0.1:3000` | Dashboards, alert rules and the ntfy contact point, all provisioned from files in the repository (the ntfy topic from a Docker secret); its own database holds nothing that cannot be provisioned again. |
 | Docker socket proxy | the same project, `127.0.0.1:2375` (wollomatic/socket-proxy) | Lets Telegraf's `docker` input read the containers (GET of the container list, their stats and inspect, and `/info`; from phase 3 also the logs of a container, which Telegraf asks only for `web` and `worker`; nothing else) without the Docker socket itself, which is equivalent to root. |
-| Host facts | a systemd timer on the host, as root (`deploy/monitoring/facts.sh`, every 5 min) | Writes what only root can read as JSON into `/var/lib/findaline-monitoring/` (mounted read-only into Telegraf, input `file`): fail2ban's counts per jail, the holes of the disk image (`image_holes` of `deploy/vps.sh`), pending updates (`facts.json`); a second timer (`findaline-check.timer`, daily) writes the result of `vps.sh check` (`check.json`). `backup.sh` writes its own `backup.json` there. |
+| Host facts | a systemd timer on the host, as root (`deploy/monitoring/facts.sh`, every 5 min) | Writes what only root can read as JSON into `/var/lib/findaline-monitoring/` (read by Telegraf, input `file`): fail2ban's counts per jail, the holes of the disk image (`image_holes` of `deploy/vps.sh`), pending updates (`facts.json`); a second timer (`findaline-check.timer`, daily) writes the result of `vps.sh check` (`check.json`). `backup.sh` writes its own `backup.json` there. |
 | Heartbeat | a systemd timer on the host, every minute | Asks the site (`https://<site>/` through nginx on the host) and, when it answers 200, pings healthchecks.io; the ping URL is in a root-only file (`/etc/findaline-monitoring.env`). |
 | VictoriaLogs (phase 3) | the same project, `127.0.0.1:9428` | Stores the log lines Telegraf sends (`inputs.docker_log` of `web` and `worker` through the socket proxy, `inputs.tail` of `findaline.error.log` with addresses, share tokens and the query of `/auth/...` masked) for 30 days; Grafana reads it with VictoriaMetrics' logs data source plugin. |
 | SSH login notice (phase 3) | `pam_exec` in `/etc/pam.d/sshd` (`session optional`), a script of `deploy/monitoring/` | Posts "SSH login: user from address on server" to the ntfy topic (the URL from the checkout's `secrets/ntfy_url`, Grafana's secret, readable by root: one place for it) with a short timeout, and counts the logins in `ssh.json` of the facts folder. `optional`: a failure of the script never refuses a login. |
@@ -52,16 +52,19 @@ stays as it is.
 `br-fal-mon`. The `DOCKER-USER` block of `deploy/firewall/ufw-after.rules` needs one more
 `-i br-fal-mon -o br-fal-mon -j RETURN` line; the drops towards private ranges and the host
 (`br-fal-+`) then apply to it as to the site's networks. VictoriaMetrics needs no egress; Grafana
-only the ntfy server. Telegraf runs in the host's network namespace: it reaches the loopback ports
-(VictoriaMetrics, the proxy, `/metrics`, `stub_status`) and the site's own address like a process
-of the host, and needs no rule. On a network of its own, the rule of `ufw-before.rules` that drops
-whatever the containers send to the host would cut it off from `stub_status`, the site and its
-certificate (C4–C6), and it would have to join the site's network for `/metrics`.
+only the ntfy server. Telegraf runs on the host: it reaches the loopback ports (VictoriaMetrics,
+VictoriaLogs, the proxy, `/metrics`, `stub_status`) and the site's own address, and needs no rule.
+In a container on a network of its own, the rule of `ufw-before.rules` that drops whatever the
+containers send to the host would cut it off from `stub_status`, the site and its certificate
+(C4–C6), and it would have to join the site's network for `/metrics`.
 
 **Hardening** as in compose.yaml: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, a non-root
-user, images pinned by digest, memory limits (about 1.2 GB for the four containers together; phase 3 adds VictoriaLogs, about 0.3 GB).
-Telegraf accepts no connections; its mounts are read-only. On the server, check that
-`WORKER_MEMORY` in `.env` leaves this room (the VPS has 24 GB).
+user, images pinned by digest, memory limits (about 1.3 GB for the four containers together,
+VictoriaLogs included, and 192 MB for Telegraf). Telegraf accepts no connections and runs in a
+systemd sandbox (its drop-in): no capabilities, no new privileges, the file system read-only,
+`/home` hidden, a private `/tmp`, no device opened, the system calls of `@system-service`, no
+writable and executable memory, 192 MB without swap; `systemd-analyze security telegraf` rates it.
+On the server, check that `WORKER_MEMORY` in `.env` leaves this room (the VPS has 24 GB).
 
 ## Storage
 - **Intervals:** 30 s for the host, the containers, nginx and the application; 5 min for the
@@ -131,7 +134,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | A4 | Holes in the disk image (`--disk-image`) | alert: > 1 GiB, as `vps.sh check` | the host facts (`image_holes` of `deploy/vps.sh`) → input `file` | P2 | 1 |
 | A5 | Disk I/O of the loop device and the disk under it | queues during downloads | `diskio` | P2 | 1 |
 | A6 | Network: traffic, errors, TCP connections | background for diagnosis | `net`, `netstat` | P2 | 1 |
-| A7 | Reboot required, uptime, pending updates | info, once a day | `filestat` of `/hostfs/var/run/reboot-required`, `system`, the pending updates from the host facts | P2 | 1 |
+| A7 | Reboot required, uptime, pending updates | info, once a day | `filestat` of `/run/reboot-required`, `system`, the pending updates from the host facts | P2 | 1 |
 | A8 | Clock offset | alert: > 1 s | `chrony`, if chrony is the time daemon | P3 | 1 |
 
 **B. Docker**
@@ -263,8 +266,8 @@ these rows). No application code.
 - `deploy/firewall/ufw-after.rules` (`br-fal-mon`), `deploy/backup.sh` (`backup.json`, the healthchecks.io ping).
 - Tests: `tests/nginx_check.sh` (the metrics log without addresses, `stub_status` not reachable from
   outside), `tests/test_deploy.py` (the monitoring project: ports on loopback only, hardening),
-  `.github/workflows/ci.yml` (`docker compose config` of the project, `telegraf --test` of the
-  configuration).
+  `.github/workflows/ci.yml` (`docker compose config` of the project; the stack on the runner,
+  with Telegraf installed as on the server since 2026-11-01).
 - docs/deployment.md: a section "15. Monitoring" (the tunnel, the ntfy topic, the healthchecks.io
   check); CLAUDE.md (the code map, "Things that must stay in sync" for the nginx log formats).
 
@@ -331,8 +334,8 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   (`grafana_plugins`: version and sha256 pinned) into `/var/lib/findaline-grafana-plugins`, mounted
   read-only as Grafana's plugins folder: Grafana fetches nothing itself (its preinstall option
   would add five default apps from grafana.com); a provisioned data source and the Logs dashboard.
-  VictoriaLogs joins `br-fal-mon` like VictoriaMetrics; it is distroless, so Telegraf's
-  healthcheck asks its `/health`.
+  VictoriaLogs joins `br-fal-mon` like VictoriaMetrics; it is distroless, so `vps.sh check` asks
+  its `/health` (Telegraf's healthcheck did while Telegraf was a container).
 - **Tests:** `tests/test_metrics.py` (the new names and labels, no personal ones), units of
   migration 14, the counting module and the coverage (shapes with known areas),
   `tests/test_monitoring.py` (the rules, the dashboards, the routing of Telegraf's outputs, the
@@ -390,6 +393,9 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   application knows its tables and exposes the numbers itself.
 - **Telegraf on a network of its own:** cut off from the host by `ufw-before.rules` (see
   "Architecture").
+- **Telegraf in a container** (until 2026-11-01): see "Decisions". Giving the container a user of
+  the host would have fixed D-Bus, but not the mount of the whole `/`, and the host agent would
+  still have needed the `/hostfs` paths.
 - **tecnativa/docker-socket-proxy:** opens whole sections of the API (`CONTAINERS=1` lets the
   containers' logs through too) and runs HAProxy as root in its container.
 - **UptimeRobot** (an HTTP check from the internet every 5 min): it does not see the backup, and its

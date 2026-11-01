@@ -1,13 +1,15 @@
-# Monitoring of the public site (docs/monitoring.md): Telegraf reads the host, the containers,
-# nginx and the facts files of the host's timers and writes to VictoriaMetrics, and the log lines
-# of web, worker and nginx's error log to VictoriaLogs; Grafana shows the dashboards VPS, Site,
-# Find-a-Line and Logs and sends its alerts to ntfy. A project of its own, so monitoring is
-# started, updated and stopped without touching the site (compose.yaml of the checkout's root).
+# Monitoring of the public site (docs/monitoring.md): Telegraf, on the host (InfluxData's package,
+# telegraf.conf and systemd/telegraf.service.d next to this file, installed by deploy/vps.sh),
+# reads the host, the containers, nginx and the facts files of the host's timers and writes to
+# VictoriaMetrics, and the log lines of web, worker and nginx's error log to VictoriaLogs; Grafana
+# shows the dashboards VPS, Site, Find-a-Line and Logs and sends its alerts to ntfy. A project of
+# its own, so monitoring is started, updated and stopped without touching the site (compose.yaml
+# of the checkout's root).
 #
 # deploy/vps.sh runs it from the checkout's root (docker compose -f deploy/monitoring/compose.yaml
-# pull, then up -d --wait); the project directory is this folder. Before that:
-# - .env next to this file (copy .env.example): DOCKER_GID and ADM_GID of the host;
-# - ../../findaline.env (the site's settings): Telegraf reads FINDALINE_PUBLIC_URL from it;
+# pull, then up -d --wait --remove-orphans); the project directory is this folder. Before that:
+# - .env next to this file (copy .env.example): DOCKER_GID of the host;
+# - ../../findaline.env (the site's settings): Grafana reads FINDALINE_PUBLIC_URL from it;
 # - ../../secrets/grafana_admin_password and ../../secrets/ntfy_url, readable by uid 472
 #   (Grafana's user); secrets/README.md;
 # - /var/lib/findaline-grafana-plugins: the logs data source plugin of Grafana, at the version and
@@ -15,7 +17,7 @@
 #
 # Nothing is reachable from outside: VictoriaMetrics, VictoriaLogs, Grafana and the socket proxy
 # publish their ports on the host's loopback only (Grafana is opened through an SSH tunnel, docs/deployment.md);
-# Telegraf runs in the host's network namespace and listens on nothing. Their network has a fixed
+# Telegraf listens on nothing. Their network has a fixed
 # bridge name, br-fal-mon, so the host's firewall keeps it away from private addresses and the
 # host like the site's networks (deploy/firewall/ufw-after.rules).
 
@@ -31,63 +33,11 @@ x-hardening: &hardening
     options: {max-size: "10m", max-file: "3"}
 
 services:
-  # The host through read-only mounts: /proc, /sys and the mount table of the host under /hostfs
-  # (HOST_* point gopsutil there, HOST_MOUNT_PREFIX is stripped from the disk paths), nginx's
-  # logs (group adm), systemd's units through the D-Bus socket and the facts files of the host's
-  # timers; the containers through the socket proxy, never the Docker socket itself (root on the
-  # host). In the host's network namespace, so it reaches the loopback ports (VictoriaMetrics,
-  # the proxy, nginx's stub_status) and the site's own address like a process of the host: on a
-  # network of its own, ufw-before.rules would cut it off from them.
-  telegraf:
-    <<: *hardening
-    image: telegraf:1.40.2@sha256:3992a56245a9477dfad5b98d9354d3ea7c1bced0aab6630ba49f23ac9a4d269e
-    network_mode: host
-    # The image's user telegraf (its entrypoint drops root itself only when started as root);
-    # the group adm reads nginx's logs (0640 www-data adm)
-    user: "999:999"
-    group_add: ["${ADM_GID:?ADM_GID missing: copy .env.example to .env}"]
-    mem_limit: 192m
-    memswap_limit: 192m
-    pids_limit: 128
-    env_file: [../../findaline.env]   # FINDALINE_PUBLIC_URL: the certificate and the site (C5, C6)
-    environment:
-      HOST_PROC: /hostfs/proc
-      HOST_SYS: /hostfs/sys
-      HOST_ETC: /hostfs/etc
-      HOST_VAR: /hostfs/var
-      HOST_RUN: /hostfs/run
-      HOST_DEV: /hostfs/dev
-      HOST_MOUNT_PREFIX: /hostfs
-    # Long syntax with create_host_path: false: a missing path fails the start instead of Docker
-    # creating an empty directory in its place (the D-Bus socket above all)
-    volumes:
-      - {type: bind, source: ./telegraf.conf, target: /etc/telegraf/telegraf.conf, read_only: true}
-      - type: bind
-        source: /
-        target: /hostfs
-        read_only: true
-        bind: {propagation: rslave, create_host_path: false}   # rslave: mounts made later appear too
-      - {type: bind, source: /var/log/nginx, target: /var/log/nginx, read_only: true,
-         bind: {create_host_path: false}}
-      - {type: bind, source: /run/dbus/system_bus_socket, target: /run/dbus/system_bus_socket,
-         read_only: true, bind: {create_host_path: false}}
-      - {type: bind, source: /var/lib/findaline-monitoring, target: /var/lib/findaline-monitoring,
-         read_only: true, bind: {create_host_path: false}}
-    # Healthy once its own samples of the last two minutes are in VictoriaMetrics: Telegraf has
-    # started with this configuration and its output works (it listens on nothing to ask). It
-    # also asks VictoriaLogs' /health, the logs' store, whose image has no tool to ask it itself
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf 'http://127.0.0.1:8428/api/v1/query?query=count_over_time(internal_agent_metrics_written%5B2m%5D)' | grep -q '\"value\"' && curl -sf http://127.0.0.1:9428/health > /dev/null"]
-      interval: 60s
-      timeout: 10s
-      start_period: 3m
-      start_interval: 10s
-      retries: 3
-    depends_on:
-      victoriametrics: {condition: service_healthy}
-      victorialogs: {condition: service_started}
-      socket-proxy: {condition: service_healthy}
-
+  # Telegraf is no service here: in a container it read the host through a mount of the whole /, and
+  # the host's D-Bus (systemd's units, D1) refused its uid, which has no user on the host. It runs
+  # on the host (docs/monitoring.md, "Decisions"), reads the containers through the socket
+  # proxy below, never the Docker socket itself (root on the host), and writes to the published
+  # loopback ports of VictoriaMetrics and VictoriaLogs.
   victoriametrics:
     <<: *hardening
     image: victoriametrics/victoria-metrics:v1.154.0@sha256:4bd592341587d669b7f57d54bbb82bd21ac8675f4e24234b7703a7c0f85197d8
@@ -117,7 +67,7 @@ services:
 
   # The log lines of web, worker and nginx's error log (Telegraf's second output), 30 days
   # (docs/monitoring.md, "The logs"). A distroless image: no shell, no wget, so no healthcheck of
-  # its own; Telegraf's healthcheck asks its /health (and vps.sh check). The volume is mounted on the image's home
+  # its own; vps.sh check asks its /health. The volume is mounted on the image's home
   # of its user nonroot (65532, mode 0700): a new volume takes that owner, so it can write there.
   victorialogs:
     <<: *hardening

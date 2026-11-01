@@ -267,8 +267,8 @@ def test_monitoring_units():
     failed units names the facts and heartbeat timers, docs/monitoring.md D1), the scripts by the
     checkout's path (@REPO@), the heartbeat as a throwaway user without capabilities."""
     names = sorted(os.path.basename(path) for path in glob.glob(os.path.join(DEPLOY, "monitoring", "systemd", "*")))
-    assert names == sorted(f"findaline-{name}.{kind}" for name in ("facts", "check", "heartbeat")
-                           for kind in ("service", "timer"))
+    assert names == sorted([f"findaline-{name}.{kind}" for name in ("facts", "check", "heartbeat")
+                            for kind in ("service", "timer")] + ["telegraf.service.d"])  # Telegraf's drop-in
     calendars = {"facts": "*:0/5", "check": "*-*-* 06:00", "heartbeat": "minutely"}
     for name, calendar in calendars.items():
         timer, service = _unit(f"findaline-{name}.timer"), _unit(f"findaline-{name}.service")
