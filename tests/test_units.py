@@ -322,6 +322,26 @@ def test_line_ok_matches_reference(model):
     assert min(decided.values()) > 100
 
 
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("buffer", [1, 3])
+def test_pair_buffer_overflow_matches_reference(model, buffer):
+    """linesearch.pair_chunk with a buffer of a few pairs per anchor: the anchors that found more
+    get the writing pass, and the counts and the pairs, in their order, are still those of the
+    frozen reference (ref_pairs), also with a tile's first mask and in one chunk of every anchor."""
+    import linesearch as ls
+    for first in (False, True):
+        plf, a = _reference_case(model, first, False, True)
+        head, tail, todo_all = plf.production_args(a, plf.production_directions(a))
+        overflowed = 0
+        for todo in plf.chunks_of(todo_all) + [todo_all]:
+            ref_counts, ref_out = plf.two_passes(plf.K.ref_pairs, a, todo)
+            counts, out = ls.pair_chunk(head, todo, tail, buffer=buffer)
+            assert np.array_equal(counts[:, 1:], ref_counts[:, 1:]) and np.array_equal(out, ref_out)
+            assert np.array_equal(counts, ls.pair_chunk(head, todo, tail)[0])
+            overflowed += int((counts[:, 2] > buffer).sum())
+        assert overflowed > 5 and len(ref_out) > 10
+
+
 def test_wall_angles():
     """The downslope direction of a slope and the angle of lines leaving it."""
     import helpers as sh

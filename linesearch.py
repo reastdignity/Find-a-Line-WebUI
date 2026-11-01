@@ -39,6 +39,10 @@ RING_CHUNK = 1 << 16  # anchors per call of _free_rings (only the rows of the op
 # in bit-reversal order (longer ones lose more to the jumps along the line than they gain)
 LINE_ORDER_SPLIT = 2 * RINGS + 1   # the rings screen about RINGS pixels at each end
 LINE_ORDER_MAX = 1024
+# pair_chunk: the pairs found by an anchor are held in a buffer of PAIR_BUFFER pairs per anchor of a
+# chunk (99.96 % of the anchors with lines on the searches measured), at most PAIR_BUFFER_BYTES a chunk
+PAIR_BUFFER = 1024
+PAIR_BUFFER_BYTES = 16 << 20
 
 
 @njit(cache=True)
@@ -268,7 +272,7 @@ def _isqrt(n):
 @njit(parallel=True, cache=True)
 def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells_x, res,
            min_length, max_length, max_dh_ratio, max_dh, d0, far2, kmax, down, cos_limit, strong,
-           use_sag, log_spans, ratios, table, fall_zone, first_only, offsets, out, counts):
+           use_sag, log_spans, ratios, table, fall_zone, first_only, offsets, out, buf, counts):
     """Partners of the anchors in todo that pass all tests: only partners with a higher index,
     or with first_only those for which the anchor is the first (smaller x, then y; a tile
     keeps the lines whose first anchor lies in its core). A pair is always checked and
@@ -288,9 +292,11 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells
     largest need of a pair): their need exceeds R. Those fail the rings' test, which comes
     after the candidates are counted, so they are not counted as candidates.
 
-    With offsets None, counts[q] = [candidate pairs, pairs checked, lines] for todo[q].
-    Otherwise the pairs are written to out from offsets[q] on.
+    counts[q] = [candidate pairs, pairs checked, lines] for todo[q]. With offsets None, the
+    first buf.shape[1] pairs of todo[q] are written to buf[q] (the count goes on past them);
+    otherwise all of them to out from offsets[q] on.
     """
+    keep = buf.shape[1]
     reach = int(max_length / res) // cell + 1
     cells_y = starts.size // cells_x
     for q in prange(todo.size):
@@ -368,6 +374,9 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells
                         if offsets is not None:
                             out[offsets[q] + found, 0] = a
                             out[offsets[q] + found, 1] = b
+                        elif found < keep:
+                            buf[q, found, 0] = a
+                            buf[q, found, 1] = b
                         found += 1
         counts[q, 0], counts[q, 1], counts[q, 2] = candidates, checked, found
 
@@ -399,19 +408,39 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful:
     return todo_all, head, tail
 
 
-def pair_chunk(args: tuple, todo: np.ndarray, tail: tuple):
-    """The pairs of the anchors in todo (_pairs' arguments before and after todo): a counting
-    pass over all of them, then a writing pass over those that found a line only, in the
-    order of todo. Returns the counts of the counting pass and the pairs."""
-    counts = np.zeros((len(todo), 3), dtype=np.int64)
-    _pairs(*args, todo, *tail, None, np.zeros((0, 2), dtype=np.int64), counts)
-    with_lines = counts[:, 2] > 0
-    found = counts[with_lines, 2]
+@njit(cache=True)
+def _copy_buffered(buf, found, offsets, out):
+    """The pairs of the anchors whose pairs all fit into buf (found[q] <= buf.shape[1]) to out
+    from offsets[q] on (on one thread: a few thousand pairs a chunk, less than starting threads)."""
+    keep = buf.shape[1]
+    for q in range(found.size):
+        if found[q] <= keep:
+            for k in range(found[q]):
+                out[offsets[q] + k, 0] = buf[q, k, 0]
+                out[offsets[q] + k, 1] = buf[q, k, 1]
+
+
+def pair_chunk(args: tuple, todo: np.ndarray, tail: tuple, buffer: Optional[int] = None):
+    """The pairs of the anchors in todo (_pairs' arguments before and after todo), in the order
+    of todo: one pass over all of them holding the first pairs of each anchor in a buffer
+    (buffer pairs per anchor; by default PAIR_BUFFER, fewer when the buffer would exceed
+    PAIR_BUFFER_BYTES), then a writing pass over the anchors that found more only. Returns the
+    counts and the pairs."""
+    n = len(todo)
+    index = np.int32 if len(args[1]) <= np.iinfo(np.int32).max else np.int64  # 8 B a pair
+    keep = buffer or max(1, min(PAIR_BUFFER, PAIR_BUFFER_BYTES // (2 * np.dtype(index).itemsize * max(1, n))))
+    buf = np.empty((n, keep, 2), dtype=index)
+    counts = np.zeros((n, 3), dtype=np.int64)
+    _pairs(*args, todo, *tail, None, np.zeros((0, 2), dtype=np.int64), buf, counts)
+    found = counts[:, 2]
+    offsets = (np.cumsum(found) - found).astype(np.int64)
     out = np.empty((int(found.sum()), 2), dtype=np.int64)
-    if len(found):
-        offsets = np.concatenate([[0], np.cumsum(found)[:-1]]).astype(np.int64)
-        _pairs(*args, np.ascontiguousarray(todo[with_lines]), *tail, offsets, out,
-               np.zeros((len(found), 3), dtype=np.int64))
+    if len(out):
+        _copy_buffered(buf, found, offsets, out)
+    more = np.flatnonzero(found > keep)
+    if len(more):
+        _pairs(*args, np.ascontiguousarray(todo[more]), *tail, np.ascontiguousarray(offsets[more]), out,
+               np.zeros((0, 0, 2), dtype=index), np.zeros((len(more), 3), dtype=np.int64))
     return counts, out
 
 
