@@ -132,6 +132,9 @@ def test_region_offline(tmp_path, monkeypatch, regional):
 
 
 def test_catalogue_regions(tmp_path, recorded):
-    """The catalogue's sources of regions: Lower Saxony's at the coast of East Frisia."""
+    """The catalogue's sources of regions: Lower Saxony's at the coast of East Frisia, Saxony-Anhalt's
+    on the Brocken."""
     assert (src.choose_source("auto", *AURICH, str(tmp_path))
             == (src.SOURCES["lower_saxony"], "the centre is in DE-NI"))
+    assert (src.choose_source("auto", *BROCKEN, str(tmp_path))
+            == (src.SOURCES["saxony_anhalt"], "the centre is in DE-ST"))

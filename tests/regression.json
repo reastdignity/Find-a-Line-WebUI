@@ -691,5 +691,33 @@
     },
     "notes": "--source auto picks lower_saxony (the centre is in DE-NI); first run on an empty cache: 9 tiles of 1 km per layer, about 5 MB each; the limestone wall above the forest: nearly every line crosses trees (over_trees)",
     "seconds": 13.8
+  },
+  "R29": {
+    "place": "Bode gorge between the Rosstrappe and the Hexentanzplatz, Saxony-Anhalt, Germany: LVermGeo's DGM1 and DOM1 1 m from its WCS (2 km tiles, multipart answers with bare LF lines)",
+    "args": "--lat 51.7340 --lon 11.0200 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 184946,
+      "open": 6190,
+      "checked": 146348,
+      "lines": 8524,
+      "spots": 318,
+      "csv_sha256": "615262e144a7189153039e0061dad6595254587fcb8c16c760837c0cd482500d",
+      "length_km": 2383.347,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.003,
+      "clearance_max": 8.26,
+      "over_trees": 8495,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "LVermGeo (DGM1 / DOM1)",
+      "filled_km2": 0.02,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "notes": "--source auto picks saxony_anhalt (the centre is in DE-ST); first run on an empty cache: 3 tiles of 2 km per layer, 16 MB each from the WCS (18 s); the 0.02 km² filled are the grid's corners outside the WCS tiles of the circle; nearly every line crosses the forest of the gorge (over_trees)",
+    "seconds": 18.4
   }
 }

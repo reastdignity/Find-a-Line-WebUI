@@ -1,10 +1,35 @@
-"""The German Länder: Lower Saxony (LGLN's DGM1 and DOM1 from STAC)."""
+"""The German Länder: Saxony-Anhalt (LVermGeo's DGM1 and DOM1 from WCS) and Lower Saxony (LGLN's DGM1
+and DOM1 from STAC)."""
 
 from typing import List
 
 from ..credit import CC_BY, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
+from ..layers.wcs import WcsTiles
+
+# LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
+# the provider named "© GeoBasis-DE / LVermGeo ST"
+LVERMGEO_ATTRIBUTION = "© GeoBasis-DE / LVermGeo ST"
+DL_DE_BY = ("dl-de/by-2.0", "https://www.govdata.de/dl-de/by-2-0")
+LVERMGEO_CREDIT = Credit("DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)", LVERMGEO_ATTRIBUTION, *DL_DE_BY)
+LVERMGEO_WCS = "https://geodatenportal.sachsen-anhalt.de/ows_INSPIRE_LVermGeo_ATKIS_EL_{}_WCS"
+# DOP20 of LVermGeo, its open-data WMS in EPSG:4326 (dl-de/by-2.0 like all its open data); no request
+# limits published
+LVERMGEO_DOP = OrthoService("DOP20 Sachsen-Anhalt (LVermGeo)",
+                            "https://www.geodatenportal.sachsen-anhalt.de/wss/service/ST_LVermGeo_DOP_WMS_OpenData/guest",
+                            "lsa_lvermgeo_dop20_2", "saxony_anhalt/ortho/live", LVERMGEO_ATTRIBUTION)
+
+
+def _lvermgeo(kind: str, description: str, zero_is_nodata: bool) -> WcsTiles:
+    """DGM1 or DOM1 of LVermGeo from its INSPIRE WCS (ArcGIS, coverage Coverage1 over the Land's
+    extent): GeoTIFF float32 without a CRS tag in a multipart answer, pixel edges on whole metres;
+    2 km tiles at the native 1 m (16 MB uncompressed, about 5 s; 3 km is refused with HTTP 400).
+    Inside the extent but outside the Land the DGM answers 0 without nodata, the DOM -9999."""
+    return WcsTiles(description, LVERMGEO_WCS.format(kind.upper()), "Coverage1", "EPSG:25832",
+                    f"saxony_anhalt/{kind}1/live", native_res=1.0, fetch_res=1.0, tile_px=2000,
+                    zero_is_nodata=zero_is_nodata)
+
 
 # LGLN's AGNB, no. 7.2: open data are credited "© GeoBasis-DE/LGLN <year of the download>", with
 # "Daten geändert" when the data were changed (a mosaic on our grid is); the year a run's tiles were
@@ -28,6 +53,18 @@ def _lgln(kind: str, description: str) -> StacTiles:
 
 
 SOURCES: List[Source] = [
+    # Before Lower Saxony: their offline boxes overlap in the Harz (the first holding a point wins)
+    Source(
+        id="saxony_anhalt", name="LVermGeo (DGM1 / DOM1)",
+        description="LVermGeo (Saxony-Anhalt, Germany): terrain and surface models 1 m from its WCS, "
+                    "ETRS89 / UTM 32N, DHHN2016",
+        nmt=_lvermgeo("dgm", "DGM1 (terrain)", True), nmpt=_lvermgeo("dom", "DOM1 (trees, buildings)", False),
+        countries=("de",), regions=("de-st",), crs="EPSG:25832", ortho=LVERMGEO_DOP,
+        credits=(LVERMGEO_CREDIT,),
+        listing=ReadmeRow("Saxony-Anhalt (DE)", "LVermGeo DGM1, 1 m (WCS)", "LVermGeo DOM1, 1 m (WCS)",
+                          "LVermGeo DOP20"),
+        offline=(("de-st", (50.94, 53.05, 10.56, 13.19)),), sample=(51.7340, 11.0200),
+        note=f"Data {LVERMGEO_ATTRIBUTION}, dl-de/by-2.0. The WCS names no survey years."),
     Source(
         id="lower_saxony", name="LGLN (DGM1 / DOM1)",
         description="LGLN (Lower Saxony, Germany): ALS terrain and surface models 1 m, newest survey per "
