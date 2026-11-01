@@ -374,9 +374,9 @@ PUBLIC_ROUTES = {"/", "/login/{provider}", "/auth/{provider}", "/logout", "/app"
                  "/runs/runs.js", "/s/runs.js", "/s/index.html", "/cache/{path:path}", "/privacy", "/about"}
 SESSION_SWEEP = 6 * 3600  # seconds between deletions of expired sessions (the web process, public site)
 SHARE_BYTES = 32  # the random part of a share link
-# Sources for administrators only on the public site: nasadem needs the server's OpenTopography key,
-# malta2012's licence is not settled (sources.MALTA_CREDITS)
-ADMIN_SOURCES = ("nasadem", "malta2012")
+# Sources for administrators only on the public site: nasadem needs the server's OpenTopography key, which
+# OpenTopography gives one user for their own use (malta2012 is CC BY 4.0 like malta: open to everyone)
+ADMIN_SOURCES = ("nasadem",)
 SSE_PER_USER = 3  # open event streams of one user (the public mode)
 SESSION_CHECK = 30  # seconds between checks of the session inside an open event stream (the public mode)
 # A refusal by a rate or a quota is one row of the audit log per user and kind in this many seconds;

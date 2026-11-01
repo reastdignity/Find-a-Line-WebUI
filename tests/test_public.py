@@ -927,8 +927,8 @@ def test_quota_race(tmp_path):
 
 
 def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monkeypatch):
-    """A user has the request limits, the quotas and the rates of the site, and no nasadem or
-    malta2012; a user without limits has none of them (the resource fields too) but no admin rights
+    """A user has the request limits, the quotas and the rates of the site, and no nasadem; a user
+    without limits has none of them (the resource fields too, malta2012 among the sources) but no admin rights
     and no other users' data; an administrator has everything; the server's safeguards (queue, free
     disk) refuse everyone. Refusals come before the worker is asked (it does not run here: 503)."""
     import jobs as jb
@@ -947,7 +947,7 @@ def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monke
     def sources(client):
         fields = fields_of(client)
         return "threads" in fields, {"nasadem", "malta2012"} & set(fields.get("source", {}).get("choices", []))
-    assert sources(a) == (False, set()) and sources(unlimited) == (True, set())
+    assert sources(a) == (False, set()) and sources(unlimited) == (True, {"malta2012"})
     assert sources(admin) == (True, {"nasadem", "malta2012"})
     # The downloads are the site's: a user's form has none of their fields, and a request with one is refused
     downloads = {"update", "source", "water", "shore_buffer", "fill_gaps", "coastline", "ortho", "ortho_detail"}
@@ -960,7 +960,7 @@ def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monke
     assert a.post("/api/jobs", json={"params": {**point, "threads": 2}}).status_code == 400
     assert a.post("/api/jobs", json={"params": {**point, "max_length": 5000}}).status_code == 400
     assert unlimited.post("/api/jobs", json={"params": {**point, "source": "nasadem"}}).status_code == 400
-    assert unlimited.post("/api/jobs", json={"params": {**point, "source": "malta2012"}}).status_code == 400
+    assert unlimited.post("/api/jobs", json={"params": {**point, "source": "malta2012"}}).status_code == 200
     big = unlimited.post("/api/jobs", json={"params": {**point, "threads": 2, "max_length": 5000,
                                                        "update": "stale", "coastline": "world"}})
     assert big.status_code == 200, big.text
@@ -2456,8 +2456,8 @@ def test_web_process_keeps_off_the_workers_files(tmp_path, settings, account_set
 def test_names_paths_and_profiles(run_people, clip_run, tmp_path, account_settings, capsys):
     """Display names lose control and bidi characters; the files of a run made from a local file name
     it, not its server path (run.json keeps the path for profiles); Redact takes a path after a
-    colon (review B, poc_redact); profiles of a demo run from nasadem or malta2012 are for
-    administrators (the server's OpenTopography key); the public worker warns without cgroup v2."""
+    colon (review B, poc_redact); profiles of a demo run from nasadem are for administrators (the
+    server's OpenTopography key); the public worker warns without cgroup v2."""
     import jobs as jb
     import runs as rn
     assert ac.clean_name("Ann‮A​ B ") == "AnnA B" and ac.clean_name("‮") is None
