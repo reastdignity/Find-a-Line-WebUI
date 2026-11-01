@@ -174,7 +174,7 @@ GDAL's HTTP in pyogrio takes our User-Agent as `/vsicurl/` does (`_gdal_http`).
    small window; run by hand before a release and weekly on the server; report moved or broken services.
 3. **Generated lists**: README's "Data sources" table and `--source` choices, the help of `--source` (without
    country names), `OFFLINE_BOXES`, from the catalogue; a test keeps README in step (like `viewer/dist`).
-4. **Regions**: `Source.regions` with ISO 3166-2 codes (Nominatim's reverse answer has `ISO3166-2-lvl4` at a finer
+4. **Regions** (done 2026-11-01: `Source.regions`, the region looked up at Nominatim zoom 8 only for countries with regional sources, answers recorded in `tests/data/recorded/nominatim/`): `Source.regions` with ISO 3166-2 codes (Nominatim's reverse answer has `ISO3166-2-lvl4` at a finer
    zoom than the 3 used now) and an optional outline instead of `bbox`; a region's source is preferred to its
    country's.
 5. **Neighbours across borders**: the national sources of the neighbours as fallbacks before FABDEM
