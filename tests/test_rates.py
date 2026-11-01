@@ -1,10 +1,11 @@
 """Per-host request rates (sources.net.rate_turn, HOST_RATES_OF) and slot caps (HOST_SLOTS_OF):
 the turns spread evenly over threads and processes, every attempt of the download code waits for
-one, a 429 or 503 backs off longer.
+one, a 429 or 503 backs off longer, and the probe asks a WCS as its reader does (version, keys).
 
 conftest.py empties HOST_RATES_OF for every other test module; here each test sets its own hosts
 and moves the bucket into tmp_path (net.RATES_DB)."""
 
+import contextlib
 import os
 import re
 import subprocess
@@ -16,8 +17,9 @@ import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
+import settings  # noqa: E402
 import sources as src  # noqa: E402
-from sources import net  # noqa: E402
+from sources import net, probe  # noqa: E402
 
 HOST = "rate.example"
 PER_MINUTE = 600  # one turn every 100 ms
@@ -181,3 +183,53 @@ def test_catalogue_hosts_named():
     for host in set(net.HOST_RATES_OF) | set(net.HOST_SLOTS_OF) - funet:
         assert re.search(rf"//{re.escape(host)}\b", text), host
     assert any(re.search(rf"//{re.escape(host)}\b", text) for host in funet)
+
+
+def _wcs_requests(monkeypatch, layer):
+    asked = []
+
+    def fake(url, params=None, headers=None):
+        asked.append(list(params))
+        request = dict(params)["REQUEST"]
+        return 200, "image/tiff" if request == "GetCoverage" else "text/xml", b"<CoverageDescription>"
+    monkeypatch.setattr(probe, "_http", fake)
+    assert probe._coverage("unused", layer, 56.0, 10.0) == (probe.OK, probe.OK)
+    return asked
+
+
+def test_probe_speaks_wcs_1_0_0_with_a_key(monkeypatch, tmp_path):
+    """A 1.0.0 service with a key (Denmark): DescribeCoverage and a 16 x 16 GetCoverage in 1.0.0, the key
+    in both; without the key the probe fails with the reader's message, nothing asked."""
+    layer = src.WcsTiles("DHM test", "https://wcs.example/dhm", "dhm_terraen", "EPSG:25832", "fake/dhm",
+                         native_res=0.4, tile_px=2000, fmt="GTiff", version="1.0.0",
+                         key_params=(("apikey", "datafordeler_api_key"),))
+    monkeypatch.setenv("DATAFORDELER_API_KEY", "test-key")
+    monkeypatch.setattr(probe, "host_slot", lambda cache_dir, url: contextlib.nullcontext())
+    describe, coverage = _wcs_requests(monkeypatch, layer)
+    assert describe == [("SERVICE", "WCS"), ("VERSION", "1.0.0"), ("REQUEST", "DescribeCoverage"),
+                        ("COVERAGE", "dhm_terraen"), ("apikey", "test-key")]
+    params = dict(coverage)
+    assert params["VERSION"] == "1.0.0" and params["COVERAGE"] == "dhm_terraen" and params["CRS"] == "EPSG:25832"
+    assert params["WIDTH"] == params["HEIGHT"] == "16" and params["FORMAT"] == "GTiff"
+    left, bottom, right, top = map(float, params["BBOX"].split(","))
+    assert right - left == pytest.approx(6.4) and top - bottom == pytest.approx(6.4)
+    assert params["apikey"] == "test-key" and "SUBSET" not in params
+    monkeypatch.delenv("DATAFORDELER_API_KEY")
+    monkeypatch.setattr(settings, "SECRETS_DIR", str(tmp_path))  # no Docker secret either
+    with pytest.raises(RuntimeError, match="needs a key"):
+        _wcs_requests(monkeypatch, layer)
+
+
+def test_probe_wcs_2_0_1_as_before(monkeypatch):
+    """A 2.0.1 service: the same requests the probe sent before it asked the reader."""
+    monkeypatch.setattr(probe, "host_slot", lambda cache_dir, url: contextlib.nullcontext())
+    layer = src.WcsTiles("WCS test", "https://wcs.example/wcs", "dtm", "EPSG:32633", "fake/wcs", native_res=1.0,
+                         fetch_res=2.0, axes=("E", "N"))
+    describe, coverage = _wcs_requests(monkeypatch, layer)
+    assert describe == [("SERVICE", "WCS"), ("VERSION", "2.0.1"), ("REQUEST", "DescribeCoverage"),
+                        ("COVERAGEID", "dtm")]
+    from rasterio.warp import transform as warp
+    (x,), (y,) = warp("EPSG:4326", "EPSG:32633", [10.0], [56.0])
+    assert coverage == [("SERVICE", "WCS"), ("VERSION", "2.0.1"), ("REQUEST", "GetCoverage"), ("COVERAGEID", "dtm"),
+                        ("FORMAT", "image/tiff"), ("SUBSET", f"E({x - 16:.3f},{x + 16:.3f})"),
+                        ("SUBSET", f"N({y - 16:.3f},{y + 16:.3f})"), ("SCALESIZE", "E(16),N(16)")]

@@ -191,22 +191,17 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
 
 
 def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[str, str]:
-    """DescribeCoverage, then a GetCoverage of 16 x 16 pixels at the point."""
-    status, _, body = _ask(cache_dir, layer.url, {"SERVICE": "WCS", "VERSION": "2.0.1", "REQUEST": "DescribeCoverage",
-                                                   "COVERAGEID": layer.coverage})
+    """DescribeCoverage, then a GetCoverage of 16 x 16 pixels at the point, as the layer's reader
+    asks them (its WCS version, its parameters and keys: WcsReader.describe_params, coverage_params)."""
+    status, _, body = _ask(cache_dir, layer.url, layer.reader.describe_params())
     if status != 200 or b"Exception" in body:
         raise RuntimeError(f"DescribeCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
     (x,), (y,) = warp("EPSG:4326", layer.crs, [lon], [lat])
     x, y = x - layer.shift[0], y - layer.shift[1]  # where the service puts the data
     res = layer.fetch_res or layer.native_res
     half = 8 * res
-    ax, ay = layer.axes
-    params = [("SERVICE", "WCS"), ("VERSION", "2.0.1"), ("REQUEST", "GetCoverage"), ("COVERAGEID", layer.coverage),
-              ("FORMAT", layer.fmt), ("SUBSET", f"{ax}({x - half:.3f},{x + half:.3f})"),
-              ("SUBSET", f"{ay}({y - half:.3f},{y + half:.3f})")]
-    if not math.isclose(res, layer.native_res):
-        params.append(("SCALESIZE", f"{ax}(16),{ay}(16)"))
-    status, kind, body = _ask(cache_dir, layer.url, params)
+    status, kind, body = _ask(cache_dir, layer.url, layer.reader.coverage_params(x - half, y - half, x + half,
+                                                                                y + half, res))
     if status != 200 or "xml" in kind.split(";")[0]:
         raise RuntimeError(f"GetCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
     return OK, OK
