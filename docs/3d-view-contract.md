@@ -1,0 +1,117 @@
+# 3D view: the contract of the waves
+
+The shared names and formats of the agents that build the 3D view of a line (plan: `docs/3d-view.md`,
+"Decisions"; the coordinator's plan file holds the waves). Every agent reads this first. Anything not settled here
+is asked of the coordinator, not decided alone. The coordinator updates this file between waves.
+
+## Branches and ownership
+- Integration branch `line-3d-view` (never `main`). Each agent works in its own worktree
+  `.claude/worktrees/l3d-w<N>-<name>` on branch `l3d-w<N>-<name>` made from `line-3d-view`; the coordinator merges.
+- Never edited by agents: `locales/en.json` (every text below is already there), `docs/3d-view*.md`, `CLAUDE.md`,
+  `tests/data/patch_zabi_kon.*`, `tests/data/make_patch_fixture.py`. Need a new text or a change here: report it.
+
+| Wave 1 agent | Owns |
+| --- | --- |
+| S1 server | `search.py` (`patch_of_line`), `jobs.py` (`quick_patch`, `QUICK`, the exemption in `Redact`), `web.py` (`/api/patch`, `/view3d`, `VIEW3D_HTML`, the per-path CSP and Cache-Control in `guard`, `RATE_NAMES`), `settings.py` (`patch_rate`), `README.md` (the limits row), `deploy/nginx/*` (the group), new `tests/test_patch.py`, and the needed rows in `tests/test_public.py`, `tests/test_web.py`, `tests/test_units.py`, `tests/test_deploy.py`, `tests/test_metrics.py`, `tests/test_monitoring.py`, `deploy/monitoring/*` where groups are listed |
+| V1 viewer | `viewer/package.json` and its lock, `viewer/build.mjs`, new `viewer/licences/`, new `viewer/src/view3d/`, the button in `viewer/src/result/view/ResultWorkspace.tsx`, `LineDetails.tsx` and `viewer/src/app/d/AppD.tsx`, `viewer/dist` (rebuilt), the Node tests in `tests/test_viewer.py` |
+
+## Names
+| What | Name |
+| --- | --- |
+| Page | `GET /view3d`, its hash `#run=<id>&line=<lat1>,<lon1>,<lat2>,<lon2>` (as `/api/profile`'s `line`, 7 decimals) |
+| Template | `web.VIEW3D_HTML`: `<div id="view3d" class="ui"></div>`, `/app/view3d.css`, `/app/view3d.js`, the favicon, `<meta name="findaline-user">` (as `APP_HTML`), `key_meta` (`findaline-esri-key`), `<meta name="findaline-3d-ring" content="on|off">` (off until wave 3), no token (the page only GETs) |
+| Bundle | esbuild entry `view3d: "src/view3d/main.ts"` → `dist/view3d.js` and `dist/view3d.css` |
+| Data | `GET /api/patch?run=<id>&line=<4 numbers>&step=<1|2>` with the request header `X-Findaline-Patch: 1` |
+| Quick kind | `patch` (`jobs.QUICK`), `search.patch_of_line` |
+| Rate | `Limits.patch_rate`, public default `"10/minute;120/hour"`, `web.RATE_NAMES` "patch", code `rate_patch` |
+| Ring switch (wave 3) | `FINDALINE_3D_RING` (`on`/`off`, default off) |
+| Phone level | `(pointer: coarse)` → phone; override `?level=phone` or `?level=full` before the hash |
+
+## `/api/patch`
+- **Checks**, in `/api/profile`'s order (`web.py` `/api/profile`): `run_access` (another user's run 404),
+  `current_user`, the header (403), four finite numbers (400 `patch_line`), on the public site the bounds of
+  `profile_problem` with the patch codes (`patch_outside`, `patch_admin_only` for `ADMIN_SOURCES`), the rate (429
+  `rate_patch`), then the quick lane. One quick task at a time per user (the page sends patch and profile one after
+  another).
+- **Grid**: the run's source, resolution, filling and water settings rebuilt from run.json as `profile_of_line`
+  does, surface model off; a square polygon (`SearchParams(geometry=...)`) centred on the line's middle, its corners
+  on the run's pixel edges (`Source.grid_origin`). Side in samples at step 1: `512·n + 1` with
+  `n = ceil(side_m / res / 512)`, `side_m = max(1536, length + 500)`; refused above `MAX_MEASURED_PX`
+  (`patch_too_large`, params `km`, `max`); another CRS than the run's: `patch_crs`; no finite height: `patch_no_data`;
+  relief above 3276.7 m: `patch_relief`. `step=2` takes every second sample of rows and columns, starting with the
+  first (`[::2, ::2]`).
+- **Answer** (200, `Content-Type: application/octet-stream`, `Cache-Control: no-store` as every `/api/*`):
+  `uint32 little-endian N` | `N bytes of UTF-8 JSON meta` | `the deflated heights`.
+- **Meta** (JSON object):
+
+  | Key | Value |
+  | --- | --- |
+  | `width`, `height` | samples in a row, rows |
+  | `step` | 1 or 2 |
+  | `res` | metres between samples (the run's resolution × step) |
+  | `crs` | the run's CRS as data.js writes it |
+  | `left`, `top` | the outer edges of the sampled grid in the run's CRS: sample (row i, column j) has its centre at `x = left + (j + 0.5)·res`, `y = top − (i + 0.5)·res` |
+  | `base_dm` | integer decimetres the values are relative to |
+  | `anchors` | `[{"x", "y", "h"}, {…}]`: the line's anchor pixels in grid metres (pixel centres, as data.js `x1…y2`) and the DEM's height there in metres (2 decimals, as `e1`/`e2`) |
+  | `affine` | `[a0, a1, a2, b0, b1, b2]`: `lon = a0 + a1·x + a2·y`, `lat = b0 + b1·x + b2·y` (x, y grid metres), least squares over a 5 × 5 lattice of the patch |
+  | `rigging`, `model` | the run's, as data.js |
+  | `ortho` | the run's `ortho` entry exactly as `mapping.save_map` writes it into data.js (`null` without one) |
+  | `attribution` | the run's data credits as data.js `attribution` |
+  | `sha256` | hex sha256 of the deflated heights |
+
+- **In the quick table** the answer is `{"meta": {...}, "heights": "<base64url, no padding>"}`; `Redact` must leave
+  the `heights` field alone (it masks secrets inside strings); the endpoint checks the sha256 before sending
+  (mismatch: 500 with code `patch_damaged`).
+
+## Body: the heights
+Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encode`, `decode_values`, `decode`),
+`tests/data/patch_zabi_kon.bin` and `.json` (513 × 513, the last 16 × 16 samples no data, `values_sha256`).
+- Values: `v = rint(h · 10) − base_dm` as int16 (decimetres above `base_dm = floor(min(h) · 10)`), `−32768` for no
+  data; heights back: `h = (v + base_dm) / 10` (error ≤ 0.05 m).
+- Row-major from the top row; within a row horizontal deltas `d[0] = v[0]`, `d[j] = v[j] − v[j−1]`, int16 wrapping;
+  little-endian; zlib format (RFC 1950: Python `zlib.compress`, the browser's `DecompressionStream("deflate")`).
+- Decoder in JS: `acc = 0; for each j: acc = ((acc + d[j]) << 16) >> 16; v[j] = acc` per row.
+- Equal means equal decoded values (`values_sha256`), not equal deflated bytes.
+
+## Geometry in the page
+- **Scene axes**: the local origin is the patch centre `(cx, cy)` in grid metres and the height `h0 = base_dm / 10`;
+  `X = x − cx` (east), `Y = h − h0` (up), `Z = −(y − cy)` (south). Keeps float32 exact to centimetres.
+- **Chunks**: the decoded grid is padded with no data to `512·k + 1` on both sides and meshed in chunks of 513 × 513
+  samples with one shared `Martini(513)` (vendored `@mapbox/martini` 0.2.0, ISC); no triangles over no data; skirts at
+  chunk edges; the anchors' and the line's footprint samples forced into the mesh (their errors set to `Infinity`
+  before `getMesh`).
+- **Webbing**: `geometry.ts` (pure, tested in Node): from the two anchors `(x, y, h)` and the meta's rigging,
+  `span = hypot(Δx, Δy)`, `dh = h1 − h2`; `sag.ts` `estimate(span, dh, rigging)`, `athlete(x)`; a point at distance
+  `s` along the span with drop `d` is `(x1 + Δx·s/span, y1 + Δy·s/span, h1 − d)`. The walker starts at the largest
+  sag of the envelope (`f`, `sag`).
+- **Lat/lon**: grid metres → lon/lat with the meta's affine; lon/lat → Web Mercator for texture UVs.
+
+## Texts (already in `locales/en.json`)
+`ui.view3d.open`, `.title`, `.back`, `.loading_terrain`, `.loading_imagery`, `.loading_profile`, `.error_title`,
+`.no_webgl`, `.context_lost`, `.reload`, `.imagery`, `.imagery_ortho`, `.imagery_esri`, `.imagery_shaded`,
+`.no_imagery`, `.walker`, `.walker_position`, `.walk`, `.stop`, `.speed`, `.speed_value` (`{{times}}`),
+`.reduced_motion`, `.length` (`{{m}}`), `.sag` (`{{m}}`), `.clearance` (`{{m}}`), `.over_trees`, `.edit_hint`,
+`.edited`, `.reset`, `.phone_level`, `.level_full`, `.credits`, `.preview_note`; errors `error.patch_line`,
+`patch_admin_only` (`{{source}}`), `patch_outside`, `patch_too_large` (`{{km}}`, `{{max}}`), `patch_crs`,
+`patch_no_data`, `patch_relief`, `patch_damaged`, `rate_patch`. The page renders them with `viewer/src/i18n.ts`
+`t`; server errors come as `{message, code, params}` (`api.ts` `ApiError`).
+
+## Budgets
+- Per open: about 1–1.5 MB of heights at 1.5 km and 1 m (desktop), a quarter at step 2; all data ≤ ~4 MB desktop,
+  ≤ ~1.5 MB phone.
+- Phone: ≤ 130k vertices, ≤ 18 MB of textures, `devicePixelRatio` ≤ 2; desktop: ≤ 300k vertices, ≤ 60 MB.
+- Code: `view3d.js` about 0.2 MB gzip (three.js and martini; 3DTilesRendererJS joins in wave 3).
+
+## How to work
+- Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
+  from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
+  `node node_modules/typescript/bin/tsc --noEmit` and `node build.mjs`.
+- Tests, builds and searches under the test lock, from your worktree:
+  `"C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe" "C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\tools\test_lock.py" run --owner <your branch> --timeout 1800 -- <command>`.
+  Anything that starts Edge (most of `tests/test_web.py`, `tests/test_public.py`, the shell tests) from PowerShell:
+  headless Edge prints nothing from Git Bash. Stop only test browsers (by their `--user-data-dir`).
+- Commits: English, the repository's style, ending with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`;
+  stored-data decisions stated (none expected). Never push, never touch `main`, never merge: the coordinator does.
+  `viewer/dist` is always rebuilt, never edited by hand.
+- Report at the end (at most ~400 words): what was built, the files, the tests run with their results, deviations
+  from this contract and open questions. Stop and report instead of deciding anything outside this contract.
