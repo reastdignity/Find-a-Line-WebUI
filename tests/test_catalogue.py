@@ -541,9 +541,9 @@ PATHS = [
     ("usgs10m", "nmt", (-1195, 375), "usa/3dep-13/live/n38w120/-1195_375.tif", (-1195, 375)),
     ("austria", "nmt", (4420, 2685), "austria/als-dtm/20250915/88_53/4420_2685.tif", (4420, 2685)),
     ("austria", "nmpt", (4420, 2685), "austria/als-dsm/20250915/88_53/4420_2685.tif", (4420, 2685)),
-    ("south_tyrol", "nmt", (2.5, 142, 1031), "italy/bz-dtm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25/142_1031.tif",
+    ("south_tyrol", "nmt", (2.5, 142, 1031), "italy/bz-dtm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25-e3/142_1031.tif",
      (2.5, 142, 1031)),
-    ("south_tyrol", "nmpt", (2.5, 142, 1030), "italy/bz-dsm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25/142_1030.tif",
+    ("south_tyrol", "nmpt", (2.5, 142, 1030), "italy/bz-dsm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25-e3/142_1030.tif",
      (2.5, 142, 1030)),
 ]
 

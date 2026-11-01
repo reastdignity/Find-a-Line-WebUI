@@ -18,6 +18,10 @@ BZ_CREDIT = Credit("DTM / DSM 2.5 m (Autonomous Province of Bolzano - South Tyro
 # The pixel centres of the 2.5 m grid are on multiples of 2.5 m (the coverage's edges at
 # 604998.75 / 5119998.75): tiles and the working grid have their edges 1.25 m from them
 BZ_ORIGIN = (1.25, 1.25)
+# At the province's border (Sassolungo, Sella) pixels up to 3 from no data are blended with zero
+# (1972.8 = 0.9 x 2192, or 229.7: false steps of up to 1270 m; 5% of the pixels 1-3 from the edge
+# with steps over 50 m, none 4 or more from it): they are dropped and filled from the fallback
+BZ_EDGE_PX = 3
 
 
 def _bz_layer(kind: str, description: str) -> WcsTiles:
@@ -26,7 +30,7 @@ def _bz_layer(kind: str, description: str) -> WcsTiles:
     # part inside (404 only for one wholly outside it)
     return WcsTiles(f"{description} South Tyrol", BZ_WCS, f"p_bz-Elevation__{kind}-2.5m", "EPSG:25832",
                     f"italy/bz-{'dtm' if kind == 'DigitalTerrainModel' else 'dsm'}/2.5m", native_res=2.5,
-                    fetch_res=2.5, axes=("E", "N"), origin=BZ_ORIGIN, bytes_per_px=2.5,
+                    fetch_res=2.5, axes=("E", "N"), origin=BZ_ORIGIN, bytes_per_px=2.5, edge_px=BZ_EDGE_PX,
                     params=(("GEOTIFF:COMPRESSION", "DEFLATE"),))
 
 
