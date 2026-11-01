@@ -21,7 +21,7 @@ clearances, so the results are exactly those of the plain pixel-by-pixel search.
 
 import math
 import time
-from typing import Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional
 
 import numba
 import numpy as np
@@ -672,7 +672,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      max_dh: float = np.inf, first: Optional[np.ndarray] = None,
                      high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
                      anchor_values: Optional[np.ndarray] = None, strong: Optional[np.ndarray] = None,
-                     stats: Optional[Dict[str, int]] = None) -> sh.LineTable:
+                     stats: Optional[Dict[str, int]] = None,
+                     check: Optional[Callable[[int], None]] = None) -> sh.LineTable:
     """Finds valid lines between anchors.
 
     Args:
@@ -696,6 +697,9 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         stats: Optional dict the counts of this call are added to (the funnel of the line search,
             jobs.FUNNEL_STEPS): anchors with an open direction, those pairs start from, candidate
             pairs, pairs checked pixel by pixel, pairs found, valid lines, lines left out by limits
+        check: Optional callable given the number of valid lines so far after each evaluated part
+            of the pairs found; it raises to stop the search (the limit of lines: search._lines),
+            after the "checking lines" bar is closed and the counts so far are added to stats
 
     Returns:
         Valid lines, longest first
@@ -751,7 +755,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                 stats[key] = stats.get(key, 0) + int(n)
 
     # Final decision and clearances, exactly as in the pixel-by-pixel search (evaluate_line), part
-    # by part from the chunks' pairs (each chunk released once evaluated)
+    # by part from the chunks' pairs (each chunk released once evaluated); check may stop it after a part
     parts, valid = [], 0
     progress.compute.start("checking lines", found, unit="line")
     if not found:
@@ -762,6 +766,13 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         valid += len(parts[-1])
         progress.compute.update(len(part), valid=valid)
         del part
+        if check is not None:
+            try:
+                check(valid)
+            except Exception:
+                progress.compute.finish(f"{valid} valid, stopped")
+                add_stats(valid)
+                raise
     valid_lines = join_tables(parts)
     del parts
     progress.compute.finish(f"{len(valid_lines)} valid")

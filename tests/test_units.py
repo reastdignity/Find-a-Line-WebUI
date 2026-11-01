@@ -417,6 +417,36 @@ def test_valid_lines_in_parts_as_before(model, case, monkeypatch):
         assert stats["found"] == found and stats["valid"] == len(old) and stats["left_out"] == old_limits.left_out
 
 
+def test_early_stop_of_the_evaluation(monkeypatch):
+    """find_valid_lines' check is called after every evaluated part with the valid lines so far; when
+    it raises, the evaluation stops there, the "checking lines" bar is closed and the counts so far
+    are in stats (the pair search ran to its end)."""
+    import linesearch as ls
+    from progress import progress
+    z, surface, anchors, _ = _canyon()
+    full = ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark")
+    monkeypatch.setattr(ls, "EVAL_PART", 100)  # parts of 100 pairs (the 200 chunks are smaller)
+    seen, states = [], []
+    progress.subscribe(states.append)
+
+    def check(valid):
+        seen.append(valid)
+        if valid > 1000:
+            raise ValueError("more than 1000 lines")
+    stats = {}
+    try:
+        with pytest.raises(ValueError, match="more than 1000"):
+            ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", stats=stats, check=check)
+    finally:
+        progress.unsubscribe(states.append)
+    assert len(full) > 2000 and seen == sorted(seen) and seen[-1] > 1000 >= seen[-2]
+    assert stats["valid"] == seen[-1] < len(full) and stats["found"] >= len(full)
+    last = [s for s in states if s["stage"] == "checking lines"][-1]
+    assert last["done"] and last["extra"]["note"] == f"{seen[-1]} valid, stopped"
+    assert ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", check=lambda n: None
+                               ).columns["length"].tolist() == full.columns["length"].tolist()
+
+
 def test_evaluation_parts():
     """The pairs of the chunks in parts of the size asked, in their order, each chunk released."""
     import linesearch as ls

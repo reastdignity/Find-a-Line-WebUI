@@ -786,7 +786,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
                                       sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
                                       p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
                                                                   p.min_high_share, p.max_wall_angle),
-                                      np.column_stack([prom, drop]), strong, stats=plan.funnel)
+                                      np.column_stack([prom, drop]), strong, stats=plan.funnel,
+                                      check=_early_check(plan, before, grid.width * grid.height))
     points = profile_points(valid_lines) if isinstance(plan.area, ar.Circle) else 0
     every_profile = 0 < points * PROFILE_POINT_BYTES <= CIRCLE_PROFILES_BYTES
     if points and not every_profile:
@@ -854,6 +855,32 @@ def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
         raise SearchError(f"{count} lines, at most {fits} fit into the memory of this site: a higher --min-prominence "
                           f"(or --min-height, --min-drop), a coarser --resolution or a smaller area",
                           "too_many_lines_memory", n=count, max=fits)
+
+
+def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int], None]]:
+    """The check find_valid_lines makes after each part of the pairs it evaluates (F7, with
+    Limits.lines_early_stop): the valid lines so far and those of the tiles done already against
+    lines_max, and against the memory with grids of this many pixels but no profiles (a lower
+    bound of what _check_lines asks for these lines, so it refuses only what that would refuse).
+    None without limits or with the switch off: _check_lines decides on the exact count."""
+    limits = plan.limits
+    if not limits or not limits.lines_early_stop or (not limits.lines_max and plan.memory is None):
+        return None
+
+    def check(count: int):
+        total = before + count
+        if limits.lines_max and total > limits.lines_max:
+            raise SearchError(f"more than {limits.lines_max} lines (the search stopped at {total}), at most "
+                              f"{limits.lines_max} on this site: a higher --min-prominence (or --min-height, "
+                              f"--min-drop), a coarser --resolution or a smaller area", "too_many_lines_early",
+                              n=total, max=limits.lines_max)
+        if plan.memory is not None and memory_needed(pixels, total) > plan.memory:
+            fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES))
+            raise SearchError(f"more than {fits} lines (the search stopped at {total}), at most {fits} fit into the "
+                              f"memory of this site: a higher --min-prominence (or --min-height, --min-drop), a "
+                              f"coarser --resolution or a smaller area", "too_many_lines_memory_early",
+                              n=total, max=fits)
+    return check
 
 
 def _run_name(plan: Plan) -> str:
