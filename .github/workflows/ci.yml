@@ -251,7 +251,7 @@ jobs:
           done
 
       # A line of nginx's error log with a client address: in VictoriaLogs (Telegraf flushes every
-      # 30 s), masked (its JSON writes < as <); then the same line through Grafana in the live test
+      # 30 s), masked (its JSON writes < as \u003c); then the same line through Grafana in the live test
       - name: Logs
         run: |
           echo "$(date '+%Y/%m/%d %H:%M:%S') [error] 812#812: *1 ci-log-line upstream timed out, client: 203.0.113.7, server: findaline.example.org" \
@@ -262,7 +262,7 @@ jobs:
             sleep 5
           done
           echo "$out"
-          echo "$out" | grep -qF 'client: <address>' && ! echo "$out" | grep -q 203.0.113.7
+          echo "$out" | grep -qF 'client: \u003caddress>' && ! echo "$out" | grep -q 203.0.113.7
 
       # Grafana's API with the admin's password: health, the data sources and the plugin, the
       # dashboards, every rule, the contact points, every query of the rules and panels, the line
