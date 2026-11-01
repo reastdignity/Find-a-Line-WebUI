@@ -44,9 +44,9 @@ NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse"
 OVERPASS_WAIT_S = 600  # how long a query waits for the one of another process (each query takes up to 120 s)
 # Queries per UTC day per data folder, all processes together (FINDALINE_OVERPASS_DAY_MAX replaces it).
 # The OSM wiki's Overpass page (https://wiki.openstreetmap.org/wiki/Overpass_API, 2026-11-01) asks
-# regular use to stay below 100 queries a day, summed over all users of an application; half of it
-# leaves room for a mistake. Cached theme tiles and tiles built from the extracts never count.
-OVERPASS_DAY_MAX = 50
+# regular use to stay below 100 queries a day, summed over all users of an application; 75, the user's choice
+# (2026-11-01), stays below it with a margin. Cached theme tiles and tiles built from the extracts never count.
+OVERPASS_DAY_MAX = 75
 # After a 429 (too many requests) or a 406 (refused) the server is left alone at least this long
 # (the wiki: wait before trying again), or as long as its Retry-After asks, up to OVERPASS_PAUSE_MAX_S
 OVERPASS_PAUSE_S = 30

@@ -285,7 +285,7 @@ def test_overpass_daily_cap(tmp_path, monkeypatch):
 
     import osm
     import search
-    assert osm.overpass_day_max() == osm.OVERPASS_DAY_MAX == 50
+    assert osm.overpass_day_max() == osm.OVERPASS_DAY_MAX == 75
     monkeypatch.setenv("FINDALINE_OVERPASS_DAY_MAX", "2")
     cache_dir = str(tmp_path)
     with _fake_server(b'{"elements": []}') as (url, served):

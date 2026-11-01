@@ -515,7 +515,7 @@ http://127.0.0.1:8765/` says `200`. Open `https://findaline.example.org/`: the s
 in as the administrator: the *Admin* tab shows the worker, the free disk and the queue.
 
 **The OpenStreetMap data.** The public Overpass server asks an application to stay below 100
-queries a day, summed over all its users (the OSM wiki, *Overpass API*); the app sends at most 50
+queries a day, summed over all its users (the OSM wiki, *Overpass API*); the app sends at most 75
 a UTC day per data folder (`osm.OVERPASS_DAY_MAX`, `FINDALINE_OVERPASS_DAY_MAX` in
 `findaline.env` changes it), and over that a search near the sea takes the Copernicus water mask
 and a coast or cliffs area is refused until the next day. So the site keeps the data that make
