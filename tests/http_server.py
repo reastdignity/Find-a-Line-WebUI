@@ -1,6 +1,7 @@
 """A local HTTP server for the tests of the download code: static answers, recorded answers
 (cassettes of tools/record_answers.py) and handlers, with HTTP range requests as GDAL's
-/vsicurl/ sends them (one range, several in one request, beyond the end), and a log of
+/vsicurl/ sends them (one range, several in one request, beyond the end), faults of range
+answers on request (`fault`: cut short, or the connection closed without one), and a log of
 every request (its User-Agent, the requests nothing answered).
 
 Standard library only (http.server in a thread on a free port), so requests, GDAL and
@@ -79,6 +80,8 @@ class HttpServer:
         self.answers: Dict[Key, Answer] = {}
         self.routes: List[Tuple[str, Callable[[Request], Optional[Answer]]]] = []
         self.log: List[Request] = []
+        self.faults: Dict[str, Tuple[str, Callable[[int, str], bool]]] = {}
+        self._ranges_asked: Dict[str, int] = {}
         self._lock = threading.Lock()
         server = self
 
@@ -144,6 +147,28 @@ class HttpServer:
         """A handler of the paths starting with prefix (None from it: not found)."""
         self.routes.append((prefix, handler))
 
+    # Faults
+
+    FAULTS = ("truncate", "close")
+
+    def fault(self, path: str, kind: str, when: Callable[[int, str], bool]):
+        """Break range answers (206) to path: `when(n, range)` of the n-th range request to path
+        (from 1) and its Range header decides. `truncate`: the headers of the whole answer, half
+        of its body, then the connection closed (curl: "end of response with ... bytes
+        missing"); `close`: the connection closed without an answer (curl: "Empty reply from
+        server", no HTTP status)."""
+        if kind not in self.FAULTS:
+            raise ValueError(kind)
+        self.faults[path] = (kind, when)
+
+    def _fault_of(self, request: Request) -> Optional[str]:
+        if request.path not in self.faults or "range" not in request.headers:
+            return None
+        kind, when = self.faults[request.path]
+        with self._lock:
+            self._ranges_asked[request.path] = n = self._ranges_asked.get(request.path, 0) + 1
+        return kind if when(n, request.headers["range"]) else None
+
     # The log
 
     def requests(self, path_prefix: str = "") -> List[Request]:
@@ -200,10 +225,19 @@ class HttpServer:
                                  + body[first:last + 1] + b"\r\n")
                 status, body = 206, b"".join(parts) + f"--{self.BOUNDARY}--\r\n".encode()
                 headers["Content-Type"] = f"multipart/byteranges; boundary={self.BOUNDARY}"
+        fault = self._fault_of(request) if status == 206 else None
+        if fault == "close":
+            handler.close_connection = True
+            return
         handler.send_response(status)
         for name, value in headers.items():
             handler.send_header(name, value)
         handler.send_header("Content-Length", str(len(body)))
         handler.end_headers()
+        if fault == "truncate":
+            handler.wfile.write(body[:len(body) // 2])
+            handler.wfile.flush()
+            handler.close_connection = True
+            return
         if not head:
             handler.wfile.write(body)
