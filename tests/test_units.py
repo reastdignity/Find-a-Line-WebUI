@@ -769,12 +769,14 @@ def test_viewer_keys_in_catalogue():
 
 def _error_codes() -> dict:
     """The codes of the coded errors and notes of the server's modules (messages.UserError, Note,
-    ServiceError, search.SearchError, jobs.QuotaExceeded): {code: "file:line"}, read from the source."""
+    ServiceError, search.SearchError, jobs.QuotaExceeded, osm.OverpassDayMax): {code: "file:line"}, read
+    from the source."""
     import ast
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     kinds = {"rate_": ["estimate", "profile", "place", "report", "time_zone", "job"],  # web.RATE_NAMES
              "quota_use_": ["km2", "nominatim", "download_mb"]}           # jobs.USAGE
-    position = {"UserError": 1, "SearchError": 1, "Note": 1, "ServiceError": 1, "QuotaExceeded": 2}
+    position = {"UserError": 1, "SearchError": 1, "Note": 1, "ServiceError": 1, "QuotaExceeded": 2,
+                "OverpassDayMax": 1}
 
     def literals(node) -> list:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
@@ -825,7 +827,8 @@ def test_error_codes_in_catalogue():
     texts = messages.catalogue()
     codes = _error_codes()
     assert {"lat_lon_range", "at_most", "too_many_lines", "quota_use_km2", "coast_pieces_left_out", "rate_job",
-            "no_worker", "opentopo_key", "not_a_number", "download_failed", "no_source"} <= set(codes), sorted(codes)
+            "no_worker", "opentopo_key", "not_a_number", "download_failed", "no_source",
+            "overpass_day_max"} <= set(codes), sorted(codes)
     missing = [f"{c} ({w})" for c, w in codes.items()
                if not {f"error.{c}", f"error.{c}_one", f"error.{c}_other"} & set(texts)]
     assert not missing, missing

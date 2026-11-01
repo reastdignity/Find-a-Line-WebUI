@@ -4,9 +4,10 @@ the elevation data has none (see sources.fill_water).
 
 Three ways to get it (--coastline):
 - overpass:   OpenStreetMap coastline for the search area from the Overpass API
-              (small, cached in 0.25° tiles, see osm.py). If Overpass does not answer, the Copernicus water
-              body mask is used instead, with a warning about its accuracy. If the
-              world file (below) has been downloaded, it is used instead of Overpass.
+              (small, cached in 0.25° tiles, see osm.py). If Overpass does not answer, or the queries of
+              the day are used up (osm.OVERPASS_DAY_MAX), the Copernicus water body mask is used
+              instead, with a warning about its accuracy. If the world file (below) has been
+              downloaded, it is used instead of Overpass.
 - world:      OpenStreetMap water polygons of the whole world (osmdata.openstreetmap.de,
               about 900 MB zipped), downloaded once into cache/osm/water-polygons/<date>/.
 - copernicus: the Copernicus water body mask (30 m). Measured at the Maltese

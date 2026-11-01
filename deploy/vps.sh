@@ -9,13 +9,14 @@
 # setup: packages and Docker (section 1), SSH with a key only and the firewall (2), the DNS check
 # (3), nginx and the certificate (4), fail2ban (5), automatic security updates (6), the settings
 # and secrets (8: asks for the sign-in apps' values of section 7 when run in a terminal), the
-# start (9), the daily backup when /etc/findaline-backup.env exists (11), the monitoring (15: asks
+# start and the OpenStreetMap data (9), the daily backup when /etc/findaline-backup.env exists (11), the monitoring (15: asks
 # for the healthchecks.io ping URLs and the ntfy topic when run in a terminal), then check. Every
 # step looks at what is there first, so setup can run again: after a stop (it says what is missing,
 # e.g. DNS not pointing here yet), or to apply changed options.
 # update: the CI of the new commits (GitHub's check runs), git pull, the files of deploy/ again
 # where they changed (nginx reloaded, fail2ban restarted, ufw reloaded), the image built again and
-# the services restarted (section 13), then the monitoring's timers and containers (15).
+# the services restarted (section 13), the OpenStreetMap data not there yet (9), then the
+# monitoring's timers and containers (15).
 # check: the checks of sections 2, 12 and 15 that can run on the server.
 #
 # Options:
@@ -632,6 +633,39 @@ start() {
     compose ps
 }
 
+# The Geofabrik extracts osm_data leaves out (docs/deployment.md, section 9): the US (12 GB; the
+# features of its themes, Alaska's long coastline, would be loaded by every search process that
+# builds a theme tile there, and its sea comes from the world file anyway)
+OSM_EXTRACTS_SKIP=(us)
+
+osm_data() {
+    step "OpenStreetMap data (section 9)"
+    # The world's water polygons: the sea of every search without Overpass (coast.world_polygons
+    # downloads them once, about 900 MB)
+    compose exec -T worker python -c 'import coast; print(coast.world_polygons("/data/cache"))' >/dev/null \
+        || { todo "the OSM water polygons could not be downloaded: sudo $DEPLOY/vps.sh update, later"; return; }
+    note "the OSM water polygons (world): there"
+    # The extracts of the catalogue's countries and regions (osm.catalogue_extracts), those not there yet
+    local wanted have region missing=()
+    wanted=$(compose exec -T worker python -c 'import osm; print(*osm.catalogue_extracts("/data/cache")[0])') \
+        || { todo "the list of OSM extracts could not be read (Geofabrik's index): sudo $DEPLOY/vps.sh update, later"; return; }
+    have=$(compose exec -T worker python -c 'import osmextract; print(*[r for r, _ in osmextract.extracts("/data/cache")])') || have=
+    for region in $wanted; do
+        [[ " ${OSM_EXTRACTS_SKIP[*]} " == *" $region "* ]] && continue
+        [[ " $have " == *" $region "* ]] && continue
+        missing+=("$region")
+    done
+    if [ "${#missing[@]}" -eq 0 ]; then
+        note "the OSM extracts of the catalogue: there ($have)"
+        return
+    fi
+    note "downloading the OSM extracts ${missing[*]} (about 10 GB at the first setup, minutes each)"
+    for region in "${missing[@]}"; do
+        compose exec -T worker python findaline.py osm download "$region" \
+            || todo "the OSM extract $region could not be downloaded: sudo $DEPLOY/vps.sh update, later"
+    done
+}
+
 backups() {
     step "Backups (section 11)"
     local env=/etc/findaline-backup.env
@@ -1052,6 +1086,7 @@ update() {
 
     start
     compose logs --tail 20
+    osm_data
     monitoring
     local item
     for item in "${TODO[@]}"; do note "- $item"; done
@@ -1081,6 +1116,7 @@ setup() {
     settings
     if [ "$SETTINGS_READY" = 1 ]; then
         start
+        osm_data
         backups
         monitoring ask
         check || todo "some checks failed (above)"
