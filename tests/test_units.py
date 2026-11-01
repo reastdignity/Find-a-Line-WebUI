@@ -1475,3 +1475,20 @@ def test_join_of_tiles_as_concat(tmp_path):
             assert new.columns[name].dtype == column.dtype and new.columns[name].shape == column.shape, name
             assert np.array_equal(new.columns[name], column, equal_nan=column.dtype.kind == "f"), name
         assert all(t.columns == {} and t.profiles == {} for t in tables)
+
+
+def test_tiles_without_pixels(tmp_path):
+    """search._lines ends without the pixel columns; a tile file of before (with them) and a tile
+    without anchors (LineTable.empty) lose them on loading, so tiles of both kinds join."""
+    import helpers as sh
+    import search
+    old, new = _fake_lines(5), _fake_lines(4).without_pixels()
+    assert "a1" not in new.columns and "a2" not in new.columns and len(new) == 4
+    assert new.row(0)["anchor1"] == old.row(0)["anchor1"]
+    paths = [str(tmp_path / search.TILE_FILE.format(k)) for k in range(3)]
+    for path, table in zip(paths, (old, sh.LineTable.empty(), new)):
+        search._save_tile(path, table)
+    joined = sh.LineTable.join([search._load_tile(path).without_pixels() for path in paths])
+    expected = sh.LineTable.concat([_fake_lines(5).without_pixels(), _fake_lines(4).without_pixels()])
+    assert list(joined.columns) == list(expected.columns) and joined.profiles == expected.profiles
+    assert all(np.array_equal(joined.columns[k], expected.columns[k], equal_nan=True) for k in expected.columns)

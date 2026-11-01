@@ -815,7 +815,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
                              on_part=progress.compute.update)  # helpers.line_profile of each, in parallel
     results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
     progress.compute.finish()
-    return results, groups
+    del a1, a2
+    return results.without_pixels(), groups  # nothing reads the pixels from here on
 
 
 def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
@@ -995,7 +996,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             _save_tile(path, found)
             del found
         progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
-        tables.append(_load_tile(path))
+        tables.append(_load_tile(path).without_pixels())  # tile files of before, tiles without anchors
         count += len(tables[-1])
         _check_lines(plan, count)
     if not count:

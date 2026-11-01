@@ -41,6 +41,7 @@ class Line(NamedTuple):
 
 # The values of a line in a LineTable: Line's fields after the anchors, float64 each
 LINE_VALUES = Line._fields[2:]
+PIXEL_COLUMNS = ("a1", "a2")  # the anchors' pixels in a LineTable (LineTable.without_pixels)
 
 
 @dataclass
@@ -108,19 +109,26 @@ class LineTable:
     """Lines as numpy columns, one row per line: a few hundred bytes per line where a Line and
     the dict of its coordinates took about 2.5 KB (docs/performance.md).
 
-    columns: "a1", "a2" ([row, col], int64, n x 2), the LINE_VALUES (float64; clearance_nmpt NaN
-    when the surface was not measured there), and after mapping.coordify "anchor1", "anchor2"
-    ([lat, lon]), "a1_xy", "a2_xy" ([easting, northing] in the grid CRS), "over_obstacles"
-    (bool), "water_m", "filled_m". profiles: the profile of a row, only for the rows that have
-    one: a Profile of a batch (lineprofiles.line_profiles) or the dict of line_profile
-    (profile_dict gives either as that dict). row(k) gives a line as the dict the rest of the
-    code knew.
+    columns: "a1", "a2" ([row, col], int64, n x 2: pixels of the grid searched, until the end of
+    step 4: without_pixels), the LINE_VALUES (float64; clearance_nmpt NaN when the surface was
+    not measured there), and after mapping.coordify "anchor1", "anchor2" ([lat, lon]), "a1_xy",
+    "a2_xy" ([easting, northing] in the grid CRS), "over_obstacles" (bool), "water_m",
+    "filled_m". profiles: the profile of a row, only for the rows that have one: a Profile of a
+    batch (lineprofiles.line_profiles) or the dict of line_profile (profile_dict gives either as
+    that dict). row(k) gives a line as the dict the rest of the code knew.
     """
     columns: Dict[str, np.ndarray]
     profiles: Dict[int, object] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(next(iter(self.columns.values())))
+
+    def without_pixels(self) -> "LineTable":
+        """The table without "a1" and "a2" (in place; returns self): after the profiles of step 4
+        nothing reads them, and those of a tile are pixels of its own grid (32 B per line)."""
+        for name in PIXEL_COLUMNS:
+            self.columns.pop(name, None)
+        return self
 
     @classmethod
     def from_rows(cls, rows: List[Dict]) -> "LineTable":

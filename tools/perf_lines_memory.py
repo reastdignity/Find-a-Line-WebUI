@@ -162,6 +162,9 @@ def measure_call(folder, out):
         batch = lp.line_profiles(a1[wanted], a2[wanted], z, res, args["surface"], sag_table=args["sag_table"],
                                  water=water)
         results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
+        del a1, a2, batch
+        if hasattr(results, "without_pixels"):  # as search._lines ends
+            results.without_pixels()
 
     # Warm-up: the numba code of every step on a few thousand anchors
     small = dict(args, anchors=args["anchors"][:3000])
@@ -229,6 +232,8 @@ def measure_tiles(args):
                 table = _Unpickler(f).load()
             tables.append(sh.LineTable(table.columns, table.profiles))
             del table
+            if hasattr(tables[-1], "without_pixels"):  # as search_lines loads a tile
+                tables[-1].without_pixels()
         joining.mark("tiles held")
         joined = (sh.LineTable.join if hasattr(sh.LineTable, "join") else sh.LineTable.concat)(tables)
         joining.mark("join peak", peak=True)
@@ -279,6 +284,8 @@ def measure_tiles(args):
         found.columns["filled_m"] = np.zeros(n)
         groups = mp.group_lines(found, 20, "clearance")
         found.profiles = {k: some_profile for k in groups.rep.tolist()}
+        if hasattr(found, "without_pixels"):  # as search._lines ends
+            found.without_pixels()
     marks.mark("step 4 peak", peak=True)
     del lines
     marks.mark("held")
