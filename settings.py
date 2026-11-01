@@ -20,14 +20,17 @@ Settings and limits of the web app, from environment variables (pydantic-setting
   _SECRET, FINDALINE_ADMINS, FINDALINE_SIGNUP, FINDALINE_ACCOUNTS_DIR; secrets from the same
   Docker secrets folder (file names as the variables, in any case). A provider without its
   client id and secret is not offered.
-- ServiceKeys: API keys of data services (OPENTOPOGRAPHY_API_KEY), from the environment or a
-  Docker secret of the same name; params.SearchParams.opentopo_key defaults to it.
+- ServiceKeys: keys, tokens and accounts of data services (OPENTOPOGRAPHY_API_KEY,
+  DATAFORDELER_API_KEY, ...), from the environment or a Docker secret of the same name, read when
+  needed (service_key); params.SearchParams.opentopo_key defaults to the OpenTopography key. A
+  layer naming keys it needs is unavailable without them (sources.Layer.keys); redact masks their
+  values in messages.
 """
 
 import ipaddress
 import os
 from typing import Dict, List, Literal, Optional, Tuple
-from urllib.parse import urlsplit
+from urllib.parse import quote, quote_plus, urlsplit
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -392,13 +395,23 @@ class AccountSettings(BaseSettings):
 
 
 class ServiceKeys(BaseSettings):
-    """API keys of data services: from the environment or a Docker secret of the same name in
-    lower case (/run/secrets/opentopography_api_key; compose gives it to the worker only). The
-    environment wins over the secret, as for the other settings."""
+    """Keys, tokens and accounts of data services: from the environment (the field's name in upper
+    case, e.g. DATAFORDELER_API_KEY) or a Docker secret of the same name in lower case
+    (/run/secrets/datafordeler_api_key; compose gives them to the worker only). The environment
+    wins over the secret, as for the other settings; an empty value means none. Read when a layer
+    needs one (service_key), never kept: the web process imports the catalogue too and holds none."""
     model_config = SettingsConfigDict(extra="ignore")
 
     opentopography_api_key: Optional[SecretStr] = Field(
         None, description="OpenTopography API key for --source nasadem (OPENTOPOGRAPHY_API_KEY)")
+    datafordeler_api_key: Optional[SecretStr] = Field(
+        None, description="Datafordeler API key for --source denmark (DATAFORDELER_API_KEY)")
+    lantmateriet_user: Optional[SecretStr] = Field(
+        None, description="Lantmäteriet account for --source sweden (LANTMATERIET_USER)")
+    lantmateriet_password: Optional[SecretStr] = Field(
+        None, description="Lantmäteriet account's password for --source sweden (LANTMATERIET_PASSWORD)")
+    nls_api_key: Optional[SecretStr] = Field(
+        None, description="NLS (Maanmittauslaitos) API key for Finland's orthophoto (NLS_API_KEY)")
 
     @classmethod
     def load(cls, secrets_dir: Optional[str] = None) -> "ServiceKeys":
@@ -406,10 +419,58 @@ class ServiceKeys(BaseSettings):
         return cls(_secrets_dir=secrets_dir if os.path.isdir(secrets_dir) else None)
 
 
+SECRET_MASK = "***"
+_handed_out: set = set()  # the values service_key gave in this process, for redact; never written anywhere
+
+
+def service_key(name: str, secrets_dir: Optional[str] = None) -> Optional[str]:
+    """A key of ServiceKeys (its field name) from the environment or its Docker secret, read now;
+    None when not set or empty. KeyError for a name that is no field."""
+    if name not in ServiceKeys.model_fields:
+        raise KeyError(f"no such service key: {name}")
+    key = getattr(ServiceKeys.load(secrets_dir), name)
+    value = (key.get_secret_value().strip() or None) if key else None
+    if value:
+        _handed_out.add(value)
+    return value
+
+
+def key_setting(name: str) -> str:
+    """Where a key is set, for messages: the environment variable and the Docker secret."""
+    return f"{name.upper()} (or the Docker secret {name})"
+
+
+def missing_keys(names) -> Optional[str]:
+    """What is missing of the keys names (field names of ServiceKeys), or None when all are set."""
+    missing = [n for n in names if not service_key(n)]
+    if not missing:
+        return None
+    return "not set: " + ", ".join(key_setting(n) for n in missing)
+
+
 def opentopography_key(secrets_dir: Optional[str] = None) -> Optional[str]:
     """The OpenTopography API key (environment or Docker secret); None when not set or empty."""
-    key = ServiceKeys.load(secrets_dir).opentopography_api_key
-    return (key.get_secret_value().strip() or None) if key else None
+    return service_key("opentopography_api_key", secrets_dir)
+
+
+def redact(text: str) -> str:
+    """text with the values of the service keys (those set now, and those service_key gave in this
+    process) replaced by SECRET_MASK, also URL-encoded: for every message that could name a request
+    with a key in its query (requests' errors, a server echoing it), so a key never reaches an
+    error, the cache's index, a job's events or a log. Values shorter than 4 characters are left
+    alone (they would mask ordinary text and protect nothing)."""
+    if not text:
+        return text
+    values = set(_handed_out)
+    try:
+        keys = ServiceKeys.load()
+        values |= {v.get_secret_value().strip() for v in (getattr(keys, n) for n in ServiceKeys.model_fields) if v}
+    except Exception:  # a broken secret file must not hide the message itself
+        pass
+    for value in sorted((v for v in values if len(v) >= 4), key=len, reverse=True):
+        for form in {value, quote(value, safe=""), quote_plus(value)}:
+            text = text.replace(form, SECRET_MASK)
+    return text
 
 
 def describe_error(error, prefix: str) -> str:

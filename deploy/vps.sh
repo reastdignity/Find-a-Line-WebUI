@@ -48,6 +48,8 @@ PULLED=0
 CHANGED=0
 SETTINGS_READY=0
 TODO=()
+# The worker's secrets, the keys of data services (secrets/README.md, compose.yaml)
+WORKER_SECRETS=(opentopography_api_key datafordeler_api_key lantmateriet_user lantmateriet_password nls_api_key)
 
 step() { printf '\n== %s\n' "$*"; }
 note() { printf '   %s\n' "$*"; }
@@ -587,8 +589,8 @@ settings() {
         fi
     fi
     # Each secret readable by the containers' user only (secrets/README.md)
-    chown 10001:10001 "$REPO"/secrets/findaline_* "$REPO/secrets/opentopography_api_key"
-    chmod 400 "$REPO"/secrets/findaline_* "$REPO/secrets/opentopography_api_key"
+    chown 10001:10001 "$REPO"/secrets/findaline_* "${WORKER_SECRETS[@]/#/$REPO/secrets/}"
+    chmod 400 "$REPO"/secrets/findaline_* "${WORKER_SECRETS[@]/#/$REPO/secrets/}"
 
     local missing=() provider
     [ "$(env_get "$env" FINDALINE_CONTACT)" = you@example.org ] && missing+=("FINDALINE_CONTACT in findaline.env (--contact)")

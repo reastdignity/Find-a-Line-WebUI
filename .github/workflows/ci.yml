@@ -94,7 +94,10 @@ jobs:
           for name in findaline_session_secret findaline_github_client_secret findaline_google_client_secret; do
             python3 -c "import secrets; print(secrets.token_urlsafe(48))" > "secrets/$name"
           done
-          : > secrets/opentopography_api_key  # empty: no NASADEM
+          # the keys of data services empty: no NASADEM, no Denmark (falls back to europe)
+          for name in opentopography_api_key datafordeler_api_key lantmateriet_user lantmateriet_password nls_api_key; do
+            : > "secrets/$name"
+          done
 
       - name: Compose files
         run: docker compose config --quiet

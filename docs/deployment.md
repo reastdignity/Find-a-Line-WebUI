@@ -467,12 +467,19 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   not use left empty, `opentopography_api_key` with an OpenTopography key for `--source
   nasadem` (administrators only) or empty. OpenTopography's terms allow one user per key: put
   your own key here only when you are the only administrator in `FINDALINE_ADMINS`, otherwise
-  leave the file empty. Each service gets only its own: the sign-in secrets
-  the web service, the OpenTopography key the worker. They must be readable by the containers'
+  leave the file empty. `datafordeler_api_key` with an API key of Datafordeler for `--source
+  denmark` (Danmarks Højdemodel; empty: Denmark falls back to `europe`): a free Datafordeler user
+  (e-mail or MitID Erhverv) and in it an "IT-system" with an API key, the server's public IP address
+  on that IT-system's IP allowlist (Datafordeler refuses an API key from other addresses). The key
+  is valid for 2 years: renew it in Datafordeler's self-service before then, put the new key in
+  the file and `docker compose up -d --force-recreate worker`; `lantmateriet_user`,
+  `lantmateriet_password` and `nls_api_key` stay empty for now (Sweden and Finland's
+  orthophoto, not used yet). Each service gets only its own: the sign-in secrets
+  the web service, the keys of data services the worker. They must be readable by the containers'
   user (uid 10001) and nobody else:
   ```sh
-  sudo chown 10001:10001 secrets/findaline_* secrets/opentopography_api_key
-  sudo chmod 400 secrets/findaline_* secrets/opentopography_api_key
+  sudo chown 10001:10001 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key
+  sudo chmod 400 secrets/findaline_* secrets/opentopography_api_key secrets/datafordeler_api_key secrets/lantmateriet_* secrets/nls_api_key
   ```
 
 **Administrators** (`FINDALINE_ADMINS`, comma-separated): `github:<numeric id>`, the id from

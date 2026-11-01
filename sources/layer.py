@@ -8,6 +8,7 @@ import numpy as np
 import rasterio as rio
 
 import cache
+import settings
 from grid import Grid
 from progress import progress
 
@@ -62,6 +63,9 @@ class Layer:
     shift: Tuple[float, float] = (0.0, 0.0)
     # Version of what download_tile does with the data; tiles made by another version are fetched again
     processing = 1
+    # The secrets the layer's service needs (field names of settings.ServiceKeys, read when used):
+    # without them the layer is unavailable (unavailable), as a source without its mirror
+    keys: Tuple[str, ...] = ()
 
     @property
     def ttl_days(self) -> Optional[int]:
@@ -108,8 +112,10 @@ class Layer:
         return None
 
     def unavailable(self) -> Optional[str]:
-        """Why this layer cannot be used here (e.g. no copy of our own tiles is set up), or None."""
-        return None
+        """Why this layer cannot be used here (e.g. no copy of our own tiles is set up, a key of
+        its service not set), or None."""
+        missing = settings.missing_keys(self.keys)
+        return f"{self.description} needs a key of its service, {missing}" if missing else None
 
     def tile_of(self, path: str):
         """The tile of a cached file (path relative to the cache, with /), or None if it

@@ -45,6 +45,8 @@ class Index:
 
 class Reader:
     """How one tile is fetched into the cache."""
+    # The secrets its requests need (field names of settings.ServiceKeys; the layer's keys)
+    keys: Tuple[str, ...] = ()
 
     def fetch(self, request, path: str) -> Fetched:
         """Fetch a tile (its index's request) to path; received 0 and no file where the service
@@ -92,5 +94,9 @@ class ComposedLayer(Layer):
     def download_tile(self, tile, path: str) -> Fetched:
         return self.reader.fetch(self.index.request(tile), path)
 
+    @property
+    def keys(self) -> Tuple[str, ...]:
+        return self.reader.keys
+
     def unavailable(self) -> Optional[str]:
-        return self.reader.unavailable()
+        return super().unavailable() or self.reader.unavailable()

@@ -106,10 +106,16 @@ services:
       HOME: /tmp/home
       NUMBA_CACHE_DIR: /tmp/numba
       MPLCONFIGDIR: /tmp/matplotlib
-    # --source nasadem (admins only on the public site): the key as a Docker secret, the
-    # worker's only (settings.ServiceKeys); an empty file means no key
+    # The keys of data services as Docker secrets, the worker's only (settings.ServiceKeys; an
+    # empty file means no key, and a source needing it is not offered): OpenTopography for
+    # --source nasadem (admins only on the public site), Datafordeler for denmark,
+    # Lantmäteriet's account for sweden, NLS for Finland's orthophoto
     secrets:
       - opentopography_api_key
+      - datafordeler_api_key
+      - lantmateriet_user
+      - lantmateriet_password
+      - nls_api_key
     volumes:
       - data:/data
       # The local mirror of the Slovak tiles (the folder above slovakia/), read-only; without
@@ -154,3 +160,11 @@ secrets:
     file: ./secrets/findaline_google_client_secret
   opentopography_api_key:
     file: ./secrets/opentopography_api_key
+  datafordeler_api_key:
+    file: ./secrets/datafordeler_api_key
+  lantmateriet_user:
+    file: ./secrets/lantmateriet_user
+  lantmateriet_password:
+    file: ./secrets/lantmateriet_password
+  nls_api_key:
+    file: ./secrets/nls_api_key
