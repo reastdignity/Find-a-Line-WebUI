@@ -2,6 +2,7 @@
 
 import contextlib
 import hashlib
+import logging
 import os
 import random
 import re
@@ -126,10 +127,80 @@ def _remote(url: str) -> str:
     return f"/vsicurl/{url}" if re.match(r"https?://", url) else url
 
 
+# The HTTP statuses GDAL retries (GDAL_HTTP_RETRY_CODES, "Configuration options", "Networking
+# options" of GDAL's documentation): its defaults (429, 500, 502-504) and 0, a request that got no
+# answer at all (a connection aborted or reset, a timeout). A list replaces GDAL's default rules,
+# which retry only some curl errors by their text ("Connection reset by peer", "Operation timed
+# out"; not "Connection was aborted" of Windows). GDAL matches a status as a substring of the
+# list, so no other status may be a part of it (0 is part of none of the others here).
+GDAL_RETRY_CODES = "0,429,500,502,503,504"
+
+
 def _gdal_http() -> rio.Env:
     """GDAL's settings for reading windows of remote files: our User-Agent, no directory
-    listing, retries of failed requests, neighbouring blocks in one request."""
+    listing, retries of failed requests (GDAL_RETRY_CODES), neighbouring blocks in one request.
+    Blocks are read in the calling thread (GDAL_NUM_THREADS=1, whatever the environment says):
+    with more, the GTiff driver fetches and decodes them in its own threads, whose errors go to
+    GDAL's default handler (printed to stderr) instead of the caller's, so gdal_errors would not
+    see a failed read there, which then comes back as zeros."""
     return rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"],
                    GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif",
                    GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
+                   GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
                    GDAL_HTTP_MULTIRANGE="YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
+
+
+# GDAL's errors as rasterio logs them: an error (CE_Failure) that did not make the call fail is
+# logged at INFO by the loggers of its error handlers (rasterio._err: log_error), never raised
+_GDAL_LOGGERS = ("rasterio._env", "rasterio._err")
+_GDAL_ERROR = "GDAL signalled an error"
+_errors_of: Dict[int, list] = {}  # thread -> the GDAL errors logged in it while gdal_errors is open
+_errors_lock = threading.Lock()
+
+
+class _GdalErrors(logging.Filter):
+    """Collects GDAL's errors for the threads in gdal_errors; passes a record on only as the
+    loggers would have without it (INFO is enabled on them for this filter alone)."""
+
+    def filter(self, record) -> bool:
+        if record.levelno == logging.INFO and str(record.msg).startswith(_GDAL_ERROR):
+            with _errors_lock:
+                found = _errors_of.get(record.thread)
+            if found is not None:
+                found.append(str(record.args[-1]) if record.args else record.getMessage())
+        return record.levelno >= logging.getLogger("rasterio").getEffectiveLevel()
+
+
+def _install_filter():
+    for name in _GDAL_LOGGERS:
+        logger = logging.getLogger(name)
+        if not any(isinstance(f, _GdalErrors) for f in logger.filters):
+            logger.addFilter(_GdalErrors())
+        if logger.getEffectiveLevel() > logging.INFO:
+            logger.setLevel(logging.INFO)
+
+
+@contextlib.contextmanager
+def gdal_errors():
+    """The errors GDAL signalled in this thread inside the block, also those of calls that did
+    not fail (a list, filled as they come). GDAL takes some failed reads for data: libtiff caches
+    a strile offset it could not read as 0, and GDAL's GTiff driver then fills that block with
+    nodata, or zeros without nodata ("Cannot read offset/size for strile", libtiff's
+    tif_dirread.c, _TIFFFetchStrileValue); /vsicurl/ keeps a range answer cut short (a 206 with
+    bytes missing, cpl_vsil_curl.cpp, DownloadRegion: only a debug message). Only such errors
+    show it, and rasterio raises none of them for a read that returned."""
+    _install_filter()
+    found: list = []
+    key = threading.get_ident()
+    with _errors_lock:
+        outer = _errors_of.get(key)
+        _errors_of[key] = found
+    try:
+        yield found
+    finally:
+        with _errors_lock:
+            if outer is None:
+                _errors_of.pop(key, None)
+            else:
+                _errors_of[key] = outer
+                outer.extend(found)

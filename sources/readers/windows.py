@@ -7,6 +7,7 @@ from typing import Dict, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import rasterio as rio
+import rasterio.cache
 from affine import Affine
 from rasterio.warp import Resampling, reproject
 from rasterio.windows import Window
@@ -14,6 +15,7 @@ from rasterio.windows import Window
 import cache
 import servicecounts
 
+from .. import net
 from ..net import _gdal_http, _remote
 from ..layer import Fetched, _clean, _write_tile
 from ..composed import Reader
@@ -78,31 +80,67 @@ def _read_window(src, transform: Affine, shape: Tuple[int, int]) -> np.ndarray:
     return out
 
 
+class Incomplete(RuntimeError):
+    """A read that GDAL could not complete although it returned values (net.gdal_errors)."""
+
+
+def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], name: str,
+               what: str) -> Optional[np.ndarray]:
+    """The values of one file on a block's pixels (_read_window); None if the file is in another
+    CRS. Raises Incomplete when GDAL signalled an error while opening or reading it: values it
+    could not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
+    with net.gdal_errors() as errors:
+        src = rio.open(_remote(url))
+    with src:
+        if src.crs is not None and not _same_crs(src.crs, crs):
+            print(f"{what}: {name} is in {src.crs.to_string()}, not {crs}; not used")
+            return None
+        with net.gdal_errors() as reading:
+            values = _read_window(src, transform, shape)
+    if errors or reading:
+        raise Incomplete("; ".join(dict.fromkeys(errors + reading)))
+    return values
+
+
 def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affine, shape: Tuple[int, int],
                 path: str, what: str) -> Fetched:
     """Compose a block from windows of remote files (name, url, survey year), newest first:
     each file fills only the pixels still without data, and the next one is read only while
     some remain. Saved to path with the names and years of the files used (tags "sources",
-    "years"); no file when none of them has data there."""
+    "years"); no file when none of them has data there. A read GDAL could not complete
+    although it returned (Incomplete: an answer cut short) is made up to RETRIES times, then
+    raises: never a block of what GDAL made of the missing bytes. (Answers that never came GDAL
+    asks again itself: net.GDAL_RETRY_CODES; a read it reports as failed raises at once.) After
+    any failure GDAL's cache of the file's ranges is dropped (rasterio.cache.invalidate), or
+    the next read in this process would find the same short answer there."""
     block = np.full(shape, np.nan, dtype=np.float32)
     used, years = [], []
     with _gdal_http():
         for name, url, year in files:
-            # One request counted per file read for the block (servicecounts; GDAL's own HTTP requests,
-            # their bytes and its retries are not seen)
-            with servicecounts.request(url) as counted:
-                try:
-                    with rio.open(_remote(url)) as src:
-                        if src.crs is not None and not _same_crs(src.crs, crs):
-                            print(f"{what}: {name} is in {src.crs.to_string()}, not {crs}; not used")
-                            continue
-                        values = _read_window(src, transform, shape)
-                except rio.errors.RasterioIOError as e:
-                    if re.search(r"\b404\b|No such file", str(e)):
-                        counted.outcome = "not_found"
-                        continue  # listed, but not (or no longer) there
-                    counted.outcome = "http_5xx" if re.search(r"\b5\d\d\b", str(e)) else "other"
-                    raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
+            for attempt in range(net.RETRIES):
+                # One request counted per file read for the block, every attempt (servicecounts;
+                # GDAL's own HTTP requests, their bytes and its retries are not seen)
+                with servicecounts.request(url) as counted:
+                    try:
+                        values = _read_file(url, crs, transform, shape, name, what)
+                        break
+                    except rio.errors.RasterioIOError as e:
+                        _forget(url)
+                        if re.search(r"\b404\b|No such file", str(e)):
+                            counted.outcome = "not_found"
+                            values = None
+                            break  # listed, but not (or no longer) there
+                        counted.outcome = "http_5xx" if re.search(r"\b5\d\d\b", str(e)) else "other"
+                        raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(e)}")
+                    except Incomplete as e:
+                        _forget(url)
+                        counted.outcome = "connection"
+                        if attempt == net.RETRIES - 1:
+                            raise RuntimeError(f"Could not read {what} {name} completely: "
+                                               f"{cache.clean_error(e)}")
+                net._sleep(attempt)
+            if values is None:
+                continue
             new = np.isnan(block) & np.isfinite(values)
             if new.any():
                 block[new] = values[new]
@@ -115,6 +153,12 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
         return Fetched(0, url)
     _write_tile(path, block, crs, transform, tags={"sources": ",".join(used), "years": ",".join(years)})
     return Fetched(os.path.getsize(path), url)
+
+
+def _forget(url: str):
+    """Drop GDAL's cached ranges of a remote file (/vsicurl/ keeps them for the process)."""
+    if re.match(r"https?://", url):
+        rasterio.cache.invalidate(url)
 
 
 class Windows(Reader):
