@@ -2881,6 +2881,15 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
             search.find_lines(plan, search.prepare_data(plan))
         assert error.value.code == code and error.value.params["max"] == 4, error.value
         assert ("more than 4 lines" in str(error.value)) == early, error.value
+    # A user without limits (the worker plans with limits=None) keeps the compute slot's budget,
+    # and the early stop at it, switched by the server's setting (Plan.early_stop)
+    for early, code in ((True, "too_many_lines_memory_early"), (False, "too_many_lines_memory")):
+        plan = _plan(tmp_path, None, **point)
+        assert plan.limits is None and plan.early_stop
+        plan.memory, plan.early_stop = int(search.memory_needed(pixels, 4)), early
+        with pytest.raises(search.SearchError) as error:
+            search.find_lines(plan, search.prepare_data(plan))
+        assert error.value.code == code and error.value.params["max"] == 4, error.value
     import gc
     gc.collect()
     # A circle keeps the profile of every line: 10 lines fit without their profiles, 4 with them

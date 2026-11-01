@@ -175,6 +175,9 @@ class Plan:
     # The memory the search may use (_check_lines): its compute slot's budget, or the memory free
     # when a search with limits was planned; None: not checked
     memory: Optional[int] = None
+    # Stop checking the pairs found at the limit of lines or of the memory (_early_check):
+    # Limits.lines_early_stop of the server, also for a user without limits (the web worker sets it)
+    early_stop: bool = True
     # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
     # that was saved already adds nothing
@@ -342,7 +345,8 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
         emit("warning", note)
     return Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
                 emit, crs, (x, y), limits, tiles, core,
-                memory=memory if memory is not None else available_memory() if limits else None)
+                memory=memory if memory is not None else available_memory() if limits else None,
+                early_stop=limits.lines_early_stop if limits else True)
 
 
 def _check_params(limits: Optional[Limits], params: SearchParams, resolution: Optional[float] = None):
@@ -859,21 +863,22 @@ def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
 
 def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int], None]]:
     """The check find_valid_lines makes after each part of the pairs it evaluates (F7, with
-    Limits.lines_early_stop): the valid lines so far and those of the tiles done already against
-    lines_max, and against the memory with grids of this many pixels but no profiles (a lower
-    bound of what _check_lines asks for these lines, so it refuses only what that would refuse).
-    None without limits or with the switch off: _check_lines decides on the exact count."""
-    limits = plan.limits
-    if not limits or not limits.lines_early_stop or (not limits.lines_max and plan.memory is None):
+    Plan.early_stop): the valid lines so far and those of the tiles done already against lines_max
+    (with limits), and against Plan.memory with grids of this many pixels but no profiles (for a
+    user without limits too: a compute slot's budget is a safeguard; a lower bound of what
+    _check_lines asks for these lines, so it refuses only what that would refuse). None with the
+    switch off or nothing to check: _check_lines decides on the exact count."""
+    lines_max = plan.limits.lines_max if plan.limits else None
+    if not plan.early_stop or (not lines_max and plan.memory is None):
         return None
 
     def check(count: int):
         total = before + count
-        if limits.lines_max and total > limits.lines_max:
-            raise SearchError(f"more than {limits.lines_max} lines (the search stopped at {total}), at most "
-                              f"{limits.lines_max} on this site: a higher --min-prominence (or --min-height, "
+        if lines_max and total > lines_max:
+            raise SearchError(f"more than {lines_max} lines (the search stopped at {total}), at most "
+                              f"{lines_max} on this site: a higher --min-prominence (or --min-height, "
                               f"--min-drop), a coarser --resolution or a smaller area", "too_many_lines_early",
-                              n=total, max=limits.lines_max)
+                              n=total, max=lines_max)
         if plan.memory is not None and memory_needed(pixels, total) > plan.memory:
             fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES))
             raise SearchError(f"more than {fits} lines (the search stopped at {total}), at most {fits} fit into the "
