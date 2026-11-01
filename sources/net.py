@@ -3,12 +3,14 @@
 import contextlib
 import hashlib
 import logging
+import math
 import os
 import random
 import re
+import tempfile
 import threading
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 from urllib.parse import urlsplit
 
 import rasterio as rio
@@ -20,21 +22,109 @@ import servicecounts
 
 # Tile downloads from one host at a time across all processes of a data folder (several jobs
 # of the web worker download at once), through lock files in cache/locks/hosts (host_slot);
-# HOST_SLOTS_OF holds the hosts that need another number
+# HOST_SLOTS_OF holds the hosts that need another number: connections at once. A slot is held
+# for a whole tile; a block of a FileBlocks/TnmBlocks layer is one slot however many range
+# requests GDAL makes for it (merged, several ranges per request: GDAL_HTTP_MULTIRANGE).
 HOST_SLOTS = 8
-HOST_SLOTS_OF: Dict[str, int] = {}
+HOST_SLOTS_OF: Dict[str, int] = {
+    # BEV's terms (AGB section 10) call "massenhafte Abfragen ... sowie das automatisierte
+    # Herunterladen von Datenbankinhalten" misuse, without a number: two at once until BEV answers
+    "data.bev.gv.at": 2,
+    # Funet's README: "we had to limit the maximum connections from one IP address to 10 or even
+    # block them": well below that (Paituli's files, Finland; www is Paituli's documented base and
+    # the catalogue's host, mirrors the old host of the same servers, capped too for old links)
+    "www.nic.funet.fi": 4,
+    "mirrors.nic.funet.fi": 4,
+    # National and INSPIRE download services without published numbers (INSPIRE guarantees 10
+    # requests a second to a download service): a courtesy cap below our default of 8
+    "servicios.idee.es": 4,
+    "wcs-mds.idee.es": 4,
+    "malta.coverage.wetransform.eu": 4,
+    # LAiV's DOM WCS is meant for small areas; a provincial server (South Tyrol): the same courtesy
+    "www.geodaten-mv.de": 4,
+    "geoservices9.civis.bz.it": 4,
+}
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
 RETRIES = 3
 
+# Requests per minute to a host, for the hosts whose provider publishes a limit (rate_turn): one
+# request admitted every 60/n s, shared by every process of the machine (or container). What
+# counts as a request is one we make: an attempt of _get, a page of a STAC search, an orthophoto
+# tile, a request of the probe; a window or block read through GDAL counts as one (its range
+# requests are GDAL's, merged and retried inside GDAL where nothing can wait between them; none
+# of these hosts is read that way now). The values stay about 10 % below the published ones.
+HOST_RATES_OF: Dict[str, int] = {
+    # FSDI, "Fair use" limits of the federal geoservices (https://www.geo.admin.ch/de/allgemeine-
+    # nutzungsbedingungen-bgdi, read 2026-11-01; the German page binds): "API Rest Services
+    # (general), *.geo.admin.ch ... 40 Requests / Minute"; data.geo.admin.ch (STAC API and its COG
+    # files) has no row of its own, so it is taken to fall under it until swisstopo says otherwise
+    "data.geo.admin.ch": 36,
+    # The same table: "WMTS, wmts.geo.admin.ch ... 1'200 Requests / Minute" (SWISSIMAGE tiles)
+    "wmts.geo.admin.ch": 1080,
+    # Defra Data Services Platform (DSP), Fair Use Policy, "4. Automated Access and Rate Limits"
+    # (https://environment.data.gov.uk/support/faqs/275808874, read 2026-11-01): "Up to 200
+    # requests per minute" for standard users and automated services (the EA's LIDAR WCS)
+    "environment.data.gov.uk": 180,
+}
+RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
+RATE_WAIT_S = 600  # longest wait for a turn of rate_turn
+_rate_limiters: Dict[Tuple[str, str, int], object] = {}  # (database, host, rate) -> pyrate_limiter.Limiter
+_rate_lock = threading.Lock()
+
+
+def _host(url: Optional[str]) -> Optional[str]:
+    return urlsplit(url).hostname if url and re.match(r"https?://", url) else None
+
+
+def rate_turn(url: Optional[str]):
+    """Wait for this request's turn when the host of url has a rate (HOST_RATES_OF), the turns
+    spread evenly (one every 60/n s) over every thread and process of the machine: a pyrate-limiter
+    SQLite bucket per host in RATES_DB, its writes serialised by a file lock (as osm's Nominatim
+    turns). The limits are per client address, so the bucket is in the system's temporary folder,
+    not in a data folder (in a container its /tmp: the worker's container is the one that asks).
+    RuntimeError after RATE_WAIT_S. Other hosts, and local paths, return at once."""
+    host = _host(url)
+    per_minute = HOST_RATES_OF.get(host) if host else None
+    if not per_minute:
+        return
+    path = RATES_DB or os.path.join(tempfile.gettempdir(), "findaline-rates.sqlite")
+    key = (path, host, per_minute)
+    with _rate_lock:
+        limiter = _rate_limiters.get(key)
+        if limiter is None:
+            from pyrate_limiter import Limiter, Rate, SQLiteBucket
+            os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+            table = "rate_" + re.sub(r"\W", "_", host) + f"_{per_minute}"
+            bucket = SQLiteBucket.init_from_file([Rate(1, math.ceil(60000 / per_minute))], table=table,
+                                                 db_path=path, use_file_lock=True)
+            limiter = _rate_limiters[key] = Limiter(bucket)
+    # Asked with no wait (timeout 0), polled: pyrate-limiter's own wait (4.5.1) stamps the permit
+    # with the time it planned to wake at (item.timestamp += delay), not the time it woke, so after
+    # an oversleep (Windows' timer) the next permit came early, two at once in tests/test_rates.py;
+    # a permit asked now is stamped with the bucket's clock (SQLite's) now. (blocking=False fails
+    # with a file lock: the limiter passes False to FileLock.acquire as its timeout.) A timeout of
+    # 0 also gives up when another process holds the bucket's file lock: the next poll asks again.
+    interval = 60 / per_minute
+    deadline = time.monotonic() + RATE_WAIT_S
+    while not limiter.try_acquire(host, timeout=0):
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"{host} is busy with the requests of other searches "
+                               f"(waited {RATE_WAIT_S // 60} min); try again later")
+        time.sleep(interval * (0.1 + 0.2 * random.random()))  # waiters spread; late, never early
+
 
 def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
     """GET with retries; raises RuntimeError with the server message on failure (without the
-    query of the URL or a key's value: cache.clean_error). Every attempt is counted (servicecounts,
-    the host only; a 200 that is not data counts as `other`)."""
+    query of the URL or a key's value: cache.clean_error). Every attempt waits for its turn
+    (rate_turn) and is counted (servicecounts, the host only; a 200 that is not data counts as
+    `other`). A 429 or 503 (the server asks us to slow down) backs off longer: _sleep(attempt + 3),
+    about 8, 16 and 32 s."""
     last_error = None
     for attempt in range(RETRIES):
+        slow_down = False
         try:
+            rate_turn(url)
             with servicecounts.request(url) as counted:
                 response = counted.got(requests.get(url, params=params, timeout=timeout,
                                                     headers=cache.http_headers()))
@@ -44,11 +134,12 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
                 if response.status_code != 200 or not any(t in content_type for t in binary_types):
                     if response.status_code == 200:
                         counted.outcome = "other"
+                    slow_down = response.status_code in (429, 503)
                     raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
             return response
         except (requests.RequestException, RuntimeError) as e:
             last_error = e
-            _sleep(attempt)
+            _sleep(attempt + 3 if slow_down else attempt)
     # No API key from a query in the message, and no value of a service key anywhere in it (a
     # server's answer may echo the token of its request: settings.redact through clean_error)
     raise RuntimeError(cache.clean_error(last_error))
@@ -71,7 +162,7 @@ def host_slot(cache_dir: str, url: Optional[str]):
     threads and processes of a data folder: lock files <host>.<n>.lock, each tried in turn,
     waiting while all are taken. A file lock of the OS: a killed process releases it, and the
     files are a fixed few per host. Nothing to wait for without a remote host (a local mirror)."""
-    host = urlsplit(url).hostname if url and re.match(r"https?://", url) else None
+    host = _host(url)
     if not host:
         yield
         return

@@ -91,6 +91,7 @@ class WcsReader(Reader):
         """(left, bottom, right, top) of the coverage in the service CRS, or None if unknown."""
         if self._extent is None:
             try:
+                net.rate_turn(self.service_url)  # a RuntimeError (no turn in time): the extent unknown
                 response = servicecounts.get(self.service_url, timeout=60, headers=cache.http_headers(),
                                              params=self.describe_params())
                 response.raise_for_status()

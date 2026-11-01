@@ -142,14 +142,18 @@ class StacItems(Listing):
         from pystac_client.stac_api_io import StacApiIO
 
         stac_io = StacApiIO(headers=cache.http_headers(), timeout=120, max_retries=0)
-        send = stac_io.session.send  # each page counted (servicecounts), as our own requests
-        stac_io.session.send = lambda prepared, **kwargs: servicecounts.call(
-            prepared.url, lambda: send(prepared, **kwargs))
+        send = stac_io.session.send  # each page in its turn (net.rate_turn) and counted (servicecounts), as our own requests
+
+        def counted_send(prepared, **kwargs):
+            net.rate_turn(prepared.url)
+            return servicecounts.call(prepared.url, lambda: send(prepared, **kwargs))
+        stac_io.session.send = counted_send
         search = ItemSearch(self.url, method="GET", bbox=(lon, lat, lon + osm.TILE_DEG, lat + osm.TILE_DEG),
                             limit=100, stac_io=stac_io)
         try:
             return list(search.pages_as_dicts())
-        except (APIError, requests.RequestException, ValueError) as e:  # APIError is no RequestException
+        # APIError is no RequestException; a RuntimeError: no turn of net.rate_turn in time
+        except (APIError, requests.RequestException, ValueError, RuntimeError) as e:
             raise IndexUnavailable(f"STAC API: {e}") from e
 
     def fetch(self, lat: float, lon: float) -> Dict:

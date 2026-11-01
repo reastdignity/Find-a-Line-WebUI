@@ -10,6 +10,7 @@ strip around the found lines; the whole search area is fetched for an overview.
 import io
 import math
 import os
+import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,6 +27,7 @@ from shapely.prepared import prep
 import cache
 import servicecounts
 from progress import progress
+from sources import net
 
 TILE_PX = 256
 OVERVIEW_ZOOMS = range(10, 17)  # whole search area
@@ -34,6 +36,7 @@ BUFFER_M = 30                   # strip width on each side of a line
 APPROX_TILE_KB = 15
 DOWNLOAD_THREADS = 4
 RETRIES = 3
+BACKOFF_MAX_S = 64  # the longest wait between attempts (swisstopo's advice on retries)
 
 _EARTH = 20037508.342789244  # half of the Web Mercator world width in metres
 _to_mercator = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
@@ -120,10 +123,20 @@ def _wms_bbox(z: int, x: int, y: int) -> str:
     return f"{south!r},{west!r},{north!r},{east!r}"
 
 
+def _backoff(attempt: int, slow_down: bool = False) -> float:
+    """Seconds before the next attempt: truncated exponential backoff with jitter, as swisstopo asks
+    (https://docs.geo.admin.ch/get-started/retry.html): 0.5-1.5 times 2^attempt s, from 2^(attempt + 3)
+    after a 429 or 503 (the server asks us to slow down), at most BACKOFF_MAX_S."""
+    return min(BACKOFF_MAX_S, 2 ** (attempt + 3 * slow_down) * (0.5 + random.random()))
+
+
 def _get(url: str, params: Optional[Dict], z: int, x: int, y: int) -> bytes:
+    """A tile; every attempt in its turn of the host's rate (net.rate_turn) and counted."""
     last_error = None
     for attempt in range(RETRIES):
+        slow_down = False
         try:
+            net.rate_turn(url)
             with servicecounts.request(url) as counted:  # every attempt
                 response = counted.got(requests.get(url, params=params, timeout=60, headers=cache.http_headers()))
                 if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
@@ -131,9 +144,10 @@ def _get(url: str, params: Optional[Dict], z: int, x: int, y: int) -> bytes:
                 if response.status_code == 200:
                     counted.outcome = "other"  # an error page instead of an image
             last_error = RuntimeError(f"HTTP {response.status_code}: {response.text[:200]}")
-        except requests.RequestException as e:
+            slow_down = response.status_code in (429, 503)
+        except (requests.RequestException, RuntimeError) as e:  # RuntimeError: no turn in time
             last_error = e
-        time.sleep(2 ** attempt)
+        time.sleep(_backoff(attempt, slow_down))
     raise RuntimeError(f"Could not download orthophoto tile {z}/{x}/{y}: {cache.clean_error(last_error)}")
 
 

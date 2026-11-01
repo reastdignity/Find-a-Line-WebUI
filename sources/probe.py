@@ -14,8 +14,10 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
 
 Nothing is written to the cache: index answers and files go to a temporary folder, deleted at
 the end; the requests of the probe itself take a slot of their host in the real data folder
-(host_slot; its lock files are not data). Sources are probed one after another, each within
-TIMEOUT_S. Skipped: a source that cannot be used here (Slovakia without its mirror), one without
+(host_slot; its lock files are not data) and wait for their turn where the host has a rate
+(net.rate_turn). Sources are probed one after another, each within
+TIMEOUT_S (two minutes: swisstopo's STAC pages alone take about 40 s at its rate of 36 a
+minute, longer while another search downloads from it). Skipped: a source that cannot be used here (Slovakia without its mirror), one without
 a sample point, and nasadem unless named and an OpenTopography key is set (its calls are
 limited to 50 a day).
 """
@@ -56,7 +58,7 @@ from .layers.files import FileLayer
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
-TIMEOUT_S = 60          # per source
+TIMEOUT_S = 120         # per source (the turns of hosts with a rate included: net.HOST_RATES_OF)
 REQUEST_TIMEOUT_S = 30  # per request of the probe itself
 GRID_HALF_M = 50        # the tiny grid: this many metres around the sample, at least two pixels
 ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
@@ -129,6 +131,7 @@ def _http(url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, s
 
 def _ask(cache_dir: str, url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, str, bytes]:
     with host_slot(cache_dir, url):
+        net.rate_turn(url)
         return _http(url, params, headers)
 
 
@@ -172,6 +175,7 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
     name, url, _ = request.files[0]
     try:
         with host_slot(cache_dir, url), _gdal_http(), net.gdal_errors() as errors:
+            net.rate_turn(url)  # the window read counts as one request (net.HOST_RATES_OF)
             with rio.open(_remote(url)) as remote:
                 if remote.crs is not None and not _same_crs(remote.crs, request.crs):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
@@ -188,22 +192,17 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
 
 
 def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[str, str]:
-    """DescribeCoverage, then a GetCoverage of 16 x 16 pixels at the point."""
-    status, _, body = _ask(cache_dir, layer.url, {"SERVICE": "WCS", "VERSION": "2.0.1", "REQUEST": "DescribeCoverage",
-                                                   "COVERAGEID": layer.coverage})
+    """DescribeCoverage, then a GetCoverage of 16 x 16 pixels at the point, as the layer's reader
+    asks them (its WCS version, its parameters and keys: WcsReader.describe_params, coverage_params)."""
+    status, _, body = _ask(cache_dir, layer.url, layer.reader.describe_params())
     if status != 200 or b"Exception" in body:
         raise RuntimeError(f"DescribeCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
     (x,), (y,) = warp("EPSG:4326", layer.crs, [lon], [lat])
     x, y = x - layer.shift[0], y - layer.shift[1]  # where the service puts the data
     res = layer.fetch_res or layer.native_res
     half = 8 * res
-    ax, ay = layer.axes
-    params = [("SERVICE", "WCS"), ("VERSION", "2.0.1"), ("REQUEST", "GetCoverage"), ("COVERAGEID", layer.coverage),
-              ("FORMAT", layer.fmt), ("SUBSET", f"{ax}({x - half:.3f},{x + half:.3f})"),
-              ("SUBSET", f"{ay}({y - half:.3f},{y + half:.3f})")]
-    if not math.isclose(res, layer.native_res):
-        params.append(("SCALESIZE", f"{ax}(16),{ay}(16)"))
-    status, kind, body = _ask(cache_dir, layer.url, params)
+    status, kind, body = _ask(cache_dir, layer.url, layer.reader.coverage_params(x - half, y - half, x + half,
+                                                                                y + half, res))
     if status != 200 or "xml" in kind.split(";")[0]:
         raise RuntimeError(f"GetCoverage: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
     return OK, OK
