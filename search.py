@@ -297,7 +297,7 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
              f"Centre: {center_lat:.6f}, {center_lon:.6f} (WGS84) / E {x:.0f}, N {y:.0f} ({crs})",
              f"Data: {source.name} ({reason}) - {source.description}"]
     if source.note:
-        lines.append(f"Note: {source.note}")
+        lines.append(f"Note: {src.dated(source.note, datetime.now().year)}")  # the year of a run made now
     if isinstance(area, ar.Circle):
         lines.append(f"Radius: {params.radius:.0f}m, resolution: {resolution:g}m ({grid.width} x {grid.height} px)")
     else:
@@ -978,7 +978,7 @@ def _merged_data() -> List[Dict]:
 def _credits(plan: Plan, data: List[Dict]) -> List[Dict]:
     """Licences and notices of the data a run used (sources.Credit), each once: its layers,
     the OSM coastline, and OSM when the search area came from it (--area coast, cliffs,
-    osm:<name> or --within osm:<name>)."""
+    osm:<name> or --within osm:<name>). data: its entries' credits dated already (_dated_data)."""
     credits = [entry["credit"] for entry in data if entry.get("credit")]
     spec = getattr(plan.area, "spec", None) or {}
     if spec.get("area") in ("coast", "cliffs") or any(str(spec.get(k) or "").startswith("osm:")
@@ -988,6 +988,12 @@ def _credits(plan: Plan, data: List[Dict]) -> List[Dict]:
     for credit in credits:
         unique.setdefault(json.dumps(credit, sort_keys=True), credit)
     return list(unique.values())
+
+
+def _dated_data(data: List[Dict], year: int) -> List[Dict]:
+    """The data a run used with sources.YEAR in their credits filled with the run's year."""
+    return [{**entry, "credit": src.dated_credit(entry["credit"], year)} if entry.get("credit") else entry
+            for entry in data]
 
 
 def _run_params(plan: Plan) -> Dict:
@@ -1037,7 +1043,7 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
         "center": {"lat": center_lat, "lon": center_lon, "x": x, "y": y, "crs": plan.crs},
         "area": plan.area.describe(),
         "source": {"id": plan.source.id, "name": plan.source.name, "description": plan.source.description},
-        "data": _merged_data(),  # folders, files and fetch times of the data used
+        "data": _dated_data(_merged_data(), created.year),  # folders, files and fetch times of the data used
         "params": _run_params(plan),
         "summary": {"lines": len(results), "spots": len(spot_groups),
                     "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
@@ -1084,8 +1090,11 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
             ortho.download(source.ortho, tiles, ortho_folder, plan.paths.cache)
             ortho_cache = ortho_folder
         progress.compute.start("saving the map", len(results), unit="line")
+        # an orthophoto's attribution may name the year of the run too (sources.YEAR)
+        ortho_service = source.ortho and dataclasses.replace(
+            source.ortho, attribution=src.dated(source.ortho.attribution, created.year))
         map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance,
-                               p.group_by, ortho_cache, source.ortho, p.model, plan.rigging, on_lines,
+                               p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, on_lines,
                                p.high_above)
         progress.compute.finish()
     rn.write_index(plan.paths.runs)

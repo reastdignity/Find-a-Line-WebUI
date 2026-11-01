@@ -185,3 +185,58 @@ def test_two_points(tmp_path):
     assert {m["name"] for m in metas} == {"West", "East"}
     assert all(len(m["data"]) == 1 for m in metas)  # each run records only its own data
     assert not os.listdir(tmp_path / "work")       # both work folders deleted
+
+
+def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
+    """A credit, orthophoto or note naming sources.YEAR gets the year of the run (LGLN's
+    "© GeoBasis-DE/LGLN <year>"): in run.json, ATTRIBUTION.txt, lines.geojson and the map's data.js;
+    a credit without it is recorded as it is. The run's time is patched to another year."""
+    from datetime import datetime as real_datetime
+    import search
+    import sources as src
+    from params import SearchParams
+
+    class Later(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return real_datetime(2031, 3, 4, 12, 0, 0)
+    monkeypatch.setattr(search, "datetime", Later)
+    dated = src.Credit("Dated data", f"© Someone {src.YEAR}, changed", "CC BY 4.0", notice=f"Got {src.YEAR}.")
+    plain = src.FABDEM_CREDIT
+    events = []
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    params = SearchParams(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"), water="off", fill_gaps="off",
+                          ortho="never", nmpt="off", northing=254608, easting=553966, radius=120)
+    for name, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(name, value)
+    choose = src.choose_source
+
+    def with_ortho_and_note(*args, **kwargs):  # the local files' source with LGLN's orthophoto and a note
+        source, reason = choose(*args, **kwargs)
+        source.ortho, source.note = src.SOURCES["lower_saxony"].ortho, f"Data © Someone {src.YEAR}."
+        return source, reason
+    monkeypatch.setattr(src, "choose_source", with_ortho_and_note)
+    plan = search.plan_search(params, paths, lambda kind, text: events.append(text))
+    data = search.prepare_data(plan)
+    lines = search.find_lines(plan, data)
+    used = [{"layer": "Dated", "credit": dated.as_dict()}, {"layer": "Plain", "credit": plain.as_dict()}]
+    monkeypatch.setattr(search, "_merged_data", lambda: used)
+    result = search.save_run(plan, lines)
+    folder = result.run["path"]
+    assert os.path.basename(folder).startswith("2031")
+    read = lambda name: open(os.path.join(folder, name), encoding="utf-8").read()  # noqa: E731
+    meta = json.loads(read("run.json"))
+    assert meta["attribution"] == [{**dated.as_dict(), "attribution": "© Someone 2031, changed", "notice": "Got 2031."},
+                                   plain.as_dict()]
+    assert [d["credit"] for d in meta["data"]] == meta["attribution"]
+    text = read("ATTRIBUTION.txt")
+    assert "Notice: © Someone 2031, changed" in text and "Got 2031." in text and src.YEAR not in text
+    assert f"Notice: {plain.attribution}" in text
+    geojson = json.loads(read("lines.geojson"))["findaline"]
+    assert geojson["attribution"] == meta["attribution"]
+    js = json.loads(read("data.js").partition(" = ")[2].rstrip().rstrip(";"))
+    assert js["attribution"] == meta["attribution"]
+    assert js["ortho"]["attribution"] == "LGLN (2031), CC BY 4.0"
+    assert src.SOURCES["lower_saxony"].ortho.attribution == f"LGLN ({src.YEAR}), CC BY 4.0"  # the catalogue unchanged
+    # the console's note names the year of a run made now
+    assert "Note: Data © Someone 2031." in "\n".join(events)

@@ -1464,6 +1464,9 @@ def test_privacy_and_about_pages(run_people):
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
+    # a year of the run reads as such (no run here): LGLN's credit and orthophoto
+    assert "© GeoBasis-DE/LGLN &lt;year of the run&gt;, Daten geändert" in about.text
+    assert "LGLN (&lt;year of the run&gt;), CC BY 4.0" in about.text and src.YEAR not in about.text
     assert "OpenStreetMap contributors" in about.text and "ODbL" in about.text
     page = anonymous.get("/").text
     assert "href=\"/privacy\"" in page and "href=\"/about\"" in page

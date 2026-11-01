@@ -1662,9 +1662,12 @@ def about_page(contact: str) -> str:
                                              if layer is not None and layer.credit is not None):
             credits.setdefault(credit.data, credit)
     credits.setdefault(src.WATER_MASK_CREDIT.data, src.WATER_MASK_CREDIT)
-    rows = [f"<li><b>{e(c.data)}</b>: {e(c.attribution)}. Licence: {link(c.licence, c.url)}."
-            + (f" <span class='u-small'>{e(c.notice)}</span>" if c.notice else "") + "</li>" for c in credits.values()]
-    orthos = {s.ortho.name: s.ortho.attribution for s in src.SOURCES.values() if s.ortho is not None}
+    # a year of the run (sources.YEAR) reads as such: no run here
+    rows = [f"<li><b>{e(c.data)}</b>: {e(src.dated(c.attribution, src.YEAR_TEXT))}. Licence: {link(c.licence, c.url)}."
+            + (f" <span class='u-small'>{e(src.dated(c.notice, src.YEAR_TEXT))}</span>" if c.notice else "") + "</li>"
+            for c in credits.values()]
+    orthos = {s.ortho.name: src.dated(s.ortho.attribution, src.YEAR_TEXT)
+              for s in src.SOURCES.values() if s.ortho is not None}
     body = [
         "<p>Find-a-Line finds possible highlines in elevation data: anchors on steep ground, every pair checked for "
         "clearance under the webbing. Its results are suggestions to check on the spot, not safety advice.</p>",

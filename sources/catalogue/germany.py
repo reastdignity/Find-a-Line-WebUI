@@ -3,7 +3,7 @@ and DOM1 from STAC)."""
 
 from typing import List
 
-from ..credit import CC_BY, Credit
+from ..credit import CC_BY, YEAR, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 from ..layers.wcs import WcsTiles
@@ -33,17 +33,15 @@ def _lvermgeo(kind: str, description: str, zero_is_nodata: bool) -> WcsTiles:
 
 # LGLN's AGNB, no. 7.2: open data are credited "© GeoBasis-DE/LGLN <year of the download>", with
 # "Daten geändert" when the data were changed (a mosaic on our grid is); the year a run's tiles were
-# downloaded is not kept, so the year of this declaration stands for it
-LGLN_YEAR = 2026
-LGLN_CREDIT = Credit("DGM1 / DOM1 (LGLN, Lower Saxony)", f"© GeoBasis-DE/LGLN {LGLN_YEAR}, Daten geändert",
-                     *CC_BY)
+# downloaded is not kept, so the year of the run (YEAR) stands for it (the user's decision, 2026-11-01)
+LGLN_CREDIT = Credit("DGM1 / DOM1 (LGLN, Lower Saxony)", f"© GeoBasis-DE/LGLN {YEAR}, Daten geändert", *CC_BY)
 # The items of LGLN's collections: dgm1_32_<E>_<N>_1_ni_<year> (E and N in km of EPSG:25832, the
 # survey's year), one GeoTIFF asset each without a gsd or checksum
 LGLN_ITEM = r"^d[go]m1_32_(?P<east>\d+)_(?P<north>\d+)_1_ni_(?P<year>\d{4})$"
 # DOP20 of LGLN, a WMS in EPSG:4326; CC BY 4.0, credited "LGLN (<year of the download>)" (its
 # AccessConstraints); no request limits published
 LGLN_DOP = OrthoService("DOP20 Niedersachsen (LGLN)", "https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms",
-                        "ni_dop20", "lower_saxony/ortho/live", f"LGLN ({LGLN_YEAR}), CC BY 4.0")
+                        "ni_dop20", "lower_saxony/ortho/live", f"LGLN ({YEAR}), CC BY 4.0")
 
 
 def _lgln(kind: str, description: str) -> StacTiles:
@@ -78,5 +76,5 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Lower Saxony (DE)", "LGLN DGM1, 1 m; newest survey", "LGLN DOM1, 1 m",
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),
-        note=f"Data © GeoBasis-DE/LGLN {LGLN_YEAR}, CC BY 4.0 (changed: mosaicked onto the working grid)."),
+        note=f"Data © GeoBasis-DE/LGLN {YEAR}, CC BY 4.0 (changed: mosaicked onto the working grid)."),
 ]

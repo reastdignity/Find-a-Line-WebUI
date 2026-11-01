@@ -975,3 +975,18 @@ def test_saved_text_as_before(tmp_path, monkeypatch):
         expected = json.dumps(_old_map_rows(lines, profiles), separators=(",", ":"))
         assert text[text.index('"lines":[') + len('"lines":'):] == expected + "};\n"
     assert '"name":"\\u017babi Ko\\u0144' in (tmp_path / "data.js").read_text(encoding="utf-8")
+
+
+def test_year_of_the_run():
+    """sources.YEAR in a credit is filled with a run's year; texts without it stay as they are;
+    LGLN's credit, orthophoto and note name it (AGNB no. 7.2: the year of the download)."""
+    assert src.dated(f"© X {src.YEAR}, changed", 2031) == "© X 2031, changed"
+    assert src.dated("© X {other} {", 2031) == "© X {other} {"
+    for credit in (src.FABDEM_CREDIT, src.OSM_CREDIT, src.GUGIK_CREDIT):
+        assert src.dated_credit(credit.as_dict(), 2031) == credit.as_dict()
+        assert list(src.dated_credit(credit.as_dict(), 2031)) == list(credit.as_dict())  # order kept
+    lower_saxony = src.SOURCES["lower_saxony"]
+    assert lower_saxony.credits[0].attribution == f"© GeoBasis-DE/LGLN {src.YEAR}, Daten geändert"
+    assert src.YEAR in lower_saxony.ortho.attribution and src.YEAR in lower_saxony.note
+    assert src.dated_credit(lower_saxony.credits[0].as_dict(), 2027)["attribution"] == \
+        "© GeoBasis-DE/LGLN 2027, Daten geändert"

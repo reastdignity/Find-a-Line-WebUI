@@ -47,7 +47,7 @@ from .indexes import cached, listings, tilings, versions
 from .layers import blocks, degree, fileblocks, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import austria, germany, italy, malta, poland, slovakia, spain, switzerland, uk, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
-from .credit import CC_BY, Credit, OSM_CREDIT
+from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
 from .source import MIN_RESOLUTION, OrthoService, Source
 from .layers.wcs import WcsTiles
