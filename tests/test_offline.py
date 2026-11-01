@@ -185,3 +185,41 @@ def test_two_points(tmp_path):
     assert {m["name"] for m in metas} == {"West", "East"}
     assert all(len(m["data"]) == 1 for m in metas)  # each run records only its own data
     assert not os.listdir(tmp_path / "work")       # both work folders deleted
+
+
+def _funnel(tmp_path, monkeypatch, **values) -> dict:
+    """search.Plan.funnel of a search in this process (offline, the lines not saved)."""
+    for key, v in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, v)
+    import search
+    from params import SearchParams
+    params = SearchParams(water="off", fill_gaps="off", **values)
+    plan = search.plan_search(params, search.Paths(str(tmp_path), str(tmp_path / "work")), lambda kind, text: None)
+    lines, _ = search.search_lines(plan)
+    return {**plan.funnel, "found_lines": len(lines.results)}
+
+
+def test_funnel_of_the_line_search(tmp_path, monkeypatch):
+    """The counts of the line search (search.Plan.funnel, F19's job_funnel) are those printed for the
+    Żabi Koń clip; a tiled area sums its tiles and gives the lines of one grid."""
+    import jobs as jb
+    funnel = _funnel(tmp_path / "clip", monkeypatch, elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"),
+                     surface_file=os.path.join(DATA, "zabi_kon_nmpt.tif"), northing=254608, easting=553966,
+                     radius=290)
+    assert set(funnel) - {"found_lines"} == set(jb.FUNNEL_STEPS)
+    assert {k: funnel[k] for k in ("grids", "anchors", "open", "checked", "lines")} == {
+        "grids": 1, "anchors": ZABI_KON["anchors"], "open": ZABI_KON["open"], "checked": ZABI_KON["checked"],
+        "lines": ZABI_KON["lines"]}
+    assert funnel["lines"] == funnel["valid"] == funnel["found_lines"] and funnel["left_out"] == 0
+    assert funnel["anchors"] >= funnel["anchors_kept"] >= funnel["open"] >= funnel["todo"]
+    assert funnel["candidates"] >= funnel["checked"] >= funnel["found"] >= funnel["valid"]
+    square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                                  [19.7522, 50.1580], [19.7522, 50.1546]]]}
+    path = tmp_path / "square.geojson"
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+    area = {"elevation_file": os.path.join(DATA, "zabi_kon_nmt.tif"), "area": str(path), "max_length": 150}
+    one = _funnel(tmp_path / "one", monkeypatch, **area)
+    tiled = _funnel(tmp_path / "tiled", monkeypatch, **area, tile_size=150)
+    assert one["grids"] == 1 and tiled["grids"] > 1
+    assert one["lines"] == tiled["lines"] == one["found_lines"] == tiled["found_lines"] > 0
+    assert tiled["valid"] >= tiled["lines"]  # the tiles' overlaps find some lines twice

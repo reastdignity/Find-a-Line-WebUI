@@ -161,6 +161,10 @@ class Plan:
     # The memory the search may use (_check_lines): its compute slot's budget, or the memory free
     # when a search with limits was planned; None: not checked
     memory: Optional[int] = None
+    # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
+    # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
+    # that was saved already adds nothing
+    funnel: Dict[str, int] = field(default_factory=dict)
 
 
 STEPS = 5
@@ -717,6 +721,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
             ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
         anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]
     emit("info", f"Found {len(anchors)} potential anchors to evaluate")
+    _count(plan, "anchors", len(anchors))
     if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
         raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
                           f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
@@ -760,12 +765,14 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         left, bottom, right, top = core
         x, y = grid.pixel_to_xy(anchors[:, 0], anchors[:, 1])
         first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
+    _count(plan, "grids", 1)
+    _count(plan, "anchors_kept", len(anchors))  # what the line search gets
     valid_lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
                                       p.min_length, p.max_length, plan.nmpt, line_threads(p),
                                       sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
                                       p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
                                                                   p.min_high_share, p.max_wall_angle),
-                                      np.column_stack([prom, drop]), strong)
+                                      np.column_stack([prom, drop]), strong, stats=plan.funnel)
     points = profile_points(valid_lines) if isinstance(plan.area, ar.Circle) else 0
     every_profile = 0 < points * PROFILE_POINT_BYTES <= CIRCLE_PROFILES_BYTES
     if points and not every_profile:
@@ -782,6 +789,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         left, bottom, right, top = core
         x, y = mp.first_anchor(results).T
         results = results.take((left <= x) & (x < right) & (bottom <= y) & (y < top))
+    _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
     progress.compute.start("over water and filled gaps", 2, unit="mask")
     results.columns["water_m"] = np.array(ls.covered_metres(a1, a2, plan.resolution, data.water), dtype=np.float64)
@@ -798,6 +806,11 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         progress.compute.update(1)
     progress.compute.finish()
     return results, groups
+
+
+def _count(plan: Plan, key: str, n: int):
+    """Add to a count of the line search's funnel (Plan.funnel)."""
+    plan.funnel[key] = plan.funnel.get(key, 0) + int(n)
 
 
 def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
