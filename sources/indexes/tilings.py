@@ -198,6 +198,10 @@ class FileBlockTiling(Index):
 class WcsTiling(Index):
     """Square tiles of tile_px pixels on a fixed grid in the service's CRS, at fetch_res
     (None: the working resolution), cached as <folder>/<crs>-<res>m-<px>px-<format>/<i>_<j>.tif.
+    Tile (i, j) covers [i, i + 1) x [j, j + 1) tile sizes from origin (x, y in metres: the
+    pixel edges of a coverage whose edges are not on whole multiples of its resolution, so
+    tiles are requested on its own pixels; (0, 0) for most services). A tiling with an origin
+    has it in its folder's name too (-o<x>_<y>).
 
     The tiles of a circle are those reaching into the circle inscribed in the grid's box;
     of an area, those under its outline. Tiles hold the data where the service puts it,
@@ -205,21 +209,31 @@ class WcsTiling(Index):
     """
 
     def __init__(self, crs: str, folder: str, tile_px: int, fmt: str, fetch_res: Optional[float],
-                 shift: Tuple[float, float] = (0.0, 0.0)):
+                 shift: Tuple[float, float] = (0.0, 0.0), origin: Tuple[float, float] = (0.0, 0.0)):
         self.crs, self.folder, self.tile_px, self.fmt = crs, folder, tile_px, fmt
-        self.fetch_res, self.shift = fetch_res, shift
+        self.fetch_res, self.shift, self.origin = fetch_res, shift, origin
+
+    def edges(self, tile) -> Tuple[float, float, float, float]:
+        """(left, bottom, right, top) of a tile in the service's CRS."""
+        res, i, j = tile
+        size = self.tile_px * res
+        ox, oy = self.origin
+        return i * size + ox, j * size + oy, (i + 1) * size + ox, (j + 1) * size + oy
 
     def tiles(self, grid: Grid):
         res = self.fetch_res or grid.res
         size = self.tile_px * res
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        # Tiles hold the data where the service puts it, i.e. before the shift correction
-        cx, cy, radius = (left + right) / 2 - self.shift[0], (bottom + top) / 2 - self.shift[1], (right - left) / 2
+        # Tiles hold the data where the service puts it, i.e. before the shift correction;
+        # the centre is counted from the tiling's origin
+        ox, oy = self.origin
+        cx, cy = (left + right) / 2 - self.shift[0] - ox, (bottom + top) / 2 - self.shift[1] - oy
+        radius = (right - left) / 2
         shape = None
         if grid.area_shape is not None:
             from area import project
             from shapely.affinity import translate
-            shape = translate(project(grid.area_shape, grid.crs, self.crs), -self.shift[0], -self.shift[1])
+            shape = translate(project(grid.area_shape, grid.crs, self.crs), -self.shift[0] - ox, -self.shift[1] - oy)
         tiles = []
         for i in range(math.floor((cx - radius) / size), math.floor((cx + radius) / size) + 1):
             for j in range(math.floor((cy - radius) / size), math.floor((cy + radius) / size) + 1):
@@ -237,7 +251,8 @@ class WcsTiling(Index):
     def _tiling(self, res: float) -> str:
         # The tiling in the path: tiles of another CRS, size or format never mix
         fmt = "asc" if re.search(r"aaigrid|asc", self.fmt) else "tif"
-        return f"{self.crs.lower().replace(':', '')}-{res:g}m-{self.tile_px}px-{fmt}"
+        origin = f"-o{self.origin[0]:g}_{self.origin[1]:g}" if self.origin != (0.0, 0.0) else ""
+        return f"{self.crs.lower().replace(':', '')}-{res:g}m-{self.tile_px}px-{fmt}{origin}"
 
     def path(self, cache_dir: str, tile) -> str:
         res, i, j = tile
@@ -252,6 +267,4 @@ class WcsTiling(Index):
 
     def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
         """(west, south, east, north) of a tile."""
-        res, i, j = tile
-        size = self.tile_px * res
-        return transform_bounds(self.crs, "EPSG:4326", i * size, j * size, (i + 1) * size, (j + 1) * size)
+        return transform_bounds(self.crs, "EPSG:4326", *self.edges(tile))

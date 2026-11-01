@@ -19,8 +19,9 @@ from ..composed import Reader
 
 
 class WcsReader(Reader):
-    """GetCoverage of a tile (res, i, j) of a WcsTiling, saved on the tile's own pixels
-    (resampled by nearest neighbour when the service answers on others).
+    """GetCoverage of a tile (res, i, j) of a WcsTiling (with the same tile_px and origin),
+    saved on the tile's own pixels (resampled by nearest neighbour when the service answers
+    on others).
 
     Some services (Malta) refuse a request that reaches beyond the coverage with a 404,
     which would make every tile at the edge of the data "missing" (the whole north
@@ -30,10 +31,11 @@ class WcsReader(Reader):
     """
 
     def __init__(self, description: str, url: str, coverage: str, crs: str, native_res: float, tile_px: int,
-                 fmt: str, axes: Tuple[str, str], interpolation: Optional[str], zero_is_nodata: bool):
+                 fmt: str, axes: Tuple[str, str], interpolation: Optional[str], zero_is_nodata: bool,
+                 origin: Tuple[float, float] = (0.0, 0.0)):
         self.description, self.service_url, self.coverage, self.crs = description, url, coverage, crs
         self.native_res, self.tile_px, self.fmt, self.axes = native_res, tile_px, fmt, axes
-        self.interpolation, self.zero_is_nodata = interpolation, zero_is_nodata
+        self.interpolation, self.zero_is_nodata, self.origin = interpolation, zero_is_nodata, origin
         self._extent: Optional[tuple] = None  # (left, bottom, right, top) of the coverage; () if unknown
 
     def coverage_extent(self) -> Optional[tuple]:
@@ -73,7 +75,7 @@ class WcsReader(Reader):
     def fetch(self, tile, path: str) -> Fetched:
         res, i, j = tile
         size, px = self.tile_px * res, self.tile_px
-        left, bottom = i * size, j * size
+        left, bottom = i * size + self.origin[0], j * size + self.origin[1]
         try:
             response = self._request(left, bottom, left + size, bottom + size, res)
             extent = self.coverage_extent() if response is None else None

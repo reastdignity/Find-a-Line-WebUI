@@ -92,6 +92,34 @@ def test_tile_outside_the_coverage(layer, tmp_path):
     assert not os.path.exists(path)
 
 
+def test_tiles_from_an_origin(monkeypatch, tmp_path):
+    """A coverage whose pixel edges are at 0.5 m: its tiles start there, are requested on its
+    own pixels and cached in a folder of their own; without an origin, as before."""
+    import grid as gd
+    monkeypatch.setattr(src.net, "_get", fake_get)
+    monkeypatch.setattr(requests, "get", fake_describe)
+    kwargs = dict(tile_px=100, fetch_res=1.0, axes=("E", "N"))
+    plain = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         **kwargs)
+    moved = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         origin=(0.5, 0.5), **kwargs)
+    assert plain.tile_path("c", (1.0, -1, -1)).replace(os.sep, "/") == "c/fake/dtm/1/epsg32633-1m-100px-tif/-1_-1.tif"
+    path = moved.tile_path("c", (1.0, -1, -1)).replace(os.sep, "/")
+    assert path == "c/fake/dtm/1/epsg32633-1m-100px-tif-o0.5_0.5/-1_-1.tif"
+    assert moved.tile_of(path[2:]) == (1.0, -1, -1) and plain.tile_of(path[2:]) is None
+    # A grid from 0.1 to 0.4 m: in tile 0 of the plain tiling, in tile -1 of the moved one (it ends at 0.5)
+    grid = gd.make_grid((0.1, 0.1, 0.4, 0.4), 0.1, "EPSG:32633")
+    assert plain.tiles(grid) == [(1.0, 0, 0)]
+    assert moved.tiles(grid) == [(1.0, -1, -1)]
+    assert moved.index.edges((1.0, -1, -1)) == (-99.5, -99.5, 0.5, 0.5)
+    out = str(tmp_path / "t.tif")
+    assert moved.download_tile((1.0, 0, -1), out).received > 0
+    with rio.open(out) as tile:
+        assert tile.transform == from_origin(0.5, 0.5, 1, 1)
+        ys, xs = np.mgrid[0:100, 0:100]
+        assert np.array_equal(tile.read(1), height(0.5 + xs + 0.5, 0.5 - ys - 0.5).astype(np.float32))
+
+
 UGKK_CRS = ('COMPD_CS["S-JTSK [JTSK03] / Krovak East North + Baltic 1957 height",'
             'LOCAL_CS["S-JTSK [JTSK03] / Krovak East North",UNIT["metre",1,AUTHORITY["EPSG","9001"]],'
             'AXIS["Easting",EAST],AXIS["Northing",NORTH],AUTHORITY["EPSG","8353"]],'

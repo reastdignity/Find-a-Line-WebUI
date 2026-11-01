@@ -13,22 +13,26 @@ class WcsTiles(ComposedLayer):
 
     fetch_res=None requests tiles at the working resolution (the server
     downsamples); a number requests tiles at that resolution, cached independently
-    of the working resolution and downsampled locally.
+    of the working resolution and downsampled locally. origin: the pixel edges of the
+    coverage (x, y in metres) when they are not on multiples of fetch_res, so tiles are
+    requested on its own pixels (see WcsTiling).
     """
 
     def __init__(self, description: str, url: str, coverage: str, crs: str, folder: str,
                  native_res: float, tile_px: int = 2000, fmt: str = "image/tiff",
                  axes: Tuple[str, str] = ("x", "y"), fetch_res: Optional[float] = None,
                  interpolation: Optional[str] = None, zero_is_nodata: bool = False,
-                 bytes_per_px: float = 4, shift: Tuple[float, float] = (0.0, 0.0)):
+                 bytes_per_px: float = 4, shift: Tuple[float, float] = (0.0, 0.0),
+                 origin: Tuple[float, float] = (0.0, 0.0)):
         self.description, self.url, self.coverage, self.crs = description, url, coverage, crs
         self.folder, self.native_res, self.tile_px, self.fmt = folder, native_res, tile_px, fmt
         self.axes, self.fetch_res, self.interpolation = axes, fetch_res, interpolation
         self.zero_is_nodata, self.bytes_per_px, self.shift = zero_is_nodata, bytes_per_px, shift
+        self.origin = origin
         self._bytes = tile_px ** 2 * bytes_per_px
-        self.index = WcsTiling(crs, folder, tile_px, fmt, fetch_res, shift)
+        self.index = WcsTiling(crs, folder, tile_px, fmt, fetch_res, shift, origin)
         self.reader = WcsReader(description, url, coverage, crs, native_res, tile_px, fmt, axes, interpolation,
-                                zero_is_nodata)
+                                zero_is_nodata, origin)
 
     def coverage_extent(self) -> Optional[tuple]:
         """(left, bottom, right, top) of the coverage in the service CRS, or None if unknown."""
