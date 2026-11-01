@@ -51,6 +51,7 @@ import cache
 import coast
 import grid as gd
 import helpers as sh
+import lineprofiles as lp
 import linesearch as ls
 import mapping as mp
 import messages
@@ -797,13 +798,12 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     results.columns["filled_m"] = np.array(ls.covered_metres(a1, a2, plan.resolution, data.filled), dtype=np.float64)
     progress.compute.finish()
     groups = mp.group_lines(results, plan.group_distance, p.group_by)
-    wanted = range(len(results)) if every_profile else sorted(groups.rep.tolist())
+    wanted = np.arange(len(results)) if every_profile else np.unique(groups.rep)
     progress.compute.start("line profiles", len(wanted), unit="line")
-    for k in wanted:
-        results.profiles[k] = sh.line_profile(tuple(a1[k].tolist()), tuple(a2[k].tolist()), data.elevation,
-                                              plan.resolution, data.surface, sag_table=sag_table, water=data.water,
-                                              filled=data.filled)
-        progress.compute.update(1)
+    batch = lp.line_profiles(a1[wanted], a2[wanted], data.elevation, plan.resolution, data.surface,
+                             sag_table=sag_table, water=data.water, filled=data.filled,
+                             on_part=progress.compute.update)  # helpers.line_profile of each, in parallel
+    results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
     progress.compute.finish()
     return results, groups
 

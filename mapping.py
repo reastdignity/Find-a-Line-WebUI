@@ -15,7 +15,7 @@ from pyproj import Transformer
 
 import cache
 from grid import Grid
-from helpers import HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable
+from helpers import HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
 from progress import progress
 from runs import column_texts
 from sag import Rigging
@@ -309,7 +309,7 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
             rows = map_rows(lines, start, stop)
             profiles = lines.profiles
             full.write(separator + ",".join(
-                f"[{row},{encoder.encode(profiles[k]) if k in profiles else 'null'}]"
+                f"[{row},{encoder.encode(profile_dict(profiles[k])) if k in profiles else 'null'}]"
                 for k, row in enumerate(rows, start)))
             short.write(separator + ",".join(f"[{row}]" for row in rows))
             on_lines(stop - start, "data.js, lines.js")

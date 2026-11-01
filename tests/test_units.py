@@ -151,6 +151,103 @@ def test_covered_metres_match_profiles():
     assert fast == slow
 
 
+def _profile_case(seed=13, size=300):
+    """Terrain with walls (lines over a gap), a few pixels without data, a surface model missing in
+    places, water and filled masks, and lines of 2 to about 300 pixels between non-NaN anchors."""
+    rng = np.random.default_rng(seed)
+    terrain = (rng.random((size, size)) * 30 + 100).astype(np.float32)
+    terrain[:, :10] += 80
+    terrain[:, -10:] += 70
+    terrain[rng.random((size, size)) < 0.003] = np.nan
+    terrain[5, :] = 512.125  # halves at 2 decimals: round() and the rounding of the batch must agree
+    surface = (terrain + rng.random((size, size)) * 15).astype(np.float32)
+    surface[rng.random((size, size)) < 0.3] = np.nan
+    surface[:, 150:160] = np.nan  # lines without surface data between their anchors
+    water = rng.random((size, size)) < 0.1
+    filled = np.zeros((size, size), dtype=bool)
+    filled[100:140, 50:250] = True
+    a1 = rng.integers(0, size, (900, 2))
+    a2 = rng.integers(0, size, (900, 2))
+    a2[:100] = a1[:100] + rng.integers(-6, 7, (100, 2))  # short ones
+    a1[100:150, 0], a2[100:150, 0] = 5, 5  # along the row of halves
+    a1[150:200, 1], a2[150:200, 1] = 155, 155  # along the columns without surface data
+    a2 = np.clip(a2, 0, size - 1)
+    keep = (np.abs(a2 - a1).max(axis=1) >= 2) & ~np.isnan(terrain[a1[:, 0], a1[:, 1]]) \
+        & ~np.isnan(terrain[a2[:, 0], a2[:, 1]])
+    return terrain, surface, water, filled, a1[keep], a2[keep]
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_line_profiles_match_line_profile(model):
+    """The batch of lineprofiles gives every line exactly (==, and the same JSON text) the profile of
+    helpers.line_profile, with and without surface, water and filled masks, also thinned to fewer
+    points; its metres over water and filled gaps are those of linesearch.covered_metres; its
+    profiles survive the pickle of a tile file and become the same text of data.js."""
+    import json
+    import pickle
+
+    import helpers as sh
+    import lineprofiles as lp
+    import linesearch as ls
+    import sag
+    terrain, surface, water, filled, a1, a2 = _profile_case()
+    table = sag.EnvelopeTable(sag.Rigging(), 2, 400) if model == "sag" else None
+    encoder = json.JSONEncoder(separators=(",", ":"))
+    cases = [(0.25, surface, water, filled, 200), (0.25, None, None, None, 200), (1.0, surface, None, filled, 7),
+             (2.0, None, water, None, 1), (5.0, surface, water, None, 2)]
+    seen = set()
+    for res, s, w, g, points in cases:
+        batch = lp.line_profiles(a1, a2, terrain, res, s, points, table, w, g, parts=7)
+        assert len(batch) == len(a1)
+        assert batch.w is None if w is None else batch.w.dtype == np.uint8
+        for k in range(len(a1)):
+            slow = sh.line_profile(tuple(a1[k].tolist()), tuple(a2[k].tolist()), terrain, res, s, points, table, w, g)
+            fast = batch[k].as_dict()
+            assert fast == slow, (res, points, k)
+            assert list(fast) == list(slow)
+            assert encoder.encode(fast) == encoder.encode(slow), (res, points, k)
+            seen |= {"no nmpt"} if s is not None and fast["min_nmpt"] is None else set()
+            seen |= {"no terrain"} if None in fast["z"] else set()
+            seen |= {"water"} if fast["w"] is not None else set()
+        if w is not None:
+            assert batch.small[:, 6].tolist() == ls.covered_metres(a1, a2, res, w)
+        if g is not None:
+            assert batch.small[:, 7].tolist() == ls.covered_metres(a1, a2, res, g)
+    assert seen == {"no nmpt", "no terrain", "water"}
+    # A table with these profiles, through a tile file, gives the dicts of before
+    columns = {"a1": a1, "a2": a2, "clearance_nmpt": np.zeros(len(a1))}
+    tables = sh.LineTable(columns, {k: batch[k] for k in range(0, len(a1), 3)})
+    again = pickle.loads(pickle.dumps(tables, pickle.HIGHEST_PROTOCOL))
+    assert {k: sh.profile_dict(p) for k, p in again.profiles.items()} == \
+           {k: sh.profile_dict(p) for k, p in tables.profiles.items()}
+    assert again.row(3)["profile"] == batch[3].as_dict()
+    with pytest.raises(ValueError):
+        lp.line_profiles(np.array([[0, 0]]), np.array([[0, 1]]), terrain, 1.0)  # no pixel between the anchors
+
+
+def test_line_profiles_independent_of_threads():
+    """The batch gives the same arrays with any number of threads."""
+    import numba
+
+    import lineprofiles as lp
+    import sag
+    terrain, surface, water, filled, a1, a2 = _profile_case(seed=17)
+    table = sag.EnvelopeTable(sag.Rigging(), 2, 400)
+    most = numba.config.NUMBA_NUM_THREADS
+    results = []
+    try:
+        for threads in sorted({1, min(3, most), min(7, most), most}):
+            numba.set_num_threads(threads)
+            for sag_table in (None, table):
+                results.append(lp.line_profiles(a1, a2, terrain, 0.5, surface, 50, sag_table, water, filled, parts=3))
+    finally:
+        numba.set_num_threads(most)
+    for k, other in enumerate(results[2:], 2):
+        first = results[k % 2]
+        for name in ("offsets", "d", "z", "s", "w", "g", "small", "flags"):
+            assert np.array_equal(getattr(other, name), getattr(first, name), equal_nan=name in "dzs small"), name
+
+
 @pytest.mark.parametrize("model", ["formula", "sag"])
 def test_evaluate_lines_matches_evaluate_line(model):
     """The numba check gives exactly (==) the decisions and values of helpers.evaluate_line."""
