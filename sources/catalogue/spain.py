@@ -6,13 +6,20 @@ from ..credit import CC_BY, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
-# IGN's form of a credit for a derived work (Orden FOM/2807/2015): "Obra derivada de <product> CC-BY 4.0 ign.es"
-IGN_CREDIT = Credit("MDT05 / MDS05 (IGN Spain, PNOA-LiDAR)", "Obra derivada de MDT05 / MDS05 CC-BY 4.0 ign.es",
+# IGN's form of a credit for a derived work (Orden FOM/2807/2015): "Obra derivada de <product> CC-BY 4.0 <producer>",
+# with the product identifiers and producers of the SCNE's table (https://www.scne.es/tablaProductos.php, 2026-11-01:
+# "MDT05-cob1 2008-2015" and "MDS05 2008-2015", both "CC-BY 4.0 scne.es"; the services' AccessConstraints
+# "CC BY 4.0 scne.es")
+IGN_CREDIT = Credit("MDT05 / MDS05 (IGN Spain, PNOA-LiDAR)",
+                    "Obra derivada de MDT05-cob1 2008-2015 y MDS05 2008-2015 CC-BY 4.0 scne.es",
                     CC_BY[0], "https://www.ign.es/web/en/politica-datos")
 SPAIN_MDT = "https://servicios.idee.es/wcs-inspire/mdt"
 SPAIN_MDS = "https://wcs-mds.idee.es/mds"
+# PNOA máxima actualidad: the newest of the yearly PNOA orthophotos in each place, product "PNOA" of the SCNE's
+# table (one row per year, "PNOA <year> CC-BY 4.0 scne.es"; the year differs from place to place, so none is named)
 SPAIN_ORTHO = OrthoService("Orthophoto PNOA (IGN Spain)", "https://www.ign.es/wms-inspire/pnoa-ma",
-                           "OI.OrthoimageCoverage", "spain/ortho/live", "PNOA © IGN")
+                           "OI.OrthoimageCoverage", "spain/ortho/live", "PNOA CC-BY 4.0 scne.es",
+                           attribution_url=CC_BY[1])
 
 
 def _spain(canary: bool) -> Source:

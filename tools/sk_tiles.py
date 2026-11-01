@@ -231,7 +231,7 @@ tags: [geospatial, elevation, lidar, slovakia]
 Tiles of the digital terrain model **DMR 5.0** and digital surface model **DMP 1.0** of the
 Slovak airborne laser scanning project (1st cycle, 2017–2023), 1 m, made from the files
 published by **ÚGKK SR** (Úrad geodézie, kartografie a katastra Slovenskej republiky) at
-https://www.geoportal.sk/en/zbgis/als/ under **CC BY 4.0**
+https://www.skgeodesy.sk/geoportal-en/zbgis/als/ under **CC BY 4.0**
 (https://creativecommons.org/licenses/by/4.0/). Source: © ÚGKK SR.
 
 Changes made: the national rasters (S-JTSK [JTSK03] EPSG:8353, Baltic 1957 heights EPSG:8357)

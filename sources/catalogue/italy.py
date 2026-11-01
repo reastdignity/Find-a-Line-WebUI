@@ -2,7 +2,7 @@
 
 from typing import List
 
-from ..credit import Credit
+from ..credit import CC_BY, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
@@ -34,11 +34,14 @@ def _bz_layer(kind: str, description: str) -> WcsTiles:
                     params=(("GEOTIFF:COMPRESSION", "DEFLATE"),))
 
 
-# The province's orthophoto of 2023 (20 cm, CC BY 4.0) from its MapProxy WMTS in Web Mercator
-# (zoom 0-24 offered: the imagery's own detail ends at about 19); no request limits published
+# The province's orthophoto of 2023 (20 cm) from its MapProxy WMTS in Web Mercator (zoom 0-24 offered: the
+# imagery's own detail ends at about 19); no request limits published. Its record on data.civis.bz.it
+# (ortofoto-2023, checked 2026-11-01) says "L'utilizzo dei dati è vincolato dal rispetto delle condizioni di cui
+# al modello di licenza Creative Commons BY 4.0", its access constraints the CC BY 4.0 deed (its licence field
+# says CC0: the stricter CC BY is followed)
 BZ_ORTHO = OrthoService(
     "Orthophoto 2023 (Autonomous Province of Bolzano)", None, "", "italy/bz-ortho/2023",
-    "Orthofoto 2023: Autonome Provinz Bozen - Südtirol (CC BY 4.0)",
+    "Orthofoto 2023: Autonome Provinz Bozen - Südtirol (CC BY 4.0)", attribution_url=CC_BY[1],
     base_url="https://geoservices.buergernetz.bz.it/mapproxy/ows?service=WMTS&version=1.0.0&request=GetTile"
              "&layer=p_bz-Orthoimagery:Aerial-2023-RGB&style=default&tilematrixset=EPSG_3857"
              "&tilematrix={z}&tilerow={y}&tilecol={x}&format=image/png", base_max_zoom=19)

@@ -9,12 +9,15 @@ from ..source import ReadmeRow, OrthoService, Source
 from ..layers.blocks import DegreeBlocks
 from ..layers.tnm import IfsarBlocks, Usgs1mBlocks
 
-# All 3DEP products are public domain; USGS asks for a credit (copyrights-and-credits page)
+# All 3DEP products are public domain; USGS asks for a credit, in its own sentence for its data and map
+# services (copyrights-and-credits page)
 USGS_TERMS = ("public domain (USGS)",
               "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits")
-USGS_1M_CREDIT = Credit("3DEP 1 m DEM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
-USGS_IFSAR_CREDIT = Credit("3DEP Alaska IfSAR 5 m DTM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
-USGS_13_CREDIT = Credit("3DEP 1/3 arc-second DEM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
+USGS_ATTRIBUTION = ("USGS 3D Elevation Program (3DEP). Map services and data available from U.S. Geological Survey, "
+                    "National Geospatial Program.")
+USGS_1M_CREDIT = Credit("3DEP 1 m DEM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
+USGS_IFSAR_CREDIT = Credit("3DEP Alaska IfSAR 5 m DTM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
+USGS_13_CREDIT = Credit("3DEP 1/3 arc-second DEM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
 # USGS 3DEP (the USA): blocks read from the files on S3 by HTTP range requests; the 1 m
 # DEM per project (newest first), Alaska's IfSAR DTM, and the 1/3″ DEM for the gaps
 USGS_3DEP = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation"

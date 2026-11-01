@@ -273,7 +273,8 @@ LINES_CHUNK = 10_000  # lines written between two progress updates
 
 
 def attribution_text(meta: Dict) -> str:
-    """ATTRIBUTION.txt of a run: the licence and the notice of every dataset it used."""
+    """ATTRIBUTION.txt of a run: the licence and the notice of every dataset it used, then that the
+    results are made from changed data (sources.credit.PROCESSED_NOTE)."""
     lines = [f"Find-a-Line run \"{meta.get('name', '')}\" ({meta.get('created', '')})", "",
              "Data used for this run, its licence and the notice it must be shown with:", ""]
     credits = meta.get("attribution") or []
@@ -289,6 +290,9 @@ def attribution_text(meta: Dict) -> str:
         lines += [source.get("description", "local files"), "  Credit these as their own licences require.", ""]
     elif not credits:
         lines += ["Not recorded for this run.", ""]
+    if credits or source.get("id") == "files":
+        from sources.credit import PROCESSED_NOTE  # here: the web process imports runs, not sources
+        lines += [PROCESSED_NOTE, ""]
     return "\n".join(lines)
 
 

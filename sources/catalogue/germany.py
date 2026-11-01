@@ -4,22 +4,24 @@ DOM1 from WCS)."""
 
 from typing import List
 
-from ..credit import CC_BY, YEAR, Credit
+from ..credit import CC_BY, DL_DE_BY, YEAR, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 from ..layers.wcs import WcsTiles
 
 # LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
-# the provider named "© GeoBasis-DE / LVermGeo ST"
+# the provider named "© GeoBasis-DE / LVermGeo ST"; dl-de/by-2.0 §3 asks for a note of changes ("Daten
+# geändert": a mosaic on our grid is one)
 LVERMGEO_ATTRIBUTION = "© GeoBasis-DE / LVermGeo ST"
-DL_DE_BY = ("dl-de/by-2.0", "https://www.govdata.de/dl-de/by-2-0")
-LVERMGEO_CREDIT = Credit("DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)", LVERMGEO_ATTRIBUTION, *DL_DE_BY)
+LVERMGEO_CREDIT = Credit("DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)", f"{LVERMGEO_ATTRIBUTION}, Daten geändert",
+                         *DL_DE_BY)
 LVERMGEO_WCS = "https://geodatenportal.sachsen-anhalt.de/ows_INSPIRE_LVermGeo_ATKIS_EL_{}_WCS"
 # DOP20 of LVermGeo, its open-data WMS in EPSG:4326 (dl-de/by-2.0 like all its open data); no request
 # limits published
 LVERMGEO_DOP = OrthoService("DOP20 Sachsen-Anhalt (LVermGeo)",
                             "https://www.geodatenportal.sachsen-anhalt.de/wss/service/ST_LVermGeo_DOP_WMS_OpenData/guest",
-                            "lsa_lvermgeo_dop20_2", "saxony_anhalt/ortho/live", LVERMGEO_ATTRIBUTION)
+                            "lsa_lvermgeo_dop20_2", "saxony_anhalt/ortho/live",
+                            f"{LVERMGEO_ATTRIBUTION}, dl-de/by-2-0", attribution_url=DL_DE_BY[1])
 
 
 def _lvermgeo(kind: str, description: str, zero_is_nodata: bool) -> WcsTiles:
@@ -42,7 +44,7 @@ LGLN_ITEM = r"^d[go]m1_32_(?P<east>\d+)_(?P<north>\d+)_1_ni_(?P<year>\d{4})$"
 # DOP20 of LGLN, a WMS in EPSG:4326; CC BY 4.0, credited "LGLN (<year of the download>)" (its
 # AccessConstraints); no request limits published
 LGLN_DOP = OrthoService("DOP20 Niedersachsen (LGLN)", "https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms",
-                        "ni_dop20", "lower_saxony/ortho/live", f"LGLN ({YEAR}), CC BY 4.0")
+                        "ni_dop20", "lower_saxony/ortho/live", f"LGLN ({YEAR}), CC BY 4.0", attribution_url=CC_BY[1])
 
 
 def _lgln(kind: str, description: str) -> StacTiles:
@@ -74,13 +76,14 @@ def _hvbg(kind: str, coverage: str, description: str, zero_is_nodata: bool) -> W
 
 
 # LAiV M-V's open data (CC BY 4.0; the WCS's AccessConstraints): a clearly visible "© GeoBasis-DE/M-V
-# <year of the last delivery>"; the year of the run (YEAR) stands for it, as for LGLN
+# <year of the last delivery>"; the year of the run (YEAR) stands for it, as for LGLN. CC BY asks to say
+# that the data were changed (a mosaic on our grid is): "Daten geändert" in the credit of the models
 LAIV_ATTRIBUTION = f"© GeoBasis-DE/M-V {YEAR}"
-LAIV_CREDIT = Credit("DGM1 / DOM1 (LAiV, Mecklenburg-Vorpommern)", LAIV_ATTRIBUTION, *CC_BY)
+LAIV_CREDIT = Credit("DGM1 / DOM1 (LAiV, Mecklenburg-Vorpommern)", f"{LAIV_ATTRIBUTION}, Daten geändert", *CC_BY)
 # LAiV's DOP WMS (EPSG:4326, CC BY 4.0, the same notice); its images carry "© GeoBasis-DE/M-V" in
 # their top left corner (in every tile), and nothing above 1:400000
 LAIV_DOP = OrthoService("DOP Mecklenburg-Vorpommern (LAiV)", "https://www.geodaten-mv.de/dienste/adv_dop", "mv_dop",
-                        "mecklenburg_vorpommern/ortho/live", f"{LAIV_ATTRIBUTION}, CC BY 4.0")
+                        "mecklenburg_vorpommern/ortho/live", f"{LAIV_ATTRIBUTION}, CC BY 4.0", attribution_url=CC_BY[1])
 
 
 def _laiv(url: str, coverage: str, kind: str, description: str) -> WcsTiles:

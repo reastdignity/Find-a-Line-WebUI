@@ -1100,3 +1100,71 @@ def test_docs_list_every_source():
     assert source_docs.render(text) == text, "README.md is out of date: run `uv run tools/source_docs.py`"
     for sid in src.SOURCES:
         assert f"| `{sid}` |" in text and f"`{sid}`" in source_docs.ids()
+
+
+# The wording each provider's terms ask for (the audit of 2026-11-01): a change needs its terms read again
+ATTRIBUTIONS = {
+    "slovakia": "© ÚGKK SR",
+    "malta": "Planning Authority, Malta: Digital Terrain / Surface Model 2018, CC BY 4.0",
+    "malta2012": "Planning Authority, Malta: Digital Terrain / Surface Model 2012, CC BY 4.0",
+    "spain": "Obra derivada de MDT05-cob1 2008-2015 y MDS05 2008-2015 CC-BY 4.0 scne.es",
+    "spain_canarias": "Obra derivada de MDT05-cob1 2008-2015 y MDS05 2008-2015 CC-BY 4.0 scne.es",
+    "saxony_anhalt": "© GeoBasis-DE / LVermGeo ST, Daten geändert",
+    "mecklenburg_vorpommern": "© GeoBasis-DE/M-V {year}, Daten geändert",
+    "finland": "Contains data from the National Land Survey of Finland Elevation model 2 m {year}, CC BY 4.0, processed",
+    "wales": "Contains public sector information licensed under the Open Government Licence v3.0",
+    "england": "© Environment Agency copyright and/or database right 2022. All rights reserved. Modified: resampled "
+               "onto the working grid.",
+    "usa": "USGS 3D Elevation Program (3DEP). Map services and data available from U.S. Geological Survey, "
+           "National Geospatial Program.",
+}
+ORTHOS = {  # source: (attribution, attribution_url)
+    "austria": ("Datenquelle: basemap.at", "https://basemap.at"),
+    "slovakia": ("© GKÚ Bratislava, NLC, CC BY 4.0", src.CC_BY[1]),
+    "malta": ("Orthoimagery 2018: Planning Authority, Malta, CC BY 4.0", src.CC_BY[1]),
+    "spain": ("PNOA CC-BY 4.0 scne.es", src.CC_BY[1]),
+    "south_tyrol": ("Orthofoto 2023: Autonome Provinz Bozen - Südtirol (CC BY 4.0)", src.CC_BY[1]),
+    "saxony_anhalt": ("© GeoBasis-DE / LVermGeo ST, dl-de/by-2-0", "https://www.govdata.de/dl-de/by-2-0"),
+    "lower_saxony": ("LGLN ({year}), CC BY 4.0", src.CC_BY[1]),
+    "mecklenburg_vorpommern": ("© GeoBasis-DE/M-V {year}, CC BY 4.0", src.CC_BY[1]),
+    "geoportal": ("GUGiK", None),
+}
+
+
+def test_credit_wording():
+    for sid, text in ATTRIBUTIONS.items():
+        assert src.SOURCES[sid].credits[0].attribution == text, sid
+    for sid, (text, url) in ORTHOS.items():
+        ortho = src.SOURCES[sid].ortho
+        assert (ortho.attribution, ortho.attribution_url) == (text, url), sid
+    assert src.SOURCES["malta"].credits[0].url == "https://portal.data.gov.mt/dataset/digital-terrain-model-2018"
+    assert "196 m south" in src.SOURCES["malta2012"].credits[0].notice
+    assert "NSF Award Numbers 2410799, 2410800 & 2410801." in src.SOURCES["nasadem"].credits[0].notice
+    assert "Modified:" in src.FABDEM_CREDIT.notice
+    assert src.SOURCES["swisstopo"].credits[0].url == ("https://www.swisstopo.admin.ch/en/"
+                                                       "terms-of-use-free-geodata-and-geoservices")
+    assert "https://www.openstreetmap.org/fixthemap" in src.OSM_CREDIT.notice
+
+
+def test_processed_note_with_every_run():
+    """ATTRIBUTION.txt says that what a run made comes from changed data, after its credits."""
+    import runs
+    note = src.credit.PROCESSED_NOTE
+    text = runs.attribution_text({"name": "x", "attribution": [src.FABDEM_CREDIT.as_dict()]})
+    assert text.index(src.FABDEM_CREDIT.data) < text.index(note)
+    assert note in runs.attribution_text({"name": "x", "source": {"id": "files", "description": "a.tif"}})
+    assert note not in runs.attribution_text({"name": "x"})  # nothing recorded: nothing to say it of
+
+
+def test_about_page_links_and_note():
+    """The about page: orthophoto attributions as links where attribution_url is set (escaped, no script), the
+    processed note, OSM's fixthemap link, no Esri (removed from the maps)."""
+    import html
+    import web
+    page = web.about_page("someone@example.org")
+    assert "<a href='https://basemap.at'>Datenquelle: basemap.at</a>" in page
+    assert (f"<a href='{src.CC_BY[1]}'>{html.escape('© GKÚ Bratislava, NLC, CC BY 4.0')}</a>" in page)
+    assert "<li>Orthophoto (geoportal.gov.pl): GUGiK</li>" in page  # no link: none set
+    assert html.escape(src.credit.PROCESSED_NOTE) in page
+    assert "href='https://www.openstreetmap.org/fixthemap'" in page
+    assert "Esri" not in page and "<script" not in page

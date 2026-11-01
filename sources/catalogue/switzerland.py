@@ -8,7 +8,7 @@ from ..layers.stac import StacTiles
 
 SWISSTOPO_CREDIT = Credit("swissALTI3D / swissSURFACE3D (swisstopo)", "© swisstopo",
                           "swisstopo OGD terms (free use, source stated)",
-                          "https://www.swisstopo.admin.ch/en/conditions-geodata")
+                          "https://www.swisstopo.admin.ch/en/terms-of-use-free-geodata-and-geoservices")
 SWISSTOPO_STAC = "https://data.geo.admin.ch/api/stac/v1"
 # SWISSIMAGE in the map's own tiling (CDN), imagery up to zoom 20; there is no WMS step.
 # Fewer detailed tiles than elsewhere: swisstopo's terms ask for no bulk downloads.
