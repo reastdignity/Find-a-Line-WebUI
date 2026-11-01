@@ -14,10 +14,12 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 import test_lock as tl  # noqa: E402
 
 TOOL = os.path.join(REPO, "tools", "test_lock.py")
-# A command that marks its start in <name>.started and ends once <name>.go exists
+# A command that marks its start in <name>.started (whole, through a rename) and ends once <name>.go exists
 CHILD = ("import os, sys, time\n"
          "folder, name = sys.argv[1], sys.argv[2]\n"
-         "open(os.path.join(folder, name + '.started'), 'w').write(os.environ.get('NUMBA_NUM_THREADS', '-'))\n"
+         "path = os.path.join(folder, name + '.started')\n"
+         "open(path + '.part', 'w').write(os.environ.get('NUMBA_NUM_THREADS', '-'))\n"
+         "os.replace(path + '.part', path)\n"
          "deadline = time.time() + 120\n"
          "while not os.path.exists(os.path.join(folder, name + '.go')) and time.time() < deadline:\n"
          "    time.sleep(0.05)\n")
@@ -117,6 +119,23 @@ def test_estimates_from_history(tmp_path):
     assert estimate(["python", "-c", "pass"]) == 1.0 and estimate(["python", "-c", "other"]) is None
 
 
+def test_wrappers_set_up_a_new_queue_together(tmp_path):
+    """Opened at the same moment by several wrappers, a new queue is set up by one at a time
+    (without it SQLite answered "database is locked" at once, in about half of such starts)."""
+    opener = ("import sys, time\n"
+              "sys.path.insert(0, sys.argv[1]); import test_lock as tl\n"
+              "time.sleep(max(0, float(sys.argv[3]) - time.time()))\n"
+              "tl.Queue(sys.argv[2]).add('t', 'shared', [], 'x', 'c')\n")
+    for round in range(5):
+        folder = tmp_path / str(round)
+        folder.mkdir()
+        at = time.time() + 1.0
+        processes = [subprocess.Popen([sys.executable, "-c", opener, os.path.join(REPO, "tools"), str(folder), str(at)],
+                                      stderr=subprocess.PIPE, text=True) for _ in range(4)]
+        errors = [p.stderr.read().strip() for p in processes if p.wait(timeout=60) != 0]
+        assert not errors, errors[0]
+
+
 class Runs:
     """Wrappers started with their own queue; each runs CHILD under a name."""
 
@@ -143,15 +162,29 @@ class Runs:
     def wait_for(self, check, seconds=60):
         deadline = time.time() + seconds
         while not check():
-            assert time.time() < deadline, "timed out"
+            assert time.time() < deadline, f"timed out; the wrappers wrote:\n{self.stderr()}"
             time.sleep(0.05)
 
+    def stderr(self):
+        """What the wrappers wrote, once they are killed (their commands go on until stop)."""
+        texts = []
+        for process in self.processes:
+            process.kill()
+            texts.append(f"[{process.args[4]}] exit {process.wait()}: {process.stderr.read().strip()}")
+        return "\n".join(texts)
+
     def queued(self, mode):
-        db = sqlite3.connect(os.path.join(self.env["FINDALINE_TEST_LOCK_DIR"], "queue.sqlite"))
-        try:
-            return db.execute("SELECT count(*) FROM entries WHERE mode = ?", (mode,)).fetchone()[0]
-        finally:
-            db.close()
+        deadline = time.time() + 10
+        while True:
+            db = sqlite3.connect(os.path.join(self.env["FINDALINE_TEST_LOCK_DIR"], "queue.sqlite"))
+            try:
+                return db.execute("SELECT count(*) FROM entries WHERE mode = ?", (mode,)).fetchone()[0]
+            except sqlite3.OperationalError:  # a disk I/O error on Windows just after a wrapper was killed
+                if time.time() > deadline:
+                    raise
+                time.sleep(0.1)
+            finally:
+                db.close()
 
     def stop(self):
         for name in "abcdefgh":

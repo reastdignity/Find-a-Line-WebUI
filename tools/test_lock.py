@@ -200,13 +200,13 @@ class Queue:
     def __init__(self, folder: str):
         self.folder = folder
         self.db = sqlite3.connect(os.path.join(folder, "queue.sqlite"), timeout=60, isolation_level=None)
-        self.db.execute("PRAGMA journal_mode=WAL")
-        self.db.executescript(SCHEMA)
-        if "expect" not in [row[1] for row in self.db.execute("PRAGMA table_info(entries)")]:
-            try:  # added later; wrappers of older checkouts leave it NULL
-                self.db.execute("ALTER TABLE entries ADD COLUMN expect REAL")
-            except sqlite3.OperationalError:  # another wrapper added it meanwhile
-                pass
+        # One at a time: wrappers setting up a new queue together get "database is locked" at once,
+        # without the busy timeout (switching to WAL, creating the schema)
+        with FileLock(os.path.join(folder, "setup.lock"), fallback_to_soft=False):
+            self.db.execute("PRAGMA journal_mode=WAL")
+            self.db.executescript(SCHEMA)
+            if "expect" not in [row[1] for row in self.db.execute("PRAGMA table_info(entries)")]:
+                self.db.execute("ALTER TABLE entries ADD COLUMN expect REAL")  # wrappers of older checkouts leave it NULL
 
     def _entries(self) -> List[Entry]:
         rows = self.db.execute("SELECT id, token, mode, resources, owner, pid, command, queued, started, expect "
@@ -273,12 +273,16 @@ class Queue:
             now = time.time()
             if entry.id in startable(entries, now, self.estimate):
                 self.db.execute("UPDATE entries SET started = ? WHERE id = ?", (now, entry.id))
-                return True, [e for e in others if e.started is None and e.id < entry.id and conflicts(entry, e)]
-            blocking = [e for e in others if (e.started is not None or e.id < entry.id)
-                        and (conflicts(entry, e) or e.mode == entry.mode == "shared")]
-            return False, blocking
-        finally:
-            self.db.execute("COMMIT")
+                result = True, [e for e in others if e.started is None and e.id < entry.id and conflicts(entry, e)]
+            else:
+                result = False, [e for e in others if (e.started is not None or e.id < entry.id)
+                                 and (conflicts(entry, e) or e.mode == entry.mode == "shared")]
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+        self.db.execute("COMMIT")
+        return result
 
     def remove(self, token: str) -> None:
         self.db.execute("DELETE FROM entries WHERE token = ?", (token,))
@@ -324,9 +328,15 @@ def run(args) -> int:
     process = None
     try:
         queue.add(token, mode, args.resource, args.owner, text, args.expect)
-        start, reported = time.time(), None
+        start, reported, trouble = time.time(), None, None
         while True:
-            started, blocking = queue.try_start(token)
+            try:
+                started, blocking = queue.try_start(token)
+            except sqlite3.OperationalError as error:  # e.g. a disk I/O error on Windows just after a wrapper was killed
+                if str(error) != trouble:
+                    trouble = str(error)
+                    print(f"test lock: the queue could not be read ({error}), trying again", file=sys.stderr)
+                started, blocking = False, []
             if started:
                 if blocking:
                     print(f"test lock: {mode} starts ahead of #{', #'.join(str(e.id) for e in blocking)}, "
