@@ -149,6 +149,19 @@ class LineTable:
         return LineTable({name: column[index] for name, column in self.columns.items()},
                          {k: self.profiles[old] for old, k in new.items()})
 
+    def reorder(self, index) -> "LineTable":
+        """take(index) in place, one column after another (so at most one column is held twice, where
+        take holds the whole table twice); returns self."""
+        index = np.asarray(index)
+        if index.dtype == bool:
+            index = np.flatnonzero(index)
+        if self.profiles:
+            new = {int(old): k for k, old in enumerate(index.tolist()) if old in self.profiles}
+            self.profiles = {k: self.profiles[old] for old, k in new.items()}
+        for name in list(self.columns):
+            self.columns[name] = self.columns[name][index]
+        return self
+
     @classmethod
     def concat(cls, tables: List["LineTable"]) -> "LineTable":
         """The rows of several tables (with the same columns), one after another."""

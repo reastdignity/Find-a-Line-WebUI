@@ -21,7 +21,7 @@ clearances, so the results are exactly those of the plain pixel-by-pixel search.
 
 import math
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Iterator, List, Optional
 
 import numba
 import numpy as np
@@ -43,6 +43,9 @@ LINE_ORDER_MAX = 1024
 # chunk (99.96 % of the anchors with lines on the searches measured), at most PAIR_BUFFER_BYTES a chunk
 PAIR_BUFFER = 1024
 PAIR_BUFFER_BYTES = 16 << 20
+# The pairs found are evaluated in parts of at least EVAL_PART pairs (and of at least 1/CHUNKS of
+# them): the chunks' arrays as they are, small ones joined, large ones cut
+EVAL_PART = 10_000
 
 
 @njit(cache=True)
@@ -615,6 +618,46 @@ def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np
             for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
 
 
+def evaluation_parts(chunks: List[Optional[np.ndarray]], size: int) -> Iterator[np.ndarray]:
+    """The pairs of the chunks (arrays of pairs, in their order) in parts of size pairs (the last
+    one smaller): a part of one chunk is a view of it, the pieces of small ones are copied into
+    one. Each chunk is released (its entry set to None) as soon as its pairs are handed out, so
+    the pairs are held once, not twice as a concatenation of all of them would."""
+    pending, held = [], 0
+    for i in range(len(chunks)):
+        chunk, chunks[i] = chunks[i], None
+        start = 0
+        while held + len(chunk) - start >= size:
+            end = start + size - held
+            if pending:
+                pending.append(chunk[start:end])
+                part, pending, held = np.concatenate(pending), [], 0
+                yield part
+            else:
+                yield chunk[start:end]
+            start = end
+        if start < len(chunk):  # a copy: a view would keep the whole chunk
+            pending.append(chunk[start:].copy())
+            held += len(chunk) - start
+        del chunk
+    if pending:
+        yield np.concatenate(pending)
+
+
+def join_tables(parts: List[sh.LineTable]) -> sh.LineTable:
+    """sh.LineTable.concat of tables without profiles, one column at a time: each part's column is
+    released once copied, so at most one column is held twice."""
+    parts = [t for t in parts if len(t)] or parts[:1] or [sh.LineTable.empty()]
+    if len(parts) == 1:
+        return parts[0]
+    columns = {}
+    for name in list(parts[0].columns):
+        columns[name] = np.concatenate([t.columns[name] for t in parts])
+        for t in parts:
+            del t.columns[name]
+    return sh.LineTable(columns)
+
+
 def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], anchors: np.ndarray,
                      res: float, min_length: float, max_length: float,
                      nmpt_mode: Optional[str] = None, threads: Optional[int] = None,
@@ -681,26 +724,39 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     todo_all, args, tail = pair_arguments(z, anchors, elev, useful, rings, slot, first, res, min_length, max_length,
                                           max_dh_ratio, max_dh, down, cos_limit, strong, use_sag, log_spans,
                                           ratios, table, fall_zone)
-    pairs, candidates, checked = [], 0, 0
+    pairs, candidates, checked, found = [], 0, 0, 0
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
     for todo in np.array_split(todo_all, min(CHUNKS, max(1, len(todo_all)))):
         counts, out = pair_chunk(args, todo, tail)
         pairs.append(out)
+        found += len(out)
         candidates += int(counts[:, 0].sum())
         checked += int(counts[:, 1].sum())
-        progress.compute.update(len(todo), pairs=f"{checked:,}", lines=sum(len(p) for p in pairs))
+        progress.compute.update(len(todo), pairs=f"{checked:,}", lines=found)
+        del out
     progress.compute.finish()
 
-    # Final decision and clearances, exactly as in the pixel-by-pixel search (evaluate_line)
-    found = np.concatenate(pairs) if pairs else np.zeros((0, 2), dtype=np.int64)
+    def add_stats(valid: int):
+        if stats is not None:
+            for key, n in (("open", len(useful)), ("todo", len(todo_all)), ("candidates", candidates),
+                           ("checked", checked), ("found", found), ("valid", valid),
+                           ("left_out", limits.left_out if limits is not None else 0)):
+                stats[key] = stats.get(key, 0) + int(n)
+
+    # Final decision and clearances, exactly as in the pixel-by-pixel search (evaluate_line), part
+    # by part from the chunks' pairs (each chunk released once evaluated)
     parts, valid = [], 0
-    progress.compute.start("checking lines", len(found), unit="line")
-    for part in np.array_split(found, max(1, min(CHUNKS, len(found) // 10000))):
+    progress.compute.start("checking lines", found, unit="line")
+    if not found:
+        progress.compute.update(0, valid=0)  # as the one empty part did
+    for part in evaluation_parts(pairs, max(EVAL_PART, -(-found // CHUNKS))):
         parts.append(evaluate_lines(part, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
                                     limits, down, anchor_values))
         valid += len(parts[-1])
         progress.compute.update(len(part), valid=valid)
-    valid_lines = sh.LineTable.concat(parts)
+        del part
+    valid_lines = join_tables(parts)
+    del parts
     progress.compute.finish(f"{len(valid_lines)} valid")
     print(f"\n{'=' * 60}")
     print(f"Completed in {time.time() - start_time:.2f} seconds")
@@ -710,11 +766,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         print(f"Left out by the line limits ({limits.describe()}): {limits.left_out}")
     print(f"Found {len(valid_lines)} valid lines")
     print(f"{'=' * 60}")
-    if stats is not None:
-        for key, n in (("open", len(useful)), ("todo", len(todo_all)), ("candidates", candidates),
-                       ("checked", checked), ("found", len(found)), ("valid", len(valid_lines)),
-                       ("left_out", limits.left_out if limits is not None else 0)):
-            stats[key] = stats.get(key, 0) + int(n)
+    add_stats(len(valid_lines))
 
-    # Longest first; lines of the same length keep their order (as sorted(reverse=True) did)
-    return valid_lines.take(np.argsort(-valid_lines.columns["length"], kind="stable"))
+    # Longest first; lines of the same length keep their order (as sorted(reverse=True) did), one
+    # column after another
+    return valid_lines.reorder(np.argsort(-valid_lines.columns["length"], kind="stable"))

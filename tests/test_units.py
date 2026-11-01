@@ -332,6 +332,101 @@ def test_kernels_independent_of_threads(model):
         assert other_covered == covered, threads
 
 
+def _canyon(seed=11):
+    """The canyon of test_kernels_independent_of_threads: elevation, surface, anchors, a first mask."""
+    rng = np.random.default_rng(seed)
+    z = (rng.random((160, 160)) * 3 + 100).astype(np.float32)
+    z[:, :20] += 60
+    z[:, 140:] += 55 + rng.random((160, 20)).astype(np.float32) * 10
+    z[rng.random((160, 160)) < 0.003] = np.nan
+    surface = (z + rng.random((160, 160)) * 20).astype(np.float32)
+    anchors = np.vstack([np.column_stack([np.arange(0, 160, 2), np.full(80, 19)]),
+                         np.column_stack([np.arange(1, 160, 2), np.full(80, 140)]),
+                         rng.integers(0, 160, (60, 2))])
+    return z, surface, anchors, rng.random(len(anchors)) < 0.7
+
+
+def _old_valid_lines(z, surface, anchors, min_length, max_length, table, first, limits, values):
+    """The end of find_valid_lines as it was before wave 4 (all pairs concatenated, evaluated in
+    np.array_split parts, the tables concatenated, then take of the sort): the reference."""
+    import math
+
+    import helpers as sh
+    import linesearch as ls
+    elev = z[anchors[:, 0], anchors[:, 1]]
+    if table is None:
+        log_spans, ratios, sag, fall_zone = np.zeros(2), np.zeros(2), np.zeros((2, 2, 2)), 0.0
+        gain, cap, offset = -sh.SLOPE, np.inf, sh.LEASH_FALL
+    else:
+        log_spans, ratios = np.log(table.spans), table.RATIOS.astype(np.float64)
+        sag, fall_zone = np.ascontiguousarray(table.sag), table.rig.fall_zone
+        gain, cap, offset = 0.3 * math.sqrt(2), np.inf, fall_zone + min(0.0, float(sag.min()))
+    useful, rings, slot = ls.free_directions(z, anchors, 1.0, gain, cap, offset, min_length, max_length)
+    down = sh.downslope(z, anchors, 1.0)
+    angle = limits.max_wall_angle if limits.max_wall_angle is not None else 180.0
+    cos_limit = -2.0 if angle >= 180 else math.cos(math.radians(angle))
+    todo_all, args, tail = ls.pair_arguments(z, anchors, elev, useful, rings, slot, first, 1.0, min_length,
+                                             max_length, 0.3, np.inf, down, cos_limit, None, table is not None,
+                                             log_spans, ratios, sag, fall_zone)
+    pairs = [ls.pair_chunk(args, todo, tail)[1] for todo in np.array_split(todo_all, min(200, max(1, len(todo_all))))]
+    found = np.concatenate(pairs) if pairs else np.zeros((0, 2), dtype=np.int64)
+    parts = [ls.evaluate_lines(part, anchors, z, 1.0, surface, table, "mark", sh.HIGH_ABOVE, limits, down, values)
+             for part in np.array_split(found, max(1, min(200, len(found) // 10000)))]
+    lines = sh.LineTable.concat(parts)
+    return lines.take(np.argsort(-lines.columns["length"], kind="stable")), len(found)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("case", ["all", "first", "limits", "empty"])
+def test_valid_lines_in_parts_as_before(model, case, monkeypatch):
+    """find_valid_lines evaluates the chunks' pairs in parts, joins the tables column by column and
+    sorts them in place: the table of before (every column, its dtype, left_out and the funnel's
+    counts), whatever the size of the parts and the number of chunks."""
+    import helpers as sh
+    import linesearch as ls
+    import sag
+    import terrain
+    z, surface, anchors, first = _canyon()
+    first = first if case == "first" else None
+    min_length, max_length = (300.0, 400.0) if case == "empty" else (20.0, 150.0)
+    table = sag.EnvelopeTable(sag.Rigging(), min_length, max_length) if model == "sag" else None
+    values = np.column_stack([terrain.prominence(z, anchors, 1.0, 40), terrain.drop(z, anchors, 1.0, 30)])
+
+    def limits():
+        return sh.LineLimits(min_height=60.5, max_wall_angle=120) if case == "limits" else sh.LineLimits()
+
+    old_limits = limits()
+    old, found = _old_valid_lines(z, surface, anchors, min_length, max_length, table, first, old_limits, values)
+    assert (len(old) == 0) == (case == "empty") and (old_limits.left_out > 0) == (case == "limits")
+    for chunks, part in ((200, 10_000), (200, 1), (7, 13), (1, 100), (3, 10_000)):
+        monkeypatch.setattr(ls, "CHUNKS", chunks)
+        monkeypatch.setattr(ls, "EVAL_PART", part)
+        new_limits, stats = limits(), {}
+        new = ls.find_valid_lines(z, surface, anchors, 1.0, min_length, max_length, nmpt_mode="mark",
+                                  sag_table=table, max_dh_ratio=0.3, first=first, limits=new_limits,
+                                  anchor_values=values, stats=stats)
+        assert list(new.columns) == list(old.columns) and new.profiles == {}
+        for name, column in old.columns.items():
+            assert new.columns[name].dtype == column.dtype and new.columns[name].shape == column.shape, name
+            assert np.array_equal(new.columns[name], column, equal_nan=column.dtype.kind == "f"), (chunks, part, name)
+        assert new_limits.left_out == old_limits.left_out
+        assert stats["found"] == found and stats["valid"] == len(old) and stats["left_out"] == old_limits.left_out
+
+
+def test_evaluation_parts():
+    """The pairs of the chunks in parts of the size asked, in their order, each chunk released."""
+    import linesearch as ls
+    chunks = [np.arange(2 * n).reshape(n, 2) + 1000 * k for k, n in enumerate((0, 3, 25, 1, 0, 4, 9))]
+    whole = np.concatenate(chunks)
+    for size in (1, 2, 5, 10, 100):
+        given = list(chunks)
+        parts = list(ls.evaluation_parts(given, size))
+        assert given == [None] * len(chunks)
+        assert all(len(p) == size for p in parts[:-1]) and 0 < len(parts[-1]) <= size
+        assert np.array_equal(np.concatenate(parts), whole)
+    assert list(ls.evaluation_parts([np.zeros((0, 2), dtype=np.int64)], 10)) == []
+
+
 def _reference_case(model, first, strong, wall, max_dh=np.inf, max_length=150.0):
     """The canyon of test_kernels_independent_of_threads (anchors not in row-major order, NaNs) as
     a captured call of tools/perf_line_funnel.py, rebuilt into the kernels' arguments."""
@@ -753,6 +848,10 @@ def test_line_table():
     assert row["clearance_nmpt"] is None and row["anchor1"] == (50.0001, 19.1234567) and row["a1"] == (1, 0)
     assert lines.row(0)["clearance_nmpt"] == 0.0 and row["over_obstacles"] is True and row["profile"] is None
     assert len(sh.LineTable.concat([sh.LineTable.empty(), sh.LineTable.empty()])) == 0
+    for index in (np.array([4, 1, 0]), lines.columns["over_obstacles"]):  # reorder: take in place
+        expected, again = lines.take(index), _fake_lines(6)
+        assert again.reorder(index) is again and again.profiles == expected.profiles
+        assert all(np.array_equal(again.columns[k], v, equal_nan=v.dtype.kind == "f") for k, v in expected.columns.items())
 
 
 def _cgroup(folder, **files):
