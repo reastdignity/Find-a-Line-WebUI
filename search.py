@@ -51,6 +51,7 @@ import cache
 import coast
 import grid as gd
 import helpers as sh
+import lineprofiles as lp
 import linesearch as ls
 import mapping as mp
 import messages
@@ -71,17 +72,37 @@ CONFIRM_MINUTES = 30
 ORTHO_SECONDS_PER_TILE = 0.3  # measured download rate with orthophoto.DOWNLOAD_THREADS
 ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the service or --ortho-detail says
 # The memory of a search (memory_needed): its grids, this many bytes per pixel (terrain,
-# surface, water, gaps, masks, temporaries), its lines, this many bytes per line (a line of
-# step 4 with its coordinates, values and group, one of a tile done already, or one being saved
-# in step 5), and the profiles a circle keeps for every line, this many bytes per point
+# surface, water, gaps, masks, temporaries), its lines, this many bytes per line (a line being
+# checked in step 3, one of step 4 with its coordinates, values and group, one of a tile done
+# already, or one being saved in step 5), and the profiles a circle keeps for every line, this
+# many bytes per point
 PIXEL_BYTES = 100  # 64 of them, and the union-find of the anchor prominence (terrain.py)
 # Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
 # columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
 # 382 B at the peak of step 5; with a dict per line they were 2.2 KB, 1.6 KB and 3.1 KB (the
-# worker killed on the VPS held 2.6 million lines of earlier tiles and 1.1 million of a tile)
-LINE_BYTES = 500
-# A profile (helpers.line_profile: lists of Python floats) takes 64-100 B per point, up to
-# PROFILE_POINTS points (its max_points, the anchors and the smallest clearances): about 19 KB
+# worker killed on the VPS held 2.6 million lines of earlier tiles and 1.1 million of a tile).
+# Again 2026-11-01 after wave 4 (perf_lines_memory.py --call of the captures of swiss-long, 1.7
+# million lines, of the Gozo coast's large tile, 253 000, and of R9, 86 000): step 3 (the found
+# pairs held once, the tables joined and sorted column by column) 190-199 B per line, was 494-504;
+# step 4 at most 389-439 B (mapping.group_lines; its coordinates 234-305 B, was 306-553 with the
+# core's second table), 261-294 B held; step 5 327-459 B (and about 40 MiB whatever the number
+# of lines). After wave 5 (the same captures): the grouping 266-268 B (its cell index as arrays,
+# its loop in numba: grouping.py), was 380-439; 229-262 B held (the pixel columns dropped after
+# the profiles); step 5 246-315 B (the rows' order part by part, 1 000 lines a chunk: about 5 MiB
+# whatever the number of lines); the join of a tiled search's lines 319 B (the Gozo coast's 6
+# tiles column by column, was 560: concat held them twice). The largest is step 4's profiles,
+# 306-389 B: R9's 389 B, plus 16 % (its 22 lines per group make the representatives' profiles
+# weigh more per line than on the larger searches' 158-167; they are counted within this, so a
+# search of smaller groups holds more). The found pairs need no term of their own: as many
+# as the valid lines on all 15 captures (at most 1.0001 times; lines left out by --min-height or
+# --max-wall-angle would add about 190 B per pair to step 3, still below step 4 up to 2.3 pairs
+# per line)
+LINE_BYTES = 450
+# A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
+# clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
+# (lineprofiles.line_profiles, wave 3) 51-77 B per point at the peak of computing them, 21-30 B
+# held. Kept at 100 B (30 % over the peak): CIRCLE_PROFILES_BYTES / PROFILE_POINT_BYTES (5
+# million points) decides which circles keep every profile, so the two change only together
 PROFILE_POINT_BYTES = 100
 PROFILE_POINTS = 203
 # A circle keeps the profile of every line (the map opened from disk shows each) while they take
@@ -161,6 +182,9 @@ class Plan:
     # The memory the search may use (_check_lines): its compute slot's budget, or the memory free
     # when a search with limits was planned; None: not checked
     memory: Optional[int] = None
+    # Stop checking the pairs found at the limit of lines or of the memory (_early_check):
+    # Limits.lines_early_stop of the server, also for a user without limits (the web worker sets it)
+    early_stop: bool = True
     # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
     # that was saved already adds nothing
@@ -331,7 +355,8 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
         emit("warning", note)
     return Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
                 emit, crs, (x, y), limits, tiles, core,
-                memory=memory if memory is not None else available_memory() if limits else None)
+                memory=memory if memory is not None else available_memory() if limits else None,
+                early_stop=limits.lines_early_stop if limits else True)
 
 
 def _check_params(limits: Optional[Limits], params: SearchParams, resolution: Optional[float] = None):
@@ -789,7 +814,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
                                       sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
                                       p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
                                                                   p.min_high_share, p.max_wall_angle),
-                                      np.column_stack([prom, drop]), strong, stats=plan.funnel)
+                                      np.column_stack([prom, drop]), strong, stats=plan.funnel,
+                                      check=_early_check(plan, before, grid.width * grid.height))
     points = profile_points(valid_lines) if isinstance(plan.area, ar.Circle) else 0
     every_profile = 0 < points * PROFILE_POINT_BYTES <= CIRCLE_PROFILES_BYTES
     if points and not every_profile:
@@ -801,28 +827,42 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
 
     # Step 4: coordinates, water and gaps, groups, profiles
     _step(plan, 4, "coordinates, groups and profiles")
-    results = mp.coordify(valid_lines, grid, plan.nmpt)
+    results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled, core)
+    del valid_lines  # the same table (in place)
+    _count(plan, "lines", len(results))
+    a1, a2 = results.columns["a1"], results.columns["a2"]
+    groups = mp.group_lines(results, plan.group_distance, p.group_by)
+    wanted = np.arange(len(results)) if every_profile else np.unique(groups.rep)
+    progress.compute.start("line profiles", len(wanted), unit="line")
+    batch = lp.line_profiles(a1[wanted], a2[wanted], data.elevation, plan.resolution, data.surface,
+                             sag_table=sag_table, water=data.water, filled=data.filled,
+                             on_part=progress.compute.update)  # helpers.line_profile of each, in parallel
+    results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
+    progress.compute.finish()
+    del a1, a2
+    return results.without_pixels(), groups  # nothing reads the pixels from here on
+
+
+def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
+                     filled: Optional[np.ndarray], core: Optional[tuple] = None) -> sh.LineTable:
+    """Step 4 before the groups, in place (no second table of the lines): their coordinates
+    (mapping.coordify), only the lines whose first anchor lies in core (a tile's bounds) when
+    given, and their metres over water and over filled gaps. Returns the lines."""
+    results = mp.coordify(lines, grid, nmpt)
     if core is not None:
         left, bottom, right, top = core
         x, y = mp.first_anchor(results).T
-        results = results.take((left <= x) & (x < right) & (bottom <= y) & (y < top))
-    _count(plan, "lines", len(results))
+        inside = (left <= x) & (x < right) & (bottom <= y) & (y < top)
+        del x, y
+        results.reorder(inside)
+        del inside
     a1, a2 = results.columns["a1"], results.columns["a2"]
     progress.compute.start("over water and filled gaps", 2, unit="mask")
-    results.columns["water_m"] = np.array(ls.covered_metres(a1, a2, plan.resolution, data.water), dtype=np.float64)
+    results.columns["water_m"] = ls.covered_metres(a1, a2, res, water)
     progress.compute.update(1)
-    results.columns["filled_m"] = np.array(ls.covered_metres(a1, a2, plan.resolution, data.filled), dtype=np.float64)
+    results.columns["filled_m"] = ls.covered_metres(a1, a2, res, filled)
     progress.compute.finish()
-    groups = mp.group_lines(results, plan.group_distance, p.group_by)
-    wanted = range(len(results)) if every_profile else sorted(groups.rep.tolist())
-    progress.compute.start("line profiles", len(wanted), unit="line")
-    for k in wanted:
-        results.profiles[k] = sh.line_profile(tuple(a1[k].tolist()), tuple(a2[k].tolist()), data.elevation,
-                                              plan.resolution, data.surface, sag_table=sag_table, water=data.water,
-                                              filled=data.filled)
-        progress.compute.update(1)
-    progress.compute.finish()
-    return results, groups
+    return results
 
 
 def _count(plan: Plan, key: str, n: int):
@@ -844,6 +884,33 @@ def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
         raise SearchError(f"{count} lines, at most {fits} fit into the memory of this site: a higher --min-prominence "
                           f"(or --min-height, --min-drop), a coarser --resolution or a smaller area",
                           "too_many_lines_memory", n=count, max=fits)
+
+
+def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int], None]]:
+    """The check find_valid_lines makes after each part of the pairs it evaluates (F7, with
+    Plan.early_stop): the valid lines so far and those of the tiles done already against lines_max
+    (with limits), and against Plan.memory with grids of this many pixels but no profiles (for a
+    user without limits too: a compute slot's budget is a safeguard; a lower bound of what
+    _check_lines asks for these lines, so it refuses only what that would refuse). None with the
+    switch off or nothing to check: _check_lines decides on the exact count."""
+    lines_max = plan.limits.lines_max if plan.limits else None
+    if not plan.early_stop or (not lines_max and plan.memory is None):
+        return None
+
+    def check(count: int):
+        total = before + count
+        if lines_max and total > lines_max:
+            raise SearchError(f"more than {lines_max} lines (the search stopped at {total}), at most "
+                              f"{lines_max} on this site: a higher --min-prominence (or --min-height, "
+                              f"--min-drop), a coarser --resolution or a smaller area", "too_many_lines_early",
+                              n=total, max=lines_max)
+        if plan.memory is not None and memory_needed(pixels, total) > plan.memory:
+            fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES))
+            raise SearchError(f"more than {fits} lines (the search stopped at {total}), at most {fits} fit into the "
+                              f"memory of this site: a higher --min-prominence (or --min-height, --min-drop), a "
+                              f"coarser --resolution or a smaller area", "too_many_lines_memory_early",
+                              n=total, max=fits)
+    return check
 
 
 def _run_name(plan: Plan) -> str:
@@ -953,12 +1020,12 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             _save_tile(path, found)
             del found
         progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
-        tables.append(_load_tile(path))
+        tables.append(_load_tile(path).without_pixels())  # tile files of before, tiles without anchors
         count += len(tables[-1])
         _check_lines(plan, count)
     if not count:
         raise SearchError("No lines found matching elevation requirements.", "no_lines")
-    results = sh.LineTable.concat(tables)
+    results = sh.LineTable.join(tables)  # column by column, each tile's column released once joined
     del tables
     progress.set_step(f"Step 4/{STEPS}: groups of all tiles")
     groups = mp.group_lines(results, plan.group_distance, plan.params.group_by)

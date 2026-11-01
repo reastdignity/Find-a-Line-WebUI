@@ -135,8 +135,8 @@ def test_update_checks(tmp_path):
     assert len(update.checks(str(tmp_path), bbox=(west, south, west, south))) == 1
 
 
-def test_covered_metres_match_profiles():
-    """The metres over water of every line (numba) equal those of its profile."""
+def test_covered_metres_match_profiles(monkeypatch):
+    """The metres over water of every line (numba) equal those of its profile, in parts of any size."""
     import helpers as sh
     import linesearch as ls
     rng = np.random.default_rng(5)
@@ -146,9 +146,110 @@ def test_covered_metres_match_profiles():
     a2 = rng.integers(0, 200, (300, 2))
     keep = np.abs(a2 - a1).max(axis=1) >= 2
     a1, a2 = a1[keep], a2[keep]
-    fast = ls.covered_metres(a1, a2, 2.0, mask)
+    fast = ls.covered_metres(a1, a2, 2.0, mask).tolist()
     slow = [sh.line_profile(tuple(p), tuple(q), elevation, 2.0, water=mask)["water_m"] for p, q in zip(a1, a2)]
     assert fast == slow
+    monkeypatch.setattr(ls, "COVERED_PART", 7)
+    parts = ls.covered_metres(a1, a2, 2.0, mask)
+    assert parts.dtype == np.float64 and parts.tolist() == slow
+    assert ls.covered_metres(a1, a2, 2.0, None).tolist() == [0.0] * len(a1)
+
+
+def _profile_case(seed=13, size=300):
+    """Terrain with walls (lines over a gap), a few pixels without data, a surface model missing in
+    places, water and filled masks, and lines of 2 to about 300 pixels between non-NaN anchors."""
+    rng = np.random.default_rng(seed)
+    terrain = (rng.random((size, size)) * 30 + 100).astype(np.float32)
+    terrain[:, :10] += 80
+    terrain[:, -10:] += 70
+    terrain[rng.random((size, size)) < 0.003] = np.nan
+    terrain[5, :] = 512.125  # halves at 2 decimals: round() and the rounding of the batch must agree
+    surface = (terrain + rng.random((size, size)) * 15).astype(np.float32)
+    surface[rng.random((size, size)) < 0.3] = np.nan
+    surface[:, 150:160] = np.nan  # lines without surface data between their anchors
+    water = rng.random((size, size)) < 0.1
+    filled = np.zeros((size, size), dtype=bool)
+    filled[100:140, 50:250] = True
+    a1 = rng.integers(0, size, (900, 2))
+    a2 = rng.integers(0, size, (900, 2))
+    a2[:100] = a1[:100] + rng.integers(-6, 7, (100, 2))  # short ones
+    a1[100:150, 0], a2[100:150, 0] = 5, 5  # along the row of halves
+    a1[150:200, 1], a2[150:200, 1] = 155, 155  # along the columns without surface data
+    a2 = np.clip(a2, 0, size - 1)
+    keep = (np.abs(a2 - a1).max(axis=1) >= 2) & ~np.isnan(terrain[a1[:, 0], a1[:, 1]]) \
+        & ~np.isnan(terrain[a2[:, 0], a2[:, 1]])
+    return terrain, surface, water, filled, a1[keep], a2[keep]
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_line_profiles_match_line_profile(model):
+    """The batch of lineprofiles gives every line exactly (==, and the same JSON text) the profile of
+    helpers.line_profile, with and without surface, water and filled masks, also thinned to fewer
+    points; its metres over water and filled gaps are those of linesearch.covered_metres; its
+    profiles survive the pickle of a tile file and become the same text of data.js."""
+    import json
+    import pickle
+
+    import helpers as sh
+    import lineprofiles as lp
+    import linesearch as ls
+    import sag
+    terrain, surface, water, filled, a1, a2 = _profile_case()
+    table = sag.EnvelopeTable(sag.Rigging(), 2, 400) if model == "sag" else None
+    encoder = json.JSONEncoder(separators=(",", ":"))
+    cases = [(0.25, surface, water, filled, 200), (0.25, None, None, None, 200), (1.0, surface, None, filled, 7),
+             (2.0, None, water, None, 1), (5.0, surface, water, None, 2)]
+    seen = set()
+    for res, s, w, g, points in cases:
+        batch = lp.line_profiles(a1, a2, terrain, res, s, points, table, w, g, parts=7)
+        assert len(batch) == len(a1)
+        assert batch.w is None if w is None else batch.w.dtype == np.uint8
+        for k in range(len(a1)):
+            slow = sh.line_profile(tuple(a1[k].tolist()), tuple(a2[k].tolist()), terrain, res, s, points, table, w, g)
+            fast = batch[k].as_dict()
+            assert fast == slow, (res, points, k)
+            assert list(fast) == list(slow)
+            assert encoder.encode(fast) == encoder.encode(slow), (res, points, k)
+            seen |= {"no nmpt"} if s is not None and fast["min_nmpt"] is None else set()
+            seen |= {"no terrain"} if None in fast["z"] else set()
+            seen |= {"water"} if fast["w"] is not None else set()
+        if w is not None:
+            assert batch.small[:, 6].tolist() == ls.covered_metres(a1, a2, res, w).tolist()
+        if g is not None:
+            assert batch.small[:, 7].tolist() == ls.covered_metres(a1, a2, res, g).tolist()
+    assert seen == {"no nmpt", "no terrain", "water"}
+    # A table with these profiles, through a tile file, gives the dicts of before
+    columns = {"a1": a1, "a2": a2, "clearance_nmpt": np.zeros(len(a1))}
+    tables = sh.LineTable(columns, {k: batch[k] for k in range(0, len(a1), 3)})
+    again = pickle.loads(pickle.dumps(tables, pickle.HIGHEST_PROTOCOL))
+    assert {k: sh.profile_dict(p) for k, p in again.profiles.items()} == \
+           {k: sh.profile_dict(p) for k, p in tables.profiles.items()}
+    assert again.row(3)["profile"] == batch[3].as_dict()
+    with pytest.raises(ValueError):
+        lp.line_profiles(np.array([[0, 0]]), np.array([[0, 1]]), terrain, 1.0)  # no pixel between the anchors
+
+
+def test_line_profiles_independent_of_threads():
+    """The batch gives the same arrays with any number of threads."""
+    import numba
+
+    import lineprofiles as lp
+    import sag
+    terrain, surface, water, filled, a1, a2 = _profile_case(seed=17)
+    table = sag.EnvelopeTable(sag.Rigging(), 2, 400)
+    most = numba.config.NUMBA_NUM_THREADS
+    results = []
+    try:
+        for threads in sorted({1, min(3, most), min(7, most), most}):
+            numba.set_num_threads(threads)
+            for sag_table in (None, table):
+                results.append(lp.line_profiles(a1, a2, terrain, 0.5, surface, 50, sag_table, water, filled, parts=3))
+    finally:
+        numba.set_num_threads(most)
+    for k, other in enumerate(results[2:], 2):
+        first = results[k % 2]
+        for name in ("offsets", "d", "z", "s", "w", "g", "small", "flags"):
+            assert np.array_equal(getattr(other, name), getattr(first, name), equal_nan=name in "dzs small"), name
 
 
 @pytest.mark.parametrize("model", ["formula", "sag"])
@@ -220,7 +321,7 @@ def test_kernels_independent_of_threads(model):
             found = ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", threads=threads,
                                         sag_table=table, max_dh_ratio=0.3, first=first,
                                         limits=sh.LineLimits(max_wall_angle=120), anchor_values=values)
-            covered = ls.covered_metres(found.columns["a1"], found.columns["a2"], 1.0, mask)
+            covered = ls.covered_metres(found.columns["a1"], found.columns["a2"], 1.0, mask).tolist()
             results.append((threads, values, found.columns, covered))
     finally:
         numba.set_num_threads(most)
@@ -233,6 +334,330 @@ def test_kernels_independent_of_threads(model):
             assert np.array_equal(other_columns[name], columns[name], equal_nan=columns[name].dtype.kind == "f"), \
                 (threads, name)
         assert other_covered == covered, threads
+
+
+def _canyon(seed=11):
+    """The canyon of test_kernels_independent_of_threads: elevation, surface, anchors, a first mask."""
+    rng = np.random.default_rng(seed)
+    z = (rng.random((160, 160)) * 3 + 100).astype(np.float32)
+    z[:, :20] += 60
+    z[:, 140:] += 55 + rng.random((160, 20)).astype(np.float32) * 10
+    z[rng.random((160, 160)) < 0.003] = np.nan
+    surface = (z + rng.random((160, 160)) * 20).astype(np.float32)
+    anchors = np.vstack([np.column_stack([np.arange(0, 160, 2), np.full(80, 19)]),
+                         np.column_stack([np.arange(1, 160, 2), np.full(80, 140)]),
+                         rng.integers(0, 160, (60, 2))])
+    return z, surface, anchors, rng.random(len(anchors)) < 0.7
+
+
+def _old_valid_lines(z, surface, anchors, min_length, max_length, table, first, limits, values):
+    """The end of find_valid_lines as it was before wave 4 (all pairs concatenated, evaluated in
+    np.array_split parts, the tables concatenated, then take of the sort): the reference."""
+    import math
+
+    import helpers as sh
+    import linesearch as ls
+    elev = z[anchors[:, 0], anchors[:, 1]]
+    if table is None:
+        log_spans, ratios, sag, fall_zone = np.zeros(2), np.zeros(2), np.zeros((2, 2, 2)), 0.0
+        gain, cap, offset = -sh.SLOPE, np.inf, sh.LEASH_FALL
+    else:
+        log_spans, ratios = np.log(table.spans), table.RATIOS.astype(np.float64)
+        sag, fall_zone = np.ascontiguousarray(table.sag), table.rig.fall_zone
+        gain, cap, offset = 0.3 * math.sqrt(2), np.inf, fall_zone + min(0.0, float(sag.min()))
+    useful, rings, slot = ls.free_directions(z, anchors, 1.0, gain, cap, offset, min_length, max_length)
+    down = sh.downslope(z, anchors, 1.0)
+    angle = limits.max_wall_angle if limits.max_wall_angle is not None else 180.0
+    cos_limit = -2.0 if angle >= 180 else math.cos(math.radians(angle))
+    todo_all, args, tail = ls.pair_arguments(z, anchors, elev, useful, rings, slot, first, 1.0, min_length,
+                                             max_length, 0.3, np.inf, down, cos_limit, None, table is not None,
+                                             log_spans, ratios, sag, fall_zone)
+    pairs = [ls.pair_chunk(args, todo, tail)[1] for todo in np.array_split(todo_all, min(200, max(1, len(todo_all))))]
+    found = np.concatenate(pairs) if pairs else np.zeros((0, 2), dtype=np.int64)
+    parts = [ls.evaluate_lines(part, anchors, z, 1.0, surface, table, "mark", sh.HIGH_ABOVE, limits, down, values)
+             for part in np.array_split(found, max(1, min(200, len(found) // 10000)))]
+    lines = sh.LineTable.concat(parts)
+    return lines.take(np.argsort(-lines.columns["length"], kind="stable")), len(found)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("case", ["all", "first", "limits", "empty"])
+def test_valid_lines_in_parts_as_before(model, case, monkeypatch):
+    """find_valid_lines evaluates the chunks' pairs in parts, joins the tables column by column and
+    sorts them in place: the table of before (every column, its dtype, left_out and the funnel's
+    counts), whatever the size of the parts and the number of chunks."""
+    import helpers as sh
+    import linesearch as ls
+    import sag
+    import terrain
+    z, surface, anchors, first = _canyon()
+    first = first if case == "first" else None
+    min_length, max_length = (300.0, 400.0) if case == "empty" else (20.0, 150.0)
+    table = sag.EnvelopeTable(sag.Rigging(), min_length, max_length) if model == "sag" else None
+    values = np.column_stack([terrain.prominence(z, anchors, 1.0, 40), terrain.drop(z, anchors, 1.0, 30)])
+
+    def limits():
+        return sh.LineLimits(min_height=60.5, max_wall_angle=120) if case == "limits" else sh.LineLimits()
+
+    old_limits = limits()
+    old, found = _old_valid_lines(z, surface, anchors, min_length, max_length, table, first, old_limits, values)
+    assert (len(old) == 0) == (case == "empty") and (old_limits.left_out > 0) == (case == "limits")
+    for chunks, part in ((200, 10_000), (200, 1), (7, 13), (1, 100), (3, 10_000)):
+        monkeypatch.setattr(ls, "CHUNKS", chunks)
+        monkeypatch.setattr(ls, "EVAL_PART", part)
+        new_limits, stats = limits(), {}
+        new = ls.find_valid_lines(z, surface, anchors, 1.0, min_length, max_length, nmpt_mode="mark",
+                                  sag_table=table, max_dh_ratio=0.3, first=first, limits=new_limits,
+                                  anchor_values=values, stats=stats)
+        assert list(new.columns) == list(old.columns) and new.profiles == {}
+        for name, column in old.columns.items():
+            assert new.columns[name].dtype == column.dtype and new.columns[name].shape == column.shape, name
+            assert np.array_equal(new.columns[name], column, equal_nan=column.dtype.kind == "f"), (chunks, part, name)
+        assert new_limits.left_out == old_limits.left_out
+        assert stats["found"] == found and stats["valid"] == len(old) and stats["left_out"] == old_limits.left_out
+
+
+def _old_group_lines(lines, distance, by="clearance"):
+    """mapping.group_lines of 792efad (its cell index a dict of Python lists), the reference of
+    test_grouping_as_before."""
+    import mapping
+    first, second = mapping._rank(lines, by)
+    over_all = lines.columns["over_obstacles"]
+    d2 = distance ** 2
+    reps, members = [], []
+    for over in (False, True):
+        rows = np.flatnonzero(over_all == over)
+        if not len(rows):
+            continue
+        rows = rows[np.lexsort((-second[rows], -first[rows]))]
+        a1 = lines.columns["a1_xy"][rows]
+        a2 = lines.columns["a2_xy"][rows]
+        free = np.ones(len(rows), dtype=bool)
+        cells = {}
+        for k, cell in enumerate(map(tuple, np.floor(a1 / distance).astype(np.int64).tolist())):
+            cells.setdefault(cell, []).append(k)
+
+        def near(point):
+            cx, cy = (int(v) for v in np.floor(point / distance))
+            return [k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in cells.get((cx + dx, cy + dy), ())]
+
+        for i in range(len(rows)):
+            if not free[i]:
+                continue
+            candidates = np.unique(np.array(near(a1[i]) + near(a2[i]), dtype=np.int64))
+            candidates = candidates[free[candidates]]
+            c1, c2 = a1[candidates], a2[candidates]
+            same = (((c1 - a1[i]) ** 2).sum(1) <= d2) & (((c2 - a2[i]) ** 2).sum(1) <= d2)
+            flipped = (((c1 - a2[i]) ** 2).sum(1) <= d2) & (((c2 - a1[i]) ** 2).sum(1) <= d2)
+            found = candidates[same | flipped]
+            free[found] = False
+            reps.append(int(rows[i]))
+            members.append(rows[found])
+    rep = np.array(reps, dtype=np.int64)
+    order = np.lexsort((-second[rep], -first[rep], over_all[rep])) if len(rep) else np.zeros(0, dtype=np.int64)
+    members = [members[g] for g in order.tolist()]
+    start = np.concatenate([[0], np.cumsum([len(m) for m in members], dtype=np.int64)]).astype(np.int64)
+    return rep[order], np.concatenate(members).astype(np.int64) if members else np.zeros(0, dtype=np.int64), start
+
+
+def _grouping_table(n, seed, offset, spread, distance):
+    """n lines for test_grouping_as_before: anchors on a lattice of steps of `distance` / 2 and in
+    between (lines exactly `distance` apart), some flipped and some copied, ranks with ties."""
+    import helpers as sh
+    rng = np.random.default_rng(seed)
+    a1 = rng.integers(-spread, spread, (n, 2)) * (distance / 2)
+    a1[n // 3:] += rng.random((n - n // 3, 2)) * distance
+    a2 = a1 + rng.integers(5, 40, (n, 2)) * distance / 2
+    near = rng.random(n) < 0.3  # a line next to one before it, exactly `distance` away or less
+    source = rng.integers(0, max(n // 2, 1), n)
+    step = rng.choice(np.array([[distance, 0], [0, -distance], [distance * 0.6, distance * 0.8],
+                                [0.3 * distance, 0.1], [0, 0]]), n)
+    a1[near], a2[near] = a1[source[near]] + step[near], a2[source[near]] - step[near]
+    flip = rng.random(n) < 0.2
+    a1[flip], a2[flip] = a2[flip].copy(), a1[flip].copy()
+    a1, a2 = a1 + offset, a2 + offset
+    columns = {"a1_xy": a1, "a2_xy": a2, "over_obstacles": rng.random(n) < 0.3,
+               "clearance": rng.integers(0, 4, n).astype(np.float64),
+               "length": rng.integers(20, 23, n).astype(np.float64),
+               "height_max": np.round(rng.random(n) * 3, 1)}
+    return sh.LineTable(columns)
+
+
+@pytest.mark.parametrize("by", ["clearance", "longest", "height", "other"])
+@pytest.mark.parametrize("distance", [1.0, 2.5, 5.0, 20.0])
+@pytest.mark.parametrize("offset", [(0.0, 0.0), (-3.2e5, -1.7e4), (6.1e5, 5.4e6), (-7.0e5, 5.0e6)])
+def test_grouping_as_before(by, distance, offset, monkeypatch):
+    """mapping.group_lines with its cell index as numpy arrays and its loop in numba (in parts of
+    GROUP_PART lines): the groups of before (rep, members, start), equal ranks, lines exactly
+    `distance` apart, flipped lines, lines over obstacles, negative and large coordinates; an empty
+    table and a single line."""
+    import helpers as sh
+    import mapping
+    tables = [_grouping_table(n, seed, np.array(offset), spread, distance)
+              for n, seed, spread in ((600, 1, 20), (2000, 2, 200), (300, 3, 3), (1, 4, 5), (40, 5, 1))]
+    tables.append(sh.LineTable({k: np.zeros((0, 2)) if k.endswith("_xy") else np.zeros(0, dtype=bool)
+                                if k == "over_obstacles" else np.zeros(0)
+                                for k in ("a1_xy", "a2_xy", "over_obstacles", "clearance", "length", "height_max")}))
+    for k, lines in enumerate(tables):
+        old = _old_group_lines(lines, distance, by)
+        for part in (mapping.GROUP_PART, 7):
+            monkeypatch.setattr(mapping, "GROUP_PART", part)
+            new = mapping.group_lines(lines, distance, by)
+            for name, a, b in zip(("rep", "members", "start"), old, (new.rep, new.members, new.start)):
+                assert b.dtype == a.dtype and np.array_equal(a, b), (k, part, name)
+        if k == 0:
+            assert 0 < len(new.rep) < len(lines) and new.sizes().max() > 2  # groups formed
+
+
+def test_early_stop_of_the_evaluation(monkeypatch):
+    """find_valid_lines' check is called after every evaluated part with the valid lines so far; when
+    it raises, the evaluation stops there, the "checking lines" bar is closed and the counts so far
+    are in stats (the pair search ran to its end)."""
+    import linesearch as ls
+    from progress import progress
+    z, surface, anchors, _ = _canyon()
+    full = ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark")
+    monkeypatch.setattr(ls, "EVAL_PART", 100)  # parts of 100 pairs (the 200 chunks are smaller)
+    seen, states = [], []
+    progress.subscribe(states.append)
+
+    def check(valid):
+        seen.append(valid)
+        if valid > 1000:
+            raise ValueError("more than 1000 lines")
+    stats = {}
+    try:
+        with pytest.raises(ValueError, match="more than 1000"):
+            ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", stats=stats, check=check)
+    finally:
+        progress.unsubscribe(states.append)
+    assert len(full) > 2000 and seen == sorted(seen) and seen[-1] > 1000 >= seen[-2]
+    assert stats["valid"] == seen[-1] < len(full) and stats["found"] >= len(full)
+    last = [s for s in states if s["stage"] == "checking lines"][-1]
+    assert last["done"] and last["extra"]["note"] == f"{seen[-1]} valid, stopped"
+    assert ls.find_valid_lines(z, surface, anchors, 1.0, 20, 150, nmpt_mode="mark", check=lambda n: None
+                               ).columns["length"].tolist() == full.columns["length"].tolist()
+
+
+def test_evaluation_parts():
+    """The pairs of the chunks in parts of the size asked, in their order, each chunk released."""
+    import linesearch as ls
+    chunks = [np.arange(2 * n).reshape(n, 2) + 1000 * k for k, n in enumerate((0, 3, 25, 1, 0, 4, 9))]
+    whole = np.concatenate(chunks)
+    for size in (1, 2, 5, 10, 100):
+        given = list(chunks)
+        parts = list(ls.evaluation_parts(given, size))
+        assert given == [None] * len(chunks)
+        assert all(len(p) == size for p in parts[:-1]) and 0 < len(parts[-1]) <= size
+        assert np.array_equal(np.concatenate(parts), whole)
+    assert list(ls.evaluation_parts([np.zeros((0, 2), dtype=np.int64)], 10)) == []
+
+
+def _reference_case(model, first, strong, wall, max_dh=np.inf, max_length=150.0):
+    """The canyon of test_kernels_independent_of_threads (anchors not in row-major order, NaNs) as
+    a captured call of tools/perf_line_funnel.py, rebuilt into the kernels' arguments."""
+    import dataclasses
+
+    import sag
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import perf_line_funnel as plf
+    rng = np.random.default_rng(11)
+    z = (rng.random((160, 160)) * 3 + 100).astype(np.float32)
+    z[:, :20] += 60
+    z[:, 140:] += 55 + rng.random((160, 20)).astype(np.float32) * 10
+    z[rng.random((160, 160)) < 0.003] = np.nan
+    anchors = np.vstack([np.column_stack([np.arange(0, 160, 2), np.full(80, 19)]),
+                         np.column_stack([np.arange(1, 160, 2), np.full(80, 140)]),
+                         rng.integers(0, 160, (60, 2))])
+    inputs = {"elevation": z, "anchors": anchors}
+    if first:
+        inputs["first"] = rng.random(len(anchors)) < 0.7
+    if strong:
+        inputs["strong"] = rng.random(len(anchors)) < 0.5
+    params = {"res": 1.0, "min_length": 20.0, "max_length": max_length, "max_dh_ratio": 0.3, "max_dh": max_dh,
+              "limits": {"max_wall_angle": 60.0} if wall else None, "sag": model == "sag",
+              "rigging": dataclasses.asdict(sag.Rigging()), "sag_min_span": 20.0, "sag_max_span": max_length}
+    return plf, plf.rebuild(inputs, params)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("max_length", [150.0, 60.0])
+def test_free_rings_match_reference(model, max_length):
+    """linesearch's free directions give the rings of the frozen reference of
+    tools/line_funnel_kernels.py (the self-check of tools/perf_line_funnel.py analyse), capped
+    at the largest need of a pair (60 m: 30 rings), which changes no decision."""
+    plf, a = _reference_case(model, False, False, False, max_length=max_length)
+    assert np.array_equal(plf.production_rings(a), plf.capped_rings(a))
+    assert 0 < len(a.useful) < len(a.anchors)
+    assert (a.rings > plf.capped_rings(a)).any() == (max_length < 127)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("first, strong, wall, max_dh, max_length", [
+    (False, False, False, np.inf, 150.0), (True, False, True, np.inf, 150.0), (False, True, True, 12.0, 150.0),
+    (True, True, False, 12.0, 150.0), (False, False, False, np.inf, 125.0), (True, False, True, 12.0, 125.0)])
+def test_pairs_match_reference(model, first, strong, wall, max_dh, max_length):
+    """linesearch's pair search gives the per-anchor counts and the pairs, in their order, of the
+    frozen reference (ref_pairs), with and without a tile's first mask, --min-prominence's strong
+    anchors, a wall-angle limit and a height difference limit; rings capped below 64 at 125 m."""
+    plf, a = _reference_case(model, first, strong, wall, max_dh, max_length)
+    chunks = plf.self_check(a)  # raises SelfCheckError when they differ
+    candidates, checked, found = sum(counts.sum(axis=0) for _, counts, *_ in chunks)
+    assert candidates >= checked > found > 10
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_line_ok_matches_reference(model):
+    """linesearch._line_ok (bit-reversal order for lines of LINE_ORDER_SPLIT to LINE_ORDER_MAX
+    steps) decides as the frozen ref_line_ok on lines of every length class."""
+    import linesearch as ls
+    import sag
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import line_funnel_kernels as K
+    rng = np.random.default_rng(5)
+    z = (rng.random((1300, 1300)) * 2 + 100).astype(np.float32)
+    z[rng.random(z.shape) < 1e-5] = np.nan
+    if model == "sag":
+        table = sag.EnvelopeTable(sag.Rigging(), 2, 1300)
+        args = (True, np.log(table.spans), table.RATIOS.astype(np.float64), np.ascontiguousarray(table.sag),
+                float(table.rig.fall_zone))
+    else:
+        args = (False, np.zeros(2), np.zeros(2), np.zeros((2, 2, 2)), 0.0)
+    decided = {True: 0, False: 0}
+    for _ in range(3000):
+        r1, c1 = rng.integers(0, 1300, 2)
+        steps = int(rng.choice([2, 5, 60, 129, 130, 400, 1024, 1025, 1200]))
+        r2, c2 = r1 + int(rng.integers(-steps, steps + 1)), c1 + steps * int(rng.choice([-1, 1]))
+        if not (0 <= r2 < 1300 and 0 <= c2 < 1300):
+            continue
+        z[r1, c1] = z[r2, c2] = 140.0 + rng.random() * 20  # anchors high above the terrain
+        if rng.random() < 0.5:  # one pixel too high somewhere
+            k = int(rng.integers(1, steps))
+            z[r1 + int(np.rint((r2 - r1) * k / steps)), c1 + int(np.rint((c2 - c1) * k / steps))] = 200
+        ok = ls._line_ok(z, r1, c1, r2, c2, 1.0, *args)
+        assert ok == K.ref_line_ok(z, r1, c1, r2, c2, 1.0, *args)
+        decided[bool(ok)] += 1
+    assert min(decided.values()) > 100
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("buffer", [1, 3])
+def test_pair_buffer_overflow_matches_reference(model, buffer):
+    """linesearch.pair_chunk with a buffer of a few pairs per anchor: the anchors that found more
+    get the writing pass, and the counts and the pairs, in their order, are still those of the
+    frozen reference (ref_pairs), also with a tile's first mask and in one chunk of every anchor."""
+    import linesearch as ls
+    for first in (False, True):
+        plf, a = _reference_case(model, first, False, True)
+        head, tail, todo_all = plf.production_args(a, plf.production_directions(a))
+        overflowed = 0
+        for todo in plf.chunks_of(todo_all) + [todo_all]:
+            ref_counts, ref_out = plf.two_passes(plf.K.ref_pairs, a, todo)
+            counts, out = ls.pair_chunk(head, todo, tail, buffer=buffer)
+            assert np.array_equal(counts[:, 1:], ref_counts[:, 1:]) and np.array_equal(out, ref_out)
+            assert np.array_equal(counts, ls.pair_chunk(head, todo, tail)[0])
+            overflowed += int((counts[:, 2] > buffer).sum())
+        assert overflowed > 5 and len(ref_out) > 10
 
 
 def test_wall_angles():
@@ -549,6 +974,10 @@ def test_line_table():
     assert row["clearance_nmpt"] is None and row["anchor1"] == (50.0001, 19.1234567) and row["a1"] == (1, 0)
     assert lines.row(0)["clearance_nmpt"] == 0.0 and row["over_obstacles"] is True and row["profile"] is None
     assert len(sh.LineTable.concat([sh.LineTable.empty(), sh.LineTable.empty()])) == 0
+    for index in (np.array([4, 1, 0]), lines.columns["over_obstacles"]):  # reorder: take in place
+        expected, again = lines.take(index), _fake_lines(6)
+        assert again.reorder(index) is again and again.profiles == expected.profiles
+        assert all(np.array_equal(again.columns[k], v, equal_nan=v.dtype.kind == "f") for k, v in expected.columns.items())
 
 
 def _cgroup(folder, **files):
@@ -879,6 +1308,15 @@ def test_round_floats_like_round():
         assert list(map(repr, got)) == list(map(repr, expected)), digits
 
 
+def _old_row_order(groups) -> tuple:
+    """runs.row_order before wave 5 (the order of every line at once): the reference."""
+    sizes = groups.sizes()
+    is_rep = groups.members == np.repeat(groups.rep, sizes)
+    group = np.repeat(np.arange(len(groups), dtype=np.int64), sizes)
+    order = np.lexsort((~is_rep, group))
+    return groups.members[order], group[order] + 1, is_rep[order], sizes[group[order]]
+
+
 def _old_csv_and_features(lines, groups):
     """lines.csv and the features of lines.geojson as the code before 2026-10-31 wrote them:
     csv.DictWriter and json.dumps of dicts of round()ed Python values."""
@@ -887,7 +1325,7 @@ def _old_csv_and_features(lines, groups):
     import json
     import runs as rn
     rows = []
-    for k, number, is_rep, size in zip(*(column.tolist() for column in rn.row_order(groups))):
+    for k, number, is_rep, size in zip(*(column.tolist() for column in _old_row_order(groups))):
         r = lines.row(k)
         (lat1, lon1), (lat2, lon2), (x1, y1), (x2, y2) = r["anchor1"], r["anchor2"], r["a1_xy"], r["a2_xy"]
         nmpt = np.nan if r["clearance_nmpt"] is None else r["clearance_nmpt"]
@@ -993,3 +1431,82 @@ def test_year_of_the_run():
     assert src.YEAR in lower_saxony.ortho.attribution and src.YEAR in lower_saxony.note
     assert src.dated_credit(lower_saxony.credits[0].as_dict(), 2027)["attribution"] == \
         "© GeoBasis-DE/LGLN 2027, Daten geändert"
+
+
+def test_row_order_in_parts_as_before(monkeypatch):
+    """runs.row_order of a part of the rows: the rows of the order of every line at once (the old
+    lexsort), for parts of any size, representatives anywhere in their groups or not among them,
+    empty groups and groups of one; a representative twice in its group is refused."""
+    import mapping as mp
+    import runs as rn
+    rng = np.random.default_rng(5)
+    cases = [mp.Groups.each_alone(0), mp.Groups.each_alone(1), mp.Groups.each_alone(7),
+             mp.Groups(np.array([4, 0]), np.array([4, 5, 6, 7, 8, 9, 3, 0, 1, 2]), np.array([0, 6, 10])),
+             mp.Groups(np.array([9, 2, 5]), np.array([0, 1, 2, 3, 4]), np.array([0, 0, 3, 5]))]  # 9: not a member
+    for _ in range(40):
+        n = int(rng.integers(1, 400))
+        members = rng.permutation(n).astype(np.int64)
+        cuts = np.sort(rng.integers(0, n + 1, int(rng.integers(0, 30))))
+        start = np.concatenate([[0], cuts, [n]]).astype(np.int64)
+        rep = np.array([members[rng.integers(a, b)] if b > a and rng.random() < 0.9 else n + g
+                        for g, (a, b) in enumerate(zip(start[:-1], start[1:]))], dtype=np.int64)
+        cases.append(mp.Groups(rep, members, start))
+    for groups in cases:
+        old = _old_row_order(groups)
+        n = len(groups.members)
+        for chunk in (1, 2, 3, 7, 64, 10_000):
+            monkeypatch.setattr(rn, "LINES_CHUNK", chunk)
+            at = rn.rep_positions(groups)
+            parts = [rn.row_order(groups, lo, min(n, lo + chunk), at) for lo in range(0, n, chunk)] or \
+                [rn.row_order(groups, 0, 0, at)]
+            for k, column in enumerate(old):
+                new = np.concatenate([part[k] for part in parts])
+                assert new.dtype.kind == column.dtype.kind and np.array_equal(new, column), (groups, chunk, k)
+    twice = mp.Groups(np.array([1]), np.array([1, 0, 1]), np.array([0, 3]))
+    for chunk in (1, 10):
+        monkeypatch.setattr(rn, "LINES_CHUNK", chunk)
+        with pytest.raises(ValueError):
+            rn.rep_positions(twice)
+
+
+def test_join_of_tiles_as_concat(tmp_path):
+    """LineTable.join (the lines of a tiled search, column by column, each tile's columns released):
+    the same columns, dtypes, values and profiles as concat, also with empty tables and tile files
+    saved by _save_tile; the joined tables are left empty."""
+    import helpers as sh
+    import search
+    lines = _fake_lines(9)
+    cases = [[], [sh.LineTable.empty()], [sh.LineTable.empty(), sh.LineTable.empty()], [lines.take(np.arange(9))],
+             [lines.take([4, 1, 0]), sh.LineTable.empty(), lines.take(np.arange(9) % 2 == 1), lines.take([8, 4])],
+             [sh.LineTable.empty(), lines.take([0]), lines.take([4, 0, 4])]]
+    paths = []
+    for k, table in enumerate(cases[4]):
+        paths.append(str(tmp_path / search.TILE_FILE.format(k)))
+        search._save_tile(paths[-1], table)
+    cases.append([search._load_tile(path) for path in paths])
+    for tables in cases:
+        old = sh.LineTable.concat(tables)
+        new = sh.LineTable.join(tables)
+        assert list(new.columns) == list(old.columns) and new.profiles == old.profiles
+        assert set(new.profiles) == set(old.profiles)
+        for name, column in old.columns.items():
+            assert new.columns[name].dtype == column.dtype and new.columns[name].shape == column.shape, name
+            assert np.array_equal(new.columns[name], column, equal_nan=column.dtype.kind == "f"), name
+        assert all(t.columns == {} and t.profiles == {} for t in tables)
+
+
+def test_tiles_without_pixels(tmp_path):
+    """search._lines ends without the pixel columns; a tile file of before (with them) and a tile
+    without anchors (LineTable.empty) lose them on loading, so tiles of both kinds join."""
+    import helpers as sh
+    import search
+    old, new = _fake_lines(5), _fake_lines(4).without_pixels()
+    assert "a1" not in new.columns and "a2" not in new.columns and len(new) == 4
+    assert new.row(0)["anchor1"] == old.row(0)["anchor1"]
+    paths = [str(tmp_path / search.TILE_FILE.format(k)) for k in range(3)]
+    for path, table in zip(paths, (old, sh.LineTable.empty(), new)):
+        search._save_tile(path, table)
+    joined = sh.LineTable.join([search._load_tile(path).without_pixels() for path in paths])
+    expected = sh.LineTable.concat([_fake_lines(5).without_pixels(), _fake_lines(4).without_pixels()])
+    assert list(joined.columns) == list(expected.columns) and joined.profiles == expected.profiles
+    assert all(np.array_equal(joined.columns[k], expected.columns[k], equal_nan=True) for k in expected.columns)

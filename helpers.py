@@ -41,6 +41,67 @@ class Line(NamedTuple):
 
 # The values of a line in a LineTable: Line's fields after the anchors, float64 each
 LINE_VALUES = Line._fields[2:]
+PIXEL_COLUMNS = ("a1", "a2")  # the anchors' pixels in a LineTable (LineTable.without_pixels)
+
+
+@dataclass
+class Profiles:
+    """The profiles of many lines (lineprofiles.line_profiles) as numpy arrays: the points of
+    line i are offsets[i]:offsets[i + 1] of d, z, s (float64, NaN: no data; s None without a
+    surface model), w and g (uint8; None without that mask). small[i]: the distance and value of
+    "min", "min_nmpt" (NaN: none) and "max_height", then "water_m" and "filled_m", rounded;
+    flags[i]: 1 when line i has a point over water ("w" set), 2 over a filled gap ("g" set), 4
+    when a point lacks data (None in "z" or "s"). profile(i) is line i's dict of line_profile."""
+    offsets: np.ndarray
+    d: np.ndarray
+    z: np.ndarray
+    s: Optional[np.ndarray]
+    w: Optional[np.ndarray]
+    g: Optional[np.ndarray]
+    small: np.ndarray
+    flags: np.ndarray
+
+    def __len__(self) -> int:
+        return len(self.flags)
+
+    def __getitem__(self, i: int) -> "Profile":
+        return Profile(self, i)
+
+    def profile(self, i: int) -> Dict:
+        """Line i's profile as helpers.line_profile gives it (lists of Python values)."""
+        lo, hi = self.offsets[i].tolist(), self.offsets[i + 1].tolist()
+        small, flags = self.small[i].tolist(), int(self.flags[i])
+        if flags & 4:
+            values = lambda a: [None if v != v else v for v in a[lo:hi].tolist()]  # v != v: NaN
+        else:
+            values = lambda a: a[lo:hi].tolist()
+        return {"min": small[0:2], "min_nmpt": None if small[2] != small[2] else small[2:4],
+                "max_height": small[4:6], "d": self.d[lo:hi].tolist(), "z": values(self.z),
+                "s": None if self.s is None else values(self.s),
+                "w": self.w[lo:hi].tolist() if flags & 1 else None, "water_m": small[6],
+                "g": self.g[lo:hi].tolist() if flags & 2 else None, "filled_m": small[7]}
+
+
+class Profile:
+    """One line's profile in a Profiles (the values of LineTable.profiles computed in a batch)."""
+    __slots__ = ("batch", "index")
+
+    def __init__(self, batch: Profiles, index: int):
+        self.batch, self.index = batch, index
+
+    def as_dict(self) -> Dict:
+        return self.batch.profile(self.index)
+
+    def __eq__(self, other) -> bool:  # the same values, also as a dict of line_profile
+        return self.as_dict() == profile_dict(other)
+
+    __hash__ = None
+
+
+def profile_dict(profile) -> Optional[Dict]:
+    """A profile of LineTable.profiles as the dict of line_profile: a Profile of a batch, or a
+    dict already (line_profile's, profile_of_line's at the edges of tiles, tile files of before)."""
+    return profile.as_dict() if isinstance(profile, Profile) else profile
 
 
 @dataclass
@@ -48,17 +109,26 @@ class LineTable:
     """Lines as numpy columns, one row per line: a few hundred bytes per line where a Line and
     the dict of its coordinates took about 2.5 KB (docs/performance.md).
 
-    columns: "a1", "a2" ([row, col], int64, n x 2), the LINE_VALUES (float64; clearance_nmpt NaN
-    when the surface was not measured there), and after mapping.coordify "anchor1", "anchor2"
-    ([lat, lon]), "a1_xy", "a2_xy" ([easting, northing] in the grid CRS), "over_obstacles"
-    (bool), "water_m", "filled_m". profiles: the profile of a row (helpers.line_profile), only for
-    the rows that have one. row(k) gives a line as the dict the rest of the code knew.
+    columns: "a1", "a2" ([row, col], int64, n x 2: pixels of the grid searched, until the end of
+    step 4: without_pixels), the LINE_VALUES (float64; clearance_nmpt NaN when the surface was
+    not measured there), and after mapping.coordify "anchor1", "anchor2" ([lat, lon]), "a1_xy",
+    "a2_xy" ([easting, northing] in the grid CRS), "over_obstacles" (bool), "water_m",
+    "filled_m". profiles: the profile of a row, only for the rows that have one: a Profile of a
+    batch (lineprofiles.line_profiles) or the dict of line_profile (profile_dict gives either as
+    that dict). row(k) gives a line as the dict the rest of the code knew.
     """
     columns: Dict[str, np.ndarray]
-    profiles: Dict[int, Dict] = field(default_factory=dict)
+    profiles: Dict[int, object] = field(default_factory=dict)
 
     def __len__(self) -> int:
         return len(next(iter(self.columns.values())))
+
+    def without_pixels(self) -> "LineTable":
+        """The table without "a1" and "a2" (in place; returns self): after the profiles of step 4
+        nothing reads them, and those of a tile are pixels of its own grid (32 B per line)."""
+        for name in PIXEL_COLUMNS:
+            self.columns.pop(name, None)
+        return self
 
     @classmethod
     def from_rows(cls, rows: List[Dict]) -> "LineTable":
@@ -87,6 +157,19 @@ class LineTable:
         return LineTable({name: column[index] for name, column in self.columns.items()},
                          {k: self.profiles[old] for old, k in new.items()})
 
+    def reorder(self, index) -> "LineTable":
+        """take(index) in place, one column after another (so at most one column is held twice, where
+        take holds the whole table twice); returns self."""
+        index = np.asarray(index)
+        if index.dtype == bool:
+            index = np.flatnonzero(index)
+        if self.profiles:
+            new = {int(old): k for k, old in enumerate(index.tolist()) if old in self.profiles}
+            self.profiles = {k: self.profiles[old] for old, k in new.items()}
+        for name in list(self.columns):
+            self.columns[name] = self.columns[name][index]
+        return self
+
     @classmethod
     def concat(cls, tables: List["LineTable"]) -> "LineTable":
         """The rows of several tables (with the same columns), one after another."""
@@ -98,6 +181,25 @@ class LineTable:
         return cls({name: np.concatenate([t.columns[name] for t in tables]) for name in tables[0].columns},
                    profiles)
 
+    @classmethod
+    def join(cls, tables: List["LineTable"]) -> "LineTable":
+        """concat of tables that are not needed afterwards, one column after another: each column of
+        the tables is released once joined, so at most one column is held twice (concat holds every
+        line twice). The tables are left without columns and profiles."""
+        kept = [t for t in tables if len(t)] or tables[:1] or [cls.empty()]
+        profiles, start = {}, 0
+        for t in kept:
+            profiles.update({start + k: p for k, p in t.profiles.items()})
+            start += len(t)
+        columns = {}
+        for name in list(kept[0].columns):
+            parts = [t.columns.pop(name) for t in kept]
+            columns[name] = np.concatenate(parts)
+            del parts
+        for t in tables:
+            t.columns, t.profiles = {}, {}
+        return cls(columns, profiles)
+
     def row(self, k: int) -> Dict:
         """Row k as a dict of Python values: pairs as tuples, clearance_nmpt None when not measured."""
         out = {}
@@ -106,7 +208,7 @@ class LineTable:
             out[name] = tuple(value) if isinstance(value, list) else value
         if out["clearance_nmpt"] != out["clearance_nmpt"]:
             out["clearance_nmpt"] = None
-        out["profile"] = self.profiles.get(k)
+        out["profile"] = profile_dict(self.profiles.get(k))
         return out
 
     def lines(self) -> List[Line]:

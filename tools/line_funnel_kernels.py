@@ -295,10 +295,12 @@ C_F8C_PARTNERS = 34  # F8c by the partners' sector masks only
 C_SAMPLED = 35      # 1: the anchor's checked pairs were simulated
 C_SAMPLED_TESTS = 36  # its counted _line_ok tests
 C_SIM_MISMATCH = 37  # simulated decision != _line_ok's (must stay 0)
-N_COUNTERS = 38
+C_N1_CANDIDATES = 38  # candidates N1 skips (production skips them before counting the candidates)
+N_COUNTERS = 39
 
-ORDERS = ("ends_inward", "natural", "middle_out", "bit_reversal", "unscreened_first", "two_ends_bit_reversal")
-N_ORDERS = 6
+ORDERS = ("ends_inward", "natural", "middle_out", "bit_reversal", "unscreened_first", "two_ends_bit_reversal",
+          "higher_ends_inward", "higher_two_ends_bit_reversal", "production")
+N_ORDERS = 9
 LOG_BINS = 16
 # Columns of the histograms per anchor
 H_PASS = 0                       # 3 length classes: checked pairs without a failing pixel
@@ -404,10 +406,53 @@ def _reverse(m, bits):
 
 
 @njit(cache=True)
-def order_tests(fail, steps, kind):
+def order_tests(fail, steps, kind, second_higher, split, longest):
     """Pixel tests until the first failing pixel (all of them when none fails) under an
-    order of ORDERS; ends_inward counts as _line_ok does (the middle pixel twice), the
-    others test every pixel once. Returns (tests, the first failing pixel or -1)."""
+    order of ORDERS; ends_inward counts as ref_line_ok does (the middle pixel twice), the
+    others test every pixel once. The kinds "higher_*" start at the end of the higher anchor
+    (the second with second_higher); production is linesearch._line_ok's order (since
+    2026-11-01): two_ends_bit_reversal for lines of more than split and at most longest steps
+    (linesearch.LINE_ORDER_SPLIT, LINE_ORDER_MAX), ends_inward for the others. Returns (tests,
+    the first failing pixel or -1)."""
+    if kind == 8:
+        kind = 5 if split < steps <= longest else 0
+    if kind == 6:  # ends inward, the higher end first, the middle once
+        tests = 0
+        lo, hi = 1, steps - 1
+        while lo <= hi:
+            near, far = (hi, lo) if second_higher else (lo, hi)
+            tests += 1
+            if fail[near]:
+                return tests, near
+            if far != near:
+                tests += 1
+                if fail[far]:
+                    return tests, far
+            lo += 1
+            hi -= 1
+        return tests, -1
+    if kind == 7:  # the higher end's first two pixels and the other end's alternately, then bit reversal
+        tests = 0
+        lo, hi = 1, steps - 1
+        while lo <= hi and lo <= 2:
+            near, far = (hi, lo) if second_higher else (lo, hi)
+            tests += 1
+            if fail[near]:
+                return tests, near
+            if far != near:
+                tests += 1
+                if fail[far]:
+                    return tests, far
+            lo += 1
+            hi -= 1
+        bits = _bits(steps - 1)
+        for m in range(1 << bits):
+            k = _reverse(m, bits)
+            if lo <= k <= hi:
+                tests += 1
+                if fail[k]:
+                    return tests, k
+        return tests, -1
     tests = 0
     if kind == 0:  # ends inward: today's loop
         lo, hi = 1, steps - 1
@@ -517,11 +562,12 @@ def _arc(r0, r1, c0, c1):
 def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, res,
                  min_length, max_length, max_dh_ratio, max_dh, down, cos_limit, strong,
                  use_sag, log_spans, ratios, table, fall_zone, first_only,
-                 rmax, big_k, cell_mask, cell_emin, cell_emax, d0, far2, sample, counters, sim, hist):
+                 rmax, big_k, cell_mask, cell_emin, cell_emax, d0, far2, split, longest, sample, counters, sim, hist):
     """ref_pairs (its counting pass) with counters per todo anchor q (columns C_*), the
     visits a candidate rule would skip (alone and cumulatively in the order F2a, F2b, N1,
     F8c, cell elevation, N3), and for the anchors with sample[q] the simulated pixel tests
-    of every checked pair under each of ORDERS (sim[q]) and where it fails first (hist[q]).
+    of every checked pair under each of ORDERS (sim[q]; split, longest: linesearch.LINE_ORDER_SPLIT and
+    LINE_ORDER_MAX for the kind "production") and where it fails first (hist[q]).
 
     The rules (each one only skips visits that fail a test of ref_pairs):
     F2a: the cell holds no anchor after i (its last, largest index <= i; first_only:
@@ -629,6 +675,8 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                             counters[q, C_WALL] += 1
                             continue
                     counters[q, C_CANDIDATES] += 1
+                    if n1:
+                        counters[q, C_N1_CANDIDATES] += 1
                     need = min(RINGS, max(abs(dr), abs(dc)) // 2)
                     if rings[a, ref_sector(dr, dc)] < need:
                         counters[q, C_RINGS_A] += 1
@@ -653,8 +701,9 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                         steps = line_fails(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table,
                                            fall_zone, fail)
                         today = -1
+                        second_higher = np.float64(z[r2, c2]) > np.float64(z[r1, c1])
                         for kind in range(N_ORDERS):
-                            t_kind, at = order_tests(fail, steps, kind)
+                            t_kind, at = order_tests(fail, steps, kind, second_higher, split, longest)
                             sim[q, kind] += t_kind
                             if kind == 0:
                                 today = at

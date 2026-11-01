@@ -375,6 +375,13 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   The dashboard's row F18/F19 has three panels of them (mean CPU per step, seconds and CPU per stage,
   the funnel per day). Why: docs/performance.md, "Order of elimination" — which kind of search uses
   the site's CPU decides which part of the line search to speed up first.
+- **The candidates of the funnel since the faster line search** (2026-11-01, branch `line-kernels`):
+  the pair search now skips the partners beyond the reach of an anchor's rings before it counts the
+  candidates (they fail the rings' test, which comes after the count), so `candidates` (and
+  "Candidate pairs" in the info events) is smaller from the jobs computed with it on: 46-99 % of the
+  count before in the searches measured. The panel of the funnel steps down there, and the share
+  checked/candidates of `tools/job_stats.py` mixes both kinds in a class that holds jobs from before
+  and after; the other steps of the funnel count as before.
 - **The quota.** The daily quota of a user's searches counts Mpx (`mpx_day_max`), not km²: 250 km² is
   250 Mpx at 1 m but 10 Mpx at 5 m, so a quota in km² punished coarse overviews (the cheapest) and
   told fine searches from each other not at all. The downloads keep their quota in MB

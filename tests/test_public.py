@@ -2858,11 +2858,14 @@ def test_search_limits_of_anchors_and_lines(tmp_path):
     import search
     from settings import Limits
     point = {"northing": 254608, "easting": 553966, "radius": 150}
-    for limits, text in ((Limits(anchors_max=10), "anchors, at most 10"), (Limits(lines_max=5), "lines, at most 5")):
+    for limits, text, code in ((Limits(anchors_max=10), "anchors, at most 10", "too_many_anchors"),
+                               (Limits(lines_max=5, lines_early_stop=False), "lines, at most 5", "too_many_lines"),
+                               (Limits(lines_max=5), "more than 5 lines (the search stopped at", "too_many_lines_early")):
         plan = _plan(tmp_path, limits, **point)
         with pytest.raises(search.SearchError) as error:
             search.find_lines(plan, search.prepare_data(plan))
         assert text in str(error.value) and "--resolution" in str(error.value), error.value
+        assert error.value.code == code and error.value.params["max"] in (5, 10), error.value.params
         import gc
         gc.collect()
 
@@ -2875,15 +2878,27 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
     import search
     from settings import Limits
     point = {"northing": 254608, "easting": 553966, "radius": 150}
-    plan = _plan(tmp_path, Limits(), **point)
-    assert plan.memory is not None and _plan(tmp_path, None, **point).memory is None
-    pixels = plan.grid.width * plan.grid.height
-    plan.memory = int(search.memory_needed(pixels, 4))  # the grids and 4 lines
+    assert _plan(tmp_path, None, **point).memory is None
     monkeypatch.setattr(search, "profile_points", lambda lines: 0)  # a circle's profiles: below
     monkeypatch.setattr(mapping, "coordify", lambda *a: pytest.fail("coordinates of lines over the memory"))
-    with pytest.raises(search.SearchError) as error:
-        search.find_lines(plan, search.prepare_data(plan))
-    assert error.value.code == "too_many_lines_memory" and error.value.params["max"] == 4, error.value
+    for early, code in ((False, "too_many_lines_memory"), (True, "too_many_lines_memory_early")):
+        plan = _plan(tmp_path, Limits(lines_early_stop=early), **point)
+        assert plan.memory is not None
+        pixels = plan.grid.width * plan.grid.height
+        plan.memory = int(search.memory_needed(pixels, 4))  # the grids and 4 lines
+        with pytest.raises(search.SearchError) as error:
+            search.find_lines(plan, search.prepare_data(plan))
+        assert error.value.code == code and error.value.params["max"] == 4, error.value
+        assert ("more than 4 lines" in str(error.value)) == early, error.value
+    # A user without limits (the worker plans with limits=None) keeps the compute slot's budget,
+    # and the early stop at it, switched by the server's setting (Plan.early_stop)
+    for early, code in ((True, "too_many_lines_memory_early"), (False, "too_many_lines_memory")):
+        plan = _plan(tmp_path, None, **point)
+        assert plan.limits is None and plan.early_stop
+        plan.memory, plan.early_stop = int(search.memory_needed(pixels, 4)), early
+        with pytest.raises(search.SearchError) as error:
+            search.find_lines(plan, search.prepare_data(plan))
+        assert error.value.code == code and error.value.params["max"] == 4, error.value
     import gc
     gc.collect()
     # A circle keeps the profile of every line: 10 lines fit without their profiles, 4 with them
@@ -2998,11 +3013,14 @@ def test_lines_limit_counts_earlier_tiles(tmp_path, monkeypatch):
     limit = max(counts)  # each tile alone fits, not all of them together
     over = next(k for k in range(len(counts)) if sum(counts[:k + 1]) > limit)
     assert over > 0, counts
-    found.clear()
-    with pytest.raises(search.SearchError) as error:
-        search.search_lines(_plan(tmp_path / "limited", Limits(lines_max=limit), **area))
-    assert error.value.code == "too_many_lines" and error.value.params["n"] == sum(counts[:over + 1])
-    assert [n for n in found if n] == counts[:over]  # that tile's lines never got their coordinates
+    for early, code in ((False, "too_many_lines"), (True, "too_many_lines_early")):
+        found.clear()
+        with pytest.raises(search.SearchError) as error:
+            search.search_lines(_plan(tmp_path / f"limited-{early}", Limits(lines_max=limit, lines_early_stop=early),
+                                      **area))
+        # the tiles' lines are found in one part each: the early stop counts them all, as the final check
+        assert error.value.code == code and error.value.params["n"] == sum(counts[:over + 1])
+        assert [n for n in found if n] == counts[:over]  # that tile's lines never got their coordinates
 
 
 def test_worker_orthophoto_limit(monkeypatch):

@@ -54,7 +54,7 @@ PAIR_COUNTERS = {
     "line_ok_fail": K.C_LINE_FAIL, "found": K.C_FOUND, "line_ok_tests": K.C_TESTS,
     "F2a_with_prefix": K.C_PREFIX, "F8c_own_rings": K.C_F8C_OWN, "F8c_partners": K.C_F8C_PARTNERS,
     "sampled_anchors": K.C_SAMPLED, "sampled_line_ok_tests": K.C_SAMPLED_TESTS,
-    "sim_mismatch": K.C_SIM_MISMATCH,
+    "sim_mismatch": K.C_SIM_MISMATCH, "N1_candidates": K.C_N1_CANDIDATES,
 }
 RULES = ("F2a", "F2b", "N1", "F8c", "cell_elev", "N3")
 # The tests of the pair search in today's order: (name, counter of its rejections)
@@ -252,6 +252,7 @@ def rebuild(inputs: Dict, params: Dict, free_rings=K.ref_free_rings) -> SimpleNa
     strong = inputs.get("strong")
     a.strong = np.ones(len(anchors), dtype=np.bool_) if strong is None else np.asarray(strong, dtype=np.bool_)
     a.first_only = first is not None
+    a.first = first
     a.args = (z, anchors, a.elev, a.rings)
     a.tail = (a.order, a.starts, cell, cells_x, res, a.min_length, a.max_length, float(max_dh_ratio),
               float(max_dh), a.down, a.cos_limit, a.strong, a.use_sag, a.log_spans, a.ratios, a.table,
@@ -266,13 +267,97 @@ def chunks_of(todo_all: np.ndarray) -> List[np.ndarray]:
 
 
 def two_passes(kernel, a, todo):
-    """A pair kernel's counting pass, then its writing pass, as find_valid_lines runs them."""
+    """A pair kernel's counting pass, then its writing pass over every anchor of the chunk, as
+    find_valid_lines ran them at 975a1b7 (the references')."""
     counts = np.zeros((len(todo), 3), dtype=np.int64)
     kernel(*a.args, todo, *a.tail, None, np.zeros((0, 2), dtype=np.int64), counts)
     offsets = np.concatenate([[0], np.cumsum(counts[:, 2])[:-1]]).astype(np.int64)
     out = np.empty((int(counts[:, 2].sum()), 2), dtype=np.int64)
     kernel(*a.args, todo, *a.tail, offsets, out, np.zeros_like(counts))
     return counts, out
+
+
+def production_rings(a):
+    """Production's rings of every anchor of the call (linesearch._free_rings on all at once)."""
+    return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset,
+                          ls.largest_need(a.min_length, a.max_length, a.res), ls.sector_masks())
+
+
+def production_directions(a):
+    """Production's step 1 (linesearch.free_directions): the useful anchors, their rings, the
+    row of every anchor."""
+    return ls.free_directions(a.z, a.anchors, a.res, a.gain, a.cap, a.offset, a.min_length, a.max_length)
+
+
+def capped_rings(a):
+    """The references' rings capped at production's largest ring (linesearch.largest_need, the
+    largest need of a pair: every decision compares a ring with a need up to it, so the cap
+    changes none)."""
+    return np.minimum(a.rings, ls.largest_need(a.min_length, a.max_length, a.res))
+
+
+def production_args(a, directions):
+    """Production's arguments of the pair search (linesearch.pair_arguments) from those of
+    production_directions: (_pairs' arguments before and after todo, the anchors pairs are
+    searched from)."""
+    useful, rows, slot = directions
+    todo_all, head, tail = ls.pair_arguments(a.z, a.anchors, a.elev, useful, rows, slot, a.first, a.res,
+                                             a.min_length, a.max_length, a.max_dh_ratio, a.max_dh, a.down,
+                                             a.cos_limit, a.strong, a.use_sag, a.log_spans, a.ratios, a.table,
+                                             a.fall_zone)
+    return head, tail, todo_all
+
+
+def funnel_inputs(a) -> SimpleNamespace:
+    """What funnel_pairs needs besides the kernels' arguments."""
+    f = SimpleNamespace()
+    f.rmax = a.rings.max(axis=1).astype(np.int64) if len(a.anchors) else np.zeros(0, dtype=np.int64)
+    f.big_k = min(ls.RINGS, (int(a.max_length / a.res) + 1) // 2)
+    f.cell_mask, f.cell_emin, f.cell_emax = K.cell_summary(a.order, a.starts, a.elev, a.rings, a.need_min)
+    f.d0 = min(a.max_dh_ratio * a.max_length, a.max_dh)
+    f.far2 = int(math.floor((a.max_length / a.res + 2) ** 2))
+    return f
+
+
+def self_check(a, folder: str = "", sample_every: int = 1) -> List:
+    """Production's kernels against the frozen references (SelfCheckError when they differ):
+    the rings, then per chunk the counts of the counting pass and the pairs written, both
+    against the references and funnel_pairs (run here, simulating the pixel orders for every
+    sample_every-th anchor). The pairs and the checked and found counts must be equal; the
+    candidates are the references' less those N1 skips (production skips them before counting:
+    they fail the rings' test, which comes after the count). Returns per chunk (todo, the
+    references' counts, funnel_pairs' counters, simulated tests, histograms)."""
+    capped = capped_rings(a)
+    if not np.array_equal(production_rings(a), capped):
+        raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
+    directions = production_directions(a)
+    useful, rows, slot = directions
+    if not (np.array_equal(useful, a.useful) and np.array_equal(rows, capped[a.useful])
+            and np.array_equal(slot[useful], np.arange(len(useful))) and (np.delete(slot, useful) == -1).all()):
+        raise SelfCheckError(f"{folder}: linesearch.free_directions differs from ref_free_rings")
+    head, tail, todo_all = production_args(a, directions)
+    if not np.array_equal(todo_all, a.todo_all):
+        raise SelfCheckError(f"{folder}: linesearch.pair_arguments starts from other anchors")
+    f = funnel_inputs(a)
+    chunks, q0 = [], 0
+    for todo in chunks_of(a.todo_all):
+        ref_counts, ref_out = two_passes(K.ref_pairs, a, todo)
+        c = np.zeros((len(todo), K.N_COUNTERS), dtype=np.int64)
+        s = np.zeros((len(todo), K.N_ORDERS), dtype=np.int64)
+        h = np.zeros((len(todo), K.N_HIST), dtype=np.int64)
+        sample = (np.arange(q0, q0 + len(todo)) % sample_every) == 0
+        K.funnel_pairs(*a.args, todo, *a.tail, f.rmax, f.big_k, f.cell_mask, f.cell_emin, f.cell_emax, f.d0,
+                       f.far2, ls.LINE_ORDER_SPLIT, ls.LINE_ORDER_MAX, sample, c, s, h)
+        if not np.array_equal(c[:, [K.C_CANDIDATES, K.C_CHECKED, K.C_FOUND]], ref_counts):
+            raise SelfCheckError(f"{folder}: funnel_pairs counts differ from ref_pairs")
+        counts, out = ls.pair_chunk(head, todo, tail)
+        if not (np.array_equal(counts[:, 1:], ref_counts[:, 1:]) and np.array_equal(out, ref_out)):
+            raise SelfCheckError(f"{folder}: linesearch._pairs differs from ref_pairs")
+        if not np.array_equal(counts[:, 0], ref_counts[:, 0] - c[:, K.C_N1_CANDIDATES]):
+            raise SelfCheckError(f"{folder}: linesearch._pairs' candidates are not ref_pairs' less those N1 skips")
+        chunks.append((todo, ref_counts, c, s, h))
+        q0 += len(todo)
+    return chunks
 
 
 def ring_work(a) -> Dict:
@@ -340,35 +425,15 @@ def analyse_call(folder: str, sample_every: int = 1) -> Dict:
     """Everything of one captured call (see the module docstring)."""
     inputs, params, timings = load_call(folder)
     a = rebuild(inputs, params)
-    # Self-check: production's kernels against the frozen references
-    if not np.array_equal(ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset), a.rings):
-        raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
+    chunks = self_check(a, folder, sample_every)
     rings = ring_work(a)
 
-    rmax = a.rings.max(axis=1).astype(np.int64) if len(a.anchors) else np.zeros(0, dtype=np.int64)
-    big_k = min(ls.RINGS, (int(a.max_length / a.res) + 1) // 2)
-    cell_mask, cell_emin, cell_emax = K.cell_summary(a.order, a.starts, a.elev, a.rings, a.need_min)
-    d0 = min(a.max_dh_ratio * a.max_length, a.max_dh)
-    far2 = int(math.floor((a.max_length / a.res + 2) ** 2))
     counters = np.zeros(K.N_COUNTERS, dtype=np.int64)
     sim = np.zeros(K.N_ORDERS, dtype=np.int64)
     hist = np.zeros(K.N_HIST, dtype=np.int64)
     visits_q, tests_q, found_q = [], [], []
     splits = {t: [0.0, 0.0, 0.0, 0.0] for t in THREAD_SPLITS}  # sum of max, sum of mean: visits, tests
-    q0 = 0
-    for todo in chunks_of(a.todo_all):
-        ref_counts, ref_out = two_passes(K.ref_pairs, a, todo)
-        counts, out = two_passes(ls._pairs, a, todo)
-        if not (np.array_equal(counts, ref_counts) and np.array_equal(out, ref_out)):
-            raise SelfCheckError(f"{folder}: linesearch._pairs differs from ref_pairs")
-        c = np.zeros((len(todo), K.N_COUNTERS), dtype=np.int64)
-        s = np.zeros((len(todo), K.N_ORDERS), dtype=np.int64)
-        h = np.zeros((len(todo), K.N_HIST), dtype=np.int64)
-        sample = (np.arange(q0, q0 + len(todo)) % sample_every) == 0
-        K.funnel_pairs(*a.args, todo, *a.tail, rmax, big_k, cell_mask, cell_emin, cell_emax, d0, far2,
-                       sample, c, s, h)
-        if not np.array_equal(c[:, [K.C_CANDIDATES, K.C_CHECKED, K.C_FOUND]], ref_counts):
-            raise SelfCheckError(f"{folder}: funnel_pairs counts differ from ref_pairs")
+    for todo, ref_counts, c, s, h in chunks:
         counters += c.sum(axis=0)
         sim += s.sum(axis=0)
         hist += h.sum(axis=0)
@@ -380,7 +445,6 @@ def analyse_call(folder: str, sample_every: int = 1) -> Dict:
                 blocks = [int(b.sum()) for b in np.array_split(work, t)]
                 splits[t][2 * n] += max(blocks)
                 splits[t][2 * n + 1] += sum(blocks) / t
-        q0 += len(todo)
     visits_q, tests_q, found_q = (np.concatenate(v) if v else np.zeros(0, dtype=np.int64)
                                   for v in (visits_q, tests_q, found_q))
 
@@ -391,7 +455,7 @@ def analyse_call(folder: str, sample_every: int = 1) -> Dict:
     result = {
         "params": params, "timings": timings, "sample_every": sample_every,
         "anchors": len(a.anchors), "open": len(a.useful), "todo": len(a.todo_all),
-        "cell": a.cell, "need_min": a.need_min, "need_max": big_k,
+        "cell": a.cell, "need_min": a.need_min, "need_max": rings["need_max"],
         "rings": rings,
         "pairs": pairs,
         "skip_alone": {r: int(counters[K.C_SKIP + n]) for n, r in enumerate(RULES)},
@@ -471,7 +535,7 @@ def report(name: str, r: Dict) -> List[str]:
         out = left - p[key]
         lines.append(f"| {label} | {left} | {out} | {pct(out, left)} |")
         left = out
-    lines += ["", f"Visits {p['visits']}, candidates {p['candidates']}, checked {p['checked']}, found {p['found']}, "
+    lines += ["", f"Visits {p['visits']}, candidates {p['candidates']} (production counts {p['candidates'] - p['N1_candidates']}: N1 skips the others), checked {p['checked']}, found {p['found']}, "
               f"`_line_ok` pixel tests {p['line_ok_tests']}.", "",
               "### Visits candidate rules would skip", "",
               "| Rule | alone | cumulative | checked pairs skipped (must be 0) |", "| --- | ---: | ---: | ---: |"]

@@ -15,12 +15,13 @@ from pyproj import Transformer
 
 import cache
 from grid import Grid
-from helpers import HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable
+from helpers import HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
 from progress import progress
 from runs import column_texts
 from sag import Rigging
 
 MAX_ZOOM = 21  # about 5 cm per pixel, the detail of the best geoportal orthophotos
+COORDINATE_PART = 1 << 17  # lines per part of coordify
 
 COLOR_VALID = "#FF10F0"     # neon pink
 COLOR_OBSTACLE = "#FF8C00"  # orange: line passes too close to trees/buildings (NMPT)
@@ -39,20 +40,24 @@ def coordify(lines: LineTable, grid: Grid, nmpt_mode: Optional[str]) -> LineTabl
     """Add the coordinates of the anchors to the lines (in place): "anchor1", "anchor2" (lat, lon),
     "a1_xy", "a2_xy" (easting, northing in metres of the grid CRS, used for grouping) and
     "over_obstacles" (the line passes over trees/buildings with --nmpt mark). Returns the lines."""
-    c = lines.columns
-    rows = np.column_stack([c["a1"][:, 0], c["a2"][:, 0]]).ravel()
-    cols = np.column_stack([c["a1"][:, 1], c["a2"][:, 1]]).ravel()
-    progress.compute.start("coordinates", len(lines), unit="line")
-    if len(lines):
+    c, n = lines.columns, len(lines)
+    progress.compute.start("coordinates", n, unit="line")
+    names = ("anchor1", "anchor2", "a1_xy", "a2_xy")
+    out = {name: np.empty((n, 2)) for name in names}
+    transformer = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True) if n else None
+    for at in range(0, n, COORDINATE_PART):  # in parts: the temporaries of all lines would be ~130 B a line
+        end = min(n, at + COORDINATE_PART)
+        rows = np.column_stack([c["a1"][at:end, 0], c["a2"][at:end, 0]]).ravel()
+        cols = np.column_stack([c["a1"][at:end, 1], c["a2"][at:end, 1]]).ravel()
         easting, northing = grid.pixel_to_xy(rows, cols)
-        lon, lat = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform(easting, northing)
-    else:
-        easting = northing = lon = lat = np.zeros(0)
-    pair = lambda a, b, first: np.column_stack([np.asarray(a, dtype=np.float64)[first::2],
-                                                np.asarray(b, dtype=np.float64)[first::2]])
-    c["anchor1"], c["anchor2"] = pair(lat, lon, 0), pair(lat, lon, 1)
-    c["a1_xy"], c["a2_xy"] = pair(easting, northing, 0), pair(easting, northing, 1)
-    c["over_obstacles"] = (c["clearance_nmpt"] <= 0) if nmpt_mode == "mark" else np.zeros(len(lines), dtype=bool)
+        lon, lat = transformer.transform(easting, northing)
+        for name, (a, b, first) in zip(names, ((lat, lon, 0), (lat, lon, 1), (easting, northing, 0),
+                                               (easting, northing, 1))):
+            out[name][at:end, 0] = np.asarray(a, dtype=np.float64)[first::2]
+            out[name][at:end, 1] = np.asarray(b, dtype=np.float64)[first::2]
+        progress.compute.update(end - at)
+    c.update(out)
+    c["over_obstacles"] = (c["clearance_nmpt"] <= 0) if nmpt_mode == "mark" else np.zeros(n, dtype=bool)
     progress.compute.finish()
     return lines
 
@@ -100,6 +105,37 @@ def _rank(lines: LineTable, by: str) -> Tuple[np.ndarray, np.ndarray]:
     return c["clearance"], c["length"]
 
 
+GROUP_PART = 1 << 14  # lines (best first) per call of grouping.greedy, between progress updates
+
+
+def _cell_index(xy: np.ndarray, rows: np.ndarray, distance: float):
+    """The lines rows by the cell (of size `distance`) of their first anchor xy[rows], as numpy arrays.
+
+    The cell numbers are those of `np.floor(xy / distance)`; one int64 key per line numbers the
+    cells within the box of the lines' cells (x, then y), so the cells (x, y0) to (x, y1) have
+    consecutive keys. Returns the positions in rows sorted by key (stably: the lines of a cell in
+    their order), the sorted keys, the lowest and highest cell numbers and the width of a row of
+    cells.
+    """
+    cell = []
+    for axis in (0, 1):
+        v = xy[rows, axis] / distance
+        np.floor(v, out=v)
+        cell.append(v.astype(np.int64))
+        del v
+    low = np.array([c.min() for c in cell], dtype=np.int64)
+    high = np.array([c.max() for c in cell], dtype=np.int64)
+    width = int(high[1] - low[1]) + 1
+    key = cell[0]
+    key -= low[0]
+    key *= width
+    key += cell[1]
+    key -= low[1]
+    del cell
+    order = np.argsort(key, kind="stable")
+    return order, key[order], low, high, width
+
+
 def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Groups:
     """Group near-identical lines (both anchors within `distance` metres).
 
@@ -109,53 +145,51 @@ def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Gro
     trees/buildings are grouped separately from clear lines.
     The same algorithm runs in the interactive map (viewer/src/grouping.ts); lines that
     rank the same keep their order (a stable sort, as sorted(reverse=True) there).
+    Lines by the cell (of size `distance`) of their first anchor: a member's first anchor
+    lies within `distance` of one of the representative's anchors, so in one of the 3 x 3
+    cells around it. The loop is grouping.greedy (numba).
     """
+    import grouping
+
     first, second = _rank(lines, by)
     over_all = lines.columns["over_obstacles"]
-    d2 = distance ** 2
-    reps: List[int] = []
-    members: List[np.ndarray] = []
-    progress.compute.start("grouping lines", len(lines), unit="line")
+    a1, a2 = lines.columns["a1_xy"], lines.columns["a2_xy"]
+    n = len(lines)
+    members = np.empty(n, dtype=np.int64)  # every line is the member of one group
+    reps = sizes = np.zeros(0, dtype=np.int64)
+    n_reps = n_members = 0
+    progress.compute.start("grouping lines", n, unit="line")
     for over in (False, True):
         rows = np.flatnonzero(over_all == over)
         if not len(rows):
             continue
         rows = rows[np.lexsort((-second[rows], -first[rows]))]
-        a1 = lines.columns["a1_xy"][rows]
-        a2 = lines.columns["a2_xy"][rows]
+        order, keys, low, high, width = _cell_index(a1, rows, distance)
         free = np.ones(len(rows), dtype=bool)
-        # Lines by the cell (of size `distance`) of their first anchor: a member's first
-        # anchor lies within `distance` of one of the representative's anchors, so in
-        # one of the 3 x 3 cells around it
-        cells: Dict[Tuple[int, int], List[int]] = {}
-        for k, cell in enumerate(map(tuple, np.floor(a1 / distance).astype(np.int64).tolist())):
-            cells.setdefault(cell, []).append(k)
-
-        def near(point) -> List[int]:
-            cx, cy = (int(v) for v in np.floor(point / distance))
-            return [k for dx in (-1, 0, 1) for dy in (-1, 0, 1) for k in cells.get((cx + dx, cy + dy), ())]
-
-        for i in range(len(rows)):
-            if not free[i]:
-                continue
-            candidates = np.unique(np.array(near(a1[i]) + near(a2[i]), dtype=np.int64))
-            candidates = candidates[free[candidates]]
-            c1, c2 = a1[candidates], a2[candidates]
-            same = (((c1 - a1[i]) ** 2).sum(1) <= d2) & (((c2 - a2[i]) ** 2).sum(1) <= d2)
-            flipped = (((c1 - a2[i]) ** 2).sum(1) <= d2) & (((c2 - a1[i]) ** 2).sum(1) <= d2)
-            found = candidates[same | flipped]
-            free[found] = False
-            reps.append(int(rows[i]))
-            members.append(rows[found])
-            progress.compute.update(len(found), spots=len(reps))
-    progress.compute.finish(f"{len(reps)} spots")
+        r0, m0 = n_reps, n_members
+        for begin in range(0, len(rows), GROUP_PART):
+            end = min(begin + GROUP_PART, len(rows))
+            if len(reps) < n_reps + end - begin:  # room for a representative per line
+                grown = max(2 * len(reps), n_reps + end - begin)
+                reps, sizes = (np.concatenate([v[:n_reps], np.zeros(grown - n_reps, dtype=np.int64)])
+                               for v in (reps, sizes))
+            before = n_members
+            n_reps, n_members = grouping.greedy(a1, a2, rows, order, keys, low, high, width, float(distance),
+                                                float(distance ** 2), free, begin, end, reps, members, sizes,
+                                                n_reps, n_members)
+            progress.compute.update(n_members - before, spots=n_reps)
+        del order, keys, free
+        reps[r0:n_reps] = rows[reps[r0:n_reps]]  # positions in rows to rows of the table
+        members[m0:n_members] = rows[members[m0:n_members]]
+    progress.compute.finish(f"{n_reps} spots")
     # Clear lines first, then lines over trees/buildings; best first within each
-    rep = np.array(reps, dtype=np.int64)
-    order = np.lexsort((-second[rep], -first[rep], over_all[rep])) if len(rep) else np.zeros(0, dtype=np.int64)
-    members = [members[g] for g in order.tolist()]
-    start = np.concatenate([[0], np.cumsum([len(m) for m in members], dtype=np.int64)]).astype(np.int64)
-    return Groups(rep[order], np.concatenate(members).astype(np.int64) if members else np.zeros(0, dtype=np.int64),
-                  start)
+    rep, sizes = reps[:n_reps], sizes[:n_reps]
+    order = np.lexsort((-second[rep], -first[rep], over_all[rep])) if n_reps else np.zeros(0, dtype=np.int64)
+    start = np.concatenate([[0], np.cumsum(sizes, dtype=np.int64)]).astype(np.int64)
+    out = np.empty(n_members, dtype=np.int64)
+    grouping.gather(members, start, order, out)
+    del members
+    return Groups(rep[order], out, np.concatenate([[0], np.cumsum(sizes[order], dtype=np.int64)]).astype(np.int64))
 
 
 def _search_area(area):
@@ -232,7 +266,7 @@ MAP_HTML = """<!doctype html>
 """
 
 
-LINES_CHUNK = 10_000  # lines written between two progress updates
+LINES_CHUNK = 1_000  # lines written between two progress updates (their texts held meanwhile)
 
 
 def _script_head(target: str, value: Dict) -> str:
@@ -311,7 +345,7 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
             rows = map_rows(lines, start, stop)
             profiles = lines.profiles
             full.write(separator + ",".join(
-                f"[{row},{encoder.encode(profiles[k]) if k in profiles else 'null'}]"
+                f"[{row},{encoder.encode(profile_dict(profiles[k])) if k in profiles else 'null'}]"
                 for k, row in enumerate(rows, start)))
             short.write(separator + ",".join(f"[{row}]" for row in rows))
             on_lines(stop - start, "data.js, lines.js")
