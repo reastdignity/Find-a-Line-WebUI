@@ -78,6 +78,8 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `usgs10m` |
 | `usgs10m` | USA and its territories | – | USGS 3DEP seamless 1/3 arc-second DEM (about 10 m) | – | USGS Imagery | 10 m | `europe` |
 | `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `europe` |
+| `wales` | Wales (GB) | GB | Welsh Government LiDAR 2020-22 DTM, 1 m | Welsh Government LiDAR DSM, 1 m | – (no open orthophoto) | 1 m | `europe` |
+| `england` | England (GB) | GB | Environment Agency LIDAR Composite DTM 2022, 1 m | EA LIDAR Composite First Return DSM 2022, 1 m | – (no open orthophoto) | 1 m | `europe` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
 | `nasadem` | anywhere | – | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – | 30 m | `europe` |
 | `files` | your files | – | `--elevation-file` | `--surface-file` (optional) | – | the file's | `europe` |
@@ -237,7 +239,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--area` / `--buffer` / `--within` | – / 100 / – | Search an area instead of a circle: `coast`, `cliffs`, a GeoJSON/KML/GPX file or `osm:<name>`; `--buffer` around coastline, cliffs, points and lines; `--within` (needed for `coast` and `cliffs`): `osm:<name>` takes the coastline or cliffs within `--max-length` of that area, a box `S,W,N,E` clips the band |
 | `--tile-size` | from the free memory | Side of the square tiles a large area is computed in, metres |
 | `--ortho-detail` | 50 for an area, all for a circle; swisstopo: 20 | Detailed orthophoto only around this many best groups; the others load it online |
-| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `austria`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
+| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `austria`, `wales`, `england`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
 | `--elevation-file` / `--surface-file` | | Your own terrain / surface raster (GeoTIFF, ASC...) |
 | `--water` | `fill` | Fill the sea and lakes where the data has none (`off` to skip) |
 | `--coastline` | `overpass` | Where the sea is: `overpass`, `world` or `copernicus` (see *Sea, lakes and gaps*) |

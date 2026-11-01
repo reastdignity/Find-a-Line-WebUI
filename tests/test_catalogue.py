@@ -13,7 +13,8 @@ import osm  # noqa: E402
 import sources as src  # noqa: E402
 
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "austria", "europe", "nasadem"]
+       "alaska_ifsar", "usa", "usgs10m", "austria", "wales", "england", "europe",
+       "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -383,6 +384,78 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                             'ttl_days': None,
                             'credit': 'ALS DTM / DSM Höhenraster 1 m (BEV, Austria)',
                             'shift': (0.0, 0.0)}},
+            'wales': {'crs': 'EPSG:27700',
+                      'countries': ('gb',),
+                      'bbox': None,
+                      'fallbacks': ['europe'],
+                      'grid_origin': (0.0, 0.0),
+                      'default_resolution': 1.0,
+                      'instead_without_data': None,
+                      'local_crs': 'utm_crs',
+                      'ortho': None,
+                      'credits': ['Welsh Government LiDAR 2020-22 DTM / DSM 1 m (DataMapWales)'],
+                      'nmt': {'class': 'FileBlocks',
+                              'description': 'Welsh LiDAR DTM 1 m (terrain)',
+                              'folder': 'wales/lidar-dtm/20241004',
+                              'prefix': None,
+                              'native_res': 1.0,
+                              'processing': 1,
+                              'ttl_days': None,
+                              'credit': 'Welsh Government LiDAR 2020-22 DTM / DSM 1 m (DataMapWales)',
+                              'shift': (0.0, 0.0)},
+                      'nmpt': {'class': 'FileBlocks',
+                               'description': 'Welsh LiDAR DSM 1 m (trees, buildings)',
+                               'folder': 'wales/lidar-dsm/20241004',
+                               'prefix': None,
+                               'native_res': 1.0,
+                               'processing': 1,
+                               'ttl_days': None,
+                               'credit': 'Welsh Government LiDAR 2020-22 DTM / DSM 1 m (DataMapWales)',
+                               'shift': (0.0, 0.0)}},
+            'england': {'crs': 'EPSG:27700',
+                        'countries': ('gb',),
+                        'bbox': None,
+                        'fallbacks': ['europe'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 1.0,
+                        'instead_without_data': None,
+                        'local_crs': 'utm_crs',
+                        'ortho': None,
+                        'credits': ['LIDAR Composite DTM / First Return DSM 2022, 1 m (Environment Agency, England)'],
+                        'nmt': {'class': 'WcsTiles',
+                                'description': 'EA LIDAR Composite DTM 1 m (terrain)',
+                                'folder': 'england/lidar-composite-dtm/2022',
+                                'prefix': None,
+                                'native_res': 1.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'LIDAR Composite DTM / First Return DSM 2022, 1 m (Environment Agency, '
+                                          'England)',
+                                'shift': (0.0, 0.0),
+                                'url': 'https://environment.data.gov.uk/spatialdata/lidar-composite-digital-terrain-model-dtm-1m/wcs',
+                                'coverage': '13787b9a-26a4-4775-8523-806d13af58fc__Lidar_Composite_Elevation_DTM_1m',
+                                'crs': 'EPSG:27700',
+                                'axes': ('E', 'N'),
+                                'fmt': 'image/tiff',
+                                'fetch_res': 1.0,
+                                'tile_px': 2000},
+                        'nmpt': {'class': 'WcsTiles',
+                                 'description': 'EA LIDAR Composite First Return DSM 1 m (trees, buildings)',
+                                 'folder': 'england/lidar-composite-dsm/2022',
+                                 'prefix': None,
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'LIDAR Composite DTM / First Return DSM 2022, 1 m (Environment Agency, '
+                                           'England)',
+                                 'shift': (0.0, 0.0),
+                                 'url': 'https://environment.data.gov.uk/spatialdata/lidar-composite-digital-surface-model-first-return-dsm-1m/wcs',
+                                 'coverage': 'df4e3ec3-315e-48aa-aaaf-b5ae74d7b2bb__Lidar_Composite_Elevation_FZ_DSM_1m',
+                                 'crs': 'EPSG:27700',
+                                 'axes': ('E', 'N'),
+                                 'fmt': 'image/tiff',
+                                 'fetch_res': 1.0,
+                                 'tile_px': 2000}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -498,6 +571,12 @@ PATHS = [
     ("usgs10m", "nmt", (-1195, 375), "usa/3dep-13/live/n38w120/-1195_375.tif", (-1195, 375)),
     ("austria", "nmt", (4420, 2685), "austria/als-dtm/20250915/88_53/4420_2685.tif", (4420, 2685)),
     ("austria", "nmpt", (4420, 2685), "austria/als-dsm/20250915/88_53/4420_2685.tif", (4420, 2685)),
+    ("wales", "nmt", (262, 356), "wales/lidar-dtm/20241004/5_7/262_356.tif", (262, 356)),
+    ("wales", "nmpt", (262, 356), "wales/lidar-dsm/20241004/5_7/262_356.tif", (262, 356)),
+    ("england", "nmt", (1.0, 211, 192), "england/lidar-composite-dtm/2022/epsg27700-1m-2000px-tif/211_192.tif",
+     (1.0, 211, 192)),
+    ("england", "nmpt", (1.0, 211, 192), "england/lidar-composite-dsm/2022/epsg27700-1m-2000px-tif/211_192.tif",
+     (1.0, 211, 192)),
 ]
 
 
@@ -566,7 +645,7 @@ def test_layer_surface():
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
-    assert wcs == {"malta", "malta2012", "spain_canarias", "spain"}
+    assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
     for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks):
@@ -581,7 +660,8 @@ ALASKA = (51.0, 71.5, -180.0, -129.9)
 BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("es", (27.0, 43.9, -18.6, 4.4)), ("sk", (47.7, 49.65, 16.8, 22.6)),
          ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", ALASKA),
-         ("pr", (17.8, 18.6, -67.4, -65.2)), ("at", (46.37, 49.02, 9.53, 17.17))]
+         ("pr", (17.8, 18.6, -67.4, -65.2)), ("at", (46.37, 49.02, 9.53, 17.17)),
+         ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -598,7 +678,7 @@ def test_country_code_offline(monkeypatch, tmp_path):
             lat = a / 20
             for b in range(round((w - 0.1) * 20), round((e + 0.1) * 20) + 1):
                 lon = b / 20
-                expected = next((code for code, (s2, n2, w2, e2) in BOXES
+                expected = next((code.split("-")[0] for code, (s2, n2, w2, e2) in BOXES
                                  if s2 <= lat <= n2 and w2 <= lon <= e2), None)
                 assert country_code(lat, lon, cache_dir) == expected, (lat, lon)
                 checked += 1
