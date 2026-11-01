@@ -72,17 +72,30 @@ CONFIRM_MINUTES = 30
 ORTHO_SECONDS_PER_TILE = 0.3  # measured download rate with orthophoto.DOWNLOAD_THREADS
 ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the service or --ortho-detail says
 # The memory of a search (memory_needed): its grids, this many bytes per pixel (terrain,
-# surface, water, gaps, masks, temporaries), its lines, this many bytes per line (a line of
-# step 4 with its coordinates, values and group, one of a tile done already, or one being saved
-# in step 5), and the profiles a circle keeps for every line, this many bytes per point
+# surface, water, gaps, masks, temporaries), its lines, this many bytes per line (a line being
+# checked in step 3, one of step 4 with its coordinates, values and group, one of a tile done
+# already, or one being saved in step 5), and the profiles a circle keeps for every line, this
+# many bytes per point
 PIXEL_BYTES = 100  # 64 of them, and the union-find of the anchor prominence (terrain.py)
 # Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
 # columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
 # 382 B at the peak of step 5; with a dict per line they were 2.2 KB, 1.6 KB and 3.1 KB (the
-# worker killed on the VPS held 2.6 million lines of earlier tiles and 1.1 million of a tile)
+# worker killed on the VPS held 2.6 million lines of earlier tiles and 1.1 million of a tile).
+# Again 2026-11-01 after wave 4 (perf_lines_memory.py --call of the captures of swiss-long, 1.7
+# million lines, of the Gozo coast's large tile, 253 000, and of R9, 86 000): step 3 (the found
+# pairs held once, the tables joined and sorted column by column) 190-199 B per line, was 494-504;
+# step 4 at most 389-439 B (mapping.group_lines; its coordinates 234-305 B, was 306-553 with the
+# core's second table), 261-294 B held; step 5 327-459 B (and about 40 MiB whatever the number
+# of lines). The largest, 439 B, plus 14 %. The found pairs need no term of their own: as many
+# as the valid lines on all 15 captures (at most 1.0001 times; lines left out by --min-height or
+# --max-wall-angle would add about 190 B per pair to step 3, still below step 4 up to 2.3 pairs
+# per line)
 LINE_BYTES = 500
-# A profile (helpers.line_profile: lists of Python floats) takes 64-100 B per point, up to
-# PROFILE_POINTS points (its max_points, the anchors and the smallest clearances): about 19 KB
+# A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
+# clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
+# (lineprofiles.line_profiles, wave 3) 51-77 B per point at the peak of computing them, 21-30 B
+# held. Kept at 100 B (30 % over the peak): CIRCLE_PROFILES_BYTES / PROFILE_POINT_BYTES (5
+# million points) decides which circles keep every profile, so the two change only together
 PROFILE_POINT_BYTES = 100
 PROFILE_POINTS = 203
 # A circle keeps the profile of every line (the map opened from disk shows each) while they take
