@@ -388,3 +388,72 @@ def test_osm_data_step():
         assert steps.index("start\n") < steps.index("osm_data\n"), function
     skipped = re.search(r"^OSM_EXTRACTS_SKIP=\((.*)\)$", vps, re.M).group(1).split()
     assert skipped == ["us"]
+
+
+def _bash():
+    """bash for a test of vps.sh's functions: Git's on Windows (`bash` there may be WSL's)"""
+    if sys.platform == "win32":
+        git_bash = r"C:\Program Files\Git\bin\bash.exe"
+        return git_bash if os.path.isfile(git_bash) else None
+    return shutil.which("bash")
+
+
+def test_secret_files_listed():
+    """deploy/secrets.example holds a file for every Docker secret of both compose projects: vps.sh
+    makes the files from it (secret_files), so a secret added to compose.yaml without its example
+    would stop `docker compose up` on the server. Grafana's are GRAFANA_SECRETS, the monitoring's
+    only; setup and update make the files before the services start, and check looks at them."""
+    import yaml
+
+    examples = set(os.listdir(os.path.join(DEPLOY, "secrets.example")))
+    with open(os.path.join(ROOT, "compose.yaml"), encoding="utf-8") as f:
+        app = set(yaml.safe_load(f)["secrets"])
+    with open(os.path.join(DEPLOY, "monitoring", "compose.yaml"), encoding="utf-8") as f:
+        monitoring = set(yaml.safe_load(f)["secrets"])
+    assert app | monitoring == examples
+    vps = _read("vps.sh")
+    assert set(re.search(r"^GRAFANA_SECRETS=\(([^)]*)\)$", vps, re.M).group(1).split()) == monitoring
+    assert not app & monitoring
+    for function in ("settings", "update"):
+        body = vps[vps.index(f"\n{function}() {{"):]
+        body = body[:body.index("\n}")]
+        assert "secret_files" in body, function
+    update = vps[vps.index("\nupdate() {"):]
+    update = update[:update.index("\n}")]
+    assert update.index("secret_files") < update.index("\n    start\n")
+    check = vps[vps.index("\ncheck() {"):]
+    assert "secret_uid" in check[:check.index("\n}")]
+
+
+@pytest.mark.skipif(_bash() is None, reason="no bash")
+def test_secret_files(tmp_path):
+    """secret_files on a server set up before some secrets existed: the missing files are made empty
+    (with a note), those there keep their values, Grafana's go to uid 472, all others to the app's
+    10001, each with mode 0400."""
+    repo = tmp_path / "repo"
+    (repo / "secrets").mkdir(parents=True)
+    (repo / "secrets" / "findaline_session_secret").write_text("kept\n")
+    (repo / "secrets" / "grafana_admin_password").write_text("also kept\n")
+    script = tmp_path / "run.sh"
+    # chown and chmod logged, not run: the test is no root (and a read-only file on Windows stays)
+    script.write_text('source "$1"\nREPO=$2\nDEPLOY=$3\n'
+                      'chown() { echo "chown $*" >> "$REPO/log"; }\n'
+                      'chmod() { echo "chmod $*" >> "$REPO/log"; }\n'
+                      'secret_files\n', newline="\n")
+    result = subprocess.run([_bash(), script.as_posix(), os.path.join(DEPLOY, "vps.sh").replace("\\", "/"),
+                             repo.as_posix(), DEPLOY.replace("\\", "/")],
+                            capture_output=True, text=True, timeout=60)
+    assert result.returncode == 0, result.stderr
+    examples = sorted(os.listdir(os.path.join(DEPLOY, "secrets.example")))
+    assert sorted(os.listdir(repo / "secrets")) == examples
+    assert (repo / "secrets" / "findaline_session_secret").read_text() == "kept\n"
+    assert (repo / "secrets" / "grafana_admin_password").read_text() == "also kept\n"
+    new = [n for n in examples if n not in ("findaline_session_secret", "grafana_admin_password")]
+    assert all((repo / "secrets" / n).stat().st_size == 0 for n in new)
+    assert result.stdout.splitlines() == [f"   secrets/{n}: a new, empty one (secrets/README.md)" for n in new]
+    log = (repo / "log").read_text().splitlines()
+    for name in examples:
+        uid = 472 if name in ("grafana_admin_password", "ntfy_url") else 10001
+        assert f"chown {uid}:{uid} {repo.as_posix()}/secrets/{name}" in log, name
+        assert f"chmod 400 {repo.as_posix()}/secrets/{name}" in log, name
+    assert len(log) == 2 * len(examples)

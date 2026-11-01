@@ -3,7 +3,6 @@ unavailable, the key in a WCS's requests (also WCS 1.0.0), and never in an error
 index, the counts of servicecounts, a job's events or the deployment's other services."""
 
 import os
-import re
 import sqlite3
 import sys
 from urllib.parse import quote
@@ -204,8 +203,9 @@ def test_wcs20_requests_unchanged():
 
 def test_keys_are_the_workers_secrets():
     """The keys of ServiceKeys are Docker secrets of the worker only (compose.yaml), those of WebKeys of
-    the web service only, with an empty example file each (deploy/secrets.example), the owner set by
-    deploy/vps.sh (WORKER_SECRETS, WEB_SECRETS), and a row in secrets/README.md and the CI's examples."""
+    the web service only, with an empty example file each (deploy/secrets.example: deploy/vps.sh makes
+    each file and gives it to the app's uid, tests/test_deploy.py::test_secret_files), and a row in
+    secrets/README.md and the CI's examples."""
     names, web = set(settings.ServiceKeys.model_fields), set(settings.WebKeys.model_fields)
     with open(os.path.join(ROOT, "compose.yaml"), encoding="utf-8") as f:
         compose = yaml.safe_load(f)
@@ -216,11 +216,6 @@ def test_keys_are_the_workers_secrets():
     assert all(compose["secrets"][n] == {"file": f"./secrets/{n}"} for n in names | web)
     examples = os.path.join(ROOT, "deploy", "secrets.example")
     assert all(os.path.getsize(os.path.join(examples, n)) == 0 for n in names | web)
-    with open(os.path.join(ROOT, "deploy", "vps.sh"), encoding="utf-8") as f:
-        script = f.read()
-    listed = re.search(r"^WORKER_SECRETS=\(([^)]*)\)", script, re.M).group(1).split()
-    assert set(listed) == names
-    assert set(re.search(r"^WEB_SECRETS=\(([^)]*)\)", script, re.M).group(1).split()) == web
     with open(os.path.join(ROOT, "secrets", "README.md"), encoding="utf-8") as f:
         readme = f.read()
     with open(os.path.join(ROOT, ".github", "workflows", "ci.yml"), encoding="utf-8") as f:

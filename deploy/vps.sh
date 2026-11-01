@@ -49,10 +49,9 @@ PULLED=0
 CHANGED=0
 SETTINGS_READY=0
 TODO=()
-# The worker's secrets, the keys of data services (secrets/README.md, compose.yaml)
-WORKER_SECRETS=(opentopography_api_key datafordeler_api_key lantmateriet_user lantmateriet_password nls_api_key)
-# The web service's keys the page gets (settings.WebKeys: the satellite map's)
-WEB_SECRETS=(esri_api_key)
+# The secrets of Grafana (deploy/monitoring/compose.yaml), readable by its uid 472; every other file of
+# deploy/secrets.example is the app's (compose.yaml), readable by uid 10001 (secrets/README.md)
+GRAFANA_SECRETS=(grafana_admin_password ntfy_url)
 
 step() { printf '\n== %s\n' "$*"; }
 note() { printf '   %s\n' "$*"; }
@@ -120,6 +119,25 @@ compose() { docker compose --project-directory "$REPO" -f "$REPO/compose.yaml" "
 web_port() { local port; port=$(env_get "$REPO/.env" WEB_PORT); echo "${port:-8765}"; }
 public_ip() { curl -4fsS --max-time 10 https://ifconfig.me; }
 secret_set() { [ -s "$1" ] && [ -n "$(tr -d '[:space:]' < "$1")" ]; }
+# The uid of the container reading a secret of deploy/secrets.example (its file name)
+secret_uid() { if [[ " ${GRAFANA_SECRETS[*]} " == *" $1 "* ]]; then echo 472; else echo 10001; fi; }
+
+# Every file of deploy/secrets.example in secrets/: a missing one (a secret added since, e.g. a key of a
+# new source) made empty, as compose refuses to start without the file and an empty one means "not
+# used"; each owned by the uid of its container, mode 0400. With "quiet" no note of the new ones.
+secret_files() {
+    local file name uid
+    for file in "$DEPLOY"/secrets.example/*; do
+        name=${file##*/}
+        if [ ! -e "$REPO/secrets/$name" ]; then
+            install -m 600 /dev/null "$REPO/secrets/$name"
+            [ "${1:-}" = quiet ] || note "secrets/$name: a new, empty one (secrets/README.md)"
+        fi
+        uid=$(secret_uid "$name")
+        chown "$uid:$uid" "$REPO/secrets/$name"
+        chmod 400 "$REPO/secrets/$name"
+    done
+}
 
 # The site's name: --site, or the host of FINDALINE_PUBLIC_URL
 site_name() {
@@ -544,7 +562,7 @@ ask_provider() {
 
 settings() {
     step "Settings and secrets (sections 7, 8)"
-    local env=$REPO/findaline.env compose_env=$REPO/.env user group file
+    local env=$REPO/findaline.env compose_env=$REPO/.env user group
     user=$(owner)
     group=$(id -gn "$user")
     [ -f "$compose_env" ] || install -m 644 -o "$user" -g "$group" "$REPO/.env.example" "$compose_env"
@@ -566,9 +584,7 @@ settings() {
     fi
 
     install -d -m 755 -o "$user" -g "$group" "$REPO/secrets"
-    for file in "$DEPLOY"/secrets.example/*; do
-        [ -e "$REPO/secrets/${file##*/}" ] || install -m 600 /dev/null "$REPO/secrets/${file##*/}"
-    done
+    secret_files quiet
     if ! secret_set "$REPO/secrets/findaline_session_secret"; then
         chmod 600 "$REPO/secrets/findaline_session_secret"
         python3 -c "import secrets; print(secrets.token_urlsafe(48))" > "$REPO/secrets/findaline_session_secret"
@@ -592,10 +608,8 @@ settings() {
             env_set "$env" FINDALINE_ADMINS "github:${id%% *}"
         fi
     fi
-    # Each secret readable by the containers' user only (secrets/README.md)
-    chown 10001:10001 "$REPO"/secrets/findaline_* "${WORKER_SECRETS[@]/#/$REPO/secrets/}" \
-        "${WEB_SECRETS[@]/#/$REPO/secrets/}"
-    chmod 400 "$REPO"/secrets/findaline_* "${WORKER_SECRETS[@]/#/$REPO/secrets/}" "${WEB_SECRETS[@]/#/$REPO/secrets/}"
+    # Each secret readable by its container's user only, also those just written (secrets/README.md)
+    secret_files quiet
 
     local missing=() provider
     [ "$(env_get "$env" FINDALINE_CONTACT)" = you@example.org ] && missing+=("FINDALINE_CONTACT in findaline.env (--contact)")
@@ -932,6 +946,13 @@ check() {
     fail2ban-client status findaline >/dev/null 2>&1 && ok "the jail findaline" || bad "the jail findaline does not run"
     systemctl is-active -q certbot.timer && ok "certbot.timer" || bad "certbot.timer is not active"
     sshd -T 2>/dev/null | grep -qx 'passwordauthentication no' && ok "SSH with a key only" || bad "SSH takes passwords"
+    local file wrong=()
+    for file in "$DEPLOY"/secrets.example/*; do
+        name=${file##*/}
+        [ "$(stat -c '%u %a' "$REPO/secrets/$name" 2>/dev/null)" = "$(secret_uid "$name") 400" ] || wrong+=("$name")
+    done
+    [ ${#wrong[@]} = 0 ] && ok "the files of secrets/" \
+        || bad "secrets/ ${wrong[*]}: missing, or not its container's uid with mode 0400 (sudo deploy/vps.sh update)"
 
     # The containers reach nothing but the internet: every address of the host (its public one,
     # private ones, the gateways of the Docker networks), the metadata service, private networks
@@ -1086,13 +1107,9 @@ update() {
     ufw_files
     if [ "$CHANGED" = 1 ]; then ufw reload >/dev/null; note "ufw reloaded"; fi
     [ -f /etc/systemd/system/findaline-backup.service ] && backups
-    # A secret added since (a new sign-in provider): compose needs its file, empty is not offered
-    local file
-    for file in "$DEPLOY"/secrets.example/findaline_*; do
-        [ -e "$REPO/secrets/${file##*/}" ] && continue
-        install -m 400 -o 10001 -g 10001 /dev/null "$REPO/secrets/${file##*/}"
-        note "secrets/${file##*/}: a new, empty one (section 7)"
-    done
+    # A secret added since (a sign-in provider, a key of a data service, Grafana's): compose needs its
+    # file before the services start, an empty one is not used
+    secret_files
     note "up to date"
 
     start

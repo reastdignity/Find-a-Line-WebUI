@@ -807,7 +807,7 @@ so (section 5).
 check runs of the newest one; a private repository's are not readable without a token, so it
 asks, and `--skip-ci` leaves the check out), pulls them, installs the files of `deploy/` again
 where they changed (nginx reloaded, fail2ban restarted, the blocks of `ufw`'s files replaced and
-`ufw` reloaded), builds the image, restarts the services, downloads the OpenStreetMap data not there yet
+`ufw` reloaded), makes the file of every secret added since (empty, so its service or source is off; owned by its container's uid, mode 0400: secrets/README.md), builds the image, restarts the services, downloads the OpenStreetMap data not there yet
 (section 9), installs the monitoring's units and
 pulls and starts its containers (section 15; a failure there is listed at the end and leaves the
 site running) and warns when the examples of the settings changed. By hand:
@@ -819,6 +819,8 @@ site running) and warns when the examples of the settings changed. By hand:
    ```sh
    cd /srv/find-a-line-webui
    git pull --ff-only
+   # a secret added since: compose refuses to start without its file (made empty: not used)
+   sudo bash -c '. deploy/vps.sh && secret_files'
    docker compose build --pull
    docker compose up -d
    docker compose ps
