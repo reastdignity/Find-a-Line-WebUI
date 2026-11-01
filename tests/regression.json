@@ -321,9 +321,10 @@
       "sources",
       "water"
     ],
+    "needs_env": "FINDALINE_MIRROR",
     "expected": {
-      "anchors": 2797,
-      "open": 2402,
+      "anchors": 2804,
+      "open": 2407,
       "checked": 8628,
       "lines": 566,
       "spots": 143,
@@ -335,11 +336,11 @@
       "over_trees": 226,
       "coverage": 97.64,
       "empty_tiles": 0,
-      "filled_km2": 0.34,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_km2": 0.3,
+      "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
     },
-    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m)",
-    "seconds": 2.4
+    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM",
+    "seconds": 3.2
   },
   "R14": {
     "place": "R1's circle as a polygon file, computed in tiles of 600 m: same lines as R1",
