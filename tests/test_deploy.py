@@ -2,14 +2,22 @@
 the host (deploy/nginx, deploy/fail2ban, deploy/firewall, deploy/monitoring): the fail2ban filter
 and the masking of the access log, with Python's re (fail2ban's own engine; nginx's PCRE patterns
 differ only in the spelling of named groups), the metrics log without addresses and its route
-groups, the monitoring's bridge in the firewall and the monitoring's systemd units. nginx itself
-runs in tests/nginx_check.sh (CI, the docker job)."""
+groups, the monitoring's bridge in the firewall, the monitoring's systemd units and the SSH login
+notice (pam_exec). nginx itself runs in tests/nginx_check.sh (CI, the docker job)."""
 
 import configparser
 import glob
+import http.server
 import json
 import os
 import re
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEPLOY = os.path.join(ROOT, "deploy")
@@ -282,3 +290,84 @@ def test_monitoring_units():
     vps = _read("vps.sh")
     assert "MONITORING_TIMERS=(findaline-facts.timer findaline-check.timer findaline-heartbeat.timer)" in vps
     assert "EnvironmentFile=-$MONITORING_ENV" in vps and "MONITORING_ENV=/etc/findaline-monitoring.env" in vps
+
+
+def test_ssh_login_notice_installed():
+    """D4: vps.sh installs deploy/monitoring/ssh-login.sh as a root-owned copy with the checkout's
+    path and one `session optional` line of pam_exec in sshd's PAM stack (optional: the script's
+    failure never refuses a login), and `check` looks for both."""
+    vps = _read("vps.sh")
+    assert "SSH_LOGIN_SCRIPT=/usr/local/sbin/findaline-ssh-login\n" in vps
+    assert 'SSH_LOGIN_PAM="session optional pam_exec.so quiet $SSH_LOGIN_SCRIPT"\n' in vps
+    assert 'put "$SSH_LOGIN_SCRIPT" 755 < <(sed "s#@REPO@#$REPO#g" "$DEPLOY/monitoring/ssh-login.sh")' in vps
+    assert vps.count('grep -qxF "$SSH_LOGIN_PAM" /etc/pam.d/sshd') == 2   # installed and checked
+    assert vps.count("ssh_login_notice") == 2   # defined and called by monitoring
+    script = _read("monitoring", "ssh-login.sh")
+    assert script.startswith("#!/bin/bash\n")
+    assert "NTFY_URL_FILE=@REPO@/secrets/ntfy_url\n" in script   # the topic of Grafana's alerts
+    assert re.search(r'^\[ "\$\{PAM_TYPE:-\}" = open_session \] \|\| exit 0$', script, re.M)
+    assert script.rstrip().endswith("exit 0") and "set -e" not in script
+    assert "setsid curl -fsS -m 5 " in script and "flock -w 2 9" in script
+
+
+def _run_notice(tmp_path, pam_type, url=None):
+    """The script with its folder and the checkout in tmp_path, run as pam_exec runs it"""
+    out, repo = tmp_path / "out", tmp_path / "repo"
+    (repo / "secrets").mkdir(parents=True, exist_ok=True)
+    out.mkdir(exist_ok=True)
+    if url is not None:
+        (repo / "secrets" / "ntfy_url").write_text(url + "\n")
+    script = tmp_path / "ssh-login"
+    script.write_text(_read("monitoring", "ssh-login.sh").replace("@REPO@", str(repo))
+                      .replace("OUT=/var/lib/findaline-monitoring", f"OUT={out}"))
+    env = {"PAM_TYPE": pam_type, "PAM_USER": "op\nerator", "PAM_RHOST": "203.0.113.7", "PAM_SERVICE": "sshd"}
+    started = time.monotonic()
+    result = subprocess.run(["bash", str(script)], env=env, capture_output=True, timeout=30)
+    return result, time.monotonic() - started, out
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("flock") or not shutil.which("setsid"),
+                    reason="the script is for the server (flock, setsid)")
+def test_ssh_login_notice_runs(tmp_path):
+    """The script counts the logins of open_session (not close_session) in ssh.json, sends the
+    message to ntfy without making the login wait, and exits 0 when ntfy cannot be reached or its
+    folder is missing."""
+    posts = []
+
+    class Ntfy(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            posts.append((self.headers.get("Title"), self.rfile.read(int(self.headers["Content-Length"])).decode()))
+            self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Ntfy)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        url = f"http://127.0.0.1:{server.server_address[1]}/topic"
+        for pam_type in ("open_session", "close_session", "open_session"):
+            result, _, out = _run_notice(tmp_path, pam_type, url)
+            assert result.returncode == 0 and not result.stdout and not result.stderr
+        logins = json.loads((out / "ssh.json").read_text())
+        assert logins["logins"] == 2 and abs(logins["time"] - time.time()) < 60
+        for _ in range(50):
+            if len(posts) == 2:
+                break
+            time.sleep(0.1)
+        host = os.uname().nodename
+        assert posts == [(f"SSH login on {host}", f"SSH login: operator from 203.0.113.7 on {host}")] * 2
+    finally:
+        server.shutdown()
+    # ntfy not reachable (a closed port; an address that drops packets): the login does not wait
+    for url in ("http://127.0.0.1:9/topic", "http://192.0.2.1/topic"):
+        result, seconds, out = _run_notice(tmp_path, "open_session", url)
+        assert result.returncode == 0 and seconds < 3, (url, seconds)
+    assert json.loads((out / "ssh.json").read_text())["logins"] == 4
+    # Its folder missing (a file in its place): nothing counted, still 0
+    shutil.rmtree(out)
+    out.write_text("")
+    result = subprocess.run(["bash", str(tmp_path / "ssh-login")], env={"PAM_TYPE": "open_session"},
+                            capture_output=True, timeout=30)
+    assert result.returncode == 0

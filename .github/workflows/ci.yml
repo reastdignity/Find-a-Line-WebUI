@@ -164,9 +164,11 @@ jobs:
           docker rm -f probe || true
 
   # The monitoring project (deploy/monitoring, docs/monitoring.md) on the runner as the host: its
-  # compose file, then the four services with dummy secrets and stand-ins of what the host's side
-  # writes (the nginx metrics log, the facts files); the runner's systemd answers over D-Bus.
-  # Checks that VictoriaMetrics holds Telegraf's samples and that Grafana has its provisioning.
+  # compose file, then the five services with dummy secrets, Grafana's plugin as deploy/vps.sh
+  # gets it, and stand-ins of what the host's side writes (the nginx metrics and error logs, the
+  # facts files); the runner's systemd answers over D-Bus. Checks that VictoriaMetrics holds
+  # Telegraf's samples, that a line of nginx's error log reaches VictoriaLogs with its address
+  # masked, and that Grafana has its provisioning.
   monitoring:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -194,12 +196,18 @@ jobs:
           test -S /run/dbus/system_bus_socket
           sudo install -d -m 0755 /var/log/nginx /var/lib/findaline-monitoring
           sudo install -m 0640 -o root -g adm /dev/null /var/log/nginx/findaline.metrics.log
+          sudo install -m 0640 -o root -g adm /dev/null /var/log/nginx/findaline.error.log
           now=$(date +%s)
           echo "{\"time\": $now, \"fail2ban\": {\"findaline\": {\"banned\": 0, \"banned_total\": 3, \"failed\": 1, \"failed_total\": 9}, \"sshd\": {\"banned\": 2, \"banned_total\": 40, \"failed\": 5, \"failed_total\": 300}}, \"updates_pending\": 2, \"updates_security\": 0}" \
             | sudo tee /var/lib/findaline-monitoring/facts.json
           echo "{\"time\": $now, \"ok\": 40, \"failed\": 0}" | sudo tee /var/lib/findaline-monitoring/check.json
           echo "{\"time\": $now, \"success\": 1, \"last_success\": $now, \"seconds\": 60, \"added_bytes\": 1000, \"repo_bytes\": 100000, \"snapshots\": 3}" \
             | sudo tee /var/lib/findaline-monitoring/backup.json
+          echo "{\"time\": $now, \"logins\": 7}" | sudo tee /var/lib/findaline-monitoring/ssh.json
+
+      # Downloaded and checked against the sha256 of deploy/vps.sh, as on the server
+      - name: Grafana's plugin
+        run: sudo bash -c '. deploy/vps.sh; grafana_plugins'
 
       - name: Compose file
         run: $COMPOSE config --quiet
@@ -231,16 +239,31 @@ jobs:
             query "$name" || { echo "no samples of $name"; exit 1; }
           done
 
-      # Grafana's API with the admin's password: health, the data source, the dashboards, every rule,
-      # the contact points, and every query of the rules and panels
+      # A line of nginx's error log with a client address: in VictoriaLogs (Telegraf flushes every
+      # 30 s), masked (its JSON writes < as <); then the same line through Grafana in the live test
+      - name: Logs
+        run: |
+          echo "$(date '+%Y/%m/%d %H:%M:%S') [error] 812#812: *1 ci-log-line upstream timed out, client: 203.0.113.7, server: findaline.example.org" \
+            | sudo tee -a /var/log/nginx/findaline.error.log > /dev/null
+          for _ in $(seq 24); do
+            out=$(curl -sf http://127.0.0.1:9428/select/logsql/query --data-urlencode 'query="ci-log-line"') || true
+            [ -n "$out" ] && break
+            sleep 5
+          done
+          echo "$out"
+          echo "$out" | grep -qF 'client: <address>' && ! echo "$out" | grep -q 203.0.113.7
+
+      # Grafana's API with the admin's password: health, the data sources and the plugin, the
+      # dashboards, every rule, the contact points, every query of the rules and panels, the line
       - name: Grafana
         env:
           FINDALINE_GRAFANA_URL: http://127.0.0.1:3000
+          FINDALINE_LOG_LINE: ci-log-line
         run: |
           export FINDALINE_GRAFANA_PASSWORD="$(cat secrets/grafana_admin_password)"
           uv run --frozen pytest -q tests/test_monitoring.py -k live
 
-      - name: Logs
+      - name: The stack's logs
         if: always()
         run: $COMPOSE logs --no-color
 
