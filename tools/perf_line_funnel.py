@@ -279,7 +279,15 @@ def two_passes(kernel, a, todo):
 
 def production_rings(a):
     """Production's free directions of the call (what find_valid_lines computes in step 1)."""
-    return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset)
+    return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset,
+                          ls.largest_need(a.min_length, a.max_length, a.res), ls.sector_masks())
+
+
+def capped_rings(a):
+    """The references' rings capped at production's largest ring (linesearch.largest_need, the
+    largest need of a pair: every decision compares a ring with a need up to it, so the cap
+    changes none)."""
+    return np.minimum(a.rings, ls.largest_need(a.min_length, a.max_length, a.res))
 
 
 def production_args(a, rings):
@@ -312,7 +320,7 @@ def self_check(a, folder: str = "", sample_every: int = 1) -> List:
     they fail the rings' test, which comes after the count). Returns per chunk (todo, the
     references' counts, funnel_pairs' counters, simulated tests, histograms)."""
     rings = production_rings(a)
-    if not np.array_equal(rings, a.rings):
+    if not np.array_equal(rings, capped_rings(a)):
         raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
     head, tail, todo_all = production_args(a, rings)
     if not np.array_equal(todo_all, a.todo_all):

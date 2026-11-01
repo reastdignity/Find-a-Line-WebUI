@@ -235,7 +235,7 @@ def test_kernels_independent_of_threads(model):
         assert other_covered == covered, threads
 
 
-def _reference_case(model, first, strong, wall, max_dh=np.inf):
+def _reference_case(model, first, strong, wall, max_dh=np.inf, max_length=150.0):
     """The canyon of test_kernels_independent_of_threads (anchors not in row-major order, NaNs) as
     a captured call of tools/perf_line_funnel.py, rebuilt into the kernels' arguments."""
     import dataclasses
@@ -256,29 +256,33 @@ def _reference_case(model, first, strong, wall, max_dh=np.inf):
         inputs["first"] = rng.random(len(anchors)) < 0.7
     if strong:
         inputs["strong"] = rng.random(len(anchors)) < 0.5
-    params = {"res": 1.0, "min_length": 20.0, "max_length": 150.0, "max_dh_ratio": 0.3, "max_dh": max_dh,
+    params = {"res": 1.0, "min_length": 20.0, "max_length": max_length, "max_dh_ratio": 0.3, "max_dh": max_dh,
               "limits": {"max_wall_angle": 60.0} if wall else None, "sag": model == "sag",
-              "rigging": dataclasses.asdict(sag.Rigging()), "sag_min_span": 20.0, "sag_max_span": 150.0}
+              "rigging": dataclasses.asdict(sag.Rigging()), "sag_min_span": 20.0, "sag_max_span": max_length}
     return plf, plf.rebuild(inputs, params)
 
 
 @pytest.mark.parametrize("model", ["formula", "sag"])
-def test_free_rings_match_reference(model):
+@pytest.mark.parametrize("max_length", [150.0, 60.0])
+def test_free_rings_match_reference(model, max_length):
     """linesearch's free directions give the rings of the frozen reference of
-    tools/line_funnel_kernels.py (the self-check of tools/perf_line_funnel.py analyse)."""
-    plf, a = _reference_case(model, False, False, False)
-    assert np.array_equal(plf.production_rings(a), a.rings)
+    tools/line_funnel_kernels.py (the self-check of tools/perf_line_funnel.py analyse), capped
+    at the largest need of a pair (60 m: 30 rings), which changes no decision."""
+    plf, a = _reference_case(model, False, False, False, max_length=max_length)
+    assert np.array_equal(plf.production_rings(a), plf.capped_rings(a))
     assert 0 < len(a.useful) < len(a.anchors)
+    assert (a.rings > plf.capped_rings(a)).any() == (max_length < 127)
 
 
 @pytest.mark.parametrize("model", ["formula", "sag"])
-@pytest.mark.parametrize("first, strong, wall, max_dh", [(False, False, False, np.inf), (True, False, True, np.inf),
-                                                         (False, True, True, 12.0), (True, True, False, 12.0)])
-def test_pairs_match_reference(model, first, strong, wall, max_dh):
+@pytest.mark.parametrize("first, strong, wall, max_dh, max_length", [
+    (False, False, False, np.inf, 150.0), (True, False, True, np.inf, 150.0), (False, True, True, 12.0, 150.0),
+    (True, True, False, 12.0, 150.0), (False, False, False, np.inf, 125.0), (True, False, True, 12.0, 125.0)])
+def test_pairs_match_reference(model, first, strong, wall, max_dh, max_length):
     """linesearch's pair search gives the per-anchor counts and the pairs, in their order, of the
     frozen reference (ref_pairs), with and without a tile's first mask, --min-prominence's strong
-    anchors, a wall-angle limit and a height difference limit."""
-    plf, a = _reference_case(model, first, strong, wall, max_dh)
+    anchors, a wall-angle limit and a height difference limit; rings capped below 64 at 125 m."""
+    plf, a = _reference_case(model, first, strong, wall, max_dh, max_length)
     chunks = plf.self_check(a)  # raises SelfCheckError when they differ
     candidates, checked, found = sum(counts.sum(axis=0) for _, counts, *_ in chunks)
     assert candidates >= checked > found > 10

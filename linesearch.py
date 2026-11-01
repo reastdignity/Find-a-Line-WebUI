@@ -91,50 +91,96 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
     return True
 
 
+@njit(cache=True)
+def _sector_masks():
+    """For every pixel (i, j) of the rings, i and j in [-RINGS, RINGS] (index (i + RINGS) *
+    (2 RINGS + 1) + j + RINGS): the sectors a line through it may lie in, as the bits of a
+    uint64 (bit s: sector s). The pixel at angle atan2(i, j) on ring k = max(|i|, |j|) marks
+    the sectors from floor((angle - delta) / width) to floor((angle + delta) / width) with
+    delta = asin(0.71 / k) (see _free_rings)."""
+    side = 2 * RINGS + 1
+    masks = np.zeros(side * side, dtype=np.uint64)
+    width = 2 * np.pi / SECTORS
+    one = np.uint64(1)
+    for i in range(-RINGS, RINGS + 1):
+        for j in range(-RINGS, RINGS + 1):
+            k = max(abs(i), abs(j))
+            if k == 0:
+                continue
+            delta = math.asin(min(1.0, 0.7072 / k))
+            angle = math.atan2(i, j)
+            m = np.uint64(0)
+            for s in range(int(math.floor((angle - delta) / width)),
+                           int(math.floor((angle + delta) / width)) + 1):
+                m |= one << np.uint64((s % SECTORS + SECTORS) % SECTORS)
+            masks[(i + RINGS) * side + j + RINGS] = m
+    return masks
+
+
+_MASKS = []
+
+
+def sector_masks() -> np.ndarray:
+    """_sector_masks, computed once."""
+    if not _MASKS:
+        _MASKS.append(_sector_masks())
+    return _MASKS[0]
+
+
+def largest_need(min_length: float, max_length: float, res: float) -> int:
+    """The rings a pair can need at most ((its Chebyshev length in pixels) // 2 for lines up to
+    max_length, with a pixel to spare), at least the need of the shortest line: _free_rings
+    stops there, which changes no decision of find_valid_lines."""
+    need_min = min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
+    return min(RINGS, max(need_min, (int(max_length / res) + 1) // 2))
+
+
 @njit(parallel=True, cache=True)
-def _free_rings(z, anchors, res, gain, cap, offset):
-    """For every anchor and sector: the number of rings a line can cross from the anchor.
+def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
+    """For every anchor and sector: the number of rings a line can cross from the anchor, up
+    to kmax (the largest need of a pair: larger values would change no decision).
 
     The k-th pixel of a line (DDA) lies on ring k (Chebyshev distance k) and at most
     half a pixel from the exact line, so its direction differs from the line's by at
     most asin(0.71 / k). A sector stays open at ring k if some pixel that may belong
     to a line in it is below e + min(gain * k * res, cap) - offset, where e is the
-    elevation of the anchor: no limit for any partner is weaker than that.
+    elevation of the anchor: no limit for any partner is weaker than that. The sectors a
+    pixel may belong to are its bits in masks (_sector_masks); a pixel none of whose
+    sectors is open any more is not read.
     """
     n = anchors.shape[0]
     h, w = z.shape
     rings = np.zeros((n, SECTORS), dtype=np.int32)
-    width = 2 * np.pi / SECTORS
+    side = 2 * RINGS + 1
+    zero, one = np.uint64(0), np.uint64(1)
     for a in prange(n):
         r0, c0 = anchors[a, 0], anchors[a, 1]
         e = np.float64(z[r0, c0])
-        alive = np.ones(SECTORS, dtype=np.bool_)
-        below = np.zeros(SECTORS, dtype=np.bool_)
-        for k in range(1, RINGS + 1):
-            below[:] = False
+        alive = ~zero
+        for k in range(1, kmax + 1):
+            below = zero
             limit = e + min(gain * k * res, cap) - offset + EPS
-            delta = math.asin(min(1.0, 0.7072 / k))
             for i in range(-k, k + 1):
+                rr = r0 + i
+                if rr < 0 or rr >= h:
+                    continue
                 step = 1 if abs(i) == k else 2 * k  # whole top/bottom rows, two ends otherwise
+                row = (i + RINGS) * side + RINGS
                 for j in range(-k, k + 1, step):
-                    rr, cc = r0 + i, c0 + j
-                    if rr < 0 or cc < 0 or rr >= h or cc >= w:
+                    cc = c0 + j
+                    if cc < 0 or cc >= w:
                         continue
-                    if not (np.float64(z[rr, cc]) < limit):
+                    m = masks[row + j]
+                    if (m & alive) == zero:
                         continue
-                    angle = math.atan2(i, j)
-                    for s in range(int(math.floor((angle - delta) / width)),
-                                   int(math.floor((angle + delta) / width)) + 1):
-                        below[s % SECTORS] = True
-            open_any = False
-            for s in range(SECTORS):
-                if alive[s] and below[s]:
-                    rings[a, s] = k
-                    open_any = True
-                else:
-                    alive[s] = False
-            if not open_any:
+                    if np.float64(z[rr, cc]) < limit:
+                        below |= m
+            alive &= below
+            if alive == zero:
                 break
+            for s in range(SECTORS):
+                if (alive >> np.uint64(s)) & one:
+                    rings[a, s] = k
     return rings
 
 
@@ -270,7 +316,7 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, rings: 
     order = useful[np.argsort(keys, kind="stable")]
     starts = np.searchsorted(np.sort(keys), np.arange(cells_y * cells_x)).astype(np.int64)
     rmax = rings.max(axis=1).astype(np.uint8) if len(rings) else np.zeros(0, dtype=np.uint8)
-    kmax = min(RINGS, (int(max_length / res) + 1) // 2)  # the largest need of a pair
+    kmax = largest_need(min_length, max_length, res)
     d0 = min(float(max_dh_ratio) * float(max_length), float(max_dh))
     far2 = int(math.floor((max_length / res + 2) ** 2))
     head = (z, anchors, elev, rings, rmax)
@@ -523,7 +569,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
 
     # Step 1: open directions of every anchor
     progress.compute.start("free directions", 1, unit="step")
-    rings = _free_rings(z, anchors, res, gain, cap, offset)
+    rings = _free_rings(z, anchors, res, gain, cap, offset, largest_need(min_length, max_length, res),
+                        sector_masks())
     progress.compute.finish()
     need_min = min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
     useful = np.flatnonzero(rings.max(axis=1) >= need_min)
