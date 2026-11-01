@@ -9,12 +9,14 @@ import sys
 import numpy as np
 import pytest
 import rasterio as rio
+from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
 from sources import probe  # noqa: E402
 from sources.catalogue import denmark  # noqa: E402
+from http_server import Answer  # noqa: E402
 from test_keys import EXTENT, TOKEN, height, no_keys, wcs10  # noqa: E402,F401  (no_keys: autouse here too)
 
 
@@ -26,6 +28,7 @@ def test_declared():
     for layer, coverage in ((source.nmt, "dhm_terraen"), (source.nmpt, "dhm_overflade")):
         assert layer.coverage == coverage and layer.reader.version == "1.0.0"
         assert layer.reader.key_params == (("apikey", "datafordeler_api_key"),) and layer.keys == ("datafordeler_api_key",)
+        assert layer.reader.zero_is_nodata and layer.fmt == "GTiff" and layer.origin == (0.0, 0.0)
         assert layer.url == "https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS"  # never a key here
         assert layer.credit.attribution == denmark.DHM_ATTRIBUTION
     assert denmark.DHM_ATTRIBUTION == "Danmarks Højdemodel (Terræn / Overflade), Klimadatastyrelsen, CC BY 4.0, processed"
@@ -84,3 +87,37 @@ def test_tiles_from_the_wcs(http_server, monkeypatch, tmp_path):
         (url,), = db.execute("SELECT url FROM files").fetchall()
     assert TOKEN not in url and "apikey=..." in url
     assert layer.coverage_extent() == EXTENT
+
+
+def test_zero_is_no_data(http_server, monkeypatch, tmp_path):
+    """The live service (2026-11-01) answers the sea, Germany and everything outside its data with 0.0
+    and no nodata value, never a 404: those pixels become no data, so the water filling and the
+    fallback take them; the land keeps its heights."""
+    land_until = 501000.0  # east of it: the sea
+
+    def handle(request):
+        query = dict((k.upper(), v) for k, v in request.query)
+        assert dict(request.query).get("apikey") == TOKEN and query["REQUEST"] == "GetCoverage"
+        left, bottom, right, top = map(float, query["BBOX"].split(","))
+        width, rows = int(query["WIDTH"]), int(query["HEIGHT"])
+        res = (right - left) / width
+        ys, xs = np.mgrid[0:rows, 0:width]
+        x, y = left + (xs + 0.5) * res, top - (ys + 0.5) * res
+        band = np.where(x < land_until, height(x, y), np.float32(0.0)).astype(np.float32)
+        with MemoryFile() as memfile:
+            with memfile.open(driver="GTiff", width=width, height=rows, count=1, dtype="float32", crs="EPSG:25832",
+                              transform=from_origin(left, top, res, res)) as dst:
+                dst.write(band, 1)
+            return Answer(200, memfile.read(), {"Content-Type": "image/tiff"})
+
+    http_server.route("/dhm", handle)
+    monkeypatch.setenv("DATAFORDELER_API_KEY", TOKEN)
+    monkeypatch.setattr(denmark, "DHM_WCS", http_server.url("/dhm"))
+    layer = denmark._dhm("dhm_terraen", "dhm-terraen", "DHM/Terraen 0.4 m (terrain)")
+    cache_dir = str(tmp_path / "cache")
+    tile = (1.0, 250, 3000)  # 500000-502000: land in its western half, sea in the eastern
+    assert layer._download_and_record(tile, cache_dir) > 0
+    with rio.open(layer.tile_path(cache_dir, tile)) as f:
+        band = f.read(1)
+    assert np.isfinite(band[:, :1000]).all() and np.isnan(band[:, 1000:]).all()
+    assert band[0, 0] == height(np.float32(500000.5), np.float32(6001999.5))

@@ -27,15 +27,19 @@ DHM_KEY = (("apikey", "datafordeler_api_key"),)
 
 
 def _dhm(coverage: str, folder: str, description: str) -> WcsTiles:
-    """DHM/Terraen or DHM/Overflade from the WCS, in ETRS89 / UTM 32N with DVR90 heights. Guesses
-    until a key shows the service's answers (nobody could see them yet): the coverage names
-    dhm_terraen and dhm_overflade (those of Dataforsyningen's WCS), GeoTIFF as "GTiff" (MapServer's
-    format name), 2000 px tiles at the working resolution (the server downsamples the 0.4 m data: 2 km
-    tiles at 1 m, 16 MB of float32 uncompressed), sea and areas outside the data as nodata (not 0:
-    land at 0 m is common on Danish coasts). Names, descriptions and notes are printed to a console,
-    so they are ASCII ("Terraen", "Hojdemodel"); the credit keeps the Danish letters."""
+    """DHM/Terraen or DHM/Overflade from the WCS, in ETRS89 / UTM 32N with DVR90 heights. As the live
+    service answered on 2026-11-01 (GetCapabilities, DescribeCoverage, GetCoverage with a key): the
+    coverages dhm_terraen and dhm_overflade, GeoTIFF as "GTiff" (float32, uncompressed, no nodata
+    value), the extent 441000-894000 E / 6049000-6403000 N on a 0.4 m grid whose pixel edges lie on
+    whole metres (origin (0, 0) fits), the requested BBOX answered on exactly the requested pixels
+    (nearest neighbour by default), 4000 px tiles accepted (2000 px tiles at the working resolution:
+    2 km at 1 m, 16 MB). The sea, Germany and everything outside the data are 0.0, never nodata, so
+    zero is nodata here: otherwise the fallback could not fill across the border and the sea would
+    be land at 0 m (the land's heights carry millimetres: a pixel of exactly 0.000 m on land is
+    rare, and the water filling takes it like the sea). Names, descriptions and notes are printed
+    to a console, so they are ASCII ("Terraen", "Hojdemodel"); the credit keeps the Danish letters."""
     return WcsTiles(description, DHM_WCS, coverage, "EPSG:25832", f"denmark/{folder}/live", native_res=0.4,
-                    tile_px=2000, fmt="GTiff", version="1.0.0", key_params=DHM_KEY)
+                    tile_px=2000, fmt="GTiff", zero_is_nodata=True, version="1.0.0", key_params=DHM_KEY)
 
 
 SOURCES: List[Source] = [
