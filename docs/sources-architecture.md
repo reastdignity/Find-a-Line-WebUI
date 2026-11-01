@@ -177,7 +177,7 @@ GDAL's HTTP in pyogrio takes our User-Agent as `/vsicurl/` does (`_gdal_http`).
 4. **Regions** (done 2026-11-01: `Source.regions`, the region looked up at Nominatim zoom 8 only for countries with regional sources, answers recorded in `tests/data/recorded/nominatim/`): `Source.regions` with ISO 3166-2 codes (Nominatim's reverse answer has `ISO3166-2-lvl4` at a finer
    zoom than the 3 used now) and an optional outline instead of `bbox`; a region's source is preferred to its
    country's.
-5. **Neighbours across borders**: the national sources of the neighbours as fallbacks before FABDEM
+5. **Neighbours across borders** (done 2026-11-01: `Source.neighbours`, `filling.fill_from_neighbours`): the national sources of the neighbours as fallbacks before FABDEM
    (`more_fallbacks` exists; gap filling already reprojects): the Tatras, the Alps, the Pyrenees.
 6. **Credentials as secrets**: `ServiceKeys` per source (accounts, tokens, keys), Docker secrets on the server,
    `Layer.unavailable` when one is missing.

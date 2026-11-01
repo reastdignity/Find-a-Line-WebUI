@@ -18,11 +18,14 @@ Where a country publishes airborne LiDAR data, the tool uses it: a terrain model
 | Germany: Lower Saxony | LGLN DGM1 / DOM1 | 1 m |
 | Germany: Saxony-Anhalt | LVermGeo DGM1 / DOM1 | 1 m |
 | Italy: South Tyrol | Province of Bolzano DTM / DSM (LiDAR 2004–2006 in the mountains) | 2.5 m |
+| Germany: Hesse | HVBG DGM1 / DOM1 | 1 m |
+| Germany: Mecklenburg-Vorpommern | LAiV DGM1 / DOM1 | 1 m |
+| Luxembourg | ACT BD-L-Lidar2024 MNT / MNS (winter 2024) | 0.5 m, averaged to 1 m |
 
 Other countries can be added (see *Data sources*). Everywhere else in Europe (and the world) the tool uses 30 m global models (FABDEM and Copernicus DEM), which is enough for long lines only. NASADEM and your own raster files are supported too. The sea and lakes are filled in where the data has none, so lines between sea cliffs are found as well.
 
 **Limitations and future scope**
-- High-resolution data is built in for Poland, Malta, Spain, Switzerland, Slovakia, Austria, England, Wales, Lower Saxony, Saxony-Anhalt, South Tyrol and the USA only; elsewhere the 30 m models find long lines only, at 5 m (Spain, Alaska) lines shorter than about 30 m are not reliable, and at 2.5 m (South Tyrol) lines shorter than about 15 m. On steep rock South Tyrol's 2.5 m surface model stands metres above its terrain model, so most lines there are marked as over trees or buildings.
+- High-resolution data is built in for Poland, Malta, Spain, Switzerland, Slovakia, Austria, England, Wales, Lower Saxony, Saxony-Anhalt, Hesse, Mecklenburg-Vorpommern, South Tyrol, Luxembourg and the USA only; elsewhere the 30 m models find long lines only, at 5 m (Spain, Alaska) lines shorter than about 30 m are not reliable, and at 2.5 m (South Tyrol) lines shorter than about 15 m. On steep rock South Tyrol's 2.5 m surface model stands metres above its terrain model, so most lines there are marked as over trees or buildings.
 - England and Wales have no open orthophoto: their maps show the map's own base layers. England's LIDAR Composite merges surveys of 2000–2022 and is not updated; newer surveys exist only as 5 km archives.
 - In the USA there is no surface model yet: lines over trees and buildings are not recognised there.
 - Trees and buildings are taken into account through NMPT (on by default, `--nmpt off` to skip it). Other factors that make rigging difficult are not.
@@ -119,7 +122,7 @@ LiDAR models usually have no data over water. Without it, lines across the sea b
 
   Measured along 2 km of the Maltese coast, 90% of the OpenStreetMap coastline is within 13 m of the shoreline in the LiDAR data (median 6 m), against 70 m for the Copernicus mask (median 12 m). Pixels without data within `--shore-buffer` metres (default 20) of the sea are taken as water too, as the mapped coastline is not exact; the exact shoreline comes from the elevation data itself. Cliffs can be vertical, so the land right next to the water may be high.
 - **Lakes** of the Copernicus mask get the level of their shore.
-- **Gaps on land** (for example under buildings in the Maltese 2012 data) are filled from other sources (`--fill-gaps on`), those of the *Gaps from* column of *Data sources*, each filling what the ones before it left (`Source.more_fallbacks`). Each gap is shifted to match the heights around it. No anchors are taken at the edge of a filled gap, where two surveys meet.
+- **Gaps on land** (for example under buildings in the Maltese 2012 data) are filled from other sources (`--fill-gaps on`), those of the *Gaps from* column of *Data sources*, each filling what the ones before it left. Near a border the national data of the neighbouring country or region comes first (`Source.neighbours`: e.g. the Slovak side of a Tatra search from ÚGKK SR, the Swiss bank of the Inn from swisstopo), wherever its rough box holds a gap reaching the edge of the search area; then the fallback (`europe`: FABDEM, non-commercial) and any further ones (`Source.more_fallbacks`). Each gap is shifted to match the heights around it. No anchors are taken where two surveys meet. A neighbour is fetched in the compute step, only around those gaps, and is credited only when it filled pixels; its pixels do not count as filled gaps, as its data is as good. A neighbour that cannot be used (Slovakia without a copy of its tiles) is skipped and the fallback fills its side.
 - The details of a line tell how much of it is over water and over filled gaps, the profile shows water in blue, and `lines.csv` has `water_m` and `filled_m` columns.
 
 ### Adding a country
