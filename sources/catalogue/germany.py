@@ -15,7 +15,12 @@ from ..layers.wcs import WcsTiles
 LVERMGEO_ATTRIBUTION = "© GeoBasis-DE / LVermGeo ST"
 LVERMGEO_CREDIT = Credit("DGM1 / DOM1 (LVermGeo, Saxony-Anhalt)", f"{LVERMGEO_ATTRIBUTION}, Daten geändert",
                          *DL_DE_BY)
-LVERMGEO_WCS = "https://geodatenportal.sachsen-anhalt.de/ows_INSPIRE_LVermGeo_ATKIS_EL_{}_WCS"
+# The open-data WCS of the DGM1 and DOM1, the services LVermGeo's open-data page lists (ArcGIS, coverage
+# Coverage1, extent 606000-790000 / 5646000-5882000). Until 2026-11-01 the INSPIRE WCS
+# (ows_INSPIRE_LVermGeo_ATKIS_EL_DGM_WCS / _DOM_WCS) was read: three 2 km tiles of each (inside, at the
+# edge and outside the Land) were equal to the last bit in both, with the same extent, format and
+# multipart answer, so the cache folders stay
+LVERMGEO_WCS = "https://geodatenportal.sachsen-anhalt.de/ows_WCS_ST_{}1"
 # DOP20 of LVermGeo, its open-data WMS in EPSG:4326 (dl-de/by-2.0 like all its open data); no request
 # limits published
 LVERMGEO_DOP = OrthoService("DOP20 Sachsen-Anhalt (LVermGeo)",
@@ -25,7 +30,7 @@ LVERMGEO_DOP = OrthoService("DOP20 Sachsen-Anhalt (LVermGeo)",
 
 
 def _lvermgeo(kind: str, description: str, zero_is_nodata: bool) -> WcsTiles:
-    """DGM1 or DOM1 of LVermGeo from its INSPIRE WCS (ArcGIS, coverage Coverage1 over the Land's
+    """DGM1 or DOM1 of LVermGeo from its open-data WCS (ArcGIS, coverage Coverage1 over the Land's
     extent): GeoTIFF float32 without a CRS tag in a multipart answer, pixel edges on whole metres;
     2 km tiles at the native 1 m (16 MB uncompressed, about 5 s; 3 km is refused with HTTP 400).
     Inside the extent but outside the Land the DGM answers 0 without nodata, the DOM -9999."""
