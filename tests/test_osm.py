@@ -387,3 +387,31 @@ def test_catalogue_extracts(tmp_path):
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))
     assert osm.catalogue_extracts(str(tmp_path))[1] == ["hessen"]
+
+
+def test_nested_region_id(tmp_path):
+    """An extract of a region id with a slash (us/puerto-rico) is found by extracts() under its id and
+    builds theme tiles; a flat id keeps its path (cache/<country>/osm-extract/<id>.osm.pbf)."""
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "osm").mkdir(parents=True)
+    index = {"features": [
+        {"properties": {"id": "north-america", "name": "North America"}, "geometry": square(-170, 10, -50, 75)},
+        {"properties": {"id": "us/puerto-rico", "name": "Puerto Rico", "parent": "north-america"},
+         "geometry": square(-67.3, 17.9, -65.2, 18.6)},
+    ]}
+    (cache_dir / "osm" / "geofabrik-index.json").write_text(json.dumps(index))
+    pbf, outline, themes = osmextract._paths(str(cache_dir), "us/puerto-rico", "us/puerto-rico")
+    assert pbf == os.path.join(str(cache_dir), "us_puerto-rico", "osm-extract", "us_puerto-rico.osm.pbf")
+    assert osmextract._paths("c", "poland", "malopolskie")[0] == os.path.join("c", "poland", "osm-extract",
+                                                                          "malopolskie.osm.pbf")
+    os.makedirs(os.path.dirname(pbf))
+    open(pbf, "wb").close()
+    with open(outline, "w") as f:
+        json.dump(square(-67.3, 17.9, -65.2, 18.6), f)
+    cliff = {"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[-66.1, 18.1], [-66.11, 18.11]]},
+             "properties": {"id": "way/2", "tags": {"natural": "cliff"}}}
+    with open(themes, "w") as f:
+        json.dump({"timestamp": "2026-11-01T00:00:00", "themes": {"cliff": [cliff], "coastline": []}}, f)
+    assert osmextract.extracts(str(cache_dir)) == [("us/puerto-rico", pbf)]
+    assert osmextract.build_tile(str(cache_dir), "cliff", 18.0, -66.25)
+    assert [r["id"] for r in osmextract.downloaded(str(cache_dir))] == ["us/puerto-rico"]

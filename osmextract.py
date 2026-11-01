@@ -72,15 +72,25 @@ def _country(regions: Dict[str, Dict], rid: str) -> str:
         rid = parent["properties"]["id"]
 
 
+def _name(rid: str) -> str:
+    """A region id as a file or folder name: Geofabrik's ids hold letters, digits, "-" and "/" (the
+    US states: us/alaska), so "/" becomes "_" and back (_rid); a flat id stays as it is."""
+    return rid.replace("/", "_")
+
+
+def _rid(name: str) -> str:
+    return name.replace("_", "/")
+
+
 def _paths(cache_dir: str, folder: str, rid: str) -> Tuple[str, str, str]:
-    base = os.path.join(cache_dir, folder, "osm-extract", rid)
+    base = os.path.join(cache_dir, _name(folder), "osm-extract", _name(rid))
     return f"{base}.osm.pbf", f"{base}.geojson", f"{base}.themes.json"
 
 
 def extracts(cache_dir: str) -> List[Tuple[str, str]]:
     """(region id, path of the .osm.pbf) of the downloaded extracts."""
     found = glob.glob(os.path.join(cache_dir, "*", "osm-extract", "*.osm.pbf"))
-    return sorted((os.path.basename(p)[:-len(".osm.pbf")], p) for p in found)
+    return sorted((_rid(os.path.basename(p)[:-len(".osm.pbf")]), p) for p in found)
 
 
 _loaded: Dict[str, tuple] = {}
@@ -316,9 +326,10 @@ def update(cache_dir: str, rid: str, pbf: str) -> bool:
     """Apply the replication diffs to an extract; whether there was anything new.
 
     When the diffs cannot be applied (too old for the server), the extract is
-    downloaded again.
+    downloaded again. `rid` may be the extract's file name (cache update: us_alaska for us/alaska).
     """
     from osmium.replication.utils import get_replication_header
+    rid = _rid(rid)
     header = get_replication_header(pbf)
     themes = pbf[:-len(".osm.pbf")] + ".themes.json"
     if not header.url or header.sequence is None:
