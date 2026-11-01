@@ -665,5 +665,57 @@
     },
     "notes": "--source auto picks austria (the centre is in AT); first run on an empty cache: 9 blocks of 1 km per layer, about 2 MB each; every line crosses the forest below the wall (over_trees)",
     "seconds": 13.4
+  },
+  "R26": {
+    "place": "Cheddar Gorge, England: the Environment Agency's LIDAR Composite DTM and first-return DSM 2022, 1 m tiles of 2 km from its WCS, on a working grid in British National Grid (EPSG:27700)",
+    "args": "--lat 51.2840 --lon -2.7590 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "gb"
+    ],
+    "expected": {
+      "anchors": 54400,
+      "open": 5843,
+      "checked": 206795,
+      "lines": 14790,
+      "spots": 198,
+      "csv_sha256": "189fe7f8c4ba3ed29ced9a4adf3ee9faf93738e408fdbafd132daabed8deed7b",
+      "length_km": 2438.523,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.265,
+      "clearance_max": 10.73,
+      "over_trees": 10748,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "Environment Agency LIDAR Composite (DTM / DSM)"
+    },
+    "notes": "--source auto picks england (the centre is in GB-ENG); first run on an empty cache: 2 tiles of 2 km per layer, 16.8 MB each (uncompressed GeoTIFF from the WCS)",
+    "seconds": 13.2
+  },
+  "R27": {
+    "place": "Llanberis Pass (Carreg Wastad, Dinas Cromlech), Wales: the Welsh Government LiDAR 2020-22 DTM and DSM, 1 m blocks read by HTTP range requests from the two national COGs, on a working grid in British National Grid (EPSG:27700)",
+    "args": "--lat 53.0950 --lon -4.0560 --radius 400 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "gb"
+    ],
+    "expected": {
+      "anchors": 117393,
+      "open": 3774,
+      "checked": 1090,
+      "lines": 32,
+      "spots": 4,
+      "csv_sha256": "a06b6b7e3f1a30978d5eca8f1ae5931dddbe0766ac636391910ed6db6989bb48",
+      "length_km": 2.545,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.649,
+      "clearance_max": 1.83,
+      "over_trees": 32,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "Welsh Government LiDAR (DTM / DSM)"
+    },
+    "notes": "--source auto picks wales (the centre is in GB-WLS); first run on an empty cache: 6 blocks of 1 km per layer, about 2 MB each; few lines, all short and over trees",
+    "seconds": 8.2
   }
 }
