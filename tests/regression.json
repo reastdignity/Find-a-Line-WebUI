@@ -663,7 +663,7 @@
       "empty_tiles": 0,
       "source": "BEV (ALS DTM / DSM)"
     },
-    "notes": "--source auto picks at (the centre is in AT); first run on an empty cache: 9 blocks of 1 km per layer, about 2 MB each; every line crosses the forest below the wall (over_trees)",
+    "notes": "--source auto picks austria (the centre is in AT); first run on an empty cache: 9 blocks of 1 km per layer, about 2 MB each; every line crosses the forest below the wall (over_trees)",
     "seconds": 13.4
   }
 }

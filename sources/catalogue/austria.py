@@ -55,7 +55,7 @@ BASEMAP_ORTHO = OrthoService("basemap.at Orthofoto", None, "", "austria/ortho/li
 
 SOURCES: List[Source] = [
     Source(
-        id="at", name="BEV (ALS DTM / DSM)",
+        id="austria", name="BEV (ALS DTM / DSM)",
         description=f"BEV (Austria): ALS terrain and surface models 1 m, national edition of "
                     f"{BEV_EDITION[6:]}.{BEV_EDITION[4:6]}.{BEV_EDITION[:4]}, ETRS89 / LAEA, EVRF2000 heights",
         # The 50 km COGs read in blocks on their own pixels (centres on whole metres), so the working

@@ -13,7 +13,7 @@ import osm  # noqa: E402
 import sources as src  # noqa: E402
 
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "at", "europe", "nasadem"]
+       "alaska_ifsar", "usa", "usgs10m", "austria", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -355,7 +355,7 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                 'credit': '3DEP 1/3 arc-second DEM (USGS)',
                                 'shift': (0.0, 0.0)},
                         'nmpt': None},
-            'at': {'crs': 'EPSG:3035',
+            'austria': {'crs': 'EPSG:3035',
                    'countries': ('at',),
                    'bbox': None,
                    'fallbacks': ['europe'],
@@ -496,8 +496,8 @@ PATHS = [
     ("usa", "nmt", "block", "usa/3dep-1m/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("alaska_ifsar", "nmt", "block", "usa/ifsar-5m/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("usgs10m", "nmt", (-1195, 375), "usa/3dep-13/live/n38w120/-1195_375.tif", (-1195, 375)),
-    ("at", "nmt", (4420, 2685), "austria/als-dtm/20250915/88_53/4420_2685.tif", (4420, 2685)),
-    ("at", "nmpt", (4420, 2685), "austria/als-dsm/20250915/88_53/4420_2685.tif", (4420, 2685)),
+    ("austria", "nmt", (4420, 2685), "austria/als-dtm/20250915/88_53/4420_2685.tif", (4420, 2685)),
+    ("austria", "nmpt", (4420, 2685), "austria/als-dsm/20250915/88_53/4420_2685.tif", (4420, 2685)),
 ]
 
 
