@@ -6,7 +6,8 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   layer falls back to its cached files, tiles() is None) or no tile there fails; a WCS gets its
   DescribeCoverage; fixed tilings (1° tiles, our own grid tiles, blocks) have no index;
 - read: the first tile's file asked for one byte (Range: bytes=0-0); a WCS a GetCoverage of
-  16 x 16 pixels; a local mirror is looked for on disk;
+  16 x 16 pixels; blocks of big fixed files (FileBlocks) a window of 16 x 16 pixels of the first
+  block's file; a local mirror is looked for on disk;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
 - the orthophoto: one base tile at the sample, or the WMS's GetCapabilities.
@@ -39,13 +40,15 @@ from rasterio.warp import transform as warp
 import cache
 from grid import make_grid
 
-from .net import host_slot
+from .net import _gdal_http, _remote, host_slot
 from .layer import Layer
 from .source import OrthoService, Source
 from .layers.wcs import WcsTiles
 from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
+from .layers.fileblocks import FileBlocks
+from .readers.windows import _read_window, _same_crs
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
@@ -60,7 +63,8 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
-    (DegreeBlocks, "tiles"), (GridTiles, "tiles"), (FileLayer, "file"))
+    (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"))
+WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
 
@@ -157,6 +161,23 @@ def _read(cache_dir: str, url: Optional[str]) -> str:
     return ""
 
 
+def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
+    """WINDOW_PX x WINDOW_PX pixels at the top left of a block, from its first file; raises with the
+    reason."""
+    request = layer.index.request(tile)
+    if not request.files:
+        raise RuntimeError("no file for the first block")
+    name, url, _ = request.files[0]
+    with host_slot(cache_dir, url), _gdal_http(), rio.open(_remote(url)) as remote:
+        if remote.crs is not None and not _same_crs(remote.crs, request.crs):
+            raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
+        values = _read_window(remote, request.transform, (WINDOW_PX, WINDOW_PX))
+    share = float(np.isfinite(values).mean())
+    if not share:
+        raise RuntimeError(f"no data in a window of {name}")
+    return f"window {100 * share:.0f}% with data"
+
+
 def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[str, str]:
     """DescribeCoverage, then a GetCoverage of 16 x 16 pixels at the point."""
     status, _, body = _ask(cache_dir, layer.url, {"SERVICE": "WCS", "VERSION": "2.0.1", "REQUEST": "DescribeCoverage",
@@ -239,12 +260,14 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         try:
             if deep:
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
+            elif kind == "window":
+                row.notes.append(_window(cache_dir, layer, tiles[0]))
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:
                     row.notes.append(note)
             row.read = OK
-        except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
+        except (requests.RequestException, RuntimeError, ValueError, OSError, rio.errors.RasterioError) as e:
             row.read = FAILED
             row.notes.append(cache.clean_error(e))
         return row

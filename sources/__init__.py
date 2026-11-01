@@ -16,7 +16,8 @@ Kinds of layers (sources/layers/, a module each):
   a local mirror (FINDALINE_MIRROR) or, once uploaded, from Hugging Face.
 - TnmBlocks: blocks of the big files of The National Map (USGS 3DEP, the USA), found
   through its API and read by HTTP range requests, composed newest survey first; and
-  DegreeBlocks: blocks of 1° files at a fixed URL (3DEP's 1/3″ DEM).
+  DegreeBlocks: blocks of 1° files at a fixed URL (3DEP's 1/3″ DEM); FileBlocks: blocks of
+  big fixed files in a metric CRS (a grid of COGs, or one national COG).
 - DegreeTiles: 1°×1° GeoTIFF tiles in WGS84 (Copernicus DEM, FABDEM) and
   OpenTopography's global DEM API (NASADEM).
 - FileLayer: a local raster file (GeoTIFF, ASC...), e.g. NASADEM from OpenTopography.
@@ -43,7 +44,7 @@ re-exported: call and patch them through their module.
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
 from .readers import download, sheetfile, tilebases, wcsreader, windows
 from .indexes import cached, listings, tilings, versions
-from .layers import blocks, degree, files, gridtiles, indexed, sheets, stac, tnm, wcs
+from .layers import blocks, degree, fileblocks, files, gridtiles, indexed, sheets, stac, tnm, wcs
 from .catalogue import malta, poland, slovakia, spain, switzerland, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, Credit, OSM_CREDIT
@@ -59,6 +60,7 @@ from .layers.sheets import SheetTiles
 from .layers.stac import StacTiles
 from .readers.windows import _same_crs
 from .layers.blocks import DegreeBlocks
+from .layers.fileblocks import FileBlocks
 from .layers.tnm import IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
 from .layers.files import FileLayer
 from .catalogue.poland import GUGIK_CREDIT
@@ -73,8 +75,8 @@ from .filling import LAKE, OCEAN, SHORE_BUFFER, fill_gaps, fill_gaps_chain, fill
 __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
            "Fetched", "download_layers", "HOST_SLOTS_OF", "host_slot", "tile_lock", "WcsTiles", "GridTiles",
            "MIRROR_ENV", "grid_tile_name", "DegreeTiles", "OpenTopographyTiles", "IndexedTiles", "Sheet",
-           "SheetTiles", "StacTiles", "DegreeBlocks", "Block", "TnmBlocks", "Usgs1mBlocks", "IfsarBlocks",
-           "FileLayer", "GUGIK_CREDIT", "USGS_1M", "FABDEM_CREDIT", "COPERNICUS_DISCLAIMER", "MALTA_CREDITS",
+           "SheetTiles", "StacTiles", "DegreeBlocks", "FileBlocks", "Block", "TnmBlocks", "Usgs1mBlocks",
+           "IfsarBlocks", "FileLayer", "GUGIK_CREDIT", "USGS_1M", "FABDEM_CREDIT", "COPERNICUS_DISCLAIMER", "MALTA_CREDITS",
            "WATER_MASK", "WATER_MASK_CREDIT", "OFFLINE_BOXES", "choose_source", "source_unavailable", "used_data",
            "prepare_layer", "build_mosaic", "load_slope_file", "water_body_mask", "near", "fill_water",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",

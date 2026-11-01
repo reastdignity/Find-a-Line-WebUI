@@ -3,7 +3,7 @@
 import math
 import os
 import re
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Sequence, Tuple, Union
 
 from rasterio.transform import from_origin
 from rasterio.warp import transform_bounds
@@ -108,6 +108,91 @@ class TenthDegreeTiling(Index):
         px = self.px_per_degree // 10
         transform = from_origin(i / 10, (j + 1) / 10, 1 / self.px_per_degree, 1 / self.px_per_degree)
         return BlockRequest([(name, self.url(name), 0)], self.crs, transform, (px, px))
+
+
+FileList = Sequence[Tuple[str, str, int]]  # (name, url, survey year), newest first
+
+
+class FileBlockTiling(Index):
+    """Blocks of block_m in a metric CRS, on the pixels of big fixed files (pixel size res,
+    pixel edges on origin + multiples of res: (0.5, 0.5) for files whose pixel centres are on
+    whole metres) read by HTTP range requests (the Windows reader).
+
+    Block (i, j) covers [i, i + 1) x [j, j + 1) block sizes from origin, cached as
+    <folder>/<i // GROUP>_<j // GROUP>/<i>_<j>.tif (at most GROUP² blocks per folder). The
+    files of a block, newest first, come from files(i, j); a block must lie inside each of
+    them (a fixed grid of files: block_m divides the files' size, and neighbouring files that
+    overlap by one pixel still hold their blocks whole). A block without files is missing
+    without a request, and so is one outside extent (left, bottom, right, top in crs; None:
+    anywhere). files may be the address of one file (a national COG) instead, read by every
+    block.
+    """
+    GROUP = 50
+
+    def __init__(self, crs: str, folder: str, res: float, block_m: float,
+                 files: Union[str, Callable[[int, int], FileList]], origin: Tuple[float, float] = (0.0, 0.0),
+                 extent: Optional[Tuple[float, float, float, float]] = None, year: int = 0):
+        self.crs, self.folder, self.res, self.block_m, self.origin = crs, folder, res, block_m, origin
+        self.extent = extent
+        if isinstance(files, str):
+            one = [(files.rstrip("/").rsplit("/", 1)[-1], files, year)]
+
+            def files(i: int, j: int) -> FileList:
+                return one
+        self.files = files
+        self.px = round(block_m / res)
+        if not math.isclose(self.px * res, block_m):
+            raise ValueError(f"blocks of {block_m} m are not whole pixels of {res} m")
+
+    def _edges(self, i: int, j: int) -> Tuple[float, float, float, float]:
+        """(left, bottom, right, top) of a block."""
+        ox, oy = self.origin
+        return (i * self.block_m + ox, j * self.block_m + oy, (i + 1) * self.block_m + ox,
+                (j + 1) * self.block_m + oy)
+
+    def _within_extent(self, i: int, j: int) -> bool:
+        if self.extent is None:
+            return True
+        left, bottom, right, top = self._edges(i, j)
+        e_left, e_bottom, e_right, e_top = self.extent
+        return left < e_right and right > e_left and bottom < e_top and top > e_bottom
+
+    def tiles(self, grid: Grid) -> list:
+        left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        ox, oy = self.origin
+        shape = None
+        if grid.area_shape is not None:
+            from area import project
+            shape = project(grid.area_shape, grid.crs, self.crs)
+        found = []
+        for j in range(math.floor((bottom - oy) / self.block_m), math.floor((top - oy) / self.block_m) + 1):
+            for i in range(math.floor((left - ox) / self.block_m), math.floor((right - ox) / self.block_m) + 1):
+                if shape is not None:
+                    from shapely.geometry import box
+                    if not shape.intersects(box(*self._edges(i, j))):
+                        continue
+                found.append((i, j))
+        return found
+
+    def path(self, cache_dir: str, tile) -> str:
+        i, j = tile
+        return os.path.join(cache_dir, self.folder, f"{i // self.GROUP}_{j // self.GROUP}", f"{i}_{j}.tif")
+
+    def tile_of(self, path: str):
+        match = re.fullmatch(rf"{re.escape(self.folder)}/(-?\d+)_(-?\d+)/(-?\d+)_(-?\d+)\.tif", path)
+        if not match:
+            return None
+        gi, gj, i, j = (int(g) for g in match.groups())
+        return (i, j) if (gi, gj) == (i // self.GROUP, j // self.GROUP) else None
+
+    def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
+        return transform_bounds(self.crs, "EPSG:4326", *self._edges(*tile))
+
+    def request(self, tile) -> BlockRequest:
+        left, _, _, top = self._edges(*tile)
+        files = list(self.files(*tile)) if self._within_extent(*tile) else []
+        return BlockRequest(files, self.crs, from_origin(left, top, self.res, self.res),
+                            (self.px, self.px))
 
 
 class WcsTiling(Index):
