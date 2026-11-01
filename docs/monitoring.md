@@ -39,8 +39,8 @@ failed backup (deployment.md, section 11).
 | Docker socket proxy | the same project, `127.0.0.1:2375` (wollomatic/socket-proxy) | Lets Telegraf's `docker` input read the containers (GET of the container list, their stats and inspect, and `/info`; from phase 3 also the logs of a container, which Telegraf asks only for `web` and `worker`; nothing else) without the Docker socket itself, which is equivalent to root. |
 | Host facts | a systemd timer on the host, as root (`deploy/monitoring/facts.sh`, every 5 min) | Writes what only root can read as JSON into `/var/lib/findaline-monitoring/` (mounted read-only into Telegraf, input `file`): fail2ban's counts per jail, the holes of the disk image (`image_holes` of `deploy/vps.sh`), pending updates (`facts.json`); a second timer (`findaline-check.timer`, daily) writes the result of `vps.sh check` (`check.json`). `backup.sh` writes its own `backup.json` there. |
 | Heartbeat | a systemd timer on the host, every minute | Asks the site (`https://<site>/` through nginx on the host) and, when it answers 200, pings healthchecks.io; the ping URL is in a root-only file (`/etc/findaline-monitoring.env`). |
-| VictoriaLogs (phase 3) | the same project, `127.0.0.1:9428` | Stores the log lines Telegraf sends (`inputs.docker_log` of `web` and `worker` through the socket proxy, `inputs.tail` of `findaline.error.log` with the client's address masked) for 30 days; Grafana reads it with VictoriaMetrics' logs data source plugin. |
-| SSH login notice (phase 3) | `pam_exec` in `/etc/pam.d/sshd` (`session optional`), a script of `deploy/monitoring/` | Posts "SSH login: user from address on server" to the ntfy topic (the URL from the root-only `/etc/findaline-monitoring.env`) with a short timeout, and counts the logins in `ssh.json` of the facts folder. `optional`: a failure of the script never refuses a login. |
+| VictoriaLogs (phase 3) | the same project, `127.0.0.1:9428` | Stores the log lines Telegraf sends (`inputs.docker_log` of `web` and `worker` through the socket proxy, `inputs.tail` of `findaline.error.log` with addresses, share tokens and the query of `/auth/...` masked) for 30 days; Grafana reads it with VictoriaMetrics' logs data source plugin. |
+| SSH login notice (phase 3) | `pam_exec` in `/etc/pam.d/sshd` (`session optional`), a script of `deploy/monitoring/` | Posts "SSH login: user from address on server" to the ntfy topic (the URL from the checkout's `secrets/ntfy_url`, Grafana's secret, readable by root: one place for it) with a short timeout, and counts the logins in `ssh.json` of the facts folder. `optional`: a failure of the script never refuses a login. |
 | `/metrics` of the application (phase 2) | a thread of the `web` process on its own port, published as `127.0.0.1:8766`, never behind nginx | The Prometheus text format (`prometheus_client`); its collectors read `jobs.sqlite`, `accounts.sqlite` and `audit.sqlite` at every scrape (aggregates only). The web process already has the accounts volume, so the volumes stay as they are. |
 
 **Why a project of its own:** monitoring is started, updated and stopped without touching the site,
@@ -317,10 +317,12 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   `findaline.error.log` with a processor masking `client: <address>`; logs routed only to
   VictoriaLogs and metrics only to VictoriaMetrics (`namepass`/`namedrop`), through the ingestion
   API VictoriaLogs' current docs give for Telegraf. Grafana: the plugin
-  `victoriametrics-logs-datasource` at a pinned version (installed at start, so Grafana needs a
-  writable plugins folder and egress to grafana.com; or an image with the plugin, if that is
-  simpler to keep pinned), a provisioned data source and the Logs dashboard. The firewall:
-  VictoriaLogs joins `br-fal-mon`, no egress.
+  `victoriametrics-logs-datasource` (signed by Grafana Labs), downloaded by `vps.sh`
+  (`grafana_plugins`: version and sha256 pinned) into `/var/lib/findaline-grafana-plugins`, mounted
+  read-only as Grafana's plugins folder: Grafana fetches nothing itself (its preinstall option
+  would add five default apps from grafana.com); a provisioned data source and the Logs dashboard.
+  VictoriaLogs joins `br-fal-mon` like VictoriaMetrics; it is distroless, so Telegraf's
+  healthcheck asks its `/health`.
 - **Tests:** `tests/test_metrics.py` (the new names and labels, no personal ones), units of
   migration 14, the counting module and the coverage (shapes with known areas),
   `tests/test_monitoring.py` (the rules, the dashboards, the routing of Telegraf's outputs, the
