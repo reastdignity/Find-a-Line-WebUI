@@ -109,7 +109,9 @@ number each.
 **Phase 4** changes the item "Quotas" (wording accepted 2026-11-01): "How many km² your searches
 covered and how many uncached Nominatim requests they made" becomes "How many km² your searches
 covered (counted as pixels at their resolution), how many MB they downloaded and how many uncached
-Nominatim requests they made". F18 and F19 are counts without users.
+Nominatim requests they made". F18 and F19 are counts without users. So are the CPU seconds, the
+stages and the funnel of the line search that F19 gained with migration 16 (2026-11-01, decided with
+the user): the privacy page stays unchanged, as for F19.
 
 F11, F12 and F13 are counts without users; D4 concerns the operator's own logins. The logs keep no
 IP address: the application logs none (uvicorn's access log is off), and Telegraf masks the
@@ -183,7 +185,7 @@ Priority: P1 first. Phase 1 needs no change of the application's code, phase 2 d
 | F16 | Favourite lines: the total | trend | `COUNT(*)` of table `favourites` | P2 | 2 |
 | F17 | Coverage (km² searched at least once) and a map of searches in cells of 0.25° (Grafana's Geomap) | where people search | column `area_outline` of `jobs`; the union and the cells in the worker's housekeeping (`work/coverage.json`); cells without users | P3 | 3 |
 | F18 | Tiles of the elevation layers per layer and role: downloaded (pixels, km², bytes, seconds in the host's slot), found in the cache, seconds waited for the tile's lock and a host slot | Mpx/s and km²/s per source (a service slowing down), the share of waiting (parallel downloads competing for `HOST_SLOTS`), the cache's share; new km² per day | `sources.layer.download_layers` counts through `servicecounts.tiles` (the pixels and km² from the cached file's header), table `layer_downloads` of `jobs.sqlite` (migration 15); `findaline_download_{tiles,tiles_cached,pixels,km2,bytes,seconds,wait_seconds}_total{layer,role}` | P3 | 4 |
-| F19 | Computing: Mpx (km² / resolution²) and seconds of the finished searches by class of resolution (≤ 1, 2, 5, 10, 30 m); seconds per step of the computing phase (1–5, the orthophoto tiles of step 5, other) | the Mpx a day (the compute quota's measure), whether the seconds follow the pixels at every resolution, which step to speed up next, the orthophoto held in a compute slot | columns `source` and `resolution` of `jobs` and table `job_steps` (migration 15; `jobs.StepClock` from the progress bars' states); `findaline_computed_mpx_total{resolution}`, `findaline_computed_seconds_total{resolution}`, `findaline_compute_step_seconds{step}` (a summary) | P3 | 4 |
+| F19 | Computing: Mpx (km² / resolution²) and seconds of the finished searches by class of resolution (≤ 1, 2, 5, 10, 30 m); seconds and CPU seconds per step of the computing phase (1–5, the orthophoto tiles of step 5, other); seconds and CPU seconds of the stages of the line search (steps 2 and 3: finding anchors, anchor prominence and drop, sag estimator table, free directions, anchor pairs, checking lines); the funnel of the line search (grids, anchors, anchors kept after the prominence and drop limits, with an open direction, pairs started from, candidate pairs, checked pixel by pixel, found, valid, left out by the line limits, lines of the tiles' cores) | the Mpx a day (the compute quota's measure), whether the seconds follow the pixels at every resolution, which step and stage to speed up next and how many cores it keeps busy (CPU seconds over seconds), where the pairs are lost, the orthophoto held in a compute slot | columns `source` and `resolution` of `jobs` and table `job_steps` (migration 15; `jobs.StepClock` from the progress bars' states), `job_steps.cpu_seconds`, tables `job_stages` and `job_funnel` (migration 16; `search.Plan.funnel`, `linesearch.find_valid_lines(stats=)`); `findaline_computed_mpx_total{resolution}`, `findaline_computed_seconds_total{resolution}`, `findaline_compute_step_seconds{step}`, `findaline_compute_step_cpu_seconds{step}`, `findaline_compute_stage_seconds{stage}`, `findaline_compute_stage_cpu_seconds{stage}` (summaries), `findaline_line_funnel_total{level}`; per class of search: `tools/job_stats.py` | P3 | 4 |
 
 **G. Monitoring of the monitoring**
 | # | What | Why / alert | How | Priority | Phase |
@@ -358,6 +360,18 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
 - **F19.** The worker stores a job's source and resolution when it plans the download phase, and the
   seconds of the steps of its computing phase when it ends (`jobs.StepClock` listens to the
   progress bars: the step of their text, the orthophoto tiles while their bar runs).
+- **Migration 16 of `jobs.sqlite`** (automatic, 2026-11-01, branch `line-order`): `job_steps.cpu_seconds`
+  (the CPU seconds of a step: `time.process_time` of the phase's process, numba's threads included),
+  table `job_stages` (job, stage, seconds, CPU seconds: the stages of the line search while their
+  Compute bar runs, summed over the tiles) and table `job_funnel` (job, step, count:
+  `search.Plan.funnel`, which `search._lines` and `linesearch.find_valid_lines(stats=)` fill, summed
+  over the tiles; a tile a resumed search had saved already adds nothing). `run_phase` writes them
+  after a computing phase that saved its run; a failed write never fails the search (a line to
+  stderr). Jobs of before get none of these; `tools/job_stats.py` (read-only, standard library only,
+  for the host's `python3`) reads their funnel and the stages' whole seconds from their info events.
+  The dashboard's row F18/F19 has three panels of them (mean CPU per step, seconds and CPU per stage,
+  the funnel per day). Why: docs/performance.md, "Order of elimination" — which kind of search uses
+  the site's CPU decides which part of the line search to speed up first.
 - **The quota.** The daily quota of a user's searches counts Mpx (`mpx_day_max`), not km²: 250 km² is
   250 Mpx at 1 m but 10 Mpx at 5 m, so a quota in km² punished coarse overviews (the cheapest) and
   told fine searches from each other not at all. The downloads keep their quota in MB
