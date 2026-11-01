@@ -249,7 +249,7 @@
 /* A run's data credits (layers.ts creditsHtml): on a phone folded behind their button, the tile credits beside
    them always in sight; on a desktop no button */
 .ui .u-credits-toggle { display: none; font: inherit; color: var(--accent); background: none; border: 0; padding: 0;
-  cursor: pointer; text-decoration: underline; }
+  cursor: pointer; }
 .ui .u-credits-toggle::after { content: " \25B8"; }
 .ui .u-credits-toggle[aria-expanded="true"]::after { content: " \25BE"; }
 @media (max-width: 767px) {
