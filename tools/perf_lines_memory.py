@@ -23,7 +23,8 @@ A first call on a few thousand anchors loads the numba code before the measureme
     tiles held      the tiles' tables loaded, as search_lines holds them before the join (not --legacy)
     join peak       the join of their lines (LineTable.join; concat in a version without it)
     joined          the joined table alone
-then, from the joined columns again:
+then, from the joined columns again (after a warm-up on 2000 of them: the grouping's numba code),
+only for tiles written before wave 5 (search._lines keeps no pixel columns since):
     lines found    the output of the line search (find_valid_lines)
     step 4 peak     coordify and group_lines over them (the peak of a tile's step 4, the grids apart)
     held            the lines with their coordinates, as a finished tile keeps them
@@ -247,6 +248,9 @@ def measure_tiles(args):
     for path in sorted(glob.glob(os.path.join(args.tiles, "*.table.pkl.gz"))):
         with gzip.open(path, "rb") as f:
             table = _Unpickler(f).load()
+        if "a1" not in table.columns:  # written since search._lines drops the pixels
+            print("The tiles hold no pixel columns (written since wave 5): steps 4 and 5 not measured")
+            return {"tiles": args.tiles, "join per line": join}
         if len(table.columns["a1"]):
             tables.append(table)
     a1 = np.concatenate([t.columns["a1"] for t in tables])
@@ -259,6 +263,11 @@ def measure_tiles(args):
                    width=int(a1[:, 1].max()) + 1, crs="EPSG:32633")
 
     os.makedirs(args.out, exist_ok=True)
+    if not args.legacy:  # warm-up: coordify and the grouping's numba code (a search has loaded numba by then)
+        warm = sh.LineTable({"a1": a1[:2000].copy(), "a2": a2[:2000].copy(),
+                             **{k: v[:2000].copy() for k, v in values.items()}})
+        mp.group_lines(mp.coordify(warm, grid, "mark"), 20, "clearance")
+        del warm
     marks = _Marks()
     # The output of the line search
     if args.legacy:
