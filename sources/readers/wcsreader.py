@@ -7,6 +7,7 @@ from typing import Optional, Tuple
 import numpy as np
 import requests
 from rasterio.io import MemoryFile
+from scipy import ndimage
 from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject
 
@@ -36,15 +37,22 @@ class WcsReader(Reader):
 
     params: more parameters of every GetCoverage (GeoServer's GEOTIFF:COMPRESSION=DEFLATE
     makes South Tyrol's float32 tiles a quarter of their size).
+
+    edge_px: pixels within this many (a 3 x 3 neighbourhood, edge_px times) of no data are
+    dropped, so the fallback fills them (South Tyrol's pixels at the edge of the province
+    are blended with zero). The tile is requested edge_px pixels larger on each side and cut
+    back after the erosion, so a tile border inside the data is no edge: the same pixels as
+    one request of the whole area.
     """
 
     def __init__(self, description: str, url: str, coverage: str, crs: str, native_res: float, tile_px: int,
                  fmt: str, axes: Tuple[str, str], interpolation: Optional[str], zero_is_nodata: bool,
-                 origin: Tuple[float, float] = (0.0, 0.0), params: Tuple[Tuple[str, str], ...] = ()):
+                 origin: Tuple[float, float] = (0.0, 0.0), params: Tuple[Tuple[str, str], ...] = (),
+                 edge_px: int = 0):
         self.description, self.service_url, self.coverage, self.crs = description, url, coverage, crs
         self.native_res, self.tile_px, self.fmt, self.axes = native_res, tile_px, fmt, axes
         self.interpolation, self.zero_is_nodata, self.origin = interpolation, zero_is_nodata, origin
-        self.params = tuple(params)
+        self.params, self.edge_px = tuple(params), edge_px
         self._extent: Optional[tuple] = None  # (left, bottom, right, top) of the coverage; () if unknown
 
     def coverage_extent(self) -> Optional[tuple]:
@@ -85,7 +93,10 @@ class WcsReader(Reader):
         res, i, j = tile
         size, px = self.tile_px * res, self.tile_px
         left, bottom = i * size + self.origin[0], j * size + self.origin[1]
-        box = (left, bottom, left + size, bottom + size)
+        # The box requested: the tile, with edge_px pixels more on each side (none by default)
+        e, margin = self.edge_px, self.edge_px * res
+        req_left, req_bottom, req_size, req_px = left - margin, bottom - margin, size + 2 * margin, px + 2 * e
+        box = (req_left, req_bottom, req_left + req_size, req_bottom + req_size)
         if self._extent and not _overlaps(box, self._extent):  # known to lie outside: nothing asked
             return Fetched(0, self.service_url)
         try:
@@ -99,11 +110,11 @@ class WcsReader(Reader):
             extent = self.coverage_extent() if response is None else None
             if extent:
                 # Inside the coverage, on whole pixels of the tile
-                inner = (left + math.ceil(max(0.0, extent[0] - left) / res) * res,
-                         bottom + math.ceil(max(0.0, extent[1] - bottom) / res) * res,
-                         left + size - math.ceil(max(0.0, left + size - extent[2]) / res) * res,
-                         bottom + size - math.ceil(max(0.0, bottom + size - extent[3]) / res) * res)
-                if inner[0] < inner[2] and inner[1] < inner[3] and inner != (left, bottom, left + size, bottom + size):
+                inner = (box[0] + math.ceil(max(0.0, extent[0] - box[0]) / res) * res,
+                         box[1] + math.ceil(max(0.0, extent[1] - box[1]) / res) * res,
+                         box[2] - math.ceil(max(0.0, box[2] - extent[2]) / res) * res,
+                         box[3] - math.ceil(max(0.0, box[3] - extent[3]) / res) * res)
+                if inner[0] < inner[2] and inner[1] < inner[3] and inner != box:
                     response = self._request(*inner, res)
         except RuntimeError as e:
             raise RuntimeError(f"Could not download {self.description} tile {i}_{j}: {e}")
@@ -119,14 +130,22 @@ class WcsReader(Reader):
             band = src.read(1, masked=True).astype(np.float32).filled(np.nan)
             src_crs = src.crs or self.crs  # ASCII grids come without a CRS
             src_transform = src.transform
-        dst_transform = from_origin(left, bottom + size, res, res)
-        if band.shape != (px, px) or not src_transform.almost_equals(dst_transform):
-            resampled = np.full((px, px), np.nan, dtype=np.float32)
+        dst_transform = from_origin(req_left, req_bottom + req_size, res, res)
+        if band.shape != (req_px, req_px) or not src_transform.almost_equals(dst_transform):
+            resampled = np.full((req_px, req_px), np.nan, dtype=np.float32)
             reproject(band, resampled, src_transform=src_transform, src_crs=src_crs,
                       dst_transform=dst_transform, dst_crs=self.crs,
                       src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.nearest)
             band = resampled
-        _write_tile(path, _clean(band, self.zero_is_nodata), self.crs, dst_transform)
+        band = _clean(band, self.zero_is_nodata)
+        if e:
+            # Off within e pixels of no data; beyond the box counts as data (it is e pixels from
+            # the tile, so the tile's pixels see only what was requested), then back to the tile
+            keep = ndimage.binary_erosion(np.isfinite(band), structure=np.ones((3, 3), bool), iterations=e,
+                                          border_value=1)
+            band = np.where(keep, band, np.float32(np.nan))[e:e + px, e:e + px]
+            dst_transform = from_origin(left, bottom + size, res, res)
+        _write_tile(path, band, self.crs, dst_transform)
         return Fetched.of(response)
 
 

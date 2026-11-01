@@ -201,7 +201,8 @@ class WcsTiling(Index):
     Tile (i, j) covers [i, i + 1) x [j, j + 1) tile sizes from origin (x, y in metres: the
     pixel edges of a coverage whose edges are not on whole multiples of its resolution, so
     tiles are requested on its own pixels; (0, 0) for most services). A tiling with an origin
-    has it in its folder's name too (-o<x>_<y>).
+    has it in its folder's name too (-o<x>_<y>), and one whose reader drops edge_px pixels at
+    the edges of the data (WcsReader) -e<edge_px>.
 
     The tiles of a circle are those reaching into the circle inscribed in the grid's box;
     of an area, those under its outline. Tiles hold the data where the service puts it,
@@ -209,9 +210,10 @@ class WcsTiling(Index):
     """
 
     def __init__(self, crs: str, folder: str, tile_px: int, fmt: str, fetch_res: Optional[float],
-                 shift: Tuple[float, float] = (0.0, 0.0), origin: Tuple[float, float] = (0.0, 0.0)):
+                 shift: Tuple[float, float] = (0.0, 0.0), origin: Tuple[float, float] = (0.0, 0.0),
+                 edge_px: int = 0):
         self.crs, self.folder, self.tile_px, self.fmt = crs, folder, tile_px, fmt
-        self.fetch_res, self.shift, self.origin = fetch_res, shift, origin
+        self.fetch_res, self.shift, self.origin, self.edge_px = fetch_res, shift, origin, edge_px
 
     def edges(self, tile) -> Tuple[float, float, float, float]:
         """(left, bottom, right, top) of a tile in the service's CRS."""
@@ -252,7 +254,8 @@ class WcsTiling(Index):
         # The tiling in the path: tiles of another CRS, size or format never mix
         fmt = "asc" if re.search(r"aaigrid|asc", self.fmt) else "tif"
         origin = f"-o{self.origin[0]:g}_{self.origin[1]:g}" if self.origin != (0.0, 0.0) else ""
-        return f"{self.crs.lower().replace(':', '')}-{res:g}m-{self.tile_px}px-{fmt}{origin}"
+        edge = f"-e{self.edge_px}" if self.edge_px else ""
+        return f"{self.crs.lower().replace(':', '')}-{res:g}m-{self.tile_px}px-{fmt}{origin}{edge}"
 
     def path(self, cache_dir: str, tile) -> str:
         res, i, j = tile
