@@ -241,6 +241,26 @@ def _relative_url(folder: str, html_path: str) -> str:
         return Path(os.path.abspath(folder)).as_uri()
 
 
+def ortho_entry(ortho_service, ortho_cache: Optional[str], html_path: str) -> Optional[Dict]:
+    """The `ortho` entry of a run's data.js (also the 3D view's patch, search.patch_of_line): the
+    orthophoto service (a sources.OrthoService, None: no entry) and its cache folder as seen from
+    the run's map.html."""
+    if ortho_service is None:
+        return None
+    return {
+        "name": ortho_service.name, "url": ortho_service.url, "layer": ortho_service.layer,
+        "attribution": ortho_service.attribution,
+        "base": {"url": ortho_service.base_url, "max_zoom": ortho_service.base_max_zoom}
+                if ortho_service.base_url else None,
+        "cache": _relative_url(ortho_cache, html_path) if ortho_cache else None,
+        # a link for the attribution, when the service has one (a licence page, the provider's site)
+        **({"attribution_url": url} if (url := getattr(ortho_service, "attribution_url", None)) else {}),
+        # a WMS taking EPSG:4326 in lon-lat order only (OrthoService.wms_version; absent: 1.3.0)
+        **({"wms_version": v} if (v := getattr(ortho_service, "wms_version", "1.3.0")) != "1.3.0" else {}),
+        # a WMS asked in Web Mercator (OrthoService.wms_crs; absent: EPSG:4326)
+        **({"wms_crs": c} if (c := getattr(ortho_service, "wms_crs", "EPSG:4326")) != "EPSG:4326" else {})}
+
+
 def install_viewer(runs_dir: str):
     """Copy the viewer bundle (viewer/dist, built from viewer/src) into runs/_viewer when it changed."""
     target = os.path.join(runs_dir, VIEWER_FOLDER)
@@ -320,18 +340,7 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
         "center": list(area.center),
         "area": area.shape_wgs84().__geo_interface__,
         "crs": crs,
-        "ortho": None if ortho_service is None else {
-            "name": ortho_service.name, "url": ortho_service.url, "layer": ortho_service.layer,
-            "attribution": ortho_service.attribution,
-            "base": {"url": ortho_service.base_url, "max_zoom": ortho_service.base_max_zoom}
-                    if ortho_service.base_url else None,
-            "cache": _relative_url(ortho_cache, path) if ortho_cache else None,
-            # a link for the attribution, when the service has one (a licence page, the provider's site)
-            **({"attribution_url": url} if (url := getattr(ortho_service, "attribution_url", None)) else {}),
-            # a WMS taking EPSG:4326 in lon-lat order only (OrthoService.wms_version; absent: 1.3.0)
-            **({"wms_version": v} if (v := getattr(ortho_service, "wms_version", "1.3.0")) != "1.3.0" else {}),
-            # a WMS asked in Web Mercator (OrthoService.wms_crs; absent: EPSG:4326)
-            **({"wms_crs": c} if (c := getattr(ortho_service, "wms_crs", "EPSG:4326")) != "EPSG:4326" else {})},
+        "ortho": ortho_entry(ortho_service, ortho_cache, path),
         "attribution": run.get("attribution", []),  # credits of the data used (sources.Credit)
         "distance": group_distance, "by": group_by, "model": model,
         "rigging": dataclasses.asdict(rigging or Rigging()),

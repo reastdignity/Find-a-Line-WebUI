@@ -263,6 +263,7 @@ Each is an environment variable `FINDALINE_LIMIT_<NAME>`; nothing is limited by 
 | `DOWNLOAD_MB_DAY_MAX` | 10000 | MB a user's searches may download in 24 hours: the estimate of each (the tiles not cached yet), counted when its download starts |
 | `NOMINATIM_DAY_MAX` | 50 | Requests to Nominatim not answered from its cache (`osm:` areas, run names, countries, place lookups) of a user's searches, estimates, profiles and lookups in 24 hours |
 | `ESTIMATE_RATE` / `PROFILE_RATE` | `20/minute;300/hour` / `30/minute;500/hour` | Estimates / profiles a user may ask for (the notation of the `limits` library); one estimate or profile of a user waits at a time |
+| `PATCH_RATE` | `10/minute;120/hour` | Terrain of the 3D view of a line a user may ask for; it waits in the same queue as estimates and profiles, one of a user at a time |
 | `PLACE_RATE` | `10/minute;100/hour` | Place lookups (the place box of a new search) a user may ask for; their uncached Nominatim requests count toward `NOMINATIM_DAY_MAX` |
 | `REPORT_RATE` | `3/minute;20/day` | Problem reports a user may send, refused ones too |
 | `TIME_ZONE_RATE` | `5/minute;20/day` | Time zones a user's app may send (the country of the account), refused ones too |

@@ -227,8 +227,11 @@ def test_public_guards(public, providers):
     assert TOKEN not in page.text and "<script" not in page.text
     assert public.get("/app/app.js").status_code == 200
     assert "FINDALINE_RUNS = [];" in public.get("/runs/runs.js").text  # the demo runs: none
-    for path in ("/api/schema", "/api/jobs", "/api/events", "/api/runs", "/api/profile?run=x&line=1,2,3,4"):
+    for path in ("/api/schema", "/api/jobs", "/api/events", "/api/runs", "/api/profile?run=x&line=1,2,3,4",
+                 "/api/patch?run=x&line=1,2,3,4"):
         assert public.get(path).status_code == 401, path
+    visitor = public.get("/view3d", follow_redirects=False)  # the 3D view: to the sign-in page
+    assert visitor.status_code == 303 and visitor.headers["location"] == "/"
     assert public.get("/docs").status_code == public.get("/nothing").status_code == 404
     headers = {"x-findaline-token": TOKEN, "origin": URL}
     assert public.post("/api/jobs", json={"params": {"lat": 50, "lon": 19}}, headers=headers).status_code == 401
@@ -552,7 +555,8 @@ def test_authorization_of_jobs(public, people, tmp_path):
               ("post", "/api/estimate"), ("get", f"/api/jobs/{job_a}"), ("get", f"/api/jobs/{job_a}/events"),
               ("post", f"/api/jobs/{job_a}/again"), ("delete", f"/api/jobs/{job_a}"), ("get", "/api/events"),
               ("get", "/api/osm?lat=50&lon=19"), ("post", "/api/osm"),
-              ("get", "/api/profile?run=x&line=1,2,3,4"), ("post", "/api/runs/x/demo")]
+              ("get", "/api/profile?run=x&line=1,2,3,4"), ("get", "/api/patch?run=x&line=1,2,3,4"),
+              ("post", "/api/runs/x/demo")]
     for who, code in DENIED.items():
         for method, path in routes:
             kwargs = {"json": request} if method == "post" else {}
@@ -587,6 +591,7 @@ def test_authorization_of_jobs(public, people, tmp_path):
     assert a.post("/api/osm", json={"action": "download", "region": "malta"}).status_code == 403
     assert admin.post("/api/osm", json={"action": "download", "region": "malta"}).status_code == 400  # unknown
     assert a.get("/api/profile?run=x&line=1,2,3,4", headers={"x-findaline-profile": "1"}).status_code == 404
+    assert a.get("/api/patch?run=x&line=1,2,3,4", headers={"x-findaline-patch": "1"}).status_code == 404
 
 
 def _public_server(data_dir, settings, account_settings, providers):
@@ -1129,6 +1134,46 @@ def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
     note_area(jobs, job, plan, str(tmp_path / "cache"))
     assert jobs.get(job)["country"] is None and jobs.get(job)["area_km2"] > 0
     monkeypatch.setattr(osm, "BEFORE_REQUEST", None)
+
+
+def test_patches_of_the_public_site(run_people, tmp_path):
+    """/api/patch on the public site: another user's run 404, the header, the line, the bounds of the
+    profiles with the patch's codes (also for administrators), the rate of a limited user (10 a minute
+    by default); /view3d for approved users only, with its CSP and no-store, the app's keep theirs."""
+    a, b, admin, pending = run_people["a"], run_people["b"], run_people["admin"], run_people["pending"]
+    meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
+    lat, lon, ml = meta["area"]["lat"], meta["area"]["lon"], meta["params"]["max_length"]
+    headers = {"x-findaline-patch": "1"}
+    patch = lambda client, *p, run=RUN_A: client.get(f"/api/patch?run={run}&line={','.join(map(str, p))}",  # noqa: E731
+                                                     headers=headers)
+    assert patch(a, lat, lon, lat + 0.0003, lon, run=RUN_B).status_code == 404
+    assert b.get(f"/api/patch?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}", headers=headers).status_code == 404
+    assert a.get(f"/api/patch?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}").status_code == 403
+    assert patch(pending, lat, lon, lat + 0.0003, lon).status_code == 403
+    code = lambda answer: (answer.status_code, answer.json()["detail"]["code"])  # noqa: E731
+    assert code(patch(a, lat, lon, lat)) == (400, "patch_line")
+    assert code(patch(a, lat, lon, lat + 0.5, lon)) == (400, "patch_outside")
+    assert code(patch(admin, lat, lon, lat + 0.5, lon)) == (400, "patch_outside")  # everyone on the public site
+    d = (150 + ml * 0.9) / 111320  # both corners inside the margin, longer than the run's --max-length
+    assert code(patch(a, lat - d, lon - d, lat + d, lon + d)) == (400, "patch_line")
+    assert a.get(f"/api/patch?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}&step=3",
+                 headers=headers).status_code == 400
+    statuses = [patch(a, lat, lon, lat + 0.0003, lon).status_code for _ in range(11)]
+    assert statuses == [503] * 10 + [429]  # on to the (missing) worker, then the rate
+    assert code(patch(a, lat, lon, lat + 0.0003, lon)) == (429, "rate_patch")
+    assert patch(b, lat, lon, lat + 0.0003, lon, run=RUN_B).status_code == 503  # each user their own
+
+    page = a.get("/view3d")
+    assert page.status_code == 200 and page.headers["cache-control"] == "no-store"
+    assert page.headers["content-security-policy"] == web.PAGE_CSP["/view3d"]
+    assert '<meta name="findaline-3d-ring" content="off">' in page.text and '"local"' not in page.text
+    assert a.headers["x-findaline-token"] not in page.text and "findaline-token" not in page.text
+    for client in (pending, run_people["anonymous"]):
+        answer = client.get("/view3d", follow_redirects=False)
+        assert answer.status_code == 303 and answer.headers["location"] == "/"
+        assert answer.headers["cache-control"] == "no-store"
+    for path in ("/", "/api/jobs"):
+        assert a.get(path).headers["content-security-policy"] == web.SECURITY_HEADERS["Content-Security-Policy"]
 
 
 def test_profiles_and_deleting_runs(run_people, tmp_path):
@@ -2434,7 +2479,7 @@ def test_cache_control(run_people, tmp_path):
                 (a, f"/runs/{RUN_A}/map.html", "private, no-cache"), (a, f"/runs/{RUN_A}/data.js", "private, no-cache"),
                 (anonymous, f"/s/{token}/map.html", "private, no-cache"), (anonymous, "/s/runs.js", "no-cache"),
                 (anonymous, "/runs/_viewer/viewer.js", "no-cache"), (anonymous, "/app/app.js", "no-cache"),
-                (anonymous, "/privacy", "no-cache")]
+                (anonymous, "/privacy", "no-cache"), (a, "/view3d", "no-store")]
     for client, path, value in expected:
         answer = client.get(path)
         assert answer.headers["cache-control"] == value, (path, answer.status_code, answer.headers["cache-control"])

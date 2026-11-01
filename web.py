@@ -82,10 +82,21 @@ KEEP_ALIVE_SECONDS = 5  # an idle connection is closed after it
 # styles. The Referer carries the origin only, to other sites and to our own (strict-origin): the
 # tile servers' policies ask for one, and no path leaves the page, not even to us (a share page's
 # own requests, its favicon or cached tiles, would carry /s/<token>/ into the logs).
+CSP_DIRECTIVES = {"default-src": ("'self'",), "script-src": ("'self'",), "style-src": ("'self'",),
+                  "img-src": ("'self'", "data:", "https:"), "connect-src": ("'self'",), "base-uri": ("'none'",),
+                  "form-action": ("'self'",), "frame-ancestors": ("'none'",)}
+
+
+def content_security_policy(extra: Optional[Dict[str, Tuple[str, ...]]] = None) -> str:
+    """The Content-Security-Policy of CSP_DIRECTIVES with the sources of `extra` added to its
+    directives (a page that needs more than the others: PAGE_CSP)."""
+    extra = extra or {}
+    return "; ".join(f"{name} {' '.join(values + tuple(v for v in extra.get(name, ()) if v not in values))}"
+                     for name, values in CSP_DIRECTIVES.items())
+
+
 SECURITY_HEADERS = {
-    "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: "
-                               "https:; connect-src 'self'; base-uri 'none'; form-action 'self'; "
-                               "frame-ancestors 'none'",
+    "Content-Security-Policy": content_security_policy(),
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "strict-origin",
@@ -94,6 +105,12 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), "
                           "microphone=(), payment=(), usb=()",
 }
+
+
+# The pages whose Content-Security-Policy differs from SECURITY_HEADERS' (the guard chooses it by the
+# path). The 3D view's is the same today; its coarse ring of terrain (FINDALINE_3D_RING, wave 3) adds
+# the hosts of its tiles here
+PAGE_CSP = {"/view3d": content_security_policy()}
 
 
 def schema(limits: Optional[Limits] = None, hidden_sources=()) -> List[Dict]:
@@ -207,11 +224,14 @@ def error_detail(error: BaseException):
     return str(error)
 
 
-def profile_problem(folder: str, points: List[float], admin: bool = False) -> Optional[messages.UserError]:
+def profile_problem(folder: str, points: List[float], admin: bool = False,
+                    patch: bool = False) -> Optional[messages.UserError]:
     """Why a profile of a run may not be computed on the public site (None: it may): both points in
     the box of the run's area grown by its --max-length, and at most --max-length apart (1% and
     2 m of slack for the projection). A run from a source of ADMIN_SOURCES (a demo run any user may
-    open) only for administrators: its profile may download a tile with the server's key."""
+    open) only for administrators: its profile may download a tile with the server's key. `patch`:
+    the same bounds for the terrain of the 3D view (/api/patch), with its codes (a line longer than
+    the run's --max-length, or of a run without a box, is no line of the run: patch_line)."""
     import runs as rn
     try:
         with open(os.path.join(folder, "run.json"), encoding="utf-8") as f:
@@ -223,22 +243,23 @@ def profile_problem(folder: str, points: List[float], admin: bool = False) -> Op
         box = None
     E = messages.UserError
     if box is None:
-        return E("this run has no profiles", "no_profiles")
+        return E("this run has no profiles", "patch_line" if patch else "no_profiles")
     if source in ADMIN_SOURCES and not admin:
-        return E(f"profiles of runs from {source} are computed for administrators only", "profile_admin_only",
-                 source=source)
+        return E(f"profiles of runs from {source} are computed for administrators only",
+                 "patch_admin_only" if patch else "profile_admin_only", source=source)
     lat1, lon1, lat2, lon2 = points
     west, south, east, north = box
     dlat = max_length / 111320
     dlon = dlat / max(math.cos(math.radians((south + north) / 2)), 0.01)
     if not all(south - dlat <= lat <= north + dlat and west - dlon <= lon <= east + dlon
                for lat, lon in ((lat1, lon1), (lat2, lon2))):
-        return E("the points must lie in the run's area (with a margin of its --max-length)", "profile_outside")
+        return E("the points must lie in the run's area (with a margin of its --max-length)",
+                 "patch_outside" if patch else "profile_outside")
     mean = math.radians((lat1 + lat2) / 2)
     length = 6371008.8 * math.hypot(math.radians(lat2 - lat1), math.radians(lon2 - lon1) * math.cos(mean))
     if length > max_length * 1.01 + 2:
         return E(f"the points are {length:.0f} m apart, at most {max_length:g} m (the run's --max-length)",
-                 "profile_too_long", m=round(length), max=max_length)
+                 "patch_line" if patch else "profile_too_long", m=round(length), max=max_length)
     return None
 
 
@@ -368,10 +389,10 @@ def title(p: pm.SearchParams) -> str:
 
 
 # The routes anyone may request in the public mode (signing in and out, the page, which shows a
-# sign-in page with the demo runs to visitors, its assets, the list of runs of the maps, which
+# sign-in page with the demo runs to visitors, the 3D view's page, which sends them to it, its assets, the list of runs of the maps, which
 # gives a visitor the demo runs only, the privacy and about pages); every other route depends on current_user,
 # require_admin or run_access (tests/test_public.py checks it)
-PUBLIC_ROUTES = {"/", "/login/{provider}", "/auth/{provider}", "/logout", "/app", "/runs/index.html",
+PUBLIC_ROUTES = {"/", "/view3d", "/login/{provider}", "/auth/{provider}", "/logout", "/app", "/runs/index.html",
                  "/runs/runs.js", "/s/runs.js", "/s/index.html", "/cache/{path:path}", "/privacy", "/about"}
 SESSION_SWEEP = 6 * 3600  # seconds between deletions of expired sessions (the web process, public site)
 SHARE_BYTES = 32  # the random part of a share link
@@ -384,7 +405,8 @@ SESSION_CHECK = 30  # seconds between checks of the session inside an open event
 # the others are counted, and the next row says how many there were ("repeated")
 REFUSAL_WINDOW = 600
 PLACE_CHARS_MAX = 200  # of a name the place box looks up
-RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "place": "place lookups",  # Limits.<kind>_rate
+RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "place": "place lookups",
+              # Limits.<kind>_rate
               "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
 EVERYONE_SECONDS = 300     # the sign-in page's total of everyone's searched area is counted again after it
@@ -613,18 +635,20 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                 route_counts.add(route_template(app, request.scope), request.method, 500, time.monotonic() - started)
                 raise
         response.headers.update(SECURITY_HEADERS)
+        if path in PAGE_CSP:
+            response.headers["Content-Security-Policy"] = PAGE_CSP[path]
         response.headers["Cache-Control"] = cache_control(request, path)
         route_counts.add(route_template(app, request.scope), request.method, response.status_code,
                          time.monotonic() - started)
         return response
 
     def cache_control(request: Request, path: str) -> str:
-        """Answers with a user's data are not stored: the API, the list of runs and the page with its
-        token (locally always; on the public site when signed in). The files of runs and share links
+        """Answers with a user's data are not stored: the API, the list of runs, the 3D view's page and
+        the page with its token (locally always; on the public site when signed in). The files of runs and share links
         are private (no shared cache) and revalidated. The rest (the app, the viewer, the public
         pages) is revalidated too: the viewer and the app change with the code, run data with every
         run (a browser must not keep an old viewer.js next to a new data.js)."""
-        if path.startswith("/api/") or path == "/runs/runs.js" or (
+        if path.startswith("/api/") or path in ("/runs/runs.js", "/view3d") or (
                 path == "/" and (not public or getattr(request.state, "signed_in", None))):
             return "no-store"
         if path.startswith(("/runs/", "/s/")) and not path.startswith((f"/runs/{VIEWER}/", f"/s/{VIEWER}/")) \
@@ -668,6 +692,19 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return APP_HTML.format(token=found[1], user=html.escape(json.dumps(found[0].public())),
                                    contact=html.escape(public.contact), keys=key_meta(esri_key))
         return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None), total=everyone())
+
+    @app.get("/view3d", response_class=HTMLResponse)
+    def view3d(request: Request):
+        """The 3D view of a line (its run and line in the hash, viewer/src/view3d) for the users the
+        app is for; visitors and accounts not approved go to the page, which shows them the sign-in."""
+        if not public:
+            return VIEW3D_HTML.format(user=html.escape(json.dumps({"local": True})), keys=key_meta(esri_key),
+                                      ring="off")
+        found = signed_in(request)
+        if found and found[0].approved:
+            return VIEW3D_HTML.format(user=html.escape(json.dumps(found[0].public())), keys=key_meta(esri_key),
+                                      ring="off")
+        return RedirectResponse("/", 303)
 
     everyone_cache = {"at": -math.inf, "total": (0.0, 0)}
 
@@ -1458,6 +1495,31 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         await run_in_threadpool(within_rate, "profile", user)
         return await quick("profile", {"run": run, "line": points}, user, request)  # one at a time in the quick lane
 
+    @app.get("/api/patch")
+    async def line_patch(request: Request, line: str, step: int = 1, run: str = Depends(run_access),
+                         user: ac.User = Depends(current_user)):
+        """The terrain of the 3D view around a line of a saved run (search.patch_of_line, in the worker's
+        quick lane; docs/3d-view-contract.md): uint32 little-endian N, N bytes of the meta as UTF-8
+        JSON, the deflated heights. The checks of /api/profile with the patch's codes; the header
+        X-Findaline-Patch as its X-Findaline-Profile."""
+        if not request.headers.get("x-findaline-patch"):
+            raise HTTPException(403, "header X-Findaline-Patch missing")
+        try:
+            points = [float(v) for v in line.split(",")]
+        except ValueError:
+            points = []
+        if len(points) != 4 or not all(math.isfinite(v) for v in points):
+            raise HTTPException(400, messages.UserError("line: lat1,lon1,lat2,lon2", "patch_line").detail())
+        if step not in (1, 2):
+            raise HTTPException(400, "step: 1 or 2")
+        if public:
+            problem = await run_in_threadpool(profile_problem, os.path.join(runs_dir, run), points, user.admin, True)
+            if problem:
+                raise HTTPException(400, problem.detail())
+        await run_in_threadpool(within_rate, "patch", user)
+        answer = await quick("patch", {"run": run, "line": points, "step": step}, user, request)
+        return Response(patch_body(answer), media_type="application/octet-stream")
+
     if public:
         @app.get("/runs/runs.js")
         def runs_js(request: Request):
@@ -1543,6 +1605,41 @@ APP_HTML = """<!doctype html>
 <script src="/app/app.js"></script>
 </body></html>
 """
+
+
+# The 3D view of a line (viewer/src/view3d): no token, the page only GETs; findaline-3d-ring "on" shows the
+# coarse ring of terrain around the patch (FINDALINE_3D_RING, wave 3)
+VIEW3D_HTML = """<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="findaline-user" content="{user}">{keys}
+<meta name="findaline-3d-ring" content="{ring}">
+<title>Find-a-Line 3D</title>
+<link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app/view3d.css">
+</head><body><div id="view3d" class="ui"></div>
+<script src="/app/view3d.js"></script>
+</body></html>
+"""
+
+
+def patch_body(answer: Dict) -> bytes:
+    """The answer of /api/patch from the quick lane's {"meta", "heights"} (base64url without padding):
+    uint32 little-endian N | N bytes of UTF-8 JSON meta | the deflated heights, after checking their
+    sha256 against the meta's (500 patch_damaged otherwise)."""
+    import base64
+    import hashlib
+    import struct
+    try:
+        meta, text = answer["meta"], answer["heights"]
+        heights = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+        intact = hashlib.sha256(heights).hexdigest() == meta["sha256"]
+    except (KeyError, TypeError, ValueError):
+        intact = False
+    if not intact:
+        raise StarletteHTTPException(500, messages.UserError("the terrain of the 3D view arrived damaged",
+                                                             "patch_damaged").detail())
+    head = json.dumps(meta, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    return struct.pack("<I", len(head)) + head + heights
 
 
 def key_meta(esri_key: Optional[str]) -> str:
