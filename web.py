@@ -57,7 +57,7 @@ import messages
 from audit import KEEP_DAYS as AUDIT_DAYS, Audit
 import params as pm
 from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_params
-from settings import AccountSettings, Limits, PublicSettings
+from settings import AccountSettings, Limits, PublicSettings, web_key
 
 PORT = 8765
 METRICS_PORT = 8766  # the Prometheus metrics of `web --public` (metrics.py)
@@ -510,6 +510,10 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
     quick_lock = threading.Lock()
     route_counts = RouteCounts()  # requests per route, since the start (metrics.py)
+    # The keys the page gets (settings.WebKeys), read at the start: the satellite map of ArcGIS Location
+    # Platform. Into the page only (page_keys: runs.js, the app page's meta), never into a file or a log.
+    esri_key = web_key("esri_api_key")
+    page_keys = {"esri_key": esri_key} if esri_key else {}
 
     def quick_ended(result: str):
         with quick_lock:
@@ -656,11 +660,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     @app.get("/", response_class=HTMLResponse)
     def page(request: Request):
         if not public:
-            return APP_HTML.format(token=token, user=html.escape(json.dumps({"local": True})), contact="")
+            return APP_HTML.format(token=token, user=html.escape(json.dumps({"local": True})), contact="",
+                                   keys=key_meta(esri_key))
         found = signed_in(request)
         if found and found[0].approved:
             return APP_HTML.format(token=found[1], user=html.escape(json.dumps(found[0].public())),
-                                   contact=html.escape(public.contact))
+                                   contact=html.escape(public.contact), keys=key_meta(esri_key))
         return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None), total=everyone())
 
     everyone_cache = {"at": -math.inf, "total": (0.0, 0)}
@@ -1457,10 +1462,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         def runs_js(request: Request):
             """The list of runs of the maps (their "Other runs"): the user's own and the demo runs (a
             visitor not signed in or not approved: the demo runs), and whether the map may compute
-            profiles and measure, and mark favourite lines (FINDALINE_APP: signed-in, approved users only)."""
+            profiles and measure, and mark favourite lines (FINDALINE_APP: signed-in, approved users only),
+            with the page's keys (page_keys)."""
             user = visitor(request)
             listed = [rn._listed(r) for r in runs_of(user)]
-            flags = {"profiles": user is not None, "favourites": user is not None}
+            flags = {"profiles": user is not None, "favourites": user is not None, **page_keys}
             return Response(f"window.FINDALINE_RUNS = {json.dumps(listed, ensure_ascii=False)};\n"
                             f"window.FINDALINE_APP = {json.dumps(flags)};\n", media_type="text/javascript")
 
@@ -1472,9 +1478,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         @app.get("/s/runs.js")
         def share_runs_js():
             """No list of runs (FINDALINE_RUNS stays undefined: the map shows its own run only), no
-            profiles or measuring, no favourites."""
-            return Response(f"window.FINDALINE_APP = {json.dumps({'profiles': False, 'favourites': False})};\n",
-                            media_type="text/javascript")
+            profiles or measuring, no favourites; the page's keys (page_keys)."""
+            flags = {"profiles": False, "favourites": False, **page_keys}
+            return Response(f"window.FINDALINE_APP = {json.dumps(flags)};\n", media_type="text/javascript")
 
         @app.get("/s/index.html")
         def share_index():
@@ -1488,9 +1494,21 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         @app.get("/about", response_class=HTMLResponse)
         def about():
             """What the site is, and the data it uses with their licences and notices (no script)."""
-            return about_page(public.contact)
+            return about_page(public.contact, esri=esri_key is not None)
 
         app.mount("/s", RunFiles(runs_dir, run_of_link), name="shared")
+    elif esri_key:
+        @app.get("/runs/runs.js")
+        def local_runs_js():
+            """The runs folder's runs.js (runs.write_index) with the page's keys after it: a map from this
+            server gets the satellite map, one opened from disk does not (the file holds no key)."""
+            try:
+                with open(os.path.join(runs_dir, "runs.js"), encoding="utf-8") as f:
+                    listed = f.read()
+            except FileNotFoundError:
+                listed = ""
+            return Response(listed + f"window.FINDALINE_APP = {json.dumps(page_keys)};\n",
+                            media_type="text/javascript")
 
     app.mount("/app", StaticFiles(directory=APP_DIST), name="app")
     # Locally the runs folder as before; on the public site only the files of RUN_FILES of one's own runs
@@ -1516,7 +1534,7 @@ APP_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-token" content="{token}">
 <meta name="findaline-user" content="{user}">
-<meta name="findaline-contact" content="{contact}">
+<meta name="findaline-contact" content="{contact}">{keys}
 <title>Find-a-Line</title>
 <link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app/app.css">
@@ -1524,6 +1542,12 @@ APP_HTML = """<!doctype html>
 <script src="/app/app.js"></script>
 </body></html>
 """
+
+
+def key_meta(esri_key: Optional[str]) -> str:
+    """The app page's keys (settings.WebKeys) for its own maps, which load no runs.js before they draw
+    (layers.ts esriKey): a meta element, or nothing without a key."""
+    return f'\n<meta name="findaline-esri-key" content="{html.escape(esri_key)}">' if esri_key else ""
 
 
 # The logo, the file the app's Logo bundles (viewer/src/ui/logo/logo.svg, copied to dist/ by the build; its
@@ -1649,8 +1673,24 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
     return PAGE_HTML.format(title="Privacy", body="\n".join(body), logo=LOGO_SVG, footer=PAGE_FOOTER)
 
 
-def about_page(contact: str) -> str:
-    """What the site is, and the credits and licences of its data (sources.SOURCES, plus OpenStreetMap)."""
+# The satellite map of ArcGIS Location Platform (with the operator's key: settings.WebKeys), its
+# attribution as the map shows it (viewer/src/layers.ts ESRI_SOURCE) and the sentence of its terms
+ESRI_TERMS_URL = "https://www.esri.com/content/dam/esrisites/en-us/media/legal/platform/platform-legal.pdf"
+ESRI_SOURCE = "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community"
+
+
+def esri_terms() -> str:
+    """The sentence of the about page on the satellite map (approved wording), its link escaped."""
+    e = html.escape
+    return ('<p>Satellite imagery: provided by Esri through ArcGIS Location Platform ("Powered by Esri"). By using '
+            "the satellite map you agree to comply with Esri's terms of use for it "
+            f"(<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>). In particular, its imagery may only be viewed "
+            "in this map: it may not be downloaded, stored, copied or passed on.</p>")
+
+
+def about_page(contact: str, esri: bool = False) -> str:
+    """What the site is, and the credits and licences of its data (sources.SOURCES, plus OpenStreetMap);
+    `esri`: the satellite map is offered (a key is set), with its attribution and terms."""
     import sources as src
     e = html.escape
 
@@ -1681,7 +1721,10 @@ def about_page(contact: str) -> str:
         "<h2>Orthophotos and background maps</h2><ul>"
         + "".join(f"<li>{e(name)}: {attribution}</li>" for name, attribution in orthos.items())
         + "<li>OpenStreetMap tiles: © OpenStreetMap contributors</li><li>OpenTopoMap: © OpenTopoMap (CC-BY-SA)"
-          "</li></ul>",
+          "</li>"
+        + (f"<li>Esri World Imagery: <a href='https://www.esri.com'>Powered by Esri</a>. {e(ESRI_SOURCE)}</li>"
+           if esri else "") + "</ul>",
+        esri_terms() if esri else "",
         "<p>Each run names the data it used in its map and in its ATTRIBUTION.txt; results made from FABDEM may be "
         "shared only for non-commercial use, under the same licence.</p>",
         f"<p>Contact: {e(contact)}.</p>",

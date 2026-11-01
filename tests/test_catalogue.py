@@ -1160,7 +1160,7 @@ def test_processed_note_with_every_run():
 
 def test_about_page_links_and_note():
     """The about page: orthophoto attributions as links where attribution_url is set (escaped, no script), the
-    processed note, OSM's fixthemap link, no Esri (removed from the maps)."""
+    processed note, OSM's fixthemap link, no Esri without a key (test_public.py::test_satellite_key)."""
     import html
     import web
     page = web.about_page("someone@example.org")

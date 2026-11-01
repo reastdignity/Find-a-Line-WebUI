@@ -3105,3 +3105,101 @@ def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):
         assert not usage["limited"] and usage["usage"]["jobs_active"] == {"used": 1, "limit": None}, usage
         assert usage["usage"]["km2"] == {"used": None, "limit": None}
         assert all(value is None for value in usage["search"].values()), usage
+
+
+ESRI_KEY = "AAPTfake-esri-key_0123456789"  # a fake ArcGIS Location Platform key
+ESRI_TERMS = ('Satellite imagery: provided by Esri through ArcGIS Location Platform ("Powered by Esri"). By using '
+              "the satellite map you agree to comply with Esri's terms of use for it "
+              "(<a href='https://www.esri.com/content/dam/esrisites/en-us/media/legal/platform/platform-legal.pdf'>"
+              "https://www.esri.com/content/dam/esrisites/en-us/media/legal/platform/platform-legal.pdf</a>). In "
+              "particular, its imagery may only be viewed in this map: it may not be downloaded, stored, copied or "
+              "passed on.")
+
+
+def _app_flags(text: str) -> dict:
+    return json.loads(text.split("window.FINDALINE_APP = ")[1].split(";\n")[0])
+
+
+def test_satellite_key(tmp_path, clip_run, settings, account_settings, providers, monkeypatch):
+    """The satellite map's key (settings.WebKeys, ESRI_API_KEY): without it nothing changes (no meta, no key in
+    runs.js, no Esri on the about page); with it the app page's meta, the runs.js of the app and of share links
+    and, locally, the runs folder's runs.js carry it (the file on disk not), and the about page names Esri with
+    the approved sentence of its terms; the CSP lets the browser load its tiles."""
+    from jobs import Jobs
+    copy_run(clip_run, tmp_path, RUN_A, "A's run")
+    (tmp_path / "jobs.sqlite").unlink(missing_ok=True)
+    user_id, cookie, csrf = session_of(tmp_path, account_settings, "a")
+    Jobs(str(tmp_path)).add_run(RUN_A, user_id, 100)
+
+    def clients():
+        app = _public_app(tmp_path, settings, account_settings, providers)
+        signed, anonymous = TestClient(app, base_url=URL), TestClient(app, base_url=URL)
+        signed.cookies.set(ac.SESSION_COOKIE, cookie, domain="lines.example.org")
+        return signed, anonymous
+
+    monkeypatch.delenv("ESRI_API_KEY", raising=False)
+    monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
+    signed, anonymous = clients()
+    with signed, anonymous:
+        assert "findaline-esri-key" not in signed.get("/").text
+        assert _app_flags(signed.get("/runs/runs.js").text) == {"profiles": True, "favourites": True}
+        assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": False, "favourites": False}
+        about = anonymous.get("/about").text
+        assert "Esri" not in about and "arcgis" not in about.lower()
+
+    monkeypatch.setenv("ESRI_API_KEY", ESRI_KEY)
+    signed, anonymous = clients()
+    with signed, anonymous:
+        page = signed.get("/")
+        assert f'<meta name="findaline-esri-key" content="{ESRI_KEY}">' in page.text
+        assert page.headers["cache-control"] == "no-store"
+        assert _app_flags(signed.get("/runs/runs.js").text) == {"profiles": True, "favourites": True,
+                                                                "esri_key": ESRI_KEY}
+        assert _app_flags(anonymous.get("/runs/runs.js").text)["esri_key"] == ESRI_KEY  # the demo runs' maps
+        assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": False, "favourites": False,
+                                                                "esri_key": ESRI_KEY}
+        about = anonymous.get("/about")
+        assert ESRI_TERMS in about.text and "<script" not in about.text and ESRI_KEY not in about.text
+        assert ("<li>Esri World Imagery: <a href='https://www.esri.com'>Powered by Esri</a>. Source: Esri, Vantor, "
+                "Earthstar Geographics, and the GIS User Community</li>") in about.text
+        img_src = next(d for d in about.headers["content-security-policy"].split(";") if d.strip().startswith("img-src"))
+        assert {"https:", "https://ibasemaps-api.arcgis.com"} & set(img_src.split()), img_src
+        for name in web.RUN_FILES:
+            assert ESRI_KEY not in signed.get(f"/runs/{RUN_A}/{name}").text, name
+
+    # Locally: the runs folder's runs.js with the key after it, the file itself without
+    local = tmp_path / "local"
+    (local / "runs").mkdir(parents=True)
+    (local / "runs" / "runs.js").write_bytes(b"window.FINDALINE_RUNS = [];\n")
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False),
+                    base_url="http://127.0.0.1") as client:
+        listed = client.get("/runs/runs.js")
+        assert listed.text.startswith("window.FINDALINE_RUNS = [];\n") and _app_flags(listed.text) == {
+            "esri_key": ESRI_KEY}
+        assert listed.headers["cache-control"] == "no-store"
+        assert f'content="{ESRI_KEY}"' in client.get("/").text
+    assert ESRI_KEY not in (local / "runs" / "runs.js").read_text(encoding="utf-8")
+    monkeypatch.delenv("ESRI_API_KEY")
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False),
+                    base_url="http://127.0.0.1") as client:
+        assert client.get("/runs/runs.js").text == "window.FINDALINE_RUNS = [];\n"  # the file, as before
+
+
+def test_satellite_key_in_no_saved_file(tmp_path):
+    """A search run with the satellite map's key in its environment writes it nowhere: not into the run's files
+    (map.html, data.js, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""
+    import subprocess
+    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
+           "PYTHONIOENCODING": "utf-8", "ESRI_API_KEY": ESRI_KEY}
+    result = subprocess.run(
+        [sys.executable, "findaline.py", "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
+         "--northing", "254608", "--easting", "553966", "--radius", "100", "--water", "off", "--fill-gaps", "off",
+         "--no-plot", "--yes", "--ortho", "never", "--nmpt", "off", "--data-dir", str(tmp_path)],
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert ESRI_KEY not in result.stdout + result.stderr
+    files = [os.path.join(top, name) for top, _, names in os.walk(tmp_path) for name in names]
+    assert any(f.endswith("data.js") for f in files) and any(f.endswith("ATTRIBUTION.txt") for f in files)
+    for path in files:
+        with open(path, "rb") as f:
+            assert ESRI_KEY.encode() not in f.read(), path

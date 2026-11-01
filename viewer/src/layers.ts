@@ -1,7 +1,6 @@
-// Background layers: OpenTopoMap, OpenStreetMap and the orthophoto of the data source
-// (from the local tile cache when there, else its WMS over its base tiles, if any, or
-// the base tiles alone). Esri World Imagery was removed on 2026-11-01: its terms cover use with
-// Esri's software or an ArcGIS subscription, not keyless tiles on a public site.
+// Background layers: OpenTopoMap, OpenStreetMap, Esri World Imagery (only with the operator's key of
+// ArcGIS Location Platform, from the server: esriKey) and the orthophoto of the data source (from the
+// local tile cache when there, else its WMS over its base tiles, if any, or the base tiles alone).
 
 import L from "leaflet";
 import type { Credit, Ortho } from "./types";
@@ -27,6 +26,21 @@ function createCachedTile(this: L.TileLayer & {_cache: string | null}, coords: L
   return tile;
 }
 
+/** The operator's API key of ArcGIS Location Platform (settings.WebKeys, restricted to the site's address):
+ *  from the server's runs.js (window.FINDALINE_APP) or the app page's meta; none on a map opened from disk,
+ *  so no satellite map there. Esri's terms: its tiles are never cached or prefetched by us. */
+export function esriKey(): string | null {
+  const app = typeof window !== "undefined" ? window.FINDALINE_APP : undefined;
+  if (app?.esri_key) return app.esri_key;
+  const meta = typeof document !== "undefined" ? document.querySelector<HTMLMetaElement>('meta[name="findaline-esri-key"]') : null;
+  return meta?.content || null;
+}
+
+/** Esri's attribution of World Imagery as ArcGIS Location Platform asks for it ("Powered by Esri" and the
+ *  sources of the imagery; the about page says the same: web.py ESRI_SOURCE). */
+export const ESRI_SOURCE = "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community";
+export const ESRI_NAME = "Esri World Imagery";
+
 const CachedWMS = L.TileLayer.WMS.extend({createTile: createCachedTile});
 const CachedTiles = L.TileLayer.extend({createTile: createCachedTile});
 
@@ -40,6 +54,14 @@ export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string,
     "OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom, maxNativeZoom: 19, attribution: OSM}),
   };
+  const key = esriKey();
+  if (key) {
+    // Native tiles to z19 nearly everywhere (z20/21 only in places): enlarged above it
+    layers[ESRI_NAME] = L.tileLayer(
+      "https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=" +
+      encodeURIComponent(key),
+      {maxZoom, maxNativeZoom: 19, attribution: linked("Powered by Esri", "https://www.esri.com") + " | " + escape(ESRI_SOURCE)});
+  }
   if (ortho && !ortho.url && ortho.base) {
     // Tiles in the map's own tiling, no WMS (SWISSIMAGE)
     const layer = new (CachedTiles as any)(ortho.base.url, {
