@@ -57,7 +57,7 @@ class Source:
     # centre lies in one of them (and its country is one of countries), before the sources of its
     # country without regions, whatever the order of SOURCES (choose.choose_source); () = the countries
     regions: Tuple[str, ...] = ()
-    crs:Optional[str] = None       # working CRS; None = UTM zone of the search centre
+    crs: Optional[str] = None       # working CRS; None = UTM zone of the search centre
     default_resolution: Optional[float] = None  # None: the terrain data's own, at least MIN_RESOLUTION
     ortho: Optional[OrthoService] = None
     note: str = ""                  # licence or quality note printed at the start
