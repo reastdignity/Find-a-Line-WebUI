@@ -59,8 +59,8 @@ containers send to the host would cut it off from `stub_status`, the site and it
 (C4–C6), and it would have to join the site's network for `/metrics`.
 
 **Hardening** as in compose.yaml: `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, a non-root
-user, images pinned by digest, memory limits (about 1.9 GB for the four containers together,
-VictoriaLogs included, 1 GB of it Grafana's, and 192 MB for Telegraf). Telegraf accepts no connections and runs in a
+user, images pinned by digest, memory limits (about 2.1 GB for the four containers together,
+VictoriaLogs included, 1.25 GB of it Grafana's, and 192 MB for Telegraf). Telegraf accepts no connections and runs in a
 systemd sandbox (its drop-in): no capabilities, no new privileges, the file system read-only,
 `/home` hidden, a private `/tmp`, no device opened, the system calls of `@system-service`, no
 writable and executable memory, 192 MB without swap; `systemd-analyze security telegraf` rates it.
@@ -207,12 +207,19 @@ one message too.
 | info | A7, D4, F6, F8 |
 
 ## Dashboards
-| Dashboard | Rows |
-| --- | --- |
-| VPS | A, B, G2 |
-| Site | C, D, E, G1 |
-| Find-a-Line | F (the queue and the worker first, then use: area, users by country, favourites; phase 3: the outside services, the routes, the housekeeping, the coverage map) |
-| Logs (phase 3) | the lines of `web`, `worker` and nginx's error log, filtered by container and level, next to the rate of error lines |
+Every dashboard starts with a row of tiles ("at a glance", red needs attention) and links to all the
+others, keeping the time range; the deployments (F10) are marked on all charts. Until 2026-11-02 the
+rows F were one dashboard, *Find-a-Line*, of about 60 panels.
+
+| Dashboard (uid) | Rows | Default range |
+| --- | --- | --- |
+| Overview (`overview`), Grafana's home page | One tile for every row with an alert rule, G1 and a few of the info rows (the site; the server: A, B, D1, D3, E1, G2; the application: F1-F3, F5-F8, F10, F11, F13, F14, F19), each with its alert's threshold and a link to its dashboard; the alerts firing; four charts (requests by status, searches by status, CPU and memory, error lines of the logs) | 24 h |
+| VPS (`vps`) | A, F9 (the runs and the cache by folder), B, G2 | 24 h |
+| Site (`site`) | C, F12 (the application's routes), D, E, G1 | 24 h |
+| Searches (`searches`) | F1-F5, F13: the queue and the worker, the searches finished and their errors, the quick lane, the housekeeping | 24 h |
+| Use (`use`) | F6-F8, F14-F17: accounts and activity, favourites, the area by day and country, users by country, the coverage map | 30 days |
+| Data and computing (`performance`) | F11, F18, F19: the outside services, the downloads per layer and the cache, the Mpx computed, seconds per Mpx, steps, stages and the funnel of the line search | 7 days |
+| Logs (`logs`, phase 3) | the lines of `web`, `worker` and nginx's error log, filtered by container and level, next to the rate of error lines | 24 h |
 
 ## The area searched
 - **Data.** Migration 13 of `jobs.sqlite` (automatic) adds `area_km2` and `country` to `jobs`. The
@@ -372,7 +379,7 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   after a computing phase that saved its run; a failed write never fails the search (a line to
   stderr). Jobs of before get none of these; `tools/job_stats.py` (read-only, standard library only,
   for the host's `python3`) reads their funnel and the stages' whole seconds from their info events.
-  The dashboard's row F18/F19 has three panels of them (mean CPU per step, seconds and CPU per stage,
+  The dashboard Data and computing (row Computing) has three panels of them (mean CPU per step, seconds and CPU per stage,
   the funnel per day). Why: docs/performance.md, "Order of elimination" — which kind of search uses
   the site's CPU decides which part of the line search to speed up first.
 - **The candidates of the funnel since the faster line search** (2026-11-01, branch `line-kernels`):

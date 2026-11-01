@@ -2,9 +2,9 @@
 # telegraf.conf and systemd/telegraf.service.d next to this file, installed by deploy/vps.sh),
 # reads the host, the containers, nginx and the facts files of the host's timers and writes to
 # VictoriaMetrics, and the log lines of web, worker and nginx's error log to VictoriaLogs; Grafana
-# shows the dashboards VPS, Site, Find-a-Line and Logs and sends its alerts to ntfy. A project of
-# its own, so monitoring is started, updated and stopped without touching the site (compose.yaml
-# of the checkout's root).
+# shows the dashboards (Overview, its home page, then VPS, Site, Searches, Use, Data and computing
+# and Logs) and sends its alerts to ntfy. A project of its own, so monitoring is started, updated
+# and stopped without touching the site (compose.yaml of the checkout's root).
 #
 # deploy/vps.sh runs it from the checkout's root (docker compose -f deploy/monitoring/compose.yaml
 # pull, then up -d --wait --remove-orphans); the project directory is this folder. Before that:
@@ -103,10 +103,11 @@ services:
         export FINDALINE_NTFY_URL="$${url:-grafana://noop}"
         exec /run.sh
     # Grafana 13 idles at about 250 MiB; opening the dashboard Find-a-Line (77 panels queried at
-    # once) took it past 512 MiB and the kernel killed it (2026-11-02). GOMEMLIMIT below makes
-    # Go's collector work harder before this hard limit is reached
-    mem_limit: 1g
-    memswap_limit: 1g
+    # once; since split in three) took it past 512 MiB and the kernel killed it (2026-11-02).
+    # At 1 GiB it stayed up, but reached 982 MiB showing all seven dashboards, hence 1.25 GiB.
+    # GOMEMLIMIT below makes Go's collector work harder before this hard limit is reached
+    mem_limit: 1280m
+    memswap_limit: 1280m
     pids_limit: 256
     # FINDALINE_PUBLIC_URL: the server the alerts name (label `server` of the rules; Grafana
     # expands environment variables in its provisioning files)
@@ -133,7 +134,9 @@ services:
       GF_PATHS_PLUGINS: /var/lib/grafana-plugins
       GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
       GF_LOG_MODE: console
-      GOMEMLIMIT: 800MiB   # Go's soft limit, below mem_limit (see there)
+      GOMEMLIMIT: 1000MiB   # Go's soft limit, below mem_limit (see there)
+      # The home page: the dashboard Overview (one tile per alerting row, the alerts firing)
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/overview.json
     secrets: [grafana_admin_password, ntfy_url]
     volumes:
       - grafana:/var/lib/grafana   # its database: nothing that cannot be provisioned again

@@ -116,22 +116,46 @@
   },
   "links": [
     {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/overview",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
       "title": "VPS",
       "type": "link",
       "url": "/d/vps",
-      "icon": "dashboard"
+      "icon": "dashboard",
+      "keepTime": true
     },
     {
       "title": "Site",
       "type": "link",
       "url": "/d/site",
-      "icon": "dashboard"
+      "icon": "dashboard",
+      "keepTime": true
     },
     {
-      "title": "Find-a-Line",
+      "title": "Searches",
       "type": "link",
-      "url": "/d/findaline",
-      "icon": "dashboard"
+      "url": "/d/searches",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Use",
+      "type": "link",
+      "url": "/d/use",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Data and computing",
+      "type": "link",
+      "url": "/d/performance",
+      "icon": "dashboard",
+      "keepTime": true
     }
   ],
   "panels": [

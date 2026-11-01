@@ -1,7 +1,7 @@
 {
   "uid": "vps",
   "title": "VPS",
-  "description": "The server of the public site: host, Docker, monitoring (docs/monitoring.md, rows A, B, G2).",
+  "description": "The server of the public site: host, the application's storage, Docker, monitoring (docs/monitoring.md, rows A, F9, B, G2).",
   "tags": [
     "findaline"
   ],
@@ -20,20 +20,65 @@
     "list": []
   },
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "name": "Deployments",
+        "enable": true,
+        "iconColor": "#8F8F8F",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "expr": "count by (version) (findaline_build_info) unless count by (version) (findaline_build_info offset 5m)",
+        "step": "1m",
+        "titleFormat": "Version {{version}}",
+        "textFormat": "",
+        "useValueForTime": false
+      }
+    ]
   },
   "links": [
+    {
+      "title": "Overview",
+      "type": "link",
+      "url": "/d/overview",
+      "icon": "dashboard",
+      "keepTime": true
+    },
     {
       "title": "Site",
       "type": "link",
       "url": "/d/site",
-      "icon": "dashboard"
+      "icon": "dashboard",
+      "keepTime": true
     },
     {
-      "title": "Find-a-Line",
+      "title": "Searches",
       "type": "link",
-      "url": "/d/findaline",
-      "icon": "dashboard"
+      "url": "/d/searches",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Use",
+      "type": "link",
+      "url": "/d/use",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Data and computing",
+      "type": "link",
+      "url": "/d/performance",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/logs",
+      "icon": "dashboard",
+      "keepTime": true
     }
   ],
   "panels": [
@@ -1898,13 +1943,177 @@
       }
     },
     {
+      "id": 105,
+      "type": "row",
+      "title": "Storage of the application (F9)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 60,
+      "type": "timeseries",
+      "title": "Runs (F9)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_runs_bytes)",
+          "legendFormat": "size",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum(findaline_runs)",
+          "legendFormat": "runs",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "none",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "runs"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
+      "id": 61,
+      "type": "timeseries",
+      "title": "Cache by folder (F9)",
+      "description": "Top-level folders of cache/, measured by the worker's housekeeping.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 43,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (folder) (findaline_cache_bytes)",
+          "legendFormat": "{{folder}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      }
+    },
+    {
       "id": 102,
       "type": "row",
       "title": "Docker (B)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 51,
         "w": 24,
         "h": 1
       },
@@ -1921,7 +2130,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 43,
+        "y": 52,
         "w": 12,
         "h": 8
       },
@@ -1997,7 +2206,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 43,
+        "y": 52,
         "w": 12,
         "h": 8
       },
@@ -2057,7 +2266,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 60,
         "w": 12,
         "h": 8
       },
@@ -2117,7 +2326,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 51,
+        "y": 60,
         "w": 12,
         "h": 8
       },
@@ -2173,7 +2382,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 68,
         "w": 24,
         "h": 1
       },
@@ -2190,7 +2399,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 60,
+        "y": 69,
         "w": 4,
         "h": 4
       },
@@ -2270,7 +2479,7 @@
       },
       "gridPos": {
         "x": 4,
-        "y": 60,
+        "y": 69,
         "w": 4,
         "h": 4
       },
@@ -2334,7 +2543,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 60,
+        "y": 69,
         "w": 4,
         "h": 4
       },
@@ -2398,7 +2607,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 60,
+        "y": 69,
         "w": 12,
         "h": 8
       },
@@ -2478,7 +2687,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 64,
+        "y": 73,
         "w": 12,
         "h": 4
       },

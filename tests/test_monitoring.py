@@ -20,7 +20,9 @@ GRAFANA = os.path.join(MONITORING, "grafana")
 DATASOURCE = "victoriametrics"
 LOGS_DATASOURCE = "victorialogs"
 SERVICES = {"victoriametrics", "victorialogs", "grafana", "socket-proxy"}   # Telegraf runs on the host
-DASHBOARDS = ["findaline", "logs", "site", "vps"]
+DASHBOARDS = ["logs", "overview", "performance", "searches", "site", "use", "vps"]
+# The dashboards of the application's rows F but F9, F12 (on VPS and Site)
+APP_DASHBOARDS = {"searches", "use", "performance"}
 # The measurements of the log lines: to VictoriaLogs only
 LOG_MEASUREMENTS = ["docker_log", "nginx_error"]
 # The application's /metrics (metrics.py, docs/monitoring.md rows F): every name as it is exposed,
@@ -153,10 +155,9 @@ def _queries():
     out = [(f"rule {r['uid']}", item["model"]["expr"]) for r in _rules() for item in r["data"]
            if item["datasourceUid"] == DATASOURCE]
     for name, dashboard in _dashboards().items():
-        if dashboard["uid"] == "logs":
-            continue
         for panel in dashboard["panels"]:
-            out += [(f"{dashboard['uid']} {panel['id']}", t["expr"]) for t in panel.get("targets", [])]
+            out += [(f"{dashboard['uid']} {panel['id']}", t["expr"]) for t in panel.get("targets", [])
+                    if t["datasource"]["uid"] == DATASOURCE]
         out += [(f"{dashboard['uid']} annotation {a['name']}", a["expr"]) for a in dashboard["annotations"]["list"]]
     return out
 
@@ -535,20 +536,29 @@ def test_alert_rules():
 
 
 def test_dashboards():
-    """The dashboards VPS, Site, Find-a-Line (VictoriaMetrics) and Logs (VictoriaLogs): unique panel
-    ids, every panel, query and annotation on its provisioned data source; the Logs dashboard's
-    queries filter by its variables (the plugin expands `field:$var` to `field:in(...)`, All to
-    `in(*)`) and use the plugin's query types; the coverage map gets numbers for its coordinates."""
+    """The dashboards Overview, VPS, Site, Searches, Use, Data and computing (VictoriaMetrics; the
+    Overview also one chart of VictoriaLogs and the alert list) and Logs (VictoriaLogs): unique panel
+    ids, panels that do not overlap, every panel, query and annotation on its provisioned data
+    source, each dashboard linking to all the others; the Logs dashboard's queries filter by its
+    variables (the plugin expands `field:$var` to `field:in(...)`, All to `in(*)`) and use the
+    plugin's query types; the coverage map gets numbers for its coordinates."""
     dashboards = _dashboards()
     assert sorted(d["uid"] for d in dashboards.values()) == DASHBOARDS
+    assert sorted(dashboards) == [uid + ".json" for uid in DASHBOARDS]
     for name, dashboard in dashboards.items():
-        source = LOGS_DATASOURCE if dashboard["uid"] == "logs" else DATASOURCE
+        sources = {"logs": {LOGS_DATASOURCE}, "overview": {DATASOURCE, LOGS_DATASOURCE}}.get(dashboard["uid"], {DATASOURCE})
         ids = [p["id"] for p in dashboard["panels"]]
         assert len(ids) == len(set(ids)), name
+        cells = [(x, y) for p in dashboard["panels"] for x in range(p["gridPos"]["x"], p["gridPos"]["x"] + p["gridPos"]["w"])
+                 for y in range(p["gridPos"]["y"], p["gridPos"]["y"] + p["gridPos"]["h"])]
+        assert len(cells) == len(set(cells)) and max(x for x, _ in cells) < 24, name
+        assert sorted(link["url"] for link in dashboard["links"]) == sorted(
+            f"/d/{uid}" for uid in DASHBOARDS if uid != dashboard["uid"]), name
         for panel in dashboard["panels"]:
-            if panel["type"] == "row":
+            if panel["type"] == "row" or (panel["type"] == "alertlist" and dashboard["uid"] == "overview"):
                 continue
-            assert panel["datasource"]["uid"] == source, (name, panel["id"])
+            source = panel["datasource"]["uid"]
+            assert source in sources, (name, panel["id"])
             assert panel["targets"], (name, panel["id"])
             for target in panel["targets"]:
                 assert target["datasource"]["uid"] == source, (name, panel["id"])
@@ -564,7 +574,7 @@ def test_dashboards():
             assert target["expr"].startswith("source:$source level:"), panel["id"]
             assert target["queryType"] == ("instant" if panel["type"] == "logs" else "statsRange"), panel["id"]
     assert [p["type"] for p in logs["panels"]] == ["timeseries", "timeseries", "logs"]
-    geomap = [p for p in dashboards["findaline.json"]["panels"] if p["type"] == "geomap"]
+    geomap = [p for p in dashboards["use.json"]["panels"] if p["type"] == "geomap"]
     assert len(geomap) == 1
     assert geomap[0]["targets"][0]["expr"] == "sum by (lat, lon) (findaline_searches_by_cell)"
     assert geomap[0]["targets"][0]["format"] == "table"
@@ -573,12 +583,37 @@ def test_dashboards():
     assert location == {"mode": "coords", "latitude": "latitude", "longitude": "longitude"}
 
 
+def test_overview():
+    """The dashboard Overview is Grafana's home page and shows a tile for every row with an alert rule
+    (and G1, healthchecks.io's: the heartbeat timer), each opening a dashboard that exists, next to
+    the list of the alerts firing; its chart of the logs asks VictoriaLogs without the variables of
+    the dashboard Logs."""
+    environment = _compose()["services"]["grafana"]["environment"]
+    assert environment["GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH"] == "/etc/grafana/dashboards/overview.json"
+    panels = _dashboards()["overview.json"]["panels"]
+    tiles = [p for p in panels if p["type"] == "stat"]
+    shown = set()
+    for tile in tiles:
+        shown |= set(re.findall(r"\b[A-G]\d+\b", tile["title"]))
+        (link,) = tile["fieldConfig"]["defaults"]["links"]
+        assert link["url"].removeprefix("/d/").split("?")[0] in DASHBOARDS and link["oneClick"], tile["title"]
+    rows = {rule["labels"]["row"] for rule in _rules()} | {"G1"}
+    assert rows <= shown, rows - shown
+    assert [p["type"] for p in panels].count("alertlist") == 1
+    for panel in panels:
+        for target in panel.get("targets", []):
+            if target["datasource"]["uid"] == LOGS_DATASOURCE:
+                assert "$" not in target["expr"] and target["queryType"] == "statsRange", panel["id"]
+
+
 def test_queries_name_known_metrics():
     """Every findaline_* metric a rule, panel or annotation asks for is one of the application's
-    (APP_METRICS, with its labels) or of the host's files; the dashboard Find-a-Line and the rules
+    (APP_METRICS, with its labels) or of the host's files; the dashboards Searches, Use and Data and
+    computing and the rules
     of rows F ask for nothing else (and group by no label but theirs and the host)."""
     app_labels = set().union(*APP_METRICS.values()) | {"host"}
-    app_queries = {where for where, _ in _queries() if re.match(r"findaline |rule (f\d|g2-app)", where)}
+    app_queries = {where for where, _ in _queries()
+                   if re.match(rf"({'|'.join(APP_DASHBOARDS)}) |rule (f\d|g2-app)", where)}
     assert len(app_queries) > 40
     for where, expr in _queries():
         names, labels, grouping = _metrics(expr)
@@ -643,6 +678,10 @@ def test_live_stack():
     assert _get(LIVE + "/api/health")["database"] == "ok"
     assert _get(LIVE + f"/api/datasources/uid/{DATASOURCE}/health")["status"] == "OK"
     assert sorted(d["uid"] for d in _get(LIVE + "/api/search?type=dash-db")) == DASHBOARDS
+    # The home page: Grafana 13 shows the file of GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH as a
+    # copy of its own (uid default-home-dashboard), the slug its title's
+    home = _get(LIVE + "/api/dashboards/home")
+    assert home.get("dashboard", {}).get("uid") == "overview" or home.get("redirectUri", "").endswith("/overview"), home
     provisioned = {r["uid"]: r for r in _get(LIVE + "/api/v1/provisioning/alert-rules")}
     assert set(provisioned) == {r["uid"] for r in _rules()}
     assert {r["folderUID"] for r in provisioned.values()} == {
@@ -688,6 +727,9 @@ def test_live_stack():
             continue
         for panel in dashboard["panels"]:
             for target in panel.get("targets", []):
+                if target["datasource"]["uid"] == LOGS_DATASOURCE:   # the Overview's chart of the logs
+                    errors[f"{name} {panel['id']} {target['refId']}"] = logs(target["expr"], target["queryType"]).get("error")
+                    continue
                 errors[f"{name} {panel['id']} {target['refId']}"] = query(
                     target["expr"].replace("$__rate_interval", "2m"), bool(target.get("instant")))
         for annotation in dashboard["annotations"]["list"]:

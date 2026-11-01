@@ -1,0 +1,3745 @@
+{
+  "uid": "overview",
+  "title": "Overview",
+  "description": "Is everything fine? One tile per alerting row (red needs attention, a click opens its dashboard), the alerts firing and four charts of the last 24 h (docs/monitoring.md, \"Dashboards\").",
+  "tags": [
+    "findaline"
+  ],
+  "timezone": "browser",
+  "editable": false,
+  "graphTooltip": 1,
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": [
+      {
+        "name": "Deployments",
+        "enable": true,
+        "iconColor": "#8F8F8F",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "expr": "count by (version) (findaline_build_info) unless count by (version) (findaline_build_info offset 5m)",
+        "step": "1m",
+        "titleFormat": "Version {{version}}",
+        "textFormat": "",
+        "useValueForTime": false
+      }
+    ]
+  },
+  "links": [
+    {
+      "title": "VPS",
+      "type": "link",
+      "url": "/d/vps",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Site",
+      "type": "link",
+      "url": "/d/site",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Searches",
+      "type": "link",
+      "url": "/d/searches",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Use",
+      "type": "link",
+      "url": "/d/use",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Data and computing",
+      "type": "link",
+      "url": "/d/performance",
+      "icon": "dashboard",
+      "keepTime": true
+    },
+    {
+      "title": "Logs",
+      "type": "link",
+      "url": "/d/logs",
+      "icon": "dashboard",
+      "keepTime": true
+    }
+  ],
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "The site (C, D2, G1)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Site (C6)",
+      "description": "Status of the home page through the site's public address, asked from the server. Alert when not 200 for 2 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time(http_response_http_response_code[2m]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 201
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no answer",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Ping (G1)",
+      "description": "The timer that pings healthchecks.io while the site answers; a missing ping is reported by healthchecks.io itself, not here.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(last_over_time(systemd_units_active_code{name=\"findaline-heartbeat.timer\"}[10m]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "active",
+                  "color": "green"
+                },
+                "2": {
+                  "text": "inactive",
+                  "color": "red"
+                },
+                "3": {
+                  "text": "failed",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "noValue": "unknown",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "5xx (C1)",
+      "description": "Share of the answers with a 5xx status. Alert above 2 % for 5 min (at least 20 requests).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(sum_over_time(nginx_requests_request_time_count{class=\"5xx\"}[5m])) / sum(sum_over_time(nginx_requests_request_time_count[5m])) * 100",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "decimals": 1,
+          "noValue": "0 %",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "API p95 (C2)",
+      "description": "95th percentile of nginx's request time of /api/ (event streams not included). Alert above 2 s for 10 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(avg_over_time(nginx_times_request_time_095{group=\"api\"}[5m]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "decimals": 2,
+          "noValue": "no requests",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Requests/s",
+      "description": "All groups, mean of 5 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(sum_over_time(nginx_requests_request_time_count[5m])) / 300",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 2,
+          "noValue": "0",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Limits (C3)",
+      "description": "Requests refused by nginx's limit_req zones.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(sum_over_time(nginx_requests_rejected_sum[1h]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "0",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Cert (C5)",
+      "description": "Days until the site's certificate expires; certbot renews from 30. Alert below 14.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min(x509_cert_expiry{type=\"leaf\"}) / 86400",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: days",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 25
+              }
+            ]
+          },
+          "decimals": 0,
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Bans (D2)",
+      "description": "Alerts: more than 10 bans of the site's jail or 100 of sshd in an hour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 1,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(increase_prometheus(findaline_facts_fail2ban_findaline_banned_total[1h]))",
+          "legendFormat": "site",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(increase_prometheus(findaline_facts_fail2ban_sshd_banned_total[1h]))",
+          "legendFormat": "ssh",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 10
+              }
+            ]
+          },
+          "decimals": 0,
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "The server (A, B, D, E, G2)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Steal (A1)",
+      "description": "Time the hypervisor gave to the provider's other customers, mean of 5 min. Alert above 20 % for 15 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(avg_over_time(cpu_usage_steal[5m]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "decimals": 1,
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "RAM (A2)",
+      "description": "Alert below 5 % for 5 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min(mem_available_percent)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 5
+              },
+              {
+                "color": "green",
+                "value": 15
+              }
+            ]
+          },
+          "decimals": 1,
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "OOM (A2)",
+      "description": "Processes the kernel killed for lack of memory (host-wide, also inside containers). Alert on any.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(increase_prometheus(kernel_vmstat_oom_kill[24h]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "0",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Docker (A3)",
+      "description": "Docker's data root: the site's data, runs and cache, and this monitoring. The site refuses searches below 20 GB; alert below 30 GB.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min(disk_free{path=\"/srv/docker\"})",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 30000000000.0
+              },
+              {
+                "color": "green",
+                "value": 60000000000.0
+              }
+            ]
+          },
+          "decimals": 1,
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Full in (A3)",
+      "description": "Days until the disk is full at the rate of the last 7 days (linear).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min((disk_free{path=\"/srv/docker\"} / -deriv(disk_free{path=\"/srv/docker\"}[7d]) / 86400) > 0)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 14
+              },
+              {
+                "color": "green",
+                "value": 60
+              }
+            ]
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "range",
+              "options": {
+                "from": 3650,
+                "to": null,
+                "result": {
+                  "text": "years"
+                }
+              }
+            }
+          ],
+          "noValue": "not filling",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Root / (A3)",
+      "description": "Alert below 10 GB.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "min(disk_free{path=\"/\"})",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "decbytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 10000000000.0
+              },
+              {
+                "color": "green",
+                "value": 20000000000.0
+              }
+            ]
+          },
+          "decimals": 1,
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Holes (A4)",
+      "description": "Unallocated parts of the disk image of --disk-image (host facts); vps.sh check fails above 1 GiB.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(findaline_facts_image_holes_bytes)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 549755813888
+              },
+              {
+                "color": "red",
+                "value": 1073741824
+              }
+            ]
+          },
+          "decimals": 1,
+          "noValue": "no image",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Clock (A8)",
+      "description": "chronyd's offset from NTP time. Alert above 1 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 5,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(abs(chrony_system_time))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 0.1
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 3,
+          "noValue": "no chrony",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "web, worker",
+      "description": "web: its healthcheck; worker: running (it has no healthcheck). Alerts: not running, web unhealthy for 2 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max by (container_name) (last_over_time(docker_container_health_health_code{container_name=\"findaline-web-1\"}[2m]))",
+          "legendFormat": "web",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max by (container_name) (last_over_time(docker_container_status_uptime_ns{container_name=\"findaline-worker-1\",container_status=\"running\"}[2m]) * 0)",
+          "legendFormat": "worker",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "healthy",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "starting",
+                  "color": "#EAB839"
+                },
+                "2": {
+                  "text": "unhealthy",
+                  "color": "red"
+                },
+                "3": {
+                  "text": "unknown",
+                  "color": "#EAB839"
+                }
+              }
+            }
+          ],
+          "noValue": "not running",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 18,
+      "type": "stat",
+      "title": "Restarts (B1)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(increase_prometheus(docker_container_status_restart_count{container_name=~\"findaline-.+\"}[24h]))",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "0",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 19,
+      "type": "stat",
+      "title": "W RAM (B2)",
+      "description": "Of WORKER_MEMORY (without the page cache). Alert above 90 % for 5 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(docker_container_mem_usage_percent{container_name=\"findaline-worker-1\"})",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "decimals": 0,
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Telegraf (G2)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(increase_prometheus(internal_write_errors[1h]))",
+          "legendFormat": "errors",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(increase_prometheus(internal_write_metrics_dropped[1h]))",
+          "legendFormat": "dropped",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "0",
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 21,
+      "type": "stat",
+      "title": "Units (D1)",
+      "description": "Units failed or not loaded (nginx, docker, fail2ban, ssh, unattended-upgrades and the timers).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "count(last_over_time(systemd_units_active_code[10m]) == 3 or last_over_time(systemd_units_load_code[10m]) > 0) or vector(0)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "all fine"
+                }
+              }
+            }
+          ],
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Check (D3)",
+      "description": "The daily check of the firewall, headers, SSH and the jail. Alert on any FAIL.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(findaline_check_failed)",
+          "legendFormat": "FAIL",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(findaline_check_ok)",
+          "legendFormat": "ok",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "not run",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Backup (E1)",
+      "description": "Age of the last successful backup. Alert above 26 h.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "time() - max(findaline_backup_last_success)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 90000
+              },
+              {
+                "color": "red",
+                "value": 93600
+              }
+            ]
+          },
+          "noValue": "none yet",
+          "links": [
+            {
+              "title": "Open Site",
+              "url": "/d/site?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Apt (A7)",
+      "description": "Packages with an update; unattended-upgrades installs the security ones every day.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 8,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(findaline_facts_updates_pending)",
+          "legendFormat": "all",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(findaline_facts_updates_security)",
+          "legendFormat": "security",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "links": [
+            {
+              "title": "Open VPS",
+              "url": "/d/vps?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "The application (F)",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Worker (F1)",
+      "description": "Workers with a live lease (renewed every 5 s, valid 30 s). Alert: none for 2 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_workers_alive)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none alive"
+                }
+              }
+            }
+          ],
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Queue (F2)",
+      "description": "Searches waiting or running against queue_max (new searches are refused at 100 %). Alert above 80 %.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_jobs) / max(findaline_queue_max) * 100",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 60
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no limit",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 27,
+      "type": "stat",
+      "title": "Waiting (F2)",
+      "description": "Age of the oldest queued or downloaded search not yet running. Alert above 30 min.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(findaline_job_oldest_waiting_seconds)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "dtdurations",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 900
+              },
+              {
+                "color": "red",
+                "value": 1800
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none waiting"
+                }
+              }
+            }
+          ],
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 28,
+      "type": "stat",
+      "title": "Running (F2)",
+      "description": "Searches in each phase now (the worker's slots: the chart below).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_jobs{status=\"downloading\"}) or max(findaline_build_info) * 0",
+          "legendFormat": "download",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum(findaline_jobs{status=\"computing\"}) or max(findaline_build_info) * 0",
+          "legendFormat": "compute",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Internal (F3)",
+      "description": "In the last 24 hours: searches failed by an unexpected exception (\"internal error, ref ...\" for the user). Alert on any.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "(sum(findaline_jobs_finished_total{error=\"internal\"}) or max(findaline_build_info) * 0) - (sum(findaline_jobs_finished_total{error=\"internal\"} offset 24h) or max(findaline_build_info offset 24h) * 0)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 30,
+      "type": "stat",
+      "title": "Failed (F3)",
+      "description": "Share of the searches finished in the last hour that failed. Alert above 30 % (at least 3 finished).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "((sum(findaline_jobs_finished_total{status=\"failed\"}) or max(findaline_build_info) * 0) - (sum(findaline_jobs_finished_total{status=\"failed\"} offset 1h) or max(findaline_build_info offset 1h) * 0)) / ((sum(findaline_jobs_finished_total) or max(findaline_build_info) * 0) - (sum(findaline_jobs_finished_total offset 1h) or max(findaline_build_info offset 1h) * 0)) * 100",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 15
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "none finished",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 31,
+      "type": "stat",
+      "title": "Quick (F5)",
+      "description": "Age of the oldest waiting estimate, profile or place lookup. Alert above 30 s.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max(findaline_quick_oldest_waiting_seconds)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none waiting"
+                }
+              }
+            }
+          ],
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 32,
+      "type": "stat",
+      "title": "Clean (F13)",
+      "description": "Time since the worker's housekeeping last ended (every 6 h); the alert fires after 18 h.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 12,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "time() - max(findaline_housekeeping_last_run_timestamp_seconds)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 25200
+              },
+              {
+                "color": "red",
+                "value": 64800
+              }
+            ]
+          },
+          "noValue": "no round yet",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 33,
+      "type": "stat",
+      "title": "Pending (F6)",
+      "description": "Accounts waiting for approval on the Admin page. Info: a new one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_users{status=\"pending\"}) or max(findaline_build_info) * 0",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no accounts",
+          "links": [
+            {
+              "title": "Open Use",
+              "url": "/d/use?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 34,
+      "type": "stat",
+      "title": "Reports (F8)",
+      "description": "Problem reports not marked done (Admin page). Info: a new one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_reports_open)",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Use",
+              "url": "/d/use?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 35,
+      "type": "stat",
+      "title": "Refused (F7)",
+      "description": "Requests refused by a rate or a quota in the last hour (audit). Alert: more than 20 and 3 times the hourly mean of the day before.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_refusals_last_hour) or max(findaline_build_info) * 0",
+          "legendFormat": "__auto",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "#EAB839",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Use",
+              "url": "/d/use?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 36,
+      "type": "stat",
+      "title": "Active (F7)",
+      "description": "Signed-in sessions seen within the window (15 min, 24 h).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 9,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(findaline_sessions_active{window=\"15m\"})",
+          "legendFormat": "15 min",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "sum(findaline_sessions_active{window=\"24h\"})",
+          "legendFormat": "24 h",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no accounts",
+          "links": [
+            {
+              "title": "Open Use",
+              "url": "/d/use?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 37,
+      "type": "stat",
+      "title": "km\u00b2 today",
+      "description": "km\u00b2 of the searches finished in the last 24 hours (computed; in total: the panel to the right) and km\u00b2 of new terrain data downloaded for them (the rest came from the cache).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "(sum(findaline_area_km2_total) or max(findaline_build_info) * 0) - (sum(findaline_area_km2_total offset 24h) or max(findaline_build_info offset 24h) * 0)",
+          "legendFormat": "computed",
+          "instant": true,
+          "range": false
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "(sum(findaline_download_km2_total{role=\"terrain\"}) or max(findaline_build_info) * 0) - (sum(findaline_download_km2_total{role=\"terrain\"} offset 24h) or max(findaline_build_info offset 24h) * 0)",
+          "legendFormat": "downloaded",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: km\u00b2",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Use",
+              "url": "/d/use?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 38,
+      "type": "stat",
+      "title": "Hosts (F11)",
+      "description": "Outside services with more than 20 % of their requests failed in the last 30 min (at least 10 requests), as the alert F11.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "count((((sum by (host) (findaline_service_requests_total{outcome!~\"ok|not_found\"}) or sum by (host) (findaline_service_requests_total) * 0) - (sum by (host) (findaline_service_requests_total{outcome!~\"ok|not_found\"} offset 30m) or sum by (host) (findaline_service_requests_total) * 0 and on () max(findaline_build_info offset 30m))) / (sum by (host) (findaline_service_requests_total) - (sum by (host) (findaline_service_requests_total offset 30m) or sum by (host) (findaline_service_requests_total) * 0 and on () max(findaline_build_info offset 30m))) * 100 and (sum by (host) (findaline_service_requests_total) - (sum by (host) (findaline_service_requests_total offset 30m) or sum by (host) (findaline_service_requests_total) * 0 and on () max(findaline_build_info offset 30m))) >= 10) > 20) or vector(0)",
+          "legendFormat": "hosts",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none"
+                }
+              }
+            }
+          ],
+          "links": [
+            {
+              "title": "Open Data and computing",
+              "url": "/d/performance?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 39,
+      "type": "stat",
+      "title": "Mpx today",
+      "description": "Mpx (km\u00b2 / resolution\u00b2) of the searches finished in the last 24 h: the measure of the compute quota.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum(increase(findaline_computed_mpx_total[24h]))",
+          "legendFormat": "Mpx",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "suffix: Mpx",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 1,
+          "mappings": [],
+          "links": [
+            {
+              "title": "Open Data and computing",
+              "url": "/d/performance?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "auto",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 40,
+      "type": "stat",
+      "title": "Version",
+      "description": "The application's version (pyproject.toml). A new version is marked on the charts.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 15,
+        "w": 3,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "max by (version) (findaline_build_info)",
+          "legendFormat": "{{version}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "no metrics",
+          "links": [
+            {
+              "title": "Open Searches",
+              "url": "/d/searches?${__url_time_range}",
+              "oneClick": true
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "name",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      }
+    },
+    {
+      "id": 41,
+      "type": "alertlist",
+      "title": "Alerts firing",
+      "description": "The alert rules of the folder Find-a-Line now firing or pending (both levels, alert and info).",
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 8,
+        "h": 8
+      },
+      "options": {
+        "viewMode": "list",
+        "groupMode": "default",
+        "groupBy": [],
+        "maxItems": 20,
+        "sortOrder": 1,
+        "dashboardAlerts": false,
+        "alertName": "",
+        "alertInstanceLabelFilter": "",
+        "showInstances": true,
+        "stateFilter": {
+          "firing": true,
+          "pending": true,
+          "noData": false,
+          "normal": false,
+          "error": true
+        }
+      }
+    },
+    {
+      "id": 42,
+      "type": "timeseries",
+      "title": "Requests per second by status (C1)",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 18,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (class) (rate_over_sum(nginx_requests_request_time_count[$__rate_interval]))",
+          "legendFormat": "{{class}}",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "Site",
+          "url": "/d/site?${__url_time_range}"
+        }
+      ]
+    },
+    {
+      "id": 43,
+      "type": "timeseries",
+      "title": "Searches by status (F2)",
+      "description": "Waiting (queued, ready: downloaded) and running (downloading, computing); new searches are refused at queue_max.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 18,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "sum by (status) (findaline_jobs)",
+          "legendFormat": "{{status}}",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "max(findaline_queue_max)",
+          "legendFormat": "queue_max",
+          "range": true
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 40,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "queue_max"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.stacking",
+                "value": {
+                  "mode": "none",
+                  "group": "A"
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "Searches",
+          "url": "/d/searches?${__url_time_range}"
+        }
+      ]
+    },
+    {
+      "id": 44,
+      "type": "timeseries",
+      "title": "CPU and memory used (A1, A2)",
+      "description": "CPU busy (all but idle, all cores) and memory used (all but available), in % of the server's.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 22,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "A",
+          "expr": "100 - avg(cpu_usage_idle)",
+          "legendFormat": "CPU"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "refId": "B",
+          "expr": "100 - min(mem_available_percent)",
+          "legendFormat": "memory"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 30,
+            "showPoints": "never",
+            "spanNulls": false,
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 100,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "VPS",
+          "url": "/d/vps?${__url_time_range}"
+        }
+      ]
+    },
+    {
+      "id": 45,
+      "type": "timeseries",
+      "title": "Error lines per 5 minutes",
+      "description": "Lines of level error by source (the application: exceptions, tracebacks, internal errors; nginx: error, crit, alert, emerg).",
+      "datasource": {
+        "type": "victoriametrics-logs-datasource",
+        "uid": "victorialogs"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 22,
+        "w": 8,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "victoriametrics-logs-datasource",
+            "uid": "victorialogs"
+          },
+          "refId": "A",
+          "expr": "level:error | stats by (source) count() lines",
+          "queryType": "statsRange",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "interval": "5m",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "lineWidth": 1,
+            "fillOpacity": 80,
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "axisSoftMin": 0
+          },
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "links": [
+        {
+          "title": "Logs",
+          "url": "/d/logs?${__url_time_range}"
+        }
+      ]
+    }
+  ]
+}

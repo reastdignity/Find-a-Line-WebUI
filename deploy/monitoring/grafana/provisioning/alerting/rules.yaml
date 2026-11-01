@@ -1028,7 +1028,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "No worker has renewed its lease for 2 min: searches wait and estimates fail (docker compose ps worker)."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "2"
         isPaused: false
       - uid: f2-oldest-waiting
@@ -1060,7 +1060,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "A search has waited {{ humanizeDuration (index .Values \"A\").Value }} for the worker (alert above 30 min)."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "4"
         isPaused: false
       - uid: f2-queue-full
@@ -1092,7 +1092,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "The queue is at {{ humanize (index .Values \"A\").Value }} % of queue_max for 5 min: new searches are refused at 100 %."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "3"
         isPaused: false
       - uid: f3-internal-error
@@ -1124,7 +1124,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "A search failed by an internal error: its ref is in the worker's log (docker compose logs worker)."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "6"
         isPaused: false
       - uid: f3-failed-share
@@ -1156,7 +1156,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "{{ humanize (index .Values \"A\").Value }} % of the searches finished in the last hour failed (alert above 30 %, at least 3 finished)."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "7"
         isPaused: false
       - uid: f5-quick-waiting
@@ -1188,7 +1188,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "An estimate or profile has waited {{ humanize (index .Values \"A\").Value }} s for the quick lane (alert above 30 s)."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "8"
         isPaused: false
       - uid: f6-pending-account
@@ -1220,7 +1220,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "A new account waits for approval ({{ humanize (index .Values \"A\").Value }} pending): the Admin page."
-          __dashboardUid__: findaline
+          __dashboardUid__: use
           __panelId__: "10"
         isPaused: false
       - uid: f7-refusals
@@ -1252,7 +1252,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "{{ humanize (index .Values \"A\").Value }} requests refused by rates or quotas in the last hour, over 3 times the usual: an abuse, or limits too tight."
-          __dashboardUid__: findaline
+          __dashboardUid__: use
           __panelId__: "12"
         isPaused: false
       - uid: f8-report
@@ -1284,7 +1284,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "A new problem report ({{ humanize (index .Values \"A\").Value }} open): the Admin page."
-          __dashboardUid__: findaline
+          __dashboardUid__: use
           __panelId__: "11"
         isPaused: false
       - uid: f11-service-failing
@@ -1316,7 +1316,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "{{ humanize (index .Values \"A\").Value }} % of the requests to {{ index .Labels \"host\" }} failed in the last 30 min (alert above 20 %, at least 10 requests): the service is down, slow or refuses us."
-          __dashboardUid__: findaline
+          __dashboardUid__: performance
           __panelId__: "71"
         isPaused: false
       - uid: f13-housekeeping-stale
@@ -1348,7 +1348,7 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "The worker's housekeeping last ended {{ humanizeDuration (index .Values \"A\").Value }} ago (it runs every 6 h; alert after 18 h): old events, .part files and work folders pile up."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "79"
         isPaused: false
       - uid: g2-app-silent
@@ -1380,6 +1380,6 @@ groups:
           server: ${FINDALINE_PUBLIC_URL}
         annotations:
           summary: "No samples of the application's /metrics (127.0.0.1:8766) for 10 min: the web service is down, or its metrics thread."
-          __dashboardUid__: findaline
+          __dashboardUid__: searches
           __panelId__: "2"
         isPaused: false
