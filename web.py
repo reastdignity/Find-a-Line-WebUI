@@ -374,9 +374,9 @@ PUBLIC_ROUTES = {"/", "/login/{provider}", "/auth/{provider}", "/logout", "/app"
                  "/runs/runs.js", "/s/runs.js", "/s/index.html", "/cache/{path:path}", "/privacy", "/about"}
 SESSION_SWEEP = 6 * 3600  # seconds between deletions of expired sessions (the web process, public site)
 SHARE_BYTES = 32  # the random part of a share link
-# Sources for administrators only on the public site: nasadem needs the server's OpenTopography key,
-# malta2012's licence is not settled (sources.MALTA_CREDITS)
-ADMIN_SOURCES = ("nasadem", "malta2012")
+# Sources for administrators only on the public site: nasadem needs the server's OpenTopography key, which
+# OpenTopography gives one user for their own use (malta2012 is CC BY 4.0 like malta: open to everyone)
+ADMIN_SOURCES = ("nasadem",)
 SSE_PER_USER = 3  # open event streams of one user (the public mode)
 SESSION_CHECK = 30  # seconds between checks of the session inside an open event stream (the public mode)
 # A refusal by a rate or a quota is one row of the audit log per user and kind in this many seconds;
@@ -1666,19 +1666,22 @@ def about_page(contact: str) -> str:
     rows = [f"<li><b>{e(c.data)}</b>: {e(src.dated(c.attribution, src.YEAR_TEXT))}. Licence: {link(c.licence, c.url)}."
             + (f" <span class='u-small'>{e(src.dated(c.notice, src.YEAR_TEXT))}</span>" if c.notice else "") + "</li>"
             for c in credits.values()]
-    orthos = {s.ortho.name: src.dated(s.ortho.attribution, src.YEAR_TEXT)
+    # an orthophoto's attribution is a link where its terms ask for one (OrthoService.attribution_url)
+    orthos = {s.ortho.name: link(src.dated(s.ortho.attribution, src.YEAR_TEXT), s.ortho.attribution_url or "")
               for s in src.SOURCES.values() if s.ortho is not None}
     body = [
         "<p>Find-a-Line finds possible highlines in elevation data: anchors on steep ground, every pair checked for "
         "clearance under the webbing. Its results are suggestions to check on the spot, not safety advice.</p>",
         "<h2>Elevation data</h2><ul>" + "".join(rows) + "</ul>",
+        f"<p>{e(src.credit.PROCESSED_NOTE)}</p>",
         "<h2>OpenStreetMap</h2><p>Coastlines, cliffs, named areas and place names: © "
         "<a href='https://www.openstreetmap.org/copyright'>OpenStreetMap contributors</a>, under the Open Database "
-        "Licence (ODbL 1.0); searched with Nominatim and the Overpass API, extracts from Geofabrik.</p>",
+        "Licence (ODbL 1.0); searched with Nominatim and the Overpass API, extracts from Geofabrik. Errors in the "
+        f"map data can be reported at <a href='{e(src.credit.OSM_FIXTHEMAP)}'>openstreetmap.org/fixthemap</a>.</p>",
         "<h2>Orthophotos and background maps</h2><ul>"
-        + "".join(f"<li>{e(name)}: {e(attribution)}</li>" for name, attribution in orthos.items())
+        + "".join(f"<li>{e(name)}: {attribution}</li>" for name, attribution in orthos.items())
         + "<li>OpenStreetMap tiles: © OpenStreetMap contributors</li><li>OpenTopoMap: © OpenTopoMap (CC-BY-SA)"
-          "</li><li>Esri World Imagery: © Esri and its data providers</li></ul>",
+          "</li></ul>",
         "<p>Each run names the data it used in its map and in its ATTRIBUTION.txt; results made from FABDEM may be "
         "shared only for non-commercial use, under the same licence.</p>",
         f"<p>Contact: {e(contact)}.</p>",

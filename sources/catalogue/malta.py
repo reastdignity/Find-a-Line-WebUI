@@ -2,17 +2,25 @@
 
 from typing import List
 
-from ..credit import Credit
+from ..credit import CC_BY, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
-MSDI = "https://msdi.data.gov.mt/geonetwork/"
+# The Planning Authority's datasets on the national open data portal (checked 2026-11-01: license_id
+# CC-BY-4.0, organisation Planning Authority, for the DTM and DSM of 2018 and 2012 and the orthoimagery
+# of 2018); the MSDI geonetwork named before answers 403
+MT_PORTAL = "https://portal.data.gov.mt/dataset/"
 MALTA_CREDITS = {
-    2018: Credit("Malta LiDAR 2018 (Planning Authority, MSDI)", "Planning Authority Malta (MSDI), LiDAR 2018",
-                 "no conditions on access and use (INSPIRE metadata)", MSDI),
-    # The MSDI records were reported as CC BY-NC-ND 4.0, the INSPIRE ones as without conditions
-    2012: Credit("Malta LiDAR 2012 (Planning Authority, MSDI)", "Planning Authority Malta (MSDI), LiDAR 2012",
-                 "unresolved (CC BY-NC-ND 4.0 or no conditions)", MSDI),
+    2018: Credit("Malta LiDAR 2018 (Planning Authority, MSDI)",
+                 "Planning Authority, Malta: Digital Terrain / Surface Model 2018, CC BY 4.0", CC_BY[0],
+                 f"{MT_PORTAL}digital-terrain-model-2018",
+                 notice=f"Surface model: {MT_PORTAL}digital-surface-model-2018. Licence: {CC_BY[1]}"),
+    2012: Credit("Malta LiDAR 2012 (Planning Authority, MSDI)",
+                 "Planning Authority, Malta: Digital Terrain / Surface Model 2012, CC BY 4.0", CC_BY[0],
+                 f"{MT_PORTAL}digital-terrain-model-2012",
+                 notice=f"Surface model: {MT_PORTAL}digital-surface-model-2012. Licence: {CC_BY[1]}; "
+                        "changed: moved 56 m west and 196 m south to its true position (the services' "
+                        "georeferencing is off by that much)."),
 }
 MALTA = "https://malta.coverage.wetransform.eu"
 
@@ -42,7 +50,9 @@ def _malta(year: int, note: str = "") -> Source:
         countries=("mt",) if year == 2018 else (), crs=crs,
         fallback="malta" if year == 2012 else "europe", credits=(MALTA_CREDITS[year],),
         ortho=OrthoService("Orthophoto Malta 2018 (MSDI)", f"{MALTA}/wms/ortho_2018/ows",
-                           "OI.OrthoimageCoverage", "malta/ortho/2018", "Planning Authority Malta"),
+                           "OI.OrthoimageCoverage", "malta/ortho/2018",
+                           "Orthoimagery 2018: Planning Authority, Malta, CC BY 4.0",
+                           attribution_url=CC_BY[1]),  # dataset: MT_PORTAL orthoimagery-2018
         listing=MALTA_LISTINGS[year], offline=(("mt", (35.78, 36.10, 14.15, 14.60)),) if year == 2018 else (),
         sample=(35.8565, 14.3830), note=note)
 

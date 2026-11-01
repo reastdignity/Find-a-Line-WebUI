@@ -36,5 +36,13 @@ def dated_credit(credit: Dict, year: Union[int, str]) -> Dict:
 
 
 CC_BY = ("CC BY 4.0", "https://creativecommons.org/licenses/by/4.0/")
+DL_DE_BY = ("dl-de/by-2.0", "https://www.govdata.de/dl-de/by-2-0")
+# FOSSGIS's terms of the Overpass API ask for a link to the page where errors in the data are reported
+OSM_FIXTHEMAP = "https://www.openstreetmap.org/fixthemap"
 OSM_CREDIT = Credit("OpenStreetMap", "© OpenStreetMap contributors", "ODbL 1.0",
-                    "https://www.openstreetmap.org/copyright")
+                    "https://www.openstreetmap.org/copyright",
+                    notice=f"Report errors in the map data: {OSM_FIXTHEMAP}")
+# Written with every run's credits (ATTRIBUTION.txt) and on the about page: what is made from the data
+# is a changed work (CC BY's "indicate if changes were made", dl-de/by-2.0 §3, OGL, Defra's Fair Use Policy §7)
+PROCESSED_NOTE = ("Find-a-Line's lines, heights, profiles and maps are computed from these data, which were "
+                  "resampled and combined onto a working grid (changed).")

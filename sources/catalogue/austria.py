@@ -47,10 +47,11 @@ BEV_DTM = FileBlocks("ALS DTM 1 m (terrain)", f"austria/als-dtm/{BEV_EDITION}", 
 BEV_DSM = FileBlocks("ALS DSM 1 m (trees, buildings)", f"austria/als-dsm/{BEV_EDITION}", "EPSG:3035", 1.0, 1000,
                      bev_files("DSM"), origin=(0.5, 0.5), bytes_per_tile=2.5e6)
 # basemap.at's orthophoto (Länder flights of different years) in the map's own tiling, up to zoom 19;
-# CC BY 4.0, credited "Datenquelle: basemap.at"; no request limits published
+# CC BY 4.0, credited "Datenquelle: basemap.at", where its terms ask for "basemap.at" as a link to
+# https://basemap.at (attribution_url); no request limits published
 BASEMAP_ORTHO = OrthoService("basemap.at Orthofoto", None, "", "austria/ortho/live", "Datenquelle: basemap.at",
                              base_url="https://mapsneu.wien.gv.at/basemap/bmaporthofoto30cm/normal/google3857"
-                                      "/{z}/{y}/{x}.jpeg", base_max_zoom=19)
+                                      "/{z}/{y}/{x}.jpeg", base_max_zoom=19, attribution_url="https://basemap.at")
 
 
 SOURCES: List[Source] = [

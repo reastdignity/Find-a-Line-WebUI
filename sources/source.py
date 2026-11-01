@@ -30,6 +30,9 @@ class OrthoService:
     # Fair use: detailed tiles (zoom 17 and more) for at most this many groups, circles too
     # (--ortho-detail overrides it)
     detail: Optional[int] = None
+    # A link for the attribution (a licence page, or the provider's site where its terms ask for a
+    # link: basemap.at); the about page and the map show the attribution as a link to it
+    attribution_url: Optional[str] = None
 
     @property
     def ttl_days(self) -> Optional[int]:

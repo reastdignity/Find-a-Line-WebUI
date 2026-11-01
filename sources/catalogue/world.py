@@ -25,12 +25,16 @@ FABDEM_CREDIT = Credit(
     "FABDEM V1-2", "FABDEM V1-2 © University of Bristol; FABDEM is " + COPERNICUS_NOTICE,
     "CC BY-NC-SA 4.0", "https://creativecommons.org/licenses/by-nc-sa/4.0/",
     notice="Neal, J., Hawker, L. (2023): FABDEM V1-2. https://doi.org/10.5523/bris.s5hqmjcdj8yo2ibzi9b4ew3sn. "
+           "Modified: FABDEM was resampled onto the working grid of this run. "
            "Non-commercial use only; results computed from FABDEM are adapted material, shared under "
            "the same licence. " + COPERNICUS_DISCLAIMER)
 NASADEM_CREDIT = Credit("NASADEM", "NASADEM: NASA JPL (2020), NASA LP DAAC, via OpenTopography",
                         "NASA open data (no restrictions)",
                         "https://doi.org/10.5067/MEaSUREs/NASADEM/NASADEM_HGT.001",
-                        notice="Data accessed through OpenTopography (opentopography.org).")
+                        # OpenTopography's requested acknowledgment (its API pages, 2026-11-01)
+                        notice="Data accessed through OpenTopography (opentopography.org). This work is based on "
+                               "API services provided by the OpenTopography Facility with support from the National "
+                               "Science Foundation under NSF Award Numbers 2410799, 2410800 & 2410801.")
 FABDEM = "https://huggingface.co/buckets/links-ads/fabdem/resolve/tiles"
 COPERNICUS = "https://copernicus-dem-30m.s3.amazonaws.com"
 

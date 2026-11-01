@@ -9,12 +9,15 @@ from ..source import ReadmeRow, OrthoService, Source
 from ..layers.blocks import DegreeBlocks
 from ..layers.tnm import IfsarBlocks, Usgs1mBlocks
 
-# All 3DEP products are public domain; USGS asks for a credit (copyrights-and-credits page)
+# All 3DEP products are public domain; USGS asks for a credit, in its own sentence for its data and map
+# services (copyrights-and-credits page)
 USGS_TERMS = ("public domain (USGS)",
               "https://www.usgs.gov/information-policies-and-instructions/copyrights-and-credits")
-USGS_1M_CREDIT = Credit("3DEP 1 m DEM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
-USGS_IFSAR_CREDIT = Credit("3DEP Alaska IfSAR 5 m DTM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
-USGS_13_CREDIT = Credit("3DEP 1/3 arc-second DEM (USGS)", "USGS 3D Elevation Program (3DEP)", *USGS_TERMS)
+USGS_ATTRIBUTION = ("USGS 3D Elevation Program (3DEP). Map services and data available from U.S. Geological Survey, "
+                    "National Geospatial Program.")
+USGS_1M_CREDIT = Credit("3DEP 1 m DEM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
+USGS_IFSAR_CREDIT = Credit("3DEP Alaska IfSAR 5 m DTM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
+USGS_13_CREDIT = Credit("3DEP 1/3 arc-second DEM (USGS)", USGS_ATTRIBUTION, *USGS_TERMS)
 # USGS 3DEP (the USA): blocks read from the files on S3 by HTTP range requests; the 1 m
 # DEM per project (newest first), Alaska's IfSAR DTM, and the 1/3″ DEM for the gaps
 USGS_3DEP = "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation"
@@ -34,6 +37,10 @@ USGS_ORTHO = OrthoService("USGS Imagery (USDA NAIP)", None, "", "usa/ortho/live"
                                    "/tile/{z}/{y}/{x}", base_max_zoom=16)
 USA_NOTE = ("USGS 3DEP data, public domain. There is no surface model (trees, buildings) for the USA yet: "
             "lines over trees or buildings are not recognised. The orthophoto ends at zoom 16.")
+# No orthophoto in Alaska until USGS answers whether its imagery there may be cached: USGSImageryOnly shows
+# SPOT 10 m in Alaska, of which its description says (2026-11-01) "the 10-meter Alaska orthoimagery data will
+# not be available for direct download from the National Map due to license restrictions"
+ALASKA_NOTE = USA_NOTE.replace(" The orthophoto ends at zoom 16.", " No orthophoto in Alaska.")
 # Alaska for --source auto (the Aleutians west of 180° are left to the usa source)
 ALASKA_BOX = (51.0, 71.5, -180.0, -129.9)
 
@@ -43,20 +50,20 @@ SOURCES: List[Source] = [
         id="alaska", name="USGS 3DEP (1 m DEM, Alaska)",
         description="USGS 3DEP (Alaska): 1 m lidar DEM where there is one, newest survey first; gaps from "
                     "the 5 m IfSAR DTM, then the 1/3 arc-second DEM; NAD83 / NAVD88",
-        nmt=USGS_1M, countries=("us",), bbox=ALASKA_BOX, local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
+        nmt=USGS_1M, countries=("us",), bbox=ALASKA_BOX, local_crs=nad83_utm_crs, ortho=None,
         fallback="alaska_ifsar", more_fallbacks=("usgs10m",), instead_without_data="alaska_ifsar",
-        credits=(USGS_1M_CREDIT,), note=USA_NOTE,
+        credits=(USGS_1M_CREDIT,), note=ALASKA_NOTE,
         listing=ReadmeRow("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM",
-                        "–", "USGS Imagery"),
+                        "–", "– (USGS's Alaska imagery: licence restrictions)"),
         offline=(("us", ALASKA_BOX),), sample=None),  # no 1 m DEM in Alaska yet (2026-10)
     Source(
         id="alaska_ifsar", name="USGS 3DEP (Alaska IfSAR 5 m)",
         description="USGS 3DEP (Alaska): IfSAR DTM 5 m (radar, 2012-2019), gaps from the 1/3 arc-second DEM",
-        nmt=USGS_IFSAR, local_crs=nad83_utm_crs, ortho=USGS_ORTHO, fallback="usgs10m",
+        nmt=USGS_IFSAR, local_crs=nad83_utm_crs, ortho=None, fallback="usgs10m",
         credits=(USGS_IFSAR_CREDIT,),
-        note=USA_NOTE + " Alaska's IfSAR is a radar model at 5 m: lines shorter than about 30 m are not reliable.",
+        note=ALASKA_NOTE + " Alaska's IfSAR is a radar model at 5 m: lines shorter than about 30 m are not reliable.",
         listing=ReadmeRow("Alaska", "USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019)", "–",
-                        "USGS Imagery"),
+                        "– (USGS's Alaska imagery: licence restrictions)"),
         sample=(58.3093, -134.3890)),
     Source(
         id="usa", name="USGS 3DEP (1 m DEM)",

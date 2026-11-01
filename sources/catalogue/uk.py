@@ -20,9 +20,10 @@ BNG = "EPSG:27700"
 WALES_RELEASE = "20241004"
 WALES_COGS = "https://dmwproductionblob.blob.core.windows.net/cogs/lidar"
 WALES_EXTENT = (164993.0, 164000.0, 356000.0, 397000.0)  # the files' bounds: blocks outside make no request
-# No attribution is stated in the metadata (Copyright: None); the OGL's own form for the provider
+# No attribution is stated in the metadata (Copyright: None): the OGL v3.0's default sentence for a provider
+# that names none
 WALES_CREDIT = Credit("Welsh Government LiDAR 2020-22 DTM / DSM 1 m (DataMapWales)",
-                      "Contains Welsh Government information licensed under the Open Government Licence v3.0", *OGL)
+                      "Contains public sector information licensed under the Open Government Licence v3.0", *OGL)
 
 
 def _wales(kind: str, description: str) -> FileBlocks:
@@ -38,8 +39,10 @@ def _wales(kind: str, description: str) -> FileBlocks:
 # -3.4e38; millimetre heights). Tiles of 2 km on the native grid, 16.8 MB uncompressed in about 2 s
 # (geotiff:compression=Deflate gives 10.4 MB but takes longer to make). The composite is not updated.
 EA_WCS = "https://environment.data.gov.uk/spatialdata"
+# Defra's Data Services Platform Fair Use Policy, §7: "Clearly indicate if you have modified the original data"
 EA_CREDIT = Credit("LIDAR Composite DTM / First Return DSM 2022, 1 m (Environment Agency, England)",
-                   "© Environment Agency copyright and/or database right 2022. All rights reserved.", *OGL)
+                   "© Environment Agency copyright and/or database right 2022. All rights reserved. "
+                   "Modified: resampled onto the working grid.", *OGL)
 
 
 def _england(service: str, coverage: str, kind: str, description: str) -> WcsTiles:

@@ -10,9 +10,12 @@ UGKK_CREDIT = Credit("DMR 5.0 / DMP 1.0 (ÚGKK SR, Slovakia)", "© ÚGKK SR", *C
 # Our own copy of ÚGKK SR's national ALS models (tools/sk_tiles.py): only the local mirror
 # (FINDALINE_MIRROR) for now; the Hugging Face base goes here once the tiles are uploaded
 SLOVAK_TILES: List[str] = []
+# The orthophotomosaic is made by GKÚ Bratislava and the National Forest Centre (NLC): the WMS's
+# AccessConstraints say CC BY 4.0, its ContactOrganization GKÚ Bratislava, and ÚGKK's terms ask for
+# "GKÚ Bratislava, NLC"
 ZBGIS_ORTHO = OrthoService("Orthophoto ZBGIS (ÚGKK SR)",
                            "https://zbgisws.skgeodesy.sk/zbgis_ortofoto_wms/service.svc/get", "1",
-                           "slovakia/ortho/live", "© ÚGKK SR")
+                           "slovakia/ortho/live", "© GKÚ Bratislava, NLC, CC BY 4.0", attribution_url=CC_BY[1])
 
 
 SOURCES: List[Source] = [
