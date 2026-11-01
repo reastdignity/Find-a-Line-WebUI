@@ -77,7 +77,8 @@ class _PerThread(io.TextIOBase):
         return (buffer or self.out).write(text)
 
     def flush(self):
-        self.out.flush()
+        if not getattr(self.out, "closed", False):  # also called when this is collected, maybe after out was closed
+            self.out.flush()
 
 
 @contextlib.contextmanager
