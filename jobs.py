@@ -1104,11 +1104,11 @@ def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):
     The lookup does not count against the user's quota of Nominatim requests (the statistics are
     the site's); it never fails the search."""
     import osm
-    import sources as src
+    from sources import choose
     before, osm.BEFORE_REQUEST = osm.BEFORE_REQUEST, None
     try:
         lat, lon = plan.area.center
-        country = src.country_code(lat, lon, cache_dir)
+        country = choose.country_code(lat, lon, cache_dir)
     except Exception:  # the statistics never fail a search
         country = None
     finally:

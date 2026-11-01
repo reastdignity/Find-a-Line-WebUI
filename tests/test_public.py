@@ -1088,7 +1088,7 @@ def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
     job = jobs.add({"params": {}}, "a job", 7)
     plan = _plan(tmp_path, None, northing=254608, easting=553966, radius=150)
     quota_during = []
-    monkeypatch.setattr(src, "country_code", lambda lat, lon, cache_dir: quota_during.append(osm.BEFORE_REQUEST) or "pl")
+    monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: quota_during.append(osm.BEFORE_REQUEST) or "pl")
     nominatim_quota(jobs, 7, Limits(nominatim_day_max=1))
     counting = osm.BEFORE_REQUEST
     note_area(jobs, job, plan, str(tmp_path / "cache"))
@@ -1098,7 +1098,7 @@ def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
 
     def broken(lat, lon, cache_dir):
         raise RuntimeError("no service")
-    monkeypatch.setattr(src, "country_code", broken)
+    monkeypatch.setattr(src.choose, "country_code", broken)
     note_area(jobs, job, plan, str(tmp_path / "cache"))
     assert jobs.get(job)["country"] is None and jobs.get(job)["area_km2"] > 0
     monkeypatch.setattr(osm, "BEFORE_REQUEST", None)
