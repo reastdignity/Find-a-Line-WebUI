@@ -42,6 +42,11 @@ def recorded(monkeypatch):
     return asked
 
 
+def _without_regional_sources(monkeypatch):
+    """The catalogue's sources without those of regions (the tests' own stand in for them)."""
+    monkeypatch.setattr(src.choose, "SOURCES", {sid: s for sid, s in src.choose.SOURCES.items() if not s.regions})
+
+
 def _like_europe(sid, **fields):
     return dataclasses.replace(src.SOURCES["europe"], id=sid, name=sid, **fields)
 
@@ -50,6 +55,7 @@ def _like_europe(sid, **fields):
 def regional(monkeypatch):
     """A country-wide source of GB before Wales's, then Lower Saxony's and Bolzano's after europe,
     all at the end of SOURCES (the region decides, not the order)."""
+    _without_regional_sources(monkeypatch)
     for source in (_like_europe("gb_all", countries=("gb",), offline=(GB_BOX,)),
                    _like_europe("wales", countries=("gb",), regions=("gb-wls",), offline=(WALES_BOX,)),
                    _like_europe("niedersachsen", countries=("de",), regions=("de-ni",)),
@@ -73,9 +79,9 @@ def test_region_source_inside_its_region(tmp_path, recorded, regional):
 
 
 def test_no_region_lookup_without_regional_sources(tmp_path, recorded, monkeypatch):
-    """The catalogue as it is (no source has regions): one lookup at zoom 3, as before; with a
+    """The catalogue without regional sources: one lookup at zoom 3, as before; with a
     regional source of GB only, a point in Germany is not asked again either."""
-    assert not any(s.regions for s in src.SOURCES.values())
+    _without_regional_sources(monkeypatch)
     assert src.choose_source("auto", *SNOWDONIA, str(tmp_path)) == (src.SOURCES["europe"], "no national source for GB")
     assert recorded == [3]
     monkeypatch.setitem(src.choose.SOURCES, "wales", _like_europe("wales", countries=("gb",), regions=("gb-wls",)))
