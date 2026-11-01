@@ -14,8 +14,8 @@ import sources as src  # noqa: E402
 
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "austria", "wales", "england", "hesse",
-       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "south_tyrol", "luxembourg", "denmark", "europe",
-       "nasadem"]
+       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "south_tyrol", "luxembourg", "denmark",
+       "finland", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -725,6 +725,26 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                  'fmt': 'GTiff',
                                  'fetch_res': None,
                                  'tile_px': 2000}},
+            'finland': {'crs': 'EPSG:3067',
+                        'countries': ('fi', 'ax'),
+                        'bbox': None,
+                        'fallbacks': ['europe'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 2.0,
+                        'instead_without_data': None,
+                        'local_crs': 'utm_crs',
+                        'ortho': None,
+                        'credits': ['Elevation model 2 m (National Land Survey of Finland)'],
+                        'nmt': {'class': 'FileBlocks',
+                                'description': 'NLS elevation model 2 m (terrain)',
+                                'folder': 'finland/dem2m/live',
+                                'prefix': None,
+                                'native_res': 2.0,
+                                'processing': 1,
+                                'ttl_days': 730,
+                                'credit': 'Elevation model 2 m (National Land Survey of Finland)',
+                                'shift': (0.0, 0.0)},
+                        'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -869,6 +889,7 @@ PATHS = [
      (1.0, 352, 3048)),
     ("denmark", "nmpt", (1.0, 352, 3048), "denmark/dhm-overflade/live/epsg25832-1m-2000px-tif/352_3048.tif",
      (1.0, 352, 3048)),
+    ("finland", "nmt", (261, 3669), "finland/dem2m/live/5_73/261_3669.tif", (261, 3669)),
 ]
 
 
@@ -960,7 +981,8 @@ BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("de-he", (49.39, 51.66, 7.77, 10.24)), ("de-mv", (53.1, 54.7, 10.59, 14.42)),
          ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6)),
          ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("lu", (49.44, 50.19, 5.73, 6.54)),
-         ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21))]
+         ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21)),
+         ("fi", (59.7, 70.1, 19.3, 31.6))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):

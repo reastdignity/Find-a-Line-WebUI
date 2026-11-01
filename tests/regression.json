@@ -994,17 +994,29 @@
     "notes": "--source auto picks lower_saxony (the centre is in DE-NI); the Ecker is the border: 0.05 km² from 1 LVermGeo WCS tile of 2 km (LGLN's tiles reach across the river), 0.04 km² left for FABDEM; the Harz has no crags at the border: few lines",
     "seconds": 3.5
   },
-  "R38": {
-    "place": "Møns Klint, Denmark: Klimadatastyrelsen's DHM (0.4 m, Datafordeler's WCS 1.0.0) with the server's API key (needs `DATAFORDELER_API_KEY`)",
-    "args": "--lat 54.9700 --lon 12.5420 --radius 400 --min-length 50 --max-length 400",
+  "R39": {
+    "place": "Korouoma canyon, Posio, Finland: NLS's elevation model 2 m, blocks of 2 km read by HTTP range requests from the 6 km TM35 sheets on CSC's Paituli mirror, in ETRS-TM35FIN",
+    "args": "--lat 66.1695 --lon 27.4881 --radius 1500 --min-length 50 --max-length 400",
     "sets": [
       "sources",
-      "dk"
+      "fi"
     ],
-    "needs_env": "DATAFORDELER_API_KEY",
     "expected": {
-      "source": "Klimadatastyrelsen (DHM)"
+      "anchors": 16381,
+      "open": 2878,
+      "checked": 2502,
+      "lines": 54,
+      "spots": 8,
+      "csv_sha256": "41ea6b3bcbfb14dd1589e8f119dafa35b35f0be0f3a0dc6e2828ab1230679923",
+      "length_km": 10.05,
+      "clearance_min": 0.01,
+      "clearance_mean": 0.463,
+      "clearance_max": 1.5,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
     },
-    "notes": "skipped without DATAFORDELER_API_KEY; --source auto picks Denmark (the centre is in DK); chalk cliffs up to 128 m; the expected values are still to be recorded (`--update` with a key) before `--write-doc`"
+    "notes": "--source auto picks finland (the centre is in FI); first run on an empty cache: 4 blocks of 2 km, about 2 MB each; no surface model, so over_trees is never counted; also measured: Korouoma at radius 1500 m 54 lines in 8 spots, Olhavanvuori (Kouvola, 61.1888, 26.8412, radius 600 m), Isokuru (Pyhatunturi, 67.0176, 27.2389, 600 m) and the Kevo canyon (69.7354, 26.9819, 800 m) none; radius 1500 m (the user, 2026-11-01: 600 m gave only 40 lines in 4 spots)",
+    "seconds": 2.6
   }
 }
