@@ -26,6 +26,7 @@ dependencies = [
     "pydantic-settings>=2.16.1",
     "pyproj>=3.7",
     "pyrate-limiter>=4.5.1",
+    "pystac-client>=0.9",  # the STAC indexes (sources/indexes/listings.py)
     "rasterio>=1.4",
     "requests>=2.32",
     "scipy>=1.18",

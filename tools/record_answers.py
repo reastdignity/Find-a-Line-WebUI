@@ -59,10 +59,10 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
     layer = getattr(src.SOURCES[sid], kind)
     folder = os.path.join(out, interface, case)
     answers = []
-    original = requests.get
+    original = requests.Session.send  # every request of requests and pystac-client passes it
 
-    def recording(url, params=None, **kwargs):
-        response = original(url, params=params, **kwargs)
+    def recording(session, prepared, **kwargs):
+        response = original(session, prepared, **kwargs)
         n = len(answers) + 1
         content_type = response.headers.get("content-type", "")
         body, name = response.content, f"{n:03d}{_extension(content_type)}"
@@ -70,7 +70,7 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
             body, name = gzip.compress(body, mtime=0), name + ".gz"
         with open(os.path.join(folder, name), "wb") as f:
             f.write(body)
-        answers.append({"method": "GET", "url": response.request.url, "status": response.status_code,
+        answers.append({"method": prepared.method, "url": prepared.url, "status": response.status_code,
                         "content_type": content_type, "body": name})
         return response
 
@@ -78,11 +78,11 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
         shutil.rmtree(folder)
     os.makedirs(folder)
     cache_dir = tempfile.mkdtemp(prefix="record-")
-    requests.get = recording
+    requests.Session.send = recording
     try:
         layer.update_index_tile(cache_dir, lat, lon)
     finally:
-        requests.get = original
+        requests.Session.send = original
     with open(layer.index_path(cache_dir, lat, lon), "rb") as f:
         expected = f.read()
     with open(os.path.join(folder, "expected.json"), "wb") as f:

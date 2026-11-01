@@ -11,7 +11,7 @@ import osm
 
 from .. import net
 from ..net import RETRIES
-from .cached import Listing
+from .cached import IndexUnavailable, Listing
 
 # Coordinate systems named in the uklad_xy attribute of the geoportal.gov.pl sheet indexes
 SHEET_CRS = {"PL-1992": "EPSG:2180", "PL-2000:S5": "EPSG:2176", "PL-2000:S6": "EPSG:2177",
@@ -67,21 +67,32 @@ class WfsSheets(Listing):
 
 class StacItems(Listing):
     """Items of a STAC collection (swisstopo), one per tile and survey year
-    (`<product>_<year>_<E>-<N>`, E and N in tile_m units), in pages of 100 following the
-    `next` links; every GeoTIFF asset at a resolution of sizes is listed, with the sha256 of
-    its file:checksum (a multihash) and the tile's extent in crs."""
+    (`<product>_<year>_<E>-<N>`, E and N in tile_m units), searched with pystac-client
+    (GET, pages of 100 following the `next` links); every GeoTIFF asset at a resolution of
+    sizes is listed, with the sha256 of its file:checksum (a multihash) and the tile's extent
+    in crs."""
 
     def __init__(self, url: str, crs: str, sizes: Dict[float, float], tile_m: float):
         self.url, self.crs, self.sizes, self.tile_m = url, crs, sizes, tile_m
 
+    def _pages(self, lat: float, lon: float) -> List[Dict]:
+        """The answers of the search, page by page; IndexUnavailable when one cannot be had."""
+        # Imported here: the web process imports sources (the about page) and needs none of it
+        from pystac_client.exceptions import APIError
+        from pystac_client.item_search import ItemSearch
+        from pystac_client.stac_api_io import StacApiIO
+
+        stac_io = StacApiIO(headers=cache.http_headers(), timeout=120, max_retries=0)
+        search = ItemSearch(self.url, method="GET", bbox=(lon, lat, lon + osm.TILE_DEG, lat + osm.TILE_DEG),
+                            limit=100, stac_io=stac_io)
+        try:
+            return list(search.pages_as_dicts())
+        except (APIError, requests.RequestException, ValueError) as e:  # APIError is no RequestException
+            raise IndexUnavailable(f"STAC API: {e}") from e
+
     def fetch(self, lat: float, lon: float) -> Dict:
         sheets = []
-        url = self.url
-        params = {"bbox": f"{lon},{lat},{lon + osm.TILE_DEG},{lat + osm.TILE_DEG}", "limit": 100}
-        while url:  # pages of 100 items
-            response = requests.get(url, params=params, timeout=120, headers=cache.http_headers())
-            response.raise_for_status()
-            page = response.json()
+        for page in self._pages(lat, lon):
             for item in page["features"]:
                 name = re.search(r"_(\d{4})_(\d+)-(\d+)$", item["id"])
                 if not name:
@@ -97,8 +108,6 @@ class StacItems(Listing):
                                    "sha256": checksum[4:] if checksum.startswith("1220") else None,
                                    "extent": [east * self.tile_m, north * self.tile_m,
                                               (east + 1) * self.tile_m, (north + 1) * self.tile_m]})
-            url = next((link["href"] for link in page.get("links", []) if link.get("rel") == "next"), None)
-            params = None  # the next link carries them
         return {"sheets": sheets}
 
 
