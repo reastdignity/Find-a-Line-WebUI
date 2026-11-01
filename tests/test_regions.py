@@ -47,7 +47,16 @@ def _like_europe(sid, **fields):
 
 
 @pytest.fixture
-def regional(monkeypatch):
+def without_regional(monkeypatch):
+    """The catalogue without its sources of regions (the tests below make their own)."""
+    for sid, source in list(src.choose.SOURCES.items()):
+        if source.regions:
+            monkeypatch.delitem(src.choose.SOURCES, sid)
+    monkeypatch.setattr(src.choose, "OFFLINE_BOXES", [b for b in src.choose.OFFLINE_BOXES if "-" not in b[0]])
+
+
+@pytest.fixture
+def regional(monkeypatch, without_regional):
     """A country-wide source of GB before Wales's, then Lower Saxony's and Bolzano's after europe,
     all at the end of SOURCES (the region decides, not the order)."""
     for source in (_like_europe("gb_all", countries=("gb",), offline=(GB_BOX,)),
@@ -72,10 +81,10 @@ def test_region_source_inside_its_region(tmp_path, recorded, regional):
         assert recorded == [3, src.choose.REGION_ZOOM]
 
 
-def test_no_region_lookup_without_regional_sources(tmp_path, recorded, monkeypatch):
-    """The catalogue as it is (no source has regions): one lookup at zoom 3, as before; with a
+def test_no_region_lookup_without_regional_sources(tmp_path, recorded, monkeypatch, without_regional):
+    """A catalogue without sources of regions: one lookup at zoom 3, as before; with a
     regional source of GB only, a point in Germany is not asked again either."""
-    assert not any(s.regions for s in src.SOURCES.values())
+    assert not any(s.regions for s in src.choose.SOURCES.values())
     assert src.choose_source("auto", *SNOWDONIA, str(tmp_path)) == (src.SOURCES["europe"], "no national source for GB")
     assert recorded == [3]
     monkeypatch.setitem(src.choose.SOURCES, "wales", _like_europe("wales", countries=("gb",), regions=("gb-wls",)))
@@ -120,3 +129,9 @@ def test_region_offline(tmp_path, monkeypatch, regional):
     assert src.choose_source("auto", *SNOWDONIA, cache_dir)[0].id == "wales"
     assert src.choose_source("auto", *LAKES, cache_dir)[0].id == "gb_all"
     assert src.choose_source("auto", 48.0, 2.0, cache_dir) == (src.SOURCES["europe"], "no national source for this place")
+
+
+def test_catalogue_regions(tmp_path, recorded):
+    """The catalogue's sources of regions: Lower Saxony's at the coast of East Frisia."""
+    assert (src.choose_source("auto", *AURICH, str(tmp_path))
+            == (src.SOURCES["lower_saxony"], "the centre is in DE-NI"))

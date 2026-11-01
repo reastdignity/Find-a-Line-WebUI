@@ -97,7 +97,7 @@ def _on_server(layer, server, years=None):
     if isinstance(layer, src.StacTiles):
         api = path[:path.index("/collections/")]
         return src.StacTiles(layer.description, server.url(api), layer.prefix, layer.folder, layer.crs,
-                             layer.sizes, layer.tile_m)
+                             layer.sizes, layer.tile_m, layer.asset, layer.item)
     if isinstance(layer, src.TnmBlocks):
         return type(layer)(layer.description, layer.dataset, layer.prefix, layer.folder, layer.native_res,
                            layer.block_m, layer.bytes_per_tile(), api=server.url(path))
@@ -105,8 +105,8 @@ def _on_server(layer, server, years=None):
 
 
 def test_recorded_cases_exist():
-    assert CASES == ["stac/swisstopo-swissalti3d", "tnm/dem1m", "tnm/ifsar5m", "wfs/geoportal-error",
-                     "wfs/geoportal-nmt"]
+    assert CASES == ["stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m", "tnm/ifsar5m",
+                     "wfs/geoportal-error", "wfs/geoportal-nmt"]
     assert ERROR_CASES == ["wfs/geoportal-error"]
 
 
@@ -131,6 +131,35 @@ def test_recorded_index_answers(case, http_server, tmp_path):
     assert asked == [key_of(a["method"], urlsplit(a["url"])._replace(scheme="", netloc="").geturl())
                      for a in recorded["answers"]]
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
+
+
+def test_recorded_lgln_newest_per_tile(http_server, tmp_path):
+    """LGLN's items (ids dgm1_32_<E>_<N>_1_ni_<year>, one asset without gsd or checksum): every
+    1 km tile of the recorded answer has two surveys, and the newest of each is used."""
+    folder = os.path.join(RECORDED, "stac", "lgln-dgm1")
+    http_server.add_cassette(folder)
+    layer = _on_server(src.SOURCES["lower_saxony"].nmt, http_server)
+    cache_dir = str(tmp_path / "cache")
+    layer.update_index_tile(cache_dir, 52.75, 11.5)
+    with open(os.path.join(folder, "expected.json"), encoding="utf-8") as f:
+        listed = json.load(f)["sheets"]
+    assert len(listed) == 30 and {s["res"] for s in listed} == {1.0} and {s["sha256"] for s in listed} == {None}
+    surveys = {}
+    for s in listed:
+        surveys.setdefault(s["godlo"], set()).add(s["year"])
+    import grid as gd
+    # A grid over the listed tiles within the recorded 0.25° tile (the sheets reach beyond it)
+    grid = gd.make_grid((668500, 5868500, 671500, 5875200), 10.0, "EPSG:25832")
+    layer._use(cache_dir, None)
+    tiles = layer.tiles(grid)
+    surveys = {g: y for g, y in surveys.items()
+               if any(s["godlo"] == g and s["extent"][0] < 671500 and s["extent"][2] > 668500
+                      and s["extent"][1] < 5875200 and s["extent"][3] > 5868500 for s in listed)}
+    assert len(tiles) == len(surveys) == 7
+    assert {t.godlo: t.year for t in tiles} == {f"{g}/1m": max(y) for g, y in surveys.items()}
+    assert all(len(y) == 2 for y in surveys.values())
+    assert all(os.path.basename(layer.tile_path(cache_dir, t)) == f"{t.year}_{t.name}.tif" for t in tiles)
+    assert not http_server.stray()
 
 
 def test_ows_exception():

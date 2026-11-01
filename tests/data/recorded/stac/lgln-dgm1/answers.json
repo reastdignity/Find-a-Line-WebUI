@@ -1,0 +1,22 @@
+{
+ "recipe": "stac-lgln",
+ "recorded": "2026-11-01",
+ "case": {
+  "source": "lower_saxony",
+  "layer": "nmt",
+  "lat": 52.75,
+  "lon": 11.5
+ },
+ "hosts": [
+  "https://dgm.stac.lgln.niedersachsen.de"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://dgm.stac.lgln.niedersachsen.de/collections/dgm1/items?limit=100&bbox=11.5%2C52.75%2C11.75%2C53.0",
+   "status": 200,
+   "content_type": "application/geo+json",
+   "body": "001.json"
+  }
+ ]
+}
