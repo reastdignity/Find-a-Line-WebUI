@@ -157,8 +157,8 @@ export class ResultModel {
     this.gather();
     this.api = options.api || SERVER_API;
     const app = appFlags();
-    this.wantFavourites = options.favourites ?? (app ? app.favourites === true : fromServer());
-    this.canCompute = options.profiles ?? (app ? app.profiles : fromServer());
+    this.wantFavourites = options.favourites ?? app?.favourites ?? fromServer();
+    this.canCompute = options.profiles ?? app?.profiles ?? fromServer();
     this.state = {group: true, distance: data.distance, by: data.by, showClean: true, showOver: true};
     this.filters = savedFilters();
     this.list = options.list && !hasSavedList() ? {...savedList(), ...options.list} : savedList();

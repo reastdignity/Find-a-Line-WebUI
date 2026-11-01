@@ -117,9 +117,10 @@ declare global {
     FINDALINE_RUN?: RunData;
     FINDALINE_RUNS?: RunInfo[];
     FINDALINE_LINES?: Record<string, RunLines>;
-    // Set by the public site's runs.js (web.py): whether this map may compute profiles and measure,
-    // and mark favourite lines; undefined: from disk no, from a local server yes
-    FINDALINE_APP?: {profiles: boolean; favourites?: boolean};
+    // Set by the server's runs.js (web.py): whether this map may compute profiles and measure, and mark
+    // favourite lines (the public site; undefined: from disk no, from a local server yes), and the
+    // operator's key of the satellite map (esri_key: settings.WebKeys; none from disk)
+    FINDALINE_APP?: {profiles?: boolean; favourites?: boolean; esri_key?: string};
   }
 }
 
