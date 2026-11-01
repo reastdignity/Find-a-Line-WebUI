@@ -486,10 +486,11 @@ def _grouping_table(n, seed, offset, spread, distance):
 @pytest.mark.parametrize("by", ["clearance", "longest", "height", "other"])
 @pytest.mark.parametrize("distance", [1.0, 2.5, 5.0, 20.0])
 @pytest.mark.parametrize("offset", [(0.0, 0.0), (-3.2e5, -1.7e4), (6.1e5, 5.4e6), (-7.0e5, 5.0e6)])
-def test_grouping_as_before(by, distance, offset):
-    """mapping.group_lines with its cell index as numpy arrays: the groups of before (rep, members,
-    start), equal ranks, lines exactly `distance` apart, flipped lines, lines over obstacles,
-    negative and large coordinates; an empty table and a single line."""
+def test_grouping_as_before(by, distance, offset, monkeypatch):
+    """mapping.group_lines with its cell index as numpy arrays and its loop in numba (in parts of
+    GROUP_PART lines): the groups of before (rep, members, start), equal ranks, lines exactly
+    `distance` apart, flipped lines, lines over obstacles, negative and large coordinates; an empty
+    table and a single line."""
     import helpers as sh
     import mapping
     tables = [_grouping_table(n, seed, np.array(offset), spread, distance)
@@ -499,9 +500,11 @@ def test_grouping_as_before(by, distance, offset):
                                 for k in ("a1_xy", "a2_xy", "over_obstacles", "clearance", "length", "height_max")}))
     for k, lines in enumerate(tables):
         old = _old_group_lines(lines, distance, by)
-        new = mapping.group_lines(lines, distance, by)
-        for name, a, b in zip(("rep", "members", "start"), old, (new.rep, new.members, new.start)):
-            assert b.dtype == a.dtype and np.array_equal(a, b), (k, name)
+        for part in (mapping.GROUP_PART, 7):
+            monkeypatch.setattr(mapping, "GROUP_PART", part)
+            new = mapping.group_lines(lines, distance, by)
+            for name, a, b in zip(("rep", "members", "start"), old, (new.rep, new.members, new.start)):
+                assert b.dtype == a.dtype and np.array_equal(a, b), (k, part, name)
         if k == 0:
             assert 0 < len(new.rep) < len(lines) and new.sizes().max() > 2  # groups formed
 

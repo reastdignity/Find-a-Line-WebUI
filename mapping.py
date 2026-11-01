@@ -105,46 +105,35 @@ def _rank(lines: LineTable, by: str) -> Tuple[np.ndarray, np.ndarray]:
     return c["clearance"], c["length"]
 
 
-class _CellIndex:
-    """Lines by the cell (of size `distance`) of their first anchor, as numpy arrays.
+GROUP_PART = 1 << 14  # lines (best first) per call of grouping.greedy, between progress updates
 
-    The cell numbers are those of `np.floor(xy / distance)`; one int64 key per line numbers
-    the cells within the box of the first anchors (x, then y), the lines are sorted by it
-    (stably: the lines of a cell in their order) and a cell's lines found by `searchsorted`.
+
+def _cell_index(xy: np.ndarray, rows: np.ndarray, distance: float):
+    """The lines rows by the cell (of size `distance`) of their first anchor xy[rows], as numpy arrays.
+
+    The cell numbers are those of `np.floor(xy / distance)`; one int64 key per line numbers the
+    cells within the box of the lines' cells (x, then y), so the cells (x, y0) to (x, y1) have
+    consecutive keys. Returns the positions in rows sorted by key (stably: the lines of a cell in
+    their order), the sorted keys, the lowest and highest cell numbers and the width of a row of
+    cells.
     """
-
-    def __init__(self, a1: np.ndarray, distance: float):
-        self.distance = distance
-        cell = np.floor(a1 / distance).astype(np.int64)
-        if len(cell):
-            self.low, self.high = cell.min(0), cell.max(0)
-        else:
-            self.low = self.high = np.zeros(2, dtype=np.int64)
-        self.width = int(self.high[1] - self.low[1]) + 1
-        key = (cell[:, 0] - self.low[0]) * self.width + (cell[:, 1] - self.low[1])
-        del cell
-        self.order = np.argsort(key, kind="stable")
-        self.keys = key[self.order]
-
-    def near(self, *points: np.ndarray) -> np.ndarray:
-        """The lines in the 3 x 3 cells around each point, sorted, each once (as np.unique)."""
-        parts = []
-        for point in points:
-            cx, cy = (int(v) for v in np.floor(point / self.distance))
-            xs = [x for x in (cx - 1, cx, cx + 1) if self.low[0] <= x <= self.high[0]]
-            ys = [y for y in (cy - 1, cy, cy + 1) if self.low[1] <= y <= self.high[1]]
-            if not xs or not ys:
-                continue
-            for x in xs:
-                # The cells (x, ys[0]) to (x, ys[-1]) have consecutive keys: one slice
-                row = (x - int(self.low[0])) * self.width - int(self.low[1])
-                lo = int(np.searchsorted(self.keys, row + ys[0], side="left"))
-                hi = int(np.searchsorted(self.keys, row + ys[-1], side="right"))
-                if hi > lo:
-                    parts.append(self.order[lo:hi])
-        if not parts:
-            return np.zeros(0, dtype=np.int64)
-        return np.unique(np.concatenate(parts)).astype(np.int64, copy=False)
+    cell = []
+    for axis in (0, 1):
+        v = xy[rows, axis] / distance
+        np.floor(v, out=v)
+        cell.append(v.astype(np.int64))
+        del v
+    low = np.array([c.min() for c in cell], dtype=np.int64)
+    high = np.array([c.max() for c in cell], dtype=np.int64)
+    width = int(high[1] - low[1]) + 1
+    key = cell[0]
+    key -= low[0]
+    key *= width
+    key += cell[1]
+    key -= low[1]
+    del cell
+    order = np.argsort(key, kind="stable")
+    return order, key[order], low, high, width
 
 
 def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Groups:
@@ -156,47 +145,51 @@ def group_lines(lines: LineTable, distance: float, by: str = "clearance") -> Gro
     trees/buildings are grouped separately from clear lines.
     The same algorithm runs in the interactive map (viewer/src/grouping.ts); lines that
     rank the same keep their order (a stable sort, as sorted(reverse=True) there).
+    Lines by the cell (of size `distance`) of their first anchor: a member's first anchor
+    lies within `distance` of one of the representative's anchors, so in one of the 3 x 3
+    cells around it. The loop is grouping.greedy (numba).
     """
+    import grouping
+
     first, second = _rank(lines, by)
     over_all = lines.columns["over_obstacles"]
-    d2 = distance ** 2
-    reps: List[int] = []
-    members: List[np.ndarray] = []
-    progress.compute.start("grouping lines", len(lines), unit="line")
+    a1, a2 = lines.columns["a1_xy"], lines.columns["a2_xy"]
+    n = len(lines)
+    members = np.empty(n, dtype=np.int64)  # every line is the member of one group
+    reps = sizes = np.zeros(0, dtype=np.int64)
+    n_reps = n_members = 0
+    progress.compute.start("grouping lines", n, unit="line")
     for over in (False, True):
         rows = np.flatnonzero(over_all == over)
         if not len(rows):
             continue
         rows = rows[np.lexsort((-second[rows], -first[rows]))]
-        a1 = lines.columns["a1_xy"][rows]
-        a2 = lines.columns["a2_xy"][rows]
+        order, keys, low, high, width = _cell_index(a1, rows, distance)
         free = np.ones(len(rows), dtype=bool)
-        # Lines by the cell (of size `distance`) of their first anchor: a member's first
-        # anchor lies within `distance` of one of the representative's anchors, so in
-        # one of the 3 x 3 cells around it
-        cells = _CellIndex(a1, distance)
-
-        for i in range(len(rows)):
-            if not free[i]:
-                continue
-            candidates = cells.near(a1[i], a2[i])
-            candidates = candidates[free[candidates]]
-            c1, c2 = a1[candidates], a2[candidates]
-            same = (((c1 - a1[i]) ** 2).sum(1) <= d2) & (((c2 - a2[i]) ** 2).sum(1) <= d2)
-            flipped = (((c1 - a2[i]) ** 2).sum(1) <= d2) & (((c2 - a1[i]) ** 2).sum(1) <= d2)
-            found = candidates[same | flipped]
-            free[found] = False
-            reps.append(int(rows[i]))
-            members.append(rows[found])
-            progress.compute.update(len(found), spots=len(reps))
-    progress.compute.finish(f"{len(reps)} spots")
+        r0, m0 = n_reps, n_members
+        for begin in range(0, len(rows), GROUP_PART):
+            end = min(begin + GROUP_PART, len(rows))
+            if len(reps) < n_reps + end - begin:  # room for a representative per line
+                grown = max(2 * len(reps), n_reps + end - begin)
+                reps, sizes = (np.concatenate([v[:n_reps], np.zeros(grown - n_reps, dtype=np.int64)])
+                               for v in (reps, sizes))
+            before = n_members
+            n_reps, n_members = grouping.greedy(a1, a2, rows, order, keys, low, high, width, float(distance),
+                                                float(distance ** 2), free, begin, end, reps, members, sizes,
+                                                n_reps, n_members)
+            progress.compute.update(n_members - before, spots=n_reps)
+        del order, keys, free
+        reps[r0:n_reps] = rows[reps[r0:n_reps]]  # positions in rows to rows of the table
+        members[m0:n_members] = rows[members[m0:n_members]]
+    progress.compute.finish(f"{n_reps} spots")
     # Clear lines first, then lines over trees/buildings; best first within each
-    rep = np.array(reps, dtype=np.int64)
-    order = np.lexsort((-second[rep], -first[rep], over_all[rep])) if len(rep) else np.zeros(0, dtype=np.int64)
-    members = [members[g] for g in order.tolist()]
-    start = np.concatenate([[0], np.cumsum([len(m) for m in members], dtype=np.int64)]).astype(np.int64)
-    return Groups(rep[order], np.concatenate(members).astype(np.int64) if members else np.zeros(0, dtype=np.int64),
-                  start)
+    rep, sizes = reps[:n_reps], sizes[:n_reps]
+    order = np.lexsort((-second[rep], -first[rep], over_all[rep])) if n_reps else np.zeros(0, dtype=np.int64)
+    start = np.concatenate([[0], np.cumsum(sizes, dtype=np.int64)]).astype(np.int64)
+    out = np.empty(n_members, dtype=np.int64)
+    grouping.gather(members, start, order, out)
+    del members
+    return Groups(rep[order], out, np.concatenate([[0], np.cumsum(sizes[order], dtype=np.int64)]).astype(np.int64))
 
 
 def _search_area(area):
