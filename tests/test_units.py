@@ -235,6 +235,56 @@ def test_kernels_independent_of_threads(model):
         assert other_covered == covered, threads
 
 
+def _reference_case(model, first, strong, wall, max_dh=np.inf):
+    """The canyon of test_kernels_independent_of_threads (anchors not in row-major order, NaNs) as
+    a captured call of tools/perf_line_funnel.py, rebuilt into the kernels' arguments."""
+    import dataclasses
+
+    import sag
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import perf_line_funnel as plf
+    rng = np.random.default_rng(11)
+    z = (rng.random((160, 160)) * 3 + 100).astype(np.float32)
+    z[:, :20] += 60
+    z[:, 140:] += 55 + rng.random((160, 20)).astype(np.float32) * 10
+    z[rng.random((160, 160)) < 0.003] = np.nan
+    anchors = np.vstack([np.column_stack([np.arange(0, 160, 2), np.full(80, 19)]),
+                         np.column_stack([np.arange(1, 160, 2), np.full(80, 140)]),
+                         rng.integers(0, 160, (60, 2))])
+    inputs = {"elevation": z, "anchors": anchors}
+    if first:
+        inputs["first"] = rng.random(len(anchors)) < 0.7
+    if strong:
+        inputs["strong"] = rng.random(len(anchors)) < 0.5
+    params = {"res": 1.0, "min_length": 20.0, "max_length": 150.0, "max_dh_ratio": 0.3, "max_dh": max_dh,
+              "limits": {"max_wall_angle": 60.0} if wall else None, "sag": model == "sag",
+              "rigging": dataclasses.asdict(sag.Rigging()), "sag_min_span": 20.0, "sag_max_span": 150.0}
+    return plf, plf.rebuild(inputs, params)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_free_rings_match_reference(model):
+    """linesearch's free directions give the rings of the frozen reference of
+    tools/line_funnel_kernels.py (the self-check of tools/perf_line_funnel.py analyse)."""
+    plf, a = _reference_case(model, False, False, False)
+    assert np.array_equal(plf.production_rings(a), a.rings)
+    assert 0 < len(a.useful) < len(a.anchors)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("first, strong, wall, max_dh", [(False, False, False, np.inf), (True, False, True, np.inf),
+                                                         (False, True, True, 12.0), (True, True, False, 12.0)])
+def test_pairs_match_reference(model, first, strong, wall, max_dh):
+    """linesearch's pair search gives the per-anchor counts and the pairs, in their order, of the
+    frozen reference (ref_pairs), with and without a tile's first mask, --min-prominence's strong
+    anchors, a wall-angle limit and a height difference limit."""
+    plf, a = _reference_case(model, first, strong, wall, max_dh)
+    refs = plf.self_check(a)  # raises SelfCheckError when they differ
+    found = sum(len(out) for _, out in refs)
+    checked = sum(int(counts[:, 1].sum()) for counts, _ in refs)
+    assert checked > found > 10
+
+
 def test_wall_angles():
     """The downslope direction of a slope and the angle of lines leaving it."""
     import helpers as sh

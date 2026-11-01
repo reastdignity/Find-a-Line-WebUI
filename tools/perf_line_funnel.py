@@ -266,13 +266,42 @@ def chunks_of(todo_all: np.ndarray) -> List[np.ndarray]:
 
 
 def two_passes(kernel, a, todo):
-    """A pair kernel's counting pass, then its writing pass, as find_valid_lines runs them."""
+    """A pair kernel's counting pass, then its writing pass over every anchor of the chunk, as
+    find_valid_lines ran them at 975a1b7 (the references')."""
     counts = np.zeros((len(todo), 3), dtype=np.int64)
     kernel(*a.args, todo, *a.tail, None, np.zeros((0, 2), dtype=np.int64), counts)
     offsets = np.concatenate([[0], np.cumsum(counts[:, 2])[:-1]]).astype(np.int64)
     out = np.empty((int(counts[:, 2].sum()), 2), dtype=np.int64)
     kernel(*a.args, todo, *a.tail, offsets, out, np.zeros_like(counts))
     return counts, out
+
+
+def production_rings(a):
+    """Production's free directions of the call (what find_valid_lines computes in step 1)."""
+    return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset)
+
+
+def production_passes(a, rings, todo):
+    """Production's pair search of a chunk, as find_valid_lines runs it: (counts of the
+    counting pass, the pairs written)."""
+    return ls.pair_chunk((a.z, a.anchors, a.elev, rings), todo, a.tail)
+
+
+def self_check(a, folder: str = "") -> List:
+    """Production's kernels against the frozen references (SelfCheckError when they differ):
+    the rings, then per chunk the counts of the counting pass and the pairs written. Returns
+    the references' (counts, pairs) of every chunk."""
+    rings = production_rings(a)
+    if not np.array_equal(rings, a.rings):
+        raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
+    refs = []
+    for todo in chunks_of(a.todo_all):
+        ref_counts, ref_out = two_passes(K.ref_pairs, a, todo)
+        counts, out = production_passes(a, rings, todo)
+        if not (np.array_equal(counts, ref_counts) and np.array_equal(out, ref_out)):
+            raise SelfCheckError(f"{folder}: linesearch._pairs differs from ref_pairs")
+        refs.append((ref_counts, ref_out))
+    return refs
 
 
 def ring_work(a) -> Dict:
@@ -340,9 +369,7 @@ def analyse_call(folder: str, sample_every: int = 1) -> Dict:
     """Everything of one captured call (see the module docstring)."""
     inputs, params, timings = load_call(folder)
     a = rebuild(inputs, params)
-    # Self-check: production's kernels against the frozen references
-    if not np.array_equal(ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset), a.rings):
-        raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
+    refs = self_check(a, folder)
     rings = ring_work(a)
 
     rmax = a.rings.max(axis=1).astype(np.int64) if len(a.anchors) else np.zeros(0, dtype=np.int64)
@@ -356,11 +383,7 @@ def analyse_call(folder: str, sample_every: int = 1) -> Dict:
     visits_q, tests_q, found_q = [], [], []
     splits = {t: [0.0, 0.0, 0.0, 0.0] for t in THREAD_SPLITS}  # sum of max, sum of mean: visits, tests
     q0 = 0
-    for todo in chunks_of(a.todo_all):
-        ref_counts, ref_out = two_passes(K.ref_pairs, a, todo)
-        counts, out = two_passes(ls._pairs, a, todo)
-        if not (np.array_equal(counts, ref_counts) and np.array_equal(out, ref_out)):
-            raise SelfCheckError(f"{folder}: linesearch._pairs differs from ref_pairs")
+    for todo, (ref_counts, _) in zip(chunks_of(a.todo_all), refs):
         c = np.zeros((len(todo), K.N_COUNTERS), dtype=np.int64)
         s = np.zeros((len(todo), K.N_ORDERS), dtype=np.int64)
         h = np.zeros((len(todo), K.N_HIST), dtype=np.int64)

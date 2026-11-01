@@ -202,6 +202,22 @@ def _pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, res,
         counts[q, 0], counts[q, 1], counts[q, 2] = candidates, checked, found
 
 
+def pair_chunk(args: tuple, todo: np.ndarray, tail: tuple):
+    """The pairs of the anchors in todo (_pairs' arguments before and after todo): a counting
+    pass over all of them, then a writing pass over those that found a line only, in the
+    order of todo. Returns the counts of the counting pass and the pairs."""
+    counts = np.zeros((len(todo), 3), dtype=np.int64)
+    _pairs(*args, todo, *tail, None, np.zeros((0, 2), dtype=np.int64), counts)
+    with_lines = counts[:, 2] > 0
+    found = counts[with_lines, 2]
+    out = np.empty((int(found.sum()), 2), dtype=np.int64)
+    if len(found):
+        offsets = np.concatenate([[0], np.cumsum(found)[:-1]]).astype(np.int64)
+        _pairs(*args, np.ascontiguousarray(todo[with_lines]), *tail, offsets, out,
+               np.zeros((len(found), 3), dtype=np.int64))
+    return counts, out
+
+
 @njit(cache=True)
 def _interp(x, xp, fp):
     """np.interp of one value, with numpy's arithmetic (the same result to the last bit)."""
@@ -456,11 +472,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     pairs, candidates, checked = [], 0, 0
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
     for todo in np.array_split(todo_all, min(CHUNKS, max(1, len(todo_all)))):
-        counts = np.zeros((len(todo), 3), dtype=np.int64)
-        _pairs(*args, todo, *tail, None, np.zeros((0, 2), dtype=np.int64), counts)
-        offsets = np.concatenate([[0], np.cumsum(counts[:, 2])[:-1]]).astype(np.int64)
-        out = np.empty((int(counts[:, 2].sum()), 2), dtype=np.int64)
-        _pairs(*args, todo, *tail, offsets, out, np.zeros_like(counts))
+        counts, out = pair_chunk(args, todo, tail)
         pairs.append(out)
         candidates += int(counts[:, 0].sum())
         checked += int(counts[:, 1].sum())
