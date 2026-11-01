@@ -46,6 +46,7 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
+    "d-home-limited": ("d", "", None, "walker"),  # the usage meters of a user with the site's limits
     "d-menu": ("d", "", ".c-account-btn"),        # the account menu (desktop: a popover)
     "d-account": ("d", "#account", None),         # the account page (phones)
     "d-account-end": ("d", "#account", "scroll:.c-main"),
