@@ -826,13 +826,17 @@ depend on the folder's name.
 ## 15. Monitoring
 What is watched, why and with which thresholds is planned in [monitoring.md](monitoring.md): the
 server (CPU, memory, disks), the containers, nginx's requests and the certificate, the systemd
-units, fail2ban, the backup and the site seen from outside. Alerts arrive as push messages
-through a secret [ntfy](https://ntfy.sh) topic, the channel of a failed backup (section 11).
-Nothing new is open to the internet: everything listens on the host's loopback.
+units, fail2ban, the backup, the site seen from outside, the application (its queue, searches,
+outside services, routes, housekeeping and coverage), SSH logins and the logs of `web`, `worker`
+and nginx's error log. Alerts arrive as push messages through a secret [ntfy](https://ntfy.sh)
+topic, the channel of a failed backup (section 11). Nothing new is open to the internet:
+everything listens on the host's loopback.
 
 | Part | Where | What it does |
 | --- | --- | --- |
-| Telegraf, VictoriaMetrics, Grafana, a Docker socket proxy | compose project `findaline-monitoring` (`deploy/monitoring/compose.yaml`); VictoriaMetrics on `127.0.0.1:8428`, Grafana on `127.0.0.1:3000`, the proxy on `127.0.0.1:2375` | Telegraf (in the host's network) reads the host, the containers (through the proxy: a few GET requests only), nginx, the certificate and the files below every 30 s or 5 min into VictoriaMetrics, which keeps the samples without a time limit (about 1–2 GB a year, in a volume on Docker's data root); Grafana shows them (dashboards *VPS* and *Site*) and sends its alerts to the ntfy topic. Their network is the bridge `br-fal-mon` (section 2). |
+| Telegraf, VictoriaMetrics, VictoriaLogs, Grafana, a Docker socket proxy | compose project `findaline-monitoring` (`deploy/monitoring/compose.yaml`); VictoriaMetrics on `127.0.0.1:8428`, VictoriaLogs on `127.0.0.1:9428`, Grafana on `127.0.0.1:3000`, the proxy on `127.0.0.1:2375` | Telegraf (in the host's network) reads the host, the containers (through the proxy: a few GET requests only, and the output of `web` and `worker`), nginx, the certificate and the files below every 30 s or 5 min into VictoriaMetrics, which keeps the samples without a time limit (about 1–2 GB a year, in a volume on Docker's data root), and the log lines into VictoriaLogs (30 days, its own volume); Grafana shows them (dashboards *VPS*, *Site*, *Find-a-Line* and *Logs*) and sends its alerts to the ntfy topic. Their network is the bridge `br-fal-mon` (section 2). |
+| The logs | VictoriaLogs; dashboard *Logs* | The lines of `web` and `worker` (their stdout and stderr, from Docker's logs) and of `findaline.error.log` (section 4), each with its source, container, stream and a level (error, warning, info) that Telegraf derives from the line. Before a line is stored Telegraf masks every IPv4 and IPv6 address (`client: <address>`), the token of a share link (`/s/<token>`) and the query of a sign-in's callback (`/auth/...?<query>`), as the access log does; a line may still name the place of a search (the privacy page says so). Deleted after 30 days (`-retentionPeriod=30d`); Docker's own copy of the containers' output is rotated at 50 MB (compose.yaml). Grafana reads them with VictoriaMetrics' logs data source plugin, which `deploy/vps.sh` puts in `/var/lib/findaline-grafana-plugins` (a version and a sha256 pinned in the script; Grafana itself fetches nothing). |
+| The SSH login notice | `/usr/local/sbin/findaline-ssh-login` (from `deploy/monitoring/ssh-login.sh`), one line at the end of `/etc/pam.d/sshd` | Every successful SSH login sends "SSH login: <user> from <address> on <server>" to the ntfy topic of `secrets/ntfy_url` (in the background, 5 s at most) and counts the login in `/var/lib/findaline-monitoring/ssh.json` (the last time and the total; no user or address), which the dashboard *Site* shows. `session optional pam_exec.so quiet ...`: when the script fails, is missing or ntfy cannot be reached, the login goes on as before. |
 | nginx | `/var/log/nginx/findaline.metrics.log`; `http://127.0.0.1:8081/nginx_status` | A second access log of the site, one JSON line per request without any address (section 4); nginx's connection counts (`stub_status`) on the loopback only. |
 | `findaline-facts.timer` | the host, as root, every 5 minutes | `deploy/monitoring/facts.sh`: fail2ban's counts per jail (never the addresses), the holes of the disk image (section 1), the pending updates (and those of the security pocket) into `/var/lib/findaline-monitoring/facts.json`. |
 | `findaline-check.timer` | the host, as root, daily at 06:00 (± 15 min) | `deploy/vps.sh check` (sections 2, 12, 15); the numbers of its ok and FAIL lines into `check.json` there. Its output is in `journalctl -u findaline-check`. |
@@ -847,9 +851,13 @@ Nothing new is open to the internet: everything listens on the host's loopback.
 `setup` in a terminal asks for them); writes `secrets/grafana_admin_password` (random) and creates
 `secrets/ntfy_url` (`setup` in a terminal asks for the topic's URL), both owned by Grafana's user
 (uid 472, mode 0400); installs the units of `deploy/monitoring/systemd/` with the checkout's path
-into `/etc/systemd/system`, enables the three timers and runs the facts once; writes
-`deploy/monitoring/.env` (`DOCKER_GID`, `ADM_GID`: the groups of Docker's socket and of nginx's
-logs), then `docker compose -f deploy/monitoring/compose.yaml pull` and `up -d --wait`. Every part
+into `/etc/systemd/system`, enables the three timers and runs the facts once; installs the SSH
+login notice (the script with the checkout's path, root's, 0755, and its line in
+`/etc/pam.d/sshd`, added once); writes `deploy/monitoring/.env` (`DOCKER_GID`, `ADM_GID`: the
+groups of Docker's socket and of nginx's logs); downloads Grafana's logs plugin from Grafana's
+catalogue when `/var/lib/findaline-grafana-plugins` does not hold the pinned version, checks its
+sha256 and unpacks it there (Grafana restarted after the containers are up); then `docker compose
+-f deploy/monitoring/compose.yaml pull` and `up -d --wait`. Every part
 is left as it is when it is already so. A failure of the monitoring's containers is listed at the
 end and leaves the site running. The backup's unit (section 11) gets
 `EnvironmentFile=-/etc/findaline-monitoring.env`.
@@ -897,9 +905,10 @@ interface to them are not kept). The password counts when Grafana makes its data
 start); to change it later: `docker compose -f deploy/monitoring/compose.yaml exec grafana grafana
 cli admin reset-admin-password <new>`. A test message: *Alerting*, *Contact points*, *Test*.
 
-**Check it** (also part of `sudo deploy/vps.sh check`: VictoriaMetrics, Grafana and `stub_status`
-answer, the timers are active, `facts.json` is younger than 15 minutes, the heartbeat's URL is
-set):
+**Check it** (also part of `sudo deploy/vps.sh check`: VictoriaMetrics, VictoriaLogs, Grafana and
+`stub_status` answer, the timers are active, `facts.json` is younger than 15 minutes, the
+heartbeat's URL is set, the SSH login notice is installed and up to date, Grafana's plugin is the
+pinned version):
 
 ```sh
 cd /srv/find-a-line-webui
@@ -911,12 +920,22 @@ sudo tail -n 3 /var/log/nginx/findaline.metrics.log       # JSON, no addresses
 curl -s http://127.0.0.1:8081/nginx_status
 curl -s http://127.0.0.1:8766/metrics | grep -E '^findaline_(build_info|workers_alive|jobs)'  # the app's
 journalctl -u findaline-heartbeat -n 5                     # nothing: each minute's run was fine
+cat /var/lib/findaline-monitoring/ssh.json                 # after your next SSH login (ntfy got a message)
+curl -s http://127.0.0.1:9428/select/logsql/query -d 'query=source:nginx' -d limit=3   # no addresses
 ```
+
+**The logs** are best read in Grafana (dashboard *Logs*: by source, level and a word; or *Explore*
+with the data source *VictoriaLogs* and [LogsQL](https://docs.victoriametrics.com/victorialogs/logsql/),
+e.g. `source:worker level:error`, `"internal error, ref"`), or on the server with `curl` as above.
+The application's tracebacks are one line each; a reference that a user reports ("internal
+error, ref <id>") finds its lines with that id.
 
 To see an alert arrive: `curl -fsS https://hc-ping.com/<uuid of the heartbeat check>/fail` (the
 check turns red and ntfy gets the message; the next minute's ping makes it green again).
 
-The four containers need about 1.2 GB of memory together: `WORKER_MEMORY` in `.env` (section 8)
+The five containers need about 1.5 GB of memory together: `WORKER_MEMORY` in `.env` (section 8)
 must leave that room. To stop the monitoring without touching the site:
-`docker compose -f deploy/monitoring/compose.yaml down` (the samples stay in their volume) and
-`sudo systemctl disable --now findaline-facts.timer findaline-check.timer findaline-heartbeat.timer`.
+`docker compose -f deploy/monitoring/compose.yaml down` (the samples and logs stay in their
+volumes) and `sudo systemctl disable --now findaline-facts.timer findaline-check.timer
+findaline-heartbeat.timer`; the SSH login notice stops when its line is removed from
+`/etc/pam.d/sshd` (`setup` and `update` add it again).
