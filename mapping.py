@@ -266,7 +266,7 @@ MAP_HTML = """<!doctype html>
 """
 
 
-LINES_CHUNK = 10_000  # lines written between two progress updates
+LINES_CHUNK = 1_000  # lines written between two progress updates (their texts held meanwhile)
 
 
 def _script_head(target: str, value: Dict) -> str:

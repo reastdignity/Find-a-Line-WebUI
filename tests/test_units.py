@@ -1305,6 +1305,15 @@ def test_round_floats_like_round():
         assert list(map(repr, got)) == list(map(repr, expected)), digits
 
 
+def _old_row_order(groups) -> tuple:
+    """runs.row_order before wave 5 (the order of every line at once): the reference."""
+    sizes = groups.sizes()
+    is_rep = groups.members == np.repeat(groups.rep, sizes)
+    group = np.repeat(np.arange(len(groups), dtype=np.int64), sizes)
+    order = np.lexsort((~is_rep, group))
+    return groups.members[order], group[order] + 1, is_rep[order], sizes[group[order]]
+
+
 def _old_csv_and_features(lines, groups):
     """lines.csv and the features of lines.geojson as the code before 2026-10-31 wrote them:
     csv.DictWriter and json.dumps of dicts of round()ed Python values."""
@@ -1313,7 +1322,7 @@ def _old_csv_and_features(lines, groups):
     import json
     import runs as rn
     rows = []
-    for k, number, is_rep, size in zip(*(column.tolist() for column in rn.row_order(groups))):
+    for k, number, is_rep, size in zip(*(column.tolist() for column in _old_row_order(groups))):
         r = lines.row(k)
         (lat1, lon1), (lat2, lon2), (x1, y1), (x2, y2) = r["anchor1"], r["anchor2"], r["a1_xy"], r["a2_xy"]
         nmpt = np.nan if r["clearance_nmpt"] is None else r["clearance_nmpt"]
@@ -1404,3 +1413,39 @@ def test_saved_text_as_before(tmp_path, monkeypatch):
         expected = json.dumps(_old_map_rows(lines, profiles), separators=(",", ":"))
         assert text[text.index('"lines":[') + len('"lines":'):] == expected + "};\n"
     assert '"name":"\\u017babi Ko\\u0144' in (tmp_path / "data.js").read_text(encoding="utf-8")
+
+
+def test_row_order_in_parts_as_before(monkeypatch):
+    """runs.row_order of a part of the rows: the rows of the order of every line at once (the old
+    lexsort), for parts of any size, representatives anywhere in their groups or not among them,
+    empty groups and groups of one; a representative twice in its group is refused."""
+    import mapping as mp
+    import runs as rn
+    rng = np.random.default_rng(5)
+    cases = [mp.Groups.each_alone(0), mp.Groups.each_alone(1), mp.Groups.each_alone(7),
+             mp.Groups(np.array([4, 0]), np.array([4, 5, 6, 7, 8, 9, 3, 0, 1, 2]), np.array([0, 6, 10])),
+             mp.Groups(np.array([9, 2, 5]), np.array([0, 1, 2, 3, 4]), np.array([0, 0, 3, 5]))]  # 9: not a member
+    for _ in range(40):
+        n = int(rng.integers(1, 400))
+        members = rng.permutation(n).astype(np.int64)
+        cuts = np.sort(rng.integers(0, n + 1, int(rng.integers(0, 30))))
+        start = np.concatenate([[0], cuts, [n]]).astype(np.int64)
+        rep = np.array([members[rng.integers(a, b)] if b > a and rng.random() < 0.9 else n + g
+                        for g, (a, b) in enumerate(zip(start[:-1], start[1:]))], dtype=np.int64)
+        cases.append(mp.Groups(rep, members, start))
+    for groups in cases:
+        old = _old_row_order(groups)
+        n = len(groups.members)
+        for chunk in (1, 2, 3, 7, 64, 10_000):
+            monkeypatch.setattr(rn, "LINES_CHUNK", chunk)
+            at = rn.rep_positions(groups)
+            parts = [rn.row_order(groups, lo, min(n, lo + chunk), at) for lo in range(0, n, chunk)] or \
+                [rn.row_order(groups, 0, 0, at)]
+            for k, column in enumerate(old):
+                new = np.concatenate([part[k] for part in parts])
+                assert new.dtype.kind == column.dtype.kind and np.array_equal(new, column), (groups, chunk, k)
+    twice = mp.Groups(np.array([1]), np.array([1, 0, 1]), np.array([0, 3]))
+    for chunk in (1, 10):
+        monkeypatch.setattr(rn, "LINES_CHUNK", chunk)
+        with pytest.raises(ValueError):
+            rn.rep_positions(twice)

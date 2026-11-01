@@ -224,16 +224,41 @@ def column_texts(values: np.ndarray, digits: Optional[int] = None, empty_nan: bo
     return as_csv, as_json
 
 
-def row_order(groups) -> tuple:
-    """The rows of lines.csv: (line, its group's number, whether it represents the group, the
-    group's size) for every line, group by group, each representative first and then its members
-    (mapping.Groups)."""
-    sizes = groups.sizes()
-    is_rep = groups.members == np.repeat(groups.rep, sizes)
-    # The representative first, the others in their order: a stable sort of each group on "not it"
-    group = np.repeat(np.arange(len(groups), dtype=np.int64), sizes)
-    order = np.lexsort((~is_rep, group))
-    return groups.members[order], group[order] + 1, is_rep[order], sizes[group[order]]
+def _group_of(groups, lo: int, hi: int) -> tuple:
+    """The positions lo..hi of groups.members and the group of each."""
+    at = np.arange(lo, hi, dtype=np.int64)
+    return at, np.searchsorted(groups.start, at, "right") - 1
+
+
+def rep_positions(groups) -> np.ndarray:
+    """Where each group's representative stands in groups.members (mapping.Groups), its group's start
+    when it is not among the members; read LINES_CHUNK members at a time (8 bytes per group, none
+    per line). A representative found twice in its group is an error: row_order moves one only."""
+    starts = groups.start[:-1].astype(np.int64)
+    at, seen = starts.copy(), np.zeros(len(starts), dtype=bool)
+    n = len(groups.members)
+    for lo in range(0, n, LINES_CHUNK):
+        position, group = _group_of(groups, lo, min(n, lo + LINES_CHUNK))
+        hit = np.flatnonzero(groups.members[lo:lo + LINES_CHUNK] == groups.rep[group])
+        group, position = group[hit], position[hit]
+        if seen[group].any() or len(np.unique(group)) < len(group):
+            raise ValueError("a representative is twice among the members of its group")
+        seen[group] = True
+        at[group] = position
+    return at
+
+
+def row_order(groups, lo: int, hi: int, at: np.ndarray) -> tuple:
+    """The rows lo..hi of lines.csv: (line, its group's number, whether it represents the group, the
+    group's size), group by group, each representative first and then the other members in their
+    order (mapping.Groups; at: its rep_positions). The rows of a stable sort of each group on "not
+    the representative", computed for these rows only."""
+    position, group = _group_of(groups, lo, hi)
+    start, rep_at = groups.start[group], at[group]
+    # The representative to the group's first row, the members before it one row further
+    source = np.where(position == start, rep_at, np.where(position <= rep_at, position - 1, position))
+    lines = groups.members[source]
+    return lines, group + 1, lines == groups.rep[group], groups.start[group + 1] - start
 
 
 # A feature of lines.geojson as json.dumps(..., ensure_ascii=False) writes it, its values as %s
@@ -269,7 +294,7 @@ def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size
     return table, features
 
 
-LINES_CHUNK = 10_000  # lines written between two progress updates
+LINES_CHUNK = 1_000  # lines written between two progress updates (their texts, ~4.5 KB a line, are held)
 
 
 def attribution_text(meta: Dict) -> str:
@@ -304,9 +329,9 @@ def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, fi
             open(os.path.join(run_path, "lines.geojson"), "w", encoding="utf-8") as geojson:
         table.write(",".join(FIELDS) + "\r\n")  # csv.writer's header: no name needs quotes
         geojson.write('{"type": "FeatureCollection", "features": [')
-        order = row_order(groups)
+        at, n = rep_positions(groups), len(groups.members)
         for start in range(0, len(lines), LINES_CHUNK):
-            part = [column[start:start + LINES_CHUNK] for column in order]
+            part = row_order(groups, min(start, n), min(start + LINES_CHUNK, n), at)
             rows, features = _rows(lines, *part)
             table.write(rows)
             geojson.write((", " if start else "") + features)
