@@ -31,6 +31,7 @@ export function limitLines(usage: Usage): string[] {
   }
   const day: string[] = [];
   if (q.jobs_day.limit != null) day.push(t("intro.search.limit_jobs", {count: q.jobs_day.limit}));
+  if (q.mpx?.limit != null) day.push(t("intro.search.limit_mpx", {km2: n(q.mpx.limit)}));
   if (q.km2.limit != null) day.push(t("intro.search.limit_km2", {km2: n(q.km2.limit)}));
   if (q.download_mb.limit != null) day.push(t("intro.search.limit_mb", {mb: n(q.download_mb.limit)}));
   if (day.length) lines.push(t("intro.search.limit_day", {hours: usage.hours, parts: day.join(", ")}));

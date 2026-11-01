@@ -316,7 +316,7 @@ def _with_info(job: Dict) -> Dict:
 
 DAY = 86400.0  # seconds of the daily quotas (a moving 24 hours)
 AREA_DAYS = 30  # days of a user's searched area by day (/api/usage `area`)
-USAGE = {"km2": "km² of search areas", "nominatim": "uncached Nominatim requests (place names, osm: areas)",
+USAGE = {"km2": "km² of search areas", "mpx": "Mpx of search areas (km² / resolution²)", "nominatim": "uncached Nominatim requests (place names, osm: areas)",
          "download_mb": "MB of downloads (the estimates of your searches)"}
 
 
@@ -369,7 +369,7 @@ class Jobs:
         """The check of a new job (for add(check=...), so it runs in the insert's transaction and two
         requests at once cannot both pass): the safeguards of the server for everyone (free disk,
         queue length), the quotas of `limits` for a limited user (jobs at once and per day, size of
-        their runs, km² of the last 24 hours). Raises QuotaExceeded."""
+        their runs, Mpx and km² of the last 24 hours). Raises QuotaExceeded."""
         def check(db: sqlite3.Connection):
             if limits is None:
                 return
@@ -406,6 +406,12 @@ class Jobs:
                     raise QuotaExceeded(f"your runs take {size / 1e9:.1f} GB, at most {limits.runs_gb_max:g} GB: "
                                         f"delete some in Runs", code="quota_runs_gb", gb=round(size / 1e9, 1),
                                         max=limits.runs_gb_max)
+            if limits.mpx_day_max is not None:
+                used = self._used(db, user_id, "mpx")
+                if used >= limits.mpx_day_max:
+                    raise QuotaExceeded(f"your searches covered {used:.0f} Mpx (km² at 1 m) in 24 hours, at most "
+                                        f"{limits.mpx_day_max:g}: try again later", code="quota_mpx",
+                                        used=round(used), max=limits.mpx_day_max)
             if limits.km2_day_max is not None:
                 used = self._used(db, user_id, "km2")
                 if used >= limits.km2_day_max:
@@ -429,7 +435,7 @@ class Jobs:
                           (user_id, kind, time.time() - DAY)).fetchone()[0]
 
     def use(self, user_id: int, kind: str, amount: float, limit: Optional[float]):
-        """Count what a user uses (USAGE: "km2", "nominatim") against its quota of 24 hours; over it,
+        """Count what a user uses (USAGE: "km2", "mpx", "nominatim") against its quota of 24 hours; over it,
         QuotaExceeded and nothing is counted (checked and counted in one write transaction)."""
         with self._write() as db:
             used = self._used(db, user_id, kind)
@@ -450,7 +456,7 @@ class Jobs:
     def usage(self, user_id: Optional[int], limits: Optional[Limits]) -> Dict:
         """A user's use of the quotas, as admission() and use() count it (the last 24 hours, the jobs
         waiting or running now, the size of the runs), each with its quota of `limits` (None: no
-        quotas; then the counts of USAGE, kept only against a quota, are None as well). user_id None:
+        quotas; the counts of USAGE, kept only against their quota, are None without it). user_id None:
         the local app's jobs and runs (those without an owner)."""
         owner = "user_id IS ?" if user_id is None else "user_id = ?"
         active = WAITING + ACTIVE
@@ -458,7 +464,8 @@ class Jobs:
         db = self._db()
         try:
             counted = limits is not None and user_id is not None
-            used = {kind: self._used(db, user_id, kind) if counted else None for kind in USAGE}
+            used = {kind: self._used(db, user_id, kind) if counted and getattr(limits, f"{kind}_day_max") is not None
+                    else None for kind in USAGE}
             jobs_active = db.execute(f"SELECT COUNT(*) FROM jobs WHERE {owner} AND status IN {_in(active)}",
                                      (user_id, *active)).fetchone()[0]
             jobs_day = db.execute(f"SELECT COUNT(*) FROM jobs WHERE {owner} AND created >= ?",
@@ -469,6 +476,7 @@ class Jobs:
             db.close()
         quota = (lambda name: getattr(limits, name)) if limits is not None else (lambda name: None)
         return {"limited": limits is not None, "hours": DAY / 3600, "usage": {
+            "mpx": {"used": used["mpx"], "limit": quota("mpx_day_max")},
             "km2": {"used": used["km2"], "limit": quota("km2_day_max")},
             "download_mb": {"used": used["download_mb"], "limit": quota("download_mb_day_max")},
             "nominatim": {"used": used["nominatim"], "limit": quota("nominatim_day_max")},
@@ -1196,11 +1204,21 @@ def plan_km2(plan) -> float:
     return area_km2(plan.area)
 
 
+def plan_mpx(plan) -> float:
+    """The millions of pixels of a planned search's area at its resolution (km² / resolution²): what
+    its computing costs follows (the compute quota, Limits.mpx_day_max)."""
+    return plan_km2(plan) / plan.resolution ** 2
+
+
 def charge_area(jobs: Jobs, user_id: Optional[int], plan, limits: Optional[Limits]):
-    """Count the km² of a search's area for its user against Limits.km2_day_max (QuotaExceeded over it)."""
-    if limits is None or limits.km2_day_max is None or user_id is None:
+    """Count the Mpx and km² of a search's area for its user against Limits.mpx_day_max and
+    km2_day_max (QuotaExceeded over one; the Mpx first)."""
+    if limits is None or user_id is None:
         return
-    jobs.use(user_id, "km2", plan_km2(plan), limits.km2_day_max)
+    if limits.mpx_day_max is not None:
+        jobs.use(user_id, "mpx", plan_mpx(plan), limits.mpx_day_max)
+    if limits.km2_day_max is not None:
+        jobs.use(user_id, "km2", plan_km2(plan), limits.km2_day_max)
 
 
 def note_area(jobs: Jobs, job_id: str, plan, cache_dir: str):

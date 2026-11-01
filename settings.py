@@ -47,7 +47,7 @@ PUBLIC = {
     "radius_max": 3500, "resolution_max": 30,
     "region_km2_max": 2500, "area_km2_max": 50, "bbox_km_max": 75, "grid_mpx_max": 36, "tiles_max": 300, "anchors_max": 3_000_000,
     "lines_max": 1_500_000, "download_mb_max": 3000, "ortho_minutes": 10,
-    "jobs_active_max": 2, "jobs_day_max": 20, "km2_day_max": 250, "runs_gb_max": 5, "nominatim_day_max": 50,
+    "jobs_active_max": 2, "jobs_day_max": 20, "mpx_day_max": 250, "runs_gb_max": 5, "nominatim_day_max": 50,
     "download_mb_day_max": 10000,
     "estimate_rate": "20/minute;300/hour", "profile_rate": "30/minute;500/hour", "job_rate": "10/minute;60/hour",
     "place_rate": "10/minute;100/hour", "report_rate": "3/minute;20/day", "time_zone_rate": "5/minute;20/day",
@@ -124,9 +124,14 @@ class Limits(BaseSettings):
     # Quotas of a user (web.py, jobs.py); users without limits and administrators have none
     jobs_active_max: Optional[int] = Field(None, gt=0, description="searches of a user waiting or running at once")
     jobs_day_max: Optional[int] = Field(None, gt=0, description="searches a user may start in 24 hours")
+    mpx_day_max: Optional[float] = Field(
+        None, gt=0, description="millions of pixels of the search areas of a user in 24 hours: km² / resolution², "
+                                "so 1 km² at 1 m is 1, at 5 m 0.04 (what a search's computing costs follows its pixels; "
+                                "counted by the worker, which knows the area of osm: and coast/cliffs searches and the "
+                                "resolution; circles count too)")
     km2_day_max: Optional[float] = Field(
-        None, gt=0, description="km² of the search areas of a user in 24 hours (counted by the worker, which knows "
-                                "the area of osm: and coast/cliffs searches; circles count too)")
+        None, gt=0, description="km² of the search areas of a user in 24 hours, whatever their resolution (counted by "
+                                "the worker, which knows the area of osm: and coast/cliffs searches; circles count too)")
     download_mb_day_max: Optional[float] = Field(
         None, gt=0, description="MB a user's searches may download in 24 hours: the estimate of each search (the "
                                 "tiles not cached yet), counted when its download starts")

@@ -1008,19 +1008,21 @@ def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monke
     assert unlimited.delete(f"/api/jobs/{big.json()['id']}").status_code == 200
     assert unlimited.post(f"/api/jobs/{big.json()['id']}/again").status_code == 200
 
-    # The size of the runs and the km² of the last 24 hours (B: a fresh user)
+    # The size of the runs and the Mpx (km² at 1 m) of the last 24 hours (B: a fresh user)
     b = people["b"]
     jobs.add_run("big-run", b.user_id, int(6e9))
     refused = b.post("/api/jobs", json=request)
     assert refused.status_code == 429 and refused.json()["detail"]["code"] == "quota_runs_gb"
     jobs.delete_run("big-run", str(tmp_path / "runs"))
-    jobs.use(b.user_id, "km2", 250, limits.km2_day_max)
+    assert limits.km2_day_max is None  # the public site counts pixels, not km²
+    jobs.use(b.user_id, "mpx", 250, limits.mpx_day_max)
     refused = b.post("/api/jobs", json=request)
-    assert refused.status_code == 429 and "km²" in refused.text
+    assert refused.status_code == 429 and refused.json()["detail"]["code"] == "quota_mpx"
+    assert "km² at 1 m" in refused.json()["detail"]["message"]
     with pytest.raises(jb.QuotaExceeded):
-        jobs.use(b.user_id, "km2", 1, limits.km2_day_max)
+        jobs.use(b.user_id, "mpx", 1, limits.mpx_day_max)
     jobs.add_run("big-run-2", unlimited.user_id, int(6e9))
-    jobs.use(unlimited.user_id, "km2", 1000, None)
+    jobs.use(unlimited.user_id, "mpx", 1000, None)
     assert unlimited.post("/api/jobs", json=request).status_code == 200
 
     # Rates of estimates: refused before the (missing) worker
@@ -1049,10 +1051,10 @@ def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monke
 
 def test_nominatim_and_area_quotas_in_the_worker(tmp_path, monkeypatch):
     """The worker counts a user's uncached Nominatim requests (osm.BEFORE_REQUEST) and refuses the one
-    over the quota before it is sent; cached answers are free; the km² of a search are counted when
-    its area is known; a user without limits (None) counts nothing."""
+    over the quota before it is sent; cached answers are free; the km² and Mpx (km² / resolution²) of a
+    search are counted when its area is known; a user without limits (None) counts nothing."""
     import osm
-    from jobs import Jobs, QuotaExceeded, charge_area, nominatim_quota
+    from jobs import Jobs, QuotaExceeded, charge_area, nominatim_quota, plan_km2, plan_mpx
     from settings import Limits
     jobs = Jobs(str(tmp_path))
     sent = []
@@ -1088,6 +1090,15 @@ def test_nominatim_and_area_quotas_in_the_worker(tmp_path, monkeypatch):
         charge_area(jobs, 7, plan, Limits(km2_day_max=0.1))
     charge_area(jobs, 7, plan, None)
     charge_area(jobs, None, plan, Limits(km2_day_max=0.1))  # the local app: nobody to count
+    # The pixels: km² / resolution², the same area at 5 m counts 25 times less than at 1 m
+    coarse = _plan(tmp_path, None, northing=254608, easting=553966, radius=150, resolution=5)
+    assert plan.resolution == 1 and plan_mpx(plan) == pytest.approx(25 * plan_mpx(coarse))
+    assert plan_mpx(plan) == pytest.approx(plan_km2(plan))
+    for _ in range(25):  # 25 coarse searches fit where one at 1 m does
+        charge_area(jobs, 8, coarse, Limits(mpx_day_max=0.071))
+    with pytest.raises(QuotaExceeded) as refused:
+        charge_area(jobs, 8, plan, Limits(mpx_day_max=0.071))
+    assert refused.value.code == "quota_use_mpx"
 
 
 def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
@@ -3072,7 +3083,7 @@ def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):
     a = people["a"]
     point = {"params": {"lat": 50.1, "lon": 19.7, "radius": 100}, "geometry": None}
     assert a.post("/api/jobs", json=point).status_code == 200
-    jobs.use(a.user_id, "km2", 3.5, limits.km2_day_max)
+    jobs.use(a.user_id, "mpx", 3.5, limits.mpx_day_max)
     jobs.use(a.user_id, "download_mb", 12, limits.download_mb_day_max)
     jobs.add_run("run-a", a.user_id, int(2e8))
     import sqlite3
@@ -3088,7 +3099,8 @@ def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):
     assert answer.status_code == 200
     usage = answer.json()
     assert usage["limited"] and usage["hours"] == 24
-    assert usage["usage"]["km2"] == {"used": 3.5, "limit": limits.km2_day_max}
+    assert usage["usage"]["mpx"] == {"used": 3.5, "limit": limits.mpx_day_max}
+    assert usage["usage"]["km2"] == {"used": None, "limit": None}  # no km² quota: not counted
     assert usage["usage"]["download_mb"] == {"used": 12, "limit": limits.download_mb_day_max}
     assert usage["usage"]["nominatim"] == {"used": 0, "limit": limits.nominatim_day_max}
     assert usage["usage"]["jobs_day"] == {"used": 1, "limit": limits.jobs_day_max}
@@ -3101,7 +3113,7 @@ def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):
         usage = people[who].get("/api/usage").json()
         assert not usage["limited"], who
         assert all(item["limit"] is None for item in usage["usage"].values()), usage
-        assert usage["usage"]["km2"]["used"] is None and usage["usage"]["jobs_active"]["used"] == 0
+        assert usage["usage"]["mpx"]["used"] is None and usage["usage"]["jobs_active"]["used"] == 0
         assert all(value is None for value in usage["search"].values()), usage
     anonymous = TestClient(app, base_url=URL)
     assert anonymous.get("/api/usage").status_code == 401
@@ -3117,4 +3129,5 @@ def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):
             usage = client.get("/api/usage").json()
         assert not usage["limited"] and usage["usage"]["jobs_active"] == {"used": 1, "limit": None}, usage
         assert usage["usage"]["km2"] == {"used": None, "limit": None}
+        assert usage["usage"]["mpx"] == {"used": None, "limit": None}
         assert all(value is None for value in usage["search"].values()), usage
