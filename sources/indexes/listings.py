@@ -1,8 +1,9 @@
 """Listings: how an index service is asked for the versions in one 0.25° tile (a WFS sheet index, a STAC
 API, The National Map's products), as cached by CachedIndex."""
 
+import io
 import re
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
 
@@ -19,49 +20,80 @@ SHEET_CRS = {"PL-1992": "EPSG:2180", "PL-2000:S5": "EPSG:2176", "PL-2000:S6": "E
 SHEET_FORMATS = ("ARC/INFO ASCII GRID", "ASCII XYZ GRID")
 
 
+def _gml_features(gml: bytes) -> List[Tuple[Dict, Optional[Tuple[float, float, float, float]]]]:
+    """The features of a GML FeatureCollection (a WFS GetFeature answer), read by GDAL's GML
+    driver through pyogrio: their attributes and the bounds of their geometry (None without
+    one), easting first (GDAL swaps the axes of a CRS like EPSG:2180, whose EPSG order is
+    northing, easting). The schema the answer names (DescribeFeatureType) is not downloaded:
+    the attributes are typed from their values. An answer that is no GML lists nothing, as
+    the regular expressions read it before."""
+    # Imported here: the web process imports sources (the about page) and needs none of it
+    import shapely
+    from pyogrio import raw
+    from pyogrio.errors import DataLayerError, DataSourceError
+
+    try:
+        meta, _, geometry, values = raw.read(io.BytesIO(gml), layer=0, DOWNLOAD_SCHEMA="NO")
+    except DataLayerError:  # an empty collection has no layer when its schema is not read
+        return []
+    except DataSourceError:  # not GML (an error page)
+        return []
+    names = list(meta["fields"])
+    features = []
+    for k in range(len(geometry)):
+        shape = shapely.from_wkb(geometry[k]) if geometry[k] is not None else None
+        bounds = tuple(float(v) for v in shape.bounds) if shape is not None and not shape.is_empty else None
+        features.append(({name: values[i][k] for i, name in enumerate(names)}, bounds))
+    return features
+
+
+def _text(value) -> str:
+    """An attribute as text ("" when it is missing)."""
+    return "" if value is None else str(value)
+
+
 class WfsSheets(Listing):
     """Map sheets of a WFS sheet index (geoportal.gov.pl): one layer per year
     (`<prefix><year>`), every sheet linking to a file (ASCII grid or XYZ, sometimes zipped).
-    Sheets with a resolution between min_res and native_res are listed; extents in EPSG:2180
-    (from the sheet outline; EPSG:2180 lists northing before easting)."""
+    The requests are ours (requests: GetCapabilities, GetFeature per year), the GML answers
+    are read by pyogrio. Sheets with a resolution between min_res and native_res are listed;
+    extents in EPSG:2180 (the bounds of the sheet outline)."""
 
     def __init__(self, url: str, prefix: str, native_res: float, min_res: float):
         self.url, self.prefix, self.native_res, self.min_res = url, prefix, native_res, min_res
         self._years: Optional[List[str]] = None
 
-    def _wfs(self, **params) -> str:
+    def _wfs(self, **params) -> bytes:
         response = requests.get(self.url, timeout=300, headers=cache.http_headers(),
                                 params={"SERVICE": "WFS", "VERSION": "2.0.0", **params})
         response.raise_for_status()
-        return response.text
+        return response.content
 
     def _year_layers(self) -> List[str]:
         if self._years is None:
-            names = re.findall(rf"<Name>(gugik:{self.prefix}\d{{4}})</Name>", self._wfs(REQUEST="GetCapabilities"))
+            capabilities = self._wfs(REQUEST="GetCapabilities").decode("utf-8")
+            names = re.findall(rf"<Name>(gugik:{self.prefix}\d{{4}})</Name>", capabilities)
             self._years = sorted(set(names))
         return self._years
 
     def fetch(self, lat: float, lon: float) -> Dict:
         sheets = []
         for layer in self._year_layers():
-            text = self._wfs(REQUEST="GetFeature", TYPENAMES=layer, COUNT=10000,
-                             PROPERTYNAME="godlo,akt_rok,char_przestrz,format,uklad_xy,url_do_pobrania,msGeometry",
-                             BBOX=f"{lat},{lon},{lat + osm.TILE_DEG},{lon + osm.TILE_DEG},urn:ogc:def:crs:EPSG::4326")
-            for member in text.split("<wfs:member>")[1:]:
-                f = dict(re.findall(r"<gugik:(\w+)>([^<]*)</gugik:\1>", member))
-                res = re.match(r"[\d.]+", f.get("char_przestrz", ""))
-                url = f.get("url_do_pobrania", "")
+            gml = self._wfs(REQUEST="GetFeature", TYPENAMES=layer, COUNT=10000,
+                            PROPERTYNAME="godlo,akt_rok,char_przestrz,format,uklad_xy,url_do_pobrania,msGeometry",
+                            BBOX=f"{lat},{lon},{lat + osm.TILE_DEG},{lon + osm.TILE_DEG},urn:ogc:def:crs:EPSG::4326")
+            for f, bounds in _gml_features(gml):
+                res = re.match(r"[\d.]+", _text(f.get("char_przestrz")))
+                url = _text(f.get("url_do_pobrania"))
                 if not (res and url and f.get("format") in SHEET_FORMATS and f.get("uklad_xy") in SHEET_CRS):
                     continue
                 if not self.min_res - 1e-6 <= float(res.group()) <= self.native_res + 1e-6:
                     continue
-                values = [float(v) for v in " ".join(re.findall(r"<gml:posList[^>]*>([^<]*)<", member)).split()]
-                north, east = values[0::2], values[1::2]
-                if not north:
+                if bounds is None:
                     continue
-                sheets.append({"year": int(f["akt_rok"]), "godlo": f.get("godlo", ""), "url": url,
+                sheets.append({"year": int(f["akt_rok"]), "godlo": _text(f.get("godlo")), "url": url,
                                "crs": SHEET_CRS[f["uklad_xy"]], "res": float(res.group()),
-                               "extent": [min(east), min(north), max(east), max(north)]})
+                               "extent": list(bounds)})
         return {"layers": self._year_layers(), "sheets": sheets}
 
 

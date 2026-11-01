@@ -24,6 +24,7 @@ dependencies = [
     "psutil>=7",
     "pydantic>=2.11",
     "pydantic-settings>=2.16.1",
+    "pyogrio>=0.13",  # the GML of the WFS sheet indexes (sources/indexes/listings.py)
     "pyproj>=3.7",
     "pyrate-limiter>=4.5.1",
     "pystac-client>=0.9",  # the STAC indexes (sources/indexes/listings.py)
