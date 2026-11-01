@@ -67,7 +67,7 @@ Taken by the user after reading the report:
 | Phones | **Simplified on phones** (view, walker slider and walk; no anchor dragging), full on the desktop. |
 | Orthophoto | **Our cache first, then the service** from the browser, as the 2D map does. |
 | Mesh | **In the browser** (`@mapbox/martini`, copied into the repository: 2 KB, unchanged since 2020). |
-| Ring terrain | **Mapterhorn** (terrarium tiles); its maintainer is asked about the public endpoint first. |
+| Ring terrain | **Mapterhorn** (terrarium tiles); its maintainer is asked about the public endpoint first (no e-mail published: a GitHub Discussion). Its privacy policy: requests to `tiles.mapterhorn.com` are logged with the source IP and the referrer for up to 30 days, which the privacy sentence will name. |
 | Local app | **The user's own key**: a setting for a local user's ArcGIS Location Platform key; without it, no Esri imagery locally. |
 | Esri's terms | **Extend the About page's approved sentence** to the 3D view (wording approved at implementation). |
 | Privacy wording | Approved **at implementation** (the 3D view, Esri, Mapterhorn). |
