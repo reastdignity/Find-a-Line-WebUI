@@ -15,6 +15,7 @@ import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./dec
 import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
 import { backUrl, currentPage, patchUrl, type PageRequest } from "./page";
+import { createRing, ringUrl, type Ring } from "./ring";
 import { createScene, type SceneCore } from "./scene";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
@@ -106,9 +107,11 @@ async function start() {
   const page = currentPage(), ui = frame(root, page);
   if (!page.run || !page.line) { ui.say(t("error.patch_line"), true); return; }
   ui.say(t("ui.view3d.loading_terrain"));
-  let scene: SceneCore | null = null, imagery: Imagery | null = null;
+  let scene: SceneCore | null = null, imagery: Imagery | null = null, ring: Ring | null = null;
   const lost = () => ui.say(t("ui.view3d.context_lost"), true);
   addEventListener("pagehide", () => {
+    ring?.dispose();
+    ring = null;
     imagery?.dispose();
     imagery = null;
     scene?.dispose();
@@ -141,6 +144,8 @@ async function start() {
       terrainDrawn = true;
       ui.say(null);
       imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey()});
+      const url = ringUrl();
+      if (url) ring = createRing(scene!, imagery, url);
       ready();
     }
   });

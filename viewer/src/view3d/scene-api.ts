@@ -1,8 +1,8 @@
-// The scene's API between the modules of the 3D view (docs/3d-view-contract.md, "Wave 2"): the scene core
-// (scene.ts) implements it; the imagery (imagery.ts), the editing and the walk (wave 3a) and the ring (wave 3b)
-// use it. Types only.
+// The scene's API between the modules of the 3D view (docs/3d-view-contract.md, "Wave 2" and "Wave 3"): the
+// scene core (scene.ts) implements it; the imagery (imagery.ts), the editing and the walk (wave 3a) and the ring
+// (wave 3b) use it. Types only.
 
-import type { Mesh, Object3D, Texture, Vector3 } from "three";
+import type { Mesh, Object3D, PerspectiveCamera, Texture, Vector3, WebGLRenderer } from "three";
 import type { Patch, PatchMeta } from "./decode";
 import type { Origin } from "./geometry";
 import type { Level } from "./page";
@@ -44,9 +44,16 @@ export interface Scene3D {
   toolbar: HTMLElement;
   /** Draw one frame soon (the scene draws on demand only). */
   invalidate(): void;
-  /** Called before every frame drawn while an owner keeps drawing (`keepDrawing`); returns the unsubscribe. */
+  /** Called before every frame drawn while an owner keeps drawing (`keepDrawing`) with the seconds since the
+   *  frame before (0 on the first); returns the unsubscribe. */
   onFrame(fn: (seconds: number) => void): () => void;
+  /** Called before every frame drawn, on demand or not (after the `onFrame` callbacks): e.g. a level of detail
+   *  following the camera; returns the unsubscribe. */
+  beforeDraw(fn: () => void): () => void;
   keepDrawing(owner: string, on: boolean): void;
+  /** The camera and renderer, read-only for the modules: they never move the camera or resize the renderer. */
+  camera: PerspectiveCamera;
+  renderer: WebGLRenderer;
   add(object: Object3D): void;
   remove(object: Object3D): void;
   toScene(x: number, y: number, h: number): Vector3;

@@ -19,6 +19,8 @@ export interface View {
   look(from: Vector3, target: Vector3, far?: number): void;
   invalidate(): void;
   onFrame(fn: (seconds: number) => void): () => void;
+  /** Called before every frame drawn, on demand or not (after the `onFrame` callbacks); returns the unsubscribe. */
+  beforeDraw(fn: () => void): () => void;
   keepDrawing(owner: string, on: boolean): void;
   /** Called after every resize with the drawing buffer's size in CSS pixels. */
   onResize(fn: (size: Vector2) => void): void;
@@ -47,6 +49,7 @@ export function createView(host: HTMLElement, level: Level, background: string, 
   controls.enableDamping = false;
 
   const frameFns = new Set<(seconds: number) => void>(), owners = new Set<string>();
+  const beforeFns = new Set<() => void>();
   const resizeFns: ((size: Vector2) => void)[] = [], drawnFns: (() => void)[] = [];
   let pending = 0, last = 0, lost = false;
   const draw = (time: number) => {
@@ -57,6 +60,7 @@ export function createView(host: HTMLElement, level: Level, background: string, 
       last = time;
       for (const fn of [...frameFns]) fn(seconds);
     } else last = 0;
+    for (const fn of [...beforeFns]) fn();
     renderer.render(scene, camera);
     for (const fn of drawnFns) fn();
     if (owners.size) invalidate();
@@ -97,6 +101,7 @@ export function createView(host: HTMLElement, level: Level, background: string, 
     },
     invalidate,
     onFrame(fn) { frameFns.add(fn); return () => { frameFns.delete(fn); }; },
+    beforeDraw(fn) { beforeFns.add(fn); return () => { beforeFns.delete(fn); }; },
     keepDrawing(owner, on) {
       if (on) owners.add(owner); else owners.delete(owner);
       invalidate();

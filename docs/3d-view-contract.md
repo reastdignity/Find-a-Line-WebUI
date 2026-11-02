@@ -234,6 +234,117 @@ The approved texts go in word for word (English, as below); nothing else on thes
 - **The phone bar** (the coordinator's default, not objected to): the readout on one line, the walker's slider and
   the imagery control in one row, the notes in small type.
 
+## Wave 3
+Three agents in parallel (the plan's V3b split in two, so that no file has two owners), each in its own worktree
+`.claude/worktrees/<branch>` on a branch from `line-3d-view`:
+
+| Agent | Branch | Owns |
+| --- | --- | --- |
+| V3a scene interaction | `l3d-w3-scene` | `viewer/src/view3d/` `main.ts`, `view.ts`, `scene.ts`, `terrain.ts`, `page.ts`, `geometry.ts`, `line.ts`, `webbing.ts`, `walker.ts`, `view3d.css`, new modules of its own (e.g. `edit.ts`, `walk.ts`, `pin.ts`); new `ui.view3d.*` texts in `locales/en.json` if one is missing (none expected: wave 0 wrote them); its Node tests in `tests/test_viewer.py`; `tests/test_view3d.py` |
+| V3b ring (viewer) | `l3d-w3-ring` | `viewer/src/view3d/` `ring.ts` (replaces the stub), `imagery.ts`, `tiles.ts`, `credits.ts`, new modules of the ring; `tests/test_view3d_tiles.py`, new `tests/test_view3d_ring.py`, test data it makes under `tests/data/` |
+| V3c server and texts | `l3d-w3-server` | `settings.py` (`ViewSettings`), `web.py`, `README.md`, `findaline.env.example`, the 3D page's and the pages' rows in `tests/test_public.py`, `tests/test_web.py`, `tests/test_units.py` |
+
+The coordinator's only: `viewer/src/view3d/scene-api.ts`, `docs/`, `CLAUDE.md`, `package.json` and its lock (no new
+dependency: `three-mesh-bvh` 0.9.16 and `3d-tiles-renderer` 0.5.3 are pinned already; a need for another: report).
+Every agent rebuilds `viewer/dist`; at the merge the coordinator rebuilds it again. `tests/test_view3d.py` keeps
+`READY_SCRIPT` and `_page(data, run_id)` as they are (V3b's test imports them); add new helpers beside them.
+
+**In the base already (the coordinator, for all three):** `Scene3D.beforeDraw(fn)` (before every frame drawn, on
+demand or not), `Scene3D.camera` and `Scene3D.renderer` (read-only for the modules); `ring.ts` a stub with the
+final signature (`ringUrl()`, `createRing(scene, imagery, url)`, `Ring.dispose()`), called by `main.ts` after the
+imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
+
+**Names shared by the three**
+- The meta `findaline-3d-ring` of `web.VIEW3D_HTML`: `off`, or the ring's tile URL template with `{z}`, `{x}` and
+  `{y}` (HTML-escaped by the server); `ring.ts` `ringUrl()` reads it.
+- `settings.ViewSettings` (pydantic-settings, the environment only, no Docker secret, `extra="ignore"`):
+  `ring: bool = False` from `FINDALINE_3D_RING`; `ring_url: str = "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"`
+  from `FINDALINE_3D_RING_URL` (https; http only to 127.0.0.1 or localhost; holding `{z}`, `{x}` and `{y}`);
+  `ViewSettings.load()`, read once by `web.create_app`.
+- The 3D page's Content-Security-Policy: with the ring off as every page's (SECURITY_HEADERS'); with it on,
+  `connect-src` adds the ring URL's origin, `https://ibasemaps-api.arcgis.com` and the origins of every orthophoto
+  service of the catalogue (`OrthoService.url` and `.base_url` of `sources.SOURCES`). Nothing else is added: a need
+  for `blob:`, `worker-src`, `wasm-unsafe-eval` or more is reported, not added.
+- The ring's credit in `scene.credits`: id `"ring"`, order 3 (the data credits are 1, the imagery's 2), the HTML
+  `<a href="https://mapterhorn.com/attribution">© Mapterhorn</a>` built from constants (approved).
+- `Imagery.onChange(fn: (kind: ImageryKind) => void): () => void` (V3b adds it to `imagery.ts`; V3a does not use it).
+- No request to `tiles.mapterhorn.com` or to Mapterhorn's downloads while building: the maintainer has not been
+  asked yet (draft 7 of the user's mails). Tests make their own Terrarium tiles. Esri's and the orthophotos'
+  services are not asked by tests either (the visual review is the coordinator's).
+
+**V3a, scene interaction**
+- Anchor editing at level `full` only: a handle at each anchor; dragged with the pointer over the terrain (a
+  raycast on `pickTargets` with `three-mesh-bvh`'s `acceleratedRaycast`/`computeBoundsTree`), the orbit controls off
+  while dragging; the anchor's height from `heightAt`, never off the patch (over no data it stays where it was). The
+  webbing re-solved on every move with the code of the found line (`geometry.ts`, `webbing.ts`); while edited the
+  readout shows `ui.view3d.edited` and the webbing a neutral colour. On release, after 300 ms without another
+  release, `/api/profile?run=…&line=<lat1>,<lon1>,<lat2>,<lon2>` for the new anchors (through `scene.lonLat`; the
+  header `X-Findaline-Profile: 1` as `fetchProfile` of `main.ts`; at most one request in flight: releases during
+  it wait and only the newest is sent), then `setProfile` (colour and readout as for the found line); an error
+  answer (e.g. 429) shows its message (`detailMessage`) and the line stays neutral. `ui.view3d.reset` ("Back to
+  the found line") brings back the found anchors and their profile, kept from the start (not asked again);
+  `ui.view3d.edit_hint` says how. Nothing is saved.
+- The walker: dragged along the line at level `full` (from the pointer to the nearest point of the span); the slider
+  on both levels. The walk: a `ui.view3d.walk` / `ui.view3d.stop` button, from the walker's place towards the second
+  anchor at 1 m/s along the span, `ui.view3d.speed` switching ×1/×4 (`ui.view3d.speed_value`), stopping at the
+  end; Walk at the end starts again from the first anchor. `keepDrawing("walk", …)` only while it walks, `onFrame`
+  seconds advance it. Under `prefers-reduced-motion: reduce` no walk: `ui.view3d.reduced_motion` instead; the slider
+  stays.
+- The pin (approved): the walker always at true scale; while its height on the screen is under 20 CSS px a
+  contrasting pin shows above it (a sprite with `sizeAttenuation: false`, or a DOM marker moved each frame drawn:
+  no style attributes, the CSSOM only), gone when it is larger; readable over imagery, shaded terrain, light and
+  dark.
+- The phone bar (approved): at level `phone` and on narrow screens the readout on one line, the slider and the
+  imagery control (the `.u-row` V3b keeps in `scene.toolbar`) in one row, the notes in small type; the canvas gets
+  the rest.
+- Tests: Node tests of the pure parts (the walk's stepping, a pointer's place along the span, the request queue);
+  `tests/test_view3d.py`: level `full` has the handles and the walk button, level `phone` neither handle; the pin's
+  state at the first framing as a data attribute of the root (e.g. `data-pin="1"`); no CSP violation; an edit by
+  synthetic pointer events if they work in headless Edge, else its logic in Node.
+
+**V3b, the ring (viewer)**
+- `createRing(scene, imagery, url)`: a `TilesRenderer` of `3d-tiles-renderer` 0.5.3 over the Terrarium tiles at
+  `url` (Mapterhorn: Terrarium-encoded WebP of 512 px in Web Mercator, z0–17) through the package's plugin for such
+  elevation tiles (look in the installed package's exports and docs; report which), updated only when the camera
+  changes (`UpdateOnChangePlugin` or the like) with `tiles.update()` in `scene.beforeDraw`, `keepDrawing("ring",
+  true)` while tiles load, `invalidate()` per tile loaded.
+- Extent and budget: about 6 km from the patch's centre at level `full`, 3 km at `phone`; coarse levels only; at
+  most ~1.5 MB of tiles per open on the desktop and ~0.6 MB on a phone (Terrain and imagery together; measured in the
+  Edge test from `PerformanceResourceTiming.transferSize` or the plugin's events; report the numbers).
+- Placement: from the tiles' frame into the scene's (`toScene`: origin at the patch's centre, X east, Y up, Z
+  south) through `meta.affine` and `geometry.ts` (`mercator`, `lonLat`); heights as the tiles give them (report the
+  offset to the patch's heights along its edge, median and p90, on the test tiles and from the code's reasoning for
+  Mapterhorn's datums).
+- Cut out under the patch: no ring triangle over the patch's rectangle (clipping planes with `clipIntersection` and
+  `renderer.localClippingEnabled`, or a discard in the shader); the patch's skirts hide the seam.
+- Imagery: the ring's overlay follows `imagery.current` and `onChange`: Esri through the package's XYZ overlay
+  (`layers.ts` `esriTileUrl`, zoom ≤ `ESRI_MAX_ZOOM`), the orthophoto through its base tiles (`{z}/{x}/{y}` in Web
+  Mercator) or its WMS where the package has a WMS overlay, shaded without one (the ring's material in `--terrain`
+  as the patch's). Our cache is not used for the ring.
+- Credits: `"ring"` as in "Names", set when the ring is created, removed by `dispose`.
+- `Ring.dispose()`: the tiles disposed, listeners and the credit removed.
+- Tests: Node tests of the pure parts (the placement, the cut-out, the overlay's URLs per imagery);
+  `tests/test_view3d_ring.py`: `test_view3d`'s page with the meta set to a same-origin template of a few Terrarium
+  tiles the test makes from the clip (PNG or WebP through Pillow, served from the run's folder), the ring drawn
+  (a data attribute of the root, e.g. `data-ring="loaded"`), its bytes within the budget, no CSP violation.
+- Report the bundle's size (`view3d.js` gzip): above ~0.35 MB the coordinator decides about a bundle of its own.
+
+**V3c, server and texts**
+- `settings.ViewSettings` as in "Names", with the README's rows of the settings.
+- `web.create_app` reads it once: `/view3d` gets `html.escape(ring_url)` or `off` in its meta; the 3D page's CSP from
+  the ring's state (built in `create_app` and used by `guard`; the module's `PAGE_CSP` may stay as the ring-off
+  default), the catalogue's orthophoto origins computed from `sources.SOURCES`.
+- The approved texts word for word ("Decisions at the wave-2 checkpoint"): the privacy fact and the about page's
+  Esri and Software sentences always; the Mapterhorn fact and line only while the ring is on (`privacy_page(...,
+  ring=)`, `about_page(..., ring=)`).
+- README: a section on the 3D view of a line (what it shows, the levels and `?level=`, the data per open, the
+  imagery, `FINDALINE_3D_RING`/`_URL`: off until Mapterhorn's maintainer agrees) and one on the local app's satellite
+  imagery with the user's own ArcGIS Location Platform key in `ESRI_API_KEY` (read what README says today first).
+- `findaline.env.example`: `FINDALINE_3D_RING` commented out, with one line on why it is off.
+- Tests: the meta off and on, the 3D page's CSP off (= SECURITY_HEADERS') and on (the origins), the origins equal to
+  the catalogue's, the privacy and about texts with the ring off and on, `ViewSettings`' checks; `/` and `/api/jobs`
+  keep their headers.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then

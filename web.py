@@ -1607,8 +1607,8 @@ APP_HTML = """<!doctype html>
 """
 
 
-# The 3D view of a line (viewer/src/view3d): no token, the page only GETs; findaline-3d-ring "on" shows the
-# coarse ring of terrain around the patch (FINDALINE_3D_RING, wave 3)
+# The 3D view of a line (viewer/src/view3d): no token, the page only GETs; findaline-3d-ring is "off" or the
+# tile URL template of the coarse ring of terrain around the patch (FINDALINE_3D_RING, wave 3)
 VIEW3D_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-user" content="{user}">{keys}
