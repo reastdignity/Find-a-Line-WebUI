@@ -535,6 +535,72 @@ Checks of C:
 - A look in headless Edge, from PowerShell, at the demo on a desktop window and a narrow one, light
   and dark, with no CSP violations. Show the screenshots in the report.
 
+## Wave 1 as built (2026-11-02; read this before sections 3 and 4)
+
+**`search.py`**
+- `plan_search(..., tiled=False)`.
+- `count_tile(plan, data, core, sink, sag_table=None) -> Dict` returns `plan.funnel` with this call's
+  counts. It has **no "lines" key**, because the core filter belongs to the sink: use
+  `TileCounter.lines`.
+- `FixedTile(name, core, grid)` and `fixed_tiles(plan, core_m)`. A core is kept when it has area in
+  common with the outline; one that only touches it is left out.
+- `tile_grid(grid, core, overlap, res, origin)`.
+- Step 2 is `_anchors(plan, data, quiet)`, which returns `Anchors`. Step 3's arguments are
+  `_pair_search`.
+
+**`linesearch.py`**
+- `find_valid_lines(sink=)` returns None.
+- `SINK_CHUNK = 2048`, `SINK_PART = 1 << 20`. An evaluated part holds up to about 1 M lines, roughly
+  100+ MB with its temporaries: count it in a worker's memory.
+- `covered_pixels`.
+
+**`sag.py`**
+- `parse_tension`, `tension_at`, `TensionTable(rig, min_span, max_span, tension)`.
+- `EnvelopeTable._rig_at(span)` is the hook it overrides.
+
+**`countcube.py`**
+- As in section 2, plus `pack_keys`, `unpack_keys`, `line_records`, `length_bin`, `spot_ids`,
+  `spot_cells`, `sum_keys`, `count_keys`, `Filters.length_mask()`, `Cube.array(mode, level)`
+  (ValueError for an unknown mode or level), `Cube.cell_count(level, box)` and `Cube.outline()`.
+- `Cube` reads each array into memory when first used (not mapped).
+- `Cube.box` clips the view to `bounds_wgs84` widened by 1°. Away from the country it returns an
+  empty box (left > right): no cells.
+- `Filters.parse` ignores keys it does not know and empty values.
+- `build` removes `cube.json` first and writes it last. It does **not** check that the tiles share
+  one origin or config.
+- In cube.json, `cell_m` and `cluster_m` are floats.
+
+**The page**
+- `cellsQuery` sends:
+  - `mode`;
+  - `level` (`auto` or a number);
+  - `length` as `lo-hi`;
+  - `prominence`, `clearance`, `height` (always; 0 is off), `trees`, `water`;
+  - `wall` only when set;
+  - `bbox` = Leaflet's `toBBoxString()`.
+- It matches a 400 whose message contains "too many cells" (any case).
+- "Search here" goes to `#new&cell=<id>:<band>:<level>:<i>:<j>`, which calls `api.countryRequest`
+  for the layer bands.
+- The legend's classes are fixed per km²: lines 10 / 300 / 10 k / 300 k, spots 1 / 10 / 100 / 1000.
+
+**For D (section 3)**
+- Every tile's meta also holds:
+  - `origin` (the country's) and `config` (the hash), both checked by `country build` before
+    `countcube.build`;
+  - `lines` (`TileCounter.lines`) and `dropped`;
+  - the worker's peak memory (`psutil`: `peak_wset` on Windows, `ru_maxrss` elsewhere), so the
+    memory per pixel of a count can be measured in the pilot.
+- `origin` = `countcube.origin_of(<the outline's bounds in the country's CRS>)`, computed once and
+  stored in `country.json`. Every anchor lies inside the outline, so every cell and cluster index
+  is non-negative. It does not depend on any band's grid.
+
+**For E (section 4)**
+- Keep one `Cube` per (folder, mtime of cube.json).
+- The 20000-cell check uses `Cube.cell_count`.
+- `Filters.parse(request.query_params)` and the `Cube` methods raise `ValueError`: answer 400 with
+  its message.
+- The local app shows no Notices link under the credits (`/about` is the public site's).
+
 ## Environment (every agent)
 - **Windows; Git Bash and PowerShell.** Run headless Edge (pytest's browser tests too) from
   **PowerShell**: started from Git Bash it prints empty pages.
