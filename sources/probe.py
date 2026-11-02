@@ -256,7 +256,7 @@ def _image_service(cache_dir: str, layer: ImageServerTiles, lat: float, lon: flo
     (x,), (y,) = warp("EPSG:4326", layer.crs, [lon], [lat])
     res, (ox, oy) = layer.native_res, layer.origin
     left, bottom = math.floor((x - ox) / res - 8) * res + ox, math.floor((y - oy) / res - 8) * res + oy
-    reader = layer.reader
+    reader = layer.readers[layer.crs]  # a layer with zones: its default CRS
     status, _, body = _ask(cache_dir, reader.export_url,
                            reader.export_params(left, bottom, left + 16 * res, bottom + 16 * res, res))
     if status != 200 or body[:4] not in TIFF_MAGIC:
