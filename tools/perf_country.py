@@ -29,13 +29,23 @@ hold, per km², and the bytes of an 8-byte key with a 4-byte count.
 
     uv run tools/perf_country.py cube --samples <scratch>/pl/samples.json tatry-1m [--cell 1000] [--dims length clearance]
 
-estimate turns the samples into country totals: for each country of an inputs file (its area,
-its terrain classes and the samples standing for them, its data per km² and its download service),
-length variant (bands S, M, L), grid strategy, with and without the DSM, machine (its bench.json
-against the reference's) and scenario (low, high: the samples of each class): the data, the
-download days and the computing days of a run that keeps only counts. A sample is named
-<place>-<band>-<res>m; a missing resolution is scaled from the place's nearest one by the median
-ratio of the places measured at both.
+relief reads Copernicus DEM GLO-30 (downloaded into the data folder's cache where missing) over
+each country of an inputs file (its OpenStreetMap outline) and over every sample: per block of
+about 1 km the relief and the share of steep pixels, over windows of 1, 3 and 5 blocks. It keeps
+the countries' km² per fine bin of each proxy and each sample's 1 km cells (area, edge fraction,
+lines, spots, proxies), and prints the Spearman correlation of each proxy with the lines per km².
+
+    uv run tools/perf_country.py relief --inputs docs/country-precompute/inputs.json \\
+        --samples <scratch>/samples/samples.json --data-dir <scratch>/data --out docs/country-precompute/relief.json
+
+estimate turns the samples into country totals: for each country of an inputs file (its area, its
+data per km² and its download service), length variant (bands S, M, L), grid strategy, with and
+without the DSM, machine (its bench.json against the reference's) and scenario: the data, the
+download days and the computing days of a run that keeps only counts. A band's lines and spots
+come from relief's strata (the country's km² per stratum of the band's proxy times the samples'
+lines per km² there; low, mid and high from a bootstrap over the places), its times from the
+places measured at that resolution. A sample is named <place>-<band>-<res>m; a band's counts at
+another resolution than its base are scaled by the median ratio of the places measured at both.
 
     uv run tools/perf_country.py estimate --inputs docs/country-precompute/inputs.json \\
         --samples <scratch>/samples/samples.json [--json PATH]
@@ -623,7 +633,341 @@ def cube(samples: Dict, names: List[str], cell: float, dims: Sequence[str]) -> D
     return {"cell": cell, "dims": list(dims), "edges": {d: [e if e != INF else "inf" for e in EDGES[d]] for d in dims if d in EDGES}, "rows": rows}
 
 
-# ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- relief
+
+# The relief of a country and of the samples' cells, from Copernicus DEM GLO-30 (the catalogue's
+# surface layer of "europe", cached like a search's tiles): per block of about BLOCK_M its highest
+# and lowest point and its share of steep pixels (slope at 30 m of STEEP_DEG or more); per window of
+# 1, 3 or 5 blocks (about the reach of the bands' lines) the relief (highest minus lowest) and the
+# steep share. estimate stratifies a country by the steep share of a window and, where hardly a pixel
+# is steep, by its relief (strata_of), and takes each stratum's lines and spots per km² from the
+# samples' cells in it.
+BLOCK_M = 1000
+STEEP_DEG = (30, 45)
+WINDOWS = (1, 3, 5)
+PROXIES = tuple(f"relief{w}" for w in WINDOWS) + tuple(f"steep{d}_{w}" for d in STEEP_DEG for w in WINDOWS)
+# The fine bins a country's area is kept in (strata edges must be among them): relief in metres,
+# steep shares (an own bin for none at all)
+HIST_EDGES = {
+    "relief": [25.0 * k for k in range(41)] + [1000.0 + 100 * k for k in range(1, 11)] + [INF],
+    "steep": [0.0, 1e-6] + [0.0005 * k for k in range(1, 41)] + [0.02 + 0.005 * k for k in range(1, 17)]
+             + [0.1 + 0.02 * k for k in range(1, 46)] + [INF]}
+JOINT = "steep45"  # the joint histograms of steep45_<w> and relief<w>
+EARTH_M_PER_DEG = 6371000 * math.pi / 180
+CELL_M = 1000  # the samples' cells
+EDGE_POINTS, EDGE_PARTNERS = 160, 8  # Monte Carlo of a cell's edge fraction
+
+
+def relief_layer():
+    import sources
+    return sources.SOURCES["europe"].nmpt
+
+
+def degree_tiles(geometry) -> List[Tuple[int, int]]:
+    """The 1° tiles (lat, lon of the south-west corner) a WGS84 geometry touches."""
+    from shapely.geometry import box
+    west, south, east, north = geometry.bounds
+    return [(lat, lon) for lat in range(math.floor(south), math.floor(north) + 1)
+            for lon in range(math.floor(west), math.floor(east) + 1)
+            if geometry.intersects(box(lon, lat, lon + 1, lat + 1))]
+
+
+def fetch_relief_tiles(tiles: List[Tuple[int, int]], cache_dir: str) -> Dict[Tuple[int, int], Optional[str]]:
+    """The cached GLO-30 file of each tile, downloaded where missing (None: no data there, sea)."""
+    from concurrent.futures import ThreadPoolExecutor
+    layer = relief_layer()
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(lambda tile: layer._download_and_record(tile, cache_dir, None, True), tiles))
+    paths = {tile: layer.tile_path(cache_dir, tile) for tile in tiles}
+    return {tile: path if os.path.exists(path) else None for tile, path in paths.items()}
+
+
+def _block_edges(n: int, metres: float) -> np.ndarray:
+    count = max(1, round(n * metres / BLOCK_M))
+    return np.linspace(0, n, count + 1).round().astype(np.int64)
+
+
+def tile_blocks(path: str) -> Dict[str, np.ndarray]:
+    """A GLO-30 tile in blocks of about BLOCK_M: their edges in degrees (lat from the north, lon from
+    the west), centres, km² and the proxies (2-D arrays, block rows from the north)."""
+    import rasterio
+    from scipy.ndimage import maximum_filter, minimum_filter, uniform_filter
+    with rasterio.open(path) as src:
+        z = src.read(1).astype(np.float64)
+        if src.nodata is not None:
+            z[z == src.nodata] = np.nan
+        west, south, east, north = src.bounds
+    h, w = z.shape
+    lat = north - (np.arange(h) + 0.5) * (north - south) / h
+    dy = (north - south) / h * EARTH_M_PER_DEG
+    dx = (east - west) / w * EARTH_M_PER_DEG * np.cos(np.radians(lat))
+    gy, gx = np.gradient(z, axis=0) / dy, np.gradient(z, axis=1) / dx[:, None]
+    slope = np.degrees(np.arctan(np.hypot(gx, gy)))
+    rows, cols = _block_edges(h, dy), _block_edges(w, float(np.mean(dx)))
+    valid = ~np.isnan(z)
+
+    def reduce(a, ufunc):
+        return ufunc.reduceat(ufunc.reduceat(a, rows[:-1], axis=0), cols[:-1], axis=1)
+
+    zmax, zmin = reduce(np.where(valid, z, -np.inf), np.maximum), reduce(np.where(valid, z, np.inf), np.minimum)
+    n = reduce(valid.astype(np.float64), np.add)
+    lat_edges = north - rows * (north - south) / h
+    lon_edges = west + cols * (east - west) / w
+    lat_c = (lat_edges[:-1] + lat_edges[1:]) / 2
+    lon_c = (lon_edges[:-1] + lon_edges[1:]) / 2
+    km2 = (np.diff(rows) * dy)[:, None] * (np.diff(cols)[None, :] * (east - west) / w * EARTH_M_PER_DEG
+                                          * np.cos(np.radians(lat_c))[:, None]) / 1e6
+    out = {"lat_edges": lat_edges, "lon_edges": lon_edges, "lat": np.repeat(lat_c[:, None], len(lon_c), axis=1),
+           "lon": np.repeat(lon_c[None, :], len(lat_c), axis=0), "km2": km2, "valid": n > 0}
+    for window in WINDOWS:
+        high = maximum_filter(zmax, size=window, mode="nearest")
+        low = minimum_filter(zmin, size=window, mode="nearest")
+        out[f"relief{window}"] = np.where(np.isfinite(high) & np.isfinite(low), high - low, np.nan)
+        pixels = uniform_filter(n, size=window, mode="nearest")
+        for degrees in STEEP_DEG:
+            steep = uniform_filter(reduce((slope >= degrees).astype(np.float64), np.add), size=window, mode="nearest")
+            out[f"steep{degrees}_{window}"] = np.where(pixels > 0, steep / np.maximum(pixels, 1e-9), np.nan)
+    return out
+
+
+def proxies_at(blocks: Dict[Tuple[int, int], Dict], lon: np.ndarray, lat: np.ndarray) -> Dict[str, np.ndarray]:
+    """The proxies of the blocks holding the points (NaN where no tile)."""
+    out = {p: np.full(len(lon), np.nan) for p in PROXIES}
+    tiles = np.column_stack([np.floor(lat), np.floor(lon)]).astype(np.int64)
+    for key in {tuple(t) for t in tiles.tolist()}:
+        b = blocks.get(key)
+        if b is None:
+            continue
+        at = np.flatnonzero((tiles[:, 0] == key[0]) & (tiles[:, 1] == key[1]))
+        row = np.clip(np.searchsorted(-b["lat_edges"], -lat[at], side="right") - 1, 0, len(b["lat_edges"]) - 2)
+        col = np.clip(np.searchsorted(b["lon_edges"], lon[at], side="right") - 1, 0, len(b["lon_edges"]) - 2)
+        for p in PROXIES:
+            out[p][at] = b[p][row, col]
+    return out
+
+
+def _edges_json(edges: Sequence[float]) -> List:
+    return [e if e != INF else "inf" for e in edges]
+
+
+def histogram(values: np.ndarray, km2: np.ndarray, proxy: str) -> Dict:
+    edges = HIST_EDGES["relief" if proxy.startswith("relief") else "steep"]
+    keep = ~np.isnan(values)
+    k = bins(values[keep], edges)
+    return {"edges": _edges_json(edges),
+            "km2": np.bincount(k, weights=km2[keep], minlength=len(edges) - 1).round(3).tolist()}
+
+
+def joint_histogram(steep: np.ndarray, relief_: np.ndarray, km2: np.ndarray) -> Dict:
+    """km² per (fine steep bin, fine relief bin), the non-empty bins only, as [i, j, km²]."""
+    keep = ~np.isnan(steep) & ~np.isnan(relief_)
+    i, j = bins(steep[keep], HIST_EDGES["steep"]), bins(relief_[keep], HIST_EDGES["relief"])
+    nj = len(HIST_EDGES["relief"]) - 1
+    total = np.bincount(i * nj + j, weights=km2[keep])
+    found = np.flatnonzero(total > 0)
+    return {"steep_edges": _edges_json(HIST_EDGES["steep"]), "relief_edges": _edges_json(HIST_EDGES["relief"]),
+            "bins": [[int(k // nj), int(k % nj), round(float(total[k]), 3)] for k in found]}
+
+
+def sample_area(sample: Dict):
+    """A sample's search area in its grid's CRS: the circle of --lat/--lon/--radius, or --area."""
+    from shapely.geometry import Point, shape
+    from shapely.ops import unary_union
+    import area as ar
+    crs, args = sample["grid"]["crs"], sample["args"]
+    path = option(args, "--area")
+    if path:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        features = data["features"] if data.get("type") == "FeatureCollection" else [data]
+        return ar.project(unary_union([shape(f.get("geometry", f)) for f in features]), "EPSG:4326", crs)
+    centre = ar.project(Point(float(option(args, "--lon")), float(option(args, "--lat"))), "EPSG:4326", crs)
+    return centre.buffer(float(option(args, "--radius")), 256)
+
+
+def cell_edge_fraction(area, cell, low: float, high: float, rng) -> float:
+    """The share of a cell's partners at low..high metres (uniform over that ring) that lie inside
+    the area, for points of the cell inside it (Monte Carlo)."""
+    from shapely import contains_xy
+    left, bottom, right, top = cell.bounds
+    points = np.empty((0, 2))
+    while len(points) < EDGE_POINTS:
+        xy = rng.uniform((left, bottom), (right, top), size=(4 * EDGE_POINTS, 2))
+        points = np.vstack([points, xy[contains_xy(cell, xy[:, 0], xy[:, 1])]])
+    points = points[:EDGE_POINTS]
+    r = np.sqrt(rng.uniform(low ** 2, high ** 2, size=(EDGE_POINTS, EDGE_PARTNERS)))
+    a = rng.uniform(0, 2 * np.pi, size=(EDGE_POINTS, EDGE_PARTNERS))
+    x, y = points[:, :1] + r * np.cos(a), points[:, 1:] + r * np.sin(a)
+    return float(contains_xy(area, x.ravel(), y.ravel()).mean())
+
+
+def sample_cells(sample: Dict, low: float, high: float, blocks: Dict, lines: Optional[Dict] = None,
+                 scale: Tuple[float, float] = (1.0, 1.0)) -> Dict:
+    """A sample's cells of CELL_M: area inside its search area (km²), edge fraction for lines of
+    low..high metres, lines and spots (their first anchor's cell; times scale when they come from
+    another resolution's run) and the proxies at the cell's centre."""
+    from pyproj import Transformer
+    from shapely.geometry import box
+    shape_ = sample_area(sample)
+    crs = sample["grid"]["crs"]
+    ls = read_lines(sample["run"]) if lines is None else lines
+    counts = {}
+    for name, keep in (("lines", np.ones(len(ls["length_m"]), bool)), ("spots", ls["representative"])):
+        cells, n = np.unique(cells_of(ls, CELL_M)[keep], axis=0, return_counts=True)
+        counts[name] = {tuple(c): int(k) for c, k in zip(cells.tolist(), n.tolist())}
+    rng = np.random.default_rng(0)
+    left, bottom, right, top = shape_.bounds
+    rows = []
+    for i in range(math.floor(left / CELL_M), math.floor(right / CELL_M) + 1):
+        for j in range(math.floor(bottom / CELL_M), math.floor(top / CELL_M) + 1):
+            cell = shape_.intersection(box(i * CELL_M, j * CELL_M, (i + 1) * CELL_M, (j + 1) * CELL_M))
+            if cell.area < 0.05 * CELL_M ** 2:
+                continue
+            c = cell.representative_point()
+            rows.append({"cell": (i, j), "km2": cell.area / 1e6, "edge": cell_edge_fraction(shape_, cell, low, high, rng),
+                         "lines": counts["lines"].get((i, j), 0) * scale[0],
+                         "spots": counts["spots"].get((i, j), 0) * scale[1], "x": c.x, "y": c.y})
+    if not rows:
+        return {"columns": [], "cells": []}
+    to_wgs84 = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform
+    lon, lat = to_wgs84(np.array([r["x"] for r in rows]), np.array([r["y"] for r in rows]))
+    proxies = proxies_at(blocks, np.asarray(lon), np.asarray(lat))
+    columns = ["km2", "edge", "lines", "spots", *PROXIES]
+    table = [[round(r["km2"], 4), round(r["edge"], 4), round(r["lines"], 2), round(r["spots"], 2),
+              *(None if np.isnan(proxies[p][k]) else round(float(proxies[p][k]), 4) for p in PROXIES)]
+             for k, r in enumerate(rows)]
+    return {"columns": columns, "cells": table}
+
+
+def relief(inputs: Dict, samples: Dict, data_dir: str) -> Dict:
+    """The countries' area per fine bin of each proxy (blocks whose centre lies inside their OSM
+    outline) and the cells of every sample <place>-<band>-<res>m (variants left out); a sample
+    without a run but with lines (rebuilt from its output) takes the cells of the same place and
+    band at another resolution, scaled to its totals."""
+    from shapely import contains_xy, prepare
+    from shapely.ops import unary_union
+    import area as ar
+    cache_dir = os.path.join(data_dir, "cache")
+    blocks: Dict[Tuple[int, int], Dict] = {}
+
+    def load(tiles):
+        missing = [t for t in tiles if t not in blocks]
+        for tile, path in fetch_relief_tiles(missing, cache_dir).items():
+            blocks[tile] = tile_blocks(path) if path else None
+
+    result = {"block_m": BLOCK_M, "proxies": list(PROXIES), "countries": {}, "samples": {}}
+    for code, country in inputs["countries"].items():
+        outline = unary_union([ar.region(f"osm:{name}", cache_dir) for name in country["osm"]])
+        prepare(outline)
+        tiles = degree_tiles(outline)
+        load(tiles)
+        values = {p: [] for p in PROXIES}
+        km2 = []
+        for tile in tiles:
+            b = blocks[tile]
+            if b is None:
+                continue
+            inside = b["valid"] & contains_xy(outline, b["lon"], b["lat"])
+            km2.append(b["km2"][inside])
+            for p in PROXIES:
+                values[p].append(b[p][inside])
+        km2 = np.concatenate(km2)
+        values = {p: np.concatenate(v) for p, v in values.items()}
+        result["countries"][code] = {
+            "osm": country["osm"], "outline_km2": round(ar.size_km2(outline)), "blocks_km2": round(float(km2.sum())),
+            "tiles": len(tiles), "tiles_without_data": sum(blocks[t] is None for t in tiles),
+            "hist": {p: histogram(values[p], km2, p) for p in PROXIES},
+            "joint": {str(w): joint_histogram(values[f"{JOINT}_{w}"], values[f"relief{w}"], km2) for w in WINDOWS}}
+        print(f"{code}: {len(tiles)} tiles, outline {result['countries'][code]['outline_km2']} km², "
+              f"blocks {result['countries'][code]['blocks_km2']} km²")
+    for name, sample in sorted(samples.items()):
+        if name.count("-") < 2 or name.endswith(VARIANTS):
+            continue
+        place, band, res = name.rsplit("-", 2)
+        if band not in inputs["bands"]:
+            continue
+        low, high = inputs["bands"][band]
+        load(degree_tiles(ar.project(sample_area(sample), sample["grid"]["crs"], "EPSG:4326")))
+        lines, scale, source = None, (1.0, 1.0), None
+        if sample["run"] is None and sample["summary"]["lines"] > 0:
+            siblings = sorted(n for n, s in samples.items() if n.startswith(f"{place}-{band}-") and s["run"]
+                              and n.count("-") == name.count("-") and s["summary"]["lines"] > 0)
+            if not siblings:
+                print(f"{name}: no run and no other resolution of {place}-{band}: left out")
+                continue
+            source = siblings[0]
+            other = samples[source]["summary"]
+            scale = (sample["summary"]["lines"] / other["lines"], sample["summary"]["spots"] / max(other["spots"], 1))
+            lines = read_lines(samples[source]["run"])
+        cells = sample_cells(sample, low, high, blocks, lines, scale)
+        result["samples"][name] = {"place": place, "band": band, "res": float(res[:-1]), "cells_from": source, **cells}
+        print(f"{name}: {len(cells['cells'])} cells" + (f" (from {source})" if source else ""))
+    for name, s in virtual_cells(result["samples"], samples, inputs).items():
+        result["samples"][name] = s
+        print(f"{name}: {len(s['cells'])} cells, from {s['cells_from']}")
+    return result
+
+
+def virtual_cells(found: Dict[str, Dict], samples: Dict, inputs: Dict) -> Dict[str, Dict]:
+    """For a place measured in a band only at another resolution than the band's base one (Zion's
+    M band, whose 2 m search ran out of memory): its cells at the base resolution, the lines and
+    spots times the median ratio of the totals of the places measured at both resolutions."""
+    added = {}
+    for band, spec in inputs.get("strata", {}).items():
+        base = float(spec["res"])
+        mine = {n: s for n, s in found.items() if s["band"] == band}
+        at_base = {s["place"] for s in mine.values() if s["res"] == base}
+        for name, s in sorted(mine.items(), key=lambda kv: abs(math.log(kv[1]["res"] / base))):
+            if s["place"] in at_base or not s["cells"]:
+                continue
+            ratios = {"lines": [], "spots": []}
+            for other in mine.values():
+                if other["res"] != s["res"] or other["place"] == s["place"]:
+                    continue
+                pair = samples.get(f"{other['place']}-{band}-{base:g}m"), samples.get(f"{other['place']}-{band}-{s['res']:g}m")
+                if pair[0] and pair[1]:
+                    for key in ratios:
+                        if pair[1]["summary"][key]:
+                            ratios[key].append(pair[0]["summary"][key] / pair[1]["summary"][key])
+            if not ratios["lines"] or not ratios["spots"]:
+                continue
+            scale = {key: float(np.median(v)) for key, v in ratios.items()}
+            c = s["columns"]
+            cells = [[round(v * scale["lines"], 2) if k == c.index("lines") else round(v * scale["spots"], 2)
+                      if k == c.index("spots") else v for k, v in enumerate(row)] for row in s["cells"]]
+            added[f"{s['place']}-{band}-{base:g}m"] = {
+                **s, "res": base, "cells": cells,
+                "cells_from": f"{name} × {scale['lines']:.3g} lines, × {scale['spots']:.3g} spots (median of "
+                              f"{len(ratios['lines'])} places measured at both)"}
+            at_base.add(s["place"])
+    return added
+
+
+def proxy_correlations(relief_data: Dict, inputs: Dict) -> List[Dict]:
+    """Per band and resolution, the Spearman correlation over the samples' cells (edge fraction of
+    at least min_edge) between each proxy and the lines (spots) per effective km²."""
+    from scipy.stats import spearmanr
+    rows = []
+    groups: Dict[Tuple[str, float], List[List]] = {}
+    for s in relief_data["samples"].values():
+        if s["cells"]:
+            groups.setdefault((s["band"], s["res"]), []).extend(s["cells"])
+    columns = ["km2", "edge", "lines", "spots", *relief_data["proxies"]]
+    for (band, res), cells in sorted(groups.items()):
+        t = np.array([[np.nan if v is None else v for v in c] for c in cells], dtype=float)
+        keep = t[:, 1] >= inputs.get("min_edge", {}).get(band, 0.5)
+        t = t[keep]
+        eff = t[:, 0] * t[:, 1]
+        row = {"band": band, "res": res, "cells": len(t)}
+        for p in relief_data["proxies"]:
+            v = t[:, columns.index(p)]
+            ok = ~np.isnan(v)
+            for what in ("lines", "spots"):
+                d = t[ok, columns.index(what)] / eff[ok]
+                row[f"{p}:{what}"] = round(float(spearmanr(v[ok], d).statistic), 3) if ok.sum() > 2 and d.std() > 0 else None
+        rows.append(row)
+    return rows
+
 
 # ---------------------------------------------------------------- estimate
 
@@ -640,6 +984,8 @@ STEP1_BETWEEN = "Step 1: (between bars)"  # also holds the index answers when th
 LINE_BYTES = 450  # search.LINE_BYTES at 221dd10: the lines of a tile while it is counted
 SERIAL_EFFICIENCY = 0.85  # processes at once on as many cores: the share of a core each keeps
 OVERLAP_SHARE = 0.25  # the part of the shorter of serial and parallel time that the longer does not hide
+VARIANTS = ("-45", "-50", "-nodsm", "-axiom", "-tiger", "-floors")  # samples of other parameters
+SCENARIOS = ("low", "mid", "high")
 
 
 def sample_geometry(args: List[str]):
@@ -734,29 +1080,162 @@ def resolution_ratio(metrics: Dict[str, Dict], band: str, res_from: float, res_t
     return float(np.median(ratios)) if ratios else None
 
 
-def place_metrics(metrics: Dict[str, Dict], place: str, band: str, res: float) -> Optional[Dict]:
-    """A place's metrics of a band at a resolution: measured, or from the place's nearest measured
-    resolution scaled by resolution_ratio (the grid's per-Mpx cost as it is); None if neither."""
-    exact = metrics.get(f"{place}-{band}-{res:g}m")
-    if exact:
-        return exact
-    measured = sorted((float(n.rsplit("-", 1)[1][:-1]), m) for n, m in metrics.items()
-                      if n.startswith(f"{place}-{band}-") and n.endswith("m") and n.count("-") == place.count("-") + 2)
-    for res_from, m in sorted(measured, key=lambda rm: abs(math.log(rm[0] / res))):
-        scaled = dict(m)
-        for key in ("line_cpu_per_km2", "count_s_per_km2", "group_s_per_km2", "lines_per_km2", "spots_per_km2"):
-            ratio = resolution_ratio(metrics, band, res_from, res, key)
-            if ratio is None:
-                break
-            scaled[key] = m[key] * ratio
-        else:
-            scaled["scaled_from"] = f"{res_from:g} m"
-            return scaled
-    return None
+def band_of(name: str) -> Optional[Tuple[str, str, float]]:
+    """(place, band, resolution) of a sample <place>-<band>-<res>m, None for any other name."""
+    parts = name.rsplit("-", 2)
+    if len(parts) < 3 or not parts[2].endswith("m"):
+        return None
+    try:
+        return parts[0], parts[1], float(parts[2][:-1])
+    except ValueError:
+        return None
 
 
-def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, res: float, scenario: str,
-              dsm: bool, factors: Dict, memory_gb: float) -> Optional[Dict]:
+def _edges(values: Sequence) -> List[float]:
+    return [INF if e == "inf" else float(e) for e in values]
+
+
+def strata_of(steep: np.ndarray, relief_: np.ndarray, spec: Dict) -> np.ndarray:
+    """The stratum of each (steep share, relief) of a band's spec: where the steep share is below
+    the first of steep_edges, a bin of relief_edges (strata 0 .. len(relief_edges)); above, a bin of
+    steep_edges (the strata after them, the last one open)."""
+    steep_edges, relief_edges = _edges(spec["steep_edges"]), _edges(spec["relief_edges"])
+    steep, relief_ = np.asarray(steep, dtype=float), np.asarray(relief_, dtype=float)
+    return np.where(steep < steep_edges[0], np.searchsorted(relief_edges, relief_, side="right"),
+                    len(relief_edges) + np.searchsorted(steep_edges, steep, side="right")).astype(np.int64)
+
+
+def strata_labels(spec: Dict) -> List[str]:
+    steep_edges, relief_edges = _edges(spec["steep_edges"]), _edges(spec["relief_edges"])
+    flat = f"steep < {steep_edges[0] * 100:g} %"
+    relief_bins = [0.0, *relief_edges, INF]
+    labels = [f"{flat}, relief {lo:g}-{hi:g} m" if hi != INF else f"{flat}, relief >= {lo:g} m"
+              for lo, hi in zip(relief_bins[:-1], relief_bins[1:])]
+    steep_bins = [*steep_edges, INF]
+    return labels + [f"steep {lo * 100:g}-{hi * 100:g} %" if hi != INF else f"steep >= {lo * 100:g} %"
+                     for lo, hi in zip(steep_bins[:-1], steep_bins[1:])]
+
+
+def strata_areas(country_relief: Dict, spec: Dict) -> np.ndarray:
+    """A country's km² per stratum of a band's spec, from its joint histogram of the window: a fine
+    bin goes to the stratum of its lower edges (the strata edges are among the fine ones)."""
+    joint = country_relief["joint"][str(spec["window"])]
+    steep_edges, relief_edges = np.array(_edges(joint["steep_edges"])), np.array(_edges(joint["relief_edges"]))
+    cells = np.array(joint["bins"], dtype=float).reshape(-1, 3)
+    i, j = cells[:, 0].astype(np.int64), cells[:, 1].astype(np.int64)
+    k = strata_of(steep_edges[i] + 1e-9, relief_edges[j] + 1e-6, spec)
+    n = len(spec["relief_edges"]) + 1 + len(spec["steep_edges"])
+    return np.bincount(k, weights=cells[:, 2], minlength=n)
+
+
+def place_cells(relief_data: Dict, band: str, spec: Dict, min_edge: float) -> Dict[str, np.ndarray]:
+    """Per place, its cells of the band at the spec's resolution with an edge fraction of at least
+    min_edge, as rows of (stratum, effective km² = km² inside × edge fraction, lines, spots)."""
+    steep, relief_ = f"{JOINT}_{spec['window']}", f"relief{spec['window']}"
+    out = {}
+    for s in relief_data["samples"].values():
+        if s["band"] != band or s["res"] != float(spec["res"]) or not s["cells"]:
+            continue
+        c = s["columns"]
+        t = np.array([[np.nan if v is None else v for v in row] for row in s["cells"]], dtype=float)
+        t = t[(t[:, c.index("edge")] >= min_edge) & ~np.isnan(t[:, c.index(steep)]) & ~np.isnan(t[:, c.index(relief_)])]
+        if len(t):
+            out[s["place"]] = np.column_stack([strata_of(t[:, c.index(steep)], t[:, c.index(relief_)], spec),
+                                               t[:, c.index("km2")] * t[:, c.index("edge")],
+                                               t[:, c.index("lines")], t[:, c.index("spots")]])
+    return out
+
+
+def _per_stratum(tables: List[np.ndarray], n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    t = np.vstack(tables)
+    k = t[:, 0].astype(np.int64)
+    return (np.bincount(k, t[:, 1], n), np.bincount(k, t[:, 2], n), np.bincount(k, t[:, 3], n))
+
+
+def _filled(density: np.ndarray) -> np.ndarray:
+    """A stratum without cells takes the density of the nearest stratum with cells (the lower one
+    when both are as near)."""
+    known = np.flatnonzero(~np.isnan(density))
+    if not len(known):
+        return np.zeros_like(density)
+    out = density.copy()
+    for k in np.flatnonzero(np.isnan(density)):
+        out[k] = density[known[np.argmin(np.abs(known - k) + 0.1 * (known > k))]]
+    return out
+
+
+def band_counts(relief_data: Dict, inputs: Dict, code: str, band: str) -> Optional[Dict]:
+    """A country's lines and spots of a band at the band's base resolution: per stratum of the
+    band's proxy the country's km² times the lines (spots) per effective km² of the samples' cells
+    in it; low, mid and high: the 10th, 50th and 90th percentile of the line total over a bootstrap
+    of the places (with their spots), mid the plain estimate."""
+    spec = inputs["strata"][band]
+    res = float(spec["res"])
+    by_place = place_cells(relief_data, band, spec, inputs.get("min_edge", {}).get(band, 0.5))
+    if not by_place:
+        return None
+    labels = strata_labels(spec)
+    places, n = sorted(by_place), len(labels)
+    areas = strata_areas(relief_data["countries"][code], spec)
+    # The outline holds water (the Baltic's territorial sea, the Great Salt Lake), which is flat: the
+    # blocks' excess over the country's area comes off the flattest stratum; a shortfall (blocks at the
+    # border left out) is spread over all
+    land = inputs["countries"][code]["area_km2"]
+    if areas.sum() > land:
+        areas[0] = max(0.0, areas[0] - (areas.sum() - land))
+    else:
+        areas *= land / areas.sum()
+
+    def densities(tables):
+        km2, lines, spots = _per_stratum(tables, n)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(km2 > 0, lines / km2, np.nan), np.where(km2 > 0, spots / km2, np.nan), km2
+
+    lines_d, spots_d, cells_km2 = densities([by_place[p] for p in places])
+    lines_f, spots_f = _filled(lines_d), _filled(spots_d)
+    rng = np.random.default_rng(0)
+    totals = []
+    for _ in range(inputs.get("bootstrap", 400)):
+        pick = rng.choice(len(places), len(places))
+        dl, ds, _km2 = densities([by_place[places[i]] for i in pick])
+        totals.append((float(areas @ np.where(np.isnan(dl), lines_f, dl)), float(areas @ np.where(np.isnan(ds), spots_f, ds))))
+    totals.sort()
+    at = lambda q: totals[min(len(totals) - 1, int(q * len(totals)))]  # noqa: E731
+    return {"band": band, "res": res, "window": spec["window"], "strata": labels, "places": places,
+            "km2": areas.round(1).tolist(), "cells_km2": cells_km2.round(2).tolist(),
+            "lines_per_km2": [None if np.isnan(v) else round(float(v), 2) for v in lines_d],
+            "spots_per_km2": [None if np.isnan(v) else round(float(v), 3) for v in spots_d],
+            "lines": {"low": at(0.1)[0], "mid": float(areas @ lines_f), "high": at(0.9)[0]},
+            "spots": {"low": at(0.1)[1], "mid": float(areas @ spots_f), "high": at(0.9)[1]}}
+
+
+def time_model(metrics: Dict[str, Dict], band: str, res: float) -> Optional[Dict]:
+    """How the stages of a band at a resolution grow, from the places measured there: the grid's
+    seconds per Mpx (median), the line search's CPU seconds per km² as a + b × lines per km² (least
+    squares over the places, a and b at least 0) and the counts' and groups' seconds per line."""
+    ms = [m for name, m in metrics.items() if (band_of(name) or (None, None, None))[1:] == (band, res)]
+    if not ms:
+        return None
+    lam = np.array([m["lines_per_km2"] for m in ms])
+    cpu = np.array([m["line_cpu_per_km2"] for m in ms])
+    if len(ms) >= 2 and lam.std() > 0:
+        b, a = (float(v) for v in np.polyfit(lam, cpu, 1))
+        if a < 0:
+            a, b = 0.0, float(cpu.sum() / lam.sum())
+        if b < 0:
+            a, b = float(cpu.mean()), 0.0
+    elif lam.sum() > 0:
+        a, b = 0.0, float(cpu.sum() / lam.sum())
+    else:
+        a, b = float(cpu.mean()), 0.0
+    per_line = lambda key: float(sum(m[key] for m in ms) / lam.sum()) if lam.sum() > 0 else 0.0  # noqa: E731
+    return {"places": len(ms), "grid_s_per_mpx": float(np.median([m["grid_s_per_mpx"] for m in ms])),
+            "cpu_a": a, "cpu_b": b, "count_s_per_line": per_line("count_s_per_km2"),
+            "group_s_per_line": per_line("group_s_per_km2")}
+
+
+def band_time(inputs: Dict, model: Dict, lines: float, spots: float, km2: float, band: str, res: float, dsm: bool,
+              factors: Dict, memory_gb: float) -> Dict:
     """The wall time of one band of a country at a resolution on a machine: over candidate tile
     cores, the grid (single-core, K tiles at once as memory allows) and the line search (all
     cores), combined; the core with the shortest time wins. A run that keeps only counts holds a
@@ -764,22 +1243,10 @@ def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, 
     adds today's grouping into spots (single-core), which may not scale to such counts."""
     low, high = inputs["bands"][band]
     overlap = high + inputs["margin_m"] + 2 * res
-    serial_km2 = line_cpu = count = groups = lines = spots = 0.0
-    km2 = country["area_km2"]
-    for cls in country["classes"].values():
-        # A class may name other places for a band ("high_L"): a sample big enough for its lines
-        for place, weight in cls.get(f"{scenario}_{band}", cls[scenario]).items():
-            m = place_metrics(metrics, place, band, res)
-            if m is None:
-                return None
-            share = cls["share"] * weight
-            grid_factor = 1.0 if dsm else inputs.get("dsm_off_grid_factor", 1.0)
-            serial_km2 += share * m["grid_s_per_mpx"] * grid_factor / res ** 2  # s per km² of core, no overlap
-            line_cpu += share * km2 * m["line_cpu_per_km2"]
-            count += share * km2 * m["count_s_per_km2"]
-            groups += share * km2 * m.get("group_s_per_km2", 0.0)
-            lines += share * km2 * m["lines_per_km2"]
-            spots += share * km2 * m["spots_per_km2"]
+    grid_factor = 1.0 if dsm else inputs.get("dsm_off_grid_factor", 1.0)
+    serial_km2 = model["grid_s_per_mpx"] * grid_factor / res ** 2  # s per km² of core, no overlap
+    line_cpu = model["cpu_a"] * km2 + model["cpu_b"] * lines
+    count, groups = model["count_s_per_line"] * lines, model["group_s_per_line"] * lines
     best = None
     combine = lambda a, b: max(a, b) + OVERLAP_SHARE * min(a, b)  # noqa: E731
     for core_km in inputs["cores_km"]:
@@ -804,12 +1271,14 @@ def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, 
 
 def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
     """Country totals: for each country, length variant, grid strategy, with and without the DSM,
-    machine and scenario (low, high): the data, the download and the computing time."""
+    machine and scenario (low, mid, high: band_counts): the data, the download and the computing
+    time. A band's counts at another resolution than its base are scaled by the median ratio of
+    the places measured at both; a band at a resolution without samples has no estimate (None)."""
     metrics = {}
     for name, sample in samples.items():
-        band = name.rsplit("-", 2)[1] if name.count("-") >= 2 else None
-        if band in inputs["bands"] and not name.endswith(("-45", "-50", "-nodsm", "-axiom", "-tiger", "-floors")):
-            metrics[name] = sample_metrics(sample, inputs["bands"][band][1])
+        found = band_of(name)
+        if found and found[1] in inputs["bands"] and not name.endswith(VARIANTS):
+            metrics[name] = sample_metrics(sample, inputs["bands"][found[1]][1])
     # The grid without the DSM (one mosaic less): the mean ratio of the <name>-nodsm samples to theirs
     pairs = [(n[:-len("-nodsm")], n) for n in samples if n.endswith("-nodsm") and n[:-len("-nodsm")] in samples]
     if pairs and "dsm_off_grid_factor" not in inputs:
@@ -819,8 +1288,26 @@ def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
     reference = os.path.join(base, inputs["machines"][inputs["reference"]]["bench"])
     for name, machine_ in inputs["machines"].items():
         factors[name] = machine_factors(os.path.join(base, machine_["bench"]), reference)
+    with open(os.path.join(base, inputs["relief"]), encoding="utf-8") as f:
+        relief_data = json.load(f)
+    resolutions = {(b, float(r)) for s in inputs["strategies"].values() for b, r in s.items() if b in inputs["bands"]}
+    models = {key: time_model(metrics, *key) for key in sorted(resolutions)}
+    strata, counts = {}, {}
+    for code in inputs["countries"]:
+        for band in inputs["bands"]:
+            found = band_counts(relief_data, inputs, code, band)
+            strata[f"{code} {band}"] = found
+            for b, res in resolutions:
+                if b != band or found is None:
+                    continue
+                scale = {key: 1.0 if res == found["res"] else resolution_ratio(metrics, band, found["res"], res,
+                                                                                  f"{key}_per_km2")
+                         for key in ("lines", "spots")}
+                counts[(code, band, res)] = None if None in scale.values() else \
+                    {s: (found["lines"][s] * scale["lines"], found["spots"][s] * scale["spots"]) for s in SCENARIOS}
     rows = []
     for code, country in inputs["countries"].items():
+        km2 = country["area_km2"]
         for variant, bands in inputs["variants"].items():
             for strategy, res_of in inputs["strategies"].items():
                 finest = min(res_of[b] for b in bands)
@@ -829,32 +1316,38 @@ def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
                     usable = sorted((k for k in country["data"] if float(k) <= finest), key=float)
                     data = country["data"][usable[-1] if usable else min(country["data"], key=float)]
                     layers = {k: v for k, v in data.items() if dsm or k != "surface"}
-                    download_mb = sum(v["download_mb_km2"] for v in layers.values()) * country["area_km2"]
-                    cache_mb = sum(v["cache_mb_km2"] for v in layers.values()) * country["area_km2"]
-                    files = sum(v["files_per_km2"] for v in layers.values()) * country["area_km2"]
+                    download_mb = sum(v["download_mb_km2"] for v in layers.values()) * km2
+                    cache_mb = sum(v["cache_mb_km2"] for v in layers.values()) * km2
+                    files = sum(v["files_per_km2"] for v in layers.values()) * km2
                     service = country["service"]
                     seconds = download_mb / min(service["mb_s"], inputs["link_mb_s"])
                     if service.get("requests_per_min"):
                         seconds = max(seconds, files / service["requests_per_min"] * 60)
                     seconds += service.get("index_s", 0)
                     for machine_name, machine_ in inputs["machines"].items():
-                        for scenario in ("low", "high"):
-                            parts = [band_time(inputs, metrics, country, b, res_of[b], scenario, dsm,
-                                               factors[machine_name], machine_["memory_gb"]) for b in bands]
+                        for scenario in SCENARIOS:
+                            parts = []
+                            for b in bands:
+                                res = float(res_of[b])
+                                model, found = models.get((b, res)), counts.get((code, b, res))
+                                parts.append(None if model is None or found is None else
+                                             band_time(inputs, model, *found[scenario], km2, b, res, dsm,
+                                                       factors[machine_name], machine_["memory_gb"]))
+                            done = None not in parts
                             rows.append({
                                 "country": code, "variant": variant, "strategy": strategy, "dsm": dsm,
                                 "machine": machine_name, "scenario": scenario,
                                 "download_tb": round(download_mb / 1e6, 3), "cache_tb": round(cache_mb / 1e6, 3),
                                 "download_days": round(seconds / 86400, 2),
-                                "compute_days": None if None in parts else round(sum(p["wall_s"] for p in parts) / 86400, 2),
-                                "compute_hours": None if None in parts else round(sum(p["wall_s"] for p in parts) / 3600, 2),
-                                "compute_days_with_groups": None if None in parts else
-                                round(sum(p["wall_groups_s"] for p in parts) / 86400, 2),
-                                "lines": None if None in parts else sum(p["lines"] for p in parts),
-                                "spots": None if None in parts else sum(p["spots"] for p in parts),
+                                "compute_days": round(sum(p["wall_s"] for p in parts) / 86400, 2) if done else None,
+                                "compute_hours": round(sum(p["wall_s"] for p in parts) / 3600, 2) if done else None,
+                                "compute_days_with_groups":
+                                    round(sum(p["wall_groups_s"] for p in parts) / 86400, 2) if done else None,
+                                "lines": sum(p["lines"] for p in parts) if done else None,
+                                "spots": sum(p["spots"] for p in parts) if done else None,
                                 "bands": parts})
     return {"metrics": metrics, "factors": factors, "dsm_off_grid_factor": inputs.get("dsm_off_grid_factor"),
-            "rows": rows}
+            "models": {f"{b} {r:g} m": m for (b, r), m in models.items()}, "strata": strata, "rows": rows}
 
 
 def write_json(path: Optional[str], data: Dict):
@@ -892,6 +1385,11 @@ def main():
     q.add_argument("--cell", type=float, default=1000, help="cell size in metres")
     q.add_argument("--dims", nargs="+", default=list(DIMS), help=f"dimensions of the key ({', '.join(DIMS)})")
     q.add_argument("--json", help="write the result here too")
+    r = sub.add_parser("relief", help="the countries' relief and the samples' cells (Copernicus GLO-30)")
+    r.add_argument("--inputs", required=True)
+    r.add_argument("--samples", required=True)
+    r.add_argument("--data-dir", required=True, help="the data folder whose cache keeps the GLO-30 tiles")
+    r.add_argument("--out", required=True, help="the relief JSON (inputs.json names it as relief)")
     e = sub.add_parser("estimate", help="country totals from the samples")
     e.add_argument("--inputs", required=True, help="the countries, bands, strategies and machines (JSON)")
     e.add_argument("--samples", required=True)
@@ -909,15 +1407,23 @@ def main():
         print(markdown(result["rows"], ["cell", "band", "other", "ref_lines", "other_lines", "lines_ratio",
                                         "ref_spots", "other_spots", "spots_ratio", "cells", "spearman", "lost",
                                         "new"]))
+    elif args.command == "relief":
+        with open(args.inputs, encoding="utf-8") as f:
+            inputs = json.load(f)
+        result = relief(inputs, load_samples(args.samples), os.path.abspath(args.data_dir))
+        write_json(args.out, result)
+        rows = proxy_correlations(result, inputs)
+        columns = ["band", "res", "cells"] + [k for k in rows[0] if ":" in k] if rows else []
+        print(markdown(rows, columns))
     elif args.command == "estimate":
         with open(args.inputs, encoding="utf-8") as f:
             inputs = json.load(f)
         result = estimate(inputs, load_samples(args.samples), os.path.dirname(os.path.abspath(args.inputs)))
         write_json(args.json, result)
-        rows = [{**r, "lines": r["lines"], "bands": " ".join(f"{p['band']}:{p['core_km']}km×{p['tiles_at_once']}"
-                                                             for p in r["bands"] if p)} for r in result["rows"]]
+        rows = [{**r, "bands": " ".join(f"{p['band']}:{p['core_km']}km×{p['tiles_at_once']}" for p in r["bands"] if p)}
+                for r in result["rows"]]
         print(markdown(rows, ["country", "variant", "strategy", "dsm", "machine", "scenario", "download_tb",
-                              "cache_tb", "download_days", "compute_days", "lines", "spots", "bands"]))
+                              "cache_tb", "download_days", "compute_hours", "lines", "spots", "bands"]))
     else:
         result = cube(load_samples(args.samples), args.names, args.cell, args.dims)
         write_json(args.json, result)
