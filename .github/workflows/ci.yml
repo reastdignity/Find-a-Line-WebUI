@@ -231,22 +231,23 @@ jobs:
           systemd-analyze security --no-pager telegraf | tail -n 1
 
       # Requests in the metrics log format of deploy/nginx (one JSON object per line); the inputs of
-      # 5 minutes (the facts files, systemd's units) report at the next 5-minute mark
+      # 5 minutes (the facts files, systemd's units) report at the next 5-minute mark, the cpu input
+      # from its second gather (a difference of two): the loop waits for every name it checks after
       - name: Samples
         run: |
           query() { curl -sf http://127.0.0.1:8428/api/v1/query --data-urlencode "query=$1" | grep -q '"value"'; }
+          names="cpu_usage_idle docker_container_mem_usage_percent nginx_requests_request_time_count
+                 findaline_facts_time findaline_backup_time systemd_units_active_code"
+          all() { for name in $names; do query "$name" || return 1; done; }
           for _ in $(seq 70); do
             for status in 200 200 304 404 429 500; do
               echo "{\"time\":$(date +%s.%3N),\"group\":\"api\",\"method\":\"GET\",\"status\":$status,\"request_time\":0.042,\"upstream_time\":\"0.040\",\"bytes\":512,\"limit\":\"\"}" \
                 | sudo tee -a /var/log/nginx/findaline.metrics.log > /dev/null
             done
-            if query nginx_requests_request_time_count && query findaline_backup_time && query systemd_units_active_code; then
-              break
-            fi
+            all && break
             sleep 5
           done
-          for name in cpu_usage_idle docker_container_mem_usage_percent nginx_requests_request_time_count \
-                      findaline_facts_time findaline_backup_time systemd_units_active_code; do
+          for name in $names; do
             query "$name" || { echo "no samples of $name"; exit 1; }
           done
 

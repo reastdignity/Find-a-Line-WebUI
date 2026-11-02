@@ -315,6 +315,16 @@ def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
     added = [jobs.add({"params": {**params, "name": f"Clip {i}"}, "geometry": None}, f"clip {i}") for i in range(2)]
     scheduler = Scheduler(jobs, limits=Limits(compute_slots=2, download_slots=2))
     assert scheduler.memory and scheduler.memory > 2 ** 28
+    # Computing is claimed only once both jobs are downloaded, so the scheduler starts both in
+    # one round: on a fast runner the small clip could otherwise finish its computing before the
+    # second job was downloaded (seen in CI)
+    claim = jobs.claim
+
+    def claim_together(waiting, status, worker_id=None):
+        if waiting == "ready" and any(jobs.get(job)["status"] in ("queued", "downloading") for job in added):
+            return None
+        return claim(waiting, status, worker_id)
+    monkeypatch.setattr(jobs, "claim", claim_together)
     scheduler.start()
     try:
         for job in added:
