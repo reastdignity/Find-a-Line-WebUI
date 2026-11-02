@@ -1585,6 +1585,52 @@ print(json.dumps([before, 'numba' in sys.modules, len(lines.results)]))
     assert before == [] and loaded and lines > 0
 
 
+def test_download_data_fetches_the_coastline_alongside_the_tiles(tmp_path, monkeypatch):
+    """download_data asks the coastline's theme tiles (--coastline overpass without the world file) in a
+    thread while the layers' tiles download; a requests error of the coastline is left to the search
+    (the Copernicus mask), a RuntimeError fails the download as before."""
+    import threading
+
+    import requests
+
+    import search
+    import warmup
+    from params import SearchParams
+    nmt, _, (e, n) = warmup.write_grids(str(tmp_path))
+    plan = search.plan_search(SearchParams(elevation_file=nmt, easting=e, northing=n, radius=45, min_length=15,
+                                           max_length=60, water="fill", coastline="overpass", fill_gaps="off"),
+                              search.Paths(str(tmp_path), str(tmp_path / "work")), lambda kind, text: None)
+    asked, order = threading.Event(), []
+
+    def theme(name, west, south, east, north, cache_dir, update):
+        order.append(name)
+        asked.set()
+        return []
+
+    def tiles(plan):
+        assert asked.wait(30)  # the coastline is asked while the tiles download
+        order.append("tiles")
+
+    monkeypatch.setattr(search.coast, "world_file", lambda cache_dir: None)
+    monkeypatch.setattr(search.osm, "theme", theme)
+    monkeypatch.setattr(search, "_download_layers", tiles)
+    search.download_data(plan)
+    assert order == ["coastline", "tiles"]
+
+    def fails(error):
+        def theme(*args):
+            raise error
+        return theme
+    monkeypatch.setattr(search, "_download_layers", lambda plan: None)
+    monkeypatch.setattr(search.osm, "theme", fails(requests.ConnectionError("Overpass is down")))
+    search.download_data(plan)
+    monkeypatch.setattr(search.osm, "theme", fails(RuntimeError("broken")))
+    with pytest.raises(search.SearchError, match="Download failed: broken"):
+        search.download_data(plan)
+    monkeypatch.setattr(search.coast, "world_file", lambda cache_dir: "world.shp")  # not asked with the world file
+    search.download_data(plan)
+
+
 def test_estimate_layers_in_parallel():
     """sources.layer.estimate_layers asks every layer's estimate at the same time (their indexes),
     each layer once, the answers in the order of the layers."""

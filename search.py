@@ -37,6 +37,7 @@ import math
 import os
 import pickle
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -657,15 +658,44 @@ def download_data(plan: Plan):
     (whether it is needed shows only on the grid).
     """
     p, grid, cache_dir = plan.params, plan.grid, plan.paths.cache
+    coastline = None
+    if p.water == "fill" and p.coastline == "overpass" and coast.world_file(cache_dir) is None:
+        # The coastline's theme tiles (from the extracts, or Overpass: up to minutes) in a thread
+        # alongside the tiles' pool: it shares only the cache's index and servicecounts with it,
+        # both safe between threads (osm's limits are file locks and SQLite); a daemon, so a
+        # failed download of the tiles does not wait for it
+        coastline = _Background(lambda: osm.theme("coastline", *coast._grid_bbox_wgs84(grid), cache_dir, p.update))
     try:
         _download_layers(plan)
-        if p.water == "fill" and p.coastline == "overpass" and coast.world_file(cache_dir) is None:
+        if coastline is not None:
             try:
-                osm.theme("coastline", *coast._grid_bbox_wgs84(grid), cache_dir, p.update)
+                coastline.result()
             except requests.RequestException:
                 pass  # the search falls back to the Copernicus mask with a warning
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
+
+
+class _Background:
+    """A call in a daemonic thread of its own; result() waits for it and returns its value or
+    raises its exception."""
+
+    def __init__(self, call: Callable):
+        self._value = self._error = None
+        self._thread = threading.Thread(target=self._run, args=(call,), daemon=True)
+        self._thread.start()
+
+    def _run(self, call: Callable):
+        try:
+            self._value = call()
+        except BaseException as e:  # handed to result()
+            self._error = e
+
+    def result(self):
+        self._thread.join()
+        if self._error is not None:
+            raise self._error
+        return self._value
 
 
 def prepare_data(plan: Plan) -> Data:
