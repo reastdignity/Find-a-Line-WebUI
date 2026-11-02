@@ -235,7 +235,7 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      "de-sn": "sachsen", "de-bw": "baden-wuerttemberg",
                      "de-by": "bayern", "de-rp": "rheinland-pfalz",
                      "gb-sct": "scotland", "de-nw": "nordrhein-westfalen", "it-tn": "nord-est",
-                     "au-tas": "tasmania"}
+                     "au-tas": "tasmania", "au-qld": "queensland"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",)}
 
