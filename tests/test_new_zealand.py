@@ -41,7 +41,7 @@ def test_block_files():
     (name, url, year), = nz.NZ_DEM.index.files(i, j)
     assert name == "BW21" and year == 0
     assert url == "https://nz-elevation.s3.ap-southeast-2.amazonaws.com/new-zealand/new-zealand/dem_1m/2193/BW21.tiff"
-    assert nz.topo50_sheet((i + 1) * nz.BLOCK_M - 1, (j + 1) * nz.BLOCK_M - 1) == name
+    assert nz.topo50_sheet((i + 1) * nz.NZ_BLOCK_M - 1, (j + 1) * nz.NZ_BLOCK_M - 1) == name
     (name, url, _), = nz.NZ_DSM.index.files(i, j)
     assert url.endswith("/new-zealand/new-zealand/dsm_1m/2193/BW21.tiff")
     (name, url, _), = nz.NZ_DEM_8M.index.files(376, 1300)
@@ -50,7 +50,7 @@ def test_block_files():
     assert nz.NZ_DEM.index.files(-100, 5203) == []
 
 
-@pytest.mark.parametrize("block_m, origin", [(nz.BLOCK_M, (0, 0)), (nz.CONTOUR_BLOCK_M, nz.CONTOUR_ORIGIN)])
+@pytest.mark.parametrize("block_m, origin", [(nz.NZ_BLOCK_M, (0, 0)), (nz.CONTOUR_BLOCK_M, nz.CONTOUR_ORIGIN)])
 def test_blocks_inside_one_sheet(block_m, origin):
     """The blocks' edges lie on the sheets' edges: each block's four corners are in one sheet."""
     for e in range(988000, 988000 + 48 * 24000, 4000):

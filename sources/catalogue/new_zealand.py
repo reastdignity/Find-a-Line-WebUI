@@ -42,26 +42,26 @@ CONTOUR_CREDIT = _linz_credit("New Zealand Contour-Interpolated 8m DEM (LINZ)",
                               "New Zealand Contour-Interpolated 8m DEM")
 
 # The Topo50 sheet division: sheets of 24 km (east) x 36 km (north) from the north-west corner (988 000,
-# 6 810 000) of NZTM2000, named by their row from the north as two letters of SHEET_LETTERS (BW: row 44) and
+# 6 810 000) of NZTM2000, named by their row from the north as two letters of TOPO50_LETTERS (BW: row 44) and
 # their column from the west as two digits (BW21 Castle Hill, BQ31 Wellington). It names every sheet of the
 # collections (tests/test_new_zealand.py). The Chatham Islands lie in another CRS (NZTM is not theirs) and are
 # left out (the source's bbox).
-SHEET_ORIGIN = (988000, 6810000)
-SHEET_SIZE = (24000, 36000)
-SHEET_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+TOPO50_ORIGIN = (988000, 6810000)
+TOPO50_SIZE = (24000, 36000)
+TOPO50_LETTERS = "ABCDEFGHJKLMNPQRSTUVWXYZ"
 
 
 def topo50_sheet(e: int, n: int) -> str:
     """The name of the Topo50 sheet holding the point (e, n) of NZTM2000 in whole metres (a sheet holds its
     west and south edges); "" outside the division."""
-    column = (e - SHEET_ORIGIN[0]) // SHEET_SIZE[0]
-    row = (SHEET_ORIGIN[1] - 1 - n) // SHEET_SIZE[1]
-    if not (0 <= column <= 99 and 0 <= row < len(SHEET_LETTERS) ** 2):
+    column = (e - TOPO50_ORIGIN[0]) // TOPO50_SIZE[0]
+    row = (TOPO50_ORIGIN[1] - 1 - n) // TOPO50_SIZE[1]
+    if not (0 <= column <= 99 and 0 <= row < len(TOPO50_LETTERS) ** 2):
         return ""
-    return f"{SHEET_LETTERS[row // len(SHEET_LETTERS)]}{SHEET_LETTERS[row % len(SHEET_LETTERS)]}{column:02d}"
+    return f"{TOPO50_LETTERS[row // len(TOPO50_LETTERS)]}{TOPO50_LETTERS[row % len(TOPO50_LETTERS)]}{column:02d}"
 
 
-def sheet_files(folder: str, block_m: int, origin=(0, 0)):
+def topo50_files(folder: str, block_m: int, origin=(0, 0)):
     """The file of a block of block_m from origin (its edges on the sheets' edges, so a block lies inside one
     sheet): the sheet holding its lower-left corner, in folder of the bucket. The survey years are not in the
     files (0)."""
@@ -72,18 +72,18 @@ def sheet_files(folder: str, block_m: int, origin=(0, 0)):
 
 
 # Blocks of 1 km (1000 x 1000 px, 4-9 of the files' 512 px tiles): about 2.5 MB each
-BLOCK_M = 1000
-NZ_DEM = FileBlocks("LINZ LiDAR 1 m DEM (terrain)", "new_zealand/dem1m/live", NZTM, 1.0, BLOCK_M,
-                    sheet_files("new-zealand/dem_1m/2193", BLOCK_M), bytes_per_tile=2.5e6)
-NZ_DSM = FileBlocks("LINZ LiDAR 1 m DSM (trees, buildings)", "new_zealand/dsm1m/live", NZTM, 1.0, BLOCK_M,
-                    sheet_files("new-zealand/dsm_1m/2193", BLOCK_M), bytes_per_tile=2.5e6)
+NZ_BLOCK_M = 1000
+NZ_DEM = FileBlocks("LINZ LiDAR 1 m DEM (terrain)", "new_zealand/dem1m/live", NZTM, 1.0, NZ_BLOCK_M,
+                    topo50_files("new-zealand/dem_1m/2193", NZ_BLOCK_M), bytes_per_tile=2.5e6)
+NZ_DSM = FileBlocks("LINZ LiDAR 1 m DSM (trees, buildings)", "new_zealand/dsm1m/live", NZTM, 1.0, NZ_BLOCK_M,
+                    topo50_files("new-zealand/dsm_1m/2193", NZ_BLOCK_M), bytes_per_tile=2.5e6)
 # The 8 m DEM interpolated from the 20 m contours of the Topo50 map (Geographx for LINZ, 2012; LINZ: "Suitable
 # for cartographic visualisation purposes only. Not suitable for terrain analysis."): only the gaps of the
 # 1 m DEM. The same sheets (3000 x 4500 px, LERC, nodata -9999; 449 of them), never rewritten ("completed").
 # Blocks of 4 km (500 x 500 px) from (0, 2000): the largest whose edges stay on the sheets' edges
 CONTOUR_BLOCK_M, CONTOUR_ORIGIN = 4000, (0, 2000)
 NZ_DEM_8M = FileBlocks("LINZ contour-interpolated 8 m DEM (terrain)", "new_zealand/dem8m/2012", NZTM, 8.0,
-                       CONTOUR_BLOCK_M, sheet_files("new-zealand-contour/dem_8m/2193", CONTOUR_BLOCK_M,
+                       CONTOUR_BLOCK_M, topo50_files("new-zealand-contour/dem_8m/2193", CONTOUR_BLOCK_M,
                                                     CONTOUR_ORIGIN),
                        origin=CONTOUR_ORIGIN, bytes_per_tile=1e6)
 
