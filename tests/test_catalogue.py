@@ -13,13 +13,49 @@ import osm  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 
-IDS = ["geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
+IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "south_tyrol", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
-DECLARED = {'geoportal': {'crs': 'EPSG:2180',
+DECLARED = {'czechia': {'crs': 'EPSG:5514',
+                        'countries': ('cz',),
+                        'bbox': None,
+                        'fallbacks': ['europe'],
+                        'grid_origin': (0.4, 1.88),
+                        'default_resolution': 2.0,
+                        'instead_without_data': None,
+                        'local_crs': 'utm_crs',
+                        'ortho': 'czechia/ortho/live',
+                        'credits': ['DMR 5G / DMP 1G (ČÚZK, Czechia)'],
+                        'nmt': {'class': 'ImageServerTiles',
+                                'description': 'ČÚZK DMR 5G 2 m (terrain)',
+                                'folder': 'czechia/dmr5g/live',
+                                'prefix': None,
+                                'native_res': 2.0,
+                                'processing': 1,
+                                'ttl_days': 730,
+                                'credit': 'DMR 5G / DMP 1G (ČÚZK, Czechia)',
+                                'shift': (0.0, 0.0),
+                                'url': 'https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer',
+                                'crs': 'EPSG:5514',
+                                'tile_px': 1000,
+                                'origin': (0.4, 1.88)},
+                        'nmpt': {'class': 'ImageServerTiles',
+                                 'description': 'ČÚZK DMP 1G 2 m (trees, buildings)',
+                                 'folder': 'czechia/dmp1g/live',
+                                 'prefix': None,
+                                 'native_res': 2.0,
+                                 'processing': 1,
+                                 'ttl_days': 730,
+                                 'credit': 'DMR 5G / DMP 1G (ČÚZK, Czechia)',
+                                 'shift': (0.0, 0.0),
+                                 'url': 'https://ags.cuzk.gov.cz/arcgis2/rest/services/dmp1g/ImageServer',
+                                 'crs': 'EPSG:5514',
+                                 'tile_px': 1000,
+                                 'origin': (1.69, 1.98)}},
+            'geoportal': {'crs': 'EPSG:2180',
                           'countries': ('pl',),
                           'bbox': None,
                           'fallbacks': ['europe'],
@@ -1058,6 +1094,8 @@ def _layer(layer):
     if isinstance(layer, WmsrTiles):
         info.update(url=layer.url, layer=layer.reader.layer, crs=layer.crs, fetch_res=layer.fetch_res,
                     tile_m=layer.tile_m, origin=layer.origin)
+    if isinstance(layer, src.ImageServerTiles):
+        info.update(url=layer.url, crs=layer.crs, tile_px=layer.tile_px, origin=layer.origin)
     return info
 
 
@@ -1151,6 +1189,10 @@ PATHS = [
      (0.5, 970, 6301)),
     ("france_rgealti", "nmt", (1.0, 970, 6301), "france/rgealti-1m/live/epsg2154-1m-1000px-tif/970_6301.tif",
      (1.0, 970, 6301)),
+    ("czechia", "nmt", (2.0, -308, -501), "czechia/dmr5g/live/epsg5514-2m-1000px-tif-o0.4_1.88/-308_-501.tif",
+     (2.0, -308, -501)),
+    ("czechia", "nmpt", (2.0, -308, -501), "czechia/dmp1g/live/epsg5514-2m-1000px-tif-o1.69_1.98/-308_-501.tif",
+     (2.0, -308, -501)),
 ]
 
 
@@ -1236,7 +1278,13 @@ def test_layer_surface():
 
 # A copy of the offline boxes of 2026-10-31: the order matters (the first box holding a point wins)
 ALASKA = (51.0, 71.5, -180.0, -129.9)
-BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
+CZ_BOXES = [("cz", (48.95, 49.95, 15.5, 17.2)), ("cz", (49.25, 50.25, 12.95, 15.5)), ("cz", (48.6, 49.25, 13.85, 14.95)),
+            ("cz", (49.0, 49.25, 14.95, 15.5)), ("cz", (49.45, 50.3, 12.5, 12.95)), ("cz", (50.0, 50.3, 12.25, 12.5)),
+            ("cz", (50.25, 50.55, 12.95, 14.1)), ("cz", (50.25, 50.8, 14.1, 15.3)), ("cz", (50.25, 50.64, 15.3, 16.2)),
+            ("cz", (49.95, 50.1, 15.5, 17.7)), ("cz", (50.1, 50.25, 15.5, 16.45)), ("cz", (50.1, 50.25, 16.8, 17.6)),
+            ("cz", (49.45, 49.95, 17.2, 18.6)), ("cz", (49.0, 49.45, 17.2, 18.1))]
+# Czechia's first: they lie inside Poland's and Slovakia's
+BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("fr", (43.40, 49.45, -1.80, 5.90)), ("fr", (47.20, 48.90, -4.80, -1.80)),
          ("fr", (48.90, 49.75, -1.90, -1.20)), ("fr", (49.40, 50.20, 0.00, 4.10)),
          ("fr", (50.20, 51.08, 1.45, 2.50)), ("fr", (50.20, 50.68, 2.50, 3.20)),
@@ -1403,6 +1451,7 @@ ATTRIBUTIONS = {
                "2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
     "france": "IGN, LiDAR HD (MNT, MNS), Géoplateforme {year}, Licence Ouverte 2.0",
     "france_rgealti": "IGN, RGE ALTI 1 m, Géoplateforme {year}, Licence Ouverte 2.0",
+    "czechia": "ČÚZK, {year}",
     "usa": "USGS 3D Elevation Program (3DEP). Map services and data available from U.S. Geological Survey, "
            "National Geospatial Program.",
 }
@@ -1417,6 +1466,8 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "mecklenburg_vorpommern": ("© GeoBasis-DE/M-V {year}, CC BY 4.0", src.CC_BY[1]),
     "geoportal": ("GUGiK", None),
     "france": ("IGN, BD ORTHO, Licence Ouverte 2.0", "https://www.etalab.gouv.fr/licence-ouverte-open-licence/"),
+    "czechia": ("ČÚZK – on-line", "https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"
+                                  "Podminky-poskytovani-sitovych-sluzeb-CUZK.aspx"),
 }
 
 

@@ -1181,5 +1181,31 @@
     },
     "notes": "--source auto picks france (the centre, on the French bank above the Lac des Brenets, is in FR); first run on an empty cache: 9 tiles of 1 km per layer, one without data (Swiss); LiDAR HD reaches a few hundred metres into Switzerland, so swisstopo (the neighbour) fills only the border gap at the edge of the circle (0.02 km2) and RGE ALTI the holes inside it (the lake's surface and the river, 0.12 km2); the cliffs of the Doubs gorge are wooded: every line over trees, 21 over the water",
     "seconds": 35.9
+  },
+  "R44": {
+    "place": "Adršpach rock town (Adršpašské skály), Czechia: ČÚZK's DMR 5G and DMP 1G (2 m) from its ArcGIS ImageServers (exportImage) in S-JTSK / Krovak East North",
+    "args": "--lat 50.6115 --lon 16.1170 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "cz"
+    ],
+    "expected": {
+      "anchors": 80073,
+      "open": 22745,
+      "checked": 436433,
+      "lines": 37687,
+      "spots": 1976,
+      "csv_sha256": "4e559d62ca07552cdd5684c70ecf79f8f3caede43118b01685d56a4a995bd190",
+      "length_km": 5685.808,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.154,
+      "clearance_max": 32.34,
+      "over_trees": 37339,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "water_lines": 218,
+      "water_spots": 19
+    },
+    "seconds": 29.6
   }
 }

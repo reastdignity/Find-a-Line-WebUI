@@ -1,0 +1,81 @@
+{
+ "recipe": "imageserver-cuzk",
+ "recorded": "2026-11-02",
+ "hosts": [
+  "https://ags.cuzk.gov.cz"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer?f=json",
+   "status": 200,
+   "content_type": "application/json; charset=UTF-8",
+   "body": "001-dmr5g-json.json",
+   "case": "dmr5g-json"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-615777.6%2C-1000282.12%2C-615745.6%2C-1000250.12&bboxSR=5514&imageSR=5514&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "002-full.tif",
+   "case": "full"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-615777.6%2C-1000282.12%2C-615761.6%2C-1000250.12&bboxSR=5514&imageSR=5514&size=8%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "003-left.tif",
+   "case": "left"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-615761.6%2C-1000282.12%2C-615745.6%2C-1000250.12&bboxSR=5514&imageSR=5514&size=8%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "004-right.tif",
+   "case": "right"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-615775.6%2C-1000282.12%2C-615743.6%2C-1000250.12&bboxSR=5514&imageSR=5514&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "005-shift.tif",
+   "case": "shift"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmp1g/ImageServer/exportImage?bbox=-615776.31%2C-1000282.02%2C-615744.31%2C-1000250.02&bboxSR=5514&imageSR=5514&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "006-dmp.tif",
+   "case": "dmp"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-559081.6%2C-990980.12%2C-559049.6%2C-990948.12&bboxSR=5514&imageSR=5514&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "007-poland.tif",
+   "case": "poland"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-915689.6%2C-1026214.12%2C-915657.6%2C-1026182.12&bboxSR=5514&imageSR=5514&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "008-beyond.tif",
+   "case": "beyond"
+  },
+  {
+   "method": "GET",
+   "url": "https://ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g/ImageServer/exportImage?bbox=-615777.6%2C-1000282.12%2C-615745.6%2C-992080.12&bboxSR=5514&imageSR=5514&size=16%2C4101&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "009-too-high.json",
+   "case": "too-high"
+  }
+ ]
+}

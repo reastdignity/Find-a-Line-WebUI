@@ -388,7 +388,7 @@ def test_catalogue_extracts(tmp_path):
     import osm
     countries = {"poland": "PL", "switzerland": "CH", "liechtenstein": "LI", "slovakia": "SK", "malta": "MT",
                  "spain": "ES", "us": "US", "austria": "AT", "luxembourg": "LU", "denmark": "DK", "finland": "FI",
-                 "norway": "NO",
+                 "norway": "NO", "czech-republic": "CZ",
                  "france": "FR",
                  "germany": "DE", "italy": "IT", "united-kingdom": "GB",
                  "new-zealand": "NZ", "canada": "CA"}
@@ -408,7 +408,7 @@ def test_catalogue_extracts(tmp_path):
         ["poland", "switzerland", "liechtenstein", "slovakia", "malta", "canary-islands", "spain", "us",
          "us/puerto-rico", "us/us-virgin-islands", "canada", "austria", "wales", "england", "hessen",
          "mecklenburg-vorpommern", "sachsen-anhalt", "niedersachsen", "nord-est", "luxembourg", "denmark",
-         "finland", "norway", "new-zealand",
+         "finland", "norway", "new-zealand", "czech-republic",
          "france"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(

@@ -9,14 +9,12 @@ from rasterio.transform import from_origin
 from .. import net
 from ..layer import Fetched, _clean, _write_tile
 from ..composed import Reader
+from . import TIFF_MAGIC
 
 # What IGN's servers answer now and then, in bursts of a second or two, for a layer they have (a few in
 # a hundred requests on 2026-11-02): LayerNotDefined with HTTP 400, or a 502/503/504 of their gateway
 TRANSIENT = ("LayerNotDefined", "HTTP 502", "HTTP 503", "HTTP 504")
 TRANSIENT_ROUNDS = 2  # more rounds of net._get's retries after such an answer, longer apart
-
-# The first bytes of a TIFF (little- or big-endian; BigTIFF too): anything else is no raster
-TIFF_MAGIC = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 
 
 class MapRequest(NamedTuple):

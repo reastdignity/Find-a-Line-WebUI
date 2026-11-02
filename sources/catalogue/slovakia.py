@@ -30,7 +30,7 @@ SOURCES: List[Source] = [
         nmpt=GridTiles("DMP 1.0 (trees, buildings)", [f"{base}/dmp1/1m" for base in SLOVAK_TILES], "EPSG:8353",
                        "slovakia/dmp1/1.0/epsg8353-1m-2km", 2000, 1.0, 5.7e6, mirror="slovakia/dmp1/1m"),
         countries=("sk",), crs="EPSG:8353", ortho=ZBGIS_ORTHO, credits=(UGKK_CREDIT,),
-        neighbours=("geoportal", "austria"),
+        neighbours=("geoportal", "austria", "czechia"),
         listing=ReadmeRow("Slovakia", "ÚGKK SR DMR 5.0, ALS 1 m (2017–2023)", "ÚGKK SR DMP 1.0, 1 m",
                         "ZBGIS (ÚGKK SR)"),
         # Poland's box overlaps it in the north: Poland comes first in SOURCES
