@@ -1075,5 +1075,32 @@
     },
     "notes": "--source auto picks norway (the centre is in NO); first run on an empty cache (with the default --max-length 1000): 4 tiles of 2 km per layer, 7-17 MB each, about 2.5 s a tile; the fjord comes back as 0.0 in the DTM (no data: filled as sea, sea_km2) and as about -0.1 m in the DOM; DOM - DTM is up to about 16 m (p99, forest) with outliers of 100+ m at vertical walls, so most lines are over trees; with the defaults (--max-length 1000) 200601 lines in 693 spots, too many for a quick test: --min-length 50 --max-length 300 (the coordinates are the pulpit rock itself, checked on the map)",
     "seconds": 13.6
+  },
+  "R41": {
+    "place": "Stawamus Chief, Squamish, British Columbia, Canada: NRCan's HRDEM national mosaic 1 m (DTM and DSM), blocks of 1 km read by HTTP range requests from its 500 km COGs on AWS, in its own EPSG:3979 (Canada Atlas Lambert, scale -0.26 % here)",
+    "args": "--lat 49.682 --lon -123.143 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 464978,
+      "open": 45844,
+      "checked": 270473,
+      "lines": 19348,
+      "spots": 179,
+      "csv_sha256": "f8666b49c88c2ed6358cdc3d70bf815191c49bd0c0786197263dc265b83f4b83",
+      "length_km": 2050.615,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.464,
+      "clearance_max": 12.13,
+      "over_trees": 19348,
+      "coverage": 95.06,
+      "empty_tiles": 0,
+      "filled_km2": 0.01,
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 2 m)"
+    },
+    "notes": "--source auto picks canada (the centre is in CA); first run on an empty cache: blocks of 1 km of the 500 km COG 2_4, about 2 MB each; the three peaks of the Chief with the North and South Gully between them (179 spots of lines of 50-400 m); every line crosses the gullies' forest, so over_trees is all of them; gaps (0.3 km2, the creeks and the shore) filled from the 2 m mosaic and MRDEM-30; lengths on EPSG:3979 are 0.26 % short here; also measured: radius 800 m with the default lengths, 36533 lines in 283 spots (30-919 m), 84 s on an empty cache",
+    "seconds": 10.7
   }
 }
