@@ -1355,8 +1355,10 @@ def _orthophoto_after(jobs: Jobs, job_id: str, plan, spots: List[Dict], limits: 
                       steps: StepClock):
     """The orthophoto step of a job done already (run_phase): search.download_orthophoto with the
     worker's answer to its question (ortho_confirm), its progress and messages as events of the job
-    as before, then the statistics written again with the orthophoto's seconds (STEP_KEYS). An error
-    leaves the job and its run as they are: a line to stderr and a warning event (the map loads the
+    as before, then its seconds added to the job's steps (STEP_KEYS "orthophoto", as when it was part
+    of the phase; only that row: "other" keeps the phase's own value, so the phase's seconds outside
+    its steps still follow from its timestamps and its steps, tools/job_stats.py). An error leaves
+    the job and its run as they are: a line to stderr and a warning event (the map loads the
     orthophoto online)."""
     import search
     try:
@@ -1365,7 +1367,12 @@ def _orthophoto_after(jobs: Jobs, job_id: str, plan, spots: List[Dict], limits: 
         print(f"orthophoto of job {job_id} not cached: {type(e).__name__}: {cache.clean_error(e)}",
               file=sys.stderr, flush=True)
         on_event("warning", "The orthophoto could not be cached for offline use: the map loads it online")
-    _write_statistics(jobs, job_id, steps, plan.funnel)
+    try:
+        seconds, cpu = steps.result(), steps.cpu()
+        if "orthophoto" in seconds:
+            jobs.set_steps(job_id, {"orthophoto": seconds["orthophoto"]}, {"orthophoto": cpu.get("orthophoto")})
+    except Exception as e:  # statistics only
+        print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
