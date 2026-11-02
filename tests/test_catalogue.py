@@ -17,7 +17,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "south_tyrol", "trento", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "europe", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -1244,6 +1244,26 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                              'credit': 'New Zealand Contour-Interpolated 8m DEM (LINZ)',
                              'shift': (0.0, 0.0)},
                      'nmpt': None},
+            'tasmania': {'crs': 'EPSG:28355',
+                         'countries': ('au',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.6017317998048384, 0.9000000013038516),
+                         'default_resolution': 2.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': 'tasmania/ortho/live',
+                         'credits': ['Tasmania 2 metre DEM, 2021 (The LIST, State of Tasmania)'],
+                         'nmt': {'class': 'FileBlocks',
+                                 'description': 'Tasmania 2 m DEM (terrain)',
+                                 'folder': 'tasmania/dem2m/20210814',
+                                 'prefix': None,
+                                 'native_res': 2.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Tasmania 2 metre DEM, 2021 (The LIST, State of Tasmania)',
+                                 'shift': (0.0, 0.0)},
+                         'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -1416,6 +1436,7 @@ PATHS = [
     ("new_zealand", "nmt", (1505, 5203), "new_zealand/dem1m/live/30_104/1505_5203.tif", (1505, 5203)),
     ("new_zealand", "nmpt", (1505, 5203), "new_zealand/dsm1m/live/30_104/1505_5203.tif", (1505, 5203)),
     ("nz8m", "nmt", (376, 1300), "new_zealand/dem8m/2012/7_26/376_1300.tif", (376, 1300)),
+    ("tasmania", "nmt", (259, 2625), "tasmania/dem2m/20210814/5_52/259_2625.tif", (259, 2625)),
     ("france", "nmt", (1.0, 970, 6301), "france/lidarhd-mnt/live/epsg2154-1m-1000px-tif-o-0.25_0.25/970_6301.tif",
      (1.0, 970, 6301)),
     ("france", "nmpt", (0.5, 970, 6301), "france/lidarhd-mns/live/epsg2154-0.5m-2000px-tif-o-0.25_0.25/970_6301.tif",
@@ -1559,7 +1580,8 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("no", (59.10, 60.00, 4.50, 11.80)), ("no", (60.00, 62.00, 4.50, 12.30)), ("no", (62.00, 63.50, 4.50, 12.00)),
          ("no", (63.50, 64.50, 7.00, 13.00)), ("no", (64.50, 65.50, 9.00, 14.00)), ("no", (65.50, 66.50, 11.50, 14.50)),
          ("no", (66.50, 68.00, 11.50, 15.60)), ("no", (68.00, 69.00, 11.50, 17.50)),
-         ("nz", (-47.6, -34.0, 166.0, 178.9))]
+         ("nz", (-47.6, -34.0, 166.0, 178.9)),
+         ("au-tas", (-43.70, -39.45, 143.75, 148.55))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -1696,6 +1718,7 @@ ATTRIBUTIONS = {
     "norway": "©Kartverket, CC BY 4.0, processed",
     "new_zealand": "Sourced from LINZ. CC BY 4.0",
     "nz8m": "Sourced from LINZ. CC BY 4.0",
+    "tasmania": "The LIST © State of Tasmania",
     "wales": "Contains public sector information licensed under the Open Government Licence v3.0",
     "england": "© Environment Agency copyright and/or database right 2022. All rights reserved. Modified: resampled "
                "onto the working grid.",
@@ -1730,6 +1753,8 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "rhineland_palatinate": ("©GeoBasis-DE / LVermGeoRP {year}, dl-de/by-2-0, www.lvermgeo.rlp.de",
                              "https://www.govdata.de/dl-de/by-2-0"),
     "geoportal": ("GUGiK", None),
+    "tasmania": ("theLIST orthophoto: Creative Commons BY-NC-ND 3.0 AU © State of Tasmania",
+                 "https://creativecommons.org/licenses/by-nc-nd/3.0/au/"),
     "france": ("IGN, BD ORTHO, Licence Ouverte 2.0", "https://www.etalab.gouv.fr/licence-ouverte-open-licence/"),
     "czechia": ("ČÚZK – on-line", "https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"
                                   "Podminky-poskytovani-sitovych-sluzeb-CUZK.aspx"),

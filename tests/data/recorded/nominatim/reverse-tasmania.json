@@ -1,0 +1,352 @@
+[
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -43.14,
+   "lon": 148.0,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-02T17:15:02+00:00",
+  "answer": {
+   "place_id": 33526612,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 80500,
+   "lat": "-24.7761086",
+   "lon": "134.7550000",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9007373714659365,
+   "addresstype": "country",
+   "name": "Australia",
+   "display_name": "Australia",
+   "address": {
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.3228175",
+    "-9.0880125",
+    "72.2461932",
+    "168.2261259"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -43.14,
+   "lon": 148.0,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-02T17:15:03+00:00",
+  "answer": {
+   "place_id": 24267017,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2369652,
+   "lat": "-42.0350670",
+   "lon": "146.6366887",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.6909758264676638,
+   "addresstype": "state",
+   "name": "Tasmania",
+   "display_name": "Tasmania, Australia",
+   "address": {
+    "state": "Tasmania",
+    "ISO3166-2-lvl4": "AU-TAS",
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.1730541",
+    "-39.1984777",
+    "143.7488210",
+    "159.0840828"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -42.893,
+   "lon": 147.237,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-02T17:15:05+00:00",
+  "answer": {
+   "place_id": 33697493,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 80500,
+   "lat": "-24.7761086",
+   "lon": "134.7550000",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9007373714659365,
+   "addresstype": "country",
+   "name": "Australia",
+   "display_name": "Australia",
+   "address": {
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.3228175",
+    "-9.0880125",
+    "72.2461932",
+    "168.2261259"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -42.893,
+   "lon": 147.237,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-02T17:15:06+00:00",
+  "answer": {
+   "place_id": 24249276,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2369652,
+   "lat": "-42.0350670",
+   "lon": "146.6366887",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.6909758264676638,
+   "addresstype": "state",
+   "name": "Tasmania",
+   "display_name": "Tasmania, Australia",
+   "address": {
+    "state": "Tasmania",
+    "ISO3166-2-lvl4": "AU-TAS",
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.1730541",
+    "-39.1984777",
+    "143.7488210",
+    "159.0840828"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -43.2,
+   "lon": 148.05,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-02T17:15:07+00:00",
+  "answer": {
+   "place_id": 33697493,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 80500,
+   "lat": "-24.7761086",
+   "lon": "134.7550000",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9007373714659365,
+   "addresstype": "country",
+   "name": "Australia",
+   "display_name": "Australia",
+   "address": {
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.3228175",
+    "-9.0880125",
+    "72.2461932",
+    "168.2261259"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -43.2,
+   "lon": 148.05,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-02T17:15:08+00:00",
+  "answer": {
+   "place_id": 24249276,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2369652,
+   "lat": "-42.0350670",
+   "lon": "146.6366887",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.6909758264676638,
+   "addresstype": "state",
+   "name": "Tasmania",
+   "display_name": "Tasmania, Australia",
+   "address": {
+    "state": "Tasmania",
+    "ISO3166-2-lvl4": "AU-TAS",
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.1730541",
+    "-39.1984777",
+    "143.7488210",
+    "159.0840828"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -36.75,
+   "lon": 141.83,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-02T17:15:10+00:00",
+  "answer": {
+   "place_id": 33697493,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 80500,
+   "lat": "-24.7761086",
+   "lon": "134.7550000",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9007373714659365,
+   "addresstype": "country",
+   "name": "Australia",
+   "display_name": "Australia",
+   "address": {
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.3228175",
+    "-9.0880125",
+    "72.2461932",
+    "168.2261259"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -36.75,
+   "lon": 141.83,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-02T17:15:10+00:00",
+  "answer": {
+   "place_id": 23020329,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2316741,
+   "lat": "-36.5986096",
+   "lon": "144.6780052",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.6858710563331263,
+   "addresstype": "state",
+   "name": "Victoria",
+   "display_name": "Victoria, Australia",
+   "address": {
+    "state": "Victoria",
+    "ISO3166-2-lvl4": "AU-VIC",
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-39.1984867",
+    "-33.9807974",
+    "140.9619017",
+    "150.0332821"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -39.85,
+   "lon": 144.0,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-02T17:15:11+00:00",
+  "answer": {
+   "place_id": 33526612,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 80500,
+   "lat": "-24.7761086",
+   "lon": "134.7550000",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9007373714659365,
+   "addresstype": "country",
+   "name": "Australia",
+   "display_name": "Australia",
+   "address": {
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.3228175",
+    "-9.0880125",
+    "72.2461932",
+    "168.2261259"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": -39.85,
+   "lon": 144.0,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-02T17:15:13+00:00",
+  "answer": {
+   "place_id": 24249276,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2369652,
+   "lat": "-42.0350670",
+   "lon": "146.6366887",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.6909758264676638,
+   "addresstype": "state",
+   "name": "Tasmania",
+   "display_name": "Tasmania, Australia",
+   "address": {
+    "state": "Tasmania",
+    "ISO3166-2-lvl4": "AU-TAS",
+    "country": "Australia",
+    "country_code": "au"
+   },
+   "boundingbox": [
+    "-55.1730541",
+    "-39.1984777",
+    "143.7488210",
+    "159.0840828"
+   ]
+  }
+ }
+]
