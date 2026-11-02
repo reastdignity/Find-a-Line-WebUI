@@ -1257,5 +1257,35 @@
       "empty_tiles": 0
     },
     "seconds": 4.7
+  },
+  "R52": {
+    "place": "Cape Hauy and the Totem Pole, Tasman Peninsula, Tasmania, Australia: the Tasmania 2 metre DEM (2021) read in 2 km blocks of one 95 GB COG (Source Cooperative's copy), GDA94 / MGA zone 55, pixel edges off whole metres",
+    "args": "--lat -43.14 --lon 148.0 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "au"
+    ],
+    "notes": "--source auto picks tasmania (the centre is in AU-TAS, Nominatim's ISO3166-2-lvl4); 4 blocks of 2 km (1000 x 1000 px of the COG, about 2 MB each, 1-4 s to read), 3 of them over the sea without data, so 36 % of the circle has data and the sea is filled; the coastline from the OSM world water polygons (cache/osm/water-polygons: with Overpass and the Copernicus mask instead the counts differ, 21 931 lines); the lines are on Cape Hauy's tip (148.004-148.008 E, -43.138 to -43.144): across the chasms and inlets between the tip's cliffs and its stacks, among them the Candlestick and the Totem Pole (OSM: -43.1392, 148.0059; anchors of about 90 m standing out by nearly their whole height, groups 4 and 6: 135 m and 62 m to the cape's wall), so nearly every line crosses the sea (water_lines); Cape Hauy lies in the lidar project Forestry Tasmania 2011 (3 points per m²)",
+    "expected": {
+      "anchors": 34220,
+      "open": 10228,
+      "checked": 132985,
+      "lines": 23658,
+      "spots": 262,
+      "csv_sha256": "9b526bdc7361e06fed6ca267277bc138dfa3cda003b1266706df8d869d4b54d9",
+      "length_km": 4385.291,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.43,
+      "clearance_max": 29.23,
+      "over_trees": 0,
+      "coverage": 35.98,
+      "empty_tiles": 3,
+      "filled_km2": 0.04,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 3.45,
+      "water_lines": 22909,
+      "water_spots": 235
+    },
+    "seconds": 6.6
   }
 }

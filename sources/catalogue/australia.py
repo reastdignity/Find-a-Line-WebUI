@@ -30,10 +30,11 @@ TAS_CREDIT = Credit("Tasmania 2 metre DEM, 2021 (The LIST, State of Tasmania)", 
                            f"verbatim copy published by Alex Leith on Source Cooperative ({TAS_COPY_PAGE}).")
 
 # Blocks of 2 km (1000 x 1000 px of the file's 512 px tiles, which lie off them: 4-9 tiles a block, 2.2 tiles
-# read per km² on average against 3.9 for 1 km blocks)
+# read per km² on average against 3.9 for 1 km blocks): about 2 MB each in the cache, 9 blocks read in 10 s with
+# four at once (Mount Wellington, 2026-11-02)
 TAS_BLOCK_M = 2000
 TAS_DEM = FileBlocks("Tasmania 2 m DEM (terrain)", "tasmania/dem2m/20210814", TAS_CRS, 2.0, TAS_BLOCK_M,
-                     TAS_DEM_URL, origin=TAS_ORIGIN, extent=TAS_EXTENT, year=2021, bytes_per_tile=3e6)
+                     TAS_DEM_URL, origin=TAS_ORIGIN, extent=TAS_EXTENT, year=2021, bytes_per_tile=2e6)
 
 # theLIST's orthophoto compilation (the newest aerial photos of the State and councils, up to 0.3 m at zoom 19)
 # as ArcGIS cache tiles in Web Mercator, no key. The LIST Web Services Terms and Conditions (December 2014,
