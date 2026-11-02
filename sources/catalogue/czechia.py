@@ -79,7 +79,7 @@ SOURCES: List[Source] = [
         # The working grid on the terrain model's pixels, in its CRS: Krovak's scale error stays within about
         # -0.01 % and +0.014 % over the country
         nmt=CZ_DMR, nmpt=CZ_DMP, countries=("cz",), crs=CZ_CRS, grid_origin=CZ_DMR_ORIGIN, ortho=CZ_ORTHO,
-        credits=(CZ_CREDIT,), neighbours=("geoportal", "slovakia", "austria", "saxony"),
+        credits=(CZ_CREDIT,), neighbours=("geoportal", "slovakia", "austria", "saxony", "bavaria"),
         listing=ReadmeRow("Czechia", "ČÚZK DMR 5G, 2 m (ImageServer)", "ČÚZK DMP 1G, 2 m (ImageServer)",
                           "ČÚZK Ortofoto"),
         offline=CZ_OFFLINE, sample=(50.6115, 16.1170),  # Adršpach (R44)

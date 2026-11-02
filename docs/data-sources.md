@@ -71,6 +71,21 @@ Rules of thumb:
 - A Land's WCS can be worse than its downloads (LGL: whole metres on 1.002 m pixels).
 - Recorded answers of a reader must not be named `answers.json` under `tests/data/recorded/`: `tests/test_parts.py`
   replays every such file as an index cassette.
+- A Metalink of a whole region (RFC 5854: names, sizes, SHA-256, mirrors) is a cheap and complete index: fetch it
+  once per TTL, never once per tile; files without dates are versioned by their checksum (`ShaPerTile`).
+- A product with no 1 m file but a finer one (Bavaria's DOM20 at 0.2 m) is averaged on its own pixels before caching
+  (`Download(average=...)`); bilinear resampling of a finer grid is wrong for this.
+- A server may stream an XML declaration alone as its first chunk (MapServer): never decide on the first chunk.
+- An open S3 bucket is listed anonymously with `?list-type=2&prefix=` over plain HTTP (no SDK); ask per place prefix
+  (tile names), not per collection; S3 keeps a key and replaces its content on re-upload, so the ETag goes into the
+  version key. A portal's catalogue API (SRSP's) gives each collection's flight dates and its credit wording when its
+  web pages are JavaScript only.
+- A third-party verbatim copy (Tasmania's DEM on Source Cooperative) is fine when the licence allows redistribution:
+  credit the licensor in its own wording, name the copy in the notice, and give the cache folder a date (nothing
+  promises updates). An ArcGIS MapServer's Copyright Text (`?f=json`) can be the licence its service terms point to.
+- A coastal regression's numbers depend on the coastline source (Overpass, the world file or the Copernicus mask):
+  check "Coastline: OpenStreetMap coastline" in the log before accepting them, and with a scratch `--cache` link the
+  real cache's `osm/water-polygons` read-only.
 - Look at the edges of the data: South Tyrol's WCS blends the pixels next to its nodata edge with 0 (false steps of more than 1000 m; `edge_px`), Saxony-Anhalt's answers 0 without nodata outside the Land (`zero_is_nodata`), and the Environment Agency answers HTTP 500 outside its coverage.
 - Clip requests to the coverage extent; a `missing` tile at the edge of the data is suspicious (Malta's north coast of Gozo was lost this way).
 - Compressed archives (ZIP Deflate/Deflate64) cannot be read in parts; a TIFF inside may still be tiled, so after one extraction it reads fast. Python's `zipfile` cannot read Deflate64: use 7-Zip.

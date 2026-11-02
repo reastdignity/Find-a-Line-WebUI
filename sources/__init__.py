@@ -46,8 +46,11 @@ re-exported: call and patch them through their module.
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
 from .readers import download, imageserver, sheetfile, tilebases, wcsreader, windows
 from .indexes import cached, listings, tilings, versions
+from .indexes import osgrid, s3listing
 from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, indexed, sheets, stac, tnm, wcs, zipped
+from .layers import s3blocks
 from .catalogue import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
+from .catalogue import australia
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
@@ -67,6 +70,8 @@ from .layers.fileblocks import FileBlocks
 from .layers.tnm import IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
 from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
+from .layers.metalink import MetalinkTiles
+from .layers.s3blocks import S3Blocks
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
@@ -84,4 +89,4 @@ __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "OrthoService", "Credit", "CC_
            "WATER_MASK", "WATER_MASK_CREDIT", "OFFLINE_BOXES", "choose_source", "source_unavailable", "used_data",
            "prepare_layer", "build_mosaic", "load_slope_file", "water_body_mask", "near", "fill_water",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
-           "_survey_year"]
+           "_survey_year", "MetalinkTiles", "S3Blocks"]

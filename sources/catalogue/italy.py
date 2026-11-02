@@ -1,10 +1,12 @@
-"""Italy: the Autonomous Province of Bolzano / South Tyrol (its DTM and DSM 2.5 m, WCS)."""
+"""Italy: the Autonomous Province of Bolzano / South Tyrol (its DTM and DSM 2.5 m, WCS) and the Autonomous Province
+of Trento (its LiDAR 2014 DTM and DSM 0.5 m, ASCII grids of 500 m)."""
 
 from typing import List
 
 from ..credit import CC_BY, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
+from ..layers.zipped import ZippedTiles
 
 # The province's GeoServer (WCS 2.0.1, axes E/N, no SCALESIZE): float32 GeoTIFFs in ETRS89 /
 # UTM 32N, nodata -9999, heights orthometric (the province's own geoid). The 2.5 m models cover
@@ -47,6 +49,30 @@ BZ_ORTHO = OrthoService(
              "&tilematrix={z}&tilerow={y}&tilecol={x}&format=image/png", base_max_zoom=19)
 
 
+# Trento: the province's LiDAR of 2014 (with flights of 2018 integrated), DTM and DSM of first returns at 0.5 m
+# (Servizio Geologico), plain ESRI ASCII grids of 500 m tiles on its download server (nginx, static files about
+# 13 MB/s; a directory listing of 3 MB takes 30 s): <folder>/5h<E / 100 m, 4 digits><N / 100 m, 5 digits>_<kind>.asc
+# with E, N the tile's south-west corner in ETRS89 / UTM 32N (checked against all 25 201 listed names, E
+# 612000-728500, N 5059500-5157000). 1000 x 1000 px, xllcenter <corner>.25 (pixel edges on whole metres),
+# nodata -9999, no CRS in the files (EPSG:25832 imposed), centimetre heights, orthometric (90-97 m at Arco, the lake
+# at 65 m); header case and padding vary. About 7 MB a tile, 28 MB a km² and model. A tile without data answers
+# 404. No newer survey (the province's LiDAR page, updated 2025-06-10), files dated 2015-2020: the folder carries
+# the survey's year. The province's GeoServer publishes no WCS coverage; no request limits published.
+TN_DATA = "https://siatservices.provincia.tn.it/stemdata"
+# CC BY 4.0 (the CSW record of the province's index, p_TN:9f2cc32d-...), no wording prescribed: the province and
+# its service named, with the survey
+TN_CREDIT = Credit("LiDAR PAT 2014 DTM / DSM 0.5 m (Autonomous Province of Trento)",
+                   "Provincia autonoma di Trento - Servizio Geologico, LiDAR PAT 2014", *CC_BY)
+
+
+def _tn_layer(folder: str, suffix: str, kind: str, description: str) -> ZippedTiles:
+    """500 m tiles of the DTM or the DSM, each one plain ASCII grid (read by SheetFile without members)."""
+    def url(left: float, bottom: float) -> str:
+        return f"{TN_DATA}/{folder}/5h{round(left) // 100:04d}{round(bottom) // 100:05d}_{suffix}.asc"
+    return ZippedTiles(f"{description} Trento", f"italy/tn-{kind}/2014", "EPSG:25832", 500, 0.5, url, None,
+                       bytes_per_tile=7e6)
+
+
 SOURCES: List[Source] = [
     Source(
         id="south_tyrol", name="South Tyrol (DTM / DSM 2.5 m)",
@@ -56,10 +82,24 @@ SOURCES: List[Source] = [
         nmpt=_bz_layer("DigitalElevationModel", "DSM 2.5 m (trees, buildings)"),
         countries=("it",), regions=("it-bz",), crs="EPSG:25832", grid_origin=BZ_ORIGIN,
         ortho=BZ_ORTHO, credits=(BZ_CREDIT,),
-        neighbours=("austria", "swisstopo"),
+        neighbours=("austria", "swisstopo", "trento"),
         listing=ReadmeRow("South Tyrol (IT)", "Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006)",
                           "Province of Bolzano DSM, 2.5 m", "Province of Bolzano 2023"),
         offline=(("it-bz", (46.21, 47.10, 10.38, 12.48)),), sample=(46.5208, 11.7325),
         note="South Tyrol's models are 2.5 m from the LiDAR of 2004-2006 in the mountains: lines shorter "
              "than about 15 m are not reliable, and rockfall since then is not in the data."),
+    Source(
+        id="trento", name="Trento (LiDAR 2014, 0.5 m)",
+        description="Autonomous Province of Trento: LiDAR 2014 terrain and surface (first returns) models 0.5 m, "
+                    "ETRS89 / UTM 32N",
+        nmt=_tn_layer("2014_lidar_dtm_asc", "DTM", "dtm", "DTM 0.5 m (terrain)"),
+        nmpt=_tn_layer("2014_lidar_dsmfirst_asc", "DSMFirst", "dsm", "DSM 0.5 m (trees, buildings)"),
+        countries=("it",), regions=("it-tn",), crs="EPSG:25832", credits=(TN_CREDIT,),
+        neighbours=("south_tyrol",),
+        listing=ReadmeRow("Trento (IT)", "Province of Trento LiDAR 2014 DTM, 0.5 m", "Province of Trento DSM, 0.5 m",
+                          "– (no open orthophoto service)"),
+        offline=(("it-tn", (45.67, 46.54, 10.45, 11.97)),), sample=(45.9245, 10.8855),
+        note="Trento's models come from the LiDAR of 2014 (with flights of 2018): rockfall and buildings since "
+             "then are not in the data. Data: Provincia autonoma di Trento, CC BY 4.0. No open orthophoto "
+             "service of Trento: the map shows its own base layers."),
 ]

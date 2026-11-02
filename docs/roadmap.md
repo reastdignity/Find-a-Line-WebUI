@@ -373,6 +373,65 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Merging wave 2**: `TIFF_MAGIC` is defined once in `sources/readers/__init__.py` (both new readers had it);
   `tests/test_neighbours.py::test_declared_neighbours` looks for any pair of touching boxes, not only the first
   offline boxes (Czechia's first box does not reach Saxony).
+- **Bavaria and Rhineland-Palatinate, done 2026-11-02** (sources `bavaria`, region DE-BY, R47 Pottenstein;
+  `rhineland_palatinate`, DE-RP, R48 Dahn): LDBV's DGM1 (1 m, CC BY 4.0, "Bayerische Vermessungsverwaltung –
+  www.geodaten.bayern.de, Daten geändert") and DOM20 (0.2 m, image matching, 0.4-0.6 m), and LVermGeo RP's DGM1 and
+  DOM1 (1 m, ALS, dl-de/by-2.0, "©GeoBasis-DE / LVermGeoRP <year>, dl-de/by-2-0, www.lvermgeo.rlp.de [Daten
+  bearbeitet]"), all 1 km GeoTIFFs listed with size and SHA-256 by Metalink 4 documents (RFC 5854): Bavaria's
+  `09.meta4` (22 MB, 4.2 MB gzipped, 71 979 tiles) and seven Regierungsbezirk documents for the DOM20 (there is no
+  statewide one); RP's `dgm1_tif_07.meta4` and `dom1_tif_07.meta4` (12 and 7.6 MB, the survey years 2022-2025 in the
+  names). A new listing, `MetalinkFiles` (own code from RFC 5854), fetches the documents once per TTL for all 0.25°
+  tiles and keeps the matching files in `<top>/metalink/<key>.json.gz`; a new version policy, `ShaPerTile`, knows a
+  file by its SHA-256 (Bavaria's files are replaced in place without a year: a new checksum is downloaded again and
+  the older file deleted; the newest year per tile wins in RP); the layer is `MetalinkTiles`. `Download` gained
+  `average` (Bavaria's DOM20 averaged 5 × 5 to 1 m before caching, the mean of the valid pixels: 49 MB read, 2.2 MB
+  cached per km², 0.7 s, about 34 MB peak; the user's decision) and `crs` (RP's DGM1 names ETRS89 / UTM 32N +
+  DHHN2016, written as EPSG:25832). Orthophotos `by_dop20c` and `rp_dop20` (WMS, no key). Neighbours: Bavaria with
+  austria, hesse, saxony, baden_wurttemberg, czechia; RP with hesse, luxembourg, france, baden_wurttemberg,
+  north_rhine_westphalia. The probe reads the first KB of an answer across chunks (LVermGeo RP's MapServer sends
+  its XML declaration alone as the first one). Open: falling back to the `download2` mirror; the mean or the
+  maximum for the DOM20 over trees.
+- **Scotland, done 2026-11-02** (source `scotland`, region GB-SCT, R49 the Old Man of Hoy): the Scottish Remote
+  Sensing Portal's open bucket `srsp-open-data` (AWS Open Data, OGL v3), listed by our own S3 ListObjectsV2 code
+  (`sources/indexes/s3listing.py`, plain `requests`, no obstore) per 0.25° tile: the OS 1 km names give the prefixes
+  (`osgrid.py`: the 100 km square and the tens of kilometres east). Three collections of 1 km files at 0.5 m in
+  EPSG:27700, composed newest first per 1 km block (`S3Blocks`: `ComposedBlocks` + `Windows`), by their flight dates
+  from the portal's catalogue API: the coastal survey (Feb-Mar 2026), the National LiDAR Programme (from May 2025;
+  COGs clipped at the coast, their overviews never read) and Orkney 2023 (uncompressed strips, PixelIsPoint with the
+  corners on whole metres). A file's ETag is part of its name, so a re-uploaded file changes its block's key. The
+  credit uses the catalogue's statements ("Crown copyright Scottish Government © Crown copyright and database right
+  (2025)"; Orkney the OGL's default sentence). About 10 % of Scotland is covered (Galloway, Kintyre, Arran, Islay, the
+  east coasts, the Small Isles, Orkney); Ben Nevis, Glen Coe and Skye wait for the releases of 2027. Phases 1-6, the
+  Outer Hebrides and HES are left out. No orthophoto. Its offline boxes come before England's. Arran (Cir Mhor) gave
+  10 lines, so R49 is on Hoy (lines of 50-250 m). Open: the national programme's empty DSM files (1285 bytes), the
+  islands' height datum (ODN assumed).
+- **North Rhine-Westphalia, done 2026-11-02** (source `north_rhine_westphalia`, region DE-NW, R50 Bruchhauser
+  Steine): Geobasis NRW's WCS 2.0.1 (`wcs_nw_dgm`/`nw_dgm`, `wcs_nw_dom`/`nw_dom`, axes x/y, EPSG:25832, pixel edges
+  on whole metres), 2 km tiles of 1 m, bit for bit the 1 km files (checked three times); the DOM answers 0 outside
+  the Land (`zero_is_nodata`, DEFLATE asked), the DGM -9999. dl-de/zero-2.0, credited "Geobasis NRW, Daten geändert";
+  orthophoto `nw_dop_rgb`; "live" folders; a courtesy cap of 4. Neighbours: hesse, lower_saxony,
+  rhineland_palatinate.
+- **Trento, done 2026-11-02** (source `trento`, region IT-TN (a lvl6 code, like IT-BZ), R51 the Colodri wall above
+  Arco): the province's LiDAR 2014 DTM and DSM of first returns, 0.5 m ESRI ASCII grids of 500 m named
+  `5h<E/100 m><N/100 m>` from the south-west corner (pixel centres on .25, edges on whole metres; checked again), no
+  CRS in the files (EPSG:25832 imposed), read by `ZippedTiles` with a plain `SheetFile` (no members). CC BY 4.0,
+  "Provincia autonoma di Trento - Servizio Geologico, LiDAR PAT 2014"; folder `2014`; a courtesy cap of 4; no
+  orthophoto. Neighbour: south_tyrol (which wins in the overlap of the offline boxes; online the region decides).
+  Open: `ZippedTiles` now also reads plain files (a better name).
+- **Tasmania, done 2026-11-02** (source `tasmania`, region AU-TAS, family `australia`, R52 Cape Hauy and the Totem
+  Pole): the State's Tasmania 2 metre DEM of 2021-08-14 (CC BY 3.0 AU, "The LIST © State of Tasmania"), officially an
+  ELVIS order only, read from the only open copy, Alex Leith's verbatim upload to Source Cooperative (2023-11-29):
+  one COG of 95 GB (457 618 × 284 791 px, float32, LZW, 512 px tiles, nodata -FLT_MAX, AHD, EPSG:28355, pixel edges
+  at (0.6017318, 0.9) off whole metres; `grid_origin` the same), read in `FileBlocks` of 2 km (about 2 MB each; 1 km
+  blocks would read twice the file tiles per km²), folder dated `20210814` (a static copy). No surface model. About a
+  third of the State is interpolated from 10 m contours, without a mask; the note points to theLIST's "LiDAR
+  Coverage Index - All Projects". Gaps from `europe`. Orthophoto: theLIST's ArcGIS tile cache (CC BY-NC-ND 3.0 AU,
+  no key) shown unchanged, which rests on the site being non-commercial (kept: the user, 2026-11-02). Elsewhere in Australia `--source auto`
+  gives `europe`. Open: the mirror promises no maintenance (the mail to theLIST, drafted, asks for streaming access
+  and a lidar/contour mask).
+- **Merging wave 3**: `rhineland_palatinate` and `north_rhine_westphalia` are neighbours both ways. Seen in wave 3's
+  web app: a source note's "©" shows as "�" in an estimate's messages on Windows (likely the worker's stdout
+  encoding; not checked on the VPS).
 - **Open from wave 1**: a check of a block's ETag or Last-Modified against a file rewritten in place while it is read
   (Canada, New Zealand; GDAL keeps a file's header between reads); the acknowledgement of ArcticDEM (Polar Geospatial
   Center) for the DSM of Canada's far north in the 2 m mosaic; a link to kartverket.no in the map's attribution

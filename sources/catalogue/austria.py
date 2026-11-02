@@ -63,7 +63,7 @@ SOURCES: List[Source] = [
         # grid is EPSG:3035 too: its scale error over Austria stays below 0.1 % (UTM 32/33: up to 0.4 %)
         nmt=BEV_DTM, nmpt=BEV_DSM, countries=("at",), crs="EPSG:3035", grid_origin=(0.5, 0.5),
         ortho=BASEMAP_ORTHO, credits=(BEV_CREDIT,),
-        neighbours=("swisstopo", "south_tyrol", "slovakia", "czechia"),
+        neighbours=("swisstopo", "south_tyrol", "slovakia", "czechia", "bavaria"),
         listing=ReadmeRow("Austria", f"BEV ALS DTM, 1 m (edition {BEV_EDITION[:4]})",
                           f"BEV ALS DSM, 1 m (edition {BEV_EDITION[:4]})", "basemap.at Orthofoto"),
         offline=(("at", (46.37, 49.02, 9.53, 17.17)),), sample=(47.2740, 11.3120),

@@ -186,9 +186,10 @@ def _gdal_path(url: str) -> str:
     return f"/vsizip/{path}" if url.lower().endswith(".zip") else path
 
 
-def _read_source(url: str, profile: Dict) -> np.ndarray:
+def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
     """A source file's values on the pixels of a cached tile (nearest: the same pixels when the
-    tile is on the file's own grid), NaN without data. A read GDAL could not complete although it
+    tile is on the file's own grid; average for a layer that averages its files' pixels, as its
+    Download does), NaN without data. A read GDAL could not complete although it
     returned (src.net.gdal_errors: what it could not fetch comes back as nodata or zeros) raises
     RuntimeError with GDAL's error, never a false difference. GDAL's settings as
     src.net._gdal_http's (retries of requests without an answer, the blocks read in this thread)
@@ -201,7 +202,7 @@ def _read_source(url: str, profile: Dict) -> np.ndarray:
         with env, src.net.gdal_errors() as errors, rio.open(_gdal_path(url)) as source:
             kwargs = {} if source.crs else {"src_crs": profile["crs"]}  # ASCII grids name no CRS
             with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                           height=profile["height"], resampling=Resampling.nearest, **kwargs) as vrt:
+                           height=profile["height"], resampling=resampling, **kwargs) as vrt:
                 values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
         if errors:
             raise RuntimeError("not read completely: " + "; ".join(dict.fromkeys(errors)))
@@ -242,7 +243,7 @@ def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
         return None  # a service's answer, a local file, or the API's limited calls
-    if isinstance(layer, src.TnmBlocks):
+    if isinstance(layer, (src.TnmBlocks, src.S3Blocks)):
         return [url for _, url, _ in tile.files]
     if isinstance(layer, src.GridTiles):
         base = layer.tile_url(tile)
@@ -319,12 +320,15 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
             profile = {"crs": cached.crs, "transform": cached.transform, "width": cached.width,
                        "height": cached.height}
         name = cache.relative(cache_dir, path)
-        blocks = isinstance(layer, src.TnmBlocks)
+        blocks = isinstance(layer, (src.TnmBlocks, src.S3Blocks))
         result = None
         for url in _sources_of(layer, tile):
             try:
-                source = (_read_zip(layer, url, profile) if isinstance(layer, src.ZippedTiles)
-                          else _read_source(url, profile))
+                resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
+                # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
+                source = (_read_zip(layer, url, profile)
+                          if isinstance(layer, src.ZippedTiles) and layer.members is not None
+                          else _read_source(url, profile, resampling))
             except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
                 break

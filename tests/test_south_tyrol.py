@@ -32,8 +32,8 @@ def recorded(monkeypatch):
 def test_chosen_in_its_province(tmp_path, recorded):
     assert src.choose_source("auto", *ORTLER, str(tmp_path)) == (src.SOURCES["south_tyrol"],
                                                                  "the centre is in IT-BZ")
-    assert src.choose_source("auto", *TRENTO, str(tmp_path)) == (src.SOURCES["europe"],
-                                                                 "no national source for IT")
+    assert src.choose_source("auto", *TRENTO, str(tmp_path)) == (src.SOURCES["trento"],
+                                                                 "the centre is in IT-TN")
 
 
 def test_tiles_on_the_coverage_pixels():
