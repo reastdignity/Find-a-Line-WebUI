@@ -894,3 +894,94 @@ bars summed), the peak RSS of the job. The numba cache was warm (two runs before
   967 MB at step 4's profiles; R9's at step 5.
 - "Profiles at tile edges" took no measurable time on either Gozo run (0.0 s): not a target.
 - The start (imports and planning) is 0.8-1.3 s on this PC in every run; the worker adds it twice.
+
+### Done, wave 1 (stage 1: the time outside the computing; every result byte for byte)
+
+Branch `perf-round3`, the agents' branches `perf-r3-ortho` (A: 1a, 1h), `perf-r3-worker` (B: 1b, 1d, 1e),
+`perf-r3-index` (C: 1c); 1f by hand.
+
+- **1a, the orthophoto after "done"** (A): Until now the compute phase selected and downloaded the orthophoto
+  tiles inside step 5, before the map was saved and the job set "done", in the process the scheduler
+  counted as an occupied compute slot (on the VPS 85-134 s per job against 15-60 s of computing;
+  locally a circle downloads the detail strips of all its groups). Now `search.save_run` saves the run
+  and the map and returns; the orthophoto is a step of its own (`search.orthophoto_lines`,
+  `search.download_orthophoto`: the same selection rules, question and download), which the CLI
+  runs right after `save_run` and the worker after "done" (`jobs.run_phase`: `save_run` → `add_run`
+  → statistics → "done" → the lines released → `_orthophoto_after`). The map names the cache folder
+  as before and loads a tile online until it is there, so the result is shown while the tiles
+  arrive. `Scheduler._occupied` no longer counts a compute process whose job is done, so the next
+  job starts beside it; the phase's time limit still ends such a process (the download only: the
+  job's status is guarded by `when`), `stop()` kills it like the others, and it holds its imports
+  only (the lines are released first), so `slot_memory` reserves nothing for it. Errors of the step
+  never touch the job or its run (a warning event, a line on stderr). The orthophoto's seconds still
+  land in `job_steps` (its row written after "done"; `tools/job_stats.py --phases` leaves that row
+  out of `outside_steps`). Measured on the dev PC with the worker's `Scheduler` (R15's circle at 1 m
+  with `--ortho-detail 2`: 87 tiles of Malta's WMS; the base commit against 1a, a scratch cache for
+  the tiles, the elevation data cached): time to "done" 18.7 → 6.5 s, the compute phase 17.0 → 4.0 s;
+  the orthophoto itself (now after "done") 11.7 → 1.7 s for the same tiles, thanks to 1h's keep-alive
+  sessions. With a cold numba cache the same "before" job took 42.7 s to "done" (about 8 s of
+  compilation in each of steps 2-4): what 1b removes.
+- **1h, the orthophoto's tiles** (A): `orthophoto.tiles_to_cache` tested every tile of the union's
+  bounding box at zooms 17-21 against the union of the strips: on a long coast most of that box is
+  empty (50 strips spread over 15 km: 0.6 M `prepared.intersects` tests, 72 s). Each strip is now
+  tested within its own bounding box, vectorised with shapely 2 (`_tiles_in`: `shapely.box` and
+  `shapely.intersects` on the prepared shape, the same float operations per tile), and the set joins
+  the strips' tiles: the same tiles in every case (`tests/test_offline.py::test_orthophoto_tiles_per_strip`
+  keeps the old code as the reference), 0.03 s for those 50 strips; 60 clustered strips 0.17 →
+  0.05 s. Each download thread keeps one `requests.Session` (`net.session`, keep-alive): 87 tiles
+  of Malta's WMS 11.7 → 1.7 s. `cache.record_many` still hashes the tiles it records (the sha256
+  keeps `fetched_at` for an unchanged file in `cache update`; milliseconds for a run's tiles).
+- **1b, the numba warm-up** (B). The public worker's numba cache is a tmpfs, so the first job after
+  each start of the container compiled every kernel (about 40 s on the VPS). `warmup.py` now runs
+  synthetic searches in a process of its own at the worker's start (`Scheduler(warm_up=True)`:
+  `findaline.py worker` and `web`; `FINDALINE_WARM_UP=0` turns it off), while jobs are already
+  claimed. The searches cover every combination that gives the kernels other argument types, found
+  by comparing numba's cache index after the warm-up with the index after real searches: a surface
+  model or none, the water and gap masks memory-mapped or none, a tile's core, `pair_chunk`'s second
+  pass, parts of one and of several anchors, thinned profiles and the sag estimator's int default.
+  On the dev PC: cold 37 s, from numba's cache 3-5 s; afterwards the Żabi Koń clip's search compiles
+  nothing (`tests/test_public.py::test_numba_warm_up`). The VPS's first job after a deploy: to be
+  read from `job_stats.py --phases`.
+- **1d, the download phase** (B). `search.py` imports the kernels' modules inside steps 2-4, so the
+  download phase and the quick lane never load numba and llvmlite: on Windows an R13 download-phase
+  process takes 112 MiB instead of 133 MiB (RSS after the phase) and imports in 0.75 s instead of
+  0.95 s. `DOWNLOAD_PROCESS_BYTES` stays at 512 MiB: the download itself peaks at 240-400 MiB, so the
+  plan's 256 MiB would be too little. `cache.due_many` answers a layer's tiles on one SQLite
+  connection: 2 000 tiles in 0.055 s instead of 3.98 s (`due()` of one file opens one connection
+  instead of two). The coastline's theme tiles are fetched in a thread alongside the tiles' pool,
+  and the layers' estimates are listed at once (`sources.layer.estimate_layers`, which
+  `estimate_search` uses).
+- **1e, the runs list** (B). `runs.write_index` (`runs.js`, `index.html`) is rewritten after each run
+  of the command line and the local app only (`Plan.index_runs`); the public worker skips it:
+  nothing on the site reads those files, and the work grew with the site's runs. A run installs the
+  viewer once instead of twice.
+- **1c, the geoportal sheet index in parallel** (C). A new Polish area asked geoportal's WFS sheet
+  index one request at a time: a GetCapabilities per layer and process, then one GetFeature per year
+  layer (9 for the NMT, 8 for the NMPT) per 0.25° tile, each on a new HTTPS connection, with the NMT
+  and the NMPT one after the other in `estimate_search`. Now `WfsSheets` sends a tile's year layers
+  4 at a time on a keep-alive session per thread (`net.session()`), each under a slot of the host
+  (`HOST_SLOTS_OF["mapy.geoportal.gov.pl"] = 4`, a courtesy cap: GUGiK publishes no limits),
+  `NewestPerSheet` asks the tiles of a grid 4 at a time, and the year layers are kept on disk for
+  30 days (`<top>/sheet-index/<prefix>.capabilities.json`: a new year layer is seen within a month).
+  The answers are read in the old order, so the index JSON is byte for byte the same; the requests
+  and bytes are unchanged. Measured on an empty cache (only `osm/` copied), `estimate_search` against
+  the live service, 2026-11-02:
+
+  | Area | Before | After |
+  | --- | ---: | ---: |
+  | R13, Kasprowy Wierch, r 500 m (one 0.25° tile, 19 requests) | 6.8 s | 2.0 s |
+  | 50.0° N 20.0° E, r 3 km (four tiles, 70 requests, 10 MB) | 24.2-24.9 s | 3.5-3.8 s |
+
+  The summed request time fell from 23-24 s to 12-13 s for the four tiles: keep-alive saves the
+  handshakes, the rest is the overlap. The sheet downloads themselves (section 2) are unchanged.
+- **1f, the sag table once per process.** `_lines` takes the envelope table of a sag search from
+  `_sag_table` (by rigging and the lengths; at most `SAG_TABLES_MAX` kept) instead of building a new
+  `sag.EnvelopeTable` for every tile, and a tile just computed is not read back from its gzip file
+  (`found.without_pixels()`, what loading gives). R16 (11 tiles): 45.6 s → 21.7 s, the same files.
+- **1g, the place name in the download phase.** `download_data` asks Nominatim for a circle's or a
+  drawn area's place (`_run_name`) in a thread alongside the tiles' pool: the answers land in
+  `osm`'s cache, where step 5 (or the run folder of a tiled area) finds them without the 1-3 s in
+  Nominatim's queue (more when it is busy). The CLI is unchanged; the worker's Nominatim quota
+  counts the lookups as before, in the other phase.
+- **Checks.** Full offline `pytest`, `tests/regression.py` (R1, R9, R13, R14, R15, R16, R18) on cached data: every checksum and
+  the open and checked counts unchanged.
