@@ -19,6 +19,7 @@ import { NewSearch } from "./NewSearch";
 import { ResultPage } from "./ResultPage";
 import { go, parseRoute, type Route } from "./route";
 import { FavouritesPage } from "./FavouritesPage";
+import { LayerPage } from "./LayerPage";
 import "./c.css";
 
 type Nav = "home" | "favourites" | "account";
@@ -124,13 +125,13 @@ export function ShellC({ui, tries, result}: ShellProps) {
   const editJob = route.page === "run" ? jobs.jobs.find((j) => j.run_id === route.id)?.id || null : null;
   // Admin and the OSM extracts open from the account: on phones its item stays the way back
   const nav: Nav | null = route.page === "home" || route.page === "favourites" || route.page === "account" ? route.page
-    : route.page === "admin" || route.page === "osm" ? "account" : null;
+    : route.page === "admin" || route.page === "osm" || route.page === "layer" ? "account" : null;
   const focused = route.page === "new" || route.page === "run";  // pages with their own top bar
 
   let page;
   switch (route.page) {
     case "new":
-      page = <NewSearch key={route.edit || "new"} edit={route.edit} schema={schema} usage={usage} wide={wide}
+      page = <NewSearch key={route.edit || route.cell || "new"} edit={route.edit} cell={route.cell} schema={schema} usage={usage} wide={wide}
                         onStarted={started} />;
       break;
     case "run":
@@ -148,6 +149,9 @@ export function ShellC({ui, tries, result}: ShellProps) {
       break;
     case "osm":
       page = <OsmPage />;
+      break;
+    case "layer":
+      page = <LayerPage key={route.country || ""} country={route.country} />;
       break;
     default:
       page = <Home jobs={jobs} runs={runs} usage={usage} highlight={highlight} wide={wide} />;

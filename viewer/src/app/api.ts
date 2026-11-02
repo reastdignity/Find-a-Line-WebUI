@@ -1,6 +1,7 @@
 import type { GeoJSON } from "geojson";
 import type { Favourite, FavouriteFolder } from "../favourites";
 import { detailMessage, errorText, type ErrorInfo } from "../i18n";
+import type { Credit } from "../types";
 
 // Requests to the local server (web.py). Changing requests carry the session token
 // of the page, which a foreign website cannot read or set.
@@ -128,6 +129,20 @@ export interface OsmRegion { id: string; name: string; depth: number; downloaded
 export interface OsmExtract { id: string; mb: number; data: string | null; checked: string | null }
 export interface OsmState { regions: OsmRegion[]; extracts: OsmExtract[] }
 
+/** A length band of a country's highline layer (cube.json's "bands", countcube.py / country.py). */
+export interface CountryBand { name: string; lengths: [number, number]; resolution: number; model: string;
+                               slope_threshold: number; core_m: number; layer: boolean; tiles: number; done: number;
+                               seconds: number; params: Record<string, unknown> }
+/** /api/countries: a country's counter cube (cube.json without "config" and "origin"). */
+export interface CountryCube { id: string; name: string; crs: string; cell_m: number; levels: number[];
+                               cluster_m: number; bounds_wgs84: [number, number, number, number];
+                               edges: Record<"length" | "prominence" | "wall" | "clearance" | "height", number[]>;
+                               bands: CountryBand[]; dsm: boolean; water: boolean; partial: boolean;
+                               totals: {lines: number; spots: number}; built: string;
+                               credits: Credit[]; notes: string[] }
+/** /api/countries/<id>/cells: the cells with a count, each [i, j, count, lat, lon of SW, SE, NE, NW]. */
+export interface CountryCells { level: number; cell_m: number; total: number; max: number; cells: number[][] }
+
 /** A match of the place box (/api/place, osm.places): bbox [S, W, N, E] or null for a point. */
 export interface Place { name: string; lat: number; lon: number; bbox: [number, number, number, number] | null; type: string }
 
@@ -217,6 +232,13 @@ export const api = {
     call<{ok: boolean}>("POST", `/api/admin/users/${id}`, change),
   adminRevoke: (id: number) => call<{ok: boolean}>("POST", `/api/admin/users/${id}/revoke`),
   adminRuns: () => call<{runs: AdminRun[]}>("GET", "/api/admin/runs"),
+  /** The highline layer (the local app and administrators): the countries with a cube, their cells, a cell's search. */
+  countries: () => call<{countries: CountryCube[]}>("GET", "/api/countries"),
+  countryCells: (id: string, query: Record<string, string>, signal?: AbortSignal) =>
+    call<CountryCells>("GET", `/api/countries/${encodeURIComponent(id)}/cells?${new URLSearchParams(query)}`, undefined, signal),
+  countryRequest: (id: string, band: string, level: number, i: number, j: number) =>
+    call<SearchRequest>("GET", `/api/countries/${encodeURIComponent(id)}/request?` +
+                               new URLSearchParams({band, level: String(level), i: String(i), j: String(j)})),
   setDemo: (id: string, demo: boolean) => call<{ok: boolean}>("POST", `/api/runs/${encodeURIComponent(id)}/demo`, {demo}),  // answered with the sign-in page
 };
 
