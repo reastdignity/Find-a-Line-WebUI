@@ -243,7 +243,7 @@ def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
         return None  # a service's answer, a local file, or the API's limited calls
-    if isinstance(layer, src.TnmBlocks):
+    if isinstance(layer, (src.TnmBlocks, src.S3Blocks)):
         return [url for _, url, _ in tile.files]
     if isinstance(layer, src.GridTiles):
         base = layer.tile_url(tile)
@@ -320,12 +320,14 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
             profile = {"crs": cached.crs, "transform": cached.transform, "width": cached.width,
                        "height": cached.height}
         name = cache.relative(cache_dir, path)
-        blocks = isinstance(layer, src.TnmBlocks)
+        blocks = isinstance(layer, (src.TnmBlocks, src.S3Blocks))
         result = None
         for url in _sources_of(layer, tile):
             try:
                 resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
-                source = (_read_zip(layer, url, profile) if isinstance(layer, src.ZippedTiles)
+                # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
+                source = (_read_zip(layer, url, profile)
+                          if isinstance(layer, src.ZippedTiles) and layer.members is not None
                           else _read_source(url, profile, resampling))
             except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")

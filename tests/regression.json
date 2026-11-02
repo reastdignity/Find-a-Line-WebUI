@@ -1307,5 +1307,83 @@
       "empty_tiles": 0
     },
     "seconds": 22.3
+  },
+  "R49": {
+    "place": "The Old Man of Hoy and the cliffs of Rackwick, Hoy, Orkney, Scotland: Orkney Islands Council's LiDAR 2023 (DTM / DSM 0.5 m, 1 km GeoTIFFs in the Scottish Remote Sensing Portal's open S3 bucket, listed by ListObjectsV2) in British National Grid",
+    "args": "--lat 58.8848 --lon -3.4256 --radius 1000 --min-length 50 --max-length 250",
+    "sets": [
+      "sources",
+      "gb"
+    ],
+    "expected": {
+      "anchors": 97337,
+      "open": 17480,
+      "checked": 181044,
+      "lines": 34221,
+      "spots": 468,
+      "csv_sha256": "11a6b0c6f64e6750467cad63271a02664b57990ed4470d7f88c2bce8fca6c2cf",
+      "length_km": 4858.377,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.225,
+      "clearance_max": 51.72,
+      "over_trees": 21998,
+      "coverage": 72.59,
+      "empty_tiles": 0,
+      "sea_km2": 2.35,
+      "water_lines": 979,
+      "water_spots": 30
+    },
+    "seconds": 35.0,
+    "notes": "--source auto picks scotland (the centre is in GB-SCT); first run on an empty cache: 9 blocks of 1 km per layer from Orkney 2023's uncompressed files (the national programme does not reach Hoy), 95 MB read with the water mask in 8 s; 72.6 % of the circle is land with data, the rest sea (OSM coastline); the spots are on the Old Man of Hoy (58.884-58.886 N, 3.426-3.431 W) and the cliffs north of it (58.891-58.893 N); --max-length 250 (400 gives 64 780 lines); Cir Mhor on Arran (the national programme) gave 10 lines only"
+  },
+  "R50": {
+    "place": "Bruchhauser Steine, Sauerland, North Rhine-Westphalia, Germany: Geobasis NRW's DGM1 / DOM1 (1 m) from its WCS in ETRS89 / UTM 32N",
+    "args": "--lat 51.320 --lon 8.540 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 14418,
+      "open": 1889,
+      "checked": 14268,
+      "lines": 2712,
+      "spots": 29,
+      "csv_sha256": "fa3599a33fa7457ca2546a5b81cd73e8bb1b51586d679836e41c2404552a68d2",
+      "length_km": 569.442,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.224,
+      "clearance_max": 13.88,
+      "over_trees": 2474,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 11.4,
+    "notes": "--source auto picks north_rhine_westphalia (the centre is in DE-NW); first run on an empty cache: 4 WCS tiles of 2 km per layer, 92 MB with the water mask in 4 s; the spots are on the Bruchhauser Steine (Feldstein and Bornstein, 51.323-51.324 N, 8.545-8.546 E) in the forest (over_trees)"
+  },
+  "R51": {
+    "place": "Monte Colodri above Arco, Sarca valley, Trentino, Italy: the Province of Trento's LiDAR 2014 DTM / DSM (0.5 m, plain ASCII grids of 500 m) in ETRS89 / UTM 32N",
+    "args": "--lat 45.9245 --lon 10.8855 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "expected": {
+      "anchors": 191043,
+      "open": 17782,
+      "checked": 172879,
+      "lines": 8816,
+      "spots": 181,
+      "csv_sha256": "a071be5e5a76e1a17c3b711296d68a1712262e8a4b332f74951d8a019faaa87a",
+      "length_km": 1823.216,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.788,
+      "clearance_max": 18.07,
+      "over_trees": 8237,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 18.8,
+    "notes": "--source auto picks trento (the centre is in IT-TN); first run on an empty cache: 25 ASCII grids of 500 m per layer (about 7 MB each), 330 MB in 10 s; the spots are on the Colodri wall and the rocks above Arco (45.926-45.928 N, 10.886-10.889 E)"
   }
 }

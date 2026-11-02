@@ -214,6 +214,28 @@ def _rp(kind: str, description: str) -> MetalinkTiles:
                          f"rhineland_palatinate/{kind}1", "EPSG:25832", f"{kind}1", bytes_per_tile=2.5e6,
                          force_crs="EPSG:25832")
 
+
+# Geobasis NRW's open data (Bezirksregierung Köln, Lizenzbedingungen Geobasis NRW, Stand 3/2020, and the WCS's
+# Fees): dl-de/zero-2.0, "Jede Nutzung ist ohne Einschränkungen oder Bedingungen zulässig": no attribution asked; a
+# credit given points out changes (as Hesse's)
+NW_CREDIT = Credit("DGM1 / DOM1 (Geobasis NRW, North Rhine-Westphalia)", "Geobasis NRW, Daten geändert",
+                   "dl-de/zero-2.0", "https://www.govdata.de/dl-de/zero-2-0")
+# Geobasis NRW's DOP WMS (EPSG:4326 offered, AccessConstraints none, dl-de/zero-2.0, at most 5000 px)
+NW_DOP = OrthoService("DOP Nordrhein-Westfalen (Geobasis NRW)", "https://www.wms.nrw.de/geobasis/wms_nw_dop",
+                      "nw_dop_rgb", "north_rhine_westphalia/ortho/live", "Geobasis NRW")
+
+
+def _nw(kind: str, description: str, zero_is_nodata: bool, params=()) -> WcsTiles:
+    """DGM1 or DOM1 of Geobasis NRW from its WCS 2.0.1 (MapServer behind an "OGC Proxy", axes x/y, extent
+    278000-536000 / 5560000-5828000, pixel edges on whole metres): 2 km tiles at the native 1 m (3 km and more are
+    refused with HTTP 400), equal bit for bit to the 1 km files of the downloads (checked twice, 2026-11-02). The
+    DGM answers LZW-compressed GeoTIFFs with -9999 outside the Land, the DOM uncompressed ones (DEFLATE asked)
+    with 0 outside it, without nodata. The tiles are re-surveyed in turn (file years 2020-2025): "live"."""
+    return WcsTiles(description, f"https://www.wcs.nrw.de/geobasis/wcs_nw_{kind}", f"nw_{kind}", "EPSG:25832",
+                    f"north_rhine_westphalia/{kind}1/live", native_res=1.0, fetch_res=1.0, tile_px=2000,
+                    zero_is_nodata=zero_is_nodata, params=params)
+
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -223,7 +245,7 @@ SOURCES: List[Source] = [
                     "DHHN2016",
         nmt=_hvbg("dgm", "he_dgm1", "DGM1 (terrain)", False), nmpt=_hvbg("dom", "dom1", "DOM1 (trees, buildings)", True),
         countries=("de",), regions=("de-he",), crs="EPSG:25832", ortho=HVBG_DOP,
-        neighbours=("lower_saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate"),
+        neighbours=("lower_saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia"),
         credits=(HVBG_CREDIT,),
         listing=ReadmeRow("Hesse (DE)", "HVBG DGM1, 1 m (WCS)", "HVBG DOM1, 1 m (WCS)", "HVBG DOP"),
         offline=(("de-he", (49.39, 51.66, 7.77, 10.24)),), sample=(51.1830, 9.0500),
@@ -266,7 +288,7 @@ SOURCES: List[Source] = [
         nmt=_lgln("dgm", "DGM1 (terrain)"), nmpt=_lgln("dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-ni",), crs="EPSG:25832", ortho=LGLN_DOP,
         credits=(LGLN_CREDIT,),
-        neighbours=("saxony_anhalt", "hesse", "mecklenburg_vorpommern"),
+        neighbours=("saxony_anhalt", "hesse", "mecklenburg_vorpommern", "north_rhine_westphalia"),
         listing=ReadmeRow("Lower Saxony (DE)", "LGLN DGM1, 1 m; newest survey", "LGLN DOM1, 1 m",
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),
@@ -325,11 +347,26 @@ SOURCES: List[Source] = [
         nmt=_rp("dgm", "DGM1 (terrain)"), nmpt=_rp("dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-rp",), crs="EPSG:25832", ortho=RP_DOP,
         credits=(RP_CREDIT,),
-        neighbours=("hesse", "luxembourg", "france", "baden_wurttemberg"),
+        neighbours=("hesse", "luxembourg", "france", "baden_wurttemberg", "north_rhine_westphalia"),
         listing=ReadmeRow("Rhineland-Palatinate (DE)", "LVermGeo RP DGM1, 1 m; newest survey",
                           "LVermGeo RP DOM1, 1 m", "LVermGeo RP DOP20"),
         # Two boxes: Luxembourg's (to 6.54° E) comes later in SOURCES and would lose its points to one box
         offline=(("de-rp", (48.96, 50.95, 6.54, 8.51)), ("de-rp", (50.19, 50.95, 6.11, 6.54))), sample=(49.1500, 7.7800),
         note=f"Data {RP_ATTRIBUTION} [Daten bearbeitet] (changed: mosaicked onto the working grid). Survey years "
              f"2022-2025, the newest per 1 km tile."),
+    Source(
+        id="north_rhine_westphalia", name="Geobasis NRW (DGM1 / DOM1)",
+        description="Geobasis NRW (North Rhine-Westphalia, Germany): terrain and surface models 1 m from its WCS, "
+                    "ETRS89 / UTM 32N, DHHN2016",
+        nmt=_nw("dgm", "DGM1 (terrain)", False),
+        nmpt=_nw("dom", "DOM1 (trees, buildings)", True, (("GEOTIFF:COMPRESSION", "DEFLATE"),)),
+        countries=("de",), regions=("de-nw",), crs="EPSG:25832", ortho=NW_DOP,
+        credits=(NW_CREDIT,),
+        neighbours=("hesse", "lower_saxony", "rhineland_palatinate"),
+        listing=ReadmeRow("North Rhine-Westphalia (DE)", "Geobasis NRW DGM1, 1 m (WCS)", "Geobasis NRW DOM1, 1 m (WCS)",
+                          "Geobasis NRW DOP"),
+        # Aachen and the north, then the Eifel east of the Belgian border (not Belgium's East Cantons)
+        offline=(("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25))), sample=(51.3200, 8.5400),
+        note="Data Geobasis NRW, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
+             "survey years."),
 ]

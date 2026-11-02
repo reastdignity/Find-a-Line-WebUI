@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>NoSuchBucket</Code><Message>The specified bucket does not exist</Message><BucketName>srsp-open-data-nonexistent-xyz</BucketName><RequestId>01C0HPREG7EAJXH3</RequestId><HostId>3QP0DnvMkmkJd1IA3DDTVZpfPtoj+Dq/Ic6ZtThF7XxUcZIXLvGhjA7656Tos2upIQSz6dqGnQNHQ7HMzaaN6T8+FvCjztWm</HostId></Error>
