@@ -78,6 +78,32 @@ Rules for every step:
      maximum of the obstacle height above the ground (see "Obstacles lowered by averaging the DSM" under *To check*).
      A change re-baselines the regression set's `over_trees` (and, with `reject`, its lines): its own commit, a
      behaviour change.
+2. **A slope threshold for the resolution** (added by the user, 2026-11-02; a task of its own, found while
+   preparing the coverage map's 30 m vs 1 m contrast).
+   - *What is seen*: `--slope-threshold` defaults to 45° at every resolution. At 30 m the slope comes from
+     30 m blocks averaged from the data and is computed over 60 m (two pixels), so a 30 m wall gives about 27°: at
+     Żabi Koń no 30 m pixel reaches 45° (the steepest 41.8°), so a 30 m search finds nothing there. The first
+     version (4a99074, NASADEM 30 m) took anchors above `pixel * 1.15 + 6` degrees, 40.5° at 30 m, with lines of
+     200-2000 m.
+   - *Measured* (2026-11-02): nine places (Żabi Koń, Matterhorn, Preikestolen, Bastei, Verdon at the Imbut, Half
+     Dome, Delicate Arch, Stawamus Chief, Aoraki), radius 400 m, lines 30-150 m with anchors at most 10 m apart in
+     height; each place's 1 m data averaged to 30 m. A 30 m spot counts as real when a line of the 1 m search has
+     both anchors within 30 m (45 m) of one of its lines. Of the 1730 spots at 1 m:
+
+     | 30 m threshold | 30 m spots | Real (30 m / 45 m) | False (30 m / 45 m) | 1 m spots found (30 m / 45 m) |
+     | --- | --- | --- | --- | --- |
+     | 45° | 101 | 62 / 78 | 39 % / 23 % | 226 / 567 |
+     | 40.5° | 127 | 76 / 93 | 40 % / 27 % | 291 / 685 |
+     | 30° | 191 | 100 / 129 | 48 % / 32 % | 357 / 818 |
+     | 20° | 241 | 114 / 153 | 53 % / 37 % | 403 / 903 |
+
+     Small rocks gain the most from a lower threshold (Bastei: 2 spots at 45°, 19 at 30°, nearly all real); on
+     big walls the threshold hardly matters (Matterhorn: 9-10 spots at every threshold, none within 30 m of a
+     1 m line). Real 30 m data (FABDEM, Copernicus: radar, trees removed by estimate) are likely worse than this
+     averaged lidar.
+   - *To do*: a default threshold from the resolution (a rule like the first version's, or measured on more
+     places and on FABDEM itself), the form's hint for coarse sources, and perhaps longer default lines at 30 m;
+     the regression set's 30 m rows (R11, R12) re-baselined in the same commit.
 
 ## Stage 0: refactoring
 - `findaline.main(args)` becomes a library function `run_search(params, on_progress)`. One parameter schema (pydantic) is shared by the CLI, the API and the browser form, with types, defaults, limits and help texts in one place. argparse is generated from it.
