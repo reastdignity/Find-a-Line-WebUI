@@ -22,6 +22,8 @@ export interface Imagery {
   available: ImageryKind[];
   current: ImageryKind;
   set(kind: ImageryKind): Promise<void>;
+  /** Calls `fn` with the new kind whenever the imagery is switched; returns the unsubscribe. */
+  onChange(fn: (kind: ImageryKind) => void): () => void;
   dispose(): void;
 }
 
@@ -124,6 +126,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     return corridors.get(z)!;
   };
   const textures = new Map<Chunk, CanvasTexture>();
+  const listeners = new Set<(kind: ImageryKind) => void>();
   let loader: Loader | null = null;
 
   // The control: a segmented one when there is a choice, else the note that the terrain is shaded
@@ -179,8 +182,10 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     async set(kind: ImageryKind) {
       if (!available.includes(kind)) return;
       loader?.stop();
+      const changed = imagery.current !== kind;
       imagery.current = kind;
       mark(kind);
+      if (changed) for (const fn of [...listeners]) fn(kind);
       const credit = imageryCredits(kind, ortho);
       if (credit) scene.credits.set(IMAGERY_CREDITS, credit, IMAGERY_ORDER); else scene.credits.remove(IMAGERY_CREDITS);
       if (kind === "shaded") {
@@ -210,7 +215,12 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       }));
       if (loader === mine) { status.hidden = true; loader = null; }
     },
+    onChange(fn) {
+      listeners.add(fn);
+      return () => { listeners.delete(fn); };
+    },
     dispose() {
+      listeners.clear();
       loader?.stop();
       loader = null;
       for (const chunk of [...textures.keys()]) retexture(chunk, null);

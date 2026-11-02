@@ -33,3 +33,7 @@ export function imageryCredits(kind: "ortho" | "esri" | "shaded", ortho: Ortho |
   if (kind === "esri") return esriHtml();
   return null;
 }
+
+/** The coarse ring's terrain (docs/3d-view-contract.md, "Wave 3": the approved credit, their TileJSON's). */
+export const RING_CREDITS = "ring", RING_ORDER = 3;
+export const RING_CREDIT = '<a href="https://mapterhorn.com/attribution">© Mapterhorn</a>';
