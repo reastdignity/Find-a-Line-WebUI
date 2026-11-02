@@ -489,6 +489,22 @@ where anchors are dragged):
   `tests/test_public.py` or `tests/test_web.py` the header). Not `edges.ts`, not the feature lines of `scene.ts`
   (the coordinator changes the Edges look in parallel), not `imagery.ts`, `ring.ts`, `tiles.ts`.
 
+## Wave F2: zoom in the walker's views (2026-11-02, the user's decisions)
+- **Eyes' field of view as a horizontal angle**, the same on every screen: 60° by default (the user's choice: the
+  perspective closest to judging distances on the spot; 70° vertical had made about 106° horizontal on a desktop,
+  about 52° on an upright phone). The camera's vertical angle follows from the canvas's aspect
+  (2·atan(tan(h/2)/aspect)), again on every resize.
+- **Zoom**: Eyes narrows the horizontal angle like binoculars, from about 110° (wide) to about 8° (×8 of the
+  default; the indicator shows the factor against 60°, e.g. "×2"); Behind moves the camera nearer or farther
+  along its line to the walker, 1.5 to 30 m (default 5 m; the indicator in metres, the camera still at least 1 m
+  above the terrain). Mouse wheel, two-finger pinch, and +/− buttons with the indicator beside the view switch
+  (shown in the walker's views only); each view keeps its zoom while the page is open; the orbit view unchanged.
+- One agent (VF2) on `l3d-wF2-zoom`; it owns `look.ts`, `views.ts`, `view.ts` (only what the zoom needs),
+  `view3d.css`, new `ui.view3d.*` texts (`zoom_in`, `zoom_out`, the indicators), the tests of all that (Node:
+  the vertical angle from a horizontal one and an aspect, the zoom's clamps and steps, the pinch's factor; Edge:
+  wheel and buttons change `data-camera`'s angle in Eyes and its distance in Behind, no CSP violation, the phone
+  bar still fits at 390-412 px).
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
