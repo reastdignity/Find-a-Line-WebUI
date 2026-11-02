@@ -487,6 +487,107 @@ class RunFiles(StaticFiles):
         return await super().get_response(os.path.join(first, name), scope)
 
 
+COUNTRY_CELLS_MAX = 20000  # cells of an explicit level over a view of the highline layer (auto: countcube's 4000)
+COUNTRY_DECIMALS = 6       # of the cells' corners (about 0.1 m)
+COUNTRY_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+
+
+class Countries:
+    """The highline layers of the data folder: the cubes under <data>/countries/<id>/cube/ (countcube.py,
+    built by `findaline.py country build`), each read once per version of its cube.json (the folder and
+    its mtime), so a new build is seen at the next request. Only countcube is imported (numpy, pyproj,
+    shapely): never country, search or numba. Its methods block (files, numpy): call them in a thread."""
+
+    def __init__(self, data_dir: str):
+        self.root = os.path.join(data_dir, "countries")
+        self._cubes: Dict[str, Tuple[int, object]] = {}
+        self._lock = threading.Lock()
+
+    def cube(self, country: str):
+        """The cube of a country, or None when it has none (or no such country, or one that cannot be read)."""
+        import countcube as cc
+        if not COUNTRY_ID.fullmatch(country):
+            return None
+        folder = os.path.join(self.root, country, "cube")
+        try:
+            mtime = os.stat(os.path.join(folder, "cube.json")).st_mtime_ns
+        except OSError:
+            return None
+        with self._lock:
+            found = self._cubes.get(folder)
+            if found and found[0] == mtime:
+                return found[1]
+        try:
+            cube = cc.Cube(folder)
+        except (OSError, ValueError, KeyError, TypeError):  # half written, another version
+            return None
+        with self._lock:
+            self._cubes[folder] = (mtime, cube)
+        return cube
+
+    def listing(self) -> List[Dict]:
+        """cube.json of every country with a cube, without "config" and "origin", by id."""
+        try:
+            names = sorted(os.listdir(self.root))
+        except OSError:
+            return []
+        out = []
+        for name in names:
+            cube = self.cube(name)
+            if cube is not None:
+                out.append({k: v for k, v in cube.info.items() if k not in ("config", "origin")})
+        return out
+
+    @staticmethod
+    def cells(cube, query) -> Dict:
+        """The answer of /api/countries/<id>/cells for its query (mode, bbox, level and the filters of
+        countcube.Filters.parse); ValueError with a plain message for a value it cannot take."""
+        import numpy as np
+
+        import countcube as cc
+        filters = cc.Filters.parse(query)
+        mode = query.get("mode") or "lines"
+        if mode not in ("lines", "spots"):
+            raise ValueError("mode must be lines or spots")
+        text = query.get("bbox") or ""
+        if text:
+            try:
+                west, south, east, north = (float(v) for v in text.split(","))
+            except ValueError:
+                raise ValueError("bbox must be west,south,east,north in degrees") from None
+        else:
+            west, south, east, north = cube.info["bounds_wgs84"]
+        box = cube.box(west, south, east, north)
+        text = query.get("level") or "auto"
+        if text == "auto":
+            level = cube.auto_level(box)
+        else:
+            try:
+                level = int(text)
+            except ValueError:
+                level = None
+            if level not in cube.levels:
+                raise ValueError(f"level must be auto or one of {', '.join(map(str, cube.levels))}")
+            if cube.cell_count(level, box) > COUNTRY_CELLS_MAX:
+                raise ValueError("too many cells: zoom in or choose a coarser level")
+        i, j, count = cube.cells(mode, level, box, filters)
+        corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
+        size = level * cube.info.get("cell_m", cc.CELL_M)
+        return {"level": level, "cell_m": int(size) if float(size).is_integer() else size,
+                "total": int(count.sum()), "max": int(count.max()) if len(count) else 0,
+                "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)]}
+
+    @staticmethod
+    def request(cube, query) -> Dict:
+        """The search of one cell (countcube.cell_request) from the query's band, level, i and j."""
+        import countcube as cc
+        try:
+            level, i, j = (int(query.get(name) or "") for name in ("level", "i", "j"))
+        except ValueError:
+            raise ValueError("level, i and j must be whole numbers") from None
+        return cc.cell_request(cube, query.get("band") or "", level, i, j)
+
+
 def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, start_scheduler: bool = True,
                public: Optional[PublicSettings] = None, limits: Optional[Limits] = None,
                accounts: Optional[AccountSettings] = None, oauth_transport=None, warm_up: bool = False):
@@ -1442,6 +1543,39 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             raise HTTPException(409, f"{region} is already waiting or being downloaded in the queue")
         request = {"osm": {"action": action, "region": region}}
         return {"id": await run_in_threadpool(queue, request, f"OSM {action}: {region}", user)}
+
+    # --- The highline layer of a country (countcube.py; the local app and administrators) ---
+
+    countries = Countries(data_dir)
+
+    async def country_cube(country: str):
+        cube = await run_in_threadpool(countries.cube, country)
+        if cube is None:
+            raise HTTPException(404, "no such country, or its layer is not built")
+        return cube
+
+    @app.get("/api/countries")
+    async def country_list(user: ac.User = Depends(require_admin)):
+        """The countries with a highline layer: their cube.json without "config" and "origin"."""
+        return {"countries": await run_in_threadpool(countries.listing)}
+
+    @app.get("/api/countries/{country}/cells")
+    async def country_cells(country: str, request: Request, user: ac.User = Depends(require_admin)):
+        """The cells of the layer in view passing the filters (Countries.cells), with their corners."""
+        cube = await country_cube(country)
+        try:
+            return await run_in_threadpool(Countries.cells, cube, request.query_params)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/countries/{country}/request")
+    async def country_request(country: str, request: Request, user: ac.User = Depends(require_admin)):
+        """The search of one cell of a layer band (a SearchRequest for the app's form)."""
+        cube = await country_cube(country)
+        try:
+            return await run_in_threadpool(Countries.request, cube, request.query_params)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
 
     @app.get("/api/profile")
     async def line_profile(request: Request, line: str, run: str = Depends(run_access),
