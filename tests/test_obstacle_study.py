@@ -67,10 +67,12 @@ def test_rules_on_a_canyon(tmp_path):
     assert result["checks"]["raw_equal"] and result["checks"]["a1_equal"]
     assert result["marked"] == result["lines"] == len(lines)
     assert result["classes"] == {"real": int(over_tree.sum()), "real_chm": int(over_tree.sum()),
-                                 "rock_only": int((~over_tree).sum()), "other": 0}
+                                 "rock_only": int((~over_tree).sum()), "other": 0,
+                                 "real_objects": 1, "rock_objects": 2}  # the tree; the two rims
     a1 = result["rules"]["A1"]
-    assert a1 == {"marked": int(over_tree.sum()), "lost": 0, "lost_chm": 0, "removed_rock": int((~over_tree).sum()),
-                  "residual_rock": 0, "kept_real": int(over_tree.sum())}
+    assert a1 == {"marked": int(over_tree.sum()), "lost": 0, "lost_objects": 0, "lost_chm": 0,
+                  "removed_rock": int((~over_tree).sum()), "residual_rock": 0, "residual_objects": 0,
+                  "kept_real": int(over_tree.sum())}
     assert result["rules"]["raw"]["marked"] == len(lines)
     assert result["rules"]["D3"]["marked"] == int(over_tree.sum())  # the rim is the first pixel
     assert result["rules"]["F-trees"]["marked"] == int(over_tree.sum())
@@ -81,13 +83,14 @@ def test_rules_on_a_canyon(tmp_path):
     folder = tmp_path  # the place's folder: <place>/capture/call-0
     picked = study.pictures(str(folder), chips, 2)
     assert {g: len(v) for g, v in picked.items()} == {"removed_rock": 2, "kept_real": 2}
-    assert all(os.path.getsize(folder / "chips" / e["png"]) > 1000 for v in picked.values() for e in v)
+    assert all(os.path.getsize(folder / "chips-A1" / e["png"]) > 1000 for v in picked.values() for e in v)
 
 
 def test_without_outside_layers(tmp_path):
     call, dtm, dsm, lines = capture_call(tmp_path)
     result = study.analyse_call(call)
-    assert result["classes"] == {"real": 0, "real_chm": 0, "rock_only": 0, "other": len(lines)}
+    assert result["classes"] == {"real": 0, "real_chm": 0, "rock_only": 0, "other": len(lines),
+                                 "real_objects": 0, "rock_objects": 0}
     assert "F" not in result["rules"] and "chm_shift" not in result
 
 
@@ -118,7 +121,8 @@ def test_in_core():
 
 
 def test_report(tmp_path):
-    rules = {name: {"marked": 5, "lost": 1, "lost_chm": 1, "removed_rock": 3, "residual_rock": 0, "kept_real": 4}
+    rules = {name: {"marked": 5, "lost": 1, "lost_objects": 1, "lost_chm": 1, "removed_rock": 3, "residual_rock": 0,
+                    "residual_objects": 0, "kept_real": 4}
              for name in study.rule_names()}
     for place in ("R1", "R2"):
         os.makedirs(tmp_path / place)
@@ -128,7 +132,7 @@ def test_report(tmp_path):
                        "checks": [{"raw_equal": True}],
                        "chm_shift": [None]}, f)
     text = study.report(str(tmp_path))
-    assert "| R1 | test | 1.0 | 10 | 4 | 5 |" in text and "| A1 | 10 (56 %) | 2 (25 %) | 2 (20 %) | 6 (100 %) | 0 | 8 |" in text
+    assert "| R1 | test | 1.0 | 10 | 4 | 5 |" in text and "| A1 | 10 (56 %) | 2 (25 %), 2 | 2 (20 %) | 6 (100 %) | 0, 0 | 8 |" in text
     assert "Places where a check failed: none" in text
 
 

@@ -66,7 +66,7 @@ TREE, SHRUB = 3.0, 1.0      # CHMv2 metres: a tree; below SHRUB nothing grows th
 TREE_COVER, BUILT_UP = 10, 50  # WorldCover classes
 GENTLE = 30.0               # degrees: F keeps A1's obstacles on gentler terrain without CHMv2 (buildings)
 RADII = range(1, 11)
-WALLS = ((70, 3), (75, 3), (80, 3), (70, 5), (75, 5), (80, 5))
+WALLS = ((70, 2), (75, 2), (80, 2), (70, 3), (75, 3), (80, 3), (70, 5), (75, 5), (80, 5))
 SLOPE_FACTORS = (0.5, 1.0)
 MASK_SLOPES = (55, 65, 75)
 ANCHOR_ZONES = (1, 2, 3)
@@ -387,10 +387,11 @@ def _slope_bins(values: np.ndarray) -> List[int]:
         return [int(((values >= lo) & (values < hi)).sum()) for lo, hi in SLOPES]
 
 
-def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[Dict] = None) -> Optional[Dict]:
+def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[Dict] = None,
+                 chip_rule: str = "A1") -> Optional[Dict]:
     """The counts of one find_valid_lines call (see the module's docstring). layers(call, grid)
     gives CHMv2 and WorldCover on the grid (outside_layers); chips, when given, collects the
-    candidates for pictures per group: {group: [(call, line, info)]}."""
+    candidates for pictures per group of chip_rule: {group: [(call, line, info)]}."""
     import linesearch as ls
     import perf_line_funnel as plf
 
@@ -449,12 +450,15 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
         a1_marks[idx] = per_line["A1"]
         checks["a1_equal"] = bool(np.array_equal(a1_marks, kernel_a1))
 
-    # What the pixels are: a tree when CHMv2 and WorldCover agree (CHMv2 alone takes rock towers
-    # and their shadows for trees at times), "tree_chm" by CHMv2 alone
+    # What the pixels are: a tree when CHMv2 and WorldCover agree and the lidar's surface stands
+    # TREE above its terrain there too (CHMv2 takes rock towers and their shadows for trees at times
+    # and spreads the crowns of a forest onto the rock beside it), "tree_chm" by CHMv2 alone
     rows, cols = pix["row"], pix["col"]
     none = np.zeros(len(rows), dtype=bool)
     tree_chm = chm3[rows, cols] >= TREE if chm3 is not None else none
-    tree = tree_chm & (wc[rows, cols] == TREE_COVER) if wc is not None else none
+    with np.errstate(invalid="ignore"):
+        tall = s[rows, cols] - z[rows, cols] >= TREE
+    tree = tree_chm & (wc[rows, cols] == TREE_COVER) & tall if wc is not None else none
     built = wc[rows, cols] == BUILT_UP if wc is not None else none
     rock = none
     if chm3 is not None and wc is not None:
@@ -474,10 +478,22 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     r_needed = 1 + sum(per_line[f"A{r}"].astype(np.int64) for r in RADII)
 
     inside = in_core(a1, a2, grid)[idx]
+    line_of = pix["line"]
+
+    def objects(chosen: np.ndarray) -> int:
+        """Separate objects (8 neighbours) among the chosen pixels: lines of one spot share theirs."""
+        if not chosen.any():
+            return 0
+        mask = np.zeros(z.shape, dtype=bool)
+        mask[rows[chosen], cols[chosen]] = True
+        return int(ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))[1])
+
     classes = {"real": real & inside, "rock_only": rock_only & inside,
                "other": ~real & ~rock_only & inside}  # rock_only and real never meet
     result = {"checks": checks, "res": res, "lines": int(in_core(a1, a2, grid).sum()), "marked": int(inside.sum()),
-              "classes": {**{k: int(v.sum()) for k, v in classes.items()}, "real_chm": int((real_chm & inside).sum())},
+              "classes": {**{k: int(v.sum()) for k, v in classes.items()}, "real_chm": int((real_chm & inside).sum()),
+                          "real_objects": objects(real_pixel & inside[line_of]),
+                          "rock_objects": objects(rock & (rock_only & inside)[line_of])},
               "rules": {},
               "r_needed": {k: np.bincount(r_needed[v], minlength=12)[1:].tolist() for k, v in classes.items()},
               "distance": {k: _bins(nearest[v], DISTANCES) for k, v in classes.items()},
@@ -486,16 +502,20 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
               "proxies": {"chmv2": chm is not None, "worldcover": wc is not None}}
     for name, keep in per_line.items():
         f = flags[name]
-        result["rules"][name] = {"marked": int((keep & inside).sum()), "lost": int((~keep & real & inside).sum()),
+        lost = ~keep & real & inside
+        residual = keep & (count(f & ~rock) == 0) & inside
+        result["rules"][name] = {"marked": int((keep & inside).sum()), "lost": int(lost.sum()),
+                                 "lost_objects": objects(real_pixel & lost[line_of]),
                                  "lost_chm": int((~keep & real_chm & inside).sum()),
                                  "removed_rock": int((~keep & rock_only & inside).sum()),
-                                 "residual_rock": int((keep & (count(f & ~rock) == 0) & inside).sum()),
+                                 "residual_rock": int(residual.sum()),
+                                 "residual_objects": objects(f & rock & residual[line_of]),
                                  "kept_real": int((keep & (count(f & real_pixel) > 0) & inside).sum())}
     if shift is not None:
         result["chm_shift"] = shift
 
     if chips is not None and len(idx):
-        a1_kept, f1 = per_line["A1"], flags["A1"]
+        a1_kept, f1 = per_line[chip_rule], flags[chip_rule]
         groups = {"removed_rock": ~a1_kept & rock_only, "lost": ~a1_kept & real_chm,
                   "kept_real": a1_kept & (count(f1 & real_chm_pixel) > 0),
                   "residual_rock": a1_kept & (count(f1 & ~rock) == 0)}
@@ -548,8 +568,8 @@ def source_of(folder: str) -> Optional[str]:
     return None
 
 
-def analyse(folder: str, samples: int = 6, outside: bool = True) -> Dict:
-    """Analyse a captured place: <folder>/study.json, study.md and chips/."""
+def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str = "A1") -> Dict:
+    """Analyse a captured place: <folder>/study.json, study.md and chips/ (the groups of chip_rule)."""
     calls = sorted(glob.glob(os.path.join(folder, "capture", "call-*")), key=lambda p: int(p.rsplit("-", 1)[1]))
     layers = None
     if outside:
@@ -561,7 +581,7 @@ def analyse(folder: str, samples: int = 6, outside: bool = True) -> Dict:
         layers = outside_layers(index)
     results, candidates = [], {}
     for call in calls:
-        part = analyse_call(call, layers, candidates)
+        part = analyse_call(call, layers, candidates, chip_rule)
         if part is not None:
             results.append(part)
     study = {"place": place_name(folder), "source": source_of(folder), "calls": len(calls),
@@ -569,8 +589,8 @@ def analyse(folder: str, samples: int = 6, outside: bool = True) -> Dict:
              "checks": [r["checks"] for r in results],
              "chm_shift": [r.get("chm_shift") for r in results],
              "proxies": results[0]["proxies"] if results else None}
-    picked = pictures(folder, candidates, samples) if results else {}
-    study["chips"] = picked
+    picked = pictures(folder, candidates, samples, chip_rule) if results else {}
+    study["chips"], study["chip_rule"] = picked, chip_rule
     with open(os.path.join(folder, "study.json"), "w", encoding="utf-8") as f:
         json.dump(study, f, indent=1, ensure_ascii=False)
     with open(os.path.join(folder, "study.md"), "w", encoding="utf-8") as f:
@@ -581,10 +601,10 @@ def analyse(folder: str, samples: int = 6, outside: bool = True) -> Dict:
 # ---------------------------------------------------------------------------------------------
 # pictures
 
-def pictures(folder: str, candidates: Dict, samples: int) -> Dict:
-    """Up to `samples` pictures per group, chosen at random (seed 0): chips/<group>-<n>.png,
+def pictures(folder: str, candidates: Dict, samples: int, rule: str = "A1") -> Dict:
+    """Up to `samples` pictures per group, chosen at random (seed 0): chips-<rule>/<group>-<n>.png,
     drawn call by call (each call's grids loaded once)."""
-    out = os.path.join(folder, "chips")
+    out = os.path.join(folder, chips_dir(rule))
     shutil.rmtree(out, ignore_errors=True)
     rng = np.random.default_rng(0)
     chosen = []
@@ -597,9 +617,13 @@ def pictures(folder: str, candidates: Dict, samples: int) -> Dict:
     for call, group, n, line, info in sorted(chosen, key=lambda c: (c[0], list(GROUPS).index(c[1]), c[2])):
         if loaded is None or loaded.call != call:
             loaded = _load_for_picture(call)
-        entry = draw(os.path.join(out, f"{group}-{n}.png"), place_name(folder), group, loaded, line, info)
+        entry = draw(os.path.join(out, f"{group}-{n}.png"), place_name(folder), group, loaded, line, info, rule)
         picked.setdefault(group, []).append(entry)
     return {group: sorted(picked[group], key=lambda e: e["png"]) for group in GROUPS if group in picked}
+
+
+def chips_dir(rule: str) -> str:
+    return "chips-" + re.sub(r"[^A-Za-z0-9.-]", "_", rule)
 
 
 def _load_for_picture(call: str) -> SimpleNamespace:
@@ -627,7 +651,7 @@ def _to_wgs84(grid: Dict, rows, cols):
     return lat, lon
 
 
-def draw(path: str, place: str, group: str, d: SimpleNamespace, line: int, info: Dict) -> Dict:
+def draw(path: str, place: str, group: str, d: SimpleNamespace, line: int, info: Dict, rule: str = "A1") -> Dict:
     """A picture of one line around a pixel: the terrain shaded, the surface's height above it,
     CHMv2, and the profile there (terrain, surface, A1's obstacle surface, the limit)."""
     import matplotlib
@@ -678,7 +702,7 @@ def draw(path: str, place: str, group: str, d: SimpleNamespace, line: int, info:
     ax.legend(fontsize=7)
     lat, lon = _to_wgs84(d.grid, [a1[0], a2[0], fr], [a1[1], a2[1], fc])
     chm = "-" if info["chm"] is None else f"{info['chm']:.0f} m"
-    fig.suptitle(f"{place}, {group}: {GROUPS[group]}. Pixel {focus} of {steps} steps, surface {info['height']:.1f} m "
+    fig.suptitle(f"{place}, {group}: {GROUPS[group].replace('A1', rule)}. Pixel {focus} of {steps} steps, surface {info['height']:.1f} m "
                  f"above the terrain, slope up to {info['slope']:.0f} deg, CHMv2 {chm}, WorldCover "
                  f"{'-' if info['worldcover'] is None else int(info['worldcover'])}", fontsize=9)
     fig.tight_layout()
@@ -704,13 +728,13 @@ def place_markdown(study: Dict) -> str:
              f"{study.get('source') or 'source not found'}, {study.get('res')} m: {study.get('lines', 0)} lines, "
              f"{marked} over trees/buildings; by CHMv2 and WorldCover {study.get('classes', {})}; checks "
              f"{study.get('checks')}; CHMv2 shift {study.get('chm_shift')}.", "",
-             "| rule | marked | lost (tree/building) | lost (CHMv2 tree/building) | removed, rock only | kept, rock only | "
-             "kept, tree/building |", "| --- | --- | --- | --- | --- | --- | --- |"]
+             "| rule | marked | lost (tree/building): lines, objects | lost (CHMv2 tree/building) | removed, rock only | "
+             "kept, rock only: lines, objects | kept, tree/building |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for name in rule_names():
         r = rules.get(name)
         if r:
-            lines.append(f"| {name} | {_pct(r['marked'], marked)} | {r['lost']} | {r['lost_chm']} | "
-                         f"{r['removed_rock']} | {r['residual_rock']} | {r['kept_real']} |")
+            lines.append(f"| {name} | {_pct(r['marked'], marked)} | {r['lost']}, {r['lost_objects']} | {r['lost_chm']} | "
+                         f"{r['removed_rock']} | {r['residual_rock']}, {r['residual_objects']} | {r['kept_real']} |")
     lines += ["", "r needed by A (1..10, 11: more):", ""]
     for k, v in study.get("r_needed", {}).items():
         lines.append(f"- {k}: {v}")
@@ -721,10 +745,10 @@ def place_markdown(study: Dict) -> str:
     for k, v in study.get("slope", {}).items():
         lines.append(f"- {k}: {v}")
     for group, entries in study.get("chips", {}).items():
-        lines += ["", f"## {GROUPS[group]}", ""]
+        lines += ["", f"## {GROUPS[group].replace('A1', study.get('chip_rule') or 'A1')}", ""]
         for e in entries:
             lat, lon = e["pixel"]
-            lines.append(f"- [{e['png']}](chips/{e['png']}): pixel {lat}, {lon} "
+            lines.append(f"- [{e['png']}]({chips_dir(study.get('chip_rule') or 'A1')}/{e['png']}): pixel {lat}, {lon} "
                          f"([satellite](https://www.google.com/maps/@{lat},{lon},19z/data=!3m1!1e3)), anchors "
                          f"{e['anchor1']} - {e['anchor2']}")
     return "\n".join(lines) + "\n"
@@ -757,22 +781,23 @@ def report(out: str) -> str:
     real = sum(st.get("classes", {}).get("real", 0) for st in studies)
     real_chm = sum(st.get("classes", {}).get("real_chm", 0) for st in studies)
     rock = sum(st.get("classes", {}).get("rock_only", 0) for st in studies)
-    sums = ["| rule | marked | lost (tree/building) | lost (CHMv2 tree/building) | removed, rock only | "
-            "kept, rock only | kept, tree/building |", "| --- | --- | --- | --- | --- | --- | --- |"]
+    sums = ["| rule | marked | lost (tree/building): lines, objects | lost (CHMv2 tree/building) | removed, rock only | "
+            "kept, rock only: lines, objects | kept, tree/building |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for name in rule_names():
         t = total.get(name)
         if t:
-            sums.append(f"| {name} | {_pct(t['marked'], marked)} | {_pct(t['lost'], real)} | "
+            sums.append(f"| {name} | {_pct(t['marked'], marked)} | {_pct(t['lost'], real)}, {t['lost_objects']} | "
                         f"{_pct(t['lost_chm'], real_chm)} | {_pct(t['removed_rock'], rock)} | "
-                        f"{t['residual_rock']} | {t['kept_real']} |")
+                        f"{t['residual_rock']}, {t['residual_objects']} | {t['kept_real']} |")
     shifts = [f"- {st['place']}: {st.get('chm_shift')}" for st in studies]
     checks = [st["place"] for st in studies if any(not c.get("raw_equal", True) or not c.get("a1_equal", True)
                                                    or c.get("marked_without_pixels") for c in st.get("checks", []))]
     text = "\n".join([
         "# Obstacles on rock: the rules side by side", "",
         "Lines over trees/buildings per place under each rule (tools/obstacle_study.py); ideal: the lines with a "
-        "tree (CHMv2 >= 3 m within a pixel where WorldCover has tree cover) or a building (WorldCover) among "
-        "the pixels above their limit.", "",
+        "tree (CHMv2 >= 3 m within a pixel where WorldCover has tree cover and the lidar's surface stands 3 m "
+        "above its terrain) or a building (WorldCover) among the pixels above their limit; objects: separate "
+        "groups of such pixels (the lines of one spot share theirs).", "",
         *rows, "",
         f"## Over all places ({marked} lines over trees/buildings: {real} with a tree (CHMv2 and WorldCover) or "
         f"building, {real_chm} with a tree by CHMv2 alone or a building, {rock} rock only)",
@@ -820,8 +845,8 @@ def run(args) -> int:
                                 os.path.join(folder, "capture"), "--", *options, "--data-dir", data],
                                cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT)
         print(f"{name}: analysing", flush=True)
-        subprocess.run([sys.executable, os.path.abspath(__file__), "analyse", folder, "--samples", str(args.samples)]
-                       + ([] if args.outside else ["--offline"]), cwd=HERE, env=env)
+        subprocess.run([sys.executable, os.path.abspath(__file__), "analyse", folder, "--samples", str(args.samples),
+                        "--chips-rule", args.chips_rule] + ([] if args.outside else ["--offline"]), cwd=HERE, env=env)
     print(report(out))
     return 0
 
@@ -837,6 +862,7 @@ def main(argv=None) -> int:
     p.add_argument("--again", action="store_true", help="search places captured already again")
     p.add_argument("--samples", type=int, default=6, help="pictures per group and place")
     p.add_argument("--offline", dest="outside", action="store_false", help="without CHMv2 and WorldCover")
+    p.add_argument("--chips-rule", default="A1", help="the rule whose groups the pictures show")
     p = sub.add_parser("capture", help="(child) one search with find_valid_lines captured")
     p.add_argument("--out", required=True)
     p.add_argument("search_args", nargs=argparse.REMAINDER)
@@ -844,6 +870,7 @@ def main(argv=None) -> int:
     p.add_argument("folder")
     p.add_argument("--samples", type=int, default=6)
     p.add_argument("--offline", dest="outside", action="store_false")
+    p.add_argument("--chips-rule", default="A1")
     p = sub.add_parser("report", help="the report of the analysed places")
     p.add_argument("out")
     args = parser.parse_args(argv)
@@ -853,7 +880,7 @@ def main(argv=None) -> int:
         search_args = args.search_args[1:] if args.search_args[:1] == ["--"] else args.search_args
         return capture(args.out, search_args)
     if args.command == "analyse":
-        analyse(args.folder, args.samples, args.outside)
+        analyse(args.folder, args.samples, args.outside, args.chips_rule)
         return 0
     print(report(args.out))
     return 0
