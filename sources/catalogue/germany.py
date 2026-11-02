@@ -1,6 +1,7 @@
 """The German Länder: Saxony-Anhalt (LVermGeo's DGM1 and DOM1 from WCS), Lower Saxony (LGLN's DGM1
-and DOM1 from STAC), Hesse (HVBG's DGM1 and DOM1 from WCS) and Mecklenburg-Vorpommern (LAiV's DGM1 and
-DOM1 from WCS)."""
+and DOM1 from STAC), Hesse (HVBG's DGM1 and DOM1 from WCS), Mecklenburg-Vorpommern (LAiV's DGM1 and
+DOM1 from WCS), Saxony (GeoSN's DGM1 and DOM1, zipped 2 km GeoTIFFs) and Baden-Württemberg (LGL's DGM1
+and DOM1, zipped 2 km tiles of 1 km XYZ grids or GeoTIFFs)."""
 
 from typing import List
 
@@ -8,6 +9,7 @@ from ..credit import CC_BY, DL_DE_BY, YEAR, Credit
 from ..source import ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 from ..layers.wcs import WcsTiles
+from ..layers.zipped import ZippedTiles
 
 # LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
 # the provider named "© GeoBasis-DE / LVermGeo ST"; dl-de/by-2.0 §3 asks for a note of changes ("Daten
@@ -105,6 +107,66 @@ def _laiv(url: str, coverage: str, kind: str, description: str) -> WcsTiles:
                     native_res=1.0, fetch_res=1.0, tile_px=2000, zero_is_nodata=True)
 
 
+
+# GeoSN's Allgemeine Nutzungsbedingungen (https://www.landesvermessung.sachsen.de/allgemeine-
+# nutzungsbedingungen-8954.html, read 2026-11-02): dl-de/by-2.0 "unter Angabe des Quellenvermerks
+# "Landesamt für Geobasisinformation Sachsen (GeoSN)" oder kurz "GeoSN"", for electronic media "Quelle:
+# GeoSN, dl-de/by-2-0"; dl-de/by-2.0 §3 asks for a note of changes ("Daten geändert": a mosaic on our grid)
+GEOSN_CREDIT = Credit("DGM1 / DOM1 (GeoSN, Saxony)", "Quelle: GeoSN, Daten geändert", *DL_DE_BY)
+# The DGM1 and DOM1 of GeoSN's download service: one ZIP per 2 km tile on its Nextcloud (the public shares
+# below, which GeoSN's own batch page and Produktdownload app build their links from; unchanged since the
+# survey of 2026-10-31: the probe finds a change), <kind>1_33<E>_<N>_2_sn_tiff.zip with E and N the km of
+# the south-west corner in EPSG:25833 (even). One GeoTIFF inside (2000 x 2000 px, float32, LZW, edges on
+# whole metres, -9999 outside the Land; about 16 MB a ZIP) with its .tfw, .aux.xml and a CSV of the
+# survey's date (2018-2025: tiles are re-surveyed, and the ZIPs were uploaded again on 2026-09-30, so the
+# folders are "live"). A tile outside the Land answers 404 (a Sabre DAV error). No WCS for elevation, no
+# request limits published.
+GEOSN_DAV = "https://geocloud.landesvermessung.sachsen.de/public.php/dav/files"
+GEOSN_SHARES = {"dgm": "JCcXyifaNdLDnxZ", "dom": "S6wwnFwX7882sZm"}
+# GeoSN's DOP20 WMS (EPSG:4326 offered, "kostenfrei", the ANB's dl-de/by-2.0)
+GEOSN_DOP = OrthoService("DOP20 Sachsen (GeoSN)", "https://geodienste.sachsen.de/wms_geosn_dop-rgb/guest", "sn_dop_020",
+                         "saxony/ortho/live", "Quelle: GeoSN, dl-de/by-2-0", attribution_url=DL_DE_BY[1])
+
+
+def _geosn(kind: str, description: str) -> ZippedTiles:
+    """DGM1 or DOM1 of GeoSN: zipped 2 km GeoTIFFs of 1 m named by their south-west corner."""
+    def url(left: float, bottom: float) -> str:
+        return f"{GEOSN_DAV}/{GEOSN_SHARES[kind]}/{kind}1_33{left / 1000:.0f}_{bottom / 1000:.0f}_2_sn_tiff.zip"
+    return ZippedTiles(description, f"saxony/{kind}1/live", "EPSG:25833", 2000, 1.0, url,
+                       rf"^{kind}1_33\d+_\d+_2_sn\.tif$", bytes_per_tile=16e6)
+
+
+# LGL's Open GeoData (https://www.lgl-bw.de/Produkte/Open-Data/, "Rechtliches", and the portal's
+# disclaimer, read 2026-11-02): dl-de/by-2.0, "Die Namensnennung hat in folgender Weise zu erfolgen:
+# „Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2-0“". The capabilities of LGL's WCS and WMS ask for "LGL-BW
+# (<year>) ..." instead: the models come from the Open GeoData downloads, so their wording; the
+# orthophoto from the WMS, so its. "Daten geändert" for dl-de/by-2.0 §3 (a mosaic on our grid)
+LGL_CREDIT = Credit("DGM1 / DOM1 (LGL, Baden-Württemberg)", "Datenquelle: LGL, www.lgl-bw.de, Daten geändert",
+                    *DL_DE_BY)
+# The DGM1 and DOM1 of LGL's Open GeoData portal: one ZIP per 2 km tile, <kind>1_32_<E>_<N>_2_bw.zip with E
+# (odd) and N (even) the km of the south-west corner in EPSG:25832, so the tiling starts at 1000 m east. In a
+# DGM1 ZIP four 1 km XYZ grids (dgm1_32_<e>_<n>_1_bw_<year>.xyz: "x y z" with spaces, centimetres, pixel
+# centres on x.5, i.e. edges on whole metres; 29 MB of text each) with a CSV of dates, the licence and a
+# metadata text; in a DOM1 ZIP four 1 km GeoTIFFs (float32, LZW, -9999, a compound CRS of 25832 and
+# DHHN2016). About 14.5 and 12 MB a ZIP. Tiles at the border hold data beyond it (Basel), kept as they
+# come. The survey years differ per member (re-surveys: the folders are "live"). A tile outside the
+# Land answers 404. LGL's DGM1 WCS answers whole metres on 1.002 m pixels: not used. No request limits
+# published.
+LGL_DATA = "https://opengeodata.lgl-bw.de/data"
+# LGL's DOP20 WMS (EPSG:4326 offered); its capabilities ask for "LGL-BW (<year>)" with dl-de/by-2.0
+LGL_DOP = OrthoService("DOP20 Baden-Württemberg (LGL)",
+                       "https://owsproxy.lgl-bw.de/owsproxy/ows/WMS_LGL-BW_ATKIS_DOP_20_C", "IMAGES_DOP_20_RGB",
+                       "baden_wurttemberg/ortho/live", f"LGL-BW ({YEAR}), dl-de/by-2-0", attribution_url=DL_DE_BY[1])
+
+
+def _lgl(kind: str, folder: str, member: str, description: str, bytes_per_tile: float) -> ZippedTiles:
+    """DGM1 or DOM1 of LGL: zipped 2 km tiles of four 1 km members (member: their extension)."""
+    def url(left: float, bottom: float) -> str:
+        return f"{LGL_DATA}/{folder}/{kind}1_32_{left / 1000:.0f}_{bottom / 1000:.0f}_2_bw.zip"
+    return ZippedTiles(description, f"baden_wurttemberg/{kind}1/live", "EPSG:25832", 2000, 1.0, url,
+                       rf"^{kind}1_32_\d+_\d+_1_bw_\d{{4}}\.{member}$", origin=(1000.0, 0.0),
+                       bytes_per_tile=bytes_per_tile)
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -114,7 +176,7 @@ SOURCES: List[Source] = [
                     "DHHN2016",
         nmt=_hvbg("dgm", "he_dgm1", "DGM1 (terrain)", False), nmpt=_hvbg("dom", "dom1", "DOM1 (trees, buildings)", True),
         countries=("de",), regions=("de-he",), crs="EPSG:25832", ortho=HVBG_DOP,
-        neighbours=("lower_saxony",),
+        neighbours=("lower_saxony", "baden_wurttemberg"),
         credits=(HVBG_CREDIT,),
         listing=ReadmeRow("Hesse (DE)", "HVBG DGM1, 1 m (WCS)", "HVBG DOM1, 1 m (WCS)", "HVBG DOP"),
         offline=(("de-he", (49.39, 51.66, 7.77, 10.24)),), sample=(51.1830, 9.0500),
@@ -142,7 +204,7 @@ SOURCES: List[Source] = [
         nmt=_lvermgeo("dgm", "DGM1 (terrain)", True), nmpt=_lvermgeo("dom", "DOM1 (trees, buildings)", False),
         countries=("de",), regions=("de-st",), crs="EPSG:25832", ortho=LVERMGEO_DOP,
         credits=(LVERMGEO_CREDIT,),
-        neighbours=("lower_saxony",),
+        neighbours=("lower_saxony", "saxony"),
         listing=ReadmeRow("Saxony-Anhalt (DE)", "LVermGeo DGM1, 1 m (WCS)", "LVermGeo DOM1, 1 m (WCS)",
                           "LVermGeo DOP20"),
         offline=(("de-st", (50.94, 53.05, 10.56, 13.19)),), sample=(51.7340, 11.0200),
@@ -162,4 +224,33 @@ SOURCES: List[Source] = [
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),
         note=f"Data © GeoBasis-DE/LGLN {YEAR}, CC BY 4.0 (changed: mosaicked onto the working grid)."),
+    # Saxony and Baden-Württemberg last: their offline boxes overlap Saxony-Anhalt's (Leipzig) and Hesse's
+    # (the Neckar at Heidelberg), which take those points offline; online the regions decide
+    Source(
+        id="saxony", name="GeoSN (DGM1 / DOM1)",
+        description="GeoSN (Saxony, Germany): terrain and surface models 1 m from zipped 2 km tiles, "
+                    "ETRS89 / UTM 33N, DHHN2016",
+        nmt=_geosn("dgm", "DGM1 (terrain)"), nmpt=_geosn("dom", "DOM1 (trees, buildings)"),
+        countries=("de",), regions=("de-sn",), crs="EPSG:25833", ortho=GEOSN_DOP,
+        credits=(GEOSN_CREDIT,),
+        neighbours=("geoportal", "saxony_anhalt"),
+        listing=ReadmeRow("Saxony (DE)", "GeoSN DGM1, 1 m (2 km tiles)", "GeoSN DOM1, 1 m (2 km tiles)",
+                          "GeoSN DOP20"),
+        offline=(("de-sn", (50.15, 51.72, 11.79, 15.06)),), sample=(50.9200, 14.2100),
+        note="Data: Quelle: GeoSN, dl-de/by-2.0 (changed: mosaicked onto the working grid). Survey dates "
+             "2018-2025 per 2 km tile, not recorded."),
+    Source(
+        id="baden_wurttemberg", name="LGL (DGM1 / DOM1)",
+        description="LGL (Baden-Württemberg, Germany): terrain and surface models 1 m from zipped 2 km tiles, "
+                    "ETRS89 / UTM 32N, DHHN2016",
+        nmt=_lgl("dgm", "dgm", "xyz", "DGM1 (terrain)", 14.5e6),
+        nmpt=_lgl("dom", "dom1", "tif", "DOM1 (trees, buildings)", 12e6),
+        countries=("de",), regions=("de-bw",), crs="EPSG:25832", ortho=LGL_DOP,
+        credits=(LGL_CREDIT,),
+        neighbours=("hesse", "swisstopo"),
+        listing=ReadmeRow("Baden-Württemberg (DE)", "LGL DGM1, 1 m (2 km tiles)", "LGL DOM1, 1 m (2 km tiles)",
+                          "LGL DOP20"),
+        offline=(("de-bw", (47.52, 49.83, 7.44, 10.54)),), sample=(48.0530, 8.9710),
+        note="Data: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2.0 (changed: mosaicked onto the working grid). "
+             "Survey years per 1 km tile, not recorded."),
 ]

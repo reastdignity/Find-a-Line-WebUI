@@ -170,7 +170,8 @@ def test_published_limits():
                                  "servicios.idee.es": 4,
                                  "wcs-mds.idee.es": 4, "malta.coverage.wetransform.eu": 4,
                                  "www.geodaten-mv.de": 4, "geoservices9.civis.bz.it": 4,
-                                 "wcs.geonorge.no": 4}
+                                 "wcs.geonorge.no": 4,
+                                 "geocloud.landesvermessung.sachsen.de": 4, "opengeodata.lgl-bw.de": 4}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 

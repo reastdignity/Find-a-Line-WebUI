@@ -46,6 +46,11 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Kartverket's WCS (Norway): no published limit (its terms: "technical limitations ... will be
     # stated for each service"; the service states none, 2026-11-02): courtesy
     "wcs.geonorge.no": 4,
+    # GeoSN's Nextcloud (Saxony's 2 km ZIPs) and LGL's Open GeoData (Baden-Württemberg's): no published
+    # limits (their terms and portals, read 2026-11-02, give no numbers; the portals' selection caps are
+    # of their pages only): courtesy
+    "geocloud.landesvermessung.sachsen.de": 4,
+    "opengeodata.lgl-bw.de": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

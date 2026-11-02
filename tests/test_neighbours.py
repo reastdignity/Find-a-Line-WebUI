@@ -200,6 +200,6 @@ def test_declared_neighbours():
             (s1, n1, w1, e1), (s2, n2, w2, e2) = [s.offline[0][1] if s.offline else s.bbox
                                                   for s in (source, src.SOURCES[other])]
             assert s1 <= n2 and s2 <= n1 and w1 <= e2 and w2 <= e1, (sid, other)
-    assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern")
+    assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern", "saxony")
     assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia")
     assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada",)
