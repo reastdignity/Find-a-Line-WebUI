@@ -213,6 +213,7 @@ cache/
 findaline_map.html
 runs/
 work/
+/countries/
 # Private files that are never committed (drafts, notes, exports): the local/ folder at the root of a
 # checkout or worktree
 /local/
