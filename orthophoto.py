@@ -42,16 +42,11 @@ _to_mercator = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 
 Tile = Tuple[int, int, int]  # (z, x, y)
 
-_local = threading.local()
-
 
 def _session() -> requests.Session:
-    """The requests.Session of this thread: one connection kept alive for the tiles a download
-    thread fetches one after another (sources.net has no session helper, 2026-11-02)."""
-    session = getattr(_local, "session", None)
-    if session is None:
-        session = _local.session = requests.Session()
-    return session
+    """The requests.Session of this thread (sources.net.session): one connection kept alive for
+    the tiles a download thread fetches one after another."""
+    return net.session()
 
 
 def cache_folder(cache_dir: str, service) -> str:
