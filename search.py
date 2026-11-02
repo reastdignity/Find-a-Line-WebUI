@@ -181,6 +181,10 @@ class Plan:
     # Stop checking the pairs found at the limit of lines or of the memory (_early_check):
     # Limits.lines_early_stop of the server, also for a user without limits (the web worker sets it)
     early_stop: bool = True
+    # Rewrite the runs folder's list (runs.write_index: runs.js and index.html) after saving the run:
+    # not on the public site (the web worker clears it), where nothing reads them (web.py makes each
+    # user's runs.js, index.html redirects to the app) and they grow with every run of the site
+    index_runs: bool = True
     # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
     # that was saved already adds nothing
@@ -1221,7 +1225,8 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
                                p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, on_lines,
                                p.high_above)
         progress.compute.finish()
-    rn.write_index(plan.paths.runs)
+    if plan.index_runs:
+        rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
 

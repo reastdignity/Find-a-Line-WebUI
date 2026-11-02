@@ -3094,6 +3094,35 @@ def test_no_server_paths_in_public_events(tmp_path, monkeypatch):
         for form in (folder, folder.replace("\\", "/"), json.dumps(folder)[1:-1]):
             assert form not in texts, form
     assert "saved to runs" in texts
+    assert not os.path.exists(tmp_path / "runs" / "runs.js") and not os.path.exists(tmp_path / "runs" / "index.html")
+
+
+def test_runs_list_written_locally_only(tmp_path, monkeypatch):
+    """runs.write_index (runs.js and index.html of the runs folder, which only the local app and maps
+    opened from disk read) after a local job's run, not after a public one's; the viewer is installed
+    once a run (by its map)."""
+    import jobs as jb
+    import mapping
+    _phase_in_this_process(monkeypatch)
+    installed = []
+    install = mapping.install_viewer
+    monkeypatch.setattr(mapping, "install_viewer", lambda runs_dir: (installed.append(runs_dir), install(runs_dir)))
+    clip = {"params": {**CLIP, "northing": 254608, "easting": 553966, "radius": 100}, "geometry": None}
+    for public in (True, False):
+        data = tmp_path / ("public" if public else "local")
+        data.mkdir()
+        jobs = jb.Jobs(str(data), public=public)
+        job = jobs.add(clip, "clip", user_id=7 if public else None)
+        for phase, waiting in (("download", "queued"), ("compute", "ready")):
+            jobs.claim(waiting, jb.PHASE_STATUS[phase], "w1")
+            jb.run_phase(str(data), job, phase, None, public)
+        assert jobs.get(job)["status"] == "done", jobs.get(job)["error"]
+        runs = data / "runs"
+        assert os.path.exists(runs / "runs.js") == os.path.exists(runs / "index.html") == (not public)
+        assert os.path.exists(runs / "_viewer" / "viewer.js") and installed == [str(runs)]
+        installed.clear()
+    listed = (tmp_path / "local" / "runs" / "runs.js").read_text("utf-8")
+    assert jobs.get(job)["run_id"] in listed
 
 
 def test_scheduler_warms_numba_up(tmp_path, monkeypatch):

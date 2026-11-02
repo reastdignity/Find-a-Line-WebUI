@@ -1408,6 +1408,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
                     params = params.model_copy(update={"tile_size": json.load(f)})
         plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory)
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
+        plan.index_runs = not public  # runs.js and index.html of the runs folder: read locally only
         if safeguards is not None:  # the server's switch, also for a user without limits (its memory budget)
             plan.early_stop = safeguards.lines_early_stop
         if phase == "download":
