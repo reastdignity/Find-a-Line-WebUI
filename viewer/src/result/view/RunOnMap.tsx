@@ -4,7 +4,7 @@
 
 import L from "leaflet";
 import { useEffect, useRef, useState } from "preact/hooks";
-import { baseLayers } from "../../layers";
+import { baseLayers } from "../../baselayers";
 import type { Ortho, RunData } from "../../types";
 import { ResultWorkspace, type ResultWorkspaceProps } from "./ResultWorkspace";
 

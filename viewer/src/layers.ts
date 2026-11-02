@@ -1,30 +1,7 @@
-// Background layers: OpenTopoMap, OpenStreetMap, Esri World Imagery (only with the operator's key of
-// ArcGIS Location Platform, from the server: esriKey) and the orthophoto of the data source (from the
-// local tile cache when there, else its WMS over its base tiles, if any, or the base tiles alone).
+// The background layers' keys, URLs and credits without Leaflet (the 2D maps' layers: baselayers.ts; the 3D
+// view's imagery: view3d/tiles.ts, view3d/credits.ts) and the data credits of a run.
 
-import L from "leaflet";
 import type { Credit, Ortho } from "./types";
-
-// The OSM tile usage policy and attribution guidelines: "© OpenStreetMap contributors" linked to the
-// copyright page, and the link where map errors are reported (FOSSGIS's terms ask for fixthemap)
-const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ' +
-  'contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">report a map issue</a>)';
-
-/** A tile that tries the cached one ({cache}/{z}/{x}/{y}.jpg) first, then the service. */
-function createCachedTile(this: L.TileLayer & {_cache: string | null}, coords: L.Coords, done: L.DoneCallback) {
-  const layer = this as any, cache = this._cache;
-  let online = !cache;
-  const tile = document.createElement("img");
-  tile.alt = "";
-  tile.setAttribute("role", "presentation");
-  L.DomEvent.on(tile, "load", L.Util.bind(layer._tileOnLoad, layer, done, tile));
-  L.DomEvent.on(tile, "error", (e) => {
-    if (!online) { online = true; tile.src = this.getTileUrl(coords); }
-    else layer._tileOnError(done, tile, e);
-  });
-  tile.src = online ? this.getTileUrl(coords) : cache + "/" + coords.z + "/" + coords.x + "/" + coords.y + ".jpg";
-  return tile;
-}
 
 /** The operator's API key of ArcGIS Location Platform (settings.WebKeys, restricted to the site's address):
  *  from the server's runs.js (window.FINDALINE_APP) or the app page's meta; none on a map opened from disk,
@@ -40,59 +17,26 @@ export function esriKey(): string | null {
  *  sources of the imagery; the about page says the same: web.py ESRI_SOURCE). */
 export const ESRI_SOURCE = "Source: Esri, Vantor, Earthstar Geographics, and the GIS User Community";
 export const ESRI_NAME = "Esri World Imagery";
+/** Esri's native tiles reach z19 nearly everywhere (z20/21 only in places): enlarged above it. */
+export const ESRI_MAX_ZOOM = 19;
 
-const CachedWMS = L.TileLayer.WMS.extend({createTile: createCachedTile});
-const CachedTiles = L.TileLayer.extend({createTile: createCachedTile});
-
-export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string, L.Layer> {
-  const layers: Record<string, L.Layer> = {
-    "OpenTopoMap": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
-      maxZoom, maxNativeZoom: 17,
-      attribution: "Map data: " + OSM + ', <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: ' +
-        '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> ' +
-        '(<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'}),
-    "OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom, maxNativeZoom: 19, attribution: OSM}),
-  };
-  const key = esriKey();
-  if (key) {
-    // Native tiles to z19 nearly everywhere (z20/21 only in places): enlarged above it
-    layers[ESRI_NAME] = L.tileLayer(
-      "https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=" +
-      encodeURIComponent(key),
-      {maxZoom, maxNativeZoom: 19, attribution: linked("Powered by Esri", "https://www.esri.com") + " | " + escape(ESRI_SOURCE)});
-  }
-  if (ortho && !ortho.url && ortho.base) {
-    // Tiles in the map's own tiling, no WMS (SWISSIMAGE)
-    const layer = new (CachedTiles as any)(ortho.base.url, {
-      maxZoom, maxNativeZoom: ortho.base.max_zoom, attribution: orthoHtml(ortho)}) as L.TileLayer;
-    (layer as any)._cache = ortho.cache;
-    layers[ortho.name] = layer;
-  } else if (ortho && ortho.url) {
-    // National WMS (e.g. geoportal) may not support Web Mercator, so tiles are requested
-    // in WGS84, unless the service serves Web Mercator only (wms_crs, gis.natt.is): then each
-    // tile's own Mercator box. WMS renders at any scale, so the orthophoto stays sharp up to maxZoom.
-    const base = ortho.base;
-    const layer = new (CachedWMS as any)(ortho.url, {
-      // WMS 1.3.0 asks EPSG:4326 in lat-lon order, 1.1.1 (a service taking lon-lat only) as SRS in lon-lat order
-      layers: ortho.layer, format: base ? "image/png" : "image/jpeg", version: ortho.wms_version ?? "1.3.0",
-      transparent: !!base, attribution: orthoHtml(ortho), maxZoom,
-      crs: ortho.wms_crs === "EPSG:3857" ? L.CRS.EPSG3857 : L.CRS.EPSG4326}) as L.TileLayer.WMS;
-    (layer as any)._cache = ortho.cache;
-    // Where the WMS has no imagery its PNG is transparent and shows the base under it
-    // (cached tiles have both already and cover the base)
-    layers[ortho.name] = base ? L.layerGroup([L.tileLayer(base.url, {maxZoom, maxNativeZoom: base.max_zoom}), layer])
-      : layer;
-  }
-  return layers;
+/** The tiles of Esri World Imagery ({z}/{y}/{x}) with the operator's key. */
+export function esriTileUrl(key: string): string {
+  return "https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=" +
+    encodeURIComponent(key);
 }
 
-function escape(text: string): string {
+/** Esri's credits: "Powered by Esri" linked to its site, and the sources of the imagery. */
+export function esriHtml(): string {
+  return linked("Powered by Esri", "https://www.esri.com") + " | " + escape(ESRI_SOURCE);
+}
+
+export function escape(text: string): string {
   return text.replace(/[&<>"']/g, (c) => "&#" + c.charCodeAt(0) + ";");
 }
 
-/** Plain text as HTML, a link when `url` is http(s) (Leaflet's attribution control renders HTML). */
-function linked(text: string, url: string | null | undefined): string {
+/** Plain text as HTML, a link when `url` is http(s) (Leaflet's attribution control and the 3D view's credits render HTML). */
+export function linked(text: string, url: string | null | undefined): string {
   return url && /^https?:\/\//.test(url)
     ? '<a href="' + escape(url) + '" target="_blank" rel="noopener">' + escape(text) + "</a>" : escape(text);
 }

@@ -1,0 +1,72 @@
+// Background layers of the 2D maps (Leaflet): OpenTopoMap, OpenStreetMap, Esri World Imagery (only with the
+// operator's key of ArcGIS Location Platform, from the server: esriKey) and the orthophoto of the data source
+// (from the local tile cache when there, else its WMS over its base tiles, if any, or the base tiles alone).
+// Their URLs and credits without Leaflet are in layers.ts (the 3D view uses them too).
+
+import L from "leaflet";
+import { ESRI_MAX_ZOOM, ESRI_NAME, esriHtml, esriKey, esriTileUrl, orthoHtml } from "./layers";
+import type { Ortho } from "./types";
+
+// The OSM tile usage policy and attribution guidelines: "© OpenStreetMap contributors" linked to the
+// copyright page, and the link where map errors are reported (FOSSGIS's terms ask for fixthemap)
+const OSM = '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> ' +
+  'contributors (<a href="https://www.openstreetmap.org/fixthemap" target="_blank" rel="noopener">report a map issue</a>)';
+
+/** A tile that tries the cached one ({cache}/{z}/{x}/{y}.jpg) first, then the service. */
+function createCachedTile(this: L.TileLayer & {_cache: string | null}, coords: L.Coords, done: L.DoneCallback) {
+  const layer = this as any, cache = this._cache;
+  let online = !cache;
+  const tile = document.createElement("img");
+  tile.alt = "";
+  tile.setAttribute("role", "presentation");
+  L.DomEvent.on(tile, "load", L.Util.bind(layer._tileOnLoad, layer, done, tile));
+  L.DomEvent.on(tile, "error", (e) => {
+    if (!online) { online = true; tile.src = this.getTileUrl(coords); }
+    else layer._tileOnError(done, tile, e);
+  });
+  tile.src = online ? this.getTileUrl(coords) : cache + "/" + coords.z + "/" + coords.x + "/" + coords.y + ".jpg";
+  return tile;
+}
+
+const CachedWMS = L.TileLayer.WMS.extend({createTile: createCachedTile});
+const CachedTiles = L.TileLayer.extend({createTile: createCachedTile});
+
+export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string, L.Layer> {
+  const layers: Record<string, L.Layer> = {
+    "OpenTopoMap": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+      maxZoom, maxNativeZoom: 17,
+      attribution: "Map data: " + OSM + ', <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: ' +
+        '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> ' +
+        '(<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'}),
+    "OpenStreetMap": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom, maxNativeZoom: 19, attribution: OSM}),
+  };
+  const key = esriKey();
+  if (key) {
+    // Native tiles to z19 nearly everywhere (z20/21 only in places): enlarged above it
+    layers[ESRI_NAME] = L.tileLayer(esriTileUrl(key), {maxZoom, maxNativeZoom: ESRI_MAX_ZOOM, attribution: esriHtml()});
+  }
+  if (ortho && !ortho.url && ortho.base) {
+    // Tiles in the map's own tiling, no WMS (SWISSIMAGE)
+    const layer = new (CachedTiles as any)(ortho.base.url, {
+      maxZoom, maxNativeZoom: ortho.base.max_zoom, attribution: orthoHtml(ortho)}) as L.TileLayer;
+    (layer as any)._cache = ortho.cache;
+    layers[ortho.name] = layer;
+  } else if (ortho && ortho.url) {
+    // National WMS (e.g. geoportal) may not support Web Mercator, so tiles are requested
+    // in WGS84, unless the service serves Web Mercator only (wms_crs, gis.natt.is): then each
+    // tile's own Mercator box. WMS renders at any scale, so the orthophoto stays sharp up to maxZoom.
+    const base = ortho.base;
+    const layer = new (CachedWMS as any)(ortho.url, {
+      // WMS 1.3.0 asks EPSG:4326 in lat-lon order, 1.1.1 (a service taking lon-lat only) as SRS in lon-lat order
+      layers: ortho.layer, format: base ? "image/png" : "image/jpeg", version: ortho.wms_version ?? "1.3.0",
+      transparent: !!base, attribution: orthoHtml(ortho), maxZoom,
+      crs: ortho.wms_crs === "EPSG:3857" ? L.CRS.EPSG3857 : L.CRS.EPSG4326}) as L.TileLayer.WMS;
+    (layer as any)._cache = ortho.cache;
+    // Where the WMS has no imagery its PNG is transparent and shows the base under it
+    // (cached tiles have both already and cover the base)
+    layers[ortho.name] = base ? L.layerGroup([L.tileLayer(base.url, {maxZoom, maxNativeZoom: base.max_zoom}), layer])
+      : layer;
+  }
+  return layers;
+}

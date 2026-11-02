@@ -8,7 +8,7 @@ import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { Button, IconButton, Sheet, type Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import { baseLayers } from "../../layers";
+import { baseLayers } from "../../baselayers";
 import type { Line, RunData } from "../../types";
 import { loadRun, orthoForApp } from "../../result/load";
 import { ResultModel } from "../../result/model";

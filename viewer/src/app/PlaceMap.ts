@@ -7,7 +7,7 @@ import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { FeatureCollection, GeoJSON } from "geojson";
 import L from "leaflet";
-import { baseLayers } from "../layers";
+import { baseLayers } from "../baselayers";
 import { COLORS } from "../style";
 import type { Line, Ortho } from "../types";
 
