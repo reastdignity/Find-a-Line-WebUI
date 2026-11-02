@@ -27,6 +27,8 @@ export interface SceneParts {
 
 export interface SceneCore extends Scene3D {
   view: View;
+  /** The stage holding the canvas: DOM overlays (handles, the pin) go here. */
+  stage: HTMLElement;
   terrain: Terrain;
   /** The colour tokens of the page (e.g. "--clear"), read from the .ui root. */
   token(name: string): string;
@@ -129,7 +131,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
   let disposed = false;
 
   const scene: SceneCore = {
-    level, patch, meta: patch.meta, origin, chunks, view, terrain, token,
+    level, patch, meta: patch.meta, origin, chunks, view, terrain, token, stage: parts.stage,
     pickTargets: chunks.map((c) => c.mesh),
     credits: creditsBox(parts.credits),
     toolbar: parts.toolbar,

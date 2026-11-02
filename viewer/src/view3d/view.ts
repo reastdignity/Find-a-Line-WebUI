@@ -26,6 +26,8 @@ export interface View {
   onResize(fn: (size: Vector2) => void): void;
   /** Called after every frame drawn (the renderer's counts are those of that frame). */
   onDrawn(fn: () => void): void;
+  /** The orbit controls on or off (off while an anchor or the walker is dragged). */
+  setControls(on: boolean): void;
   dispose(): void;
 }
 
@@ -108,6 +110,7 @@ export function createView(host: HTMLElement, level: Level, background: string, 
     },
     onResize(fn) { resizeFns.push(fn); fn(size); },
     onDrawn(fn) { drawnFns.push(fn); },
+    setControls(on) { controls.enabled = on; },
     dispose() {
       lost = true;
       if (pending) cancelAnimationFrame(pending);

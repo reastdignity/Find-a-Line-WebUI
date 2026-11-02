@@ -1,7 +1,8 @@
 // The 3D view of a line (GET /view3d#run=<id>&line=<lat1>,<lon1>,<lat2>,<lon2>, web.VIEW3D_HTML): the patch of
 // the run's elevation model around the line from /api/patch, decoded (decode.ts, its sha256 checked) and meshed
 // into the scene (scene.ts, terrain.ts); then the imagery (imagery.ts) and the found line's profile from
-// /api/profile (one request after the other) for the webbing's colour and the readout (line.ts).
+// /api/profile (one request after the other) for the webbing's colour and the readout (line.ts); the walker's
+// pin (pin.ts), the walk (walk.ts) and, at level full, the anchors' editing (edit.ts).
 // Plain DOM, no Preact: the page is the canvas and a few controls. No style attributes (the CSP's
 // style-src 'self'): classes of view3d.css. When the terrain is drawn and the profile is in, the root gets
 // data-ready="1" (data-triangles: the last frame's; data-vertices: the meshes'; data-frames: the frames drawn),
@@ -12,11 +13,14 @@ import { detailMessage, t } from "../i18n";
 import { esriKey } from "../layers";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
+import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
+import { createPin } from "./pin";
 import { backUrl, currentPage, patchUrl, type PageRequest } from "./page";
 import { createRing, ringUrl, type Ring } from "./ring";
 import { createScene, type SceneCore } from "./scene";
+import { createWalk } from "./walk";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -44,8 +48,9 @@ function frame(root: HTMLElement, page: PageRequest) {
   bar.append(readout, toolbar, note);
   if (page.level === "phone") bar.append(el("p", "v3-note", t("ui.view3d.phone_level")));
   root.append(top, stage, bar);
+  root.classList.toggle("v3-phone", page.level === "phone");
   return {
-    stage, toolbar, credits, readout,
+    stage, toolbar, credits, readout, bar, note,
     /** A message over the stage (none: hidden); `error`: with the error's title and a Reload button. */
     say(text: string | null, error = false) {
       status.replaceChildren();
@@ -92,10 +97,10 @@ async function fetchPatch(page: PageRequest): Promise<Patch> {
   return {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
 }
 
-/** The found line's profile (as result/model.ts fetchProfile, without the model's module). */
-async function fetchProfile(page: PageRequest): Promise<Profile> {
-  const response = await fetch("/api/profile?run=" + encodeURIComponent(page.run) + "&line=" +
-                               encodeURIComponent(page.line || ""), {headers: {"X-Findaline-Profile": "1"}});
+/** A line's profile, `line` "lat1,lon1,lat2,lon2" (as result/model.ts fetchProfile, without the model's module). */
+async function fetchProfile(run: string, line: string): Promise<Profile> {
+  const response = await fetch("/api/profile?run=" + encodeURIComponent(run) + "&line=" +
+                               encodeURIComponent(line), {headers: {"X-Findaline-Profile": "1"}});
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(detailMessage(body.detail, response.statusText || "error"));
   return body as Profile;
@@ -133,6 +138,13 @@ async function start() {
     return;
   }
   const line = createLine(scene, ui.readout);
+  let edit: Edit | null = null;
+  if (line) {
+    const walk = createWalk(scene, line, root);
+    createPin(scene, line, root, () => walk.stop());
+    edit = createEdit(scene, line, root, (l) => fetchProfile(page.run, l), () => walk.stop(),
+                      {parent: ui.bar, before: ui.note.nextElementSibling});
+  }
   root.dataset.vertices = String(scene.terrain.vertices);
   root.dataset.maxError = String(scene.terrain.maxError);
   let terrainDrawn = false, profileIn = false, frames = 0;
@@ -151,10 +163,10 @@ async function start() {
   });
   scene.invalidate();
   try {
-    const profile = await fetchProfile(page);
-    line?.setProfile(profile);
+    const profile = await fetchProfile(page.run, page.line);
+    edit?.found(profile);
   } catch (e) {
-    line?.setProfile(null);
+    edit?.found(null);
     root.dataset.profileError = (e as Error).message;
     console.error(e);
   }

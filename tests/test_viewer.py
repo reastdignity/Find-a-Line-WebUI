@@ -775,3 +775,50 @@ console.log(JSON.stringify({{poses, start: w.start, span: w.span, n: pts.length,
     assert found["seg"] == pytest.approx([0.5, 50, -0.5, *p1, *p1], abs=1e-3)
     assert found["readout"] == {"length": 120.2, "clearance": 7.25, "overTrees": True} and found["clear"] is False
     assert found["text"] == "7.3"
+
+
+def test_view3d_interaction(tmp_path):
+    """view3d/interact.ts: the walker dragged to the point of the span nearest the pointer's ray, the walk's start,
+    the pin's threshold, the moved line for /api/profile and the queue of its requests (300 ms after a release,
+    one in flight, a release during it waiting and only the newest sent, answers of older or cancelled keys
+    dropped)."""
+    found = run_ts(tmp_path, "view3d/interact", """
+const near = [
+  m.nearestOnSegment([30, 50, 100], [0, -0.6, -0.8], [0, 0, 0], [100, 0, 0]),  // looking down at x = 30
+  m.nearestOnSegment([-50, 10, 0], [1, 0, 0], [0, 0, 0], [100, 0, 0]),       // along the line: its near end
+  m.nearestOnSegment([500, 10, 0], [1, 0, 0], [0, 0, 0], [100, 0, 0]),       // past the far end
+  m.nearestOnSegment([70, 10, 10], [0, 0.6, 0.8], [0, 0, 0], [100, 0, 0]),   // pointing away: the nearest point
+  m.nearestOnSegment([0, 0, 0], [0, 0, 1], [5, 0, 0], [5, 0, 0]),            // no span
+];
+let now = 0, timers = [], calls = [], answers = [], resolvers = {};
+const clock = {setTimeout(fn, ms) { const h = {at: now + ms, fn}; timers.push(h); return h; },
+               clearTimeout(h) { timers = timers.filter((x) => x !== h); }};
+const advance = (ms) => { now += ms; for (const h of timers.filter((x) => x.at <= now)) { timers = timers.filter((x) => x !== h); h.fn(); } };
+const q = m.profileQueue((key) => { calls.push(key); return new Promise((ok, no) => { resolvers[key] = {ok, no}; }); },
+                         (o) => answers.push(o.key + ("value" in o ? ":" + o.value : ":error")), 300, clock);
+const tick = () => new Promise((r) => setTimeout(r, 0));
+(async () => {
+  const log = [];
+  q.push("a"); advance(200); q.push("b"); advance(299); log.push(calls.slice());  // debounced: nothing yet
+  advance(1); log.push(calls.slice());                                             // b sent
+  q.push("c"); advance(300); q.push("d"); advance(300); log.push(calls.slice());    // in flight: c, d wait
+  resolvers.b.ok(1); await tick(); log.push(calls.slice(), answers.slice());        // b dropped, d sent (not c)
+  resolvers.d.ok(2); await tick(); log.push(answers.slice());
+  q.push("e"); advance(300); q.cancel(); resolvers.e.ok(3); await tick(); log.push(answers.slice(), q.sent);
+  q.push("f"); advance(300); resolvers.f.no(new Error("429")); await tick(); log.push(answers.slice());
+  console.log(JSON.stringify({near, log, walk: [m.walkFrom(12, 100), m.walkFrom(100, 100), m.walkFrom(-1, 100)],
+    pin: [m.pinShown(6), m.pinShown(19.9), m.pinShown(20), m.pinShown(Infinity)], below: m.PIN_BELOW_PX,
+    line: m.lineParam([19.75627221, 50.15595081], [19.7, 50.2])}));
+})();""")
+    near = found["near"]
+    assert near[0] == pytest.approx(0.3) and near[1] == 0 and near[2] == 1
+    assert near[3] == pytest.approx(0.7) and near[4] == 0
+    log = found["log"]
+    assert log[0] == [] and log[1] == ["b"] and log[2] == ["b"]
+    assert log[3] == ["b", "d"] and log[4] == []
+    assert log[5] == ["d:2"]
+    assert log[6] == ["d:2"] and log[7] == 3  # e sent, its answer dropped
+    assert log[8] == ["d:2", "f:error"]
+    assert found["walk"] == [12, 0, 0]
+    assert found["pin"] == [True, True, False, False] and found["below"] == 20
+    assert found["line"] == "50.1559508,19.7562722,50.2000000,19.7000000"
