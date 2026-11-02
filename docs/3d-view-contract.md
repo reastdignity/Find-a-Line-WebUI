@@ -345,6 +345,37 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
   the catalogue's, the privacy and about texts with the ring off and on, `ViewSettings`' checks; `/` and `/api/jobs`
   keep their headers.
 
+## After wave 3 (2026-11-02)
+- **V3a** (`edit.ts`, `walk.ts`, `pin.ts`, `interact.ts` pure and Node-tested, `screen.ts` the overlay): handles on
+  a DOM overlay over the canvas, the pin and the walker's grip there too; `SceneCore.stage`, `View.setControls`;
+  the root's `data-edit`, `data-walk`, `data-pin`, the readout's `data-verdict`, `data-colour` for tests. A line's
+  verdict (`webbing.ts` `verdictOf`): `fits` (`--clear`), `terrain_only` (`--trees`), `no_fit` (`--bad`, the new
+  text `ui.view3d.does_not_fit`: a moved anchor can give a negative clearance).
+- **V3b** (`ring.ts`, `ringmath.ts`, `tiles-plugins.d.ts`): `TerrariumMeshPlugin` from `3d-tiles-renderer/three/plugins`
+  (its types leave it out), a level of detail of our own by the distance from the patch's centre (the same tiles
+  wherever one looks: `RING` in ringmath.ts, 6 km at zoom 12 on the desktop, 3 km at zoom 10 on phones),
+  `ImageOverlayPlugin` with `XYZTilesOverlay`/`WMSTilesOverlay`, clipping planes over the patch's data rectangle,
+  `Imagery.onChange`; the root's `data-ring`, `data-ring-tiles`, `data-ring-offset`. **Depends on 0.5.3's
+  internals:** `RingTerrain` clamps the plugin's private `_maxSourceLevel`; check it on an upgrade. On the test
+  tiles (from the clip): 8 terrain tiles 132 KB and 36 imagery tiles 27 KB on the desktop, the edge's offset
+  0.21 m median, 0.95 m p90 (phones 1.2 / 5.5 m). Mapterhorn's own sizes are unknown: at more than ~165 KB a WebP
+  tile the desktop's 9 tiles pass 1.5 MB (the knob: `RING`); about 100k vertices more on the desktop.
+- **V3c**: `settings.ViewSettings` (`ring_origin`), `create_app(view=)`, `web.page_csp`, `web.ortho_origins`
+  (13 origins today, pinned in `tests/test_public.py::RING_ORIGINS`), `ESRI_TILES_ORIGIN`,
+  `MAPTERHORN_ATTRIBUTION`; the approved texts in; README's two sections; `docs/deployment.md` section 8 (the
+  coordinator's line). The Mapterhorn texts assume the default `FINDALINE_3D_RING_URL`: another server needs its own
+  approved texts.
+- **At the merge:** the loaded webbing drawn once more through the terrain, faint (a slope hid the last ~11 m at
+  the second anchor, whose handle the overlay draws above the canvas); `preserveDrawingBuffer` (Playwright's WebKit
+  showed the frame before the last until another was drawn: the webbing grey after its profile, 2 opens in 4);
+  `ui_shots`' `wait:` step as a function (an expression needs eval: the CSP). `view3d.js` 979 KB, 270 KB gzip.
+  Full pytest 634 passed (3 skipped: platform), the 3D tests 40 passed after the fixes.
+- **For wave 4:** the phone bar at 390 px: the readout's one line scrolls (cut after "clear of the ter…") and the
+  imagery control touches the right edge; the iPhone test of the walk's smoothness with `preserveDrawingBuffer`;
+  the ring's bytes with Mapterhorn's tiles once its maintainer agrees; CLAUDE.md (code map: view3d's modules, the
+  patch endpoint, `ViewSettings`; sync rules: the body's encoder and decoder, the page's CSP and the catalogue's
+  orthophoto origins, `RING_ORIGINS`, the Mapterhorn texts behind the switch, the 0.5.3 internals of the ring).
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
