@@ -9,6 +9,7 @@
 
 import "./view3d.css";
 import { detailMessage, t } from "../i18n";
+import { esriKey } from "../layers";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
 import { createImagery, type Imagery } from "./imagery";
@@ -97,11 +98,6 @@ async function fetchProfile(page: PageRequest): Promise<Profile> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(detailMessage(body.detail, response.statusText || "error"));
   return body as Profile;
-}
-
-function esriKey(): string | null {
-  const meta = document.querySelector<HTMLMetaElement>('meta[name="findaline-esri-key"]');
-  return meta && meta.content ? meta.content : null;
 }
 
 async function start() {

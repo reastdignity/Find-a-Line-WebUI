@@ -185,6 +185,28 @@ Both rebuild `viewer/dist`; at the merge the coordinator rebuilds it again.
 **At the merge (coordinator):** `tools/ui_shots.py` pages of `/view3d` (a `{line}` placeholder, `?level=`), the
 visual review on the desktop and both phones, and the privacy/About wording proposals for the user.
 
+## After wave 2 (2026-11-02)
+- **Scene core (V2a):** `scene.ts` (`createScene` → `SceneCore`, which implements `Scene3D`), `terrain.ts` (every
+  chunk from one `Martini(513)`, skirts, forced samples: the anchors, the line's footprint and the edges of no data;
+  the error raised ×1.5 until the vertices fit the budget, the page's `data-max-error`), `view.ts`, `line.ts` (the
+  readout), `webbing.ts` (`Line2`, 61 points written in place), `walker.ts` (the mannequin), `main.ts` (the body's
+  sha256 checked; `/api/profile` after the patch; `createImagery` after the first frame).
+- **`onFrame(fn)`:** `fn(seconds)` gets the seconds since the previous frame drawn (0 on the first) and runs only
+  while some owner keeps drawing: an animation calls `keepDrawing(owner, true)` while it runs and `false` after.
+- **Imagery (V2b):** `imagery.ts`, `tiles.ts` (the tiles of a chunk at a zoom, their URLs, the UVs,
+  `planTextures`), `credits.ts`. `viewer/src/layers.ts` has no Leaflet any more (the credits' HTML, `esriKey`,
+  `ESRI_*`, `esriTileUrl`, `PROCESSED_NOTE`); the base layers moved to `viewer/src/baselayers.ts`, imported by the
+  2D map's modules. The line's chunks take zoom 18 at 50° N (zoom 19 does not fit 2048 px). `view3d.js` holds no
+  Leaflet: 695 KB, 185 KB gzip.
+- **At the merge:** `main.ts` takes `esriKey` from `layers.ts`; `lookAcross` (scene.ts) also fits the line into
+  the view's width (on a Pixel 7 held upright both anchors were cut off); `tools/ui_shots.py` pages `d-line`,
+  `view3d`, `view3d-shaded`, `view3d-phone`, `view3d-full` (a `wait:` step, the `{line}` placeholder). WebGL works in
+  Playwright on Windows, WebKit too.
+- **Visual review, for wave 3:** the walker is hard to find at the framing distance (about 6 px tall at 190 m;
+  invisible on phones); on phones the bar below the canvas takes about 40 % of the screen (the readout on two
+  lines, the slider, the imagery control and two notes on rows of their own); the sky is the page's flat
+  background. Decisions on these: the user's, at the wave-2 checkpoint.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then

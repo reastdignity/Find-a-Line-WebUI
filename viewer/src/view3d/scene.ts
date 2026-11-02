@@ -100,7 +100,10 @@ function lookAcross(view: View, patch: Patch, origin: Origin) {
   const [a, b] = patch.meta.anchors, span = Math.hypot(b.x - a.x, b.y - a.y) || 1;
   const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2, mh = (a.h + b.h) / 2;
   const nx = -(b.y - a.y) / span, ny = (b.x - a.x) / span;  // across the line in grid metres
-  const dist = Math.max(60, span * 1.25);
+  // far enough that the line fits the view's width with a margin (a phone held upright is narrow): the camera
+  // stands hypot(0.85, 0.45) · dist from the line's middle
+  const across = 2 * Math.hypot(0.85, 0.45) * Math.tan(view.camera.fov * Math.PI / 360) * view.camera.aspect;
+  const dist = Math.max(60, span * 1.25, span * 1.15 / across);
   const lower = (side: number) => heightAt(patch, mx + side * nx * dist * 0.5, my + side * ny * dist * 0.5) ?? Infinity;
   const side = lower(1) <= lower(-1) ? 1 : -1;
   const target = new Vector3(...toScene(origin, mx, my, mh - span * 0.05));

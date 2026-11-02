@@ -40,15 +40,23 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 
 # name -> (interface ("map": the run's map.html, "shared": it by its share link), hash, actions after loading or None: a CSS selector to click, "scroll:<selector>" to
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
-# bottom of its panel (a "?" near the bottom: its bubble opens upwards), or a list of such steps[, the user:
-# "admin" (default), "walker", an approved user with the site's limits, or "visitor", not signed in]);
-# "{run}" is the clip's run; an interface starting with "/" is a path of web.py's server-rendered pages
+# bottom of its panel (a "?" near the bottom: its bubble opens upwards), "wait:<expression>" to wait until it is true,
+# or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, or "visitor",
+# not signed in]);
+# "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
+# web.py's pages (the server-rendered ones and the 3D view's)
 # Leaflet's layer control opened as its expand() does (hover on a desktop, a tap on a phone: neither is the
 # same click on every device)
 LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
 ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => "
            "l.textContent.trim() === 'Esri World Imagery')?.querySelector('input').click()")
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
+# The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
+VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
+                "![...document.querySelectorAll('.v3-toolbar [role=status]')].some((e) => !e.hidden)")
+SHADED_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
+             "b.textContent.trim() === 'Shaded')?.click()")
+VIEW3D = "#run={run}&line={line}"
 PAGES = {
     "d-home": ("d", "", None),
     "d-home-limited": ("d", "", None, "walker"),  # the usage meters of a user with the site's limits
@@ -66,6 +74,7 @@ PAGES = {
     "d-result": ("d", "#run={run}", None),
     "d-result-intro": ("d", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
     "d-result-credits": ("d", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones)
+    "d-line": ("d", "#run={run}&line={line}", None),  # a line selected: its details, the "3D view" button
     "d-favourites": ("d", "#favourites", None),
     "d-admin": ("d", "#admin", None),
     "d-osm": ("d", "#osm", None),
@@ -88,6 +97,12 @@ PAGES = {
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
+    # the 3D view of the first line at the device's level (a coarse pointer: the phone's), then at the other one;
+    # its imagery Esri's with ESRI_API_KEY set (the clip's run has no orthophoto), else the terrain shaded
+    "view3d": ("/view3d", VIEW3D, VIEW3D_READY),
+    "view3d-shaded": ("/view3d", VIEW3D, [VIEW3D_READY, SHADED_ON]),
+    "view3d-phone": ("/view3d?level=phone", VIEW3D, VIEW3D_READY),
+    "view3d-full": ("/view3d?level=full", VIEW3D, VIEW3D_READY),
 }
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
@@ -129,6 +144,13 @@ def clip_run(data: str) -> str:
     run = next(d for d in os.listdir(runs) if os.path.isfile(os.path.join(runs, d, "run.json")))
     with_credits(os.path.join(runs, run, "data.js"))
     return run
+
+
+def first_line(data: str, run: str) -> str:
+    """The first line of a run as its links name it (keys.lineCoords: the anchors of its data.js row)."""
+    with open(os.path.join(data, "runs", run, "data.js"), encoding="utf-8") as f:
+        row = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"][0]
+    return ",".join(str(v) for v in row[:4])
 
 
 def with_credits(path: str):
@@ -231,6 +253,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     data = args.data_dir or tempfile.mkdtemp(prefix="ui-shots-")
     site, cookies, run, share, stop = serve(data)
+    line = first_line(data, run)
     wanted = [w for w in args.only.split(",") if w]
     pages = {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}
     themes = ["light", "dark"] if args.dark else ["light"]
@@ -257,7 +280,7 @@ def main():
                         page = context.new_page()  # a fresh page each: no menu or route of the one before
                         start = {"map": f"/runs/{run}/map.html", "shared": f"/s/{share}/map.html"}.get(
                             ui, ui if ui.startswith("/") else f"/?ui={ui}")
-                        page.goto(f"{site}{start}{hash_.format(run=run)}")
+                        page.goto(f"{site}{start}{hash_.format(run=run, line=line)}")
                         page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
                         try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
                             page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",
@@ -273,6 +296,13 @@ def main():
                                 continue
                             if step.startswith("js:"):
                                 page.evaluate(step[3:])
+                                page.wait_for_timeout(600)
+                                continue
+                            if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery
+                                try:
+                                    page.wait_for_function(step[5:], timeout=60000)
+                                except Exception:
+                                    print(f"{name} ({device}): still waiting for {step[5:]}")
                                 page.wait_for_timeout(600)
                                 continue
                             if step.startswith("low:"):  # the last one, at the bottom of its panel
