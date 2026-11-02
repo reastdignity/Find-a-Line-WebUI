@@ -74,7 +74,7 @@ On the server, check that `WORKER_MEMORY` in `.env` leaves this room (the VPS ha
 - **nginx aggregated in Telegraf:** the metrics log is turned into counts and quantiles every 30 s
   (`aggregators.basicstats` / `aggregators.quantile`, `drop_original = true`): no sample per request.
 - **No high-cardinality labels:** no IP address, user, path or job id; routes only as groups
-  (api, events, cache, s, auth, app), countries at most about 250.
+  (api, events, patch, cache, s, auth, app), countries at most about 250.
 - **Estimate:** 1 000–2 000 series at 30 s are 3–6 million samples a day; VictoriaMetrics keeps about
   1 byte per sample or less, so 1–2 GB a year. The store lives in a volume on Docker's data root,
   the same filesystem as the site's data, so it counts against the site's free-disk limit (G2

@@ -102,6 +102,26 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
 - Phone: ≤ 130k vertices, ≤ 18 MB of textures, `devicePixelRatio` ≤ 2; desktop: ≤ 300k vertices, ≤ 60 MB.
 - Code: `view3d.js` about 0.2 MB gzip (three.js and martini; 3DTilesRendererJS joins in wave 3).
 
+## After wave 1 (2026-11-02)
+- **Versions** (each at least two weeks old): `three` 0.186.1, `@types/three` 0.186.0, `three-mesh-bvh` 0.9.16,
+  `3d-tiles-renderer` 0.5.3 (its optional React/Babylon peers not installed); martini vendored in
+  `viewer/src/view3d/martini.ts`, its licence through `viewer/licences/martini.txt`.
+- **Server:** `search.patch_of_line` (+ `encode_heights`), `mapping.ortho_entry` (factored out of `save_map`),
+  `jobs.quick_patch` with `Redact.RAW = {"heights"}`, `web.patch_body`, `PAGE_CSP` chosen per path in `guard`,
+  `/view3d` in `PUBLIC_ROUTES` treating visitors as `/`. Codes: `patch_line` also stands for a run without an area
+  box and for a line longer than the run's longest line; a `step` other than 1 or 2 is a plain 400.
+- **`ortho.cache`** is set whenever the source has an orthophoto (run.json does not record `--ortho`), so a run made
+  with `--ortho never` answers 404 from `/cache/`. 404s are harmless for fail2ban (it counts 401, 403 and 429, and
+  ignores 429 of `/cache/`), but avoid them where the cache cannot have tiles: zoom ≤ 16 cache first; zoom 17 over
+  the patch straight from the service; zoom 19 in the corridor of ±60 m along the line cache first (the run caches
+  zoom 17–21 only 30 m around its best groups).
+- **Affine:** a plane over the projection: about 2 cm at the corners of 513 m, 17 cm at 1.5 km, growing with the side
+  squared; fine for texture UVs, the found line's anchors come exact from `anchors`.
+- **Page (V1):** `main.ts`, `page.ts`, `decode.ts`, `terrain.ts`, `view.ts`, `geometry.ts`, `martini.ts`,
+  `view3d.css`; Martini's error 0.5 m desktop, 1.5 m phone (to tune within the budgets); only chunk (0, 0) drawn
+  so far, no skirts, no forced vertices, `meta.sha256` not checked in the browser yet (wave 2). On a level line
+  the envelope has two equal maxima: either is the walker's start.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then

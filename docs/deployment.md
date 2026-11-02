@@ -361,8 +361,8 @@ Ubuntu's logrotate rotates them daily and keeps 14, compressed):
   `/favicon.ico` with it. Warnings (an answer buffered to a temporary file) and the refusals of the
   limits (`info`) are not logged.
 - `findaline.metrics.log`, one JSON line per request of the site on port 443, for the monitoring
-  (section 15): the time, the route group (`api`, `events`, `cache`, `share`, `auth`, `app`,
-  `page`), the method, the status, the response times, the size and whether a rate limit let it
+  (section 15): the time, the route group (`api`, `events`, `patch` (the 3D view's terrain: slow,
+  large answers kept apart from `api`), `cache`, `share`, `auth`, `app`, `page`), the method, the status, the response times, the size and whether a rate limit let it
   through. No address, no path or query, no Referer, no User-Agent.
 - `access.log` gets the requests for other names (masked the same way), `error.log` what nginx
   logs before a request is matched to a site (TLS handshakes, malformed requests).
