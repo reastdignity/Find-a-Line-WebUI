@@ -39,6 +39,20 @@ Rules of thumb:
 - Read every download with a byte cap: some servers ignore HTTP Range and stream the whole file (Wallonia's 50 GB ZIPs, an English survey tile, seen 2026-10-31).
 - When a service refuses scripts (403, a CAPTCHA, a firewall), note it and ask the agency; never work around it with another User-Agent.
 - Try older protocol versions before giving up: Norway's WCS 2.0.1 answers 400 where 1.0.0 works.
+- A WCS may refuse a request with HTTP 200 and an XML exception report (Geonorge's ArcGIS WCS 1.0.0), and its
+  DescribeCoverage's size limit may not be the one it enforces (3840 × 2160 advertised, 4096 a side enforced): find the
+  real limit, and make sure a refusal fails as a raster and is never stored.
+- Files named other than `.tif` are refused by our GDAL settings ("does not exist in the file system":
+  `CPL_VSIL_CURL_ALLOWED_EXTENSIONS` in `net._gdal_http`, `.tif,.tiff` since LINZ's sheets).
+- Check the global fallback in a new region: FABDEM's groups of 170-180° E end at "W180", which nobody had hit
+  before New Zealand.
+- The coarse overviews of a COG mosaic may show data its full resolution does not have (HRDEM's cell 5_3): check
+  coverage at full resolution.
+- A national mosaic in a conformal conic with far-apart standard parallels (Canada's EPSG:3979, 49 and 77° N)
+  has several per cent of scale error: keep its native grid only when resampling would be worse (data already
+  resampled once), and say the error in the description.
+- A `FileBlocks` block must lie inside one file: when the files' edges are not multiples of the wanted block size from
+  0, an `origin` puts the blocks on them (New Zealand's 8 m DEM: 4 km blocks from (0, 2000)).
 - Look at the edges of the data: South Tyrol's WCS blends the pixels next to its nodata edge with 0 (false steps of more than 1000 m; `edge_px`), Saxony-Anhalt's answers 0 without nodata outside the Land (`zero_is_nodata`), and the Environment Agency answers HTTP 500 outside its coverage.
 - Clip requests to the coverage extent; a `missing` tile at the edge of the data is suspicious (Malta's north coast of Gozo was lost this way).
 - Compressed archives (ZIP Deflate/Deflate64) cannot be read in parts; a TIFF inside may still be tiled, so after one extraction it reads fast. Python's `zipfile` cannot read Deflate64: use 7-Zip.

@@ -245,6 +245,65 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   - *Open*: answers of the providers (swisstopo: does 40/min cover file downloads; BEV; USGS on Alaska and rates; Datafordeler limits); Esri through ArcGIS Location Platform (done 2026-11-01 in code, branch esri-layer: the layer only with a key, the approved terms sentence on the about page, the phone's data credits folded; to do: the production key; Esri does not enforce the key's referrer list for these tiles, so short expiry and rotation); `cache update` for STAC tiles (`StacTiles.tile_of` is None: LGLN and swisstopo are re-fetched only by searches); `usgs10m` still shows the USGS imagery in Alaska; the whole-USA Geofabrik extract (12.2 GB) is not on the VPS: `osmextract.build_tile` loads an extract's whole themes file into every search process that builds a tile (per-state extracts, or theme features indexed per 0.25° tile, first); national orthophotos for countries without an elevation source (France IGN, Czechia, Netherlands; the user: not now); on phones the map's credits take 4–6 lines (fold the data credits behind a button? the OSM tile credit must stay visible).
 - **Still open in batch 1**: LGLN's credit year from the run's date (`Credit` as a template); regression places checked against known highlines (SlackMap, under *To check*; R27 moved from Llanberis Pass, 32 short lines, to the Dinorwig slate quarries on 2026-11-01); offline region boxes overlap (South Tyrol's falls mostly into Austria's, which comes first; Chester and Hereford into Wales's).
 
+### Batch 2 of the survey's order (started 2026-11-02)
+- **Plan** (the user, 2026-11-02): survey group 2 in waves by value, the cheaper access first: wave 0 research again
+  (limits, terms, closing lists, live tests), wave 1 sources of existing parts (Norway, Canada, New Zealand), wave 2 new
+  readers (France WMS-R, Czechia ImageServer, Saxony and Baden-Württemberg zipped grids), wave 3 new indexes (Bavaria and
+  Rhineland-Palatinate Metalink, Scotland's S3 listing, North Rhine-Westphalia by its WCS, Trento, Tasmania). Out of it:
+  Portugal and Sweden (accounts), ArcticDEM (a geoid correction), Ireland, Thuringia, and the sources whose terms are
+  unclear (mails drafted: Bulgaria, Espírito Santo, Croatia, Japan; LINZ for New Zealand's orthophoto, theLIST).
+- **Wave 0, done 2026-11-02**: every source of the batch can go. Checked live: Norway's WCS 1.0.0 equals its DTM1
+  files bit for bit (also shifted by a pixel); IGN's WMS-R returns the stored LiDAR HD pixels on their edges (.25/.75)
+  and the exact 2 × 2 mean at 1 m; the Géoplateforme's limits (cartes.gouv.fr/cgu, Annex 3, art. 3.2: WMS-R 40/s,
+  WFS 30/s, WMTS none, downloads 5 per 5 s with a 5 min ban); North Rhine-Westphalia's WCS equals its DGM1/DOM1
+  files; Rhineland-Palatinate's Metalink carries sha256 and the survey year in the names; Czechia's 2 m DMR 5G keeps
+  the Adršpach towers (6 % of the pixels steeper than 70°). Decided (the user): Canada in its native EPSG:3979
+  (no second resampling; the scale error said in the description), Bavaria's DSM from DOM20 averaged to 1 m, Scotland
+  now.
+- **Norway, done 2026-11-02** (source `norway`, R40 Preikestolen): Kartverket's NHM DTM 1 / DOM 1, 1 m, CC BY 4.0
+  ("©Kartverket", the link to kartverket.no in the notice), from Geonorge's keyless WCS 1.0.0
+  (`wcs.hoyde-dtm-nhm-25833`/`wcs.hoyde-dom-nhm-25833`, coverages `nhm_dtm_topo_25833`/`nhm_dom_topo_25833`,
+  ArcGIS Server), EPSG:25833 for the whole country (lengths up to +0.3 % in the west, +0.4 % at Kirkenes), pixel edges
+  on whole metres, tiles of 2000 px (about 2.5 s, 16 MB; no compression option, gzip on the wire). The sea and missing
+  data are 0.0 in the DTM (`zero_is_nodata`), the DOM gives the water surface (about -0.1 m). The server refuses more
+  than 4096 px a side (not its advertised 3840 × 2160) with HTTP 200 and an XML exception report, which fails as a
+  raster and is never stored (`tests/test_norway.py`). No published limit: a courtesy cap of 4 connections. No
+  orthophoto (Norge i bilder needs a token). Finland is its neighbour both ways. Data checks at Preikestolen: one
+  10 m step against FABDEM, the DOM (0, 0) against Copernicus. The defaults give 200 000 lines there, so R40 takes
+  50-300 m.
+- **Canada, done 2026-11-02** (sources `canada`, `canada_2m`, `mrdem30`; R41 Stawamus Chief): NRCan's HRDEM national
+  mosaic 1 m (DTM, DSM), OGL - Canada 2.0, read as `FileBlocks` of 1 km from its 500 km COGs on AWS
+  (`canelevation-dem`, up to 1 TB a file, float32 LZW 512 px, nodata -32767) in their own EPSG:3979, so the pixels
+  are copied without resampling; lengths are off by the Lambert's scale (-0.26 % at Squamish, -0.75 % at Canmore,
+  +1.75 % on the Niagara Escarpment, about -3 % at 60-65° N), as the description says. The cells come from
+  `I = floor(x / 500 km) + 6, J = floor(y / 500 km) + 3`; the larger cells (5_3, 7_8, 11_4; 6_10 of the 2 m) are read
+  first where they reach into a cell without a file; a cell without a file answers 404 (missing). The mosaic is
+  rebuilt in place (all 58 files in 2026) and grows: "live" folders, no list of cells. Gaps from the 2 m mosaic (it
+  has surveys missing from the 1 m: 29 → 100 % in cell 8_2, and a DSM-only far north from ArcticDEM), then MRDEM-30
+  (30 m, lidar plus Copernicus GLO-30, its record's Copernicus sentence in the credit) instead of FABDEM, so Canadian
+  runs stay open. No orthophoto. Neighbours: usa, alaska, alaska_ifsar (which got Alaska's box as `bbox`, so a
+  Canadian border gap asks its index only there). Canada's 6.5 GB OSM extract is left out on the VPS, as the US's.
+  Data checks PASS at Squamish and Canmore (Canmore: 17 % of the circle without lidar, filled).
+- **New Zealand, done 2026-11-02** (sources `new_zealand`, `nz8m`; R42 Castle Hill / Kura Tawhiti): LINZ's national
+  composites "New Zealand LiDAR 1m DEM" and "... 1m DSM" (the newest survey of each place, 2008-2026, NZTM2000,
+  NZVD2016) from the nz-elevation bucket of the AWS Open Data registry (no key, no published limits), `FileBlocks` of
+  1 km from one LERC COG per Topo50 sheet (24 × 36 km; `topo50_sheet`: a sheet holds its south edge), rewritten in
+  place as surveys are added ("live"). Gaps: LINZ's contour-interpolated 8 m DEM (2012) on the same sheets, source
+  `nz8m` (4 km blocks from (0, 2000), so no block crosses a sheet edge), then FABDEM. Credit "Sourced from LINZ.
+  CC BY 4.0" linked to LINZ's attribution page (LINZ is the licensor of the composites). Not covered: the Chatham
+  Islands (another CRS; kept out by `bbox`), the Kermadec and subantarctic islands; parts of Fiordland (the Darrans)
+  still have no lidar and are filled from the 8 m DEM. No orthophoto (LINZ Basemaps needs a key; mail drafted). Found
+  on the way: `net._gdal_http` allowed only `.tif` (now `.tif,.tiff`), and FABDEM's URLs of 170-180° E were
+  wrong (`...E180` instead of `...W180`), so FABDEM was missing for all of New Zealand, Fiji and Chukotka (checked
+  against the whole bucket listing).
+- **Open from wave 1**: a check of a block's ETag or Last-Modified against a file rewritten in place while it is read
+  (Canada, New Zealand; GDAL keeps a file's header between reads); the acknowledgement of ArcticDEM (Polar Geospatial
+  Center) for the DSM of Canada's far north in the 2 m mosaic; a link to kartverket.no in the map's attribution
+  (`Credit.url` is the licence's); offline, Finland's box takes Finnmark and eastern Troms south of 70.1° N
+  (Finland's border is too irregular for a few boxes; the online lookup decides); "Could not delete the work folder ...
+  filled.npy (WinError 32)" when gap filling covers a whole search (seen in the Darrans); the surface models stand
+  several metres above the terrain models on steep rock (below, *To check*: Stawamus Chief).
+
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
 - **Access**: no elevation WCS exists. swisstopo recommends its download service for offline use: the STAC API `https://data.geo.admin.ch/api/stac/v1` (collections `ch.swisstopo.swissalti3d`, `ch.swisstopo.swisssurface3d-raster`; items `swissalti3d_<year>_<E>-<N>`, bbox in WGS84, 100 items per page). Files on S3/CloudFront, about 40 MB/s, sha256 in the item (`file:checksum`). Fair use: no bulk bot traffic, exponential backoff with jitter.
@@ -448,7 +507,7 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 
 ## To check
 - **`tests/test_web.py::test_two_jobs_computing_at_once` is flaky** (seen 2026-11-01 in the CI of 65e9cef, ubuntu-latest; the job's rerun passed, as did the same code on another branch and on Windows): it asserts that the second job's `computing` comes before the first job's `done`, but the jobs search the small Żabi Koń clip, so on a runner the first can finish before the worker claims the second (`assert 97 < 94`). Make the overlap certain instead of likely: hold the first job's compute phase until the second has started computing (a monkeypatched step of `run_phase` waiting for a file the test writes when it sees the second `computing`), or assert from the slots (`Scheduler.running`) while both run.
-- **"Over trees/buildings" on bare rock** (seen 2026-11-01 in Wales): every line found at Cwm Silyn (a cwm without trees; 2854 lines) and at the Dinorwig slate quarries is marked as over trees or buildings. Likely because these lines have a clearance of 0–0.2 m over the terrain, so any small excess of the surface model over the terrain model (first returns on rock, noise of a few centimetres) is enough to mark them. Check the DSM minus DTM under such lines, and whether the mark needs a threshold (an obstacle higher than some centimetres above the terrain, or above the webbing by more than the data's noise); South Tyrol's 2.5 m data show the same at a larger scale (the DSM several metres above the DTM on steep rock).
+- **"Over trees/buildings" on bare rock** (seen 2026-11-01 in Wales; measured 2026-11-02 on the Stawamus Chief's granite with Canada's HRDEM: on pixels steeper than 70° the DSM is above the DTM by a median of 7 m, by more than 0.5 m on 99 % of them, so every one of R41's lines is marked; on a vertical face a 1 m pixel spans metres of height, the DSM keeps its highest return and the DTM interpolates the ground: it affects every source with a surface model): every line found at Cwm Silyn (a cwm without trees; 2854 lines) and at the Dinorwig slate quarries is marked as over trees or buildings. Likely because these lines have a clearance of 0–0.2 m over the terrain, so any small excess of the surface model over the terrain model (first returns on rock, noise of a few centimetres) is enough to mark them. Check the DSM minus DTM under such lines, and whether the mark needs a threshold (an obstacle higher than some centimetres above the terrain, or above the webbing by more than the data's noise); South Tyrol's 2.5 m data show the same at a larger scale (the DSM several metres above the DTM on steep rock).
 - **Known highlines from SlackMap** (the user's idea, 2026-11-01): [SlackMap](https://slackmap.com), the International Slackline Association's community map of lines and spots (open source, GPL-3.0: github.com/International-Slackline-Association/slackmap; also an iOS app), lists rigged highlines with both anchors. Two uses: (1) choose the regression places of new sources where highlines are actually rigged, not only where the search finds many lines; (2) check the search against them: which known lines does it find (with which clearance and wall angles), which not and why (the data's resolution, trees in the DSM, the limits), per country and per source. Its data were out of reach on 2026-11-01: slackmap.com has no A record, the map's GeoJSON files (`data.slackmap.com/geojson/lines/all.geojson`, `.../spots/all.geojson`, as the web app's `web/src/app/api/constants.ts` names them) point to a CloudFront distribution without addresses, and `api.slackmap.com` answers details by id only. Try again later or ask the ISA for an export; check the data's licence (user contributions) before keeping a copy in the repository. Candidates measured for R27 in Wales then (radius 400 m, lines of 50–400 m): Dinorwig slate quarries at Llanberis (53.1245, -4.1100) 934 lines in 20 spots of 51–101 m, Cwm Silyn (53.0300, -4.2150) 2854 lines in 42 spots of 200–389 m, Dorothea quarry 19, Pen-yr-Orsedd quarry none.
 - **Interpolating to a finer grid lowers the number of lines** (seen 2026-11-01 in South Tyrol, R30 at the Sella towers): the same search at the data's 2.5 m found 11 347 lines in 115 spots, at `--resolution 1` (bilinear from 2.5 m) 295 lines in 6 spots. Find out which is closer to the truth: more pixels sampled under each line at 1 m, or a clearance check that the interpolation makes stricter (smoothed rims, lower anchors); compare with a place that has both 2.5 m and 0.5 m data (South Tyrol's settlements, or Switzerland's 0.5 m averaged to 2.5 m and interpolated back).
 - **Obstacles lowered by averaging the DSM** (measured 2026-10-26 at Lauterbrunnen, 0.5 → 1 m): the highest 0.5 m value of a pixel is above its mean by 0.25 m (median) and 7.7 m (99th percentile), so single treetops come out lower than they are; at 2 m and coarser more so. Taking the maximum of the DSM instead does not work: the clearance limit comes from the anchor heights in the averaged DTM, and anchors lie on cliff edges, where the maximum of a pixel is the rim (up to 189 m above the mean on vertical walls); the pixels next to every anchor and along every wall would become obstacles, so nearly every line from a cliff would be marked as over trees, and single wrong DSM points would spread over whole pixels. To try instead: the maximum of the obstacle height above the ground (DSM − DTM on the data's grid), added to the averaged DTM; on bare rock it is about 0, tree crowns keep their height. Costs: both models on one fine grid first (Polish NMPT 0.5 m, NMT 1 m), mixed pixels on slopes and forest edges, changed results over trees. Measure on the regression places before deciding.
