@@ -37,7 +37,7 @@ MRDEM_CREDIT = Credit("MRDEM-30, DTM / DSM 30 m (NRCan)",
 # hrdem-mosaic-1m/-2m) lists the files with their extents: a few cells are larger, reaching 50 km into a cell that
 # has no file of its own; a block there is read from the larger file first. A new larger file is missing outside
 # its own cell until it is listed here.
-TILE_M = 500000
+HRDEM_CELL_M = 500000
 CellExtents = Dict[str, Tuple[float, float, float, float]]  # name: (left, bottom, right, top)
 LARGER_1M: CellExtents = {"5_3": (-500000, -50000, 0, 500000),  # 550 000 rows: 50 km south, no 5_2
                           "7_8": (500000, 2500000, 1050000, 3000000),  # 550 000 columns: 50 km east, no 8_8
@@ -57,7 +57,7 @@ def hrdem_files(res: int, kind: str, larger: CellExtents, block_m: float):
         x, y = i * block_m, j * block_m  # the block's lower-left corner
         names = [name for name, (left, bottom, right, top) in larger.items()
                  if left <= x < right and bottom <= y < top]
-        own = f"{int(x // TILE_M) + 6}_{int(y // TILE_M) + 3}"
+        own = f"{int(x // HRDEM_CELL_M) + 6}_{int(y // HRDEM_CELL_M) + 3}"
         if own not in names:
             names.append(own)
         return [(f"{name}-mosaic-{res}m-{kind}.tif", f"{CANELEVATION}/hrdem-mosaic-{res}m/{name}-mosaic-{res}m-{kind}.tif",
@@ -83,10 +83,10 @@ def _mrdem(kind: str, description: str) -> FileBlocks:
                       credit=MRDEM_CREDIT)
 
 
-SCALE_NOTE = ("Lengths are measured on NRCan's grid, Canada Atlas Lambert (EPSG:3979), whose scale makes them "
-              "about 0.3 % short at Squamish, 0.7 % short at Canmore, 1.7 % long on the Niagara Escarpment and "
-              "3 % short around 60-65° N.")
-NO_ORTHO = "– (no national orthophoto service)"
+CA_SCALE_NOTE = ("Lengths are measured on NRCan's grid, Canada Atlas Lambert (EPSG:3979), whose scale makes them "
+                 "about 0.3 % short at Squamish, 0.7 % short at Canmore, 1.7 % long on the Niagara Escarpment and "
+                 "3 % short around 60-65° N.")
+CA_NO_ORTHO = "– (no national orthophoto service)"
 
 SOURCES: List[Source] = [
     Source(
@@ -101,7 +101,7 @@ SOURCES: List[Source] = [
         countries=("ca",), crs=CANADA_LCC, credits=(HRDEM_CREDIT,),
         fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar"),
         listing=ReadmeRow("Canada, where it has lidar", "NRCan HRDEM national mosaic DTM, 1 m",
-                          "NRCan HRDEM national mosaic DSM, 1 m", NO_ORTHO),
+                          "NRCan HRDEM national mosaic DSM, 1 m", CA_NO_ORTHO),
         # Rough boxes (the first holding a point wins, and the USA's and Alaska's come first: southern Ontario
         # and Quebec, Haida Gwaii and the Yukon west of 129.9° W are taken for the USA offline)
         offline=(("ca", (48.9, 60.0, -139.1, -52.6)), ("ca", (48.2, 48.9, -125.0, -123.2)),
@@ -110,7 +110,7 @@ SOURCES: List[Source] = [
         sample=(49.6820, -123.1430),
         note="Data: NRCan, Open Government Licence - Canada. The mosaic covers the lidar surveys (much of the "
              "south, little of the north); gaps are filled from its 2 m version, then from MRDEM-30 (30 m). "
-             + SCALE_NOTE + " No orthophoto of Canada: the map shows its own base layers."),
+             + CA_SCALE_NOTE + " No orthophoto of Canada: the map shows its own base layers."),
     Source(
         id="canada_2m", name="NRCan HRDEM mosaic (DTM / DSM 2 m)",
         description="NRCan HRDEM national mosaic 2 m: lidar terrain and surface models (in the far north a surface "
@@ -119,9 +119,9 @@ SOURCES: List[Source] = [
         nmpt=_hrdem(2, "dsm", "HRDEM mosaic DSM 2 m (trees, buildings)", LARGER_2M),
         crs=CANADA_LCC, credits=(HRDEM_CREDIT,), fallback="mrdem30",
         listing=ReadmeRow("Canada, where it has lidar", "NRCan HRDEM national mosaic DTM, 2 m",
-                          "NRCan HRDEM national mosaic DSM, 2 m", NO_ORTHO),
+                          "NRCan HRDEM national mosaic DSM, 2 m", CA_NO_ORTHO),
         sample=(49.6820, -123.1430),
-        note="Data: NRCan, Open Government Licence - Canada. " + SCALE_NOTE),
+        note="Data: NRCan, Open Government Licence - Canada. " + CA_SCALE_NOTE),
     Source(
         id="mrdem30", name="NRCan MRDEM-30 (DTM / DSM 30 m)",
         description="NRCan MRDEM-30: terrain and surface models 30 m of all of Canada (lidar and Copernicus GLO-30), "
@@ -129,8 +129,8 @@ SOURCES: List[Source] = [
         nmt=_mrdem("dtm", "MRDEM-30 DTM (terrain)"), nmpt=_mrdem("dsm", "MRDEM-30 DSM (trees, buildings)"),
         # It covers all of Canada and a little more: no fallback (FABDEM's terms are not open)
         crs=CANADA_LCC, credits=(MRDEM_CREDIT,), fallback=None,
-        listing=ReadmeRow("Canada", "NRCan MRDEM-30 DTM, 30 m", "NRCan MRDEM-30 DSM, 30 m", NO_ORTHO),
+        listing=ReadmeRow("Canada", "NRCan MRDEM-30 DTM, 30 m", "NRCan MRDEM-30 DSM, 30 m", CA_NO_ORTHO),
         sample=(49.6820, -123.1430),
         note="Data: NRCan, Open Government Licence - Canada; contains Copernicus WorldDEM-30. At 30 m only long "
-             "lines can be found reliably. " + SCALE_NOTE),
+             "lines can be found reliably. " + CA_SCALE_NOTE),
 ]

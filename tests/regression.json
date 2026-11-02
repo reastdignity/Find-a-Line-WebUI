@@ -1047,5 +1047,32 @@
     },
     "notes": "--source auto picks finland (the centre is in FI); first run on an empty cache: 4 blocks of 2 km, about 2 MB each; no surface model, so over_trees is never counted; also measured: Korouoma at radius 1500 m 54 lines in 8 spots, Olhavanvuori (Kouvola, 61.1888, 26.8412, radius 600 m), Isokuru (Pyhatunturi, 67.0176, 27.2389, 600 m) and the Kevo canyon (69.7354, 26.9819, 800 m) none; radius 1500 m (the user, 2026-11-01: 600 m gave only 40 lines in 4 spots)",
     "seconds": 2.6
+  },
+  "R41": {
+    "place": "Stawamus Chief, Squamish, British Columbia, Canada: NRCan's HRDEM national mosaic 1 m (DTM and DSM), blocks of 1 km read by HTTP range requests from its 500 km COGs on AWS, in its own EPSG:3979 (Canada Atlas Lambert, scale -0.26 % here)",
+    "args": "--lat 49.682 --lon -123.143 --radius 800",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 464978,
+      "open": 46239,
+      "checked": 897193,
+      "lines": 36533,
+      "spots": 283,
+      "csv_sha256": "e72540abb90bd3a790fad0d81f3ebd9c089317c7bd16c0f7738825f773ee684f",
+      "length_km": 5758.457,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.398,
+      "clearance_max": 15.02,
+      "over_trees": 36439,
+      "coverage": 95.06,
+      "empty_tiles": 0,
+      "filled_km2": 0.01,
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 2 m)"
+    },
+    "notes": "--source auto picks canada (the centre is in CA); first run on an empty cache: blocks of 1 km of the 500 km COG 2_4, about 2 MB each; the three peaks of the Chief with the North and South Gully between them (283 spots, 30-919 m); most lines cross the gullies' forest, so over_trees is nearly all of them; gaps (0.3 km2, the creeks and the shore) filled from the 2 m mosaic and MRDEM-30; lengths on EPSG:3979 are 0.26 % short here",
+    "seconds": 84.4
   }
 }
