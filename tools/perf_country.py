@@ -262,13 +262,14 @@ def option(args: List[str], name: str) -> Optional[str]:
     return None
 
 
-def newest_run(data_dir: str) -> str:
+def newest_run(data_dir: str, since: float = 0) -> Optional[str]:
+    """The newest run of the data folder saved at or after since (a time.time()); None if there is
+    none: a search that found no lines saves no run."""
     runs = os.path.join(data_dir, "runs")
     folders = [os.path.join(runs, d) for d in os.listdir(runs)
-               if d != "_viewer" and os.path.isfile(os.path.join(runs, d, "run.json"))]
-    if not folders:
-        raise SystemExit(f"no run in {runs}")
-    return max(folders, key=lambda d: os.path.getmtime(os.path.join(d, "run.json")))
+               if d != "_viewer" and os.path.isfile(os.path.join(runs, d, "run.json"))] if os.path.isdir(runs) else []
+    folders = [d for d in folders if os.path.getmtime(os.path.join(d, "run.json")) >= since]
+    return max(folders, key=lambda d: os.path.getmtime(os.path.join(d, "run.json"))) if folders else None
 
 
 def load_samples(path: str) -> Dict:
@@ -284,6 +285,7 @@ def profile(out: str, name: str, search_args: List[str], cores: Optional[int] = 
     os.makedirs(out, exist_ok=True)
     hooks = Hooks(tension)
     hooks.install()
+    started = time.time()
     try:
         measured = run_profile(out, name, list(search_args), cores)
     finally:
@@ -291,13 +293,17 @@ def profile(out: str, name: str, search_args: List[str], cores: Optional[int] = 
     if hooks.plan is None:
         raise SystemExit("the search ended before its plan")
     data_dir = os.path.abspath(option(search_args, "--data-dir") or HERE)
-    run = newest_run(data_dir)
-    with open(os.path.join(run, "run.json"), encoding="utf-8") as f:
-        meta = json.load(f)
+    run = newest_run(data_dir, since=started)
+    summary = {"lines": 0, "spots": 0}
+    if run is not None:
+        with open(os.path.join(run, "run.json"), encoding="utf-8") as f:
+            meta = json.load(f)
+        summary = {"lines": meta["summary"]["lines"], "spots": meta["summary"]["spots"]}
     entry = {"args": list(search_args), "cores": cores, "tension_by_length": tension, "data_dir": data_dir,
-             "run": run, "machine": machine(), "commit": commit(),
-             "summary": {"lines": meta["summary"]["lines"], "spots": meta["summary"]["spots"]},
+             "run": run, "machine": machine(), "commit": commit(), "summary": summary,
              "grid": plan_grid(hooks.plan), "funnel": dict(hooks.plan.funnel), **measured}
+    if run is None:  # the stages and the funnel still tell the cost of the search
+        entry["note"] = "no run saved: the search found no lines (or it stopped, see its output)"
     path = os.path.join(out, "samples.json")
     samples = load_samples(path)
     samples[name] = entry
@@ -393,6 +399,11 @@ def read_lines(run: str) -> Dict[str, np.ndarray]:
                "anchor2_prominence_m")
     flags = ("representative", "over_trees_buildings")
     values = {k: [] for k in numbers + flags}
+    if run is None:  # a search without lines (profile saved no run)
+        columns = {k: np.zeros(0, dtype=float) for k in numbers}
+        columns.update({k: np.zeros(0, dtype=bool) for k in flags})
+        columns["group"] = columns["group"].astype(np.int64)
+        return columns
     with open(os.path.join(run, "lines.csv"), newline="", encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             for k in numbers:
@@ -405,7 +416,10 @@ def read_lines(run: str) -> Dict[str, np.ndarray]:
     return columns
 
 
-def run_crs(run: str) -> str:
+def run_crs(run: Optional[str]) -> Optional[str]:
+    """The CRS of a run's coordinates; None for a search without lines (no run)."""
+    if run is None:
+        return None
     with open(os.path.join(run, "run.json"), encoding="utf-8") as f:
         return json.load(f)["center"]["crs"]
 
@@ -441,12 +455,12 @@ def compare(samples: Dict, ref: str, others: List[str], cells: List[float],
     if missing:
         raise SystemExit(f"not in samples.json: {', '.join(missing)}")
     runs = {n: samples[n]["run"] for n in names}
-    crs = {n: run_crs(r) for n, r in runs.items()}
+    crs = {n: run_crs(r) for n, r in runs.items() if r is not None}
     if len(set(crs.values())) > 1:
         raise SystemExit("the runs use different coordinate systems: "
                          + ", ".join(f"{n} {c}" for n, c in crs.items()))
     lines = {n: read_lines(r) for n, r in runs.items()}
-    result = {"ref": ref, "others": others, "crs": crs[ref], "rows": []}
+    result = {"ref": ref, "others": others, "crs": next(iter(crs.values()), None), "rows": []}
     for cell in cells:
         for band in [None, *bands]:
             per_run = {}
