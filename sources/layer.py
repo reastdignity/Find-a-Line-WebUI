@@ -4,7 +4,7 @@ import math
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 import rasterio as rio
@@ -187,6 +187,22 @@ class Layer:
         return info
 
 
+def each_layer(layers: Sequence[Layer], call: Callable[[Layer], Any]) -> list:
+    """call(layer) of every layer, each in a thread of its own (what asks a layer's index, which
+    may take seconds), each layer once: the answers in the order of `layers`."""
+    distinct = list({id(layer): layer for layer in layers}.values())
+    with ThreadPoolExecutor(max_workers=max(1, len(distinct))) as pool:
+        answers = dict(zip(map(id, distinct), pool.map(call, distinct)))
+    return [answers[id(layer)] for layer in layers]
+
+
+def estimate_layers(layers: Sequence[Layer], grid: Grid, cache_dir: str,
+                    update: Optional[str] = None) -> List[Tuple[int, int, float]]:
+    """Layer.estimate of every layer over the grid, their indexes asked at the same time (as
+    download_layers does): (tiles, tiles to download, MB) in the order of `layers`."""
+    return each_layer(layers, lambda layer: layer.estimate(grid, cache_dir, update))
+
+
 def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: str,
                     update: Optional[str] = None):
     """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
@@ -196,8 +212,7 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
     # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
     # seconds), each layer once; the lines in the order of the layers
     distinct = list({id(layer): layer for layer, _ in layers}.values())
-    with ThreadPoolExecutor(max_workers=len(distinct)) as pool:
-        listed = list(pool.map(lambda layer: layer.to_download(grid, cache_dir, update), distinct))
+    listed = each_layer(distinct, lambda layer: layer.to_download(grid, cache_dir, update))
     roles = {id(layer): servicecounts.role_of(label) for layer, label in reversed(layers)}  # the first label's
     todo = []
     for layer, (tiles, line) in zip(distinct, listed):

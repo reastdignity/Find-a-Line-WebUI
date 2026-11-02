@@ -1583,3 +1583,26 @@ print(json.dumps([before, 'numba' in sys.modules, len(lines.results)]))
     import json
     before, loaded, lines = json.loads(result.stdout.strip().splitlines()[-1])
     assert before == [] and loaded and lines > 0
+
+
+def test_estimate_layers_in_parallel():
+    """sources.layer.estimate_layers asks every layer's estimate at the same time (their indexes),
+    each layer once, the answers in the order of the layers."""
+    import threading
+
+    from sources.layer import Layer, estimate_layers
+    both = threading.Barrier(2, timeout=30)  # broken (an error) when the layers are asked one after another
+    calls = []
+
+    class Fake(Layer):
+        def __init__(self, n):
+            self.n = n
+
+        def estimate(self, grid, cache_dir, update):
+            calls.append(self.n)
+            both.wait()
+            return self.n, 0, float(self.n)
+
+    one, two = Fake(1), Fake(2)
+    assert estimate_layers([two, one, two], None, "cache") == [(2, 0, 2.0), (1, 0, 1.0), (2, 0, 2.0)]
+    assert sorted(calls) == [1, 2]
