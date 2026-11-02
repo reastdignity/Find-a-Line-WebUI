@@ -862,16 +862,21 @@ console.log(JSON.stringify({
   at20fine: Array.from(m.featureEdges(fold(20), faces, 6, 10)), at90: Array.from(m.featureEdges(fold(90), faces, 6)),
   skirt: m.featureEdges(fold(0), faces, 9).length / 6, degenerate: m.featureEdges([0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 1], [0, 1, 2, 0, 1, 3], 6).length,
   wall: m.featureEdges(wall(60), faces.slice(0, 6), 6).length,
-  angle: m.FEATURE_ANGLE, wallSlope: m.WALL_SLOPE, silhouette: m.SILHOUETTE, crease: m.CREASE, strength: m.CREASE_STRENGTH,
+  wallOnly: Array.from(m.featureEdges(wall(60), faces.slice(0, 6), 6, undefined, "only")),
+  wallIn: m.featureEdges(wall(60), faces.slice(0, 6), 6, undefined, "in").length,
+  ledgeOnly: m.featureEdges(fold(90), faces, 6, undefined, "only").length,
+  angle: m.FEATURE_ANGLE, wallSlope: m.WALL_SLOPE, wallOpacity: m.WALL_OPACITY, silhouette: m.SILHOUETTE, crease: m.CREASE, strength: m.CREASE_STRENGTH,
   steps: [0.5, 1, 1.5, 2, 3, NaN].map(m.sampleStep), layer: m.TERRAIN_LAYER}));""")
     assert found["flat"] == 0 and found["at20"] == 0
     for segment in (found["at20fine"], found["at90"]):  # the edge A-B, either way round
         assert sorted([segment[:3], segment[3:]]) == [[0, 0, 0], [0, 0, 1]]
     assert found["skirt"] == 1  # past the surface: the skirt face turns by 90° from the first along A-C
     assert found["degenerate"] == 0
-    # between two faces of a wall no edge (they crawled as the camera turned); a wall meeting flat ground keeps
-    # its edge (at90 above: the first face flat, the second vertical)
-    assert found["wall"] == 0 and found["wallSlope"] == 65
+    # the edges between two faces of a wall apart (drawn at 35%: they crawled as the camera turned); a wall meeting
+    # flat ground is no wall edge (at90 above: the first face flat, the second vertical)
+    assert found["wall"] == 0 and found["wallIn"] == 6 and found["ledgeOnly"] == 0
+    assert sorted([found["wallOnly"][:3], found["wallOnly"][3:]]) == [[0, 0, 0], [0, 1, 0]]
+    assert found["wallSlope"] == 65 and found["wallOpacity"] == 0.35
     # the user's variant M of the prototype (docs/3d-view-contract.md, "Wave E")
     assert found["angle"] == 28 and found["silhouette"] == [0.012, 0.035] and found["crease"] == [0.1, 0.28]
     assert found["strength"] == 0.75 and found["layer"] == 1

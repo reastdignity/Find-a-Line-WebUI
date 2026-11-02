@@ -25,11 +25,12 @@ export const SILHOUETTE: [number, number] = [0.012, 0.035];
 export const CREASE: [number, number] = [0.10, 0.28];
 export const CREASE_STRENGTH = 0.75;
 export const FEATURE_ANGLE = 28;
-/** A face steeper than WALL_SLOPE degrees is part of a wall: no feature edge between two of them. The sliver
- *  triangles of steep rock gave dense, nearly parallel lines that crawled as the camera turned (the user saw dots
- *  appear and vanish on vertical rock); the wall's outline stays, drawn by the pass and by the edges where a
- *  wall meets gentler ground. */
+/** A face steeper than WALL_SLOPE degrees is part of a wall: the edges between two of them are drawn apart, at
+ *  WALL_OPACITY. The sliver triangles of steep rock give dense, nearly parallel lines that crawled as the camera
+ *  turned (the user saw dots appear and vanish on vertical rock); hidden they left the walls bare, so the user
+ *  chose them lighter (35%, from orbit videos of 100, 35, 20 and 0%). */
 export const WALL_SLOPE = 65;
+export const WALL_OPACITY = 0.35;
 const WALL_NY = Math.cos(WALL_SLOPE * Math.PI / 180);  // |normal's y| below it: steeper than WALL_SLOPE
 
 /** Texels between a pixel and the neighbours it is compared with: the pixel ratio, 1 to 2. */
@@ -40,9 +41,10 @@ export function sampleStep(pixelRatio: number): number {
 /** The feature edges of an indexed mesh (its first `count` index entries): the segments (x, y, z pairs) of the
  *  edges two triangles share whose normals differ by at least `angle` degrees (as three's EdgesGeometry decides:
  *  dot ≤ cos angle). Edges of one triangle only (the outline, the holes over no data) are left out, as are
- *  degenerate triangles and edges between two faces of a wall (both steeper than WALL_SLOPE; y is up). */
+ *  degenerate triangles. `walls`: "out" leaves out the edges between two faces of a wall (both steeper than
+ *  WALL_SLOPE; y is up), "only" gives just those, "in" all. */
 export function featureEdges(positions: ArrayLike<number>, indices: ArrayLike<number>, count: number,
-                             angle = FEATURE_ANGLE): Float32Array {
+                             angle = FEATURE_ANGLE, walls: "out" | "only" | "in" = "out"): Float32Array {
   const triangles = Math.floor(Math.min(count, indices.length) / 3), limit = Math.cos(angle * Math.PI / 180);
   const normals = new Float64Array(3 * triangles), ok = new Uint8Array(triangles);
   const vertices = positions.length / 3;
@@ -67,7 +69,7 @@ export function featureEdges(positions: ArrayLike<number>, indices: ArrayLike<nu
       const dot = normals[3 * t] * normals[3 * other] + normals[3 * t + 1] * normals[3 * other + 1] +
                   normals[3 * t + 2] * normals[3 * other + 2];
       const wall = Math.abs(normals[3 * t + 1]) < WALL_NY && Math.abs(normals[3 * other + 1]) < WALL_NY;
-      if (dot <= limit && !wall) {
+      if (dot <= limit && (walls === "in" || (walls === "only") === wall)) {
         out.push(positions[3 * p], positions[3 * p + 1], positions[3 * p + 2],
                  positions[3 * q], positions[3 * q + 1], positions[3 * q + 2]);
       }

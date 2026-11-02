@@ -13,7 +13,7 @@ import {
 import { t } from "../i18n";
 import { DATA_CREDITS } from "./credits";
 import type { Patch } from "./decode";
-import { featureEdges, TERRAIN_LAYER } from "./edges";
+import { featureEdges, TERRAIN_LAYER, WALL_OPACITY } from "./edges";
 import { lonLat, originOf, toScene, type Origin } from "./geometry";
 import type { Level } from "./page";
 import type { Chunk, Credits, GridBounds, Scene3D } from "./scene-api";
@@ -141,8 +141,8 @@ function lookAcross(view: View, patch: Patch, origin: Origin) {
 export const FEATURE_PULL = 0.002;
 export const FEATURE_FADE: [number, number] = [400, 1200];
 
-function featureLines(colour: string): LineBasicMaterial {
-  const material = new LineBasicMaterial({color: colour, transparent: true, depthWrite: false});
+function featureLines(colour: string, opacity = 1): LineBasicMaterial {
+  const material = new LineBasicMaterial({color: colour, transparent: true, depthWrite: false, opacity});
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = "varying float vFalDistance;\n" + shader.vertexShader.replace("#include <project_vertex>",
       `#include <project_vertex>
@@ -166,8 +166,10 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
   const terrain = buildTerrain(patch, origin, MAX_ERROR[level], VERTEX_BUDGET[level]);
   const shaded = new MeshLambertMaterial({color: token("--terrain"), side: DoubleSide});
   // The "Edges" look's parts, made the first time it is chosen: the paper (pushed back a little in depth, so the
-  // feature edges on it are never hidden by their own faces) and the feature edges of each chunk's surface
+  // feature edges on it are never hidden by their own faces) and the feature edges of each chunk's surface, those
+  // between two faces of a wall lighter (WALL_OPACITY)
   let paper: MeshLambertMaterial | null = null, featureMaterial: LineBasicMaterial | null = null, edges = false;
+  let wallMaterial: LineBasicMaterial | null = null;
   const features: LineSegments[] = [];
   const base = () => (edges && paper) || shaded;
   const chunks = terrain.chunks.map((m) => chunkOf(m, patch, base, view.invalidate));
@@ -183,14 +185,18 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
       paper = new MeshLambertMaterial({color: token("--paper"), side: DoubleSide, polygonOffset: true,
                                        polygonOffsetFactor: 1, polygonOffsetUnits: 1});
       featureMaterial = featureLines(token("--muted"));
+      wallMaterial = featureLines(token("--muted"), WALL_OPACITY);
       terrain.chunks.forEach((m, k) => {
-        const geometry = new BufferGeometry();
-        geometry.setAttribute("position", new BufferAttribute(featureEdges(m.positions, m.indices, m.surfaceIndices), 3));
-        geometry.computeBoundingSphere();
-        const lines = new LineSegments(geometry, featureMaterial!);
-        lines.name = `edges-${m.ci}-${m.cj}`;
-        chunks[k].mesh.add(lines);
-        features.push(lines);
+        for (const [walls, material] of [["out", featureMaterial!], ["only", wallMaterial!]] as const) {
+          const geometry = new BufferGeometry();
+          geometry.setAttribute("position",
+                                new BufferAttribute(featureEdges(m.positions, m.indices, m.surfaceIndices, undefined, walls), 3));
+          geometry.computeBoundingSphere();
+          const lines = new LineSegments(geometry, material);
+          lines.name = `edges-${walls === "only" ? "walls" : "terrain"}-${m.ci}-${m.cj}`;
+          chunks[k].mesh.add(lines);
+          features.push(lines);
+        }
       });
     }
     for (const lines of features) lines.visible = on;
@@ -236,6 +242,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
       }
       for (const lines of features) lines.geometry.dispose();
       featureMaterial?.dispose();
+      wallMaterial?.dispose();
       paper?.dispose();
       shaded.dispose();
       if (page) delete page.dataset.edges;
