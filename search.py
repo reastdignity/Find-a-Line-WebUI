@@ -28,7 +28,6 @@ check_estimate the download; _lines the anchors and lines found.
 """
 
 import dataclasses
-import functools
 import gc
 import glob
 import gzip
@@ -812,8 +811,10 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 3, "evaluating anchor pairs")
     sag_table = None
     if p.model == "sag":
-        emit("info", "Precomputing the sag estimator for all line lengths...")
-        sag_table = sg.EnvelopeTable(plan.rigging, p.min_length, p.max_length)
+        key = (dataclasses.astuple(plan.rigging), p.min_length, p.max_length)
+        if key not in _SAG_TABLES:  # once per process: the tiles of an area share it
+            emit("info", "Precomputing the sag estimator for all line lengths...")
+        sag_table = _sag_table(*key)
     first = None
     if core is not None:  # pairs only from the anchors in the core: the overlap is for partners
         left, bottom, right, top = core
@@ -1030,9 +1031,12 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             shutil.rmtree(work, ignore_errors=True)
             progress.set_step(f"{tile_plan.tile_label}Step 4/{STEPS}: saving the tile's lines")
             _save_tile(path, found)
+            table = found.without_pixels()  # what loading the file gives, without the round trip
             del found
-        progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
-        tables.append(_load_tile(path).without_pixels())  # tile files of before, tiles without anchors
+        else:
+            progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
+            table = _load_tile(path).without_pixels()  # tile files of before, tiles without anchors
+        tables.append(table)
         count += len(tables[-1])
         _check_lines(plan, count)
     if not count:
@@ -1211,10 +1215,21 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
     return Result(results, spot_groups, meta, run, map_path)
 
 
-@functools.lru_cache(16)
+_SAG_TABLES: Dict[tuple, "sg.EnvelopeTable"] = {}  # by (rigging, min_length, max_length); at most SAG_TABLES_MAX
+SAG_TABLES_MAX = 16
+
+
 def _sag_table(rigging: Tuple[float, ...], min_length: float, max_length: float) -> "sg.EnvelopeTable":
-    """The envelope table of profile_of_line, kept for the next profiles of the same run (at most 16)."""
-    return sg.EnvelopeTable(sg.Rigging(*rigging), min_length, max_length)
+    """The envelope table of a rigging and the lengths of its lines, built once per process: the
+    tiles of a sag area (2-3 s each before 2026-11-02), and profile_of_line's next profiles of the
+    same run (at most SAG_TABLES_MAX tables, the oldest dropped)."""
+    key = (tuple(rigging), min_length, max_length)
+    table = _SAG_TABLES.get(key)
+    if table is None:
+        if len(_SAG_TABLES) >= SAG_TABLES_MAX:
+            del _SAG_TABLES[next(iter(_SAG_TABLES))]
+        table = _SAG_TABLES[key] = sg.EnvelopeTable(sg.Rigging(*rigging), min_length, max_length)
+    return table
 
 
 def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor2: Tuple[float, float]) -> Dict:
