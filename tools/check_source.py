@@ -31,15 +31,19 @@ source) and a work folder there, deleted at the end.
 
 import argparse
 import gc
+import io
 import json
 import math
 import os
+import re
 import sys
+import zipfile
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import rasterio as rio
 import rasterio.cache
+import rasterio.io
 from rasterio.enums import Resampling
 from rasterio.vrt import WarpedVRT
 
@@ -208,6 +212,31 @@ def _read_source(url: str, profile: Dict) -> np.ndarray:
     return values
 
 
+def _read_zip(layer: src.ZippedTiles, url: str, profile: Dict) -> np.ndarray:
+    """The members of a ZippedTiles layer's ZIP that make its tiles, each read by GDAL (its GeoTIFF or XYZ
+    driver, not the layer's own parser) on the pixels of a cached tile, in the layer's CRS as the
+    layer forces it; NaN where no member has data. The ZIP is downloaded whole (GDAL's /vsizip/ cannot
+    list members whose names carry a year without reading the ZIP's directory, nor merge them)."""
+    response = src.net._get(url, binary_types=("zip", "octet"))
+    if response is None:
+        raise RuntimeError(f"{cache.clean_url(url)}: not found")
+    values = np.full((profile["height"], profile["width"]), np.nan, dtype=np.float32)
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        for info in archive.infolist():
+            name = info.filename.rsplit("/", 1)[-1]
+            if info.is_dir() or not re.search(layer.members, name, re.I):
+                continue
+            ext = os.path.splitext(name)[1].lower()
+            with rio.io.MemoryFile(archive.read(info), ext=ext) as memfile, memfile.open() as source:
+                with WarpedVRT(source, src_crs=profile["crs"], crs=profile["crs"], transform=profile["transform"],
+                               width=profile["width"], height=profile["height"],
+                               nodata=-9999.0, resampling=Resampling.nearest) as vrt:  # NaN beyond the member
+                    part = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+            values = np.where(np.isnan(values), part, values)
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, src.FileLayer, src.OpenTopographyTiles)):
@@ -293,8 +322,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         result = None
         for url in _sources_of(layer, tile):
             try:
-                source = _read_source(url, profile)
-            except (rio.errors.RasterioIOError, RuntimeError) as e:
+                source = (_read_zip(layer, url, profile) if isinstance(layer, src.ZippedTiles)
+                          else _read_source(url, profile))
+            except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
                 break
             if blocks and not np.isfinite(source).any():

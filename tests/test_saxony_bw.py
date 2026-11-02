@@ -219,3 +219,21 @@ def test_without_members_as_before(tmp_path, monkeypatch):
     SheetFile("test").fetch(sheet, path)
     band, transform, crs = _read(path)
     assert np.array_equal(band, z) and transform == from_origin(100, 30, 1.0, 1.0) and crs.to_epsg() == 2180
+
+
+def test_check_source_reads_the_members(http_server, tmp_path):
+    """tools/check_source.py compares a ZippedTiles tile with its ZIP's members read by GDAL (the XYZ
+    and GeoTIFF drivers, not SheetFile's parser), merged on the tile's pixels: equal to the last bit."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    z = _heights(1000, 20, 20, 11)
+    http_server.add("/data/t_1000_0.zip", _zip([("a_1_bw_2020.xyz", _xyz(1000, 20, z[:, :10])),
+                                                ("b_1_bw_2021.tif", _geotiff(1010, 20, z[:, 10:])),
+                                                ("Meta.txt", b"x")]), "application/zip")
+    layer = _layer(http_server, "c", r"_1_bw_\d{4}\.(xyz|tif)$")
+    path = layer.tile_path(str(tmp_path), (0, 0))
+    layer.download_tile((0, 0), path)
+    with rio.open(path) as ds:
+        profile = {"crs": ds.crs, "transform": ds.transform, "width": ds.width, "height": ds.height}
+    assert cs._sources_of(layer, (0, 0)) == [layer.tile_url((0, 0))]
+    assert np.array_equal(cs._read_zip(layer, layer.tile_url((0, 0)), profile), z)
