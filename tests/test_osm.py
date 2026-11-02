@@ -403,7 +403,8 @@ def test_catalogue_extracts(tmp_path):
                              "sachsen-anhalt", "niedersachsen", "nord-est",
                              "sachsen", "baden-wuerttemberg",
                              "bayern", "rheinland-pfalz",
-                             "scotland", "nordrhein-westfalen", "tasmania")]
+                             "scotland", "nordrhein-westfalen", "tasmania", "brandenburg", "berlin",
+                             "schleswig-holstein")]
     (tmp_path / "osm").mkdir()
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps({"features": features}))
     found, missing = osm.catalogue_extracts(str(tmp_path))
@@ -415,7 +416,7 @@ def test_catalogue_extracts(tmp_path):
          "finland", "norway", "new-zealand", "czech-republic",
          "france", "sachsen", "baden-wuerttemberg",
          "bayern", "rheinland-pfalz",
-         "scotland", "nordrhein-westfalen", "tasmania",
+         "scotland", "nordrhein-westfalen", "tasmania", "brandenburg", "schleswig-holstein",
          "slovenia"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(

@@ -1440,5 +1440,59 @@
       "empty_tiles": 0
     },
     "seconds": 3.9
+  },
+  "R55": {
+    "place": "Rüdersdorf limestone quarry east of Berlin, Brandenburg, Germany: LGB's DGM1 / DOM1 (1 m) from its INSPIRE WCS in ETRS89 / UTM 33N (the DOM the lowest of each 5 x 5 pixels of the 0.2 m image-matching bDOM)",
+    "args": "--lat 52.4815 --lon 13.8030 --radius 700 --min-length 20 --max-length 300",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 53496,
+      "open": 936,
+      "checked": 146,
+      "lines": 3,
+      "spots": 1,
+      "csv_sha256": "6ddc64b6907153b29681f96ad72adf389baef88464aaa1db8faec452c11f1242",
+      "length_km": 0.074,
+      "clearance_min": 0.37,
+      "clearance_mean": 0.993,
+      "clearance_max": 1.32,
+      "over_trees": 3,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "filled_km2": 0.08,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "seconds": 10.1,
+    "notes": "--source auto picks brandenburg (the centre is in DE-BB); 3 WCS tiles of 2 km per layer (about 8 MB each with DEFLATE); the circle is on the quarry's north side, where its steepest walls are (at 52.4745, 13.7965, the research's point, the circle held 5073 anchors without an open direction and no line); Brandenburg has no highline terrain: the quarry's walls are terraced, so only 3 lines of 22-27 m in one spot (52.4811, 13.7943-13.7946, over trees in the DOM), with --min-length 20; the DGM's pixels of exactly 0.00 m where the pit's walls cross sea level (94 px) are taken as no data (zero_is_nodata) and filled from FABDEM"
+  },
+  "R56": {
+    "place": "Helgoland's red sandstone cliffs and the Lange Anna stack, Schleswig-Holstein, Germany: LVermGeo SH's DGM1 (1 m, survey 2025) from plain XYZ files of 1 km listed by the Land's GeoJSON index, ETRS89 / UTM 32N",
+    "args": "--lat 54.1840 --lon 7.8820 --radius 900 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 45015,
+      "open": 6485,
+      "checked": 68954,
+      "lines": 8123,
+      "spots": 69,
+      "csv_sha256": "3e7e16d2612b150206a9135238b5b4f85305357f6dcf4f871e271b602e0f90e0",
+      "length_km": 1610.413,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.016,
+      "clearance_max": 12.43,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "water_lines": 2912,
+      "water_spots": 20
+    },
+    "seconds": 33.5,
+    "notes": "--source auto picks schleswig_holstein (the centre is in DE-SH); first run on an empty cache: the Land's GeoJSON index (9 MB) and 12 XYZ files of 1 km (27 MB each, all of the survey of 2025-01-13); the coastline from the OSM world water polygons (cache/osm/water-polygons); the files hold a water surface of 0.7-2.9 m over the sea, so nothing is filled (sea 0.00 km2) and lines count as over water where that surface is at most 1 m (water_lines); the spots are on the cliffs of the Oberland's west and north-west edge and around the Lange Anna (54.1886, 7.8730), the best (clearance 12.4 m, 133 m) from 54.1853, 7.8762 to 54.1844, 7.8776"
   }
 }

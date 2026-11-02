@@ -116,7 +116,10 @@ class WcsReader(Reader):
         labels = re.search(r'axisLabels="([^"]+)"', text)
         if labels and labels.group(1).split()[0] == self.axes[1]:  # northing first
             lower, upper = lower[::-1], upper[::-1]
-        return lower[0], lower[1], upper[0], upper[1]
+        # To the millimetre: LGB's MapServer (Brandenburg) gives 248000.00001 / 5689999.99999997 -
+        # 466000.00001003 / 5936000 for edges on whole metres, and a tile beyond such an edge (answered
+        # HTTP 400) must not count as reaching into the coverage, nor a clip drop a whole pixel for 0.01 mm
+        return tuple(round(v, 3) for v in (lower[0], lower[1], upper[0], upper[1]))
 
     def url(self, tile) -> Optional[str]:
         return self.service_url
