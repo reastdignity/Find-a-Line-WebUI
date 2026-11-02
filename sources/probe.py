@@ -214,14 +214,20 @@ def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[
 
 def _getmap(cache_dir: str, layer: WmsrTiles, tile) -> str:
     """A GetMap of WINDOW_PX x WINDOW_PX pixels at the top left of the first tile, as the layer's reader
-    asks it (WmsrReader.getmap_params); raises with the reason when the answer is no GeoTIFF."""
+    asks it (WmsrReader.getmap_params); raises with the reason when the answer is no GeoTIFF. A transient
+    answer (wmsr.TRANSIENT: IGN forgets a layer for a second or two now and then) is asked again, up to
+    net.RETRIES times."""
     request = layer.index.request(tile)
     res = (request.right - request.left) / request.width
     small = request._replace(right=request.left + WINDOW_PX * res, bottom=request.top - WINDOW_PX * res,
                              width=WINDOW_PX, height=WINDOW_PX)
-    status, kind, body = _ask(cache_dir, layer.url, layer.reader.getmap_params(small))
-    if status != 200 or body[:4] not in TIFF_MAGIC:
+    for attempt in range(net.RETRIES):
+        status, kind, body = _ask(cache_dir, layer.url, layer.reader.getmap_params(small))
         text = body.decode("utf-8", "replace")
+        if not (status in (502, 503, 504) or "LayerNotDefined" in text) or attempt == net.RETRIES - 1:
+            break
+        net._sleep(attempt)
+    if status != 200 or body[:4] not in TIFF_MAGIC:
         report = re.search(r"<ServiceException(\s[^>]*)?>([^<]*)", text)  # its code and text, not the XML's header
         text = " ".join(g for g in report.groups() if g).strip() if report else text[:200].strip()
         raise RuntimeError(f"GetMap: HTTP {status} {kind} {text}")

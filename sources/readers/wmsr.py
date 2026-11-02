@@ -10,6 +10,11 @@ from .. import net
 from ..layer import Fetched, _clean, _write_tile
 from ..composed import Reader
 
+# What IGN's servers answer now and then, in bursts of a second or two, for a layer they have (a few in
+# a hundred requests on 2026-11-02): LayerNotDefined with HTTP 400, or a 502/503/504 of their gateway
+TRANSIENT = ("LayerNotDefined", "HTTP 502", "HTTP 503", "HTTP 504")
+TRANSIENT_ROUNDS = 2  # more rounds of net._get's retries after such an answer, longer apart
+
 # The first bytes of a TIFF (little- or big-endian; BigTIFF too): anything else is no raster
 TIFF_MAGIC = (b"II*\x00", b"MM\x00*", b"II+\x00", b"MM\x00+")
 
@@ -49,6 +54,9 @@ class WmsrReader(Reader):
     retries); a 404 and an answer whose every pixel is nodata (IGN answers HTTP 200 with -9999 at sea,
     outside France, on restricted sites and where a block is not published yet) are missing: no file.
     A request larger than max_px a side (IGN's MaxWidth/MaxHeight, 5010) is refused before it is made.
+    IGN's servers forget a layer now and then for a second or two (LayerNotDefined), or their gateway
+    answers 502: after net._get's retries such an answer gets TRANSIENT_ROUNDS more rounds of them, the
+    first after net._sleep(3) (4-12 s), so a short burst never fails a search.
     """
 
     def __init__(self, description: str, url: str, layer: str, crs: str,
@@ -71,10 +79,14 @@ class WmsrReader(Reader):
         if max(request.width, request.height) > self.max_px:
             raise ValueError(f"{self.description}: {request.width} x {request.height} px is more than the "
                              f"service's {self.max_px} px a side")
-        try:
-            response = net._get(self.service_url, self.getmap_params(request))
-        except RuntimeError as e:
-            raise RuntimeError(f"Could not download {self.description} tile {self._name(request)}: {e}")
+        for round_ in range(TRANSIENT_ROUNDS + 1):
+            try:
+                response = net._get(self.service_url, self.getmap_params(request))
+                break
+            except RuntimeError as e:
+                if round_ == TRANSIENT_ROUNDS or not any(t in str(e) for t in TRANSIENT):
+                    raise RuntimeError(f"Could not download {self.description} tile {self._name(request)}: {e}")
+                net._sleep(round_ + 3)
         if response is None:
             return Fetched(0, self.service_url)
         data = response.content

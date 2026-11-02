@@ -237,20 +237,44 @@ def test_a_layer_the_server_forgets_now_and_then(http_server, tmp_path, monkeypa
     assert len(http_server.requests("/flaky")) == 3
 
 
-def test_probe_asks_a_small_getmap(http_server, tmp_path):
+def test_a_longer_burst_and_a_layer_that_is_gone(http_server, tmp_path, monkeypatch):
+    """LayerNotDefined for longer than net._get's retries (two of its rounds here): asked again in more rounds,
+    longer apart; a layer that stays unknown fails after them (net.RETRIES x (1 + TRANSIENT_ROUNDS) requests)."""
+    from sources.readers import wmsr
+    slept = []
+    monkeypatch.setattr(net, "_sleep", slept.append)
+    report = open(os.path.join(RECORDED, "errors", "003.xml"), "rb").read()
+    tiff = open(os.path.join(RECORDED, "verdon", "001.tif"), "rb").read()
+    answers = [Answer(400, report, {"Content-Type": "text/xml; charset=UTF-8"})] * (2 * net.RETRIES) +         [Answer(200, tiff, {"Content-Type": "image/geotiff"})]
+    http_server.route("/burst", lambda request: answers.pop(0))
+    path = str(tmp_path / "x.tif")
+    WmsrReader("test", http_server.url("/burst/wms"), MNT, L93).fetch(_box(*BOX, 0.5), path)
+    np.testing.assert_array_equal(_read(path)[0], _answer("verdon", 1))
+    assert [a for a in slept if a >= 3] == [3, 4]  # the rounds' pauses, between net._get's own
+    http_server.route("/gone", lambda request: Answer(400, report, {"Content-Type": "text/xml; charset=UTF-8"}))
+    with pytest.raises(RuntimeError, match="LayerNotDefined"):
+        WmsrReader("test", http_server.url("/gone/wms"), MNT, L93).fetch(_box(*BOX, 0.5), str(tmp_path / "y.tif"))
+    assert len(http_server.requests("/gone")) == net.RETRIES * (1 + wmsr.TRANSIENT_ROUNDS)
+
+
+def test_probe_asks_a_small_getmap(http_server, tmp_path, monkeypatch):
     """The source probe asks a GetMap of 16 x 16 px at the top left of the first tile, as the reader writes
     it (the probe's strategy "getmap"); an exception report fails it."""
     from sources import probe
     from sources.source import ReadmeRow, Source
+    monkeypatch.setattr(net, "_sleep", lambda attempt: None)
     tiff = open(os.path.join(RECORDED, "verdon", "001.tif"), "rb").read()
-    http_server.route("/probe", lambda request: Answer(200, tiff, {"Content-Type": "image/geotiff"}))
+    forgotten = open(os.path.join(RECORDED, "errors", "003.xml"), "rb").read()
+    answers = [Answer(400, forgotten, {"Content-Type": "text/xml"})]  # a transient answer first: asked again
+    http_server.route("/probe", lambda request: answers.pop(0) if answers else
+                      Answer(200, tiff, {"Content-Type": "image/geotiff"}))
     layer = WmsrTiles("LiDAR HD test", http_server.url("/probe/wms"), MNT, L93, "france/test/live", native_res=0.5,
                       fetch_res=(0.5, 1.0), tile_m=1000, origin=(-0.25, 0.25))
     source = Source(id="fr_test", name="test", description="test", nmt=layer, crs=L93, grid_origin=(0.75, 0.25),
                     listing=ReadmeRow("x", "y"), sample=(43.7655, 6.358))
     row = probe.probe_layer(source, layer, "terrain", str(tmp_path / "data"), str(tmp_path / "probe"), False)
     assert (row.index, row.read) == (probe.NONE, probe.OK), row.notes
-    asked = dict(http_server.requests("/probe")[0].query)
+    asked = dict(http_server.requests("/probe")[1].query)
     assert (asked["WIDTH"], asked["HEIGHT"], asked["BBOX"]) == ("16", "16", "969999.75,6301984.25,970015.75,6302000.25")
     http_server.routes.clear()
     report = open(os.path.join(RECORDED, "errors", "002.xml"), "rb").read()
