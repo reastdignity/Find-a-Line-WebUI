@@ -18,30 +18,42 @@ from ..readers.windows import BlockRequest
 
 class MetricTiling(Index):
     """Square tiles of tile_m on a fixed grid in a metric CRS, cached as
-    <folder>/<grid_tile_name>: tile (i, j) covers [i, i + 1) x [j, j + 1) tile sizes."""
+    <folder>/<grid_tile_name>: tile (i, j) covers [i, i + 1) x [j, j + 1) tile sizes from origin
+    (x, y in metres: (1000, 0) for LGL's 2 km tiles at odd kilometres east; (0, 0) for most)."""
 
-    def __init__(self, crs: str, folder: str, tile_m: float):
-        self.crs, self.folder, self.tile_m = crs, folder, tile_m
+    def __init__(self, crs: str, folder: str, tile_m: float, origin: Tuple[float, float] = (0.0, 0.0)):
+        self.crs, self.folder, self.tile_m, self.origin = crs, folder, tile_m, origin
+
+    def edges(self, tile) -> Tuple[float, float, float, float]:
+        """(left, bottom, right, top) of a tile in the tiling's CRS."""
+        i, j = tile
+        ox, oy = self.origin
+        return (i * self.tile_m + ox, j * self.tile_m + oy, (i + 1) * self.tile_m + ox,
+                (j + 1) * self.tile_m + oy)
 
     def tiles(self, grid: Grid):
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        ox, oy = self.origin
         shape = None
         if grid.area_shape is not None:
             from area import project
             shape = project(grid.area_shape, grid.crs, self.crs)
         found = []
-        for j in range(math.floor(bottom / self.tile_m), math.floor(top / self.tile_m) + 1):
-            for i in range(math.floor(left / self.tile_m), math.floor(right / self.tile_m) + 1):
+        for j in range(math.floor((bottom - oy) / self.tile_m), math.floor((top - oy) / self.tile_m) + 1):
+            for i in range(math.floor((left - ox) / self.tile_m), math.floor((right - ox) / self.tile_m) + 1):
                 if shape is not None:
                     from shapely.geometry import box
-                    if not shape.intersects(box(i * self.tile_m, j * self.tile_m,
-                                                (i + 1) * self.tile_m, (j + 1) * self.tile_m)):
+                    if not shape.intersects(box(*self.edges((i, j)))):
                         continue
                 found.append((i, j))
         return found
 
     def path(self, cache_dir: str, tile) -> str:
         return os.path.join(cache_dir, self.folder, grid_tile_name(*tile))
+
+    def bounds_wgs84(self, tile) -> Tuple[float, float, float, float]:
+        """(west, south, east, north) of a tile."""
+        return transform_bounds(self.crs, "EPSG:4326", *self.edges(tile))
 
 
 class DegreeTiling(Index):

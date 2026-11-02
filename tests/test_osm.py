@@ -399,7 +399,8 @@ def test_catalogue_extracts(tmp_path):
                  for rid, code in (("us/puerto-rico", "PR"), ("us/us-virgin-islands", "VI"))]
     features += [{"properties": {"id": rid, "name": rid, "parent": "x"}, "geometry": None}
                  for rid in ("canary-islands", "england", "wales", "hessen", "mecklenburg-vorpommern",
-                             "sachsen-anhalt", "niedersachsen", "nord-est")]
+                             "sachsen-anhalt", "niedersachsen", "nord-est",
+                             "sachsen", "baden-wuerttemberg")]
     (tmp_path / "osm").mkdir()
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps({"features": features}))
     found, missing = osm.catalogue_extracts(str(tmp_path))
@@ -409,7 +410,7 @@ def test_catalogue_extracts(tmp_path):
          "us/puerto-rico", "us/us-virgin-islands", "canada", "austria", "wales", "england", "hessen",
          "mecklenburg-vorpommern", "sachsen-anhalt", "niedersachsen", "nord-est", "luxembourg", "denmark",
          "finland", "norway", "new-zealand", "czech-republic",
-         "france"])
+         "france", "sachsen", "baden-wuerttemberg"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))

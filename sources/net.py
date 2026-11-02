@@ -50,6 +50,11 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # ("Podmínky poskytování síťových služeb ČÚZK", 4.3.2016, read 2026-11-02: use "pokud rozsah užití není na
     # újmu poskytovatele"; one who overloads the infrastructure may be stopped): courtesy
     "ags.cuzk.gov.cz": 4,
+    # GeoSN's Nextcloud (Saxony's 2 km ZIPs) and LGL's Open GeoData (Baden-Württemberg's): no published
+    # limits (their terms and portals, read 2026-11-02, give no numbers; the portals' selection caps are
+    # of their pages only): courtesy
+    "geocloud.landesvermessung.sachsen.de": 4,
+    "opengeodata.lgl-bw.de": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

@@ -62,6 +62,7 @@ from .readers.windows import _forget, _read_window, _same_crs
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
+from .layers.zipped import ZippedTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -74,7 +75,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
-    (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"))
+    (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"))
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 

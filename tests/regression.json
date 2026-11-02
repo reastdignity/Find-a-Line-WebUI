@@ -1207,5 +1207,55 @@
       "water_spots": 19
     },
     "seconds": 29.6
+  },
+  "R45": {
+    "place": "Schrammsteine (Lorenzwände), Elbe Sandstone Mountains, Saxony, Germany: GeoSN's DGM1 / DOM1 (1 m), zipped 2 km GeoTIFFs from its Nextcloud share in ETRS89 / UTM 33N",
+    "args": "--lat 50.9104 --lon 14.2220 --radius 400 --min-length 30 --max-length 150",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "notes": "--source auto picks saxony (the centre is in DE-SN); first run on an empty cache: 4 ZIPs of 2 km per layer, about 16 MB each, about 1 s a ZIP; the centre is on the Schrammsteine's sandstone towers south of the Großer Dom gully (the research's 50.920, 14.210 lies in the gully north of them: 2796 lines in 44 spots with r 800, 50-400 m); the towers stand close together, so a narrow search: r 700 with 50-400 m gave 371372 lines in 2303 spots, r 400 with 30-150 m 27674 in 249; nearly every line crosses forest in the gaps between the towers (over_trees); seen on a slope map of the DGM1 with the spots drawn",
+    "expected": {
+      "anchors": 90799,
+      "open": 9278,
+      "checked": 99680,
+      "lines": 27674,
+      "spots": 249,
+      "csv_sha256": "299f3b20bde93d78c5d5f78772b08c602ad59a6870676e77ebb324d890990db3",
+      "length_km": 3069.364,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.193,
+      "clearance_max": 19.77,
+      "over_trees": 27484,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 5.7
+  },
+  "R46": {
+    "place": "Danube valley at Beuron, Swabian Jura, Baden-Württemberg, Germany: LGL's DGM1 (1 m, four 1 km XYZ grids per 2 km ZIP) and DOM1 (four 1 km GeoTIFFs per ZIP) in ETRS89 / UTM 32N",
+    "args": "--lat 48.053 --lon 8.971 --radius 1000 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "notes": "--source auto picks baden_wurttemberg (the centre is in DE-BW); first run on an empty cache: 6 ZIPs of 2 km per layer (14.5 MB with four 29 MB XYZ grids for the DGM1, 12 MB with four GeoTIFFs for the DOM1), about 1.3 s to read a DGM1 ZIP; the spots are on the limestone cliffs of the Danube's bends east and south-east of Beuron (the spur north of the bend at 48.051-48.055 N, 8.974-8.984 E, the rocks above the river at 48.046 N, 8.977 E and further east), seen on a slope map of the DGM1 with the spots drawn; every line crosses the valley's forest (over_trees)",
+    "expected": {
+      "anchors": 107298,
+      "open": 6575,
+      "checked": 55929,
+      "lines": 7368,
+      "spots": 97,
+      "csv_sha256": "282e5bcd8ba1f62f0e6ad7eb09190e7fb3b9f23f351dbe47628985692296996c",
+      "length_km": 1549.322,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.823,
+      "clearance_max": 13.43,
+      "over_trees": 7368,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 4.7
   }
 }

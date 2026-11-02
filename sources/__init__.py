@@ -46,7 +46,7 @@ re-exported: call and patch them through their module.
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
 from .readers import download, imageserver, sheetfile, tilebases, wcsreader, windows
 from .indexes import cached, listings, tilings, versions
-from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, indexed, sheets, stac, tnm, wcs
+from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, indexed, sheets, stac, tnm, wcs, zipped
 from .catalogue import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
@@ -66,6 +66,7 @@ from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
 from .layers.tnm import IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
 from .layers.files import FileLayer
+from .layers.zipped import ZippedTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M

@@ -92,7 +92,7 @@ SOURCES: List[Source] = [
         grid_origin=FR_GRID_ORIGIN, ortho=FR_ORTHO, credits=(FR_LIDAR_CREDIT,),
         # RGE ALTI first; what it leaves (closed sites may be empty in it too) from FABDEM / Copernicus
         fallback="france_rgealti", more_fallbacks=("europe",),
-        neighbours=("swisstopo", "luxembourg", "spain"),
+        neighbours=("swisstopo", "luxembourg", "spain", "baden_wurttemberg"),
         listing=ReadmeRow("France (mainland, Corsica)", "IGN LiDAR HD MNT, 0.5 m (WMS-R, fetched at 1 m)",
                           "IGN LiDAR HD MNS, 0.5 m (WMS-R, fetched at 1 m)", "IGN BD ORTHO"),
         # Boxes inside France that keep clear of its neighbours' land (the first box holding a point wins, and
