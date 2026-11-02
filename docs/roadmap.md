@@ -426,7 +426,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   blocks would read twice the file tiles per km²), folder dated `20210814` (a static copy). No surface model. About a
   third of the State is interpolated from 10 m contours, without a mask; the note points to theLIST's "LiDAR
   Coverage Index - All Projects". Gaps from `europe`. Orthophoto: theLIST's ArcGIS tile cache (CC BY-NC-ND 3.0 AU,
-  no key) shown unchanged, which rests on the site being non-commercial. Elsewhere in Australia `--source auto`
+  no key) shown unchanged, which rests on the site being non-commercial (kept: the user, 2026-11-02). Elsewhere in Australia `--source auto`
   gives `europe`. Open: the mirror promises no maintenance (the mail to theLIST, drafted, asks for streaming access
   and a lidar/contour mask).
 - **Merging wave 3**: `rhineland_palatinate` and `north_rhine_westphalia` are neighbours both ways. Seen in wave 3's
