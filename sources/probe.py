@@ -132,10 +132,16 @@ class Row:
 
 
 def _http(url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, str, bytes]:
-    """GET (streamed): status, content type and the first KB of the body. Patched by the tests."""
+    """GET (streamed): status, content type and the first KB of the body (from several chunks: MapServer
+    sends its XML declaration alone first). Patched by the tests."""
     with requests.get(url, params=params, headers={**cache.http_headers(), **(headers or {})},
                       timeout=REQUEST_TIMEOUT_S, stream=True) as response:
-        return response.status_code, response.headers.get("content-type", ""), next(response.iter_content(1024), b"")
+        body = b""
+        for chunk in response.iter_content(1024):
+            body += chunk
+            if len(body) >= 1024:
+                break
+        return response.status_code, response.headers.get("content-type", ""), body[:1024]
 
 
 def _ask(cache_dir: str, url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, str, bytes]:
