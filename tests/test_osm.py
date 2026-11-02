@@ -390,7 +390,7 @@ def test_catalogue_extracts(tmp_path):
                  "spain": "ES", "us": "US", "austria": "AT", "luxembourg": "LU", "denmark": "DK", "finland": "FI",
                  "norway": "NO",
                  "germany": "DE", "italy": "IT", "united-kingdom": "GB",
-                 "new-zealand": "NZ"}
+                 "new-zealand": "NZ", "canada": "CA"}
     features = [{"properties": {"id": rid, "name": rid, "parent": "europe", "iso3166-1:alpha2": [code]},
                  "geometry": None} for rid, code in countries.items()]
     features += [{"properties": {"id": rid, "name": rid, "parent": "us", "iso3166-1:alpha2": [code],
@@ -405,7 +405,7 @@ def test_catalogue_extracts(tmp_path):
     assert missing == []
     assert sorted(found) == sorted(
         ["poland", "switzerland", "liechtenstein", "slovakia", "malta", "canary-islands", "spain", "us",
-         "us/puerto-rico", "us/us-virgin-islands", "austria", "wales", "england", "hessen",
+         "us/puerto-rico", "us/us-virgin-islands", "canada", "austria", "wales", "england", "hessen",
          "mecklenburg-vorpommern", "sachsen-anhalt", "niedersachsen", "nord-est", "luxembourg", "denmark",
          "finland", "norway", "new-zealand"])
     # A region Geofabrik does not have: named among the missing, not guessed
