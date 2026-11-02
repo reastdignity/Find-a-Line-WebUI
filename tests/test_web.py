@@ -569,7 +569,8 @@ def test_worker_process(tmp_path, monkeypatch):
 
     import psutil
     with _black_hole() as proxy:
-        env = dict(os.environ, HTTP_PROXY=proxy, HTTPS_PROXY=proxy, NO_PROXY="", PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, HTTP_PROXY=proxy, HTTPS_PROXY=proxy, NO_PROXY="", PYTHONIOENCODING="utf-8",
+                   FINDALINE_WARM_UP="0")  # its lanes only (the warm-up: test_public.py)
         jobs = Jobs(str(tmp_path))
         hanging = {"params": {"area": "osm:Nowhere at all"}, "geometry": None}  # Nominatim never answers
         job = jobs.add(hanging, "hanging")
