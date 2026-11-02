@@ -5,7 +5,7 @@ open S3 bucket, composed newest first)."""
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..indexes.osgrid import os_prefixes, os_tile_extent
 from ..layers.fileblocks import FileBlocks
 from ..layers.s3blocks import S3Blocks
@@ -117,7 +117,9 @@ SOURCES: List[Source] = [
         note="Scotland's 0.5 m LiDAR covers about a tenth of Scotland so far (Galloway, Kintyre, Arran, Islay, the "
              "coasts of Fife, Angus and Aberdeenshire, the Small Isles, Coll, Tiree, Orkney, parts of the north "
              "coast; more is released about every six months): elsewhere FABDEM fills the search. Data: Scottish "
-             "Government, OGL v3.0. No open orthophoto of Scotland: the map shows its own base layers."),
+             "Government, OGL v3.0. No open orthophoto of Scotland: the map shows its own base layers.",
+        # Partial: about a tenth of Scotland so far
+        coverage=Coverage(provider="Scottish Government", added="2026-11-02", partial=True, survey="2023–2026")),
     Source(
         id="wales", name="Welsh Government LiDAR (DTM / DSM)",
         description="Welsh Government LiDAR 2020-22, terrain and surface models 1 m, British National Grid, "
@@ -128,7 +130,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Wales (GB)", "Welsh Government LiDAR 2020-22 DTM, 1 m", "Welsh Government LiDAR DSM, 1 m",
                           NO_ORTHO),
         offline=(("gb-wls", (51.33, 53.45, -5.35, -2.64)),), sample=(53.0917, -4.0488),
-        note="Data: Welsh Government, OGL v3.0. No open orthophoto of Wales: the map shows its own base layers."),
+        note="Data: Welsh Government, OGL v3.0. No open orthophoto of Wales: the map shows its own base layers.",
+        coverage=Coverage(provider="Welsh Government", added="2026-11-01", survey="2020–2022")),
     Source(
         id="england", name="Environment Agency LIDAR Composite (DTM / DSM)",
         description="Environment Agency LIDAR Composite 2022 (surveys of 2000-2022), terrain and first-return "
@@ -145,5 +148,6 @@ SOURCES: List[Source] = [
                           "EA LIDAR Composite First Return DSM 2022, 1 m", NO_ORTHO),
         offline=(("gb-eng", (49.85, 55.82, -5.75, 1.77)),), sample=(53.3569, -1.6484),
         note="Data: Environment Agency, OGL v3.0. The composite merges surveys of 2000-2022 (about 99 % of "
-             "England); no open orthophoto of England: the map shows its own base layers."),
+             "England); no open orthophoto of England: the map shows its own base layers.",
+        coverage=Coverage(provider="Environment Agency", added="2026-11-01", survey="2000–2022")),
 ]

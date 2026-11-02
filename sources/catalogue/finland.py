@@ -4,7 +4,7 @@ mirror (no key)."""
 from typing import List
 
 from ..credit import CC_BY, YEAR, Credit
-from ..source import ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
 
 # ETRS-TM35FIN, the CRS of the files: one transverse Mercator for the whole country (27° E, scale 0.9996), so its
@@ -85,5 +85,6 @@ SOURCES: List[Source] = [
         neighbours=("norway",),
         note="Data: National Land Survey of Finland, CC BY 4.0 (through CSC's Paituli mirror). There is no open "
              "surface model (trees, buildings) for Finland: lines over trees or buildings are not recognised. "
-             "The terrain model has pixels of 2 m."),
+             "The terrain model has pixels of 2 m.",
+        coverage=Coverage(provider="NLS", added="2026-11-01")),
 ]

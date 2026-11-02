@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.fileblocks import FileBlocks
 
 # GDA94 / MGA zone 55, the CRS of the file: zone 55 spans 144-150° E, so King Island (143.8-144.2° E) lies just
@@ -69,5 +69,7 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Tasmania (AU)", "Tasmania 2 metre DEM (2021; lidar 2008-2020, elsewhere contours)",
                           "–", "theLIST orthophoto"),
         offline=(("au-tas", TAS_BOX),), sample=(-42.893, 147.237),
-        note=TAS_NOTE),
+        note=TAS_NOTE,
+        # Partial: about a third of the State has no lidar and is interpolated from contours
+        coverage=Coverage(provider="Tasmanian Government", added="2026-11-02", partial=True, survey="2008–2020")),
 ]

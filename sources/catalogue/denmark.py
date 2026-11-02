@@ -4,7 +4,7 @@ Datafordeler's WCS with the server's own API key (settings.ServiceKeys.dataforde
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..layers.wcs import WcsTiles
 
 # DHM is open data under CC BY 4.0 since 16 May 2024 (the fixed sentence of the 2022 terms is for data
@@ -60,5 +60,6 @@ SOURCES: List[Source] = [
                  ("dk", (54.98, 55.32, 14.68, 15.21))),
         sample=(54.9700, 12.5500),  # on the cliff of Mons Klint (R38)
         note="Data: Klimadatastyrelsen, Danmarks Hojdemodel, CC BY 4.0 (processed: mosaicked onto the "
-             "working grid)."),
+             "working grid).",
+        coverage=Coverage(provider="Klimadatastyrelsen", added="2026-11-01")),
 ]

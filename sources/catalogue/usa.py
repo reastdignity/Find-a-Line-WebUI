@@ -5,7 +5,7 @@ from typing import List
 from grid import nad83_utm_crs
 
 from ..credit import Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.blocks import DegreeBlocks
 from ..layers.tnm import IfsarBlocks, Usgs1mBlocks
 
@@ -55,7 +55,10 @@ SOURCES: List[Source] = [
         credits=(USGS_1M_CREDIT,), note=ALASKA_NOTE, neighbours=("canada",),
         listing=ReadmeRow("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM",
                         "–", "– (USGS's Alaska imagery: licence restrictions)"),
-        offline=(("us", ALASKA_BOX),), sample=None),  # no 1 m DEM in Alaska yet (2026-10)
+        offline=(("us", ALASKA_BOX),), sample=None,  # no 1 m DEM in Alaska yet (2026-10)
+        # Its IfSAR at 5 m (2012-2019) covers the State, 1 m only where there is lidar: the level of 5 m
+        coverage=Coverage(provider="USGS", added="2026-10-30", areas=("us-ak",), rest=(5.0,), level=2,
+                          survey="2012–2019", min_length=30)),
     Source(
         id="alaska_ifsar", name="USGS 3DEP (Alaska IfSAR 5 m)",
         description="USGS 3DEP (Alaska): IfSAR DTM 5 m (radar, 2012-2019), gaps from the 1/3 arc-second DEM",
@@ -77,7 +80,8 @@ SOURCES: List[Source] = [
                         "USGS 3DEP 1 m DEM (lidar), newest project first", "–",
                         "USGS Imagery (NAIP, up to zoom 16)"),
         offline=(("us", (24.4, 49.4, -125.0, -66.9)), ("pr", (17.8, 18.6, -67.4, -65.2))),
-        sample=(38.5610, -109.5680)),
+        sample=(38.5610, -109.5680),
+        coverage=Coverage(provider="USGS", added="2026-10-30", survey="projects")),
     Source(
         id="usgs10m", name="USGS 3DEP (1/3 arc-second DEM)",
         description="USGS 3DEP seamless 1/3 arc-second DEM (about 10 m): the USA, Hawaii and the territories",

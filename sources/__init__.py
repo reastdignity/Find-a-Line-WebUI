@@ -54,7 +54,7 @@ from .catalogue import australia
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
-from .source import MIN_RESOLUTION, OrthoService, Source
+from .source import MIN_RESOLUTION, Coverage, OrthoService, Source
 from .layers.wcs import WcsTiles
 from .layers.imageserver import ImageServerTiles
 from .readers.tilebases import MIRROR_ENV, grid_tile_name
@@ -81,7 +81,7 @@ from .choose import OFFLINE_BOXES, choose_source, source_unavailable
 from .mosaic import build_mosaic, load_slope_file, prepare_layer, used_data
 from .filling import LAKE, OCEAN, SHORE_BUFFER, fill_gaps, fill_gaps_chain, fill_water, near, water_body_mask
 
-__all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
+__all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "Coverage", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
            "Fetched", "download_layers", "HOST_SLOTS_OF", "host_slot", "tile_lock", "WcsTiles", "ImageServerTiles", "GridTiles",
            "MIRROR_ENV", "grid_tile_name", "DegreeTiles", "OpenTopographyTiles", "IndexedTiles", "Sheet",
            "SheetTiles", "StacTiles", "DegreeBlocks", "FileBlocks", "Block", "TnmBlocks", "Usgs1mBlocks",

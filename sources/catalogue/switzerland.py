@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 
 SWISSTOPO_CREDIT = Credit("swissALTI3D / swissSURFACE3D (swisstopo)", "© swisstopo",
@@ -36,5 +36,6 @@ SOURCES: List[Source] = [
                         "swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey",
                         "swissSURFACE3D Raster, 0.5 m", "SWISSIMAGE (swisstopo)"),
         offline=(("ch", (45.8, 47.85, 5.9, 10.5)),), sample=(46.5960, 7.9070),
-        note="Data © swisstopo."),
+        note="Data © swisstopo.",
+        coverage=Coverage(provider="swisstopo", added="2026-10-26", survey="newest")),
 ]

@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.sheets import SheetTiles
 
 GUGIK_CREDIT = Credit("NMT / NMPT (GUGiK, Poland)",
@@ -39,5 +39,6 @@ SOURCES: List[Source] = [
                            # with 404 (2026-10-25); its WMTS answers all
                            base_url=f"{GEOPORTAL}/ORTO/WMTS/StandardResolution?SERVICE=WMTS&REQUEST=GetTile"
                                     "&VERSION=1.0.0&LAYER=ORTOFOTOMAPA&STYLE=default&FORMAT=image/jpeg"
-                                    "&TILEMATRIXSET=EPSG:3857&TILEMATRIX=EPSG:3857:{z}&TILEROW={y}&TILECOL={x}")),
+                                    "&TILEMATRIXSET=EPSG:3857&TILEMATRIX=EPSG:3857:{z}&TILEROW={y}&TILECOL={x}"),
+        coverage=Coverage(provider="GUGiK", added="2026-10-23", survey="sheets", trees="part")),
 ]

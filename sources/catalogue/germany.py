@@ -6,7 +6,7 @@ and DOM1, zipped 2 km tiles of 1 km XYZ grids or GeoTIFFs)."""
 from typing import List
 
 from ..credit import CC_BY, DL_DE_BY, YEAR, Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
@@ -250,7 +250,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Hesse (DE)", "HVBG DGM1, 1 m (WCS)", "HVBG DOM1, 1 m (WCS)", "HVBG DOP"),
         offline=(("de-he", (49.39, 51.66, 7.77, 10.24)),), sample=(51.1830, 9.0500),
         note="Data HVBG, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
-             "survey years."),
+             "survey years.",
+        coverage=Coverage(provider="HVBG", added="2026-11-01")),
     Source(
         id="mecklenburg_vorpommern", name="LAiV M-V (DGM1 / DOM1)",
         description="LAiV (Mecklenburg-Vorpommern, Germany): terrain and surface models 1 m from its WCS, "
@@ -264,7 +265,8 @@ SOURCES: List[Source] = [
                           "LAiV DOP"),
         offline=(("de-mv", (53.1, 54.7, 10.59, 14.42)),), sample=(54.5735, 13.6640),
         note=f"Data {LAIV_ATTRIBUTION}, CC BY 4.0. The sea is stored as 0 m, taken as no data. The WCS "
-             f"names no survey years."),
+             f"names no survey years.",
+        coverage=Coverage(provider="LAiV M-V", added="2026-11-01")),
     # Before Lower Saxony: their offline boxes overlap in the Harz (the first holding a point wins)
     Source(
         id="saxony_anhalt", name="LVermGeo (DGM1 / DOM1)",
@@ -277,7 +279,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Saxony-Anhalt (DE)", "LVermGeo DGM1, 1 m (WCS)", "LVermGeo DOM1, 1 m (WCS)",
                           "LVermGeo DOP20"),
         offline=(("de-st", (50.94, 53.05, 10.56, 13.19)),), sample=(51.7340, 11.0200),
-        note=f"Data {LVERMGEO_ATTRIBUTION}, dl-de/by-2.0. The WCS names no survey years."),
+        note=f"Data {LVERMGEO_ATTRIBUTION}, dl-de/by-2.0. The WCS names no survey years.",
+        coverage=Coverage(provider="LVermGeo ST", added="2026-11-01")),
     Source(
         id="lower_saxony", name="LGLN (DGM1 / DOM1)",
         description="LGLN (Lower Saxony, Germany): ALS terrain and surface models 1 m, newest survey per "
@@ -292,7 +295,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Lower Saxony (DE)", "LGLN DGM1, 1 m; newest survey", "LGLN DOM1, 1 m",
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),
-        note=f"Data © GeoBasis-DE/LGLN {YEAR}, CC BY 4.0 (changed: mosaicked onto the working grid)."),
+        note=f"Data © GeoBasis-DE/LGLN {YEAR}, CC BY 4.0 (changed: mosaicked onto the working grid).",
+        coverage=Coverage(provider="LGLN", added="2026-11-01", survey="newest")),
     # Saxony and Baden-Württemberg last: their offline boxes overlap Saxony-Anhalt's (Leipzig) and Hesse's
     # (the Neckar at Heidelberg), which take those points offline; online the regions decide
     Source(
@@ -307,7 +311,8 @@ SOURCES: List[Source] = [
                           "GeoSN DOP20"),
         offline=(("de-sn", (50.15, 51.72, 11.79, 15.06)),), sample=(50.9200, 14.2100),
         note="Data: Quelle: GeoSN, dl-de/by-2.0 (changed: mosaicked onto the working grid). Survey dates "
-             "2018-2025 per 2 km tile, not recorded."),
+             "2018-2025 per 2 km tile, not recorded.",
+        coverage=Coverage(provider="GeoSN", added="2026-11-02", survey="2018–2025")),
     Source(
         id="baden_wurttemberg", name="LGL (DGM1 / DOM1)",
         description="LGL (Baden-Württemberg, Germany): terrain and surface models 1 m from zipped 2 km tiles, "
@@ -321,7 +326,8 @@ SOURCES: List[Source] = [
                           "LGL DOP20"),
         offline=(("de-bw", (47.52, 49.83, 7.44, 10.54)),), sample=(48.0530, 8.9710),
         note="Data: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2.0 (changed: mosaicked onto the working grid). "
-             "Survey years per 1 km tile, not recorded."),
+             "Survey years per 1 km tile, not recorded.",
+        coverage=Coverage(provider="LGL", added="2026-11-02")),
     Source(
         id="bavaria", name="LDBV (DGM1 / DOM20)",
         description="LDBV (Bavaria, Germany): terrain model 1 m and photogrammetric surface model 0.2 m averaged "
@@ -339,7 +345,8 @@ SOURCES: List[Source] = [
         offline=(("de-by", (47.27, 50.57, 8.97, 13.84)),), sample=(49.7700, 11.4100),
         note=f"Data: {BY_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid, the DOM20's 0.2 m "
              f"averaged to 1 m). The surface model comes from image matching of aerial photographs, not from "
-             f"laser scanning: smoother over trees and less exact (0.4-0.6 m). The files name no survey years."),
+             f"laser scanning: smoother over trees and less exact (0.4-0.6 m). The files name no survey years.",
+        coverage=Coverage(provider="LDBV", added="2026-11-02")),
     Source(
         id="rhineland_palatinate", name="LVermGeo RP (DGM1 / DOM1)",
         description="LVermGeo (Rhineland-Palatinate, Germany): terrain and surface models 1 m, newest survey per "
@@ -353,7 +360,8 @@ SOURCES: List[Source] = [
         # Two boxes: Luxembourg's (to 6.54° E) comes later in SOURCES and would lose its points to one box
         offline=(("de-rp", (48.96, 50.95, 6.54, 8.51)), ("de-rp", (50.19, 50.95, 6.11, 6.54))), sample=(49.1500, 7.7800),
         note=f"Data {RP_ATTRIBUTION} [Daten bearbeitet] (changed: mosaicked onto the working grid). Survey years "
-             f"2022-2025, the newest per 1 km tile."),
+             f"2022-2025, the newest per 1 km tile.",
+        coverage=Coverage(provider="LVermGeo RP", added="2026-11-02", survey="2022–2025")),
     Source(
         id="north_rhine_westphalia", name="Geobasis NRW (DGM1 / DOM1)",
         description="Geobasis NRW (North Rhine-Westphalia, Germany): terrain and surface models 1 m from its WCS, "
@@ -368,5 +376,6 @@ SOURCES: List[Source] = [
         # Aachen and the north, then the Eifel east of the Belgian border (not Belgium's East Cantons)
         offline=(("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25))), sample=(51.3200, 8.5400),
         note="Data Geobasis NRW, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
-             "survey years."),
+             "survey years.",
+        coverage=Coverage(provider="Geobasis NRW", added="2026-11-02")),
 ]

@@ -4,7 +4,7 @@ on AWS (no key)."""
 from typing import Dict, List, Tuple
 
 from ..credit import Credit
-from ..source import ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
 from .world import COPERNICUS_NOTICE
 
@@ -110,7 +110,8 @@ SOURCES: List[Source] = [
         sample=(49.6820, -123.1430),
         note="Data: NRCan, Open Government Licence - Canada. The mosaic covers the lidar surveys (much of the "
              "south, little of the north); gaps are filled from its 2 m version, then from MRDEM-30 (30 m). "
-             + CA_SCALE_NOTE + " No orthophoto of Canada: the map shows its own base layers."),
+             + CA_SCALE_NOTE + " No orthophoto of Canada: the map shows its own base layers.",
+        coverage=Coverage(provider="NRCan", added="2026-11-02", partial=True, rest=(2.0, 30.0), survey="lidar")),
     Source(
         id="canada_2m", name="NRCan HRDEM mosaic (DTM / DSM 2 m)",
         description="NRCan HRDEM national mosaic 2 m: lidar terrain and surface models (in the far north a surface "

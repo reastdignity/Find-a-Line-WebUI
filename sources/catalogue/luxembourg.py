@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.fileblocks import FileBlocks
 
 CC0 = ("CC0 1.0", "https://creativecommons.org/publicdomain/zero/1.0/")
@@ -62,5 +62,6 @@ SOURCES: List[Source] = [
         neighbours=("france", "rhineland_palatinate"),
         # Flown with the leaves off, but the surface model (the highest return per pixel, over 30 points
         # per m²) still holds the crowns: around Berdorf a median of 24 m above the ground
-        note="Data: ACT Luxembourg, CC0. Surveyed in the winter of 2024."),
+        note="Data: ACT Luxembourg, CC0. Surveyed in the winter of 2024.",
+        coverage=Coverage(provider="ACT", added="2026-11-01", survey="2024")),
 ]

@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
 # IGN's form of a credit for a derived work (Orden FOM/2807/2015): "Obra derivada de <product> CC-BY 4.0 <producer>",
@@ -49,7 +49,9 @@ def _spain(canary: bool) -> Source:
         # The box of Spain holds the Canary Islands too
         offline=() if canary else (("es", (27.0, 43.9, -18.6, 4.4)),),
         sample=(28.2640, -16.8460) if canary else (41.5930, 1.8100),
-        note="IGN Spain data is available at 5 m: lines shorter than about 30 m are not reliable.")
+        note="IGN Spain data is available at 5 m: lines shorter than about 30 m are not reliable.",
+        coverage=Coverage(provider="IGN España", added="2026-10-23", areas=("es-cn",) if canary else (),
+                          survey="pnoa", min_length=30))
 
 
 SOURCES: List[Source] = [

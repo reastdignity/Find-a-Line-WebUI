@@ -40,6 +40,32 @@ class OrthoService:
         return cache.TTL_DAYS["live"] if "/live" in self.folder else None
 
 
+@dataclass(frozen=True)
+class Coverage:
+    """How the coverage map shows a source (tools/coverage_data.py writes viewer/src/coverage/coverage.json
+    from it, tools/coverage_shapes.py the outlines). Sources only used to fill gaps have none.
+
+    The resolution comes from the source (`default_resolution`, then `rest`), whether trees are known from
+    its surface layer, the note on gaps from its first fallback."""
+    provider: str           # the provider's short name ("GUGiK", "swisstopo")
+    added: str              # ISO date the source reached main (the timeline; CI clones are shallow, so not from git)
+    # Its areas on the map (ISO 3166-1 alpha-2 or ISO 3166-2, lower case); () = the source's regions, else
+    # its countries. One source per area
+    areas: Tuple[str, ...] = ()
+    partial: bool = False   # its level is reached in parts of its areas only (drawn hatched)
+    rest: Tuple[float, ...] = ()  # the coarser resolutions (metres) of the rest of its areas: a mix
+    level: Optional[int] = None   # 1 (≤ 1 m), 2 (2-5 m); None: from the default resolution
+    survey: str = ""        # years ("2018", "2017–2023" with an en dash), a code of "survey.<code>", "" unknown
+    trees: Optional[str] = None   # "yes", "no", "part"; None: "yes" with a surface layer, else "no"
+    min_length: Optional[float] = None  # metres: shorter lines are not reliable (note "short")
+    # Codes of further notes (locales/coverage "note.<code>"): "smoothed", "whole_m", "old_survey" (its
+    # years: `survey`)
+    notes: Tuple[str, ...] = ()
+    # (south, north, west, east): the part of a country the source covers, its rest drawn at 30 m; None:
+    # the source's bbox (France's overseas regions, the Chatham Islands)
+    box: Optional[Tuple[float, float, float, float]] = None
+
+
 class ReadmeRow(NamedTuple):
     """The cells of a source's row in README's "Data sources" table (Markdown; tools/source_docs.py)."""
     where: str
@@ -90,6 +116,8 @@ class Source:
     # (lat, lon) of a point with data in every layer, for the source probe (sources/probe.py) and
     # tools/check_source.py; None: no such point (Alaska's 1 m DEM has no data yet)
     sample: Optional[Tuple[float, float]] = None
+    # How the coverage map shows it; None: not on the map (a source only used to fill gaps)
+    coverage: Optional[Coverage] = None
 
     def __post_init__(self):
         if self.default_resolution is None:

@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.fileblocks import FileBlocks
 
 # The national edition read (its "Stichtag": the date of the data set, not of the surveys). BEV
@@ -68,5 +68,6 @@ SOURCES: List[Source] = [
                           f"BEV ALS DSM, 1 m (edition {BEV_EDITION[:4]})", "basemap.at Orthofoto"),
         offline=(("at", (46.37, 49.02, 9.53, 17.17)),), sample=(47.2740, 11.3120),
         note="Data: BEV, CC BY 4.0. The national model is a mosaic of the Länder's surveys of different "
-             "years; the edition's date is not the survey date."),
+             "years; the edition's date is not the survey date.",
+        coverage=Coverage(provider="BEV", added="2026-11-01", survey="mosaic")),
 ]

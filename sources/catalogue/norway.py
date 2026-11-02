@@ -4,7 +4,7 @@ Geonorge's WCS 1.0.0 in ETRS89 / UTM 33N (no key)."""
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..layers.wcs import WcsTiles
 
 # Kartverket's terms of use (https://www.kartverket.no/en/api-and-data/terms-of-use, read 2026-11-02): open data
@@ -65,5 +65,6 @@ SOURCES: List[Source] = [
         sample=(58.9864, 6.1904),  # Preikestolen (R40)
         note="Data: Kartverket, CC BY 4.0 (processed: mosaicked onto the working grid). The working grid is "
              "ETRS89 / UTM 33N for the whole country: lengths are up to 0.3 % too long in the west and 0.4 % "
-             "in the far east."),
+             "in the far east.",
+        coverage=Coverage(provider="Kartverket", added="2026-11-02", box=(57.8, 71.5, 4.0, 31.5))),
 ]

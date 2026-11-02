@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
 
 # The Planning Authority's datasets on the national open data portal (checked 2026-11-01: license_id
@@ -54,7 +54,9 @@ def _malta(year: int, note: str = "") -> Source:
                            "Orthoimagery 2018: Planning Authority, Malta, CC BY 4.0",
                            attribution_url=CC_BY[1]),  # dataset: MT_PORTAL orthoimagery-2018
         listing=MALTA_LISTINGS[year], offline=(("mt", (35.78, 36.10, 14.15, 14.60)),) if year == 2018 else (),
-        sample=(35.8565, 14.3830), note=note)
+        sample=(35.8565, 14.3830), note=note,
+        coverage=Coverage(provider="MSDI", added="2026-10-23", survey="2018", notes=("whole_m",))
+        if year == 2018 else None)
 
 
 SOURCES: List[Source] = [
