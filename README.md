@@ -394,6 +394,18 @@ With the defaults (1 km radius at 1 m, NMPT on) the first run in Poland download
 - Raise `--slope-threshold`
 - Change your minimum or maximum line lengths
 
+### A whole country: the highline layer
+A whole country can be searched offline, keeping only how many lines and spots each square kilometre holds (for every combination of length, prominence, wall angle, clearance, webbing height, over trees and over water), and shown as a layer in the app (*Highline layer* in the account menu of the local app; on the public site for administrators only). A spot here is a pair of 50 m clusters of anchors with a line between them, coarser than the groups of a search. The counts are made in fixed tiles and length bands, each on its own grid: S 30–300 m at 1 m (the formula), M 300–1000 m at 2 m and L 1000–5000 m at 5 m (the sag estimator with a pretension growing with the span: 2.5 kN at 300 m, 6 kN at 1.5 km, 15 kN at 5 km, Silk 99 webbing), with a control band M2 (1000–2000 m at 2 m) that measures what L's coarser grid loses. Only Slovakia is defined so far, without its surface model (see [docs/country-precompute.md](docs/country-precompute.md) and docs/roadmap.md, "Country layer").
+
+```bash
+python findaline.py country run slovakia [--processes K] [--bands S,M,L,M2] [--max-tiles N] [--redo] [--yes]
+python findaline.py country status slovakia                 # the tiles by band and status, lines, spots, times
+python findaline.py country build slovakia [--partial]      # the cube of the layer bands (run builds it at the end)
+python findaline.py country compare slovakia [--control M2] [--against L]
+```
+
+`run` downloads what the country needs into the cache first (Slovakia: about 60 GB of DMR 5.0 tiles copied from the local mirror, `FINDALINE_MIRROR`, and the Copernicus water mask), then counts the tiles in as many processes as the memory and the physical cores allow, with a progress line every 30 s and the processes' logs in `countries/<id>/logs/`. It resumes where it stopped: Ctrl+C is safe, and the tiles that were being counted are counted again at the next run. `--redo` counts everything again; it is needed after a change of the country's configuration or outline. Everything goes into `countries/<id>/` of the data folder (its tiles' grids into `work/country-<id>/`, removed after each tile); `compare` writes `compare.json` there.
+
 ## Examples
 ### Żabi Koń, Dolina Kobylańska
 Żabi Koń is a limestone rock in Dolina Kobylańska near Kraków. Searching within 1 km of it with a 2 m grid (`--resolution 2`; the default is 1 m) and the other settings at their defaults (slope ≥45°, lines 30–1000 m, anchors at most 5% / 50 m apart in height, NMPT marking, maximum elevation formula):
