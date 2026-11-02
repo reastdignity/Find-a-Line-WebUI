@@ -190,14 +190,18 @@ def test_surface_gaps_from_the_neighbours_surface_only(scene):
 
 
 def test_declared_neighbours():
-    """Neighbours are other sources of the catalogue, both ways, and their offline boxes touch
-    (they share a border); the order of the fill is the order declared."""
+    """Neighbours are other sources of the catalogue, both ways, and one of their offline boxes
+    touches one of the other's (they share a border); the order of the fill is the order declared."""
+    def boxes(source):  # the offline boxes, or the bbox of a source without (alaska_ifsar)
+        return [box for _, box in source.offline] if source.offline else [source.bbox]
+
     for sid, source in src.SOURCES.items():
         assert sid not in source.neighbours and len(set(source.neighbours)) == len(source.neighbours)
         for other in source.neighbours:
             assert sid in src.SOURCES[other].neighbours, (sid, other)
-            (s1, n1, w1, e1), (s2, n2, w2, e2) = source.offline[0][1], src.SOURCES[other].offline[0][1]
-            assert s1 <= n2 and s2 <= n1 and w1 <= e2 and w2 <= e1, (sid, other)
-    assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern")
-    assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia")
-    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ()
+            assert any(s1 <= n2 and s2 <= n1 and w1 <= e2 and w2 <= e1
+                       for s1, n1, w1, e1 in boxes(source) for s2, n2, w2, e2 in boxes(src.SOURCES[other])), \
+                (sid, other)
+    assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern", "czechia", "saxony")
+    assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia", "czechia")
+    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada",)

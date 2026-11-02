@@ -563,12 +563,15 @@ the regions Geofabrik keeps without a code are named in `osm.GEOFABRIK_OF_CODE` 
 `osm.GEOFABRIK_OF_SOURCE` (`spain_canarias` → `canary-islands`). On 2026-11-01 that is poland,
 switzerland, liechtenstein, slovakia, malta, canary-islands, spain, us/puerto-rico,
 us/us-virgin-islands, austria, wales, england, hessen, mecklenburg-vorpommern, sachsen-anhalt,
-niedersachsen, nord-est, luxembourg, denmark and finland: about 10.5 GB of extracts (Poland 2.1 GB, England 1.7 GB, Spain 1.5 GB, the rest below
-1 GB each) and the world file's 1.2 GB unpacked; at Geofabrik's usual speed the downloads take
+niedersachsen, nord-est, luxembourg, denmark and finland, and since batch 2 of the new sources (2026-11-02) norway
+(1.4 GB), new-zealand (0.4 GB), czech-republic (0.95 GB), sachsen (0.27 GB), baden-wuerttemberg (0.65 GB) and france
+(5.1 GB, kept: the user, 2026-11-02): about 19.3 GB of extracts (France 5.1 GB, Poland 2.1 GB, England 1.7 GB, Spain
+1.5 GB, Norway 1.4 GB, the rest below 1 GB each) and the world file's 1.2 GB unpacked; at Geofabrik's usual speed the downloads take
 some minutes each and reading the themes from an extract about 10 s per 2 GB. Left out
-(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB; the features of its themes, Alaska's
-long coastline, would be read by every search process building a theme tile there, and its sea
-comes from the world file anyway); a coast or cliffs area there still asks Overpass. `deploy/vps.sh` does all of this after the start
+(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB) and Canada (6.5 GB): the features of
+their themes, Alaska's and the Arctic's long coastlines, would be read by every search process
+building a theme tile there, and their sea comes from the world file anyway; a coast or cliffs
+area there still asks Overpass. `deploy/vps.sh` does all of this after the start
 (`osm_data`, in `setup` and `update`): it downloads only what is not there yet, so it costs
 nothing once done. The extracts are kept up to date with Geofabrik's daily diffs by
 `docker compose exec -T worker python findaline.py osm update` (or the *OSM* page of the

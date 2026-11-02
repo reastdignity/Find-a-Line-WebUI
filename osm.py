@@ -231,7 +231,8 @@ def fetch_tile(theme: str, lat: float, lon: float, cache_dir: str):
 # ("iso3166-1:alpha2", "iso3166-2" for a few territories) but none to the regions of a country.
 # By the codes of Source.regions and Source.countries (Åland lies within Geofabrik's Finland) ...
 GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", "de-mv": "mecklenburg-vorpommern",
-                     "de-st": "sachsen-anhalt", "de-ni": "niedersachsen", "it-bz": "nord-est", "ax": "finland"}
+                     "de-st": "sachsen-anhalt", "de-ni": "niedersachsen", "it-bz": "nord-est", "ax": "finland",
+                     "de-sn": "sachsen", "de-bw": "baden-wuerttemberg"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",)}
 

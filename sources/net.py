@@ -43,6 +43,18 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # LAiV's DOM WCS is meant for small areas; a provincial server (South Tyrol): the same courtesy
     "www.geodaten-mv.de": 4,
     "geoservices9.civis.bz.it": 4,
+    # Kartverket's WCS (Norway): no published limit (its terms: "technical limitations ... will be
+    # stated for each service"; the service states none, 2026-11-02): courtesy
+    "wcs.geonorge.no": 4,
+    # ČÚZK's ImageServers and orthophoto tiles (Czechia): its terms of network services name no number
+    # ("Podmínky poskytování síťových služeb ČÚZK", 4.3.2016, read 2026-11-02: use "pokud rozsah užití není na
+    # újmu poskytovatele"; one who overloads the infrastructure may be stopped): courtesy
+    "ags.cuzk.gov.cz": 4,
+    # GeoSN's Nextcloud (Saxony's 2 km ZIPs) and LGL's Open GeoData (Baden-Württemberg's): no published
+    # limits (their terms and portals, read 2026-11-02, give no numbers; the portals' selection caps are
+    # of their pages only): courtesy
+    "geocloud.landesvermessung.sachsen.de": 4,
+    "opengeodata.lgl-bw.de": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -66,6 +78,12 @@ HOST_RATES_OF: Dict[str, int] = {
     # (https://environment.data.gov.uk/support/faqs/275808874, read 2026-11-01): "Up to 200
     # requests per minute" for standard users and automated services (the EA's LIDAR WCS)
     "environment.data.gov.uk": 180,
+    # The Géoplateforme's CGU (https://cartes.gouv.fr/cgu, version of 15 October 2024, annex 3, art. 3.2 "Limite
+    # d'usage (Fair use)", read 2026-11-02, French only): limits "en nombre de requêtes par seconde et par IP", per
+    # API ("WMS-Raster 40", WMTS "Non soumis à limite d'usage", WFS 30, Téléchargement "5 requêtes/5s avec
+    # bannissement de 5 minutes"), HTTP 429 above them for 5 s. Our turns are per host: the WMS-R's 40/s less
+    # 10 %, which the orthophoto's WMTS on the same host shares (France's tiles; no WFS or download API is used)
+    "data.geopf.fr": 2160,
 }
 RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn
@@ -236,9 +254,10 @@ def _gdal_http() -> rio.Env:
     Blocks are read in the calling thread (GDAL_NUM_THREADS=1, whatever the environment says):
     with more, the GTiff driver fetches and decodes them in its own threads, whose errors go to
     GDAL's default handler (printed to stderr) instead of the caller's, so gdal_errors would not
-    see a failed read there, which then comes back as zeros."""
+    see a failed read there, which then comes back as zeros. Only files named .tif or .tiff
+    (LINZ's sheets) are opened."""
     return rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"],
-                   GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif",
+                   GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff",
                    GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
                    GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
                    GDAL_HTTP_MULTIRANGE="YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")

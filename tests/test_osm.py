@@ -388,7 +388,10 @@ def test_catalogue_extracts(tmp_path):
     import osm
     countries = {"poland": "PL", "switzerland": "CH", "liechtenstein": "LI", "slovakia": "SK", "malta": "MT",
                  "spain": "ES", "us": "US", "austria": "AT", "luxembourg": "LU", "denmark": "DK", "finland": "FI",
-                 "germany": "DE", "italy": "IT", "united-kingdom": "GB"}
+                 "norway": "NO", "czech-republic": "CZ",
+                 "france": "FR",
+                 "germany": "DE", "italy": "IT", "united-kingdom": "GB",
+                 "new-zealand": "NZ", "canada": "CA"}
     features = [{"properties": {"id": rid, "name": rid, "parent": "europe", "iso3166-1:alpha2": [code]},
                  "geometry": None} for rid, code in countries.items()]
     features += [{"properties": {"id": rid, "name": rid, "parent": "us", "iso3166-1:alpha2": [code],
@@ -396,16 +399,18 @@ def test_catalogue_extracts(tmp_path):
                  for rid, code in (("us/puerto-rico", "PR"), ("us/us-virgin-islands", "VI"))]
     features += [{"properties": {"id": rid, "name": rid, "parent": "x"}, "geometry": None}
                  for rid in ("canary-islands", "england", "wales", "hessen", "mecklenburg-vorpommern",
-                             "sachsen-anhalt", "niedersachsen", "nord-est")]
+                             "sachsen-anhalt", "niedersachsen", "nord-est",
+                             "sachsen", "baden-wuerttemberg")]
     (tmp_path / "osm").mkdir()
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps({"features": features}))
     found, missing = osm.catalogue_extracts(str(tmp_path))
     assert missing == []
     assert sorted(found) == sorted(
         ["poland", "switzerland", "liechtenstein", "slovakia", "malta", "canary-islands", "spain", "us",
-         "us/puerto-rico", "us/us-virgin-islands", "austria", "wales", "england", "hessen",
+         "us/puerto-rico", "us/us-virgin-islands", "canada", "austria", "wales", "england", "hessen",
          "mecklenburg-vorpommern", "sachsen-anhalt", "niedersachsen", "nord-est", "luxembourg", "denmark",
-         "finland"])
+         "finland", "norway", "new-zealand", "czech-republic",
+         "france", "sachsen", "baden-wuerttemberg"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))

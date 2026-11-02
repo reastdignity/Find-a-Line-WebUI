@@ -4,10 +4,12 @@ still answer, a few small requests each.
 Per source and layer, at the source's sample point (Source.sample) on a tiny grid:
 - index: the layer's own index asked (Layer.estimate into a temporary cache): no answer (the
   layer falls back to its cached files, tiles() is None) or no tile there fails; a WCS gets its
-  DescribeCoverage; fixed tilings (1° tiles, our own grid tiles, blocks) have no index;
+  DescribeCoverage, an ArcGIS ImageServer its description (f=json); fixed tilings (1° tiles, our
+  own grid tiles, blocks) have no index;
 - read: the first tile's file asked for one byte (Range: bytes=0-0); a WCS a GetCoverage of
-  16 x 16 pixels; blocks of big fixed files (FileBlocks) a window of 16 x 16 pixels of the first
-  block's file; a local mirror is looked for on disk;
+  16 x 16 pixels; a WMS-R (WmsrTiles) a GetMap of 16 x 16 pixels of the first tile; an ImageServer an
+  exportImage of 16 x 16 pixels (a TIFF, not an error); blocks of big fixed files (FileBlocks) a window of
+  16 x 16 pixels of the first block's file; a local mirror is looked for on disk;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
 - the orthophoto: one base tile at the sample, or the WMS's GetCapabilities.
@@ -27,6 +29,7 @@ import io
 import sys
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -47,6 +50,10 @@ from .net import _gdal_http, _remote, host_slot
 from .layer import Layer
 from .source import OrthoService, Source
 from .layers.wcs import WcsTiles
+from .layers.imageserver import ImageServerTiles
+from .layers.wmsr import WmsrTiles
+from .readers.imageserver import service_error
+from .readers import TIFF_MAGIC
 from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
@@ -55,6 +62,7 @@ from .readers.windows import _forget, _read_window, _same_crs
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
+from .layers.zipped import ZippedTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -66,7 +74,8 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
-    (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"))
+    (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
+    (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"))
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -208,6 +217,46 @@ def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[
     return OK, OK
 
 
+def _getmap(cache_dir: str, layer: WmsrTiles, tile) -> str:
+    """A GetMap of WINDOW_PX x WINDOW_PX pixels at the top left of the first tile, as the layer's reader
+    asks it (WmsrReader.getmap_params); raises with the reason when the answer is no GeoTIFF. A transient
+    answer (wmsr.TRANSIENT: IGN forgets a layer for a second or two now and then) is asked again, up to
+    net.RETRIES times."""
+    request = layer.index.request(tile)
+    res = (request.right - request.left) / request.width
+    small = request._replace(right=request.left + WINDOW_PX * res, bottom=request.top - WINDOW_PX * res,
+                             width=WINDOW_PX, height=WINDOW_PX)
+    for attempt in range(net.RETRIES):
+        status, kind, body = _ask(cache_dir, layer.url, layer.reader.getmap_params(small))
+        text = body.decode("utf-8", "replace")
+        if not (status in (502, 503, 504) or "LayerNotDefined" in text) or attempt == net.RETRIES - 1:
+            break
+        net._sleep(attempt)
+    if status != 200 or body[:4] not in TIFF_MAGIC:
+        report = re.search(r"<ServiceException(\s[^>]*)?>([^<]*)", text)  # its code and text, not the XML's header
+        text = " ".join(g for g in report.groups() if g).strip() if report else text[:200].strip()
+        raise RuntimeError(f"GetMap: HTTP {status} {kind} {text}")
+    return ""
+
+
+def _image_service(cache_dir: str, layer: ImageServerTiles, lat: float, lon: float) -> Tuple[str, str]:
+    """The service's description (f=json), then an exportImage of 16 x 16 pixels at the point on the
+    layer's pixels, as its reader asks it (ImageServerReader.export_params): a TIFF, never an error (ArcGIS
+    sends those with HTTP 200 as an image)."""
+    status, _, body = _ask(cache_dir, layer.url, {"f": "json"})
+    if status != 200 or not body.lstrip().startswith(b"{") or b'"error"' in body:
+        raise RuntimeError(f"description: HTTP {status} {body[:200].decode('utf-8', 'replace').strip()}")
+    (x,), (y,) = warp("EPSG:4326", layer.crs, [lon], [lat])
+    res, (ox, oy) = layer.native_res, layer.origin
+    left, bottom = math.floor((x - ox) / res - 8) * res + ox, math.floor((y - oy) / res - 8) * res + oy
+    reader = layer.reader
+    status, _, body = _ask(cache_dir, reader.export_url,
+                           reader.export_params(left, bottom, left + 16 * res, bottom + 16 * res, res))
+    if status != 200 or body[:4] not in TIFF_MAGIC:
+        raise RuntimeError(f"exportImage: HTTP {status} {service_error(body)[1]}")
+    return OK, OK
+
+
 def _deep(cache_dir: str, layer: Layer, tile, folder: str) -> str:
     path = os.path.join(folder, "deep", "tile.tif")
     with host_slot(cache_dir, layer.tile_url(tile)):
@@ -234,9 +283,10 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
             raise RuntimeError(f"no probe for a {type(layer).__name__}")
         if kind == "file":
             return row
-        if kind == "wcs":
+        if kind in ("wcs", "imageserver"):
             try:
-                row.index, row.read = _coverage(cache_dir, layer, lat, lon)
+                ask = _coverage if kind == "wcs" else _image_service
+                row.index, row.read = ask(cache_dir, layer, lat, lon)
             except (requests.RequestException, RuntimeError) as e:
                 row.index = FAILED
                 row.notes.append(cache.clean_error(e))
@@ -270,6 +320,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
             elif kind == "window":
                 row.notes.append(_window(cache_dir, layer, tiles[0]))
+            elif kind == "getmap":
+                _getmap(cache_dir, layer, tiles[0])
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:

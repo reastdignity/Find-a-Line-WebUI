@@ -82,6 +82,7 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Finland (with Åland)", "NLS elevation model 2 m", "–",
                           "– (NLS's orthophoto needs an API key)"),
         offline=(("fi", (59.7, 70.1, 19.3, 31.6)),), sample=(66.1695, 27.4881),
+        neighbours=("norway",),
         note="Data: National Land Survey of Finland, CC BY 4.0 (through CSC's Paituli mirror). There is no open "
              "surface model (trees, buildings) for Finland: lines over trees or buildings are not recognised. "
              "The terrain model has pixels of 2 m."),

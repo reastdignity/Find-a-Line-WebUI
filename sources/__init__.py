@@ -9,6 +9,8 @@ between sources never downloads again what is already there.
 Kinds of layers (sources/layers/, a module each):
 - WcsTiles: square tiles from an OGC WCS 2.0 service on a fixed grid in the
   service's coordinate system (Malta, IGN Spain).
+- ImageServerTiles: square tiles from an ArcGIS ImageServer (exportImage) on the
+  service's own pixels (Czechia).
 - IndexedTiles: files found through an index, newest survey per sheet or tile:
   SheetTiles (map sheets from a WFS sheet index, geoportal.gov.pl) and StacTiles
   (tiles of a STAC collection, swisstopo).
@@ -42,15 +44,16 @@ re-exported: call and patch them through their module.
 """
 
 from . import catalogue, choose, composed, credit, filling, indexes, layer, layers, mosaic, net, readers, source
-from .readers import download, sheetfile, tilebases, wcsreader, windows
+from .readers import download, imageserver, sheetfile, tilebases, wcsreader, windows
 from .indexes import cached, listings, tilings, versions
-from .layers import blocks, degree, fileblocks, files, gridtiles, indexed, sheets, stac, tnm, wcs
-from .catalogue import austria, denmark, finland, germany, italy, luxembourg, malta, poland, slovakia, spain, switzerland, uk, usa, world
+from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, indexed, sheets, stac, tnm, wcs, zipped
+from .catalogue import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
 from .source import MIN_RESOLUTION, OrthoService, Source
 from .layers.wcs import WcsTiles
+from .layers.imageserver import ImageServerTiles
 from .readers.tilebases import MIRROR_ENV, grid_tile_name
 from .layers.gridtiles import GridTiles
 from .layers.degree import DegreeTiles, OpenTopographyTiles
@@ -63,6 +66,7 @@ from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
 from .layers.tnm import IfsarBlocks, TnmBlocks, Usgs1mBlocks, _survey_year, _utm_zone_of
 from .layers.files import FileLayer
+from .layers.zipped import ZippedTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
@@ -73,7 +77,7 @@ from .mosaic import build_mosaic, load_slope_file, prepare_layer, used_data
 from .filling import LAKE, OCEAN, SHORE_BUFFER, fill_gaps, fill_gaps_chain, fill_water, near, water_body_mask
 
 __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
-           "Fetched", "download_layers", "HOST_SLOTS_OF", "host_slot", "tile_lock", "WcsTiles", "GridTiles",
+           "Fetched", "download_layers", "HOST_SLOTS_OF", "host_slot", "tile_lock", "WcsTiles", "ImageServerTiles", "GridTiles",
            "MIRROR_ENV", "grid_tile_name", "DegreeTiles", "OpenTopographyTiles", "IndexedTiles", "Sheet",
            "SheetTiles", "StacTiles", "DegreeBlocks", "FileBlocks", "Block", "TnmBlocks", "Usgs1mBlocks",
            "IfsarBlocks", "FileLayer", "GUGIK_CREDIT", "USGS_1M", "FABDEM_CREDIT", "COPERNICUS_DISCLAIMER", "MALTA_CREDITS",

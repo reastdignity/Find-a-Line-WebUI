@@ -77,28 +77,39 @@ Anchors are taken at ground level, as with the formula. With the default values 
 <!-- sources-table:start -->
 | `--source` | Where | `auto` | Terrain (DTM) | Surface (DSM, trees/buildings) | Orthophoto (cached) | Resolution | Gaps from |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `geoportal` | Poland | PL | GUGiK NMT sheets, 1 m, newest survey | GUGiK NMPT sheets, 0.5–1 m (about 85% of Poland) | geoportal.gov.pl | 1 m | `slovakia`, `mecklenburg_vorpommern` at the border, then `europe` |
-| `swisstopo` | Switzerland, Liechtenstein | CH, LI | swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey | swissSURFACE3D Raster, 0.5 m | SWISSIMAGE (swisstopo) | 1 m | `austria`, `south_tyrol` at the border, then `europe` |
-| `slovakia` | Slovakia | SK | ÚGKK SR DMR 5.0, ALS 1 m (2017–2023) | ÚGKK SR DMP 1.0, 1 m | ZBGIS (ÚGKK SR) | 1 m | `geoportal`, `austria` at the border, then `europe` |
+| `czechia` | Czechia | CZ | ČÚZK DMR 5G, 2 m (ImageServer) | ČÚZK DMP 1G, 2 m (ImageServer) | ČÚZK Ortofoto | 2 m | `geoportal`, `slovakia`, `austria`, `saxony` at the border, then `europe` |
+| `geoportal` | Poland | PL | GUGiK NMT sheets, 1 m, newest survey | GUGiK NMPT sheets, 0.5–1 m (about 85% of Poland) | geoportal.gov.pl | 1 m | `slovakia`, `mecklenburg_vorpommern`, `czechia`, `saxony` at the border, then `europe` |
+| `france` | France (mainland, Corsica) | FR | IGN LiDAR HD MNT, 0.5 m (WMS-R, fetched at 1 m) | IGN LiDAR HD MNS, 0.5 m (WMS-R, fetched at 1 m) | IGN BD ORTHO | 1 m | `swisstopo`, `luxembourg`, `spain`, `baden_wurttemberg` at the border, then `france_rgealti`, then `europe` |
+| `france_rgealti` | France (mainland, Corsica) | FR | IGN RGE ALTI, 1 m (WMS-R) | – | IGN BD ORTHO | 1 m | `europe` |
+| `swisstopo` | Switzerland, Liechtenstein | CH, LI | swissALTI3D, 2 m tiles for grids of 2 m or more, 0.5 m below; newest survey | swissSURFACE3D Raster, 0.5 m | SWISSIMAGE (swisstopo) | 1 m | `austria`, `south_tyrol`, `france`, `baden_wurttemberg` at the border, then `europe` |
+| `slovakia` | Slovakia | SK | ÚGKK SR DMR 5.0, ALS 1 m (2017–2023) | ÚGKK SR DMP 1.0, 1 m | ZBGIS (ÚGKK SR) | 1 m | `geoportal`, `austria`, `czechia` at the border, then `europe` |
 | `malta` | Malta | MT | MSDI DTM 2018, LiDAR 1 m (heights in whole metres) | MSDI DSM 2018, 1 m | MSDI 2018 | 1 m | `europe` |
 | `malta2012` | Malta | – | MSDI DTM 2012, centimetre heights | MSDI DSM 2012 | MSDI 2018 | 1 m | `malta` |
 | `spain_canarias` | Canary Islands | ES | IGN MDT05 (REGCAN95 / UTM 28N), 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `europe` |
-| `spain` | Spain (peninsula, Balearic Islands) | ES | IGN MDT05, PNOA-LiDAR 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `europe` |
-| `alaska` | Alaska, where it has 1 m data | US | USGS 3DEP 1 m DEM | – | – (USGS's Alaska imagery: licence restrictions) | 1 m | `alaska_ifsar`, then `usgs10m` |
-| `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | – (USGS's Alaska imagery: licence restrictions) | 5 m | `usgs10m` |
-| `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `usgs10m` |
+| `spain` | Spain (peninsula, Balearic Islands) | ES | IGN MDT05, PNOA-LiDAR 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `france` at the border, then `europe` |
+| `alaska` | Alaska, where it has 1 m data | US | USGS 3DEP 1 m DEM | – | – (USGS's Alaska imagery: licence restrictions) | 1 m | `canada` at the border, then `alaska_ifsar`, then `usgs10m` |
+| `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | – (USGS's Alaska imagery: licence restrictions) | 5 m | `canada` at the border, then `usgs10m` |
+| `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `canada` at the border, then `usgs10m` |
 | `usgs10m` | USA and its territories | – | USGS 3DEP seamless 1/3 arc-second DEM (about 10 m) | – | USGS Imagery | 10 m | `europe` |
-| `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `swisstopo`, `south_tyrol`, `slovakia` at the border, then `europe` |
+| `canada` | Canada, where it has lidar | CA | NRCan HRDEM national mosaic DTM, 1 m | NRCan HRDEM national mosaic DSM, 1 m | – (no national orthophoto service) | 1 m | `usa`, `alaska`, `alaska_ifsar` at the border, then `canada_2m`, then `mrdem30` |
+| `canada_2m` | Canada, where it has lidar | – | NRCan HRDEM national mosaic DTM, 2 m | NRCan HRDEM national mosaic DSM, 2 m | – (no national orthophoto service) | 2 m | `mrdem30` |
+| `mrdem30` | Canada | – | NRCan MRDEM-30 DTM, 30 m | NRCan MRDEM-30 DSM, 30 m | – (no national orthophoto service) | 30 m | – |
+| `austria` | Austria | AT | BEV ALS DTM, 1 m (edition 2025) | BEV ALS DSM, 1 m (edition 2025) | basemap.at Orthofoto | 1 m | `swisstopo`, `south_tyrol`, `slovakia`, `czechia` at the border, then `europe` |
 | `wales` | Wales (GB) | GB | Welsh Government LiDAR 2020-22 DTM, 1 m | Welsh Government LiDAR DSM, 1 m | – (no open orthophoto) | 1 m | `england` at the border, then `europe` |
 | `england` | England (GB) | GB | Environment Agency LIDAR Composite DTM 2022, 1 m | EA LIDAR Composite First Return DSM 2022, 1 m | – (no open orthophoto) | 1 m | `wales` at the border, then `europe` |
-| `hesse` | Hesse (DE) | DE | HVBG DGM1, 1 m (WCS) | HVBG DOM1, 1 m (WCS) | HVBG DOP | 1 m | `lower_saxony` at the border, then `europe` |
+| `hesse` | Hesse (DE) | DE | HVBG DGM1, 1 m (WCS) | HVBG DOM1, 1 m (WCS) | HVBG DOP | 1 m | `lower_saxony`, `baden_wurttemberg` at the border, then `europe` |
 | `mecklenburg_vorpommern` | Mecklenburg-Vorpommern (DE) | DE | LAiV DGM1, 1 m (WCS) | LAiV DOM1, 1 m (WCS) | LAiV DOP | 1 m | `lower_saxony`, `geoportal` at the border, then `europe` |
-| `saxony_anhalt` | Saxony-Anhalt (DE) | DE | LVermGeo DGM1, 1 m (WCS) | LVermGeo DOM1, 1 m (WCS) | LVermGeo DOP20 | 1 m | `lower_saxony` at the border, then `europe` |
+| `saxony_anhalt` | Saxony-Anhalt (DE) | DE | LVermGeo DGM1, 1 m (WCS) | LVermGeo DOM1, 1 m (WCS) | LVermGeo DOP20 | 1 m | `lower_saxony`, `saxony` at the border, then `europe` |
 | `lower_saxony` | Lower Saxony (DE) | DE | LGLN DGM1, 1 m; newest survey | LGLN DOM1, 1 m | LGLN DOP20 | 1 m | `saxony_anhalt`, `hesse`, `mecklenburg_vorpommern` at the border, then `europe` |
+| `saxony` | Saxony (DE) | DE | GeoSN DGM1, 1 m (2 km tiles) | GeoSN DOM1, 1 m (2 km tiles) | GeoSN DOP20 | 1 m | `geoportal`, `saxony_anhalt`, `czechia` at the border, then `europe` |
+| `baden_wurttemberg` | Baden-Württemberg (DE) | DE | LGL DGM1, 1 m (2 km tiles) | LGL DOM1, 1 m (2 km tiles) | LGL DOP20 | 1 m | `hesse`, `swisstopo`, `france` at the border, then `europe` |
 | `south_tyrol` | South Tyrol (IT) | IT | Province of Bolzano DTM, 2.5 m (LiDAR 2004-2006) | Province of Bolzano DSM, 2.5 m | Province of Bolzano 2023 | 2.5 m | `austria`, `swisstopo` at the border, then `europe` |
-| `luxembourg` | Luxembourg | LU | ACT BD-L-Lidar2024 MNT, 0.5 m | ACT BD-L-Lidar2024 MNS, 0.5 m | geoportail.lu orthophoto | 1 m | `europe` |
+| `luxembourg` | Luxembourg | LU | ACT BD-L-Lidar2024 MNT, 0.5 m | ACT BD-L-Lidar2024 MNS, 0.5 m | geoportail.lu orthophoto | 1 m | `france` at the border, then `europe` |
 | `denmark` | Denmark | DK | Klimadatastyrelsen DHM/Terræn, 0.4 m (WCS, API key) | Klimadatastyrelsen DHM/Overflade, 0.4 m (WCS, API key) | – | 1 m | `europe` |
-| `finland` | Finland (with Åland) | FI, AX | NLS elevation model 2 m | – | – (NLS's orthophoto needs an API key) | 2 m | `europe` |
+| `finland` | Finland (with Åland) | FI, AX | NLS elevation model 2 m | – | – (NLS's orthophoto needs an API key) | 2 m | `norway` at the border, then `europe` |
+| `norway` | Norway (mainland) | NO | Kartverket NHM DTM 1, 1 m (WCS) | Kartverket NHM DOM 1, 1 m (WCS) | – (Norge i bilder needs a token) | 1 m | `finland` at the border, then `europe` |
+| `new_zealand` | New Zealand (main islands) | NZ | LINZ LiDAR 1m DEM (national composite) | LINZ LiDAR 1m DSM (national composite) | – (LINZ Basemaps needs a key) | 1 m | `nz8m` |
+| `nz8m` | New Zealand (main islands) | – | LINZ contour-interpolated 8m DEM (2012) | – | – | 8 m | `europe` |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
 | `nasadem` | anywhere | – | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – | 30 m | `europe` |
 | `files` | your files | – | `--elevation-file` | `--surface-file` (optional) | – | the file's | `europe` |
@@ -260,7 +271,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--area` / `--buffer` / `--within` | – / 100 / – | Search an area instead of a circle: `coast`, `cliffs`, a GeoJSON/KML/GPX file or `osm:<name>`; `--buffer` around coastline, cliffs, points and lines; `--within` (needed for `coast` and `cliffs`): `osm:<name>` takes the coastline or cliffs within `--max-length` of that area, a box `S,W,N,E` clips the band |
 | `--tile-size` | from the free memory | Side of the square tiles a large area is computed in, metres |
 | `--ortho-detail` | 50 for an area, all for a circle; swisstopo: 20 | Detailed orthophoto only around this many best groups; the others load it online |
-| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `geoportal`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `austria`, `wales`, `england`, `hesse`, `mecklenburg_vorpommern`, `saxony_anhalt`, `lower_saxony`, `south_tyrol`, `luxembourg`, `denmark`, `finland`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
+| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `czechia`, `geoportal`, `france`, `france_rgealti`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `canada`, `canada_2m`, `mrdem30`, `austria`, `wales`, `england`, `hesse`, `mecklenburg_vorpommern`, `saxony_anhalt`, `lower_saxony`, `saxony`, `baden_wurttemberg`, `south_tyrol`, `luxembourg`, `denmark`, `finland`, `norway`, `new_zealand`, `nz8m`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
 | `--elevation-file` / `--surface-file` | | Your own terrain / surface raster (GeoTIFF, ASC...) |
 | `--water` | `fill` | Fill the sea and lakes where the data has none (`off` to skip) |
 | `--coastline` | `overpass` | Where the sea is: `overpass`, `world` or `copernicus` (see *Sea, lakes and gaps*) |

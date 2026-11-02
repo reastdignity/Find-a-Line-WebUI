@@ -1047,5 +1047,215 @@
     },
     "notes": "--source auto picks finland (the centre is in FI); first run on an empty cache: 4 blocks of 2 km, about 2 MB each; no surface model, so over_trees is never counted; also measured: Korouoma at radius 1500 m 54 lines in 8 spots, Olhavanvuori (Kouvola, 61.1888, 26.8412, radius 600 m), Isokuru (Pyhatunturi, 67.0176, 27.2389, 600 m) and the Kevo canyon (69.7354, 26.9819, 800 m) none; radius 1500 m (the user, 2026-11-01: 600 m gave only 40 lines in 4 spots)",
     "seconds": 2.6
+  },
+  "R40": {
+    "place": "Preikestolen, Lysefjord, Norway: Kartverket's NHM DTM 1 / DOM 1 (1 m) from Geonorge's WCS 1.0.0 in ETRS89 / UTM 33N, the sea 0.0 taken as no data",
+    "args": "--lat 58.9864 --lon 6.1904 --radius 600 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "no"
+    ],
+    "expected": {
+      "anchors": 379503,
+      "open": 47078,
+      "checked": 546374,
+      "lines": 125054,
+      "spots": 417,
+      "csv_sha256": "bf8904cb46005ba52e3ea1cb060a022a776ac0d3a534356566bae6be8ad2c414",
+      "length_km": 23091.239,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.295,
+      "clearance_max": 28.74,
+      "over_trees": 105150,
+      "coverage": 80.36,
+      "empty_tiles": 0,
+      "sea_km2": 0.96,
+      "water_lines": 955,
+      "water_spots": 14
+    },
+    "notes": "--source auto picks norway (the centre is in NO); first run on an empty cache (with the default --max-length 1000): 4 tiles of 2 km per layer, 7-17 MB each, about 2.5 s a tile; the fjord comes back as 0.0 in the DTM (no data: filled as sea, sea_km2) and as about -0.1 m in the DOM; DOM - DTM is up to about 16 m (p99, forest) with outliers of 100+ m at vertical walls, so most lines are over trees; with the defaults (--max-length 1000) 200601 lines in 693 spots, too many for a quick test: --min-length 50 --max-length 300 (the coordinates are the pulpit rock itself, checked on the map)",
+    "seconds": 13.6
+  },
+  "R41": {
+    "place": "Stawamus Chief, Squamish, British Columbia, Canada: NRCan's HRDEM national mosaic 1 m (DTM and DSM), blocks of 1 km read by HTTP range requests from its 500 km COGs on AWS, in its own EPSG:3979 (Canada Atlas Lambert, scale -0.26 % here)",
+    "args": "--lat 49.682 --lon -123.143 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 464978,
+      "open": 45844,
+      "checked": 270473,
+      "lines": 19348,
+      "spots": 179,
+      "csv_sha256": "f8666b49c88c2ed6358cdc3d70bf815191c49bd0c0786197263dc265b83f4b83",
+      "length_km": 2050.615,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.464,
+      "clearance_max": 12.13,
+      "over_trees": 19348,
+      "coverage": 95.06,
+      "empty_tiles": 0,
+      "filled_km2": 0.01,
+      "filled_from": "NRCan HRDEM mosaic (DTM / DSM 2 m)"
+    },
+    "notes": "--source auto picks canada (the centre is in CA); first run on an empty cache: blocks of 1 km of the 500 km COG 2_4, about 2 MB each; the three peaks of the Chief with the North and South Gully between them (179 spots of lines of 50-400 m); every line crosses the gullies' forest, so over_trees is all of them; gaps (0.3 km2, the creeks and the shore) filled from the 2 m mosaic and MRDEM-30; lengths on EPSG:3979 are 0.26 % short here; also measured: radius 800 m with the default lengths, 36533 lines in 283 spots (30-919 m), 84 s on an empty cache",
+    "seconds": 10.7
+  },
+  "R42": {
+    "place": "Castle Hill / Kura Tawhiti, Canterbury, New Zealand: LINZ's national 1 m DEM and DSM, blocks of 1 km read by HTTP range requests from the LERC COGs of the Topo50 sheets (BW21) on the nz-elevation bucket, in NZTM2000",
+    "args": "--lat -43.2280 --lon 171.7180 --radius 500 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "nz"
+    ],
+    "expected": {
+      "anchors": 32340,
+      "open": 2749,
+      "checked": 31426,
+      "lines": 2238,
+      "spots": 89,
+      "csv_sha256": "abf9d732b21ae5440509b23d2749b147d72af8a327af9b3ae8659ef346ccd109",
+      "length_km": 402.461,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.049,
+      "clearance_max": 7.3,
+      "over_trees": 2208,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "notes": "--source auto picks new_zealand (the centre is in NZ); first run on an empty cache: 4-6 blocks of 1 km per layer, about 2 MB each; limestone boulders and outcrops of the conservation area; almost every line is marked over trees/buildings: the DSM stands 2-35 m above the DEM on 1-3 % of the blocks' pixels (trees, boulders) and the lines run low over the basin; also measured: radius 800 m, 30-300 m: 3120 lines in 124 spots",
+    "seconds": 11.4
+  },
+  "R43": {
+    "place": "The Verdon gorge below the Route des Crêtes (Escalès), Alpes-de-Haute-Provence, France: IGN's LiDAR HD MNT / MNS (0.5 m, fetched at 1 m: the exact mean of 2 x 2 pixels) by WMS-R GetMaps in Lambert-93",
+    "args": "--lat 43.7600 --lon 6.3760 --radius 500 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 166355,
+      "open": 13915,
+      "checked": 129045,
+      "lines": 24127,
+      "spots": 187,
+      "csv_sha256": "b881375adb53c4d1812e11372ce6e88c5292ea0dc7abd4b4b8cc463ff7cc3b30",
+      "length_km": 3672.832,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.922,
+      "clearance_max": 39.14,
+      "over_trees": 24077,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "notes": "--source auto picks france (the centre is in FR); first run on an empty cache: 6 tiles of 1 km per layer at 1 m, 2.7-2.9 MB each (DEFLATE), about 1 s a tile; the limestone walls of the gorge's right bank (the steepest pixels of the Escalès area, 300 m below the rim); almost every line is marked over trees: the MNS holds the box trees and pines on the ledges and the rim; the first try at the belvedere's coordinates (43.7655, 6.3580) is on the plateau (41 anchors, no line)",
+    "seconds": 12.5
+  },
+  "R53": {
+    "place": "Saut du Doubs, the France / Switzerland border: IGN's LiDAR HD on the French bank (and a few hundred metres into Switzerland), swisstopo's swissALTI3D / swissSURFACE3D filling the border gap at the circle's edge (a neighbour), RGE ALTI the holes inside",
+    "args": "--lat 47.0875 --lon 6.7120 --radius 800 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 130934,
+      "open": 8195,
+      "checked": 9709,
+      "lines": 580,
+      "spots": 23,
+      "csv_sha256": "4fbdc9190aa1563887a7a33159d5fae8086494744190d4e04d407e0515fc6d7d",
+      "length_km": 133.873,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.677,
+      "clearance_max": 3.54,
+      "over_trees": 580,
+      "coverage": 100.0,
+      "empty_tiles": 2,
+      "filled_km2": 0.02,
+      "filled_from": "swisstopo (swissALTI3D / swissSURFACE3D)",
+      "water_lines": 21,
+      "water_spots": 1
+    },
+    "notes": "--source auto picks france (the centre, on the French bank above the Lac des Brenets, is in FR); first run on an empty cache: 9 tiles of 1 km per layer, one without data (Swiss); LiDAR HD reaches a few hundred metres into Switzerland, so swisstopo (the neighbour) fills only the border gap at the edge of the circle (0.02 km2) and RGE ALTI the holes inside it (the lake's surface and the river, 0.12 km2); the cliffs of the Doubs gorge are wooded: every line over trees, 21 over the water",
+    "seconds": 35.9
+  },
+  "R44": {
+    "place": "Adršpach rock town (Adršpašské skály), Czechia: ČÚZK's DMR 5G and DMP 1G (2 m) from its ArcGIS ImageServers (exportImage) in S-JTSK / Krovak East North",
+    "args": "--lat 50.6115 --lon 16.1170 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "cz"
+    ],
+    "expected": {
+      "anchors": 80073,
+      "open": 22745,
+      "checked": 436433,
+      "lines": 37687,
+      "spots": 1976,
+      "csv_sha256": "4e559d62ca07552cdd5684c70ecf79f8f3caede43118b01685d56a4a995bd190",
+      "length_km": 5685.808,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.154,
+      "clearance_max": 32.34,
+      "over_trees": 37339,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "water_lines": 218,
+      "water_spots": 19
+    },
+    "seconds": 29.6
+  },
+  "R45": {
+    "place": "Schrammsteine (Lorenzwände), Elbe Sandstone Mountains, Saxony, Germany: GeoSN's DGM1 / DOM1 (1 m), zipped 2 km GeoTIFFs from its Nextcloud share in ETRS89 / UTM 33N",
+    "args": "--lat 50.9104 --lon 14.2220 --radius 400 --min-length 30 --max-length 150",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "notes": "--source auto picks saxony (the centre is in DE-SN); first run on an empty cache: 4 ZIPs of 2 km per layer, about 16 MB each, about 1 s a ZIP; the centre is on the Schrammsteine's sandstone towers south of the Großer Dom gully (the research's 50.920, 14.210 lies in the gully north of them: 2796 lines in 44 spots with r 800, 50-400 m); the towers stand close together, so a narrow search: r 700 with 50-400 m gave 371372 lines in 2303 spots, r 400 with 30-150 m 27674 in 249; nearly every line crosses forest in the gaps between the towers (over_trees); seen on a slope map of the DGM1 with the spots drawn",
+    "expected": {
+      "anchors": 90799,
+      "open": 9278,
+      "checked": 99680,
+      "lines": 27674,
+      "spots": 249,
+      "csv_sha256": "299f3b20bde93d78c5d5f78772b08c602ad59a6870676e77ebb324d890990db3",
+      "length_km": 3069.364,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.193,
+      "clearance_max": 19.77,
+      "over_trees": 27484,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 5.7
+  },
+  "R46": {
+    "place": "Danube valley at Beuron, Swabian Jura, Baden-Württemberg, Germany: LGL's DGM1 (1 m, four 1 km XYZ grids per 2 km ZIP) and DOM1 (four 1 km GeoTIFFs per ZIP) in ETRS89 / UTM 32N",
+    "args": "--lat 48.053 --lon 8.971 --radius 1000 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "notes": "--source auto picks baden_wurttemberg (the centre is in DE-BW); first run on an empty cache: 6 ZIPs of 2 km per layer (14.5 MB with four 29 MB XYZ grids for the DGM1, 12 MB with four GeoTIFFs for the DOM1), about 1.3 s to read a DGM1 ZIP; the spots are on the limestone cliffs of the Danube's bends east and south-east of Beuron (the spur north of the bend at 48.051-48.055 N, 8.974-8.984 E, the rocks above the river at 48.046 N, 8.977 E and further east), seen on a slope map of the DGM1 with the spots drawn; every line crosses the valley's forest (over_trees)",
+    "expected": {
+      "anchors": 107298,
+      "open": 6575,
+      "checked": 55929,
+      "lines": 7368,
+      "spots": 97,
+      "csv_sha256": "282e5bcd8ba1f62f0e6ad7eb09190e7fb3b9f23f351dbe47628985692296996c",
+      "length_km": 1549.322,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.823,
+      "clearance_max": 13.43,
+      "over_trees": 7368,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 4.7
   }
 }

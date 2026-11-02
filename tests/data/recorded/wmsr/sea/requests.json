@@ -1,0 +1,15 @@
+{
+ "recorded": "2026-11-02",
+ "hosts": [
+  "https://data.geopf.fr"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=494390.75%2C6961600.25%2C494422.75%2C6961632.25&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "001.tif"
+  }
+ ]
+}
