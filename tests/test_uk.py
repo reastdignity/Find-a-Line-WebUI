@@ -60,7 +60,8 @@ def test_england_tile_on_the_coverage_pixels(tmp_path, monkeypatch):
 def test_wales_blocks_of_the_national_file():
     """Blocks of 1 km on the national COG's pixels (edges on whole metres), in the release's folder;
     one partly over the file reads it, one beyond its extent is missing without a request."""
-    for layer, kind in ((uk.SOURCES[0].nmt, "dtm"), (uk.SOURCES[0].nmpt, "dsm")):
+    wales = next(s for s in uk.SOURCES if s.id == "wales")
+    for layer, kind in ((wales.nmt, "dtm"), (wales.nmpt, "dsm")):
         url = f"https://dmwproductionblob.blob.core.windows.net/cogs/lidar/wales_{kind}_32bit_cog.tif"
         assert layer.folder == f"wales/lidar-{kind}/{uk.WALES_RELEASE}"
         request = layer.index.request((262, 356))
@@ -73,7 +74,7 @@ def test_wales_blocks_of_the_national_file():
 
 def test_auto_by_region_offline(tmp_path, monkeypatch):
     """Offline, the region boxes decide: Wales's first where they overlap (the border), England's
-    elsewhere in England; Scotland is in neither and gets europe."""
+    elsewhere in England; Scotland's own boxes in Scotland."""
     def offline(*args, **kwargs):
         raise requests.ConnectionError("offline")
     monkeypatch.setattr(osm, "reverse", offline)
@@ -83,6 +84,6 @@ def test_auto_by_region_offline(tmp_path, monkeypatch):
             src.SOURCES["wales"].sample: ("wales", "the centre is in GB-WLS"),
             (51.2840, -2.7590): ("england", "the centre is in GB-ENG"),   # Cheddar Gorge (R26)
             (53.19, -2.89): ("wales", "the centre is in GB-WLS"),         # Chester: inside both boxes (offline only)
-            (56.8, -5.0): ("europe", "no national source for this place")}.items():
+            (56.8, -5.0): ("scotland", "the centre is in GB-SCT")}.items():
         source, reason = src.choose_source("auto", lat, lon, cache_dir)
         assert (source.id, reason) == (sid, why), (lat, lon)

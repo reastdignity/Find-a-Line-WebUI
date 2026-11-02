@@ -286,7 +286,8 @@ SOURCES: List[Source] = [
         neighbours=("hesse", "lower_saxony"),
         listing=ReadmeRow("North Rhine-Westphalia (DE)", "Geobasis NRW DGM1, 1 m (WCS)", "Geobasis NRW DOM1, 1 m (WCS)",
                           "Geobasis NRW DOP"),
-        offline=(("de-nw", (50.32, 52.53, 5.86, 9.46)),), sample=(51.3200, 8.5400),
+        # Aachen and the north, then the Eifel east of the Belgian border (not Belgium's East Cantons)
+        offline=(("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25))), sample=(51.3200, 8.5400),
         note="Data Geobasis NRW, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
              "survey years."),
 ]
