@@ -205,7 +205,34 @@ visual review on the desktop and both phones, and the privacy/About wording prop
 - **Visual review, for wave 3:** the walker is hard to find at the framing distance (about 6 px tall at 190 m;
   invisible on phones); on phones the bar below the canvas takes about 40 % of the screen (the readout on two
   lines, the slider, the imagery control and two notes on rows of their own); the sky is the page's flat
-  background. Decisions on these: the user's, at the wave-2 checkpoint.
+  background (kept).
+
+## Decisions at the wave-2 checkpoint (2026-11-02, the user's)
+The approved texts go in word for word (English, as below); nothing else on these pages changes.
+- **Privacy page** (`web.privacy_page`, the bullet of the facts on public services): its last sentence becomes
+  "Maps in your browser and the 3D view of a line load background tiles and imagery (OpenStreetMap, OpenTopoMap,
+  Esri, orthophoto services) directly: those services see your IP address. The 3D view's terrain comes from this
+  site; it is computed for the view and not stored."
+- **About page, Esri** (`web.esri_terms`; its first sentence stays): "By using the satellite imagery (in the map or
+  in the 3D view of a line) you agree to comply with Esri's terms of use for it (<the link as now>). In particular,
+  it may only be viewed in this map and in the 3D view of a line: it may not be downloaded, stored, copied or
+  passed on."
+- **About page, Software:** "The maps, the app and the 3D view include open-source libraries (Leaflet, Preact,
+  i18next, three.js and others); their licences and copyright notices: <the link as now>."
+- **Mapterhorn, only while `FINDALINE_3D_RING` is on** (otherwise the pages stay as they are):
+  - privacy page, a fact after the one above: "When the 3D view shows the terrain around its patch, your browser
+    loads it from Mapterhorn (tiles.mapterhorn.com), which logs each request with its IP address, referrer and
+    browser for up to 30 days."
+  - about page: "Terrain around the 3D view: © Mapterhorn (mapterhorn.com/attribution), from open elevation data
+    under the licences of its sources." ("mapterhorn.com/attribution" links to https://mapterhorn.com/attribution);
+  - the 3D view's credits: "© Mapterhorn" linking to https://mapterhorn.com/attribution (their TileJSON's
+    attribution).
+  - Their privacy policy (https://mapterhorn.com/privacy-policy/, updated 2026-07-07, read 2026-11-02) logs the
+    source IP, referrer, user agent and more for up to 30 days; no usage policy or limit is published.
+- **The walker:** always at true scale; when it is smaller than about 20 px on the screen, a contrasting marker
+  (a pin) shows above it, gone again when the camera comes closer.
+- **The phone bar** (the coordinator's default, not objected to): the readout on one line, the walker's slider and
+  the imagery control in one row, the notes in small type.
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
