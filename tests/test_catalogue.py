@@ -966,6 +966,8 @@ def test_water_mask_and_tile_urls(tmp_path):
     europe, usgs10m = src.SOURCES["europe"], src.SOURCES["usgs10m"]
     assert europe.nmt.tile_url((50, 19)) == fabdem + "N50E010-N60E020_FABDEM_V1-2/N50E019_FABDEM_V1-2.tif"
     assert europe.nmt.tile_url((-34, -71)) == fabdem + "S40W080-S30W070_FABDEM_V1-2/S34W071_FABDEM_V1-2.tif"
+    assert europe.nmt.tile_url((-44, 171)) == fabdem + "S50E170-S40W180_FABDEM_V1-2/S44E171_FABDEM_V1-2.tif"
+    assert europe.nmt.tile_url((-44, -177)) == fabdem + "S50W180-S40W170_FABDEM_V1-2/S44W177_FABDEM_V1-2.tif"
     assert europe.nmpt.tile_url((50, 19)) == copernicus + "N50_00_E019_00_DEM/Copernicus_DSM_COG_10_N50_00_E019_00_DEM.tif"
     assert (europe.nmpt.tile_url((-34, -71))
             == copernicus + "S34_00_W071_00_DEM/Copernicus_DSM_COG_10_S34_00_W071_00_DEM.tif")
