@@ -265,7 +265,8 @@ class Filters:
 def select(keys: np.ndarray, filters: Filters) -> np.ndarray   # a boolean mask of the keys passing
 
 class Cube:
-    def __init__(self, folder: str): ...   # cube.json, the .npy files memory-mapped
+    def __init__(self, folder: str): ...   # cube.json; each .npy read into memory when first used (not mapped:
+                                           # Windows would refuse the next build's replacing a mapped file)
     info: Dict                             # cube.json
     def box(self, west: float, south: float, east: float, north: float) -> Tuple[float, float, float, float]  # WGS84 → CRS (densified)
     def auto_level(self, box: Tuple[float, float, float, float], most: int = 4000) -> int  # the finest level with at most `most` cells over box
