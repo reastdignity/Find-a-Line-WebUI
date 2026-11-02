@@ -44,4 +44,31 @@ export interface ShapeProperties {
   kind: "country" | "region";    // a region is drawn over its country
   continent: string | null;      // Natural Earth's CONTINENT of a country, null for a region
   small: boolean;                // too small to see on a world map: drawn as a dot at its centroid
+  rest?: true;                   // the part of a country its source does not cover (France's overseas
+                                 // regions, Svalbard): a feature of its own with the country's id, at 30 m
+}
+
+/** The 30 m against 1 m comparison at famous places: docs/coverage/contrast/contrast.json, written by
+ *  tools/coverage_contrast.py (the hillshades are JPEG files next to it). */
+export interface ContrastSide {
+  image: string;           // the hillshade's file name, a square of 2 x radius
+  res: number;             // metres
+  lines: number;
+  spots: number;           // groups of lines (the map's spots)
+  segments: [number, number, number, number, 0 | 1][];  // spots' lines in the square, 0..1 (x1, y1, x2, y2, over obstacles)
+  relief: [number, number];  // lowest and highest height in the square
+  source: string;
+  source_name: string;
+  credits: { data: string; attribution: string; licence: string; url: string; notice?: string }[];
+}
+export interface ContrastPlace {
+  lat: number; lon: number; radius: number;
+  fine: ContrastSide; coarse: ContrastSide;
+  verify: { fine_spots: number; fine_found: number; coarse_spots: number; coarse_real: number };
+}
+export interface Contrast {
+  threshold: number;       // the 30 m search's slope threshold (degrees)
+  match_radius: number;    // a 30 m spot is real when a 1 m line has both anchors within this many metres
+  places: Record<string, ContrastPlace>;
+  verify: { places: number; fine_spots: number; fine_found: number; coarse_spots: number; coarse_real: number };
 }
