@@ -15,7 +15,7 @@ import sources as src  # noqa: E402
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "austria", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "south_tyrol", "luxembourg", "denmark",
-       "finland", "europe", "nasadem"]
+       "finland", "norway", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -745,6 +745,48 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                 'credit': 'Elevation model 2 m (National Land Survey of Finland)',
                                 'shift': (0.0, 0.0)},
                         'nmpt': None},
+            'norway': {'crs': 'EPSG:25833',
+                       'countries': ('no',),
+                       'bbox': None,
+                       'fallbacks': ['europe'],
+                       'grid_origin': (0.0, 0.0),
+                       'default_resolution': 1.0,
+                       'instead_without_data': None,
+                       'local_crs': 'utm_crs',
+                       'ortho': None,
+                       'credits': ['Nasjonal detaljert høydemodell, DTM 1 / DOM 1 (Kartverket)'],
+                       'nmt': {'class': 'WcsTiles',
+                               'description': 'NHM DTM 1 1 m (terrain)',
+                               'folder': 'norway/nhm-dtm1/live',
+                               'prefix': None,
+                               'native_res': 1.0,
+                               'processing': 1,
+                               'ttl_days': 730,
+                               'credit': 'Nasjonal detaljert høydemodell, DTM 1 / DOM 1 (Kartverket)',
+                               'shift': (0.0, 0.0),
+                               'url': 'https://wcs.geonorge.no/skwms1/wcs.hoyde-dtm-nhm-25833',
+                               'coverage': 'nhm_dtm_topo_25833',
+                               'crs': 'EPSG:25833',
+                               'axes': ('x', 'y'),
+                               'fmt': 'GeoTIFF',
+                               'fetch_res': None,
+                               'tile_px': 2000},
+                       'nmpt': {'class': 'WcsTiles',
+                                'description': 'NHM DOM 1 1 m (trees, buildings)',
+                                'folder': 'norway/nhm-dom1/live',
+                                'prefix': None,
+                                'native_res': 1.0,
+                                'processing': 1,
+                                'ttl_days': 730,
+                                'credit': 'Nasjonal detaljert høydemodell, DTM 1 / DOM 1 (Kartverket)',
+                                'shift': (0.0, 0.0),
+                                'url': 'https://wcs.geonorge.no/skwms1/wcs.hoyde-dom-nhm-25833',
+                                'coverage': 'nhm_dom_topo_25833',
+                                'crs': 'EPSG:25833',
+                                'axes': ('x', 'y'),
+                                'fmt': 'GeoTIFF',
+                                'fetch_res': None,
+                                'tile_px': 2000}},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -890,6 +932,10 @@ PATHS = [
     ("denmark", "nmpt", (1.0, 352, 3048), "denmark/dhm-overflade/live/epsg25832-1m-2000px-tif/352_3048.tif",
      (1.0, 352, 3048)),
     ("finland", "nmt", (261, 3669), "finland/dem2m/live/5_73/261_3669.tif", (261, 3669)),
+    ("norway", "nmt", (1.0, -3, 3285), "norway/nhm-dtm1/live/epsg25833-1m-2000px-tif/-3_3285.tif",
+     (1.0, -3, 3285)),
+    ("norway", "nmpt", (1.0, -3, 3285), "norway/nhm-dom1/live/epsg25833-1m-2000px-tif/-3_3285.tif",
+     (1.0, -3, 3285)),
 ]
 
 
@@ -961,7 +1007,7 @@ def test_layer_surface():
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
-                   "saxony_anhalt", "south_tyrol", "denmark"}
+                   "saxony_anhalt", "south_tyrol", "denmark", "norway"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
     for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks):
@@ -982,7 +1028,11 @@ BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6)),
          ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("lu", (49.44, 50.19, 5.73, 6.54)),
          ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21)),
-         ("fi", (59.7, 70.1, 19.3, 31.6))]
+         ("fi", (59.7, 70.1, 19.3, 31.6)),
+         ("no", (69.00, 71.20, 15.50, 31.20)), ("no", (57.90, 59.10, 4.50, 11.00)),
+         ("no", (59.10, 60.00, 4.50, 11.80)), ("no", (60.00, 62.00, 4.50, 12.30)), ("no", (62.00, 63.50, 4.50, 12.00)),
+         ("no", (63.50, 64.50, 7.00, 13.00)), ("no", (64.50, 65.50, 9.00, 14.00)), ("no", (65.50, 66.50, 11.50, 14.50)),
+         ("no", (66.50, 68.00, 11.50, 15.60)), ("no", (68.00, 69.00, 11.50, 17.50))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -1112,6 +1162,7 @@ ATTRIBUTIONS = {
     "saxony_anhalt": "© GeoBasis-DE / LVermGeo ST, Daten geändert",
     "mecklenburg_vorpommern": "© GeoBasis-DE/M-V {year}, Daten geändert",
     "finland": "Contains data from the National Land Survey of Finland Elevation model 2 m {year}, CC BY 4.0, processed",
+    "norway": "©Kartverket, CC BY 4.0, processed",
     "wales": "Contains public sector information licensed under the Open Government Licence v3.0",
     "england": "© Environment Agency copyright and/or database right 2022. All rights reserved. Modified: resampled "
                "onto the working grid.",

@@ -43,6 +43,9 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # LAiV's DOM WCS is meant for small areas; a provincial server (South Tyrol): the same courtesy
     "www.geodaten-mv.de": 4,
     "geoservices9.civis.bz.it": 4,
+    # Kartverket's WCS (Norway): no published limit (its terms: "technical limitations ... will be
+    # stated for each service"; the service states none, 2026-11-02): courtesy
+    "wcs.geonorge.no": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

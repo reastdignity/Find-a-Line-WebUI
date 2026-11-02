@@ -7,8 +7,8 @@ its Source objects) and the module in FAMILIES, before the sources it should win
 from typing import Dict
 
 from ..source import Source
-from . import austria, denmark, finland, germany, italy, luxembourg, malta, poland, slovakia, spain, switzerland, uk, usa, world
+from . import austria, denmark, finland, germany, italy, luxembourg, malta, norway, poland, slovakia, spain, switzerland, uk, usa, world
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last
-FAMILIES = (poland, switzerland, slovakia, malta, spain, usa, austria, uk, germany, italy, luxembourg, denmark, finland, world)
+FAMILIES = (poland, switzerland, slovakia, malta, spain, usa, austria, uk, germany, italy, luxembourg, denmark, finland, norway, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}
