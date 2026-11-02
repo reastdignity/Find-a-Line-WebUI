@@ -1,0 +1,252 @@
+"""The country driver (country.py, docs/country-precompute/contract.md, section 3): a small country
+of the Żabi Koń clip reprojected to EPSG:8353 (negative coordinates), offline. Its cube equals the
+counts of one grid, whether counted at once, resumed or by two worker processes; a tile failing
+once is retried, twice it is failed; a partial cube needs --partial."""
+
+import json
+import os
+import sqlite3
+import sys
+
+import numpy as np
+import pytest
+
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
+DATA = os.path.join(REPO, "tests", "data")
+CLIP = os.path.join(DATA, "zabi_kon_nmt.tif")
+OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
+               "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
+SQUARE = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                              [19.7522, 50.1580], [19.7522, 50.1546]]]}
+ID = "testland"
+
+
+def _krovak_clip(folder) -> str:
+    """The clip reprojected to EPSG:8353 (S-JTSK [JTSK03] / Krovak East North), 1 m."""
+    import rasterio as rio
+    from rasterio.warp import Resampling, calculate_default_transform, reproject
+    out = os.path.join(folder, "clip_8353.tif")
+    with rio.open(CLIP) as src:
+        transform, width, height = calculate_default_transform(src.crs, "EPSG:8353", src.width, src.height,
+                                                               *src.bounds, resolution=1.0)
+        profile = src.profile.copy()
+        profile.update(crs="EPSG:8353", transform=transform, width=width, height=height, nodata=np.nan,
+                       dtype="float32")
+        with rio.open(out, "w", **profile) as dst:
+            reproject(rio.band(src, 1), rio.band(dst, 1), src_nodata=src.nodata, dst_nodata=np.nan,
+                      resampling=Resampling.bilinear)
+    return out
+
+
+@pytest.fixture(scope="module")
+def env(tmp_path_factory):
+    """The offline environment (also of the worker processes) and the test country's config: bands S
+    and M in the layer, C a control band of S's [60, 150)."""
+    saved = {k: os.environ.get(k) for k in OFFLINE_ENV}
+    os.environ.update(OFFLINE_ENV)
+    base = tmp_path_factory.mktemp("country")
+    area = base / "square.geojson"
+    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": SQUARE}))
+    config = {"id": ID, "name": "Testland", "source": "files", "area": str(area),
+              "bands": [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula",
+                         "slope_threshold": 45, "core_m": 200, "layer": True},
+                        {"name": "M", "lengths": [150, 300], "resolution": 2.0, "model": "sag",
+                         "slope_threshold": 45, "core_m": 400, "layer": True},
+                        {"name": "C", "lengths": [60, 150], "resolution": 2.0, "model": "formula",
+                         "slope_threshold": 45, "core_m": 400, "layer": False}],
+              "tension": [[30, 2.5], [300, 6.0]], "rig": {"webbing_weight": 41.0, "stretch": 2.1},
+              "options": {"nmpt": "off", "water": "off", "coastline": "copernicus", "fill_gaps": "off",
+                          "elevation_file": _krovak_clip(str(base))}}
+    yield {"base": base, "config": config}
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
+
+
+def _data_dir(env, name: str) -> str:
+    """A data folder with the test country's country.json (its config only)."""
+    data = env["base"] / name
+    folder = data / "countries" / ID
+    folder.mkdir(parents=True)
+    (folder / "country.json").write_text(json.dumps({"config": env["config"]}))
+    return str(data)
+
+
+def _country(*args) -> int:
+    import country
+    return country.main(list(args))
+
+
+def _cube(data: str) -> dict:
+    folder = os.path.join(data, "countries", ID, "cube")
+    out = {name: np.load(os.path.join(folder, name)) for name in os.listdir(folder) if name.endswith(".npy")}
+    assert len(out) == 8
+    return out
+
+
+def _manifest(data: str):
+    db = sqlite3.connect(os.path.join(data, "countries", ID, "manifest.sqlite"))
+    try:
+        return db.execute("SELECT band, name, status, attempts, error FROM tiles ORDER BY rowid").fetchall()
+    finally:
+        db.close()
+
+
+def _assert_same_cube(a: dict, b: dict):
+    assert sorted(a) == sorted(b)
+    for name in a:
+        assert np.array_equal(a[name], b[name]), name
+
+
+@pytest.fixture(scope="module")
+def full(env):
+    """A whole run in this process, and the counts of one grid per layer band (count_tile with
+    core=None and a TileCounter over the band's whole grid) built into a cube."""
+    import country
+    import countcube
+    import search
+    data = _data_dir(env, "full")
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--yes") == 0
+    folder = os.path.join(data, "countries", ID)
+    with open(os.path.join(folder, "country.json"), encoding="utf-8") as f:
+        state = json.load(f)
+    c = country.Country.from_config(state["config"])
+    reference = os.path.join(env["base"], "reference")
+    tiles = []
+    for band in c.bands:
+        if not band.layer:
+            continue
+        plan = country.band_plan(c, band, folder, data)
+        os.makedirs(plan.paths.work, exist_ok=True)
+        counter = countcube.TileCounter(plan.grid, tuple(state["origin"]), None, band.lengths, False)
+        search.count_tile(plan, search.prepare_data(plan), None, counter, country.tension_table(c, band, plan))
+        path = os.path.join(reference, f"{band.name}.npz")
+        os.makedirs(reference, exist_ok=True)
+        countcube.save_tile(path, counter.result(), {})
+        tiles.append(path)
+    countcube.build(tiles, os.path.join(reference, "cube"), {"origin": state["origin"], "crs": state["crs"]})
+    return {"data": data, "state": state, "reference": _cube_folder(os.path.join(reference, "cube"))}
+
+
+def _cube_folder(folder: str) -> dict:
+    return {name: np.load(os.path.join(folder, name)) for name in os.listdir(folder) if name.endswith(".npy")}
+
+
+def test_cube_equals_one_grid(env, full):
+    """The cube of the tiles equals the counts of one grid, in a CRS of negative coordinates, with
+    at least 2 x 2 tiles; cube.json as the contract gives it."""
+    data, state = full["data"], full["state"]
+    assert state["crs"] == "EPSG:8353" and state["origin"][0] < 0 and state["origin"][1] < 0
+    rows = _manifest(data)
+    assert sum(r[0] == "S" for r in rows) >= 4 and sum(r[0] == "M" for r in rows) >= 2
+    assert all(r[2] == "done" for r in rows)
+    assert all(r[1].startswith("E-") and "_N-" in r[1] for r in rows)
+    cube = _cube(data)
+    _assert_same_cube(cube, full["reference"])
+    folder = os.path.join(data, "countries", ID)
+    with open(os.path.join(folder, "cube", "cube.json"), encoding="utf-8") as f:
+        info = json.load(f)
+    assert info["totals"]["lines"] > 100 and info["totals"]["spots"] > 10
+    assert info["partial"] is False and info["dsm"] is False and info["water"] is False
+    assert info["config"] == state["hash"] and info["origin"] == state["origin"]
+    assert [b["name"] for b in info["bands"]] == ["S", "M", "C"] and [b["layer"] for b in info["bands"]] == \
+        [True, True, False]
+    m = info["bands"][1]
+    assert m["done"] == m["tiles"] and m["seconds"] > 0
+    assert m["params"] == {"source": "files", "min_length": 150, "max_length": 300, "resolution": 2.0,
+                           "model": "sag", "slope_threshold": 45, "nmpt": "off", "water": "off",
+                           "coastline": "copernicus", "fill_gaps": "off", "pretension": 6.0, "stretch": 2.1,
+                           "webbing_weight": 41.0}
+    assert os.path.exists(os.path.join(folder, "cube", "area.geojson"))
+    # every tile's meta: the config, the origin, the counts, the data used
+    import countcube
+    path = os.path.join(folder, "tiles", "S", rows[0][1] + ".npz")
+    counts, meta = countcube.load_tile(path)
+    assert meta["config"] == state["hash"] and meta["origin"] == state["origin"] and meta["band"] == "S"
+    assert meta["lines"] == counts.lines and meta["spots"] == len(counts.spot_ids) and "dropped" in meta
+    assert meta["seconds"]["count"] >= 0 and meta["threads"] >= 1 and meta["data"] and "peak_memory" in meta
+
+
+def test_status_and_compare(env, full, capsys):
+    """status shows the bands; compare writes compare.json of the control band against S's part."""
+    data = full["data"]
+    capsys.readouterr()
+    assert _country("status", ID, "--data-dir", data) == 0
+    out = capsys.readouterr().out
+    assert "Testland" in out and "Cube built" in out
+    assert _country("compare", ID, "--data-dir", data, "--control", "C", "--against", "S") == 0
+    with open(os.path.join(data, "countries", ID, "compare.json"), encoding="utf-8") as f:
+        result = json.load(f)
+    assert result["lengths"] == [60, 150] and result["lines"]["control"] > 0 and result["lines"]["against"] > 0
+    assert set(result["cells"]) == {"1", "4"} and result["seconds"]["control"] > 0
+
+
+def test_resume(env, full):
+    """--max-tiles 1, then the rest: the same cube."""
+    data = _data_dir(env, "resume")
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--bands", "S,M", "--max-tiles", "1",
+                    "--yes") == 0
+    rows = _manifest(data)
+    assert [r[2] for r in rows].count("done") == 1
+    assert not os.path.exists(os.path.join(data, "countries", ID, "cube", "cube.json"))
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--bands", "S,M", "--yes") == 0
+    _assert_same_cube(_cube(data), full["reference"])
+
+
+def test_two_processes(env, full):
+    """Two worker processes: the same cube, each with its log."""
+    data = _data_dir(env, "two")
+    assert _country("run", ID, "--data-dir", data, "--processes", "2", "--bands", "S,M", "--yes") == 0
+    _assert_same_cube(_cube(data), full["reference"])
+    logs = os.path.join(data, "countries", ID, "logs")
+    assert {"run.log", "worker-0.log", "worker-1.log"} <= set(os.listdir(logs))
+    db = sqlite3.connect(os.path.join(data, "countries", ID, "manifest.sqlite"))
+    try:
+        workers = {r[0] for r in db.execute("SELECT worker FROM tiles WHERE band IN ('S', 'M')")}
+        control = {r[0] for r in db.execute("SELECT status FROM tiles WHERE band = 'C'")}
+    finally:
+        db.close()
+    assert workers and workers <= {"slot-0", "slot-1"} and control == {"pending"}
+
+
+def test_failing_tiles(env, full, monkeypatch, capsys):
+    """A tile failing once is counted again; failing twice it is failed, status shows it, and build
+    refuses the partial cube without --partial."""
+    import search
+    data = _data_dir(env, "failing")
+    original = search.count_tile
+    failures = {"left": 1, "core": None}
+
+    def flaky(plan, tile_data, core, sink, sag_table=None):
+        if failures["core"] is None:
+            failures["core"] = core
+        if core == failures["core"] and failures["left"]:
+            failures["left"] -= 1
+            raise RuntimeError("a test failure")
+        return original(plan, tile_data, core, sink, sag_table)
+
+    monkeypatch.setattr(search, "count_tile", flaky)
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--bands", "S", "--yes") == 0
+    rows = [r for r in _manifest(data) if r[0] == "S"]
+    assert all(r[2] == "done" for r in rows) and rows[0][3] == 2 and all(r[3] == 1 for r in rows[1:])
+
+    data = _data_dir(env, "failed")
+    failures.update(left=10, core=None)
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--bands", "S", "--yes") == 1
+    rows = [r for r in _manifest(data) if r[0] == "S"]
+    assert rows[0][2] == "failed" and rows[0][3] == 2 and "a test failure" in rows[0][4]
+    assert all(r[2] == "done" for r in rows[1:])
+    capsys.readouterr()
+    assert _country("status", ID, "--data-dir", data) == 0
+    out = capsys.readouterr().out
+    assert "failed" in out and "a test failure" in out and rows[0][1] in out
+    assert _country("build", ID, "--data-dir", data) == 1
+    assert "--partial" in capsys.readouterr().out
+    assert not os.path.exists(os.path.join(data, "countries", ID, "cube", "cube.json"))
+    assert _country("build", ID, "--data-dir", data, "--partial") == 0
+    with open(os.path.join(data, "countries", ID, "cube", "cube.json"), encoding="utf-8") as f:
+        info = json.load(f)
+    assert info["partial"] is True and any("Partial" in n for n in info["notes"])
