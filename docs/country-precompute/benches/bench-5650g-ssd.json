@@ -1,0 +1,325 @@
+{
+ "version": 1,
+ "commit": null,
+ "machine": {
+  "cpu": "AMD Ryzen 5 PRO 5650G with Radeon Graphics",
+  "physical_cores": 6,
+  "logical_cores": 12,
+  "ram_gb": 62.2,
+  "os": "Linux-6.12.54-Unraid-x86_64-AMD_Ryzen_5_PRO_5650G_with_Radeon_Graphics-with-glibc2.42",
+  "python": "3.14.4"
+ },
+ "searches": {
+  "S": {
+   "stages": [
+    {
+     "stage": "Start: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.0,
+     "peak_rss_mb": 301.0
+    },
+    {
+     "stage": "Step 1: (between bars)",
+     "wall_s": 0.5,
+     "cpu_s": 0.4,
+     "cores": 0.98,
+     "peak_rss_mb": 402.0
+    },
+    {
+     "stage": "Step 1: Compute stitching terrain",
+     "wall_s": 0.4,
+     "cpu_s": 0.4,
+     "cores": 1.01,
+     "peak_rss_mb": 610.0
+    },
+    {
+     "stage": "Step 1: Compute stitching surface",
+     "wall_s": 0.4,
+     "cpu_s": 0.4,
+     "cores": 0.99,
+     "peak_rss_mb": 598.0
+    },
+    {
+     "stage": "Step 2: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.21,
+     "peak_rss_mb": 578.0
+    },
+    {
+     "stage": "Step 2: Compute finding anchors",
+     "wall_s": 0.3,
+     "cpu_s": 0.3,
+     "cores": 1.04,
+     "peak_rss_mb": 558.0
+    },
+    {
+     "stage": "Step 2: Compute anchor prominence and drop",
+     "wall_s": 2.5,
+     "cpu_s": 3.1,
+     "cores": 1.25,
+     "peak_rss_mb": 768.0
+    },
+    {
+     "stage": "Step 3: (between bars)",
+     "wall_s": 0.1,
+     "cpu_s": 0.5,
+     "cores": 7.82,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 3: Compute free directions",
+     "wall_s": 0.2,
+     "cpu_s": 1.4,
+     "cores": 9.05,
+     "peak_rss_mb": 536.0
+    },
+    {
+     "stage": "Step 3: Compute anchor pairs",
+     "wall_s": 0.1,
+     "cpu_s": 1.0,
+     "cores": 8.86,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 3: Compute checking lines",
+     "wall_s": 0.0,
+     "cpu_s": 0.2,
+     "cores": 9.98,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 4: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.7,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 4: Compute coordinates",
+     "wall_s": 0.0,
+     "cpu_s": 0.1,
+     "cores": 5.64,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 4: Compute over water and filled gaps",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.7,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 4: Compute grouping lines",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.7,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Step 4: Compute line profiles",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.7,
+     "peak_rss_mb": 537.0
+    },
+    {
+     "stage": "Between steps: (between bars)",
+     "wall_s": 0.2,
+     "cpu_s": 0.2,
+     "cores": 1.17,
+     "peak_rss_mb": 390.0
+    },
+    {
+     "stage": "Step 5: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 0.99,
+     "peak_rss_mb": 390.0
+    },
+    {
+     "stage": "Step 5: Compute saving results",
+     "wall_s": 0.4,
+     "cpu_s": 0.4,
+     "cores": 0.99,
+     "peak_rss_mb": 396.0
+    }
+   ],
+   "total": {
+    "wall_s": 5.08,
+    "cpu_s": 8.64,
+    "peak_rss_mb": 768.0
+   }
+  },
+  "M": {
+   "stages": [
+    {
+     "stage": "Start: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.1,
+     "peak_rss_mb": 379.0
+    },
+    {
+     "stage": "Step 1: (between bars)",
+     "wall_s": 0.5,
+     "cpu_s": 0.5,
+     "cores": 1.04,
+     "peak_rss_mb": 467.0
+    },
+    {
+     "stage": "Step 1: Compute stitching terrain",
+     "wall_s": 0.4,
+     "cpu_s": 0.3,
+     "cores": 0.97,
+     "peak_rss_mb": 653.0
+    },
+    {
+     "stage": "Step 1: Compute stitching surface",
+     "wall_s": 0.4,
+     "cpu_s": 0.4,
+     "cores": 0.99,
+     "peak_rss_mb": 708.0
+    },
+    {
+     "stage": "Step 2: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 0.96,
+     "peak_rss_mb": 645.0
+    },
+    {
+     "stage": "Step 2: Compute finding anchors",
+     "wall_s": 0.3,
+     "cpu_s": 0.3,
+     "cores": 1.0,
+     "peak_rss_mb": 601.0
+    },
+    {
+     "stage": "Step 2: Compute anchor prominence and drop",
+     "wall_s": 2.4,
+     "cpu_s": 2.8,
+     "cores": 1.18,
+     "peak_rss_mb": 780.0
+    },
+    {
+     "stage": "Step 3: (between bars)",
+     "wall_s": 0.2,
+     "cpu_s": 0.7,
+     "cores": 2.95,
+     "peak_rss_mb": 796.0
+    },
+    {
+     "stage": "Step 3: Compute sag estimator table",
+     "wall_s": 2.2,
+     "cpu_s": 3.4,
+     "cores": 1.52,
+     "peak_rss_mb": 543.0
+    },
+    {
+     "stage": "Step 3: Compute free directions",
+     "wall_s": 0.6,
+     "cpu_s": 5.4,
+     "cores": 8.92,
+     "peak_rss_mb": 543.0
+    },
+    {
+     "stage": "Step 3: Compute anchor pairs",
+     "wall_s": 32.5,
+     "cpu_s": 295.0,
+     "cores": 9.07,
+     "peak_rss_mb": 559.0
+    },
+    {
+     "stage": "Step 3: Compute checking lines",
+     "wall_s": 1.8,
+     "cpu_s": 19.0,
+     "cores": 10.48,
+     "peak_rss_mb": 659.0
+    },
+    {
+     "stage": "Step 4: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.54,
+     "peak_rss_mb": 736.0
+    },
+    {
+     "stage": "Step 4: Compute coordinates",
+     "wall_s": 0.3,
+     "cpu_s": 0.3,
+     "cores": 1.0,
+     "peak_rss_mb": 736.0
+    },
+    {
+     "stage": "Step 4: Compute over water and filled gaps",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 1.0,
+     "peak_rss_mb": 736.0
+    },
+    {
+     "stage": "Step 4: Compute grouping lines",
+     "wall_s": 0.3,
+     "cpu_s": 0.3,
+     "cores": 1.37,
+     "peak_rss_mb": 777.0
+    },
+    {
+     "stage": "Step 4: Compute line profiles",
+     "wall_s": 0.1,
+     "cpu_s": 0.1,
+     "cores": 1.68,
+     "peak_rss_mb": 633.0
+    },
+    {
+     "stage": "Between steps: (between bars)",
+     "wall_s": 0.4,
+     "cpu_s": 0.4,
+     "cores": 0.98,
+     "peak_rss_mb": 663.0
+    },
+    {
+     "stage": "Step 5: (between bars)",
+     "wall_s": 0.0,
+     "cpu_s": 0.0,
+     "cores": 0.93,
+     "peak_rss_mb": 696.0
+    },
+    {
+     "stage": "Step 5: Compute saving results",
+     "wall_s": 8.1,
+     "cpu_s": 8.1,
+     "cores": 1.0,
+     "peak_rss_mb": 696.0
+    }
+   ],
+   "total": {
+    "wall_s": 50.5,
+    "cpu_s": 337.18,
+    "peak_rss_mb": 796.0
+   }
+  }
+ },
+ "parallel": [
+  {
+   "K": 1,
+   "threads": 6,
+   "wall_s": 6.36,
+   "per_search_s": 6.36
+  },
+  {
+   "K": 3,
+   "threads": 2,
+   "wall_s": 8.44,
+   "per_search_s": 8.26
+  },
+  {
+   "K": 6,
+   "threads": 1,
+   "wall_s": 11.98,
+   "per_search_s": 11.85
+  }
+ ]
+}
