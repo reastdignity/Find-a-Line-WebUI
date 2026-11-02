@@ -46,6 +46,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Kartverket's WCS (Norway): no published limit (its terms: "technical limitations ... will be
     # stated for each service"; the service states none, 2026-11-02): courtesy
     "wcs.geonorge.no": 4,
+    # ČÚZK's ImageServers and orthophoto tiles (Czechia): its terms of network services name no number
+    # ("Podmínky poskytování síťových služeb ČÚZK", 4.3.2016, read 2026-11-02: use "pokud rozsah užití není na
+    # újmu poskytovatele"; one who overloads the infrastructure may be stopped): courtesy
+    "ags.cuzk.gov.cz": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

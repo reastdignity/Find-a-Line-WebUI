@@ -15,7 +15,7 @@ from rasterio.transform import from_origin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
 from http_server import Answer  # noqa: E402
-from sources import net  # noqa: E402
+from sources import net, probe  # noqa: E402
 from sources.layers.imageserver import ImageServerTiles  # noqa: E402
 from sources.readers.imageserver import ImageServerReader, number, service_error  # noqa: E402
 
@@ -215,3 +215,24 @@ def test_layer_tiles_and_paths(tmp_path):
         grid = make_grid((-615999.6, -1001998.12, -615000, -1001000), res, "EPSG:5514", (0.4, 1.88))
         assert {t[0] for t in layer.tiles(grid)} == {2.0}
         assert (2.0, -308, -501) in layer.tiles(grid)
+
+
+def test_probe(server, tmp_path):
+    """sources check: the description, then a 16 x 16 px exportImage at the sample on the layer's pixels, as the
+    reader writes it; an error answered with HTTP 200 fails."""
+    layer = ImageServerTiles("t", server.url(f"{SERVICES}/probe/ImageServer"), "EPSG:5514", "fake", 2.0,
+                             origin=(0.4, 1.88))
+    server.add(f"{SERVICES}/probe/ImageServer?f=json", _body("001-dmr5g-json.json"), "application/json")
+    bodies = [_body("002-full.tif")]
+    server.route(f"{SERVICES}/probe/ImageServer/exportImage",
+                 lambda request: Answer(200, bodies[0], {"Content-Type": "image/tiff"}))
+    cache_dir = str(tmp_path)
+    assert probe._image_service(cache_dir, layer, 50.6115, 16.117) == (probe.OK, probe.OK)
+    query = dict(server.requests(f"{SERVICES}/probe/ImageServer/exportImage")[0].query)
+    left, bottom, right, top = (float(v) for v in query["bbox"].split(","))
+    assert query["size"] == "16,16" and (right - left, top - bottom) == (32, 32)
+    assert round((left - 0.4) % 2, 6) in (0, 2) and round((bottom - 1.88) % 2, 6) in (0, 2)
+    assert left < -615777 < right and bottom < -1000282 < top + 1
+    bodies[0] = _body("009-too-high.json")
+    with pytest.raises(RuntimeError, match="exportImage: HTTP 200 400 Invalid or missing input parameters"):
+        probe._image_service(cache_dir, layer, 50.6115, 16.117)
