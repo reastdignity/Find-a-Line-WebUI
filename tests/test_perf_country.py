@@ -85,6 +85,28 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
     assert os.path.dirname(sample["run"]) == os.path.abspath(tmp_path / "patched" / "runs")
 
 
+def test_profile_of_a_search_without_lines(tmp_path):
+    """A search that finds no lines saves no run: the sample has zero counts, its stages and funnel,
+    and compare and cube read it as empty."""
+    args = ["--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"), "--northing", "254608", "--easting", "553966",
+            "--radius", "120", "--min-length", "200", "--max-length", "230", *pc.OFFLINE, "--no-html",
+            "--data-dir", str(tmp_path / "data")]
+    done = subprocess.run([sys.executable, os.path.join("tools", "perf_country.py"), "profile", "--out",
+                           str(tmp_path / "out"), "--name", "none", "--", *args],
+                          cwd=REPO, env={**os.environ, **OFFLINE_ENV}, capture_output=True, text=True,
+                          encoding="utf-8", timeout=600)
+    assert done.returncode == 0, done.stdout + done.stderr
+    samples = json.load(open(tmp_path / "out" / "samples.json"))
+    sample = samples["none"]
+    assert sample["run"] is None and sample["summary"] == {"lines": 0, "spots": 0} and "note" in sample
+    assert sample["stages"] and sample["grid"]["tiles"] == 1
+    samples["full"] = synthetic(tmp_path)["a"]
+    rows = pc.compare(samples, "full", ["none"], [1000], [(30, 60)])["rows"]
+    assert {r["band"]: r["other_lines"] for r in rows} == {"all": 0, "30-60": 0}
+    [row] = pc.cube(samples, ["none"], 1000, ["length"])["rows"]
+    assert row["lines"] == 0 and row["line_keys"] == 0 and row["spot_keys"] == 0
+
+
 def write_run(folder, rows, crs="EPSG:2180"):
     """A run folder with a lines.csv of rows (dicts of some FIELDS, the rest empty) and its run.json."""
     os.makedirs(folder, exist_ok=True)
