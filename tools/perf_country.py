@@ -722,7 +722,8 @@ def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, 
     serial_km2 = line_cpu = count = lines = spots = 0.0
     km2 = country["area_km2"]
     for cls in country["classes"].values():
-        for place, weight in cls[scenario].items():
+        # A class may name other places for a band ("high_L"): a sample big enough for its lines
+        for place, weight in cls.get(f"{scenario}_{band}", cls[scenario]).items():
             m = place_metrics(metrics, place, band, res)
             if m is None:
                 return None
@@ -776,7 +777,9 @@ def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
             for strategy, res_of in inputs["strategies"].items():
                 finest = min(res_of[b] for b in bands)
                 for dsm in (True, False):
-                    data = country["data"].get(f"{finest:g}") or country["data"][min(country["data"], key=float)]
+                    # The coarsest data the finest grid of the strategy can use (e.g. 2 m files for 5 m)
+                    usable = sorted((k for k in country["data"] if float(k) <= finest), key=float)
+                    data = country["data"][usable[-1] if usable else min(country["data"], key=float)]
                     layers = {k: v for k, v in data.items() if dsm or k != "surface"}
                     download_mb = sum(v["download_mb_km2"] for v in layers.values()) * country["area_km2"]
                     cache_mb = sum(v["cache_mb_km2"] for v in layers.values()) * country["area_km2"]
