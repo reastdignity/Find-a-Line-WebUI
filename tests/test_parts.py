@@ -20,7 +20,7 @@ import sources as src  # noqa: E402
 from grid import Grid  # noqa: E402
 from http_server import key_of  # noqa: E402
 from sources.indexes.cached import IndexUnavailable  # noqa: E402
-from sources.indexes.listings import ows_exception  # noqa: E402
+from sources.indexes.listings import CAPABILITIES_DAYS, ows_exception  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIP = os.path.join(HERE, "data", "zabi_kon_nmt.tif")
@@ -270,6 +270,62 @@ def test_wfs_year_layers_at_once(http_server, tmp_path, monkeypatch):
     years = [f"gugik:SkorowidzNMT{y}" for y in range(2018, 2027)]
     assert sorted(_asked(http_server, "GetFeature")) == years and len(_asked(http_server, "GetCapabilities")) == 1
     assert peak[0] == 2  # at once, within the host's slots
+    assert not http_server.stray()
+
+
+def test_wfs_capabilities_on_disk(http_server, tmp_path, capsys):
+    """The year layers are kept next to the tile answers, so a new process (a new listing) asks
+    only the features; with the update "all" (cache update) it asks the capabilities again, once;
+    a GetFeature failing on layers from the file (a layer renamed) asks them again too."""
+    recorded = _recorded("wfs/geoportal-nmt")
+    _slow_cassettes(http_server, "wfs/geoportal-nmt", "wfs/geoportal-error")
+    catalogue = src.SOURCES["geoportal"].nmt
+    cache_dir = str(tmp_path / "cache")
+    lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
+    grid = Grid(left=475500.0, top=778500.0, res=5.0, height=100, width=100, crs="EPSG:2180")  # in the tile
+    layer = _on_server(catalogue, http_server)
+    layer.update_index_tile(cache_dir, lat, lon)
+    path = layer.index_path(cache_dir, lat, lon)
+    with open(path, "rb") as f:
+        expected = f.read()
+    kept = os.path.join(cache_dir, "poland", "sheet-index", "SkorowidzNMT.capabilities.json")
+    with open(kept, encoding="utf-8") as f:
+        capabilities = json.load(f)
+    assert capabilities["layers"] == json.loads(expected)["layers"] and len(capabilities["layers"]) == 9
+    assert capabilities["url"] == layer.index.listing.url
+    assert "capabilities" not in json.dumps(cache.rows(cache_dir, "poland"))  # no row: cache status and update skip it
+
+    def again(update=None, first=None):
+        """The tile asked by a new listing (a new process), its answer and row deleted first."""
+        cache.forget(cache_dir, [path])
+        http_server.log.clear()
+        new = _on_server(catalogue, http_server)
+        if first:
+            with open(kept, "w", encoding="utf-8") as f:
+                json.dump({**capabilities, "layers": first}, f)
+        new._use(cache_dir, update)
+        assert new.tiles(grid) is not None  # None: the index not available
+        with open(path, "rb") as f:
+            assert f.read() == expected
+        return new
+    again()
+    assert len(_asked(http_server, "GetCapabilities")) == 0 and len(_asked(http_server, "GetFeature")) == 9
+    new = again("all")
+    assert len(_asked(http_server, "GetCapabilities")) == 1 and len(_asked(http_server, "GetFeature")) == 9
+    http_server.log.clear()
+    new.update_index_tile(cache_dir, lat, lon)  # the same process: the layers it asked for stand
+    assert len(_asked(http_server, "GetCapabilities")) == 0
+    again(first=["gugik:SkorowidzNMT1900"])  # renamed since: HTTP 400, the capabilities again
+    assert _asked(http_server, "GetFeature").count("gugik:SkorowidzNMT1900") == 1
+    assert len(_asked(http_server, "GetCapabilities")) == 1 and len(_asked(http_server, "GetFeature")) == 10
+    with open(kept, encoding="utf-8") as f:
+        assert json.load(f)["layers"] == capabilities["layers"]
+    # Older than CAPABILITIES_DAYS: asked again
+    with open(kept, "w", encoding="utf-8") as f:
+        json.dump({**capabilities, "asked_at": cache.now_iso(ago=(CAPABILITIES_DAYS + 1) * 86400)}, f)
+    again()
+    assert len(_asked(http_server, "GetCapabilities")) == 1
+    assert "index not available" not in capsys.readouterr().out
     assert not http_server.stray()
 
 
