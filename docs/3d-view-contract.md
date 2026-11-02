@@ -122,6 +122,69 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
   so far, no skirts, no forced vertices, `meta.sha256` not checked in the browser yet (wave 2). On a level line
   the envelope has two equal maxima: either is the walker's start.
 
+## Wave 2
+Two agents in parallel on the page; the shared types are in `viewer/src/view3d/scene-api.ts` (`Scene3D`, `Chunk`,
+`Credits`) and the imagery's entry point in `viewer/src/view3d/imagery.ts` (`createImagery`, a stub with the final
+signature): change neither signature without the coordinator.
+
+| Agent | Owns |
+| --- | --- |
+| V2a scene core | `main.ts`, `view.ts`, `terrain.ts`, `page.ts`, `geometry.ts`, `view3d.css`, new `scene.ts` (implements `Scene3D`), new modules for the webbing and the walker, the Node tests it adds to `tests/test_viewer.py`, new `tests/test_view3d.py` (Edge) |
+| V2b imagery | `imagery.ts` (replaces the stub), new `tiles.ts` (tile URLs, coverage, UVs) and `credits.ts` (the credits' HTML), pure helpers split out of `viewer/src/layers.ts` if needed (`PROCESSED_NOTE` stays defined in `layers.ts`, a test reads it there), new `tests/test_view3d_tiles.py` (Node tests through `test_viewer.run_ts`) |
+
+Both rebuild `viewer/dist`; at the merge the coordinator rebuilds it again.
+
+**V2a, the scene core**
+- `scene.ts` builds every chunk (padded grid, one shared `Martini(513)`), skirts along chunk edges, the anchors' and
+  the line's footprint samples forced into the mesh (their errors `Infinity` before `getMesh`; the footprint: every
+  sample the straight line between the anchors crosses), no triangles over no data. Martini's error within the
+  budgets (desktop ≤ 300k vertices, phone ≤ 130k): start at 0.25 m desktop, 1.5 m phone.
+- Each chunk's material takes a texture through `Chunk.setTexture(texture, uv)`: UVs from each vertex's grid metres.
+  Without one: shaded terrain (the 2D map's terrain colour `--terrain`, lit from the north-west).
+- Drawing on demand only (`invalidate`, `onFrame`, `keepDrawing`), `devicePixelRatio` ≤ 2, `webglcontextlost`
+  handled (`ui.view3d.context_lost`, Reload), everything disposed on `pagehide`.
+- After the patch, `/api/profile` for the found line (header `X-Findaline-Profile: 1`, as `result/model.ts`
+  `fetchProfile`, one request at a time): the webbing in the 2D map's colours (`--clear`, `--trees` of
+  `viewer/src/ui/tokens.css`), the readout (`ui.view3d.length`, `.sag`, `.clearance`, `.over_trees`); until it
+  answers, a neutral colour and `ui.view3d.loading_profile`.
+- The webbing: `Line2` (`three/examples/jsm/lines`) whose 61 points are written in place (no new buffer per change),
+  the loaded curve with the walker at s (`geometry.ts` `loadedAt`), the unloaded one faint.
+- The walker: a 1.7 m mannequin of three.js primitives standing on the webbing at s, facing along the line; it
+  starts at the envelope's largest sag; a slider (`ui.view3d.walker_position`) in `scene.toolbar` moves it. The
+  walk itself and dragging come in wave 3.
+- The camera: an oblique view across the line framing it, orbit/pan/zoom (`OrbitControls` or `MapControls`),
+  never below the horizon.
+- Calls `createImagery(scene, {runId, esriKey})` once the terrain is drawn; `esriKey` from
+  `<meta name="findaline-esri-key">` or null. Shows `ui.view3d.preview_note` in the page.
+- Phone level: step 2 (already in `page.ts`), the coarser error, no anchor dragging later.
+- Tests: Node tests of the pure parts (chunks, skirts, forced vertices, the walker's placement); `tests/test_view3d.py`:
+  the local app with a run of the clip (the fixtures of `tests/test_patch.py`), `/view3d#run=…&line=…` in headless
+  Edge (`--disable-gpu`), a ready marker set by the page, triangles drawn, no CSP violation (the `CSP_STUB` way of
+  `tests/test_web.py`), the readout filled from `/api/profile`.
+
+**V2b, the imagery**
+- `createImagery`: the kinds available (`ortho` when `meta.ortho`, `esri` when a key, `shaded` always; default the
+  first), a segmented control (`ui.view3d.imagery`, `.imagery_ortho`, `.imagery_esri`, `.imagery_shaded`) in
+  `scene.toolbar`, `ui.view3d.no_imagery` when only `shaded`; switching re-textures every chunk.
+- Textures per chunk: chunks with `hasLine` at the zoom whose tiles fit 2048 px (zoom 19 at 1 m data, else lower),
+  the others at zoom 17; on phones zoom 17 everywhere; one canvas per chunk, ≤ 2048 px, ≤ 60 MB of textures on the
+  desktop, ≤ 18 MB on phones. `crossOrigin = "anonymous"` set before `src`; a tile failing CORS is retried once with
+  a cache-busting query parameter (responses the 2D map cached without `Vary: Origin`).
+- Orthophoto tiles as the 2D map asks for them (`viewer/src/layers.ts` `createCachedTile`, `CachedTiles`,
+  `CachedWMS`; `result/load.ts` `orthoForApp` resolves `meta.ortho.cache` for the run): our cache
+  `<cache>/{z}/{x}/{y}.jpg` first for chunks with the line (zoom 19), the service straight for zoom 17; base tiles
+  `{z}/{x}/{y}` with the WMS (1.3.0, EPSG:4326, `bbox=south,west,north,east`) drawn over them where both exist.
+- Esri: `https://ibasemaps-api.arcgis.com/arcgis/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=<key>`,
+  native zoom ≤ 19 (as `layers.ts`).
+- Credits through `scene.credits`: the run's data credits (`meta.attribution`, as `layers.ts` `creditsHtml` shows
+  them on the 2D map, without importing Leaflet into `view3d.js`), the orthophoto's attribution (and its link), for
+  Esri "Powered by Esri" and its source line (`layers.ts` `ESRI_NAME`, `ESRI_SOURCE`).
+- Tests: Node tests of the pure parts (which tiles cover a chunk at a zoom, their URLs for cache, WMS, base and Esri,
+  the UVs, the zoom choice within 2048 px, the credits' HTML).
+
+**At the merge (coordinator):** `tools/ui_shots.py` pages of `/view3d` (a `{line}` placeholder, `?level=`), the
+visual review on the desktop and both phones, and the privacy/About wording proposals for the user.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
