@@ -1154,7 +1154,7 @@
     "seconds": 12.5
   },
   "R53": {
-    "place": "Saut du Doubs, the France / Switzerland border: IGN's LiDAR HD on the French bank, swisstopo's swissALTI3D / swissSURFACE3D filling the Swiss bank (a neighbour at the border)",
+    "place": "Saut du Doubs, the France / Switzerland border: IGN's LiDAR HD on the French bank (and a few hundred metres into Switzerland), swisstopo's swissALTI3D / swissSURFACE3D filling the border gap at the circle's edge (a neighbour), RGE ALTI the holes inside",
     "args": "--lat 47.0875 --lon 6.7120 --radius 800 --min-length 50 --max-length 300",
     "sets": [
       "sources",
