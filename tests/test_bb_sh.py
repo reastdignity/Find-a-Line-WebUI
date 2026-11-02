@@ -318,3 +318,25 @@ def test_sources():
     assert "image matching" in bb.note and "water surface" in sh.note
     from sources import probe
     assert probe.strategy(sh.nmt) == "text" and probe.strategy(bb.nmt) == "wcs"
+
+
+def test_probe_reads_the_first_kb(monkeypatch, tmp_path):
+    """The probe asks a tile's XYZ file without a Range (its server has none) and wants text/plain whose first
+    line holds three numbers: an outdated link's HTML page fails."""
+    from sources import probe
+    from sources.indexes.metalink import ShaTile
+    layer = src.SOURCES["schleswig_holstein"].nmt
+    tile = ShaTile(426, 6005, 2025, "0123abcd", f"{SH_HOST}/a.php?file=dgm1_32_426_6005_1_sh_2025.xyz")
+    asked = []
+
+    def answer(kind, body):
+        def http(url, params=None, headers=None):
+            asked.append(headers)
+            return 200, kind, body
+        return http
+    monkeypatch.setattr(probe, "_http", answer("text/plain;charset=UTF-8", b"426000.50 6005999.50 12.34\n426001.50"))
+    assert probe._text(str(tmp_path), layer, tile) == "" and asked == [None]
+    for kind, body in (("text/html; charset=UTF-8", _body("002-sh-stale.html")), ("text/plain", b"<html>")):
+        monkeypatch.setattr(probe, "_http", answer(kind, body))
+        with pytest.raises(RuntimeError, match="HTTP 200"):
+            probe._text(str(tmp_path), layer, tile)
