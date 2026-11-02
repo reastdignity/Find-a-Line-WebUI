@@ -1,0 +1,17 @@
+{
+  "date": "2026-11-02",
+  "requests": [
+    {"method": "GET", "url": "https://geodaten.bayern.de/odd/a/dgm/dgm1/meta/metalink/09472190.meta4", "status": 200,
+     "content_type": "application/metalink4+xml", "body": "001-bavaria-dgm1.meta4"},
+    {"method": "GET", "url": "https://geodaten.bayern.de/odd/a/dom20/meta/DOM/metalink/09472190.meta4", "status": 200,
+     "content_type": "application/metalink4+xml", "body": "002-bavaria-dom20.meta4"},
+    {"method": "GET", "url": "https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07340009.meta4", "status": 200,
+     "content_type": "application/metalink4+xml", "body": "003-rlp-dgm1.meta4"},
+    {"method": "GET", "url": "https://geobasis-rlp.de/data/dom1/current/meta4/dom1_tif_07340009.meta4", "status": 200,
+     "content_type": "application/metalink4+xml", "body": "004-rlp-dom1.meta4"},
+    {"method": "GET", "url": "https://geodaten.bayern.de/odd/a/dom20/meta/DOM/metalink/09.meta4", "status": 404,
+     "content_type": "text/html; charset=iso-8859-1", "body": "005-bavaria-404.html"},
+    {"method": "GET", "url": "https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_070340009.meta4", "status": 404,
+     "content_type": "text/html", "body": "006-rlp-404.html"}
+  ]
+}
