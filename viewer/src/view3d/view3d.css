@@ -39,6 +39,7 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 .v3-read:empty { display: none; }
 .v3-read.v3-edited { color: var(--accent); }
 .v3-read.v3-failed { color: var(--bad); font-weight: 400; }
+.v3-read.v3-nofit { color: var(--bad); }
 .v3-walkbox { display: flex; align-items: center; gap: 6px; flex: none; }
 .v3-speed { min-width: 44px; padding: 0 10px; }
 

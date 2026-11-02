@@ -773,7 +773,8 @@ console.log(JSON.stringify({{poses, start: w.start, span: w.span, n: pts.length,
     assert found["n"] == 61
     p1 = [found["p1"][0] - 100, found["p1"][2] - 300, -(found["p1"][1] - 200)]  # in the scene's axes
     assert found["seg"] == pytest.approx([0.5, 50, -0.5, *p1, *p1], abs=1e-3)
-    assert found["readout"] == {"length": 120.2, "clearance": 7.25, "overTrees": True} and found["clear"] is False
+    assert found["readout"] == {"length": 120.2, "clearance": 7.25, "overTrees": True,
+                                 "verdict": "terrain_only"} and found["clear"] is False
     assert found["text"] == "7.3"
 
 
@@ -822,3 +823,19 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
     assert found["walk"] == [12, 0, 0]
     assert found["pin"] == [True, True, False, False] and found["below"] == 20
     assert found["line"] == "50.1559508,19.7562722,50.2000000,19.7000000"
+
+
+def test_view3d_verdict(tmp_path):
+    """view3d/webbing.ts: a line's verdict from its profile (fits; over the terrain only when the surface model's
+    clearance is ≤ 0; does not fit when the terrain's is below 0, whatever the surface's), its colour token and
+    the readout's text with the minus sign kept."""
+    found = run_ts(tmp_path, "view3d/webbing", """
+const p = (min, nmpt) => ({d: [0, 100], z: [1, 2], min: [50, min], min_nmpt: nmpt === null ? null : [40, nmpt], water_m: 0, filled_m: 0});
+const cases = [p(3, null), p(3, 1), p(3, 0), p(3, -0.5), p(0, null), p(0, -1), p(-0.01, null), p(-2.8, 5), p(-2.8, -3)];
+console.log(JSON.stringify({verdicts: cases.map((c) => m.verdictOf(c)), colours: cases.map((c) => m.VERDICT_COLOUR[m.verdictOf(c)]),
+  readout: m.readoutOf(p(-2.8, -3)), text: m.metres(-2.84)}));""")
+    assert found["verdicts"] == ["fits", "fits", "terrain_only", "terrain_only", "fits", "terrain_only", "no_fit",
+                                 "no_fit", "no_fit"]
+    assert found["colours"][:4] == ["--clear", "--clear", "--trees", "--trees"] and found["colours"][-1] == "--bad"
+    assert found["readout"] == {"length": 100, "clearance": -2.8, "overTrees": False, "verdict": "no_fit"}
+    assert found["text"] == "-2.8"

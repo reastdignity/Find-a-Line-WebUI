@@ -153,6 +153,11 @@ INTERACT_SCRIPT = """
     until(() => root.dataset.edit === "checked" || root.dataset.edit === "error", 20000, () => {
       out.checked = root.dataset.edit;
       out.edited = readout();
+      const box = document.querySelector(".v3-readout"), css = getComputedStyle(root);
+      out.verdict = box.dataset.verdict;
+      out.colour = box.dataset.colour;
+      out.tokens = {bad: css.getPropertyValue("--bad").trim(), clear: css.getPropertyValue("--clear").trim(),
+                    trees: css.getPropertyValue("--trees").trim()};
       out.filled = document.querySelector(".v3-readout").dataset.filled;
       document.querySelector(".v3-reset").click();
       out.back = readout();
@@ -213,7 +218,10 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level):
         assert result["moving"] == "moving" and result["reset"] and result["released"] == "waiting"
         assert "Anchors moved: not saved" in result["dragged"] and "clear of the terrain" not in result["dragged"]
         assert result["checked"] == "checked" and result["filled"] == "1", result
-        assert "Anchors moved: not saved" in result["edited"] and "m clear of the terrain" in result["edited"]
+        # the moved line of the clip runs into the terrain (about -2.8 m): it does not fit, in --bad
+        assert "Anchors moved: not saved" in result["edited"] and "Does not fit: the clearance is -" in result["edited"]
+        assert "m clear of the terrain" not in result["edited"] and "trees" not in result["edited"]
+        assert result["verdict"] == "no_fit" and "#" + result["colour"] == result["tokens"]["bad"].lower(), result
         assert result["edited"] != result["found"]
         assert result["afterReset"] == "" and result["back"] == result["found"]
     assert _violations(dom) == []

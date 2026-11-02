@@ -13,7 +13,9 @@ import type { Anchor3d } from "./decode";
 import type { Point3d, Webbing } from "./geometry";
 import type { SceneCore } from "./scene";
 import { createWalker, type Walker } from "./walker";
-import { metres, readoutOf, resample, walkerPose, webbing, writeSegments, type Readout } from "./webbing";
+import {
+  metres, readoutOf, resample, VERDICT_COLOUR, walkerPose, webbing, writeSegments, type Readout,
+} from "./webbing";
 
 export type Anchors = [Anchor3d, Anchor3d];
 
@@ -111,6 +113,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
     const c = name ? scene.token(name) : neutral;
     loadedMaterial.color.set(c);
     faintMaterial.color.set(c);
+    readoutBox.dataset.colour = loadedMaterial.color.getHexString();  // for tests
   };
 
   const self: LineView = {
@@ -146,6 +149,8 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       failed.classList.add("v3-hidden");
       edited.classList.toggle("v3-hidden", !isEdited);
       readoutBox.dataset.filled = "";
+      delete readoutBox.dataset.verdict;
+      clearance.classList.remove("v3-nofit");
       self.setWalker(fraction * solved.span);
       return true;
     },
@@ -155,9 +160,12 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       failed.classList.toggle("v3-hidden", !error);
       if (!p) { colour(null); scene.invalidate(); return; }
       const r = self.readout = readoutOf(p);
-      colour(r.overTrees ? "--trees" : "--clear");
+      colour(VERDICT_COLOUR[r.verdict]);
       length.textContent = t("ui.view3d.length", {m: metres(r.length)});
-      clearance.textContent = t("ui.view3d.clearance", {m: metres(r.clearance)});
+      clearance.textContent = t(r.verdict === "no_fit" ? "ui.view3d.does_not_fit" : "ui.view3d.clearance",
+                                {m: metres(r.clearance)});
+      clearance.classList.toggle("v3-nofit", r.verdict === "no_fit");
+      readoutBox.dataset.verdict = r.verdict;
       trees.classList.toggle("v3-hidden", !r.overTrees);
       readoutBox.dataset.filled = "1";
       scene.invalidate();

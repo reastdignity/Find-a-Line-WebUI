@@ -54,16 +54,31 @@ export function walkerPose(w: Webbing, anchors: [Anchor3d, Anchor3d], s: number)
   return {at: loaded.walker, points: resample(loaded.points), sag: loaded.sag, yaw};
 }
 
+/** Whether a line fits: over the terrain and the trees ("fits"), over the terrain only ("terrain_only": the
+ *  surface model's clearance ≤ 0, as mapping.coordify's over_obstacles), or not at all ("no_fit": the clearance
+ *  over the terrain below 0, the 2D profile's "does not fit"). */
+export type Verdict = "fits" | "terrain_only" | "no_fit";
+
+export function verdictOf(p: Pick<Profile, "min" | "min_nmpt">): Verdict {
+  if (p.min[1] < 0) return "no_fit";
+  return p.min_nmpt && p.min_nmpt[1] <= 0 ? "terrain_only" : "fits";
+}
+
+/** The webbing's colour token of a verdict. */
+export const VERDICT_COLOUR: Record<Verdict, string> = {fits: "--clear", terrain_only: "--trees", no_fit: "--bad"};
+
 export interface Readout {
   length: number;
   clearance: number;
+  /** Over trees or buildings while fitting over the terrain (verdict "terrain_only"). */
   overTrees: boolean;
+  verdict: Verdict;
 }
 
-/** The readout's values of a line's profile: its length, the clearance over the terrain and whether it passes
- *  over trees or buildings (the surface model's clearance ≤ 0, as mapping.coordify's over_obstacles). */
+/** The readout's values of a line's profile: its length, the clearance over the terrain and its verdict. */
 export function readoutOf(p: Profile): Readout {
-  return {length: p.d[p.d.length - 1], clearance: p.min[1], overTrees: !!p.min_nmpt && p.min_nmpt[1] <= 0};
+  const verdict = verdictOf(p);
+  return {length: p.d[p.d.length - 1], clearance: p.min[1], overTrees: verdict === "terrain_only", verdict};
 }
 
 /** A number of metres for the readout: one decimal. */
