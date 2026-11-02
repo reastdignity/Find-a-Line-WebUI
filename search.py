@@ -273,13 +273,15 @@ def _print(kind: str, text: str):
 
 
 def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] = None,
-                with_margin: bool = True, limits: Optional[Limits] = None, memory: Optional[int] = None) -> Plan:
+                with_margin: bool = True, limits: Optional[Limits] = None, memory: Optional[int] = None,
+                tiled: bool = True) -> Plan:
     """Choose the source and the grid, and describe the search. The grid covers the area
     and _margin around it, unless with_margin is False (a profile needs no anchor values).
     With limits, a search over them is refused (SearchError) before anything costly.
     `memory`: the bytes this search may use (a compute slot of the web worker: slot_memory),
     for its tiles and Plan.memory, with or without limits; None: the memory free now (with
-    limits; without them Plan.memory stays None)."""
+    limits; without them Plan.memory stays None). tiled=False: an area gets no tiles (its grid
+    has its area_shape; the country layer cuts it into fixed_tiles itself)."""
     emit = on_event or _print
     src.used_data.clear()  # several searches may run in one process
     cache.check_layout(paths.cache)
@@ -343,10 +345,11 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
     max_px = limits.grid_mpx_max * 1e6 if limits and limits.grid_mpx_max else None
     if isinstance(area, ar.Polygon):
         grid.area_shape = ar.project(area.geometry, "EPSG:4326", crs)
-        core = tile_core_size(params, resolution, max_px, memory)
-        if limits:
-            _check_tiles(grid, params, resolution, core, limits)
-        tiles = _tiles(grid, params, resolution, source.grid_origin, core)
+        if tiled:
+            core = tile_core_size(params, resolution, max_px, memory)
+            if limits:
+                _check_tiles(grid, params, resolution, core, limits)
+            tiles = _tiles(grid, params, resolution, source.grid_origin, core)
     elif max_px and grid.width * grid.height > max_px:
         raise SearchError(f"The grid would have {grid.width * grid.height / 1e6:.0f} million pixels, at most "
                           f"{limits.grid_mpx_max:g} million on this site: a smaller --radius or a coarser "
@@ -631,11 +634,49 @@ def _tiles(grid: gd.Grid, params: SearchParams, res: float, origin, core: float)
             c = (left + i * core, max(bottom, top - (j + 1) * core), min(right, left + (i + 1) * core), top - j * core)
             if not grid.area_shape.intersects(box(*c)):
                 continue
-            ext = (max(g_left, c[0] - overlap), max(g_bottom, c[1] - overlap),
-                   min(g_right, c[2] + overlap), min(g_top, c[3] + overlap))
-            tile = gd.make_grid(ext, res, grid.crs, origin)
-            tile.area_shape = grid.area_shape
-            tiles.append((c, tile))
+            tiles.append((c, tile_grid(grid, c, overlap, res, origin)))
+    return tiles
+
+
+def tile_grid(grid: gd.Grid, core: tuple, overlap: float, res: float, origin) -> gd.Grid:
+    """The grid of a tile: its core (bounds) with overlap around it, clipped to the search's grid,
+    on the source's pixel edges (origin), with the area's outline."""
+    g_left, g_bottom, g_right, g_top = grid.bounds
+    ext = (max(g_left, core[0] - overlap), max(g_bottom, core[1] - overlap),
+           min(g_right, core[2] + overlap), min(g_top, core[3] + overlap))
+    tile = gd.make_grid(ext, res, grid.crs, origin)
+    tile.area_shape = grid.area_shape
+    return tile
+
+
+@dataclass
+class FixedTile:
+    """A tile of the country layer: a core at whole multiples of its size in the plan's CRS."""
+    name: str                                # "E<left>_N<bottom>": the core's corner in whole metres of the CRS
+    core: Tuple[float, float, float, float]  # left, bottom, right, top
+    grid: gd.Grid                            # the core with _overlap around it, clipped to plan.grid
+
+
+def fixed_tiles(plan: Plan, core_m: float) -> List[FixedTile]:
+    """The tiles of an untiled plan (plan_search(tiled=False)) on a fixed lattice: square cores of
+    core_m at whole multiples of core_m in plan.crs (so a band's tiles never depend on the area's
+    edge), only those intersecting the area (plan.grid.area_shape), never clipped; each grid is
+    the core with _overlap around it, clipped to plan.grid (tile_grid). Rows from the north, west
+    to east."""
+    from shapely.geometry import box
+    grid, res = plan.grid, plan.resolution
+    shape = grid.area_shape if grid.area_shape is not None else box(*grid.bounds)
+    left, bottom, right, top = shape.bounds
+    overlap = _overlap(plan.params, res)
+    tiles = []
+    for j in range(math.floor(top / core_m), math.floor(bottom / core_m) - 1, -1):
+        for i in range(math.floor(left / core_m), math.floor(right / core_m) + 1):
+            core = (i * core_m, j * core_m, (i + 1) * core_m, (j + 1) * core_m)
+            cell = box(*core)
+            if not shape.intersects(cell) or shape.touches(cell):  # no area in common
+                continue
+            tiles.append(FixedTile(f"E{round(core[0])}_N{round(core[1])}", core,
+                                   tile_grid(grid, core, overlap, res, plan.source.grid_origin)))
     return tiles
 
 
@@ -898,17 +939,15 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     larger circles) only that of the line shown for each group, as the profiles of millions
     of lines would take long and fill the memory.
     """
-    # The kernels (numba) only here and in line_coordinates: the download phase and the quick
-    # lane, which import this module too, never load numba and llvmlite (their time and memory)
+    # The kernels (numba) only inside the functions that run them (here, _anchors, _pair_search,
+    # count_tile and line_coordinates): the download phase and the quick lane, which import this
+    # module too, never load numba and llvmlite (their time and memory)
     import lineprofiles as lp
-    import linesearch as ls
 
     p, grid, emit = plan.params, plan.grid, plan.emit
-
     found = _anchors(plan, data, quiet=core is not None)
     if found is None:  # a tile of a large area: nothing here
         return sh.LineTable.empty(), mp.Groups.each_alone(0)
-    anchors, prom, drop, strong = found.anchors, found.prominence, found.drop, found.strong
 
     # Step 3: Compare each promising anchor to every other anchor
     _step(plan, 3, "evaluating anchor pairs")
@@ -918,20 +957,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         if key not in _SAG_TABLES:  # once per process: the tiles of an area share it
             emit("info", "Precomputing the sag estimator for all line lengths...")
         sag_table = _sag_table(*key)
-    first = None
-    if core is not None:  # pairs only from the anchors in the core: the overlap is for partners
-        left, bottom, right, top = core
-        x, y = grid.pixel_to_xy(anchors[:, 0], anchors[:, 1])
-        first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
-    _count(plan, "grids", 1)
-    _count(plan, "anchors_kept", len(anchors))  # what the line search gets
-    valid_lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
-                                      p.min_length, p.max_length, plan.nmpt, line_threads(p),
-                                      sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
-                                      p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
-                                                                  p.min_high_share, p.max_wall_angle),
-                                      np.column_stack([prom, drop]), strong, stats=plan.funnel,
-                                      check=_early_check(plan, before, grid.width * grid.height))
+    valid_lines = _pair_search(plan, data, found, core, sag_table,
+                               check=_early_check(plan, before, grid.width * grid.height))
     points = profile_points(valid_lines) if isinstance(plan.area, ar.Circle) else 0
     every_profile = 0 < points * PROFILE_POINT_BYTES <= CIRCLE_PROFILES_BYTES
     if points and not every_profile:
@@ -1060,6 +1087,63 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
         raise SearchError("No anchors stand out enough. Try a lower --min-prominence, --min-prominence-both "
                           "or --min-drop.", "no_prominent_anchors")
     return Anchors(anchors, prom, drop, strong)
+
+
+def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], sag_table,
+                 check: Optional[Callable[[int], None]] = None,
+                 sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
+    """Step 3's line search (linesearch.find_valid_lines) with the arguments of the plan: with
+    core (bounds), pairs only from the anchors in it (the overlap is for partners)."""
+    import linesearch as ls
+
+    p, grid = plan.params, plan.grid
+    anchors = found.anchors
+    first = None
+    if core is not None:  # pairs only from the anchors in the core: the overlap is for partners
+        left, bottom, right, top = core
+        x, y = grid.pixel_to_xy(anchors[:, 0], anchors[:, 1])
+        first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
+    _count(plan, "grids", 1)
+    _count(plan, "anchors_kept", len(anchors))  # what the line search gets
+    return ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
+                               p.min_length, p.max_length, plan.nmpt, line_threads(p),
+                               sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
+                               p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
+                                                           p.min_high_share, p.max_wall_angle),
+                               np.column_stack([found.prominence, found.drop]), found.strong, stats=plan.funnel,
+                               check=check, sink=sink)
+
+
+def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh.LineTable], None],
+               sag_table=None) -> Dict[str, int]:
+    """Steps 2 and 3 of a tile in count mode (the country layer): the valid lines go to sink part
+    by part (linesearch.find_valid_lines(sink=)), each part with "a1", "a2", the LINE_VALUES and
+    "water_px" (int64: linesearch.covered_pixels of data.water), and nothing is kept. The same
+    anchors, first mask (core), line limits and arguments as _lines; no step 4 (the sink decides
+    which first anchors lie in core), no "no steep terrain"/"no lines" errors (an empty grid hands
+    the sink nothing), no _early_check or _check_lines (limits.anchors_max stays). The model "sag"
+    uses sag_table, or an EnvelopeTable of plan.rigging when None. Returns plan.funnel with this
+    call's counts added."""
+    import linesearch as ls
+
+    p, emit = plan.params, plan.emit
+    found = _anchors(plan, data, quiet=True)
+    if found is None:
+        return plan.funnel
+    _step(plan, 3, "evaluating anchor pairs")
+    if p.model != "sag":
+        sag_table = None
+    elif sag_table is None:
+        emit("info", "Precomputing the sag estimator for all line lengths...")
+        sag_table = sg.EnvelopeTable(plan.rigging, p.min_length, p.max_length)
+    water = data.water
+
+    def with_water(part: sh.LineTable):
+        part.columns["water_px"] = ls.covered_pixels(part.columns["a1"], part.columns["a2"], water)
+        sink(part)
+
+    _pair_search(plan, data, found, core, sag_table, sink=with_water)
+    return plan.funnel
 
 
 def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
