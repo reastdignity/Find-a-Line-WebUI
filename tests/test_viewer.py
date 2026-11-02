@@ -509,3 +509,108 @@ console.log(JSON.stringify([days.length, days[0].key, days[29].key, new Set(days
   [0.004, 0.07, 3.14159, 12.25, 99.96, 1234.567, 48300].map(m.km2Text), m.countText(1234), m.countryName("pl")]));""")
     assert found == [30, "2026-10-02", "2026-10-31", 30, [["2026-10-25", 2.5, 1], ["2026-10-31", 12.32, 2]], 12.32,
                      ["< 0.01", "0.07", "3.14", "12.3", "100", "1,235", "48,300"], "1,234", "Poland"]
+
+
+PATCH = os.path.join(REPO, "tests", "data", "patch_zabi_kon")
+
+
+def test_patch_decoder(tmp_path):
+    """view3d/decode.ts against the recorded patch (tests/data/make_patch_fixture.py, docs/3d-view-contract.md
+    "Body"): a whole answer (uint32 LE N, UTF-8 meta, the deflated heights) through DecompressionStream gives
+    the int16 values of `values_sha256` and the samples' heights; inflated bytes decode alone; a grid of
+    257 samples (step 2) is padded to 513 with no data."""
+    with open(PATCH + ".json", encoding="utf-8") as f:
+        fixture = json.load(f)
+    found = run_ts(tmp_path, "view3d/decode", f"""
+const fs = require("fs"), zlib = require("zlib"), crypto = require("crypto");
+const fx = {json.dumps(fixture)}, body = fs.readFileSync({json.dumps(PATCH + ".bin")});
+const meta = Buffer.from(JSON.stringify({{width: fx.width, height: fx.height, base_dm: fx.base_dm, step: 1,
+                                          attribution: "Główny Urząd Geodezji"}}), "utf-8");
+const head = Buffer.alloc(4); head.writeUInt32LE(meta.length);
+const answer = Buffer.concat([head, meta, body]);
+const sha = (v) => crypto.createHash("sha256").update(Buffer.from(v.buffer, v.byteOffset, v.byteLength)).digest("hex");
+(async () => {{
+  const p = await m.decodePatch(answer.buffer.slice(answer.byteOffset, answer.byteOffset + answer.length));
+  const alone = m.decodeValues(new Uint8Array(zlib.inflateSync(body)), fx.width, fx.height);
+  const at = (r, c) => {{ const h = p.heights[r * p.cols + c]; return Number.isNaN(h) ? null : Math.round(h * 10) / 10; }};
+  const small = m.toHeights(new Int16Array(257 * 257).fill(5), 257, 257, 100);
+  console.log(JSON.stringify({{sha: sha(p.values), alone: sha(alone), attribution: p.meta.attribution,
+    size: [p.cols, p.rows], samples: fx.samples.map(([r, c]) => at(r, c)),
+    small: [small.cols, small.rows, small.heights[0], small.heights[256 * 513 + 256], Number.isNaN(small.heights[257]),
+            Number.isNaN(small.heights[257 * 513])],
+    padded: [1, 513, 514, 1025, 1026].map(m.paddedSize)}}));
+}})();""")
+    assert found["sha"] == fixture["values_sha256"] and found["alone"] == fixture["values_sha256"]
+    assert found["attribution"] == "Główny Urząd Geodezji" and found["size"] == [513, 513]
+    assert found["samples"] == [h for _, _, h in fixture["samples"]]
+    assert found["small"] == [513, 513, 10.5, 10.5, True, True]
+    assert found["padded"] == [513, 513, 1025, 1025, 1537]
+
+
+def test_webbing_geometry(tmp_path):
+    """view3d/geometry.ts: the webbing from sag.ts between the anchors (its ends at the anchors, a level line's
+    lowest point in the middle, the walker's start at the envelope's largest sag, as sag.py), the scene's axes,
+    the walk's stepping, the affine and Web Mercator."""
+    rig = sag.Rigging()
+    rigging = {"pretension": rig.pretension, "stretch": rig.stretch, "webbing_weight": rig.webbing_weight,
+               "athlete_mass": rig.athlete_mass, "fall_zone": rig.fall_zone}
+    cases = [[{"x": 100.5, "y": 200.5, "h": 350.0}, {"x": 220.5, "y": 290.5, "h": 350.0}],
+             [{"x": -10.5, "y": 0.5, "h": 410.25}, {"x": 290.5, "y": -399.5, "h": 380.0}]]
+    found = run_ts(tmp_path, "view3d/geometry", f"""
+const out = {json.dumps(cases)}.map((a) => {{
+  const w = m.webbing(a, {json.dumps(rigging)}), u = w.unloaded, low = u.reduce((k, p, i) => p[2] < u[k][2] ? i : k, 0);
+  const at = m.loadedAt(w, a, w.start.s);
+  return {{span: w.span, dh: w.dh, first: u[0], last: u[u.length - 1], low: u[low], start: w.start, sag: at.sag,
+          walker: at.walker, curveEnd: at.points[at.points.length - 1]}};
+}});
+const o = m.originOf({{left: 1000, top: 5000, width: 513, height: 513, res: 2, base_dm: 2896}});
+console.log(JSON.stringify({{out, o, scene: m.toScene(o, 1513, 4487, 300), xy: m.sampleXY({{left: 1000, top: 5000, res: 2}}, 0, 3),
+  walk: [m.walkStep(10, 0.5, 100, 4, 1, false), m.walkStep(99, 1, 100, 1, 1, false), m.walkStep(0.5, 1, 100, 1, -1, false),
+         m.walkStep(10, 0.5, 100, 4, 1, true)],
+  lonLat: m.lonLat([19, 1e-5, 0, 50, 0, 1e-5], 100, 200), merc: m.mercator(180, 0)}}));""")
+    for a, ts in zip(cases, found["out"]):
+        p, q = a
+        span, dh = ((q["x"] - p["x"]) ** 2 + (q["y"] - p["y"]) ** 2) ** 0.5, p["h"] - q["h"]
+        assert ts["span"] == pytest.approx(span) and ts["dh"] == pytest.approx(dh)
+        assert ts["first"] == pytest.approx([p["x"], p["y"], p["h"]], abs=1e-6)
+        assert ts["last"] == pytest.approx([q["x"], q["y"], q["h"]], abs=1e-6)
+        assert ts["curveEnd"] == pytest.approx([q["x"], q["y"], q["h"]], abs=1e-6)
+        f, envelope = sag.envelope(span, dh, rig)
+        k = int(envelope.argmax())
+        assert ts["start"]["sag"] == pytest.approx(envelope[k], abs=1e-6)
+        at = int(round(ts["start"]["s"] / span * (len(f) - 1)))  # a level line has two equal largest sags
+        assert ts["start"]["s"] == pytest.approx(f[at] * span, abs=1e-9)
+        assert envelope[at] == pytest.approx(envelope[k], abs=1e-6)
+        assert ts["sag"] == pytest.approx(envelope[k], abs=1e-6)
+        t = ts["start"]["s"] / span
+        assert ts["walker"][2] == pytest.approx(p["h"] - dh * t - envelope[k], abs=1e-6)
+    level = found["out"][0]
+    assert level["low"][:2] == pytest.approx([160.5, 245.5], abs=1e-6)  # the middle of the span
+    assert abs(level["start"]["s"] - level["span"] / 2) <= level["span"] / 41 / 2 + 1e-9
+    assert found["o"] == {"cx": 1513, "cy": 4487, "h0": 289.6}
+    assert found["scene"] == pytest.approx([0, 10.4, 0]) and found["xy"] == [1007, 4999]
+    assert found["walk"] == [{"s": 12, "done": False}, {"s": 100, "done": True}, {"s": 0, "done": True},
+                             {"s": 10, "done": True}]
+    assert found["lonLat"] == pytest.approx([19.001, 50.002])
+    assert found["merc"] == pytest.approx([20037508.342789244, 0], abs=1e-6)
+
+
+def test_view3d_page_request(tmp_path):
+    """view3d/page.ts: the hash's run and line, the level (?level= over the pointer), the patch's step and the way
+    back to the app's run page."""
+    found = run_ts(tmp_path, "view3d/page", """
+const line = "50.1559508,19.7562722,50.1561234,19.7571234";
+const hash = "#run=" + encodeURIComponent("2026-11-01_12-00_Żabi Koń_ab12") + "&line=" + encodeURIComponent(line);
+const pages = [m.parsePage("", hash, false), m.parsePage("", hash, true), m.parsePage("?level=full", hash, true),
+               m.parsePage("?level=phone", hash, false), m.parsePage("", "#run=x&line=1,2,3", false),
+               m.parsePage("", "#run=x&line=1,2,3,abc", false)];
+console.log(JSON.stringify({pages, urls: pages.slice(0, 2).map(m.patchUrl), back: m.backUrl(pages[0])}));""")
+    pages = found["pages"]
+    assert pages[0] == {"run": "2026-11-01_12-00_Żabi Koń_ab12", "line": "50.1559508,19.7562722,50.1561234,19.7571234",
+                        "level": "full"}
+    assert [p["level"] for p in pages[:4]] == ["full", "phone", "full", "phone"]
+    assert pages[4]["line"] is None and pages[5]["line"] is None
+    run = "2026-11-01_12-00_%C5%BBabi%20Ko%C5%84_ab12"
+    assert found["urls"] == [f"/api/patch?run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234&step=1",
+                             f"/api/patch?run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234&step=2"]
+    assert found["back"] == f"/#run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234"

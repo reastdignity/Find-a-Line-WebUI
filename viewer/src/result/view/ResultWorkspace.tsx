@@ -50,6 +50,8 @@ export interface ResultWorkspaceProps {
   hashOf(runId: string, line: string | null): string;
   /** The link "Copy link" gives (default: this page's address with the hash, LineDetails' appLink). */
   linkOf?(model: ResultModel, line: Line): string;
+  /** The address of a line's 3D view (LineDetails' button; none without it: map.html, other shells). */
+  view3dOf?(model: ResultModel, line: Line): string;
   /** The runs to switch to (the pill's menu, shown with two or more runs that have a map). */
   runs?: RunListed[] | null;
   onRun?(runId: string): void;
@@ -101,7 +103,7 @@ export function runCounts(run: RunListed): string {
   return `${lines} ${lines === 1 ? "line" : "lines"} in ${spots} ${spots === 1 ? "spot" : "spots"}`;
 }
 
-function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, actions, menu, base, folder, show}:
+function Result({map, data, line, nav, wide, back, hashOf, linkOf, view3dOf, runs, onRun, actions, menu, base, folder, show}:
                 ResultWorkspaceProps & {data: RunData}) {
   const model = useMemo(() => new ResultModel(data, {list: {sort: "clr", desc: true}}), [data]);
   useModel(model);
@@ -215,6 +217,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
   const measuredNow = (l: Line | null) => { setMeasured(l); if (l && !wide) setSnap("half"); };
   const closeMeasured = () => { setMeasured(null); view?.clearMeasure(); };
   const link = linkOf && ((l: Line) => linkOf(model, l));
+  const view3d = view3dOf && ((l: Line) => view3dOf(model, l));
   const pill = <Pill data={data} runs={runs} back={back} wide={wide} onRun={onRun} />;
   const files = {base, folder};
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
@@ -230,7 +233,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
       <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132} top={64}
              header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
                : <ResultSummary model={model} legend={false} />}>
-        {model.selected && <LineDetails model={model} part="body" onZoom={zoom} linkOf={link} />}
+        {model.selected && <LineDetails model={model} part="body" onZoom={zoom} linkOf={link} view3dOf={view3d} />}
         <ProfileDock model={model} view={view} measured={measured} onCloseMeasured={closeMeasured} class="r-dock-sheet" />
         {model.selected && <ResultSummary model={model} />}
         <FilterBar model={model} />
@@ -239,7 +242,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
       {chooser}
     </div>;
   }
-  const details = <LineDetails model={model} onZoom={zoom} onStep={reveal} linkOf={link} />;
+  const details = <LineDetails model={model} onZoom={zoom} onStep={reveal} linkOf={link} view3dOf={view3d} />;
   return <div class="r-ws">
     <div class="b-top-left">{pill}</div>
     <div class="b-run-actions">{actions?.(false)}<RunActions model={model} view={view} onMeasured={measuredNow} show={show} {...files} /></div>

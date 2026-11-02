@@ -21,6 +21,8 @@ const TRIES: UiChoice[] = ["b", "c"];
 
 /** The link "Copy link" gives: this page in D with the line's hash, whichever interface is remembered. */
 const linkOf = (model: ResultModel, l: Line) => location.origin + uiHref("d") + runHash(model.runOf(l), model.lineLink(l));
+/** The line's 3D view (web.py /view3d), with the hash of the run's page. */
+const view3dOf = (model: ResultModel, l: Line) => "/view3d" + runHash(model.runOf(l), model.lineLink(l));
 const back = {label: "Home", text: true, onClick: () => go("#home")};
 
 /** The result on its own map, with Edit & run again. */
@@ -30,7 +32,7 @@ function ResultD({id, line, nav, editJob, wide}: ResultPageProps) {
         <Icon name="edit" /></a>
     : <Button icon="edit" href={editHash(editJob)}>Edit &amp; run again</Button>);
   return <RunOnMap runId={id} line={line} nav={nav} wide={wide} back={back} hashOf={runHash} linkOf={linkOf}
-                   actions={actions} ortho={(data) => orthoForApp(data.ortho, data.run.id)} />;
+                   view3dOf={view3dOf} actions={actions} ortho={(data) => orthoForApp(data.ortho, data.run.id)} />;
 }
 
 export function AppD() {
