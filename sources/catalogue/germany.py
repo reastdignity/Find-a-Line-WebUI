@@ -328,7 +328,8 @@ SOURCES: List[Source] = [
         neighbours=("hesse", "luxembourg", "france", "baden_wurttemberg"),
         listing=ReadmeRow("Rhineland-Palatinate (DE)", "LVermGeo RP DGM1, 1 m; newest survey",
                           "LVermGeo RP DOM1, 1 m", "LVermGeo RP DOP20"),
-        offline=(("de-rp", (48.96, 50.95, 6.11, 8.51)),), sample=(49.1500, 7.7800),
+        # Two boxes: Luxembourg's (to 6.54° E) comes later in SOURCES and would lose its points to one box
+        offline=(("de-rp", (48.96, 50.95, 6.54, 8.51)), ("de-rp", (50.19, 50.95, 6.11, 6.54))), sample=(49.1500, 7.7800),
         note=f"Data {RP_ATTRIBUTION} [Daten bearbeitet] (changed: mosaicked onto the working grid). Survey years "
              f"2022-2025, the newest per 1 km tile."),
 ]
