@@ -107,11 +107,12 @@ export const PROCESSED_NOTE = "Find-a-Line's lines, heights, profiles and maps a
 /** The data credits of a run for Leaflet's attribution control, which renders HTML: escaped text, links
  *  to http(s) only, and the run's ATTRIBUTION.txt (`notices`, a URL of ours) with the full notices. With
  *  `toggle`, a button (its `label`) before them that folds them on a phone (ui.css .u-credits; `open`:
- *  unfolded); the tile credits beside them stay in sight, as the OSM tile policy wants. */
+ *  unfolded); the tile credits beside them stay in sight, as the OSM tile policy wants. An empty `notices`
+ *  leaves the link out (the highline layer of the local app: no page with the notices). */
 export function creditsHtml(credits: Credit[], notices: string, toggle?: {label: string; open: boolean}): string {
   const parts = credits.map((c) => escape(c.attribution) + " (" + linked(c.licence, c.url) + ")");
   const html = "Data: " + Array.from(new Set(parts)).join(" | ") + ". " + escape(PROCESSED_NOTE) +
-    ' <a href="' + escape(notices) + '" target="_blank">Notices</a>';
+    (notices ? ' <a href="' + escape(notices) + '" target="_blank">Notices</a>' : "");
   if (!toggle) return html;
   return '<button type="button" class="u-credits-toggle" aria-expanded="' + toggle.open + '">' + escape(toggle.label) +
     '</button><span class="u-credits' + (toggle.open ? " u-open" : "") + '">' + html + "</span>";
