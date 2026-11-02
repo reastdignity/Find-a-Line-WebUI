@@ -50,8 +50,6 @@ import cache
 import coast
 import grid as gd
 import helpers as sh
-import lineprofiles as lp
-import linesearch as ls
 import mapping as mp
 import messages
 import orthophoto as ortho
@@ -59,7 +57,6 @@ import osm
 import runs as rn
 import sag as sg
 import sources as src
-import terrain
 from settings import Limits
 from params import SearchParams
 from progress import progress
@@ -765,6 +762,12 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     larger circles) only that of the line shown for each group, as the profiles of millions
     of lines would take long and fill the memory.
     """
+    # The kernels (numba) only here and in line_coordinates: the download phase and the quick
+    # lane, which import this module too, never load numba and llvmlite (their time and memory)
+    import lineprofiles as lp
+    import linesearch as ls
+    import terrain
+
     p, grid, emit = plan.params, plan.grid, plan.emit
 
     # Step 2: Find raster pixels with significant slope for promising anchors
@@ -868,6 +871,7 @@ def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float,
     """Step 4 before the groups, in place (no second table of the lines): their coordinates
     (mapping.coordify), only the lines whose first anchor lies in core (a tile's bounds) when
     given, and their metres over water and over filled gaps. Returns the lines."""
+    import linesearch as ls  # numba (see _lines)
     results = mp.coordify(lines, grid, nmpt)
     if core is not None:
         left, bottom, right, top = core

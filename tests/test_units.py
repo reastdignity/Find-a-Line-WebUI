@@ -1510,3 +1510,35 @@ def test_tiles_without_pixels(tmp_path):
     expected = sh.LineTable.concat([_fake_lines(5).without_pixels(), _fake_lines(4).without_pixels()])
     assert list(joined.columns) == list(expected.columns) and joined.profiles == expected.profiles
     assert all(np.array_equal(joined.columns[k], expected.columns[k], equal_nan=True) for k in expected.columns)
+
+
+def test_search_imports_numba_only_to_compute(tmp_path):
+    """search.py imports the kernels (linesearch, lineprofiles, terrain, grouping: numba) inside the
+    functions of steps 2-4: the download phase (plan, estimate, download_data) and the quick lane
+    never load numba; a search computes as before."""
+    import subprocess
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = f"""
+import json, os, sys
+sys.path.insert(0, {repo!r})
+import search, warmup
+from params import SearchParams
+kernels = lambda: sorted(m for m in sys.modules if m.split('.')[0] in
+                         ('numba', 'llvmlite', 'linesearch', 'lineprofiles', 'terrain', 'grouping'))
+folder = {str(tmp_path)!r}
+nmt, nmpt, (e, n) = warmup.write_grids(folder)
+paths = search.Paths(folder, os.path.join(folder, 'work'))
+plan = search.plan_search(SearchParams(elevation_file=nmt, surface_file=nmpt, easting=e, northing=n, radius=45,
+                                       min_length=15, max_length=60, water='off', fill_gaps='off'), paths)
+search.estimate_search(plan)
+search.download_data(plan)
+before = kernels()
+lines = search.find_lines(plan, search.prepare_data(plan))
+print(json.dumps([before, 'numba' in sys.modules, len(lines.results)]))
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=600,
+                            env={**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    import json
+    before, loaded, lines = json.loads(result.stdout.strip().splitlines()[-1])
+    assert before == [] and loaded and lines > 0
