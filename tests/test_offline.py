@@ -71,6 +71,44 @@ def test_synthetic_canyon(tmp_path):
     assert south and all(r["over_trees_buildings"] == "False" for r in south)
 
 
+def test_rock_rims_are_no_obstacles(tmp_path):
+    """The canyon with its walls inside pixels 120 and 169, its surface model made as the services
+    make theirs (the highest point of each pixel): the rim stands in the first pixel of every line,
+    which no longer marks a line (obstacles.py), while the trees on the floor of the northern rows
+    still do. run.json records the rule; a profile computed again uses its run's rule, for a run
+    from before it the surface model as it is."""
+    import search
+    left, top, size = 500000, 300000, 300
+    ground = lambda x: np.where((x >= 120.35) & (x < 169.65), 200.0, 240.0)  # noqa: E731
+    terrain = np.tile(ground(np.arange(size) + 0.5), (size, 1))
+    surface = np.tile(ground((np.arange(size * 10) + 0.5) / 10).reshape(size, 10).max(axis=1), (size, 1))
+    assert surface[0, 120] - terrain[0, 120] == 40 and surface[0, 169] - terrain[0, 169] == 40
+    surface[:100, 125:165] = 245.0  # trees on the floor in the north, away from the walls
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+
+    output, rows = run_search(tmp_path, "--elevation-file", str(tmp_path / "nmt.tif"),
+                              "--surface-file", str(tmp_path / "nmpt.tif"),
+                              "--northing", str(top - size / 2), "--easting", str(left + size / 2),
+                              "--radius", "140", "--resolution", "1", "--min-length", "20", "--max-length", "200")
+    # Both anchors in the north: the line crosses the trees (a steep line from row 89 may pass below them)
+    north = [r for r in rows if min(float(r["anchor1_northing"]), float(r["anchor2_northing"])) > top - 60]
+    south = [r for r in rows if max(float(r["anchor1_northing"]), float(r["anchor2_northing"])) < top - 110]
+    assert north and all(r["over_trees_buildings"] == "True" for r in north)
+    assert south and all(r["over_trees_buildings"] == "False" for r in south)
+
+    meta = json.load(open(glob.glob(str(tmp_path / "runs" / "*" / "run.json"))[0], encoding="utf-8"))
+    assert meta["params"]["obstacles"] == {"radius": 2, "min_height": 1.0}
+    line = next(r for r in south if r["anchor1_northing"] == r["anchor2_northing"])  # its first pixel 1 m out
+    anchors = [(float(line[f"anchor{k}_lat"]), float(line[f"anchor{k}_lon"])) for k in (1, 2)]
+    for rule, expected in ((meta["params"]["obstacles"], float(line["clearance_nmpt_m"])), (None, -6.15)):
+        meta["params"]["obstacles"] = rule
+        paths = search.Paths(str(tmp_path), str(tmp_path / f"profile-work-{rule is None}"))
+        os.makedirs(paths.work, exist_ok=True)
+        profile = search.profile_of_line(meta, paths, *anchors)
+        assert profile["min_nmpt"][1] == pytest.approx(expected, abs=0.01), rule
+
+
 # Known results of the Żabi Koń clip (update together with a deliberate change)
 ZABI_KON = {"anchors": 11609, "open": 620, "checked": 11313, "lines": 1301, "spots": 43}
 

@@ -90,6 +90,10 @@ class Source:
     # (lat, lon) of a point with data in every layer, for the source probe (sources/probe.py) and
     # tools/check_source.py; None: no such point (Alaska's 1 m DEM has no data yet)
     sample: Optional[Tuple[float, float]] = None
+    # The surface model's obstacles are told from the terrain's own rock (obstacles.py): every
+    # surface model of a survey's points; not FABDEM + Copernicus, whose difference is by
+    # construction the trees and buildings FABDEM removed (on the same pixels)
+    obstacles: bool = True
 
     def __post_init__(self):
         if self.default_resolution is None:

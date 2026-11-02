@@ -72,6 +72,9 @@ MASK_SLOPES = (55, 65, 75)
 ANCHOR_ZONES = (1, 2, 3)
 SHIFT = 8                   # pixels each way of the search for the shift of CHMv2
 ALIGN_GAIN = 0.03           # CHMv2 is moved by its shift when that raises r by this much
+CONTEXT_RADII = (1, 2, 3)   # A<r>+V<k>: A<r>, and a pixel it excuses stays an obstacle when a crown
+CONTEXT_REACH = (1, 2)      # within k pixels (surface TREE above its terrain gentler than CANOPY_SLOPE,
+CANOPY_SLOPE = 50.0         # above its own envelope) reaches its surface less MIN_HEIGHT
 WINDOW = 40                 # pixels around the pixel a picture shows
 GROUPS = {"removed_rock": "A1 removes the mark, all pixels rock",
           "lost": "A1 removes the mark, a tree (CHMv2) or building among the pixels",
@@ -79,11 +82,12 @@ GROUPS = {"removed_rock": "A1 removes the mark, all pixels rock",
           "residual_rock": "A1 keeps the mark, its pixels all rock"}
 DISTANCES = ((1, 1), (2, 2), (3, 3), (4, 5), (6, 10), (11, 20), (21, 10 ** 9))
 SLOPES = ((0, 30), (30, 50), (50, 70), (70, 80), (80, 91))
-REPORT_RULES = ("raw", "A1", "A2", "A3", "A5", "A1+W75/3", "A1+W75/5", "B0.5", "C65", "D2", "F", "F-trees")
+REPORT_RULES = ("raw", "A1", "A2", "A3", "A1+W75/2", "A1+W75/3", "A1+V2", "A2+V2", "A3+V2", "C65", "D2", "F")
 
 
 def rule_names() -> List[str]:
     return (["raw"] + [f"A{r}" for r in RADII] + [f"A1+W{d}/{p}" for d, p in WALLS]
+            + [f"A{r}+V{k}" for r in CONTEXT_RADII for k in CONTEXT_REACH]
             + [f"B{k:g}" for k in SLOPE_FACTORS] + [f"C{d}" for d in MASK_SLOPES]
             + [f"D{k}" for k in ANCHOR_ZONES] + ["F", "F-trees"])
 
@@ -122,6 +126,7 @@ def capture(out: str, search_args: List[str]) -> int:
 
     os.makedirs(out, exist_ok=True)
     os.environ.setdefault("FINDALINE_PROGRESS", "text")
+    obstacles.RULE = None  # the surface model as it is: the rules are what this tool compares
     wrapper = Capture(out)
     original = search._lines
 
@@ -364,6 +369,14 @@ def rule_flags(z: np.ndarray, s: np.ndarray, res: float, pix: Dict, chm3: Option
             flags[f"A{r}"] = sv > obstacles.envelope(z, r)[rows, cols] + np.float32(obstacles.MIN_HEIGHT)
         for wall in WALLS:
             flags[f"A1+W{wall[0]}/{wall[1]}"] = obstacles.is_obstacle(z, s, res, wall=wall)[rows, cols]
+        height = s - z
+        for r in CONTEXT_RADII:
+            crowns = np.where((height >= TREE) & (slope_grid < CANOPY_SLOPE)
+                              & obstacles.is_obstacle(z, s, res, radius=r), s, np.float32(-np.inf))
+            for k in CONTEXT_REACH:
+                near = ndimage.maximum_filter(crowns, size=2 * k + 1, mode="constant", cval=-np.inf)[rows, cols]
+                flags[f"A{r}+V{k}"] = flags[f"A{r}"] | ((sv - zv > obstacles.MIN_HEIGHT)
+                                                          & (near >= sv - obstacles.MIN_HEIGHT))
         for k in SLOPE_FACTORS:
             flags[f"B{k:g}"] = sv - zv > k * res * np.tan(np.radians(slope)) + obstacles.MIN_HEIGHT
         for degrees in MASK_SLOPES:

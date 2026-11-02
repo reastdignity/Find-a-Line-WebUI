@@ -84,17 +84,36 @@ def test_trees_and_buildings_stay():
     assert kept.sum() == 13 + 4  # the building's middle pixels too (39-42)
 
 
-def test_overhang_needs_the_wall_band():
+def test_overhang_needs_two_pixels():
     """A lip reaching 0.85 m beyond the foot of the wall: the ground filter keeps the floor
     under it, the surface model the lip. The envelope of 3 x 3 pixels does not reach the
-    plateau from there; the band of 3 pixels around terrain steeper than 70 degrees does."""
+    plateau from there; that of 5 x 5 (RADIUS) does, and so does a band of 3 pixels around
+    terrain steeper than 70 degrees."""
     ground = lambda x: np.where(x < 20.35, 100.0, 50.0)  # noqa: E731
     lip = lambda x: np.where(x < 21.2, 100.0, 50.0)  # noqa: E731
     dtm, dsm = rasterize(ground, lip, 40)
     assert dsm[0, 21] == 100 and dtm[0, 21] == 50
-    assert obstacles.obstacle_surface(dtm, dsm, 1.0)[0, 21] == 100
-    assert obstacles.obstacle_surface(dtm, dsm, 1.0, wall=(70, 3))[0, 21] == 50
-    assert obstacles.obstacle_surface(dtm, dsm, 1.0, radius=2)[0, 21] == 50
+    assert obstacles.obstacle_surface(dtm, dsm, 1.0, radius=1)[0, 21] == 100
+    assert obstacles.obstacle_surface(dtm, dsm, 1.0, radius=1, wall=(70, 3))[0, 21] == 50
+    assert obstacles.RADIUS == 2 and obstacles.obstacle_surface(dtm, dsm, 1.0)[0, 21] == 50
+
+
+def test_bare_pixels():
+    """A sea cliff whose foot the terrain model lacks: filled with the sea's 0 m, while the
+    surface model holds the face over two pixels of "sea". Filled water is bare: never an obstacle."""
+    ground = lambda x: np.where(x < 20.0, 60.0, 0.0)  # noqa: E731
+    face = lambda x: np.where(x < 23.0, 60.0, 0.0)  # noqa: E731
+    dtm, dsm = rasterize(ground, face, 40)
+    filled = np.zeros(dtm.shape, dtype=bool)
+    filled[:, 20:] = True
+    assert (obstacles.obstacle_surface(dtm, dsm, 1.0)[:, 22] == 60).all()  # 3 pixels: beyond the envelope
+    surface = obstacles.obstacle_surface(dtm, dsm, 1.0, bare=filled)
+    assert (surface[:, 20:] == 0).all() and (surface[:, :20] == 60).all()
+
+
+def test_rule_and_reach():
+    assert obstacles.RULE == {"radius": obstacles.RADIUS, "min_height": obstacles.MIN_HEIGHT}
+    assert obstacles.reach() == 2 and obstacles.reach(1, (70, 3)) == 4
 
 
 def test_cut_block_top_stays_an_obstacle():
@@ -123,8 +142,9 @@ def test_blocks_give_one_pass():
     dtm = np.cumsum(np.cumsum(rng.normal(0, 1, (61, 47)), axis=0), axis=1).astype(np.float32)
     dsm = dtm + np.where(rng.random(dtm.shape) < 0.2, rng.uniform(0, 20, dtm.shape), 0).astype(np.float32)
     dsm[rng.random(dtm.shape) < 0.05] = np.nan
+    bare = rng.random(dtm.shape) < 0.1
     for radius, wall in ((1, None), (2, (60, 3)), (1, (45, 5))):
-        whole = obstacles.obstacle_surface(dtm, dsm, 2.0, radius=radius, wall=wall, block_rows=1000)
+        whole = obstacles.obstacle_surface(dtm, dsm, 2.0, radius=radius, wall=wall, bare=bare, block_rows=1000)
         for rows in (1, 3, 8):
-            parts = obstacles.obstacle_surface(dtm, dsm, 2.0, radius=radius, wall=wall, block_rows=rows)
+            parts = obstacles.obstacle_surface(dtm, dsm, 2.0, radius=radius, wall=wall, bare=bare, block_rows=rows)
             np.testing.assert_array_equal(parts, whole)
