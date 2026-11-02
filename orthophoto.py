@@ -151,13 +151,19 @@ def _get(url: str, params: Optional[Dict], z: int, x: int, y: int) -> bytes:
     raise RuntimeError(f"Could not download orthophoto tile {z}/{x}/{y}: {cache.clean_error(last_error)}")
 
 
-def _get_map(url: str, layer: str, z: int, x: int, y: int, png: bool = False) -> bytes:
-    """One tile from a WMS: JPEG, or with png a PNG transparent where the service has no imagery."""
-    params = {
-        "SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetMap", "LAYERS": layer,
-        "STYLES": "", "CRS": "EPSG:4326", "BBOX": _wms_bbox(z, x, y),
-        "WIDTH": TILE_PX, "HEIGHT": TILE_PX, "FORMAT": "image/png" if png else "image/jpeg",
-    }
+def _get_map(url: str, layer: str, z: int, x: int, y: int, png: bool = False, version: str = "1.3.0") -> bytes:
+    """One tile from a WMS: JPEG, or with png a PNG transparent where the service has no imagery.
+    WMS 1.3.0 asks EPSG:4326 in its lat-lon axis order, 1.1.1 (OrthoService.wms_version) as SRS in
+    lon-lat order."""
+    params = {"SERVICE": "WMS", "VERSION": version, "REQUEST": "GetMap", "LAYERS": layer, "STYLES": ""}
+    if version == "1.1.1":
+        south, west, north, east = _wms_bbox(z, x, y).split(",")
+        params.update(SRS="EPSG:4326", BBOX=f"{west},{south},{east},{north}")
+    elif version == "1.3.0":
+        params.update(CRS="EPSG:4326", BBOX=_wms_bbox(z, x, y))
+    else:
+        raise ValueError(f"WMS version {version}: 1.3.0 or 1.1.1 expected")
+    params.update(WIDTH=TILE_PX, HEIGHT=TILE_PX, FORMAT="image/png" if png else "image/jpeg")
     if png:
         params["TRANSPARENT"] = "TRUE"
     return _get(url, params, z, x, y)
@@ -198,7 +204,8 @@ def tile_content(service, z: int, x: int, y: int) -> bytes:
         if z <= service.base_max_zoom:
             return _get(service.base_url.format(z=z, x=x, y=y), None, z, x, y)
         return _jpeg(_base_tile(service, z, x, y))
-    content = _get_map(service.url, service.layer, z, x, y)
+    version = service.wms_version
+    content = _get_map(service.url, service.layer, z, x, y, version=version)
     if not service.base_url:
         return content
     empty, partly = _white_blocks(content)
@@ -208,7 +215,8 @@ def tile_content(service, z: int, x: int, y: int) -> bytes:
         return _jpeg(_base_tile(service, z, x, y))
     if not partly:
         return content
-    top = Image.open(io.BytesIO(_get_map(service.url, service.layer, z, x, y, png=True))).convert("RGBA")
+    top = _get_map(service.url, service.layer, z, x, y, png=True, version=version)
+    top = Image.open(io.BytesIO(top)).convert("RGBA")
     tile = _base_tile(service, z, x, y)
     tile.alpha_composite(top)
     return _jpeg(tile)

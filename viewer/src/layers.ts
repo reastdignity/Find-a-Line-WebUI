@@ -73,7 +73,9 @@ export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string,
     // in WGS84. WMS renders at any scale, so the orthophoto stays sharp up to maxZoom.
     const base = ortho.base;
     const layer = new (CachedWMS as any)(ortho.url, {
-      layers: ortho.layer, format: base ? "image/png" : "image/jpeg", version: "1.3.0", transparent: !!base,
+      // WMS 1.3.0 asks EPSG:4326 in lat-lon order, 1.1.1 (a service taking lon-lat only) as SRS in lon-lat order
+      layers: ortho.layer, format: base ? "image/png" : "image/jpeg", version: ortho.wms_version ?? "1.3.0",
+      transparent: !!base,
       attribution: orthoHtml(ortho), maxZoom, crs: L.CRS.EPSG4326}) as L.TileLayer.WMS;
     (layer as any)._cache = ortho.cache;
     // Where the WMS has no imagery its PNG is transparent and shows the base under it

@@ -15,7 +15,7 @@ from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "scotland", "wales", "england", "hesse",
+       "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "south_tyrol", "trento", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "europe", "nasadem"]
 
@@ -545,6 +545,26 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                  'ttl_days': 730,
                                  'credit': 'MRDEM-30, DTM / DSM 30 m (NRCan)',
                                  'shift': (0.0, 0.0)}},
+            'slovenia': {'crs': 'EPSG:3794',
+                         'countries': ('si',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.5, 0.5),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': 'slovenia/dof050/live',
+                         'credits': ['LiDAR DMR 1 m 2011-2015 (ARSO, Slovenia)'],
+                         'nmt': {'class': 'ZippedTiles',
+                                 'description': 'DMR 1 m (terrain) Slovenia',
+                                 'folder': 'slovenia/lss-dmr1/2011-2015',
+                                 'prefix': None,
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'LiDAR DMR 1 m 2011-2015 (ARSO, Slovenia)',
+                                 'shift': (0.0, 0.0)},
+                         'nmpt': None},
             'austria': {'crs': 'EPSG:3035',
                    'countries': ('at',),
                    'bbox': None,
@@ -1453,6 +1473,7 @@ PATHS = [
      "north_rhine_westphalia/dom1/live/epsg25832-1m-2000px-tif/233_2842.tif", (1.0, 233, 2842)),
     ("trento", "nmt", (1292, 10174), "italy/tn-dtm/2014/129_1017/1292_10174.tif", (1292, 10174)),
     ("trento", "nmpt", (1292, 10174), "italy/tn-dsm/2014/129_1017/1292_10174.tif", (1292, 10174)),
+    ("slovenia", "nmt", (411, 48), "slovenia/lss-dmr1/2011-2015/41_4/411_48.tif", (411, 48)),
 ]
 
 
@@ -1562,6 +1583,8 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("pr", (17.8, 18.6, -67.4, -65.2)),
          ("ca", (48.9, 60.0, -139.1, -52.6)), ("ca", (48.2, 48.9, -125.0, -123.2)), ("ca", (46.0, 48.9, -95.2, -74.3)),
          ("ca", (41.6, 46.0, -83.6, -74.3)), ("ca", (43.3, 48.9, -74.3, -52.6)), ("ca", (60.0, 83.2, -141.0, -61.0)),
+         ("si", (45.42, 46.48, 13.37, 15.00)), ("si", (45.42, 46.62, 15.00, 15.65)),
+         ("si", (45.85, 46.88, 15.65, 16.61)),
          ("at", (46.37, 49.02, 9.53, 17.17)),
          ("gb-sct", (55.82, 60.86, -8.65, -0.73)), ("gb-sct", (55.35, 55.82, -8.65, -5.85)),
          ("gb-sct", (54.63, 55.82, -5.85, -3.6)),
@@ -1737,6 +1760,7 @@ ATTRIBUTIONS = {
                 "v3.0",
     "north_rhine_westphalia": "Geobasis NRW, Daten geändert",
     "trento": "Provincia autonoma di Trento - Servizio Geologico, LiDAR PAT 2014",
+    "slovenia": "Agencija Republike Slovenije za okolje, LiDAR DMR 1 m, 2011-2015",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "austria": ("Datenquelle: basemap.at", "https://basemap.at"),
@@ -1759,6 +1783,7 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "czechia": ("ČÚZK – on-line", "https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"
                                   "Podminky-poskytovani-sitovych-sluzeb-CUZK.aspx"),
     "north_rhine_westphalia": ("Geobasis NRW", None),
+    "slovenia": ("Geodetska uprava Republike Slovenije, DOF050, {year}, CC BY 4.0", src.CC_BY[1]),
 }
 
 
