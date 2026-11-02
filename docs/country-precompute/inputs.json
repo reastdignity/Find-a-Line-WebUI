@@ -50,6 +50,17 @@
    },
    "service": {"mb_s": 40, "requests_per_min": 36, "index_s": 4560}
   },
+  "SK": {
+   "name": "Slovakia",
+   "osm": ["Slovensko"],
+   "area_km2": 49035,
+   "_data": "the local mirror of our 2 km tiles (FINDALINE_MIRROR): DMR 5.0 64.6 GB and DMP 1.0 77.9 GB in 12,826 tiles each (LERC 5 mm), copied into the cache with their sha256",
+   "data": {
+    "1": {"terrain": {"download_mb_km2": 1.26, "cache_mb_km2": 1.26, "files_per_km2": 0.25},
+          "surface": {"download_mb_km2": 1.52, "cache_mb_km2": 1.52, "files_per_km2": 0.25}}
+   },
+   "service": {"mb_s": 500, "local": true, "requests_per_min": null, "index_s": 0}
+  },
   "UT": {
    "name": "Utah",
    "osm": ["Utah"],
