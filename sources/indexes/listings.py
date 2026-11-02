@@ -28,9 +28,10 @@ SHEET_FORMATS = ("ARC/INFO ASCII GRID", "ASCII XYZ GRID")
 # slot of its host, net.HOST_SLOTS_OF, so the cap holds across layers and processes), and the
 # 0.25° tiles of one grid asked at a time (NewestPerSheet.query: tiles_at_once)
 WFS_THREADS = 4
-# Days the year layers of a WFS sheet index (its GetCapabilities) are taken from the disk: those
-# of the tile answers (cache.TTL_DAYS), so a new year layer is found as late as a new survey
-CAPABILITIES_DAYS = cache.TTL_DAYS["sheet-index"]
+# Days the year layers of a WFS sheet index (its GetCapabilities) are taken from the disk: a new
+# year layer (gugik:NMT2027 in January) is seen within a month by the tiles asked from then on
+# (cache update asks at once); the request is one small answer per layer and process
+CAPABILITIES_DAYS = 30
 
 # The root element of an XML answer (after its declaration, comments and doctype)
 XML_ROOT = re.compile(rb"\s*(?:<\?.*?\?>\s*|<!--.*?-->\s*|<!DOCTYPE[^>]*>\s*)*<(?:[\w.-]+:)?([\w.-]+)", re.DOTALL)
