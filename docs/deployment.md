@@ -472,7 +472,9 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   radius, resolution, area and bounding box (`..._RADIUS_MAX=3500`, `..._RESOLUTION_MAX=30`,
   `..._AREA_KM2_MAX=50`, `..._BBOX_KM_MAX=75`), searches, km² and MB a day per user
   (`..._DOWNLOAD_MB_DAY_MAX=10000`) and the request rates (`..._JOB_RATE=10/minute;60/hour`);
-  README's table lists all of them.
+  README's table lists all of them. `FINDALINE_3D_RING` stays unset (off): the 3D view's coarse
+  ring of terrain from Mapterhorn's tiles is switched on only once its maintainer agrees (README,
+  *The 3D view of a line*); `web` reads it at its start.
 - `.env` (compose itself): `WORKER_CPUS` (the number of cores minus one, a whole number: it is
   also the worker's `NUMBA_NUM_THREADS`; `nproc` tells them),
   `WORKER_MEMORY`, `WORKER_COMPUTE_SLOTS`/`WORKER_DOWNLOAD_SLOTS` (section 1, 1 and 1 by
