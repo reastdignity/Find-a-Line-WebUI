@@ -1127,5 +1127,31 @@
     },
     "notes": "--source auto picks new_zealand (the centre is in NZ); first run on an empty cache: 4-6 blocks of 1 km per layer, about 2 MB each; limestone boulders and outcrops of the conservation area; almost every line is marked over trees/buildings: the DSM stands 2-35 m above the DEM on 1-3 % of the blocks' pixels (trees, boulders) and the lines run low over the basin; also measured: radius 800 m, 30-300 m: 3120 lines in 124 spots",
     "seconds": 11.4
+  },
+  "R44": {
+    "place": "Adršpach rock town (Adršpašské skály), Czechia: ČÚZK's DMR 5G and DMP 1G (2 m) from its ArcGIS ImageServers (exportImage) in S-JTSK / Krovak East North",
+    "args": "--lat 50.6115 --lon 16.1170 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "cz"
+    ],
+    "expected": {
+      "anchors": 80073,
+      "open": 22745,
+      "checked": 436433,
+      "lines": 37687,
+      "spots": 1976,
+      "csv_sha256": "4e559d62ca07552cdd5684c70ecf79f8f3caede43118b01685d56a4a995bd190",
+      "length_km": 5685.808,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.154,
+      "clearance_max": 32.34,
+      "over_trees": 37339,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "water_lines": 218,
+      "water_spots": 19
+    },
+    "seconds": 29.6
   }
 }
