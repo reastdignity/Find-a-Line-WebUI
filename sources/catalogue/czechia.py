@@ -7,8 +7,8 @@ from ..credit import YEAR, Credit
 from ..source import OrthoService, ReadmeRow, Source
 from ..layers.imageserver import ImageServerTiles
 
-# ČÚZK's terms of its spatial data ("Podmínky poskytování prostorových dat ČÚZK", read 2026-11-02; Czech): the
-# open data (DMR 5G, DMP 1G and the orthophoto among them) under CC BY 4.0; "tiskové výstupy z těchto dat a
+# ČÚZK's terms of its spatial data ("Podmínky poskytování prostorových dat ČÚZK", read 2026-11-02; Czech):
+# the open data (DMR 5G, DMP 1G and the orthophoto among them) under CC BY 4.0; "tiskové výstupy z těchto dat a
 # prohlížecí služby nad těmito daty musí obsahovat uvedení zdroje ve formátu: „ČÚZK, [rok]“, kde časové údaje
 # jsou vztaženy k aktuálnosti použitého datového souboru", with a link to the terms, and a description of the
 # changes of a changed work (credit.PROCESSED_NOTE). The services name no edition date, so the year is the
@@ -22,8 +22,8 @@ CZ_DATA_TERMS = ("https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-
 CZ_SERVICE_TERMS = ("https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"
                     "Podminky-poskytovani-sitovych-sluzeb-CUZK.aspx")
 CZ_CREDIT = Credit("DMR 5G / DMP 1G (ČÚZK, Czechia)", f"ČÚZK, {YEAR}", "CC BY 4.0", CZ_DATA_TERMS,
-                   notice=f"Digitální model reliéfu České republiky 5. generace (DMR 5G) and digitální model povrchu "
-                          f"1. generace (DMP 1G): ČÚZK, {YEAR}, CC BY 4.0, read from ČÚZK's network services "
+                   notice=f"Digitální model reliéfu České republiky 5. generace (DMR 5G) and digitální model "
+                          f"povrchu 1. generace (DMP 1G): ČÚZK, {YEAR}, CC BY 4.0, read from ČÚZK's network services "
                           f"(terms: {CZ_SERVICE_TERMS}).")
 
 # The ImageServers of the two models, as they answered on 2026-11-02 (ArcGIS Server 12; tests/test_imageserver.py
@@ -32,18 +32,18 @@ CZ_CREDIT = Credit("DMR 5G / DMP 1G (ČÚZK, Czechia)", f"ČÚZK, {YEAR}", "CC B
 # sampling at 0.1 m): DMR 5G's pixel edges at x 0.4, y 1.88 modulo 2 m, DMP 1G's at 1.69, 1.98. exportImage on
 # that grid with nearest neighbour gives the stored values exactly (a box equals its halves and a one-pixel
 # shift); outside the country it answers 0 without a nodata tag unless noData is given (-9999, as asked). Tiles of
-# 1000 px (2 km, about 3 MB with LZ77, under a second each). The models are updated from new surveys (a national
+# 1000 px (2 km, 3.5-3.8 MB with LZ77, under a second each). The models are updated from new surveys (a national
 # laser scanning from 2026 on): the folders are "live".
 CZ_SERVICES = "https://ags.cuzk.gov.cz/arcgis2/rest/services"
 CZ_CRS = "EPSG:5514"
 CZ_DMR_ORIGIN = (0.4, 1.88)
 CZ_DMP_ORIGIN = (1.69, 1.98)
 CZ_DMR = ImageServerTiles("ČÚZK DMR 5G 2 m (terrain)", f"{CZ_SERVICES}/dmr5g/ImageServer", CZ_CRS,
-                          "czechia/dmr5g/live", 2.0, tile_px=1000, origin=CZ_DMR_ORIGIN)
+                          "czechia/dmr5g/live", 2.0, tile_px=1000, origin=CZ_DMR_ORIGIN, bytes_per_px=3.7)
 # On its own grid, 0.71 and 0.1 m from the terrain model's: mosaic.prepare_layer interpolates it bilinearly onto
 # the working grid (the terrain model's), as any layer on other pixels; the cache keeps its stored values
 CZ_DMP = ImageServerTiles("ČÚZK DMP 1G 2 m (trees, buildings)", f"{CZ_SERVICES}/dmp1g/ImageServer", CZ_CRS,
-                          "czechia/dmp1g/live", 2.0, tile_px=1000, origin=CZ_DMP_ORIGIN)
+                          "czechia/dmp1g/live", 2.0, tile_px=1000, origin=CZ_DMP_ORIGIN, bytes_per_px=3.7)
 
 # The orthophoto's tiles in Web Mercator (the same host; levels to 23, maxScale 564 is zoom 20)
 CZ_ORTHO = OrthoService("ČÚZK Ortofoto", None, "", "czechia/ortho/live", "ČÚZK – on-line",

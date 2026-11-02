@@ -184,7 +184,8 @@ def test_partial_tile_and_wrong_pixels(server, tmp_path):
     off = _tiff(values, FULL[0] + 1, FULL[1] + 32)
     small = _tiff(values[:8], FULL[0], FULL[1] + 32)
     for name, body in (("good", good), ("off", off), ("small", small)):
-        server.route(f"{SERVICES}/{name}/", lambda request, body=body: Answer(200, body, {"Content-Type": "image/tiff"}))
+        server.route(f"{SERVICES}/{name}/",
+                     lambda request, body=body: Answer(200, body, {"Content-Type": "image/tiff"}))
     _, path = _fetch(_reader(server, FULL, "good"), tmp_path)
     with rio.open(path) as tile:
         kept = tile.read(1)
