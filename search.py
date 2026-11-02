@@ -5,7 +5,8 @@ A search as a library: from SearchParams to a saved run, without terminal input.
     estimate = estimate_search(plan)               # what would be downloaded, disk use
     data = prepare_data(plan)                      # step 1: download, mosaics, water, gaps
     lines = find_lines(plan, data)                 # steps 2-4: anchors, lines, profiles, groups
-    result = save_run(plan, lines, confirm)        # step 5: the run, orthophoto, map
+    result = save_run(plan, lines)                 # step 5: the run and the map
+    download_orthophoto(plan, orthophoto_lines(plan, lines), confirm)  # for offline use of the map
     # or all of it: run_search(params, paths, on_event, confirm)
 
 Large areas (--area) are computed in square tiles (search_lines): each tile is a grid
@@ -1171,14 +1172,15 @@ def _run_params(plan: Plan) -> Dict:
             "rigging": dataclasses.asdict(plan.rigging)}
 
 
-def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: Optional[Dict] = None) -> Result:
-    """Step 5: save the run (results, parameters, data used), the orthophoto tiles and the map.
+def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
+    """Step 5: save the run (results, parameters, data used) and the map. The orthophoto for
+    offline use is a step of its own after it (orthophoto_lines, download_orthophoto): the map
+    reads its tiles from the cache as they arrive and loads the rest online.
 
     run: the run folder of a tiled search (search_lines); otherwise a new one is made.
     """
     p, emit = plan.params, plan.emit
     results, spot_groups = lines.results, lines.spot_groups
-    confirm = confirm or (lambda kind, text: True)
     _step(plan, 5, "saving the run and the map")
     center_lat, center_lon = plan.area.center
     x, y = plan.center_xy
@@ -1222,26 +1224,9 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
     map_path = None
     if not p.no_html:
         source = plan.source
-        ortho_cache = None
-        if source.ortho and p.ortho != "never":
-            # Detailed orthophoto only around one line per group (variants lie within the strip),
-            # for the best groups of an area or as the service's fair use allows
-            detail = p.ortho_detail if p.ortho_detail is not None else source.ortho.detail
-            if detail is None and not circle:
-                detail = ORTHO_DETAIL
-            spots = [results.row(k) for k in spot_groups.rep[:detail].tolist()]
-            ortho_folder = ortho.cache_folder(plan.paths.cache, source.ortho)
-            max_zoom = ortho.DETAIL_ZOOMS[-1] if source.ortho.url else source.ortho.base_max_zoom
-            tiles = ortho.missing_tiles(ortho.tiles_to_cache(spots, plan.area, max_zoom), ortho_folder,
-                                        plan.paths.cache, p.update, source.ortho.ttl_days)
-            minutes = len(tiles) * ORTHO_SECONDS_PER_TILE / 60
-            emit("info", f"Orthophoto for offline use: {len(tiles)} tiles to download "
-                         f"(~{len(tiles) * ortho.APPROX_TILE_KB / 1000:.0f} MB, ~{minutes:.0f} min)")
-            if p.ortho == "auto" and minutes > CONFIRM_MINUTES and not confirm(
-                    "ortho", "Download now? Otherwise the map loads the orthophoto online. [y/N] "):
-                tiles = []
-            ortho.download(source.ortho, tiles, ortho_folder, plan.paths.cache)
-            ortho_cache = ortho_folder
+        # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
+        # the run, earlier runs did too), falling back to the service for a tile not there
+        ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
         progress.compute.start("saving the map", len(results), unit="line")
         # an orthophoto's attribution may name the year of the run too (sources.YEAR)
         ortho_service = source.ortho and dataclasses.replace(
@@ -1254,6 +1239,56 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
+
+
+def _orthophoto(plan: Plan) -> bool:
+    """Whether the run gets the orthophoto for offline use: a service, --ortho other than never, a map."""
+    p = plan.params
+    return bool(plan.source.ortho) and p.ortho != "never" and not p.no_html
+
+
+def orthophoto_lines(plan: Plan, lines: Lines) -> List[Dict]:
+    """The lines the orthophoto is cached around in detail (download_orthophoto): one per group
+    (its variants lie within the strip), the best groups first, as many as --ortho-detail, the
+    service's fair use (OrthoService.detail) or ORTHO_DETAIL for an area allow (a circle: every
+    group). Their anchors only ("anchor1", "anchor2" as (lat, lon)): small enough to keep after
+    the lines are released (the web worker downloads the orthophoto after "done")."""
+    p, source = plan.params, plan.source
+    detail = p.ortho_detail if p.ortho_detail is not None else (source.ortho.detail if source.ortho else None)
+    if detail is None and not isinstance(plan.area, ar.Circle):
+        detail = ORTHO_DETAIL
+    columns = lines.results.columns
+    reps = lines.spot_groups.rep[:detail]
+    return [{"anchor1": tuple(a1), "anchor2": tuple(a2)}
+            for a1, a2 in zip(columns["anchor1"][reps].tolist(), columns["anchor2"][reps].tolist())]
+
+
+def download_orthophoto(plan: Plan, spots: List[Dict], confirm: Optional[Confirm] = None) -> int:
+    """The orthophoto for offline use of the map, after the run is saved: the tiles of the search
+    area at the overview zooms and of a strip around each line of `spots` (orthophoto_lines) at
+    the detail zooms, those not cached yet (with --update: or due for a check), downloaded into
+    the source's cache folder, which the map reads tile by tile (the rest it loads online).
+    Nothing without an orthophoto service, with --ortho never or --no-html; with --ortho auto a
+    download of more than CONFIRM_MINUTES asks confirm("ortho", ...), and no means none. Returns
+    the tiles downloaded."""
+    p, source, emit = plan.params, plan.source, plan.emit
+    if not _orthophoto(plan):
+        return 0
+    confirm = confirm or (lambda kind, text: True)
+    folder = ortho.cache_folder(plan.paths.cache, source.ortho)
+    max_zoom = ortho.DETAIL_ZOOMS[-1] if source.ortho.url else source.ortho.base_max_zoom
+    tiles = ortho.missing_tiles(ortho.tiles_to_cache(spots, plan.area, max_zoom), folder, plan.paths.cache,
+                               p.update, source.ortho.ttl_days)
+    minutes = len(tiles) * ORTHO_SECONDS_PER_TILE / 60
+    emit("info", f"Orthophoto for offline use: {len(tiles)} tiles to download "
+                 f"(~{len(tiles) * ortho.APPROX_TILE_KB / 1000:.0f} MB, ~{minutes:.0f} min)")
+    if p.ortho == "auto" and minutes > CONFIRM_MINUTES and not confirm(
+            "ortho", "Download now? Otherwise the map loads the orthophoto online. [y/N] "):
+        return 0
+    saved, received = ortho.download(source.ortho, tiles, folder, plan.paths.cache)
+    if tiles:
+        emit("info", f"Orthophoto for offline use: {saved} of {len(tiles)} tiles saved ({received / 1e6:.0f} MB)")
+    return saved
 
 
 _SAG_TABLES: Dict[tuple, "sg.EnvelopeTable"] = {}  # by (rigging, min_length, max_length); at most SAG_TABLES_MAX
@@ -1330,4 +1365,6 @@ def run_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] =
     if estimate.reasons and confirm and not confirm("expensive", "\n".join(estimate.reasons)):
         raise SearchError("Stopped.")
     lines, run = search_lines(plan)
-    return save_run(plan, lines, confirm, run)
+    result = save_run(plan, lines, run)
+    download_orthophoto(plan, orthophoto_lines(plan, lines), confirm)
+    return result
