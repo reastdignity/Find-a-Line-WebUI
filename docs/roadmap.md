@@ -56,7 +56,8 @@ Rules for every step:
    - *What is seen*: on bare rock nearly every line is marked as over trees or buildings. Wales (2026-11-01): every
      line at Cwm Silyn (a cwm without trees, 2854 lines) and at the Dinorwig slate quarries. South Tyrol's 2.5 m data:
      the DSM a median of 5.9 m above the DTM at 60-75°. Batch 2 (2026-11-02): R40 Preikestolen 105 150 of 125 054
-     lines, R41 Stawamus Chief all 19 348 (a granite monolith), R42 Castle Hill / Kura Tawhiti 2208 of 2238.
+     lines, R41 Stawamus Chief all 19 348 (a granite monolith), R42 Castle Hill / Kura Tawhiti 2208 of 2238. The
+     user saw the same in the Tatras (2026-11-02), on their vertical walls, as the diagnosis below expects.
    - *Measured* on the Stawamus Chief (Canada's HRDEM 1 m, 1 km around 49.682, -123.143), DSM minus DTM by the
      DTM's slope: 0-30° a median of 21 m (forest), 30-50° 17.5 m, 50-70° 4.6 m, 70-90° 7.2 m (p10 1.5 m; more than
      0.5 m on 99 % of the pixels). Norway's DOM rises more than 100 m above its DTM on vertical walls.
