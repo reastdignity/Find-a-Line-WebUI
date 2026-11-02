@@ -18,6 +18,10 @@ HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Sec
 The "map" pages are a run's own map.html (from the server and by its share link). The files are
 <page>-<device>-<theme>.png; a page whose click finds nothing on a device is left out.
 Phone screenshots of the viewport only (the shells scroll inside, not the page).
+
+With ESRI_API_KEY set, the pages showing Esri's imagery ("map-esri", the "view3d" pages but "view3d-shaded")
+are for the review only: Esri's terms forbid storing or passing its imagery on, so delete them after looking
+and never publish them.
 """
 
 import argparse
