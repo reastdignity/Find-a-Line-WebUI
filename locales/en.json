@@ -399,6 +399,7 @@
   "ui.view3d.imagery_ortho": "Orthophoto",
   "ui.view3d.imagery_esri": "Satellite (Esri)",
   "ui.view3d.imagery_shaded": "Shaded",
+  "ui.view3d.imagery_edges": "Edges",
   "ui.view3d.no_imagery": "No imagery for this result: the terrain is shaded.",
   "ui.view3d.walker": "Walker",
   "ui.view3d.walker_position": "Walker's position along the line",

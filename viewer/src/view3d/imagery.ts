@@ -1,8 +1,9 @@
 // The imagery of the 3D view (docs/3d-view-contract.md, "Wave 2", V2b): the run's national orthophoto (our cache
 // first where it may have the tiles, else its service), Esri's satellite imagery (with the operator's key), or
-// the terrain shaded. Each chunk gets one canvas of its tiles (tiles.ts: the zoom, the URLs, the UVs) as its
+// the terrain shaded, or its "Edges" look (wave E: scene-api.ts setEdges, where the browser can draw it). Each chunk gets one canvas of its tiles (tiles.ts: the zoom, the URLs, the UVs) as its
 // texture; the control is a segmented one in the scene's toolbar, the credits go to the scene's credits box
-// (credits.ts). Plain DOM, no style attributes (the CSP's style-src 'self'): classes of ui.css.
+// (credits.ts). Plain DOM, no style attributes (the CSP's style-src 'self'): classes of ui.css. The page's
+// root gets data-imagery="<kind>" (for tests).
 
 import { CanvasTexture, LinearMipmapLinearFilter, SRGBColorSpace } from "three";
 import { t } from "../i18n";
@@ -15,7 +16,7 @@ import {
   type TexturePlan, type TileDraw, type TileImage,
 } from "./tiles";
 
-export type ImageryKind = "ortho" | "esri" | "shaded";
+export type ImageryKind = "ortho" | "esri" | "shaded" | "edges";
 
 export interface Imagery {
   /** The kinds this run can show, the default first. */
@@ -32,6 +33,7 @@ const PARALLEL = 6;
 
 const LABELS: Record<ImageryKind, string> = {
   ortho: "ui.view3d.imagery_ortho", esri: "ui.view3d.imagery_esri", shaded: "ui.view3d.imagery_shaded",
+  edges: "ui.view3d.imagery_edges",
 };
 
 /** Loads images a few at a time; `stop` drops what waits and cancels what loads. */
@@ -112,7 +114,8 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   const {meta} = scene;
   const ortho: Ortho | null = orthoForApp(orthoOf(meta.ortho), options.runId);
   const available: ImageryKind[] = [...(ortho ? ["ortho" as const] : []), ...(options.esriKey ? ["esri" as const] : []),
-                                    "shaded"];
+                                    "shaded", ...(scene.edgesSupported ? ["edges" as const] : [])];
+  const root = scene.toolbar.closest?.<HTMLElement>(".ui") ?? null;
   const data = dataCredits(meta.attribution, options.runId);
   if (data) scene.credits.set(DATA_CREDITS, data, DATA_ORDER);
 
@@ -129,7 +132,8 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   const listeners = new Set<(kind: ImageryKind) => void>();
   let loader: Loader | null = null;
 
-  // The control: a segmented one when there is a choice, else the note that the terrain is shaded
+  // The control: a segmented one when there is a choice, and the note that the terrain is shaded when there is no
+  // imagery (Shaded and Edges only, or Shaded alone)
   const box = document.createElement("div");
   box.className = "u-row";
   const buttons = new Map<ImageryKind, HTMLButtonElement>();
@@ -148,7 +152,8 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       seg.append(b);
     }
     box.append(seg);
-  } else {
+  }
+  if (!available.includes("ortho") && !available.includes("esri")) {
     const note = document.createElement("span");
     note.className = "u-small";
     note.textContent = t("ui.view3d.no_imagery");
@@ -185,16 +190,20 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       const changed = imagery.current !== kind;
       imagery.current = kind;
       mark(kind);
-      if (changed) for (const fn of [...listeners]) fn(kind);
-      const credit = imageryCredits(kind, ortho);
+      if (root) root.dataset.imagery = kind;
+      const credit = kind === "edges" ? null : imageryCredits(kind, ortho);
       if (credit) scene.credits.set(IMAGERY_CREDITS, credit, IMAGERY_ORDER); else scene.credits.remove(IMAGERY_CREDITS);
-      if (kind === "shaded") {
+      if (kind === "shaded" || kind === "edges") {
         loader = null;
         status.hidden = true;
         for (const chunk of scene.chunks) retexture(chunk, null);
+        if (available.includes("edges")) scene.setEdges(kind === "edges");
+        if (changed) for (const fn of [...listeners]) fn(kind);
         scene.invalidate();
         return;
       }
+      if (available.includes("edges")) scene.setEdges(false);
+      if (changed) for (const fn of [...listeners]) fn(kind);
       const mine = loader = new Loader(), fill = fillColour();
       status.hidden = false;
       // Chunk by chunk, the line's first; each keeps its last texture until its new one is ready
@@ -227,6 +236,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       scene.credits.remove(IMAGERY_CREDITS);
       scene.credits.remove(DATA_CREDITS);
       box.remove();
+      if (root) delete root.dataset.imagery;
     },
   };
   mark(imagery.current);

@@ -839,3 +839,104 @@ console.log(JSON.stringify({verdicts: cases.map((c) => m.verdictOf(c)), colours:
     assert found["colours"][:4] == ["--clear", "--clear", "--trees", "--trees"] and found["colours"][-1] == "--bad"
     assert found["readout"] == {"length": 100, "clearance": -2.8, "overTrees": False, "verdict": "no_fit"}
     assert found["text"] == "-2.8"
+
+
+def test_view3d_feature_edges(tmp_path):
+    """view3d/edges.ts: the mesh's feature edges (an edge two faces share, turning by at least the angle; never
+    an edge of one face, a degenerate face or the index entries past the surface's: the skirts), and the pass's
+    sampling step (the pixel ratio, 1 to 2: lines one CSS pixel wide)."""
+    found = run_ts(tmp_path, "view3d/edges", """
+// two faces folded along the edge A-B (A = vertex 0, B = vertex 1) by phi degrees, a skirt face after them
+const fold = (phi) => {
+  const r = phi * Math.PI / 180;
+  return [0, 0, 0,  0, 0, 1,  1, 0, 0,  -Math.cos(r), Math.sin(r), 0,  0, -5, 0];
+};
+const faces = [0, 1, 2,  0, 3, 1,  0, 2, 4];
+console.log(JSON.stringify({
+  flat: m.featureEdges(fold(0), faces, 6).length, at20: m.featureEdges(fold(20), faces, 6).length,
+  at20fine: Array.from(m.featureEdges(fold(20), faces, 6, 10)), at90: Array.from(m.featureEdges(fold(90), faces, 6)),
+  skirt: m.featureEdges(fold(0), faces, 9).length / 6, degenerate: m.featureEdges([0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 1], [0, 1, 2, 0, 1, 3], 6).length,
+  angle: m.FEATURE_ANGLE, silhouette: m.SILHOUETTE, crease: m.CREASE, strength: m.CREASE_STRENGTH,
+  steps: [0.5, 1, 1.5, 2, 3, NaN].map(m.sampleStep), layer: m.TERRAIN_LAYER}));""")
+    assert found["flat"] == 0 and found["at20"] == 0
+    for segment in (found["at20fine"], found["at90"]):  # the edge A-B, either way round
+        assert sorted([segment[:3], segment[3:]]) == [[0, 0, 0], [0, 0, 1]]
+    assert found["skirt"] == 1  # past the surface: the skirt face turns by 90° from the first along A-C
+    assert found["degenerate"] == 0
+    # the user's variant M of the prototype (docs/3d-view-contract.md, "Wave E")
+    assert found["angle"] == 28 and found["silhouette"] == [0.012, 0.035] and found["crease"] == [0.1, 0.28]
+    assert found["strength"] == 0.75 and found["layer"] == 1
+    assert found["steps"] == [1, 1, 1.5, 2, 2, 1]
+
+
+def test_view3d_imagery_edges(tmp_path):
+    """view3d/imagery.ts with the "Edges" look on a fake scene that can draw it: the fourth kind after Shaded, no
+    imagery credit, the scene's look switched on and off with the kind, the listeners told; without imagery the
+    control offers Shaded and Edges with the note that there is none."""
+    from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM, GEOPORTAL
+    ax, ay = CX - 100, CY + 50
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}],
+            "ortho": {**GEOPORTAL, "cache": None}, "attribution": None}
+    bounds = [{"x0": ax - 60, "y0": ay - 60, "x1": ax + 140, "y1": ay + 60},
+              {"x0": CX + 600, "y0": CY + 600, "x1": CX + 900, "y1": CY + 900}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+const looks = [], kinds = [];
+scene.edgesSupported = true;
+scene.setEdges = (on) => looks.push(on);
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: null}});
+  im.onChange((k) => kinds.push(k));
+  const seg = toolbar.children[0].children[0];
+  await new Promise((r) => setTimeout(r, 50));
+  textures.splice(0);
+  const out = {{available: im.available, buttons: seg.children.map((b) => b.textContent),
+               notes: toolbar.children[0].children.length, first: looks.splice(0)}};
+  await im.set("edges");
+  out.edges = {{textures: textures.splice(0), imagery: credits.imagery || null, looks: looks.splice(0),
+               checked: seg.children.map((b) => b.attrs["aria-checked"]), current: im.current}};
+  await im.set("shaded");
+  out.shaded = {{looks: looks.splice(0)}};
+  await im.set("edges");
+  await im.set("ortho");
+  out.ortho = {{looks: looks.splice(0), imagery: !!credits.imagery}};
+  out.kinds = kinds;
+  im.dispose();
+  const bare = m.createImagery({{...scene, toolbar: new El("div"), meta: {{...META, ortho: null}}}}, {{runId: "r1", esriKey: null}});
+  out.bare = {{available: bare.available}};
+  console.log(JSON.stringify(out));
+}})();""")
+    assert found["available"] == ["ortho", "shaded", "edges"]
+    assert found["buttons"] == ["Orthophoto", "Shaded", "Edges"]
+    assert found["notes"] == 2  # the control and the loading status: there is imagery, no note
+    assert found["first"] == [False]  # the orthophoto first: the look off
+    edges = found["edges"]
+    assert edges["current"] == "edges" and edges["imagery"] is None and edges["looks"] == [True]
+    assert edges["textures"] == [[0, None, None], [1, None, None]]
+    assert edges["checked"] == ["false", "false", "true"]
+    assert found["shaded"]["looks"] == [False]
+    assert found["ortho"]["looks"] == [True, False] and found["ortho"]["imagery"]
+    assert found["kinds"] == ["edges", "shaded", "edges", "ortho"]
+    assert found["bare"]["available"] == ["shaded", "edges"]
+
+
+def test_view3d_imagery_edges_note(tmp_path):
+    """Without imagery but with the "Edges" look: the control (Shaded, Edges) and the note that there is none."""
+    from test_view3d_tiles import EQUATOR, FAKE_DOM
+    meta = {"left": 0, "top": 513, "width": 513, "height": 513, "res": 1, "affine": EQUATOR,
+            "anchors": [{"x": 100, "y": 100, "h": 1}, {"x": 200, "y": 100, "h": 1}], "ortho": None, "attribution": None}
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = [{{x0: 0, y0: 0, x1: 513, y1: 513}}, {{x0: 0, y0: 0, x1: 513, y1: 513}}];
+{FAKE_DOM}
+scene.edgesSupported = true;
+scene.setEdges = () => {{}};
+const im = m.createImagery(scene, {{runId: "r", esriKey: null}});
+const row = toolbar.children[0];
+console.log(JSON.stringify({{available: im.available, texts: row.children.map((c) => [c.className, c.textContent || null]),
+                            buttons: row.children[0].children.map((b) => b.textContent)}}));""")
+    assert found["available"] == ["shaded", "edges"]
+    assert found["texts"] == [["u-seg", None], ["u-small", "No imagery for this result: the terrain is shaded."],
+                              ["u-small", "Loading the imagery…"]]
+    assert found["buttons"] == ["Shaded", "Edges"]

@@ -1,13 +1,17 @@
 // The scene core of the 3D view (docs/3d-view-contract.md, "Wave 2", V2a): every chunk of the patch's terrain
 // (terrain.ts) as a mesh, shaded or textured through `Chunk.setTexture`, the view drawn on demand (view.ts), the
 // camera across the found line, the credits box and the toolbar's row. Implements scene-api.ts' Scene3D for the
-// imagery and the later waves; the webbing and the walker are line.ts'.
+// imagery and the later waves; the webbing and the walker are line.ts'. The "Edges" look (`setEdges`, wave E):
+// the chunks on paper (`--paper`, lit as the shaded terrain) with the mesh's feature edges in `--muted` (made the
+// first time the look is chosen, hidden in the other kinds) and view.ts' edges' pass in `--ink`; the root gets
+// data-edges="on" while it is on (for tests).
 
 import {
-  BufferAttribute, BufferGeometry, DoubleSide, Float32BufferAttribute, Mesh, MeshBasicMaterial, MeshLambertMaterial,
-  Vector3, type Material, type Object3D, type Texture,
+  BufferAttribute, BufferGeometry, DoubleSide, Float32BufferAttribute, LineBasicMaterial, LineSegments, Mesh,
+  MeshBasicMaterial, MeshLambertMaterial, Vector3, type Material, type Object3D, type Texture,
 } from "three";
 import type { Patch } from "./decode";
+import { featureEdges, TERRAIN_LAYER } from "./edges";
 import { lonLat, originOf, toScene, type Origin } from "./geometry";
 import type { Level } from "./page";
 import type { Chunk, Credits, GridBounds, Scene3D } from "./scene-api";
@@ -53,13 +57,15 @@ function creditsBox(box: HTMLElement): Credits {
   };
 }
 
-function chunkOf(m: ChunkMesh, patch: Patch, shaded: Material, invalidate: () => void): Chunk {
+/** A chunk's mesh; `base()`: its material without a texture (shaded, or the paper of the "Edges" look). */
+function chunkOf(m: ChunkMesh, patch: Patch, base: () => Material, invalidate: () => void): Chunk {
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(m.positions, 3));
   geometry.setAttribute("normal", new BufferAttribute(m.normals, 3));
   geometry.setIndex(new BufferAttribute(m.indices, 1));
   geometry.computeBoundingSphere();
-  const mesh = new Mesh(geometry, shaded);
+  const mesh = new Mesh(geometry, base());
+  mesh.layers.enable(TERRAIN_LAYER);  // the edges' pass draws the terrain alone
   mesh.name = `chunk-${m.ci}-${m.cj}`;
   const {left, top, res} = patch.meta, i0 = m.ci * CHUNK, j0 = m.cj * CHUNK;
   const bounds: GridBounds = {x0: left + j0 * res, x1: left + (j0 + CHUNK + 1) * res,
@@ -70,7 +76,7 @@ function chunkOf(m: ChunkMesh, patch: Patch, shaded: Material, invalidate: () =>
     setTexture(texture: Texture | null, uv?: (x: number, y: number) => [number, number]) {
       if (own) { own.dispose(); own = null; }
       if (!texture || !uv) {
-        mesh.material = shaded;
+        mesh.material = base();
         if (geometry.getAttribute("uv")) geometry.deleteAttribute("uv");
       } else {
         const n = m.grid.length / 2, uvs = new Float32Array(2 * n);
@@ -124,11 +130,41 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
   const origin = originOf(patch.meta);
   const terrain = buildTerrain(patch, origin, MAX_ERROR[level], VERTEX_BUDGET[level]);
   const shaded = new MeshLambertMaterial({color: token("--terrain"), side: DoubleSide});
-  const chunks = terrain.chunks.map((m) => chunkOf(m, patch, shaded, view.invalidate));
+  // The "Edges" look's parts, made the first time it is chosen: the paper (pushed back a little in depth, so the
+  // feature edges on it are never hidden by their own faces) and the feature edges of each chunk's surface
+  let paper: MeshLambertMaterial | null = null, featureMaterial: LineBasicMaterial | null = null, edges = false;
+  const features: LineSegments[] = [];
+  const base = () => (edges && paper) || shaded;
+  const chunks = terrain.chunks.map((m) => chunkOf(m, patch, base, view.invalidate));
   for (const c of chunks) view.scene.add(c.mesh);
   lookAcross(view, patch, origin);
   const disposers: (() => void)[] = [];
   let disposed = false;
+  const page = parts.stage.closest<HTMLElement>(".ui");
+  const setEdges = (on: boolean) => {
+    if (disposed || (on && !view.edgesSupported) || on === edges) return;
+    edges = on;
+    if (on && !paper) {
+      paper = new MeshLambertMaterial({color: token("--paper"), side: DoubleSide, polygonOffset: true,
+                                       polygonOffsetFactor: 1, polygonOffsetUnits: 1});
+      featureMaterial = new LineBasicMaterial({color: token("--muted")});
+      terrain.chunks.forEach((m, k) => {
+        const geometry = new BufferGeometry();
+        geometry.setAttribute("position", new BufferAttribute(featureEdges(m.positions, m.indices, m.surfaceIndices), 3));
+        geometry.computeBoundingSphere();
+        const lines = new LineSegments(geometry, featureMaterial!);
+        lines.name = `edges-${m.ci}-${m.cj}`;
+        chunks[k].mesh.add(lines);
+        features.push(lines);
+      });
+    }
+    for (const lines of features) lines.visible = on;
+    for (const c of chunks) {  // a chunk without its texture takes the base material of the look
+      if (c.mesh.material === shaded || c.mesh.material === paper) c.mesh.material = base();
+    }
+    view.setEdges(on ? token("--ink") : null);
+    if (page) { if (on) page.dataset.edges = "on"; else delete page.dataset.edges; }
+  };
 
   const scene: SceneCore = {
     level, patch, meta: patch.meta, origin, chunks, view, terrain, token, stage: parts.stage,
@@ -147,6 +183,11 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     fromScene(v) { return {x: v.x + origin.cx, y: origin.cy - v.z, h: v.y + origin.h0}; },
     heightAt(x, y) { return heightAt(patch, x, y); },
     lonLat(x, y) { return lonLat(patch.meta.affine, x, y); },
+    edgesSupported: view.edgesSupported,
+    setEdges,
+    edgesOn() { return edges; },
+    terrainLayer: TERRAIN_LAYER,
+    paper: token("--paper"),
     onDispose(fn) { disposers.push(fn); },
     dispose() {
       if (disposed) return;
@@ -158,7 +199,11 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
         c.setTexture(null);
         c.mesh.geometry.dispose();
       }
+      for (const lines of features) lines.geometry.dispose();
+      featureMaterial?.dispose();
+      paper?.dispose();
       shaded.dispose();
+      if (page) delete page.dataset.edges;
       view.dispose();
     },
   };

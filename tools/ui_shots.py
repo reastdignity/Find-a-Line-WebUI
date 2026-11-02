@@ -19,9 +19,9 @@ The "map" pages are a run's own map.html (from the server and by its share link)
 <page>-<device>-<theme>.png; a page whose click finds nothing on a device is left out.
 Phone screenshots of the viewport only (the shells scroll inside, not the page).
 
-With ESRI_API_KEY set, the pages showing Esri's imagery ("map-esri", the "view3d" pages but "view3d-shaded")
-are for the review only: Esri's terms forbid storing or passing its imagery on, so delete them after looking
-and never publish them.
+With ESRI_API_KEY set, the pages showing Esri's imagery ("map-esri", the "view3d" pages but "view3d-shaded" and
+"view3d-edges") are for the review only: Esri's terms forbid storing or passing its imagery on, so delete them after
+looking and never publish them.
 """
 
 import argparse
@@ -60,6 +60,10 @@ VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' &
                 "![...document.querySelectorAll('.v3-toolbar [role=status]')].some((e) => !e.hidden)")
 SHADED_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
              "b.textContent.trim() === 'Shaded')?.click()")
+# The "Edges" look chosen and drawn (view3d/scene.ts sets data-edges)
+EDGES_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
+            "b.textContent.trim() === 'Edges')?.click()")
+EDGES_DRAWN = "wait:document.getElementById('view3d')?.dataset.edges === 'on'"
 VIEW3D = "#run={run}&line={line}"
 PAGES = {
     "d-home": ("d", "", None),
@@ -105,6 +109,7 @@ PAGES = {
     # its imagery Esri's with ESRI_API_KEY set (the clip's run has no orthophoto), else the terrain shaded
     "view3d": ("/view3d", VIEW3D, VIEW3D_READY),
     "view3d-shaded": ("/view3d", VIEW3D, [VIEW3D_READY, SHADED_ON]),
+    "view3d-edges": ("/view3d", VIEW3D, [VIEW3D_READY, EDGES_ON, EDGES_DRAWN]),  # the terrain on paper with its edges
     "view3d-phone": ("/view3d?level=phone", VIEW3D, VIEW3D_READY),
     "view3d-full": ("/view3d?level=full", VIEW3D, VIEW3D_READY),
 }

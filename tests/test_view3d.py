@@ -225,3 +225,113 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level):
         assert result["edited"] != result["found"]
         assert result["afterReset"] == "" and result["back"] == result["found"]
     assert _violations(dom) == []
+
+
+# On the page after the bundle: once ready, Edges chosen in the imagery control (the root's data-imagery and
+# data-edges, the triangles of a frame: the terrain twice and the pass's quad, the frames still once drawn), then
+# Shaded again (the pass gone, a frame of one draw); the findings go into <pre id="result">
+EDGES_SCRIPT = """
+(function () {
+  const root = document.getElementById("view3d");
+  const out = {errors: []};
+  const error = console.error.bind(console);
+  console.error = (...args) => { out.errors.push(args.map(String).join(" ").slice(0, 300)); error(...args); };
+  const done = () => {
+    const pre = document.createElement("pre");
+    pre.id = "result";
+    pre.textContent = JSON.stringify(out);
+    document.body.appendChild(pre);
+  };
+  // under a virtual time budget headless Edge draws animation frames only while something loads: each poll
+  // loads a small file, so the page's frame asked for comes
+  let n = 0;
+  const until = (test, ms, then) => {
+    const started = Date.now();
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
+  };
+  const button = (text) => [...document.querySelectorAll(".v3-toolbar [role=radio]")].find((b) => b.textContent.trim() === text);
+  const state = () => ({imagery: root.dataset.imagery || null, edges: root.dataset.edges || null,
+                        triangles: Number(root.dataset.triangles), frames: Number(root.dataset.frames)});
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    out.ready = ready;
+    out.buttons = [...document.querySelectorAll(".v3-toolbar [role=radio]")].map((b) => b.textContent.trim());
+    if (!ready || !button("Edges")) { done(); return; }
+    until(() => false, 1000, () => {
+      out.shaded = state();
+      button("Edges").click();
+      until(() => Number(root.dataset.frames) > out.shaded.frames, 15000, () => {
+        out.edges = state();
+        out.checked = button("Edges").getAttribute("aria-checked");
+        until(() => false, 2000, () => {  // loading meanwhile: a frame would come if one were asked for
+          out.edgesLater = state();
+          button("Shaded").click();
+          until(() => Number(root.dataset.frames) > out.edgesLater.frames, 15000, () => {
+            out.back = state();
+            until(() => false, 2000, () => { out.backLater = state(); done(); });
+          });
+        });
+      });
+    });
+  });
+})();
+"""
+
+
+def _script_page(data, name: str, script: str) -> str:
+    """The app's /view3d page with the CSP stub before its bundle and `script` after it (as `_page`), in
+    runs/<name>/."""
+    from fastapi.testclient import TestClient
+    folder = data / "runs" / name
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "stubs.js").write_text(CSP_STUB, encoding="utf-8")
+    (folder / "test.js").write_text(script, encoding="utf-8")
+    app = web.create_app(str(data), token=TOKEN, start_scheduler=False)
+    with TestClient(app, base_url=LOCAL) as client:
+        page = client.get("/view3d").text
+    script_tag = '<script src="/app/view3d.js"></script>'
+    assert script_tag in page
+    (folder / "index.html").write_text(page.replace(
+        script_tag, f'<script src="stubs.js"></script>{script_tag}<script src="test.js"></script>'), encoding="utf-8")
+    return f"runs/{name}/index.html"
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+@pytest.mark.parametrize("level", ["full", "phone"])
+def test_view3d_edges(clip_data, tmp_path, monkeypatch, level):
+    """The "Edges" look (docs/3d-view-contract.md, "Wave E"): the fourth kind of the imagery control (the clip's
+    run has no orthophoto: Shaded and Edges), chosen it draws the pass (data-imagery="edges", data-edges="on",
+    a frame of more triangles: the terrain once more and the pass's quad), only on demand (no frame while nothing
+    changes), no violation of the CSP; back to Shaded the pass is gone (a frame of the scene's triangles)."""
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    row = _lines_of(data, meta["id"])[0]
+    line = ",".join(f"{v:.7f}" for v in row[:4])
+    page = _script_page(data, "view3dedges", EDGES_SCRIPT)
+    with _server(data, start_scheduler=True) as port:
+        dom = subprocess.run(
+            [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
+             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
+            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+    found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+    assert found, dom[-3000:]
+    result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+    print(level, result)
+    assert result["ready"], result
+    assert result["buttons"] == ["Shaded", "Edges"], result
+    assert result["errors"] == [], result["errors"]  # e.g. a shader that does not compile
+    shaded, edges, later, back, back_later = (result[k] for k in ("shaded", "edges", "edgesLater", "back", "backLater"))
+    assert shaded["imagery"] == "shaded" and shaded["edges"] is None
+    assert edges["imagery"] == "edges" and edges["edges"] == "on" and result["checked"] == "true"
+    # the terrain drawn twice (the colour and the normals) and the pass's two triangles
+    assert edges["triangles"] > shaded["triangles"] + 2, result
+    assert edges["frames"] > shaded["frames"] and later["frames"] == edges["frames"], result  # on demand only
+    assert back["imagery"] == "shaded" and back["edges"] is None
+    assert back["triangles"] == shaded["triangles"] and back_later["frames"] == back["frames"], result
+    assert _violations(dom) == []

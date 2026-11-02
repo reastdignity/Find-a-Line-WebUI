@@ -98,10 +98,11 @@ const ortho = {json.dumps(ortho)};
 console.log(JSON.stringify({{esri: m.overlaySpecs("esri", ortho, "KEY"), nokey: m.overlaySpecs("esri", ortho, null),
   both: m.overlaySpecs("ortho", ortho, "KEY"), wms: m.overlaySpecs("ortho", {{...ortho, base: null}}, null),
   base: m.overlaySpecs("ortho", {{...ortho, url: null}}, null), shaded: m.overlaySpecs("shaded", ortho, "KEY"),
+  edges: m.overlaySpecs("edges", ortho, "KEY"),
   none: m.overlaySpecs("ortho", null, null)}}));""")
     assert found["esri"] == [{"type": "xyz", "levels": 20, "url": "https://ibasemaps-api.arcgis.com/arcgis/rest/"
                               "services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=KEY"}]
-    assert found["nokey"] == [] and found["shaded"] == [] and found["none"] == []
+    assert found["nokey"] == [] and found["shaded"] == [] and found["none"] == [] and found["edges"] == []
     assert found["both"] == [{"type": "xyz", "url": "https://example.org/base/{z}/{x}/{y}", "levels": 19},
                              {"type": "wms", "url": "https://example.org/wms", "layer": "Raster",
                               "format": "image/png", "transparent": True}]
@@ -207,11 +208,15 @@ ORTHO_STUB = """
 })();
 """
 
-# After the bundle: waits for the ring (data-ring="loaded"), then writes what it found into <pre id="ring">
+# After the bundle: waits for the ring (data-ring="loaded"), then writes what it found into <pre id="ring">; with
+# window.FINDALINE_RING_EDGES (edges.js) it first chooses the "Edges" look and counts the imagery's requests
+# before and after it
 RING_SCRIPT = """
 (function () {
   const root = document.getElementById("view3d");
   const started = Date.now();
+  let look = null;
+  const images = () => performance.getEntriesByType("resource").filter((e) => /\\/runs\\/view3dtest\\/img\\//.test(e.name)).length;
   const done = (what) => {
     const out = document.createElement("pre");
     out.id = "ring";
@@ -219,14 +224,20 @@ RING_SCRIPT = """
     document.body.appendChild(out);
   };
   const wait = () => {
-    if (root.dataset.ring === "loaded" && root.dataset.ready === "1") {
+    if (root.dataset.ring === "loaded" && root.dataset.ready === "1" && window.FINDALINE_RING_EDGES && !look) {
+      const edges = [...document.querySelectorAll(".v3-toolbar [role=radio]")].find((b) => b.textContent.trim() === "Edges");
+      look = {before: images(), found: !!edges};
+      if (edges) edges.click();
+      setTimeout(wait, 2500);
+    } else if (root.dataset.ring === "loaded" && root.dataset.ready === "1") {
       setTimeout(() => {
+        if (look) Object.assign(look, {after: images(), imagery: root.dataset.imagery || null, edges: root.dataset.edges || null});
         const entries = performance.getEntriesByType("resource")
           .filter((e) => /\\/runs\\/view3dtest\\/(ring|img)\\//.test(e.name))
           .map((e) => ({url: e.name.replace(/^.*\\/view3dtest\\//, ""), bytes: e.encodedBodySize, transfer: e.transferSize}));
         done({ring: root.dataset.ring, offset: root.dataset.ringOffset ? JSON.parse(root.dataset.ringOffset) : null,
               errors: Number(root.dataset.ringErrors || 0), visible: Number(root.dataset.ringTiles || 0), entries, triangles: Number(root.dataset.triangles),
-              credits: (document.querySelector(".v3-credits") || document.body).innerHTML});
+              credits: (document.querySelector(".v3-credits") || document.body).innerHTML, look});
       }, 2000);
     } else if (Date.now() - started > 50000) {
       done({ring: root.dataset.ring || null, timeout: true, data: {...root.dataset}});
@@ -238,8 +249,10 @@ RING_SCRIPT = """
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-@pytest.mark.parametrize("level", ["full", "phone"])
-def test_ring_drawn_within_its_budget(clip_data, tmp_path, monkeypatch, level):
+@pytest.mark.parametrize("level,look", [("full", None), ("phone", None), ("full", "edges")])
+def test_ring_drawn_within_its_budget(clip_data, tmp_path, monkeypatch, level, look):
+    """The ring drawn within its budget; once with the "Edges" look chosen after it loaded (docs/3d-view-contract.md,
+    "Wave E": its tiles on the terrain's layer, on paper, without an overlay: no more imagery requested)."""
     from pyproj import Transformer
     data, meta = clip_data
     for key, value in _offline_env().items():
@@ -254,13 +267,15 @@ def test_ring_drawn_within_its_budget(clip_data, tmp_path, monkeypatch, level):
     _imagery_tiles(folder / "img", lon, lat, radius + 2000, range(10, 16))
     (folder / "ortho.js").write_text(ORTHO_STUB, encoding="utf-8")
     (folder / "ring.js").write_text(RING_SCRIPT, encoding="utf-8")
+    (folder / "edges.js").write_text("window.FINDALINE_RING_EDGES = true;" if look == "edges" else "", encoding="utf-8")
     html = (folder / "index.html").read_text("utf-8")
     template = "/runs/view3dtest/ring/{z}/{x}/{y}.png"
     html = re.sub(r'(<meta name="findaline-3d-ring" content=")[^"]*(")', lambda m: m.group(1) + template + m.group(2),
                   html)
     html = html.replace('<script src="/app/view3d.js"></script>',
                         '<script src="ortho.js"></script><script src="/app/view3d.js"></script>')
-    html = html.replace('<script src="test.js"></script>', '<script src="test.js"></script><script src="ring.js"></script>')
+    html = html.replace('<script src="test.js"></script>',
+                        '<script src="test.js"></script><script src="edges.js"></script><script src="ring.js"></script>')
     assert template in html and "ring.js" in html
     (folder / "index.html").write_text(html, encoding="utf-8")
     with _server(data, start_scheduler=True) as port:
@@ -290,6 +305,10 @@ def test_ring_drawn_within_its_budget(clip_data, tmp_path, monkeypatch, level):
     off = result["offset"]
     assert off and off["samples"] > 20 and off["median"] < 5, off
     assert _violations(dom) == []
+    if look == "edges":
+        seen = result["look"]
+        assert seen["found"] and seen["imagery"] == "edges" and seen["edges"] == "on", seen
+        assert seen["after"] == seen["before"], seen  # no overlay: no imagery asked for after the switch
     shot = os.environ.get("FINDALINE_RING_SHOT")  # a look by hand: the folder for a screenshot of each level
     if shot:  # shaded (no orthophoto), as Mapterhorn's tiles would look without imagery
         (folder / "shaded.html").write_text(html.replace('<script src="ortho.js"></script>', ""), encoding="utf-8")

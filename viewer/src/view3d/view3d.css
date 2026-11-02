@@ -3,6 +3,10 @@
 @import "../ui/ui.css";
 
 html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+/* The paper of the "Edges" look (scene.ts): light grey, dark grey in the dark theme */
+#view3d { --paper: #eceae4; }
+@media (prefers-color-scheme: dark) { #view3d:not([data-theme="light"]) { --paper: #4a504c; } }
+#view3d[data-theme="dark"] { --paper: #4a504c; }
 #view3d { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink);
           font: 14px/1.5 var(--font); }
 .v3-top { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--surface);

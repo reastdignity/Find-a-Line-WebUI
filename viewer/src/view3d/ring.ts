@@ -5,7 +5,8 @@
 // XYZ or WMS overlays) following the imagery control. Its level of detail does not follow the camera: a plugin
 // of ours refines by the distance from the patch's centre only, so an open loads the same tiles wherever one
 // looks (RING: the radius, the zoom of the elevation tiles, the mesh's spacing), and the tiles are updated only
-// when the camera changed (UpdateOnChangePlugin), before a frame is drawn.
+// when the camera changed (UpdateOnChangePlugin), before a frame is drawn. With the "Edges" look (wave E) its
+// tiles are terrain to the edges' pass (the scene's terrain layer), on the look's paper, without an overlay.
 
 import { Matrix4, Plane, Vector3, type Material, type Mesh, type Object3D } from "three";
 import { TilesRenderer } from "3d-tiles-renderer/three";
@@ -108,17 +109,21 @@ export function createRing(scene: Scene3D, imagery: Imagery, url: string): Ring 
   const planes = rect ? cutPlanes(rect, scene.origin).map((p) => new Plane(new Vector3(...p.normal), p.constant)) : [];
   if (planes.length) scene.renderer.localClippingEnabled = true;
   const shadedColour = getComputedStyle(scene.toolbar).getPropertyValue("--terrain").trim() || "#bba680";
-  const onModel = ({scene: model}: {scene: Object3D}) => {
+  const colourOf = (kind: ImageryKind) => kind === "edges" ? scene.paper : shadedColour;
+  const paint = (model: Object3D, kind: ImageryKind, first: boolean) => {
     model.traverse((o) => {
       const mesh = o as Mesh;
       if (!mesh.isMesh) return;
+      if (first) mesh.layers.enable(scene.terrainLayer);
       for (const m of ([] as Material[]).concat(mesh.material)) {
-        m.clippingPlanes = planes;
-        m.clipIntersection = true;
+        if (first) { m.clippingPlanes = planes; m.clipIntersection = true; }
         const coloured = m as Material & {color?: {set(c: string): void}};
-        coloured.color?.set(shadedColour);
+        coloured.color?.set(colourOf(kind));
       }
     });
+  };
+  const onModel = ({scene: model}: {scene: Object3D}) => {
+    paint(model, imagery.current, true);
     scene.invalidate();
   };
   const onRender = () => scene.invalidate();
@@ -163,6 +168,7 @@ export function createRing(scene: Scene3D, imagery: Imagery, url: string): Ring 
     for (const o of shown) overlays.deleteOverlay(o);
     shown = overlaySpecs(kind, ortho, key).map(overlayOf);
     shown.forEach((o, k) => overlays.addOverlay(o, k));
+    paint(group, kind, false);  // the loaded tiles: paper with the "Edges" look, else the shaded terrain's colour
     scene.invalidate();
   };
   show(imagery.current);

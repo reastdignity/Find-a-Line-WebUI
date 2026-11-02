@@ -138,8 +138,8 @@ export type OverlaySpec =
 
 /** The overlays of an imagery kind, bottom first: Esri's tiles; the orthophoto's base tiles with its WMS over
  *  them (transparent where it has no imagery, as the 2D map asks), or either alone; none for the shaded
- *  terrain. Our cache is not used for the ring. */
-export function overlaySpecs(kind: "ortho" | "esri" | "shaded", ortho: Ortho | null, esriKey: string | null):
+ *  terrain and its "Edges" look. Our cache is not used for the ring. */
+export function overlaySpecs(kind: "ortho" | "esri" | "shaded" | "edges", ortho: Ortho | null, esriKey: string | null):
     OverlaySpec[] {
   if (kind === "esri" && esriKey) return [{type: "xyz", url: esriTileUrl(esriKey), levels: ESRI_MAX_ZOOM + 1}];
   if (kind !== "ortho" || !ortho) return [];

@@ -1,12 +1,14 @@
 // The three.js side of the page: the renderer, camera, lights and orbit controls, drawn on demand only (after a
 // change: the controls moved, the window resized, something added, `invalidate`), or every frame while an owner
 // keeps drawing (`keepDrawing`, the frame's callbacks of `onFrame`). The scene's content (terrain, imagery,
-// webbing, the walker) is added by scene.ts.
+// webbing, the walker) is added by scene.ts. While the "Edges" look is on (`setEdges`), a frame is edges.ts' pass
+// instead of one render.
 
 import {
   AmbientLight, Color, DirectionalLight, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, type Object3D,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { createEdgePass, edgesSupported, TERRAIN_LAYER, type EdgePass } from "./edges";
 import type { Level } from "./page";
 
 export interface View {
@@ -28,6 +30,12 @@ export interface View {
   onDrawn(fn: () => void): void;
   /** The orbit controls on or off (off while an anchor or the walker is dragged). */
   setControls(on: boolean): void;
+  /** The browser can draw the "Edges" look (edges.ts edgesSupported). */
+  edgesSupported: boolean;
+  /** The edges' pass on, its lines in `ink`, or off (null: its targets freed). */
+  setEdges(ink: string | null): void;
+  /** The edges' pass is on. */
+  edgesOn(): boolean;
   dispose(): void;
 }
 
@@ -42,10 +50,13 @@ export function createView(host: HTMLElement, level: Level, background: string, 
   host.appendChild(canvas);
   const scene = new Scene();
   scene.background = new Color(background);
-  scene.add(new AmbientLight(0xffffff, 1.1));
+  const ambient = new AmbientLight(0xffffff, 1.1);
   const sun = new DirectionalLight(0xffffff, 2.0);
   sun.position.set(-0.6, 1, -0.4);  // from the north-west, as hill shading
-  scene.add(sun);
+  for (const light of [ambient, sun]) {
+    light.layers.enable(TERRAIN_LAYER);  // the edges' pass draws that layer alone: the lights stay the same
+    scene.add(light);
+  }
   const camera = new PerspectiveCamera(50, 1, 0.5, 60000);
   const controls = new OrbitControls(camera, canvas);
   controls.maxPolarAngle = Math.PI * 0.495;  // never below the horizon
@@ -55,7 +66,8 @@ export function createView(host: HTMLElement, level: Level, background: string, 
   const frameFns = new Set<(seconds: number) => void>(), owners = new Set<string>();
   const beforeFns = new Set<() => void>();
   const resizeFns: ((size: Vector2) => void)[] = [], drawnFns: (() => void)[] = [];
-  let pending = 0, last = 0, lost = false;
+  let pending = 0, last = 0, lost = false, edgePass: EdgePass | null = null;
+  const canEdges = edgesSupported(renderer);
   const draw = (time: number) => {
     pending = 0;
     if (lost) return;
@@ -65,15 +77,21 @@ export function createView(host: HTMLElement, level: Level, background: string, 
       for (const fn of [...frameFns]) fn(seconds);
     } else last = 0;
     for (const fn of [...beforeFns]) fn();
-    renderer.render(scene, camera);
+    if (edgePass) edgePass.render(); else renderer.render(scene, camera);
     for (const fn of drawnFns) fn();
     if (owners.size) invalidate();
   };
   const invalidate = () => { if (!pending && !lost) pending = requestAnimationFrame(draw); };
-  const size = new Vector2();
+  const size = new Vector2(), buffer = new Vector2();
+  const passSize = () => {
+    renderer.getDrawingBufferSize(buffer);
+    edgePass?.setSize(buffer.x, buffer.y);
+  };
+  const dropPass = () => { edgePass?.dispose(); edgePass = null; };
   const resize = () => {
     const w = host.clientWidth || 1, h = host.clientHeight || 1;
     renderer.setSize(w, h, false);
+    passSize();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
     size.set(w, h);
@@ -88,6 +106,7 @@ export function createView(host: HTMLElement, level: Level, background: string, 
     lost = true;
     if (pending) cancelAnimationFrame(pending);
     pending = 0;
+    dropPass();
     onLost();
   });
   resize();
@@ -113,11 +132,22 @@ export function createView(host: HTMLElement, level: Level, background: string, 
     onResize(fn) { resizeFns.push(fn); fn(size); },
     onDrawn(fn) { drawnFns.push(fn); },
     setControls(on) { controls.enabled = on; },
+    edgesSupported: canEdges,
+    setEdges(ink) {
+      if (ink === null || !canEdges || lost) dropPass();
+      else if (!edgePass) {
+        edgePass = createEdgePass(renderer, scene, camera, ink, level === "full" ? 4 : 0);
+        passSize();
+      }
+      invalidate();
+    },
+    edgesOn() { return edgePass !== null; },
     dispose() {
       lost = true;
       if (pending) cancelAnimationFrame(pending);
       observer.disconnect();
       controls.dispose();
+      dropPass();
       renderer.dispose();
       canvas.remove();
     },

@@ -1,6 +1,6 @@
-// The scene's API between the modules of the 3D view (docs/3d-view-contract.md, "Wave 2" and "Wave 3"): the
-// scene core (scene.ts) implements it; the imagery (imagery.ts), the editing and the walk (wave 3a) and the ring
-// (wave 3b) use it. Types only.
+// The scene's API between the modules of the 3D view (docs/3d-view-contract.md, "Wave 2", "Wave 3" and "Wave E"):
+// the scene core (scene.ts) implements it; the imagery (imagery.ts), the editing and the walk (wave 3a) and the
+// ring (wave 3b) use it. Types only.
 
 import type { Mesh, Object3D, PerspectiveCamera, Texture, Vector3, WebGLRenderer } from "three";
 import type { Patch, PatchMeta } from "./decode";
@@ -62,4 +62,16 @@ export interface Scene3D {
   heightAt(x: number, y: number): number | null;
   /** Grid metres to lon/lat through the meta's affine. */
   lonLat(x: number, y: number): [number, number];
+  /** The "Edges" look (wave E): the browser can draw it (the imagery offers it only then). */
+  edgesSupported: boolean;
+  /** The look on (the chunks on paper with the mesh's feature edges, the edges' pass) or off (back to the
+   *  chunks' textures or shading, the feature edges hidden, the pass freed). The imagery calls it. */
+  setEdges(on: boolean): void;
+  /** The look is on. */
+  edgesOn(): boolean;
+  /** The layer of the terrain's meshes: the edges' pass draws it alone, so a mesh of terrain (the ring's tiles)
+   *  enables it; nothing else may. */
+  terrainLayer: number;
+  /** The paper's colour of the look (the page's `--paper`): the ring's tiles take it while the look is on. */
+  paper: string;
 }
