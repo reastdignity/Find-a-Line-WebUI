@@ -1257,5 +1257,55 @@
       "empty_tiles": 0
     },
     "seconds": 4.7
+  },
+  "R47": {
+    "place": "Pottenstein, Franconian Switzerland (Franconian Jura), Bavaria, Germany: LDBV's DGM1 (1 m) and DOM20 (0.2 m, image matching, averaged to 1 m), 1 km GeoTIFFs listed by Metalinks, in ETRS89 / UTM 32N",
+    "args": "--lat 49.7700 --lon 11.4100 --radius 1000 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "notes": "--source auto picks bavaria (the centre is in DE-BY); first run on an empty cache: the Land's DGM1 Metalink (09.meta4, 4.2 MB gzipped) and the seven DOM20 Metalinks of the Regierungsbezirke (4.4 MB gzipped) asked once and kept, 12 tiles of 1 km per layer: the DGM1 2.7-3.4 MB each, the DOM20 about 49 MB each (0.2 m, averaged 5 x 5 to 1 m, about 0.7 s a tile, 2.2 MB cached); 620 MB in 14 s; the spots are on the dolomite crags of the Püttlach valley around Pottenstein (the biggest groups at 49.770-49.776 N, 11.414-11.422 E, east of the castle, and at 49.769 N, 11.408 E); almost every line crosses forest (over_trees)",
+    "expected": {
+      "anchors": 138925,
+      "open": 8274,
+      "checked": 318995,
+      "lines": 33053,
+      "spots": 617,
+      "csv_sha256": "37b28ab745a91082e7e61e37c59a111dcc900ea07074deb05cff845f87f8c2f3",
+      "length_km": 6583.318,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.535,
+      "clearance_max": 12.55,
+      "over_trees": 32656,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 37.7
+  },
+  "R48": {
+    "place": "Dahner Felsenland at Dahn, Palatinate Forest, Rhineland-Palatinate, Germany: LVermGeo RP's DGM1 / DOM1 (1 m, ALS), 1 km GeoTIFFs listed by the Land's Metalinks, in ETRS89 / UTM 32N",
+    "args": "--lat 49.1500 --lon 7.7800 --radius 1000 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "notes": "--source auto picks rhineland_palatinate (the centre is in DE-RP); first run on an empty cache: the Land's DGM1 and DOM1 Metalinks (12 and 7.6 MB) asked once and kept, 16 tiles of 1 km per layer (1.5-3 MB, survey 2022 here), written in EPSG:25832's name (the DGM1 names a compound CRS with DHHN2016); 73 MB in 4 s; the spots are on the sandstone rocks west of Dahn (49.146-49.153 N, 7.768-7.774 E); every line crosses the forest (over_trees)",
+    "expected": {
+      "anchors": 59312,
+      "open": 3482,
+      "checked": 38408,
+      "lines": 1541,
+      "spots": 43,
+      "csv_sha256": "f6ee9e7dc86eff7e27f8c95fe5fa9ec7b75c13e60cd63b174d4caf163bb463f7",
+      "length_km": 295.975,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.451,
+      "clearance_max": 8.44,
+      "over_trees": 1541,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 22.3
   }
 }
