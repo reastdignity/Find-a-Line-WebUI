@@ -196,8 +196,10 @@ def test_declared_neighbours():
         assert sid not in source.neighbours and len(set(source.neighbours)) == len(source.neighbours)
         for other in source.neighbours:
             assert sid in src.SOURCES[other].neighbours, (sid, other)
-            (s1, n1, w1, e1), (s2, n2, w2, e2) = source.offline[0][1], src.SOURCES[other].offline[0][1]
+            # the first offline box, or the bbox of a source without (alaska_ifsar)
+            (s1, n1, w1, e1), (s2, n2, w2, e2) = [s.offline[0][1] if s.offline else s.bbox
+                                                  for s in (source, src.SOURCES[other])]
             assert s1 <= n2 and s2 <= n1 and w1 <= e2 and w2 <= e1, (sid, other)
     assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern")
     assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia")
-    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ()
+    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada",)
