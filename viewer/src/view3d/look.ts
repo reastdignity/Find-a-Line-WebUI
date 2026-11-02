@@ -1,6 +1,7 @@
 // The walker's views, pure (docs/3d-view-contract.md, "Wave F"; tested in Node: tests/test_viewer.py): the
 // camera of the views "eyes" and "behind" from the walker's pose and a gaze, the gaze turned by a drag, and the
-// phone's turn from its DeviceOrientationEvent angles and the screen's orientation. Scene axes as geometry.ts:
+// phone's turn from its DeviceOrientationEvent angles and the screen's orientation; the zoom of each view ("Wave
+// F2": the eyes' horizontal angle like binoculars, the distance behind the walker). Scene axes as geometry.ts:
 // X east, Y up, Z south; a yaw is a rotation about Y (webbing.ts walkerPose's: 0 faces +Z, growing turns left).
 
 export type ViewName = "orbit" | "eyes" | "behind";
@@ -14,14 +15,16 @@ export type Vec3 = [number, number, number];
 export interface Gaze { yaw: number; pitch: number }
 
 export interface ViewSpec {
-  /** The camera's vertical field of view, degrees. */
+  /** The field of view at the default zoom, degrees: horizontal for the eyes (the same on every screen, the
+   *  vertical angle follows from the canvas's aspect: verticalFov), vertical behind the walker. */
   fov: number;
   /** The gaze on entering the view. */
   start: Gaze;
   /** The pitch's range (never upside down). */
   pitch: [number, number];
-  /** A drag across the stage's whole height turns the gaze by this many radians; `grab`: the view follows the
-   *  finger as if it held the world (eyes, as a panorama), else as the orbit view turns (behind). */
+  /** A drag across the stage's whole height turns the gaze by this many radians, unless dragGaze is given the
+   *  turn (the eyes: the camera's vertical angle, so the world follows the finger at every zoom); `grab`: the view
+   *  follows the finger as if it held the world (eyes, as a panorama), else as the orbit view turns (behind). */
   dragTurn: number;
   grab: boolean;
 }
@@ -35,7 +38,7 @@ export const BEHIND_HEIGHT = 1.2;
 export const BEHIND_CLEARANCE = 1;
 
 export const VIEW_SPECS: Record<Exclude<ViewName, "orbit">, ViewSpec> = {
-  eyes: {fov: 70, start: {yaw: 0, pitch: -0.2}, pitch: [-1.45, 1.45], dragTurn: 70 * Math.PI / 180, grab: true},
+  eyes: {fov: 60, start: {yaw: 0, pitch: -0.2}, pitch: [-1.45, 1.45], dragTurn: 60 * Math.PI / 180, grab: true},
   behind: {fov: 60, start: {yaw: 0, pitch: -0.3}, pitch: [-1.35, 0.25], dragTurn: Math.PI, grab: false},
 };
 
@@ -49,16 +52,17 @@ export function direction(yaw: number, pitch: number): Vec3 {
 }
 
 /** The camera of `view` for the walker and a gaze: its position and the point it looks at. Eyes: at the eyes,
- *  along the gaze; behind: BEHIND_DISTANCE back from the walker's chest along the gaze, so the walker is in view
- *  and the camera turns around it. */
-export function cameraPose(view: Exclude<ViewName, "orbit">, walker: WalkerAt, gaze: Gaze): {position: Vec3; target: Vec3} {
+ *  along the gaze; behind: `distance` (metres, behindDistance of the zoom) back from the walker's chest along the
+ *  gaze, so the walker is in view and the camera turns around it. */
+export function cameraPose(view: Exclude<ViewName, "orbit">, walker: WalkerAt, gaze: Gaze,
+                           distance = BEHIND_DISTANCE): {position: Vec3; target: Vec3} {
   const g = clampGaze(view, gaze), d = direction(walker.yaw + g.yaw, g.pitch), [x, y, z] = walker.feet;
   if (view === "eyes") {
     const eye: Vec3 = [x, y + EYE_HEIGHT, z];
     return {position: eye, target: [eye[0] + d[0], eye[1] + d[1], eye[2] + d[2]]};
   }
   const chest: Vec3 = [x, y + BEHIND_HEIGHT, z];
-  return {position: [chest[0] - d[0] * BEHIND_DISTANCE, chest[1] - d[1] * BEHIND_DISTANCE, chest[2] - d[2] * BEHIND_DISTANCE],
+  return {position: [chest[0] - d[0] * distance, chest[1] - d[1] * distance, chest[2] - d[2] * distance],
           target: chest};
 }
 
@@ -68,12 +72,97 @@ export function clampGaze(view: Exclude<ViewName, "orbit">, gaze: Gaze): Gaze {
   return {yaw: gaze.yaw, pitch: Math.min(hi, Math.max(lo, gaze.pitch))};
 }
 
-/** The gaze after a drag of (dx, dy) CSS pixels on a stage `height` pixels high. */
-export function dragGaze(view: Exclude<ViewName, "orbit">, gaze: Gaze, dx: number, dy: number, height: number): Gaze {
-  const spec = VIEW_SPECS[view], k = spec.dragTurn / Math.max(1, height), sign = spec.grab ? 1 : -1;
+/** The gaze after a drag of (dx, dy) CSS pixels on a stage `height` pixels high; `turn`: the radians of a drag
+ *  over the whole height (the view's dragTurn when not given). */
+export function dragGaze(view: Exclude<ViewName, "orbit">, gaze: Gaze, dx: number, dy: number, height: number,
+                         turn?: number): Gaze {
+  const spec = VIEW_SPECS[view], k = (turn ?? spec.dragTurn) / Math.max(1, height), sign = spec.grab ? 1 : -1;
   // grab: dragging right pulls the world right, so one looks further left (the yaw grows); dragging down looks up.
   // Orbit-like: the opposite, as OrbitControls turns
   return clampGaze(view, {yaw: gaze.yaw + sign * dx * k, pitch: gaze.pitch + sign * dy * k});
+}
+
+// The zoom ("Wave F2"): one number per view, larger is nearer, 1 on entering. The eyes': the magnification
+// against the default horizontal angle (binoculars: tan(30°) / tan(h / 2), so ×8 is about 8.3°, the widest 110°
+// about ×0.4); behind the walker: BEHIND_DISTANCE over the camera's distance (1.5 to 30 m). The buttons step by
+// ZOOM_STEP onto the steps' grid (×1, ×1.4, ×2, ...), the wheel and the pinch change it smoothly.
+
+/** The eyes' widest horizontal angle (degrees) and largest magnification; behind: the nearest and farthest
+ *  distances, metres. */
+export const EYES_WIDEST = 110;
+export const EYES_ZOOM_MAX = 8;
+export const BEHIND_NEAREST = 1.5;
+export const BEHIND_FARTHEST = 30;
+/** One button's step of the zoom (a factor), and the wheel's rate per CSS pixel of its deltaY. */
+export const ZOOM_STEP = Math.SQRT2;
+export const WHEEL_RATE = 0.002;
+
+type WalkerView = Exclude<ViewName, "orbit">;
+const RAD = Math.PI / 180;
+const tanHalf = (deg: number) => Math.tan(deg * RAD / 2);
+
+/** The zoom's range of `view`. */
+export function zoomRange(view: WalkerView): [number, number] {
+  return view === "eyes" ? [tanHalf(VIEW_SPECS.eyes.fov) / tanHalf(EYES_WIDEST), EYES_ZOOM_MAX]
+                         : [BEHIND_DISTANCE / BEHIND_FARTHEST, BEHIND_DISTANCE / BEHIND_NEAREST];
+}
+
+export function clampZoom(view: WalkerView, zoom: number): number {
+  const [lo, hi] = zoomRange(view);
+  return Number.isFinite(zoom) ? Math.min(hi, Math.max(lo, zoom)) : 1;
+}
+
+/** The zoom multiplied by `factor` (> 1: nearer), in its range. */
+export function zoomBy(view: WalkerView, zoom: number, factor: number): number {
+  return clampZoom(view, zoom * factor);
+}
+
+/** A button's step: to the next step of the grid ZOOM_STEP^k nearer (+1) or farther (-1), in the range. */
+export function zoomStep(view: WalkerView, zoom: number, direction: 1 | -1): number {
+  const k = Math.log(zoom) / Math.log(ZOOM_STEP), eps = 1e-6;
+  const next = direction > 0 ? Math.floor(k + eps) + 1 : Math.ceil(k - eps) - 1;
+  return clampZoom(view, ZOOM_STEP ** next);
+}
+
+/** The wheel's factor of the zoom from a WheelEvent's deltaY and deltaMode (0 pixels, 1 lines, 2 pages): turned
+ *  away from the user (deltaY < 0) nearer; one event at most a factor of e. */
+export function wheelFactor(deltaY: number, deltaMode = 0): number {
+  const px = deltaY * (deltaMode === 1 ? 16 : deltaMode === 2 ? 400 : 1);
+  return Number.isFinite(px) ? Math.exp(-Math.max(-500, Math.min(500, px)) * WHEEL_RATE) : 1;
+}
+
+/** The pinch's factor of the zoom from two fingers' positions [x1, y1, x2, y2] when it began and now: their
+ *  distance now over their distance then (spread: nearer); 1 when the fingers began on one spot. */
+export function pinchFactor(start: number[], now: number[]): number {
+  const d0 = Math.hypot(start[2] - start[0], start[3] - start[1]), d1 = Math.hypot(now[2] - now[0], now[3] - now[1]);
+  return d0 >= 1 && Number.isFinite(d1) ? Math.max(1e-3, d1 / d0) : 1;
+}
+
+/** The eyes' horizontal angle at a zoom, degrees. */
+export function eyesAngle(zoom: number): number {
+  return 2 * Math.atan(tanHalf(VIEW_SPECS.eyes.fov) / zoom) / RAD;
+}
+
+/** The camera's distance behind the walker at a zoom, metres. */
+export function behindDistance(zoom: number): number {
+  return BEHIND_DISTANCE / zoom;
+}
+
+/** The vertical angle (degrees) of a horizontal one on a canvas `aspect` (width over height) wide. */
+export function verticalFov(horizontal: number, aspect: number): number {
+  return 2 * Math.atan(tanHalf(horizontal) / (aspect > 0 && Number.isFinite(aspect) ? aspect : 1)) / RAD;
+}
+
+/** The camera's vertical field of view (degrees) of `view` at a zoom on a canvas `aspect` wide. */
+export function cameraFov(view: WalkerView, zoom: number, aspect: number): number {
+  return view === "eyes" ? verticalFov(eyesAngle(zoom), aspect) : VIEW_SPECS.behind.fov;
+}
+
+/** The zoom's indicator value: the eyes' magnification against the default angle ("2", "1.4", "0.5"), the
+ *  distance behind in metres ("5", "3.5", "14"); one decimal under 10, none from 10 on. */
+export function zoomLabel(view: WalkerView, zoom: number): string {
+  const v = view === "eyes" ? zoom : behindDistance(zoom);
+  return v >= 9.95 ? String(Math.round(v)) : (Math.round(v * 10) / 10).toFixed(1).replace(/\.0$/, "");
 }
 
 /** Where the phone's back camera points, from DeviceOrientationEvent's alpha, beta, gamma (degrees, the earth's

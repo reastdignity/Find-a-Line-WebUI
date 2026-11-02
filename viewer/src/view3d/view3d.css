@@ -52,6 +52,10 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 #view3d .v3-views button { padding: 0 10px; }
 .v3-motion { padding: 0 12px; }
 .v3-motion.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+/* The zoom of the walker's views (views.ts): -, the indicator (the eyes' factor, the distance behind), + */
+.v3-zoom { display: flex; align-items: center; gap: 2px; flex: none; }
+.v3-zoom-value { min-width: 3.4em; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums;
+                 color: var(--ink-2); white-space: nowrap; }
 #view3d:not([data-view="orbit"]) .v3-handle, #view3d:not([data-view="orbit"]) .v3-grip,
 #view3d:not([data-view="orbit"]) .v3-hint, #view3d[data-view="eyes"] .v3-pin { display: none; }
 
@@ -113,6 +117,8 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
   #view3d .v3-toolbar .u-seg.v3-views { display: flex; flex: none; order: 1; }
   #view3d .v3-views button { padding: 0 7px; }
   #view3d .v3-motion { padding: 0 8px; order: 1; }
+  #view3d .v3-zoom { order: 1; }
+  #view3d .v3-zoom-value { min-width: 2.8em; font-size: 12.5px; }
   #view3d .v3-select { display: block; flex: 0 1 auto; width: auto; min-width: 0; max-width: 50%; padding: 0 6px; }
   #view3d .v3-walk { padding: 0 10px; }
   #view3d .v3-speed { min-width: 40px; padding: 0 8px; }

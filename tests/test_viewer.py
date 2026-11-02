@@ -882,8 +882,8 @@ console.log(JSON.stringify(r({
     c, s = math.cos(0.3), math.sin(0.3)
     assert found["behind"] == {"position": approx([10, 3.2 + 5 * s, -5 - 5 * c]), "target": [10, 3.2, -5]}
     assert found["behindLow"]["position"][1] == approx(3.2 - 5 * math.sin(0.25))  # at most 0.25 rad from below
-    assert found["starts"] == [{"yaw": 0, "pitch": -0.2}, {"yaw": 0, "pitch": -0.3}] and found["fovs"] == [70, 60]
-    k = math.radians(70) / 700
+    assert found["starts"] == [{"yaw": 0, "pitch": -0.2}, {"yaw": 0, "pitch": -0.3}] and found["fovs"] == [60, 60]
+    k = math.radians(60) / 700
     assert found["dragEyes"] == {"yaw": approx(100 * k), "pitch": approx(50 * k)}
     assert found["dragEyesDown"]["pitch"] == 1.45
     assert found["dragBehind"] == {"yaw": approx(-100 * math.pi / 700), "pitch": approx(-0.3 + 50 * math.pi / 700)}
@@ -899,6 +899,62 @@ console.log(JSON.stringify(r({
     assert found["right"] == {"yaw": -0.5, "pitch": approx(0.2)}
     assert found["across"]["yaw"] == approx(-(2 * math.pi - 6.0))
     assert found["moved"] == [False, True, False]
+
+
+def test_view3d_walker_zoom(tmp_path):
+    """view3d/look.ts (docs/3d-view-contract.md, "Wave F2"): the eyes' vertical angle from the horizontal one and
+    the canvas's aspect (60° wide on a desktop and on an upright phone), the zoom's range (eyes about 110° to ×8 of
+    60°, behind 1.5 to 30 m), the buttons' steps onto the grid of √2 and their clamps, the wheel's and the pinch's
+    factors, the indicator's text, the camera behind at the zoom's distance and a drag's turn given by the view."""
+    found = run_ts(tmp_path, "view3d/look", """
+const r = (v) => v === null ? null : Array.isArray(v) ? v.map(r) : (typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, r(x)])) : (typeof v === "number" ? Math.round(v * 1e6) / 1e6 : v));
+const steps = (view, z, dir, n) => { const out = []; for (let i = 0; i < n; i++) { z = m.zoomStep(view, z, dir); out.push(z); } return out; };
+console.log(JSON.stringify(r({
+  vDesktop: m.verticalFov(60, 1.5), vPhone: m.verticalFov(60, 390 / 600), vSquare: m.verticalFov(90, 1), vBad: m.verticalFov(60, 0),
+  camEyes: m.cameraFov("eyes", 1, 2), camEyes2: m.cameraFov("eyes", 2, 1), camBehind: m.cameraFov("behind", 3, 0.5),
+  eyesRange: m.zoomRange("eyes"), behindRange: m.zoomRange("behind"),
+  angles: [m.eyesAngle(1), m.eyesAngle(m.zoomRange("eyes")[0]), m.eyesAngle(8)],
+  distances: [m.behindDistance(1), ...m.zoomRange("behind").map(m.behindDistance)],
+  eyesIn: steps("eyes", 1, 1, 8), eyesOut: steps("eyes", 1, -1, 4), behindIn: steps("behind", 1, 1, 5),
+  behindOut: steps("behind", 1, -1, 7), fromBetween: [m.zoomStep("eyes", 1.2, 1), m.zoomStep("eyes", 1.2, -1)],
+  clamps: [m.zoomBy("eyes", 4, 10), m.zoomBy("eyes", 1, 0.01), m.zoomBy("behind", 1, 1.5), m.clampZoom("eyes", NaN)],
+  wheel: [m.wheelFactor(-100), m.wheelFactor(100), m.wheelFactor(3, 1), m.wheelFactor(1e6), m.wheelFactor(0), m.wheelFactor(NaN)],
+  pinch: [m.pinchFactor([0, 0, 100, 0], [0, 0, 200, 0]), m.pinchFactor([10, 10, 10, 70], [0, 0, 0, 30]),
+          m.pinchFactor([5, 5, 5, 5], [0, 0, 50, 0])],
+  labels: [m.zoomLabel("eyes", 1), m.zoomLabel("eyes", Math.SQRT2), m.zoomLabel("eyes", 2), m.zoomLabel("eyes", 0.5),
+           m.zoomLabel("eyes", 8), m.zoomLabel("behind", 1), m.zoomLabel("behind", Math.SQRT2), m.zoomLabel("behind", 5 / 14.14),
+           m.zoomLabel("behind", 5 / 30)],
+  behindPose: m.cameraPose("behind", {feet: [0, 0, 0], yaw: 0}, {yaw: 0, pitch: 0}, 12),
+  dragTurn: m.dragGaze("eyes", {yaw: 0, pitch: 0}, 70, 0, 700, 0.1),
+})));""")
+    approx = lambda v: pytest.approx(v, abs=1e-5)  # noqa: E731
+    v = lambda h, a: math.degrees(2 * math.atan(math.tan(math.radians(h) / 2) / a))  # noqa: E731
+    assert found["vDesktop"] == approx(v(60, 1.5)) and found["vPhone"] == approx(v(60, 0.65))
+    assert found["vPhone"] > 60 > found["vDesktop"]  # an upright phone: taller than wide
+    assert found["vSquare"] == approx(90) and found["vBad"] == approx(60)
+    assert found["camEyes"] == approx(v(60, 2))
+    assert found["camEyes2"] == approx(2 * math.degrees(math.atan(math.tan(math.radians(30)) / 2)))
+    assert found["camBehind"] == 60  # behind the walker: a vertical angle, whatever the zoom
+    t30 = math.tan(math.radians(30))
+    assert found["eyesRange"] == approx([t30 / math.tan(math.radians(55)), 8])
+    assert found["behindRange"] == approx([5 / 30, 5 / 1.5])
+    assert found["angles"][0] == approx(60) and found["angles"][1] == approx(110)
+    assert 8 < found["angles"][2] < 8.5  # ×8: about 8°
+    assert found["distances"] == approx([5, 30, 1.5])
+    s2 = math.sqrt(2)
+    assert found["eyesIn"] == approx([s2, 2, 2 * s2, 4, 4 * s2, 8, 8, 8])  # clamped at ×8
+    assert found["eyesOut"] == approx([1 / s2, 0.5, found["eyesRange"][0], found["eyesRange"][0]])
+    assert found["behindIn"] == approx([s2, 2, 2 * s2, 5 / 1.5, 5 / 1.5])  # nearest 1.5 m
+    assert [5 / z for z in found["behindOut"]] == pytest.approx([5 * s2, 10, 10 * s2, 20, 20 * s2, 30, 30], rel=1e-4)
+    assert found["fromBetween"] == approx([s2, 1])  # onto the grid
+    assert found["clamps"] == approx([8, found["eyesRange"][0], 1.5, 1])
+    w = found["wheel"]
+    assert w[0] == approx(math.exp(0.2)) and w[1] == approx(math.exp(-0.2)) and w[2] == approx(math.exp(-0.096))
+    assert w[3] == approx(math.exp(-1)) and w[4] == 1 and w[5] == 1
+    assert found["pinch"] == approx([2, 0.5, 1])
+    assert found["labels"] == ["1", "1.4", "2", "0.5", "8", "5", "3.5", "14", "30"]
+    assert found["behindPose"] == {"position": approx([0, 1.2, -12]), "target": [0, 1.2, 0]}
+    assert found["dragTurn"] == {"yaw": approx(0.01), "pitch": 0}
 
 
 def test_view3d_feature_edges(tmp_path):

@@ -545,7 +545,7 @@ VIEWS_SCRIPT = """
 @pytest.mark.parametrize("level", ["full", "phone"])
 def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     """The walker's views (docs/3d-view-contract.md, "Wave F"): the switch (orbit first and chosen), the walker's
-    eyes (data-view="eyes", its field of view, no anchor's handle, no grip and no edit hint, the look hint at level
+    eyes (data-view="eyes", its field of view 60° wide, no anchor's handle, no grip and no edit hint, the look hint at level
     full), a drag on the canvas turns the gaze and keeps the eyes where they are, the walker's slider moves the
     camera with it, behind the walker another camera and field of view, back to the orbit its camera exactly as it
     was and the handles back at level full; each step draws, and nothing more while nothing changes; no motion
@@ -577,7 +577,7 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     assert orbit["view"] == "orbit" and orbit["checked"] == ["true", "false", "false"]
     assert orbit["handles"] == (2 if full else 0) and orbit["hint"] == (1 if full else 0) and orbit["lookHint"] == 0
     assert orbit["grips"] == (1 if full else 0) and orbit["motion"] == 0
-    assert eyes["view"] == "eyes" and eyes["checked"] == ["false", "true", "false"] and cam["eyes"][6] == 70
+    assert eyes["view"] == "eyes" and eyes["checked"] == ["false", "true", "false"] and cam["eyes"][7] == 60
     assert eyes["handles"] == eyes["grips"] == eyes["hint"] == 0 and eyes["lookHint"] == (1 if full else 0)
     assert eyes["motion"] == 0  # no touch screen here
     assert cam["eyes"][4] < 0  # a little down at first
@@ -585,9 +585,140 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     assert cam["dragged"][4] > cam["eyes"][4]  # dragged down: looking up (grabbing the world)
     assert cam["walked"][:3] != cam["dragged"][:3] and cam["walked"][3:6] == cam["dragged"][3:6]  # follows
     assert behind["view"] == "behind" and cam["behind"][6] == 60 and cam["behind"][4] < 0
+    assert cam["behind"][8] == 5  # the default distance (the clip's terrain is below that camera)
     assert behind["handles"] == behind["grips"] == 0
     assert back["view"] == "orbit" and cam["back"] == cam["orbit"], result  # the orbit's camera as it was
     assert back["handles"] == orbit["handles"] and back["lookHint"] == 0
     for state in (eyes, dragged, walked, behind, back):
         assert state["later"] == state["frames"], result  # drawn on demand only
+    assert _violations(dom) == []
+
+
+# On the page after the bundle: once ready, the zoom's box hidden in the orbit; the walker's eyes chosen, the
+# wheel (towards the screen: nearer), the + button, a two-finger pinch spreading the fingers (the angle narrower,
+# the gaze not turned) and the - button, each a frame with its camera and the indicator; behind the walker the
+# wheel (away: farther) and +; the eyes again (their zoom kept), the orbit (the box hidden, its camera as it was);
+# the findings go into <pre id="result">
+ZOOM_SCRIPT = """
+(function () {
+  const root = document.getElementById("view3d");
+  const out = {errors: []};
+  const error = console.error.bind(console);
+  console.error = (...args) => { out.errors.push(args.map(String).join(" ").slice(0, 300)); error(...args); };
+  const done = () => {
+    const pre = document.createElement("pre");
+    pre.id = "result";
+    pre.textContent = JSON.stringify(out);
+    document.body.appendChild(pre);
+  };
+  let n = 0;
+  const until = (test, ms, then) => {
+    const started = Date.now();
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
+  };
+  const frames = () => Number(root.dataset.frames);
+  const box = () => document.querySelector(".v3-zoom");
+  const state = () => ({view: root.dataset.view, camera: root.dataset.camera,
+    box: !!box() && getComputedStyle(box()).display !== "none",
+    value: document.querySelector(".v3-zoom-value")?.textContent,
+    labels: [...document.querySelectorAll(".v3-zoom button")].map((b) => b.getAttribute("aria-label"))});
+  const step = (name, act, then) => {
+    const before = frames();
+    act();
+    until(() => frames() > before, 15000, () => { out[name] = state(); until(() => false, 500, then); });
+  };
+  const canvas = () => document.querySelector("canvas.v3-canvas");
+  const pointer = (type, id, x, y, primary) => canvas().dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
+    pointerId: id, pointerType: "touch", button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true,
+    cancelable: true, isPrimary: primary}));
+  const wheel = (deltaY) => canvas().dispatchEvent(new WheelEvent("wheel", {deltaY, deltaMode: 0, bubbles: true, cancelable: true}));
+  const click = (sel) => document.querySelector(sel).click();
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    out.ready = ready;
+    if (!ready) { done(); return; }
+    until(() => false, 1000, () => {
+      out.orbit = state();
+      step("eyes", () => click(".v3-views [data-view=eyes]"), () => {
+        step("wheeled", () => { out.wheelCancelled = !wheel(-200); }, () => {
+          step("plus", () => click(".v3-zoom-in"), () => {
+            const r = canvas().getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+            step("pinched", () => {
+              pointer("pointerdown", 21, x - 40, y, true);
+              pointer("pointerdown", 22, x + 40, y, false);
+              pointer("pointermove", 22, x + 120, y + 30, false);
+              pointer("pointermove", 21, x - 120, y - 30, true);
+            }, () => {
+              pointer("pointerup", 22, x + 120, y + 30, false);
+              pointer("pointermove", 21, x - 20, y + 60, true);  // the finger left after a pinch turns nothing
+              pointer("pointerup", 21, x - 20, y + 60, true);
+              step("minus", () => click(".v3-zoom-out"), () => {
+                step("behind", () => click(".v3-views [data-view=behind]"), () => {
+                  step("farther", () => wheel(300), () => {
+                    step("nearer", () => click(".v3-zoom-in"), () => {
+                      step("eyesAgain", () => click(".v3-views [data-view=eyes]"), () => {
+                        step("back", () => click(".v3-views [data-view=orbit]"), done);
+                      });
+                    });
+                  });
+                });
+              });
+            });
+          });
+        });
+      });
+    });
+  });
+})();
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_view3d_walker_zoom(clip_data, tmp_path, monkeypatch):
+    """The zoom of the walker's views (docs/3d-view-contract.md, "Wave F2"): hidden in the orbit; in the eyes the
+    wheel, the + button and a two-finger pinch narrow the horizontal angle (60° at first, the vertical one from the
+    canvas's aspect), the pinch without turning the gaze, the - button widens it, the indicator a factor; behind
+    the walker the wheel moves the camera farther and + nearer (its distance in data-camera, the indicator in
+    metres); each view keeps its zoom; the orbit's camera unchanged; no violation of the CSP."""
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    row = _lines_of(data, meta["id"])[0]
+    line = ",".join(f"{v:.7f}" for v in row[:4])
+    page = _script_page(data, "view3dzoom", ZOOM_SCRIPT)
+    with _server(data, start_scheduler=True) as port:
+        dom = subprocess.run(
+            [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
+             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             f"http://127.0.0.1:{port}/{page}?level=full#run={meta['id']}&line={line}"],
+            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+    found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+    assert found, dom[-3000:]
+    result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+    print(result)
+    assert result["ready"], result
+    assert result["errors"] == [], result["errors"]
+    names = ("orbit", "eyes", "wheeled", "plus", "pinched", "minus", "behind", "farther", "nearer", "eyesAgain", "back")
+    cam = {k: [float(v) for v in result[k]["camera"].split(",")] for k in names}
+    assert not result["orbit"]["box"] and not result["back"]["box"]
+    assert result["eyes"]["box"] and result["eyes"]["labels"] == ["Zoom out", "Zoom in"]
+    # eyes: 60° wide, the vertical angle from the aspect (wider than tall here)
+    vertical, horizontal = cam["eyes"][6], cam["eyes"][7]
+    assert horizontal == 60 and vertical < 60 and result["eyes"]["value"] == "×1"
+    assert result["wheelCancelled"]  # the page keeps the wheel in the walker's views
+    assert cam["wheeled"][7] < 60 and cam["wheeled"][:6] == cam["eyes"][:6]
+    assert cam["plus"][7] < cam["wheeled"][7] and result["plus"]["value"] == "×2"  # onto the grid: ×1.5 → ×2
+    assert cam["pinched"][7] < cam["plus"][7] and cam["pinched"][3:6] == cam["plus"][3:6]  # zoomed, not turned
+    assert cam["minus"][7] > cam["pinched"][7] and cam["minus"][3:6] == cam["plus"][3:6]
+    assert result["minus"]["value"].startswith("×")
+    # behind: 5 m at first, the wheel away from the screen farther, + nearer
+    assert result["behind"]["value"] == "5 m" and cam["behind"][6] == 60
+    assert cam["farther"][8] > cam["behind"][8] and cam["nearer"][8] < cam["farther"][8]
+    assert result["farther"]["value"].endswith(" m") and result["nearer"]["value"] == "7.1 m"  # 9.1 m, onto the grid
+    assert cam["eyesAgain"][7] == cam["minus"][7] and result["eyesAgain"]["value"] == result["minus"]["value"]
+    assert cam["back"] == cam["orbit"] and len(cam["orbit"]) == 8
     assert _violations(dom) == []
