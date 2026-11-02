@@ -130,10 +130,43 @@ def test_report_of_a_database(tmp_path, capsys):
         table = list(csv.DictReader(f))
     assert len(table) == 2 and "step 3 cpu" in table[0]
     assert js.main(["--db", path, "--days", "1"]) == 0
+    assert js.main(["--db", path, "--phases"]) == 0
     text = open(out_csv, encoding="utf-8").read() + capsys.readouterr().out
     assert "| sag | 1 | <=1000 | area | custom | 1 |" in text
+    assert "## Phases of the jobs" in text and "| all |" in text
     for secret in (new, old, osm, SECRET["title"], SECRET["place"], "an old search", "Gozo", "19.75"):
         assert secret not in text, secret
+
+
+def test_phases_and_tiles(tmp_path):
+    """--phases: the seconds between a job's timestamps (whole seconds: a quick test gives zeros),
+    the computing seconds outside the steps, the orthophoto step, and the tiles of an area from
+    its "--- Tile k of N (W x H px)" lines; one row per class and one for all."""
+    jobs = jb.Jobs(str(tmp_path))
+    tiled = _search(jobs, {"area": "coast"}, "tiles", geometry={"type": "Point", "coordinates": [19.75, 50.15]})
+    for line in OLD_OUTPUT.split("\n"):
+        jobs.event(tiled, "info", line)
+    jobs.set_steps(tiled, {"1": 1.0, "3": 2.0, "orthophoto": 4.0, "other": 0.5}, {})
+    jobs.set(tiled, "done")
+    plain = _search(jobs, {}, "one grid")
+    jobs.set(plain, "done")
+    db = js.connect(str(tmp_path / "jobs.sqlite"), immutable=False)
+    found = js.load(db)
+    db.close()
+    by_shape = {j["shape"]: j for j in found}
+    area, circle = by_shape["area"], by_shape["circle"]
+    assert area["tiles"] == (2, 8604 * 7602 / 1e6) and circle["tiles"] == (None, None)
+    for key in ("wait_download", "download", "wait_compute", "compute"):
+        assert area["phases"][key] is not None and area["phases"][key] >= 0, key
+    assert area["phases"]["outside_steps"] == area["phases"]["compute"] - 7.5
+    assert area["phases"]["orthophoto"] == 4.0 and area["phases"]["other"] == 0.5
+    assert circle["phases"]["outside_steps"] is None and circle["phases"]["orthophoto"] is None
+    rows = {r["model"] if r["model"] == "all" else r["shape"]: r for r in js.phases_summary(found)}
+    assert rows["area"]["tiles max"] == 2 and rows["area"]["tile Mpx max"] == 8604 * 7602 / 1e6
+    assert rows["all"]["jobs"] == 2 and rows["all"]["orthophoto max"] == 4.0 and rows["circle"]["tiles max"] is None
+    assert js.tiles_of(["--- Tile 3 of 5 (100 x 200 px) ---", "--- Tile 4 of 5 ---"]) == (5, 0.02)
+    assert js._seconds("2026-11-02T07:23:11+00:00", "2026-11-02T07:21:01+00:00") == 130.0
+    assert js._seconds("bad", "2026-11-02T07:21:01+00:00") is None and js._seconds(None, "x") is None
 
 
 def test_output_names_no_job(tmp_path, capsys):

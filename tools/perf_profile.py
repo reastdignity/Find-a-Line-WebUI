@@ -12,6 +12,9 @@ the lines take, apart from the grids (slower).
 
 The options after "--" are findaline.py's; --no-plot, --yes and --ortho never are added. Give
 --data-dir there to keep the runs out of the repository's runs/ (the cache of the search is used).
+--memory BYTES makes search.available_memory answer that: an area's tiles are then sized as the
+web worker sizes them from a compute slot's budget (docs/performance.md, the VPS: about 4.9 GB).
+A bar of parts (progress.compute.update(n, part="...")) is listed per part, "<bar> [<part>]".
 """
 
 import argparse
@@ -43,6 +46,7 @@ class Recorder:
         self.step = ""
         self.stopped = threading.Event()
         self.label = "Start: (between bars)"  # the stage running now
+        self.part = None  # the part of a bar of parts (update(..., part=...)) running now
         self.heap = {}  # label -> peak of the traced heap (--tracemalloc)
 
     def cpu(self) -> float:
@@ -72,10 +76,15 @@ class Recorder:
                 self.step = state["step"]
                 self.mark(f"{self._short(self.step)}: (between bars)")
             return
-        if state["count"] == 0 and not state["done"] and state["stage"]:
-            self.mark(f"{self._short(state['step'])}: {state['bar']} {state['stage']}")
-        elif state["done"]:
+        # A bar of parts (progress.compute.update(n, part="...")) gives a stage per part
+        part = None if state["done"] else state["extra"].get("part")
+        if state["done"]:
             self.mark(f"{self._short(state['step'])}: (between bars)")
+        elif state["count"] == 0 and state["stage"] and part is None:
+            self.mark(f"{self._short(state['step'])}: {state['bar']} {state['stage']}")
+        elif part is not None and part != self.part:
+            self.mark(f"{self._short(state['step'])}: {state['bar']} {state['stage']} [{part}]")
+        self.part = part
 
     def _short(self, step: str) -> str:
         """"Tile 3/15 · Step 3/5: evaluating anchor pairs" -> "Step 3"; tiles are summed up."""
@@ -147,6 +156,8 @@ def main():
     parser.add_argument("--cores", type=int, help="run on this many cores only (the CPU affinity, and "
                         "--threads for the line search), like a worker container with that many cpus")
     parser.add_argument("--tracemalloc", action="store_true", help="also the peak of the Python heap per stage")
+    parser.add_argument("--memory", type=float, help="bytes that search.available_memory answers: the tiles of an "
+                        "area sized as the web worker sizes them from a compute slot's budget (search.slot_memory)")
     parser.add_argument("args", nargs=argparse.REMAINDER, help="-- and the options of findaline.py")
     args = parser.parse_args()
     search_args = args.args[1:] if args.args[:1] == ["--"] else args.args
@@ -160,6 +171,10 @@ def main():
         psutil.Process().cpu_affinity(list(range(0, step * args.cores, step)))
         search_args += ["--threads", str(args.cores)]
         cores = args.cores
+
+    if args.memory:
+        import search
+        search.available_memory = lambda: int(args.memory)  # tile_core_size and Plan.memory read it
 
     rec = Recorder()
     if args.tracemalloc:

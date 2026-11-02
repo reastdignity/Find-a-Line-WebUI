@@ -6,7 +6,13 @@ preset), their computing seconds (sum, median, p90), the seconds and CPU seconds
 (job_funnel). Jobs from before migration 16 have no stages or funnel: those are read from their
 "info" events (the lines the search prints, whole seconds; no CPU).
 
-    python3 tools/job_stats.py --db <jobs.sqlite> [--days N] [--immutable] [--csv <file>]
+    python3 tools/job_stats.py --db <jobs.sqlite> [--days N] [--immutable] [--csv <file>] [--phases]
+
+--phases adds what a job waited for and took outside its steps: the seconds from queued to
+downloading (a download slot), of the download phase, from ready to computing (a compute slot) and
+of the computing phase (the columns of migrations 13 and 15, whole seconds), the computing seconds
+outside its steps (the process's start, imports and planning), the steps "orthophoto" and "other",
+and the tiles of an area (their number and the largest one's Mpx, from the "--- Tile k of N" lines).
 
 Standard library only (it runs on the VPS host with the system python3, no venv); read-only
 (mode=ro; --immutable for a copy that nothing writes, which also skips the WAL). The output holds
@@ -20,6 +26,7 @@ import re
 import sqlite3
 import statistics
 import sys
+from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
 # What the tool needs of params.SearchParams and params.PRESETS (tests/test_job_stats.py checks it):
@@ -39,6 +46,9 @@ FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates"
                 "left_out", "lines")
 RATIOS = (("open", "anchors_kept"), ("checked", "candidates"), ("found", "checked"), ("valid", "found"))
 CLASSES = ("model", "resolution", "length", "shape", "preset")
+# --phases: the seconds between the timestamps of a job (jobs.created, downloading_at, ready_at,
+# computing_at, finished) and of its computing phase outside the steps
+PHASE_KEYS = ("wait_download", "download", "wait_compute", "compute", "outside_steps", "orthophoto", "other")
 
 # The lines of a search's output (tests/regression.py PATTERNS, linesearch.find_valid_lines, search._lines)
 # and of the Compute bars (progress._Bar._print_text: "[Compute] <stage>: <count>/<total> ... - done in 5s")
@@ -50,7 +60,7 @@ CHECKED = re.compile(r"Checked pixel by pixel: (\d+)")
 LEFT_OUT = re.compile(r"Left out by the line limits \(.*\): (\d+)")
 VALID = re.compile(r"Found (\d+) valid lines")
 RESOLUTION = re.compile(r"resolution: ([\d.]+)m \(")
-TILE = re.compile(r"--- Tile \d+ of (\d+)")
+TILE = re.compile(r"--- Tile \d+ of (\d+)(?: \((\d+) x (\d+) px\))?")
 PAIRS_FOUND = re.compile(r", lines (\d+) - done in")  # the extra of the bar "anchor pairs": the pairs found
 BAR = re.compile(r"^\[Compute\] (.+?): ([\d.e+]+)/([\d.e+]+) .* - done in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?")
 
@@ -104,6 +114,45 @@ def from_events(texts: Iterable[str]) -> Tuple[Dict[str, int], Dict[str, float],
     return funnel, stages, resolution
 
 
+def tiles_of(texts: Iterable[str]) -> Tuple[Optional[int], Optional[float]]:
+    """(tiles, Mpx of the largest tile) of a computing phase from its "--- Tile k of N (W x H px)"
+    lines; (None, None) for one grid."""
+    tiles, largest = None, None
+    for text in texts:
+        for line in text.splitlines():
+            if (m := TILE.search(line)):
+                tiles = int(m.group(1))
+                if m.group(2):
+                    largest = max(largest or 0.0, int(m.group(2)) * int(m.group(3)) / 1e6)
+    return tiles, largest
+
+
+def _seconds(later: Optional[str], earlier: Optional[str]) -> Optional[float]:
+    """Seconds between two ISO timestamps of jobs.sqlite (cache.now: UTC, whole seconds)."""
+    if not later or not earlier:
+        return None
+    try:
+        return (datetime.fromisoformat(later) - datetime.fromisoformat(earlier)).total_seconds()
+    except ValueError:
+        return None
+
+
+def phases_of(job: Dict, steps: Dict[str, Tuple[float, Optional[float]]]) -> Dict[str, Optional[float]]:
+    """The seconds of PHASE_KEYS of a job: between its timestamps, and of its computing phase
+    outside the steps (None where a timestamp or the steps are missing)."""
+    compute = _seconds(job.get("finished"), job.get("computing_at"))
+    total = sum(s for s, _ in steps.values()) if steps else None
+    return {
+        "wait_download": _seconds(job.get("downloading_at"), job.get("created")),
+        "download": _seconds(job.get("ready_at"), job.get("downloading_at")),
+        "wait_compute": _seconds(job.get("computing_at"), job.get("ready_at")),
+        "compute": compute,
+        "outside_steps": compute - total if compute is not None and total is not None else None,
+        "orthophoto": steps["orthophoto"][0] if "orthophoto" in steps else None,
+        "other": steps["other"][0] if "other" in steps else None,
+    }
+
+
 def resolution_class(resolution: Optional[float]) -> str:
     """The class of a resolution as F19's metrics (metrics.RESOLUTION_SQL)."""
     if resolution is None or resolution <= 0:
@@ -142,7 +191,8 @@ def _rows(db: sqlite3.Connection, sql: str, *args) -> list:
 def load(db: sqlite3.Connection, days: Optional[float] = None) -> List[Dict]:
     """The finished searches (status done) with their classes and statistics, without ids."""
     have = _columns(db, "jobs")
-    picked = ["id", "request"] + [c for c in ("resolution", "source", "computing_at", "finished") if c in have]
+    picked = ["id", "request"] + [c for c in ("resolution", "source", "created", "downloading_at", "ready_at",
+                                              "computing_at", "finished") if c in have]
     where = "status = 'done'" + (" AND julianday(created) >= julianday('now') - ?" if days else "")
     jobs = [dict(zip(picked, row)) for row in db.execute(f"SELECT {', '.join(picked)} FROM jobs WHERE {where}",
                                                           (days,) if days else ())]
@@ -168,8 +218,8 @@ def load(db: sqlite3.Connection, days: Optional[float] = None) -> List[Dict]:
         job_id = job["id"]
         stage_times, funnel = stages.get(job_id), funnels.get(job_id)
         resolution = job.get("resolution") or params.get("resolution")
+        texts = _compute_events(db, job_id)
         if stage_times is None or funnel is None or resolution is None:
-            texts = _compute_events(db, job_id)
             parsed, parsed_stages, parsed_resolution = from_events(texts)
             funnel = funnel if funnel is not None else parsed
             stage_times = stage_times if stage_times is not None else {k: (s, None) for k, s in parsed_stages.items()}
@@ -185,6 +235,7 @@ def load(db: sqlite3.Connection, days: Optional[float] = None) -> List[Dict]:
             "shape": "area" if params.get("area") or request.get("geometry") or params.get("geometry") else "circle",
             "preset": preset_of(params),
             "seconds": seconds, "steps": steps.get(job_id, {}), "stages": stage_times, "funnel": funnel,
+            "phases": phases_of(job, steps.get(job_id, {})), "tiles": tiles_of(texts),
         })
     return found
 
@@ -242,6 +293,30 @@ def summarise(jobs: List[Dict]) -> List[Dict]:
     return rows
 
 
+def phases_summary(jobs: List[Dict]) -> List[Dict]:
+    """One row per class and one for all the searches: how many, and the median and the largest
+    of each of PHASE_KEYS' seconds (over the searches that have it), the tiles (median and most)
+    and the largest tile's Mpx."""
+    groups: Dict[tuple, List[Dict]] = {}
+    for job in jobs:
+        groups.setdefault(tuple(job[c] for c in CLASSES), []).append(job)
+    rows = []
+    for key, members in sorted(groups.items()) + [(("all",) + ("",) * (len(CLASSES) - 1), jobs)]:
+        row = dict(zip(CLASSES, key))
+        row["jobs"] = len(members)
+        for k in PHASE_KEYS:
+            values = [j["phases"][k] for j in members if j["phases"].get(k) is not None]
+            row[f"{k} median"] = statistics.median(values) if values else None
+            row[f"{k} max"] = max(values) if values else None
+        tiles = [j["tiles"][0] for j in members if j["tiles"][0]]
+        sizes = [j["tiles"][1] for j in members if j["tiles"][1]]
+        row["tiles median"] = statistics.median(tiles) if tiles else None
+        row["tiles max"] = max(tiles) if tiles else None
+        row["tile Mpx max"] = max(sizes) if sizes else None
+        rows.append(row)
+    return rows
+
+
 def _text(value) -> str:
     if value is None:
         return ""
@@ -269,6 +344,14 @@ def report(rows: List[Dict]) -> str:
     return "\n".join(parts) + "\n"
 
 
+def phases_report(rows: List[Dict]) -> str:
+    """The Markdown table of phases_summary: the classes (and all) with the median and the largest
+    seconds of each phase, the tiles and the largest tile."""
+    columns = list(CLASSES) + ["jobs"] + [f"{k} {what}" for k in PHASE_KEYS for what in ("median", "max")]
+    columns += ["tiles median", "tiles max", "tile Mpx max"]
+    return "\n".join(["## Phases of the jobs: seconds (median and max per class)", markdown(rows, columns)]) + "\n"
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip(),
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -276,13 +359,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     parser.add_argument("--days", type=float, help="only the searches queued in the last N days")
     parser.add_argument("--immutable", action="store_true", help="the file is a copy nothing writes")
     parser.add_argument("--csv", help="also write the table of the classes (every column) to this file")
+    parser.add_argument("--phases", action="store_true",
+                        help="also the seconds of the phases and the waits between them, and the tiles")
     args = parser.parse_args(argv)
     db = connect(args.db, args.immutable)
     try:
-        rows = summarise(load(db, args.days))
+        found = load(db, args.days)
+        rows = summarise(found)
     finally:
         db.close()
     sys.stdout.write(report(rows) if rows else "No finished searches.\n")
+    if args.phases and rows:
+        sys.stdout.write("\n" + phases_report(phases_summary(found)))
     if args.csv:
         columns = list(rows[0]) if rows else list(CLASSES)
         with open(args.csv, "w", newline="", encoding="utf-8") as f:

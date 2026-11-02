@@ -670,8 +670,11 @@ def prepare_data(plan: Plan) -> Data:
         _download_layers(plan)
         elevation_path = src.prepare_layer(source.nmt, grid, cache_dir,
                                            os.path.join(work, "nmt.npy"), "terrain", p.update, download=False)
+        progress.compute.start("area coverage", 1, unit="step")
         mask = plan.area.mask(grid)
         with_data = float(np.isfinite(np.load(elevation_path, mmap_mode="r")[mask]).mean()) if mask.any() else 0.0
+        progress.compute.update(1)
+        progress.compute.finish()
         emit("info", f"Elevation data: {100 * with_data:.2f}% of the search area from {source.name}")
         surface_path = None
         if plan.nmpt:
@@ -687,11 +690,17 @@ def prepare_data(plan: Plan) -> Data:
                 src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
             if warning:
                 emit("warning", warning)
+            progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(sea, p.shore_buffer, grid.res)
+            progress.compute.update(1)
+            progress.compute.finish()
         elif _fills_gaps(plan):
             # Without --water fill the sea stays without data; keep the gap filling off it too
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
+            progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
+            progress.compute.update(1)
+            progress.compute.finish()
         if _fills_gaps(plan):
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
@@ -714,8 +723,11 @@ def prepare_data(plan: Plan) -> Data:
     elevation = np.load(elevation_path, mmap_mode="r")
     surface = np.load(surface_path, mmap_mode="r") if surface_path else None
     if surface is not None:
+        progress.compute.start("surface coverage", 1, unit="step")
         land = plan.area.mask(grid) & ~np.isnan(elevation)
         no_surface = (np.isnan(surface) & land).sum() / max(land.sum(), 1)
+        progress.compute.update(1)
+        progress.compute.finish()
         if no_surface > 0.01:
             emit("warning", messages.Note(f"no surface model (trees, buildings) for {no_surface:.0%} of the search "
                                           "area.\nLines there are checked against the bare terrain only: trees and "
