@@ -115,6 +115,47 @@ def test_cache_stale(status, age, ttl, update, expected):
     assert cache.stale(row, ttl, update) is expected
 
 
+def test_cache_due_many_answers_as_due(tmp_path):
+    """cache.due_many (one connection per top-level folder) and due (one connection) answer as due()
+    did (state, then stale of the row of info: two connections) for each file: not recorded, adopted
+    (a file without a row, which all record), another processing, missing, stale for an update, in
+    two top-level folders; and in the order of the paths."""
+    import shutil
+
+    def due_before(cache_dir, path, processing, update, ttl):
+        return cache.state(cache_dir, path, processing) is None or             cache.stale(cache.info(cache_dir, path), ttl, update)
+    first = tmp_path / "first"
+    kinds = {}
+    for top in ("spain", "poland"):
+        for name, days in (("new", None), ("adopted", None), ("ok", 10), ("old", 800), ("missing", 100),
+                           ("lost", 10)):
+            path = first / top / "live" / f"{name}.tif"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if name != "new":
+                path.write_bytes(b"a")
+            if days is not None:
+                cache.record(str(first), str(path), "missing" if name == "missing" else "ok",
+                             processing=2 if name == "lost" else 1)
+                _age(str(first), str(path), days)
+                if name in ("missing", "lost"):
+                    path.unlink()
+            kinds[str(path)] = name
+    second, third = tmp_path / "second", tmp_path / "third"
+    shutil.copytree(first, second)
+    shutil.copytree(first, third)
+    paths = list(kinds)[::-1]  # not grouped by folder
+    moved = lambda folder: [p.replace(str(first), str(folder)) for p in paths]  # noqa: E731
+    for update, ttl in ((None, 730), ("stale", 730), ("all", 730), ("stale", None), ("all", None)):
+        for processing in (1, 2):
+            expected = [due_before(str(first), p, processing, update, ttl) for p in paths]
+            assert cache.due_many(str(second), moved(second), processing, update, ttl) == expected, (update, ttl)
+            assert [cache.due(str(third), p, processing, update, ttl) for p in moved(third)] == expected
+    assert cache.due_many(str(second), []) == []
+    for folder in (second, third):
+        assert cache.info(str(folder), str(folder / "spain" / "live" / "adopted.tif"))["status"] == "ok"
+    assert [kinds[p] for p, due in zip(paths, cache.due_many(str(first), paths)) if due] ==         ["lost", "new"] * 2
+
+
 def test_update_checks(tmp_path):
     """Live tiles are checked after their interval, releases never; --bbox limits the checks."""
     spain = src.SOURCES["spain"].nmt

@@ -100,8 +100,10 @@ class Layer:
 
     def missing(self, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
         """Tiles to download: not cached yet, or due for a check with update ("stale" or "all")."""
-        return [t for t in self.tiles(grid)
-                if cache.due(cache_dir, self.tile_path(cache_dir, t), self.processing, update, self.ttl_days)]
+        tiles = self.tiles(grid)
+        due = cache.due_many(cache_dir, [self.tile_path(cache_dir, t) for t in tiles], self.processing, update,
+                             self.ttl_days)  # one connection to the index for all of them
+        return [t for t, d in zip(tiles, due) if d]
 
     def estimate(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[int, int, float]:
         """(tiles, tiles to download, MB to download)."""
