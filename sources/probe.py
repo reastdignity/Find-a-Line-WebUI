@@ -9,7 +9,8 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
 - read: the first tile's file asked for one byte (Range: bytes=0-0); a WCS a GetCoverage of
   16 x 16 pixels; a WMS-R (WmsrTiles) a GetMap of 16 x 16 pixels of the first tile; an ImageServer an
   exportImage of 16 x 16 pixels (a TIFF, not an error); blocks of big fixed files (FileBlocks) a window of
-  16 x 16 pixels of the first block's file; a local mirror is looked for on disk;
+  16 x 16 pixels of the first block's file; a local mirror is looked for on disk; a plain XYZ file
+  (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
 - the orthophoto: one base tile at the sample, or the WMS's GetCapabilities.
@@ -64,6 +65,7 @@ from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
+from .layers.geojson import GeoJsonTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -74,6 +76,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
+    (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"))
@@ -136,7 +139,7 @@ def _http(url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, s
     """GET (streamed): status, content type and the first KB of the body (from several chunks: MapServer
     sends its XML declaration alone first). Patched by the tests."""
     with requests.get(url, params=params, headers={**cache.http_headers(), **(headers or {})},
-                      timeout=REQUEST_TIMEOUT_S, stream=True) as response:
+                      timeout=REQUEST_TIMEOUT_S, stream=True, verify=net.verify(url)) as response:
         body = b""
         for chunk in response.iter_content(1024):
             body += chunk
@@ -178,6 +181,22 @@ def _read(cache_dir: str, url: Optional[str]) -> str:
     status, kind, _ = _ask(cache_dir, url, headers={"Range": "bytes=0-0"})
     if status not in (200, 206):
         raise RuntimeError(f"HTTP {status} for {cache.clean_url(url)}")
+    return ""
+
+
+def _text(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
+    """The first KB of a tile's plain XYZ file (no Range: the stream is closed after it); raises unless it
+    is text/plain whose first line holds three numbers (an outdated link answers an HTML page)."""
+    url = layer.index.request(tile).url
+    status, kind, body = _ask(cache_dir, url)
+    first = body.split(b"\n", 1)[0].split()
+    try:
+        numbers = len([float(v) for v in first]) == 3
+    except ValueError:
+        numbers = False
+    if status != 200 or not kind.startswith("text/plain") or not numbers:
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
     return ""
 
 
@@ -310,7 +329,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind == "index":
+        if kind in ("index", "text"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -329,6 +348,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 row.notes.append(_window(cache_dir, layer, tiles[0]))
             elif kind == "getmap":
                 _getmap(cache_dir, layer, tiles[0])
+            elif kind == "text":
+                _text(cache_dir, layer, tiles[0])
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:

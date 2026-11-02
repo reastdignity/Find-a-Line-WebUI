@@ -63,6 +63,11 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Source Cooperative (the copy of the Tasmania 2 metre DEM): no terms page or limits published (2026-11-02;
     # its files are served through Cloudflare): courtesy
     "data.source.coop": 4,
+    # LGB's INSPIRE WCS (Brandenburg and Berlin; its Fees "Nutzung erfolgt derzeit kostenfrei", no number) and
+    # LVermGeo SH's download server (Schleswig-Holstein; its terms and pages, read 2026-11-02, give no numbers):
+    # courtesy
+    "inspire.brandenburg.de": 4,
+    "geodaten.schleswig-holstein.de": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -140,6 +145,48 @@ def rate_turn(url: Optional[str]):
         time.sleep(interval * (0.1 + 0.2 * random.random()))  # waiters spread; late, never early
 
 
+# Hosts whose servers send an incomplete TLS chain (only their own certificate, without the intermediate that
+# issued it): host -> a file of sources/certs/ with the missing intermediate, which requests to that host trust
+# on top of certifi's roots (verify). Browsers and curl on Windows fetch such an intermediate themselves (the
+# leaf's Authority Information Access); OpenSSL, so Python and the worker's container, does not.
+# geodaten.schleswig-holstein.de (Schleswig-Holstein's index and XYZ files) left out D-TRUST BR CA 1-20-1 2020
+# on 2026-11-02 (its leaf valid to 2027-04-15); the file says where it came from, its fingerprint and expiry
+CERTS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "certs")
+HOST_CA_OF: Dict[str, str] = {
+    "geodaten.schleswig-holstein.de": "d-trust-br-ca-1-20-1-2020.pem",
+}
+_bundles: Dict[str, str] = {}  # file of HOST_CA_OF -> the bundle written (verify)
+_bundles_lock = threading.Lock()
+
+
+def verify(url: Optional[str]):
+    """requests' `verify` for a request to url: True (certifi's roots) for every host but those of
+    HOST_CA_OF, whose requests verify against a bundle of certifi's roots and the host's missing
+    intermediate: written once per process into the system's temporary folder (/tmp in the
+    container; named by its content, so processes and versions never mix bundles). The roots stay
+    the only anchors: the intermediate only completes a chain to one of them."""
+    host = _host(url)
+    name = HOST_CA_OF.get(host) if host else None
+    if not name:
+        return True
+    with _bundles_lock:
+        path = _bundles.get(name)
+        if path is None or not os.path.exists(path):
+            with open(requests.certs.where(), "rb") as f:
+                roots = f.read()
+            with open(os.path.join(CERTS, name), "rb") as f:
+                extra = f.read()
+            data = roots.rstrip(b"\n") + b"\n\n" + extra
+            path = os.path.join(tempfile.gettempdir(), f"findaline-ca-{hashlib.sha256(data).hexdigest()[:16]}.pem")
+            if not os.path.exists(path):
+                tmp = _part(path)
+                with open(tmp, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, path)
+            _bundles[name] = path
+        return path
+
+
 def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octet", "tiff", "multipart")):
     """GET with retries; raises RuntimeError with the server message on failure (without the
     query of the URL or a key's value: cache.clean_error). Every attempt waits for its turn
@@ -153,7 +200,7 @@ def _get(url: str, params=None, timeout: int = 300, binary_types=("image", "octe
             rate_turn(url)
             with servicecounts.request(url) as counted:
                 response = counted.got(requests.get(url, params=params, timeout=timeout,
-                                                    headers=cache.http_headers()))
+                                                    headers=cache.http_headers(), verify=verify(url)))
                 content_type = response.headers.get("content-type", "")
                 if response.status_code == 404:
                     return None

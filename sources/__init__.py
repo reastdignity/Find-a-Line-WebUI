@@ -72,6 +72,7 @@ from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.metalink import MetalinkTiles
 from .layers.s3blocks import S3Blocks
+from .layers.geojson import GeoJsonTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M

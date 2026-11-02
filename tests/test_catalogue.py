@@ -16,7 +16,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "scotland", "wales", "england", "hesse",
-       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "south_tyrol", "trento", "luxembourg", "denmark",
+       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
@@ -994,6 +994,71 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                                 'fmt': 'image/tiff',
                                                 'fetch_res': 1.0,
                                                 'tile_px': 2000}},
+            'brandenburg': {'crs': 'EPSG:25833',
+                            'countries': ('de',),
+                            'bbox': None,
+                            'fallbacks': ['europe'],
+                            'grid_origin': (0.0, 0.0),
+                            'default_resolution': 1.0,
+                            'instead_without_data': None,
+                            'local_crs': 'utm_crs',
+                            'ortho': 'brandenburg/ortho/live',
+                            'credits': ['DGM1 / DOM1 (LGB, Brandenburg and Berlin)'],
+                            'nmt': {'class': 'WcsTiles',
+                                    'description': 'DGM1 (terrain)',
+                                    'folder': 'brandenburg/dgm1/live',
+                                    'prefix': None,
+                                    'native_res': 1.0,
+                                    'processing': 1,
+                                    'ttl_days': 730,
+                                    'credit': 'DGM1 / DOM1 (LGB, Brandenburg and Berlin)',
+                                    'shift': (0.0, 0.0),
+                                    'url': 'https://inspire.brandenburg.de/services/el_dgm1_wcs',
+                                    'coverage': 'el_elevationgridcoverage',
+                                    'crs': 'EPSG:25833',
+                                    'axes': ('x', 'y'),
+                                    'fmt': 'image/tiff',
+                                    'fetch_res': 1.0,
+                                    'tile_px': 2000},
+                            'nmpt': {'class': 'WcsTiles',
+                                     'description': 'DOM1, lowest of the 0.2 m bDOM (trees, buildings)',
+                                     'folder': 'brandenburg/dom1/live',
+                                     'prefix': None,
+                                     'native_res': 1.0,
+                                     'processing': 1,
+                                     'ttl_days': 730,
+                                     'credit': 'DGM1 / DOM1 (LGB, Brandenburg and Berlin)',
+                                     'shift': (0.0, 0.0),
+                                     'url': 'https://inspire.brandenburg.de/services/el_dom1_wcs',
+                                     'coverage': 'el_elevationgridcoverage',
+                                     'crs': 'EPSG:25833',
+                                     'axes': ('x', 'y'),
+                                     'fmt': 'image/tiff',
+                                     'fetch_res': 1.0,
+                                     'tile_px': 2000}},
+            'schleswig_holstein': {'crs': 'EPSG:25832',
+                                   'countries': ('de',),
+                                   'bbox': None,
+                                   'fallbacks': ['europe'],
+                                   'grid_origin': (0.0, 0.0),
+                                   'default_resolution': 1.0,
+                                   'instead_without_data': None,
+                                   'local_crs': 'utm_crs',
+                                   'ortho': 'schleswig_holstein/ortho/live',
+                                   'credits': ['DGM1 (LVermGeo SH, Schleswig-Holstein)'],
+                                   'nmt': {'class': 'GeoJsonTiles',
+                                           'description': 'DGM1 (terrain)',
+                                           'folder': 'schleswig_holstein/dgm1',
+                                           'prefix': 'dgm1',
+                                           'native_res': 1.0,
+                                           'processing': 1,
+                                           'ttl_days': None,
+                                           'credit': 'DGM1 (LVermGeo SH, Schleswig-Holstein)',
+                                           'shift': (0.0, 0.0),
+                                           'index_url': 'https://geodaten.schleswig-holstein.de/gaialight-sh/'
+                                                        '_apps/dladownload/single.php'
+                                                        '?file=DGM1_SH__Massendownload.geojson&id=4'},
+                                   'nmpt': None},
             'south_tyrol': {'crs': 'EPSG:25832',
                             'countries': ('it',),
                             'bbox': None,
@@ -1452,6 +1517,11 @@ PATHS = [
     ("north_rhine_westphalia", "nmpt", (1.0, 233, 2842),
      "north_rhine_westphalia/dom1/live/epsg25832-1m-2000px-tif/233_2842.tif", (1.0, 233, 2842)),
     ("trento", "nmt", (1292, 10174), "italy/tn-dtm/2014/129_1017/1292_10174.tif", (1292, 10174)),
+    ("brandenburg", "nmt", (1.0, 207, 2908), "brandenburg/dgm1/live/epsg25833-1m-2000px-tif/207_2908.tif",
+     (1.0, 207, 2908)),
+    ("brandenburg", "nmpt", (1.0, 207, 2908), "brandenburg/dom1/live/epsg25833-1m-2000px-tif/207_2908.tif",
+     (1.0, 207, 2908)),
+    ("schleswig_holstein", "nmt", "sha-sh", "schleswig_holstein/dgm1/42_600/426_6005_2025_0123abcd.tif", None),
     ("trento", "nmpt", (1292, 10174), "italy/tn-dsm/2014/129_1017/1292_10174.tif", (1292, 10174)),
 ]
 
@@ -1461,7 +1531,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
     tile = {"sheet": lambda: src.Sheet(**SHEET), "stac": lambda: src.Sheet(**STAC),
             "lgln": lambda: src.Sheet(**LGLN),
             "block": lambda: src.Block(**BLOCK), "sha": lambda: ShaTile(673, 5516, 0, "0123abcd"),
-            "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd")}.get(tile, lambda: tile)()
+            "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd"),
+            "sha-sh": lambda: ShaTile(426, 6005, 2025, "0123abcd")}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -1496,6 +1567,7 @@ def test_water_mask_and_tile_urls(tmp_path):
     ("lower_saxony", "nmpt", 51.88, 10.44, "lower_saxony/sheet-index/dom1/N51.88_E010.44.json"),
     ("bavaria", "nmpt", 49.77, 11.41, "bavaria/sheet-index/dom20/N49.77_E011.41.json"),
     ("rhineland_palatinate", "nmt", 49.15, 7.78, "rhineland_palatinate/sheet-index/dgm1/N49.15_E007.78.json"),
+    ("schleswig_holstein", "nmt", 54.18, 7.88, "schleswig_holstein/sheet-index/dgm1/N54.18_E007.88.json"),
     ("alaska_ifsar", "nmt", 61.2, -149.9, "usa/sheet-index/ifsar5m/N61.20_W149.90.json"),
 ])
 def test_index_paths(tmp_path, sid, kind, lat, lon, path):
@@ -1527,10 +1599,10 @@ def test_layer_surface():
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
-                       "rhineland_palatinate", "scotland"}
+                       "rhineland_palatinate", "scotland", "schleswig_holstein"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
-                   "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia"}
+                   "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
     for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks, src.MetalinkTiles,
@@ -1572,6 +1644,9 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("de-by", (47.27, 50.57, 8.97, 13.84)), ("de-rp", (48.96, 50.95, 6.54, 8.51)),
          ("de-rp", (50.19, 50.95, 6.11, 6.54)),
          ("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25)),
+         ("de-bb", (51.36, 53.56, 11.26, 14.77)),
+         ("de-sh", (53.36, 54.56, 7.85, 11.32)), ("de-sh", (54.56, 54.84, 7.85, 10.15)),
+         ("de-sh", (54.84, 55.06, 8.27, 8.60)),
          ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("it-tn", (45.67, 46.54, 10.45, 11.97)),
          ("lu", (49.44, 50.19, 5.73, 6.54)),
          ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21)),
@@ -1737,6 +1812,8 @@ ATTRIBUTIONS = {
                 "v3.0",
     "north_rhine_westphalia": "Geobasis NRW, Daten geändert",
     "trento": "Provincia autonoma di Trento - Servizio Geologico, LiDAR PAT 2014",
+    "brandenburg": "© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0 (Daten geändert)",
+    "schleswig_holstein": "©GeoBasis-DE/LVermGeo SH/CC BY 4.0 (Quelle verändert)",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "austria": ("Datenquelle: basemap.at", "https://basemap.at"),
@@ -1759,6 +1836,9 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "czechia": ("ČÚZK – on-line", "https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"
                                   "Podminky-poskytovani-sitovych-sluzeb-CUZK.aspx"),
     "north_rhine_westphalia": ("Geobasis NRW", None),
+    "brandenburg": ("© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0",
+                    "https://www.govdata.de/dl-de/by-2-0"),
+    "schleswig_holstein": ("©GeoBasis-DE/LVermGeo SH/CC BY 4.0", src.CC_BY[1]),
 }
 
 
