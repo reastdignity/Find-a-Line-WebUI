@@ -1,0 +1,22 @@
+{
+ "recorded": "2026-11-02",
+ "hosts": [
+  "https://data.geopf.fr"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=5011&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 400,
+   "content_type": "text/xml; charset=UTF-8",
+   "body": "001.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=NO_SUCH_LAYER&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 400,
+   "content_type": "text/xml; charset=UTF-8",
+   "body": "002.xml"
+  }
+ ]
+}

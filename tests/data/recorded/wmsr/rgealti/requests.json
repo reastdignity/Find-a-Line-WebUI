@@ -1,0 +1,15 @@
+{
+ "recorded": "2026-11-02",
+ "hosts": [
+  "https://data.geopf.fr"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=RGEALTI-MNT_PYR-ZIP_FXX_LAMB93_WMS&STYLES=&CRS=EPSG%3A2154&BBOX=970340%2C6302000%2C970372%2C6302032&WIDTH=32&HEIGHT=32&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "001.tif"
+  }
+ ]
+}

@@ -1,0 +1,57 @@
+{
+ "recorded": "2026-11-02",
+ "hosts": [
+  "https://data.geopf.fr"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "001.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970355.75%2C6302032.25&WIDTH=32&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "002.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970355.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=32&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "003.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970340.25%2C6302000.25%2C970372.25%2C6302032.25&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "004.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=32&HEIGHT=32&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "005.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff&FORMAT_OPTIONS=compression%3Adeflate",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "006.tif"
+  },
+  {
+   "method": "GET",
+   "url": "https://data.geopf.fr/wms-r/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap&LAYERS=IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93&STYLES=&CRS=EPSG%3A2154&BBOX=970339.75%2C6302000.25%2C970371.75%2C6302032.25&WIDTH=64&HEIGHT=64&FORMAT=image%2Fgeotiff",
+   "status": 200,
+   "content_type": "image/geotiff",
+   "body": "007.tif"
+  }
+ ]
+}

@@ -69,6 +69,12 @@ HOST_RATES_OF: Dict[str, int] = {
     # (https://environment.data.gov.uk/support/faqs/275808874, read 2026-11-01): "Up to 200
     # requests per minute" for standard users and automated services (the EA's LIDAR WCS)
     "environment.data.gov.uk": 180,
+    # The Géoplateforme's CGU (https://cartes.gouv.fr/cgu, version of 15 October 2024, annex 3, art. 3.2 "Limite
+    # d'usage (Fair use)", read 2026-11-02, French only): limits "en nombre de requêtes par seconde et par IP", per
+    # API ("WMS-Raster 40", WMTS "Non soumis à limite d'usage", WFS 30, Téléchargement "5 requêtes/5s avec
+    # bannissement de 5 minutes"), HTTP 429 above them for 5 s. Our turns are per host: the WMS-R's 40/s less
+    # 10 %, which the orthophoto's WMTS on the same host shares (France's tiles; no WFS or download API is used)
+    "data.geopf.fr": 2160,
 }
 RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates.sqlite in the system's temporary folder
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn

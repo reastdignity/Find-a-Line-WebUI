@@ -59,6 +59,7 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Luxembourg", "ACT BD-L-Lidar2024 MNT, 0.5 m", "ACT BD-L-Lidar2024 MNS, 0.5 m",
                           "geoportail.lu orthophoto"),
         offline=(("lu", (49.44, 50.19, 5.73, 6.54)),), sample=(49.8205, 6.3460),
+        neighbours=("france",),
         # Flown with the leaves off, but the surface model (the highest return per pixel, over 30 points
         # per m²) still holds the crowns: around Berdorf a median of 24 m above the ground
         note="Data: ACT Luxembourg, CC0. Surveyed in the winter of 2024."),

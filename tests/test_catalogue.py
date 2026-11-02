@@ -11,8 +11,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 import osm  # noqa: E402
 import sources as src  # noqa: E402
+from sources.layers.wmsr import WmsrTiles  # noqa: E402
 
-IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
+IDS = ["geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "south_tyrol", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "europe", "nasadem"]
@@ -48,6 +49,72 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                    'credit': 'NMT / NMPT (GUGiK, Poland)',
                                    'shift': (0.0, 0.0),
                                    'index_url': 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/NumerycznyModelPokryciaTerenuEVRF2007/WFS/Skorowidze'}},
+            'france': {'crs': 'EPSG:2154',
+                       'countries': ('fr',),
+                       'bbox': (41.3, 51.15, -5.2, 9.6),
+                       'fallbacks': ['france_rgealti', 'europe'],
+                       'grid_origin': (0.75, 0.25),
+                       'default_resolution': 1.0,
+                       'instead_without_data': None,
+                       'local_crs': 'utm_crs',
+                       'ortho': 'france/ortho/live',
+                       'credits': ['LiDAR HD MNT / MNS (IGN, France)'],
+                       'nmt': {'class': 'WmsrTiles',
+                                  'description': 'LiDAR HD MNT 0.5 m (terrain)',
+                                  'folder': 'france/lidarhd-mnt/live',
+                                  'prefix': None,
+                                  'native_res': 0.5,
+                                  'processing': 1,
+                                  'ttl_days': 730,
+                                  'credit': 'LiDAR HD MNT / MNS (IGN, France)',
+                                  'shift': (0.0, 0.0),
+                                  'url': 'https://data.geopf.fr/wms-r/wms',
+                                  'layer': 'IGNF_LIDAR-HD_MNT_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93',
+                                  'crs': 'EPSG:2154',
+                                  'fetch_res': (0.5, 1.0),
+                                  'tile_m': 1000,
+                                  'origin': (-0.25, 0.25)},
+                       'nmpt': {'class': 'WmsrTiles',
+                                  'description': 'LiDAR HD MNS 0.5 m (trees, buildings)',
+                                  'folder': 'france/lidarhd-mns/live',
+                                  'prefix': None,
+                                  'native_res': 0.5,
+                                  'processing': 1,
+                                  'ttl_days': 730,
+                                  'credit': 'LiDAR HD MNT / MNS (IGN, France)',
+                                  'shift': (0.0, 0.0),
+                                  'url': 'https://data.geopf.fr/wms-r/wms',
+                                  'layer': 'IGNF_LIDAR-HD_MNS_ELEVATION.ELEVATIONGRIDCOVERAGE.LAMB93',
+                                  'crs': 'EPSG:2154',
+                                  'fetch_res': (0.5, 1.0),
+                                  'tile_m': 1000,
+                                  'origin': (-0.25, 0.25)}},
+            'france_rgealti': {'crs': 'EPSG:2154',
+                               'countries': ('fr',),
+                               'bbox': (41.3, 51.15, -5.2, 9.6),
+                               'fallbacks': ['europe'],
+                               'grid_origin': (0.0, 0.0),
+                               'default_resolution': 1.0,
+                               'instead_without_data': None,
+                               'local_crs': 'utm_crs',
+                               'ortho': 'france/ortho/live',
+                               'credits': ['RGE ALTI 1 m (IGN, France)'],
+                               'nmt': {'class': 'WmsrTiles',
+                                  'description': 'RGE ALTI 1 m (terrain)',
+                                  'folder': 'france/rgealti-1m/live',
+                                  'prefix': None,
+                                  'native_res': 1.0,
+                                  'processing': 1,
+                                  'ttl_days': 730,
+                                  'credit': 'RGE ALTI 1 m (IGN, France)',
+                                  'shift': (0.0, 0.0),
+                                  'url': 'https://data.geopf.fr/wms-r/wms',
+                                  'layer': 'RGEALTI-MNT_PYR-ZIP_FXX_LAMB93_WMS',
+                                  'crs': 'EPSG:2154',
+                                  'fetch_res': (1.0,),
+                                  'tile_m': 1000,
+                                  'origin': (0.0, 0.0)},
+                               'nmpt': None},
             'swisstopo': {'crs': 'EPSG:2056',
                           'countries': ('ch', 'li'),
                           'bbox': None,
@@ -988,6 +1055,9 @@ def _layer(layer):
                     fetch_res=layer.fetch_res, tile_px=layer.tile_px)
     if isinstance(layer, src.IndexedTiles):
         info.update(index_url=layer.index_url)
+    if isinstance(layer, WmsrTiles):
+        info.update(url=layer.url, layer=layer.reader.layer, crs=layer.crs, fetch_res=layer.fetch_res,
+                    tile_m=layer.tile_m, origin=layer.origin)
     return info
 
 
@@ -1075,6 +1145,12 @@ PATHS = [
     ("new_zealand", "nmt", (1505, 5203), "new_zealand/dem1m/live/30_104/1505_5203.tif", (1505, 5203)),
     ("new_zealand", "nmpt", (1505, 5203), "new_zealand/dsm1m/live/30_104/1505_5203.tif", (1505, 5203)),
     ("nz8m", "nmt", (376, 1300), "new_zealand/dem8m/2012/7_26/376_1300.tif", (376, 1300)),
+    ("france", "nmt", (1.0, 970, 6301), "france/lidarhd-mnt/live/epsg2154-1m-1000px-tif-o-0.25_0.25/970_6301.tif",
+     (1.0, 970, 6301)),
+    ("france", "nmpt", (0.5, 970, 6301), "france/lidarhd-mns/live/epsg2154-0.5m-2000px-tif-o-0.25_0.25/970_6301.tif",
+     (0.5, 970, 6301)),
+    ("france_rgealti", "nmt", (1.0, 970, 6301), "france/rgealti-1m/live/epsg2154-1m-1000px-tif/970_6301.tif",
+     (1.0, 970, 6301)),
 ]
 
 
@@ -1161,6 +1237,13 @@ def test_layer_surface():
 # A copy of the offline boxes of 2026-10-31: the order matters (the first box holding a point wins)
 ALASKA = (51.0, 71.5, -180.0, -129.9)
 BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
+         ("fr", (43.40, 49.45, -1.80, 5.90)), ("fr", (47.20, 48.90, -4.80, -1.80)),
+         ("fr", (48.90, 49.75, -1.90, -1.20)), ("fr", (49.40, 50.20, 0.00, 4.10)),
+         ("fr", (50.20, 51.08, 1.45, 2.50)), ("fr", (50.20, 50.68, 2.50, 3.20)),
+         ("fr", (47.85, 49.00, 5.90, 7.50)), ("fr", (49.00, 49.40, 5.90, 6.50)),
+         ("fr", (43.00, 45.80, 5.90, 6.60)), ("fr", (43.00, 44.10, 6.60, 7.40)),
+         ("fr", (42.50, 43.40, 2.00, 5.90)), ("fr", (43.05, 43.40, -1.00, 2.00)),
+         ("fr", (42.80, 43.05, 1.00, 2.00)), ("fr", (41.30, 43.05, 8.50, 9.60)),
          ("es", (27.0, 43.9, -18.6, 4.4)), ("sk", (47.7, 49.65, 16.8, 22.6)),
          ("ch", (45.8, 47.85, 5.9, 10.5)), ("us", (24.4, 49.4, -125.0, -66.9)), ("us", ALASKA),
          ("pr", (17.8, 18.6, -67.4, -65.2)),
@@ -1318,6 +1401,8 @@ ATTRIBUTIONS = {
     "mrdem30": "Contains information licensed under the Open Government Licence – Canada. This product was in part "
                "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH "
                "2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
+    "france": "IGN, LiDAR HD (MNT, MNS), Géoplateforme {year}, Licence Ouverte 2.0",
+    "france_rgealti": "IGN, RGE ALTI 1 m, Géoplateforme {year}, Licence Ouverte 2.0",
     "usa": "USGS 3D Elevation Program (3DEP). Map services and data available from U.S. Geological Survey, "
            "National Geospatial Program.",
 }
@@ -1331,6 +1416,7 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "lower_saxony": ("LGLN ({year}), CC BY 4.0", src.CC_BY[1]),
     "mecklenburg_vorpommern": ("© GeoBasis-DE/M-V {year}, CC BY 4.0", src.CC_BY[1]),
     "geoportal": ("GUGiK", None),
+    "france": ("IGN, BD ORTHO, Licence Ouverte 2.0", "https://www.etalab.gouv.fr/licence-ouverte-open-licence/"),
 }
 
 

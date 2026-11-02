@@ -6,7 +6,7 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   layer falls back to its cached files, tiles() is None) or no tile there fails; a WCS gets its
   DescribeCoverage; fixed tilings (1° tiles, our own grid tiles, blocks) have no index;
 - read: the first tile's file asked for one byte (Range: bytes=0-0); a WCS a GetCoverage of
-  16 x 16 pixels; blocks of big fixed files (FileBlocks) a window of 16 x 16 pixels of the first
+  16 x 16 pixels; a WMS-R (WmsrTiles) a GetMap of 16 x 16 pixels of the first tile; blocks of big fixed files (FileBlocks) a window of 16 x 16 pixels of the first
   block's file; a local mirror is looked for on disk;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
@@ -27,6 +27,7 @@ import io
 import sys
 import math
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -47,6 +48,8 @@ from .net import _gdal_http, _remote, host_slot
 from .layer import Layer
 from .source import OrthoService, Source
 from .layers.wcs import WcsTiles
+from .layers.wmsr import WmsrTiles
+from .readers.wmsr import TIFF_MAGIC
 from .layers.degree import DegreeTiles, OpenTopographyTiles
 from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
@@ -66,7 +69,8 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
-    (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"))
+    (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
+    (WmsrTiles, "getmap"))
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"
 
@@ -208,6 +212,22 @@ def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[
     return OK, OK
 
 
+def _getmap(cache_dir: str, layer: WmsrTiles, tile) -> str:
+    """A GetMap of WINDOW_PX x WINDOW_PX pixels at the top left of the first tile, as the layer's reader
+    asks it (WmsrReader.getmap_params); raises with the reason when the answer is no GeoTIFF."""
+    request = layer.index.request(tile)
+    res = (request.right - request.left) / request.width
+    small = request._replace(right=request.left + WINDOW_PX * res, bottom=request.top - WINDOW_PX * res,
+                             width=WINDOW_PX, height=WINDOW_PX)
+    status, kind, body = _ask(cache_dir, layer.url, layer.reader.getmap_params(small))
+    if status != 200 or body[:4] not in TIFF_MAGIC:
+        text = body.decode("utf-8", "replace")
+        report = re.search(r"<ServiceException(\s[^>]*)?>([^<]*)", text)  # its code and text, not the XML's header
+        text = " ".join(g for g in report.groups() if g).strip() if report else text[:200].strip()
+        raise RuntimeError(f"GetMap: HTTP {status} {kind} {text}")
+    return ""
+
+
 def _deep(cache_dir: str, layer: Layer, tile, folder: str) -> str:
     path = os.path.join(folder, "deep", "tile.tif")
     with host_slot(cache_dir, layer.tile_url(tile)):
@@ -270,6 +290,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
             elif kind == "window":
                 row.notes.append(_window(cache_dir, layer, tiles[0]))
+            elif kind == "getmap":
+                _getmap(cache_dir, layer, tiles[0])
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:

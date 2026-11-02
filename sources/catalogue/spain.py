@@ -42,6 +42,7 @@ def _spain(canary: bool) -> Source:
                       "spain/mds05/live", native_res=5.0, fetch_res=5.0, fmt="application/asc", bytes_per_px=8),
         countries=("es",), crs=crs, ortho=SPAIN_ORTHO, credits=(IGN_CREDIT,),
         bbox=(27.0, 29.6, -18.6, -13.0) if canary else None,
+        neighbours=() if canary else ("france",),
         listing=ReadmeRow("Canary Islands", "IGN MDT05 (REGCAN95 / UTM 28N), 5 m", "IGN MDS05, 5 m", "PNOA (IGN)")
         if canary else ReadmeRow("Spain (peninsula, Balearic Islands)", "IGN MDT05, PNOA-LiDAR 5 m", "IGN MDS05, 5 m",
                                "PNOA (IGN)"),
