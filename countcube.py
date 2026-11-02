@@ -15,8 +15,8 @@ one length bit; a spot's record merges those of its lines (merge_spots), so a sp
 filter exactly when some line of it does, and several filters as an upper bound.
 
 TileCounter counts the lines search.count_tile hands it, save_tile/load_tile keep a tile's counts,
-build sums the tiles into the cube (levels 1, 2, 4 and 8 km), Cube reads it memory-mapped for the
-web's layer, cell_request gives the search of one cell. Pure numpy, pyproj and shapely: the web
+build sums the tiles into the cube (levels 1, 2, 4 and 8 km), Cube reads it for the web's layer,
+cell_request gives the search of one cell. Pure numpy, pyproj and shapely: the web
 process imports this module, so it never imports numba, linesearch, search or country.
 """
 import json
@@ -466,7 +466,9 @@ Box = Tuple[float, float, float, float]
 
 
 class Cube:
-    """A built cube: cube.json and the .npy files, memory-mapped when first used."""
+    """A built cube: cube.json and the .npy files, each read into memory when first used (not
+    memory-mapped: a mapped file stays open, and Windows would refuse the next build's replacing
+    it while the app shows the layer)."""
 
     def __init__(self, folder: str):
         self.folder = folder
@@ -489,7 +491,7 @@ class Cube:
             raise ValueError(f"level must be one of {', '.join(map(str, self.levels))}")
         name = f"{mode}_{level}"
         if name not in self._arrays:
-            self._arrays[name] = np.load(os.path.join(self.folder, name + ".npy"), mmap_mode="r")
+            self._arrays[name] = np.load(os.path.join(self.folder, name + ".npy"))
         return self._arrays[name]
 
     def box(self, west: float, south: float, east: float, north: float) -> Box:
