@@ -158,7 +158,7 @@ def test_phases_and_tiles(tmp_path):
     assert area["tiles"] == (2, 8604 * 7602 / 1e6) and circle["tiles"] == (None, None)
     for key in ("wait_download", "download", "wait_compute", "compute"):
         assert area["phases"][key] is not None and area["phases"][key] >= 0, key
-    assert area["phases"]["outside_steps"] == area["phases"]["compute"] - 7.5
+    assert area["phases"]["outside_steps"] == area["phases"]["compute"] - 3.5  # the orthophoto after "done"
     assert area["phases"]["orthophoto"] == 4.0 and area["phases"]["other"] == 0.5
     assert circle["phases"]["outside_steps"] is None and circle["phases"]["orthophoto"] is None
     rows = {r["model"] if r["model"] == "all" else r["shape"]: r for r in js.phases_summary(found)}

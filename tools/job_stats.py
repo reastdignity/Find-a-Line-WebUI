@@ -11,7 +11,9 @@ preset), their computing seconds (sum, median, p90), the seconds and CPU seconds
 --phases adds what a job waited for and took outside its steps: the seconds from queued to
 downloading (a download slot), of the download phase, from ready to computing (a compute slot) and
 of the computing phase (the columns of migrations 13 and 15, whole seconds), the computing seconds
-outside its steps (the process's start, imports and planning), the steps "orthophoto" and "other",
+outside its steps (the process's start, imports and planning; the step "orthophoto" is not
+subtracted: since 2026-11-02 the worker downloads it after "done", outside the phase's timestamps,
+and for jobs from before that it lies inside these seconds), the steps "orthophoto" and "other",
 and the tiles of an area (their number and the largest one's Mpx, from the "--- Tile k of N" lines).
 
 Standard library only (it runs on the VPS host with the system python3, no venv); read-only
@@ -141,7 +143,9 @@ def phases_of(job: Dict, steps: Dict[str, Tuple[float, Optional[float]]]) -> Dic
     """The seconds of PHASE_KEYS of a job: between its timestamps, and of its computing phase
     outside the steps (None where a timestamp or the steps are missing)."""
     compute = _seconds(job.get("finished"), job.get("computing_at"))
-    total = sum(s for s, _ in steps.values()) if steps else None
+    # The orthophoto's seconds (jobs.run_phase: after "done" since 2026-11-02, so after `finished`)
+    # are not subtracted: for jobs from before, the phase holds them (the column shows them)
+    total = sum(s for key, (s, _) in steps.items() if key != "orthophoto") if steps else None
     return {
         "wait_download": _seconds(job.get("downloading_at"), job.get("created")),
         "download": _seconds(job.get("ready_at"), job.get("downloading_at")),
