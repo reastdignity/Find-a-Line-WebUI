@@ -423,6 +423,13 @@
   "ui.view3d.reset": "Back to the found line",
   "ui.view3d.phone_level": "Simplified view on phones: anchors cannot be dragged.",
   "ui.view3d.level_full": "Full view",
+  "ui.view3d.view": "View",
+  "ui.view3d.view_orbit": "Orbit",
+  "ui.view3d.view_eyes": "Walker's eyes",
+  "ui.view3d.view_behind": "Behind the walker",
+  "ui.view3d.look_hint": "Drag to look around.",
+  "ui.view3d.motion": "Phone motion",
+  "ui.view3d.motion_denied": "No phone motion: drag to look around.",
   "ui.view3d.credits": "Data",
   "ui.view3d.preview_note": "A visual preview: heights and clearance come from the site's elevation data, the imagery may be off by metres. Check every line on the spot."
 }

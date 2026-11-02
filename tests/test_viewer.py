@@ -5,6 +5,7 @@ Needs Node and `npm install` in viewer/; skipped without them.
 """
 
 import json
+import math
 import os
 import random
 import shutil
@@ -839,6 +840,65 @@ console.log(JSON.stringify({verdicts: cases.map((c) => m.verdictOf(c)), colours:
     assert found["colours"][:4] == ["--clear", "--clear", "--trees", "--trees"] and found["colours"][-1] == "--bad"
     assert found["readout"] == {"length": 100, "clearance": -2.8, "overTrees": False, "verdict": "no_fit"}
     assert found["text"] == "-2.8"
+
+
+def test_view3d_walker_views(tmp_path):
+    """view3d/look.ts (docs/3d-view-contract.md, "Wave F"): the cameras of the walker's eyes (1.6 m over the feet,
+    along the gaze) and of behind the walker (5 m back from its chest along the gaze, so above it when looking
+    down), the walker's yaw turning both, the pitch clamped per view; a drag's turn (eyes: grabbing the world, a
+    drag over the stage's height turns by the field of view; behind: as the orbit turns, π a height); the phone's
+    heading and pitch from DeviceOrientationEvent's angles (portrait and landscape, the screen's angle needed to
+    hold the heading when the phone tilts, steady when it points down), the gaze's offset from it (turning right
+    turns the view right, across ±π) and the dead band of the sensors' noise."""
+    found = run_ts(tmp_path, "view3d/look", """
+const r = (v) => v === null ? null : Array.isArray(v) ? v.map(r) : (typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, r(x)])) : Math.round(v * 1e6) / 1e6);
+const feet = [10, 2, -5];
+const look = (a, angle) => { const l = m.deviceLook(...a, angle); return l && r(l); };
+console.log(JSON.stringify(r({
+  eyes: m.cameraPose("eyes", {feet, yaw: 0}, {yaw: 0, pitch: 0}),
+  eyesTurned: m.cameraPose("eyes", {feet, yaw: Math.PI / 2}, {yaw: 0, pitch: 0}),
+  eyesLeft: m.cameraPose("eyes", {feet, yaw: 0}, {yaw: Math.PI / 2, pitch: 0}),
+  eyesUp: m.cameraPose("eyes", {feet, yaw: 0}, {yaw: 0, pitch: 3}),
+  behind: m.cameraPose("behind", {feet, yaw: 0}, m.VIEW_SPECS.behind.start),
+  behindLow: m.cameraPose("behind", {feet, yaw: 0}, {yaw: 0, pitch: 1}),
+  starts: [m.VIEW_SPECS.eyes.start, m.VIEW_SPECS.behind.start], fovs: [m.VIEW_SPECS.eyes.fov, m.VIEW_SPECS.behind.fov],
+  dragEyes: m.dragGaze("eyes", {yaw: 0, pitch: 0}, 100, 50, 700),
+  dragEyesDown: m.dragGaze("eyes", {yaw: 0, pitch: 0}, 0, 1e6, 700),
+  dragBehind: m.dragGaze("behind", {yaw: 0, pitch: -0.3}, 100, -50, 700),
+  dragBehindUp: m.dragGaze("behind", {yaw: 0, pitch: -0.3}, 0, -1e6, 700),
+  north: look([0, 90, 0], 0), east: look([-90, 90, 0], 0), up: look([0, 120, 0], 0),
+  landscape: look([0, 0, -90], 90), landscapeDown: look([0, 0, -60], 90), landscapeAsPortrait: look([0, 0, -60], 0),
+  flat: look([0, 0, 0], 0), flatTurned: look([-90, 0, 0], 0), none: m.deviceLook(null, 90, 0, 0),
+  right: m.motionOffset({heading: 0, pitch: 0.1}, {heading: 0.5, pitch: 0.3}),
+  across: m.motionOffset({heading: 3.0, pitch: 0}, {heading: -3.0, pitch: 0}),
+  moved: [m.gazeMoved({yaw: 0, pitch: 0}, {yaw: 0.001, pitch: -0.001}), m.gazeMoved({yaw: 0, pitch: 0}, {yaw: 0.01, pitch: 0}),
+          m.gazeMoved({yaw: 3.14159, pitch: 0}, {yaw: -3.14159, pitch: 0})],
+})));""")
+    approx = lambda v: pytest.approx(v, abs=1e-6)  # noqa: E731
+    assert found["eyes"] == {"position": [10, 3.6, -5], "target": approx([10, 3.6, -4])}
+    assert found["eyesTurned"]["target"] == approx([11, 3.6, -5])   # the walker's yaw turns the gaze
+    assert found["eyesLeft"]["target"] == approx([11, 3.6, -5])     # facing +Z (south), a yaw of +π/2 is east: left
+    assert found["eyesUp"]["target"][1] == approx(3.6 + math.sin(1.45))  # clamped, never upside down
+    c, s = math.cos(0.3), math.sin(0.3)
+    assert found["behind"] == {"position": approx([10, 3.2 + 5 * s, -5 - 5 * c]), "target": [10, 3.2, -5]}
+    assert found["behindLow"]["position"][1] == approx(3.2 - 5 * math.sin(0.25))  # at most 0.25 rad from below
+    assert found["starts"] == [{"yaw": 0, "pitch": -0.2}, {"yaw": 0, "pitch": -0.3}] and found["fovs"] == [70, 60]
+    k = math.radians(70) / 700
+    assert found["dragEyes"] == {"yaw": approx(100 * k), "pitch": approx(50 * k)}
+    assert found["dragEyesDown"]["pitch"] == 1.45
+    assert found["dragBehind"] == {"yaw": approx(-100 * math.pi / 700), "pitch": approx(-0.3 + 50 * math.pi / 700)}
+    assert found["dragBehindUp"]["pitch"] == 0.25
+    assert found["north"] == {"heading": 0, "pitch": 0}
+    assert found["east"] == {"heading": approx(math.pi / 2), "pitch": 0}   # turned right
+    assert found["up"] == {"heading": 0, "pitch": approx(math.pi / 6)}      # tilted up
+    assert found["landscape"] == {"heading": approx(math.pi / 2), "pitch": 0}
+    assert found["landscapeDown"] == {"heading": approx(math.pi / 2), "pitch": approx(-math.pi / 6)}
+    assert abs(found["landscapeAsPortrait"]["heading"] - math.pi / 2) > 0.3  # the screen's angle is needed
+    assert found["flat"] == {"heading": 0, "pitch": approx(-math.pi / 2)}  # pointing down: the screen's up
+    assert found["flatTurned"]["heading"] == approx(math.pi / 2) and found["none"] is None
+    assert found["right"] == {"yaw": -0.5, "pitch": approx(0.2)}
+    assert found["across"]["yaw"] == approx(-(2 * math.pi - 6.0))
+    assert found["moved"] == [False, True, False]
 
 
 def test_view3d_feature_edges(tmp_path):

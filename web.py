@@ -95,6 +95,17 @@ def content_security_policy(extra: Optional[Dict[str, Tuple[str, ...]]] = None) 
                      for name, values in CSP_DIRECTIVES.items())
 
 
+# The browser's features no page uses (Permissions-Policy), unless a page allows them (PAGE_PERMISSIONS)
+POLICY_FEATURES = ("accelerometer", "camera", "geolocation", "gyroscope", "magnetometer", "microphone", "payment",
+                   "usb")
+
+
+def permissions_policy(allowed: Tuple[str, ...] = ()) -> str:
+    """The Permissions-Policy of POLICY_FEATURES: each one off but those of `allowed`, which this origin's
+    pages may use (self)."""
+    return ", ".join(f"{name}=({'self' if name in allowed else ''})" for name in POLICY_FEATURES)
+
+
 SECURITY_HEADERS = {
     "Content-Security-Policy": content_security_policy(),
     "X-Content-Type-Options": "nosniff",
@@ -102,9 +113,12 @@ SECURITY_HEADERS = {
     "Referrer-Policy": "strict-origin",
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Resource-Policy": "same-origin",
-    "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), "
-                          "microphone=(), payment=(), usb=()",
+    "Permissions-Policy": permissions_policy(),
 }
+# The pages whose Permissions-Policy differs from SECURITY_HEADERS' (the guard chooses it by the path): the 3D
+# view turns its walker's gaze with the phone's motion (DeviceOrientationEvent: viewer/src/view3d/views.ts); the
+# readings stay in the page
+PAGE_PERMISSIONS = {"/view3d": permissions_policy(("accelerometer", "gyroscope", "magnetometer"))}
 
 
 # The pages whose Content-Security-Policy differs from SECURITY_HEADERS' (the guard chooses it by the
@@ -668,6 +682,8 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         response.headers.update(SECURITY_HEADERS)
         if path in csp_of_page:
             response.headers["Content-Security-Policy"] = csp_of_page[path]
+        if path in PAGE_PERMISSIONS:
+            response.headers["Permissions-Policy"] = PAGE_PERMISSIONS[path]
         response.headers["Cache-Control"] = cache_control(request, path)
         route_counts.add(route_template(app, request.scope), request.method, response.status_code,
                          time.monotonic() - started)

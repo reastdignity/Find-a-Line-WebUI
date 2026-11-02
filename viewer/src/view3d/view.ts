@@ -2,7 +2,8 @@
 // change: the controls moved, the window resized, something added, `invalidate`), or every frame while an owner
 // keeps drawing (`keepDrawing`, the frame's callbacks of `onFrame`). The scene's content (terrain, imagery,
 // webbing, the walker) is added by scene.ts. While the "Edges" look is on (`setEdges`), a frame is edges.ts' pass
-// instead of one render.
+// instead of one render. The walker's views (views.ts) leave the orbit (`setOrbit`) and place the camera themselves
+// before each frame (`place`); back in the orbit the camera is as it was left.
 
 import {
   AmbientLight, Color, DirectionalLight, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, type Object3D,
@@ -28,8 +29,13 @@ export interface View {
   onResize(fn: (size: Vector2) => void): void;
   /** Called after every frame drawn (the renderer's counts are those of that frame). */
   onDrawn(fn: () => void): void;
-  /** The orbit controls on or off (off while an anchor or the walker is dragged). */
+  /** The orbit controls on or off (off while an anchor or the walker is dragged; always off outside the orbit). */
   setControls(on: boolean): void;
+  /** Leave the orbit view (false: its camera kept, the controls off; the walker's views move the camera with
+   *  `place`) or come back to it (true: the camera as it was). */
+  setOrbit(on: boolean): void;
+  /** Outside the orbit: the camera at `from` looking at `to` with a vertical field of view of `fov` degrees. */
+  place(from: Vector3, to: Vector3, fov: number): void;
   /** The browser can draw the "Edges" look (edges.ts edgesSupported). */
   edgesSupported: boolean;
   /** The edges' pass on, its lines in `ink`, or off (null: its targets freed). */
@@ -58,6 +64,8 @@ export function createView(host: HTMLElement, level: Level, background: string, 
     scene.add(light);
   }
   const camera = new PerspectiveCamera(50, 1, 0.5, 60000);
+  /** The walker's views come close to the webbing: a nearer near plane meanwhile. */
+  const NEAR = 0.5, NEAR_WALKER = 0.2;
   const controls = new OrbitControls(camera, canvas);
   controls.maxPolarAngle = Math.PI * 0.495;  // never below the horizon
   controls.screenSpacePanning = false;       // panning keeps the height: the view stays over the terrain
@@ -67,6 +75,7 @@ export function createView(host: HTMLElement, level: Level, background: string, 
   const beforeFns = new Set<() => void>();
   const resizeFns: ((size: Vector2) => void)[] = [], drawnFns: (() => void)[] = [];
   let pending = 0, last = 0, lost = false, edgePass: EdgePass | null = null;
+  let controlsOn = true, orbit: {position: Vector3; target: Vector3; fov: number} | null = null;
   const canEdges = edgesSupported(renderer);
   const draw = (time: number) => {
     pending = 0;
@@ -131,7 +140,33 @@ export function createView(host: HTMLElement, level: Level, background: string, 
     },
     onResize(fn) { resizeFns.push(fn); fn(size); },
     onDrawn(fn) { drawnFns.push(fn); },
-    setControls(on) { controls.enabled = on; },
+    setControls(on) { controlsOn = on; controls.enabled = on && !orbit; },
+    setOrbit(on) {
+      if (on === !orbit) return;
+      if (!on) {
+        orbit = {position: camera.position.clone(), target: controls.target.clone(), fov: camera.fov};
+        controls.enabled = false;
+        camera.near = NEAR_WALKER;
+        camera.updateProjectionMatrix();
+      } else {
+        const kept = orbit!;
+        orbit = null;
+        camera.position.copy(kept.position);
+        camera.fov = kept.fov;
+        camera.near = NEAR;
+        camera.updateProjectionMatrix();
+        controls.target.copy(kept.target);
+        controls.enabled = controlsOn;
+        controls.update();
+      }
+      invalidate();
+    },
+    place(from, to, fov) {
+      if (!orbit) return;
+      camera.position.copy(from);
+      camera.lookAt(to);
+      if (camera.fov !== fov) { camera.fov = fov; camera.updateProjectionMatrix(); }
+    },
     edgesSupported: canEdges,
     setEdges(ink) {
       if (ink === null || !canEdges || lost) dropPass();

@@ -2,7 +2,8 @@
 // the run's elevation model around the line from /api/patch, decoded (decode.ts, its sha256 checked) and meshed
 // into the scene (scene.ts, terrain.ts); then the imagery (imagery.ts) and the found line's profile from
 // /api/profile (one request after the other) for the webbing's colour and the readout (line.ts); the walker's
-// pin (pin.ts), the walk (walk.ts) and, at level full, the anchors' editing (edit.ts).
+// pin (pin.ts), the walk (walk.ts), at level full the anchors' editing (edit.ts), and the walker's views
+// (views.ts: orbit, the walker's eyes, behind the walker).
 // Plain DOM, no Preact: the page is the canvas and a few controls. No style attributes (the CSP's
 // style-src 'self'): classes of view3d.css. When the terrain is drawn and the profile is in, the root gets
 // data-ready="1" (data-triangles: the last frame's; data-vertices: the meshes'; data-frames: the frames drawn),
@@ -20,6 +21,7 @@ import { createPin } from "./pin";
 import { backUrl, currentPage, patchUrl, type PageRequest } from "./page";
 import { createRing, ringUrl, type Ring } from "./ring";
 import { createScene, type SceneCore } from "./scene";
+import { createViews } from "./views";
 import { createWalk } from "./walk";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
@@ -144,6 +146,7 @@ async function start() {
     createPin(scene, line, root, () => walk.stop());
     edit = createEdit(scene, line, root, (l) => fetchProfile(page.run, l), () => walk.stop(),
                       {parent: ui.bar, before: ui.note.nextElementSibling});
+    createViews(scene, line, root, {parent: ui.bar, before: ui.note.nextElementSibling});
   }
   root.dataset.vertices = String(scene.terrain.vertices);
   root.dataset.maxError = String(scene.terrain.maxError);

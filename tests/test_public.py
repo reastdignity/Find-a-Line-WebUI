@@ -3510,6 +3510,32 @@ def test_view3d_ring(tmp_path, settings, account_settings, providers, monkeypatc
         assert page.headers["content-security-policy"] == every_page
 
 
+def test_view3d_permissions_policy(tmp_path, settings, account_settings, providers):
+    """The 3D view's own Permissions-Policy (docs/3d-view-contract.md, "Wave F": the phone's motion turns the
+    walker's gaze): accelerometer, gyroscope and magnetometer for this origin, every other feature off as on every
+    page; the other pages keep every page's (all off), on the public site and locally."""
+    every_page = ("accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), "
+                  "payment=(), usb=()")
+    view3d = ("accelerometer=(self), camera=(), geolocation=(), gyroscope=(self), magnetometer=(self), "
+              "microphone=(), payment=(), usb=()")
+    assert web.SECURITY_HEADERS["Permissions-Policy"] == every_page and web.PAGE_PERMISSIONS == {"/view3d": view3d}
+    _, cookie, _ = session_of(tmp_path, account_settings, "a")
+    app = _public_app(tmp_path, settings, account_settings, providers)
+    with TestClient(app, base_url=URL) as signed, TestClient(app, base_url=URL) as anonymous:
+        signed.cookies.set(ac.SESSION_COOKIE, cookie, domain="lines.example.org")
+        page = signed.get("/view3d")
+        assert page.status_code == 200 and page.headers["permissions-policy"] == view3d
+        visitor = anonymous.get("/view3d", follow_redirects=False)
+        assert visitor.status_code == 303 and visitor.headers["permissions-policy"] == view3d
+        for client, path in ((signed, "/"), (signed, "/api/jobs"), (anonymous, "/privacy"), (signed, "/app/view3d.js")):
+            assert client.get(path).headers["permissions-policy"] == every_page, path
+    local = tmp_path / "local"
+    local.mkdir()
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        assert client.get("/view3d").headers["permissions-policy"] == view3d
+        assert client.get("/").headers["permissions-policy"] == every_page
+
+
 def test_satellite_key_in_no_saved_file(tmp_path):
     """A search run with the satellite map's key in its environment writes it nowhere: not into the run's files
     (map.html, data.js, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""

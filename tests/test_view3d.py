@@ -259,7 +259,7 @@ EDGES_SCRIPT = """
                         triangles: Number(root.dataset.triangles), frames: Number(root.dataset.frames)});
   until(() => root.dataset.ready === "1", 25000, (ready) => {
     out.ready = ready;
-    out.buttons = [...document.querySelectorAll(".v3-toolbar [role=radio]")].map((b) => b.textContent.trim());
+    out.buttons = [...document.querySelectorAll(".v3-toolbar .u-row [role=radio]")].map((b) => b.textContent.trim());
     if (!ready || !button("Edges")) { done(); return; }
     until(() => false, 1000, () => {
       out.shaded = state();
@@ -392,7 +392,7 @@ NARROW_SCRIPT = """
     if (!ready) { done(); return; }
     const select = document.querySelector(".v3-select");
     out.select = !!select && shown(select);
-    out.seg = [...document.querySelectorAll(".v3-toolbar .u-seg")].some(shown);
+    out.seg = [...document.querySelectorAll(".v3-toolbar .u-row .u-seg")].some(shown);
     out.options = select ? [...select.options].map((o) => o.textContent) : [];
     out.value = select && [select.value, root.dataset.imagery];
     out.first = measure();
@@ -400,7 +400,7 @@ NARROW_SCRIPT = """
     select.value = "edges";
     select.dispatchEvent(new Event("change"));
     until(() => root.dataset.edges === "on", 15000, () => {
-      out.edges = [root.dataset.imagery, document.querySelector(".v3-toolbar [role=radio][aria-checked=true]")?.textContent];
+      out.edges = [root.dataset.imagery, document.querySelector(".v3-toolbar .u-row [role=radio][aria-checked=true]")?.textContent];
       select.prepend(new Option("Satellite (Esri)", "x-esri"), new Option("Orthophoto", "x-ortho"));
       document.querySelector(".v3-reset")?.classList.remove("v3-hidden");
       out.four = measure();
@@ -464,4 +464,130 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
         assert state["clipped"] == [] and state["overlaps"] == [] and state["outside"] == [], state
         assert state["scroll"] <= 0 and state["stage"] > 0.6, state
     assert four["count"] == first["count"] + (1 if level == "full" else 0), result
+    assert _violations(dom) == []
+
+
+# On the page after the bundle: once ready, the views' switch (its buttons, the orbit's camera), the walker's eyes
+# chosen (a frame drawn with its camera: the field of view, no handle or grip, the look hint), a drag on the canvas
+# (the gaze turns, the eyes stay), the walker moved by its slider (the camera follows), behind the walker, then
+# the orbit again (its camera as it was, the handles back); between the steps nothing is drawn while nothing
+# changes; the findings go into <pre id="result">
+VIEWS_SCRIPT = """
+(function () {
+  const root = document.getElementById("view3d");
+  const out = {errors: []};
+  const error = console.error.bind(console);
+  console.error = (...args) => { out.errors.push(args.map(String).join(" ").slice(0, 300)); error(...args); };
+  const done = () => {
+    const pre = document.createElement("pre");
+    pre.id = "result";
+    pre.textContent = JSON.stringify(out);
+    document.body.appendChild(pre);
+  };
+  let n = 0;
+  const until = (test, ms, then) => {
+    const started = Date.now();
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
+  };
+  const frames = () => Number(root.dataset.frames);
+  const shown = (sel) => [...document.querySelectorAll(sel)].filter((e) => getComputedStyle(e).display !== "none" &&
+    e.getBoundingClientRect().width > 0).length;
+  const state = () => ({view: root.dataset.view, camera: root.dataset.camera, frames: frames(),
+    checked: [...document.querySelectorAll(".v3-views [role=radio]")].map((b) => b.getAttribute("aria-checked")),
+    handles: shown(".v3-handle"), grips: shown(".v3-grip.v3-grab"), hint: shown(".v3-hint"), lookHint: shown(".v3-look-hint"),
+    motion: shown(".v3-motion")});
+  // a step: `act`, then the frame it asks for, then a pause in which no other frame may come
+  const step = (name, act, then) => {
+    const before = frames();
+    act();
+    until(() => frames() > before, 15000, () => {
+      out[name] = state();
+      until(() => false, 1500, () => { out[name].later = frames(); then(); });
+    });
+  };
+  const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
+    pointerId: 9, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true}));
+  const view = (name) => document.querySelector(`.v3-views [data-view=${name}]`);
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    out.ready = ready;
+    out.labels = [...document.querySelectorAll(".v3-views [role=radio]")].map((b) => b.getAttribute("aria-label"));
+    if (!ready || !view("eyes")) { done(); return; }
+    until(() => false, 1000, () => {
+      out.orbit = state();
+      step("eyes", () => view("eyes").click(), () => {
+        const canvas = document.querySelector("canvas.v3-canvas"), r = canvas.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        step("dragged", () => {
+          pointer("pointerdown", canvas, x, y);
+          pointer("pointermove", canvas, x + 120, y + 40);
+          pointer("pointerup", canvas, x + 120, y + 40);
+        }, () => {
+          const slider = document.querySelector(".v3-slider");
+          step("walked", () => { slider.value = String(Number(slider.max) * 0.25); slider.dispatchEvent(new Event("input")); }, () => {
+            step("behind", () => view("behind").click(), () => {
+              step("back", () => view("orbit").click(), done);
+            });
+          });
+        });
+      });
+    });
+  });
+})();
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+@pytest.mark.parametrize("level", ["full", "phone"])
+def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
+    """The walker's views (docs/3d-view-contract.md, "Wave F"): the switch (orbit first and chosen), the walker's
+    eyes (data-view="eyes", its field of view, no anchor's handle, no grip and no edit hint, the look hint at level
+    full), a drag on the canvas turns the gaze and keeps the eyes where they are, the walker's slider moves the
+    camera with it, behind the walker another camera and field of view, back to the orbit its camera exactly as it
+    was and the handles back at level full; each step draws, and nothing more while nothing changes; no motion
+    button without a touch screen, no violation of the CSP."""
+    data, meta = clip_data
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    row = _lines_of(data, meta["id"])[0]
+    line = ",".join(f"{v:.7f}" for v in row[:4])
+    page = _script_page(data, "view3dviews", VIEWS_SCRIPT)
+    with _server(data, start_scheduler=True) as port:
+        dom = subprocess.run(
+            [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
+             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
+            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+    found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+    assert found, dom[-3000:]
+    result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+    print(level, result)
+    assert result["ready"], result
+    assert result["errors"] == [], result["errors"]
+    assert result["labels"] == ["Orbit", "Walker's eyes", "Behind the walker"]
+    cam = {k: [float(v) for v in result[k]["camera"].split(",")] for k in ("orbit", "eyes", "dragged", "walked",
+                                                                          "behind", "back")}
+    orbit, eyes, dragged, walked, behind, back = (result[k] for k in ("orbit", "eyes", "dragged", "walked", "behind",
+                                                                      "back"))
+    full = level == "full"
+    assert orbit["view"] == "orbit" and orbit["checked"] == ["true", "false", "false"]
+    assert orbit["handles"] == (2 if full else 0) and orbit["hint"] == (1 if full else 0) and orbit["lookHint"] == 0
+    assert orbit["grips"] == (1 if full else 0) and orbit["motion"] == 0
+    assert eyes["view"] == "eyes" and eyes["checked"] == ["false", "true", "false"] and cam["eyes"][6] == 70
+    assert eyes["handles"] == eyes["grips"] == eyes["hint"] == 0 and eyes["lookHint"] == (1 if full else 0)
+    assert eyes["motion"] == 0  # no touch screen here
+    assert cam["eyes"][4] < 0  # a little down at first
+    assert cam["dragged"][:3] == cam["eyes"][:3] and cam["dragged"][3:6] != cam["eyes"][3:6]  # the gaze turned
+    assert cam["dragged"][4] > cam["eyes"][4]  # dragged down: looking up (grabbing the world)
+    assert cam["walked"][:3] != cam["dragged"][:3] and cam["walked"][3:6] == cam["dragged"][3:6]  # follows
+    assert behind["view"] == "behind" and cam["behind"][6] == 60 and cam["behind"][4] < 0
+    assert behind["handles"] == behind["grips"] == 0
+    assert back["view"] == "orbit" and cam["back"] == cam["orbit"], result  # the orbit's camera as it was
+    assert back["handles"] == orbit["handles"] and back["lookHint"] == 0
+    for state in (eyes, dragged, walked, behind, back):
+        assert state["later"] == state["frames"], result  # drawn on demand only
     assert _violations(dom) == []

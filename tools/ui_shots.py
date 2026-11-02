@@ -65,6 +65,11 @@ EDGES_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find(
             "b.textContent.trim() === 'Edges')?.click()")
 EDGES_DRAWN = "wait:document.getElementById('view3d')?.dataset.edges === 'on'"
 VIEW3D = "#run={run}&line={line}"
+# The phone's motion (view3d/views.ts; its button only on touch screens): held upright facing north, then turned
+# 40 degrees right and tilted 10 degrees up: two events with DeviceOrientationEvent's angles (WebKit on Windows
+# cannot construct one)
+MOTION_TURN = ("js:for (const [alpha, beta] of [[0, 90], [-40, 100]]) "
+               "dispatchEvent(Object.assign(new Event('deviceorientation'), {alpha, beta, gamma: 0}))")
 PAGES = {
     "d-home": ("d", "", None),
     "d-home-limited": ("d", "", None, "walker"),  # the usage meters of a user with the site's limits
@@ -112,6 +117,13 @@ PAGES = {
     "view3d-edges": ("/view3d", VIEW3D, [VIEW3D_READY, EDGES_ON, EDGES_DRAWN]),  # the terrain on paper with its edges
     "view3d-phone": ("/view3d?level=phone", VIEW3D, VIEW3D_READY),
     "view3d-full": ("/view3d?level=full", VIEW3D, VIEW3D_READY),
+    # the walker's views (view3d/views.ts): its eyes, behind it
+    "view3d-eyes": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]",
+                                        "wait:document.getElementById('view3d')?.dataset.view === 'eyes'"]),
+    "view3d-behind": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=behind]",
+                                          "wait:document.getElementById('view3d')?.dataset.view === 'behind'"]),
+    "view3d-motion": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]", ".v3-motion", MOTION_TURN,
+                                          "wait:document.getElementById('view3d')?.dataset.motion === 'on'"]),
 }
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
@@ -282,7 +294,11 @@ def main():
                 options = dict(pw.devices[profile]) if profile else dict(DESKTOP)
                 options.pop("default_browser_type", None)
                 for theme in themes:
-                    context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True)
+                    # Chromium's motion sensors as a phone that allows them ("view3d-motion"; WebKit has no such
+                    # permission)
+                    sensors = ["accelerometer", "gyroscope", "magnetometer"] if engine == "chromium" else []
+                    context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True,
+                                                  permissions=sensors)
                     # the theme, and the intros put away (ui/Intro.tsx): the "-intro" pages open them
                     context.add_init_script(f"try {{ localStorage.setItem('findaline-theme', {json.dumps(theme)}); "
                                             + "".join(f"localStorage.setItem('findaline.intro.{intro}', 'seen'); "
