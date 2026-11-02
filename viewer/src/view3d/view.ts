@@ -35,7 +35,9 @@ export interface View {
 export function createView(host: HTMLElement, level: Level, background: string, onLost: () => void): View {
   const canvas = document.createElement("canvas");
   canvas.className = "v3-canvas";
-  const renderer = new WebGLRenderer({canvas, antialias: level === "full"});  // throws without WebGL 2
+  // preserveDrawingBuffer: drawn on demand, the last frame must be the one shown; WebKit (Playwright's iPhone)
+  // showed the frame before it until another was drawn (the webbing grey after its profile came, 2 times in 4)
+  const renderer = new WebGLRenderer({canvas, antialias: level === "full", preserveDrawingBuffer: true});  // throws without WebGL 2
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   host.appendChild(canvas);
   const scene = new Scene();

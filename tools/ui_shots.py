@@ -303,8 +303,8 @@ def main():
                                 page.wait_for_timeout(600)
                                 continue
                             if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery
-                                try:
-                                    page.wait_for_function(step[5:], timeout=60000)
+                                try:  # a function: an expression would need eval, which the CSP forbids
+                                    page.wait_for_function(f"() => ({step[5:]})", timeout=60000)
                                 except Exception:
                                     print(f"{name} ({device}): still waiting for {step[5:]}")
                                 page.wait_for_timeout(600)

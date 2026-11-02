@@ -1,5 +1,5 @@
 // The line in the scene: the webbing as two Line2 of CURVE_POINTS points written in place (the loaded curve with
-// the walker at s, the unloaded one faint), the walker standing on it, its slider in the toolbar and the readout
+// the walker at s, also drawn faintly through the terrain; the unloaded one faint), the walker standing on it, its slider in the toolbar and the readout
 // (length, sag, clearance, over trees) once /api/profile answered; until then a neutral colour. The anchors can
 // change (edit.ts): the webbing is solved again, neutral and "edited" until the new profile is in.
 
@@ -75,16 +75,25 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   let w: Webbing | null = webbing(anchors, scene.meta.rigging);
   if (!w) return null;
   const neutral = scene.token("--muted");
-  const loadedMaterial = new LineMaterial({color: neutral, linewidth: scene.level === "phone" ? 3 : 4});
+  const width = scene.level === "phone" ? 3 : 4;
+  const loadedMaterial = new LineMaterial({color: neutral, linewidth: width});
   const faintMaterial = new LineMaterial({color: neutral, linewidth: 2, transparent: true, opacity: 0.4});
-  scene.view.onResize((size) => { loadedMaterial.resolution.copy(size); faintMaterial.resolution.copy(size); });
+  // The loaded webbing once more through the terrain, faint: where a slope hides it (near an anchor seen from
+  // the side) it still reaches the anchor's handle; where it is seen, the same colour drawn over it changes nothing
+  const xrayMaterial = new LineMaterial({color: neutral, linewidth: width, transparent: true, opacity: 0.35,
+                                         depthTest: false, depthWrite: false});
+  const materials = [loadedMaterial, faintMaterial, xrayMaterial];
+  scene.view.onResize((size) => { for (const m of materials) m.resolution.copy(size); });
   const first = walkerPose(w, anchors, w.start.s);
   const unloaded = curve(resample(w.unloaded), scene, faintMaterial);
   const loaded = curve(first ? first.points : resample(w.unloaded), scene, loadedMaterial);
   loaded.line.renderOrder = 1;
+  const xray = new Line2(loaded.line.geometry, xrayMaterial);  // the same buffer: loaded.write moves both
+  xray.renderOrder = 2;
   const walker = createWalker(scene.token("--ink"));
   scene.add(unloaded.line);
   scene.add(loaded.line);
+  scene.add(xray);
   scene.add(walker.group);
 
   // The readout: length and clearance from the profile, the sag with the walker from sag.ts
@@ -111,8 +120,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
 
   const colour = (name: string | null) => {
     const c = name ? scene.token(name) : neutral;
-    loadedMaterial.color.set(c);
-    faintMaterial.color.set(c);
+    for (const m of materials) m.color.set(c);
     readoutBox.dataset.colour = loadedMaterial.color.getHexString();  // for tests
   };
 
@@ -174,7 +182,8 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   slider.addEventListener("input", () => self.setWalker(Number(slider.value)));
   self.setWalker(w.start.s);
   scene.onDispose(() => {
-    unloaded.dispose(); loaded.dispose(); loadedMaterial.dispose(); faintMaterial.dispose(); walker.dispose();
+    unloaded.dispose(); loaded.dispose(); walker.dispose();
+    for (const m of materials) m.dispose();
   });
   return self;
 }
