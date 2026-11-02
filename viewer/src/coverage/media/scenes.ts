@@ -27,7 +27,10 @@ export const otherPlaces = (place: string): string[] =>
 export function placeCredit(place: string, lang: Lang): string {
   const c = got().contrast.places[place]?.fine.credits[0];
   if (!c) return "";
-  return ct(lang, "media.data_credit", {attribution: c.attribution.replace("{year}", String(got().year)), licence: c.licence});
+  // the year of the searches is in the credits (tools/coverage_contrast.py); the licence once, when the
+  // provider's attribution does not name it already ("©Kartverket, CC BY 4.0, processed")
+  const key = c.attribution.includes(c.licence) ? "media.data_credit_short" : "media.data_credit";
+  return ct(lang, key, {attribution: c.attribution, licence: c.licence});
 }
 
 /** A title card: the title, a line under it and the logo's line drawn across above it. */

@@ -95,6 +95,7 @@
   "media.found_many": "miejsc na highline",
   "media.found_other": "miejsca na highline",
   "media.data_credit": "Dane: {{attribution}} · {{licence}}",
+  "media.data_credit_short": "Dane: {{attribution}}",
   "media.verify.title": "Czy 30 m wystarczy?",
   "media.verify.found": "miejsc widocznych w danych 1 m znajduje też 30 m",
   "media.verify.false": "miejsc znalezionych w 30 m nie ma w danych 1 m",

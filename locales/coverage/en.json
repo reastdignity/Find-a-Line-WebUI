@@ -89,6 +89,7 @@
   "media.found_one": "highline spot",
   "media.found_other": "highline spots",
   "media.data_credit": "Data: {{attribution}} · {{licence}}",
+  "media.data_credit_short": "Data: {{attribution}}",
   "media.verify.title": "Is 30 m enough?",
   "media.verify.found": "spots seen in 1 m data are also found at 30 m",
   "media.verify.false": "spots found at 30 m are not there in 1 m data",

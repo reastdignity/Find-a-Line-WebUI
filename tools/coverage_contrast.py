@@ -20,10 +20,12 @@ into the data folder, about 2 GB), one search after another:
 """
 
 import argparse
+import datetime
 import io
 import json
 import os
 import sys
+import time
 from typing import Dict, List, Sequence, Tuple
 
 import numpy as np
@@ -85,7 +87,7 @@ def search(place: str, side: str, data_dir: str, work: str) -> None:
     info = {"lat": lat, "lon": lon, "radius": RADIUS, "res": res, "source": plan.source.id,
             "source_name": plan.source.name, "center_xy": [float(v) for v in plan.center_xy],
             "grid": {"left": grid.left, "top": grid.top, "res": grid.res},
-            "credits": credits(src.used_data)}
+            "credits": credits(src.used_data), "year": datetime.date.today().year}
     with open(os.path.join(work, f"{place}-{side}.json"), "w", encoding="utf-8") as f:
         json.dump(info, f, ensure_ascii=False, indent=1)
     print(f"== {place} {res:g} m: {plan.source.id}, {len(a1)} lines, {len(rep)} spots", flush=True)
@@ -179,8 +181,15 @@ def jpeg(hillshade: np.ndarray, smooth: bool) -> bytes:
     return buf.getvalue()
 
 
+def searched_in(info: dict, path: str) -> int:
+    """The year of a search (its credits' "{year}", as a run's: the data as served then); a search of before
+    the field by its file's time."""
+    return info.get("year") or time.gmtime(os.path.getmtime(path + ".json")).tm_year
+
+
 def write(work: str, out: str = OUT) -> dict:
     """contrast.json and the images from the searches in the work folder."""
+    from sources import dated_credit
     os.makedirs(out, exist_ok=True)
     places = {}
     for place in PLACES:
@@ -202,7 +211,8 @@ def write(work: str, out: str = OUT) -> dict:
                            "spots": int(len(lines["rep"])),
                            "segments": segments(lines["a1"], lines["a2"], lines["rep"], lines["over"], square),
                            "relief": [round(float(np.nanmin(heights)), 1), round(float(np.nanmax(heights)), 1)],
-                           "source": info["source"], "source_name": info["source_name"], "credits": info["credits"]}
+                           "source": info["source"], "source_name": info["source_name"],
+                           "credits": [dated_credit(c, searched_in(info, path)) for c in info["credits"]]}
         entry["verify"] = verify(found["fine"], found["coarse"])
         places[place] = entry
         print(place, {side: (entry[side]["lines"], entry[side]["spots"]) for side, _ in SIDES}, entry["verify"])

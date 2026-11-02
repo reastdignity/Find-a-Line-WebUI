@@ -37,6 +37,7 @@ import contextlib
 import html
 import json
 import math
+import mimetypes
 import os
 import re
 import secrets
@@ -75,6 +76,8 @@ NO_WORKER = messages.UserError("the worker is not running (findaline.py worker, 
 NO_WORKER_PUBLIC = messages.UserError.web("no_worker")
 APP_DIST = os.path.join(os.path.dirname(os.path.abspath(__file__)), "viewer", "dist")
 THIRD_PARTY_LICENCES = "THIRD-PARTY-LICENSES.txt"  # the bundled libraries' licences in APP_DIST (viewer/build.mjs)
+# The fonts of APP_DIST (viewer/src/ui/fonts.css): Python on Windows knows no type for them (text/plain otherwise)
+mimetypes.add_type("font/woff2", ".woff2")
 LOCAL_HOSTS = ["127.0.0.1", "localhost"]  # tests use them too (TestClient's base_url)
 GRACEFUL_SECONDS = 5    # open event streams are closed this long after a stop
 KEEP_ALIVE_SECONDS = 5  # an idle connection is closed after it

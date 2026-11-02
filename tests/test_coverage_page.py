@@ -42,6 +42,9 @@ def test_coverage_page_public(public):
     assert "/coverage" in web.PUBLIC_ROUTES
     for path in ("/app/coverage.js", "/app/coverage.css", "/app/coverage-shapes.json"):
         assert public.get(path).status_code == 200, path
+    fonts = [name for name in os.listdir(web.APP_DIST) if name.endswith(".woff2")]
+    assert len(fonts) == 6  # Barlow Condensed 500, 600, 700, latin and latin-ext (ui/fonts.css)
+    assert public.get(f"/app/{fonts[0]}").headers["content-type"] == "font/woff2"
 
 
 def test_coverage_page_local(tmp_path):

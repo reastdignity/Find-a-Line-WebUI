@@ -2741,10 +2741,10 @@
     "credits": [
      {
       "data": "LiDAR HD MNT / MNS (IGN, France)",
-      "attribution": "IGN, LiDAR HD (MNT, MNS), Géoplateforme {year}, Licence Ouverte 2.0",
+      "attribution": "IGN, LiDAR HD (MNT, MNS), Géoplateforme 2026, Licence Ouverte 2.0",
       "licence": "Licence Ouverte 2.0",
       "url": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
-      "notice": "Source: IGN (Institut national de l'information géographique et forestière), LiDAR HD digital terrain and surface models, as served by the Géoplateforme (https://cartes.gouv.fr) in {year}, Licence Ouverte / Open Licence 2.0 (Etalab)."
+      "notice": "Source: IGN (Institut national de l'information géographique et forestière), LiDAR HD digital terrain and surface models, as served by the Géoplateforme (https://cartes.gouv.fr) in 2026, Licence Ouverte / Open Licence 2.0 (Etalab)."
      },
      {
       "data": "Copernicus DEM GLO-30 water body mask",
@@ -3058,10 +3058,10 @@
     "credits": [
      {
       "data": "LiDAR HD MNT / MNS (IGN, France)",
-      "attribution": "IGN, LiDAR HD (MNT, MNS), Géoplateforme {year}, Licence Ouverte 2.0",
+      "attribution": "IGN, LiDAR HD (MNT, MNS), Géoplateforme 2026, Licence Ouverte 2.0",
       "licence": "Licence Ouverte 2.0",
       "url": "https://www.etalab.gouv.fr/licence-ouverte-open-licence/",
-      "notice": "Source: IGN (Institut national de l'information géographique et forestière), LiDAR HD digital terrain and surface models, as served by the Géoplateforme (https://cartes.gouv.fr) in {year}, Licence Ouverte / Open Licence 2.0 (Etalab)."
+      "notice": "Source: IGN (Institut national de l'information géographique et forestière), LiDAR HD digital terrain and surface models, as served by the Géoplateforme (https://cartes.gouv.fr) in 2026, Licence Ouverte / Open Licence 2.0 (Etalab)."
      },
      {
       "data": "Copernicus DEM GLO-30 water body mask",

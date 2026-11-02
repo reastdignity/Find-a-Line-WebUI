@@ -8,7 +8,6 @@ export interface Assets {
   world: World;
   contrast: Contrast;
   images: Map<string, HTMLImageElement>;   // "<place>-fine", "<place>-coarse"
-  year: number;                            // fills "{year}" of the credits
 }
 
 export const CONTRAST_DIR = "contrast/";
@@ -42,6 +41,6 @@ export async function load(): Promise<Assets> {
   })));
   // both subsets (latin and latin-ext, the Polish letters) of every weight, before the first frame
   await Promise.all(FONT_FACES.map(face => document.fonts.load(face, "AZaz09ŻżĄąŁł")));
-  assets = {world: prepareWorld(shapes), contrast, images, year: new Date().getFullYear()};
+  assets = {world: prepareWorld(shapes), contrast, images};
   return assets;
 }
