@@ -125,6 +125,8 @@ def test_listing_asks_once_per_ttl(http_server, tmp_path):
     again.update_index_tile(cache_dir, 49.25, 7.75)
     assert len(http_server.requests("/rp/")) == 2
     assert cache.state(cache_dir, kept) == "ok"
+    other = str(tmp_path / "other")  # another data folder (the probe's temporary one): its own documents
+    assert len(again.index.answers(other, 49.0, 7.75)) == 20 and len(http_server.requests("/rp/")) == 3
 
 
 @pytest.mark.parametrize("status, body", [(404, "006-rlp-404.html"), (200, "006-rlp-404.html"),

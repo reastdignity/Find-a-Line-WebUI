@@ -104,8 +104,8 @@ class MetalinkFiles(Listing):
         self.name, self.crs, self.res, self.top, self.key, self.tile_m = re.compile(name), crs, res, top, key, tile_m
         self.cache_dir: Optional[str] = None
         self.update: Optional[str] = None
-        self._table: Optional[List[Dict]] = None
-        self._asked = False  # the documents were asked in this process
+        self._tables: Dict[str, List[Dict]] = {}  # the kept files read, by their path
+        self._asked: Set[str] = set()  # the kept files whose documents were asked in this process
 
     def table_path(self, cache_dir: str) -> str:
         return os.path.join(cache_dir, self.top, "metalink", f"{self.key}.json.gz")
@@ -136,7 +136,7 @@ class MetalinkFiles(Listing):
         """The kept files, asking the documents when not kept or due (at most once per process)."""
         cache_dir, ttl = self.cache_dir, cache.TTL_DAYS["sheet-index"]
         path = self.table_path(cache_dir)
-        if not self._asked and cache.due(cache_dir, path, update=self.update, ttl=ttl):
+        if path not in self._asked and cache.due(cache_dir, path, update=self.update, ttl=ttl):
             with net.tile_lock(cache_dir, path):  # another search may be asking now
                 if cache.due(cache_dir, path, update=self.update, ttl=ttl):
                     kept = self._download()
@@ -146,12 +146,13 @@ class MetalinkFiles(Listing):
                         json.dump(kept, out)
                     os.replace(tmp, path)
                     cache.record(cache_dir, path, url=self.url)
-            self._asked, self._table = True, None
-        if self._table is None:
+            self._asked.add(path)
+            self._tables.pop(path, None)
+        if path not in self._tables:
             with gzip.open(path, "rt", encoding="utf-8") as kept_file:
                 files = json.load(kept_file)["files"]
-            self._table = [self._item(f) for f in files]
-        return self._table
+            self._tables[path] = [self._item(f) for f in files]
+        return self._tables[path]
 
     def _item(self, f: Dict) -> Dict:
         match = self.name.search(f["name"])
