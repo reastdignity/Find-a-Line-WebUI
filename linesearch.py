@@ -46,7 +46,12 @@ PAIR_BUFFER_BYTES = 16 << 20
 # The pairs found are evaluated in parts of at least EVAL_PART pairs (and of at least 1/CHUNKS of
 # them): the chunks' arrays as they are, small ones joined, large ones cut
 EVAL_PART = 10_000
-COVERED_PART = 1 << 16  # lines per part of covered_metres
+COVERED_PART = 1 << 16  # lines per part of covered_metres and covered_pixels
+# find_valid_lines(sink=): the anchors go through pair_chunk in slices of SINK_CHUNK (PAIR_BUFFER
+# pairs each fit PAIR_BUFFER_BYTES), and the pairs found are evaluated once EVAL_PART are pending,
+# in parts of at most SINK_PART pairs, each handed to the sink at once (nothing is kept)
+SINK_CHUNK = 2048
+SINK_PART = 1 << 20
 
 
 @njit(cache=True)
@@ -625,6 +630,23 @@ def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np
     return out
 
 
+def covered_pixels(a1: np.ndarray, a2: np.ndarray, mask: Optional[np.ndarray]) -> np.ndarray:
+    """Pixels of each line set in a mask (water, filled gaps), anchors excluded: the pixels
+    helpers.line_profile and covered_metres sample (int64; all zeros without a mask), COVERED_PART
+    lines at a time. At a resolution of 0.5 m or more, covered_pixels > 0 where covered_metres > 0."""
+    out = np.zeros(len(a1), dtype=np.int64)
+    if mask is None or len(a1) == 0:
+        return out
+    mask = np.ascontiguousarray(mask, dtype=np.bool_)
+    for at in range(0, len(a1), COVERED_PART):
+        p = np.ascontiguousarray(a1[at:at + COVERED_PART], dtype=np.int64)
+        q = np.ascontiguousarray(a2[at:at + COVERED_PART], dtype=np.int64)
+        counts = np.zeros(len(p), dtype=np.int64)
+        _covered_pixels(p, q, mask, counts)
+        out[at:at + len(p)] = counts
+    return out
+
+
 def evaluation_parts(chunks: List[Optional[np.ndarray]], size: int) -> Iterator[np.ndarray]:
     """The pairs of the chunks (arrays of pairs, in their order) in parts of size pairs (the last
     one smaller): a part of one chunk is a view of it, the pieces of small ones are copied into
@@ -673,7 +695,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
                      anchor_values: Optional[np.ndarray] = None, strong: Optional[np.ndarray] = None,
                      stats: Optional[Dict[str, int]] = None,
-                     check: Optional[Callable[[int], None]] = None) -> sh.LineTable:
+                     check: Optional[Callable[[int], None]] = None,
+                     sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
     """Finds valid lines between anchors.
 
     Args:
@@ -700,10 +723,17 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         check: Optional callable given the number of valid lines so far after each evaluated part
             of the pairs found; it raises to stop the search (the limit of lines: search._lines),
             after the "checking lines" bar is closed and the counts so far are added to stats
+        sink: Optional callable given the valid lines part by part instead of returning them (the
+            count mode: search.count_tile): the anchors go through pair_chunk SINK_CHUNK at a time,
+            the pairs found are evaluated once EVAL_PART of them are pending, and each evaluated
+            part (at most SINK_PART pairs; "a1", "a2" and the LINE_VALUES, in no particular order)
+            goes to the sink at once; nothing is joined, sorted or kept. Not with check
 
     Returns:
-        Valid lines, longest first
+        Valid lines, longest first; None with a sink
     """
+    if sink is not None and check is not None:
+        raise ValueError("find_valid_lines: sink and check cannot be used together")
     numba.set_num_threads(max(1, min(threads or numba.config.NUMBA_NUM_THREADS - 1,
                                      numba.config.NUMBA_NUM_THREADS)))
     start_time = time.time()
@@ -735,6 +765,10 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     todo_all, args, tail = pair_arguments(z, anchors, elev, useful, rings, slot, first, res, min_length, max_length,
                                           max_dh_ratio, max_dh, down, cos_limit, strong, use_sag, log_spans,
                                           ratios, table, fall_zone)
+    if sink is not None:
+        _sink_lines(sink, args, tail, todo_all, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
+                    limits, down, anchor_values, len(useful), stats, start_time)
+        return None
     pairs, candidates, checked, found = [], 0, 0, 0
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
     for todo in np.array_split(todo_all, min(CHUNKS, max(1, len(todo_all)))):
@@ -748,11 +782,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     progress.compute.finish()
 
     def add_stats(valid: int):
-        if stats is not None:
-            for key, n in (("open", len(useful)), ("todo", len(todo_all)), ("candidates", candidates),
-                           ("checked", checked), ("found", found), ("valid", valid),
-                           ("left_out", limits.left_out if limits is not None else 0)):
-                stats[key] = stats.get(key, 0) + int(n)
+        _add_stats(stats, len(useful), len(todo_all), candidates, checked, found, valid, limits)
 
     # Final decision and clearances, exactly as in the pixel-by-pixel search (evaluate_line), part
     # by part from the chunks' pairs (each chunk released once evaluated); check may stop it after a part
@@ -776,16 +806,65 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     valid_lines = join_tables(parts)
     del parts
     progress.compute.finish(f"{len(valid_lines)} valid")
+    _summary(start_time, candidates, checked, limits, len(valid_lines))
+    add_stats(len(valid_lines))
+
+    # Longest first; lines of the same length keep their order (as sorted(reverse=True) did), one
+    # column after another
+    return valid_lines.reorder(np.argsort(-valid_lines.columns["length"], kind="stable"))
+
+
+def _add_stats(stats: Optional[Dict[str, int]], open_: int, todo: int, candidates: int, checked: int, found: int,
+               valid: int, limits: Optional[sh.LineLimits]):
+    """Add the counts of a find_valid_lines call to stats (when given)."""
+    if stats is not None:
+        for key, n in (("open", open_), ("todo", todo), ("candidates", candidates), ("checked", checked),
+                       ("found", found), ("valid", valid), ("left_out", limits.left_out if limits is not None else 0)):
+            stats[key] = stats.get(key, 0) + int(n)
+
+
+def _summary(start_time: float, candidates: int, checked: int, limits: Optional[sh.LineLimits], valid: int):
+    """The summary lines of find_valid_lines."""
     print(f"\n{'=' * 60}")
     print(f"Completed in {time.time() - start_time:.2f} seconds")
     print(f"Candidate pairs between anchors with an open direction: {candidates}")
     print(f"Checked pixel by pixel: {checked}")
     if limits is not None and limits.active:
         print(f"Left out by the line limits ({limits.describe()}): {limits.left_out}")
-    print(f"Found {len(valid_lines)} valid lines")
+    print(f"Found {valid} valid lines")
     print(f"{'=' * 60}")
-    add_stats(len(valid_lines))
 
-    # Longest first; lines of the same length keep their order (as sorted(reverse=True) did), one
-    # column after another
-    return valid_lines.reorder(np.argsort(-valid_lines.columns["length"], kind="stable"))
+
+def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, todo_all: np.ndarray,
+                anchors: np.ndarray, elevation: np.ndarray, res: float, surface: Optional[np.ndarray], sag_table,
+                nmpt_mode: Optional[str], high_above: float, limits: Optional[sh.LineLimits], down: np.ndarray,
+                anchor_values: Optional[np.ndarray], useful: int, stats: Optional[Dict[str, int]],
+                start_time: float):
+    """Steps 2 and 3 of find_valid_lines with a sink: the pairs of SINK_CHUNK anchors at a time,
+    evaluated whenever EVAL_PART of them are pending (and after the last anchors), each evaluated
+    part handed to the sink at once. One bar, "anchor pairs", with the valid lines as a postfix."""
+    pending, held, candidates, checked, found, valid = [], 0, 0, 0, 0, 0
+    progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
+    for at in range(0, len(todo_all), SINK_CHUNK):
+        todo = todo_all[at:at + SINK_CHUNK]
+        counts, out = pair_chunk(args, todo, tail)
+        found += len(out)
+        candidates += int(counts[:, 0].sum())
+        checked += int(counts[:, 1].sum())
+        if len(out):
+            pending.append(out)
+            held += len(out)
+        del out
+        if pending and (held >= EVAL_PART or at + SINK_CHUNK >= len(todo_all)):
+            for part in evaluation_parts(pending, SINK_PART):
+                table = evaluate_lines(part, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
+                                       limits, down, anchor_values)
+                del part
+                valid += len(table)
+                sink(table)
+                del table
+            pending, held = [], 0
+        progress.compute.update(len(todo), pairs=f"{checked:,}", lines=found, valid=valid)
+    progress.compute.finish(f"{valid} valid")
+    _summary(start_time, candidates, checked, limits, valid)
+    _add_stats(stats, useful, len(todo_all), candidates, checked, found, valid, limits)
