@@ -95,6 +95,28 @@ Rules of thumb:
 - Work in the CRS of the files when they are metric (`Source.crs`, or `Source.local_crs` for a CRS per zone such as NAD83 / UTM): blocks on the files' own pixels are copied onto the grid as they are; anything else is resampled and smooths cliff edges.
 - Compare CRSs by their parameters, not by name: a file may name only the ellipsoid of the expected datum (`sources._same_crs`); check the first real file, not only the documentation.
 - Fill the gaps from data with the same licence where there is any (the USA: the USGS 1/3″ DEM, not FABDEM, keeps a run public domain). A source may fill from several, in turn (`Source.more_fallbacks`).
+- A WMS that answers 1.3.0 EPSG:4326 requests with a white image may read the axes as lon-lat: try 1.1.1 with
+  `SRS=EPSG:4326` before giving up (GURS; `OrthoService.wms_version`).
+- A frozen survey's tile index (a map layer of the provider) can live in the module as a compact table of runs
+  (Slovenia's 21 263 tiles in 11 kB); a tile outside it is missing without a request.
+- A small server can stall under four parallel connections from one IP while two run at full speed (ARSO): the host
+  cap holds per data folder, so tests from two data folders at once exceed it.
+- A service whose rasters are stored in Web Mercator has no own pixels in a metric CRS: ask it in the zone of the
+  place (`ImageServerTiles(zones=...)` with `Source.local_crs`), nearest neighbour, and check that a box equals its
+  halves. An ArcGIS mosaic's `product_type` may mix lidar with photogrammetric DEMs and bathymetry: read the
+  catalogue's attributes (`query` with `returnGeometry=false`) before choosing a `where`.
+- Copy a Copyright Text from each service's JSON: two services of one provider differ in punctuation.
+- Check a server's TLS chain with Python, not curl: curl on Windows completes a missing intermediate through AIA,
+  Python and the worker's container do not (LVermGeo SH: the intermediate goes into `sources/certs/`, trusted for that
+  host only, with its fingerprint and expiry in the file and a test).
+- Read a WCS's DescribeCoverage extent for noise digits (LGB: 466000.00001003): a hair past a tile edge makes that tile
+  reach into the coverage and fail instead of being missing.
+- A download link with the survey year in it goes stale when a tile is surveyed again: find what the server answers
+  then (LVermGeo SH: HTTP 200 with HTML) and make it an error that reads the index again, never a cached tile.
+- A file of a whole sea may hold the water surface instead of gaps (LVermGeo SH: 0.7-2.9 m): look at sea pixels
+  before trusting the sea mask to remove them.
+- Pick a regression centre where the steep pixels are (an anchor map, or a quick search with a small radius): the
+  research's Rüdersdorf point lay 1 km from the quarry's walls, Tibrogargan's dome gave 9 lines.
 - Names, descriptions and notes of sources are printed to the console: keep them in characters of cp1250 (a Windows console), e.g. "1/3 arc-second", not ″.
 - When more than one product would be needed (a gap filler, a second region, a seamless model), present the options with a recommendation and let the user decide before writing it.
 - For own hosting: COG tiles of 1 km in the source grid, LERC_ZSTD with `MAX_Z_ERROR=0.005` (5 mm) was the smallest and fastest (Slovak DSM 0.5 m: 5.5 MB per km², 0.2 s per tile); a JSON index with checksums; attribution and licence file next to the data.

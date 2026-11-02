@@ -440,6 +440,65 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   filled.npy (WinError 32)" when gap filling covers a whole search (seen in the Darrans); the surface models stand
   several metres above the terrain models on steep rock (the Stawamus Chief: now the first of the roadmap's *Priorities (open)*).
 
+### Batch 3 of the survey's order (started 2026-11-02)
+- **Plan** (the user, 2026-11-02): wave 0 research (Slovenia, Ontario, Sicily, Queensland; the German Länder left;
+  the Arctic), wave 1 Slovenia, Brandenburg with Berlin, Schleswig-Holstein and Queensland, wave 2 the Arctic
+  (ArcticDEM in UTM with an EGM2008 geoid correction, no DSM, Copernicus GLO-30 as the open gap filler: Greenland,
+  Svalbard, Iceland, Nunavut). Not now: Ontario and Sicily (the user), Saarland and Hamburg later, Thuringia (its
+  download host answers a maintenance page; mail drafted) and Bremen postponed. Mails drafted to GURS (CLSS),
+  Queensland (the licence's version), TLBG and SITR (`local/mail-drafts.md`, 14-17).
+- **Slovenia, done 2026-11-02** (source `slovenia`, SI, R54 the Osp gorge): ARSO's lidar survey of 2011-2015 (LSS),
+  its DMR 1 m as plain `x;y;z` text tiles of 1 km (`https://gis.arso.gov.si/lidar/dmr1/<block>/D96TM/TM1_<E>_<N>.asc`,
+  about 26 MB each; a file in the wrong block answers 404), points on whole metres (pixel edges on .5, `grid_origin`
+  0.5), heights to the centimetre, EPSG:3794, read bit for bit by GDAL's XYZ driver (`ZippedTiles` without members).
+  The block of each tile comes from a static table of the official LIDAR_mreza_D96 index (21 263 tiles in 19 blocks,
+  827 runs in the module); a tile outside it is missing without a request (`ZipTiling`'s `url` may give None). No
+  surface model (the survey's is Esri zLAS only); no published limits: a courtesy cap of 2 connections (four at once
+  from one IP, two data folders downloading together, stalled the server for minutes). Credit "Agencija Republike
+  Slovenije za okolje, LiDAR DMR 1 m, 2011-2015" (CC BY 4.0; ARSO's terms PDF is served over HTTP only, named in the
+  notice). Orthophoto GURS's DOF050, whose WMS answers 1.3.0 in EPSG:4326 with white images and needs 1.1.1 with
+  lon-lat order (`OrthoService.wms_version`, also in `data.js` and the viewer; checked live). Before Austria in
+  FAMILIES; Austria is its neighbour both ways. Open: the vertical datum (SVS2000 presumably, not named in the files);
+  the CLSS 2023-25 survey (0.5 m, with a surface model) is in a viewer only (LAZ, 20 downloads a day): the mail to GURS.
+- **Brandenburg with Berlin, done 2026-11-02** (source `brandenburg`, regions DE-BB and DE-BE, R55 the Rüdersdorf
+  quarry): LGB's INSPIRE WCS 2.0.1 (`el_dgm1_wcs` / `el_dom1_wcs`, coverage `el_elevationgridcoverage`, axes x/y,
+  EPSG:25833, pixel edges on whole metres), 2 km tiles of 1 m with DEFLATE (about 8 MB), bit for bit LGB's and
+  Berlin's files. The DGM answers 0 outside the Länder (`zero_is_nodata`, as in M-V: the pit of Rüdersdorf crosses
+  0 m NHN, so its 94 px of exactly 0.00 m are filled), the DOM -9999 untagged; the DOM is the lowest of each 5 × 5
+  pixels of the 0.2 m image-matching bDOM. The extent comes with 0.01 mm of noise, so `WcsReader` reads extents to
+  the millimetre (the edge tiles, answered HTTP 400, are missing rather than failed). dl-de/by-2.0 with LGB's example
+  credit word for word ("© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0 (Daten geändert)").
+  Orthophoto `bebb_dop20c`; "live" folders; a courtesy cap of 4. Neighbours: geoportal, saxony, saxony_anhalt,
+  mecklenburg_vorpommern, lower_saxony. Little highline terrain: R55 finds 3 lines of 22-27 m on the quarry's north
+  wall (the research's point, 1 km away, had none), kept as the source's test.
+- **Schleswig-Holstein, done 2026-11-02** (source `schleswig_holstein`, region DE-SH, R56 Helgoland): LVermGeo SH's
+  DGM1 only (the 0.2 m bDOM is uncompressed, about 105 MB per km², without Range). The whole Land's GeoJSON index
+  (9 MB, 18 685 tiles, the survey year 2005-2025 in each link) is read once per TTL by `GeoJsonFiles` (a
+  `MetalinkFiles` of GeoJSON), newest per tile. The files are plain "x y z" text (27 MB, no Range), read by `XyzFile`
+  streamed with a byte cap, `text/plain` only. An outdated link answers HTTP 200 with an HTML page ("Die verwendete
+  Massendownload-Datei ist veraltet"): an error, never cached, and the kept index and its 0.25° answers are forgotten
+  so the next search reads it again. The server sends no intermediate certificate: D-TRUST BR CA 1-20-1 2020 is in
+  `sources/certs/` and trusted for that host only (`net.HOST_CA_OF`, `net.verify`; valid to 2035-02-11, the server's
+  leaf to 2027-04-15; checked live: without it Python fails the handshake). Over the sea the files hold a water surface
+  of 0.7-2.9 m without gaps, kept as data: it counts as water only where it is at most 1 m. Credit
+  "©GeoBasis-DE/LVermGeo SH/CC BY 4.0 (Quelle verändert)"; orthophoto `sh_dop20_rgb`; a courtesy cap of 4.
+  Neighbours: lower_saxony, mecklenburg_vorpommern, denmark. The probe reads the first KB of a tile (strategy `text`).
+- **Queensland, done 2026-11-02** (sources `queensland` and `queensland_demh`, region AU-QLD, R57 Frog Buttress): the
+  State's DEM time series ImageServer (ArcGIS 11.5, 536 rasters, one per project). The lidar DTMs (`product_type = 8
+  AND res_value <= 1`: the type also holds photogrammetric 5-25 m DEMs and a bathymetry) by the service's ZOrder
+  (newest first with a few exceptions the provider chose, kept) are asked by exportImage in GDA94 / MGA of the place
+  (zones 54-56, `mga_crs`, `ImageServerTiles(zones=...)`) at 1 m, nearest neighbour: every project is stored in Web
+  Mercator at 1.13-1.14 m, so the service resamples once; a box equals its halves. 1 km tiles of about 4 MB. Gaps
+  from the same service's DEM-H (`queensland_demh`, 30 m), never FABDEM (BY-NC-SA cannot be combined with BY-SA).
+  The terms (checked again live): the item info's "available publically under Creative Commons
+  Attribution-Share-Alike licence (CC BY-SA)" without a version (data.qld.gov.au says CC BY 3.0: the mail asks); the
+  services' Copyright Texts verbatim as the credits (the DEM's and the imagery's differ in punctuation; both end in
+  the year 2026, kept verbatim: read them again when the service changes them), the no-warranty acknowledgement as
+  the notice, the note says derived results are shared under CC BY-SA where they are an adaptation. Orthophoto the
+  State imagery's tile cache to z20 (CC BY-SA too). A courtesy cap of 4. check_source all PASS in zone 56
+  (Tibrogargan) and 55 (Townsville, my check). Open: DEM-H was not exercised by a search (only the probe and a
+  recorded tile), zone 54 only by a recorded tile.
+
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
 - **Access**: no elevation WCS exists. swisstopo recommends its download service for offline use: the STAC API `https://data.geo.admin.ch/api/stac/v1` (collections `ch.swisstopo.swissalti3d`, `ch.swisstopo.swisssurface3d-raster`; items `swissalti3d_<year>_<E>-<N>`, bbox in WGS84, 100 items per page). Files on S3/CloudFront, about 40 MB/s, sha256 in the item (`file:checksum`). Fair use: no bulk bot traffic, exponential backoff with jitter.
