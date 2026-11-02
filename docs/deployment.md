@@ -975,7 +975,10 @@ ssh -L 3000:127.0.0.1:3000 you@findaline.example.org
 ```
 
 then open `http://localhost:3000` and sign in as `admin` with the password of
-`sudo cat /srv/find-a-line-webui/secrets/grafana_admin_password`. Its dashboards, alert rules and
+`sudo cat /srv/find-a-line-webui/secrets/grafana_admin_password`. The home page is the dashboard
+*Overview*: a tile for every alerting row (red needs attention; a click opens its dashboard: VPS,
+Site, Searches, Use, Data and computing, Logs, all in the folder *Find-a-Line*) and the alerts
+firing (docs/monitoring.md, "Dashboards"). Its dashboards, alert rules and
 contact point come from `deploy/monitoring/grafana/` in the checkout (changes made in Grafana's
 interface to them are not kept). The password counts when Grafana makes its database (the first
 start); to change it later: `docker compose -f deploy/monitoring/compose.yaml exec grafana grafana
@@ -1012,7 +1015,7 @@ error, ref <id>") finds its lines with that id.
 To see an alert arrive: `curl -fsS https://hc-ping.com/<uuid of the heartbeat check>/fail` (the
 check turns red and ntfy gets the message; the next minute's ping makes it green again).
 
-The four containers and Telegraf need about 1.5 GB of memory together: `WORKER_MEMORY` in `.env`
+The four containers and Telegraf may take about 2.3 GB of memory together (their limits; Grafana's 1.25 GB): `WORKER_MEMORY` in `.env`
 (section 8) must leave that room. To stop the monitoring without touching the site:
 `docker compose -f deploy/monitoring/compose.yaml down` (the samples and logs stay in their
 volumes) and `sudo systemctl disable --now telegraf findaline-facts.timer findaline-check.timer

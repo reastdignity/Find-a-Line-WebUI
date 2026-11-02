@@ -1,4 +1,5 @@
-# The dashboards VPS, Site, Find-a-Line and Logs from the JSON files of
+# The dashboards Overview (Grafana's home page, GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH of
+# compose.yaml), VPS, Site, Searches, Use, Data and computing and Logs from the JSON files of
 # deploy/monitoring/grafana/dashboards (mounted read-only at /etc/grafana/dashboards): changed in
 # the repository, not in Grafana.
 apiVersion: 1
