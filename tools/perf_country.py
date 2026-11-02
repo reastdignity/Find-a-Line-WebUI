@@ -29,6 +29,17 @@ hold, per km², and the bytes of an 8-byte key with a 4-byte count.
 
     uv run tools/perf_country.py cube --samples <scratch>/pl/samples.json tatry-1m [--cell 1000] [--dims length clearance]
 
+estimate turns the samples into country totals: for each country of an inputs file (its area,
+its terrain classes and the samples standing for them, its data per km² and its download service),
+length variant (bands S, M, L), grid strategy, with and without the DSM, machine (its bench.json
+against the reference's) and scenario (low, high: the samples of each class): the data, the
+download days and the computing days of a run that keeps only counts. A sample is named
+<place>-<band>-<res>m; a missing resolution is scaled from the place's nearest one by the median
+ratio of the places measured at both.
+
+    uv run tools/perf_country.py estimate --inputs docs/country-precompute/inputs.json \\
+        --samples <scratch>/samples/samples.json [--json PATH]
+
 The options after "--" are findaline.py's; --no-plot, --yes and --ortho never are added. Give
 --data-dir there to keep the runs out of the repository's runs/.
 """
@@ -40,6 +51,7 @@ import json
 import math
 import os
 import platform
+import re
 import subprocess
 import sys
 import time
@@ -573,6 +585,225 @@ def cube(samples: Dict, names: List[str], cell: float, dims: Sequence[str]) -> D
 
 # ---------------------------------------------------------------- main
 
+# ---------------------------------------------------------------- estimate
+
+# What a country run that keeps only counts takes of a sample's stages (perf_profile's labels):
+# the grid (steps 1-2 without the downloads, which belong to the download estimate), the line
+# search (step 3) and the counts (step 4's groups and metres over water). The coordinates,
+# profiles and files of steps 4-5 are not needed, nor the start (imports, plan, index answers)
+GRID = re.compile(r"^Step [12]: (Compute|\(between bars\))")
+LINE = re.compile(r"^Step 3: ")
+COUNT = re.compile(r"^Step 4: Compute (grouping lines|over water)")
+DOWNLOAD = re.compile(r"Download")
+STEP1_BETWEEN = "Step 1: (between bars)"  # also holds the index answers when the sample downloaded
+LINE_BYTES = 450  # search.LINE_BYTES at 221dd10: the lines of a tile while it is counted
+SERIAL_EFFICIENCY = 0.85  # processes at once on as many cores: the share of a core each keeps
+OVERLAP_SHARE = 0.25  # the part of the shorter of serial and parallel time that the longer does not hide
+
+
+def sample_geometry(args: List[str]):
+    """A sample's search area in metres: a circle of --radius around (0, 0), or the polygon of
+    --area in the UTM zone of its centre."""
+    from shapely.geometry import Point, shape
+    from shapely.ops import transform, unary_union
+    from pyproj import Transformer
+    radius = option(args, "--radius")
+    path = option(args, "--area")
+    if path and os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        features = data["features"] if data.get("type") == "FeatureCollection" else [data]
+        geometry = unary_union([shape(f.get("geometry", f)) for f in features])
+        c = geometry.centroid
+        utm = f"EPSG:{32600 + int((c.x + 180) // 6) + 1 if c.y >= 0 else 32700 + int((c.x + 180) // 6) + 1}"
+        return transform(Transformer.from_crs("EPSG:4326", utm, always_xy=True).transform, geometry)
+    return Point(0, 0).buffer(float(radius or 1000), 256)
+
+
+def edge_fraction(geometry, reach: float, n: int = 1500, m: int = 48, seed: int = 0) -> float:
+    """The mean share of the disc of radius reach around a uniform point of the area that lies
+    inside the area (Monte Carlo): what a sample finds of partners and lines near its edge, against
+    a point deep inside a country, where nothing is cut off."""
+    from shapely import contains_xy
+    if reach <= 0:
+        return 1.0
+    rng = np.random.default_rng(seed)
+    left, bottom, right, top = geometry.bounds
+    points = np.empty((0, 2))
+    while len(points) < n:
+        xy = rng.uniform((left, bottom), (right, top), size=(4 * n, 2))
+        points = np.vstack([points, xy[contains_xy(geometry, xy[:, 0], xy[:, 1])]])
+    points = points[:n]
+    radius, angle = reach * np.sqrt(rng.uniform(size=(n, m))), rng.uniform(0, 2 * np.pi, size=(n, m))
+    x, y = points[:, :1] + radius * np.cos(angle), points[:, 1:] + radius * np.sin(angle)
+    return float(contains_xy(geometry, x.ravel(), y.ravel()).mean())
+
+
+def sample_metrics(sample: Dict, reach: float) -> Dict:
+    """Per Mpx and per km² what a sample measured (on its machine, all threads, one at a time):
+    the grid's wall seconds, the line search's CPU and wall seconds, the counts' seconds, the
+    lines and spots; the km² values divided by edge_fraction for the band's longest line."""
+    stages = sample["stages"]
+    wall = lambda s: s["wall_s"] or 0.0  # noqa: E731
+    downloaded = sum(wall(s) for s in stages if DOWNLOAD.search(s["stage"]))
+    grid = sum(wall(s) for s in stages if GRID.match(s["stage"]) and not DOWNLOAD.search(s["stage"])
+               and not (s["stage"] == STEP1_BETWEEN and downloaded > 1))
+    line_cpu = sum(s["cpu_s"] or 0.0 for s in stages if LINE.match(s["stage"]))
+    line_wall = sum(wall(s) for s in stages if LINE.match(s["stage"]))
+    count = sum(wall(s) for s in stages if COUNT.match(s["stage"]))
+    mpx = sample["grid"]["width"] * sample["grid"]["height"] / 1e6
+    km2 = sample["grid"]["area_km2"]
+    f = edge_fraction(sample_geometry(sample["args"]), reach)
+    return {"mpx": mpx, "km2": km2, "edge_fraction": round(f, 4), "grid_s_per_mpx": grid / mpx,
+            "line_cpu_per_km2": line_cpu / (km2 * f), "line_cores": line_cpu / line_wall if line_wall else None,
+            "count_s_per_km2": count / (km2 * f), "lines_per_km2": sample["summary"]["lines"] / (km2 * f),
+            "spots_per_km2": sample["summary"]["spots"] / (km2 * f)}
+
+
+def machine_factors(bench_file: str, reference_file: str) -> Dict:
+    """How a machine compares with the reference from their bench.json files (the M search): its
+    single-core stages' wall time (saving, prominence), the CPU seconds of the pair search, and the
+    cores the pair search keeps busy."""
+    with open(bench_file, encoding="utf-8") as f:
+        mine = json.load(f)
+    with open(reference_file, encoding="utf-8") as f:
+        ref = json.load(f)
+    stage = lambda d, label: next(s for s in d["searches"]["M"]["stages"] if s["stage"] == label)  # noqa: E731
+    serial = [stage(mine, k)["wall_s"] / stage(ref, k)["wall_s"]
+              for k in ("Step 5: Compute saving results", "Step 2: Compute anchor prominence and drop")]
+    pairs_mine, pairs_ref = stage(mine, "Step 3: Compute anchor pairs"), stage(ref, "Step 3: Compute anchor pairs")
+    return {"serial": float(np.mean(serial)), "cpu": pairs_mine["cpu_s"] / pairs_ref["cpu_s"],
+            "parallel_cores": pairs_mine["cpu_s"] / pairs_mine["wall_s"],
+            "physical_cores": mine["machine"]["physical_cores"]}
+
+
+def resolution_ratio(metrics: Dict[str, Dict], band: str, res_from: float, res_to: float, key: str) -> Optional[float]:
+    """The median ratio of a per-km² metric between two resolutions over the places measured at
+    both (names <place>-<band>-<res>m)."""
+    ratios = []
+    for name, m in metrics.items():
+        place, b, res = name.rsplit("-", 2)[0], name.rsplit("-", 2)[1], name.rsplit("-", 2)[2]
+        if b != band or res != f"{res_from:g}m":
+            continue
+        other = metrics.get(f"{place}-{band}-{res_to:g}m")
+        if other and m[key] > 0:
+            ratios.append(other[key] / m[key])
+    return float(np.median(ratios)) if ratios else None
+
+
+def place_metrics(metrics: Dict[str, Dict], place: str, band: str, res: float) -> Optional[Dict]:
+    """A place's metrics of a band at a resolution: measured, or from the place's nearest measured
+    resolution scaled by resolution_ratio (the grid's per-Mpx cost as it is); None if neither."""
+    exact = metrics.get(f"{place}-{band}-{res:g}m")
+    if exact:
+        return exact
+    measured = sorted((float(n.rsplit("-", 1)[1][:-1]), m) for n, m in metrics.items()
+                      if n.startswith(f"{place}-{band}-") and n.endswith("m") and n.count("-") == place.count("-") + 2)
+    for res_from, m in sorted(measured, key=lambda rm: abs(math.log(rm[0] / res))):
+        scaled = dict(m)
+        for key in ("line_cpu_per_km2", "count_s_per_km2", "lines_per_km2", "spots_per_km2"):
+            ratio = resolution_ratio(metrics, band, res_from, res, key)
+            if ratio is None:
+                break
+            scaled[key] = m[key] * ratio
+        else:
+            scaled["scaled_from"] = f"{res_from:g} m"
+            return scaled
+    return None
+
+
+def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, res: float, scenario: str,
+              dsm: bool, factors: Dict, memory_gb: float) -> Optional[Dict]:
+    """The wall time of one band of a country at a resolution on a machine: over candidate tile
+    cores, the grid (single-core, K tiles at once as memory allows) and the line search (all
+    cores), combined; the core with the shortest time wins."""
+    low, high = inputs["bands"][band]
+    overlap = high + inputs["margin_m"] + 2 * res
+    serial_km2 = line_cpu = count = lines = spots = 0.0
+    km2 = country["area_km2"]
+    for cls in country["classes"].values():
+        for place, weight in cls[scenario].items():
+            m = place_metrics(metrics, place, band, res)
+            if m is None:
+                return None
+            share = cls["share"] * weight
+            grid_factor = 1.0 if dsm else inputs.get("dsm_off_grid_factor", 1.0)
+            serial_km2 += share * m["grid_s_per_mpx"] * grid_factor / res ** 2  # s per km² of core, no overlap
+            line_cpu += share * km2 * m["line_cpu_per_km2"]
+            count += share * km2 * m["count_s_per_km2"]
+            lines += share * km2 * m["lines_per_km2"]
+            spots += share * km2 * m["spots_per_km2"]
+    best = None
+    lines_km2_max = lines / km2
+    for core_km in inputs["cores_km"]:
+        core = core_km * 1000.0
+        side = core + 2 * overlap
+        tile_bytes = (side / res) ** 2 * inputs["pixel_bytes"] + lines_km2_max * core_km ** 2 * LINE_BYTES
+        k = min(int(memory_gb * 1e9 // tile_bytes), factors["physical_cores"])
+        if k < 1:
+            continue
+        serial = (serial_km2 * km2 * (side / core) ** 2 + count) * factors["serial"]
+        parallel = line_cpu * factors["cpu"] / factors["parallel_cores"]
+        a, b = serial / (k * SERIAL_EFFICIENCY), parallel
+        wall = max(a, b) + OVERLAP_SHARE * min(a, b)
+        if best is None or wall < best["wall_s"]:
+            best = {"band": band, "res": res, "core_km": core_km, "tile_gb": round(tile_bytes / 1e9, 2), "tiles_at_once": k,
+                    "serial_s": round(serial), "line_wall_s": round(parallel), "wall_s": round(wall),
+                    "lines": round(lines), "spots": round(spots)}
+    return best
+
+
+def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
+    """Country totals: for each country, length variant, grid strategy, with and without the DSM,
+    machine and scenario (low, high): the data, the download and the computing time."""
+    metrics = {}
+    for name, sample in samples.items():
+        band = name.rsplit("-", 2)[1] if name.count("-") >= 2 else None
+        if band in inputs["bands"] and not name.endswith(("-45", "-50", "-nodsm", "-axiom", "-tiger", "-floors")):
+            metrics[name] = sample_metrics(sample, inputs["bands"][band][1])
+    # The grid without the DSM (one mosaic less): the mean ratio of the <name>-nodsm samples to theirs
+    pairs = [(n[:-len("-nodsm")], n) for n in samples if n.endswith("-nodsm") and n[:-len("-nodsm")] in samples]
+    if pairs and "dsm_off_grid_factor" not in inputs:
+        grid_of = lambda n: sample_metrics(samples[n], 0)["grid_s_per_mpx"]  # noqa: E731
+        inputs = {**inputs, "dsm_off_grid_factor": float(np.mean([grid_of(b) / grid_of(a) for a, b in pairs]))}
+    factors = {}
+    reference = os.path.join(base, inputs["machines"][inputs["reference"]]["bench"])
+    for name, machine_ in inputs["machines"].items():
+        factors[name] = machine_factors(os.path.join(base, machine_["bench"]), reference)
+    rows = []
+    for code, country in inputs["countries"].items():
+        for variant, bands in inputs["variants"].items():
+            for strategy, res_of in inputs["strategies"].items():
+                finest = min(res_of[b] for b in bands)
+                for dsm in (True, False):
+                    data = country["data"].get(f"{finest:g}") or country["data"][min(country["data"], key=float)]
+                    layers = {k: v for k, v in data.items() if dsm or k != "surface"}
+                    download_mb = sum(v["download_mb_km2"] for v in layers.values()) * country["area_km2"]
+                    cache_mb = sum(v["cache_mb_km2"] for v in layers.values()) * country["area_km2"]
+                    files = sum(v["files_per_km2"] for v in layers.values()) * country["area_km2"]
+                    service = country["service"]
+                    seconds = download_mb / min(service["mb_s"], inputs["link_mb_s"])
+                    if service.get("requests_per_min"):
+                        seconds = max(seconds, files / service["requests_per_min"] * 60)
+                    seconds += service.get("index_s", 0)
+                    for machine_name, machine_ in inputs["machines"].items():
+                        for scenario in ("low", "high"):
+                            parts = [band_time(inputs, metrics, country, b, res_of[b], scenario, dsm,
+                                               factors[machine_name], machine_["memory_gb"]) for b in bands]
+                            rows.append({
+                                "country": code, "variant": variant, "strategy": strategy, "dsm": dsm,
+                                "machine": machine_name, "scenario": scenario,
+                                "download_tb": round(download_mb / 1e6, 3), "cache_tb": round(cache_mb / 1e6, 3),
+                                "download_days": round(seconds / 86400, 2),
+                                "compute_days": None if None in parts else round(sum(p["wall_s"] for p in parts) / 86400, 2),
+                                "compute_hours": None if None in parts else round(sum(p["wall_s"] for p in parts) / 3600, 2),
+                                "lines": None if None in parts else sum(p["lines"] for p in parts),
+                                "spots": None if None in parts else sum(p["spots"] for p in parts),
+                                "bands": parts})
+    return {"metrics": metrics, "factors": factors, "dsm_off_grid_factor": inputs.get("dsm_off_grid_factor"),
+            "rows": rows}
+
+
 def write_json(path: Optional[str], data: Dict):
     if path:
         with open(path, "w", encoding="utf-8") as f:
@@ -606,6 +837,10 @@ def main():
     q.add_argument("--cell", type=float, default=1000, help="cell size in metres")
     q.add_argument("--dims", nargs="+", default=list(DIMS), help=f"dimensions of the key ({', '.join(DIMS)})")
     q.add_argument("--json", help="write the result here too")
+    e = sub.add_parser("estimate", help="country totals from the samples")
+    e.add_argument("--inputs", required=True, help="the countries, bands, strategies and machines (JSON)")
+    e.add_argument("--samples", required=True)
+    e.add_argument("--json", help="write the result here too")
     args = parser.parse_args()
 
     if args.command == "bench":
@@ -619,6 +854,15 @@ def main():
         print(markdown(result["rows"], ["cell", "band", "other", "ref_lines", "other_lines", "lines_ratio",
                                         "ref_spots", "other_spots", "spots_ratio", "cells", "spearman", "lost",
                                         "new"]))
+    elif args.command == "estimate":
+        with open(args.inputs, encoding="utf-8") as f:
+            inputs = json.load(f)
+        result = estimate(inputs, load_samples(args.samples), os.path.dirname(os.path.abspath(args.inputs)))
+        write_json(args.json, result)
+        rows = [{**r, "lines": r["lines"], "bands": " ".join(f"{p['band']}:{p['core_km']}km×{p['tiles_at_once']}"
+                                                             for p in r["bands"] if p)} for r in result["rows"]]
+        print(markdown(rows, ["country", "variant", "strategy", "dsm", "machine", "scenario", "download_tb",
+                              "cache_tb", "download_days", "compute_days", "lines", "spots", "bands"]))
     else:
         result = cube(load_samples(args.samples), args.names, args.cell, args.dims)
         write_json(args.json, result)

@@ -181,3 +181,60 @@ def test_cube_counts_the_keys(tmp_path):
                                                                                                     4, -1]
     with pytest.raises(SystemExit, match="unknown dimensions"):
         pc.cube(sample, ["x"], 1000, ["colour"])
+
+
+def test_edge_fraction():
+    circle = pc.sample_geometry(["--radius", "2000"])
+    assert pc.edge_fraction(circle, 0) == 1.0
+    assert pc.edge_fraction(circle, 5) > 0.99
+    assert 0.5 < pc.edge_fraction(circle, 2000) < 0.65  # a disc as wide as the area: about 0.58
+    assert pc.edge_fraction(circle, 500) > pc.edge_fraction(circle, 1000) > pc.edge_fraction(circle, 2000)
+
+
+def _bench(tmp_path, name, saving, pairs_cpu, pairs_wall, physical):
+    stages = [{"stage": "Step 5: Compute saving results", "wall_s": saving, "cpu_s": saving},
+              {"stage": "Step 2: Compute anchor prominence and drop", "wall_s": saving / 2, "cpu_s": saving},
+              {"stage": "Step 3: Compute anchor pairs", "wall_s": pairs_wall, "cpu_s": pairs_cpu}]
+    with open(tmp_path / name, "w") as f:
+        json.dump({"machine": {"physical_cores": physical}, "searches": {"M": {"stages": stages}}}, f)
+    return name
+
+
+def test_estimate_of_a_small_country(tmp_path):
+    stages = [{"stage": "Step 1: Download terrain tiles", "wall_s": 50.0, "cpu_s": 1.0},
+              {"stage": "Step 1: (between bars)", "wall_s": 9.0, "cpu_s": 1.0},  # index answers: left out
+              {"stage": "Step 1: Compute stitching terrain", "wall_s": 4.0, "cpu_s": 4.0},
+              {"stage": "Step 3: Compute anchor pairs", "wall_s": 1.0, "cpu_s": 20.0},
+              {"stage": "Step 4: Compute grouping lines", "wall_s": 0.5, "cpu_s": 0.5},
+              {"stage": "Step 5: Compute saving results", "wall_s": 9.0, "cpu_s": 9.0}]
+    sample = {"args": ["--radius", "2000"], "grid": {"width": 4600, "height": 4600, "area_km2": np.pi * 4},
+              "summary": {"lines": 100, "spots": 10}, "stages": stages}
+    inputs = {"bands": {"S": [30, 300]}, "variants": {"30-300 m": ["S"]},
+              "strategies": {"1 m": {"S": 1}, "2 m": {"S": 2}}, "cores_km": [5, 10], "pixel_bytes": 100,
+              "margin_m": 300, "link_mb_s": 100, "reference": "ref",
+              "machines": {"ref": {"bench": _bench(tmp_path, "ref.json", 4.0, 200.0, 10.0, 12), "memory_gb": 50},
+                           "slow": {"bench": _bench(tmp_path, "slow.json", 6.0, 220.0, 25.0, 6), "memory_gb": 40}},
+              "countries": {"X": {"name": "X", "area_km2": 1000,
+                                  "classes": {"all": {"share": 1.0, "low": {"flat": 1.0}, "high": {"flat": 1.0}}},
+                                  "data": {"1": {"terrain": {"download_mb_km2": 8, "cache_mb_km2": 2, "files_per_km2": 1},
+                                                 "surface": {"download_mb_km2": 8, "cache_mb_km2": 2, "files_per_km2": 1}}},
+                                  "service": {"mb_s": 10, "requests_per_min": 30, "index_s": 0}}}}
+    result = pc.estimate(inputs, {"flat-S-1m": sample}, str(tmp_path))
+    assert result["factors"]["ref"] == {"serial": 1.0, "cpu": 1.0, "parallel_cores": 20.0, "physical_cores": 12}
+    assert result["factors"]["slow"]["serial"] == 1.5 and result["factors"]["slow"]["parallel_cores"] == 8.8
+    rows = {(r["strategy"], r["dsm"], r["machine"], r["scenario"]): r for r in result["rows"]}
+    assert len(rows) == 16
+    ref, slow = rows[("1 m", True, "ref", "low")], rows[("1 m", True, "slow", "low")]
+    assert ref["download_tb"] == 0.016 and ref["cache_tb"] == 0.004
+    assert ref["download_days"] == round(2000 * 60 / 30 / 86400, 2)  # the rate of requests decides
+    assert rows[("1 m", False, "ref", "low")]["download_tb"] == 0.008  # without the surface model
+    [band] = ref["bands"]
+    m = result["metrics"]["flat-S-1m"]
+    assert m["grid_s_per_mpx"] == pytest.approx(4.0 / 21.16)  # the index answers and the download left out
+    side = band["core_km"] * 1000 + 2 * (300 + 300 + 2)
+    serial = m["grid_s_per_mpx"] * 1000 * (side / (band["core_km"] * 1000)) ** 2 + 1000 * m["count_s_per_km2"]
+    assert band["serial_s"] == round(serial) and band["line_wall_s"] == round(1000 * m["line_cpu_per_km2"] / 20)
+    assert slow["bands"][0]["wall_s"] > band["wall_s"] > 0 and ref["compute_hours"] == round(band["wall_s"] / 3600, 2)
+    assert ref["lines"] == round(100 / (np.pi * 4 * m["edge_fraction"]) * 1000)
+    # No sample at 2 m and no place measured at both resolutions: no estimate
+    assert rows[("2 m", True, "ref", "low")]["compute_days"] is None
