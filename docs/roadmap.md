@@ -892,6 +892,27 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
   - **Columns instead of a row per line** (large): `data.js`/`lines.js` as one array per value (or `Float64Array`s from base64), `toLine` and the model reading columns: parsing and memory several times smaller (about 1.1 GB of heap → a few hundred MB), but a new format for everything that reads the rows (`types.ts`, other runs, favourites' keys, the tests), with old runs still read as rows.
   - **Only the representatives in the page, a group's lines when it is opened** (large; the user's idea): (b)/(c) above, for runs of millions of lines; filters then act on whole groups (each with the ranges of its members) or move to the server.
 
+## Country layer (pilot: Slovakia, started 2026-11-02, branch `country-precompute`)
+The user's idea (2026-11-01): search whole countries offline in fixed tiles, keep only the counts of lines and spots per cell (no line positions or profiles), sum the cells into coarser levels and show them as a filterable layer of the map. The feasibility report is docs/country-precompute.md (data, download and computing time of Poland, Switzerland and Utah, legality, effort); the pilot's design is docs/country-precompute/contract.md. The branch stays out of `main` until the idea is finished (then one squash commit, its commits under `history/country-precompute`).
+- **Decided 2026-11-02 (the user)**:
+  - Slovakia first: the whole national ALS is on the local mirror, so nothing is downloaded but the Copernicus water mask.
+  - Bands, each on its own grid, searched with the band's lengths:
+    - S 30-300 m at 1 m, formula, anchors of 60°;
+    - M 300-1000 m at 2 m, sag, 60°. Its top was moved from 2000 to 1000 m (the user's proposal): in steep terrain 45-82 % of M's lines are 1-2 km, and those cost about twice as much per line at 2 m as at 5 m;
+    - L 1000-5000 m at 5 m, sag, 45°;
+    - a control band M2 (1000-2000 m at 2 m, 60°) is counted to measure what L's coarser grid loses (`country compare`).
+  - Rig: Silk 99 (41.0 g/m, 2.1 %), with a pretension T(L) growing with the span (300 m 2.5 kN, 1.5 km 6 kN, 5 km 15 kN).
+  - A spot is a pair of 50 m anchor clusters. The cube keeps 7 dimensions: length, prominence of the weaker anchor, wall angle of the steeper, clearance, webbing height, over trees, over water. Its cells are 1 km squares of the country's CRS, with levels of 2, 4 and 8 km.
+  - The layer lives in the local app (page `#layer`, the local user and administrators).
+  - A run resumes per tile. SQLite holds only the manifest; the counts are numpy files.
+  - **The pilot runs without the surface model**: C: had 107 GB free, and copying the mirror into `cache/` takes 134 GB (DMR 61, DMP 73). Hard links of the mirror's files were offered and declined. The trees dimension stays in the cube, empty for Slovakia.
+- **Open**:
+  - **T(L) as an option of the app's search** (the user, 2026-11-02): a field of `params.py` (span:kN points), `sag.TensionTable` (done for the country layer), `viewer/src/sag.ts` (the same solver: Python and the browser must match to 1e-6 m), the form, README. The profiles of `/api/profile` and the map's sag line follow it.
+  - **Lines across a border**: only lines with both anchors in the country are counted. A layer of several countries needs the cells of both CRSs, or one CRS per region, and the tiles at the border searched over both countries' data.
+  - **The surface model in the cube**: count again with `--nmpt mark` once the obstacle rule of *Priorities (open)* 1 is settled (on bare rock nearly every line is marked as over trees today) and the disk has room for the DMP.
+  - **Many countries**: the cube's arrays memory-mapped again (a build into a new folder swapped in, as Windows refuses replacing a mapped file); a query engine (DuckDB) only if the queries grow.
+  - **The layer's look**: the legend's class breaks (fixed guesses from the report's strata) after the first real cube; a lighter base map under the cells.
+
 ## Prominent lines (done 2026-10-27)
 In steep mountains a user wants the outstanding lines, not every line. New values per line, all saved (`lines.csv`, `data.js`), shown in the popup and filtered in the map, and the same as search limits (all off by default):
 - **Heights of the webbing above the terrain** (`height_max`, `height_mean`, `high_pct` of `--high-above` 20 m): the webbing of the clearance model (decided: with `--model sag` the chord minus the sag under the athlete, so the values follow the rigging; with the formula `min anchor − 0.15 × distance`); computed in the same pass as the clearance, so free. `--min-height`, `--min-mean-height`, `--min-high-share` drop lines right after the final check, before they become Python objects. `--group-by height` shows the highest line of a group.
