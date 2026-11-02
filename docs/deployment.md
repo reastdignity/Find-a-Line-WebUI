@@ -598,8 +598,9 @@ faces the visitors. Neither may plant what the other trusts:
 - numba's compiled code (pickles, loaded by every search process), the home folder and
   matplotlib's settings are in each service's own `/tmp` (a tmpfs, `HOME`, `NUMBA_CACHE_DIR`,
   `MPLCONFIGDIR` in compose.yaml): a compromised web service cannot leave code for the worker to
-  load, and the worker compiles its code again after each start of its container (a few
-  seconds, in the first search).
+  load, and the worker compiles its code again after each start of its container (about 40 s on
+  the VPS: `warmup.py` does it at the worker's start, in a process of its own, while the jobs
+  are already claimed; `FINDALINE_WARM_UP=0` leaves it to the first search).
 
 An accepted residual risk: the worker writes the runs, including each run's `data.js`, which
 its map page loads as a script. A compromised worker can therefore change what the map of a run

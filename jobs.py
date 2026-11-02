@@ -1681,9 +1681,13 @@ class Scheduler:
     Limits.compute_slots computing jobs at a time."""
 
     def __init__(self, jobs: Jobs, worker_id: Optional[str] = None, limits: Optional[Limits] = None,
-                 public: bool = False):
+                 public: bool = False, warm_up: bool = False):
         self.jobs = jobs
         self.public = public  # the worker of the public site
+        # Compile numba's kernels in a process of their own at the start (warmup.py): `findaline.py
+        # worker` and `web` (warm_up_wanted); the tests leave it off
+        self.warm_up = warm_up
+        self.warming = None  # that process
         self.limits = limits or Limits.load(public)  # FINDALINE_LIMIT_* (none locally), for its processes too
         self.quick = None  # the process of the quick lane
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
@@ -1727,12 +1731,22 @@ class Scheduler:
         self.jobs.register(self.worker_id)
         self.beat = time.time()
         self.jobs.interrupted()  # jobs of workers that are gone
+        self._start_warm_up()
+
+    def _start_warm_up(self):
+        """The numba warm-up (warmup.warm_up) in a daemonic process, while jobs are claimed: the
+        first search after a start (the public worker's numba cache is in a tmpfs) or after a
+        change of the code finds the kernels compiled, or compiles fewer of them itself."""
+        if self.warm_up and self.warming is None:
+            import warmup
+            self.warming = self.context.Process(target=warmup.warm_up, args=(self.jobs.data_dir,), daemon=True)
+            self.warming.start()
 
     def housekeeping(self):
         """Clean the data folder up: temporary files of downloads killed while writing; events of
         jobs finished more than Limits.keep_events_days ago; answers of the quick lane nobody took;
         work folders of ended jobs (kept after an unexpected error) after KEEP_WORK_DAYS, and those
-        of estimates and profiles (left by a killed quick lane) after a day. Measures the cache by
+        of estimates and profiles (left by a killed quick lane) and of the warm-up after a day. Measures the cache by
         top-level folder (write_cache_sizes) and the coverage of the searches (COVERAGE_FILE), and
         writes what this round removed, when it ended and how long it took (HOUSEKEEPING_FILE), for
         the metrics."""
@@ -1749,7 +1763,7 @@ class Scheduler:
         removed["usage"] = self.jobs.forget_usage()
         unfinished = {job["id"] for job in self.jobs.waiting_or_running()}
         removed["work"] = _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
-        for name in ("estimates", "profiles"):
+        for name in ("estimates", "profiles", "warmup"):  # warmup: warmup.FOLDER
             removed["work"] += _remove_old(os.path.join(data, "work", name), 1)
         try:
             _write_json(data, COVERAGE_FILE, coverage(self.jobs))
@@ -1769,6 +1783,9 @@ class Scheduler:
         with self.lock:
             self._kill_all()
             self.jobs.unregister(self.worker_id)
+            if self.warming is not None and self.warming.is_alive():
+                kill_tree(self.warming.pid)  # its temporary folder: removed by the housekeeping after a day
+                self.warming.join()
 
     def _kill_all(self):
         for phase in self.running:
@@ -1871,6 +1888,12 @@ class Scheduler:
                                                    "the OSM extract job" if osm else f"the {phase} phase"))
 
 
+def warm_up_wanted() -> bool:
+    """Whether the worker of `findaline.py worker` and `web` warms numba up at its start
+    (Scheduler.warm_up): yes, unless FINDALINE_WARM_UP=0."""
+    return os.environ.get("FINDALINE_WARM_UP", "").strip() != "0"
+
+
 def warn_without_cgroup(root: Optional[str] = None) -> bool:
     """The public worker sizes tiles and threads from the limits of its container (search.cgroup_limits,
     cgroup v2 only): a warning on stderr when it finds none (cgroup v1, or no mem_limit / cpus).
@@ -1907,7 +1930,7 @@ def main(argv: List[str]) -> int:
         os.environ["FINDALINE_PUBLIC_URL"], os.environ["FINDALINE_CONTACT"] = public.public_url, public.contact
     data = cache.data_dir(args.data_dir)
     cache.check_layout(os.path.join(data, "cache"))
-    scheduler = Scheduler(Jobs(data, public=args.public), public=args.public)
+    scheduler = Scheduler(Jobs(data, public=args.public), public=args.public, warm_up=warm_up_wanted())
     if args.public:
         warn_without_cgroup()
         import search

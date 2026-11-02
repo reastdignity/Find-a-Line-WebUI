@@ -56,7 +56,7 @@ import cache
 import messages
 from audit import KEEP_DAYS as AUDIT_DAYS, Audit
 import params as pm
-from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_params
+from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_params, warm_up_wanted
 from settings import AccountSettings, Limits, PublicSettings, web_key
 
 PORT = 8765
@@ -485,7 +485,7 @@ class RunFiles(StaticFiles):
 
 def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, start_scheduler: bool = True,
                public: Optional[PublicSettings] = None, limits: Optional[Limits] = None,
-               accounts: Optional[AccountSettings] = None, oauth_transport=None):
+               accounts: Optional[AccountSettings] = None, oauth_transport=None, warm_up: bool = False):
     """The FastAPI application (tests create it without the scheduler); with `public`, the public
     mode, which never runs the worker in this process and needs `accounts` (the sign-in;
     `oauth_transport`: an httpx2 transport to the providers, for tests). `limits` of the request
@@ -505,7 +505,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     limits = limits if limits is not None else Limits.load(public is not None)
     start_scheduler = start_scheduler and public is None
     jobs = Jobs(data_dir)
-    scheduler = Scheduler(jobs, limits=limits)
+    scheduler = Scheduler(jobs, limits=limits, warm_up=warm_up)  # warm_up: numba's (jobs.warm_up_wanted)
     users = ac.Accounts(data_dir, accounts) if public else None
     audit = Audit(data_dir) if public else None  # the local app keeps no audit log
     quick_answers = dict.fromkeys(QUICK_RESULTS, 0)  # waits for the quick lane by result, since the start
@@ -1950,7 +1950,8 @@ def main(argv: List[str]) -> int:
     accounts = AccountSettings.load() if args.public else None
     data = cache.data_dir(args.data_dir)
     cache.check_layout(os.path.join(data, "cache"))
-    app = create_app(data, port=args.port, start_scheduler=not args.no_worker, public=public, accounts=accounts)
+    app = create_app(data, port=args.port, start_scheduler=not args.no_worker, public=public, accounts=accounts,
+                     warm_up=warm_up_wanted())
     metrics_port = args.metrics_port if args.metrics_port is not None else (METRICS_PORT if public else 0)
     if metrics_port:
         import metrics
