@@ -184,7 +184,7 @@ def _read(cache_dir: str, url: Optional[str]) -> str:
     return ""
 
 
-def _text(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
+def _xyz_head(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
     """The first KB of a tile's plain XYZ file (no Range: the stream is closed after it); raises unless it
     is text/plain whose first line holds three numbers (an outdated link answers an HTML page)."""
     url = layer.index.request(tile).url
@@ -349,7 +349,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
             elif kind == "getmap":
                 _getmap(cache_dir, layer, tiles[0])
             elif kind == "text":
-                _text(cache_dir, layer, tiles[0])
+                _xyz_head(cache_dir, layer, tiles[0])
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:

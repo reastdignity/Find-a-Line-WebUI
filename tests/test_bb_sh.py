@@ -335,8 +335,8 @@ def test_probe_reads_the_first_kb(monkeypatch, tmp_path):
             return 200, kind, body
         return http
     monkeypatch.setattr(probe, "_http", answer("text/plain;charset=UTF-8", b"426000.50 6005999.50 12.34\n426001.50"))
-    assert probe._text(str(tmp_path), layer, tile) == "" and asked == [None]
+    assert probe._xyz_head(str(tmp_path), layer, tile) == "" and asked == [None]
     for kind, body in (("text/html; charset=UTF-8", _body("002-sh-stale.html")), ("text/plain", b"<html>")):
         monkeypatch.setattr(probe, "_http", answer(kind, body))
         with pytest.raises(RuntimeError, match="HTTP 200"):
-            probe._text(str(tmp_path), layer, tile)
+            probe._xyz_head(str(tmp_path), layer, tile)
