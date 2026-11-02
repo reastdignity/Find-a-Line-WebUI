@@ -600,10 +600,17 @@ def _tiles(grid: gd.Grid, params: SearchParams, res: float, origin, core: float)
 
 def estimate_search(plan: Plan) -> Estimate:
     """What the search would download and how much disk its working grids take."""
+    from concurrent.futures import ThreadPoolExecutor  # here: the module's imports are another task's
     p, emit = plan.params, plan.emit
     download_mb = 0.0
+    # The layers' indexes asked at the same time (as download_layers does: a WFS query of
+    # geoportal.gov.pl takes seconds), each layer once; the lines in the order of the layers
+    distinct = list({id(layer): layer for layer in plan.layers}.values())
+    with ThreadPoolExecutor(max_workers=max(len(distinct), 1)) as pool:
+        estimated = dict(zip(map(id, distinct), pool.map(
+            lambda layer: layer.estimate(plan.grid, plan.paths.cache, p.update), distinct)))
     for layer in plan.layers:
-        n_tiles, n_missing, mb = layer.estimate(plan.grid, plan.paths.cache, p.update)
+        n_tiles, n_missing, mb = estimated[id(layer)]
         download_mb += mb
         emit("info", f"{layer.description}: {n_tiles} tiles, {n_missing} to download (~{mb:.0f} MB)")
     if p.water == "fill" and p.coastline == "world" and coast.world_file(plan.paths.cache) is None:

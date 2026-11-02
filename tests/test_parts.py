@@ -361,6 +361,33 @@ def test_index_tiles_at_once(tmp_path):
     assert [s.url for s in sheets] == [f"https://x.example/{order[0][0]}_{order[0][1]}/A.asc"]
 
 
+def test_estimate_lists_the_layers_at_once():
+    """search.estimate_search asks the layers' indexes at the same time (each would wait for the
+    other at the barrier), the lines in the order of the layers."""
+    import types
+
+    import search
+    barrier = threading.Barrier(2, timeout=10)
+
+    class Layer:
+        def __init__(self, name, n):
+            self.description, self.n = name, n
+
+        def estimate(self, grid, cache_dir, update):
+            barrier.wait()
+            return self.n, self.n, self.n * 10.0
+    lines = []
+    plan = types.SimpleNamespace(
+        params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None),
+        emit=lambda kind, text: lines.append(text), layers=[Layer("terrain", 2), Layer("surface", 3)],
+        grid=Grid(left=0.0, top=1000.0, res=10.0, height=100, width=100, crs="EPSG:2180"),
+        paths=types.SimpleNamespace(cache="unused", work="unused"), tiles=None, area=None,
+        source=types.SimpleNamespace(name="test"))
+    estimate = search.estimate_search(plan)
+    assert lines == ["terrain: 2 tiles, 2 to download (~20 MB)", "surface: 3 tiles, 3 to download (~30 MB)"]
+    assert estimate.download_mb == 50.0
+
+
 # The composed layer, with fake parts
 
 class FakeIndex(src.composed.Index):
