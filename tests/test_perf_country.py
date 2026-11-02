@@ -268,7 +268,11 @@ def test_estimate_of_a_small_country(tmp_path):
     assert rows[("1 m", True, "ref", "low")]["lines"] == 940 * 0 + 60 * 200
     assert rows[("1 m", True, "ref", "high")]["lines"] == 940 * 10 + 60 * 200
     assert ref["download_tb"] == 0.016 and ref["cache_tb"] == 0.004
-    assert ref["download_days"] == round(2000 * 60 / 30 / 86400, 2)  # the rate of requests decides
+    assert ref["download_days"] == round(2000 * 60 / 30 / 86400, 4)  # the rate of requests decides
+    local = json.loads(json.dumps(inputs))
+    local["countries"]["X"]["service"] = {"mb_s": 500, "local": True, "requests_per_min": None, "index_s": 0}
+    copied = next(r for r in pc.estimate(local, samples, str(tmp_path))["rows"] if r["dsm"])
+    assert copied["download_days"] == round(16 * 1000 / 500 / 86400, 4)  # a local copy: not over the link
     assert rows[("1 m", False, "ref", "mid")]["download_tb"] == 0.008  # without the surface model
     model = result["models"]["S 1 m"]
     m = result["metrics"]

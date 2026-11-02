@@ -1320,7 +1320,8 @@ def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
                     cache_mb = sum(v["cache_mb_km2"] for v in layers.values()) * km2
                     files = sum(v["files_per_km2"] for v in layers.values()) * km2
                     service = country["service"]
-                    seconds = download_mb / min(service["mb_s"], inputs["link_mb_s"])
+                    # A local copy (Slovakia's mirror) does not cross the internet link
+                    seconds = download_mb / (service["mb_s"] if service.get("local") else min(service["mb_s"], inputs["link_mb_s"]))
                     if service.get("requests_per_min"):
                         seconds = max(seconds, files / service["requests_per_min"] * 60)
                     seconds += service.get("index_s", 0)
@@ -1338,7 +1339,7 @@ def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
                                 "country": code, "variant": variant, "strategy": strategy, "dsm": dsm,
                                 "machine": machine_name, "scenario": scenario,
                                 "download_tb": round(download_mb / 1e6, 3), "cache_tb": round(cache_mb / 1e6, 3),
-                                "download_days": round(seconds / 86400, 2),
+                                "download_days": round(seconds / 86400, 4),
                                 "compute_days": round(sum(p["wall_s"] for p in parts) / 86400, 2) if done else None,
                                 "compute_hours": round(sum(p["wall_s"] for p in parts) / 3600, 2) if done else None,
                                 "compute_days_with_groups":

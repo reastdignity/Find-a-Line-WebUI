@@ -1,0 +1,8887 @@
+{
+ "pl-niz-S-1m": {
+  "args": [
+   "--lat",
+   "52.740",
+   "--lon",
+   "15.355",
+   "--radius",
+   "2500",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "c9b0a7856e829de4824291cbf76055e5c0c7e3f7",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 5601,
+   "height": 5601,
+   "res": 1.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 326,
+   "grids": 1,
+   "anchors_kept": 326,
+   "open": 0,
+   "todo": 0,
+   "candidates": 0,
+   "checked": 0,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 1.4,
+    "cpu_s": 0.3,
+    "cores": 0.18,
+    "peak_rss_mb": 136.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.0,
+    "cpu_s": 0.9,
+    "cores": 0.91,
+    "peak_rss_mb": 563.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.9,
+    "cpu_s": 0.8,
+    "cores": 0.95,
+    "peak_rss_mb": 307.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 0.99,
+    "peak_rss_mb": 348.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.5,
+    "cores": 2.25,
+    "peak_rss_mb": 549.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": 0.94,
+    "peak_rss_mb": 854.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.0,
+    "peak_rss_mb": 523.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.98,
+    "peak_rss_mb": 487.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.7,
+    "cpu_s": 3.6,
+    "cores": 4.85,
+    "peak_rss_mb": 588.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.3,
+    "cores": 20.87,
+    "peak_rss_mb": 523.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 18.9,
+    "peak_rss_mb": 523.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 18.9,
+    "peak_rss_mb": 502.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 18.9,
+    "peak_rss_mb": 502.0
+   }
+  ],
+  "total": {
+   "wall_s": 6.21,
+   "cpu_s": 10.01,
+   "peak_rss_mb": 854.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "pl-jura-S-1m": {
+  "args": [
+   "--lat",
+   "50.190",
+   "--lon",
+   "19.735",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_011639_50-19000-19-73500_82f4ad5be54870f4",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "c9b0a7856e829de4824291cbf76055e5c0c7e3f7",
+  "summary": {
+   "lines": 2351,
+   "spots": 95
+  },
+  "grid": {
+   "width": 8601,
+   "height": 8601,
+   "res": 1.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 66381,
+   "grids": 1,
+   "anchors_kept": 66381,
+   "open": 7958,
+   "todo": 7958,
+   "candidates": 351330,
+   "checked": 18199,
+   "found": 2351,
+   "valid": 2351,
+   "left_out": 0,
+   "lines": 2351
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 1.5,
+    "cpu_s": 0.3,
+    "cores": 0.21,
+    "peak_rss_mb": 143.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 2.0,
+    "cpu_s": 1.9,
+    "cores": 0.96,
+    "peak_rss_mb": 1423.0
+   },
+   {
+    "stage": "Step 1: Download terrain, surface tiles",
+    "wall_s": 30.4,
+    "cpu_s": 2.3,
+    "cores": 0.08,
+    "peak_rss_mb": 298.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.7,
+    "cpu_s": 1.6,
+    "cores": 0.95,
+    "peak_rss_mb": 497.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 1.8,
+    "cpu_s": 1.7,
+    "cores": 0.91,
+    "peak_rss_mb": 566.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.4,
+    "cpu_s": 1.1,
+    "cores": 2.54,
+    "peak_rss_mb": 1086.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.8,
+    "cpu_s": 0.8,
+    "cores": 0.95,
+    "peak_rss_mb": 1863.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 0.99,
+    "peak_rss_mb": 915.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.7,
+    "cpu_s": 0.8,
+    "cores": 1.01,
+    "peak_rss_mb": 903.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 4.1,
+    "cpu_s": 8.7,
+    "cores": 2.11,
+    "peak_rss_mb": 1504.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 21.33,
+    "peak_rss_mb": 916.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 1.0,
+    "cores": 21.74,
+    "peak_rss_mb": 915.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 21.74,
+    "peak_rss_mb": 916.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 21.74,
+    "peak_rss_mb": 916.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 17.71,
+    "peak_rss_mb": 994.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 21.74,
+    "peak_rss_mb": 916.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.4,
+    "cpu_s": 3.1,
+    "cores": 7.35,
+    "peak_rss_mb": 929.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 7.18,
+    "peak_rss_mb": 942.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 2.1,
+    "cpu_s": 4.5,
+    "cores": 2.11,
+    "peak_rss_mb": 994.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.36,
+    "peak_rss_mb": 279.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 3.1,
+    "cpu_s": 0.6,
+    "cores": 0.2,
+    "peak_rss_mb": 279.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.66,
+    "peak_rss_mb": 279.0
+   }
+  ],
+  "total": {
+   "wall_s": 50.15,
+   "cpu_s": 31.78,
+   "peak_rss_mb": 1863.0
+  }
+ },
+ "pl-tatry-S-1m": {
+  "args": [
+   "--lat",
+   "49.235",
+   "--lon",
+   "20.000",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_012623_Dolina-Zielona-Gasienicowa-Zakopane_2a3ffd48883a104c",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "c9b0a7856e829de4824291cbf76055e5c0c7e3f7",
+  "summary": {
+   "lines": 44397,
+   "spots": 1498
+  },
+  "grid": {
+   "width": 8601,
+   "height": 8601,
+   "res": 1.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 1369438,
+   "grids": 1,
+   "anchors_kept": 1369438,
+   "open": 126572,
+   "todo": 126572,
+   "candidates": 16233188,
+   "checked": 536545,
+   "found": 44398,
+   "valid": 44397,
+   "left_out": 0,
+   "lines": 44397
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 12.1,
+    "cpu_s": 5.3,
+    "cores": 0.44,
+    "peak_rss_mb": 188.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 13.0,
+    "cpu_s": 12.4,
+    "cores": 0.95,
+    "peak_rss_mb": 3235.0
+   },
+   {
+    "stage": "Step 1: Download terrain, surface tiles",
+    "wall_s": 481.1,
+    "cpu_s": 76.4,
+    "cores": 0.16,
+    "peak_rss_mb": 1671.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.4,
+    "cpu_s": 1.3,
+    "cores": 0.95,
+    "peak_rss_mb": 553.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.5,
+    "cpu_s": 7.6,
+    "cores": 1.38,
+    "peak_rss_mb": 979.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.6,
+    "cpu_s": 1.5,
+    "cores": 2.58,
+    "peak_rss_mb": 925.0
+   },
+   {
+    "stage": "Step 1: Download gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0)) tiles",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.18,
+    "peak_rss_mb": 1807.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0))",
+    "wall_s": 3.0,
+    "cpu_s": 5.1,
+    "cores": 1.71,
+    "peak_rss_mb": 2030.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (FABDEM + Copernicus DEM)",
+    "wall_s": 1.3,
+    "cpu_s": 4.3,
+    "cores": 3.34,
+    "peak_rss_mb": 2332.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 0.98,
+    "peak_rss_mb": 2019.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.2,
+    "cores": 1.01,
+    "peak_rss_mb": 1239.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 1.0,
+    "peak_rss_mb": 1064.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 5.9,
+    "cpu_s": 11.8,
+    "cores": 2.0,
+    "peak_rss_mb": 1990.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.4,
+    "cpu_s": 3.1,
+    "cores": 8.76,
+    "peak_rss_mb": 1361.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.3,
+    "cpu_s": 7.7,
+    "cores": 22.39,
+    "peak_rss_mb": 1212.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.2,
+    "cpu_s": 3.6,
+    "cores": 19.23,
+    "peak_rss_mb": 1235.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.7,
+    "cores": 20.81,
+    "peak_rss_mb": 1235.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.5,
+    "cores": 17.3,
+    "peak_rss_mb": 1235.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 22.59,
+    "peak_rss_mb": 1235.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 1.0,
+    "cores": 22.59,
+    "peak_rss_mb": 1235.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.8,
+    "cores": 22.59,
+    "peak_rss_mb": 1176.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.3,
+    "cores": 21.64,
+    "peak_rss_mb": 1176.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.3,
+    "cores": 1.93,
+    "peak_rss_mb": 559.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 2.3,
+    "cpu_s": 0.7,
+    "cores": 0.3,
+    "peak_rss_mb": 374.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.81,
+    "peak_rss_mb": 374.0
+   }
+  ],
+  "total": {
+   "wall_s": 531.03,
+   "cpu_s": 150.04,
+   "peak_rss_mb": 3235.0
+  }
+ },
+ "ch-plateau-S-1m": {
+  "args": [
+   "--lat",
+   "47.200",
+   "--lon",
+   "7.700",
+   "--radius",
+   "2500",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "c9b0a7856e829de4824291cbf76055e5c0c7e3f7",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 5601,
+   "height": 5601,
+   "res": 1.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 4274,
+   "grids": 1,
+   "anchors_kept": 4274,
+   "open": 159,
+   "todo": 159,
+   "candidates": 167,
+   "checked": 0,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 32.0,
+    "cpu_s": 0.9,
+    "cores": 0.03,
+    "peak_rss_mb": 159.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.1,
+    "cpu_s": 1.0,
+    "cores": 0.91,
+    "peak_rss_mb": 573.0
+   },
+   {
+    "stage": "Step 1: Download terrain, surface, water mask tiles",
+    "wall_s": 143.2,
+    "cpu_s": 19.0,
+    "cores": 0.13,
+    "peak_rss_mb": 179.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.3,
+    "cpu_s": 3.4,
+    "cores": 1.49,
+    "peak_rss_mb": 378.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.4,
+    "cpu_s": 2.9,
+    "cores": 1.19,
+    "peak_rss_mb": 416.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.39,
+    "peak_rss_mb": 577.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": 0.99,
+    "peak_rss_mb": 870.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.95,
+    "peak_rss_mb": 543.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.96,
+    "peak_rss_mb": 506.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 4.5,
+    "cores": 3.77,
+    "peak_rss_mb": 670.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.4,
+    "cores": 20.28,
+    "peak_rss_mb": 543.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 20.26,
+    "peak_rss_mb": 543.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 20.26,
+    "peak_rss_mb": 502.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 20.26,
+    "peak_rss_mb": 502.0
+   }
+  ],
+  "total": {
+   "wall_s": 183.32,
+   "cpu_s": 35.02,
+   "peak_rss_mb": 870.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ch-alps-S-1m": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_013044_Schiltbach-Bischoffsmatte_5b5a697c32c35246",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "c9b0a7856e829de4824291cbf76055e5c0c7e3f7",
+  "summary": {
+   "lines": 384810,
+   "spots": 7834
+  },
+  "grid": {
+   "width": 8601,
+   "height": 8601,
+   "res": 1.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 3115269,
+   "grids": 1,
+   "anchors_kept": 3115269,
+   "open": 571396,
+   "todo": 571396,
+   "candidates": 87478232,
+   "checked": 2689683,
+   "found": 384810,
+   "valid": 384810,
+   "left_out": 0,
+   "lines": 384810
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 1.0,
+    "cpu_s": 0.7,
+    "cores": 0.68,
+    "peak_rss_mb": 147.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 2.6,
+    "cpu_s": 2.4,
+    "cores": 0.93,
+    "peak_rss_mb": 1243.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 6.1,
+    "cpu_s": 7.1,
+    "cores": 1.17,
+    "peak_rss_mb": 527.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.6,
+    "cpu_s": 7.5,
+    "cores": 1.34,
+    "peak_rss_mb": 603.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.4,
+    "cpu_s": 0.8,
+    "cores": 1.84,
+    "peak_rss_mb": 836.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.9,
+    "cpu_s": 0.8,
+    "cores": 0.95,
+    "peak_rss_mb": 1786.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.7,
+    "cores": 1.01,
+    "peak_rss_mb": 1362.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 0.99,
+    "peak_rss_mb": 887.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 6.6,
+    "cpu_s": 14.3,
+    "cores": 2.16,
+    "peak_rss_mb": 1944.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.8,
+    "cpu_s": 5.3,
+    "cores": 6.35,
+    "peak_rss_mb": 1506.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 1.2,
+    "cpu_s": 25.4,
+    "cores": 21.62,
+    "peak_rss_mb": 1126.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.8,
+    "cpu_s": 16.9,
+    "cores": 20.87,
+    "peak_rss_mb": 1198.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.1,
+    "cpu_s": 3.0,
+    "cores": 21.69,
+    "peak_rss_mb": 1210.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.7,
+    "cores": 9.64,
+    "peak_rss_mb": 1130.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.3,
+    "cpu_s": 0.8,
+    "cores": 3.26,
+    "peak_rss_mb": 1068.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.1,
+    "cpu_s": 1.8,
+    "cores": 19.45,
+    "peak_rss_mb": 1068.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.1,
+    "cpu_s": 2.3,
+    "cores": 18.64,
+    "peak_rss_mb": 1130.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.3,
+    "cores": 15.21,
+    "peak_rss_mb": 1130.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.6,
+    "cores": 2.11,
+    "peak_rss_mb": 417.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 1.4,
+    "cpu_s": 0.3,
+    "cores": 0.22,
+    "peak_rss_mb": 442.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 2.1,
+    "cpu_s": 2.1,
+    "cores": 0.99,
+    "peak_rss_mb": 442.0
+   }
+  ],
+  "total": {
+   "wall_s": 32.21,
+   "cpu_s": 95.89,
+   "peak_rss_mb": 1944.0
+  }
+ },
+ "ut-sevier-S-1m": {
+  "args": [
+   "--lat",
+   "39.350",
+   "--lon",
+   "-112.550",
+   "--radius",
+   "2500",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "c9b0a7856e829de4824291cbf76055e5c0c7e3f7",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 5601,
+   "height": 5601,
+   "res": 1.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 17,
+   "grids": 1,
+   "anchors_kept": 17,
+   "open": 0,
+   "todo": 0,
+   "candidates": 0,
+   "checked": 0,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 2.0,
+    "cpu_s": 0.4,
+    "cores": 0.19,
+    "peak_rss_mb": 147.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.6,
+    "cores": 0.94,
+    "peak_rss_mb": 743.0
+   },
+   {
+    "stage": "Step 1: Download terrain, water mask tiles",
+    "wall_s": 10.4,
+    "cpu_s": 8.7,
+    "cores": 0.83,
+    "peak_rss_mb": 289.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.7,
+    "cpu_s": 0.7,
+    "cores": 0.96,
+    "peak_rss_mb": 290.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.5,
+    "cores": 1.88,
+    "peak_rss_mb": 567.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.96,
+    "peak_rss_mb": 743.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.98,
+    "peak_rss_mb": 743.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.0,
+    "peak_rss_mb": 353.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.3,
+    "cpu_s": 2.6,
+    "cores": 8.76,
+    "peak_rss_mb": 388.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.9,
+    "cores": 16.14,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 15.73,
+    "peak_rss_mb": 388.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 15.73,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 15.73,
+    "peak_rss_mb": 391.0
+   }
+  ],
+  "total": {
+   "wall_s": 15.3,
+   "cpu_s": 15.86,
+   "peak_rss_mb": 743.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ut-zion-S-1m": {
+  "args": [
+   "--lat",
+   "37.260",
+   "--lon",
+   "-112.950",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_013300_Zion-Canyon-Zion-Lodge_6a9a682fc4c2baf5",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "1f156d3656023377711c0b72470f3755ef4e8b2e",
+  "summary": {
+   "lines": 7304748,
+   "spots": 30405
+  },
+  "grid": {
+   "width": 8601,
+   "height": 8601,
+   "res": 1.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 6839282,
+   "grids": 1,
+   "anchors_kept": 6839282,
+   "open": 1371300,
+   "todo": 1371300,
+   "candidates": 460336228,
+   "checked": 41406185,
+   "found": 7304754,
+   "valid": 7304748,
+   "left_out": 0,
+   "lines": 7304748
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 3.5,
+    "cpu_s": 0.7,
+    "cores": 0.19,
+    "peak_rss_mb": 147.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.6,
+    "cpu_s": 1.5,
+    "cores": 0.96,
+    "peak_rss_mb": 1522.0
+   },
+   {
+    "stage": "Step 1: Download terrain, water mask tiles",
+    "wall_s": 34.6,
+    "cpu_s": 12.6,
+    "cores": 0.36,
+    "peak_rss_mb": 297.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.6,
+    "cpu_s": 1.5,
+    "cores": 0.95,
+    "peak_rss_mb": 459.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.5,
+    "cpu_s": 0.8,
+    "cores": 1.71,
+    "peak_rss_mb": 854.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.8,
+    "cpu_s": 0.8,
+    "cores": 0.99,
+    "peak_rss_mb": 1551.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.7,
+    "cores": 0.97,
+    "peak_rss_mb": 1014.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 1.0,
+    "cpu_s": 1.0,
+    "cores": 1.01,
+    "peak_rss_mb": 638.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 9.5,
+    "cpu_s": 17.0,
+    "cores": 1.79,
+    "peak_rss_mb": 1798.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 2.9,
+    "cpu_s": 5.7,
+    "cores": 1.94,
+    "peak_rss_mb": 2480.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 2.8,
+    "cpu_s": 59.5,
+    "cores": 20.91,
+    "peak_rss_mb": 1133.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 5.8,
+    "cpu_s": 87.4,
+    "cores": 15.0,
+    "peak_rss_mb": 1427.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 2.2,
+    "cpu_s": 44.3,
+    "cores": 20.21,
+    "peak_rss_mb": 2337.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.99,
+    "peak_rss_mb": 2687.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 1.8,
+    "cpu_s": 2.3,
+    "cores": 1.29,
+    "peak_rss_mb": 2298.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 1.5,
+    "cpu_s": 31.4,
+    "cores": 20.44,
+    "peak_rss_mb": 2469.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 5.0,
+    "cpu_s": 6.9,
+    "cores": 1.36,
+    "peak_rss_mb": 2730.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 2.3,
+    "cpu_s": 4.6,
+    "cores": 1.97,
+    "peak_rss_mb": 2687.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.2,
+    "cores": 0.99,
+    "peak_rss_mb": 2117.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 2.1,
+    "cpu_s": 0.3,
+    "cores": 0.16,
+    "peak_rss_mb": 2144.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 41.7,
+    "cpu_s": 40.6,
+    "cores": 0.97,
+    "peak_rss_mb": 2144.0
+   }
+  ],
+  "total": {
+   "wall_s": 123.16,
+   "cpu_s": 320.66,
+   "peak_rss_mb": 2730.0
+  }
+ },
+ "pl-niz-M-2m": {
+  "args": [
+   "--lat",
+   "52.740",
+   "--lon",
+   "15.355",
+   "--radius",
+   "2500",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 2801,
+   "height": 2801,
+   "res": 2.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 3,
+   "grids": 1,
+   "anchors_kept": 3,
+   "open": 2,
+   "todo": 2,
+   "candidates": 1,
+   "checked": 0,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 1.1,
+    "cpu_s": 0.3,
+    "cores": 0.24,
+    "peak_rss_mb": 143.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.5,
+    "cpu_s": 0.4,
+    "cores": 0.69,
+    "peak_rss_mb": 231.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.0,
+    "cpu_s": 1.1,
+    "cores": 1.05,
+    "peak_rss_mb": 231.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 1.0,
+    "cpu_s": 0.9,
+    "cores": 0.98,
+    "peak_rss_mb": 224.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.66,
+    "peak_rss_mb": 222.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.01,
+    "peak_rss_mb": 220.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.89,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.99,
+    "peak_rss_mb": 262.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.2,
+    "cpu_s": 1.2,
+    "cores": 5.11,
+    "peak_rss_mb": 272.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 11.81,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.3,
+    "cpu_s": 2.7,
+    "cores": 2.1,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 11.8,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 11.8,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 11.8,
+    "peak_rss_mb": 206.0
+   }
+  ],
+  "total": {
+   "wall_s": 5.57,
+   "cpu_s": 7.9,
+   "peak_rss_mb": 281.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ut-wasatch-S-1m": {
+  "args": [
+   "--lat",
+   "40.570",
+   "--lon",
+   "-111.680",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_013657_White-Pines-Fork-Salt-Lake-County_48b3edf78c184890",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 1145,
+   "spots": 64
+  },
+  "grid": {
+   "width": 8601,
+   "height": 8601,
+   "res": 1.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 1222918,
+   "grids": 1,
+   "anchors_kept": 1222918,
+   "open": 42849,
+   "todo": 42849,
+   "candidates": 1674982,
+   "checked": 27138,
+   "found": 1145,
+   "valid": 1145,
+   "left_out": 0,
+   "lines": 1145
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 2.5,
+    "cpu_s": 0.5,
+    "cores": 0.21,
+    "peak_rss_mb": 147.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 5.2,
+    "cpu_s": 4.8,
+    "cores": 0.94,
+    "peak_rss_mb": 2787.0
+   },
+   {
+    "stage": "Step 1: Download terrain, water mask tiles",
+    "wall_s": 31.9,
+    "cpu_s": 16.3,
+    "cores": 0.51,
+    "peak_rss_mb": 324.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.8,
+    "cpu_s": 1.7,
+    "cores": 0.96,
+    "peak_rss_mb": 453.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.6,
+    "cpu_s": 1.6,
+    "cores": 2.5,
+    "peak_rss_mb": 1094.0
+   },
+   {
+    "stage": "Step 1: Download gap fill (USGS 3DEP (1/3 arc-second DEM)) tiles",
+    "wall_s": 4.3,
+    "cpu_s": 1.1,
+    "cores": 0.27,
+    "peak_rss_mb": 1164.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (USGS 3DEP (1/3 arc-second DEM))",
+    "wall_s": 0.8,
+    "cpu_s": 3.0,
+    "cores": 3.71,
+    "peak_rss_mb": 1702.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 0.99,
+    "peak_rss_mb": 1517.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 1.0,
+    "peak_rss_mb": 753.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 1.0,
+    "cpu_s": 1.1,
+    "cores": 1.02,
+    "peak_rss_mb": 586.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 7.2,
+    "cpu_s": 13.1,
+    "cores": 1.82,
+    "peak_rss_mb": 1560.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.4,
+    "cpu_s": 3.2,
+    "cores": 8.28,
+    "peak_rss_mb": 863.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.2,
+    "cpu_s": 4.3,
+    "cores": 21.83,
+    "peak_rss_mb": 718.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 11.08,
+    "peak_rss_mb": 739.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 17.93,
+    "peak_rss_mb": 739.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 20.87,
+    "peak_rss_mb": 739.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 17.93,
+    "peak_rss_mb": 739.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 17.93,
+    "peak_rss_mb": 739.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 17.93,
+    "peak_rss_mb": 685.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.0,
+    "cpu_s": 0.8,
+    "cores": 18.94,
+    "peak_rss_mb": 685.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.32,
+    "peak_rss_mb": 228.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 1.6,
+    "cpu_s": 1.3,
+    "cores": 0.84,
+    "peak_rss_mb": 229.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.37,
+    "peak_rss_mb": 229.0
+   }
+  ],
+  "total": {
+   "wall_s": 59.56,
+   "cpu_s": 57.36,
+   "peak_rss_mb": 2787.0
+  }
+ },
+ "pl-jura-M-2m": {
+  "args": [
+   "--lat",
+   "50.190",
+   "--lon",
+   "19.735",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_013711_Szklarka-Gierot_592d5bca5784dbe4",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 33514,
+   "spots": 569
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 13041,
+   "grids": 1,
+   "anchors_kept": 13041,
+   "open": 10536,
+   "todo": 10536,
+   "candidates": 13234369,
+   "checked": 941623,
+   "found": 33514,
+   "valid": 33514,
+   "left_out": 0,
+   "lines": 33514
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.4,
+    "cpu_s": 0.3,
+    "cores": 0.66,
+    "peak_rss_mb": 144.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.7,
+    "cores": 1.01,
+    "peak_rss_mb": 373.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.9,
+    "cpu_s": 2.6,
+    "cores": 1.35,
+    "peak_rss_mb": 337.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.4,
+    "cpu_s": 3.2,
+    "cores": 1.32,
+    "peak_rss_mb": 356.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": 0.87,
+    "peak_rss_mb": 396.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.02,
+    "peak_rss_mb": 602.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.02,
+    "peak_rss_mb": 407.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 357.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.9,
+    "cpu_s": 3.7,
+    "cores": 4.27,
+    "peak_rss_mb": 491.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 18.38,
+    "peak_rss_mb": 408.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.5,
+    "cpu_s": 3.6,
+    "cores": 2.39,
+    "peak_rss_mb": 381.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 13.88,
+    "peak_rss_mb": 381.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.1,
+    "cpu_s": 1.4,
+    "cores": 16.74,
+    "peak_rss_mb": 386.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.8,
+    "cores": 22.57,
+    "peak_rss_mb": 386.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 18.3,
+    "peak_rss_mb": 408.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 22.57,
+    "peak_rss_mb": 408.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 22.57,
+    "peak_rss_mb": 408.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 19.14,
+    "peak_rss_mb": 408.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 17.61,
+    "peak_rss_mb": 408.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.4,
+    "cores": 6.08,
+    "peak_rss_mb": 242.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 1.9,
+    "cpu_s": 1.7,
+    "cores": 0.89,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.84,
+    "peak_rss_mb": 246.0
+   }
+  ],
+  "total": {
+   "wall_s": 11.29,
+   "cpu_s": 22.27,
+   "peak_rss_mb": 602.0
+  }
+ },
+ "pl-tatry-S-2m": {
+  "args": [
+   "--lat",
+   "49.235",
+   "--lon",
+   "20.000",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_013734_Dolina-Zielona-Gasienicowa-Zakopane_a12bcec7b7d5069f",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 33914,
+   "spots": 2187
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 299081,
+   "grids": 1,
+   "anchors_kept": 299081,
+   "open": 113213,
+   "todo": 113213,
+   "candidates": 11720494,
+   "checked": 418193,
+   "found": 33915,
+   "valid": 33914,
+   "left_out": 0,
+   "lines": 33914
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.94,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 3.9,
+    "cpu_s": 3.7,
+    "cores": 0.96,
+    "peak_rss_mb": 891.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.7,
+    "cpu_s": 2.1,
+    "cores": 1.23,
+    "peak_rss_mb": 337.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.9,
+    "cpu_s": 7.6,
+    "cores": 1.29,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.4,
+    "cores": 2.01,
+    "peak_rss_mb": 347.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0))",
+    "wall_s": 2.6,
+    "cpu_s": 3.9,
+    "cores": 1.47,
+    "peak_rss_mb": 673.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (FABDEM + Copernicus DEM)",
+    "wall_s": 0.4,
+    "cpu_s": 0.9,
+    "cores": 2.37,
+    "peak_rss_mb": 679.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.98,
+    "peak_rss_mb": 592.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.96,
+    "peak_rss_mb": 436.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 392.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 4.4,
+    "cores": 3.66,
+    "peak_rss_mb": 607.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.9,
+    "cores": 20.4,
+    "peak_rss_mb": 478.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.2,
+    "cpu_s": 4.3,
+    "cores": 20.03,
+    "peak_rss_mb": 445.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.1,
+    "cpu_s": 3.0,
+    "cores": 22.77,
+    "peak_rss_mb": 449.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 22.73,
+    "peak_rss_mb": 437.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 8.73,
+    "peak_rss_mb": 540.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 22.73,
+    "peak_rss_mb": 437.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 22.57,
+    "peak_rss_mb": 437.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 22.54,
+    "peak_rss_mb": 437.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.2,
+    "cpu_s": 3.2,
+    "cores": 15.8,
+    "peak_rss_mb": 557.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.91,
+    "peak_rss_mb": 540.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.98,
+    "peak_rss_mb": 340.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.98,
+    "peak_rss_mb": 341.0
+   }
+  ],
+  "total": {
+   "wall_s": 17.83,
+   "cpu_s": 38.47,
+   "peak_rss_mb": 891.0
+  }
+ },
+ "pl-tatry-M-2m": {
+  "args": [
+   "--lat",
+   "49.235",
+   "--lon",
+   "20.000",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_014254_Dolina-Zielona-Gasienicowa-Zakopane_670a6174aa0d6443",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 41485959,
+   "spots": 188804
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 299081,
+   "grids": 1,
+   "anchors_kept": 299081,
+   "open": 281975,
+   "todo": 281975,
+   "candidates": 2510288259,
+   "checked": 225793581,
+   "found": 41485985,
+   "valid": 41485959,
+   "left_out": 0,
+   "lines": 41485959
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.95,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 3.9,
+    "cpu_s": 3.5,
+    "cores": 0.91,
+    "peak_rss_mb": 897.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.6,
+    "cpu_s": 2.2,
+    "cores": 1.33,
+    "peak_rss_mb": 312.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.4,
+    "cpu_s": 6.3,
+    "cores": 1.17,
+    "peak_rss_mb": 672.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.4,
+    "cores": 1.95,
+    "peak_rss_mb": 330.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0))",
+    "wall_s": 2.5,
+    "cpu_s": 3.3,
+    "cores": 1.33,
+    "peak_rss_mb": 673.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (FABDEM + Copernicus DEM)",
+    "wall_s": 0.4,
+    "cpu_s": 1.0,
+    "cores": 2.66,
+    "peak_rss_mb": 708.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 449.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.01,
+    "peak_rss_mb": 420.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 369.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 4.5,
+    "cores": 3.77,
+    "peak_rss_mb": 606.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 10.2,
+    "cpu_s": 12.0,
+    "cores": 1.18,
+    "peak_rss_mb": 7356.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.5,
+    "cores": 2.85,
+    "peak_rss_mb": 420.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.4,
+    "cpu_s": 9.0,
+    "cores": 20.73,
+    "peak_rss_mb": 455.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 31.2,
+    "cpu_s": 589.1,
+    "cores": 18.9,
+    "peak_rss_mb": 1088.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 39.4,
+    "cpu_s": 770.3,
+    "cores": 19.57,
+    "peak_rss_mb": 6781.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.4,
+    "cores": 1.85,
+    "peak_rss_mb": 10134.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 10.6,
+    "cpu_s": 10.6,
+    "cores": 1.0,
+    "peak_rss_mb": 8687.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 12.2,
+    "cpu_s": 256.9,
+    "cores": 21.05,
+    "peak_rss_mb": 9341.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 182.4,
+    "cpu_s": 183.3,
+    "cores": 1.01,
+    "peak_rss_mb": 10182.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 3.1,
+    "cpu_s": 10.6,
+    "cores": 3.42,
+    "peak_rss_mb": 10691.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 11.1,
+    "cpu_s": 10.9,
+    "cores": 0.98,
+    "peak_rss_mb": 14025.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.96,
+    "peak_rss_mb": 14068.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 255.1,
+    "cpu_s": 252.7,
+    "cores": 0.99,
+    "peak_rss_mb": 14068.0
+   }
+  ],
+  "total": {
+   "wall_s": 573.13,
+   "cpu_s": 2131.48,
+   "peak_rss_mb": 14068.0
+  }
+ },
+ "ch-alps-S-2m": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_014958_Schiltbach-Bischoffsmatte_e8cfc298925e8718",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 169580,
+   "spots": 9807
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 782890,
+   "grids": 1,
+   "anchors_kept": 782890,
+   "open": 381962,
+   "todo": 381962,
+   "candidates": 34637183,
+   "checked": 1112737,
+   "found": 169580,
+   "valid": 169580,
+   "left_out": 0,
+   "lines": 169580
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.5,
+    "cpu_s": 0.5,
+    "cores": 1.0,
+    "peak_rss_mb": 143.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.1,
+    "cores": 0.9,
+    "peak_rss_mb": 390.0
+   },
+   {
+    "stage": "Step 1: Download terrain tiles",
+    "wall_s": 148.6,
+    "cpu_s": 18.5,
+    "cores": 0.12,
+    "peak_rss_mb": 150.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 0.96,
+    "peak_rss_mb": 225.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 6.5,
+    "cpu_s": 7.3,
+    "cores": 1.12,
+    "peak_rss_mb": 327.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.4,
+    "cores": 2.55,
+    "peak_rss_mb": 266.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.0,
+    "peak_rss_mb": 565.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.97,
+    "peak_rss_mb": 494.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.99,
+    "peak_rss_mb": 352.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.7,
+    "cpu_s": 5.8,
+    "cores": 3.33,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 3.5,
+    "cores": 14.03,
+    "peak_rss_mb": 570.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.7,
+    "cpu_s": 14.0,
+    "cores": 20.78,
+    "peak_rss_mb": 450.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.4,
+    "cpu_s": 7.3,
+    "cores": 19.37,
+    "peak_rss_mb": 466.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.1,
+    "cpu_s": 1.8,
+    "cores": 22.43,
+    "peak_rss_mb": 472.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 19.21,
+    "peak_rss_mb": 456.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 10.0,
+    "peak_rss_mb": 429.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.1,
+    "cpu_s": 1.0,
+    "cores": 17.47,
+    "peak_rss_mb": 431.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.1,
+    "cpu_s": 1.4,
+    "cores": 20.42,
+    "peak_rss_mb": 456.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 19.03,
+    "peak_rss_mb": 456.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 1.6,
+    "cores": 5.47,
+    "peak_rss_mb": 309.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.03,
+    "peak_rss_mb": 362.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 1.0,
+    "peak_rss_mb": 362.0
+   }
+  ],
+  "total": {
+   "wall_s": 162.94,
+   "cpu_s": 69.23,
+   "peak_rss_mb": 628.0
+  }
+ },
+ "ch-plateau-M-2m": {
+  "args": [
+   "--lat",
+   "47.200",
+   "--lon",
+   "7.700",
+   "--radius",
+   "2500",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 2801,
+   "height": 2801,
+   "res": 2.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 635,
+   "grids": 1,
+   "anchors_kept": 635,
+   "open": 339,
+   "todo": 339,
+   "candidates": 14421,
+   "checked": 1169,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.3,
+    "cores": 1.06,
+    "peak_rss_mb": 142.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 1.1,
+    "peak_rss_mb": 331.0
+   },
+   {
+    "stage": "Step 1: Download terrain tiles",
+    "wall_s": 70.8,
+    "cpu_s": 8.1,
+    "cores": 0.11,
+    "peak_rss_mb": 150.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.93,
+    "peak_rss_mb": 182.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.9,
+    "cpu_s": 3.2,
+    "cores": 1.12,
+    "peak_rss_mb": 276.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.36,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.01,
+    "peak_rss_mb": 331.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.01,
+    "peak_rss_mb": 271.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.0,
+    "peak_rss_mb": 253.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.3,
+    "cpu_s": 3.1,
+    "cores": 9.69,
+    "peak_rss_mb": 271.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.7,
+    "cores": 14.32,
+    "peak_rss_mb": 272.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.3,
+    "cpu_s": 4.0,
+    "cores": 2.99,
+    "peak_rss_mb": 270.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 9.32,
+    "peak_rss_mb": 270.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 9.32,
+    "peak_rss_mb": 272.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 9.32,
+    "peak_rss_mb": 272.0
+   }
+  ],
+  "total": {
+   "wall_s": 76.84,
+   "cpu_s": 21.07,
+   "peak_rss_mb": 331.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ut-zion-S-2m": {
+  "args": [
+   "--lat",
+   "37.260",
+   "--lon",
+   "-112.950",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_015546_Zion-Canyon-Zion-Lodge_4ab6f9cada1b15f9",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 4418200,
+   "spots": 42015
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 1730532,
+   "grids": 1,
+   "anchors_kept": 1730532,
+   "open": 953846,
+   "todo": 953846,
+   "candidates": 197586762,
+   "checked": 22695592,
+   "found": 4418209,
+   "valid": 4418200,
+   "left_out": 0,
+   "lines": 4418200
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.88,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.0,
+    "cpu_s": 0.9,
+    "cores": 0.94,
+    "peak_rss_mb": 499.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.6,
+    "cpu_s": 2.6,
+    "cores": 1.0,
+    "peak_rss_mb": 240.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.5,
+    "cores": 2.21,
+    "peak_rss_mb": 384.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.95,
+    "peak_rss_mb": 499.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.04,
+    "peak_rss_mb": 506.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.0,
+    "peak_rss_mb": 285.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.9,
+    "cpu_s": 6.3,
+    "cores": 3.38,
+    "peak_rss_mb": 593.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 1.3,
+    "cpu_s": 4.0,
+    "cores": 3.03,
+    "peak_rss_mb": 1223.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 1.5,
+    "cpu_s": 31.4,
+    "cores": 21.18,
+    "peak_rss_mb": 478.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 1.7,
+    "cpu_s": 34.9,
+    "cores": 20.72,
+    "peak_rss_mb": 584.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 1.3,
+    "cpu_s": 24.8,
+    "cores": 19.29,
+    "peak_rss_mb": 1144.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 12.61,
+    "peak_rss_mb": 1463.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 1.1,
+    "cpu_s": 1.5,
+    "cores": 1.34,
+    "peak_rss_mb": 1230.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.9,
+    "cpu_s": 17.9,
+    "cores": 20.95,
+    "peak_rss_mb": 1321.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 4.0,
+    "cpu_s": 6.2,
+    "cores": 1.56,
+    "peak_rss_mb": 1480.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.2,
+    "cpu_s": 1.9,
+    "cores": 11.78,
+    "peak_rss_mb": 1457.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 1.3,
+    "cpu_s": 1.4,
+    "cores": 1.09,
+    "peak_rss_mb": 1430.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.81,
+    "peak_rss_mb": 1470.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 25.0,
+    "cpu_s": 24.7,
+    "cores": 0.99,
+    "peak_rss_mb": 1470.0
+   }
+  ],
+  "total": {
+   "wall_s": 44.76,
+   "cpu_s": 160.36,
+   "peak_rss_mb": 1480.0
+  }
+ },
+ "pl-jura-S-2m": {
+  "args": [
+   "--lat",
+   "50.190",
+   "--lon",
+   "19.735",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_050739_Szklarka-Gierot_5f46881123139877",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 1043,
+   "spots": 98
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 13041,
+   "grids": 1,
+   "anchors_kept": 13041,
+   "open": 4722,
+   "todo": 4722,
+   "candidates": 113314,
+   "checked": 7206,
+   "found": 1043,
+   "valid": 1043,
+   "left_out": 0,
+   "lines": 1043
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.2,
+    "cores": 0.67,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.7,
+    "cores": 0.94,
+    "peak_rss_mb": 405.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.6,
+    "cpu_s": 2.5,
+    "cores": 0.94,
+    "peak_rss_mb": 331.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.6,
+    "cpu_s": 2.8,
+    "cores": 1.1,
+    "peak_rss_mb": 312.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.6,
+    "cpu_s": 0.4,
+    "cores": 0.67,
+    "peak_rss_mb": 392.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.93,
+    "peak_rss_mb": 571.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.85,
+    "peak_rss_mb": 405.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.98,
+    "peak_rss_mb": 363.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 3.9,
+    "cores": 3.37,
+    "peak_rss_mb": 487.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 18.74,
+    "peak_rss_mb": 382.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 1.0,
+    "cores": 16.03,
+    "peak_rss_mb": 378.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 18.97,
+    "peak_rss_mb": 378.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 20.7,
+    "peak_rss_mb": 382.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 17.24,
+    "peak_rss_mb": 388.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 21.17,
+    "peak_rss_mb": 382.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 21.17,
+    "peak_rss_mb": 382.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.7,
+    "cores": 21.17,
+    "peak_rss_mb": 382.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 19.29,
+    "peak_rss_mb": 388.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 1.41,
+    "peak_rss_mb": 388.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 1.5,
+    "cpu_s": 1.0,
+    "cores": 0.67,
+    "peak_rss_mb": 388.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 14.94,
+    "peak_rss_mb": 388.0
+   }
+  ],
+  "total": {
+   "wall_s": 10.41,
+   "cpu_s": 17.47,
+   "peak_rss_mb": 571.0
+  }
+ },
+ "ut-sevier-M-2m": {
+  "args": [
+   "--lat",
+   "39.350",
+   "--lon",
+   "-112.550",
+   "--radius",
+   "2500",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 2801,
+   "height": 2801,
+   "res": 2.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.87,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.5,
+    "cpu_s": 0.5,
+    "cores": 0.99,
+    "peak_rss_mb": 273.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.3,
+    "cpu_s": 0.9,
+    "cores": 0.65,
+    "peak_rss_mb": 199.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.3,
+    "cpu_s": 0.4,
+    "cores": 1.27,
+    "peak_rss_mb": 259.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.85,
+    "peak_rss_mb": 273.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.98,
+    "peak_rss_mb": 207.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.96,
+    "peak_rss_mb": 204.0
+   }
+  ],
+  "total": {
+   "wall_s": 2.58,
+   "cpu_s": 2.14,
+   "peak_rss_mb": 273.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "pl-tatry-S-5m": {
+  "args": [
+   "--lat",
+   "49.235",
+   "--lon",
+   "20.000",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_050803_Dolina-Zielona-Gasienicowa-Zakopane_58ba00db1db350dd",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 13356,
+   "spots": 2290
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 36086,
+   "grids": 1,
+   "anchors_kept": 36086,
+   "open": 34517,
+   "todo": 34517,
+   "candidates": 1157915,
+   "checked": 88364,
+   "found": 13356,
+   "valid": 13356,
+   "left_out": 0,
+   "lines": 13356
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.72,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.0,
+    "cores": 0.8,
+    "peak_rss_mb": 287.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.8,
+    "cpu_s": 1.7,
+    "cores": 0.92,
+    "peak_rss_mb": 252.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 6.0,
+    "cpu_s": 5.8,
+    "cores": 0.96,
+    "peak_rss_mb": 586.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.23,
+    "peak_rss_mb": 184.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0))",
+    "wall_s": 1.6,
+    "cpu_s": 1.6,
+    "cores": 0.97,
+    "peak_rss_mb": 320.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (FABDEM + Copernicus DEM)",
+    "wall_s": 0.3,
+    "cpu_s": 0.2,
+    "cores": 0.83,
+    "peak_rss_mb": 266.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.69,
+    "peak_rss_mb": 226.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.66,
+    "peak_rss_mb": 238.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.85,
+    "peak_rss_mb": 207.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.3,
+    "cpu_s": 2.2,
+    "cores": 6.76,
+    "peak_rss_mb": 260.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 17.89,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 16.51,
+    "peak_rss_mb": 238.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.7,
+    "cores": 16.92,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 23.85,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 21.08,
+    "peak_rss_mb": 282.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 23.85,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 23.85,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 23.85,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 21.39,
+    "peak_rss_mb": 282.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.9,
+    "cores": 9.25,
+    "peak_rss_mb": 282.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 3.8,
+    "peak_rss_mb": 251.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.1,
+    "cpu_s": 0.5,
+    "cores": 6.81,
+    "peak_rss_mb": 251.0
+   }
+  ],
+  "total": {
+   "wall_s": 12.2,
+   "cpu_s": 18.72,
+   "peak_rss_mb": 586.0
+  }
+ },
+ "ch-alps-S-5m": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_052721_Schiltbach-Bischoffsmatte_902811f3554c6890",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 42237,
+   "spots": 6318
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 123486,
+   "grids": 1,
+   "anchors_kept": 123486,
+   "open": 116131,
+   "todo": 116131,
+   "candidates": 3313177,
+   "checked": 213024,
+   "found": 42238,
+   "valid": 42237,
+   "left_out": 0,
+   "lines": 42237
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.6,
+    "cores": 0.81,
+    "peak_rss_mb": 142.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.0,
+    "cpu_s": 0.9,
+    "cores": 0.93,
+    "peak_rss_mb": 174.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.1,
+    "cpu_s": 1.0,
+    "cores": 0.49,
+    "peak_rss_mb": 165.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 6.7,
+    "cpu_s": 5.7,
+    "cores": 0.86,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.5,
+    "peak_rss_mb": 168.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.87,
+    "peak_rss_mb": 174.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.04,
+    "peak_rss_mb": 233.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.99,
+    "peak_rss_mb": 174.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.8,
+    "cpu_s": 3.1,
+    "cores": 4.01,
+    "peak_rss_mb": 255.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.8,
+    "cores": 20.12,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 1.5,
+    "cores": 18.46,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.1,
+    "cpu_s": 1.7,
+    "cores": 20.58,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 16.57,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 16.19,
+    "peak_rss_mb": 313.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 16.57,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 16.57,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.7,
+    "cores": 18.58,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 2.0,
+    "cores": 16.14,
+    "peak_rss_mb": 313.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.8,
+    "cores": 4.79,
+    "peak_rss_mb": 265.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.82,
+    "peak_rss_mb": 291.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.96,
+    "peak_rss_mb": 291.0
+   }
+  ],
+  "total": {
+   "wall_s": 12.45,
+   "cpu_s": 20.86,
+   "peak_rss_mb": 313.0
+  }
+ },
+ "ut-wasatch-M-2m": {
+  "args": [
+   "--lat",
+   "40.570",
+   "--lon",
+   "-111.680",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_052850_White-Pines-Fork-Salt-Lake-County_f7c5aa9f016f55a0",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 16565037,
+   "spots": 56181
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 259247,
+   "grids": 1,
+   "anchors_kept": 259247,
+   "open": 250368,
+   "todo": 250368,
+   "candidates": 768168948,
+   "checked": 77559208,
+   "found": 16565048,
+   "valid": 16565037,
+   "left_out": 0,
+   "lines": 16565037
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.85,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.4,
+    "cpu_s": 1.5,
+    "cores": 1.0,
+    "peak_rss_mb": 781.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 3.1,
+    "cpu_s": 2.6,
+    "cores": 0.83,
+    "peak_rss_mb": 240.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.3,
+    "cpu_s": 0.5,
+    "cores": 1.47,
+    "peak_rss_mb": 359.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (USGS 3DEP (1/3 arc-second DEM))",
+    "wall_s": 0.3,
+    "cpu_s": 0.5,
+    "cores": 1.57,
+    "peak_rss_mb": 495.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.0,
+    "peak_rss_mb": 411.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 313.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 280.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.4,
+    "cpu_s": 4.5,
+    "cores": 3.3,
+    "peak_rss_mb": 524.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 3.1,
+    "cpu_s": 4.7,
+    "cores": 1.55,
+    "peak_rss_mb": 2995.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.5,
+    "cores": 2.92,
+    "peak_rss_mb": 313.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.4,
+    "cpu_s": 7.5,
+    "cores": 19.6,
+    "peak_rss_mb": 339.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 10.3,
+    "cpu_s": 222.1,
+    "cores": 21.6,
+    "peak_rss_mb": 601.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 14.2,
+    "cpu_s": 303.2,
+    "cores": 21.39,
+    "peak_rss_mb": 2701.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 3.2,
+    "peak_rss_mb": 4258.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 4.0,
+    "cpu_s": 4.4,
+    "cores": 1.11,
+    "peak_rss_mb": 3606.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 4.2,
+    "cpu_s": 90.8,
+    "cores": 21.8,
+    "peak_rss_mb": 3882.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 36.0,
+    "cpu_s": 38.0,
+    "cores": 1.05,
+    "peak_rss_mb": 4472.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.5,
+    "cpu_s": 4.1,
+    "cores": 7.56,
+    "peak_rss_mb": 4278.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 2.4,
+    "cpu_s": 2.4,
+    "cores": 0.98,
+    "peak_rss_mb": 4610.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.86,
+    "peak_rss_mb": 4624.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 91.4,
+    "cpu_s": 89.9,
+    "cores": 0.98,
+    "peak_rss_mb": 4627.0
+   }
+  ],
+  "total": {
+   "wall_s": 175.27,
+   "cpu_s": 781.31,
+   "peak_rss_mb": 4627.0
+  }
+ },
+ "ut-zion-S-5m": {
+  "args": [
+   "--lat",
+   "37.260",
+   "--lon",
+   "-112.950",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_053035_Zion-Canyon-Zion-Lodge_e4fd6ff7a25a0d09",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 1067184,
+   "spots": 50514
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 282969,
+   "grids": 1,
+   "anchors_kept": 282969,
+   "open": 266583,
+   "todo": 266583,
+   "candidates": 16420286,
+   "checked": 3022427,
+   "found": 1067186,
+   "valid": 1067184,
+   "left_out": 0,
+   "lines": 1067184
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.91,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.8,
+    "cpu_s": 0.7,
+    "cores": 0.97,
+    "peak_rss_mb": 201.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.3,
+    "cpu_s": 2.1,
+    "cores": 0.91,
+    "peak_rss_mb": 180.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.81,
+    "peak_rss_mb": 201.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 1.58,
+    "peak_rss_mb": 201.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.15,
+    "peak_rss_mb": 237.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.16,
+    "peak_rss_mb": 184.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.2,
+    "cores": 7.43,
+    "peak_rss_mb": 237.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 3.7,
+    "cores": 13.26,
+    "peak_rss_mb": 423.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 2.7,
+    "cores": 20.43,
+    "peak_rss_mb": 244.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.2,
+    "cpu_s": 5.3,
+    "cores": 22.16,
+    "peak_rss_mb": 273.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.3,
+    "cpu_s": 6.0,
+    "cores": 20.75,
+    "peak_rss_mb": 417.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 14.41,
+    "peak_rss_mb": 531.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.3,
+    "cpu_s": 0.7,
+    "cores": 2.58,
+    "peak_rss_mb": 448.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.2,
+    "cpu_s": 4.0,
+    "cores": 19.04,
+    "peak_rss_mb": 466.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.7,
+    "cpu_s": 2.9,
+    "cores": 4.07,
+    "peak_rss_mb": 502.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.4,
+    "cores": 12.94,
+    "peak_rss_mb": 531.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.9,
+    "cores": 1.57,
+    "peak_rss_mb": 684.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.88,
+    "peak_rss_mb": 705.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 5.8,
+    "cpu_s": 5.8,
+    "cores": 1.0,
+    "peak_rss_mb": 705.0
+   }
+  ],
+  "total": {
+   "wall_s": 13.32,
+   "cpu_s": 41.33,
+   "peak_rss_mb": 705.0
+  }
+ },
+ "pl-tatry-M-5m": {
+  "args": [
+   "--lat",
+   "49.235",
+   "--lon",
+   "20.000",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_053105_Dolina-Zielona-Gasienicowa-Zakopane_eaa5bf4b2d88c0d0",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 1567632,
+   "spots": 51349
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 36086,
+   "grids": 1,
+   "anchors_kept": 36086,
+   "open": 36078,
+   "todo": 36078,
+   "candidates": 46242497,
+   "checked": 4934886,
+   "found": 1567632,
+   "valid": 1567632,
+   "left_out": 0,
+   "lines": 1567632
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.82,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.7,
+    "cpu_s": 1.1,
+    "cores": 0.63,
+    "peak_rss_mb": 288.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.7,
+    "cpu_s": 1.6,
+    "cores": 0.97,
+    "peak_rss_mb": 268.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.8,
+    "cpu_s": 5.9,
+    "cores": 1.01,
+    "peak_rss_mb": 586.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.91,
+    "peak_rss_mb": 190.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0))",
+    "wall_s": 1.5,
+    "cpu_s": 1.5,
+    "cores": 1.03,
+    "peak_rss_mb": 319.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (FABDEM + Copernicus DEM)",
+    "wall_s": 0.3,
+    "cpu_s": 0.2,
+    "cores": 0.85,
+    "peak_rss_mb": 244.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.85,
+    "peak_rss_mb": 288.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.99,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.98,
+    "peak_rss_mb": 209.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.3,
+    "cpu_s": 3.0,
+    "cores": 9.03,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 1.2,
+    "cores": 4.26,
+    "peak_rss_mb": 501.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.5,
+    "cores": 2.9,
+    "peak_rss_mb": 237.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 0.7,
+    "cores": 9.57,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.6,
+    "cpu_s": 12.7,
+    "cores": 21.54,
+    "peak_rss_mb": 265.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.9,
+    "cpu_s": 18.0,
+    "cores": 20.76,
+    "peak_rss_mb": 476.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 10.84,
+    "peak_rss_mb": 734.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.4,
+    "cpu_s": 0.7,
+    "cores": 1.96,
+    "peak_rss_mb": 552.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.4,
+    "cpu_s": 7.4,
+    "cores": 19.44,
+    "peak_rss_mb": 593.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 1.8,
+    "cpu_s": 4.0,
+    "cores": 2.19,
+    "peak_rss_mb": 638.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.5,
+    "cpu_s": 3.0,
+    "cores": 5.9,
+    "peak_rss_mb": 853.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 2.0,
+    "cpu_s": 1.9,
+    "cores": 0.97,
+    "peak_rss_mb": 1685.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.92,
+    "peak_rss_mb": 1762.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 8.1,
+    "cpu_s": 8.0,
+    "cores": 0.99,
+    "peak_rss_mb": 1762.0
+   }
+  ],
+  "total": {
+   "wall_s": 27.98,
+   "cpu_s": 75.13,
+   "peak_rss_mb": 1762.0
+  }
+ },
+ "pl-jura-S-2m-45": {
+  "args": [
+   "--lat",
+   "50.190",
+   "--lon",
+   "19.735",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "45",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_053124_Szklarka-Gierot_a4afa1633399c9d0",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 1291,
+   "spots": 115
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 47209,
+   "grids": 1,
+   "anchors_kept": 47209,
+   "open": 5765,
+   "todo": 5765,
+   "candidates": 158298,
+   "checked": 9812,
+   "found": 1291,
+   "valid": 1291,
+   "left_out": 0,
+   "lines": 1291
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.83,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.8,
+    "cpu_s": 0.7,
+    "cores": 0.87,
+    "peak_rss_mb": 447.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.8,
+    "cpu_s": 2.4,
+    "cores": 0.85,
+    "peak_rss_mb": 333.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.1,
+    "cpu_s": 2.5,
+    "cores": 1.17,
+    "peak_rss_mb": 351.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.3,
+    "cores": 1.69,
+    "peak_rss_mb": 395.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.0,
+    "peak_rss_mb": 592.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.99,
+    "peak_rss_mb": 447.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.0,
+    "peak_rss_mb": 358.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 4.4,
+    "cores": 3.76,
+    "peak_rss_mb": 544.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 16.66,
+    "peak_rss_mb": 420.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 16.72,
+    "peak_rss_mb": 420.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.4,
+    "cpu_s": 3.5,
+    "cores": 8.82,
+    "peak_rss_mb": 386.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 14.68,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 19.09,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 14.68,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 14.68,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 14.78,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 19.89,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 12.67,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 18.72,
+    "peak_rss_mb": 391.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.0,
+    "cpu_s": 0.7,
+    "cores": 19.89,
+    "peak_rss_mb": 391.0
+   }
+  ],
+  "total": {
+   "wall_s": 8.47,
+   "cpu_s": 18.74,
+   "peak_rss_mb": 592.0
+  }
+ },
+ "ch-alps-M-5m": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_053511_Schiltbach-Bischoffsmatte_08168b10de01270d",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 21153814,
+   "spots": 384648
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 123486,
+   "grids": 1,
+   "anchors_kept": 123486,
+   "open": 123244,
+   "todo": 123244,
+   "candidates": 113903555,
+   "checked": 35180380,
+   "found": 21153815,
+   "valid": 21153814,
+   "left_out": 0,
+   "lines": 21153814
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 0.93,
+    "peak_rss_mb": 142.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 0.7,
+    "cores": 0.75,
+    "peak_rss_mb": 199.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.0,
+    "cpu_s": 0.9,
+    "cores": 0.94,
+    "peak_rss_mb": 165.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.8,
+    "cpu_s": 5.6,
+    "cores": 0.98,
+    "peak_rss_mb": 247.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.54,
+    "peak_rss_mb": 168.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.01,
+    "peak_rss_mb": 199.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.91,
+    "peak_rss_mb": 232.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.86,
+    "peak_rss_mb": 199.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.2,
+    "cores": 8.45,
+    "peak_rss_mb": 232.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 4.2,
+    "cpu_s": 4.7,
+    "cores": 1.12,
+    "peak_rss_mb": 3626.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 2.9,
+    "cores": 2.45,
+    "peak_rss_mb": 220.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.2,
+    "cpu_s": 4.1,
+    "cores": 18.72,
+    "peak_rss_mb": 230.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 5.1,
+    "cpu_s": 111.1,
+    "cores": 21.81,
+    "peak_rss_mb": 560.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 12.2,
+    "cpu_s": 255.7,
+    "cores": 21.03,
+    "peak_rss_mb": 3449.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.3,
+    "cores": 1.37,
+    "peak_rss_mb": 6834.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 13.3,
+    "cpu_s": 13.4,
+    "cores": 1.01,
+    "peak_rss_mb": 4437.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 4.5,
+    "cpu_s": 94.4,
+    "cores": 20.93,
+    "peak_rss_mb": 4781.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 151.6,
+    "cpu_s": 152.8,
+    "cores": 1.01,
+    "peak_rss_mb": 5196.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 4.4,
+    "cpu_s": 11.9,
+    "cores": 2.69,
+    "peak_rss_mb": 6869.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 18.9,
+    "cpu_s": 18.8,
+    "cores": 0.99,
+    "peak_rss_mb": 15526.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.96,
+    "peak_rss_mb": 15605.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 138.6,
+    "cpu_s": 115.6,
+    "cores": 0.83,
+    "peak_rss_mb": 15605.0
+   }
+  ],
+  "total": {
+   "wall_s": 363.25,
+   "cpu_s": 796.74,
+   "peak_rss_mb": 15605.0
+  }
+ },
+ "ch-alps-S-2m-45": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "45",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_053749_Schiltbach-Bischoffsmatte_d11ac6d317139056",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 182813,
+   "spots": 10125
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 2249550,
+   "grids": 1,
+   "anchors_kept": 2249550,
+   "open": 427435,
+   "todo": 427435,
+   "candidates": 42074582,
+   "checked": 1260806,
+   "found": 182813,
+   "valid": 182813,
+   "left_out": 0,
+   "lines": 182813
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 0.99,
+    "peak_rss_mb": 142.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.4,
+    "cores": 1.12,
+    "peak_rss_mb": 402.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.7,
+    "cpu_s": 0.6,
+    "cores": 0.9,
+    "peak_rss_mb": 221.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.5,
+    "cpu_s": 6.2,
+    "cores": 1.13,
+    "peak_rss_mb": 324.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.3,
+    "cores": 1.82,
+    "peak_rss_mb": 317.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.0,
+    "peak_rss_mb": 493.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 557.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.0,
+    "peak_rss_mb": 376.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.7,
+    "cpu_s": 7.1,
+    "cores": 4.04,
+    "peak_rss_mb": 695.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 3.7,
+    "cores": 6.51,
+    "peak_rss_mb": 799.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.9,
+    "cpu_s": 19.2,
+    "cores": 21.95,
+    "peak_rss_mb": 535.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.4,
+    "cpu_s": 8.9,
+    "cores": 21.2,
+    "peak_rss_mb": 581.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.1,
+    "cpu_s": 1.5,
+    "cores": 22.04,
+    "peak_rss_mb": 592.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 19.66,
+    "peak_rss_mb": 490.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.1,
+    "cpu_s": 1.3,
+    "cores": 10.65,
+    "peak_rss_mb": 464.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.9,
+    "cores": 19.69,
+    "peak_rss_mb": 479.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.1,
+    "cpu_s": 1.9,
+    "cores": 23.72,
+    "peak_rss_mb": 490.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 19.27,
+    "peak_rss_mb": 490.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 1.1,
+    "cores": 3.97,
+    "peak_rss_mb": 309.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.73,
+    "peak_rss_mb": 364.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 1.0,
+    "cpu_s": 1.0,
+    "cores": 0.98,
+    "peak_rss_mb": 364.0
+   }
+  ],
+  "total": {
+   "wall_s": 14.1,
+   "cpu_s": 58.15,
+   "peak_rss_mb": 799.0
+  }
+ },
+ "ch-alps-M-2m": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "b86c27b9e68653c374ba82397b10473c8e05ff47",
+  "summary": {
+   "lines": 362730032,
+   "spots": 752549
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 782890,
+   "checked": 826443734,
+   "lines": 362730032
+  },
+  "stages": [
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5,
+    "cpu_s": 5,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1,
+    "cpu_s": 1,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1,
+    "cpu_s": 20.0,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 1,
+    "cpu_s": 20.0,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 207,
+    "cpu_s": 4137.8,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 401,
+    "cpu_s": 8015.7,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 254,
+    "cpu_s": 254,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 101,
+    "cpu_s": 101,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 5640,
+    "cpu_s": 5640,
+    "cores": null,
+    "peak_rss_mb": null
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 39,
+    "cpu_s": 39,
+    "cores": null,
+    "peak_rss_mb": null
+   }
+  ],
+  "total": {
+   "wall_s": 6651.6,
+   "cpu_s": null,
+   "peak_rss_mb": null
+  },
+  "note": "rebuilt from the log (the run filled the disk while saving 362,730,032 lines); line-search CPU = wall x 20.0 cores of ch-alps-M-5m"
+ },
+ "ut-zion-S-2m-45": {
+  "args": [
+   "--lat",
+   "37.260",
+   "--lon",
+   "-112.950",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "2",
+   "--slope-threshold",
+   "45",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_060025_Zion-Canyon-Zion-Lodge_a86944a0570402c3",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 4503797,
+   "spots": 42390
+  },
+  "grid": {
+   "width": 4301,
+   "height": 4301,
+   "res": 2.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 3697691,
+   "grids": 1,
+   "anchors_kept": 3697691,
+   "open": 990917,
+   "todo": 990917,
+   "candidates": 210409860,
+   "checked": 23616428,
+   "found": 4503806,
+   "valid": 4503797,
+   "left_out": 0,
+   "lines": 4503797
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.94,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 1.01,
+    "peak_rss_mb": 275.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.2,
+    "cpu_s": 2.5,
+    "cores": 1.13,
+    "peak_rss_mb": 233.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.3,
+    "cores": 1.92,
+    "peak_rss_mb": 395.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.01,
+    "peak_rss_mb": 444.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.05,
+    "peak_rss_mb": 451.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.01,
+    "peak_rss_mb": 318.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 2.1,
+    "cpu_s": 8.0,
+    "cores": 3.92,
+    "peak_rss_mb": 689.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 1.6,
+    "cpu_s": 4.4,
+    "cores": 2.66,
+    "peak_rss_mb": 1375.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 1.8,
+    "cpu_s": 38.0,
+    "cores": 21.53,
+    "peak_rss_mb": 596.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 1.7,
+    "cpu_s": 37.2,
+    "cores": 21.73,
+    "peak_rss_mb": 743.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 1.3,
+    "cpu_s": 25.1,
+    "cores": 19.93,
+    "peak_rss_mb": 1322.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 4.36,
+    "peak_rss_mb": 1540.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 1.1,
+    "cpu_s": 1.3,
+    "cores": 1.16,
+    "peak_rss_mb": 1297.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.9,
+    "cpu_s": 18.1,
+    "cores": 20.76,
+    "peak_rss_mb": 1387.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 3.4,
+    "cpu_s": 5.6,
+    "cores": 1.66,
+    "peak_rss_mb": 1542.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.2,
+    "cpu_s": 1.6,
+    "cores": 9.1,
+    "peak_rss_mb": 1530.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 1.2,
+    "cores": 0.99,
+    "peak_rss_mb": 1450.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.95,
+    "peak_rss_mb": 1801.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 1.0,
+    "peak_rss_mb": 1816.0
+   }
+  ],
+  "total": {
+   "wall_s": 20.03,
+   "cpu_s": 145.93,
+   "peak_rss_mb": 1816.0
+  }
+ },
+ "pl-jura-S-1m-nodsm": {
+  "args": [
+   "--lat",
+   "50.190",
+   "--lon",
+   "19.735",
+   "--radius",
+   "4000",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--nmpt",
+   "off",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_060041_Szklarka-Gierot_7ab6560d0269d10e",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 2351,
+   "spots": 91
+  },
+  "grid": {
+   "width": 8601,
+   "height": 8601,
+   "res": 1.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 66381,
+   "grids": 1,
+   "anchors_kept": 66381,
+   "open": 7958,
+   "todo": 7958,
+   "candidates": 351330,
+   "checked": 18199,
+   "found": 2351,
+   "valid": 2351,
+   "left_out": 0,
+   "lines": 2351
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.99,
+    "peak_rss_mb": 131.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.3,
+    "cpu_s": 1.2,
+    "cores": 0.96,
+    "peak_rss_mb": 1503.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.8,
+    "cpu_s": 1.6,
+    "cores": 0.92,
+    "peak_rss_mb": 480.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.4,
+    "cpu_s": 0.9,
+    "cores": 2.22,
+    "peak_rss_mb": 871.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.8,
+    "cpu_s": 0.7,
+    "cores": 0.92,
+    "peak_rss_mb": 1526.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 0.99,
+    "peak_rss_mb": 644.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.8,
+    "cpu_s": 0.8,
+    "cores": 1.01,
+    "peak_rss_mb": 570.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 4.2,
+    "cpu_s": 8.9,
+    "cores": 2.14,
+    "peak_rss_mb": 1217.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 21.23,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.9,
+    "cores": 21.23,
+    "peak_rss_mb": 625.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 21.23,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 21.23,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 14.65,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 21.23,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 21.45,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 21.88,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.5,
+    "cores": 21.88,
+    "peak_rss_mb": 628.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.6,
+    "cores": 6.36,
+    "peak_rss_mb": 484.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 10.07,
+    "peak_rss_mb": 484.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 10.07,
+    "peak_rss_mb": 484.0
+   }
+  ],
+  "total": {
+   "wall_s": 10.29,
+   "cpu_s": 20.78,
+   "peak_rss_mb": 1526.0
+  }
+ },
+ "ch-plateau-S-1m-nodsm": {
+  "args": [
+   "--lat",
+   "47.200",
+   "--lon",
+   "7.700",
+   "--radius",
+   "2500",
+   "--min-length",
+   "30",
+   "--max-length",
+   "300",
+   "--resolution",
+   "1",
+   "--slope-threshold",
+   "60",
+   "--nmpt",
+   "off",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": null,
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 5601,
+   "height": 5601,
+   "res": 1.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 4274,
+   "grids": 1,
+   "anchors_kept": 4274,
+   "open": 159,
+   "todo": 159,
+   "candidates": 167,
+   "checked": 0,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.0,
+    "peak_rss_mb": 142.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.8,
+    "cpu_s": 0.7,
+    "cores": 0.96,
+    "peak_rss_mb": 724.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.6,
+    "cpu_s": 3.4,
+    "cores": 1.32,
+    "peak_rss_mb": 357.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.2,
+    "cpu_s": 0.4,
+    "cores": 2.06,
+    "peak_rss_mb": 484.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": 0.99,
+    "peak_rss_mb": 724.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.2,
+    "cores": 0.95,
+    "peak_rss_mb": 724.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.99,
+    "peak_rss_mb": 309.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 4.6,
+    "cores": 3.95,
+    "peak_rss_mb": 538.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.3,
+    "cores": 25.84,
+    "peak_rss_mb": 411.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 18.69,
+    "peak_rss_mb": 411.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.4,
+    "cores": 18.69,
+    "peak_rss_mb": 373.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 18.69,
+    "peak_rss_mb": 373.0
+   }
+  ],
+  "total": {
+   "wall_s": 5.88,
+   "cpu_s": 12.35,
+   "peak_rss_mb": 724.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ut-zion-M-5m": {
+  "args": [
+   "--lat",
+   "37.260",
+   "--lon",
+   "-112.950",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_061409_Zion-Canyon-Zion-Lodge_dd7385c37e6df988",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 48460289,
+   "spots": 559938
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 282969,
+   "grids": 1,
+   "anchors_kept": 282969,
+   "open": 279125,
+   "todo": 279125,
+   "candidates": 1302317265,
+   "checked": 145948697,
+   "found": 48460298,
+   "valid": 48460289,
+   "left_out": 0,
+   "lines": 48460289
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.99,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.7,
+    "cores": 1.0,
+    "peak_rss_mb": 192.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.1,
+    "cpu_s": 2.1,
+    "cores": 1.0,
+    "peak_rss_mb": 180.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.3,
+    "cores": 2.7,
+    "peak_rss_mb": 177.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.86,
+    "peak_rss_mb": 177.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.91,
+    "peak_rss_mb": 237.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.86,
+    "peak_rss_mb": 192.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.4,
+    "cores": 8.8,
+    "peak_rss_mb": 257.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 10.4,
+    "cpu_s": 12.1,
+    "cores": 1.16,
+    "peak_rss_mb": 8004.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.7,
+    "cores": 3.04,
+    "peak_rss_mb": 221.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.5,
+    "cpu_s": 9.2,
+    "cores": 19.39,
+    "peak_rss_mb": 256.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 14.9,
+    "cpu_s": 316.0,
+    "cores": 21.22,
+    "peak_rss_mb": 1000.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 26.7,
+    "cpu_s": 547.3,
+    "cores": 20.53,
+    "peak_rss_mb": 7246.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.4,
+    "cores": 1.38,
+    "peak_rss_mb": 12744.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 11.7,
+    "cpu_s": 11.6,
+    "cores": 0.99,
+    "peak_rss_mb": 9847.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 10.6,
+    "cpu_s": 218.6,
+    "cores": 20.57,
+    "peak_rss_mb": 10584.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 510.8,
+    "cpu_s": 507.3,
+    "cores": 0.99,
+    "peak_rss_mb": 12298.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 4.1,
+    "cpu_s": 12.6,
+    "cores": 3.05,
+    "peak_rss_mb": 12758.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 22.1,
+    "cpu_s": 21.9,
+    "cores": 0.99,
+    "peak_rss_mb": 19806.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.96,
+    "peak_rss_mb": 20943.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 8.5,
+    "cpu_s": 8.5,
+    "cores": 0.99,
+    "peak_rss_mb": 23376.0
+   }
+  ],
+  "total": {
+   "wall_s": 625.66,
+   "cpu_s": 1676.04,
+   "peak_rss_mb": 23376.0
+  }
+ },
+ "ut-wasatch-M-5m": {
+  "args": [
+   "--lat",
+   "40.570",
+   "--lon",
+   "-111.680",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_061430_White-Pines-Fork-Salt-Lake-County_c3b085ebd4f61bfe",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 533844,
+   "spots": 13998
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 27809,
+   "grids": 1,
+   "anchors_kept": 27809,
+   "open": 27801,
+   "todo": 27801,
+   "candidates": 9062345,
+   "checked": 1304333,
+   "found": 533844,
+   "valid": 533844,
+   "left_out": 0,
+   "lines": 533844
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 1.02,
+    "peak_rss_mb": 139.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.8,
+    "cpu_s": 0.9,
+    "cores": 1.17,
+    "peak_rss_mb": 261.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.0,
+    "cpu_s": 1.9,
+    "cores": 0.93,
+    "peak_rss_mb": 180.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.8,
+    "peak_rss_mb": 201.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (USGS 3DEP (1/3 arc-second DEM))",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.93,
+    "peak_rss_mb": 220.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.01,
+    "peak_rss_mb": 261.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.01,
+    "peak_rss_mb": 224.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 194.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.3,
+    "cpu_s": 3.1,
+    "cores": 9.41,
+    "peak_rss_mb": 224.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.6,
+    "cores": 14.63,
+    "peak_rss_mb": 310.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.1,
+    "cores": 2.54,
+    "peak_rss_mb": 217.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 1.1,
+    "cores": 17.95,
+    "peak_rss_mb": 219.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.2,
+    "cpu_s": 4.1,
+    "cores": 21.39,
+    "peak_rss_mb": 230.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.3,
+    "cpu_s": 6.0,
+    "cores": 22.09,
+    "peak_rss_mb": 287.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 8.24,
+    "peak_rss_mb": 404.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.1,
+    "cpu_s": 0.4,
+    "cores": 3.42,
+    "peak_rss_mb": 311.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.1,
+    "cpu_s": 2.4,
+    "cores": 19.87,
+    "peak_rss_mb": 350.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.3,
+    "cpu_s": 2.5,
+    "cores": 7.88,
+    "peak_rss_mb": 363.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 2.2,
+    "cores": 16.77,
+    "peak_rss_mb": 404.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.4,
+    "cpu_s": 0.7,
+    "cores": 1.72,
+    "peak_rss_mb": 559.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.07,
+    "peak_rss_mb": 559.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.07,
+    "peak_rss_mb": 559.0
+   }
+  ],
+  "total": {
+   "wall_s": 6.77,
+   "cpu_s": 30.97,
+   "peak_rss_mb": 559.0
+  }
+ },
+ "ch-alps-M-5m-axiom": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "66.2",
+   "--stretch",
+   "1.8",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_061800_Schiltbach-Bischoffsmatte_10bdc7efc922425c",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 20633689,
+   "spots": 376320
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 123486,
+   "grids": 1,
+   "anchors_kept": 123486,
+   "open": 123244,
+   "todo": 123244,
+   "candidates": 113903555,
+   "checked": 35180380,
+   "found": 20633691,
+   "valid": 20633689,
+   "left_out": 0,
+   "lines": 20633689
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.5,
+    "cores": 0.97,
+    "peak_rss_mb": 142.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 0.8,
+    "cores": 0.98,
+    "peak_rss_mb": 197.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.0,
+    "cpu_s": 0.9,
+    "cores": 0.92,
+    "peak_rss_mb": 166.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.8,
+    "cpu_s": 5.6,
+    "cores": 0.97,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 1.21,
+    "peak_rss_mb": 181.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.13,
+    "peak_rss_mb": 197.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.05,
+    "peak_rss_mb": 233.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.01,
+    "peak_rss_mb": 197.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.0,
+    "cores": 8.32,
+    "peak_rss_mb": 233.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 4.1,
+    "cpu_s": 4.6,
+    "cores": 1.12,
+    "peak_rss_mb": 3538.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.4,
+    "cores": 2.79,
+    "peak_rss_mb": 224.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.2,
+    "cpu_s": 4.1,
+    "cores": 19.51,
+    "peak_rss_mb": 241.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 5.2,
+    "cpu_s": 106.7,
+    "cores": 20.7,
+    "peak_rss_mb": 553.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 12.6,
+    "cpu_s": 251.8,
+    "cores": 19.96,
+    "peak_rss_mb": 3237.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 1.34,
+    "peak_rss_mb": 6674.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 13.0,
+    "cpu_s": 13.1,
+    "cores": 1.01,
+    "peak_rss_mb": 4334.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 4.4,
+    "cpu_s": 92.9,
+    "cores": 20.92,
+    "peak_rss_mb": 4671.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 136.9,
+    "cpu_s": 136.9,
+    "cores": 1.0,
+    "peak_rss_mb": 5074.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 4.4,
+    "cpu_s": 11.6,
+    "cores": 2.63,
+    "peak_rss_mb": 6714.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 18.8,
+    "cpu_s": 18.6,
+    "cores": 0.99,
+    "peak_rss_mb": 15241.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 15738.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 2.9,
+    "cpu_s": 2.9,
+    "cores": 1.0,
+    "peak_rss_mb": 16719.0
+   }
+  ],
+  "total": {
+   "wall_s": 212.74,
+   "cpu_s": 658.13,
+   "peak_rss_mb": 16719.0
+  }
+ },
+ "ch-alps-M-5m-tiger": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "61.7",
+   "--stretch",
+   "2.8",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_062139_Schiltbach-Bischoffsmatte_31517c7649f3506d",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 20659128,
+   "spots": 376096
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 123486,
+   "grids": 1,
+   "anchors_kept": 123486,
+   "open": 123244,
+   "todo": 123244,
+   "candidates": 113903555,
+   "checked": 35180380,
+   "found": 20659132,
+   "valid": 20659128,
+   "left_out": 0,
+   "lines": 20659128
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 1.01,
+    "peak_rss_mb": 143.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 0.8,
+    "cores": 0.89,
+    "peak_rss_mb": 190.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 0.98,
+    "peak_rss_mb": 167.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.7,
+    "cpu_s": 5.7,
+    "cores": 0.99,
+    "peak_rss_mb": 247.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 1.76,
+    "peak_rss_mb": 168.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.73,
+    "peak_rss_mb": 190.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 234.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.75,
+    "peak_rss_mb": 190.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.2,
+    "cores": 8.43,
+    "peak_rss_mb": 256.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 4.1,
+    "cpu_s": 4.7,
+    "cores": 1.14,
+    "peak_rss_mb": 3544.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.0,
+    "cores": 2.51,
+    "peak_rss_mb": 226.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.2,
+    "cpu_s": 4.0,
+    "cores": 20.58,
+    "peak_rss_mb": 244.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 5.2,
+    "cpu_s": 107.6,
+    "cores": 20.9,
+    "peak_rss_mb": 556.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 11.9,
+    "cpu_s": 250.2,
+    "cores": 20.95,
+    "peak_rss_mb": 3258.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.4,
+    "cores": 2.26,
+    "peak_rss_mb": 6686.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 13.2,
+    "cpu_s": 13.1,
+    "cores": 0.99,
+    "peak_rss_mb": 4339.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 4.5,
+    "cpu_s": 93.9,
+    "cores": 20.87,
+    "peak_rss_mb": 4675.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 138.8,
+    "cpu_s": 139.4,
+    "cores": 1.0,
+    "peak_rss_mb": 5078.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 4.4,
+    "cpu_s": 11.3,
+    "cores": 2.59,
+    "peak_rss_mb": 6720.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 18.8,
+    "cpu_s": 18.5,
+    "cores": 0.99,
+    "peak_rss_mb": 15169.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.92,
+    "peak_rss_mb": 15250.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 2.9,
+    "cpu_s": 2.9,
+    "cores": 0.98,
+    "peak_rss_mb": 16748.0
+   }
+  ],
+  "total": {
+   "wall_s": 214.06,
+   "cpu_s": 660.42,
+   "peak_rss_mb": 16748.0
+  }
+ },
+ "ch-alps-M-5m-45": {
+  "args": [
+   "--lat",
+   "46.550",
+   "--lon",
+   "7.882",
+   "--radius",
+   "4000",
+   "--min-length",
+   "300",
+   "--max-length",
+   "2000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "45",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_070207_Schiltbach-Bischoffsmatte_006d9032df25aea4",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 104762644,
+   "spots": 1158792
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 359973,
+   "grids": 1,
+   "anchors_kept": 359973,
+   "open": 359192,
+   "todo": 359192,
+   "candidates": 861602097,
+   "checked": 222064419,
+   "found": 104762670,
+   "valid": 104762644,
+   "left_out": 0,
+   "lines": 104762644
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.6,
+    "cpu_s": 0.6,
+    "cores": 1.01,
+    "peak_rss_mb": 144.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 0.7,
+    "cores": 0.81,
+    "peak_rss_mb": 202.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.9,
+    "cpu_s": 0.9,
+    "cores": 0.98,
+    "peak_rss_mb": 167.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.7,
+    "cpu_s": 5.7,
+    "cores": 1.0,
+    "peak_rss_mb": 248.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 1.41,
+    "peak_rss_mb": 171.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.87,
+    "peak_rss_mb": 202.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.05,
+    "peak_rss_mb": 249.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 202.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.5,
+    "cores": 8.52,
+    "peak_rss_mb": 249.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 27.4,
+    "cpu_s": 29.4,
+    "cores": 1.07,
+    "peak_rss_mb": 17605.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 1.2,
+    "cpu_s": 3.6,
+    "cores": 2.91,
+    "peak_rss_mb": 230.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.6,
+    "cpu_s": 11.5,
+    "cores": 20.23,
+    "peak_rss_mb": 272.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 31.1,
+    "cpu_s": 651.3,
+    "cores": 20.93,
+    "peak_rss_mb": 1879.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 60.3,
+    "cpu_s": 1171.3,
+    "cores": 19.42,
+    "peak_rss_mb": 15976.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.9,
+    "cpu_s": 1.0,
+    "cores": 1.1,
+    "peak_rss_mb": 25976.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 67.2,
+    "cpu_s": 67.0,
+    "cores": 1.0,
+    "peak_rss_mb": 21101.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 23.7,
+    "cpu_s": 502.6,
+    "cores": 21.2,
+    "peak_rss_mb": 22719.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 1690.7,
+    "cpu_s": 1677.1,
+    "cores": 0.99,
+    "peak_rss_mb": 25316.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 14.0,
+    "cpu_s": 43.5,
+    "cores": 3.11,
+    "peak_rss_mb": 29180.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 254.3,
+    "cpu_s": 131.7,
+    "cores": 0.52,
+    "peak_rss_mb": 45555.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.59,
+    "peak_rss_mb": 45555.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 46.8,
+    "cpu_s": 28.8,
+    "cores": 0.62,
+    "peak_rss_mb": 45783.0
+   }
+  ],
+  "total": {
+   "wall_s": 2227.11,
+   "cpu_s": 4330.6,
+   "peak_rss_mb": 45783.0
+  }
+ },
+ "ch-alps-area-L-10m": {
+  "args": [
+   "--area",
+   "docs/country-precompute/lauterbrunnen.geojson",
+   "--tile-size",
+   "30000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "10",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_072037_ch-lauterbrunnen-geojson_9525adb9910bba96",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "ce2018d22d2880eb87e19cfa992b9e5062a2c2ff",
+  "summary": {
+   "lines": 6895453,
+   "spots": 673507
+  },
+  "grid": {
+   "width": 1981,
+   "height": 1481,
+   "res": 10.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 272.4538
+  },
+  "funnel": {
+   "anchors": 145896,
+   "grids": 1,
+   "anchors_kept": 145896,
+   "open": 145444,
+   "todo": 145444,
+   "candidates": 103286097,
+   "checked": 17505915,
+   "found": 6895454,
+   "valid": 6895453,
+   "left_out": 0,
+   "lines": 6895453
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 3.1,
+    "cpu_s": 2.2,
+    "cores": 0.71,
+    "peak_rss_mb": 192.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 2.5,
+    "cpu_s": 2.3,
+    "cores": 0.91,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 1: Download terrain tiles",
+    "wall_s": 350.7,
+    "cpu_s": 39.1,
+    "cores": 0.11,
+    "peak_rss_mb": 197.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 3.0,
+    "cpu_s": 2.4,
+    "cores": 0.79,
+    "peak_rss_mb": 218.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 23.6,
+    "cpu_s": 21.4,
+    "cores": 0.9,
+    "peak_rss_mb": 301.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.0,
+    "peak_rss_mb": 281.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.1,
+    "cpu_s": 0.0,
+    "cores": 0.73,
+    "peak_rss_mb": 224.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.87,
+    "peak_rss_mb": 276.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.85,
+    "peak_rss_mb": 226.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.8,
+    "cpu_s": 3.4,
+    "cores": 4.32,
+    "peak_rss_mb": 286.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 1.2,
+    "cpu_s": 2.1,
+    "cores": 1.79,
+    "peak_rss_mb": 1400.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 2.2,
+    "cores": 3.5,
+    "peak_rss_mb": 276.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.3,
+    "cpu_s": 4.8,
+    "cores": 17.19,
+    "peak_rss_mb": 294.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 2.9,
+    "cpu_s": 61.6,
+    "cores": 21.33,
+    "peak_rss_mb": 398.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 4.7,
+    "cpu_s": 98.8,
+    "cores": 20.81,
+    "peak_rss_mb": 1280.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.6,
+    "cores": 1.8,
+    "peak_rss_mb": 5284.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 4.4,
+    "cpu_s": 4.6,
+    "cores": 1.06,
+    "peak_rss_mb": 1660.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 1.7,
+    "cpu_s": 34.3,
+    "cores": 19.92,
+    "peak_rss_mb": 1774.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 34.3,
+    "cpu_s": 35.7,
+    "cores": 1.04,
+    "peak_rss_mb": 1997.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 8.3,
+    "cpu_s": 20.9,
+    "cores": 2.53,
+    "peak_rss_mb": 5321.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 33.6,
+    "cpu_s": 33.3,
+    "cores": 0.99,
+    "peak_rss_mb": 22256.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 1.0,
+    "cpu_s": 0.2,
+    "cores": 0.18,
+    "peak_rss_mb": 22303.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 1.0,
+    "cpu_s": 1.0,
+    "cores": 1.03,
+    "peak_rss_mb": 22744.0
+   }
+  ],
+  "total": {
+   "wall_s": 478.08,
+   "cpu_s": 370.86,
+   "peak_rss_mb": 22744.0
+  }
+ },
+ "ut-canyonlands-L-10m": {
+  "args": [
+   "--lat",
+   "38.470",
+   "--lon",
+   "-109.740",
+   "--radius",
+   "10000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "10",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_073307_Dead-Horse-Point-San-Juan-County_28f1ff03cc22ea61",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 2145899,
+   "spots": 166486
+  },
+  "grid": {
+   "width": 2061,
+   "height": 2061,
+   "res": 10.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 314.1593
+  },
+  "funnel": {
+   "anchors": 73348,
+   "grids": 1,
+   "anchors_kept": 73348,
+   "open": 72270,
+   "todo": 72270,
+   "candidates": 118953347,
+   "checked": 14540978,
+   "found": 2145899,
+   "valid": 2145899,
+   "left_out": 0,
+   "lines": 2145899
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 5.2,
+    "cpu_s": 1.4,
+    "cores": 0.27,
+    "peak_rss_mb": 149.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 3.7,
+    "cpu_s": 3.6,
+    "cores": 0.98,
+    "peak_rss_mb": 242.0
+   },
+   {
+    "stage": "Step 1: Download terrain tiles",
+    "wall_s": 100.0,
+    "cpu_s": 78.1,
+    "cores": 0.78,
+    "peak_rss_mb": 326.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 11.2,
+    "cpu_s": 11.2,
+    "cores": 1.0,
+    "peak_rss_mb": 202.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.4,
+    "peak_rss_mb": 243.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 1.13,
+    "peak_rss_mb": 242.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.88,
+    "peak_rss_mb": 248.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.85,
+    "peak_rss_mb": 242.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 2.9,
+    "cores": 7.18,
+    "peak_rss_mb": 273.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.4,
+    "cpu_s": 1.1,
+    "cores": 3.08,
+    "peak_rss_mb": 592.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 2.9,
+    "cores": 4.85,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 2.1,
+    "cores": 15.92,
+    "peak_rss_mb": 253.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 1.2,
+    "cpu_s": 26.2,
+    "cores": 22.18,
+    "peak_rss_mb": 282.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 1.5,
+    "cpu_s": 31.0,
+    "cores": 20.83,
+    "peak_rss_mb": 563.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.3,
+    "cores": 4.87,
+    "peak_rss_mb": 1273.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.5,
+    "cpu_s": 0.7,
+    "cores": 1.38,
+    "peak_rss_mb": 667.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.5,
+    "cpu_s": 9.7,
+    "cores": 18.85,
+    "peak_rss_mb": 721.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 6.0,
+    "cpu_s": 7.9,
+    "cores": 1.31,
+    "peak_rss_mb": 799.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 1.5,
+    "cpu_s": 6.3,
+    "cores": 4.3,
+    "peak_rss_mb": 1389.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 6.3,
+    "cpu_s": 6.2,
+    "cores": 0.99,
+    "peak_rss_mb": 4113.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 1.6,
+    "cpu_s": 0.3,
+    "cores": 0.19,
+    "peak_rss_mb": 4327.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.97,
+    "peak_rss_mb": 4327.0
+   }
+  ],
+  "total": {
+   "wall_s": 141.15,
+   "cpu_s": 192.42,
+   "peak_rss_mb": 4327.0
+  }
+ },
+ "pl-niz-L-5m": {
+  "args": [
+   "--lat",
+   "52.740",
+   "--lon",
+   "15.355",
+   "--radius",
+   "2500",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 1121,
+   "height": 1121,
+   "res": 5.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.56,
+    "peak_rss_mb": 141.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.91,
+    "peak_rss_mb": 207.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.9,
+    "cpu_s": 1.0,
+    "cores": 1.09,
+    "peak_rss_mb": 261.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 1.0,
+    "cpu_s": 1.0,
+    "cores": 1.0,
+    "peak_rss_mb": 228.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 2.16,
+    "peak_rss_mb": 207.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.58,
+    "peak_rss_mb": 167.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.57,
+    "peak_rss_mb": 166.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.58,
+    "peak_rss_mb": 166.0
+   }
+  ],
+  "total": {
+   "wall_s": 2.38,
+   "cpu_s": 2.45,
+   "peak_rss_mb": 261.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "pl-jura-L-5m": {
+  "args": [
+   "--lat",
+   "50.190",
+   "--lon",
+   "19.735",
+   "--radius",
+   "4000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 782,
+   "grids": 1,
+   "anchors_kept": 782,
+   "open": 763,
+   "todo": 763,
+   "candidates": 50947,
+   "checked": 3442,
+   "found": 0,
+   "valid": 0,
+   "left_out": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.7,
+    "peak_rss_mb": 141.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.97,
+    "peak_rss_mb": 203.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.0,
+    "cpu_s": 2.1,
+    "cores": 1.02,
+    "peak_rss_mb": 217.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.1,
+    "cpu_s": 2.2,
+    "cores": 1.03,
+    "peak_rss_mb": 268.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.85,
+    "peak_rss_mb": 182.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.88,
+    "peak_rss_mb": 188.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.01,
+    "peak_rss_mb": 227.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.91,
+    "peak_rss_mb": 203.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.2,
+    "cpu_s": 2.1,
+    "cores": 8.48,
+    "peak_rss_mb": 227.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.9,
+    "cores": 22.3,
+    "peak_rss_mb": 229.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 2.7,
+    "cores": 4.25,
+    "peak_rss_mb": 229.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.0,
+    "cpu_s": 0.1,
+    "cores": 5.27,
+    "peak_rss_mb": 229.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.0,
+    "cpu_s": 0.5,
+    "cores": 22.44,
+    "peak_rss_mb": 229.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 22.44,
+    "peak_rss_mb": 229.0
+   }
+  ],
+  "total": {
+   "wall_s": 5.78,
+   "cpu_s": 11.13,
+   "peak_rss_mb": 268.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "pl-tatry-L-5m": {
+  "args": [
+   "--lat",
+   "49.235",
+   "--lon",
+   "20.000",
+   "--radius",
+   "4000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_073338_Dolina-Zielona-Gasienicowa-Zakopane_67f728222b573440",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 43667,
+   "spots": 2949
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:2180",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 36086,
+   "grids": 1,
+   "anchors_kept": 36086,
+   "open": 36069,
+   "todo": 36069,
+   "candidates": 34126288,
+   "checked": 3062511,
+   "found": 43667,
+   "valid": 43667,
+   "left_out": 0,
+   "lines": 43667
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.1,
+    "cores": 0.67,
+    "peak_rss_mb": 141.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 1.1,
+    "cpu_s": 1.1,
+    "cores": 0.94,
+    "peak_rss_mb": 271.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.7,
+    "cpu_s": 1.7,
+    "cores": 1.03,
+    "peak_rss_mb": 231.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 5.9,
+    "cpu_s": 5.9,
+    "cores": 0.99,
+    "peak_rss_mb": 588.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.48,
+    "peak_rss_mb": 184.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (ÚGKK SR (DMR 5.0 / DMP 1.0))",
+    "wall_s": 1.5,
+    "cpu_s": 1.5,
+    "cores": 0.98,
+    "peak_rss_mb": 322.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (FABDEM + Copernicus DEM)",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.42,
+    "peak_rss_mb": 253.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.86,
+    "peak_rss_mb": 197.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.88,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.86,
+    "peak_rss_mb": 197.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.3,
+    "cpu_s": 2.9,
+    "cores": 8.41,
+    "peak_rss_mb": 246.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 20.21,
+    "peak_rss_mb": 265.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 2.9,
+    "cores": 4.84,
+    "peak_rss_mb": 238.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 1.2,
+    "cores": 12.21,
+    "peak_rss_mb": 243.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.3,
+    "cpu_s": 6.4,
+    "cores": 21.34,
+    "peak_rss_mb": 247.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.1,
+    "cpu_s": 1.1,
+    "cores": 22.19,
+    "peak_rss_mb": 247.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 17.81,
+    "peak_rss_mb": 306.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.0,
+    "cpu_s": 0.3,
+    "cores": 22.19,
+    "peak_rss_mb": 265.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 21.66,
+    "peak_rss_mb": 265.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.0,
+    "cpu_s": 0.6,
+    "cores": 19.43,
+    "peak_rss_mb": 265.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.1,
+    "cpu_s": 1.3,
+    "cores": 18.45,
+    "peak_rss_mb": 306.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.4,
+    "cores": 9.48,
+    "peak_rss_mb": 325.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.13,
+    "peak_rss_mb": 325.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.13,
+    "peak_rss_mb": 325.0
+   }
+  ],
+  "total": {
+   "wall_s": 12.57,
+   "cpu_s": 29.92,
+   "peak_rss_mb": 588.0
+  }
+ },
+ "ch-plateau-L-5m": {
+  "args": [
+   "--lat",
+   "47.200",
+   "--lon",
+   "7.700",
+   "--radius",
+   "2500",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 1121,
+   "height": 1121,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.93,
+    "peak_rss_mb": 144.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.5,
+    "cpu_s": 0.3,
+    "cores": 0.71,
+    "peak_rss_mb": 164.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 0.6,
+    "cpu_s": 0.4,
+    "cores": 0.62,
+    "peak_rss_mb": 156.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 2.8,
+    "cpu_s": 2.5,
+    "cores": 0.89,
+    "peak_rss_mb": 239.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.95,
+    "peak_rss_mb": 159.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.89,
+    "peak_rss_mb": 164.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.89,
+    "peak_rss_mb": 164.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.89,
+    "peak_rss_mb": 156.0
+   }
+  ],
+  "total": {
+   "wall_s": 4.36,
+   "cpu_s": 3.64,
+   "peak_rss_mb": 239.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ut-sevier-L-5m": {
+  "args": [
+   "--lat",
+   "39.350",
+   "--lon",
+   "-112.550",
+   "--radius",
+   "2500",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": null,
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 0,
+   "spots": 0
+  },
+  "grid": {
+   "width": 1121,
+   "height": 1121,
+   "res": 5.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 19.635
+  },
+  "funnel": {
+   "anchors": 0
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.2,
+    "cores": 0.93,
+    "peak_rss_mb": 141.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.4,
+    "cpu_s": 0.4,
+    "cores": 0.98,
+    "peak_rss_mb": 171.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 1.2,
+    "cpu_s": 1.0,
+    "cores": 0.8,
+    "peak_rss_mb": 175.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.35,
+    "peak_rss_mb": 169.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.86,
+    "peak_rss_mb": 171.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 171.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.86,
+    "peak_rss_mb": 171.0
+   }
+  ],
+  "total": {
+   "wall_s": 1.88,
+   "cpu_s": 1.69,
+   "peak_rss_mb": 175.0
+  },
+  "note": "no run saved: the search found no lines (or it stopped, see its output)"
+ },
+ "ut-zion-L-5m": {
+  "args": [
+   "--lat",
+   "37.260",
+   "--lon",
+   "-112.950",
+   "--radius",
+   "4000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_073845_Zion-Canyon-Zion-Lodge_0d8a56fb018a4159",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 25469179,
+   "spots": 318953
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 282969,
+   "grids": 1,
+   "anchors_kept": 282969,
+   "open": 273495,
+   "todo": 273495,
+   "candidates": 3285407929,
+   "checked": 281202531,
+   "found": 25469183,
+   "valid": 25469179,
+   "left_out": 0,
+   "lines": 25469179
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.3,
+    "cores": 0.94,
+    "peak_rss_mb": 141.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.7,
+    "cpu_s": 0.7,
+    "cores": 0.95,
+    "peak_rss_mb": 194.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.6,
+    "cpu_s": 1.9,
+    "cores": 0.72,
+    "peak_rss_mb": 182.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.58,
+    "peak_rss_mb": 166.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.87,
+    "peak_rss_mb": 181.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.95,
+    "peak_rss_mb": 240.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.87,
+    "peak_rss_mb": 194.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 3.1,
+    "cores": 7.34,
+    "peak_rss_mb": 244.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 5.2,
+    "cpu_s": 6.8,
+    "cores": 1.33,
+    "peak_rss_mb": 4339.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 3.0,
+    "cores": 4.93,
+    "peak_rss_mb": 224.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.4,
+    "cpu_s": 9.0,
+    "cores": 20.72,
+    "peak_rss_mb": 256.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 26.1,
+    "cpu_s": 548.6,
+    "cores": 21.03,
+    "peak_rss_mb": 652.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 23.1,
+    "cpu_s": 488.9,
+    "cores": 21.12,
+    "peak_rss_mb": 4013.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.2,
+    "cpu_s": 0.4,
+    "cores": 2.35,
+    "peak_rss_mb": 7092.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 6.1,
+    "cpu_s": 6.3,
+    "cores": 1.04,
+    "peak_rss_mb": 5280.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 6.7,
+    "cpu_s": 141.7,
+    "cores": 21.08,
+    "peak_rss_mb": 5684.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 204.9,
+    "cpu_s": 205.8,
+    "cores": 1.0,
+    "peak_rss_mb": 6583.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 3.0,
+    "cpu_s": 11.2,
+    "cores": 3.77,
+    "peak_rss_mb": 7121.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 12.9,
+    "cpu_s": 12.7,
+    "cores": 0.98,
+    "peak_rss_mb": 11979.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 13840.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 3.6,
+    "cpu_s": 3.5,
+    "cores": 0.99,
+    "peak_rss_mb": 13860.0
+   }
+  ],
+  "total": {
+   "wall_s": 297.06,
+   "cpu_s": 1444.26,
+   "peak_rss_mb": 13860.0
+  }
+ },
+ "ut-wasatch-L-5m": {
+  "args": [
+   "--lat",
+   "40.570",
+   "--lon",
+   "-111.680",
+   "--radius",
+   "4000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_073900_White-Pines-Fork-Salt-Lake-County_2aad0bc33616a1ee",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 503011,
+   "spots": 17207
+  },
+  "grid": {
+   "width": 1721,
+   "height": 1721,
+   "res": 5.0,
+   "crs": "EPSG:26912",
+   "tiles": 1,
+   "area_km2": 50.2655
+  },
+  "funnel": {
+   "anchors": 27809,
+   "grids": 1,
+   "anchors_kept": 27809,
+   "open": 27783,
+   "todo": 27783,
+   "candidates": 15319027,
+   "checked": 2281728,
+   "found": 503011,
+   "valid": 503011,
+   "left_out": 0,
+   "lines": 503011
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 0.3,
+    "cpu_s": 0.2,
+    "cores": 0.8,
+    "peak_rss_mb": 141.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 0.8,
+    "cpu_s": 0.7,
+    "cores": 0.94,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.4,
+    "cpu_s": 2.0,
+    "cores": 0.83,
+    "peak_rss_mb": 182.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.19,
+    "peak_rss_mb": 192.0
+   },
+   {
+    "stage": "Step 1: Compute stitching gap fill (USGS 3DEP (1/3 arc-second DEM))",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.32,
+    "peak_rss_mb": 215.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.73,
+    "peak_rss_mb": 218.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.04,
+    "peak_rss_mb": 225.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 1.0,
+    "peak_rss_mb": 218.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 0.4,
+    "cpu_s": 2.7,
+    "cores": 7.64,
+    "peak_rss_mb": 225.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 1.6,
+    "cores": 14.79,
+    "peak_rss_mb": 309.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 3.0,
+    "cores": 5.01,
+    "peak_rss_mb": 219.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 0.1,
+    "cpu_s": 0.5,
+    "cores": 8.0,
+    "peak_rss_mb": 223.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 0.5,
+    "cpu_s": 10.2,
+    "cores": 18.54,
+    "peak_rss_mb": 232.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 0.6,
+    "cpu_s": 12.8,
+    "cores": 22.16,
+    "peak_rss_mb": 296.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.2,
+    "cores": 12.66,
+    "peak_rss_mb": 434.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 0.1,
+    "cpu_s": 0.8,
+    "cores": 6.31,
+    "peak_rss_mb": 321.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 0.2,
+    "cpu_s": 2.8,
+    "cores": 16.81,
+    "peak_rss_mb": 345.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 0.4,
+    "cpu_s": 2.5,
+    "cores": 6.69,
+    "peak_rss_mb": 360.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 0.2,
+    "cpu_s": 2.6,
+    "cores": 13.56,
+    "peak_rss_mb": 434.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 0.5,
+    "cpu_s": 0.5,
+    "cores": 0.98,
+    "peak_rss_mb": 690.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 0.0,
+    "cpu_s": 0.0,
+    "cores": 0.89,
+    "peak_rss_mb": 690.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.89,
+    "peak_rss_mb": 690.0
+   }
+  ],
+  "total": {
+   "wall_s": 7.53,
+   "cpu_s": 43.53,
+   "peak_rss_mb": 690.0
+  }
+ },
+ "ch-alps-area-L-5m": {
+  "args": [
+   "--area",
+   "docs/country-precompute/lauterbrunnen.geojson",
+   "--tile-size",
+   "30000",
+   "--min-length",
+   "2000",
+   "--max-length",
+   "5000",
+   "--model",
+   "sag",
+   "--webbing-weight",
+   "41.0",
+   "--stretch",
+   "2.1",
+   "--resolution",
+   "5",
+   "--slope-threshold",
+   "60",
+   "--no-html",
+   "--data-dir",
+   "<data>"
+  ],
+  "cores": null,
+  "tension_by_length": "300:2.5,1500:6,5000:15",
+  "data_dir": "<data>",
+  "run": "<data>/runs/2026-11-02_084215_ch-lauterbrunnen-geojson_6a84eab77b68d0cb",
+  "machine": {
+   "cpu": "AMD Ryzen 9 9900X 12-Core Processor",
+   "physical_cores": 12,
+   "logical_cores": 24,
+   "ram_gb": 61.6,
+   "os": "Windows-11-10.0.26200-SP0",
+   "python": "3.13.7"
+  },
+  "commit": "d639fa3a64c327bb413fcfed40f83b43e819c7f0",
+  "summary": {
+   "lines": 102367760,
+   "spots": 2083742
+  },
+  "grid": {
+   "width": 3961,
+   "height": 2961,
+   "res": 5.0,
+   "crs": "EPSG:2056",
+   "tiles": 1,
+   "area_km2": 272.4538
+  },
+  "funnel": {
+   "anchors": 633687,
+   "grids": 1,
+   "anchors_kept": 633687,
+   "open": 630751,
+   "todo": 630751,
+   "candidates": 1936585878,
+   "checked": 316585821,
+   "found": 102367773,
+   "valid": 102367760,
+   "left_out": 0,
+   "lines": 102367760
+  },
+  "stages": [
+   {
+    "stage": "Start: (between bars)",
+    "wall_s": 2.2,
+    "cpu_s": 2.1,
+    "cores": 0.95,
+    "peak_rss_mb": 188.0
+   },
+   {
+    "stage": "Step 1: (between bars)",
+    "wall_s": 2.9,
+    "cpu_s": 2.7,
+    "cores": 0.94,
+    "peak_rss_mb": 354.0
+   },
+   {
+    "stage": "Step 1: Compute stitching terrain",
+    "wall_s": 2.6,
+    "cpu_s": 2.6,
+    "cores": 0.99,
+    "peak_rss_mb": 245.0
+   },
+   {
+    "stage": "Step 1: Compute stitching surface",
+    "wall_s": 21.8,
+    "cpu_s": 21.6,
+    "cores": 0.99,
+    "peak_rss_mb": 337.0
+   },
+   {
+    "stage": "Step 1: Compute stitching water mask",
+    "wall_s": 0.1,
+    "cpu_s": 0.2,
+    "cores": 1.65,
+    "peak_rss_mb": 286.0
+   },
+   {
+    "stage": "Step 1: Compute filling sea and lakes",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.0,
+    "peak_rss_mb": 367.0
+   },
+   {
+    "stage": "Step 2: (between bars)",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 1.02,
+    "peak_rss_mb": 362.0
+   },
+   {
+    "stage": "Step 2: Compute finding anchors",
+    "wall_s": 0.1,
+    "cpu_s": 0.1,
+    "cores": 0.93,
+    "peak_rss_mb": 331.0
+   },
+   {
+    "stage": "Step 2: Compute anchor prominence and drop",
+    "wall_s": 1.2,
+    "cpu_s": 5.0,
+    "cores": 4.22,
+    "peak_rss_mb": 535.0
+   },
+   {
+    "stage": "Step 3: (between bars)",
+    "wall_s": 22.5,
+    "cpu_s": 24.1,
+    "cores": 1.07,
+    "peak_rss_mb": 16848.0
+   },
+   {
+    "stage": "Step 3: Compute sag estimator table",
+    "wall_s": 0.6,
+    "cpu_s": 2.6,
+    "cores": 4.24,
+    "peak_rss_mb": 362.0
+   },
+   {
+    "stage": "Step 3: Compute free directions",
+    "wall_s": 1.0,
+    "cpu_s": 20.9,
+    "cores": 20.94,
+    "peak_rss_mb": 435.0
+   },
+   {
+    "stage": "Step 3: Compute anchor pairs",
+    "wall_s": 72.6,
+    "cpu_s": 1381.1,
+    "cores": 19.02,
+    "peak_rss_mb": 2011.0
+   },
+   {
+    "stage": "Step 3: Compute checking lines",
+    "wall_s": 107.2,
+    "cpu_s": 2216.9,
+    "cores": 20.69,
+    "peak_rss_mb": 16078.0
+   },
+   {
+    "stage": "Step 4: (between bars)",
+    "wall_s": 1.4,
+    "cpu_s": 1.5,
+    "cores": 1.05,
+    "peak_rss_mb": 32447.0
+   },
+   {
+    "stage": "Step 4: Compute coordinates",
+    "wall_s": 65.2,
+    "cpu_s": 64.7,
+    "cores": 0.99,
+    "peak_rss_mb": 20690.0
+   },
+   {
+    "stage": "Step 4: Compute over water and filled gaps",
+    "wall_s": 29.2,
+    "cpu_s": 615.5,
+    "cores": 21.09,
+    "peak_rss_mb": 22349.0
+   },
+   {
+    "stage": "Step 4: Compute grouping lines",
+    "wall_s": 1332.3,
+    "cpu_s": 1322.1,
+    "cores": 0.99,
+    "peak_rss_mb": 25482.0
+   },
+   {
+    "stage": "Step 4: Compute line profiles",
+    "wall_s": 37.7,
+    "cpu_s": 113.9,
+    "cores": 3.02,
+    "peak_rss_mb": 34066.0
+   },
+   {
+    "stage": "Between steps: (between bars)",
+    "wall_s": 2185.6,
+    "cpu_s": 768.1,
+    "cores": 0.35,
+    "peak_rss_mb": 45932.0
+   },
+   {
+    "stage": "Step 5: (between bars)",
+    "wall_s": 2.2,
+    "cpu_s": 1.0,
+    "cores": 0.47,
+    "peak_rss_mb": 28423.0
+   },
+   {
+    "stage": "Step 5: Compute saving results",
+    "wall_s": 75.7,
+    "cpu_s": 35.0,
+    "cores": 0.46,
+    "peak_rss_mb": 29280.0
+   }
+  ],
+  "total": {
+   "wall_s": 3964.32,
+   "cpu_s": 6601.97,
+   "peak_rss_mb": 45932.0
+  }
+ }
+}
