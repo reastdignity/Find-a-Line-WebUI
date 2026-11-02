@@ -12,10 +12,11 @@ sys.path.insert(0, REPO)
 import osm  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
+from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "wales", "england", "hesse",
-       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "south_tyrol", "luxembourg", "denmark",
+       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "south_tyrol", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
@@ -856,6 +857,66 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                            'ttl_days': 730,
                                            'credit': 'DGM1 / DOM1 (LGL, Baden-Württemberg)',
                                            'shift': (0.0, 0.0)}},
+            'bavaria': {'crs': 'EPSG:25832',
+                        'countries': ('de',),
+                        'bbox': None,
+                        'fallbacks': ['europe'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 1.0,
+                        'instead_without_data': None,
+                        'local_crs': 'utm_crs',
+                        'ortho': 'bavaria/ortho/live',
+                        'credits': ['DGM1 / DOM20 (LDBV, Bavaria)'],
+                        'nmt': {'class': 'MetalinkTiles',
+                                'description': 'DGM1 (terrain)',
+                                'folder': 'bavaria/dgm1',
+                                'prefix': 'dgm1',
+                                'native_res': 1.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'DGM1 / DOM20 (LDBV, Bavaria)',
+                                'shift': (0.0, 0.0),
+                                'index_url': 'https://geodaten.bayern.de/odd/a/dgm/dgm1/meta/metalink/09.meta4'},
+                        'nmpt': {'class': 'MetalinkTiles',
+                                 'description': 'DOM20 averaged to 1 m (trees, buildings)',
+                                 'folder': 'bavaria/dom20-1m',
+                                 'prefix': 'dom20',
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'DGM1 / DOM20 (LDBV, Bavaria)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://geodaten.bayern.de/odd/a/dom20/meta/DOM/metalink/091.meta4'}},
+            'rhineland_palatinate': {'crs': 'EPSG:25832',
+                                     'countries': ('de',),
+                                     'bbox': None,
+                                     'fallbacks': ['europe'],
+                                     'grid_origin': (0.0, 0.0),
+                                     'default_resolution': 1.0,
+                                     'instead_without_data': None,
+                                     'local_crs': 'utm_crs',
+                                     'ortho': 'rhineland_palatinate/ortho/live',
+                                     'credits': ['DGM1 / DOM1 (LVermGeo, Rhineland-Palatinate)'],
+                                     'nmt': {'class': 'MetalinkTiles',
+                                             'description': 'DGM1 (terrain)',
+                                             'folder': 'rhineland_palatinate/dgm1',
+                                             'prefix': 'dgm1',
+                                             'native_res': 1.0,
+                                             'processing': 1,
+                                             'ttl_days': None,
+                                             'credit': 'DGM1 / DOM1 (LVermGeo, Rhineland-Palatinate)',
+                                             'shift': (0.0, 0.0),
+                                             'index_url': 'https://geobasis-rlp.de/data/dgm1/current/meta4/dgm1_tif_07.meta4'},
+                                     'nmpt': {'class': 'MetalinkTiles',
+                                              'description': 'DOM1 (trees, buildings)',
+                                              'folder': 'rhineland_palatinate/dom1',
+                                              'prefix': 'dom1',
+                                              'native_res': 1.0,
+                                              'processing': 1,
+                                              'ttl_days': None,
+                                              'credit': 'DGM1 / DOM1 (LVermGeo, Rhineland-Palatinate)',
+                                              'shift': (0.0, 0.0),
+                                              'index_url': 'https://geobasis-rlp.de/data/dom1/current/meta4/dom1_tif_07.meta4'}},
             'south_tyrol': {'crs': 'EPSG:25832',
                             'countries': ('it',),
                             'bbox': None,
@@ -1225,6 +1286,11 @@ PATHS = [
     ("saxony", "nmpt", (222, 2820), "saxony/dom1/live/22_282/222_2820.tif", (222, 2820)),
     ("baden_wurttemberg", "nmt", (248, 2661), "baden_wurttemberg/dgm1/live/24_266/248_2661.tif", (248, 2661)),
     ("baden_wurttemberg", "nmpt", (248, 2661), "baden_wurttemberg/dom1/live/24_266/248_2661.tif", (248, 2661)),
+    ("bavaria", "nmt", "sha", "bavaria/dgm1/67_551/673_5516_0123abcd.tif", None),
+    ("bavaria", "nmpt", "sha", "bavaria/dom20-1m/67_551/673_5516_0123abcd.tif", None),
+    ("rhineland_palatinate", "nmt", "sha-year", "rhineland_palatinate/dgm1/41_544/412_5447_2022_0123abcd.tif", None),
+    ("rhineland_palatinate", "nmpt", "sha-year", "rhineland_palatinate/dom1/41_544/412_5447_2022_0123abcd.tif",
+     None),
     ("south_tyrol", "nmt", (2.5, 142, 1031), "italy/bz-dtm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25-e3/142_1031.tif",
      (2.5, 142, 1031)),
     ("south_tyrol", "nmpt", (2.5, 142, 1030), "italy/bz-dsm/2.5m/epsg25832-2.5m-2000px-tif-o1.25_1.25-e3/142_1030.tif",
@@ -1260,7 +1326,8 @@ PATHS = [
 def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
     tile = {"sheet": lambda: src.Sheet(**SHEET), "stac": lambda: src.Sheet(**STAC),
             "lgln": lambda: src.Sheet(**LGLN),
-            "block": lambda: src.Block(**BLOCK)}.get(tile, lambda: tile)()
+            "block": lambda: src.Block(**BLOCK), "sha": lambda: ShaTile(673, 5516, 0, "0123abcd"),
+            "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd")}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -1293,6 +1360,8 @@ def test_water_mask_and_tile_urls(tmp_path):
     ("swisstopo", "nmt", 46.59, 7.91, "switzerland/sheet-index/ch.swisstopo.swissalti3d/N46.59_E007.91.json"),
     ("usa", "nmt", 37.7, -119.6, "usa/sheet-index/dem1m/N37.70_W119.60.json"),
     ("lower_saxony", "nmpt", 51.88, 10.44, "lower_saxony/sheet-index/dom1/N51.88_E010.44.json"),
+    ("bavaria", "nmpt", 49.77, 11.41, "bavaria/sheet-index/dom20/N49.77_E011.41.json"),
+    ("rhineland_palatinate", "nmt", 49.15, 7.78, "rhineland_palatinate/sheet-index/dgm1/N49.15_E007.78.json"),
     ("alaska_ifsar", "nmt", 61.2, -149.9, "usa/sheet-index/ifsar5m/N61.20_W149.90.json"),
 ])
 def test_index_paths(tmp_path, sid, kind, lat, lon, path):
@@ -1323,13 +1392,14 @@ def test_layer_surface():
             assert callable(layer.index_path) and callable(layer.update_index_tile)
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
-    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony"}
+    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
+                       "rhineland_palatinate"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
                    "saxony_anhalt", "south_tyrol", "denmark", "norway"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
-    for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks):
+    for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks, src.MetalinkTiles):
         assert issubclass(cls, src.IndexedTiles)
     for cls in (src.WcsTiles, src.GridTiles, src.DegreeTiles, src.DegreeBlocks, src.FileLayer, src.IndexedTiles):
         assert issubclass(cls, src.Layer)
@@ -1362,6 +1432,7 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("de-he", (49.39, 51.66, 7.77, 10.24)), ("de-mv", (53.1, 54.7, 10.59, 14.42)),
          ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6)),
          ("de-sn", (50.15, 51.72, 11.79, 15.06)), ("de-bw", (47.52, 49.83, 7.44, 10.54)),
+         ("de-by", (47.27, 50.57, 8.97, 13.84)), ("de-rp", (48.96, 50.95, 6.11, 8.51)),
          ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("lu", (49.44, 50.19, 5.73, 6.54)),
          ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21)),
          ("fi", (59.7, 70.1, 19.3, 31.6)),
@@ -1500,6 +1571,8 @@ ATTRIBUTIONS = {
     "mecklenburg_vorpommern": "© GeoBasis-DE/M-V {year}, Daten geändert",
     "saxony": "Quelle: GeoSN, Daten geändert",
     "baden_wurttemberg": "Datenquelle: LGL, www.lgl-bw.de, Daten geändert",
+    "bavaria": "Bayerische Vermessungsverwaltung – www.geodaten.bayern.de, Daten geändert",
+    "rhineland_palatinate": "©GeoBasis-DE / LVermGeoRP {year}, dl-de/by-2-0, www.lvermgeo.rlp.de [Daten bearbeitet]",
     "finland": "Contains data from the National Land Survey of Finland Elevation model 2 m {year}, CC BY 4.0, processed",
     "norway": "©Kartverket, CC BY 4.0, processed",
     "new_zealand": "Sourced from LINZ. CC BY 4.0",
@@ -1529,6 +1602,9 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "mecklenburg_vorpommern": ("© GeoBasis-DE/M-V {year}, CC BY 4.0", src.CC_BY[1]),
     "saxony": ("Quelle: GeoSN, dl-de/by-2-0", "https://www.govdata.de/dl-de/by-2-0"),
     "baden_wurttemberg": ("LGL-BW ({year}), dl-de/by-2-0", "https://www.govdata.de/dl-de/by-2-0"),
+    "bavaria": ("Bayerische Vermessungsverwaltung – www.geodaten.bayern.de, CC BY 4.0", src.CC_BY[1]),
+    "rhineland_palatinate": ("©GeoBasis-DE / LVermGeoRP {year}, dl-de/by-2-0, www.lvermgeo.rlp.de",
+                             "https://www.govdata.de/dl-de/by-2-0"),
     "geoportal": ("GUGiK", None),
     "france": ("IGN, BD ORTHO, Licence Ouverte 2.0", "https://www.etalab.gouv.fr/licence-ouverte-open-licence/"),
     "czechia": ("ČÚZK – on-line", "https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"

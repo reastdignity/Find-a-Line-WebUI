@@ -186,9 +186,10 @@ def _gdal_path(url: str) -> str:
     return f"/vsizip/{path}" if url.lower().endswith(".zip") else path
 
 
-def _read_source(url: str, profile: Dict) -> np.ndarray:
+def _read_source(url: str, profile: Dict, resampling: Resampling = Resampling.nearest) -> np.ndarray:
     """A source file's values on the pixels of a cached tile (nearest: the same pixels when the
-    tile is on the file's own grid), NaN without data. A read GDAL could not complete although it
+    tile is on the file's own grid; average for a layer that averages its files' pixels, as its
+    Download does), NaN without data. A read GDAL could not complete although it
     returned (src.net.gdal_errors: what it could not fetch comes back as nodata or zeros) raises
     RuntimeError with GDAL's error, never a false difference. GDAL's settings as
     src.net._gdal_http's (retries of requests without an answer, the blocks read in this thread)
@@ -201,7 +202,7 @@ def _read_source(url: str, profile: Dict) -> np.ndarray:
         with env, src.net.gdal_errors() as errors, rio.open(_gdal_path(url)) as source:
             kwargs = {} if source.crs else {"src_crs": profile["crs"]}  # ASCII grids name no CRS
             with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
-                           height=profile["height"], resampling=Resampling.nearest, **kwargs) as vrt:
+                           height=profile["height"], resampling=resampling, **kwargs) as vrt:
                 values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
         if errors:
             raise RuntimeError("not read completely: " + "; ".join(dict.fromkeys(errors)))
@@ -323,8 +324,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         result = None
         for url in _sources_of(layer, tile):
             try:
+                resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
                 source = (_read_zip(layer, url, profile) if isinstance(layer, src.ZippedTiles)
-                          else _read_source(url, profile))
+                          else _read_source(url, profile, resampling))
             except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
                 break

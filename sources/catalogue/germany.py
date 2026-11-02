@@ -10,6 +10,7 @@ from ..source import ReadmeRow, OrthoService, Source
 from ..layers.stac import StacTiles
 from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
+from ..layers.metalink import MetalinkTiles
 
 # LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
 # the provider named "© GeoBasis-DE / LVermGeo ST"; dl-de/by-2.0 §3 asks for a note of changes ("Daten
@@ -167,6 +168,52 @@ def _lgl(kind: str, folder: str, member: str, description: str, bytes_per_tile: 
                        rf"^{kind}1_32_\d+_\d+_1_bw_\d{{4}}\.{member}$", origin=(1000.0, 0.0),
                        bytes_per_tile=bytes_per_tile)
 
+
+# LDBV's Nutzungsbedingungen (https://www.geodaten.bayern.de/odd/m/3/html/nutzungsbedingungen.html, read
+# 2026-11-02): open data under CC BY 4.0, "Die Namensnennung der Bayerischen Vermessungsverwaltung als
+# Rechteinhaberin hat in folgender Weise zu erfolgen: "Bayerische Vermessungsverwaltung – www.geodaten.bayern.de""; no
+# request or agreement needed. CC BY asks to say what was changed: "Daten geändert" (a mosaic on our grid, the
+# DOM20 averaged to 1 m)
+BY_ATTRIBUTION = "Bayerische Vermessungsverwaltung – www.geodaten.bayern.de"
+BY_CREDIT = Credit("DGM1 / DOM20 (LDBV, Bavaria)", f"{BY_ATTRIBUTION}, Daten geändert", *CC_BY)
+# The DGM1 of LDBV's open-data downloads: 1 km GeoTIFFs of 1 m (float32, LZW, strips of 2 rows, not COG, -9999,
+# EPSG:25832, edges on whole metres; about 3 MB) at download1.bayernwolke.de/a/dgm/dgm1/<Ekm>_<Nkm>.tif (the same
+# on download2), listed with their size and SHA-256 by a Metalink of the Land (09.meta4: 22 MB, 4.2 MB gzipped,
+# 71 979 tiles). No dates and no year in the names: files are replaced in place, so the SHA-256 is the version
+BY_DGM1 = "https://geodaten.bayern.de/odd/a/dgm/dgm1/meta/metalink/09.meta4"
+# The DOM20 (0.2 m, photogrammetric: image matching of the aerial photographs, LDBV states 0.4-0.6 m; 1 km files
+# of 5000 x 5000 px, about 49 MB, LZW, 256 px tiles without overviews, not COG; flights every 2-3 years replace
+# them in place), listed per Regierungsbezirk (091-097: 0.5-1.1 MB gzipped each, no statewide Metalink; they
+# overlap at their borders). There is no open DOM1 (laser points only as LAZ)
+BY_DOM20 = [f"https://geodaten.bayern.de/odd/a/dom20/meta/DOM/metalink/09{n}.meta4" for n in range(1, 8)]
+# LDBV's DOP20 WMS (EPSG:4326 offered; Fees "kostenfrei", AccessConstraints "CC BY 4.0"), no key
+BY_DOP = OrthoService("DOP20 Bayern (LDBV)", "https://geoservices.bayern.de/od/wms/dop/v1/dop20", "by_dop20c",
+                      "bavaria/ortho/live", f"{BY_ATTRIBUTION}, CC BY 4.0", attribution_url=CC_BY[1])
+
+# LVermGeo RP's open data (https://lvermgeo.rlp.de/geodaten-geoshop/open-data, read 2026-11-02): dl-de/by-2.0,
+# credited "©GeoBasis-DE / LVermGeoRP<Jahr des Datenbezugs>, dl-de/by-2-0, www.lvermgeo.rlp.de [Daten
+# bearbeitet]"; the year of the run (YEAR) stands for the year of the download, as for LGLN
+RP_ATTRIBUTION = f"©GeoBasis-DE / LVermGeoRP {YEAR}, dl-de/by-2-0, www.lvermgeo.rlp.de"
+RP_CREDIT = Credit("DGM1 / DOM1 (LVermGeo, Rhineland-Palatinate)", f"{RP_ATTRIBUTION} [Daten bearbeitet]",
+                   *DL_DE_BY)
+# The DGM1 and DOM1 of the GeoShop's open-data downloads: 1 km GeoTIFFs of 1 m (ALS; float32, LZW, strips, -9999,
+# edges on whole metres, 1.5-3 MB) <kind>1_32_<Ekm>_<Nkm>_1_rp_<year>.tif, the survey year in the name (2022-2025:
+# a quarter of the Land a year, the older file then gone), listed with size and SHA-256 by a Metalink of the Land
+# (dgm1_tif_07.meta4: 12 MB, 21 160 tiles and their .tfw; dom1_tif_07.meta4: 7.6 MB). The DGM1's files name a
+# compound CRS (ETRS89 / UTM 32N + DHHN2016 height): written in EPSG:25832's name. No WCS, no limits published
+RP_META = "https://geobasis-rlp.de/data/{kind}1/current/meta4/{kind}1_tif_07.meta4"
+# LVermGeo RP's DOP20 WMS (EPSG:4326 offered, dl-de/by-2.0 with the same notice), no key
+RP_DOP = OrthoService("DOP20 Rheinland-Pfalz (LVermGeo)", "https://geo4.service24.rlp.de/wms/rp_dop20.fcgi", "rp_dop20",
+                      "rhineland_palatinate/ortho/live", RP_ATTRIBUTION, attribution_url=DL_DE_BY[1])
+
+
+def _rp(kind: str, description: str) -> MetalinkTiles:
+    """DGM1 or DOM1 of LVermGeo RP: 1 km GeoTIFFs listed by the Land's Metalink, the newest survey per tile."""
+    return MetalinkTiles(description, [RP_META.format(kind=kind)],
+                         rf"^{kind}1_32_(?P<east>\d+)_(?P<north>\d+)_1_rp_(?P<year>\d{{4}})\.tif$",
+                         f"rhineland_palatinate/{kind}1", "EPSG:25832", f"{kind}1", bytes_per_tile=2.5e6,
+                         force_crs="EPSG:25832")
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -176,7 +223,7 @@ SOURCES: List[Source] = [
                     "DHHN2016",
         nmt=_hvbg("dgm", "he_dgm1", "DGM1 (terrain)", False), nmpt=_hvbg("dom", "dom1", "DOM1 (trees, buildings)", True),
         countries=("de",), regions=("de-he",), crs="EPSG:25832", ortho=HVBG_DOP,
-        neighbours=("lower_saxony", "baden_wurttemberg"),
+        neighbours=("lower_saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate"),
         credits=(HVBG_CREDIT,),
         listing=ReadmeRow("Hesse (DE)", "HVBG DGM1, 1 m (WCS)", "HVBG DOM1, 1 m (WCS)", "HVBG DOP"),
         offline=(("de-he", (49.39, 51.66, 7.77, 10.24)),), sample=(51.1830, 9.0500),
@@ -233,7 +280,7 @@ SOURCES: List[Source] = [
         nmt=_geosn("dgm", "DGM1 (terrain)"), nmpt=_geosn("dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-sn",), crs="EPSG:25833", ortho=GEOSN_DOP,
         credits=(GEOSN_CREDIT,),
-        neighbours=("geoportal", "saxony_anhalt", "czechia"),
+        neighbours=("geoportal", "saxony_anhalt", "czechia", "bavaria"),
         listing=ReadmeRow("Saxony (DE)", "GeoSN DGM1, 1 m (2 km tiles)", "GeoSN DOM1, 1 m (2 km tiles)",
                           "GeoSN DOP20"),
         offline=(("de-sn", (50.15, 51.72, 11.79, 15.06)),), sample=(50.9200, 14.2100),
@@ -247,10 +294,41 @@ SOURCES: List[Source] = [
         nmpt=_lgl("dom", "dom1", "tif", "DOM1 (trees, buildings)", 12e6),
         countries=("de",), regions=("de-bw",), crs="EPSG:25832", ortho=LGL_DOP,
         credits=(LGL_CREDIT,),
-        neighbours=("hesse", "swisstopo", "france"),
+        neighbours=("hesse", "swisstopo", "france", "bavaria", "rhineland_palatinate"),
         listing=ReadmeRow("Baden-Württemberg (DE)", "LGL DGM1, 1 m (2 km tiles)", "LGL DOM1, 1 m (2 km tiles)",
                           "LGL DOP20"),
         offline=(("de-bw", (47.52, 49.83, 7.44, 10.54)),), sample=(48.0530, 8.9710),
         note="Data: Datenquelle: LGL, www.lgl-bw.de, dl-de/by-2.0 (changed: mosaicked onto the working grid). "
              "Survey years per 1 km tile, not recorded."),
+    Source(
+        id="bavaria", name="LDBV (DGM1 / DOM20)",
+        description="LDBV (Bavaria, Germany): terrain model 1 m and photogrammetric surface model 0.2 m averaged "
+                    "to 1 m, 1 km tiles listed by Metalinks, ETRS89 / UTM 32N, DHHN2016",
+        nmt=MetalinkTiles("DGM1 (terrain)", [BY_DGM1], r"^(?P<east>\d{3})_(?P<north>\d{4})\.tif$", "bavaria/dgm1",
+                          "EPSG:25832", "dgm1", bytes_per_tile=3.1e6),
+        nmpt=MetalinkTiles("DOM20 averaged to 1 m (trees, buildings)", BY_DOM20,
+                           r"^32(?P<east>\d{3})_(?P<north>\d{4})_20_DOM\.tif$", "bavaria/dom20-1m", "EPSG:25832",
+                           "dom20", bytes_per_tile=49e6, average=5),
+        countries=("de",), regions=("de-by",), crs="EPSG:25832", ortho=BY_DOP,
+        credits=(BY_CREDIT,),
+        neighbours=("austria", "hesse", "saxony", "baden_wurttemberg", "czechia"),
+        listing=ReadmeRow("Bavaria (DE)", "LDBV DGM1, 1 m (1 km tiles)", "LDBV DOM20 averaged to 1 m (image matching)",
+                          "LDBV DOP20"),
+        offline=(("de-by", (47.27, 50.57, 8.97, 13.84)),), sample=(49.7700, 11.4100),
+        note=f"Data: {BY_ATTRIBUTION}, CC BY 4.0 (changed: mosaicked onto the working grid, the DOM20's 0.2 m "
+             f"averaged to 1 m). The surface model comes from image matching of aerial photographs, not from "
+             f"laser scanning: smoother over trees and less exact (0.4-0.6 m). The files name no survey years."),
+    Source(
+        id="rhineland_palatinate", name="LVermGeo RP (DGM1 / DOM1)",
+        description="LVermGeo (Rhineland-Palatinate, Germany): terrain and surface models 1 m, newest survey per "
+                    "1 km tile listed by Metalinks, ETRS89 / UTM 32N, DHHN2016",
+        nmt=_rp("dgm", "DGM1 (terrain)"), nmpt=_rp("dom", "DOM1 (trees, buildings)"),
+        countries=("de",), regions=("de-rp",), crs="EPSG:25832", ortho=RP_DOP,
+        credits=(RP_CREDIT,),
+        neighbours=("hesse", "luxembourg", "france", "baden_wurttemberg"),
+        listing=ReadmeRow("Rhineland-Palatinate (DE)", "LVermGeo RP DGM1, 1 m; newest survey",
+                          "LVermGeo RP DOM1, 1 m", "LVermGeo RP DOP20"),
+        offline=(("de-rp", (48.96, 50.95, 6.11, 8.51)),), sample=(49.1500, 7.7800),
+        note=f"Data {RP_ATTRIBUTION} [Daten bearbeitet] (changed: mosaicked onto the working grid). Survey years "
+             f"2022-2025, the newest per 1 km tile."),
 ]
