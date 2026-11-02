@@ -1047,5 +1047,33 @@
     },
     "notes": "--source auto picks finland (the centre is in FI); first run on an empty cache: 4 blocks of 2 km, about 2 MB each; no surface model, so over_trees is never counted; also measured: Korouoma at radius 1500 m 54 lines in 8 spots, Olhavanvuori (Kouvola, 61.1888, 26.8412, radius 600 m), Isokuru (Pyhatunturi, 67.0176, 27.2389, 600 m) and the Kevo canyon (69.7354, 26.9819, 800 m) none; radius 1500 m (the user, 2026-11-01: 600 m gave only 40 lines in 4 spots)",
     "seconds": 2.6
+  },
+  "R40": {
+    "place": "Preikestolen, Lysefjord, Norway: Kartverket's NHM DTM 1 / DOM 1 (1 m) from Geonorge's WCS 1.0.0 in ETRS89 / UTM 33N, the sea 0.0 taken as no data",
+    "args": "--lat 58.9864 --lon 6.1904 --radius 600 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "no"
+    ],
+    "expected": {
+      "anchors": 379503,
+      "open": 47078,
+      "checked": 546374,
+      "lines": 125054,
+      "spots": 417,
+      "csv_sha256": "bf8904cb46005ba52e3ea1cb060a022a776ac0d3a534356566bae6be8ad2c414",
+      "length_km": 23091.239,
+      "clearance_min": 0.0,
+      "clearance_mean": 3.295,
+      "clearance_max": 28.74,
+      "over_trees": 105150,
+      "coverage": 80.36,
+      "empty_tiles": 0,
+      "sea_km2": 0.96,
+      "water_lines": 955,
+      "water_spots": 14
+    },
+    "notes": "--source auto picks norway (the centre is in NO); first run on an empty cache (with the default --max-length 1000): 4 tiles of 2 km per layer, 7-17 MB each, about 2.5 s a tile; the fjord comes back as 0.0 in the DTM (no data: filled as sea, sea_km2) and as about -0.1 m in the DOM; DOM - DTM is up to about 16 m (p99, forest) with outliers of 100+ m at vertical walls, so most lines are over trees; with the defaults (--max-length 1000) 200601 lines in 693 spots, too many for a quick test: --min-length 50 --max-length 300 (the coordinates are the pulpit rock itself, checked on the map)",
+    "seconds": 13.6
   }
 }
