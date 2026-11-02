@@ -339,7 +339,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   Orthophoto: IGN's BD ORTHO WMTS. Neighbours: swisstopo, luxembourg, spain, baden_wurttemberg; LiDAR HD reaches a
   few hundred metres into Switzerland (R53: swisstopo fills 0.02 km²). Offline, the Jura and Haute-Savoie fall into
   Switzerland's box. Open: per-tile edition dates (the WFS's `date_edition`; the credit takes the run's year), the
-  overseas departments, and whether the VPS keeps Geofabrik's 5.1 GB France extract.
+  overseas departments. The VPS keeps Geofabrik's 5.1 GB France extract (the user, 2026-11-02: its coast and cliffs
+  then need no Overpass).
 - **Czechia, done 2026-11-02** (source `czechia`, R44 Adršpach): ČÚZK's DMR 5G (terrain) and DMP 1G (surface), 2 m,
   CC BY 4.0, credited "ČÚZK, <year of the run>" (the terms' format; the services name no edition), from its keyless
   ArcGIS ImageServers (`ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g|dmp1g/ImageServer`) by a new reader of Esri's
