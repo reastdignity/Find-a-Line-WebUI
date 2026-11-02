@@ -57,7 +57,7 @@ import messages
 from audit import KEEP_DAYS as AUDIT_DAYS, Audit
 import params as pm
 from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_params, warm_up_wanted
-from settings import AccountSettings, Limits, PublicSettings, web_key
+from settings import AccountSettings, Limits, PublicSettings, ViewSettings, web_key
 
 PORT = 8765
 METRICS_PORT = 8766  # the Prometheus metrics of `web --public` (metrics.py)
@@ -108,9 +108,34 @@ SECURITY_HEADERS = {
 
 
 # The pages whose Content-Security-Policy differs from SECURITY_HEADERS' (the guard chooses it by the
-# path). The 3D view's is the same today; its coarse ring of terrain (FINDALINE_3D_RING, wave 3) adds
-# the hosts of its tiles here
+# path): the ring-off default; create_app builds its own from settings.ViewSettings (page_csp)
 PAGE_CSP = {"/view3d": content_security_policy()}
+# The satellite imagery of ArcGIS Location Platform, as the 3D view's ring asks it (viewer/src/layers.ts esriTileUrl)
+ESRI_TILES_ORIGIN = "https://ibasemaps-api.arcgis.com"
+
+
+def ortho_origins() -> Tuple[str, ...]:
+    """The origins of every orthophoto service of the catalogue (OrthoService.url and .base_url of
+    sources.SOURCES), sorted: the 3D view's ring loads their imagery itself."""
+    from urllib.parse import urlsplit
+
+    import sources as src
+    origins = set()
+    for source in src.SOURCES.values():
+        for url in (source.ortho.url, source.ortho.base_url) if source.ortho is not None else ():
+            if url:
+                parts = urlsplit(url)
+                origins.add(f"{parts.scheme}://{parts.netloc.lower()}")
+    return tuple(sorted(origins))
+
+
+def page_csp(view: ViewSettings) -> Dict[str, str]:
+    """PAGE_CSP for the 3D view's settings: with its ring off as every page's; with it on, connect-src adds
+    the ring's tile server, Esri's imagery and the catalogue's orthophoto services (the ring's textures)."""
+    if not view.ring:
+        return dict(PAGE_CSP)
+    return {"/view3d": content_security_policy(
+        {"connect-src": (view.ring_origin, ESRI_TILES_ORIGIN) + ortho_origins()})}
 
 
 def schema(limits: Optional[Limits] = None, hidden_sources=()) -> List[Dict]:
@@ -507,11 +532,13 @@ class RunFiles(StaticFiles):
 
 def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, start_scheduler: bool = True,
                public: Optional[PublicSettings] = None, limits: Optional[Limits] = None,
-               accounts: Optional[AccountSettings] = None, oauth_transport=None, warm_up: bool = False):
+               accounts: Optional[AccountSettings] = None, oauth_transport=None, warm_up: bool = False,
+               view: Optional[ViewSettings] = None):
     """The FastAPI application (tests create it without the scheduler); with `public`, the public
     mode, which never runs the worker in this process and needs `accounts` (the sign-in;
     `oauth_transport`: an httpx2 transport to the providers, for tests). `limits` of the request
-    values: by default from FINDALINE_LIMIT_* (and the public site's defaults in the public mode)."""
+    values: by default from FINDALINE_LIMIT_* (and the public site's defaults in the public mode);
+    `view`, the 3D view's settings: by default from FINDALINE_3D_* (settings.ViewSettings)."""
     from fastapi import Depends, FastAPI, HTTPException, Request
     from fastapi.concurrency import run_in_threadpool
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
@@ -537,6 +564,10 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     # Platform. Into the page only (page_keys: runs.js, the app page's meta), never into a file or a log.
     esri_key = web_key("esri_api_key")
     page_keys = {"esri_key": esri_key} if esri_key else {}
+    # The 3D view's ring of terrain (settings.ViewSettings), read once: its page's meta and CSP, the texts
+    view = view if view is not None else ViewSettings.load()
+    ring_meta = html.escape(view.ring_url) if view.ring else "off"
+    csp_of_page = page_csp(view)
 
     def quick_ended(result: str):
         with quick_lock:
@@ -635,8 +666,8 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
                 route_counts.add(route_template(app, request.scope), request.method, 500, time.monotonic() - started)
                 raise
         response.headers.update(SECURITY_HEADERS)
-        if path in PAGE_CSP:
-            response.headers["Content-Security-Policy"] = PAGE_CSP[path]
+        if path in csp_of_page:
+            response.headers["Content-Security-Policy"] = csp_of_page[path]
         response.headers["Cache-Control"] = cache_control(request, path)
         route_counts.add(route_template(app, request.scope), request.method, response.status_code,
                          time.monotonic() - started)
@@ -699,11 +730,11 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         app is for; visitors and accounts not approved go to the page, which shows them the sign-in."""
         if not public:
             return VIEW3D_HTML.format(user=html.escape(json.dumps({"local": True})), keys=key_meta(esri_key),
-                                      ring="off")
+                                      ring=ring_meta)
         found = signed_in(request)
         if found and found[0].approved:
             return VIEW3D_HTML.format(user=html.escape(json.dumps(found[0].public())), keys=key_meta(esri_key),
-                                      ring="off")
+                                      ring=ring_meta)
         return RedirectResponse("/", 303)
 
     everyone_cache = {"at": -math.inf, "total": (0.0, 0)}
@@ -1552,12 +1583,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         @app.get("/privacy", response_class=HTMLResponse)
         def privacy():
             """What the site stores, why and for how long (no script)."""
-            return privacy_page(public.contact, limits.keep_events_days)
+            return privacy_page(public.contact, limits.keep_events_days, ring=view.ring)
 
         @app.get("/about", response_class=HTMLResponse)
         def about():
             """What the site is, and the data it uses with their licences and notices (no script)."""
-            return about_page(public.contact, esri=esri_key is not None)
+            return about_page(public.contact, esri=esri_key is not None, ring=view.ring)
 
         app.mount("/s", RunFiles(runs_dir, run_of_link), name="shared")
     elif esri_key:
@@ -1608,7 +1639,7 @@ APP_HTML = """<!doctype html>
 
 
 # The 3D view of a line (viewer/src/view3d): no token, the page only GETs; findaline-3d-ring is "off" or the
-# tile URL template of the coarse ring of terrain around the patch (FINDALINE_3D_RING, wave 3)
+# tile URL template of the coarse ring of terrain around the patch, HTML-escaped (settings.ViewSettings)
 VIEW3D_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="findaline-user" content="{user}">{keys}
@@ -1703,8 +1734,9 @@ PAGE_HTML = """<!doctype html>
 """
 
 
-def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
-    """What the public site stores, why and for how long (facts of accounts.py, jobs.py, audit.py)."""
+def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = False) -> str:
+    """What the public site stores, why and for how long (facts of accounts.py, jobs.py, audit.py);
+    `ring`: the 3D view loads the terrain around its patch from Mapterhorn (settings.ViewSettings)."""
     import jobs as jb
     e = html.escape
     events = f"after {keep_events_days:g} days" if keep_events_days else "never automatically"
@@ -1760,9 +1792,15 @@ def privacy_page(contact: str, keep_events_days: Optional[float]) -> str:
         "A demo run, marked by an administrator, is open to everyone. The cached orthophoto tiles (copies of "
         "public services' images, no user data) are open to everyone.",
         "Searches ask public services from the server: Nominatim and Overpass (OpenStreetMap) and the services "
-        "of the elevation data, with the places of the search, not who you are. Maps in your browser load "
-        "background tiles (OpenStreetMap, OpenTopoMap, Esri, orthophoto services) directly: those services see "
-        "your IP address.",
+        "of the elevation data, with the places of the search, not who you are. Maps in your browser and the 3D "
+        "view of a line load background tiles and imagery (OpenStreetMap, OpenTopoMap, Esri, orthophoto services) "
+        "directly: those services see your IP address. The 3D view's terrain comes from this site; it is computed "
+        "for the view and not stored.",
+    ] + ([
+        "When the 3D view shows the terrain around its patch, your browser loads it from Mapterhorn "
+        "(tiles.mapterhorn.com), which logs each request with its IP address, referrer and browser for up to 30 "
+        "days.",
+    ] if ring else []) + [
         "No third-party analytics, no advertising, no tracking cookies. The operator keeps statistics of the site's "
         "operation without personal data (counts, sums and times, e.g. km² searched per day or users per country, or "
         "the number of searches per area of about 25 km) without a time limit.",
@@ -1784,14 +1822,20 @@ def esri_terms() -> str:
     """The sentence of the about page on the satellite map (approved wording), its link escaped."""
     e = html.escape
     return ('<p>Satellite imagery: provided by Esri through ArcGIS Location Platform ("Powered by Esri"). By using '
-            "the satellite map you agree to comply with Esri's terms of use for it "
-            f"(<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>). In particular, its imagery may only be viewed "
-            "in this map: it may not be downloaded, stored, copied or passed on.</p>")
+            "the satellite imagery (in the map or in the 3D view of a line) you agree to comply with Esri's terms of "
+            f"use for it (<a href='{e(ESRI_TERMS_URL)}'>{e(ESRI_TERMS_URL)}</a>). In particular, it may only be "
+            "viewed in this map and in the 3D view of a line: it may not be downloaded, stored, copied or passed "
+            "on.</p>")
 
 
-def about_page(contact: str, esri: bool = False) -> str:
+# The terrain around the 3D view's patch (settings.ViewSettings.ring): Mapterhorn's attribution page
+MAPTERHORN_ATTRIBUTION = "https://mapterhorn.com/attribution"
+
+
+def about_page(contact: str, esri: bool = False, ring: bool = False) -> str:
     """What the site is, and the credits and licences of its data (sources.SOURCES, plus OpenStreetMap);
-    `esri`: the satellite map is offered (a key is set), with its attribution and terms."""
+    `esri`: the satellite map is offered (a key is set), with its attribution and terms; `ring`: the 3D
+    view shows the terrain around its patch from Mapterhorn (settings.ViewSettings), with its credit."""
     import sources as src
     e = html.escape
 
@@ -1815,6 +1859,9 @@ def about_page(contact: str, esri: bool = False) -> str:
         "clearance under the webbing. Its results are suggestions to check on the spot, not safety advice.</p>",
         "<h2>Elevation data</h2><ul>" + "".join(rows) + "</ul>",
         f"<p>{e(src.credit.PROCESSED_NOTE)}</p>",
+        (f"<p>Terrain around the 3D view: © Mapterhorn (<a href='{e(MAPTERHORN_ATTRIBUTION)}'>"
+         "mapterhorn.com/attribution</a>), from open elevation data under the licences of its sources.</p>"
+         if ring else ""),
         "<h2>OpenStreetMap</h2><p>Coastlines, cliffs, named areas and place names: © "
         "<a href='https://www.openstreetmap.org/copyright'>OpenStreetMap contributors</a>, under the Open Database "
         "Licence (ODbL 1.0); searched with Nominatim and the Overpass API, extracts from Geofabrik. Errors in the "
@@ -1828,8 +1875,9 @@ def about_page(contact: str, esri: bool = False) -> str:
         esri_terms() if esri else "",
         "<p>Each run names the data it used in its map and in its ATTRIBUTION.txt; results made from FABDEM may be "
         "shared only for non-commercial use, under the same licence.</p>",
-        "<h2>Software</h2><p>The maps and the app include open-source libraries (Leaflet, Preact, i18next and others); "
-        f"their licences and copyright notices: <a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>.</p>",
+        "<h2>Software</h2><p>The maps, the app and the 3D view include open-source libraries (Leaflet, Preact, "
+        "i18next, three.js and others); their licences and copyright notices: "
+        f"<a href='/app/{THIRD_PARTY_LICENCES}'>{THIRD_PARTY_LICENCES}</a>.</p>",
         f"<p>Contact: {e(contact)}.</p>",
     ]
     return PAGE_HTML.format(title="About / data licences", body="\n".join(body), logo=LOGO_SVG,
