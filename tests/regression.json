@@ -1127,5 +1127,59 @@
     },
     "notes": "--source auto picks new_zealand (the centre is in NZ); first run on an empty cache: 4-6 blocks of 1 km per layer, about 2 MB each; limestone boulders and outcrops of the conservation area; almost every line is marked over trees/buildings: the DSM stands 2-35 m above the DEM on 1-3 % of the blocks' pixels (trees, boulders) and the lines run low over the basin; also measured: radius 800 m, 30-300 m: 3120 lines in 124 spots",
     "seconds": 11.4
+  },
+  "R43": {
+    "place": "The Verdon gorge below the Route des Crêtes (Escalès), Alpes-de-Haute-Provence, France: IGN's LiDAR HD MNT / MNS (0.5 m, fetched at 1 m: the exact mean of 2 x 2 pixels) by WMS-R GetMaps in Lambert-93",
+    "args": "--lat 43.7600 --lon 6.3760 --radius 500 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 166355,
+      "open": 13915,
+      "checked": 129045,
+      "lines": 24127,
+      "spots": 187,
+      "csv_sha256": "b881375adb53c4d1812e11372ce6e88c5292ea0dc7abd4b4b8cc463ff7cc3b30",
+      "length_km": 3672.832,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.922,
+      "clearance_max": 39.14,
+      "over_trees": 24077,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "notes": "--source auto picks france (the centre is in FR); first run on an empty cache: 6 tiles of 1 km per layer at 1 m, 2.7-2.9 MB each (DEFLATE), about 1 s a tile; the limestone walls of the gorge's right bank (the steepest pixels of the Escalès area, 300 m below the rim); almost every line is marked over trees: the MNS holds the box trees and pines on the ledges and the rim; the first try at the belvedere's coordinates (43.7655, 6.3580) is on the plateau (41 anchors, no line)",
+    "seconds": 12.5
+  },
+  "R53": {
+    "place": "Saut du Doubs, the France / Switzerland border: IGN's LiDAR HD on the French bank, swisstopo's swissALTI3D / swissSURFACE3D filling the Swiss bank (a neighbour at the border)",
+    "args": "--lat 47.0875 --lon 6.7120 --radius 800 --min-length 50 --max-length 300",
+    "sets": [
+      "sources",
+      "fr"
+    ],
+    "expected": {
+      "anchors": 130934,
+      "open": 8195,
+      "checked": 9709,
+      "lines": 580,
+      "spots": 23,
+      "csv_sha256": "4fbdc9190aa1563887a7a33159d5fae8086494744190d4e04d407e0515fc6d7d",
+      "length_km": 133.873,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.677,
+      "clearance_max": 3.54,
+      "over_trees": 580,
+      "coverage": 100.0,
+      "empty_tiles": 2,
+      "filled_km2": 0.02,
+      "filled_from": "swisstopo (swissALTI3D / swissSURFACE3D)",
+      "water_lines": 21,
+      "water_spots": 1
+    },
+    "notes": "--source auto picks france (the centre, on the French bank above the Lac des Brenets, is in FR); first run on an empty cache: 9 tiles of 1 km per layer, one without data (Swiss); LiDAR HD reaches a few hundred metres into Switzerland, so swisstopo (the neighbour) fills only the border gap at the edge of the circle (0.02 km2) and RGE ALTI the holes inside it (the lake's surface and the river, 0.12 km2); the cliffs of the Doubs gorge are wooded: every line over trees, 21 over the water",
+    "seconds": 35.9
   }
 }
