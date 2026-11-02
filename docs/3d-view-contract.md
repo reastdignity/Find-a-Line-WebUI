@@ -378,7 +378,7 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
 
 ## Wave E: the "Edges" look (2026-11-02, the user's decisions)
 A fourth kind of imagery, `edges` (`ui.view3d.imagery_edges` = "Edges"), after `shaded` in the control; the default
-stays the first available kind. The look is the prototype's variant M (branch `l3d-edges-proto`, never merged: its
+stays the first available kind. The look is the prototype's variant M (branch `l3d-edges-proto`, deleted after wave E: its
 `viewer/src/view3d/edges.ts` and its changes of `view.ts` and `scene.ts` are the reference; the renders:
 https://claude.ai/artifact/G9VFV9yjC3mNNZ4ojWAE5z):
 - the terrain on paper: light grey `#eceae4` in the light theme, dark grey `#4a504c` in the dark one (a `--paper`
@@ -436,6 +436,29 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   (`compose`, the loader; not the control's markup, which is V4a's), `tests/test_view3d_tiles.py`, the imagery
   estimate of `tools/device_page.py measure` (JPEG sizes sampled; base and PNG counted for the white shares) and its
   test. Measure R2 and R19 again; screenshots of R2's orthophoto for a uniform look.
+
+## After wave E and wave 4 (2026-11-02)
+- **E (VE)**: `edges.ts` (the pass; thresholds as the prototype's constants; `featureEdges` of our own instead of
+  `EdgesGeometry`, which drew the outline and the skirts along chunk seams; the normals from `MeshNormalMaterial`
+  per source material, so the ring's displaced and clipped tiles take part; a half-float colour target against
+  banding on dark paper: the look needs `EXT_color_buffer_float` or `_half_float` and is offered only then);
+  `Scene3D.edgesSupported`, `setEdges`, `edgesOn`, `terrainLayer`, `paper`; the root's `data-edges`,
+  `data-imagery`. On real patches: R2's rocks read well; R19's 2 m walls take dense hatching from the mesh's
+  feature edges (28°): a higher angle is the knob if wanted.
+- **4b (V4b)**: `tools/device_page.py` (`record`, `serve`, `measure`), its test; the recordings of R2 and R19 in the
+  coordinator's scratch folder.
+- **4c (V4c)**: the orthophoto composed as `orthophoto.tile_content` composes the 2D map's cache (JPEG first,
+  `whiteBlocks` with `WHITE_MIN` 250; the corridor rule of 704ccfa reverted); data of an open (`measure`): R2 2.5-2.6
+  MB desktop, 1.2 MB phone (imagery 1.7 / 0.9 MB, was 13.3 / 5.8); R19 3.1-3.2 MB and 0.75-0.85 MB. No white or edge
+  tile turned up in R2's samples: the base and PNG path is checked by tests only.
+- **4a (V4a)**: under 600 px a short readout (`ui.view3d.*_short`), the imagery as a native select (`.v3-select`),
+  notes on lines of their own, narrower buttons; the data credits fold behind the 2D map's "Data credits" toggle
+  below ui.css's 767 px (the imagery's and the ring's never fold); `tools/ui_shots.py` writes the clip's credits
+  into its run.json too.
+- **Open after wave 4**: the user's iPhone test (`tools/device_page.py serve` and its checklist: the walk's
+  smoothness with `preserveDrawingBuffer`, Edges on a phone's GPU); Mapterhorn's answer and then the ring's bytes;
+  the 2D map's Edges (roadmap). When the user ends the idea: the tag `history/line-3d-view` and one squash commit
+  into `main` (CLAUDE.md, conventions).
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
