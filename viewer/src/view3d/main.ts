@@ -1,19 +1,20 @@
 // The 3D view of a line (GET /view3d#run=<id>&line=<lat1>,<lon1>,<lat2>,<lon2>, web.VIEW3D_HTML): the patch of
-// the run's elevation model around the line from /api/patch, decoded (decode.ts) and meshed (terrain.ts)
-// into a three.js view (view.ts). Wave 1: the first chunk as a plain shaded mesh; the scene (all chunks,
-// imagery, webbing, the walker, editing) comes as its own module. Plain DOM, no Preact: the page is the
-// canvas and a few controls. No style attributes (the CSP's style-src 'self'): classes of view3d.css.
+// the run's elevation model around the line from /api/patch, decoded (decode.ts, its sha256 checked) and meshed
+// into the scene (scene.ts, terrain.ts); then the imagery (imagery.ts) and the found line's profile from
+// /api/profile (one request after the other) for the webbing's colour and the readout (line.ts).
+// Plain DOM, no Preact: the page is the canvas and a few controls. No style attributes (the CSP's
+// style-src 'self'): classes of view3d.css. When the terrain is drawn and the profile is in, the root gets
+// data-ready="1" (data-triangles: the last frame's; data-vertices: the meshes'; data-frames: the frames drawn),
+// for tests.
 
 import "./view3d.css";
 import { detailMessage, t } from "../i18n";
-import { decodePatch, type Patch } from "./decode";
-import { originOf, sampleXY, toScene } from "./geometry";
+import type { Profile } from "../types";
+import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
+import { createImagery, type Imagery } from "./imagery";
+import { createLine } from "./line";
 import { backUrl, currentPage, patchUrl, type PageRequest } from "./page";
-import { chunkMesh } from "./terrain";
-import { createView, terrainMesh, type View } from "./view";
-
-/** Martini's error allowed per level, in metres. */
-const MAX_ERROR = {full: 0.5, phone: 1.5};
+import { createScene, type SceneCore } from "./scene";
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
@@ -22,7 +23,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   return e;
 }
 
-/** The page's frame: the top bar with the way back, the stage of the canvas and its status. */
+/** The page's frame: the top bar with the way back, the stage of the canvas with its status and credits, the
+ *  bar below with the toolbar's row, the readout and the preview's note. */
 function frame(root: HTMLElement, page: PageRequest) {
   document.title = t("ui.view3d.title");
   const top = el("header", "v3-top");
@@ -31,10 +33,17 @@ function frame(root: HTMLElement, page: PageRequest) {
   top.append(back, el("h1", "v3-title", t("ui.view3d.title")));
   const stage = el("div", "v3-stage"), status = el("div", "v3-status");
   status.setAttribute("role", "status");
-  stage.append(status);
-  root.append(top, stage);
+  const credits = el("div", "v3-credits v3-hidden");
+  credits.setAttribute("aria-label", t("ui.view3d.credits"));
+  stage.append(status, credits);
+  const bar = el("div", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
+  readout.setAttribute("aria-live", "polite");
+  const note = el("p", "v3-note", t("ui.view3d.preview_note"));
+  bar.append(readout, toolbar, note);
+  if (page.level === "phone") bar.append(el("p", "v3-note", t("ui.view3d.phone_level")));
+  root.append(top, stage, bar);
   return {
-    stage,
+    stage, toolbar, credits, readout,
     /** A message over the stage (none: hidden); `error`: with the error's title and a Reload button. */
     say(text: string | null, error = false) {
       status.replaceChildren();
@@ -55,31 +64,44 @@ function frame(root: HTMLElement, page: PageRequest) {
   };
 }
 
-class PatchError extends Error {}
+class PageError extends Error {}
+
+async function sha256Hex(body: Uint8Array): Promise<string | null> {
+  if (!globalThis.crypto?.subtle) return null;  // not a secure context: left unchecked
+  const digest = await crypto.subtle.digest("SHA-256", body as BufferSource);
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 async function fetchPatch(page: PageRequest): Promise<Patch> {
   let response: Response;
   try {
     response = await fetch(patchUrl(page), {headers: {"X-Findaline-Patch": "1"}});
   } catch (e) {
-    throw new PatchError((e as Error).message);  // offline, or the server is gone
+    throw new PageError((e as Error).message);  // offline, or the server is gone
   }
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
-    throw new PatchError(detailMessage(data.detail, response.statusText || String(response.status)));
+    throw new PageError(detailMessage(data.detail, response.statusText || String(response.status)));
   }
-  return decodePatch(await response.arrayBuffer());
+  const {meta, body} = splitAnswer(await response.arrayBuffer());
+  const sha = await sha256Hex(body);
+  if (sha !== null && sha !== meta.sha256) throw new PageError(t("error.patch_damaged"));
+  const values = decodeValues(await inflate(body), meta.width, meta.height);
+  return {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
 }
 
-/** The first chunk as a plain shaded mesh, the camera on its centre from the south-west. */
-function draw(view: View, patch: Patch, page: PageRequest) {
-  const origin = originOf(patch.meta);
-  view.add(terrainMesh(chunkMesh(patch, origin, 0, 0, MAX_ERROR[page.level])));
-  const last = Math.min(patch.meta.width, patch.meta.height, 513) - 1;
-  const [x, y] = sampleXY(patch.meta, last / 2, last / 2);
-  const {anchors} = patch.meta, h = (anchors[0].h + anchors[1].h) / 2;
-  const target = toScene(origin, x, y, h), far = last * patch.meta.res * 0.9;
-  view.look([target[0] - far * 0.6, target[1] + far * 0.6, target[2] + far * 0.6], target);
+/** The found line's profile (as result/model.ts fetchProfile, without the model's module). */
+async function fetchProfile(page: PageRequest): Promise<Profile> {
+  const response = await fetch("/api/profile?run=" + encodeURIComponent(page.run) + "&line=" +
+                               encodeURIComponent(page.line || ""), {headers: {"X-Findaline-Profile": "1"}});
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(detailMessage(body.detail, response.statusText || "error"));
+  return body as Profile;
+}
+
+function esriKey(): string | null {
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="findaline-esri-key"]');
+  return meta && meta.content ? meta.content : null;
 }
 
 async function start() {
@@ -88,21 +110,55 @@ async function start() {
   const page = currentPage(), ui = frame(root, page);
   if (!page.run || !page.line) { ui.say(t("error.patch_line"), true); return; }
   ui.say(t("ui.view3d.loading_terrain"));
-  let view: View;
+  let scene: SceneCore | null = null, imagery: Imagery | null = null;
+  const lost = () => ui.say(t("ui.view3d.context_lost"), true);
+  addEventListener("pagehide", () => {
+    imagery?.dispose();
+    imagery = null;
+    scene?.dispose();
+  });
+  addEventListener("pageshow", (e) => { if (e.persisted) location.reload(); });  // back from the cache: disposed
+  let patch: Patch;
   try {
-    view = createView(ui.stage, page.level, () => ui.say(t("ui.view3d.context_lost"), true));
-  } catch {
-    ui.say(t("ui.view3d.no_webgl"), true);
+    patch = await fetchPatch(page);
+  } catch (e) {
+    ui.say(e instanceof PageError ? e.message : t("error.patch_damaged"), true);
+    console.error(e);
     return;
   }
   try {
-    const patch = await fetchPatch(page);
-    draw(view, patch, page);
-    ui.say(null);
+    scene = createScene(patch, page.level, ui, lost);
   } catch (e) {
-    ui.say(e instanceof PatchError ? e.message : t("error.patch_damaged"), true);
+    ui.say(t("ui.view3d.no_webgl"), true);
+    console.error(e);
+    return;
+  }
+  const line = createLine(scene, ui.readout);
+  root.dataset.vertices = String(scene.terrain.vertices);
+  root.dataset.maxError = String(scene.terrain.maxError);
+  let terrainDrawn = false, profileIn = false, frames = 0;
+  const ready = () => { if (terrainDrawn && profileIn) root.dataset.ready = "1"; };
+  scene.view.onDrawn(() => {
+    root.dataset.triangles = String(scene!.view.renderer.info.render.triangles);
+    root.dataset.frames = String(++frames);
+    if (!terrainDrawn) {
+      terrainDrawn = true;
+      ui.say(null);
+      imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey()});
+      ready();
+    }
+  });
+  scene.invalidate();
+  try {
+    const profile = await fetchProfile(page);
+    line?.setProfile(profile);
+  } catch (e) {
+    line?.setProfile(null);
+    root.dataset.profileError = (e as Error).message;
     console.error(e);
   }
+  profileIn = true;
+  ready();
 }
 
 start();

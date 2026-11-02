@@ -1,77 +1,115 @@
-// The three.js side of the page: the renderer, camera, lights and orbit controls, drawn on demand (only
-// after a change: the controls moved, the window resized, something added). The scene's content (terrain,
-// imagery, webbing, the walker) is added by its own modules through `add` and `redraw`.
+// The three.js side of the page: the renderer, camera, lights and orbit controls, drawn on demand only (after a
+// change: the controls moved, the window resized, something added, `invalidate`), or every frame while an owner
+// keeps drawing (`keepDrawing`, the frame's callbacks of `onFrame`). The scene's content (terrain, imagery,
+// webbing, the walker) is added by scene.ts.
 
 import {
-  AmbientLight, BufferAttribute, BufferGeometry, Color, DirectionalLight, DoubleSide, Mesh, MeshLambertMaterial,
-  PerspectiveCamera, Scene, Vector3, WebGLRenderer, type Object3D,
+  AmbientLight, Color, DirectionalLight, PerspectiveCamera, Scene, Vector2, Vector3, WebGLRenderer, type Object3D,
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { ChunkMesh } from "./terrain";
 import type { Level } from "./page";
 
 export interface View {
+  scene: Scene;
+  camera: PerspectiveCamera;
+  renderer: WebGLRenderer;
   add(object: Object3D): void;
-  /** Look at `target` from `from` (scene coordinates). */
-  look(from: [number, number, number], target: [number, number, number]): void;
-  redraw(): void;
+  remove(object: Object3D): void;
+  /** Look at `target` from `from` (scene coordinates); `far`: the farthest distance the controls allow. */
+  look(from: Vector3, target: Vector3, far?: number): void;
+  invalidate(): void;
+  onFrame(fn: (seconds: number) => void): () => void;
+  keepDrawing(owner: string, on: boolean): void;
+  /** Called after every resize with the drawing buffer's size in CSS pixels. */
+  onResize(fn: (size: Vector2) => void): void;
+  /** Called after every frame drawn (the renderer's counts are those of that frame). */
+  onDrawn(fn: () => void): void;
   dispose(): void;
 }
 
 /** Draw into `host`; throws when the browser has no WebGL 2. `onLost`: the context was lost. */
-export function createView(host: HTMLElement, level: Level, onLost: () => void): View {
+export function createView(host: HTMLElement, level: Level, background: string, onLost: () => void): View {
   const canvas = document.createElement("canvas");
   canvas.className = "v3-canvas";
   const renderer = new WebGLRenderer({canvas, antialias: level === "full"});  // throws without WebGL 2
   renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
   host.appendChild(canvas);
   const scene = new Scene();
-  scene.background = new Color(0xc9d6df);
-  scene.add(new AmbientLight(0xffffff, 0.9));
-  const sun = new DirectionalLight(0xffffff, 2.2);
+  scene.background = new Color(background);
+  scene.add(new AmbientLight(0xffffff, 1.1));
+  const sun = new DirectionalLight(0xffffff, 2.0);
   sun.position.set(-0.6, 1, -0.4);  // from the north-west, as hill shading
   scene.add(sun);
-  const camera = new PerspectiveCamera(50, 1, 1, 60000);
+  const camera = new PerspectiveCamera(50, 1, 0.5, 60000);
   const controls = new OrbitControls(camera, canvas);
   controls.maxPolarAngle = Math.PI * 0.495;  // never below the horizon
+  controls.screenSpacePanning = false;       // panning keeps the height: the view stays over the terrain
+  controls.enableDamping = false;
 
-  let pending = false;
-  const redraw = () => {
-    if (pending) return;
-    pending = true;
-    requestAnimationFrame(() => { pending = false; renderer.render(scene, camera); });
+  const frameFns = new Set<(seconds: number) => void>(), owners = new Set<string>();
+  const resizeFns: ((size: Vector2) => void)[] = [], drawnFns: (() => void)[] = [];
+  let pending = 0, last = 0, lost = false;
+  const draw = (time: number) => {
+    pending = 0;
+    if (lost) return;
+    if (owners.size) {
+      const seconds = last ? Math.max(0, (time - last) / 1000) : 0;
+      last = time;
+      for (const fn of [...frameFns]) fn(seconds);
+    } else last = 0;
+    renderer.render(scene, camera);
+    for (const fn of drawnFns) fn();
+    if (owners.size) invalidate();
   };
+  const invalidate = () => { if (!pending && !lost) pending = requestAnimationFrame(draw); };
+  const size = new Vector2();
   const resize = () => {
     const w = host.clientWidth || 1, h = host.clientHeight || 1;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    redraw();
+    size.set(w, h);
+    for (const fn of resizeFns) fn(size);
+    invalidate();
   };
   const observer = new ResizeObserver(resize);
   observer.observe(host);
-  controls.addEventListener("change", redraw);
-  canvas.addEventListener("webglcontextlost", (e) => { e.preventDefault(); onLost(); });
+  controls.addEventListener("change", invalidate);
+  canvas.addEventListener("webglcontextlost", (e) => {
+    e.preventDefault();
+    lost = true;
+    if (pending) cancelAnimationFrame(pending);
+    pending = 0;
+    onLost();
+  });
   resize();
 
   return {
-    add(object) { scene.add(object); redraw(); },
-    look(from, target) {
-      camera.position.set(...from);
-      controls.target.copy(new Vector3(...target));
+    scene, camera, renderer,
+    add(object) { scene.add(object); invalidate(); },
+    remove(object) { scene.remove(object); invalidate(); },
+    look(from, target, far) {
+      camera.position.copy(from);
+      controls.target.copy(target);
+      if (far) { controls.maxDistance = far; camera.far = far * 4; camera.updateProjectionMatrix(); }
       controls.update();
-      redraw();
+      invalidate();
     },
-    redraw,
-    dispose() { observer.disconnect(); controls.dispose(); renderer.dispose(); canvas.remove(); },
+    invalidate,
+    onFrame(fn) { frameFns.add(fn); return () => { frameFns.delete(fn); }; },
+    keepDrawing(owner, on) {
+      if (on) owners.add(owner); else owners.delete(owner);
+      invalidate();
+    },
+    onResize(fn) { resizeFns.push(fn); fn(size); },
+    onDrawn(fn) { drawnFns.push(fn); },
+    dispose() {
+      lost = true;
+      if (pending) cancelAnimationFrame(pending);
+      observer.disconnect();
+      controls.dispose();
+      renderer.dispose();
+      canvas.remove();
+    },
   };
-}
-
-/** A plain shaded mesh of a chunk. */
-export function terrainMesh(chunk: ChunkMesh): Mesh {
-  const geometry = new BufferGeometry();
-  geometry.setAttribute("position", new BufferAttribute(chunk.positions, 3));
-  geometry.setIndex(new BufferAttribute(chunk.indices, 1));
-  geometry.computeVertexNormals();
-  return new Mesh(geometry, new MeshLambertMaterial({color: 0xb9ab8c, side: DoubleSide}));
 }

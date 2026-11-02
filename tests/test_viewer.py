@@ -614,3 +614,164 @@ console.log(JSON.stringify({pages, urls: pages.slice(0, 2).map(m.patchUrl), back
     assert found["urls"] == [f"/api/patch?run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234&step=1",
                              f"/api/patch?run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234&step=2"]
     assert found["back"] == f"/#run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234"
+
+
+# A grid of 2 x 2 chunks (900 x 700 samples of data padded to 1025 with no data, a hole of no data inside) and a
+# line from sample (200, 100) to (600, 700) across three of them: the checks of view3d/terrain.ts' meshes
+TERRAIN_SCRIPT = """
+const CH = 512, cols = 1025, rows = 1025, width = 900, height = 700;
+const heights = new Float32Array(cols * rows).fill(NaN);
+const hole = (i, j) => i >= 300 && i < 340 && j >= 600 && j < 650;
+for (let i = 0; i < height; i++) for (let j = 0; j < width; j++) {
+  if (!hole(i, j)) heights[i * cols + j] = 300 + 20 * Math.sin(i / 37) + 15 * Math.cos(j / 23) + ((i * 7919 + j * 104729) % 13) / 6.5;
+}
+const meta = {left: 1000, top: 5000, res: 1, width, height, base_dm: 2800,
+  anchors: [{x: 1100.5, y: 4799.5, h: heights[200 * cols + 100]}, {x: 1700.5, y: 4399.5, h: heights[600 * cols + 700]}]};
+const patch = {meta, heights, cols, rows};
+const origin = {cx: 1450, cy: 4650, h0: 280};
+const forced = m.forcedSamples(patch);
+const out = {chunks: [], footprintMissing: 0, badTriangles: 0, skirtBad: 0, skirtOuter: 0, skirts: 0, empty: []};
+const inside = (ci, cj, i, j) => i >= ci * CH && i <= ci * CH + CH && j >= cj * CH && j <= cj * CH + CH;
+const counts = {};
+for (const error of [5, 0.25]) {
+  let total = 0;
+  for (let ci = 0; ci < 2; ci++) for (let cj = 0; cj < 2; cj++) {
+    const tile = m.chunkTile(patch, ci, cj, forced.all, origin.h0);
+    if (!tile) { if (error === 5) out.empty.push([ci, cj]); continue; }
+    const c = m.chunkMesh(patch, origin, ci, cj, tile, error, forced.line);
+    total += c.positions.length / 3;
+    if (error !== 5) continue;
+    const verts = new Set(Array.from(c.samples.subarray(0, c.surfaceVertices)));
+    for (const [i, j] of forced.line) if (inside(ci, cj, i, j) && !verts.has(i * cols + j)) out.footprintMissing++;
+    const rc = (v) => [Math.floor(c.samples[v] / cols), c.samples[v] % cols];
+    for (let t = 0; t < c.surfaceIndices; t += 3) {
+      const [a, b, d] = [c.indices[t], c.indices[t + 1], c.indices[t + 2]].map(rc);
+      const area = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+      const s = Math.sign(area(a, b, d));
+      for (let i = Math.min(a[0], b[0], d[0]); i <= Math.max(a[0], b[0], d[0]); i++)
+        for (let j = Math.min(a[1], b[1], d[1]); j <= Math.max(a[1], b[1], d[1]); j++) {
+          const p = [i, j];
+          if (s * area(a, b, p) >= 0 && s * area(b, d, p) >= 0 && s * area(d, a, p) >= 0 && Number.isNaN(heights[i * cols + j]))
+            out.badTriangles++;
+        }
+    }
+    for (let v = c.surfaceVertices; v < c.positions.length / 3; v++) {
+      out.skirts++;
+      const [i, j] = rc(v), top = heights[i * cols + j] - origin.h0 - m.skirtDepth(error);
+      if (Math.abs(c.positions[3 * v + 1] - top) > 1e-3) out.skirtBad++;
+      if (!(i === CH || j === CH)) out.skirtOuter++;  // only along the edges between chunks
+    }
+    out.chunks.push([ci, cj, c.hasLine, c.surfaceVertices > 0, c.positions.length / 3 > c.surfaceVertices]);
+  }
+  counts[error] = total;
+}
+out.coarser = counts[5] < counts[0.25];
+const built = m.buildTerrain(patch, origin, 0.25, 20000);
+out.budget = [built.vertices <= 20000, built.maxError > 0.25, built.chunks.length];
+out.cells = [m.footprint({left: 0, top: 0, res: 1}, {x: 0.5, y: -0.5}, {x: 2.5, y: -2.5}),
+             m.footprint({left: 0, top: 0, res: 1}, {x: 0.5, y: -0.5}, {x: 3.5, y: -0.5}),
+             m.footprint({left: 0, top: 0, res: 2}, {x: 1, y: -1}, {x: 4.9, y: -2.2})];
+out.anchors = meta.anchors.map((a) => forced.line.some(([i, j]) => meta.left + j + 0.5 === a.x && meta.top - i - 0.5 === a.y));
+console.log(JSON.stringify(out));
+"""
+
+
+def test_view3d_terrain_chunks(tmp_path):
+    """view3d/terrain.ts: every chunk with data meshed (one without data left out), the anchors' samples and
+    every sample of the line's footprint vertices of the chunks holding them, no triangle over no data (the
+    padding and a hole) even in a coarse mesh, skirts only along the edges between chunks and their depth below,
+    the error raised until a budget holds, the footprint's cells (a corner crossed touches both cells)."""
+    found = run_ts(tmp_path, "view3d/terrain", TERRAIN_SCRIPT)
+    assert found["empty"] == []  # chunk (1, 0) holds rows 512 to 699 of data
+    assert found["anchors"] == [True, True]
+    assert found["footprintMissing"] == 0 and found["badTriangles"] == 0
+    assert found["skirts"] > 0 and found["skirtBad"] == 0 and found["skirtOuter"] == 0
+    chunks = {(ci, cj): rest for ci, cj, *rest in found["chunks"]}
+    assert chunks[(0, 0)] == [True, True, True] and chunks[(0, 1)] == [True, True, True]
+    assert chunks[(1, 1)] == [True, True, True] and chunks[(1, 0)][0] is False
+    assert found["coarser"] and found["budget"][:2] == [True, True]
+    assert found["cells"][0] == [[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [2, 1], [2, 2]]
+    assert found["cells"][1] == [[0, 0], [0, 1], [0, 2], [0, 3]]
+    assert found["cells"][2] == [[0, 0], [0, 1], [0, 2], [1, 2]]  # 2 m cells: v reaches 1 only at u = 2.125
+
+
+def test_view3d_terrain_of_the_recorded_patch(tmp_path):
+    """The recorded patch (513 x 513 of the clip at 1 m, its last 16 x 16 samples no data) as one chunk within
+    the budgets of the desktop and the phone, its anchors (tests/test_patch.py's line) vertices."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_patch_fixture",
+                                                  os.path.join(REPO, "tests", "data", "make_patch_fixture.py"))
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    with open(PATCH + ".json", encoding="utf-8") as f:
+        recorded = json.load(f)
+    with open(PATCH + ".bin", "rb") as f:
+        heights = fixture.decode(f.read(), 513, 513, recorded["base_dm"]).astype("<f4")
+    path = tmp_path / "heights.f32"
+    path.write_bytes(heights.tobytes())
+    found = run_ts(tmp_path, "view3d/terrain", f"""
+const buf = require("fs").readFileSync({json.dumps(str(path))});
+const heights = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+const h = (i, j) => heights[i * 513 + j];
+const meta = {{left: 553665.5, top: 254908.5, res: 1, width: 513, height: 513, base_dm: {recorded["base_dm"]},
+  anchors: [{{x: 553665.5 + 206.5, y: 254908.5 - 256.5, h: h(256, 206)}}, {{x: 553665.5 + 306.5, y: 254908.5 - 256.5, h: h(256, 306)}}]}};
+const patch = {{meta, heights, cols: 513, rows: 513}}, origin = {{cx: 553665.5 + 256.5, cy: 254908.5 - 256.5, h0: meta.base_dm / 10}};
+const out = {{}};
+for (const [name, error, budget] of [["full", 0.25, 300000], ["phone", 1.5, 130000]]) {{
+  const t0 = Date.now(), built = m.buildTerrain(patch, origin, error, budget), c = built.chunks[0];
+  const verts = new Set(Array.from(c.samples.subarray(0, c.surfaceVertices)));
+  out[name] = {{vertices: built.vertices, triangles: c.indices.length / 3, error: built.maxError, chunks: built.chunks.length,
+    anchors: [256 * 513 + 206, 256 * 513 + 306].map((k) => verts.has(k)), ms: Date.now() - t0, hasLine: c.hasLine}};
+}}
+console.log(JSON.stringify(out));""")
+    print(found)
+    for level, budget in (("full", 300000), ("phone", 130000)):
+        f = found[level]
+        assert f["chunks"] == 1 and f["vertices"] <= budget and f["anchors"] == [True, True] and f["hasLine"]
+    assert found["full"]["vertices"] > found["phone"]["vertices"]
+
+
+def test_view3d_walker_on_the_webbing(tmp_path):
+    """view3d/webbing.ts: the walker's feet on the loaded webbing (sag.ts) at s, below the chord by the sag, the
+    curve of 61 points from anchor to anchor, the yaw along the line, the segment buffer, the readout's values."""
+    import math
+    rig = sag.Rigging()
+    rigging = {"pretension": rig.pretension, "stretch": rig.stretch, "webbing_weight": rig.webbing_weight,
+               "athlete_mass": rig.athlete_mass, "fall_zone": rig.fall_zone}
+    anchors = [{"x": 100.5, "y": 200.5, "h": 350.0}, {"x": 220.5, "y": 200.5, "h": 340.0}]
+    found = run_ts(tmp_path, "view3d/webbing", f"""
+const a = {json.dumps(anchors)}, w = m.webbing(a, {json.dumps(rigging)});
+const near = (p, pts) => Math.min(...pts.slice(1).map((q, k) => {{
+  const o = pts[k], d = [q[0] - o[0], q[1] - o[1], q[2] - o[2]], v = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+  const t = Math.max(0, Math.min(1, (v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / (d[0] ** 2 + d[1] ** 2 + d[2] ** 2)));
+  return Math.hypot(v[0] - t * d[0], v[1] - t * d[1], v[2] - t * d[2]);
+}}));
+const poses = [w.start.s, 10, 60, 119].map((s) => {{
+  const p = m.walkerPose(w, a, s);
+  return {{s, at: p.at, sag: p.sag, n: p.points.length, first: p.points[0], last: p.points[p.points.length - 1],
+          near: near(p.at, p.points), yaw: p.yaw}};
+}});
+const buf = new Float32Array(60 * 6), pts = m.resample(w.unloaded);
+m.writeSegments(pts, {{cx: 100, cy: 200, h0: 300}}, buf);
+console.log(JSON.stringify({{poses, start: w.start, span: w.span, n: pts.length, seg: Array.from(buf.slice(0, 9)), p1: pts[1],
+  readout: m.readoutOf({{d: [0, 50, 120.2], z: [1, 2, 3], min: [50, 7.25], min_nmpt: [40, -0.5], water_m: 0, filled_m: 0}}),
+  clear: m.readoutOf({{d: [0, 120.2], z: [1, 3], min: [50, 7.25], min_nmpt: null, water_m: 0, filled_m: 0}}).overTrees,
+  text: m.metres(7.26)}}));""")
+    span = found["span"]
+    assert span == pytest.approx(120)
+    for pose in found["poses"]:
+        t = pose["s"] / span
+        assert pose["n"] == 61 and pose["first"] == pytest.approx([100.5, 200.5, 350.0], abs=1e-6)
+        assert pose["last"] == pytest.approx([220.5, 200.5, 340.0], abs=1e-6)
+        assert pose["at"][:2] == pytest.approx([100.5 + 120 * t, 200.5], abs=1e-6)
+        assert pose["at"][2] == pytest.approx(350.0 - 10 * t - pose["sag"], abs=1e-6)
+        assert pose["near"] < 0.05  # standing on the drawn curve
+        assert pose["yaw"] == pytest.approx(math.pi / 2)  # its front (+Z) turned east, along the line
+    start = found["poses"][0]
+    _, envelope = sag.envelope(span, 10.0, rig)
+    assert start["sag"] == pytest.approx(envelope.max(), abs=1e-6) and found["start"]["s"] == start["s"]
+    assert found["n"] == 61
+    p1 = [found["p1"][0] - 100, found["p1"][2] - 300, -(found["p1"][1] - 200)]  # in the scene's axes
+    assert found["seg"] == pytest.approx([0.5, 50, -0.5, *p1, *p1], abs=1e-3)
+    assert found["readout"] == {"length": 120.2, "clearance": 7.25, "overTrees": True} and found["clear"] is False
+    assert found["text"] == "7.3"
