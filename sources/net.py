@@ -63,6 +63,9 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Source Cooperative (the copy of the Tasmania 2 metre DEM): no terms page or limits published (2026-11-02;
     # its files are served through Cloudflare): courtesy
     "data.source.coop": 4,
+    # ARSO's lidar files (Slovenia): no published limits (its eVode page asks for large areas to be fetched on a disk
+    # at ARSO, read 2026-11-02): courtesy, two at once
+    "gis.arso.gov.si": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

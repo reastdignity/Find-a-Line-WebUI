@@ -1415,5 +1415,30 @@
       "water_spots": 235
     },
     "seconds": 6.6
+  },
+  "R54": {
+    "args": "--lat 45.5715 --lon 13.8625 --radius 300 --min-length 50 --max-length 200",
+    "sets": [
+      "sources",
+      "si"
+    ],
+    "place": "Osp and Mišja peč, the Osp valley above Koper, Slovenia: ARSO's lidar of 2011 (block b_21), DMR 1 m as plain x;y;z text tiles of 1 km in D96/TM",
+    "notes": "--source auto picks slovenia (the centre is in SI); 6 tiles of 1 km (about 26 MB of text each, 1-2 s alone; with two searches downloading at once, four connections to ARSO, the server stalled for minutes); no sea; the spots cross the Osp gorge below the village's overhanging wall (45.5712-45.5726 N, 13.8624-13.8632 E), the best 66-155 m with up to 18 m of clearance; a radius of 600 m to 400 m gave 60 458 lines: narrowed to 300 m and 200 m",
+    "expected": {
+      "anchors": 27114,
+      "open": 4593,
+      "checked": 113714,
+      "lines": 17065,
+      "spots": 70,
+      "csv_sha256": "3bd61efec78af1582bcfcefa9a2b3bd0d87c3fba1d244621197cadb3a849b659",
+      "length_km": 2478.733,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.512,
+      "clearance_max": 18.14,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 3.9
   }
 }

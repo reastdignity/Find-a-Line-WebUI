@@ -203,5 +203,6 @@ def test_declared_neighbours():
                        for s1, n1, w1, e1 in boxes(source) for s2, n2, w2, e2 in boxes(src.SOURCES[other])), \
                 (sid, other)
     assert src.SOURCES["geoportal"].neighbours == ("slovakia", "mecklenburg_vorpommern", "czechia", "saxony")
-    assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia", "czechia", "bavaria")
+    assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia", "czechia", "bavaria",
+                                                    "slovenia")
     assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada",)

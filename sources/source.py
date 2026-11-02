@@ -33,6 +33,9 @@ class OrthoService:
     # A link for the attribution (a licence page, or the provider's site where its terms ask for a
     # link: basemap.at); the about page and the map show the attribution as a link to it
     attribution_url: Optional[str] = None
+    # The WMS version asked: "1.3.0" (EPSG:4326 in its lat-lon axis order), or "1.1.1" for a WMS that
+    # takes EPSG:4326 in lon-lat order only (GURS's DOF answers a 1.3.0 request with a white image)
+    wms_version: str = "1.3.0"
 
     @property
     def ttl_days(self) -> Optional[int]:
