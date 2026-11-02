@@ -6,6 +6,7 @@ import io
 import json
 import os
 import sys
+from urllib.parse import urlsplit
 
 import numpy as np
 import pytest
@@ -42,10 +43,19 @@ def _values(body: bytes) -> np.ndarray:
         return raster.read(1)
 
 
+def _recorded():
+    """The recorded requests (exports.json: the format of tools/record_answers.py's answers.json, named apart so
+    that tests/test_parts.py, which replays the index services' cassettes, does not take it for one)."""
+    with open(os.path.join(CASSETTE, "exports.json"), encoding="utf-8") as f:
+        return json.load(f)["answers"]
+
+
 @pytest.fixture
 def server(http_server, monkeypatch):
     monkeypatch.setattr(net, "_sleep", lambda attempt: None)
-    http_server.add_cassette(CASSETTE)
+    for entry in _recorded():
+        http_server.add(urlsplit(entry["url"])._replace(scheme="", netloc="").geturl(), _body(entry["body"]),
+                        entry["content_type"], entry["status"])
     return http_server
 
 
@@ -90,9 +100,7 @@ def test_mosaic_rule_and_more_parameters():
 def test_the_service_keeps_its_pixels():
     """What the reader relies on, as the service answered (2026-11-02): on its own grid a box equals its two
     halves, and a box one pixel further east the same values one pixel further."""
-    answers = {e["case"]: _values(_body(e["body"]))
-               for e in json.load(open(os.path.join(CASSETTE, "answers.json"), encoding="utf-8"))["answers"]
-               if e["body"].endswith(".tif")}
+    answers = {e["case"]: _values(_body(e["body"])) for e in _recorded() if e["body"].endswith(".tif")}
     assert np.array_equal(answers["full"], np.hstack([answers["left"], answers["right"]]))
     assert np.array_equal(answers["full"][:, 1:], answers["shift"][:, :-1])
     assert (answers["full"] > 500).all() and (answers["poland"] == -9999).all() and (answers["beyond"] == -9999).all()

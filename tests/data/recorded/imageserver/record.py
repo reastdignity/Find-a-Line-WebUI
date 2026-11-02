@@ -1,5 +1,5 @@
 """Record small real answers of ČÚZK's ImageServer exportImage for tests/data/recorded/imageserver/ (run once,
-by hand). Writes answers.json in the cassette format of tests/http_server.py (add_cassette) and the bodies."""
+by hand). Writes exports.json (the cassette format of tests/http_server.py) and the bodies."""
 
 import json
 import os
@@ -44,7 +44,7 @@ for n, (name, url) in enumerate(CASES, 1):
     answers.append({"method": "GET", "url": url, "status": r.status_code, "content_type": kind, "body": body,
                     "case": name})
     print(name, r.status_code, kind, len(r.content), r.content[:120] if ext != "tif" else "")
-with open(os.path.join(OUT, "answers.json"), "w", encoding="utf-8") as f:
+with open(os.path.join(OUT, "exports.json"), "w", encoding="utf-8") as f:
     json.dump({"recipe": "imageserver-cuzk", "recorded": "2026-11-02", "hosts": ["https://ags.cuzk.gov.cz"],
                "answers": answers}, f, indent=1, ensure_ascii=False)
     f.write("\n")

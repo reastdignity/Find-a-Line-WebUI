@@ -3,8 +3,9 @@
 Real answers of ČÚZK's ImageServers `dmr5g` and `dmp1g` (`https://ags.cuzk.gov.cz/arcgis2/rest/services/...`,
 ArcGIS Server 12), recorded once on 2026-11-02 by `record.py` (run by hand: `python record.py <folder>`) for the
 offline tests of `sources/readers/imageserver.py` (`tests/test_imageserver.py`); `tests/http_server.py` serves
-them again (`add_cassette`: the requests matched by path and sorted query, so the reader must write every
-parameter as recorded).
+them again (the requests of `cuzk/exports.json` matched by path and sorted query, so the reader must write every
+parameter as recorded; named `exports.json`, not `answers.json`, so `tests/test_parts.py` does not replay it as
+an index service's cassette).
 
 | Body | Request | What it shows |
 | --- | --- | --- |
