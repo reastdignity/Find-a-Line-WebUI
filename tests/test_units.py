@@ -115,6 +115,47 @@ def test_cache_stale(status, age, ttl, update, expected):
     assert cache.stale(row, ttl, update) is expected
 
 
+def test_cache_due_many_answers_as_due(tmp_path):
+    """cache.due_many (one connection per top-level folder) and due (one connection) answer as due()
+    did (state, then stale of the row of info: two connections) for each file: not recorded, adopted
+    (a file without a row, which all record), another processing, missing, stale for an update, in
+    two top-level folders; and in the order of the paths."""
+    import shutil
+
+    def due_before(cache_dir, path, processing, update, ttl):
+        return cache.state(cache_dir, path, processing) is None or             cache.stale(cache.info(cache_dir, path), ttl, update)
+    first = tmp_path / "first"
+    kinds = {}
+    for top in ("spain", "poland"):
+        for name, days in (("new", None), ("adopted", None), ("ok", 10), ("old", 800), ("missing", 100),
+                           ("lost", 10)):
+            path = first / top / "live" / f"{name}.tif"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if name != "new":
+                path.write_bytes(b"a")
+            if days is not None:
+                cache.record(str(first), str(path), "missing" if name == "missing" else "ok",
+                             processing=2 if name == "lost" else 1)
+                _age(str(first), str(path), days)
+                if name in ("missing", "lost"):
+                    path.unlink()
+            kinds[str(path)] = name
+    second, third = tmp_path / "second", tmp_path / "third"
+    shutil.copytree(first, second)
+    shutil.copytree(first, third)
+    paths = list(kinds)[::-1]  # not grouped by folder
+    moved = lambda folder: [p.replace(str(first), str(folder)) for p in paths]  # noqa: E731
+    for update, ttl in ((None, 730), ("stale", 730), ("all", 730), ("stale", None), ("all", None)):
+        for processing in (1, 2):
+            expected = [due_before(str(first), p, processing, update, ttl) for p in paths]
+            assert cache.due_many(str(second), moved(second), processing, update, ttl) == expected, (update, ttl)
+            assert [cache.due(str(third), p, processing, update, ttl) for p in moved(third)] == expected
+    assert cache.due_many(str(second), []) == []
+    for folder in (second, third):
+        assert cache.info(str(folder), str(folder / "spain" / "live" / "adopted.tif"))["status"] == "ok"
+    assert [kinds[p] for p, due in zip(paths, cache.due_many(str(first), paths)) if due] ==         ["lost", "new"] * 2
+
+
 def test_update_checks(tmp_path):
     """Live tiles are checked after their interval, releases never; --bbox limits the checks."""
     spain = src.SOURCES["spain"].nmt
@@ -1510,3 +1551,140 @@ def test_tiles_without_pixels(tmp_path):
     expected = sh.LineTable.concat([_fake_lines(5).without_pixels(), _fake_lines(4).without_pixels()])
     assert list(joined.columns) == list(expected.columns) and joined.profiles == expected.profiles
     assert all(np.array_equal(joined.columns[k], expected.columns[k], equal_nan=True) for k in expected.columns)
+
+
+def test_search_imports_numba_only_to_compute(tmp_path):
+    """search.py imports the kernels (linesearch, lineprofiles, terrain, grouping: numba) inside the
+    functions of steps 2-4: the download phase (plan, estimate, download_data) and the quick lane
+    never load numba; a search computes as before."""
+    import subprocess
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = f"""
+import json, os, sys
+sys.path.insert(0, {repo!r})
+import search, warmup
+from params import SearchParams
+kernels = lambda: sorted(m for m in sys.modules if m.split('.')[0] in
+                         ('numba', 'llvmlite', 'linesearch', 'lineprofiles', 'terrain', 'grouping'))
+folder = {str(tmp_path)!r}
+nmt, nmpt, (e, n) = warmup.write_grids(folder)
+paths = search.Paths(folder, os.path.join(folder, 'work'))
+plan = search.plan_search(SearchParams(elevation_file=nmt, surface_file=nmpt, easting=e, northing=n, radius=45,
+                                       min_length=15, max_length=60, water='off', fill_gaps='off'), paths)
+search.estimate_search(plan)
+search.download_data(plan)
+before = kernels()
+lines = search.find_lines(plan, search.prepare_data(plan))
+print(json.dumps([before, 'numba' in sys.modules, len(lines.results)]))
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=600,
+                            env={**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9"})
+    assert result.returncode == 0, result.stdout + result.stderr
+    import json
+    before, loaded, lines = json.loads(result.stdout.strip().splitlines()[-1])
+    assert before == [] and loaded and lines > 0
+
+
+def test_download_data_fetches_the_coastline_alongside_the_tiles(tmp_path, monkeypatch):
+    """download_data asks the coastline's theme tiles (--coastline overpass without the world file) in a
+    thread while the layers' tiles download; a requests error of the coastline is left to the search
+    (the Copernicus mask), a RuntimeError fails the download as before."""
+    import threading
+
+    import requests
+
+    import search
+    import warmup
+    from params import SearchParams
+    nmt, _, (e, n) = warmup.write_grids(str(tmp_path))
+    plan = search.plan_search(SearchParams(elevation_file=nmt, easting=e, northing=n, radius=45, min_length=15,
+                                           max_length=60, water="fill", coastline="overpass", fill_gaps="off"),
+                              search.Paths(str(tmp_path), str(tmp_path / "work")), lambda kind, text: None)
+    asked, order = threading.Event(), []
+
+    def theme(name, west, south, east, north, cache_dir, update):
+        order.append(name)
+        asked.set()
+        return []
+
+    def tiles(plan):
+        assert asked.wait(30)  # the coastline is asked while the tiles download
+        order.append("tiles")
+
+    monkeypatch.setattr(search.coast, "world_file", lambda cache_dir: None)
+    monkeypatch.setattr(search.osm, "theme", theme)
+    monkeypatch.setattr(search, "_download_layers", tiles)
+    search.download_data(plan)
+    assert order == ["coastline", "tiles"]
+
+    def fails(error):
+        def theme(*args):
+            raise error
+        return theme
+    monkeypatch.setattr(search, "_download_layers", lambda plan: None)
+    monkeypatch.setattr(search.osm, "theme", fails(requests.ConnectionError("Overpass is down")))
+    search.download_data(plan)
+    monkeypatch.setattr(search.osm, "theme", fails(RuntimeError("broken")))
+    with pytest.raises(search.SearchError, match="Download failed: broken"):
+        search.download_data(plan)
+    monkeypatch.setattr(search.coast, "world_file", lambda cache_dir: "world.shp")  # not asked with the world file
+    search.download_data(plan)
+
+
+def test_download_data_looks_the_place_name_up_alongside_the_tiles(tmp_path, monkeypatch):
+    """download_data asks Nominatim for the run's name (a circle's place) in a thread while the
+    layers' tiles download, so that step 5 finds the answers cached; its failure never fails the
+    download."""
+    import threading
+
+    import search
+    import warmup
+    from params import SearchParams
+    nmt, _, (e, n) = warmup.write_grids(str(tmp_path))
+    plan = search.plan_search(SearchParams(elevation_file=nmt, easting=e, northing=n, radius=45, min_length=15,
+                                           max_length=60, water="off", fill_gaps="off"),
+                              search.Paths(str(tmp_path), str(tmp_path / "work")), lambda kind, text: None)
+    asked, threads = threading.Event(), []
+
+    def place_name(lat, lon, cache_dir):
+        threads.append(threading.current_thread())
+        asked.set()
+        return "Somewhere"
+
+    def tiles(plan):
+        assert asked.wait(30)  # the name is asked while the tiles download
+
+    monkeypatch.setattr(search.rn, "place_name", place_name)
+    monkeypatch.setattr(search, "_download_layers", tiles)
+    search.download_data(plan)
+    assert threads and threads[0] is not threading.main_thread()
+
+    def fails(lat, lon, cache_dir):
+        raise RuntimeError("no name")
+
+    monkeypatch.setattr(search.rn, "place_name", fails)
+    monkeypatch.setattr(search, "_download_layers", lambda plan: None)
+    search.download_data(plan)  # the download is fine without a name
+
+
+def test_estimate_layers_in_parallel():
+    """sources.layer.estimate_layers asks every layer's estimate at the same time (their indexes),
+    each layer once, the answers in the order of the layers."""
+    import threading
+
+    from sources.layer import Layer, estimate_layers
+    both = threading.Barrier(2, timeout=30)  # broken (an error) when the layers are asked one after another
+    calls = []
+
+    class Fake(Layer):
+        def __init__(self, n):
+            self.n = n
+
+        def estimate(self, grid, cache_dir, update):
+            calls.append(self.n)
+            both.wait()
+            return self.n, 0, float(self.n)
+
+    one, two = Fake(1), Fake(2)
+    assert estimate_layers([two, one, two], None, "cache") == [(2, 0, 2.0), (1, 0, 1.0), (2, 0, 2.0)]
+    assert sorted(calls) == [1, 2]

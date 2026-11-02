@@ -111,7 +111,8 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
             confirm("expensive", "\n".join(estimate.reasons))
         lines, run = search.search_lines(plan)
         shown = print_lines(lines, plan.group_distance, params.group_by, options.all_lines)
-        result = search.save_run(plan, lines, confirm, run)
+        result = search.save_run(plan, lines, run)
+        search.download_orthophoto(plan, search.orthophoto_lines(plan, lines), confirm)
     except search.SearchError as e:
         sys.exit(str(e))
 

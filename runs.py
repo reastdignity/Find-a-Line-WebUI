@@ -424,8 +424,9 @@ def _listed(run: Dict) -> Dict:
     return listed
 
 
-def write_index(runs_dir: str):
-    """Rewrite runs.js (used by the maps) and index.html from the saved runs."""
+def write_index(runs_dir: str, viewer: bool = True):
+    """Rewrite runs.js (used by the maps) and index.html from the saved runs; viewer: install the
+    viewer (mapping.install_viewer) too, whose index.css the page needs (save_run's map did)."""
     runs = list_runs(runs_dir)
     # Written whole, then moved over the old files: a map or the app never reads half a list
     with cache.replacing(os.path.join(runs_dir, "runs.js"), "w", encoding="utf-8") as f:
@@ -450,7 +451,8 @@ def write_index(runs_dir: str):
             f"<td>{' · '.join(links)}</td></tr>")
 
     import mapping
-    mapping.install_viewer(runs_dir)  # its index.css styles the page (no inline styles: the CSP)
+    if viewer:
+        mapping.install_viewer(runs_dir)  # its index.css styles the page (no inline styles: the CSP)
     with cache.replacing(os.path.join(runs_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>Find-a-Line runs</title>

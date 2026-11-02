@@ -5,7 +5,8 @@ A search as a library: from SearchParams to a saved run, without terminal input.
     estimate = estimate_search(plan)               # what would be downloaded, disk use
     data = prepare_data(plan)                      # step 1: download, mosaics, water, gaps
     lines = find_lines(plan, data)                 # steps 2-4: anchors, lines, profiles, groups
-    result = save_run(plan, lines, confirm)        # step 5: the run, orthophoto, map
+    result = save_run(plan, lines)                 # step 5: the run and the map
+    download_orthophoto(plan, orthophoto_lines(plan, lines), confirm)  # for offline use of the map
     # or all of it: run_search(params, paths, on_event, confirm)
 
 Large areas (--area) are computed in square tiles (search_lines): each tile is a grid
@@ -28,7 +29,6 @@ check_estimate the download; _lines the anchors and lines found.
 """
 
 import dataclasses
-import functools
 import gc
 import glob
 import gzip
@@ -38,6 +38,7 @@ import math
 import os
 import pickle
 import shutil
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -51,8 +52,6 @@ import cache
 import coast
 import grid as gd
 import helpers as sh
-import lineprofiles as lp
-import linesearch as ls
 import mapping as mp
 import messages
 import obstacles
@@ -61,7 +60,6 @@ import osm
 import runs as rn
 import sag as sg
 import sources as src
-import terrain
 from settings import Limits
 from params import SearchParams
 from progress import progress
@@ -186,6 +184,10 @@ class Plan:
     # Stop checking the pairs found at the limit of lines or of the memory (_early_check):
     # Limits.lines_early_stop of the server, also for a user without limits (the web worker sets it)
     early_stop: bool = True
+    # Rewrite the runs folder's list (runs.write_index: runs.js and index.html) after saving the run:
+    # not on the public site (the web worker clears it), where nothing reads them (web.py makes each
+    # user's runs.js, index.html redirects to the app) and they grow with every run of the site
+    index_runs: bool = True
     # The counts of the line search (jobs.FUNNEL_STEPS) added by _lines and find_valid_lines; the
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
     # that was saved already adds nothing
@@ -608,8 +610,10 @@ def estimate_search(plan: Plan) -> Estimate:
     """What the search would download and how much disk its working grids take."""
     p, emit = plan.params, plan.emit
     download_mb = 0.0
-    for layer in plan.layers:
-        n_tiles, n_missing, mb = layer.estimate(plan.grid, plan.paths.cache, p.update)
+    # The layers' indexes asked at the same time (as download_layers does: a WFS query of
+    # geoportal.gov.pl takes seconds), each layer once; the lines in the order of the layers
+    estimated = src.layer.estimate_layers(plan.layers, plan.grid, plan.paths.cache, p.update)
+    for layer, (n_tiles, n_missing, mb) in zip(plan.layers, estimated):
         download_mb += mb
         emit("info", f"{layer.description}: {n_tiles} tiles, {n_missing} to download (~{mb:.0f} MB)")
     if p.water == "fill" and p.coastline == "world" and coast.world_file(plan.paths.cache) is None:
@@ -655,15 +659,52 @@ def download_data(plan: Plan):
     (whether it is needed shows only on the grid).
     """
     p, grid, cache_dir = plan.params, plan.grid, plan.paths.cache
+    coastline = None
+    if p.water == "fill" and p.coastline == "overpass" and coast.world_file(cache_dir) is None:
+        # The coastline's theme tiles (from the extracts, or Overpass: up to minutes) in a thread
+        # alongside the tiles' pool: it shares only the cache's index and servicecounts with it,
+        # both safe between threads (osm's limits are file locks and SQLite); a daemon, so a
+        # failed download of the tiles does not wait for it
+        coastline = _Background(lambda: osm.theme("coastline", *coast._grid_bbox_wgs84(grid), cache_dir, p.update))
+    # The run's name too (_run_name: two Nominatim lookups of a circle or a drawn area, 1-3 s in
+    # their queue, more when it is busy): their answers land in osm's cache, where step 5 (or the
+    # run folder of a tiled area) finds them; a failure is cached as well and never fails the download
+    name = _Background(lambda: _run_name(plan))
     try:
         _download_layers(plan)
-        if p.water == "fill" and p.coastline == "overpass" and coast.world_file(cache_dir) is None:
+        if coastline is not None:
             try:
-                osm.theme("coastline", *coast._grid_bbox_wgs84(grid), cache_dir, p.update)
+                coastline.result()
             except requests.RequestException:
                 pass  # the search falls back to the Copernicus mask with a warning
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
+    try:
+        name.result()
+    except Exception:
+        pass
+
+
+class _Background:
+    """A call in a daemonic thread of its own; result() waits for it and returns its value or
+    raises its exception."""
+
+    def __init__(self, call: Callable):
+        self._value = self._error = None
+        self._thread = threading.Thread(target=self._run, args=(call,), daemon=True)
+        self._thread.start()
+
+    def _run(self, call: Callable):
+        try:
+            self._value = call()
+        except BaseException as e:  # handed to result()
+            self._error = e
+
+    def result(self):
+        self._thread.join()
+        if self._error is not None:
+            raise self._error
+        return self._value
 
 
 def prepare_data(plan: Plan) -> Data:
@@ -675,8 +716,11 @@ def prepare_data(plan: Plan) -> Data:
         _download_layers(plan)
         elevation_path = src.prepare_layer(source.nmt, grid, cache_dir,
                                            os.path.join(work, "nmt.npy"), "terrain", p.update, download=False)
+        progress.compute.start("area coverage", 1, unit="step")
         mask = plan.area.mask(grid)
         with_data = float(np.isfinite(np.load(elevation_path, mmap_mode="r")[mask]).mean()) if mask.any() else 0.0
+        progress.compute.update(1)
+        progress.compute.finish()
         emit("info", f"Elevation data: {100 * with_data:.2f}% of the search area from {source.name}")
         surface_path = None
         if plan.nmpt:
@@ -692,11 +736,17 @@ def prepare_data(plan: Plan) -> Data:
                 src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
             if warning:
                 emit("warning", warning)
+            progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(sea, p.shore_buffer, grid.res)
+            progress.compute.update(1)
+            progress.compute.finish()
         elif _fills_gaps(plan):
             # Without --water fill the sea stays without data; keep the gap filling off it too
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
+            progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
+            progress.compute.update(1)
+            progress.compute.finish()
         if _fills_gaps(plan):
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
@@ -724,8 +774,11 @@ def prepare_data(plan: Plan) -> Data:
     elevation = np.load(elevation_path, mmap_mode="r")
     surface = np.load(surface_path, mmap_mode="r") if surface_path else None
     if surface is not None:
+        progress.compute.start("surface coverage", 1, unit="step")
         land = plan.area.mask(grid) & ~np.isnan(elevation)
         no_surface = (np.isnan(surface) & land).sum() / max(land.sum(), 1)
+        progress.compute.update(1)
+        progress.compute.finish()
         if no_surface > 0.01:
             emit("warning", messages.Note(f"no surface model (trees, buildings) for {no_surface:.0%} of the search "
                                           "area.\nLines there are checked against the bare terrain only: trees and "
@@ -765,6 +818,12 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     larger circles) only that of the line shown for each group, as the profiles of millions
     of lines would take long and fill the memory.
     """
+    # The kernels (numba) only here and in line_coordinates: the download phase and the quick
+    # lane, which import this module too, never load numba and llvmlite (their time and memory)
+    import lineprofiles as lp
+    import linesearch as ls
+    import terrain
+
     p, grid, emit = plan.params, plan.grid, plan.emit
 
     # Step 2: Find raster pixels with significant slope for promising anchors
@@ -818,8 +877,10 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 3, "evaluating anchor pairs")
     sag_table = None
     if p.model == "sag":
-        emit("info", "Precomputing the sag estimator for all line lengths...")
-        sag_table = sg.EnvelopeTable(plan.rigging, p.min_length, p.max_length)
+        key = (dataclasses.astuple(plan.rigging), p.min_length, p.max_length)
+        if key not in _SAG_TABLES:  # once per process: the tiles of an area share it
+            emit("info", "Precomputing the sag estimator for all line lengths...")
+        sag_table = _sag_table(*key)
     first = None
     if core is not None:  # pairs only from the anchors in the core: the overlap is for partners
         left, bottom, right, top = core
@@ -866,6 +927,7 @@ def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float,
     """Step 4 before the groups, in place (no second table of the lines): their coordinates
     (mapping.coordify), only the lines whose first anchor lies in core (a tile's bounds) when
     given, and their metres over water and over filled gaps. Returns the lines."""
+    import linesearch as ls  # numba (see _lines)
     results = mp.coordify(lines, grid, nmpt)
     if core is not None:
         left, bottom, right, top = core
@@ -1036,9 +1098,12 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             shutil.rmtree(work, ignore_errors=True)
             progress.set_step(f"{tile_plan.tile_label}Step 4/{STEPS}: saving the tile's lines")
             _save_tile(path, found)
+            table = found.without_pixels()  # what loading the file gives, without the round trip
             del found
-        progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
-        tables.append(_load_tile(path).without_pixels())  # tile files of before, tiles without anchors
+        else:
+            progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
+            table = _load_tile(path).without_pixels()  # tile files of before, tiles without anchors
+        tables.append(table)
         count += len(tables[-1])
         _check_lines(plan, count)
     if not count:
@@ -1133,14 +1198,15 @@ def _run_params(plan: Plan) -> Dict:
             "rigging": dataclasses.asdict(plan.rigging)}
 
 
-def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: Optional[Dict] = None) -> Result:
-    """Step 5: save the run (results, parameters, data used), the orthophoto tiles and the map.
+def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
+    """Step 5: save the run (results, parameters, data used) and the map. The orthophoto for
+    offline use is a step of its own after it (orthophoto_lines, download_orthophoto): the map
+    reads its tiles from the cache as they arrive and loads the rest online.
 
     run: the run folder of a tiled search (search_lines); otherwise a new one is made.
     """
     p, emit = plan.params, plan.emit
     results, spot_groups = lines.results, lines.spot_groups
-    confirm = confirm or (lambda kind, text: True)
     _step(plan, 5, "saving the run and the map")
     center_lat, center_lon = plan.area.center
     x, y = plan.center_xy
@@ -1184,26 +1250,9 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
     map_path = None
     if not p.no_html:
         source = plan.source
-        ortho_cache = None
-        if source.ortho and p.ortho != "never":
-            # Detailed orthophoto only around one line per group (variants lie within the strip),
-            # for the best groups of an area or as the service's fair use allows
-            detail = p.ortho_detail if p.ortho_detail is not None else source.ortho.detail
-            if detail is None and not circle:
-                detail = ORTHO_DETAIL
-            spots = [results.row(k) for k in spot_groups.rep[:detail].tolist()]
-            ortho_folder = ortho.cache_folder(plan.paths.cache, source.ortho)
-            max_zoom = ortho.DETAIL_ZOOMS[-1] if source.ortho.url else source.ortho.base_max_zoom
-            tiles = ortho.missing_tiles(ortho.tiles_to_cache(spots, plan.area, max_zoom), ortho_folder,
-                                        plan.paths.cache, p.update, source.ortho.ttl_days)
-            minutes = len(tiles) * ORTHO_SECONDS_PER_TILE / 60
-            emit("info", f"Orthophoto for offline use: {len(tiles)} tiles to download "
-                         f"(~{len(tiles) * ortho.APPROX_TILE_KB / 1000:.0f} MB, ~{minutes:.0f} min)")
-            if p.ortho == "auto" and minutes > CONFIRM_MINUTES and not confirm(
-                    "ortho", "Download now? Otherwise the map loads the orthophoto online. [y/N] "):
-                tiles = []
-            ortho.download(source.ortho, tiles, ortho_folder, plan.paths.cache)
-            ortho_cache = ortho_folder
+        # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
+        # the run, earlier runs did too), falling back to the service for a tile not there
+        ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
         progress.compute.start("saving the map", len(results), unit="line")
         # an orthophoto's attribution may name the year of the run too (sources.YEAR)
         ortho_service = source.ortho and dataclasses.replace(
@@ -1212,15 +1261,77 @@ def save_run(plan: Plan, lines: Lines, confirm: Optional[Confirm] = None, run: O
                                p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, on_lines,
                                p.high_above)
         progress.compute.finish()
-    rn.write_index(plan.paths.runs)
+    if plan.index_runs:
+        rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
 
 
-@functools.lru_cache(16)
+def _orthophoto(plan: Plan) -> bool:
+    """Whether the run gets the orthophoto for offline use: a service, --ortho other than never, a map."""
+    p = plan.params
+    return bool(plan.source.ortho) and p.ortho != "never" and not p.no_html
+
+
+def orthophoto_lines(plan: Plan, lines: Lines) -> List[Dict]:
+    """The lines the orthophoto is cached around in detail (download_orthophoto): one per group
+    (its variants lie within the strip), the best groups first, as many as --ortho-detail, the
+    service's fair use (OrthoService.detail) or ORTHO_DETAIL for an area allow (a circle: every
+    group). Their anchors only ("anchor1", "anchor2" as (lat, lon)): small enough to keep after
+    the lines are released (the web worker downloads the orthophoto after "done")."""
+    p, source = plan.params, plan.source
+    detail = p.ortho_detail if p.ortho_detail is not None else (source.ortho.detail if source.ortho else None)
+    if detail is None and not isinstance(plan.area, ar.Circle):
+        detail = ORTHO_DETAIL
+    columns = lines.results.columns
+    reps = lines.spot_groups.rep[:detail]
+    return [{"anchor1": tuple(a1), "anchor2": tuple(a2)}
+            for a1, a2 in zip(columns["anchor1"][reps].tolist(), columns["anchor2"][reps].tolist())]
+
+
+def download_orthophoto(plan: Plan, spots: List[Dict], confirm: Optional[Confirm] = None) -> int:
+    """The orthophoto for offline use of the map, after the run is saved: the tiles of the search
+    area at the overview zooms and of a strip around each line of `spots` (orthophoto_lines) at
+    the detail zooms, those not cached yet (with --update: or due for a check), downloaded into
+    the source's cache folder, which the map reads tile by tile (the rest it loads online).
+    Nothing without an orthophoto service, with --ortho never or --no-html; with --ortho auto a
+    download of more than CONFIRM_MINUTES asks confirm("ortho", ...), and no means none. Returns
+    the tiles downloaded."""
+    p, source, emit = plan.params, plan.source, plan.emit
+    if not _orthophoto(plan):
+        return 0
+    confirm = confirm or (lambda kind, text: True)
+    folder = ortho.cache_folder(plan.paths.cache, source.ortho)
+    max_zoom = ortho.DETAIL_ZOOMS[-1] if source.ortho.url else source.ortho.base_max_zoom
+    tiles = ortho.missing_tiles(ortho.tiles_to_cache(spots, plan.area, max_zoom), folder, plan.paths.cache,
+                               p.update, source.ortho.ttl_days)
+    minutes = len(tiles) * ORTHO_SECONDS_PER_TILE / 60
+    emit("info", f"Orthophoto for offline use: {len(tiles)} tiles to download "
+                 f"(~{len(tiles) * ortho.APPROX_TILE_KB / 1000:.0f} MB, ~{minutes:.0f} min)")
+    if p.ortho == "auto" and minutes > CONFIRM_MINUTES and not confirm(
+            "ortho", "Download now? Otherwise the map loads the orthophoto online. [y/N] "):
+        return 0
+    saved, received = ortho.download(source.ortho, tiles, folder, plan.paths.cache)
+    if tiles:
+        emit("info", f"Orthophoto for offline use: {saved} of {len(tiles)} tiles saved ({received / 1e6:.0f} MB)")
+    return saved
+
+
+_SAG_TABLES: Dict[tuple, "sg.EnvelopeTable"] = {}  # by (rigging, min_length, max_length); at most SAG_TABLES_MAX
+SAG_TABLES_MAX = 16
+
+
 def _sag_table(rigging: Tuple[float, ...], min_length: float, max_length: float) -> "sg.EnvelopeTable":
-    """The envelope table of profile_of_line, kept for the next profiles of the same run (at most 16)."""
-    return sg.EnvelopeTable(sg.Rigging(*rigging), min_length, max_length)
+    """The envelope table of a rigging and the lengths of its lines, built once per process: the
+    tiles of a sag area (2-3 s each before 2026-11-02), and profile_of_line's next profiles of the
+    same run (at most SAG_TABLES_MAX tables, the oldest dropped)."""
+    key = (tuple(rigging), min_length, max_length)
+    table = _SAG_TABLES.get(key)
+    if table is None:
+        if len(_SAG_TABLES) >= SAG_TABLES_MAX:
+            del _SAG_TABLES[next(iter(_SAG_TABLES))]
+        table = _SAG_TABLES[key] = sg.EnvelopeTable(sg.Rigging(*rigging), min_length, max_length)
+    return table
 
 
 def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor2: Tuple[float, float]) -> Dict:
@@ -1281,4 +1392,6 @@ def run_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] =
     if estimate.reasons and confirm and not confirm("expensive", "\n".join(estimate.reasons)):
         raise SearchError("Stopped.")
     lines, run = search_lines(plan)
-    return save_run(plan, lines, confirm, run)
+    result = save_run(plan, lines, run)
+    download_orthophoto(plan, orthophoto_lines(plan, lines), confirm)
+    return result

@@ -168,8 +168,12 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
     if mode == "world" or downloaded:
         import geopandas as gpd
         shapefile = world_polygons(cache_dir, update)
+        progress.compute.start("sea mask (world file)", 1, unit="step")
         water = gpd.read_file(shapefile, bbox=_grid_bbox_wgs84(grid)).to_crs(grid.crs)
-        return _rasterize(water.geometry, grid), "OpenStreetMap water polygons (world file)", None
+        sea = _rasterize(water.geometry, grid)
+        progress.compute.update(1)
+        progress.compute.finish()
+        return sea, "OpenStreetMap water polygons (world file)", None
 
     if mode == "overpass":
         try:
@@ -183,6 +187,10 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
             return copernicus_sea, "Copernicus water body mask (fallback)", warning
         if not lines:  # no coast near the area: the mask is right away from the shore
             return copernicus_sea, "no coastline nearby (OpenStreetMap)", None
-        return _sea_from_coastline(lines, grid, copernicus_sea), "OpenStreetMap coastline (Overpass or extracts)", None
+        progress.compute.start("sea mask (coastline)", 1, unit="step")
+        sea = _sea_from_coastline(lines, grid, copernicus_sea)
+        progress.compute.update(1)
+        progress.compute.finish()
+        return sea, "OpenStreetMap coastline (Overpass or extracts)", None
 
     return copernicus_sea, "Copernicus water body mask", None

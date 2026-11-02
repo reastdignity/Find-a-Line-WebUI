@@ -779,3 +779,209 @@ answers which kinds of searches use the site's CPU (the presets of the form or l
 so it says which of the changes above to make first, whether `max_length_max`, `anchors_max` and
 `compute_seconds` fit the cost, and which classes the local measurements should cover.
 
+## Round 3 (2026-11-02): from the click to the saved lines
+
+The question: what does a user of the web app wait for, from "Search" to the saved lines, and where
+are the computing time and the peak memory now, after the two rounds above? Measured from the code,
+the public site's `jobs.sqlite` (read on 2026-11-02: 9 finished jobs since 2026-10-29) and the
+baseline runs below. The plan with the decisions is the user's plan file of 2026-11-02; the order:
+stage 1 the time outside the computing, stage 2 the memory of step 1 and the tile size, stage 3 the
+single-core parts of steps 2 to 5, stage 4 the changes that may change results.
+
+### What the server showed
+
+`tools/job_stats.py --phases` on the VPS's `jobs.sqlite` (whole seconds; the worker ran with 7 cores,
+18 GiB, 3 compute and 2 download slots since 2026-11-02 07:22, with 1 + 1 slots and 8 GB before):
+
+| Job (2026) | res | km² | download s | wait for a compute slot s | compute s | of it orthophoto | steps 1 / 2 / 3 / 4 / 5 | tiles |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | --- |
+| 11-01 23:25, sag area ≤ 1000 m | 1 | 14.96 | 3 | 0 | 186 | 85 | 10 / 29 / 35 / 16 / 9 | 4 of 3702² px |
+| 11-02 01:16, `long` area, 2.07 M lines | 1 | 9.0 | 2 | 1 | 222 | 7 | 6 / 31 / 29 / 35 / 112 | 2 of 3568 × 3703 px |
+| 11-02 02:07, 30 m circle `typical`, 4 lines | 30 | 0.64 | 4 | 0 | 48 | – | 1 / 14 / 14 / 14 / 2 | 1 |
+| 11-02 07:19, `typical` area, 970 lines | 1 | 0.21 | 18 | 173 | 196 | 134 | 6 / 14 / 19 / 15 / 5 | 1 |
+| 11-02 07:23, circle ≤ 400 m, 896 lines | 1 | 3.14 | 6 | 0 | 150 | 133 | 3 / 3 / 3 / 0 / 4 | 1 |
+
+- **The orthophoto** is downloaded inside step 5, before the map is saved and before the job is
+  "done", in the compute phase's process, which holds a compute slot meanwhile (`search.save_run`,
+  `jobs.ortho_confirm` with the public `ortho_minutes` 10): 85-134 s of jobs that computed for
+  15-60 s (median 109 s, 56 % of the compute phase of these jobs). 934-1416 tiles took 2m13s each
+  time (0.1 s a tile with 4 threads; `ORTHO_SECONDS_PER_TILE` 0.3 overstates it 3 times, so the 10
+  minute limit admits about 2 000 tiles, about 3.3 real minutes). Locally the worker answers yes to
+  every question, so a circle downloads the detail strips of all its groups before "done".
+- **A cold numba cache** after every restart of the worker's container (`NUMBA_CACHE_DIR` is a
+  tmpfs there, by design): the first job after the restart of 07:22, a 30 m circle with 149
+  anchors and 4 lines, took 48 s, steps 2, 3 and 4 about 14 s each: the compilation of the kernels
+  of the line search, the profiles and the grouping (about 40 s on the VPS's cores).
+- **The waits for a slot** were 0-1 s but for the job of 07:19 (173 s: the worker was being restarted).
+  The compute phase outside its steps (the process's start, the imports, planning) is 1.4-3 s.
+- **Step 5** took 112 s for 2.07 million lines (half of that job's compute phase).
+
+### The tiles of an area on the public site
+
+`search.tile_core_size` sizes a tile's core from the memory a compute slot has:
+`side_px = sqrt(budget × TILE_MEMORY_SHARE (0.25) / PIXEL_BYTES (100))`, the core is the side less
+twice the overlap (`_overlap` = `--max-length` + `_margin` (300 m: the prominence span) + 2 px on
+each side), in steps of 500 m, at least 500 m. The VPS's slot is (18 GiB − 3.6 GB of the quick
+lane's largest grid − 2 × 512 MiB of the download slots) / 3 = 4.89 GB, so 3 495 px of side:
+
+| Lines up to | overlap | core at 1 m | tile | pixels per pixel of the core |
+| ---: | ---: | ---: | ---: | ---: |
+| 150 m (`typical`) | 452 m | 2 500 m | 3 404² = 11.6 Mpx | 1.85 |
+| 400 m (`long`) | 702 m | 2 000 m | 3 404² = 11.6 Mpx | 2.9 |
+| 1 000 m (the default) | 1 302 m | **500 m** | 3 104² = 9.6 Mpx | **38.5** |
+| 2 000 m (the public maximum) | 2 302 m | 500 m | 5 104² = 26 Mpx | **104** |
+
+Steps 1 and 2 run on every pixel of a tile, so at the default 1 000 m a 1 m area costs about 38
+times its own pixels there; the jobs above show it as "anchor prominence and drop" of 13-60 s. The
+measurements of the rounds before (the Gozo coast with `--tile-size 5000`: 7 604² px for 5 000 m
+cores, 2.3 pixels per core pixel) did not show this. `tools/perf_profile.py --memory 4886000000`
+now sizes the tiles as the VPS does.
+
+### The memory of step 1
+
+Counted from the code (the agent's audit of 2026-11-02; N the tile's pixels, "M" a memory-mapped
+grid of `work/`, "R" an array in RAM) the peak of a job is `sources.filling._fill` of the surface
+pair of the gap filling: about 41 B per pixel on Linux (45 on Windows, where numpy elides no
+temporaries): 16 M (`nmt`, `nmpt`, `gap_nmpt`, `wbm` as float32 for a category of 0-3), 5 R held
+from outside without a later use at that moment (the area mask, `sea`, `sea_zone`, `filled`,
+`gaps`), 20-24 R of `_fill`'s own (`gy`/`gx` alive to the end though used only for `flat`, `flat`,
+`both`, the labels, the dilation, `near`, the partition copy of `np.median`). The 65-85 B of
+section 4 were measured before the median of the ring pixels; a job's peak of 2.7-2.9 GB on a
+58 Mpx tile is 47-50 B per pixel with the imports. `PIXEL_BYTES` 100 therefore has room: stage 2
+cuts the temporaries and the held arrays (the same values), measures again and resizes the tiles.
+
+### How it was measured
+
+- `tools/perf_profile.py --memory BYTES`: the tiles sized from a compute slot's budget; and the
+  new Compute bars of step 1 (the gap filling's slopes, rings and medians as parts of one bar, the
+  sea mask, the shore zone, the area and surface coverage, the border gaps), listed per part, so
+  "Step 1: (between bars)" is gone from its tables.
+- `tools/job_stats.py --phases`: the waits for a slot, the phases, the seconds outside the steps,
+  the orthophoto and the tiles, from `jobs.sqlite` (also on the VPS host).
+
+### Baseline (before stage 1)
+
+`tools/perf_profile.py` on this PC, cached data, `--ortho never`, `--exclusive`; "24" all threads,
+"7" `--cores 7` (one thread per core, as the VPS's worker); wall seconds per step (step 1 with its new
+bars summed), the peak RSS of the job. The numba cache was warm (two runs before).
+
+| Job | lines / spots | wall 24 / 7 | start | step 1 | step 2 | step 3 | step 4 | step 5 | peak RSS |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| R9 Montserrat (5 m circle, every profile kept) | 85 671 / 3 972 | 4.6 / 4.8 | 0.8 | 0.2 | 0.2 | 0.1 | 0.4 | **2.7** | 372 MB |
+| R40 Preikestolen (1 m circle) | 125 054 / 417 | 4.6 / 4.6 | 0.8 | 1.4 | 0.5 | 0.5 | 0.2 | 1.3 | 339 MB |
+| R44 Adršpach (2 m circle) | 37 687 / 1 976 | 4.0 / 4.0 | 0.9 | 0.7 | 0.3 | 0.2 | 0.3 | 1.5 | 323 MB |
+| R16 Gozo north coast (sag, 2 m, 11 tiles of 800 m) | 25 906 / 657 | 45.6 / 44.4 | 1.0 | 13.5 | 1.2 | **28.7** (the sag table: 11 × 2.4 s) | 0.8 | 0.2 | 334 MB |
+| swiss-long (1 m circle of 2 km, lines of 150-2 500 m) | 1 695 554 / 10 701 | 36.6 / 33.9 | 1.0 | 7.0 | 2.1 | 6.5 / 5.3 | 2.8 | **17.7** | 967 MB |
+| Gozo coast, `--tile-size 5000` (6 tiles, the largest 7 604 × 6 602 px) | 689 150 / 4 131 | 72.1 / 73.0 | 1.3 | **50.8** | 7.7 | 1.7 / 3.4 | 3.5 | 6.9 | 2 487 MB |
+| Gozo coast, the VPS's tiles (`--memory 4886000000`: 138 tiles of 3 104 × 2 102 px) | 689 150 / 4 131 | – / **436** | 0.5 | **349** | 54 | 8.5 | 12.5 | 11.7 | 753 MB |
+
+- **Step 1 is 70 % of an area's job** with 5 km tiles and 80 % with the VPS's: the mosaics (terrain,
+  surface, water mask, the gap fill's) 20 s of the 51, the gap filling's slopes, rings and medians
+  15 s, the sea and lakes 5.6 s (its lake levels 4.3), the sea mask 2.4, the rest between bars 5.0
+  (the NaN fills, `isnan`, saving the masks). Every one of them runs on one core.
+- **The VPS's tiles cost 6 times the 5 km tiles** on the same area (436 against 73 s): 138 tiles of
+  6.5 Mpx (898 Mpx in all for an area of 9.65 km², 93 pixels per pixel of the area, against 6 tiles
+  of 41.7 Mpx = 250 Mpx with 5 km cores), and per tile fixed costs: the sea mask reads the world water
+  polygons for every tile (85 s: `geopandas.read_file(bbox)` 0.6 s a tile), the mosaics open the same
+  files again (28 s "stitching terrain"), the area mask (6.6 s), the surface coverage (8.4 s).
+  "Anchor prominence and drop" 26 s and "finding anchors" 13 s follow the pixels too.
+- **The sag table** (`sag.EnvelopeTable`, 82 lengths) is built for every tile of a sag area: 28.7 s
+  of R16's 45.6 (`_sag_table` with `lru_cache` exists for `profile_of_line` and is not used here).
+- **Step 5** is 48 % of swiss-long (17.7 s for 1.7 million lines: `lines.csv` + `lines.geojson` 9.1 s,
+  `data.js` + `lines.js` 8.6 s) and 58 % of R9 (2.7 s, the profile of every line in `data.js`).
+- **The peak**: the Gozo coast's 2 487 MB at the surface pair's medians of the gap filling (the largest
+  tile 50.2 Mpx: about 49 B per pixel with the imports, 46 without), as counted above; swiss-long's
+  967 MB at step 4's profiles; R9's at step 5.
+- "Profiles at tile edges" took no measurable time on either Gozo run (0.0 s): not a target.
+- The start (imports and planning) is 0.8-1.3 s on this PC in every run; the worker adds it twice.
+
+### Done, wave 1 (stage 1: the time outside the computing; every result byte for byte)
+
+Branch `perf-round3`, the agents' branches `perf-r3-ortho` (A: 1a, 1h), `perf-r3-worker` (B: 1b, 1d, 1e),
+`perf-r3-index` (C: 1c); 1f by hand.
+
+- **1a, the orthophoto after "done"** (A): Until now the compute phase selected and downloaded the orthophoto
+  tiles inside step 5, before the map was saved and the job set "done", in the process the scheduler
+  counted as an occupied compute slot (on the VPS 85-134 s per job against 15-60 s of computing;
+  locally a circle downloads the detail strips of all its groups). Now `search.save_run` saves the run
+  and the map and returns; the orthophoto is a step of its own (`search.orthophoto_lines`,
+  `search.download_orthophoto`: the same selection rules, question and download), which the CLI
+  runs right after `save_run` and the worker after "done" (`jobs.run_phase`: `save_run` → `add_run`
+  → statistics → "done" → the lines released → `_orthophoto_after`). The map names the cache folder
+  as before and loads a tile online until it is there, so the result is shown while the tiles
+  arrive. `Scheduler._occupied` no longer counts a compute process whose job is done, so the next
+  job starts beside it; the phase's time limit still ends such a process (the download only: the
+  job's status is guarded by `when`), `stop()` kills it like the others, and it holds its imports
+  only (the lines are released first), so `slot_memory` reserves nothing for it. Errors of the step
+  never touch the job or its run (a warning event, a line on stderr). The orthophoto's seconds still
+  land in `job_steps` (its row written after "done"; `tools/job_stats.py --phases` leaves that row
+  out of `outside_steps`). Measured on the dev PC with the worker's `Scheduler` (R15's circle at 1 m
+  with `--ortho-detail 2`: 87 tiles of Malta's WMS; the base commit against 1a, a scratch cache for
+  the tiles, the elevation data cached): time to "done" 18.7 → 6.5 s, the compute phase 17.0 → 4.0 s;
+  the orthophoto itself (now after "done") 11.7 → 1.7 s for the same tiles, thanks to 1h's keep-alive
+  sessions. With a cold numba cache the same "before" job took 42.7 s to "done" (about 8 s of
+  compilation in each of steps 2-4): what 1b removes.
+- **1h, the orthophoto's tiles** (A): `orthophoto.tiles_to_cache` tested every tile of the union's
+  bounding box at zooms 17-21 against the union of the strips: on a long coast most of that box is
+  empty (50 strips spread over 15 km: 0.6 M `prepared.intersects` tests, 72 s). Each strip is now
+  tested within its own bounding box, vectorised with shapely 2 (`_tiles_in`: `shapely.box` and
+  `shapely.intersects` on the prepared shape, the same float operations per tile), and the set joins
+  the strips' tiles: the same tiles in every case (`tests/test_offline.py::test_orthophoto_tiles_per_strip`
+  keeps the old code as the reference), 0.03 s for those 50 strips; 60 clustered strips 0.17 →
+  0.05 s. Each download thread keeps one `requests.Session` (`net.session`, keep-alive): 87 tiles
+  of Malta's WMS 11.7 → 1.7 s. `cache.record_many` still hashes the tiles it records (the sha256
+  keeps `fetched_at` for an unchanged file in `cache update`; milliseconds for a run's tiles).
+- **1b, the numba warm-up** (B). The public worker's numba cache is a tmpfs, so the first job after
+  each start of the container compiled every kernel (about 40 s on the VPS). `warmup.py` now runs
+  synthetic searches in a process of its own at the worker's start (`Scheduler(warm_up=True)`:
+  `findaline.py worker` and `web`; `FINDALINE_WARM_UP=0` turns it off), while jobs are already
+  claimed. The searches cover every combination that gives the kernels other argument types, found
+  by comparing numba's cache index after the warm-up with the index after real searches: a surface
+  model or none, the water and gap masks memory-mapped or none, a tile's core, `pair_chunk`'s second
+  pass, parts of one and of several anchors, thinned profiles and the sag estimator's int default.
+  On the dev PC: cold 37 s, from numba's cache 3-5 s; afterwards the Żabi Koń clip's search compiles
+  nothing (`tests/test_public.py::test_numba_warm_up`). The VPS's first job after a deploy: to be
+  read from `job_stats.py --phases`.
+- **1d, the download phase** (B). `search.py` imports the kernels' modules inside steps 2-4, so the
+  download phase and the quick lane never load numba and llvmlite: on Windows an R13 download-phase
+  process takes 112 MiB instead of 133 MiB (RSS after the phase) and imports in 0.75 s instead of
+  0.95 s. `DOWNLOAD_PROCESS_BYTES` stays at 512 MiB: the download itself peaks at 240-400 MiB, so the
+  plan's 256 MiB would be too little. `cache.due_many` answers a layer's tiles on one SQLite
+  connection: 2 000 tiles in 0.055 s instead of 3.98 s (`due()` of one file opens one connection
+  instead of two). The coastline's theme tiles are fetched in a thread alongside the tiles' pool,
+  and the layers' estimates are listed at once (`sources.layer.estimate_layers`, which
+  `estimate_search` uses).
+- **1e, the runs list** (B). `runs.write_index` (`runs.js`, `index.html`) is rewritten after each run
+  of the command line and the local app only (`Plan.index_runs`); the public worker skips it:
+  nothing on the site reads those files, and the work grew with the site's runs. A run installs the
+  viewer once instead of twice.
+- **1c, the geoportal sheet index in parallel** (C). A new Polish area asked geoportal's WFS sheet
+  index one request at a time: a GetCapabilities per layer and process, then one GetFeature per year
+  layer (9 for the NMT, 8 for the NMPT) per 0.25° tile, each on a new HTTPS connection, with the NMT
+  and the NMPT one after the other in `estimate_search`. Now `WfsSheets` sends a tile's year layers
+  4 at a time on a keep-alive session per thread (`net.session()`), each under a slot of the host
+  (`HOST_SLOTS_OF["mapy.geoportal.gov.pl"] = 4`, a courtesy cap: GUGiK publishes no limits),
+  `NewestPerSheet` asks the tiles of a grid 4 at a time, and the year layers are kept on disk for
+  30 days (`<top>/sheet-index/<prefix>.capabilities.json`: a new year layer is seen within a month).
+  The answers are read in the old order, so the index JSON is byte for byte the same; the requests
+  and bytes are unchanged. Measured on an empty cache (only `osm/` copied), `estimate_search` against
+  the live service, 2026-11-02:
+
+  | Area | Before | After |
+  | --- | ---: | ---: |
+  | R13, Kasprowy Wierch, r 500 m (one 0.25° tile, 19 requests) | 6.8 s | 2.0 s |
+  | 50.0° N 20.0° E, r 3 km (four tiles, 70 requests, 10 MB) | 24.2-24.9 s | 3.5-3.8 s |
+
+  The summed request time fell from 23-24 s to 12-13 s for the four tiles: keep-alive saves the
+  handshakes, the rest is the overlap. The sheet downloads themselves (section 2) are unchanged.
+- **1f, the sag table once per process.** `_lines` takes the envelope table of a sag search from
+  `_sag_table` (by rigging and the lengths; at most `SAG_TABLES_MAX` kept) instead of building a new
+  `sag.EnvelopeTable` for every tile, and a tile just computed is not read back from its gzip file
+  (`found.without_pixels()`, what loading gives). R16 (11 tiles): 45.6 s → 21.7 s, the same files.
+- **1g, the place name in the download phase.** `download_data` asks Nominatim for a circle's or a
+  drawn area's place (`_run_name`) in a thread alongside the tiles' pool: the answers land in
+  `osm`'s cache, where step 5 (or the run folder of a tiled area) finds them without the 1-3 s in
+  Nominatim's queue (more when it is busy). The CLI is unchanged; the worker's Nominatim quota
+  counts the lookups as before, in the other phase.
+- **Checks.** Full offline `pytest`, `tests/regression.py` (R1, R9, R13, R14, R15, R16, R18) on cached data: every checksum and
+  the open and checked counts unchanged.

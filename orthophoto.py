@@ -18,11 +18,10 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 
 import numpy as np
 import requests
+import shapely
 from PIL import Image
 from pyproj import Transformer
-from shapely.geometry import LineString, box
-from shapely.ops import unary_union
-from shapely.prepared import prep
+from shapely.geometry import LineString
 
 import cache
 import servicecounts
@@ -44,6 +43,12 @@ _to_mercator = Transformer.from_crs("EPSG:4326", "EPSG:3857", always_xy=True)
 Tile = Tuple[int, int, int]  # (z, x, y)
 
 
+def _session() -> requests.Session:
+    """The requests.Session of this thread (sources.net.session): one connection kept alive for
+    the tiles a download thread fetches one after another."""
+    return net.session()
+
+
 def cache_folder(cache_dir: str, service) -> str:
     """Folder of a service's tiles ({z}/{x}/{y}.jpg); service is a sources.OrthoService."""
     return os.path.join(cache_dir, service.folder, "wm256")
@@ -58,34 +63,37 @@ def _tile_size(z: int) -> float:
 
 
 def _tiles_in(area, zooms: Iterable[int]) -> Set[Tile]:
-    """Tiles (any zoom in zooms) intersecting a shape in Web Mercator metres."""
+    """Tiles (any zoom in zooms) intersecting a shape in Web Mercator metres: the tiles of the shape's
+    bounding box, tested at once (shapely 2's vectorised intersects on the prepared shape)."""
     tiles = set()
-    prepared = prep(area)
+    shapely.prepare(area)
     minx, miny, maxx, maxy = area.bounds
     for z in zooms:
         size = _tile_size(z)
-        for x in range(math.floor((minx + _EARTH) / size), math.floor((maxx + _EARTH) / size) + 1):
-            for y in range(math.floor((_EARTH - maxy) / size), math.floor((_EARTH - miny) / size) + 1):
-                left, top = x * size - _EARTH, _EARTH - y * size
-                if prepared.intersects(box(left, top - size, left + size, top)):
-                    tiles.add((z, x, y))
+        xs = np.arange(math.floor((minx + _EARTH) / size), math.floor((maxx + _EARTH) / size) + 1)
+        ys = np.arange(math.floor((_EARTH - maxy) / size), math.floor((_EARTH - miny) / size) + 1)
+        x, y = (a.ravel() for a in np.meshgrid(xs, ys, indexing="ij"))
+        left, top = x * size - _EARTH, _EARTH - y * size
+        hit = shapely.intersects(area, shapely.box(left, top - size, left + size, top))
+        tiles.update(zip([z] * int(hit.sum()), x[hit].tolist(), y[hit].tolist()))
     return tiles
 
 
 def tiles_to_cache(lines: List[Dict], area, max_zoom: int = DETAIL_ZOOMS[-1]) -> Set[Tile]:
-    """Tiles for the overview of the search area (area.Area) and the strips around lines,
-    up to max_zoom (a service of tiles only: its last zoom, the map enlarges it)."""
+    """Tiles for the overview of the search area (area.Area) and the strips around lines
+    ("anchor1", "anchor2" as (lat, lon)), up to max_zoom (a service of tiles only: its last
+    zoom, the map enlarges it). Each strip is tested within its own bounding box: the union's
+    box holds mostly empty tiles when the lines are spread out (a long coast), and the set
+    joins the strips' tiles as the union of the strips would."""
     # Web Mercator stretches distances by 1/cos(latitude)
     scale = 1 / math.cos(math.radians(area.center[0]))
     tiles = _tiles_in(area.shape_mercator(), OVERVIEW_ZOOMS)
-
-    strips = []
+    zooms = range(DETAIL_ZOOMS[0], max_zoom + 1)
     for line in lines:
         (lat1, lon1), (lat2, lon2) = line["anchor1"], line["anchor2"]
-        strips.append(LineString([_to_mercator.transform(lon1, lat1),
-                                  _to_mercator.transform(lon2, lat2)]).buffer(BUFFER_M * scale))
-    if strips:
-        tiles |= _tiles_in(unary_union(strips), range(DETAIL_ZOOMS[0], max_zoom + 1))
+        strip = LineString([_to_mercator.transform(lon1, lat1),
+                            _to_mercator.transform(lon2, lat2)]).buffer(BUFFER_M * scale)
+        tiles |= _tiles_in(strip, zooms)
     return tiles
 
 
@@ -138,7 +146,8 @@ def _get(url: str, params: Optional[Dict], z: int, x: int, y: int) -> bytes:
         try:
             net.rate_turn(url)
             with servicecounts.request(url) as counted:  # every attempt
-                response = counted.got(requests.get(url, params=params, timeout=60, headers=cache.http_headers()))
+                response = counted.got(_session().get(url, params=params, timeout=60,
+                                                      headers=cache.http_headers()))
                 if response.status_code == 200 and response.headers.get("content-type", "").startswith("image/"):
                     return response.content
                 if response.status_code == 200:
@@ -224,10 +233,11 @@ def _download_tile(service, z: int, x: int, y: int, path: str):
     return len(content)
 
 
-def download(service, tiles: List[Tile], folder: str, cache_dir: str):
-    """Download tiles (in parallel) into the cache and its index. Failed tiles are skipped."""
+def download(service, tiles: List[Tile], folder: str, cache_dir: str) -> Tuple[int, int]:
+    """Download tiles (in parallel) into the cache and its index. Failed tiles are skipped.
+    Returns the tiles saved and their bytes."""
     if not tiles:
-        return
+        return 0, 0
     errors, done = [], []
     received = 0
     progress.download.start("orthophoto tiles", len(tiles), unit="tile")
@@ -245,3 +255,4 @@ def download(service, tiles: List[Tile], folder: str, cache_dir: str):
     if errors:
         print(f"  {len(errors)} tiles failed (e.g. {str(errors[0])[:200]})")
         print("  The map loads them online instead; run again to retry them.")
+    return len(done), received

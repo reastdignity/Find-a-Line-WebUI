@@ -75,11 +75,12 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
     elevation = np.load(elevation_path, mmap_mode="r+")
     surface = np.load(surface_path, mmap_mode="r+") if surface_path else None
     progress.compute.start("filling sea and lakes", 3, unit="step")
+    progress.compute.update(0, part="sea")
     empty = np.isnan(elevation)
     sea_fill = empty & sea_zone
-    progress.compute.update(1)
+    progress.compute.update(1, part="lakes")
     lake = empty & near(wbm == LAKE, SHORE_BUFFER, grid.res) & ~sea_fill
-    progress.compute.update(1)
+    progress.compute.update(1, part="levels")
 
     elevation[sea_fill] = 0.0
     if surface is not None:
@@ -149,14 +150,14 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     if not filled.any():
         np.save(out_path, filled)
         return out_path, 0
-    pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy")]
+    pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy", "terrain")]
     if surface_path:
         surface = np.load(surface_path, mmap_mode="r+")
         layer = fallback.nmpt or (fallback.nmt if surface_from_terrain else None)
         if layer is not None:
-            pairs.append((surface, layer, f"{name}_nmpt.npy"))
+            pairs.append((surface, layer, f"{name}_nmpt.npy", "surface"))
     sub = _subgrid(grid, window) if window is not None else grid
-    for target, layer, name in pairs:
+    for target, layer, name, which in pairs:
         gaps = np.isnan(target) if exclude is None else np.isnan(target) & ~exclude
         if not gaps.any():
             continue
@@ -169,7 +170,7 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         else:
             other = np.full(target.shape, np.nan, np.float32)
             other[window] = np.load(path, mmap_mode="r")
-        if _fill(target, other, gaps, grid.res) == 0:
+        if _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}") == 0:
             used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
@@ -197,20 +198,25 @@ def _footprint_shape(grid: Grid):
     return Point((left + right) / 2, (bottom + top) / 2).buffer(min(right - left, top - bottom) / 2)
 
 
-def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float) -> int:
+def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float, label: str = "gap filling") -> int:
     """Fill the gaps of target (a memory-mapped grid) from other, each gap shifted to the heights
-    around it (fill_gaps); returns the number of pixels filled."""
+    around it (fill_gaps); returns the number of pixels filled. A Compute bar `label` of three
+    parts: the slopes (where the offsets may be matched), the rings around the gaps, the medians."""
     from scipy import ndimage
 
     values = np.asarray(target)
+    progress.compute.start(label, 3, unit="step")
+    progress.compute.update(0, part="slopes")
     gy, gx = np.gradient(np.where(np.isfinite(values), values, other), res)
     flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
     both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
     overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
     # Offset of every gap from the ring of pixels around it
+    progress.compute.update(1, part="rings")
     labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
     ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
     offsets = np.full(count + 1, overall)
+    progress.compute.update(1, part="medians")
     if ring.any():
         # Only the ring pixels: scipy sorts every pixel it is given (10 s for a 58 Mpx tile)
         near = ring > 0
@@ -222,6 +228,8 @@ def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float) -
     count = int((gaps & np.isfinite(other)).sum())
     target[gaps] = other[gaps] + offsets[labels[gaps]]
     target.flush()
+    progress.compute.update(1)
+    progress.compute.finish(f"{count} px")
     return count
 
 
@@ -312,7 +320,10 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
 
     joined, counts = None, []
     for n, neighbour in enumerate(neighbours):
+        progress.compute.start(f"border gaps ({neighbour.name})", 1, unit="step")
         window = neighbour_window(neighbour, grid, border_gaps(elevation_path, surface_path, grid, exclude))
+        progress.compute.update(1)
+        progress.compute.finish()
         if window is None:
             continue
         why = source_unavailable(neighbour)

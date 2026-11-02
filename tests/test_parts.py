@@ -4,6 +4,8 @@ server they are tested against (tests/http_server.py)."""
 import json
 import os
 import sys
+import threading
+import time
 from urllib.parse import urlencode, urlsplit
 
 import numpy as np
@@ -18,7 +20,7 @@ import sources as src  # noqa: E402
 from grid import Grid  # noqa: E402
 from http_server import key_of  # noqa: E402
 from sources.indexes.cached import IndexUnavailable  # noqa: E402
-from sources.indexes.listings import ows_exception  # noqa: E402
+from sources.indexes.listings import CAPABILITIES_DAYS, ows_exception  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CLIP = os.path.join(HERE, "data", "zabi_kon_nmt.tif")
@@ -128,8 +130,12 @@ def test_recorded_index_answers(case, http_server, tmp_path):
         assert written.replace(http_server.base.encode(), host.encode()) == f.read()
     assert not http_server.stray()
     asked = [key_of(r.method, r.path + "?" + urlencode(r.query)) for r in http_server.log]
-    assert asked == [key_of(a["method"], urlsplit(a["url"])._replace(scheme="", netloc="").geturl())
-                     for a in recorded["answers"]]
+    expected = [key_of(a["method"], urlsplit(a["url"])._replace(scheme="", netloc="").geturl())
+                for a in recorded["answers"]]
+    if case.startswith("wfs/"):  # the capabilities first, then the year layers at once, in any order
+        assert asked[0] == expected[0] and sorted(asked) == sorted(expected)
+    else:
+        assert asked == expected
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
 
 
@@ -216,6 +222,170 @@ def test_recorded_error_answers(case, http_server, tmp_path, capsys):
         assert json.load(f) == {"layers": [], "sheets": []}
     assert not http_server.stray()
     assert {r.user_agent for r in http_server.log} == {cache.http_headers()["User-Agent"]}
+
+
+def _slow_cassettes(server, *cases):
+    """The recorded answers of the cases, each GetFeature answered the later the older its year
+    layer (so the years finish in the reverse order of their requests); the most requests the
+    server had at once is `peak[0]`."""
+    for case in cases:
+        server.add_cassette(os.path.join(RECORDED, case))
+    recorded, server.answers = dict(server.answers), {}
+    lock, active, peak = threading.Lock(), [0], [0]
+
+    def slow(request):
+        typename = dict(request.query).get("TYPENAMES", "")
+        with lock:
+            active[0] += 1
+            peak[0] = max(peak[0], active[0])
+        try:
+            time.sleep(0.04 * (2027 - int(typename[-4:])) if typename else 0)
+            return recorded.get(("GET", request.path, tuple(sorted(request.query))))
+        finally:
+            with lock:
+                active[0] -= 1
+    server.route("/", slow)
+    return peak
+
+
+def _asked(server, request):
+    return [dict(r.query).get("TYPENAMES") for r in server.log if dict(r.query).get("REQUEST") == request]
+
+
+def test_wfs_year_layers_at_once(http_server, tmp_path, monkeypatch):
+    """The GetFeature requests of a tile's year layers go several at once, no more than the slots
+    of their host (net.host_slot), and the later years answering first change nothing: the cached
+    answer is the recorded case's expected.json, byte for byte; every year layer asked once."""
+    folder = os.path.join(RECORDED, "wfs", "geoportal-nmt")
+    recorded = _recorded("wfs/geoportal-nmt")
+    peak = _slow_cassettes(http_server, "wfs/geoportal-nmt")
+    monkeypatch.setitem(src.net.HOST_SLOTS_OF, "127.0.0.1", 2)
+    layer = _on_server(src.SOURCES["geoportal"].nmt, http_server)
+    assert layer.index.listing.threads == 4
+    cache_dir = str(tmp_path / "cache")
+    lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
+    assert layer.update_index_tile(cache_dir, lat, lon) == (0, 0, 0)
+    with open(layer.index_path(cache_dir, lat, lon), "rb") as f, open(os.path.join(folder, "expected.json"), "rb") as e:
+        assert f.read().replace(http_server.base.encode(), b"https://mapy.geoportal.gov.pl") == e.read()
+    years = [f"gugik:SkorowidzNMT{y}" for y in range(2018, 2027)]
+    assert sorted(_asked(http_server, "GetFeature")) == years and len(_asked(http_server, "GetCapabilities")) == 1
+    assert peak[0] == 2  # at once, within the host's slots
+    assert not http_server.stray()
+
+
+def test_wfs_capabilities_on_disk(http_server, tmp_path, capsys):
+    """The year layers are kept next to the tile answers, so a new process (a new listing) asks
+    only the features; with the update "all" (cache update) it asks the capabilities again, once;
+    a GetFeature failing on layers from the file (a layer renamed) asks them again too."""
+    recorded = _recorded("wfs/geoportal-nmt")
+    _slow_cassettes(http_server, "wfs/geoportal-nmt", "wfs/geoportal-error")
+    catalogue = src.SOURCES["geoportal"].nmt
+    cache_dir = str(tmp_path / "cache")
+    lat, lon = recorded["case"]["lat"], recorded["case"]["lon"]
+    grid = Grid(left=475500.0, top=778500.0, res=5.0, height=100, width=100, crs="EPSG:2180")  # in the tile
+    layer = _on_server(catalogue, http_server)
+    layer.update_index_tile(cache_dir, lat, lon)
+    path = layer.index_path(cache_dir, lat, lon)
+    with open(path, "rb") as f:
+        expected = f.read()
+    kept = os.path.join(cache_dir, "poland", "sheet-index", "SkorowidzNMT.capabilities.json")
+    with open(kept, encoding="utf-8") as f:
+        capabilities = json.load(f)
+    assert capabilities["layers"] == json.loads(expected)["layers"] and len(capabilities["layers"]) == 9
+    assert capabilities["url"] == layer.index.listing.url
+    assert "capabilities" not in json.dumps(cache.rows(cache_dir, "poland"))  # no row: cache status and update skip it
+
+    def again(update=None, first=None):
+        """The tile asked by a new listing (a new process), its answer and row deleted first."""
+        cache.forget(cache_dir, [path])
+        http_server.log.clear()
+        new = _on_server(catalogue, http_server)
+        if first:
+            with open(kept, "w", encoding="utf-8") as f:
+                json.dump({**capabilities, "layers": first}, f)
+        new._use(cache_dir, update)
+        assert new.tiles(grid) is not None  # None: the index not available
+        with open(path, "rb") as f:
+            assert f.read() == expected
+        return new
+    again()
+    assert len(_asked(http_server, "GetCapabilities")) == 0 and len(_asked(http_server, "GetFeature")) == 9
+    new = again("all")
+    assert len(_asked(http_server, "GetCapabilities")) == 1 and len(_asked(http_server, "GetFeature")) == 9
+    http_server.log.clear()
+    new.update_index_tile(cache_dir, lat, lon)  # the same process: the layers it asked for stand
+    assert len(_asked(http_server, "GetCapabilities")) == 0
+    again(first=["gugik:SkorowidzNMT1900"])  # renamed since: HTTP 400, the capabilities again
+    assert _asked(http_server, "GetFeature").count("gugik:SkorowidzNMT1900") == 1
+    assert len(_asked(http_server, "GetCapabilities")) == 1 and len(_asked(http_server, "GetFeature")) == 10
+    with open(kept, encoding="utf-8") as f:
+        assert json.load(f)["layers"] == capabilities["layers"]
+    # Older than CAPABILITIES_DAYS: asked again
+    with open(kept, "w", encoding="utf-8") as f:
+        json.dump({**capabilities, "asked_at": cache.now_iso(ago=(CAPABILITIES_DAYS + 1) * 86400)}, f)
+    again()
+    assert len(_asked(http_server, "GetCapabilities")) == 1
+    assert "index not available" not in capsys.readouterr().out
+    assert not http_server.stray()
+
+
+def test_index_tiles_at_once(tmp_path):
+    """The 0.25° tiles of a grid are asked several at once when the listing says so
+    (NewestPerSheet.query: tiles_at_once), the first tiles answering last, and merged in the
+    order of the tiles as one after another: of equal surveys, the first tile's is used."""
+    import osm
+    from rasterio.warp import transform_bounds
+    from sources.indexes.cached import CachedIndex, Listing
+    from sources.indexes.versions import NewestPerSheet
+    grid = Grid(left=500000.0, top=700000.0, res=100.0, height=500, width=500, crs="EPSG:2180")
+    order = osm.tiles(*transform_bounds(grid.crs, "EPSG:4326", *grid.bounds))
+    asked, lock, active, peak = [], threading.Lock(), [0], [0]
+
+    class Tiles(Listing):
+        tiles_at_once = 3
+
+        def fetch(self, lat, lon):
+            with lock:
+                asked.append((lat, lon))
+                active[0] += 1
+                peak[0] = max(peak[0], active[0])
+            time.sleep(0.02 * (len(order) - order.index((lat, lon))))
+            with lock:
+                active[0] -= 1
+            return {"sheets": [{"year": 2020, "godlo": "A", "url": f"https://x.example/{lat}_{lon}/A.asc",
+                                "crs": "EPSG:2180", "res": 1.0, "extent": [400000, 600000, 600000, 800000]}]}
+    index = CachedIndex("test", Tiles(), NewestPerSheet("t/sheets", "EPSG:2180", 1.0), "t", "t")
+    index.use(str(tmp_path / "cache"), None)
+    sheets = index.tiles(grid)
+    assert len(order) > 6 and sorted(asked) == sorted(order) and peak[0] == 3
+    assert [s.url for s in sheets] == [f"https://x.example/{order[0][0]}_{order[0][1]}/A.asc"]
+
+
+def test_estimate_lists_the_layers_at_once():
+    """search.estimate_search asks the layers' indexes at the same time (each would wait for the
+    other at the barrier), the lines in the order of the layers."""
+    import types
+
+    import search
+    barrier = threading.Barrier(2, timeout=10)
+
+    class Layer:
+        def __init__(self, name, n):
+            self.description, self.n = name, n
+
+        def estimate(self, grid, cache_dir, update):
+            barrier.wait()
+            return self.n, self.n, self.n * 10.0
+    lines = []
+    plan = types.SimpleNamespace(
+        params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None),
+        emit=lambda kind, text: lines.append(text), layers=[Layer("terrain", 2), Layer("surface", 3)],
+        grid=Grid(left=0.0, top=1000.0, res=10.0, height=100, width=100, crs="EPSG:2180"),
+        paths=types.SimpleNamespace(cache="unused", work="unused"), tiles=None, area=None,
+        source=types.SimpleNamespace(name="test"))
+    estimate = search.estimate_search(plan)
+    assert lines == ["terrain: 2 tiles, 2 to download (~20 MB)", "surface: 3 tiles, 3 to download (~30 MB)"]
+    assert estimate.download_mb == 50.0
 
 
 # The composed layer, with fake parts

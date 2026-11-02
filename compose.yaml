@@ -105,8 +105,8 @@ services:
       FINDALINE_LIMIT_COMPUTE_SLOTS: ${WORKER_COMPUTE_SLOTS:-1}
       FINDALINE_LIMIT_DOWNLOAD_SLOTS: ${WORKER_DOWNLOAD_SLOTS:-1}
       # numba's compiled code (loaded by every phase's process), the home and matplotlib's
-      # settings in the worker's own /tmp: compiled once per start of the container (a few
-      # seconds), never from files the web service could have written
+      # settings in the worker's own /tmp: compiled once per start of the container (by the
+      # warm-up at the worker's start, warmup.py), never from files the web service could have written
       HOME: /tmp/home
       NUMBA_CACHE_DIR: /tmp/numba
       MPLCONFIGDIR: /tmp/matplotlib

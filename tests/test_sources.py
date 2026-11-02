@@ -7,6 +7,7 @@ import math
 import os
 import re
 import sys
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -528,7 +529,7 @@ def test_orthophoto_of_tiles_only(monkeypatch):
         response = FakeResponse(out.getvalue())
         response.status_code, response.headers = 200, {"content-type": "image/jpeg"}
         return response
-    monkeypatch.setattr(orthophoto.requests, "get", get)
+    monkeypatch.setattr(orthophoto, "_session", lambda: SimpleNamespace(get=get))  # the thread's session
     monkeypatch.setenv("FINDALINE_CONTACT", "admin@example.org")
     orthophoto.tile_content(service, 20, 10, 11)
     orthophoto.tile_content(service, 21, 21, 22)
@@ -574,7 +575,7 @@ def test_orthophoto_falls_back_to_the_base_tiles(tmp_path, monkeypatch):
         response = FakeResponse(content)
         response.status_code, response.headers = 200, {"content-type": f"image/{kind}"}
         return response
-    monkeypatch.setattr(orthophoto.requests, "get", get)
+    monkeypatch.setattr(orthophoto, "_session", lambda: SimpleNamespace(get=get))  # the thread's session
 
     def colour(name):
         path = str(tmp_path / f"{name}.jpg")

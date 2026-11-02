@@ -14,8 +14,9 @@ tests serve the answers again and the code must write expected.json byte for byt
 An error recipe asks a layer that does not exist (YEARS) and records the service's error
 answer instead: no expected.json, the exception raised in answers.json ("raises").
 Chosen tiles lie at the edge of the data, so the answers stay small. Requests go one at
-a time with the app's User-Agent (cache.http_headers()). The licences of the answers are
-in tests/data/recorded/README.md.
+a time (a WFS listing's year layers too, which a search asks in parallel: the tests compare
+those as a set) with the app's User-Agent (cache.http_headers()). The licences of the
+answers are in tests/data/recorded/README.md.
 """
 
 import argparse
@@ -89,6 +90,9 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
     if years:
         case["years"] = years
         layer = with_years(layer, years)
+    listing = layer.index.listing
+    if hasattr(listing, "threads"):  # a WFS listing's year layers one after another: answers.json in their order
+        listing.threads = 1
     requests.Session.send = recording
     try:
         layer.update_index_tile(cache_dir, lat, lon)

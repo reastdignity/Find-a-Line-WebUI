@@ -1,8 +1,13 @@
 """Listings: how an index service is asked for the versions in one 0.25° tile (a WFS sheet index, a STAC
 API, The National Map's products), as cached by CachedIndex."""
 
+import contextlib
 import io
+import json
+import os
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
@@ -19,6 +24,14 @@ from .cached import IndexUnavailable, Listing
 SHEET_CRS = {"PL-1992": "EPSG:2180", "PL-2000:S5": "EPSG:2176", "PL-2000:S6": "EPSG:2177",
              "PL-2000:S7": "EPSG:2178", "PL-2000:S8": "EPSG:2179"}
 SHEET_FORMATS = ("ARC/INFO ASCII GRID", "ASCII XYZ GRID")
+# GetFeature requests of one WFS listing at a time (the year layers of a tile; each also under a
+# slot of its host, net.HOST_SLOTS_OF, so the cap holds across layers and processes), and the
+# 0.25° tiles of one grid asked at a time (NewestPerSheet.query: tiles_at_once)
+WFS_THREADS = 4
+# Days the year layers of a WFS sheet index (its GetCapabilities) are taken from the disk: a new
+# year layer (gugik:NMT2027 in January) is seen within a month by the tiles asked from then on
+# (cache update asks at once); the request is one small answer per layer and process
+CAPABILITIES_DAYS = 30
 
 # The root element of an XML answer (after its declaration, comments and doctype)
 XML_ROOT = re.compile(rb"\s*(?:<\?.*?\?>\s*|<!--.*?-->\s*|<!DOCTYPE[^>]*>\s*)*<(?:[\w.-]+:)?([\w.-]+)", re.DOTALL)
@@ -73,15 +86,47 @@ class WfsSheets(Listing):
     (`<prefix><year>`), every sheet linking to a file (ASCII grid or XYZ, sometimes zipped).
     The requests are ours (requests: GetCapabilities, GetFeature per year), the GML answers
     are read by pyogrio; an exception report is IndexUnavailable, also with HTTP 200. Sheets with a resolution between min_res and native_res are listed;
-    extents in EPSG:2180 (the bounds of the sheet outline)."""
+    extents in EPSG:2180 (the bounds of the sheet outline).
+
+    The GetFeature requests of a tile (one per year layer) go `threads` at a time, each under a
+    slot of the host (net.host_slot) on a keep-alive session of its thread (net.session); their
+    answers are read in the order of the layers, so the cached answer is byte for byte the one
+    of the requests one after another. The year layers (the capabilities) are kept in a small
+    file next to the tile answers (`<top>/sheet-index/<prefix>.capabilities.json`: the layers
+    and when they were asked, no row in index.sqlite, so `cache status` and `cache update`
+    never see it) for CAPABILITIES_DAYS, so a new process asks only for the features; they are
+    asked again after that, with the update "all" (`cache update`: once per process), and when
+    a GetFeature fails on layers read from the file (a layer renamed). use() gives the folder."""
+    threads = WFS_THREADS  # GetFeature requests at once (1: one after another, as recorded)
+    tiles_at_once = WFS_THREADS  # 0.25° tiles NewestPerSheet.query asks at once
 
     def __init__(self, url: str, prefix: str, native_res: float, min_res: float):
         self.url, self.prefix, self.native_res, self.min_res = url, prefix, native_res, min_res
-        self._years: Optional[List[str]] = None
+        self._years: Optional[List[str]] = None  # the year layers (set by hand: used as they are)
+        self._years_from: Optional[str] = None   # "file" or "asked" (by this process), None: set by hand
+        self._years_at: Optional[str] = None     # when they were asked (cache.now_iso)
+        self._renew = False                      # ask the service, not the file, for them next
+        self._cache_dir: Optional[str] = None    # of the host slots and the capabilities file (use)
+        self._capabilities: Optional[str] = None
+        self._lock = threading.Lock()            # one capabilities request for all the threads
+        self._pool: Optional[ThreadPoolExecutor] = None
+
+    def use(self, index, cache_dir: str, update: Optional[str] = None):
+        """The data folder of the index asking (a CachedIndex: its top folder and prefix name
+        the capabilities file) and its update mode, before it asks for tiles (NewestPerSheet)."""
+        with self._lock:
+            self._cache_dir = cache_dir
+            self._capabilities = os.path.join(cache_dir, index.top, "sheet-index",
+                                              f"{index.prefix}.capabilities.json")
+            if update == "all" and (self._years is None or self._years_from == "file"):
+                self._years, self._years_from, self._renew = None, None, True
 
     def _wfs(self, **params) -> bytes:
-        response = servicecounts.get(self.url, timeout=300, headers=cache.http_headers(),
-                                     params={"SERVICE": "WFS", "VERSION": "2.0.0", **params})
+        slot = net.host_slot(self._cache_dir, self.url) if self._cache_dir else contextlib.nullcontext()
+        with slot:
+            response = servicecounts.call(self.url, lambda: net.session().get(
+                self.url, timeout=300, headers=cache.http_headers(),
+                params={"SERVICE": "WFS", "VERSION": "2.0.0", **params}))
         response.raise_for_status()
         error = ows_exception(response.content)
         if error:  # answered with HTTP 200: not an answer to cache
@@ -89,18 +134,69 @@ class WfsSheets(Listing):
         return response.content
 
     def _year_layers(self) -> List[str]:
-        if self._years is None:
+        with self._lock:
+            if self._years is not None and (self._years_from is None
+                                            or cache.age_days(self._years_at) <= CAPABILITIES_DAYS):
+                return self._years
+            if not self._renew and self._read_capabilities():
+                return self._years
             capabilities = self._wfs(REQUEST="GetCapabilities").decode("utf-8")
             names = re.findall(rf"<Name>(gugik:{self.prefix}\d{{4}})</Name>", capabilities)
-            self._years = sorted(set(names))
-        return self._years
+            self._years, self._years_from, self._years_at = sorted(set(names)), "asked", cache.now_iso()
+            self._renew = False
+            if self._capabilities:
+                os.makedirs(os.path.dirname(self._capabilities), exist_ok=True)
+                tmp = net._part(self._capabilities)
+                with open(tmp, "w", encoding="utf-8") as out:
+                    json.dump({"url": self.url, "asked_at": self._years_at, "layers": self._years}, out)
+                os.replace(tmp, self._capabilities)
+            return self._years
+
+    def _read_capabilities(self) -> bool:
+        """The year layers from the capabilities file, when it is there, of this index and recent."""
+        try:
+            with open(self._capabilities or "", encoding="utf-8") as f:
+                kept = json.load(f)
+        except (OSError, ValueError):
+            return False
+        if kept.get("url") != self.url or cache.age_days(kept.get("asked_at")) > CAPABILITIES_DAYS:
+            return False
+        self._years, self._years_from, self._years_at = list(kept["layers"]), "file", kept["asked_at"]
+        return True
+
+    def _from_file(self, layers: List[str]) -> bool:
+        """After a failed GetFeature: whether these layers came from the file (then they are asked
+        for again: a layer may have been renamed)."""
+        with self._lock:
+            if self._years_from != "file" or self._years is not layers:
+                return False
+            self._years, self._years_from, self._renew = None, None, True
+            return True
+
+    def _features(self, layers: List[str], lat: float, lon: float) -> List[bytes]:
+        """The GetFeature answers of the year layers over a tile, in the order of the layers."""
+        def features(layer: str) -> bytes:
+            return self._wfs(REQUEST="GetFeature", TYPENAMES=layer, COUNT=10000,
+                             PROPERTYNAME="godlo,akt_rok,char_przestrz,format,uklad_xy,url_do_pobrania,msGeometry",
+                             BBOX=f"{lat},{lon},{lat + osm.TILE_DEG},{lon + osm.TILE_DEG},urn:ogc:def:crs:EPSG::4326")
+        if self.threads <= 1 or len(layers) <= 1:
+            return [features(layer) for layer in layers]
+        with self._lock:  # kept for the next tiles: the threads' sessions keep their connections
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(max_workers=self.threads, thread_name_prefix="wfs-sheets")
+        return list(self._pool.map(features, layers))  # the first error in the order of the layers
 
     def fetch(self, lat: float, lon: float) -> Dict:
+        layers = self._year_layers()
+        try:
+            answers = self._features(layers, lat, lon)
+        except requests.RequestException:
+            if not self._from_file(layers):
+                raise
+            layers = self._year_layers()
+            answers = self._features(layers, lat, lon)
         sheets = []
-        for layer in self._year_layers():
-            gml = self._wfs(REQUEST="GetFeature", TYPENAMES=layer, COUNT=10000,
-                            PROPERTYNAME="godlo,akt_rok,char_przestrz,format,uklad_xy,url_do_pobrania,msGeometry",
-                            BBOX=f"{lat},{lon},{lat + osm.TILE_DEG},{lon + osm.TILE_DEG},urn:ogc:def:crs:EPSG::4326")
+        for gml in answers:
             for f, bounds in _gml_features(gml):
                 res = re.match(r"[\d.]+", _text(f.get("char_przestrz")))
                 url = _text(f.get("url_do_pobrania"))
@@ -113,7 +209,7 @@ class WfsSheets(Listing):
                 sheets.append({"year": int(f["akt_rok"]), "godlo": _text(f.get("godlo")), "url": url,
                                "crs": SHEET_CRS[f["uklad_xy"]], "res": float(res.group()),
                                "extent": list(bounds)})
-        return {"layers": self._year_layers(), "sheets": sheets}
+        return {"layers": layers, "sheets": sheets}
 
 
 # The item ids of swisstopo's collections: <product>_<year>_<E>-<N>, E and N in km
