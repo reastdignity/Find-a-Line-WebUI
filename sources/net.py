@@ -71,6 +71,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # courtesy
     "inspire.brandenburg.de": 4,
     "geodaten.schleswig-holstein.de": 4,
+    # Queensland's spatial-img ImageServers (the DEM time series and the State imagery): no published limits
+    # (QSpatial's "Elevation and LiDAR" page, updated 18 Nov 2024, and the services' item info, read
+    # 2026-11-02): courtesy
+    "spatial-img.information.qld.gov.au": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

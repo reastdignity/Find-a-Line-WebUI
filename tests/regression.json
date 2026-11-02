@@ -1494,5 +1494,30 @@
     },
     "seconds": 33.5,
     "notes": "--source auto picks schleswig_holstein (the centre is in DE-SH); first run on an empty cache: the Land's GeoJSON index (9 MB) and 12 XYZ files of 1 km (27 MB each, all of the survey of 2025-01-13); the coastline from the OSM world water polygons (cache/osm/water-polygons); the files hold a water surface of 0.7-2.9 m over the sea, so nothing is filled (sea 0.00 km2) and lines count as over water where that surface is at most 1 m (water_lines); the spots are on the cliffs of the Oberland's west and north-west edge and around the Lange Anna (54.1886, 7.8730), the best (clearance 12.4 m, 133 m) from 54.1853, 7.8762 to 54.1844, 7.8776"
+  },
+  "R57": {
+    "place": "Frog Buttress, Mt French, Scenic Rim, Queensland, Australia: the State's DEM time series ImageServer (the newest lidar DTM of each place, Scenic Rim 2023, 1 m, resampled by the service from Web Mercator) in GDA94 / MGA zone 56, DEM-H 30 m of the same service for the gaps",
+    "args": "--lat -27.983 --lon 152.620 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "au"
+    ],
+    "expected": {
+      "anchors": 16597,
+      "open": 1532,
+      "checked": 6057,
+      "lines": 1144,
+      "spots": 15,
+      "csv_sha256": "e509bacdf1c0efc78e543b839475fb8b37ecbf353beef57081b4efe09d4ffebc",
+      "length_km": 132.796,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.081,
+      "clearance_max": 8.99,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 22.7,
+    "notes": "--source auto picks queensland (the centre is in AU-QLD, Nominatim's ISO3166-2-lvl4); first run on an empty cache: 9 tiles of 1 km asked by exportImage in MGA 56 (about 3.8 MB each), 34 MB with the water mask in 16 s; all lidar, so DEM-H fills nothing; inland, no sea; no surface model, so no line is over trees (over_trees 0 says nothing of the forest); the spots are on Frog Buttress's curved cliff on Mt French (-27.9823 to -27.9834, 152.6205-152.6220), across its bay; Mt Tibrogargan (-26.927, 152.947) was tried first: 9 lines at r 800 m, 13 at r 1500 m (a dome, few gaps to span)"
   }
 }

@@ -17,7 +17,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "europe", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -1349,6 +1349,56 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                  'credit': 'Tasmania 2 metre DEM, 2021 (The LIST, State of Tasmania)',
                                  'shift': (0.0, 0.0)},
                          'nmpt': None},
+            'queensland': {'crs': None,
+                         'countries': ('au',),
+                         'bbox': None,
+                         'fallbacks': ['queensland_demh'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'mga_crs',
+                         'ortho': 'queensland/ortho/live',
+                         'credits': ['Queensland elevation DEM time series, lidar DTMs (State of Queensland)'],
+                         'nmt': {'class': 'ImageServerTiles',
+                 'description': 'Queensland lidar DEM 1 m (terrain)',
+                 'folder': 'queensland/dem-lidar/live',
+                 'prefix': None,
+                 'native_res': 1.0,
+                 'processing': 1,
+                 'ttl_days': 730,
+                 'credit': 'Queensland elevation DEM time series, lidar DTMs (State of Queensland)',
+                 'shift': (0.0, 0.0),
+                 'url': 'https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer',
+                 'crs': 'EPSG:28356',
+                 'tile_px': 1000,
+                 'origin': (0.0, 0.0),
+                 'zones': ('EPSG:28355', 'EPSG:28354')},
+                         'nmpt': None},
+            'queensland_demh': {'crs': None,
+                         'countries': (),
+                         'bbox': None,
+                         'fallbacks': [],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 30.0,
+                         'instead_without_data': None,
+                         'local_crs': 'mga_crs',
+                         'ortho': None,
+                         'credits': ['DEM-H 1 second (Geoscience Australia), from the Queensland elevation DEM time series'],
+                         'nmt': {'class': 'ImageServerTiles',
+                 'description': 'Queensland DEM-H 30 m (terrain)',
+                 'folder': 'queensland/dem-h/live',
+                 'prefix': None,
+                 'native_res': 30.0,
+                 'processing': 1,
+                 'ttl_days': 730,
+                 'credit': 'DEM-H 1 second (Geoscience Australia), from the Queensland elevation DEM time series',
+                 'shift': (0.0, 0.0),
+                 'url': 'https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer',
+                 'crs': 'EPSG:28356',
+                 'tile_px': 500,
+                 'origin': (0.0, 0.0),
+                 'zones': ('EPSG:28355', 'EPSG:28354')},
+                         'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -1423,6 +1473,8 @@ def _layer(layer):
                     tile_m=layer.tile_m, origin=layer.origin)
     if isinstance(layer, src.ImageServerTiles):
         info.update(url=layer.url, crs=layer.crs, tile_px=layer.tile_px, origin=layer.origin)
+        if layer.zones:
+            info.update(zones=layer.zones)
     return info
 
 
@@ -1544,6 +1596,12 @@ PATHS = [
     ("schleswig_holstein", "nmt", "sha-sh", "schleswig_holstein/dgm1/42_600/426_6005_2025_0123abcd.tif", None),
     ("trento", "nmpt", (1292, 10174), "italy/tn-dsm/2014/129_1017/1292_10174.tif", (1292, 10174)),
     ("slovenia", "nmt", (411, 48), "slovenia/lss-dmr1/2011-2015/41_4/411_48.tif", (411, 48)),
+    ("queensland", "nmt", ("EPSG:28356", (1.0, 501, 7021)),
+     "queensland/dem-lidar/live/epsg28356-1m-1000px-tif/501_7021.tif", ("EPSG:28356", (1.0, 501, 7021))),
+    ("queensland", "nmt", ("EPSG:28354", (1.0, 360, 7708)),
+     "queensland/dem-lidar/live/epsg28354-1m-1000px-tif/360_7708.tif", ("EPSG:28354", (1.0, 360, 7708))),
+    ("queensland_demh", "nmt", ("EPSG:28355", (30.0, 26, 512)),
+     "queensland/dem-h/live/epsg28355-30m-500px-tif/26_512.tif", ("EPSG:28355", (30.0, 26, 512))),
 ]
 
 
@@ -1679,7 +1737,9 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("no", (63.50, 64.50, 7.00, 13.00)), ("no", (64.50, 65.50, 9.00, 14.00)), ("no", (65.50, 66.50, 11.50, 14.50)),
          ("no", (66.50, 68.00, 11.50, 15.60)), ("no", (68.00, 69.00, 11.50, 17.50)),
          ("nz", (-47.6, -34.0, 166.0, 178.9)),
-         ("au-tas", (-43.70, -39.45, 143.75, 148.55))]
+         ("au-tas", (-43.70, -39.45, 143.75, 148.55)),
+         ("au-qld", (-29.00, -9.10, 138.00, 151.00)), ("au-qld", (-28.60, -9.10, 151.00, 152.50)),
+         ("au-qld", (-28.20, -9.10, 152.50, 153.60))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -1799,6 +1859,10 @@ def test_docs_list_every_source():
         assert f"| `{sid}` |" in text and f"`{sid}`" in source_docs.ids()
 
 
+# Queensland's 'Copyright Text', verbatim (its service's description, 2026-11-02)
+QLD_COPYRIGHT = ("Includes material © State of Queensland (Department of Natural Resources and Mines, Manufacturing, "
+                  "and Regional and Rural Development); © Commonwealth of Australia (Geoscience Australia, The "
+                  "Australian Hydrographic Office); © www.deepreef.org 2026")
 # The wording each provider's terms ask for (the audit of 2026-11-01): a change needs its terms read again
 ATTRIBUTIONS = {
     "slovakia": "© ÚGKK SR",
@@ -1817,6 +1881,8 @@ ATTRIBUTIONS = {
     "new_zealand": "Sourced from LINZ. CC BY 4.0",
     "nz8m": "Sourced from LINZ. CC BY 4.0",
     "tasmania": "The LIST © State of Tasmania",
+    "queensland": QLD_COPYRIGHT,
+    "queensland_demh": QLD_COPYRIGHT,
     "wales": "Contains public sector information licensed under the Open Government Licence v3.0",
     "england": "© Environment Agency copyright and/or database right 2022. All rights reserved. Modified: resampled "
                "onto the working grid.",
@@ -1864,6 +1930,11 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "brandenburg": ("© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0",
                     "https://www.govdata.de/dl-de/by-2-0"),
     "schleswig_holstein": ("©GeoBasis-DE/LVermGeo SH/CC BY 4.0", src.CC_BY[1]),
+    "queensland": ("Queensland imagery, CC BY-SA: Includes material © State of Queensland (Department of Natural "
+                   "Resources and Mines, Manufacturing and Regional and Rural Development); © Planet Labs Netherlands "
+                   "B.V. reproduced under licence from Planet and Geoplex, all rights reserved, 2026.",
+                   "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/"
+                   "LatestStateProgram_AllUsers/ImageServer/info/iteminfo"),
 }
 
 
@@ -1882,6 +1953,16 @@ def test_credit_wording():
     assert src.SOURCES["swisstopo"].credits[0].url == ("https://www.swisstopo.admin.ch/en/"
                                                        "terms-of-use-free-geodata-and-geoservices")
     assert "https://www.openstreetmap.org/fixthemap" in src.OSM_CREDIT.notice
+    for sid in ("queensland", "queensland_demh"):  # the acknowledgement the State's terms ask for, verbatim
+        assert src.SOURCES[sid].credits[0].notice == (
+            "In consideration of the State of Queensland permitting use of this data you acknowledge and agree that "
+            "the State gives no warranty in relation to the data (including accuracy, reliability, completeness, "
+            "currency or suitability) and accepts no liability (including without limitation, liability in "
+            "negligence) for any loss, damage or costs (including consequential damage) relating to any use of the "
+            "data.")
+        assert src.SOURCES[sid].credits[0].licence == "CC BY-SA"
+    assert ("Results derived from Queensland's elevation data are shared under CC BY-SA where they are an "
+            "adaptation of it.") in src.SOURCES["queensland"].note
 
 
 def test_processed_note_with_every_run():

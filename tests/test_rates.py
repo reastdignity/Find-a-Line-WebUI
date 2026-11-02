@@ -175,7 +175,8 @@ def test_published_limits():
                                  "geocloud.landesvermessung.sachsen.de": 4, "opengeodata.lgl-bw.de": 4,
                                  "www.wcs.nrw.de": 4, "siatservices.provincia.tn.it": 4,
                                  "data.source.coop": 4, "inspire.brandenburg.de": 4,
-                                 "geodaten.schleswig-holstein.de": 4, "gis.arso.gov.si": 2}
+                                 "geodaten.schleswig-holstein.de": 4, "gis.arso.gov.si": 2,
+                                 "spatial-img.information.qld.gov.au": 4}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 
