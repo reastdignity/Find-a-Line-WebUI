@@ -1631,6 +1631,42 @@ def test_download_data_fetches_the_coastline_alongside_the_tiles(tmp_path, monke
     search.download_data(plan)
 
 
+def test_download_data_looks_the_place_name_up_alongside_the_tiles(tmp_path, monkeypatch):
+    """download_data asks Nominatim for the run's name (a circle's place) in a thread while the
+    layers' tiles download, so that step 5 finds the answers cached; its failure never fails the
+    download."""
+    import threading
+
+    import search
+    import warmup
+    from params import SearchParams
+    nmt, _, (e, n) = warmup.write_grids(str(tmp_path))
+    plan = search.plan_search(SearchParams(elevation_file=nmt, easting=e, northing=n, radius=45, min_length=15,
+                                           max_length=60, water="off", fill_gaps="off"),
+                              search.Paths(str(tmp_path), str(tmp_path / "work")), lambda kind, text: None)
+    asked, threads = threading.Event(), []
+
+    def place_name(lat, lon, cache_dir):
+        threads.append(threading.current_thread())
+        asked.set()
+        return "Somewhere"
+
+    def tiles(plan):
+        assert asked.wait(30)  # the name is asked while the tiles download
+
+    monkeypatch.setattr(search.rn, "place_name", place_name)
+    monkeypatch.setattr(search, "_download_layers", tiles)
+    search.download_data(plan)
+    assert threads and threads[0] is not threading.main_thread()
+
+    def fails(lat, lon, cache_dir):
+        raise RuntimeError("no name")
+
+    monkeypatch.setattr(search.rn, "place_name", fails)
+    monkeypatch.setattr(search, "_download_layers", lambda plan: None)
+    search.download_data(plan)  # the download is fine without a name
+
+
 def test_estimate_layers_in_parallel():
     """sources.layer.estimate_layers asks every layer's estimate at the same time (their indexes),
     each layer once, the answers in the order of the layers."""

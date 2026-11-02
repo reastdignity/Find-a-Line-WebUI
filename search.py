@@ -661,6 +661,10 @@ def download_data(plan: Plan):
         # both safe between threads (osm's limits are file locks and SQLite); a daemon, so a
         # failed download of the tiles does not wait for it
         coastline = _Background(lambda: osm.theme("coastline", *coast._grid_bbox_wgs84(grid), cache_dir, p.update))
+    # The run's name too (_run_name: two Nominatim lookups of a circle or a drawn area, 1-3 s in
+    # their queue, more when it is busy): their answers land in osm's cache, where step 5 (or the
+    # run folder of a tiled area) finds them; a failure is cached as well and never fails the download
+    name = _Background(lambda: _run_name(plan))
     try:
         _download_layers(plan)
         if coastline is not None:
@@ -670,6 +674,10 @@ def download_data(plan: Plan):
                 pass  # the search falls back to the Copernicus mask with a warning
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
+    try:
+        name.result()
+    except Exception:
+        pass
 
 
 class _Background:
