@@ -15,7 +15,7 @@ import sources as src  # noqa: E402
 IDS = ["geoportal", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "south_tyrol", "luxembourg", "denmark",
-       "finland", "norway", "europe", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'geoportal': {'crs': 'EPSG:2180',
@@ -871,6 +871,54 @@ DECLARED = {'geoportal': {'crs': 'EPSG:2180',
                                 'fmt': 'GeoTIFF',
                                 'fetch_res': None,
                                 'tile_px': 2000}},
+            'new_zealand': {'crs': 'EPSG:2193',
+                            'countries': ('nz',),
+                            'bbox': (-47.6, -34.0, 166.0, 178.9),
+                            'fallbacks': ['nz8m'],
+                            'grid_origin': (0.0, 0.0),
+                            'default_resolution': 1.0,
+                            'instead_without_data': None,
+                            'local_crs': 'utm_crs',
+                            'ortho': None,
+                            'credits': ['New Zealand LiDAR 1m DEM / DSM (LINZ)'],
+                            'nmt': {'class': 'FileBlocks',
+                                    'description': 'LINZ LiDAR 1 m DEM (terrain)',
+                                    'folder': 'new_zealand/dem1m/live',
+                                    'prefix': None,
+                                    'native_res': 1.0,
+                                    'processing': 1,
+                                    'ttl_days': 730,
+                                    'credit': 'New Zealand LiDAR 1m DEM / DSM (LINZ)',
+                                    'shift': (0.0, 0.0)},
+                            'nmpt': {'class': 'FileBlocks',
+                                     'description': 'LINZ LiDAR 1 m DSM (trees, buildings)',
+                                     'folder': 'new_zealand/dsm1m/live',
+                                     'prefix': None,
+                                     'native_res': 1.0,
+                                     'processing': 1,
+                                     'ttl_days': 730,
+                                     'credit': 'New Zealand LiDAR 1m DEM / DSM (LINZ)',
+                                     'shift': (0.0, 0.0)}},
+            'nz8m': {'crs': 'EPSG:2193',
+                     'countries': (),
+                     'bbox': None,
+                     'fallbacks': ['europe'],
+                     'grid_origin': (0.0, 0.0),
+                     'default_resolution': 8.0,
+                     'instead_without_data': None,
+                     'local_crs': 'utm_crs',
+                     'ortho': None,
+                     'credits': ['New Zealand Contour-Interpolated 8m DEM (LINZ)'],
+                     'nmt': {'class': 'FileBlocks',
+                             'description': 'LINZ contour-interpolated 8 m DEM (terrain)',
+                             'folder': 'new_zealand/dem8m/2012',
+                             'prefix': None,
+                             'native_res': 8.0,
+                             'processing': 1,
+                             'ttl_days': None,
+                             'credit': 'New Zealand Contour-Interpolated 8m DEM (LINZ)',
+                             'shift': (0.0, 0.0)},
+                     'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -1024,6 +1072,9 @@ PATHS = [
      (1.0, -3, 3285)),
     ("norway", "nmpt", (1.0, -3, 3285), "norway/nhm-dom1/live/epsg25833-1m-2000px-tif/-3_3285.tif",
      (1.0, -3, 3285)),
+    ("new_zealand", "nmt", (1505, 5203), "new_zealand/dem1m/live/30_104/1505_5203.tif", (1505, 5203)),
+    ("new_zealand", "nmpt", (1505, 5203), "new_zealand/dsm1m/live/30_104/1505_5203.tif", (1505, 5203)),
+    ("nz8m", "nmt", (376, 1300), "new_zealand/dem8m/2012/7_26/376_1300.tif", (376, 1300)),
 ]
 
 
@@ -1049,6 +1100,8 @@ def test_water_mask_and_tile_urls(tmp_path):
     europe, usgs10m = src.SOURCES["europe"], src.SOURCES["usgs10m"]
     assert europe.nmt.tile_url((50, 19)) == fabdem + "N50E010-N60E020_FABDEM_V1-2/N50E019_FABDEM_V1-2.tif"
     assert europe.nmt.tile_url((-34, -71)) == fabdem + "S40W080-S30W070_FABDEM_V1-2/S34W071_FABDEM_V1-2.tif"
+    assert europe.nmt.tile_url((-44, 171)) == fabdem + "S50E170-S40W180_FABDEM_V1-2/S44E171_FABDEM_V1-2.tif"
+    assert europe.nmt.tile_url((-44, -177)) == fabdem + "S50W180-S40W170_FABDEM_V1-2/S44W177_FABDEM_V1-2.tif"
     assert europe.nmpt.tile_url((50, 19)) == copernicus + "N50_00_E019_00_DEM/Copernicus_DSM_COG_10_N50_00_E019_00_DEM.tif"
     assert (europe.nmpt.tile_url((-34, -71))
             == copernicus + "S34_00_W071_00_DEM/Copernicus_DSM_COG_10_S34_00_W071_00_DEM.tif")
@@ -1124,6 +1177,7 @@ BOXES = [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14.1, 24.2)),
          ("no", (59.10, 60.00, 4.50, 11.80)), ("no", (60.00, 62.00, 4.50, 12.30)), ("no", (62.00, 63.50, 4.50, 12.00)),
          ("no", (63.50, 64.50, 7.00, 13.00)), ("no", (64.50, 65.50, 9.00, 14.00)), ("no", (65.50, 66.50, 11.50, 14.50)),
          ("no", (66.50, 68.00, 11.50, 15.60)), ("no", (68.00, 69.00, 11.50, 17.50))]
+         ("fi", (59.7, 70.1, 19.3, 31.6)), ("nz", (-47.6, -34.0, 166.0, 178.9))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -1254,6 +1308,8 @@ ATTRIBUTIONS = {
     "mecklenburg_vorpommern": "© GeoBasis-DE/M-V {year}, Daten geändert",
     "finland": "Contains data from the National Land Survey of Finland Elevation model 2 m {year}, CC BY 4.0, processed",
     "norway": "©Kartverket, CC BY 4.0, processed",
+    "new_zealand": "Sourced from LINZ. CC BY 4.0",
+    "nz8m": "Sourced from LINZ. CC BY 4.0",
     "wales": "Contains public sector information licensed under the Open Government Licence v3.0",
     "england": "© Environment Agency copyright and/or database right 2022. All rights reserved. Modified: resampled "
                "onto the working grid.",

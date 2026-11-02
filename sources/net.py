@@ -239,9 +239,10 @@ def _gdal_http() -> rio.Env:
     Blocks are read in the calling thread (GDAL_NUM_THREADS=1, whatever the environment says):
     with more, the GTiff driver fetches and decodes them in its own threads, whose errors go to
     GDAL's default handler (printed to stderr) instead of the caller's, so gdal_errors would not
-    see a failed read there, which then comes back as zeros."""
+    see a failed read there, which then comes back as zeros. Only files named .tif or .tiff
+    (LINZ's sheets) are opened."""
     return rio.Env(GDAL_HTTP_USERAGENT=cache.http_headers()["User-Agent"],
-                   GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif",
+                   GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff",
                    GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
                    GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
                    GDAL_HTTP_MULTIRANGE="YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")

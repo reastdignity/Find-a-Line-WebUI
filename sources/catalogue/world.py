@@ -41,8 +41,10 @@ COPERNICUS = "https://copernicus-dem-30m.s3.amazonaws.com"
 
 def _fabdem_url(lat: int, lon: int) -> str:
     g_lat, g_lon = lat // 10 * 10, lon // 10 * 10
+    # The groups of 170-180° E end at "W180" (S50E170-S40W180: New Zealand, Fiji, Chukotka)
+    east = -180 if g_lon + 10 == 180 else g_lon + 10
     group = (f"{_hemi(g_lat, 'N', 'S', 2)}{_hemi(g_lon, 'E', 'W', 3)}-"
-             f"{_hemi(g_lat + 10, 'N', 'S', 2)}{_hemi(g_lon + 10, 'E', 'W', 3)}")
+             f"{_hemi(g_lat + 10, 'N', 'S', 2)}{_hemi(east, 'E', 'W', 3)}")
     return f"{FABDEM}/{group}_FABDEM_V1-2/{_hemi(lat, 'N', 'S', 2)}{_hemi(lon, 'E', 'W', 3)}_FABDEM_V1-2.tif"
 
 
