@@ -44,7 +44,7 @@ function segmentDistance(px: number, py: number, ax: number, ay: number, bx: num
 /** A canvas renderer whose redraw does nothing once its canvas is gone: Leaflet binds the redraw when it
  *  asks for the frame, so a frame asked for before the map or the renderer was removed may still run
  *  (headless Edge: "clearRect of undefined" after leaving a result). */
-const SafeCanvas = (L.Canvas as any).extend({
+export const SafeCanvas = (L.Canvas as any).extend({
   _redraw(this: any) {
     if (this._ctx) return (L.Canvas.prototype as any)._redraw.call(this);
     this._redrawRequest = null;
