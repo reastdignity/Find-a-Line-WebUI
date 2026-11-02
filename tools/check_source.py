@@ -323,7 +323,9 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
         result = None
         for url in _sources_of(layer, tile):
             try:
-                source = (_read_zip(layer, url, profile) if isinstance(layer, src.ZippedTiles)
+                # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
+                source = (_read_zip(layer, url, profile)
+                          if isinstance(layer, src.ZippedTiles) and layer.members is not None
                           else _read_source(url, profile))
             except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
