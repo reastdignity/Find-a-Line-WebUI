@@ -66,9 +66,10 @@ def test_rules_on_a_canyon(tmp_path):
     result = study.analyse_call(call, layers_of(dtm), chips)
     assert result["checks"]["raw_equal"] and result["checks"]["a1_equal"]
     assert result["marked"] == result["lines"] == len(lines)
-    assert result["classes"] == {"real": int(over_tree.sum()), "rock_only": int((~over_tree).sum()), "other": 0}
+    assert result["classes"] == {"real": int(over_tree.sum()), "real_chm": int(over_tree.sum()),
+                                 "rock_only": int((~over_tree).sum()), "other": 0}
     a1 = result["rules"]["A1"]
-    assert a1 == {"marked": int(over_tree.sum()), "lost": 0, "removed_rock": int((~over_tree).sum()),
+    assert a1 == {"marked": int(over_tree.sum()), "lost": 0, "lost_chm": 0, "removed_rock": int((~over_tree).sum()),
                   "residual_rock": 0, "kept_real": int(over_tree.sum())}
     assert result["rules"]["raw"]["marked"] == len(lines)
     assert result["rules"]["D3"]["marked"] == int(over_tree.sum())  # the rim is the first pixel
@@ -86,7 +87,7 @@ def test_rules_on_a_canyon(tmp_path):
 def test_without_outside_layers(tmp_path):
     call, dtm, dsm, lines = capture_call(tmp_path)
     result = study.analyse_call(call)
-    assert result["classes"] == {"real": 0, "rock_only": 0, "other": len(lines)}
+    assert result["classes"] == {"real": 0, "real_chm": 0, "rock_only": 0, "other": len(lines)}
     assert "F" not in result["rules"] and "chm_shift" not in result
 
 
@@ -117,16 +118,17 @@ def test_in_core():
 
 
 def test_report(tmp_path):
-    rules = {name: {"marked": 5, "lost": 1, "removed_rock": 3, "residual_rock": 0, "kept_real": 4}
+    rules = {name: {"marked": 5, "lost": 1, "lost_chm": 1, "removed_rock": 3, "residual_rock": 0, "kept_real": 4}
              for name in study.rule_names()}
     for place in ("R1", "R2"):
         os.makedirs(tmp_path / place)
         with open(tmp_path / place / "study.json", "w") as f:
             json.dump({"place": place, "source": "test", "res": 1.0, "lines": 10, "marked": 9, "rules": rules,
-                       "classes": {"real": 4, "rock_only": 3, "other": 2}, "checks": [{"raw_equal": True}],
+                       "classes": {"real": 4, "real_chm": 5, "rock_only": 3, "other": 2},
+                       "checks": [{"raw_equal": True}],
                        "chm_shift": [None]}, f)
     text = study.report(str(tmp_path))
-    assert "| R1 | test | 1.0 | 10 | 4 | 5 |" in text and "| A1 | 10 (56 %) | 2 (25 %) | 6 (100 %) | 0 | 8 |" in text
+    assert "| R1 | test | 1.0 | 10 | 4 | 5 |" in text and "| A1 | 10 (56 %) | 2 (25 %) | 2 (20 %) | 6 (100 %) | 0 | 8 |" in text
     assert "Places where a check failed: none" in text
 
 

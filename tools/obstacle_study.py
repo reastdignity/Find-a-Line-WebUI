@@ -71,10 +71,11 @@ SLOPE_FACTORS = (0.5, 1.0)
 MASK_SLOPES = (55, 65, 75)
 ANCHOR_ZONES = (1, 2, 3)
 SHIFT = 8                   # pixels each way of the search for the shift of CHMv2
+ALIGN_GAIN = 0.03           # CHMv2 is moved by its shift when that raises r by this much
 WINDOW = 40                 # pixels around the pixel a picture shows
 GROUPS = {"removed_rock": "A1 removes the mark, all pixels rock",
-          "lost": "A1 removes the mark, a tree or building among the pixels",
-          "kept_real": "A1 keeps the mark, a tree or building among its pixels",
+          "lost": "A1 removes the mark, a tree (CHMv2) or building among the pixels",
+          "kept_real": "A1 keeps the mark, a tree (CHMv2) or building among its pixels",
           "residual_rock": "A1 keeps the mark, its pixels all rock"}
 DISTANCES = ((1, 1), (2, 2), (3, 3), (4, 5), (6, 10), (11, 20), (21, 10 ** 9))
 SLOPES = ((0, 30), (30, 50), (50, 70), (70, 80), (80, 91))
@@ -252,6 +253,14 @@ def outside_layers(index) -> Callable:
     return layers
 
 
+def _moved(a: np.ndarray, dy: int, dx: int) -> np.ndarray:
+    """a moved dy rows down and dx columns right, NaN where nothing moved in."""
+    h, w = a.shape
+    out = np.full(a.shape, np.nan, dtype=np.float32)
+    out[max(dy, 0):h + min(dy, 0), max(dx, 0):w + min(dx, 0)] = a[max(-dy, 0):h + min(-dy, 0), max(-dx, 0):w + min(-dx, 0)]
+    return out
+
+
 def chm_shift(z: np.ndarray, s: np.ndarray, chm: np.ndarray, res: float, slope: np.ndarray) -> Optional[Dict]:
     """The move of CHMv2 (metres east and north) that matches the surface's height above the
     terrain best on ground gentler than 15 degrees (Pearson's r); None without enough trees."""
@@ -262,14 +271,11 @@ def chm_shift(z: np.ndarray, s: np.ndarray, chm: np.ndarray, res: float, slope: 
         gentle = (slope[::step, ::step] < 15) & np.isfinite(height)
     if gentle.sum() < 1000 or np.nanstd(np.where(gentle, height, np.nan)) < 1:
         return None
-    h, w = chm.shape
     reach = max(1, round(SHIFT / step))
     best, at_zero = None, None
     for dy in range(-reach, reach + 1):
         for dx in range(-reach, reach + 1):
-            moved = np.full_like(chm, np.nan)
-            moved[max(dy, 0):h + min(dy, 0), max(dx, 0):w + min(dx, 0)] = \
-                chm[max(-dy, 0):h + min(-dy, 0), max(-dx, 0):w + min(-dx, 0)]
+            moved = _moved(chm, dy, dx)
             both = gentle & np.isfinite(moved)
             if both.sum() < 1000:
                 continue
@@ -428,8 +434,12 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     starts = np.searchsorted(pix["line"], np.arange(len(idx)))
 
     chm, wc = layers(call, grid) if layers is not None else (None, None)
-    chm3 = None
+    chm3, shift = None, None
     if chm is not None:
+        shift = chm_shift(z, s, chm, res, slope_grid)
+        if shift and shift["r_zero"] is not None and shift["r_best"] >= shift["r_zero"] + ALIGN_GAIN:
+            chm = _moved(chm, round(-shift["north_m"] / res), round(shift["east_m"] / res))  # aligned
+            shift["applied"] = True
         chm3 = ndimage.maximum_filter(np.where(np.isnan(chm), -1, chm), size=3, mode="constant", cval=-1)
     flags = rule_flags(z, s, res, pix, chm3, slope_grid)
     per_line = {name: np.logical_or.reduceat(f, starts) if len(f) else np.zeros(0, dtype=bool)
@@ -439,17 +449,20 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
         a1_marks[idx] = per_line["A1"]
         checks["a1_equal"] = bool(np.array_equal(a1_marks, kernel_a1))
 
-    # What the pixels are
+    # What the pixels are: a tree when CHMv2 and WorldCover agree (CHMv2 alone takes rock towers
+    # and their shadows for trees at times), "tree_chm" by CHMv2 alone
     rows, cols = pix["row"], pix["col"]
-    tree = chm3[rows, cols] >= TREE if chm3 is not None else np.zeros(len(rows), dtype=bool)
-    built = wc[rows, cols] == BUILT_UP if wc is not None else np.zeros(len(rows), dtype=bool)
-    rock = np.zeros(len(rows), dtype=bool)
+    none = np.zeros(len(rows), dtype=bool)
+    tree_chm = chm3[rows, cols] >= TREE if chm3 is not None else none
+    tree = tree_chm & (wc[rows, cols] == TREE_COVER) if wc is not None else none
+    built = wc[rows, cols] == BUILT_UP if wc is not None else none
+    rock = none
     if chm3 is not None and wc is not None:
         c, w = chm3[rows, cols], wc[rows, cols]
         rock = (c >= 0) & (c < SHRUB) & (w > 0) & (w != TREE_COVER) & (w != BUILT_UP)
-    real_pixel = tree | built
+    real_pixel, real_chm_pixel = tree | built, tree_chm | built
     count = lambda f: np.add.reduceat(f.astype(np.int64), starts) if len(f) else np.zeros(0, dtype=np.int64)  # noqa: E731
-    real = count(real_pixel) > 0
+    real, real_chm = count(real_pixel) > 0, count(real_chm_pixel) > 0
     rock_only = count(~rock) == 0
 
     # The worst pixel of each line (raw) and the radius A needs
@@ -461,9 +474,11 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     r_needed = 1 + sum(per_line[f"A{r}"].astype(np.int64) for r in RADII)
 
     inside = in_core(a1, a2, grid)[idx]
-    classes = {"real": real & inside, "rock_only": rock_only & ~real & inside, "other": ~real & ~rock_only & inside}
+    classes = {"real": real & inside, "rock_only": rock_only & inside,
+               "other": ~real & ~rock_only & inside}  # rock_only and real never meet
     result = {"checks": checks, "res": res, "lines": int(in_core(a1, a2, grid).sum()), "marked": int(inside.sum()),
-              "classes": {k: int(v.sum()) for k, v in classes.items()}, "rules": {},
+              "classes": {**{k: int(v.sum()) for k, v in classes.items()}, "real_chm": int((real_chm & inside).sum())},
+              "rules": {},
               "r_needed": {k: np.bincount(r_needed[v], minlength=12)[1:].tolist() for k, v in classes.items()},
               "distance": {k: _bins(nearest[v], DISTANCES) for k, v in classes.items()},
               "slope": {k: _slope_bins(slope[v]) for k, v in classes.items()},
@@ -471,25 +486,27 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
               "proxies": {"chmv2": chm is not None, "worldcover": wc is not None}}
     for name, keep in per_line.items():
         f = flags[name]
-        lost = ~keep & real & inside
-        result["rules"][name] = {"marked": int((keep & inside).sum()), "lost": int(lost.sum()),
-                                 "removed_rock": int((~keep & rock_only & ~real & inside).sum()),
+        result["rules"][name] = {"marked": int((keep & inside).sum()), "lost": int((~keep & real & inside).sum()),
+                                 "lost_chm": int((~keep & real_chm & inside).sum()),
+                                 "removed_rock": int((~keep & rock_only & inside).sum()),
                                  "residual_rock": int((keep & (count(f & ~rock) == 0) & inside).sum()),
                                  "kept_real": int((keep & (count(f & real_pixel) > 0) & inside).sum())}
-    if chm is not None:
-        result["chm_shift"] = chm_shift(z, s, chm, res, slope_grid)
+    if shift is not None:
+        result["chm_shift"] = shift
 
     if chips is not None and len(idx):
         a1_kept, f1 = per_line["A1"], flags["A1"]
-        groups = {"removed_rock": ~a1_kept & rock_only & ~real, "lost": ~a1_kept & real,
-                  "kept_real": a1_kept & (count(f1 & real_pixel) > 0),
+        groups = {"removed_rock": ~a1_kept & rock_only, "lost": ~a1_kept & real_chm,
+                  "kept_real": a1_kept & (count(f1 & real_chm_pixel) > 0),
                   "residual_rock": a1_kept & (count(f1 & ~rock) == 0)}
+        within = {"removed_rock": None, "lost": real_chm_pixel, "kept_real": f1 & real_chm_pixel,
+                  "residual_rock": f1}  # the pixels a picture centres on: its worst one among these
         ends = np.append(starts[1:], len(pix["line"]))
         for group, members in groups.items():
             for k in np.flatnonzero(members & inside):
                 segment = np.arange(starts[k], ends[k])
-                if group in ("kept_real", "residual_rock"):  # the worst pixel A1 keeps
-                    segment = segment[f1[segment]]
+                if within[group] is not None:
+                    segment = segment[within[group][segment]]
                 focus = segment[np.argmin(pix["margin"][segment])]
                 r, c = rows[focus], cols[focus]
                 info = {"step": int(pix["step"][focus]), "height": float(s[r, c] - z[r, c]),
@@ -687,13 +704,13 @@ def place_markdown(study: Dict) -> str:
              f"{study.get('source') or 'source not found'}, {study.get('res')} m: {study.get('lines', 0)} lines, "
              f"{marked} over trees/buildings; by CHMv2 and WorldCover {study.get('classes', {})}; checks "
              f"{study.get('checks')}; CHMv2 shift {study.get('chm_shift')}.", "",
-             "| rule | marked | lost (tree/building) | removed, rock only | kept, rock only | kept, tree/building |",
-             "| --- | --- | --- | --- | --- | --- |"]
+             "| rule | marked | lost (tree/building) | lost (CHMv2 tree/building) | removed, rock only | kept, rock only | "
+             "kept, tree/building |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for name in rule_names():
         r = rules.get(name)
         if r:
-            lines.append(f"| {name} | {_pct(r['marked'], marked)} | {r['lost']} | {r['removed_rock']} | "
-                         f"{r['residual_rock']} | {r['kept_real']} |")
+            lines.append(f"| {name} | {_pct(r['marked'], marked)} | {r['lost']} | {r['lost_chm']} | "
+                         f"{r['removed_rock']} | {r['residual_rock']} | {r['kept_real']} |")
     lines += ["", "r needed by A (1..10, 11: more):", ""]
     for k, v in study.get("r_needed", {}).items():
         lines.append(f"- {k}: {v}")
@@ -738,23 +755,27 @@ def report(out: str) -> str:
                 t[k] += v
     marked = sum(st.get("marked", 0) for st in studies)
     real = sum(st.get("classes", {}).get("real", 0) for st in studies)
+    real_chm = sum(st.get("classes", {}).get("real_chm", 0) for st in studies)
     rock = sum(st.get("classes", {}).get("rock_only", 0) for st in studies)
-    sums = ["| rule | marked | lost (tree/building) | removed, rock only | kept, rock only | kept, tree/building |",
-            "| --- | --- | --- | --- | --- | --- |"]
+    sums = ["| rule | marked | lost (tree/building) | lost (CHMv2 tree/building) | removed, rock only | "
+            "kept, rock only | kept, tree/building |", "| --- | --- | --- | --- | --- | --- | --- |"]
     for name in rule_names():
         t = total.get(name)
         if t:
             sums.append(f"| {name} | {_pct(t['marked'], marked)} | {_pct(t['lost'], real)} | "
-                        f"{_pct(t['removed_rock'], rock)} | {t['residual_rock']} | {t['kept_real']} |")
+                        f"{_pct(t['lost_chm'], real_chm)} | {_pct(t['removed_rock'], rock)} | "
+                        f"{t['residual_rock']} | {t['kept_real']} |")
     shifts = [f"- {st['place']}: {st.get('chm_shift')}" for st in studies]
     checks = [st["place"] for st in studies if any(not c.get("raw_equal", True) or not c.get("a1_equal", True)
                                                    or c.get("marked_without_pixels") for c in st.get("checks", []))]
     text = "\n".join([
         "# Obstacles on rock: the rules side by side", "",
         "Lines over trees/buildings per place under each rule (tools/obstacle_study.py); ideal: the lines with a "
-        "tree (CHMv2 >= 3 m) or a building (WorldCover) among the pixels above their limit.", "",
+        "tree (CHMv2 >= 3 m within a pixel where WorldCover has tree cover) or a building (WorldCover) among "
+        "the pixels above their limit.", "",
         *rows, "",
-        f"## Over all places ({marked} lines over trees/buildings: {real} with a tree or building, {rock} rock only)",
+        f"## Over all places ({marked} lines over trees/buildings: {real} with a tree (CHMv2 and WorldCover) or "
+        f"building, {real_chm} with a tree by CHMv2 alone or a building, {rock} rock only)",
         "", *sums, "",
         "## CHMv2 against the surface's height above the terrain (gentle ground)", "", *shifts, "",
         "## Checks", "", "Places where a check failed: " + (", ".join(checks) if checks else "none"), ""])
