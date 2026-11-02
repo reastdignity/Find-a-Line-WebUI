@@ -423,6 +423,19 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   `view3d.css` and the imagery control's markup in `imagery.ts`.
 - **The coordinator**: the data per open at R2 and R19 (from V4b's tool), the Edges thresholds on those real patches,
   the visual review, CLAUDE.md (code map, sync rules), `docs/3d-view.md`'s status, full checks, the report.
+- **Measured (V4b's `measure`, 2026-11-02)**: R2 took 13.3 MB of imagery a desktop open (5.8 MB a phone open):
+  geoportal.gov.pl's HighResolution WMS as a transparent PNG (~83 KB a tile) over every WMTS base tile (~5 KB).
+  A WMS limited to the line's corridor (704ccfa) gave 1.6 MB but a patchwork of two flights (the base's darker,
+  blurrier imagery around the corridor's): rejected. The same WMS tile as JPEG is ~11 KB (zooms 16-18 at R2).
+- **V4c, the orthophoto as the 2D map's cache composes it** (in parallel with V4a; branch `l3d-w4-ortho`): for a
+  service with a WMS and base tiles, each tile mirrors `orthophoto.tile_content`: the WMS as JPEG first; all white
+  (no imagery there) → the base tile; any white 8×8 block (the coverage's edge) → the transparent PNG over the base;
+  else the JPEG alone. The browser's white test (a pure function over the decoded pixels, a small tolerance for
+  decoders) matches `orthophoto._white_blocks` on the same pixels; the WMS everywhere again (the corridor rule out);
+  a WMS without base tiles as now; our cache first as now. Owns `tiles.ts`, the tile drawing of `imagery.ts`
+  (`compose`, the loader; not the control's markup, which is V4a's), `tests/test_view3d_tiles.py`, the imagery
+  estimate of `tools/device_page.py measure` (JPEG sizes sampled; base and PNG counted for the white shares) and its
+  test. Measure R2 and R19 again; screenshots of R2's orthophoto for a uniform look.
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
