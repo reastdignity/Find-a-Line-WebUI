@@ -7,7 +7,7 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 from affine import Affine
-from rasterio.io import MemoryFile
+import rasterio as rio
 from rasterio.windows import Window
 
 from .. import net
@@ -16,8 +16,9 @@ from ..layer import Fetched, VALID_MIN, _write_tile
 from ..composed import Reader
 
 # The rows of the coarser pixels averaged at a time (average): a band of factor * AVERAGE_ROWS rows of the
-# file is read, so a 5000 x 5000 float32 file is never held whole as an array
-AVERAGE_ROWS = 200
+# file is read, so a 5000 x 5000 float32 file is never held whole as an array (about 30 MB at its peak for
+# LDBV's DOM20, eight tiles of a download at once)
+AVERAGE_ROWS = 50
 
 
 class Download(Reader):
@@ -33,7 +34,8 @@ class Download(Reader):
     DOM20 of 0.2 m, 49 MB a km², cached at 1 m. A file whose width or height is not a multiple of
     average is an error. With crs, the file is written in that CRS's name whatever it names (a
     compound CRS with heights: LVermGeo RP's DGM1), its values as they are (float32, NaN for no
-    data). The checksum is that of the file downloaded.
+    data). The checksum is that of the file downloaded; the file is read again from a temporary
+    file next to the tile (its .part), not from memory.
 
     url_of gives a tile's URL; label names it in messages ("tile 50,19")."""
 
@@ -66,20 +68,26 @@ class Download(Reader):
             net._sleep(attempt)
         else:
             raise RuntimeError(f"{self.description} {self.label(tile)}: wrong checksum")
-        if self.average > 1 or self.crs:
-            self._rewrite(response.content, path, f"{self.description} {self.label(tile)}")
-            return Fetched.of(response, url)
+        fetched = Fetched.of(response, url)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        tmp = _part(path)
+        rewrite = self.average > 1 or self.crs
+        tmp = _part(path + ".raw" if rewrite else path)  # _write_tile writes the tile through _part(path)
         with open(tmp, "wb") as f:
             f.write(response.content)
+        if rewrite:
+            del response  # the answer (49 MB of a DOM20 file) is not held while it is read again
+            try:
+                self._rewrite(tmp, path, f"{self.description} {self.label(tile)}")
+            finally:
+                os.remove(tmp)
+            return fetched
         os.replace(tmp, path)
-        return Fetched.of(response, url)
+        return fetched
 
-    def _rewrite(self, data: bytes, path: str, where: str):
-        """The downloaded raster written again (averaged and in self.crs's name)."""
+    def _rewrite(self, raw: str, path: str, where: str):
+        """The downloaded raster (the file raw) written again to path (averaged and in self.crs's name)."""
         f = self.average
-        with MemoryFile(data) as memfile, memfile.open() as src:
+        with rio.open(raw) as src:
             if src.count != 1:
                 raise RuntimeError(f"{where}: {src.count} bands, one expected")
             if src.width % f or src.height % f:
