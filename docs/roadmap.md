@@ -325,6 +325,53 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   on the way: `net._gdal_http` allowed only `.tif` (now `.tif,.tiff`), and FABDEM's URLs of 170-180° E were
   wrong (`...E180` instead of `...W180`), so FABDEM was missing for all of New Zealand, Fiji and Chukotka (checked
   against the whole bucket listing).
+- **France, done 2026-11-02** (sources `france`, `france_rgealti`; R43 the Verdon, R53 Saut du Doubs on the Swiss
+  border): IGN's LiDAR HD MNT / MNS (0.5 m, Licence Ouverte 2.0) by a new WMS-R reader (`WmsrReader`, layer
+  `WmsrTiles`): GetMaps of raw float32 heights (`data.geopf.fr/wms-r/wms`, Lambert-93) on IGN's own 1 km tiles,
+  fetched at 1 m: on the pixel edges (x .75 / y .25) the server's 1 m answer is the exact 2 × 2 mean of the 0.5 m
+  pixels (checked on whole tiles to 1.5e-4 m, float32), 2.8 MB a km² with `FORMAT_OPTIONS=compression:deflate`, about
+  1 s a tile; a 0.5 m fetch only for grids finer than 1 m (`ResolutionTiling`: one `WcsTiling` per fetch
+  resolution). RGE ALTI 1 m by the same reader fills the holes of a programme not yet finished (the Beauce: every
+  tile missing, filled) and the sites closed to the public, then `europe`. Lambert-93's lengths are -0.1 % in the
+  middle to +0.3 % in Corsica and the far north. IGN's servers answer LayerNotDefined (400) or 502 for a layer they
+  have in about 2-3 % of the requests, in bursts of 1-2 s: the reader gives such answers two more rounds of
+  `net._get`. The CGU's per-IP limits (WMS-R 40/s) make 2160 requests a minute for the host (no WFS is used).
+  Orthophoto: IGN's BD ORTHO WMTS. Neighbours: swisstopo, luxembourg, spain, baden_wurttemberg; LiDAR HD reaches a
+  few hundred metres into Switzerland (R53: swisstopo fills 0.02 km²). Offline, the Jura and Haute-Savoie fall into
+  Switzerland's box. Open: per-tile edition dates (the WFS's `date_edition`; the credit takes the run's year), the
+  overseas departments, and whether the VPS keeps Geofabrik's 5.1 GB France extract.
+- **Czechia, done 2026-11-02** (source `czechia`, R44 Adršpach): ČÚZK's DMR 5G (terrain) and DMP 1G (surface), 2 m,
+  CC BY 4.0, credited "ČÚZK, <year of the run>" (the terms' format; the services name no edition), from its keyless
+  ArcGIS ImageServers (`ags.cuzk.gov.cz/arcgis2/rest/services/dmr5g|dmp1g/ImageServer`) by a new reader of Esri's
+  "Export Image" (`ImageServerReader`, layer `ImageServerTiles`: tiles of a `WcsTiling` on the service's own grid,
+  `format=tiff`, `pixelType=F32`, `noData=-9999`, nearest neighbour, `bboxSR=imageSR=5514`; `mosaic_rule` and
+  `lock_raster_ids` ready for Ontario, Sicily, Queensland and Colombia). Each model has its own grid (DMR 5G pixel
+  edges at 0.4/1.88 m mod 2, DMP 1G at 1.69/1.98): the working grid is EPSG:5514 on the terrain model's pixels, the
+  surface model is interpolated onto it by the mosaic. The answers name a `LOCAL_CS` (the CRS is forced) and
+  errors come as HTTP 200 JSON labelled `image/tiff` (the TIFF magic is checked; never stored). On its grid the
+  service returns the stored values exactly (a box equals its halves and a shifted box; checked again at Prachovské
+  skály). Without `noData` it answers 0 outside the country. Courtesy cap of 4 connections. Orthophoto: ČÚZK's Web
+  Mercator tiles up to zoom 20 ("ČÚZK – on-line"). Neighbours: geoportal, slovakia, austria, saxony. The family
+  comes first in FAMILIES: its offline boxes lie inside Poland's and Slovakia's. The towers of Adršpach survive at
+  2 m (6 % of the pixels steeper than 70°).
+- **Saxony and Baden-Württemberg, done 2026-11-02** (sources `saxony`, region DE-SN, R45 the Schrammsteine;
+  `baden_wurttemberg`, DE-BW, R46 Beuron): GeoSN's and LGL's DGM1/DOM1, 1 m, dl-de/by-2.0 ("Quelle: GeoSN, Daten
+  geändert"; "Datenquelle: LGL, www.lgl-bw.de, Daten geändert"), as ZIPs of 2 km tiles named by their south-west
+  corner: GeoSN one GeoTIFF per ZIP on its Nextcloud share (about 16 MB; the share tokens are not official: the
+  probe sees a change as a 404), LGL four 1 km XYZ grids (space-separated, centimetres, member names with a year)
+  or four GeoTIFFs per ZIP at odd kilometres east (14.5 / 12 MB). A new layer, `ZippedTiles` (`ZipTiling`: a
+  `MetricTiling` with an `origin`, the ZIP's URL from the corner), reads them through `SheetFile` with a members
+  regex: every matching member merged on its pixels in the layer's CRS (LGL's DOM1 names a compound CRS with
+  DHHN2016), byte caps on the download and on each unpacked member; Poland's sheets read as before (R1-R5 and R13
+  unchanged, also on an empty cache). LGL's DGM1 WCS answers whole metres on 1.002 m pixels and is not used.
+  `tools/check_source.py` compares the tiles with the members read by GDAL's own drivers: equal to the last bit.
+  Neighbours: Saxony with geoportal, saxony_anhalt, czechia; Baden-Württemberg with hesse, swisstopo, france.
+  Offline, Leipzig falls into Saxony-Anhalt's box, Heidelberg and Mannheim into Hesse's and eastern Saxony into
+  Poland's. Open: GeoSN's official download-link index (an ArcGIS MapServer) instead of the share tokens; a
+  streaming byte cap in `net._get`.
+- **Merging wave 2**: `TIFF_MAGIC` is defined once in `sources/readers/__init__.py` (both new readers had it);
+  `tests/test_neighbours.py::test_declared_neighbours` looks for any pair of touching boxes, not only the first
+  offline boxes (Czechia's first box does not reach Saxony).
 - **Open from wave 1**: a check of a block's ETag or Last-Modified against a file rewritten in place while it is read
   (Canada, New Zealand; GDAL keeps a file's header between reads); the acknowledgement of ArcticDEM (Polar Geospatial
   Center) for the DSM of Canada's far north in the 2 m mosaic; a link to kartverket.no in the map's attribution

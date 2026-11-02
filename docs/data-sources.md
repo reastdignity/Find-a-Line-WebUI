@@ -53,6 +53,24 @@ Rules of thumb:
   resampled once), and say the error in the description.
 - A `FileBlocks` block must lie inside one file: when the files' edges are not multiples of the wanted block size from
   0, an `origin` puts the blocks on them (New Zealand's 8 m DEM: 4 km blocks from (0, 2000)).
+- A WMS can be a data service (IGN's WMS-R): check that its GeoTIFF holds the raw values (float32, the nodata value,
+  identical to the source on pixel-aligned boxes; halves and one-pixel shifts give the same values), and before
+  reading a coarser resolution through it, that the server's coarser answer is an exact mean (IGN's is: a quarter
+  of the volume).
+- Some servers answer intermittent errors that look permanent (IGN's LayerNotDefined for a layer it has): probe a
+  few hundred requests before trusting one error.
+- An ArcGIS ImageServer may answer an error with HTTP 200 and the content type of the image asked for (ČÚZK: JSON
+  as `image/tiff`): check the answer's magic bytes, never its content type; and it answers 0 without a nodata tag
+  outside its data unless `noData` is given.
+- Two models of one provider may lie on different grids (ČÚZK's DMR 5G and DMP 1G, 0.71 m apart): find each
+  model's pixel edges, put the working grid on the terrain model and let the mosaic resample the surface model.
+- A ZIP whose members' names carry a survey year cannot be read through `/vsizip/` without knowing the names: match
+  the members by a regex and merge them (`SheetFile(members=...)`); a DOM may name a compound CRS (horizontal +
+  DHHN2016): force the layer's horizontal CRS. A Nextcloud public share (GeoSN) answers HEAD with 401 but GET
+  normally: probe with a ranged GET.
+- A Land's WCS can be worse than its downloads (LGL: whole metres on 1.002 m pixels).
+- Recorded answers of a reader must not be named `answers.json` under `tests/data/recorded/`: `tests/test_parts.py`
+  replays every such file as an index cassette.
 - Look at the edges of the data: South Tyrol's WCS blends the pixels next to its nodata edge with 0 (false steps of more than 1000 m; `edge_px`), Saxony-Anhalt's answers 0 without nodata outside the Land (`zero_is_nodata`), and the Environment Agency answers HTTP 500 outside its coverage.
 - Clip requests to the coverage extent; a `missing` tile at the edge of the data is suspicious (Malta's north coast of Gozo was lost this way).
 - Compressed archives (ZIP Deflate/Deflate64) cannot be read in parts; a TIFF inside may still be tiled, so after one extraction it reads fast. Python's `zipfile` cannot read Deflate64: use 7-Zip.
