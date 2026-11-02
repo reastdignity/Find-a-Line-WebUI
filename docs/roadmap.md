@@ -859,3 +859,20 @@ In steep mountains a user wants the outstanding lines, not every line. New value
 ## Open pits and other terraced walls (looked at 2026-10-25, Bełchatów)
 - The Bełchatów and Szczerców pits (200–250 m deep, walls of benches, about 20° overall) gave lines of 1.1 km at most, all near the bottom: the rims have no pixels of 45° or more, and with 5.5 kN and 70 g/m the sag is about 45 m at 1 km, 114 m at 2 km, 207 m at 3 km and 475 m at 5 km, deeper than the pits for lines from rim to rim. With 10 kN and 45° lines of up to 1.9 km appear across the Bełchatów pit.
 - Considered, not chosen for now: anchors on edges (the terrain drops by X m within Y m) instead of the slope of one pixel, so that the rim of a terraced wall is an anchor. *Measure* in the map (two points, the profile from the run's data, anchors above the ground) was built instead, to see why a line expected there is missing.
+
+## Shaded terrain with edges in the 2D map (idea, 2026-11-02)
+The 3D view of a line gets a map mode "Edges" (shaded terrain on light paper with its silhouettes, creases and the
+mesh's feature edges, docs/3d-view-contract.md); the user decided that the 2D map stays as it is for now and wants
+the same idea for it written down here.
+- **What**: a base layer of the result's map (and the app's place map) drawn from our own elevation data: hill
+  shading on a light ground with the terrain's break lines (cliff edges, gullies: where the slope or the curvature
+  changes sharply), optionally contour lines; light lines on dark ground in the dark theme. A 2D map has no
+  silhouettes (they need a viewpoint), so its "edges" are the break lines.
+- **Options**: (a) tiles rendered by the worker from the cache (an endpoint like the orthophoto's, `/cache/` or a
+  new `/terrain/{z}/{x}/{y}.png`, cached per source and zoom; costs the server's CPU and disk, works for every run
+  and the place map); (b) one image per run written with the run (its grid is in memory during the search: cheap,
+  but it adds to every run's size and covers the run's grid only); (c) drawn in the browser from heights fetched
+  like `/api/patch` (no server cache, but megabytes per view at 1 m over a large area).
+- **To decide**: which option, the zooms and resolution (1 m data at zoom 17-18), the edge detector (slope or
+  curvature thresholds, as the 3D view's), contour interval, the disk budget on the VPS, and whether the 3D view's
+  thresholds and colours should match.
