@@ -13,6 +13,7 @@ Conventions: x is horizontal distance from anchor 1, y is the drop below anchor 
 lengths in m.
 """
 
+import dataclasses
 import math
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
@@ -215,9 +216,13 @@ class EnvelopeTable:
         progress.compute.start("sag estimator table", len(self.spans), unit="length")
         for i, span in enumerate(self.spans):
             for j, ratio in enumerate(self.RATIOS):
-                self.sag[i, j] = envelope(span, ratio * span, rig)[1]
+                self.sag[i, j] = envelope(span, ratio * span, self._rig_at(span))[1]
             progress.compute.update(1)
         progress.compute.finish()
+
+    def _rig_at(self, span: float) -> Rigging:
+        """The rigging the envelopes of a span are solved with."""
+        return self.rig
 
     def __call__(self, span: float, dh: float, t: np.ndarray) -> np.ndarray:
         """Sag below the chord at fractions t of a line with this span and height difference."""
@@ -228,3 +233,35 @@ class EnvelopeTable:
         table = ((1 - a) * (1 - b) * self.sag[i0, j0] + a * (1 - b) * self.sag[i0 + 1, j0]
                  + (1 - a) * b * self.sag[i0, j0 + 1] + a * b * self.sag[i0 + 1, j0 + 1])
         return np.interp(t, self.fractions, table)
+
+
+def parse_tension(text: str) -> List[Tuple[float, float]]:
+    """"300:2.5,1500:6" -> [(300, 2.5), (1500, 6)]: (span m, pretension kN) points, sorted by the span."""
+    points = []
+    for part in text.split(","):
+        span, kn = part.split(":")
+        points.append((float(span), float(kn)))
+    if not points:
+        raise ValueError("--tension-by-length needs at least one span:kN point")
+    return sorted(points)
+
+
+def tension_at(points: Sequence[Tuple[float, float]], span: float) -> float:
+    """The pretension (kN) at a span: linear between the points, clamped at both ends (np.interp)."""
+    return float(np.interp(span, [p[0] for p in points], [p[1] for p in points]))
+
+
+class TensionTable(EnvelopeTable):
+    """An EnvelopeTable whose envelopes of each span are solved with the pretension
+    tension_at(tension, span) (T(L): longer lines rigged tighter). linesearch reads only the
+    table's arrays and rig.fall_zone, so the search uses T(span) throughout; rig is kept for that.
+    With a single point it equals EnvelopeTable with that pretension, bit for bit."""
+
+    def __init__(self, rig: Rigging, min_span: float, max_span: float, tension: Sequence[Tuple[float, float]]):
+        self.tension = sorted((float(s), float(t)) for s, t in tension)
+        if not self.tension:
+            raise ValueError("TensionTable needs at least one (span, kN) point")
+        super().__init__(rig, min_span, max_span)
+
+    def _rig_at(self, span: float) -> Rigging:
+        return dataclasses.replace(self.rig, pretension=tension_at(self.tension, span))

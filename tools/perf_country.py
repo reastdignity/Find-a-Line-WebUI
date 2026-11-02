@@ -56,7 +56,6 @@ The options after "--" are findaline.py's; --no-plot, --yes and --ortho never ar
 
 import argparse
 import csv
-import dataclasses
 import json
 import math
 import os
@@ -198,45 +197,29 @@ def read_profile(out: str, name: str) -> Dict:
 # ---------------------------------------------------------------- T(L) and the plan
 
 def parse_tension(text: str) -> List[Tuple[float, float]]:
-    """"300:2.5,1500:6" -> [(300, 2.5), (1500, 6)], sorted by the span."""
-    points = []
-    for part in text.split(","):
-        span, kn = part.split(":")
-        points.append((float(span), float(kn)))
-    if not points:
-        raise ValueError("--tension-by-length needs at least one span:kN point")
-    return sorted(points)
+    """"300:2.5,1500:6" -> [(300, 2.5), (1500, 6)], sorted by the span (sag.parse_tension)."""
+    import sag as sg
+    return sg.parse_tension(text)
 
 
 def tension_at(points: Sequence[Tuple[float, float]], span: float) -> float:
-    """The pretension (kN) at a span: linear between the points, clamped at both ends."""
-    return float(np.interp(span, [p[0] for p in points], [p[1] for p in points]))
-
-
-def tension_table(points: Sequence[Tuple[float, float]], base=None):
-    """A subclass of sag.EnvelopeTable whose envelope of each span is solved with the pretension
-    T(span). linesearch reads only min() and rig.fall_zone of the table besides __call__, and the
-    final decision calls the table itself, so the search uses T(span) throughout."""
+    """The pretension (kN) at a span: linear between the points, clamped at both ends (sag.tension_at)."""
     import sag as sg
-    from progress import progress
-    base = base or sg.EnvelopeTable
+    return sg.tension_at(points, span)
 
-    class TensionTable(base):
-        def __init__(self, rig, min_span: float, max_span: float):  # base.__init__ with rig_for(span)
-            self.rig = rig
-            rig_for = lambda span: dataclasses.replace(rig, pretension=tension_at(points, span))  # noqa: E731
-            n = max(2, math.ceil(math.log(max_span / min_span) / math.log(self.SPAN_STEP)) + 1)
-            self.spans = min_span * self.SPAN_STEP ** np.arange(n)
-            self.fractions = np.linspace(0, 1, sg.ENVELOPE_POINTS + 2)
-            self.sag = np.empty((len(self.spans), len(self.RATIOS), len(self.fractions)))
-            progress.compute.start("sag estimator table", len(self.spans), unit="length")
-            for i, span in enumerate(self.spans):
-                for j, ratio in enumerate(self.RATIOS):
-                    self.sag[i, j] = sg.envelope(span, ratio * span, rig_for(span))[1]
-                progress.compute.update(1)
-            progress.compute.finish()
 
-    return TensionTable
+def tension_table(points: Sequence[Tuple[float, float]]):
+    """A class with the constructor of sag.EnvelopeTable (rig, min_span, max_span) making a
+    sag.TensionTable of these points: the envelope of each span solved with the pretension T(span).
+    linesearch reads only the table's arrays and rig.fall_zone besides __call__, and the final
+    decision calls the table itself, so the search uses T(span) throughout."""
+    import sag as sg
+
+    class Table(sg.TensionTable):
+        def __init__(self, rig, min_span: float, max_span: float):
+            super().__init__(rig, min_span, max_span, points)
+
+    return Table
 
 
 def lean_save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None):
@@ -279,7 +262,7 @@ class Hooks:
 
     def install(self):
         if self.tension:
-            self.sg.EnvelopeTable = tension_table(self.tension, self.table)
+            self.sg.EnvelopeTable = tension_table(self.tension)
         self.search.plan_search = self._plan_search
         if self.lean:
             self.rn.save_results = lean_save_results
