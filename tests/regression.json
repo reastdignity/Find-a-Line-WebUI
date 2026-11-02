@@ -781,8 +781,8 @@
       "it"
     ],
     "expected": {
-      "anchors": 18618,
-      "open": 10824,
+      "anchors": 19196,
+      "open": 10848,
       "checked": 67328,
       "lines": 11347,
       "spots": 115,
@@ -794,11 +794,11 @@
       "over_trees": 11172,
       "coverage": 89.65,
       "empty_tiles": 0,
-      "filled_km2": 0.49,
-      "filled_from": "FABDEM + Copernicus DEM"
+      "filled_km2": 0.47,
+      "filled_from": "Trento (LiDAR 2014, 0.5 m)"
     },
-    "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); first run on an empty cache: 2 tiles of 5 km per layer, DEFLATE-compressed by the server (1.4-8 MB each); the 3 pixels next to the province's edge (blended with zero) are dropped and filled from FABDEM (before: 18678 anchors, coverage 90.67%, the same lines); on steep rock the DSM stands metres above the DTM (2.5 m pixels: the DSM their highest points), so nearly every line is over_trees; at --resolution 1 (bilinear from 2.5 m) the same search finds 295 lines in 6 spots",
-    "seconds": 12.6
+    "notes": "--source auto picks south_tyrol (the centre is in IT-BZ); first run on an empty cache: 2 tiles of 5 km per layer, DEFLATE-compressed by the server (1.4-8 MB each); the 3 pixels next to the province's edge (blended with zero) are dropped and filled from FABDEM, since 2026-11-02 (wave 3 of batch 2) from Trento's LiDAR 2014 as its neighbour (0.47 km²; 19196 anchors instead of 18618, the same lines) (before: 18678 anchors, coverage 90.67%, the same lines); on steep rock the DSM stands metres above the DTM (2.5 m pixels: the DSM their highest points), so nearly every line is over_trees; at --resolution 1 (bilinear from 2.5 m) the same search finds 295 lines in 6 spots",
+    "seconds": 10.4
   },
   "R31": {
     "place": "Diorite quarry at Waschenbach (Mühltal) in the Odenwald, Hesse, Germany: HVBG's DGM1 and DOM1 1 m from its rasdaman WCSs (2 km tiles, axes E/N)",
