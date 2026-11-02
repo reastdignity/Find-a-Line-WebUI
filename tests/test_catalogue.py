@@ -14,8 +14,8 @@ import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "wales", "england", "hesse",
-       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "south_tyrol", "luxembourg", "denmark",
+       "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "austria", "scotland", "wales", "england", "hesse",
+       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "north_rhine_westphalia", "south_tyrol", "trento", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
@@ -572,6 +572,41 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                             'ttl_days': None,
                             'credit': 'ALS DTM / DSM Höhenraster 1 m (BEV, Austria)',
                             'shift': (0.0, 0.0)}},
+            'scotland': {'crs': 'EPSG:27700',
+                         'countries': ('gb',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': None,
+                         'credits': ['Scottish LiDAR: National LiDAR Programme 2025, Coastal LiDAR Survey 2025-26, '
+                                     'Orkney Islands Council 2023 (DTM / DSM 0.5 m, Scottish Remote Sensing Portal)'],
+                         'nmt': {'class': 'S3Blocks',
+                                 'description': 'Scottish LiDAR DTM 0.5 m (terrain)',
+                                 'folder': 'scotland/srsp-dtm',
+                                 'prefix': 'srsp-dtm',
+                                 'native_res': 0.5,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'Scottish LiDAR: National LiDAR Programme 2025, Coastal LiDAR Survey '
+                                           '2025-26, Orkney Islands Council 2023 (DTM / DSM 0.5 m, Scottish Remote '
+                                           'Sensing Portal)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://srsp-open-data.s3.eu-west-2.amazonaws.com'},
+                         'nmpt': {'class': 'S3Blocks',
+                                  'description': 'Scottish LiDAR DSM 0.5 m (trees, buildings)',
+                                  'folder': 'scotland/srsp-dsm',
+                                  'prefix': 'srsp-dsm',
+                                  'native_res': 0.5,
+                                  'processing': 1,
+                                  'ttl_days': None,
+                                  'credit': 'Scottish LiDAR: National LiDAR Programme 2025, Coastal LiDAR Survey '
+                                            '2025-26, Orkney Islands Council 2023 (DTM / DSM 0.5 m, Scottish Remote '
+                                            'Sensing Portal)',
+                                  'shift': (0.0, 0.0),
+                                  'index_url': 'https://srsp-open-data.s3.eu-west-2.amazonaws.com'}},
             'wales': {'crs': 'EPSG:27700',
                       'countries': ('gb',),
                       'bbox': None,
@@ -856,6 +891,48 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                            'ttl_days': 730,
                                            'credit': 'DGM1 / DOM1 (LGL, Baden-Württemberg)',
                                            'shift': (0.0, 0.0)}},
+            'north_rhine_westphalia': {'crs': 'EPSG:25832',
+                                       'countries': ('de',),
+                                       'bbox': None,
+                                       'fallbacks': ['europe'],
+                                       'grid_origin': (0.0, 0.0),
+                                       'default_resolution': 1.0,
+                                       'instead_without_data': None,
+                                       'local_crs': 'utm_crs',
+                                       'ortho': 'north_rhine_westphalia/ortho/live',
+                                       'credits': ['DGM1 / DOM1 (Geobasis NRW, North Rhine-Westphalia)'],
+                                       'nmt': {'class': 'WcsTiles',
+                                               'description': 'DGM1 (terrain)',
+                                               'folder': 'north_rhine_westphalia/dgm1/live',
+                                               'prefix': None,
+                                               'native_res': 1.0,
+                                               'processing': 1,
+                                               'ttl_days': 730,
+                                               'credit': 'DGM1 / DOM1 (Geobasis NRW, North Rhine-Westphalia)',
+                                               'shift': (0.0, 0.0),
+                                               'url': 'https://www.wcs.nrw.de/geobasis/wcs_nw_dgm',
+                                               'coverage': 'nw_dgm',
+                                               'crs': 'EPSG:25832',
+                                               'axes': ('x', 'y'),
+                                               'fmt': 'image/tiff',
+                                               'fetch_res': 1.0,
+                                               'tile_px': 2000},
+                                       'nmpt': {'class': 'WcsTiles',
+                                                'description': 'DOM1 (trees, buildings)',
+                                                'folder': 'north_rhine_westphalia/dom1/live',
+                                                'prefix': None,
+                                                'native_res': 1.0,
+                                                'processing': 1,
+                                                'ttl_days': 730,
+                                                'credit': 'DGM1 / DOM1 (Geobasis NRW, North Rhine-Westphalia)',
+                                                'shift': (0.0, 0.0),
+                                                'url': 'https://www.wcs.nrw.de/geobasis/wcs_nw_dom',
+                                                'coverage': 'nw_dom',
+                                                'crs': 'EPSG:25832',
+                                                'axes': ('x', 'y'),
+                                                'fmt': 'image/tiff',
+                                                'fetch_res': 1.0,
+                                                'tile_px': 2000}},
             'south_tyrol': {'crs': 'EPSG:25832',
                             'countries': ('it',),
                             'bbox': None,
@@ -898,6 +975,34 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                'fmt': 'image/tiff',
                                'fetch_res': 2.5,
                                'tile_px': 2000}},
+            'trento': {'crs': 'EPSG:25832',
+                       'countries': ('it',),
+                       'bbox': None,
+                       'fallbacks': ['europe'],
+                       'grid_origin': (0.0, 0.0),
+                       'default_resolution': 1.0,
+                       'instead_without_data': None,
+                       'local_crs': 'utm_crs',
+                       'ortho': None,
+                       'credits': ['LiDAR PAT 2014 DTM / DSM 0.5 m (Autonomous Province of Trento)'],
+                       'nmt': {'class': 'ZippedTiles',
+                               'description': 'DTM 0.5 m (terrain) Trento',
+                               'folder': 'italy/tn-dtm/2014',
+                               'prefix': None,
+                               'native_res': 0.5,
+                               'processing': 1,
+                               'ttl_days': None,
+                               'credit': 'LiDAR PAT 2014 DTM / DSM 0.5 m (Autonomous Province of Trento)',
+                               'shift': (0.0, 0.0)},
+                       'nmpt': {'class': 'ZippedTiles',
+                                'description': 'DSM 0.5 m (trees, buildings) Trento',
+                                'folder': 'italy/tn-dsm/2014',
+                                'prefix': None,
+                                'native_res': 0.5,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'LiDAR PAT 2014 DTM / DSM 0.5 m (Autonomous Province of Trento)',
+                                'shift': (0.0, 0.0)}},
             'luxembourg': {'crs': 'EPSG:2169',
                            'countries': ('lu',),
                            'bbox': None,
@@ -1203,6 +1308,8 @@ PATHS = [
     ("mrdem30", "nmpt", (-133, 40), "canada/mrdem-30-dsm/live/-3_0/-133_40.tif", (-133, 40)),
     ("austria", "nmt", (4420, 2685), "austria/als-dtm/20250915/88_53/4420_2685.tif", (4420, 2685)),
     ("austria", "nmpt", (4420, 2685), "austria/als-dsm/20250915/88_53/4420_2685.tif", (4420, 2685)),
+    ("scotland", "nmt", "block", "scotland/srsp-dtm/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
+    ("scotland", "nmpt", "block", "scotland/srsp-dsm/epsg26913/53_421/2020_532_4211_ab12cd34.tif", None),
     ("wales", "nmt", (262, 356), "wales/lidar-dtm/20241004/5_7/262_356.tif", (262, 356)),
     ("wales", "nmpt", (262, 356), "wales/lidar-dsm/20241004/5_7/262_356.tif", (262, 356)),
     ("england", "nmt", (1.0, 211, 192), "england/lidar-composite-dtm/2022/epsg27700-1m-2000px-tif/211_192.tif",
@@ -1253,6 +1360,12 @@ PATHS = [
      (2.0, -308, -501)),
     ("czechia", "nmpt", (2.0, -308, -501), "czechia/dmp1g/live/epsg5514-2m-1000px-tif-o1.69_1.98/-308_-501.tif",
      (2.0, -308, -501)),
+    ("north_rhine_westphalia", "nmt", (1.0, 233, 2842),
+     "north_rhine_westphalia/dgm1/live/epsg25832-1m-2000px-tif/233_2842.tif", (1.0, 233, 2842)),
+    ("north_rhine_westphalia", "nmpt", (1.0, 233, 2842),
+     "north_rhine_westphalia/dom1/live/epsg25832-1m-2000px-tif/233_2842.tif", (1.0, 233, 2842)),
+    ("trento", "nmt", (1292, 10174), "italy/tn-dtm/2014/129_1017/1292_10174.tif", (1292, 10174)),
+    ("trento", "nmpt", (1292, 10174), "italy/tn-dsm/2014/129_1017/1292_10174.tif", (1292, 10174)),
 ]
 
 
@@ -1323,13 +1436,13 @@ def test_layer_surface():
             assert callable(layer.index_path) and callable(layer.update_index_tile)
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
-    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony"}
+    assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "scotland"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
-                   "saxony_anhalt", "south_tyrol", "denmark", "norway"}
+                   "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia"}
     assert isinstance(src.SOURCES["nasadem"].nmt, src.OpenTopographyTiles)
     assert issubclass(src.OpenTopographyTiles, src.DegreeTiles)
-    for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks):
+    for cls in (src.SheetTiles, src.StacTiles, src.TnmBlocks, src.Usgs1mBlocks, src.IfsarBlocks, src.S3Blocks):
         assert issubclass(cls, src.IndexedTiles)
     for cls in (src.WcsTiles, src.GridTiles, src.DegreeTiles, src.DegreeBlocks, src.FileLayer, src.IndexedTiles):
         assert issubclass(cls, src.Layer)
@@ -1358,11 +1471,15 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("ca", (48.9, 60.0, -139.1, -52.6)), ("ca", (48.2, 48.9, -125.0, -123.2)), ("ca", (46.0, 48.9, -95.2, -74.3)),
          ("ca", (41.6, 46.0, -83.6, -74.3)), ("ca", (43.3, 48.9, -74.3, -52.6)), ("ca", (60.0, 83.2, -141.0, -61.0)),
          ("at", (46.37, 49.02, 9.53, 17.17)),
+         ("gb-sct", (55.82, 60.86, -8.65, -0.73)), ("gb-sct", (55.35, 55.82, -8.65, -5.85)),
+         ("gb-sct", (54.63, 55.82, -5.85, -3.6)),
          ("gb-wls", (51.33, 53.45, -5.35, -2.64)), ("gb-eng", (49.85, 55.82, -5.75, 1.77)),
          ("de-he", (49.39, 51.66, 7.77, 10.24)), ("de-mv", (53.1, 54.7, 10.59, 14.42)),
          ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6)),
          ("de-sn", (50.15, 51.72, 11.79, 15.06)), ("de-bw", (47.52, 49.83, 7.44, 10.54)),
-         ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("lu", (49.44, 50.19, 5.73, 6.54)),
+         ("de-nw", (50.32, 52.53, 5.86, 9.46)),
+         ("it-bz", (46.21, 47.10, 10.38, 12.48)), ("it-tn", (45.67, 46.54, 10.45, 11.97)),
+         ("lu", (49.44, 50.19, 5.73, 6.54)),
          ("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)), ("dk", (54.98, 55.32, 14.68, 15.21)),
          ("fi", (59.7, 70.1, 19.3, 31.6)),
          ("no", (69.00, 71.20, 15.50, 31.20)), ("no", (57.90, 59.10, 4.50, 11.00)),
@@ -1517,6 +1634,11 @@ ATTRIBUTIONS = {
     "czechia": "ČÚZK, {year}",
     "usa": "USGS 3D Elevation Program (3DEP). Map services and data available from U.S. Geological Survey, "
            "National Geospatial Program.",
+    "scotland": "Crown copyright Scottish Government © Crown copyright and database right (2025); Orkney Islands "
+                "Council LiDAR 2023: contains public sector information licensed under the Open Government Licence "
+                "v3.0",
+    "north_rhine_westphalia": "Geobasis NRW, Daten geändert",
+    "trento": "Provincia autonoma di Trento - Servizio Geologico, LiDAR PAT 2014",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
     "austria": ("Datenquelle: basemap.at", "https://basemap.at"),
@@ -1533,6 +1655,7 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "france": ("IGN, BD ORTHO, Licence Ouverte 2.0", "https://www.etalab.gouv.fr/licence-ouverte-open-licence/"),
     "czechia": ("ČÚZK – on-line", "https://cuzk.gov.cz/Predpisy/Podminky-poskytovani-prostor-dat-a-sitovych-sluzeb/"
                                   "Podminky-poskytovani-sitovych-sluzeb-CUZK.aspx"),
+    "north_rhine_westphalia": ("Geobasis NRW", None),
 }
 
 

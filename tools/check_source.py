@@ -242,7 +242,7 @@ def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
         return None  # a service's answer, a local file, or the API's limited calls
-    if isinstance(layer, src.TnmBlocks):
+    if isinstance(layer, (src.TnmBlocks, src.S3Blocks)):
         return [url for _, url, _ in tile.files]
     if isinstance(layer, src.GridTiles):
         base = layer.tile_url(tile)
@@ -319,7 +319,7 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
             profile = {"crs": cached.crs, "transform": cached.transform, "width": cached.width,
                        "height": cached.height}
         name = cache.relative(cache_dir, path)
-        blocks = isinstance(layer, src.TnmBlocks)
+        blocks = isinstance(layer, (src.TnmBlocks, src.S3Blocks))
         result = None
         for url in _sources_of(layer, tile):
             try:

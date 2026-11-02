@@ -232,7 +232,8 @@ def fetch_tile(theme: str, lat: float, lon: float, cache_dir: str):
 # By the codes of Source.regions and Source.countries (Åland lies within Geofabrik's Finland) ...
 GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", "de-mv": "mecklenburg-vorpommern",
                      "de-st": "sachsen-anhalt", "de-ni": "niedersachsen", "it-bz": "nord-est", "ax": "finland",
-                     "de-sn": "sachsen", "de-bw": "baden-wuerttemberg"}
+                     "de-sn": "sachsen", "de-bw": "baden-wuerttemberg",
+                     "gb-sct": "scotland", "de-nw": "nordrhein-westfalen", "it-tn": "nord-est"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",)}
 
