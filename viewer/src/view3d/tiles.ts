@@ -117,9 +117,15 @@ export function uvOf(affine: Affine, p: TexturePlan): (x: number, y: number) => 
 /** An image drawn into a tile: from `url`, or the square [sx, sy, size] of it enlarged (a coarser tile). */
 export interface TileImage { url: string; crop?: [number, number, number] }
 
+/** A WMS over base tiles composed as orthophoto.tile_content composes our cache's tile: `jpeg` first; all white
+ *  (no imagery there) → `base` instead; any white 8×8 block (the coverage's edge) → `base` with `png` (the WMS
+ *  transparent where it has no imagery) over it; else `jpeg` alone. */
+export interface Composed { jpeg: TileImage; base: TileImage; png: TileImage }
+
 /** How one tile is drawn: `cache` (our cache's tile, which has every layer already) when it is worth trying,
- *  else (or when it fails) `layers` bottom first, each from the service (a failed one is left out). */
-export interface TileDraw { x: number; y: number; cache: string | null; layers: TileImage[] }
+ *  else (or when it fails) `composed` when set, otherwise `layers` bottom first, each from the service (a failed
+ *  one is left out). */
+export interface TileDraw { x: number; y: number; cache: string | null; layers: TileImage[]; composed?: Composed }
 
 /** A tile of a {z}/{x}/{y} template; above `maxZoom`, the part of its tile there, enlarged. */
 export function templateTile(template: string, z: number, x: number, y: number, maxZoom: number): TileImage {
@@ -137,10 +143,10 @@ export function wmsBbox(z: number, x: number, y: number): string {
   return [lat(y + 1), x / n * 360 - 180, lat(y), (x + 1) / n * 360 - 180].join(",");
 }
 
-/** A WMS GetMap of a tile as the 2D map's Leaflet layer asks for it (version 1.3.0, EPSG:4326; a PNG
- *  transparent where the service has no imagery when a base is drawn under it, else a JPEG). */
-export function wmsTile(ortho: Ortho, z: number, x: number, y: number): TileImage {
-  const transparent = !!ortho.base, url = ortho.url!;
+/** A WMS GetMap of a tile (version 1.3.0, EPSG:4326): a JPEG, or with `transparent` a PNG transparent where
+ *  the service has no imagery (orthophoto.py _get_map). */
+export function wmsTile(ortho: Ortho, z: number, x: number, y: number, transparent = false): TileImage {
+  const url = ortho.url!;
   const params: [string, string][] = [
     ["service", "WMS"], ["request", "GetMap"], ["layers", ortho.layer], ["styles", ""],
     ["format", transparent ? "image/png" : "image/jpeg"], ["transparent", String(transparent)], ["version", "1.3.0"],
@@ -149,13 +155,42 @@ export function wmsTile(ortho: Ortho, z: number, x: number, y: number): TileImag
     params.map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&") + "&bbox=" + wmsBbox(z, x, y)};
 }
 
-/** The orthophoto's service for a tile: the WMS over its base tiles, the WMS alone, or the base tiles alone;
- *  `wms` false leaves the WMS out where there are base tiles (orthoDraws: outside the line's corridor). */
-export function orthoLayers(ortho: Ortho, z: number, x: number, y: number, wms = true): TileImage[] {
-  const layers: TileImage[] = [];
-  if (ortho.base) layers.push(templateTile(ortho.base.url, z, x, y, ortho.base.max_zoom));
-  if (ortho.url && (wms || !ortho.base)) layers.push(wmsTile(ortho, z, x, y));
-  return layers;
+/** The orthophoto's service for a tile with only one of a WMS (its JPEG) and base tiles. */
+export function orthoLayers(ortho: Ortho, z: number, x: number, y: number): TileImage[] {
+  return ortho.url ? [wmsTile(ortho, z, x, y)] : ortho.base ? [templateTile(ortho.base.url, z, x, y, ortho.base.max_zoom)] : [];
+}
+
+/** The parts of a tile of a WMS over base tiles (the base above its last zoom: the part of its tile there). */
+export function orthoComposed(ortho: Ortho, z: number, x: number, y: number): Composed {
+  return {jpeg: wmsTile(ortho, z, x, y), base: templateTile(ortho.base!.url, z, x, y, ortho.base!.max_zoom),
+          png: wmsTile(ortho, z, x, y, true)};
+}
+
+/** A decoded pixel the browser takes for the WMS's white: every channel at least this (orthophoto._white_blocks
+ *  asks for a grey of exactly 255; browsers' JPEG decoders may differ by a few levels). */
+export const WHITE_MIN = 250;
+/** The side of the white blocks that mark the coverage's edge (orthophoto._white_blocks). */
+export const WHITE_BLOCK = 8;
+
+/** (all white, any white WHITE_BLOCK × WHITE_BLOCK block on the block grid from the top left) of a tile's RGBA
+ *  pixels, rows from the top: orthophoto._white_blocks on decoded pixels (tests/test_view3d_tiles.py compares
+ *  them). */
+export function whiteBlocks(rgba: ArrayLike<number>, width: number, height: number, min = WHITE_MIN): [boolean, boolean] {
+  const white = (k: number) => rgba[4 * k] >= min && rgba[4 * k + 1] >= min && rgba[4 * k + 2] >= min;
+  let all = true;
+  for (let k = 0; k < width * height && all; k++) all = white(k);
+  if (all) return [width * height > 0, width >= WHITE_BLOCK && height >= WHITE_BLOCK];
+  const bw = Math.floor(width / WHITE_BLOCK), bh = Math.floor(height / WHITE_BLOCK);
+  for (let by = 0; by < bh; by++) {
+    for (let bx = 0; bx < bw; bx++) {
+      let block = true;
+      for (let r = by * WHITE_BLOCK; r < (by + 1) * WHITE_BLOCK && block; r++) {
+        for (let c = bx * WHITE_BLOCK; c < (bx + 1) * WHITE_BLOCK && block; c++) block = white(r * width + c);
+      }
+      if (block) return [false, true];
+    }
+  }
+  return [false, false];
 }
 
 /** Our cache's tile ({cache}/{z}/{x}/{y}.jpg, `cache` resolved for the page: result/load.ts orthoForApp). */
@@ -210,18 +245,15 @@ export function cacheFirst(z: number, x: number, y: number, corridor: Corridor |
   return tileDistance(corridor, x, y) <= corridor.half;
 }
 
-/** Whether a tile of zoom z lies in the corridor along the line at a zoom finer than the overview's. */
-export function inCorridor(z: number, x: number, y: number, corridor: Corridor | null): boolean {
-  return z > OVERVIEW_ZOOM && corridor !== null && tileDistance(corridor, x, y) <= corridor.half;
-}
-
-/** The orthophoto's tiles of a plan. A WMS over base tiles is asked in the line's corridor only, where its finer
- *  imagery shows: geoportal.gov.pl's HighResolution PNG is about 83 KB a tile against its base's 5 KB, and drawn
- *  over every tile it made 13 MB an open at R2 (tools/device_page.py measure; the budget is ~4 MB). */
+/** The orthophoto's tiles of a plan: a WMS over base tiles composed as our cache's tiles are (Composed: its JPEG,
+ *  ~11 KB a tile at R2, where the transparent PNG over every base tile made 13 MB an open), a WMS or base tiles
+ *  alone as they are. */
 export function orthoDraws(ortho: Ortho, p: TexturePlan, corridor: Corridor | null): TileDraw[] {
-  return tilesOf(p).map(([x, y]) => ({
-    x, y, cache: ortho.cache && cacheFirst(p.z, x, y, corridor) ? cacheTile(ortho.cache, p.z, x, y) : null,
-    layers: orthoLayers(ortho, p.z, x, y, inCorridor(p.z, x, y, corridor))}));
+  return tilesOf(p).map(([x, y]) => {
+    const cache = ortho.cache && cacheFirst(p.z, x, y, corridor) ? cacheTile(ortho.cache, p.z, x, y) : null;
+    return ortho.url && ortho.base ? {x, y, cache, layers: [], composed: orthoComposed(ortho, p.z, x, y)}
+      : {x, y, cache, layers: orthoLayers(ortho, p.z, x, y)};
+  });
 }
 
 /** Esri's tiles of a plan (never cached: Esri's terms). */

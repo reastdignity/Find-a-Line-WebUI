@@ -12,8 +12,8 @@ import type { Ortho } from "../types";
 import { DATA_CREDITS, DATA_ORDER, dataCredits, IMAGERY_CREDITS, IMAGERY_ORDER, imageryCredits } from "./credits";
 import type { Chunk, Scene3D } from "./scene-api";
 import {
-  cacheBusted, corridorOf, dataBounds, esriDraws, orthoDraws, orthoOf, planTextures, TILE_PX, uvOf,
-  type TexturePlan, type TileDraw, type TileImage,
+  cacheBusted, corridorOf, dataBounds, esriDraws, orthoDraws, orthoOf, planTextures, TILE_PX, uvOf, whiteBlocks,
+  type Composed, type TexturePlan, type TileDraw, type TileImage,
 } from "./tiles";
 
 export type ImageryKind = "ortho" | "esri" | "shaded" | "edges";
@@ -88,8 +88,35 @@ function drawImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, part: T
   } else ctx.drawImage(img, dx, dy, TILE_PX, TILE_PX);
 }
 
+/** (all white, any white 8×8 block) of a WMS's JPEG drawn on `probe`, a 256 px canvas; null when its pixels
+ *  cannot be read (a tainted canvas, no 2D context). */
+function whiteOf(probe: HTMLCanvasElement, img: HTMLImageElement): [boolean, boolean] | null {
+  try {
+    const ctx = probe.getContext("2d", {willReadFrequently: true});
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+    ctx.drawImage(img, 0, 0, TILE_PX, TILE_PX);
+    return whiteBlocks(ctx.getImageData(0, 0, TILE_PX, TILE_PX).data, TILE_PX, TILE_PX);
+  } catch {
+    return null;
+  }
+}
+
+/** A tile of a WMS over base tiles as orthophoto.tile_content composes our cache's (tiles.ts Composed): the JPEG
+ *  alone where it has imagery throughout; the base where it is all white; the base with the transparent PNG over
+ *  it where a white block shows the coverage's edge, or where the JPEG fails or its pixels cannot be read. */
+async function drawComposed(ctx: CanvasRenderingContext2D, c: Composed, loader: Loader, probe: HTMLCanvasElement,
+                            dx: number, dy: number) {
+  const jpeg = await loader.service(c.jpeg.url);
+  const white = jpeg ? whiteOf(probe, jpeg) : null;
+  if (jpeg && white && !white[0] && !white[1]) { drawImage(ctx, jpeg, c.jpeg, dx, dy); return; }
+  const parts = white && white[0] ? [c.base] : [c.base, c.png];
+  const images = await Promise.all(parts.map((part) => loader.service(part.url)));
+  images.forEach((img, k) => { if (img) drawImage(ctx, img, parts[k], dx, dy); });  // bottom first
+}
+
 /** One chunk's canvas: the shaded terrain's colour under the tiles (a tile that fails leaves it), each tile from
- *  our cache when worth trying, else its layers from the service. Null when stopped. */
+ *  our cache when worth trying, else from the service (composed, or its layers). Null when stopped. */
 async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fill: string):
     Promise<HTMLCanvasElement | null> {
   const canvas = document.createElement("canvas");
@@ -99,10 +126,13 @@ async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fil
   if (!ctx) return null;
   ctx.fillStyle = fill;
   ctx.fillRect(0, 0, plan.width, plan.height);
+  const probe = document.createElement("canvas");  // a WMS's JPEG drawn alone, for its white test
+  probe.width = probe.height = TILE_PX;
   await Promise.all(draws.map(async (d) => {
     const dx = d.x * TILE_PX - plan.px0, dy = d.y * TILE_PX - plan.py0;
     const cached = d.cache ? await loader.load(d.cache) : null;  // ours: same origin, no CORS retry
     if (cached) { ctx.drawImage(cached, dx, dy, TILE_PX, TILE_PX); return; }
+    if (d.composed) { await drawComposed(ctx, d.composed, loader, probe, dx, dy); return; }
     const images = await Promise.all(d.layers.map((part) => loader.service(part.url)));
     images.forEach((img, k) => { if (img) drawImage(ctx, img, d.layers[k], dx, dy); });  // bottom first
   }));

@@ -1,10 +1,14 @@
 """The imagery of the 3D view (viewer/src/view3d/tiles.ts, credits.ts, imagery.ts) in Node: the tiles covering a
 chunk, their URLs (our cache, the WMS over its base, the base alone, Esri), the UVs, the zoom within 2048 px and
-the budgets, the credits' HTML, and the imagery module on a fake scene (docs/3d-view-contract.md, "Wave 2")."""
+the budgets, the credits' HTML, the white test of a WMS's JPEG against orthophoto._white_blocks, and the imagery
+module on a fake scene (docs/3d-view-contract.md, "Wave 2"; "Wave 4", V4c)."""
+import io
 import json
 import math
 
+import numpy as np
 import pytest
+from PIL import Image
 
 import orthophoto
 from test_viewer import pytestmark, run_ts  # noqa: F401 (the skip without Node)
@@ -97,8 +101,8 @@ const g = {json.dumps(GEOPORTAL)}, s = {json.dumps(SWISS)}, wmsOnly = {{...g, ba
 const plan = {{z: 19, px0: 256 * 290000 + 10, py0: 256 * 180000 + 10, width: 300, height: 10}};
 const corridor = {{a: [256 * 290000 + 20, 256 * 180000 + 20], b: [256 * 290000 + 40, 256 * 180000 + 20], half: 30}};
 console.log(JSON.stringify({{
-  withBase: m.orthoLayers(g, 17, 72000, 44000), wmsOnly: m.orthoLayers(wmsOnly, 17, 72000, 44000),
-  baseAbove: m.orthoLayers(g, 20, 290001, 180003), swiss: m.orthoLayers(s, 17, 68000, 46000),
+  withBase: m.orthoComposed(g, 17, 72000, 44000), wmsOnly: m.orthoLayers(wmsOnly, 17, 72000, 44000),
+  baseAbove: m.orthoComposed(g, 20, 290001, 180003), swiss: m.orthoLayers(s, 17, 68000, 46000),
   cache: m.cacheTile("/cache/orthophoto/poland/wm256", 19, 290000, 180000),
   esri: m.esriDraws("k&y", {{z: 17, px0: 256 * 72000, py0: 256 * 44000, width: 256, height: 256}}),
   bbox: m.wmsBbox(17, 72000, 44000),
@@ -109,15 +113,20 @@ console.log(JSON.stringify({{
 }}));""")
     bbox = orthophoto._wms_bbox(17, 72000, 44000)
     assert [float(v) for v in found["bbox"].split(",")] == pytest.approx([float(v) for v in bbox.split(",")], abs=1e-12)
-    base, wms = found["withBase"]
-    assert base == {"url": "https://example.org/wmts?SERVICE=WMTS&TileMatrix=17&TileCol=72000&TileRow=44000"}
-    assert wms["url"] == (GEOPORTAL["url"] + "?service=WMS&request=GetMap&layers=Raster&styles=&format=image%2Fpng"
-                          "&transparent=true&version=1.3.0&width=256&height=256&crs=EPSG%3A4326&bbox=" + found["bbox"])
+    composed = found["withBase"]
+    assert composed["base"] == {"url": "https://example.org/wmts?SERVICE=WMTS&TileMatrix=17&TileCol=72000"
+                                       "&TileRow=44000"}
+    assert composed["png"]["url"] == (GEOPORTAL["url"] + "?service=WMS&request=GetMap&layers=Raster&styles="
+                                      "&format=image%2Fpng&transparent=true&version=1.3.0&width=256&height=256"
+                                      "&crs=EPSG%3A4326&bbox=" + found["bbox"])
+    assert composed["jpeg"]["url"] == composed["png"]["url"].replace("image%2Fpng&transparent=true",
+                                                                     "image%2Fjpeg&transparent=false")
     [jpeg] = found["wmsOnly"]
-    assert "format=image%2Fjpeg&transparent=false" in jpeg["url"]
+    assert jpeg == composed["jpeg"]
     # above the base's last zoom (18): the part of its tile there, enlarged (orthophoto.py _base_tile)
-    assert found["baseAbove"][0] == {"url": "https://example.org/wmts?SERVICE=WMTS&TileMatrix=18&TileCol=72500"
-                                            "&TileRow=45000", "crop": [64, 192, 64]}
+    assert found["baseAbove"]["base"] == {"url": "https://example.org/wmts?SERVICE=WMTS&TileMatrix=18&TileCol=72500"
+                                                 "&TileRow=45000", "crop": [64, 192, 64]}
+    assert "crop" not in found["baseAbove"]["jpeg"] and "crop" not in found["baseAbove"]["png"]
     assert found["swiss"] == [{"url": "https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current"
                                       "/3857/17/68000/46000.jpeg"}]
     assert found["cache"] == "/cache/orthophoto/poland/wm256/19/290000/180000.jpg"
@@ -132,24 +141,73 @@ console.log(JSON.stringify({{
     assert found["ortho"] == [True, None, None]
 
 
-def test_wms_only_in_the_corridor(tmp_path):
-    """A WMS over base tiles (geoportal.gov.pl's HighResolution, ~83 KB a tile against 5 KB) is asked only for the
-    tiles of the line's corridor at a zoom finer than the overview's; a WMS without base tiles everywhere."""
+def test_composed_everywhere(tmp_path):
+    """A WMS over base tiles is composed on every tile (the corridor rule of 704ccfa gave a patchwork of two
+    flights), our cache first where it may hold the tile; a WMS without base tiles and base tiles alone as they
+    are."""
     found = run_ts(tmp_path, "view3d/tiles", f"""
 const g = {json.dumps(GEOPORTAL)}, wmsOnly = {{...g, base: null}};
 const fine = {{z: 19, px0: 256 * 290000 + 10, py0: 256 * 180000 + 10, width: 300, height: 10}};
 const overview = {{z: 17, px0: 256 * 72000 + 10, py0: 256 * 44000 + 10, width: 300, height: 10}};
 const corridor = {{a: [256 * 290000 + 20, 256 * 180000 + 20], b: [256 * 290000 + 40, 256 * 180000 + 20], half: 30}};
 const wide = {{a: [256 * 72000 + 20, 256 * 44000 + 20], b: [256 * 72000 + 400, 256 * 44000 + 20], half: 300}};
-const kinds = (draws) => draws.map((d) => d.layers.map((l) => l.url.includes("SERVICE=WMTS") ? "base" : "wms"));
+const s = {json.dumps(SWISS)};
+const kinds = (draws) => draws.map((d) => [d.cache ? "cache" : "-", d.composed ? "composed"
+  : d.layers.map((l) => l.url.toLowerCase().includes("wmts") ? "base" : "wms").join("+")]);
 console.log(JSON.stringify({{
   fine: kinds(m.orthoDraws(g, fine, corridor)), overview: kinds(m.orthoDraws(g, overview, wide)),
   noCorridor: kinds(m.orthoDraws(g, fine, null)), wmsOnly: kinds(m.orthoDraws(wmsOnly, overview, null)),
+  baseOnly: kinds(m.orthoDraws(s, overview, null)),
 }}));""")
-    assert found["fine"] == [["base", "wms"], ["base"]]  # the corridor's tile, then the next one
-    assert found["overview"] == [["base"], ["base"]]       # the overview's zoom: base tiles only
-    assert found["noCorridor"] == [["base"], ["base"]]     # a chunk without the line
-    assert found["wmsOnly"] == [["wms"], ["wms"]]          # no base tiles: the WMS everywhere
+    assert found["fine"] == [["cache", "composed"], ["-", "composed"]]  # the corridor's tile, then the next one
+    assert found["overview"] == [["-", "composed"], ["-", "composed"]]  # the overview's zoom: the service straight
+    assert found["noCorridor"] == [["-", "composed"], ["-", "composed"]]  # a chunk without the line
+    assert found["wmsOnly"] == [["-", "wms"], ["-", "wms"]]  # no base tiles: the WMS's JPEG
+    assert found["baseOnly"] == [["-", "base"], ["-", "base"]]
+
+
+# Synthetic tiles for the white test: a grey of 120 with white (255) rectangles [row, column, height, width],
+# a fifth item drawing grey again
+WHITE_CASES = {
+    "none": [], "all": [[0, 0, 256, 256]], "block": [[8, 16, 8, 8]], "unaligned": [[3, 3, 9, 9]],
+    "wide": [[4, 4, 16, 16]], "all but one": [[0, 0, 256, 256], [255, 255, 1, 1, "grey"]],
+    "strip": [[0, 0, 256, 7]], "corner": [[248, 248, 8, 8]],
+}
+
+
+def _white_tile(rects) -> np.ndarray:
+    tile = np.full((256, 256, 3), 120, np.uint8)
+    for r, c, h, w, *grey in rects:
+        tile[r:r + h, c:c + w] = 120 if grey else 255
+    return tile
+
+
+def test_white_blocks_match_python(tmp_path):
+    """tiles.ts whiteBlocks on the decoded pixels says what orthophoto._white_blocks says of the same tile (a PNG
+    here, lossless); the browser's tolerance takes a JPEG decoder's near-white for white."""
+    expected = {}
+    for name, rects in WHITE_CASES.items():
+        out = io.BytesIO()
+        Image.fromarray(_white_tile(rects)).save(out, "PNG")
+        expected[name] = list(orthophoto._white_blocks(out.getvalue()))
+    found = run_ts(tmp_path, "view3d/tiles", f"""
+const tile = (rects, white = 255) => {{
+  const px = new Uint8ClampedArray(256 * 256 * 4).fill(120);
+  for (let k = 3; k < px.length; k += 4) px[k] = 255;
+  for (const [r, c, h, w, grey] of rects) for (let i = r; i < r + h; i++) for (let j = c; j < c + w; j++)
+    for (let ch = 0; ch < 3; ch++) px[4 * (i * 256 + j) + ch] = grey ? 120 : white;
+  return px;
+}};
+const cases = {json.dumps(WHITE_CASES)}, out = {{}};
+for (const [name, rects] of Object.entries(cases)) out[name] = m.whiteBlocks(tile(rects), 256, 256);
+out.nearWhite = m.whiteBlocks(tile(cases.all, 251), 256, 256);
+out.offWhite = m.whiteBlocks(tile(cases.all, 245), 256, 256);
+console.log(JSON.stringify(out));""")
+    assert expected == {"none": [False, False], "all": [True, True], "block": [False, True],
+                        "unaligned": [False, False], "wide": [False, True], "all but one": [False, True],
+                        "strip": [False, False], "corner": [False, True]}
+    assert {k: found[k] for k in WHITE_CASES} == expected
+    assert found["nearWhite"] == [True, True] and found["offWhite"] == [False, False]
 
 
 def test_corridor_distance(tmp_path):
@@ -213,8 +271,12 @@ class El {
   append(...c) { this.children.push(...c); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   remove() { this.removed = true; }
-  getContext() { const self = this; return {fillRect() {}, set fillStyle(v) { self.fill = v; },
-                                            drawImage(img, ...a) { self.draws.push([img.src, ...a]); }}; }
+  // getImageData: the pixels global.PIXELS gives for the image drawn last, else a tainted canvas's error
+  getContext() { const self = this; return {fillRect() {}, clearRect() {}, set fillStyle(v) { self.fill = v; },
+                                            drawImage(img, ...a) { self.draws.push([img.src, ...a]); },
+                                            getImageData(x, y, w, h) {
+                                              if (!global.PIXELS) throw new Error("tainted");
+                                              return {data: global.PIXELS(self.draws.at(-1)[0], w, h)}; }}; }
 }
 global.document = {createElement: (tag) => new El(tag)};
 global.getComputedStyle = () => ({getPropertyValue: () => " #bba680 "});
@@ -292,6 +354,56 @@ const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
     assert found["shaded"] == {"textures": [[0, None, None], [1, None, None]], "imagery": None}
     assert found["disposed"] == {"credits": [], "removed": True}
     assert found["bare"]["available"] == ["shaded"]
+
+
+def test_imagery_composes_as_the_cache(tmp_path):
+    """A tile of the WMS over base tiles as orthophoto.tile_content composes it: the JPEG first; all white → the
+    base; a white block → the base with the PNG over it; else the JPEG alone; pixels that cannot be read → the base
+    with the PNG."""
+    ax, ay = CX - 100, CY + 50
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}],
+            "ortho": {**GEOPORTAL, "cache": None}, "attribution": None}
+    bounds = [{"x0": ax - 60, "y0": ay - 60, "x1": ax + 140, "y1": ay + 60},
+              {"x0": CX - 700, "y0": CY - 700, "x1": CX - 300, "y1": CY - 300}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+// The WMS's JPEGs in the order first asked: all white, partly white (one 8x8 block), imagery throughout, ...
+const kinds = new Map(), KINDS = ["white", "partly", "full"];
+const plain = (src) => src.replace(/[?&]_fal3d=\\d+$/, "");
+global.PIXELS = (src, w, h) => {{
+  const key = plain(src);
+  if (!kinds.has(key)) kinds.set(key, KINDS[kinds.size % 3]);
+  const kind = kinds.get(key), px = new Uint8ClampedArray(w * h * 4).fill(kind === "white" ? 255 : 90);
+  if (kind === "partly") for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) px.fill(253, 4 * (i * w + j), 4 * (i * w + j) + 4);
+  return px;
+}};
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: null}});
+  await im.set("ortho");
+  const asked = loads.splice(0).map(([u]) => u).filter((u) => u.includes("_fal3d=1"));  // each tile's second ask
+  const jpegs = asked.filter((u) => u.includes("image%2Fjpeg")), pngs = asked.filter((u) => u.includes("image%2Fpng"));
+  const bases = asked.filter((u) => u.includes("SERVICE=WMTS"));
+  const count = (k) => [...kinds.values()].filter((v) => v === k).length;
+  const out = {{jpegs: jpegs.length, pngs: pngs.length, bases: bases.length, white: count("white"),
+               partly: count("partly"), full: count("full"), textures: textures.length}};
+  im.dispose();
+  global.PIXELS = undefined;  // a tainted canvas: every tile the base with the PNG over it
+  textures.splice(0);
+  const im2 = m.createImagery({{...scene, toolbar: new El("div")}}, {{runId: "r1", esriKey: null}});
+  await im2.set("ortho");
+  const again = loads.splice(0).map(([u]) => u).filter((u) => u.includes("_fal3d=1"));
+  out.tainted = {{jpegs: again.filter((u) => u.includes("image%2Fjpeg")).length,
+                 pngs: again.filter((u) => u.includes("image%2Fpng")).length,
+                 bases: again.filter((u) => u.includes("SERVICE=WMTS")).length}};
+  console.log(JSON.stringify(out));
+}})();""")
+    assert found["jpegs"] > 3 and found["jpegs"] == found["white"] + found["partly"] + found["full"]
+    assert found["bases"] == found["white"] + found["partly"] and found["pngs"] == found["partly"]
+    assert found["textures"] == 2
+    tainted = found["tainted"]
+    assert tainted["jpegs"] == found["jpegs"] and tainted["pngs"] == tainted["bases"] == found["jpegs"]
 
 
 def test_no_imagery_note(tmp_path):

@@ -139,3 +139,42 @@ def test_record_and_serve(clip_data, tmp_path, monkeypatch):
         assert posted.headers["x-content-type-options"] == "nosniff"
     finally:
         server.should_exit = True
+
+
+def test_composed_estimate_classifies_the_jpegs():
+    """measure's estimate of a WMS over base tiles: its JPEGs sampled and classified by orthophoto._white_blocks,
+    the base tiles of the white and partly white samples and the PNGs of the partly white ones, the GETs per host
+    capped."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    def jpeg(kind):
+        tile = np.full((256, 256, 3), 255 if kind == "white" else 90, np.uint8)
+        if kind == "partly":
+            tile[:16, :16] = 255  # a white 8x8 block survives JPEG's rounding
+        out = io.BytesIO()
+        Image.fromarray(tile).save(out, "JPEG", quality=90)
+        return out.getvalue()
+
+    kinds = ["white", "partly", "full", "full"] * 3
+    tiles = [{"jpeg": f"https://wms.example/wms?format=jpeg&bbox={k}", "base": f"https://base.example/t/{k}.jpg",
+              "png": f"https://wms.example/wms?format=png&bbox={k}"} for k in range(len(kinds))]
+    answers = {t["jpeg"]: jpeg(kind) for t, kind in zip(tiles, kinds)}
+    answers.update({t["base"]: b"b" * 1000 for t in tiles})
+    answers.update({t["png"]: b"p" * 5000 for t in tiles})
+    asked = []
+
+    def fetch(url):
+        asked.append(url)
+        return answers[url]
+
+    (sample,) = device_page.sample_composed(tiles, 12, say=lambda *a: None, fetch=fetch).values()
+    jpegs = [u for u in asked if "format=jpeg" in u]
+    assert len(jpegs) == 9 and sample["ok"] == 9  # three quarters of the 12 GETs of the WMS's host
+    assert sample["white"] == pytest.approx(3 / 9) and sample["partly"] == pytest.approx(1 / 9)  # tiles 0, 1, 3, 4, 6, 7, 8, 10, 11
+    assert sum("format=png" in u for u in asked) <= 3 and len([u for u in asked if "wms.example" in u]) <= 12
+    assert sample["base"] == 1000 and sample["png"] == 5000
+    assert device_page.composed_bytes(sample) == pytest.approx(
+        sample["jpeg"] + 4 / 9 * 1000 + 1 / 9 * 5000)

@@ -29,7 +29,11 @@ Shaded and Edges load no tiles): the tiles that viewer/src/view3d/tiles.ts plans
 computed by the page's own modules (decode.ts, terrain.ts, tiles.ts bundled by viewer/node_modules' esbuild
 and run in Node: `npm ci` in viewer once). A tile our cache holds is measured from its file; a tile the page
 asks a service for is estimated from a sample of the service's tiles (at most --samples GETs per host, with
-the app's User-Agent and the host's rate turns, sources.net.rate_turn). Esri's tiles are counted, never
+the app's User-Agent and the host's rate turns, sources.net.rate_turn). A WMS over base tiles, drawn as
+orthophoto.tile_content composes our cache (tiles.ts Composed), is estimated from a sample of its JPEGs, each
+classified by orthophoto._white_blocks: every tile takes the JPEGs' mean, the share found all white the base's
+mean too, the share partly white the base's and the transparent PNG's (sampled from those samples' own base
+tiles and PNGs, the three together at most --samples GETs per host). Esri's tiles are counted, never
 fetched. A chunk is counted when it holds data (terrain.ts chunkTile), so a chunk whose data makes no whole
 triangle would be counted too (rare at the patch's edge).
 
@@ -472,7 +476,9 @@ const out = tasks.map((task) => {
     if (!p) return;
     esri += tilesOf(p).length;
     if (ortho) draws.push(...orthoDraws(ortho, p, chunks[k].hasLine ? corridorOf(meta.affine, meta.anchors, p.z) : null)
-                               .map((d) => ({z: p.z, x: d.x, y: d.y, cache: d.cache, layers: d.layers.map((l) => l.url)})));
+                               .map((d) => ({z: p.z, x: d.x, y: d.y, cache: d.cache, layers: d.layers.map((l) => l.url),
+                                             composed: d.composed ? {jpeg: d.composed.jpeg.url, base: d.composed.base.url,
+                                                                     png: d.composed.png.url} : null})));
   });
   return {key: task.key, chunks: chunks.length, zooms: plans.map((p) => p ? p.z : null), ortho: !!ortho, esri, draws};
 });
@@ -537,6 +543,80 @@ def sample_hosts(urls: Sequence[str], per_host: int, say=say_now) -> Dict[str, D
     return found
 
 
+def _fetch(url: str) -> Optional[bytes]:
+    """One tile with the app's User-Agent after the host's rate turn; None when it fails or is no image."""
+    import requests
+
+    import cache
+    from sources import net
+    net.rate_turn(url)
+    try:
+        answer = requests.get(url, headers=cache.http_headers(), timeout=30)
+    except requests.RequestException:
+        return None
+    return answer.content if answer.ok and answer.headers.get("content-type", "").startswith("image/") else None
+
+
+def sample_composed(composed: Sequence[Dict], per_host: int, say=say_now, fetch=_fetch) -> Dict[str, Dict]:
+    """The tiles of a WMS over base tiles ({jpeg, base, png} URLs), by service of its JPEGs: about three quarters of
+    `per_host` JPEGs spread over them, each classified by orthophoto._white_blocks, then the base tiles of the
+    samples found white or partly white and the PNGs of those partly white, while the host's GETs last:
+    {service: {"jpeg", "base", "png": mean bytes, "white", "partly": shares of the samples, "ok", "failed"}}."""
+    import orthophoto
+    by_service: Dict[str, List[Dict]] = {}
+    for c in composed:
+        by_service.setdefault(_service(c["jpeg"]), []).append(c)
+    for service in by_service:  # one per tile
+        by_service[service] = list({c["jpeg"]: c for c in by_service[service]}.values())
+    used: Dict[str, int] = {}
+    found = {}
+
+    def get(url: str) -> Optional[bytes]:
+        host = urlsplit(url).netloc.lower()
+        if used.get(host, 0) >= per_host:
+            return None
+        used[host] = used.get(host, 0) + 1
+        return fetch(url)
+
+    for service, listed in sorted(by_service.items()):
+        share = max(1, per_host * 3 // 4 // len(by_service))
+        picked = [listed[round(i * (len(listed) - 1) / max(1, share - 1))] for i in range(min(share, len(listed)))]
+        jpegs, kinds, failed = [], [], 0
+        for c in {c["jpeg"]: c for c in picked}.values():
+            content = get(c["jpeg"])
+            if content is None:
+                failed += 1
+                continue
+            jpegs.append(len(content))
+            empty, partly = orthophoto._white_blocks(content)
+            kinds.append((c, "white" if empty else "partly" if partly else "full"))
+        bases, pngs = [], []
+        for c, kind in kinds:
+            if kind == "full":
+                continue
+            content = get(c["base"])
+            if content is not None:
+                bases.append(len(content))
+            if kind == "partly" and (content := get(c["png"])) is not None:
+                pngs.append(len(content))
+        mean = lambda sizes: sum(sizes) / len(sizes) if sizes else 0.0  # noqa: E731
+        n = max(1, len(kinds))
+        found[service] = {"jpeg": mean(jpegs), "base": mean(bases), "png": mean(pngs), "ok": len(jpegs),
+                          "failed": failed, "white": sum(k == "white" for _, k in kinds) / n,
+                          "partly": sum(k == "partly" for _, k in kinds) / n}
+        f = found[service]
+        say(f"  sampled {service} (JPEG, composed): {len(jpegs)} tiles, mean {f['jpeg'] / 1024:.1f} KB, "
+            f"{f['white']:.0%} white, {f['partly']:.0%} partly white (base {f['base'] / 1024:.1f} KB of {len(bases)}, "
+            f"PNG {f['png'] / 1024:.1f} KB of {len(pngs)}), {failed} failed")
+    return found
+
+
+def composed_bytes(sample: Dict) -> float:
+    """The expected bytes of one composed tile from its service's sample (sample_composed)."""
+    return (sample["jpeg"] + (sample["white"] + sample["partly"]) * sample["base"]
+            + sample["partly"] * sample["png"])
+
+
 def measure(data: str, samples: int = 20, say=say_now) -> List[Dict]:
     """The data per open of each recorded line and level (docs above); prints the table, returns its rows."""
     folder = device_dir(data)
@@ -565,9 +645,10 @@ def measure(data: str, samples: int = 20, say=say_now) -> List[Dict]:
         return os.path.getsize(path) if os.path.isfile(path) else None
 
     # The service's requests of every tile our cache does not answer
-    wanted = [u for p in plans.values() for d in p["draws"] if cached(d["cache"]) is None for u in d["layers"]]
+    missed = [d for p in plans.values() for d in p["draws"] if cached(d["cache"]) is None]
     say(f"Sampling the services' tiles (at most {samples} per host):")
-    hosts = sample_hosts(wanted, samples, say)
+    composed = sample_composed([d["composed"] for d in missed if d.get("composed")], samples, say)
+    hosts = sample_hosts([u for d in missed for u in d["layers"]], samples, say)
     rows = []
     for key, (entry, level, patch_bytes, profile_bytes) in sizes.items():
         plan = plans[key]
@@ -579,6 +660,10 @@ def measure(data: str, samples: int = 20, say=say_now) -> List[Dict]:
             if size is not None:
                 cached_n += 1
                 imagery += size
+            elif d.get("composed"):
+                sample = composed.get(_service(d["composed"]["jpeg"]))
+                service_n += 1  # its JPEG; the base and the PNG in their shares
+                imagery += composed_bytes(sample) if sample else 0.0
             else:
                 service_n += len(d["layers"])
                 imagery += sum(hosts.get(_service(u), {"mean": 0.0})["mean"] for u in d["layers"])
@@ -595,7 +680,8 @@ def measure(data: str, samples: int = 20, say=say_now) -> List[Dict]:
         say(f"{r['run'][:34]:<34} {r['length_m']:>5.0f}m {r['level']:<5} {r['patch_kb']:>9.0f} {r['profile_kb']:>10.1f} "
             f"{r['tiles']:>6} {r['cached']:>6} {r['imagery_kb']:>10.0f} {r['total_kb']:>9.0f} {r['esri_tiles']:>10}  {zooms}")
     say("\nimagery: the run's orthophoto (the default kind); a tile not cached is the mean of its service's sampled "
-        "tiles (a WMS over base tiles: both). Esri tiles: the same plan's tiles, never fetched.")
+        "tiles (a WMS over base tiles: its JPEG, and the base and PNG in the shares of its samples found white and "
+        "partly white). Esri tiles: the same plan's tiles, never fetched.")
     return rows
 
 
