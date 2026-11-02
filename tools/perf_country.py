@@ -229,16 +229,38 @@ def tension_table(points: Sequence[Tuple[float, float]], base=None):
     return TensionTable
 
 
-class Hooks:
-    """The T(L) table assigned as sag.EnvelopeTable (search.py looks it up at call time) and
-    search.plan_search wrapped to keep the Plan; uninstall puts both back."""
+def lean_save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None):
+    """runs.save_results for the measurements: run.json and lines.npz with the columns compare and
+    cube read, in the order of lines.csv (group by group, the representative first), as float32;
+    no lines.csv or lines.geojson (in steep terrain tens of millions of lines are tens of GB)."""
+    import runs as rn
+    order, number, is_rep, _ = rn.row_order(groups, 0, len(groups.members), rn.rep_positions(groups))
+    c = lines.columns
+    pick = lambda name, k=None: (c[name][order] if k is None else c[name][order, k]).astype(np.float32)  # noqa: E731
+    np.savez(os.path.join(run_path, "lines.npz"), group=number.astype(np.int64), representative=is_rep,
+             length_m=pick("length"), clearance_m=pick("clearance"), water_m=pick("water_m"),
+             height_max_m=pick("height_max"), anchor1_northing=pick("a1_xy", 1), anchor1_easting=pick("a1_xy", 0),
+             anchor1_wall_angle=pick("angle1"), anchor2_wall_angle=pick("angle2"),
+             anchor1_prominence_m=pick("prom1"), anchor2_prominence_m=pick("prom2"),
+             over_trees_buildings=c["over_obstacles"][order].astype(bool))
+    with open(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    on_lines(0, "run.json")
 
-    def __init__(self, tension: Optional[str]):
+
+class Hooks:
+    """The T(L) table assigned as sag.EnvelopeTable (search.py looks it up at call time),
+    search.plan_search wrapped to keep the Plan, and with lean runs.save_results replaced by
+    lean_save_results; uninstall puts them back."""
+
+    def __init__(self, tension: Optional[str], lean: bool = False):
+        import runs as rn
         import sag as sg
         import search
-        self.sg, self.search = sg, search
+        self.sg, self.search, self.rn = sg, search, rn
         self.tension = parse_tension(tension) if tension else None
-        self.table, self.plan_search = sg.EnvelopeTable, search.plan_search
+        self.lean = lean
+        self.table, self.plan_search, self.save_results = sg.EnvelopeTable, search.plan_search, rn.save_results
         self.plan = None
 
     def _plan_search(self, *args, **kwargs):
@@ -249,9 +271,12 @@ class Hooks:
         if self.tension:
             self.sg.EnvelopeTable = tension_table(self.tension, self.table)
         self.search.plan_search = self._plan_search
+        if self.lean:
+            self.rn.save_results = lean_save_results
 
     def uninstall(self):
         self.sg.EnvelopeTable, self.search.plan_search = self.table, self.plan_search
+        self.rn.save_results = self.save_results
 
 
 def plan_grid(plan) -> Dict:
@@ -292,10 +317,11 @@ def load_samples(path: str) -> Dict:
 
 
 def profile(out: str, name: str, search_args: List[str], cores: Optional[int] = None,
-            tension: Optional[str] = None) -> Dict:
-    """One measured search, recorded into <out>/samples.json under name."""
+            tension: Optional[str] = None, lean: bool = False) -> Dict:
+    """One measured search, recorded into <out>/samples.json under name; with lean its run keeps
+    lines.npz instead of lines.csv and lines.geojson (lean_save_results)."""
     os.makedirs(out, exist_ok=True)
-    hooks = Hooks(tension)
+    hooks = Hooks(tension, lean)
     hooks.install()
     started = time.time()
     try:
@@ -414,6 +440,20 @@ def read_lines(run: str) -> Dict[str, np.ndarray]:
     if run is None:  # a search without lines (profile saved no run)
         columns = {k: np.zeros(0, dtype=float) for k in numbers}
         columns.update({k: np.zeros(0, dtype=bool) for k in flags})
+        columns["group"] = columns["group"].astype(np.int64)
+        return columns
+    packed = os.path.join(run, "lines.npz")
+    if not os.path.exists(packed) and os.path.getsize(os.path.join(run, "lines.csv")) > 200e6:
+        # A big lines.csv of before: its columns packed once with pandas (the csv module would take
+        # minutes and gigabytes of Python floats), the same values lean_save_results writes
+        import pandas as pd
+        table = pd.read_csv(os.path.join(run, "lines.csv"), usecols=list(numbers + flags), encoding="utf-8-sig")
+        np.savez(packed, **{k: (table[k].to_numpy(np.int64) if k == "group" else table[k].to_numpy(bool)
+                                if k in flags else table[k].to_numpy(np.float32)) for k in numbers + flags})
+    if os.path.exists(packed):
+        with np.load(packed) as data:
+            columns = {k: data[k].astype(float) for k in numbers}
+            columns.update({k: data[k].astype(bool) for k in flags})
         columns["group"] = columns["group"].astype(np.int64)
         return columns
     with open(os.path.join(run, "lines.csv"), newline="", encoding="utf-8-sig") as f:
@@ -593,7 +633,8 @@ def cube(samples: Dict, names: List[str], cell: float, dims: Sequence[str]) -> D
 # profiles and files of steps 4-5 are not needed, nor the start (imports, plan, index answers)
 GRID = re.compile(r"^Step [12]: (Compute|\(between bars\))")
 LINE = re.compile(r"^Step 3: ")
-COUNT = re.compile(r"^Step 4: Compute (grouping lines|over water)")
+COUNT = re.compile(r"^Step 4: Compute over water")
+GROUPS = re.compile(r"^Step 4: Compute grouping lines")  # today's spots: apart, it may not scale
 DOWNLOAD = re.compile(r"Download")
 STEP1_BETWEEN = "Step 1: (between bars)"  # also holds the index answers when the sample downloaded
 LINE_BYTES = 450  # search.LINE_BYTES at 221dd10: the lines of a tile while it is counted
@@ -651,12 +692,14 @@ def sample_metrics(sample: Dict, reach: float) -> Dict:
     line_cpu = sum(s["cpu_s"] or 0.0 for s in stages if LINE.match(s["stage"]))
     line_wall = sum(wall(s) for s in stages if LINE.match(s["stage"]))
     count = sum(wall(s) for s in stages if COUNT.match(s["stage"]))
+    groups = sum(wall(s) for s in stages if GROUPS.match(s["stage"]))
     mpx = sample["grid"]["width"] * sample["grid"]["height"] / 1e6
     km2 = sample["grid"]["area_km2"]
     f = edge_fraction(sample_geometry(sample["args"]), reach)
     return {"mpx": mpx, "km2": km2, "edge_fraction": round(f, 4), "grid_s_per_mpx": grid / mpx,
             "line_cpu_per_km2": line_cpu / (km2 * f), "line_cores": line_cpu / line_wall if line_wall else None,
-            "count_s_per_km2": count / (km2 * f), "lines_per_km2": sample["summary"]["lines"] / (km2 * f),
+            "count_s_per_km2": count / (km2 * f), "group_s_per_km2": groups / (km2 * f),
+            "lines_per_km2": sample["summary"]["lines"] / (km2 * f),
             "spots_per_km2": sample["summary"]["spots"] / (km2 * f)}
 
 
@@ -701,7 +744,7 @@ def place_metrics(metrics: Dict[str, Dict], place: str, band: str, res: float) -
                       if n.startswith(f"{place}-{band}-") and n.endswith("m") and n.count("-") == place.count("-") + 2)
     for res_from, m in sorted(measured, key=lambda rm: abs(math.log(rm[0] / res))):
         scaled = dict(m)
-        for key in ("line_cpu_per_km2", "count_s_per_km2", "lines_per_km2", "spots_per_km2"):
+        for key in ("line_cpu_per_km2", "count_s_per_km2", "group_s_per_km2", "lines_per_km2", "spots_per_km2"):
             ratio = resolution_ratio(metrics, band, res_from, res, key)
             if ratio is None:
                 break
@@ -716,10 +759,12 @@ def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, 
               dsm: bool, factors: Dict, memory_gb: float) -> Optional[Dict]:
     """The wall time of one band of a country at a resolution on a machine: over candidate tile
     cores, the grid (single-core, K tiles at once as memory allows) and the line search (all
-    cores), combined; the core with the shortest time wins."""
+    cores), combined; the core with the shortest time wins. A run that keeps only counts holds a
+    tile's grids, not its lines (lines_gb_today: what today's search would hold); wall_groups_s
+    adds today's grouping into spots (single-core), which may not scale to such counts."""
     low, high = inputs["bands"][band]
     overlap = high + inputs["margin_m"] + 2 * res
-    serial_km2 = line_cpu = count = lines = spots = 0.0
+    serial_km2 = line_cpu = count = groups = lines = spots = 0.0
     km2 = country["area_km2"]
     for cls in country["classes"].values():
         # A class may name other places for a band ("high_L"): a sample big enough for its lines
@@ -732,25 +777,28 @@ def band_time(inputs: Dict, metrics: Dict[str, Dict], country: Dict, band: str, 
             serial_km2 += share * m["grid_s_per_mpx"] * grid_factor / res ** 2  # s per km² of core, no overlap
             line_cpu += share * km2 * m["line_cpu_per_km2"]
             count += share * km2 * m["count_s_per_km2"]
+            groups += share * km2 * m.get("group_s_per_km2", 0.0)
             lines += share * km2 * m["lines_per_km2"]
             spots += share * km2 * m["spots_per_km2"]
     best = None
-    lines_km2_max = lines / km2
+    combine = lambda a, b: max(a, b) + OVERLAP_SHARE * min(a, b)  # noqa: E731
     for core_km in inputs["cores_km"]:
         core = core_km * 1000.0
         side = core + 2 * overlap
-        tile_bytes = (side / res) ** 2 * inputs["pixel_bytes"] + lines_km2_max * core_km ** 2 * LINE_BYTES
+        tile_bytes = (side / res) ** 2 * inputs["pixel_bytes"]
         k = min(int(memory_gb * 1e9 // tile_bytes), factors["physical_cores"])
         if k < 1:
             continue
         serial = (serial_km2 * km2 * (side / core) ** 2 + count) * factors["serial"]
         parallel = line_cpu * factors["cpu"] / factors["parallel_cores"]
-        a, b = serial / (k * SERIAL_EFFICIENCY), parallel
-        wall = max(a, b) + OVERLAP_SHARE * min(a, b)
+        wall = combine(serial / (k * SERIAL_EFFICIENCY), parallel)
         if best is None or wall < best["wall_s"]:
             best = {"band": band, "res": res, "core_km": core_km, "tile_gb": round(tile_bytes / 1e9, 2), "tiles_at_once": k,
                     "serial_s": round(serial), "line_wall_s": round(parallel), "wall_s": round(wall),
-                    "lines": round(lines), "spots": round(spots)}
+                    "wall_groups_s": round(combine((serial + groups * factors["serial"]) / (k * SERIAL_EFFICIENCY),
+                                                   parallel)),
+                    "lines": round(lines), "spots": round(spots),
+                    "lines_gb_today": round(lines / km2 * core_km ** 2 * LINE_BYTES / 1e9, 1)}
     return best
 
 
@@ -800,6 +848,8 @@ def estimate(inputs: Dict, samples: Dict, base: str) -> Dict:
                                 "download_days": round(seconds / 86400, 2),
                                 "compute_days": None if None in parts else round(sum(p["wall_s"] for p in parts) / 86400, 2),
                                 "compute_hours": None if None in parts else round(sum(p["wall_s"] for p in parts) / 3600, 2),
+                                "compute_days_with_groups": None if None in parts else
+                                round(sum(p["wall_groups_s"] for p in parts) / 86400, 2),
                                 "lines": None if None in parts else sum(p["lines"] for p in parts),
                                 "spots": None if None in parts else sum(p["spots"] for p in parts),
                                 "bands": parts})
@@ -826,6 +876,8 @@ def main():
     p.add_argument("--name", required=True)
     p.add_argument("--cores", type=int, help="perf_profile.py's --cores")
     p.add_argument("--tension-by-length", help="pretension by span, span:kN points, e.g. 300:2.5,1500:6,5000:15")
+    p.add_argument("--lean", action="store_true", help="the run keeps lines.npz (the columns compare and cube "
+                   "read) instead of lines.csv and lines.geojson")
     p.add_argument("args", nargs=argparse.REMAINDER, help="-- and the options of findaline.py")
     c = sub.add_parser("compare", help="counts per cell against a reference run")
     c.add_argument("--samples", required=True)
@@ -850,7 +902,7 @@ def main():
         bench(args.out, args.processes, args.grid)
     elif args.command == "profile":
         search_args = args.args[1:] if args.args[:1] == ["--"] else args.args
-        profile(args.out, args.name, search_args, args.cores, args.tension_by_length)
+        profile(args.out, args.name, search_args, args.cores, args.tension_by_length, args.lean)
     elif args.command == "compare":
         result = compare(load_samples(args.samples), args.ref, args.others, args.cells, parse_bands(args.bands))
         write_json(args.json, result)

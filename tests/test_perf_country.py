@@ -83,6 +83,18 @@ def test_profile_with_constant_tension_equals_the_search(tmp_path):
     assert sample["grid"]["area_km2"] == pytest.approx(np.pi * 0.12 ** 2, rel=1e-3)
     assert sample["funnel"] and sample["stages"] and sample["total"]["wall_s"] > 0
     assert os.path.dirname(sample["run"]) == os.path.abspath(tmp_path / "patched" / "runs")
+    # --lean: lines.npz instead of lines.csv and lines.geojson, the same lines read back
+    lean = subprocess.run([sys.executable, os.path.join("tools", "perf_country.py"), "profile", "--lean",
+                           "--out", str(tmp_path / "out"), "--name", "lean", "--", *common,
+                           "--data-dir", str(tmp_path / "lean")],
+                          cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    assert lean.returncode == 0, lean.stdout + lean.stderr
+    run = json.load(open(tmp_path / "out" / "samples.json"))["lean"]["run"]
+    assert sorted(os.listdir(run)) == ["lines.npz", "run.json"]
+    a, b = pc.read_lines(sample["run"]), pc.read_lines(run)
+    assert a["group"].tolist() == b["group"].tolist() and a["representative"].tolist() == b["representative"].tolist()
+    assert np.allclose(a["length_m"], b["length_m"], atol=0.05) and np.allclose(a["anchor1_easting"],
+                                                                                 b["anchor1_easting"], atol=0.01)
 
 
 def test_profile_of_a_search_without_lines(tmp_path):
