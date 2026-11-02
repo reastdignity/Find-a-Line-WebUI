@@ -22,10 +22,13 @@ SI_DATA = "https://gis.arso.gov.si/lidar/dmr1"
 SI_CRS = "EPSG:3794"
 # ARSO's terms (Lidar_pogoji_uporabe.pdf, read 2026-11-02): CC BY 4.0, "navedbo vira podatkov, ki obsega
 # »Agencije Republike Slovenije za okolje, vrsta podatka in čas, na katerega se podatki nanašajo oziroma datum
-# stanja zbirke podatkov«" (the agency, the type of the data and the time the data relate to)
+# stanja zbirke podatkov«" (the agency, the type of the data and the time the data relate to). The terms are
+# served over plain HTTP only (www.evode.gov.si's certificate does not verify): the credit links the licence and
+# names the terms in its notice
 SI_TERMS = "http://www.evode.gov.si/fileadmin/user_upload/Lidar_pogoji_uporabe.pdf"
 SI_CREDIT = Credit("LiDAR DMR 1 m 2011-2015 (ARSO, Slovenia)",
-                   "Agencija Republike Slovenije za okolje, LiDAR DMR 1 m, 2011-2015", CC_BY[0], SI_TERMS)
+                   "Agencija Republike Slovenije za okolje, LiDAR DMR 1 m, 2011-2015", *CC_BY,
+                   notice=f"ARSO's terms of use of its lidar data: {SI_TERMS}")
 
 
 def si_block(e_km: int, n_km: int) -> Optional[str]:
