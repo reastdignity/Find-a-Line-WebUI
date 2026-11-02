@@ -852,17 +852,26 @@ const fold = (phi) => {
   return [0, 0, 0,  0, 0, 1,  1, 0, 0,  -Math.cos(r), Math.sin(r), 0,  0, -5, 0];
 };
 const faces = [0, 1, 2,  0, 3, 1,  0, 2, 4];
+// two vertical faces (walls: y is up) meeting along the vertical edge A-B, folded by phi degrees
+const wall = (phi) => {
+  const r = phi * Math.PI / 180;
+  return [0, 0, 0,  0, 1, 0,  1, 0, 0,  -Math.cos(r), 0, Math.sin(r),  0, -5, 0];
+};
 console.log(JSON.stringify({
   flat: m.featureEdges(fold(0), faces, 6).length, at20: m.featureEdges(fold(20), faces, 6).length,
   at20fine: Array.from(m.featureEdges(fold(20), faces, 6, 10)), at90: Array.from(m.featureEdges(fold(90), faces, 6)),
   skirt: m.featureEdges(fold(0), faces, 9).length / 6, degenerate: m.featureEdges([0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 1], [0, 1, 2, 0, 1, 3], 6).length,
-  angle: m.FEATURE_ANGLE, silhouette: m.SILHOUETTE, crease: m.CREASE, strength: m.CREASE_STRENGTH,
+  wall: m.featureEdges(wall(60), faces.slice(0, 6), 6).length,
+  angle: m.FEATURE_ANGLE, wallSlope: m.WALL_SLOPE, silhouette: m.SILHOUETTE, crease: m.CREASE, strength: m.CREASE_STRENGTH,
   steps: [0.5, 1, 1.5, 2, 3, NaN].map(m.sampleStep), layer: m.TERRAIN_LAYER}));""")
     assert found["flat"] == 0 and found["at20"] == 0
     for segment in (found["at20fine"], found["at90"]):  # the edge A-B, either way round
         assert sorted([segment[:3], segment[3:]]) == [[0, 0, 0], [0, 0, 1]]
     assert found["skirt"] == 1  # past the surface: the skirt face turns by 90° from the first along A-C
     assert found["degenerate"] == 0
+    # between two faces of a wall no edge (they crawled as the camera turned); a wall meeting flat ground keeps
+    # its edge (at90 above: the first face flat, the second vertical)
+    assert found["wall"] == 0 and found["wallSlope"] == 65
     # the user's variant M of the prototype (docs/3d-view-contract.md, "Wave E")
     assert found["angle"] == 28 and found["silhouette"] == [0.012, 0.035] and found["crease"] == [0.1, 0.28]
     assert found["strength"] == 0.75 and found["layer"] == 1

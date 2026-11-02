@@ -135,6 +135,27 @@ function lookAcross(view: View, patch: Patch, origin: Origin) {
   view.look(from, target, Math.max(width, height) * res * 1.5);
 }
 
+/** The feature edges of the Edges look, one pixel wide: each vertex pulled towards the camera by FEATURE_PULL of its
+ *  distance (no depth fight with the faces it lies on), the lines fading out between FEATURE_FADE[0] and [1] metres,
+ *  where their segments are shorter than a pixel and shimmer as the camera turns. */
+export const FEATURE_PULL = 0.002;
+export const FEATURE_FADE: [number, number] = [400, 1200];
+
+function featureLines(colour: string): LineBasicMaterial {
+  const material = new LineBasicMaterial({color: colour, transparent: true, depthWrite: false});
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = "varying float vFalDistance;\n" + shader.vertexShader.replace("#include <project_vertex>",
+      `#include <project_vertex>
+      mvPosition.xyz *= ${(1 - FEATURE_PULL).toFixed(6)};
+      gl_Position = projectionMatrix * mvPosition;
+      vFalDistance = -mvPosition.z;`);
+    shader.fragmentShader = "varying float vFalDistance;\n" + shader.fragmentShader.replace("#include <opaque_fragment>",
+      `#include <opaque_fragment>
+      gl_FragColor.a *= 1.0 - smoothstep(${FEATURE_FADE[0].toFixed(1)}, ${FEATURE_FADE[1].toFixed(1)}, vFalDistance);`);
+  };
+  return material;
+}
+
 /** The scene of a decoded patch in `parts.stage`; throws when the browser has no WebGL 2. */
 export function createScene(patch: Patch, level: Level, parts: SceneParts, onLost: () => void): SceneCore {
   const root = parts.stage.closest(".ui") || document.documentElement;
@@ -161,7 +182,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     if (on && !paper) {
       paper = new MeshLambertMaterial({color: token("--paper"), side: DoubleSide, polygonOffset: true,
                                        polygonOffsetFactor: 1, polygonOffsetUnits: 1});
-      featureMaterial = new LineBasicMaterial({color: token("--muted")});
+      featureMaterial = featureLines(token("--muted"));
       terrain.chunks.forEach((m, k) => {
         const geometry = new BufferGeometry();
         geometry.setAttribute("position", new BufferAttribute(featureEdges(m.positions, m.indices, m.surfaceIndices), 3));
