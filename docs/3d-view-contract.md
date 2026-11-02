@@ -460,6 +460,35 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   the 2D map's Edges (roadmap). When the user ends the idea: the tag `history/line-3d-view` and one squash commit
   into `main` (CLAUDE.md, conventions).
 
+## Wave F: the walker's view (2026-11-02, the user's decisions)
+Two camera views besides the orbit one, chosen with a switch in the bar (`ui.view3d.view_orbit` "Orbit",
+`view_eyes` "Walker's eyes", `view_behind` "Behind the walker"; the orbit stays the default and the only view
+where anchors are dragged):
+- **Eyes**: the camera at the walker's eyes (its feet on the loaded webbing + 1.6 m), looking along the line
+  towards anchor 2 and a little down at first; the mannequin, its pin and grip hidden; a wider field of view
+  (about 70°). **Behind**: the camera a few metres behind and above the walker, the mannequin in view, looking
+  ahead along the line. Both follow the walker: the slider, dragging it in the orbit view and the walk (the
+  webbing's sag moves the camera, as walking would); leaving either view gives back the orbit camera as it was.
+- **Looking around by dragging** (mouse or finger) in both views: yaw and pitch of the gaze (eyes) or of the
+  camera around the walker (behind), the orbit controls off meanwhile; the pitch clamped (never upside down).
+- **Phone motion** on top (the user's choice; tested later on the user's iPhone): a button (`ui.view3d.motion`
+  "Phone motion") shown where `DeviceOrientationEvent` exists; iOS asks for permission
+  (`DeviceOrientationEvent.requestPermission()`) inside the button's click; turning the phone turns the gaze,
+  relative to how it was held when switched on, the screen's orientation (portrait or landscape) taken into
+  account; dragging still adds to it; denied or absent: a short note (`ui.view3d.motion_denied`), dragging only.
+- **The server**: the 3D page's own `Permissions-Policy` (every page's sets `accelerometer=()`, `gyroscope=()`,
+  `magnetometer=()`): for `/view3d` `accelerometer=(self), gyroscope=(self), magnetometer=(self)`, everything else
+  as every page's, chosen per path as `PAGE_CSP` is (`web.py`, a test as the CSP's: other pages unchanged). The
+  sensors' readings never leave the browser: nothing stored or sent, so the privacy page stays as it is.
+- One agent (VF) on `l3d-wF-walkerview`; it owns `viewer/src/view3d/` modules of the views (new, e.g. `views.ts`,
+  `look.ts`, `motion.ts`), `view.ts` (switching the controls), `walker.ts`, `main.ts`, `walk.ts`, `pin.ts`,
+  `edit.ts` (only to stay out of the walker views), `view3d.css`, `scene-api.ts` (what it needs), new `ui.view3d.*`
+  texts in `locales/en.json`, the `Permissions-Policy` of `/view3d` in `web.py`, the tests of all that
+  (`tests/test_viewer.py` Node tests of the pure parts: the camera poses from a walker pose, the gaze from a drag
+  and from device angles; `tests/test_view3d.py` an Edge check of each view, `data-view`, no CSP violation;
+  `tests/test_public.py` or `tests/test_web.py` the header). Not `edges.ts`, not the feature lines of `scene.ts`
+  (the coordinator changes the Edges look in parallel), not `imagery.ts`, `ring.ts`, `tiles.ts`.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
