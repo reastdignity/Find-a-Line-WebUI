@@ -278,6 +278,8 @@ SH_CREDIT = Credit("DGM1 (LVermGeo SH, Schleswig-Holstein)", f"{SH_ATTRIBUTION} 
 # veraltet". The files are plain "x y z" text of the cell centres (on x.5: edges on whole metres), centimetres,
 # 1000 x 1000 points, 27 MB, no Range, no compression. The server's TLS chain lacks its intermediate (net.HOST_CA_OF).
 # The 0.2 m bDOM is published as uncompressed GeoTIFFs of about 105 MB per km² without Range: no surface model
+# Over the sea the files hold a water surface of 0.7-2.9 m (no gaps): the sea is not filled, and only its pixels of at
+# most filling.SEA_LEVEL_TOLERANCE count as water
 SH_INDEX = ("https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/single.php"
             "?file=DGM1_SH__Massendownload.geojson&id=4")
 SH_NAME = r"^dgm1_32_(?P<east>\d+)_(?P<north>\d+)_1_sh_(?P<year>\d{4})\.xyz$"
@@ -455,5 +457,6 @@ SOURCES: List[Source] = [
         sample=(54.1840, 7.8820),  # Helgoland's cliffs (R56)
         note=f"Data {SH_ATTRIBUTION} (Quelle verändert; changed: mosaicked onto the working grid). Terrain model "
              f"only: the surface model is published only as uncompressed 0.2 m files. Survey years 2005-2025, the "
-             f"newest per 1 km tile. Over the sea the model holds a water surface, removed with the sea."),
+             f"newest per 1 km tile. Over the sea the model holds a water surface of about 1-3 m, kept as data (only "
+             f"where it is at most 1 m does it count as water)."),
 ]
