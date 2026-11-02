@@ -48,6 +48,7 @@ from .readers import download, imageserver, sheetfile, tilebases, wcsreader, win
 from .indexes import cached, listings, tilings, versions
 from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, indexed, sheets, stac, tnm, wcs, zipped
 from .catalogue import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
+from .catalogue import australia
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
