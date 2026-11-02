@@ -1,9 +1,23 @@
 # 3D view of a line
 
 Research of 2026-11-01 for a Google-Earth-like 3D view of one selected line: the webbing drawn with its sag over the
-terrain, a walker on it, and anchors the user can drag. Nothing is built yet; this report is the basis for the
-decision. It lives on branch `line-3d-view` (from `main` 983d148) and is not merged into `main` until the work on the
-idea ends. Code references point to that commit.
+terrain, a walker on it, and anchors the user can drag. This report was the basis for the decision; what was built
+since is in the status below. It lives on branch `line-3d-view` (from `main` 983d148) and is not merged into `main`
+until the work on the idea ends. Code references of the research point to that commit.
+
+**Status (2026-11-02): built** on branch `line-3d-view`, not yet in `main` (B with C, as decided below; the
+contract of its waves and every later decision: [3d-view-contract.md](3d-view-contract.md)). The line's details
+in the app (interface D) have a "3D view" button opening `/view3d`: the run's own elevation model around the line
+(`/api/patch`, a patch of at least 1.5 km), its imagery (the run's orthophoto composed as the 2D map's cache
+composes it, Esri's satellite imagery with a key, the terrain shaded, or "Edges": paper with silhouettes, creases
+and the mesh's feature edges), the webbing sagging under a walker (a slider, dragging and a walk at ×1/×4), the
+anchors dragged on the desktop with the server's profile on release, and a simpler level for phones. Data of one
+open, measured with `tools/device_page.py measure`: R2 (Dolina Bolechowicka, 1 m, geoportal.gov.pl's orthophoto)
+2.5-2.6 MB on the desktop and 1.2 MB on a phone; R19 (Lauterbrunnen, 2 m, SWISSIMAGE) 3.1-3.2 MB and 0.75-0.85 MB.
+The ring of coarse terrain around the patch (Mapterhorn's tiles) is built but off (`FINDALINE_3D_RING`) until
+Mapterhorn's maintainer answers. Variants A and D below were not built. Open: the test on the user's iPhone
+(`tools/device_page.py serve` and its checklist), the ring's bytes with Mapterhorn's own tiles, and the 2D map's
+"Edges" (an idea in the roadmap).
 
 The terms of the services were read on 2026-11-01; the deciding sentences are quoted in the appendix with their
 URLs. This is a reading of the terms and the law, not legal advice: where the text leaves a question open, the
