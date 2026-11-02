@@ -10,6 +10,8 @@ import {
   BufferAttribute, BufferGeometry, DoubleSide, Float32BufferAttribute, LineBasicMaterial, LineSegments, Mesh,
   MeshBasicMaterial, MeshLambertMaterial, Vector3, type Material, type Object3D, type Texture,
 } from "three";
+import { t } from "../i18n";
+import { DATA_CREDITS } from "./credits";
 import type { Patch } from "./decode";
 import { featureEdges, TERRAIN_LAYER } from "./edges";
 import { lonLat, originOf, toScene, type Origin } from "./geometry";
@@ -42,14 +44,26 @@ export interface SceneCore extends Scene3D {
   onDispose(fn: () => void): void;
 }
 
-/** The credits box: entries sorted by their order, hidden while empty. */
+/** The credits box: entries sorted by their order, hidden while empty. The run's data credits (DATA_CREDITS) fold
+ *  behind a "Data credits" button on phones, as the 2D map's (layers.ts creditsHtml, ui.css .u-credits: under
+ *  768 px; unfolded it stays so when the entries change); the imagery's and the ring's credits never fold. */
 function creditsBox(box: HTMLElement): Credits {
   const entries = new Map<string, {html: string; order: number}>();
+  let open = false;
+  const label = t("ui.credits.toggle").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const render = () => {
-    const list = [...entries.values()].sort((a, b) => a.order - b.order);
-    box.innerHTML = list.map((e) => `<span class="v3-credit">${e.html}</span>`).join(" ");  // trusted HTML only
+    const list = [...entries.entries()].sort((a, b) => a[1].order - b[1].order);
+    box.innerHTML = list.map(([id, e]) => id !== DATA_CREDITS ? `<span class="v3-credit">${e.html}</span>`
+      : `<span class="v3-credit"><button type="button" class="u-credits-toggle" aria-expanded="${open}">${label}` +
+        `</button><span class="u-credits${open ? " u-open" : ""}">${e.html}</span></span>`).join(" ");  // trusted HTML only
     box.classList.toggle("v3-hidden", !list.length);
   };
+  box.addEventListener("click", (e) => {
+    if (!(e.target as HTMLElement).closest?.(".u-credits-toggle")) return;
+    open = !open;
+    render();
+    box.querySelector<HTMLElement>(".u-credits-toggle")?.focus();  // the new button
+  });
   render();
   return {
     set(id, html, order = 0) { entries.set(id, {html, order}); render(); },

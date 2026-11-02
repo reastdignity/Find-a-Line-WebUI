@@ -417,6 +417,6 @@ const row = toolbar.children[0];
 console.log(JSON.stringify({{available: im.available, texts: row.children.map((c) => [c.className, c.textContent, c.hidden]),
                             credits: Object.keys(credits)}}));""")
     assert found["available"] == ["shaded"]
-    assert found["texts"] == [["u-small", "No imagery for this result: the terrain is shaded.", False],
-                              ["u-small", "Loading the imagery…", True]]
+    assert found["texts"] == [["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded.", False],
+                              ["u-small v3-imagery-status", "Loading the imagery…", True]]
     assert found["credits"] == []

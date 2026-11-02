@@ -335,3 +335,133 @@ def test_view3d_edges(clip_data, tmp_path, monkeypatch, level):
     assert back["imagery"] == "shaded" and back["edges"] is None
     assert back["triangles"] == shaded["triangles"] and back_later["frames"] == back["frames"], result
     assert _violations(dom) == []
+
+
+# On the page after the bundle, in a narrow window: once ready, the readout's clipping and the bar's controls'
+# rectangles (each visible control of the toolbar, the readout's items and the bar's notes: none overlapping
+# another or leaving the window), the imagery's select (shown instead of the segmented control, in sync with it),
+# then again with the imagery's longest labels added to the select (four kinds: the clip's run has Shaded and Edges
+# only) and, at level full, "Back to the found line" shown; the findings go into <pre id="result">
+NARROW_SCRIPT = """
+(function () {
+  const root = document.getElementById("view3d");
+  const out = {};
+  const done = () => {
+    const pre = document.createElement("pre");
+    pre.id = "result";
+    pre.textContent = JSON.stringify(out);
+    document.body.appendChild(pre);
+  };
+  let n = 0;
+  const until = (test, ms, then) => {
+    const started = Date.now();
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
+  };
+  const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const name = (e) => (e.className || e.tagName) + ":" + (e.textContent || e.value || "").trim().slice(0, 30);
+  const measure = () => {
+    const readout = document.querySelector(".v3-readout");
+    const items = [...document.querySelectorAll(".v3-toolbar input, .v3-toolbar button, .v3-toolbar select, " +
+                                                ".v3-toolbar .u-small, .v3-toolbar .v3-reduced, .v3-read, .v3-bar > .v3-note")]
+      .filter(shown);
+    const boxes = items.map((e) => [name(e), e.getBoundingClientRect()]);
+    const overlaps = [], outside = [];
+    for (let i = 0; i < boxes.length; i++) {
+      const [a, r] = boxes[i];
+      if (r.left < -0.5 || r.right > innerWidth + 0.5) outside.push(a);
+      for (let j = i + 1; j < boxes.length; j++) {
+        const [b, s] = boxes[j];
+        const w = Math.min(r.right, s.right) - Math.max(r.left, s.left), h = Math.min(r.bottom, s.bottom) - Math.max(r.top, s.top);
+        if (w > 0.5 && h > 0.5) overlaps.push([a, b]);
+      }
+    }
+    const clipped = [readout, ...document.querySelectorAll(".v3-read")].filter(shown)
+      .filter((e) => e.scrollWidth > e.clientWidth + 1).map(name);
+    const stage = document.querySelector(".v3-stage").getBoundingClientRect();
+    return {readout: readout.innerText, clipped, overlaps, outside, count: boxes.length,
+            stage: stage.height / innerHeight, scroll: document.scrollingElement.scrollWidth - innerWidth};
+  };
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    out.ready = ready;
+    out.width = innerWidth;
+    if (!ready) { done(); return; }
+    const select = document.querySelector(".v3-select");
+    out.select = !!select && shown(select);
+    out.seg = [...document.querySelectorAll(".v3-toolbar .u-seg")].some(shown);
+    out.options = select ? [...select.options].map((o) => o.textContent) : [];
+    out.value = select && [select.value, root.dataset.imagery];
+    out.first = measure();
+    if (!select) { done(); return; }
+    select.value = "edges";
+    select.dispatchEvent(new Event("change"));
+    until(() => root.dataset.edges === "on", 15000, () => {
+      out.edges = [root.dataset.imagery, document.querySelector(".v3-toolbar [role=radio][aria-checked=true]")?.textContent];
+      select.prepend(new Option("Satellite (Esri)", "x-esri"), new Option("Orthophoto", "x-ortho"));
+      document.querySelector(".v3-reset")?.classList.remove("v3-hidden");
+      out.four = measure();
+      // the run's data credits folded behind their button, the button inside the window; unfolded by a click
+      const toggle = document.querySelector(".v3-credits .u-credits-toggle"), folded = document.querySelector(".v3-credits .u-credits");
+      out.credits = {toggle: !!toggle && shown(toggle), expanded: toggle?.getAttribute("aria-expanded"),
+                     folded: !!folded && !shown(folded), right: toggle ? toggle.getBoundingClientRect().right <= innerWidth : null};
+      toggle?.click();
+      const after = document.querySelector(".v3-credits .u-credits");
+      out.unfolded = {shown: !!after && shown(after), expanded: document.querySelector(".v3-credits .u-credits-toggle")?.getAttribute("aria-expanded"),
+                      text: (after?.textContent || "").slice(0, 40)};
+      done();
+    });
+  });
+})();
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+@pytest.mark.parametrize("level", ["full", "phone"])
+def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
+    """The bar under 600 px (docs/3d-view-contract.md, "Wave 4", V4a; headless Edge goes no narrower than about
+    500 px): the readout's short form, nothing clipped (no hidden scroll), no control overlapping another or leaving
+    the window, the imagery's select instead of the segmented control and in sync with it, the note that there is
+    no imagery on a line of its own; the same with four kinds' labels and Back to the found line; the canvas keeps
+    most of the height; the run's data credits (given to the clip's run here) folded behind their button and shown
+    after a click."""
+    data, meta = clip_data
+    run_json = data / "runs" / meta["id"] / "run.json"
+    saved = run_json.read_text("utf-8")
+    run_json.write_text(json.dumps({**json.loads(saved), "attribution": [
+        {"data": "Test model", "attribution": "Test survey", "licence": "CC BY 4.0", "url": "https://example.org/"}]}),
+        encoding="utf-8")
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    row = _lines_of(data, meta["id"])[0]
+    line = ",".join(f"{v:.7f}" for v in row[:4])
+    page = _script_page(data, "view3dnarrow", NARROW_SCRIPT)
+    with _server(data, start_scheduler=True) as port:
+        dom = subprocess.run(
+            [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
+             "--window-size=500,900", "--virtual-time-budget=90000", "--dump-dom",
+             f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
+            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+    run_json.write_text(saved, encoding="utf-8")
+    found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+    assert found, dom[-3000:]
+    result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+    print(level, result)
+    assert result["ready"], result
+    assert result["width"] <= 600, result
+    assert result["credits"] == {"toggle": True, "expanded": "false", "folded": True, "right": True}, result
+    assert result["unfolded"]["shown"] and result["unfolded"]["expanded"] == "true", result
+    assert result["unfolded"]["text"].startswith("Data: Test survey"), result
+    assert result["select"] and not result["seg"], result
+    assert result["options"] == ["Shaded", "Edges"] and result["value"] == ["shaded", "shaded"]
+    assert result["edges"] == ["edges", "Edges"], result  # the select's choice marks the segmented control too
+    first, four = result["first"], result["four"]
+    assert "m clear" in first["readout"] and "sag " in first["readout"] and "of the terrain" not in first["readout"]
+    for state in (first, four):
+        assert state["clipped"] == [] and state["overlaps"] == [] and state["outside"] == [], state
+        assert state["scroll"] <= 0 and state["stage"] > 0.6, state
+    assert four["count"] == first["count"] + (1 if level == "full" else 0), result
+    assert _violations(dom) == []

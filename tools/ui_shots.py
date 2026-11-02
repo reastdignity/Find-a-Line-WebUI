@@ -163,8 +163,9 @@ def first_line(data: str, run: str) -> str:
 
 
 def with_credits(path: str):
-    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js (a run of local files has
-    none), so the map's attribution is as long as a real run's (on a phone: folded behind its button)."""
+    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js and run.json (a run of local
+    files has none), so the map's and the 3D view's attribution are as long as a real run's (on a phone: folded
+    behind their button)."""
     import sources as src
     with open(path, encoding="utf-8") as f:
         prefix, _, text = f.read().partition(" = ")
@@ -172,6 +173,13 @@ def with_credits(path: str):
     data["attribution"] = [c.as_dict() for c in src.SOURCES["geoportal"].credits] + [src.FABDEM_CREDIT.as_dict()]
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"{prefix} = {json.dumps(data, ensure_ascii=False)};\n")
+    # the same in its run.json, which the 3D view's patch gives on (search.patch_of_line)
+    meta_path = os.path.join(os.path.dirname(path), "run.json")
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+    meta["attribution"] = data["attribution"]
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=1)
 
 
 def certificate(folder: str):

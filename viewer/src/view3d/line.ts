@@ -48,6 +48,12 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: s
   return e;
 }
 
+/** A readout's value: its sentence `text` and the short form narrow screens show instead (view3d.css: .v3-long,
+ *  .v3-short under 600 px; the hidden one is out of the accessibility tree too). */
+function say(span: HTMLElement, text: string, short: string) {
+  span.replaceChildren(el("span", "v3-long", text), el("span", "v3-short", short));
+}
+
 /** A Line2 of `points` whose segment buffer is later written in place. */
 function curve(points: Point3d[], scene: SceneCore, material: LineMaterial) {
   const geometry = new LineGeometry();
@@ -98,8 +104,9 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
 
   // The readout: length and clearance from the profile, the sag with the walker from sag.ts
   const length = el("span", "v3-read"), sag = el("span", "v3-read"), clearance = el("span", "v3-read");
-  const trees = el("span", "v3-read v3-trees v3-hidden", t("ui.view3d.over_trees"));
-  const edited = el("span", "v3-read v3-edited v3-hidden", t("ui.view3d.edited"));
+  const trees = el("span", "v3-read v3-trees v3-hidden"), edited = el("span", "v3-read v3-edited v3-hidden");
+  say(trees, t("ui.view3d.over_trees"), t("ui.view3d.over_trees_short"));
+  say(edited, t("ui.view3d.edited"), t("ui.view3d.edited_short"));
   const waiting = el("span", "v3-read v3-wait", t("ui.view3d.loading_profile"));
   const failed = el("span", "v3-read v3-failed v3-hidden");
   readoutBox.replaceChildren(edited, length, sag, clearance, trees, waiting, failed);
@@ -133,7 +140,8 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       loaded.write(pose.points);
       walker.group.position.copy(scene.toScene(...pose.at));
       walker.group.rotation.y = pose.yaw;
-      sag.textContent = t("ui.view3d.sag", {m: metres(pose.sag)});
+      const m = metres(pose.sag);
+      say(sag, t("ui.view3d.sag", {m}), t("ui.view3d.sag_short", {m}));
       if (String(s) !== slider.value && document.activeElement !== slider) slider.value = String(s);
       for (const fn of walkerFns) fn(self.s);
       scene.invalidate();
@@ -152,7 +160,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       slider.step = String(Math.max(0.05, solved.span / 1000));
       colour(null);
       length.textContent = t("ui.view3d.length", {m: metres(solved.span)});
-      clearance.textContent = "";
+      clearance.replaceChildren();
       trees.classList.add("v3-hidden");
       failed.classList.add("v3-hidden");
       edited.classList.toggle("v3-hidden", !isEdited);
@@ -170,8 +178,9 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       const r = self.readout = readoutOf(p);
       colour(VERDICT_COLOUR[r.verdict]);
       length.textContent = t("ui.view3d.length", {m: metres(r.length)});
-      clearance.textContent = t(r.verdict === "no_fit" ? "ui.view3d.does_not_fit" : "ui.view3d.clearance",
-                                {m: metres(r.clearance)});
+      const m = metres(r.clearance);
+      if (r.verdict === "no_fit") say(clearance, t("ui.view3d.does_not_fit", {m}), t("ui.view3d.does_not_fit_short", {m}));
+      else say(clearance, t("ui.view3d.clearance", {m}), t("ui.view3d.clearance_short", {m}));
       clearance.classList.toggle("v3-nofit", r.verdict === "no_fit");
       readoutBox.dataset.verdict = r.verdict;
       trees.classList.toggle("v3-hidden", !r.overTrees);

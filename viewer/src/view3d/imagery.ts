@@ -1,7 +1,7 @@
 // The imagery of the 3D view (docs/3d-view-contract.md, "Wave 2", V2b): the run's national orthophoto (our cache
 // first where it may have the tiles, else its service), Esri's satellite imagery (with the operator's key), or
 // the terrain shaded, or its "Edges" look (wave E: scene-api.ts setEdges, where the browser can draw it). Each chunk gets one canvas of its tiles (tiles.ts: the zoom, the URLs, the UVs) as its
-// texture; the control is a segmented one in the scene's toolbar, the credits go to the scene's credits box
+// texture; the control is a segmented one in the scene's toolbar (a select on narrow screens), the credits go to the scene's credits box
 // (credits.ts). Plain DOM, no style attributes (the CSP's style-src 'self'): classes of ui.css. The page's
 // root gets data-imagery="<kind>" (for tests).
 
@@ -162,11 +162,13 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   const listeners = new Set<(kind: ImageryKind) => void>();
   let loader: Loader | null = null;
 
-  // The control: a segmented one when there is a choice, and the note that the terrain is shaded when there is no
-  // imagery (Shaded and Edges only, or Shaded alone)
+  // The control: a segmented one when there is a choice, a native select instead under 600 px (view3d.css shows
+  // one of them, the other is out of the accessibility tree; both show imagery.current), and the note that the
+  // terrain is shaded when there is no imagery (Shaded and Edges only, or Shaded alone)
   const box = document.createElement("div");
   box.className = "u-row";
   const buttons = new Map<ImageryKind, HTMLButtonElement>();
+  let select: HTMLSelectElement | null = null;
   if (available.length > 1) {
     const seg = document.createElement("div");
     seg.className = "u-seg";
@@ -181,26 +183,39 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       buttons.set(kind, b);
       seg.append(b);
     }
-    box.append(seg);
+    const choice = select = document.createElement("select");
+    choice.className = "u-input v3-select";
+    choice.setAttribute("aria-label", t("ui.view3d.imagery"));
+    for (const kind of available) {
+      const option = document.createElement("option");
+      option.value = kind;
+      option.textContent = t(LABELS[kind]);
+      choice.append(option);
+    }
+    choice.onchange = () => { void imagery.set(choice.value as ImageryKind); };
+    box.append(seg, choice);
   }
   if (!available.includes("ortho") && !available.includes("esri")) {
     const note = document.createElement("span");
-    note.className = "u-small";
+    note.className = "u-small v3-imagery-note";
     note.textContent = t("ui.view3d.no_imagery");
     box.append(note);
   }
   const status = document.createElement("span");
-  status.className = "u-small";
+  status.className = "u-small v3-imagery-status";
   status.setAttribute("role", "status");
   status.hidden = true;
   status.textContent = t("ui.view3d.loading_imagery");
   box.append(status);
   scene.toolbar.append(box);
 
-  const mark = (kind: ImageryKind) => buttons.forEach((b, k) => {
-    b.className = k === kind ? "u-on" : "";
-    b.setAttribute("aria-checked", String(k === kind));
-  });
+  const mark = (kind: ImageryKind) => {
+    buttons.forEach((b, k) => {
+      b.className = k === kind ? "u-on" : "";
+      b.setAttribute("aria-checked", String(k === kind));
+    });
+    if (select) select.value = kind;
+  };
 
   const retexture = (chunk: Chunk, texture: CanvasTexture | null, uv?: (x: number, y: number) => [number, number]) => {
     chunk.setTexture(texture, uv);

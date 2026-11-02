@@ -896,7 +896,8 @@ scene.setEdges = (on) => looks.push(on);
                notes: toolbar.children[0].children.length, first: looks.splice(0)}};
   await im.set("edges");
   out.edges = {{textures: textures.splice(0), imagery: credits.imagery || null, looks: looks.splice(0),
-               checked: seg.children.map((b) => b.attrs["aria-checked"]), current: im.current}};
+               checked: seg.children.map((b) => b.attrs["aria-checked"]), current: im.current,
+               select: toolbar.children[0].children[1].value}};
   await im.set("shaded");
   out.shaded = {{looks: looks.splice(0)}};
   await im.set("edges");
@@ -910,12 +911,12 @@ scene.setEdges = (on) => looks.push(on);
 }})();""")
     assert found["available"] == ["ortho", "shaded", "edges"]
     assert found["buttons"] == ["Orthophoto", "Shaded", "Edges"]
-    assert found["notes"] == 2  # the control and the loading status: there is imagery, no note
+    assert found["notes"] == 3  # the control, its select and the loading status: there is imagery, no note
     assert found["first"] == [False]  # the orthophoto first: the look off
     edges = found["edges"]
     assert edges["current"] == "edges" and edges["imagery"] is None and edges["looks"] == [True]
     assert edges["textures"] == [[0, None, None], [1, None, None]]
-    assert edges["checked"] == ["false", "false", "true"]
+    assert edges["checked"] == ["false", "false", "true"] and edges["select"] == "edges"  # the select in sync
     assert found["shaded"]["looks"] == [False]
     assert found["ortho"]["looks"] == [True, False] and found["ortho"]["imagery"]
     assert found["kinds"] == ["edges", "shaded", "edges", "ortho"]
@@ -937,6 +938,7 @@ const row = toolbar.children[0];
 console.log(JSON.stringify({{available: im.available, texts: row.children.map((c) => [c.className, c.textContent || null]),
                             buttons: row.children[0].children.map((b) => b.textContent)}}));""")
     assert found["available"] == ["shaded", "edges"]
-    assert found["texts"] == [["u-seg", None], ["u-small", "No imagery for this result: the terrain is shaded."],
-                              ["u-small", "Loading the imagery…"]]
+    assert found["texts"] == [["u-seg", None], ["u-input v3-select", None],
+                              ["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded."],
+                              ["u-small v3-imagery-status", "Loading the imagery…"]]
     assert found["buttons"] == ["Shaded", "Edges"]
