@@ -149,11 +149,12 @@ export function wmsTile(ortho: Ortho, z: number, x: number, y: number): TileImag
     params.map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&") + "&bbox=" + wmsBbox(z, x, y)};
 }
 
-/** The orthophoto's service for a tile: the WMS over its base tiles, the WMS alone, or the base tiles alone. */
-export function orthoLayers(ortho: Ortho, z: number, x: number, y: number): TileImage[] {
+/** The orthophoto's service for a tile: the WMS over its base tiles, the WMS alone, or the base tiles alone;
+ *  `wms` false leaves the WMS out where there are base tiles (orthoDraws: outside the line's corridor). */
+export function orthoLayers(ortho: Ortho, z: number, x: number, y: number, wms = true): TileImage[] {
   const layers: TileImage[] = [];
   if (ortho.base) layers.push(templateTile(ortho.base.url, z, x, y, ortho.base.max_zoom));
-  if (ortho.url) layers.push(wmsTile(ortho, z, x, y));
+  if (ortho.url && (wms || !ortho.base)) layers.push(wmsTile(ortho, z, x, y));
   return layers;
 }
 
@@ -209,11 +210,18 @@ export function cacheFirst(z: number, x: number, y: number, corridor: Corridor |
   return tileDistance(corridor, x, y) <= corridor.half;
 }
 
-/** The orthophoto's tiles of a plan. */
+/** Whether a tile of zoom z lies in the corridor along the line at a zoom finer than the overview's. */
+export function inCorridor(z: number, x: number, y: number, corridor: Corridor | null): boolean {
+  return z > OVERVIEW_ZOOM && corridor !== null && tileDistance(corridor, x, y) <= corridor.half;
+}
+
+/** The orthophoto's tiles of a plan. A WMS over base tiles is asked in the line's corridor only, where its finer
+ *  imagery shows: geoportal.gov.pl's HighResolution PNG is about 83 KB a tile against its base's 5 KB, and drawn
+ *  over every tile it made 13 MB an open at R2 (tools/device_page.py measure; the budget is ~4 MB). */
 export function orthoDraws(ortho: Ortho, p: TexturePlan, corridor: Corridor | null): TileDraw[] {
   return tilesOf(p).map(([x, y]) => ({
     x, y, cache: ortho.cache && cacheFirst(p.z, x, y, corridor) ? cacheTile(ortho.cache, p.z, x, y) : null,
-    layers: orthoLayers(ortho, p.z, x, y)}));
+    layers: orthoLayers(ortho, p.z, x, y, inCorridor(p.z, x, y, corridor))}));
 }
 
 /** Esri's tiles of a plan (never cached: Esri's terms). */

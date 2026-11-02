@@ -132,6 +132,26 @@ console.log(JSON.stringify({{
     assert found["ortho"] == [True, None, None]
 
 
+def test_wms_only_in_the_corridor(tmp_path):
+    """A WMS over base tiles (geoportal.gov.pl's HighResolution, ~83 KB a tile against 5 KB) is asked only for the
+    tiles of the line's corridor at a zoom finer than the overview's; a WMS without base tiles everywhere."""
+    found = run_ts(tmp_path, "view3d/tiles", f"""
+const g = {json.dumps(GEOPORTAL)}, wmsOnly = {{...g, base: null}};
+const fine = {{z: 19, px0: 256 * 290000 + 10, py0: 256 * 180000 + 10, width: 300, height: 10}};
+const overview = {{z: 17, px0: 256 * 72000 + 10, py0: 256 * 44000 + 10, width: 300, height: 10}};
+const corridor = {{a: [256 * 290000 + 20, 256 * 180000 + 20], b: [256 * 290000 + 40, 256 * 180000 + 20], half: 30}};
+const wide = {{a: [256 * 72000 + 20, 256 * 44000 + 20], b: [256 * 72000 + 400, 256 * 44000 + 20], half: 300}};
+const kinds = (draws) => draws.map((d) => d.layers.map((l) => l.url.includes("SERVICE=WMTS") ? "base" : "wms"));
+console.log(JSON.stringify({{
+  fine: kinds(m.orthoDraws(g, fine, corridor)), overview: kinds(m.orthoDraws(g, overview, wide)),
+  noCorridor: kinds(m.orthoDraws(g, fine, null)), wmsOnly: kinds(m.orthoDraws(wmsOnly, overview, null)),
+}}));""")
+    assert found["fine"] == [["base", "wms"], ["base"]]  # the corridor's tile, then the next one
+    assert found["overview"] == [["base"], ["base"]]       # the overview's zoom: base tiles only
+    assert found["noCorridor"] == [["base"], ["base"]]     # a chunk without the line
+    assert found["wmsOnly"] == [["wms"], ["wms"]]          # no base tiles: the WMS everywhere
+
+
 def test_corridor_distance(tmp_path):
     found = run_ts(tmp_path, "view3d/tiles", """
 const c = {a: [100, 100], b: [700, 100], half: 50};
