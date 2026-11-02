@@ -40,24 +40,33 @@ def envelope(elevation: np.ndarray, radius: int) -> np.ndarray:
     return ndimage.maximum_filter(z, size=2 * radius + 1, mode="constant", cval=-np.inf)
 
 
-def steep(elevation: np.ndarray, res: float, degrees: float) -> np.ndarray:
-    """Pixels whose terrain is at least `degrees` steep, the slope of
-    helpers.find_significant_slopes (np.gradient); NaN compares False."""
+def slope_degrees(elevation: np.ndarray, res: float) -> np.ndarray:
+    """The terrain's slope in degrees as helpers.find_significant_slopes computes it (np.gradient)."""
     gy, gx = np.gradient(np.asarray(elevation, dtype=np.float32), res)
+    return np.degrees(np.arctan(np.hypot(gx, gy)))
+
+
+def is_obstacle(elevation: np.ndarray, surface: np.ndarray, res: float, radius: int = RADIUS,
+                min_height: float = MIN_HEIGHT, wall: Optional[Tuple[float, int]] = None) -> np.ndarray:
+    """Pixels where the surface stands more than min_height above the terrain's envelope (with
+    wall, the wider envelope near steep terrain); False where the surface has no data, True
+    where it has but no terrain around has."""
+    z = np.asarray(elevation, dtype=np.float32)
+    top = envelope(z, radius)
+    if wall is not None:
+        degrees, pixels = wall
+        with np.errstate(invalid="ignore"):
+            near = ndimage.binary_dilation(slope_degrees(z, res) >= degrees,  # NaN compares False
+                                           structure=np.ones((2 * pixels + 1,) * 2, dtype=bool))
+        top = np.where(near, np.maximum(top, envelope(z, pixels)), top)
     with np.errstate(invalid="ignore"):
-        return np.degrees(np.arctan(np.hypot(gx, gy))) >= degrees
+        return np.asarray(surface, dtype=np.float32) > top + np.float32(min_height)  # NaN: False
 
 
 def _block(z: np.ndarray, s: np.ndarray, res: float, radius: int, min_height: float,
            wall: Optional[Tuple[float, int]]) -> np.ndarray:
     """The obstacle surface of one block of rows (z, s: terrain and surface, with their halo)."""
-    top = envelope(z, radius)
-    if wall is not None:
-        degrees, pixels = wall
-        near = ndimage.binary_dilation(steep(z, res, degrees), structure=np.ones((2 * pixels + 1,) * 2, dtype=bool))
-        top = np.where(near, np.maximum(top, envelope(z, pixels)), top)
-    with np.errstate(invalid="ignore"):
-        obstacle = s > top + np.float32(min_height)  # NaN: False
+    obstacle = is_obstacle(z, s, res, radius, min_height, wall)
     return np.where(np.isnan(s), np.float32(np.nan), np.where(obstacle, s, z)).astype(np.float32, copy=False)
 
 
