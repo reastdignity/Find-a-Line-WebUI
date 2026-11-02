@@ -242,6 +242,60 @@ def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
     assert "Note: Data © Someone 2031." in "\n".join(events)
 
 
+def test_orthophoto_tiles_per_strip():
+    """tiles_to_cache tests each strip within its own bounding box (the union's box holds mostly
+    empty tiles when the lines are spread out): exactly the tiles of the union of the strips, as
+    the code of before 2026-11-02 found them (kept here as the reference), whatever the overlap."""
+    import math
+    import random
+
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    import area as ar
+    import orthophoto as ortho
+
+    def reference_tiles_in(area, zooms):
+        tiles = set()
+        prepared = prep(area)
+        minx, miny, maxx, maxy = area.bounds
+        for z in zooms:
+            size = ortho._tile_size(z)
+            for x in range(math.floor((minx + ortho._EARTH) / size), math.floor((maxx + ortho._EARTH) / size) + 1):
+                for y in range(math.floor((ortho._EARTH - maxy) / size), math.floor((ortho._EARTH - miny) / size) + 1):
+                    left, top = x * size - ortho._EARTH, ortho._EARTH - y * size
+                    if prepared.intersects(box(left, top - size, left + size, top)):
+                        tiles.add((z, x, y))
+        return tiles
+
+    def reference(lines, area, max_zoom):
+        scale = 1 / math.cos(math.radians(area.center[0]))
+        tiles = reference_tiles_in(area.shape_mercator(), ortho.OVERVIEW_ZOOMS)
+        strips = [LineString([ortho._to_mercator.transform(line["anchor1"][1], line["anchor1"][0]),
+                              ortho._to_mercator.transform(line["anchor2"][1], line["anchor2"][0])]
+                             ).buffer(ortho.BUFFER_M * scale) for line in lines]
+        if strips:
+            tiles |= reference_tiles_in(unary_union(strips), range(ortho.DETAIL_ZOOMS[0], max_zoom + 1))
+        return tiles
+
+    lat, lon = 50.1559508, 19.7562722
+    rnd = random.Random(7)
+
+    def strips(n, spread):
+        found = []
+        for _ in range(n):
+            a1 = (lat + rnd.uniform(-spread, spread) / 111000, lon + rnd.uniform(-spread, spread) / 71000)
+            length, angle = rnd.uniform(30, 600), rnd.uniform(0, 2 * math.pi)
+            found.append({"anchor1": a1, "anchor2": (a1[0] + length * math.sin(angle) / 111000,
+                                                      a1[1] + length * math.cos(angle) / 71000)})
+        return found
+    circle = ar.Circle(lat, lon, 300)
+    for lines, max_zoom in ((strips(5, 300), 21), (strips(30, 150), 21), (strips(3, 100), 19), ([], 21)):
+        expected = reference(lines, circle, max_zoom)
+        assert ortho.tiles_to_cache(lines, circle, max_zoom) == expected
+        assert max(z for z, _, _ in expected) == (max_zoom if lines else 16)
+
+
 def _funnel(tmp_path, monkeypatch, **values) -> dict:
     """search.Plan.funnel of a search in this process (offline, the lines not saved)."""
     for key, v in OFFLINE_ENV.items():
