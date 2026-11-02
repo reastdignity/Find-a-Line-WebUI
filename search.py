@@ -55,6 +55,7 @@ import lineprofiles as lp
 import linesearch as ls
 import mapping as mp
 import messages
+import obstacles
 import orthophoto as ortho
 import osm
 import runs as rn
@@ -189,6 +190,9 @@ class Plan:
     # tiles get the same dict (dataclasses.replace), so it sums over them. A tile of a resumed search
     # that was saved already adds nothing
     funnel: Dict[str, int] = field(default_factory=dict)
+    # How obstacles are told from the terrain's own rock (obstacles.RULE, recorded in run.json);
+    # None: the surface model as it is (no surface model, a source without the rule, runs before it)
+    obstacles: Optional[Dict] = None
 
 
 STEPS = 5
@@ -356,7 +360,8 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
     return Plan(params, paths, area, source, grid, resolution, group_distance, nmpt, rigging, layers,
                 emit, crs, (x, y), limits, tiles, core,
                 memory=memory if memory is not None else available_memory() if limits else None,
-                early_stop=limits.lines_early_stop if limits else True)
+                early_stop=limits.lines_early_stop if limits else True,
+                obstacles=dict(obstacles.RULE) if nmpt and source.obstacles and obstacles.RULE else None)
 
 
 def _check_params(limits: Optional[Limits], params: SearchParams, resolution: Optional[float] = None):
@@ -706,9 +711,14 @@ def prepare_data(plan: Plan) -> Data:
                 if filled_px:
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
                                  f"from {fallback.name}")
+        bare = None
         if p.water == "fill":
+            if surface_path and plan.obstacles:
+                bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
             water_path = src.fill_water(elevation_path, surface_path, grid, wbm, sea_zone,
                                         os.path.join(work, "water.npy"))
+            if bare is not None:
+                bare &= np.load(water_path)  # water the terrain model lacked: no obstacles there
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
     elevation = np.load(elevation_path, mmap_mode="r")
@@ -721,6 +731,14 @@ def prepare_data(plan: Plan) -> Data:
                                           "area.\nLines there are checked against the bare terrain only: trees and "
                                           "buildings under\nthem are not marked.", "no_surface",
                                           percent=round(100 * no_surface)))
+    if surface is not None and plan.obstacles:
+        # Trees and buildings, not the terrain's own rock (obstacles.py): what every line is checked against
+        obstacles_path = os.path.join(work, "obstacles.npy")
+        out = np.lib.format.open_memmap(obstacles_path, mode="w+", dtype=np.float32, shape=surface.shape)
+        obstacles.obstacle_surface(elevation, surface, plan.resolution, out, bare=bare, **plan.obstacles)
+        out.flush()
+        del out, bare
+        surface = np.load(obstacles_path, mmap_mode="r")
     slope = None
     if p.slope_file:
         slope_path = src.load_slope_file(p.slope_file, grid, os.path.join(work, "slope.npy"))
@@ -1108,7 +1126,7 @@ def _run_params(plan: Plan) -> Dict:
             "max_wall_angle": p.max_wall_angle, "min_prominence": p.min_prominence,
             "min_prominence_both": p.min_prominence_both, "prominence_span": p.prominence_span,
             "min_drop": p.min_drop, "drop_radius": p.drop_radius,
-            "nmpt": plan.nmpt, "water": p.water, "coastline": p.coastline,
+            "nmpt": plan.nmpt, "obstacles": plan.obstacles, "water": p.water, "coastline": p.coastline,
             "shore_buffer": p.shore_buffer, "fill_gaps": p.fill_gaps,
             "group_distance": plan.group_distance,
             "group_by": p.group_by, "model": p.model,
@@ -1236,6 +1254,7 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
     plan = plan_search(SearchParams(**values), paths, lambda kind, text: None, with_margin=False)
     if plan.crs != meta["center"]["crs"]:
         raise SearchError(f"the run used {meta['center']['crs']}, a search here would use {plan.crs}", "profile_crs")
+    plan.obstacles = p.get("obstacles")  # the run's rule; runs before it compared the surface model as it is
     data = prepare_data(plan)
     grid, res = plan.grid, plan.resolution
     pixel = lambda x, y: (int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5)))

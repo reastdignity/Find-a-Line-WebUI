@@ -51,33 +51,52 @@ Rules for every step:
 - The highest risk is in step 5 (tile borders, duplicate lines) and step 7 (viewer matching Python); step 1 must be done before them.
 
 ## Priorities (open)
-1. **The surface model above the terrain on steep rock** (priority raised by the user, 2026-11-02; a task of its
-   own, on its own branch; it touches the obstacle test, not the sources, so it can run beside a batch of sources).
-   - *What is seen*: on bare rock nearly every line is marked as over trees or buildings. Wales (2026-11-01): every
-     line at Cwm Silyn (a cwm without trees, 2854 lines) and at the Dinorwig slate quarries. South Tyrol's 2.5 m data:
-     the DSM a median of 5.9 m above the DTM at 60-75°. Batch 2 (2026-11-02): R40 Preikestolen 105 150 of 125 054
-     lines, R41 Stawamus Chief all 19 348 (a granite monolith), R42 Castle Hill / Kura Tawhiti 2208 of 2238. The
-     user saw the same in the Tatras (2026-11-02), on their vertical walls, as the diagnosis below expects.
-   - *Measured* on the Stawamus Chief (Canada's HRDEM 1 m, 1 km around 49.682, -123.143), DSM minus DTM by the
-     DTM's slope: 0-30° a median of 21 m (forest), 30-50° 17.5 m, 50-70° 4.6 m, 70-90° 7.2 m (p10 1.5 m; more than
-     0.5 m on 99 % of the pixels). Norway's DOM rises more than 100 m above its DTM on vertical walls.
-   - *Likely cause*: on a steep face a pixel spans metres of height (tan of the slope times the pixel: 2.7 m at 70°,
-     5.7 m at 80° for 1 m), the DSM keeps a pixel's highest return (the rim, the face's upper part) while the DTM
-     interpolates the ground through it, so the difference is the face's own relief, not an obstacle; at the anchors,
-     where the webbing starts at the rim's height, that relief stands above it. The clearance of such lines (often
-     0-0.2 m over the terrain) makes any excess count.
-   - *Effect*: every source with a surface model (all of them but the USA's and Finland's): with
-     `--nmpt mark` (the default) the mark and the map's filter of lines over trees lose their meaning on cliffs, with
-     `--nmpt reject` nearly every line from a cliff is lost.
-   - *To do*: measure DSM minus DTM under the marked lines (where along a line, how far from the anchors, which
-     slope) at several sources and resolutions (Wales, the Chief, Preikestolen, Lauterbrunnen at 0.5 m, the Tatras,
-     South Tyrol at 2.5 m), including places with real trees under lines (R41's gullies), then choose a rule and
-     measure it on the regression places before deciding. Candidates: an obstacle only where DSM minus DTM exceeds
-     the pixel's own relief from the DTM's slope plus the data's noise; obstacles only where the DTM is gentle enough
-     to carry vegetation or buildings; no obstacle within the anchors' own pixels or within a few pixels of them; the
-     maximum of the obstacle height above the ground (see "Obstacles lowered by averaging the DSM" under *To check*).
-     A change re-baselines the regression set's `over_trees` (and, with `reject`, its lines): its own commit, a
-     behaviour change.
+1. **Obstacles on rock: what is left** (after the surface model on steep rock, done 2026-11-02, below).
+   - *Forest edges right at an anchor*: the envelope also excuses crowns that stand below the rock beside them (a
+     forest reaching the rim just below an anchor: R28, R29, R35 in tools/obstacle_study.py's pictures). A test of
+     the crowns around such a pixel (A<r>+V<k>: a crown within 1-2 pixels on terrain under 50° reaching its height)
+     kept few of them (A2+V2 lost 20 % of the lines with a tree by the proxies, A2 22 %): the proxies count rims
+     beside a forest as trees too, so the real share is unknown (3 of 11 pictures were trees).
+   - *CHMv2 as a layer* (Meta/WRI's canopy heights, checked 2026-11-02): CC BY 4.0 without share-alike (credit "Meta
+     and World Resources Institute (WRI) - 2026. Version 2 High Resolution Canopy Height Maps (CHMv2). Source imagery
+     for CHM © 2016 Vantor"), anonymous AWS bucket `dataforgood-fb-data` (us-east-1, not requester pays), z10 quadkey
+     COGs in EPSG:3857 (1.19 m, uint8 metres, about 0.34 MB per km² of mountain forest), imagery dates per area in
+     `metadata/<quadkey>.geojson` (the Tatras 2015 and 2019), trees only. Measured by the study: shifted 2-6 m against
+     the lidar in places, tors and their shadows taken for trees of up to 17 m (Castle Hill), forests spread onto the
+     rock beside them, "trees" by 1192 lines of the treeless Cwm Silyn: no filter on its own; it could give the USA
+     and Finland obstacles at all (DTM + CHMv2), a task of its own (high effort: a new kind of layer, credits, probe).
+   - *The rule on the data's own grid* (with "Obstacles lowered by averaging the DSM" under *To check*): the
+     envelope and the obstacle height computed on the source's pixels, their maximum per working pixel.
+
+## Done: the surface model above the terrain on steep rock (2026-11-02)
+- *What was seen*: on bare rock nearly every line was marked as over trees or buildings (Cwm Silyn all 2854 lines,
+  R27 Dinorwig, R40 Preikestolen 105 150 of 125 054, R41 Stawamus Chief all 19 348, R42 Castle Hill 2208 of 2238,
+  the Tatras, South Tyrol); with `--nmpt reject` nearly every line from a wall was lost.
+- *Cause*, two mechanisms: (1) a pixel of the surface model holds the highest point of its area while the terrain
+  model holds the ground at its centre, half the pixel times the tangent of the slope on a plane, up to the wall's
+  height where a wall crosses the pixel; a line needs a drop of 6.15 m to its first pixel (formula, 1 m), so that
+  pixel is on a face of 81° or more and its surface stands about 3 m above the line's limit; (2) the rims of the
+  surface model often stand 1-4 pixels beyond those of the terrain model (ground filters cut rims, overhangs and
+  block tops; Norway's DOM more than 100 m above its DTM on walls).
+- *Literature*: canopy height models (surface minus terrain) are known to be distorted on steep slopes (Khosravipour
+  et al. 2015; the lidR book: raster subtraction less exact than normalising the points), practitioners see "trees"
+  on cliffs (LAStools forum) and fix the classification of the points by hand; ground filters take cliff faces for
+  objects (Pack et al. 2012); the progressive morphological filter's threshold grows with the slope and the window
+  (Zhang 2003, PDAL `filters.pmf`); power line clearance uses classified vegetation points, not rasters; IGN's MNH is
+  MNS minus MNT. No raster-only standard fix was found.
+- *Measured* with `tools/obstacle_study.py` (the regression places with a surface model, Cwm Silyn, Dolina Złomisk,
+  Mały Kieżmarski Szczyt, Mnich, Zamarła Turnia, Giewont, Sokolica and 38.658, -0.038 in Alicante; 602 115 marked lines, the
+  production kernel checking every count): the envelope of 1 pixel (3 x 3) removed 58 % of the marks whose pixels
+  CHMv2 and WorldCover call bare rock, 2 pixels 86 %, 3 pixels 94 %; a slope tolerance (as the morphological
+  filter's), a slope mask, a zone around the anchors and CHMv2 did worse. Marks before the rule / with a radius of
+  1 / 2 / 3 pixels: Cwm Silyn 2851 / 2266 / 256 / 18, Mnich 11 337 / 1901 / 21 / 3, Dolina Złomisk 896 / 511 / 71 / 20,
+  Zamarła Turnia 56 364 / 27 396 / 7885 / 1993, Preikestolen 105 150 / 57 286 / 23 915 / 8367; forests: Berdorf and
+  Lauterbrunnen unchanged, Będkowska 52 486 / 52 426 / 52 401 / 52 373, the Bode gorge 8495 / 7094 / 5063 / 4125.
+- *Decided* (the user, 2026-11-02): radius 2 pixels and 1 m above the envelope (`obstacles.py`: `RULE`), balanced
+  between marks left on rock and trees lost; water filled where the terrain model had no data never an obstacle
+  (Malta's cliffs: the foot filled with 0 m, the face in the surface model); FABDEM + Copernicus compared as they are
+  (`Source.obstacles`); the rule recorded in run.json (`params.obstacles`), a profile computed again uses its run's
+  (runs before it: the surface model as it is); no option to switch it off. The regression set re-baselined.
 
 ## Stage 0: refactoring
 - `findaline.main(args)` becomes a library function `run_search(params, on_progress)`. One parameter schema (pydantic) is shared by the CLI, the API and the browser form, with types, defaults, limits and help texts in one place. argparse is generated from it.
@@ -642,7 +661,7 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **No shell anywhere**: the worker calls `run_search()` directly.
 
 ## To check
-- **"Over trees/buildings" on bare rock**: moved to *Priorities (open)* above (the user, 2026-11-02).
+- **"Over trees/buildings" on bare rock**: done 2026-11-02 (*Done: the surface model above the terrain on steep rock*).
 - **Known highlines from SlackMap** (the user's idea, 2026-11-01): [SlackMap](https://slackmap.com), the International Slackline Association's community map of lines and spots (open source, GPL-3.0: github.com/International-Slackline-Association/slackmap; also an iOS app), lists rigged highlines with both anchors. Two uses: (1) choose the regression places of new sources where highlines are actually rigged, not only where the search finds many lines; (2) check the search against them: which known lines does it find (with which clearance and wall angles), which not and why (the data's resolution, trees in the DSM, the limits), per country and per source. Its data were out of reach on 2026-11-01: slackmap.com has no A record, the map's GeoJSON files (`data.slackmap.com/geojson/lines/all.geojson`, `.../spots/all.geojson`, as the web app's `web/src/app/api/constants.ts` names them) point to a CloudFront distribution without addresses, and `api.slackmap.com` answers details by id only. Try again later or ask the ISA for an export; check the data's licence (user contributions) before keeping a copy in the repository. Candidates measured for R27 in Wales then (radius 400 m, lines of 50–400 m): Dinorwig slate quarries at Llanberis (53.1245, -4.1100) 934 lines in 20 spots of 51–101 m, Cwm Silyn (53.0300, -4.2150) 2854 lines in 42 spots of 200–389 m, Dorothea quarry 19, Pen-yr-Orsedd quarry none.
 - **Interpolating to a finer grid lowers the number of lines** (seen 2026-11-01 in South Tyrol, R30 at the Sella towers): the same search at the data's 2.5 m found 11 347 lines in 115 spots, at `--resolution 1` (bilinear from 2.5 m) 295 lines in 6 spots. Find out which is closer to the truth: more pixels sampled under each line at 1 m, or a clearance check that the interpolation makes stricter (smoothed rims, lower anchors); compare with a place that has both 2.5 m and 0.5 m data (South Tyrol's settlements, or Switzerland's 0.5 m averaged to 2.5 m and interpolated back).
 - **Obstacles lowered by averaging the DSM** (measured 2026-10-26 at Lauterbrunnen, 0.5 → 1 m): the highest 0.5 m value of a pixel is above its mean by 0.25 m (median) and 7.7 m (99th percentile), so single treetops come out lower than they are; at 2 m and coarser more so. Taking the maximum of the DSM instead does not work: the clearance limit comes from the anchor heights in the averaged DTM, and anchors lie on cliff edges, where the maximum of a pixel is the rim (up to 189 m above the mean on vertical walls); the pixels next to every anchor and along every wall would become obstacles, so nearly every line from a cliff would be marked as over trees, and single wrong DSM points would spread over whole pixels. To try instead: the maximum of the obstacle height above the ground (DSM − DTM on the data's grid), added to the averaged DTM; on bare rock it is about 0, tree crowns keep their height. Costs: both models on one fine grid first (Polish NMPT 0.5 m, NMT 1 m), mixed pixels on slopes and forest edges, changed results over trees. Measure on the regression places before deciding.
