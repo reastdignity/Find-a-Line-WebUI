@@ -376,6 +376,54 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
   patch endpoint, `ViewSettings`; sync rules: the body's encoder and decoder, the page's CSP and the catalogue's
   orthophoto origins, `RING_ORIGINS`, the Mapterhorn texts behind the switch, the 0.5.3 internals of the ring).
 
+## Wave E: the "Edges" look (2026-11-02, the user's decisions)
+A fourth kind of imagery, `edges` (`ui.view3d.imagery_edges` = "Edges"), after `shaded` in the control; the default
+stays the first available kind. The look is the prototype's variant M (branch `l3d-edges-proto`, never merged: its
+`viewer/src/view3d/edges.ts` and its changes of `view.ts` and `scene.ts` are the reference; the renders:
+https://claude.ai/artifact/G9VFV9yjC3mNNZ4ojWAE5z):
+- the terrain on paper: light grey `#eceae4` in the light theme, dark grey `#4a504c` in the dark one (a `--paper`
+  token of the page), lit as `shaded`;
+- bold lines from a screen-space pass (silhouettes: the distance from the camera jumps, relative 0.012–0.035;
+  creases: the normals differ, 1 − dot 0.10–0.28; creases at 0.75 strength) in `--ink` (dark on light, light on dark),
+  over the terrain alone (a layer of the chunks; the webbing, walker and overlay never make edges);
+- thin feature edges of the mesh (`EdgesGeometry`, faces turning by more than 28°) in `--muted`, made when the look is
+  first chosen and hidden in the other kinds;
+- the ring (when on) takes the same look: its tiles on the terrain's layer, on paper, without an overlay.
+One agent (VE) on `l3d-wE-edges`; it owns, for this wave: `edges.ts` (new), `view.ts`, `scene.ts`, `scene-api.ts`
+(add what the imagery and the ring need, e.g. `setEdges(on)`, the terrain's layer, the paper's colour), `imagery.ts`,
+`ring.ts`, `ringmath.ts`, `view3d.css` (the `--paper` token only), `locales/en.json` (`ui.view3d.imagery_edges`), one
+sentence in README's "The 3D view of a line", the pages `view3d-edges` (and its dark and phone screenshots come from
+`--dark` and the devices) in `tools/ui_shots.py`, the Edges tests in `tests/test_view3d.py` and
+`tests/test_view3d_ring.py`, Node tests of pure parts in `tests/test_viewer.py`. Not `main.ts`, `line.ts`,
+`walk.ts`, `edit.ts`, `pin.ts`, `screen.ts` (wave 4). Lines one CSS pixel wide at every pixel ratio (the pass samples
+at `devicePixelRatio` texels, at most 2); the colour target multisampled at level `full` only; drawn on demand only
+(one more render of the terrain and one full-screen pass a frame while Edges is on); disposed, resized and freed on
+context loss with the rest. Tests: switching to Edges draws (the root's `data-imagery="edges"`), only on demand, no
+CSP violation, back to Shaded removes the pass; the ring's Edge test once with Edges.
+
+## Wave 4 (2026-11-02, started without a stop after wave E: the user's word)
+- **V4b, the device test page** (in parallel with wave E; branch `l3d-w4-device`): `tools/device_page.py` with a test
+  `tests/test_device_page.py`. `record`: from a scratch data folder with runs (R2 Dolina Bolechowicka and R19
+  Lauterbrunnen of `tests/regression.json`, searched there by the agent), the answers of `/api/patch` (steps 1 and 2)
+  and `/api/profile` for a few lines of each run, taken from the local app in-process (as the tests do), saved with
+  their headers. `serve`: HTTPS on `0.0.0.0` (a self-signed certificate whose SANs hold the PC's LAN addresses, made
+  per start, as `tools/ui_shots.py` makes its own), the 3D page as `web.VIEW3D_HTML` gives it with the app's headers
+  and CSP (`web.SECURITY_HEADERS`, the page's own), `/app/view3d.js|css` from `viewer/dist`, the recorded answers by
+  run, line and step (anything else 404), `/cache/` read-only from the data folder, an index page of the recorded
+  lines with links for both levels; `ESRI_API_KEY` put into the page when set (never into a file); GET only, no
+  accounts, nothing else of the app. A checklist for the user's iPhone in its docstring (and printed at start): the
+  certificate warning, Windows' firewall prompt, open/orbit/zoom, the walker's slider and the walk, both levels,
+  imagery kinds incl. Edges once wave E is in, five minutes without a reload, rotate the phone. It also reports the
+  data per open of each recorded line: the patch's bytes per step, the profile's, and the imagery's tiles counted
+  by `tiles.ts`' plan with their bytes (cached tiles measured, service tiles sampled): R2 and R19, desktop and phone.
+  It owns only those two files (and `.gitignore` if it needs a line); it changes nothing of the app or the viewer.
+- **V4a, the phone bar** (after wave E, so with four kinds of imagery): at 390 px the readout fits (shorter readout
+  on narrow screens or two lines, never a hidden scroll), the imagery control fits (four kinds: e.g. a native select
+  under 600 px), "No imagery" and the notes never overlap the buttons; owns `main.ts`, `line.ts`, `walk.ts`,
+  `view3d.css` and the imagery control's markup in `imagery.ts`.
+- **The coordinator**: the data per open at R2 and R19 (from V4b's tool), the Edges thresholds on those real patches,
+  the visual review, CLAUDE.md (code map, sync rules), `docs/3d-view.md`'s status, full checks, the report.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
