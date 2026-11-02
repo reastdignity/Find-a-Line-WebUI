@@ -179,7 +179,8 @@ function KeyFields({s}: {s: SearchState}) {
              onInput={(v) => s.setValue("max_anchor_diff_m", v)} />
     </Field>}
     {source && <Field label={<span class={cx(changed("source") && "s-changed")}>{label("source")}</span>} htmlFor={sourceId}
-                      hintLabel={label("source")} hint={hintOf(source)}>
+                      hintLabel={label("source")} hint={hintOf(source)}
+                      help={<a href="/coverage" target="_blank" rel="noopener">{t("ui.coverage.where")}</a>}>
       <select id={sourceId} class="u-input" value={String(s.value("source"))}
               onChange={(e) => s.setValue("source", e.currentTarget.value)}>
         {source.choices!.map((c) => <option value={c}>{source.choice_labels?.[c] ?? c}</option>)}

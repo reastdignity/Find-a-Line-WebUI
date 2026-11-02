@@ -58,6 +58,7 @@ export function SearchIntro({state, usage}: {state: IntroState; usage: Usage | n
   const values = names();
   return <Intro state={state} title={t("intro.search.title")} class="n-intro-search">
     <p><Rich text={t("intro.search.what")} /></p>
+    <p>{t("ui.coverage.intro")} <a href="/coverage" target="_blank" rel="noopener">{t("ui.coverage.link")}</a></p>
     <h3>{t("intro.search.limits")}</h3>
     {!usage ? <p class="u-small">{t("intro.search.limits_loading")}</p>
       : usage.limited ? <ul class="n-limits">{limitLines(usage).map((line) => <li>{line}</li>)}</ul>

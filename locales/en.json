@@ -359,6 +359,13 @@
 
   "ui.try": "Try interface {{ui}}",
   "ui.credits.toggle": "Data credits",
+  "ui.coverage.intro": "How much a search can see depends on the elevation data of the place: detailed lidar in many countries, rough 30 m data elsewhere.",
+  "ui.coverage.link": "See the coverage map.",
+  "ui.coverage.where": "Where is the data detailed?",
+  "ui.coverage.layer": "Data coverage",
+  "ui.coverage.open": "Coverage map",
+  "ui.coverage.loading": "Loading the coverage…",
+  "ui.coverage.failed": "The coverage could not be loaded.",
   "ui.searched.title": "Area searched",
   "ui.searched.today": "{{area}} km² today",
   "ui.searched.total_one": "{{area}} km² in {{searches}} search",

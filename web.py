@@ -369,10 +369,11 @@ def title(p: pm.SearchParams) -> str:
 
 # The routes anyone may request in the public mode (signing in and out, the page, which shows a
 # sign-in page with the demo runs to visitors, its assets, the list of runs of the maps, which
-# gives a visitor the demo runs only, the privacy and about pages); every other route depends on current_user,
-# require_admin or run_access (tests/test_public.py checks it)
+# gives a visitor the demo runs only, the privacy and about pages, the coverage map); every other route
+# depends on current_user, require_admin or run_access (tests/test_public.py checks it)
 PUBLIC_ROUTES = {"/", "/login/{provider}", "/auth/{provider}", "/logout", "/app", "/runs/index.html",
-                 "/runs/runs.js", "/s/runs.js", "/s/index.html", "/cache/{path:path}", "/privacy", "/about"}
+                 "/runs/runs.js", "/s/runs.js", "/s/index.html", "/cache/{path:path}", "/privacy", "/about",
+                 "/coverage"}
 SESSION_SWEEP = 6 * 3600  # seconds between deletions of expired sessions (the web process, public site)
 SHARE_BYTES = 32  # the random part of a share link
 # Sources for administrators only on the public site: nasadem needs the server's OpenTopography key, which
@@ -668,6 +669,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             return APP_HTML.format(token=found[1], user=html.escape(json.dumps(found[0].public())),
                                    contact=html.escape(public.contact), keys=key_meta(esri_key))
         return signin_page(accounts.providers, *(found or (None, None)), demos=runs_of(None), total=everyone())
+
+    @app.get("/coverage", response_class=HTMLResponse)
+    def coverage():
+        """The coverage map (viewer/src/coverage/page): where the data is detailed, for everyone, in both
+        modes; its data is in the bundle and its outlines next to it (/app/coverage-shapes.json)."""
+        return COVERAGE_HTML.format(site="public" if public else "local")
 
     everyone_cache = {"at": -math.inf, "total": (0.0, 0)}
 
@@ -1545,6 +1552,21 @@ APP_HTML = """<!doctype html>
 """
 
 
+# The coverage map's page: a shell for its bundle (coverage.js and .css: English or Polish, the theme of the
+# app, preferences in the browser's localStorage only); data-site="public" adds the links of the public site
+COVERAGE_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data coverage · Find-a-Line</title>
+<meta name="description" content="Where Find-a-Line has detailed elevation data for finding highlines.">
+<link rel="icon" href="/app/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app/coverage.css">
+</head><body class="cov-body"><div id="coverage" data-site="{site}"></div>
+<noscript><p>The coverage map needs JavaScript.</p></noscript>
+<script src="/app/coverage.js"></script>
+</body></html>
+"""
+
+
 def key_meta(esri_key: Optional[str]) -> str:
     """The app page's keys (settings.WebKeys) for its own maps, which load no runs.js before they draw
     (layers.ts esriKey): a meta element, or nothing without a key."""
@@ -1574,8 +1596,8 @@ PROVIDER_SVG = {
                  '<path fill="#7fba00" d="M11 1h9v9h-9z"/><path fill="#00a4ef" d="M1 11h9v9H1z"/>'
                  '<path fill="#ffb900" d="M11 11h9v9h-9z"/></svg>',
 }
-PAGE_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a><a href="/privacy">Privacy</a>'
-               '<a href="/about">About / data licences</a></footer>')
+PAGE_FOOTER = ('<footer class="p-footer"><a href="/">Find-a-Line</a><a href="/coverage">Data coverage</a>'
+               '<a href="/privacy">Privacy</a><a href="/about">About / data licences</a></footer>')
 # The sign-in, privacy and about pages of the public site: server-rendered, no script, no inline styles;
 # the kit's look (viewer/src/ui/pages.css, in /app/app.css), the theme of the system
 SIGNIN_HTML = """<!doctype html>
@@ -1585,7 +1607,8 @@ SIGNIN_HTML = """<!doctype html>
 <link rel="stylesheet" href="/app/app.css">
 </head><body class="ui p-body"><main class="p-page p-signin">
 <header class="p-brand"><h1 class="u-logo">{logo}<span class="u-sr">Find-a-Line</span></h1>
-<p class="p-lead">Finds possible highlines in elevation data.</p>{total}</header>
+<p class="p-lead">Finds possible highlines in elevation data.</p>{total}
+<p class="u-small"><a href="/coverage">Where the data is detailed: the coverage map</a></p></header>
 {body}
 {footer}
 </main></body></html>
@@ -1716,7 +1739,8 @@ def about_page(contact: str, esri: bool = False) -> str:
     body = [
         "<p>Find-a-Line finds possible highlines in elevation data: anchors on steep ground, every pair checked for "
         "clearance under the webbing. Its results are suggestions to check on the spot, not safety advice.</p>",
-        "<h2>Elevation data</h2><ul>" + "".join(rows) + "</ul>",
+        "<h2>Elevation data</h2><p>Where each source's data is detailed: <a href='/coverage'>the coverage map</a>."
+        "</p><ul>" + "".join(rows) + "</ul>",
         f"<p>{e(src.credit.PROCESSED_NOTE)}</p>",
         "<h2>OpenStreetMap</h2><p>Coastlines, cliffs, named areas and place names: © "
         "<a href='https://www.openstreetmap.org/copyright'>OpenStreetMap contributors</a>, under the Open Database "

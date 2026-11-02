@@ -1,7 +1,8 @@
 // The map of the app: a click sets the centre of a circle, or areas are drawn
 // (Leaflet-Geoman: polygons and rectangles), or an uploaded area is shown.
 // The interfaces reuse its Leaflet map (`map`) for the results too: setSearchVisible(false)
-// takes the search's layers, tools and clicks off it; `controls` places its controls.
+// takes the search's layers, tools and clicks off it; `controls` places its controls. The button "Data
+// coverage" (coverageLayer.ts) shows where the elevation data is detailed.
 
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
@@ -10,6 +11,7 @@ import L from "leaflet";
 import { baseLayers } from "../layers";
 import { COLORS } from "../style";
 import type { Line, Ortho } from "../types";
+import { CoverageLayer } from "./coverageLayer";
 
 export type Mode = "point" | "draw" | "file" | "preset";
 const COLOR = "#1f77b4";
@@ -31,6 +33,7 @@ export class PlaceMap {
   private layers: L.Control.Layers;
   private first: L.Layer;    // the default base layer
   private ortho: L.Layer | null = null;  // the orthophoto of the run shown (setRunOrtho)
+  coverage: CoverageLayer;   // where the elevation data is detailed (its own button)
   onPoint: (lat: number, lon: number) => void = () => {};
   onDrawn: () => void = () => {};
 
@@ -43,6 +46,7 @@ export class PlaceMap {
     const layers = baseLayers(null, MAX_ZOOM);
     this.first = Object.values(layers)[0].addTo(this.map);
     this.layers = L.control.layers(layers, {}, {position: options.controls}).addTo(this.map);
+    this.coverage = new CoverageLayer(this.map, options.controls);
     this.drawn.addTo(this.map);
     this.shown.addTo(this.map);
     this.preview.addTo(this.map);
