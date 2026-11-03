@@ -966,7 +966,8 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
     p, grid, emit = plan.params, plan.grid, plan.emit
     _step(plan, 2, "finding significant slopes")
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
+                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope,
+                                         threads=line_threads(p))
     for seams in (data.filled, data.joined):
         if seams is not None:  # slopes across the edge of a filled gap mix two surveys: not reliable anchors there
             anchors = anchors[~at_seams(seams, anchors)]

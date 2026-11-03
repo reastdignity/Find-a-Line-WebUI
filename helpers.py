@@ -6,6 +6,9 @@ All rasters share one working grid (see geoportal.Grid). Pixel coordinates are
 [row, col]; distances and elevations are in metres.
 """
 
+import os
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import Dict, List, NamedTuple, Optional, Tuple
 
@@ -308,11 +311,11 @@ def webbing_height(margin, sag_table=None):
 
 def find_significant_slopes(elevation: np.ndarray, res: float, slope_threshold: float,
                             area_mask: np.ndarray, slope: Optional[np.ndarray] = None,
-                            block_rows: int = 512) -> np.ndarray:
+                            block_rows: int = 256, threads: Optional[int] = None) -> np.ndarray:
     """Finds pixels steep enough to be promising anchors.
 
     Slope is computed from the elevation model unless a slope raster (in degrees)
-    is given. Only pixels inside the search area are returned.
+    is given. Only pixels inside the search area are returned, in row-major order.
 
     Args:
         elevation: NMT elevation grid
@@ -320,31 +323,45 @@ def find_significant_slopes(elevation: np.ndarray, res: float, slope_threshold: 
         slope_threshold: Minimum slope in degrees
         area_mask: True inside the search area (area.Area.mask), aligned with elevation
         slope: Optional slope grid in degrees, aligned with elevation
-        block_rows: Rows processed at once (keeps memory use bounded)
+        block_rows: Rows of one block (keeps memory use bounded: a block's temporaries are
+            about 3 float32 copies of it, `threads` blocks at a time)
+        threads: Blocks computed at once (numpy releases the GIL in these operations; the
+            values of a block do not depend on the others: each has its rows of halo);
+            None: min(8, CPUs)
 
     Returns:
         Array of [row, col] anchor coordinates (int32)
     """
     height, width = elevation.shape
-    anchors = []
 
-    progress.compute.start("finding anchors", height, unit="row")
-    for r0 in range(0, height, block_rows):
+    def block_anchors(r0: int) -> np.ndarray:
         r1 = min(height, r0 + block_rows)
         if slope is None:
             # One extra row on each side so the gradient is correct at block edges
             h0, h1 = max(0, r0 - 1), min(height, r1 + 1)
             z = np.asarray(elevation[h0:h1], dtype=np.float32)
             gy, gx = np.gradient(z, res)
-            block = np.degrees(np.arctan(np.hypot(gx, gy)))[r0 - h0:r0 - h0 + (r1 - r0)]
+            del z
+            np.hypot(gx, gy, out=gx)  # in place: the same values as np.degrees(np.arctan(np.hypot(gx, gy)))
+            del gy
+            np.arctan(gx, out=gx)
+            np.degrees(gx, out=gx)
+            block = gx[r0 - h0:r0 - h0 + (r1 - r0)]
         else:
             block = np.asarray(slope[r0:r1])
-
         rows, cols = np.nonzero(block >= slope_threshold)  # NaN compares False
         rows += r0
         inside = area_mask[rows, cols]
-        anchors.append(np.column_stack([rows[inside], cols[inside]]).astype(np.int32))
-        progress.compute.update(r1 - r0)
+        return np.column_stack([rows[inside], cols[inside]]).astype(np.int32)
+
+    starts = range(0, height, block_rows)
+    workers = max(1, min(len(starts), threads or min(8, os.cpu_count() or 1)))
+    anchors = []
+    progress.compute.start("finding anchors", height, unit="row")
+    with ThreadPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
+        for r0, found in zip(starts, pool.map(block_anchors, starts) if pool else map(block_anchors, starts)):
+            anchors.append(found)  # in the order of the blocks: row-major as one pass gives them
+            progress.compute.update(min(height, r0 + block_rows) - r0)
     progress.compute.finish()
     return np.concatenate(anchors) if anchors else np.empty((0, 2), dtype=np.int32)
 

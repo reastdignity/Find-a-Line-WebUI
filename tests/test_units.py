@@ -856,6 +856,9 @@ def test_prominence_and_drop_match_the_whole_grid(seed):
     for res, span in [(1.0, 0.5), (1.0, 1), (1.0, 2), (1.0, 5), (2.0, 24), (1.0, 37), (0.5, 40), (1.0, 1000)]:
         new = terrain.prominence(z, anchors, res, span)
         assert np.array_equal(new, _old_prominence(z, anchors, res, span), equal_nan=True), (res, span)
+        ordered = anchors[np.lexsort((anchors[:, 1], anchors[:, 0]))]  # row-major: no lexsort inside
+        assert np.array_equal(terrain.prominence(z, ordered, res, span), _old_prominence(z, ordered, res, span),
+                              equal_nan=True), (res, span)
     for res, radius in [(1.0, 0.5), (1.0, 1), (1.0, 3), (2.0, 21), (1.0, 64), (1.0, 500)]:
         new = terrain.drop(z, anchors, res, radius)
         assert np.array_equal(new, _old_drop(z, anchors, res, radius), equal_nan=True), (res, radius)
@@ -944,6 +947,51 @@ def test_near_matches_the_dilation():
                     assert got.dtype == bool and got.shape == mask.shape
                     assert np.array_equal(got, expected), (shape, n, metres, res)
             assert src.near(mask, 0, 1.0) is mask and src.near(mask, 0.4, 1.0).sum() >= mask.sum()
+
+
+def _slopes_before(elevation, res, slope_threshold, area_mask, slope=None, block_rows=512):
+    """helpers.find_significant_slopes before 2026-11-03 (one thread, blocks of 512 rows), the reference."""
+    height, width = elevation.shape
+    anchors = []
+    for r0 in range(0, height, block_rows):
+        r1 = min(height, r0 + block_rows)
+        if slope is None:
+            h0, h1 = max(0, r0 - 1), min(height, r1 + 1)
+            z = np.asarray(elevation[h0:h1], dtype=np.float32)
+            gy, gx = np.gradient(z, res)
+            block = np.degrees(np.arctan(np.hypot(gx, gy)))[r0 - h0:r0 - h0 + (r1 - r0)]
+        else:
+            block = np.asarray(slope[r0:r1])
+        rows, cols = np.nonzero(block >= slope_threshold)
+        rows += r0
+        inside = area_mask[rows, cols]
+        anchors.append(np.column_stack([rows[inside], cols[inside]]).astype(np.int32))
+    return np.concatenate(anchors) if anchors else np.empty((0, 2), dtype=np.int32)
+
+
+def test_significant_slopes_as_before():
+    """find_significant_slopes in blocks on threads: exactly the anchors of the old single-threaded
+    pass, in row-major order (what terrain.prominence's lexsort gives), for any block size and thread
+    count, with NaN, a slope raster and grids of two rows or columns (np.gradient needs two)."""
+    import helpers as sh
+    rng = np.random.default_rng(5)
+    for shape in [(2, 2), (2, 40), (40, 2), (2, 3), (511, 7), (513, 9), (700, 300), (1500, 120)]:
+        z = np.cumsum(rng.normal(0, 2.0, shape), axis=0).astype(np.float32)
+        z += rng.normal(0, 1.5, shape).astype(np.float32)
+        z[rng.random(shape) < 0.02] = np.nan
+        mask = rng.random(shape) < 0.9
+        slope = (rng.random(shape) * 90).astype(np.float32)
+        for res, threshold in ((1.0, 45), (0.5, 60), (2.0, 30)):
+            expected = _slopes_before(z, res, threshold, mask)
+            expected_slope = _slopes_before(z, res, threshold, mask, slope)
+            for block_rows, threads in ((256, None), (512, 1), (1, 3), (7, 8), (100, 2), (2000, 4)):
+                got = sh.find_significant_slopes(z, res, threshold, mask, block_rows=block_rows, threads=threads)
+                assert got.dtype == np.int32 and np.array_equal(got, expected), (shape, res, block_rows, threads)
+                got = sh.find_significant_slopes(z, res, threshold, mask, slope, block_rows=block_rows,
+                                                 threads=threads)
+                assert np.array_equal(got, expected_slope), (shape, res, block_rows, threads)
+            if len(expected):
+                assert np.array_equal(np.lexsort((expected[:, 1], expected[:, 0])), np.arange(len(expected)))
 
 
 def test_seams_as_before():
