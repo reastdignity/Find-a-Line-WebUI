@@ -132,6 +132,12 @@ body.cov-body { background: #f3f5f2; }
   .cov-legend { position: static; margin-top: 10px; max-width: none; box-shadow: none; }
   .cov-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
   .cov-mapbox { height: min(62vh, 520px); min-height: 340px; }
+  /* the map high on the first screen (the user's pick): the lead after the map and its legend, no hint on the
+     gestures; the order of the document stays (a screen reader reads the lead first) */
+  .cov-intro { display: contents; }
+  .cov-lead { order: 1; }
+  .cov-stage ~ * { order: 2; }
+  .cov-bar > .cov-small { display: none; }
   /* the four buttons in one row: the layers' control goes below them */
   .cov-in-leaflet .cov-zoombar { right: 10px; }
   .cov-in-leaflet .leaflet-top.leaflet-right { top: 44px; }

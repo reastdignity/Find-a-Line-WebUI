@@ -311,10 +311,13 @@ README's GIF and images, and videos and images for Facebook and Instagram (READM
   degrees towards the poles: Malta and Puerto Rico fell off the frame); the 9:16 videos keep their empty top band
   (Instagram's own header covers it); the poster's PDF is made by img2pdf (the user's pick over our own few lines; it
   brings pikepdf, MPL-2.0, with qpdf); all 96 videos take about 70 min, so only the set the user picks is rendered.
-- **Open**: the music of the 26 s videos (a track with a licence, from the user); posting the videos and images;
-  the phone's first screen of /coverage (header and intro take most of it) and the Leaflet view's Europe preset on
-  phones; Firefox shows a fallback font in a run's map opened from disk (fonts in `runs/_viewer/`, outside the
-  page's folder).
+- **Wave 3** (review): on phones the lead goes below the map and its legend (the user's pick: the map starts at
+  about a third of the first screen, not half), the Leaflet view's buttons take the whole row, the flat view's dots
+  grow with the fourth root of the zoom; the end card lists the credits of every data a video showed; the captions
+  name one area per source (Malta, Luxembourg, South Tyrol, Trento, the four ArcticDEM areas).
+- **Open**: the music of the videos (a track with a licence, from the user; until then silent), then all 96
+  rendered; posting the videos and images; Firefox shows a fallback font in a run's map opened from disk (fonts in
+  `runs/_viewer/`, outside the page's folder).
 
 ## New data sources
 Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a hosted copy, see below), then Switzerland (done first, 2026-10-26: it needed no hosting); Greece has no usable national source. The USA was researched on 2026-10-26 and its terrain added on 2026-10-30 (below); its surface model is still to come.
