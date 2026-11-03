@@ -15,7 +15,7 @@ from sources.layers.wmsr import WmsrTiles  # noqa: E402
 from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
-       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
+       "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "british_columbia", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "iceland", "islandsdem10", "europe", "copernicus", "nasadem"]
 
@@ -521,6 +521,36 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                 'credit': 'ArcticDEM v4.1 mosaic 2 m (Polar Geospatial Center)',
                                 'shift': (0.0, 0.0)},
                         'nmpt': None},
+            'british_columbia': {'crs': None,
+                                 'countries': ('ca',),
+                                 'bbox': None,
+                                 'fallbacks': ['canada', 'canada_2m', 'mrdem30'],
+                                 'grid_origin': (0.0, 0.0),
+                                 'default_resolution': 1.0,
+                                 'instead_without_data': None,
+                                 'local_crs': 'bc_utm_crs',
+                                 'ortho': None,
+                                 'credits': ['LidarBC DEM / DSM 1 m (GeoBC, Province of British Columbia)'],
+                                 'nmt': {'class': 'LidarBcBlocks',
+                                         'description': 'LidarBC DEM 1 m (terrain)',
+                                         'folder': 'canada/lidarbc-dem',
+                                         'prefix': 'lidarbc-dem',
+                                         'native_res': 1.0,
+                                         'processing': 1,
+                                         'ttl_days': None,
+                                         'credit': 'LidarBC DEM / DSM 1 m (GeoBC, Province of British Columbia)',
+                                         'shift': (0.0, 0.0),
+                                         'index_url': 'https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services/LiDAR_BC_S3_Public/FeatureServer'},
+                                 'nmpt': {'class': 'LidarBcBlocks',
+                                          'description': 'LidarBC DSM 1 m (trees, buildings)',
+                                          'folder': 'canada/lidarbc-dsm',
+                                          'prefix': 'lidarbc-dsm',
+                                          'native_res': 1.0,
+                                          'processing': 1,
+                                          'ttl_days': None,
+                                          'credit': 'LidarBC DEM / DSM 1 m (GeoBC, Province of British Columbia)',
+                                          'shift': (0.0, 0.0),
+                                          'index_url': 'https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services/LiDAR_BC_S3_Public/FeatureServer'}},
             'canada': {'crs': 'EPSG:3979',
                        'countries': ('ca',),
                        'bbox': None,
@@ -1835,7 +1865,7 @@ def test_layer_surface():
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
-                       "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland"}
+                       "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland", "british_columbia"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
                    "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg"}
@@ -1873,6 +1903,9 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("no-21", (74.3, 80.9, 10.0, 34.0)), ("no-22", (70.8, 71.2, -9.1, -7.9)),
          ("ca-nu", (64.0, 83.2, -110.0, -61.0)), ("ca-nu", (60.0, 64.0, -102.0, -79.5)),
          ("ca-nu", (62.6, 64.0, -79.5, -61.0)),
+         ("ca-bc", (49.0, 60.0, -139.1, -120.0)), ("ca-bc", (48.2, 49.0, -125.0, -123.2)),
+         ("ca-bc", (49.0, 51.0, -120.0, -116.0)), ("ca-bc", (49.0, 50.3, -116.0, -114.6)),
+         ("ca-bc", (51.0, 51.8, -118.5, -116.6)), ("ca-bc", (51.0, 53.8, -120.0, -118.5)),
          ("ca", (48.9, 60.0, -139.1, -52.6)), ("ca", (48.2, 48.9, -125.0, -123.2)), ("ca", (46.0, 48.9, -95.2, -74.3)),
          ("ca", (41.6, 46.0, -83.6, -74.3)), ("ca", (43.3, 48.9, -74.3, -52.6)), ("ca", (60.0, 83.2, -141.0, -61.0)),
          ("si", (45.42, 46.48, 13.37, 15.00)), ("si", (45.42, 46.62, 15.00, 15.65)),

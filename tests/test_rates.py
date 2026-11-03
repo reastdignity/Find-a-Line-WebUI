@@ -179,7 +179,7 @@ def test_published_limits():
                                  "geodaten.schleswig-holstein.de": 4, "gis.arso.gov.si": 2,
                                  "spatial-img.information.qld.gov.au": 4, "geodata.npolar.no": 4,
                                  "ftp.natt.is": 4, "gis.natt.is": 4,
-                                 "www.shop.lvgl.saarland.de": 2}
+                                 "www.shop.lvgl.saarland.de": 2, "nrs.objectstore.gov.bc.ca": 4}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 

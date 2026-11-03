@@ -49,6 +49,8 @@ from .indexes import cached, listings, tilings, versions
 from .indexes import osgrid, s3listing
 from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, indexed, sheets, stac, tnm, wcs, zipped
 from .layers import s3blocks
+from .indexes import arcgis
+from .layers import lidarbc
 from .catalogue import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
 from .catalogue import australia
 from .catalogue import slovenia
@@ -79,6 +81,7 @@ from .layers.metalink import MetalinkTiles
 from .layers.s3blocks import S3Blocks
 from .layers.geojson import GeoJsonTiles
 from .layers.zipmembers import ZipMemberTiles
+from .layers.lidarbc import LidarBcBlocks
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M

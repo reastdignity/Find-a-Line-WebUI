@@ -103,12 +103,15 @@ def _on_server(layer, server, years=None):
     if isinstance(layer, src.TnmBlocks):
         return type(layer)(layer.description, layer.dataset, layer.prefix, layer.folder, layer.native_res,
                            layer.block_m, layer.bytes_per_tile(), api=server.url(path))
+    if isinstance(layer, src.LidarBcBlocks):  # its FeatureServer and its bucket both on the server
+        return src.LidarBcBlocks(layer.description, server.url(path), layer.layers,
+                                 server.url(urlsplit(layer.bucket).path), layer.prefix, layer.folder)
     raise AssertionError(f"no recorded case for {type(layer).__name__}")
 
 
 def test_recorded_cases_exist():
-    assert CASES == ["stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m", "tnm/ifsar5m",
-                     "wfs/geoportal-error", "wfs/geoportal-nmt"]
+    assert CASES == ["arcgis/lidarbc-dem", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
+                     "tnm/ifsar5m", "wfs/geoportal-error", "wfs/geoportal-nmt"]
     assert ERROR_CASES == ["wfs/geoportal-error"]
 
 
@@ -125,9 +128,11 @@ def test_recorded_index_answers(case, http_server, tmp_path):
     assert layer.update_index_tile(cache_dir, lat, lon) == (0, 0, 0)  # nothing cached: nothing downloaded
     with open(layer.index_path(cache_dir, lat, lon), "rb") as f:
         written = f.read()
-    host, = recorded["hosts"]
     with open(os.path.join(folder, "expected.json"), "rb") as f:
-        assert written.replace(http_server.base.encode(), host.encode()) == f.read()
+        expected = f.read()
+    # The host of the addresses in the index answer (an index on one host listing files on another: LidarBC)
+    host = next(h for h in recorded["hosts"] if h.encode() in expected or len(recorded["hosts"]) == 1)
+    assert written.replace(http_server.base.encode(), host.encode()) == expected
     assert not http_server.stray()
     asked = [key_of(r.method, r.path + "?" + urlencode(r.query)) for r in http_server.log]
     expected = [key_of(a["method"], urlsplit(a["url"])._replace(scheme="", netloc="").geturl())

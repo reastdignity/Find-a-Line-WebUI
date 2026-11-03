@@ -206,7 +206,8 @@ def test_declared_neighbours():
                                                      "brandenburg")
     assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia", "czechia", "bavaria",
                                                     "slovenia")
-    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada",)
+    assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada", "british_columbia")
     assert src.SOURCES["nunavut"].neighbours == ("canada",)
     assert src.SOURCES["canada"].neighbours == ("usa", "alaska", "alaska_ifsar", "nunavut")
     assert src.SOURCES["saarland"].neighbours == ("rhineland_palatinate", "france", "luxembourg")
+    assert src.SOURCES["british_columbia"].neighbours == ("usa", "alaska", "alaska_ifsar")

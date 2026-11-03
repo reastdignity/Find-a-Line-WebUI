@@ -69,14 +69,16 @@ class CachedIndex(Index):
     search in a known place asks the index nothing; the versions policy chooses among them.
     Without the index (offline) and without its cached answer, the cached files over the
     area are used (tiles() gives None). The answers are asked again after their TTL
-    ("sheet-index") or with an update.
+    (ttl_days: "sheet-index" unless the index publishes more often) or with an update.
 
     tiles() gets only the grid: use() gives it the cache folder and the update mode first.
     """
 
-    def __init__(self, description: str, listing: Listing, versions: Versions, prefix: str, top: str):
+    def __init__(self, description: str, listing: Listing, versions: Versions, prefix: str, top: str,
+                 ttl_days: Optional[float] = None):
         self.description, self.listing, self.versions, self.prefix, self.top = \
             description, listing, versions, prefix, top
+        self.ttl_days = cache.TTL_DAYS["sheet-index"] if ttl_days is None else ttl_days
         self._listed: Dict[tuple, list] = {}
         self.cache_dir: Optional[str] = None  # set by use() (tiles() does not get it)
         self.update: Optional[str] = None
@@ -92,7 +94,7 @@ class CachedIndex(Index):
     def answers(self, cache_dir: str, lat: float, lon: float, update: Optional[str] = None) -> List[Dict]:
         """The versions listed in one tile, asking the index when not cached or stale."""
         path = self.index_path(cache_dir, lat, lon)
-        due = lambda: cache.due(cache_dir, path, update=update, ttl=cache.TTL_DAYS["sheet-index"])  # noqa: E731
+        due = lambda: cache.due(cache_dir, path, update=update, ttl=self.ttl_days)  # noqa: E731
         if due():
             with tile_lock(cache_dir, path):  # another search may be asking for it now
                 if due():
