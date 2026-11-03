@@ -332,13 +332,14 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
         "distance": group_distance, "by": group_by, "model": model,
         "rigging": dataclasses.asdict(rigging or Rigging()),
         "slope": SLOPE, "leash_fall": LEASH_FALL, "high_above": high_above, "max_zoom": MAX_ZOOM,
+        "terrain": run.get("terrain"),  # the search area's (hypsometry.statistics), None when not known
         "lines": None,
     }
     encoder = json.JSONEncoder(separators=(",", ":"))
     target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
     with open(os.path.join(run_path, "data.js"), "w", encoding="utf-8") as full,             open(os.path.join(run_path, "lines.js"), "w", encoding="utf-8") as short:
         full.write(_script_head("window.FINDALINE_RUN", data))
-        short.write(_script_head(target, {"crs": crs, "area": data["area"], "lines": None}))
+        short.write(_script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], "lines": None}))
         for start in range(0, len(lines), LINES_CHUNK):
             stop = min(start + LINES_CHUNK, len(lines))
             separator = "," if start else ""

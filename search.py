@@ -52,6 +52,7 @@ import cache
 import coast
 import grid as gd
 import helpers as sh
+import hypsometry as hy
 import mapping as mp
 import messages
 import obstacles
@@ -224,6 +225,8 @@ class Data:
     # Pixels filled from the national data of a neighbour (Source.neighbours): not "filled gaps"
     # of less precise data (filled), but a seam of two surveys where they meet
     joined: Optional[np.ndarray] = None
+    # The heights of the land with data of the search area (of a tile's core), hypsometry.py
+    terrain: Optional[hy.Histogram] = None
 
 
 @dataclass
@@ -231,6 +234,8 @@ class Lines:
     """Steps 2-4 results: every valid line (with the profiles it keeps) and the groups ("spots")."""
     results: sh.LineTable
     spot_groups: mp.Groups
+    # The terrain of the whole search area (hypsometry.statistics), None when not known
+    terrain: Optional[Dict] = None
 
 
 @dataclass
@@ -714,8 +719,22 @@ class _Background:
         return self._value
 
 
-def prepare_data(plan: Plan) -> Data:
-    """Step 1: download what is missing and build the grids (terrain, surface, water, gaps)."""
+def _core_window(grid, core: tuple) -> Tuple[slice, slice]:
+    """The rows and columns of grid whose pixel centres lie in core (left, bottom, right, top),
+    half-open like a line's first anchor in _lines: the cores of a tiled search lie on pixel
+    edges, so their windows split the area's pixels between the tiles."""
+    left, bottom, right, top = core
+    x, _ = grid.pixel_to_xy(0, np.arange(grid.width))
+    _, y = grid.pixel_to_xy(np.arange(grid.height), 0)
+    span = lambda inside: (slice(int(inside[0]), int(inside[-1]) + 1) if inside.size else slice(0, 0))
+    return (span(np.flatnonzero((bottom <= y) & (y < top))), span(np.flatnonzero((left <= x) & (x < right))))
+
+
+def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True) -> Data:
+    """Step 1: download what is missing and build the grids (terrain, surface, water, gaps).
+
+    statistics: count the heights of the land with data in the search area (Data.terrain,
+    hypsometry.py), within core (a tile's bounds) when given."""
     p, grid, source, emit = plan.params, plan.grid, plan.source, plan.emit
     cache_dir, work = plan.paths.cache, plan.paths.work
     _step(plan, 1, f"downloading elevation data ({source.name})")
@@ -734,7 +753,7 @@ def prepare_data(plan: Plan) -> Data:
             surface_path = src.prepare_layer(source.nmpt, grid, cache_dir,
                                              os.path.join(work, "nmpt.npy"), "surface", p.update, download=False)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
-        water_path = filled_path = joined_path = sea_zone = None
+        water_path = filled_path = joined_path = sea_zone = wbm = terrain = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
             sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update)
@@ -754,6 +773,14 @@ def prepare_data(plan: Plan) -> Data:
             sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
             progress.compute.update(1)
             progress.compute.finish()
+        if statistics:
+            # The source's own terrain, before any filling (filled pixels are NaN still)
+            progress.compute.start("terrain statistics", 1, unit="step")
+            terrain = hy.land_histogram(np.load(elevation_path, mmap_mode="r"), mask, wbm, sea_zone,
+                                        _core_window(grid, core) if core is not None else None)
+            progress.compute.update(1)
+            progress.compute.finish()
+        del mask
         if _fills_gaps(plan):
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
@@ -806,13 +833,13 @@ def prepare_data(plan: Plan) -> Data:
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
-                np.load(joined_path, mmap_mode="r") if joined_path else None)
+                np.load(joined_path, mmap_mode="r") if joined_path else None, terrain)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
     """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
-    return Lines(results, groups)
+    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution))
 
 
 def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0) -> Tuple[sh.LineTable, mp.Groups]:
@@ -1076,6 +1103,7 @@ def _progress(run: Dict, status: str):
 
 
 TILE_FILE = "{}.table.pkl.gz"  # a finished tile's lines; "<k>.pkl.gz" of before held a dict per line
+TERRAIN_FILE = "{}.terrain.npz"  # its terrain's histogram (hypsometry.save), saved before the tile file
 
 
 def _save_tile(path: str, lines: sh.LineTable):
@@ -1111,26 +1139,32 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     folder = os.path.join(run["path"], "tiles")
     os.makedirs(folder, exist_ok=True)
     tables, count = [], 0
+    terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
+        terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
         if not os.path.exists(path):
             plan.emit("info", f"\n--- Tile {k + 1} of {len(plan.tiles)} ({tile.width} x {tile.height} px) ---")
             work = os.path.join(plan.paths.work, f"tile{k}")
             os.makedirs(work, exist_ok=True)
             tile_plan = dataclasses.replace(plan, grid=tile, paths=Paths(plan.paths.data, work), tiles=None,
                                             tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ")
-            data = prepare_data(tile_plan)
+            data = prepare_data(tile_plan, core)
             found, _ = _lines(tile_plan, data, core, before=count)
+            histogram = data.terrain
             del data
             gc.collect()  # close the memory-mapped grids before deleting them (Windows)
             shutil.rmtree(work, ignore_errors=True)
             progress.set_step(f"{tile_plan.tile_label}Step 4/{STEPS}: saving the tile's lines")
+            hy.save(terrain_path, histogram)  # before the tile file, which marks the tile done
             _save_tile(path, found)
             table = found.without_pixels()  # what loading the file gives, without the round trip
             del found
         else:
             progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
             table = _load_tile(path).without_pixels()  # tile files of before, tiles without anchors
+            histogram = hy.load(terrain_path)  # None for a tile saved before the statistics
+        terrain = terrain + histogram if terrain is not None and histogram is not None else None
         tables.append(table)
         count += len(tables[-1])
         _check_lines(plan, count)
@@ -1158,7 +1192,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         progress.compute.finish()
         src.used_data[:] = used
     progress.set_step("")
-    return Lines(results, groups), run
+    return Lines(results, groups, hy.statistics(terrain, plan.resolution)), run
 
 
 def _merged_data() -> List[Dict]:
@@ -1237,6 +1271,13 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     p, emit = plan.params, plan.emit
     results, spot_groups = lines.results, lines.spot_groups
     _step(plan, 5, "saving the run and the map")
+    terrain = lines.terrain
+    if terrain is None:
+        emit("info", "Terrain of the search area: not known")
+    else:
+        q = terrain["quantiles"]
+        emit("info", f"Terrain of the search area: {q[0]:.0f}–{q[100]:.0f} m, mean {terrain['mean']:.0f} m, "
+                     f"median {q[50]:.0f} m ({terrain['km2']:.2f} km² of land with data)")
     center_lat, center_lon = plan.area.center
     x, y = plan.center_xy
     if run is None:
@@ -1259,6 +1300,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
                     "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
                     # which lines have a profile in the map (runs before 2026-11: all of a circle's)
                     "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
+        "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
@@ -1395,7 +1437,7 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
     if plan.crs != meta["center"]["crs"]:
         raise SearchError(f"the run used {meta['center']['crs']}, a search here would use {plan.crs}", "profile_crs")
     plan.obstacles = p.get("obstacles")  # the run's rule; runs before it compared the surface model as it is
-    data = prepare_data(plan)
+    data = prepare_data(plan, statistics=False)
     grid, res = plan.grid, plan.resolution
     pixel = lambda x, y: (int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5)))
     sag_table = None

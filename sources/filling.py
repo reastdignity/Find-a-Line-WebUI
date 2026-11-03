@@ -57,6 +57,20 @@ def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
     return ndimage.binary_dilation(mask, structure=np.ones((3, 3)), iterations=max(1, math.ceil(metres / res)))
 
 
+def water_with_data(z: np.ndarray, wbm: Optional[np.ndarray], sea_zone: Optional[np.ndarray]) -> np.ndarray:
+    """The water among the pixels of z that have data (fill_water's mask keeps it, the terrain's
+    statistics leave it out, hypsometry.py): lakes of the water body mask wbm (measured by LiDAR),
+    and the sea zone at most SEA_LEVEL_TOLERANCE high (sea given as about 0 m by the data itself,
+    e.g. IGN Spain). None for a mask: none of that water."""
+    water = np.zeros(z.shape, bool)
+    if wbm is not None:
+        water |= wbm == LAKE
+    if sea_zone is not None:
+        with np.errstate(invalid="ignore"):
+            water |= sea_zone & (z <= SEA_LEVEL_TOLERANCE)
+    return water & np.isfinite(z)
+
+
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
                sea_zone: np.ndarray, out_path: str) -> str:
     """Give the sea and lakes an elevation where the data has none.
@@ -109,8 +123,7 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
         lake_px += int(area.sum())
     # Water that the elevation data covers: lakes measured by LiDAR, and sea given as
     # about 0 m by the data itself (e.g. IGN Spain)
-    water |= (wbm == LAKE) & ~empty
-    water |= sea_zone & ~empty & (np.asarray(elevation) <= SEA_LEVEL_TOLERANCE)
+    water |= water_with_data(np.asarray(elevation), wbm, sea_zone) & ~empty
     elevation.flush()
     if surface is not None:
         surface.flush()
