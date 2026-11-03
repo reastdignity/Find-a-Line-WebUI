@@ -28,6 +28,7 @@ import numpy as np
 from numba import njit, prange
 
 import helpers as sh
+import runs as rn
 from progress import progress
 
 SECTORS = 64   # direction sectors per anchor
@@ -606,8 +607,9 @@ def _covered_pixels(a1, a2, mask, out):
 
 def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np.ndarray]) -> np.ndarray:
     """Metres of each line over the pixels of a mask (water, filled gaps): the values of
-    helpers.line_profile ("water_m", "filled_m") without the rest of the profile (float64).
-    Python's round() of every value, COVERED_PART lines at a time (its lists stay small)."""
+    helpers.line_profile ("water_m", "filled_m") without the rest of the profile (float64),
+    COVERED_PART lines at a time: Python's round(count * length / steps, 1) of every line
+    (runs.round_floats of the same float64 products and quotients), 0.0 where no pixel is set."""
     out = np.zeros(len(a1))
     if mask is None or len(a1) == 0:
         return out
@@ -620,8 +622,8 @@ def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np
         d = q - p
         steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
         lengths = np.hypot(d[:, 0], d[:, 1]) * res
-        out[at:at + len(p)] = [round(float(n) * length / s, 1) if n else 0.0
-                               for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+        some = np.flatnonzero(counts)  # the others stay 0.0 (a line may have no pixel between its anchors)
+        out[at + some] = rn.round_floats(counts[some] * lengths[some] / steps[some], 1)
     return out
 
 

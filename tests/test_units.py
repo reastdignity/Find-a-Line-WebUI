@@ -196,6 +196,52 @@ def test_covered_metres_match_profiles(monkeypatch):
     assert ls.covered_metres(a1, a2, 2.0, None).tolist() == [0.0] * len(a1)
 
 
+def _old_covered_metres(a1, a2, res, mask):
+    """linesearch.covered_metres before wave 3 of round 3 (Python's round() line by line): the reference."""
+    import linesearch as ls
+    out = np.zeros(len(a1))
+    if mask is None or len(a1) == 0:
+        return out
+    p, q = np.ascontiguousarray(a1, dtype=np.int64), np.ascontiguousarray(a2, dtype=np.int64)
+    counts = np.zeros(len(p), dtype=np.int64)
+    ls._covered_pixels(p, q, np.ascontiguousarray(mask, dtype=np.bool_), counts)
+    d = q - p
+    steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
+    lengths = np.hypot(d[:, 0], d[:, 1]) * res
+    out[:] = [round(float(n) * length / s, 1) if n else 0.0
+              for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+    return out
+
+
+def test_covered_metres_as_before(monkeypatch):
+    """covered_metres rounds whole parts with runs.round_floats: the values of the old round() per
+    line, halfway cases too (lines along a row or a column at 0.25 or 1.25 m give n * res with a 5
+    in the second decimal, exact in binary), lines of one step and of none, parts of any size."""
+    import linesearch as ls
+    rng = np.random.default_rng(29)
+    size = 120
+    a1 = rng.integers(0, size, (4000, 2))
+    a2 = rng.integers(0, size, (4000, 2))
+    straight = rng.random(len(a1)) < 0.4  # along a row or a column
+    axis = rng.integers(0, 2, len(a1))
+    a2[straight, axis[straight]] = a1[straight, axis[straight]]
+    diagonal = rng.random(len(a1)) < 0.1
+    span = rng.integers(-40, 40, len(a1))
+    a2[diagonal] = np.clip(a1[diagonal] + span[diagonal, None], 0, size - 1)
+    a2[:5] = a1[:5]  # no step
+    a2[5:10] = a1[5:10] + [0, 1]  # one step
+    a2 = np.clip(a2, 0, size - 1)
+    for share in (0.0, 0.05, 0.3, 0.9, 1.0):
+        mask = rng.random((size, size)) < share
+        for res in (0.25, 0.5, 1.0, 1.25, 2.0, 0.1, 0.15, 5.0, 30.0, 1 / 3):
+            expected = _old_covered_metres(a1, a2, res, mask)
+            got = ls.covered_metres(a1, a2, res, mask)
+            assert got.dtype == np.float64
+            assert list(map(repr, got.tolist())) == list(map(repr, expected.tolist())), (share, res)
+    monkeypatch.setattr(ls, "COVERED_PART", 37)
+    assert ls.covered_metres(a1, a2, 1.25, mask).tolist() == _old_covered_metres(a1, a2, 1.25, mask).tolist()
+
+
 def _profile_case(seed=13, size=300):
     """Terrain with walls (lines over a gap), a few pixels without data, a surface model missing in
     places, water and filled masks, and lines of 2 to about 300 pixels between non-NaN anchors."""
