@@ -177,6 +177,8 @@ class Plan:
     tiles: Optional[List[Tuple[tuple, gd.Grid]]] = None
     tile_core: Optional[float] = None
     tile_label: str = ""  # "Tile 3/15 · " while a tile of a large area is computed
+    # A tile's plan: the grid of the whole search (the world water polygons are read once for it)
+    search_grid: Optional[gd.Grid] = None
     owner: Optional[int] = None  # the user of the web app's job (None: the local app, the command line)
     # The memory the search may use (_check_lines): its compute slot's budget, or the memory free
     # when a search with limits was planned; None: not checked
@@ -730,7 +732,8 @@ def prepare_data(plan: Plan) -> Data:
         water_path = filled_path = joined_path = sea_zone = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
-            sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update)
+            sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update,
+                                                        extent=plan.search_grid)
             emit("info", f"Coastline: {coast_source}")
             if coast_source.startswith("OpenStreetMap"):
                 src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
@@ -1090,7 +1093,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             work = os.path.join(plan.paths.work, f"tile{k}")
             os.makedirs(work, exist_ok=True)
             tile_plan = dataclasses.replace(plan, grid=tile, paths=Paths(plan.paths.data, work), tiles=None,
-                                            tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ")
+                                            tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ", search_grid=plan.grid)
             data = prepare_data(tile_plan)
             found, _ = _lines(tile_plan, data, core, before=count)
             del data

@@ -966,6 +966,38 @@ def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
     assert not clipped.geometry.contains(Point(1050 * m, 500 * m))  # a box clips the band
 
 
+def test_world_water_read_once_for_the_tiles(tmp_path, monkeypatch):
+    """coast.sea_mask of the tiles of a search (extent: its whole grid) reads the world file's polygons
+    once, and each tile's mask is the one the polygons read for that tile alone gave."""
+    import geopandas as gpd
+    import coast
+    from shapely.geometry import Point, box
+    rng = np.random.default_rng(3)
+    polygons = [Point(14.20 + 0.10 * rng.random(), 36.00 + 0.06 * rng.random()).buffer(0.001 + 0.006 * rng.random())
+                for _ in range(80)] + [box(14.17, 35.99, 14.34, 36.004), box(14.25, 36.07, 14.40, 36.2)]
+    shapefile = str(tmp_path / "water_polygons.shp")
+    gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326").to_file(shapefile)
+    monkeypatch.setattr(coast, "world_polygons", lambda cache_dir, update=None: shapefile)
+    reads = []
+    read_file = gpd.read_file
+    monkeypatch.setattr(gpd, "read_file", lambda *a, **k: reads.append(k["bbox"]) or read_file(*a, **k))
+    crs = "EPSG:32633"
+    from rasterio.warp import transform_bounds
+    whole = gd.make_grid(transform_bounds("EPSG:4326", crs, 14.2, 36.0, 14.3, 36.06), 5, crs)
+    left, bottom, right, top = whole.bounds
+    tiles = [gd.make_grid((x, y, min(x + 3000, right), min(y + 2500, top)), 5, crs)
+             for x in np.arange(left, right, 2500) for y in np.arange(bottom, top, 2000)]
+    coast._WORLD_READ.clear()
+    for tile in tiles:
+        sea, _, _ = coast.sea_mask(tile, "unused", "world", np.ones((tile.height, tile.width), bool), extent=whole)
+        assert sea.dtype == bool and sea.shape == (tile.height, tile.width)
+        alone = read_file(shapefile, bbox=coast._grid_bbox_wgs84(tile)).to_crs(crs)
+        assert np.array_equal(sea, coast._rasterize(alone.geometry, tile))
+    assert len(reads) == 1 and reads[0] == coast._grid_bbox_wgs84(whole)
+    assert sum(coast._rasterize(gpd.GeoSeries(polygons, crs="EPSG:4326").to_crs(crs), t).sum() for t in tiles) > 0
+    coast._WORLD_READ.clear()
+
+
 def _fake_lines(n):
     import helpers as sh
     return sh.LineTable.from_rows([
