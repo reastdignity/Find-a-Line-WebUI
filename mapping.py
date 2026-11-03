@@ -329,7 +329,9 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
             # a link for the attribution, when the service has one (a licence page, the provider's site)
             **({"attribution_url": url} if (url := getattr(ortho_service, "attribution_url", None)) else {}),
             # a WMS taking EPSG:4326 in lon-lat order only (OrthoService.wms_version; absent: 1.3.0)
-            **({"wms_version": v} if (v := getattr(ortho_service, "wms_version", "1.3.0")) != "1.3.0" else {})},
+            **({"wms_version": v} if (v := getattr(ortho_service, "wms_version", "1.3.0")) != "1.3.0" else {}),
+            # a WMS asked in Web Mercator (OrthoService.wms_crs; absent: EPSG:4326)
+            **({"wms_crs": c} if (c := getattr(ortho_service, "wms_crs", "EPSG:4326")) != "EPSG:4326" else {})},
         "attribution": run.get("attribution", []),  # credits of the data used (sources.Credit)
         "distance": group_distance, "by": group_by, "model": model,
         "rigging": dataclasses.asdict(rigging or Rigging()),

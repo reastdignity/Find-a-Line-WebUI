@@ -75,6 +75,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # (QSpatial's "Elevation and LiDAR" page, updated 18 Nov 2024, and the services' item info, read
     # 2026-11-02): courtesy
     "spatial-img.information.qld.gov.au": 4,
+    # The Natural Science Institute of Iceland's file server (IslandsDEM) and mapcache (its aerial basemap): no
+    # published limits (its open data page, read 2026-11-03, says nothing on automated use): courtesy
+    "ftp.natt.is": 4,
+    "gis.natt.is": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

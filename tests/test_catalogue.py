@@ -17,7 +17,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "europe", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "islandsdem10", "europe", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -1399,6 +1399,26 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                  'origin': (0.0, 0.0),
                  'zones': ('EPSG:28355', 'EPSG:28354')},
                          'nmpt': None},
+            'islandsdem10': {'crs': 'EPSG:8088',
+                             'countries': (),
+                             'bbox': None,
+                             'fallbacks': [],
+                             'grid_origin': (0.0, 0.0),
+                             'default_resolution': 10.0,
+                             'instead_without_data': None,
+                             'local_crs': 'utm_crs',
+                             'ortho': 'iceland/grunnkort-loftmynd/live',
+                             'credits': ['IslandsDEM v1.0 10 m (Natural Science Institute of Iceland)'],
+                             'nmt': {'class': 'FileBlocks',
+                                     'description': 'IslandsDEM v1.0 10 m (terrain)',
+                                     'folder': 'iceland/islandsdem-v1.0-10m',
+                                     'prefix': None,
+                                     'native_res': 10.0,
+                                     'processing': 1,
+                                     'ttl_days': None,
+                                     'credit': 'IslandsDEM v1.0 10 m (Natural Science Institute of Iceland)',
+                                     'shift': (0.0, 0.0)},
+                             'nmpt': None},
             'europe': {'crs': None,
                        'countries': (),
                        'bbox': None,
@@ -1602,6 +1622,7 @@ PATHS = [
      "queensland/dem-lidar/live/epsg28354-1m-1000px-tif/360_7708.tif", ("EPSG:28354", (1.0, 360, 7708))),
     ("queensland_demh", "nmt", ("EPSG:28355", (30.0, 26, 512)),
      "queensland/dem-h/live/epsg28355-30m-500px-tif/26_512.tif", ("EPSG:28355", (30.0, 26, 512))),
+    ("islandsdem10", "nmt", (563, 78), "iceland/islandsdem-v1.0-10m/11_1/563_78.tif", (563, 78)),
 ]
 
 
@@ -1904,8 +1925,12 @@ ATTRIBUTIONS = {
     "slovenia": "Agencija Republike Slovenije za okolje, LiDAR DMR 1 m, 2011-2015",
     "brandenburg": "© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0 (Daten geändert)",
     "schleswig_holstein": "©GeoBasis-DE/LVermGeo SH/CC BY 4.0 (Quelle verändert)",
+    "islandsdem10": "IslandsDEM v1.0 by Náttúrufræðistofnun is licensed under CC BY 4.0. This product was in part "
+                    "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH "
+                    "2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
+    "islandsdem10": ("Grunnkort - Loftmynd by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
     "austria": ("Datenquelle: basemap.at", "https://basemap.at"),
     "slovakia": ("© GKÚ Bratislava, NLC, CC BY 4.0", src.CC_BY[1]),
     "malta": ("Orthoimagery 2018: Planning Authority, Malta, CC BY 4.0", src.CC_BY[1]),

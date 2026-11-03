@@ -70,13 +70,14 @@ export function baseLayers(ortho: Ortho | null, maxZoom: number): Record<string,
     layers[ortho.name] = layer;
   } else if (ortho && ortho.url) {
     // National WMS (e.g. geoportal) may not support Web Mercator, so tiles are requested
-    // in WGS84. WMS renders at any scale, so the orthophoto stays sharp up to maxZoom.
+    // in WGS84, unless the service serves Web Mercator only (wms_crs, gis.natt.is): then each
+    // tile's own Mercator box. WMS renders at any scale, so the orthophoto stays sharp up to maxZoom.
     const base = ortho.base;
     const layer = new (CachedWMS as any)(ortho.url, {
       // WMS 1.3.0 asks EPSG:4326 in lat-lon order, 1.1.1 (a service taking lon-lat only) as SRS in lon-lat order
       layers: ortho.layer, format: base ? "image/png" : "image/jpeg", version: ortho.wms_version ?? "1.3.0",
-      transparent: !!base,
-      attribution: orthoHtml(ortho), maxZoom, crs: L.CRS.EPSG4326}) as L.TileLayer.WMS;
+      transparent: !!base, attribution: orthoHtml(ortho), maxZoom,
+      crs: ortho.wms_crs === "EPSG:3857" ? L.CRS.EPSG3857 : L.CRS.EPSG4326}) as L.TileLayer.WMS;
     (layer as any)._cache = ortho.cache;
     // Where the WMS has no imagery its PNG is transparent and shows the base under it
     // (cached tiles have both already and cover the base)

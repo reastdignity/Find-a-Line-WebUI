@@ -68,6 +68,7 @@ export interface Ortho {
   attribution: string;
   attribution_url?: string;  // a link for the attribution (OrthoService.attribution_url; maps of before have none)
   wms_version?: string;  // "1.1.1": the WMS takes EPSG:4326 in lon-lat order only (OrthoService.wms_version); none: 1.3.0
+  wms_crs?: string;  // "EPSG:3857": the WMS is asked in Web Mercator (OrthoService.wms_crs); none: EPSG:4326
   // tiles ({z}/{x}/{y}) with full coverage under the WMS, where it has no imagery (the WMS
   // is then requested as a transparent PNG; cached tiles have both already), or the
   // orthophoto itself without a WMS

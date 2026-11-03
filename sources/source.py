@@ -36,6 +36,9 @@ class OrthoService:
     # The WMS version asked: "1.3.0" (EPSG:4326 in its lat-lon axis order), or "1.1.1" for a WMS that
     # takes EPSG:4326 in lon-lat order only (GURS's DOF answers a 1.3.0 request with a white image)
     wms_version: str = "1.3.0"
+    # The CRS the WMS is asked in: "EPSG:4326" (the box of a tile in degrees), or "EPSG:3857" for a WMS
+    # that serves Web Mercator only (gis.natt.is's mapcache), asked with each tile's own Mercator box
+    wms_crs: str = "EPSG:4326"
 
     @property
     def ttl_days(self) -> Optional[int]:
