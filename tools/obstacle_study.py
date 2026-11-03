@@ -134,8 +134,9 @@ REFERENCE_MIN = 500         # fewer forest-reference pixels with a GLI: the judg
                             # 358 were boulders and lidar noise, CHMv2 saw a tree on none of them)
 # Green is not a tree's height: the Giewont sheets (wave 1b) showed grass and dwarf pine at rim pixels that
 # stand TREE above the terrain only because the wall drops inside them. A green pixel counts as a tree only
-# on terrain gentler than TREE_SLOPE or where CHMv2 sees a tree (TREE within a pixel); else PX_STEEP, which
-# the verdict takes as unknown (OSM's land cover decides it, as for a dark pixel)
+# on terrain gentler than TREE_SLOPE or where CHMv2 at the pixel itself (the shifted layer, not its maximum
+# within a pixel: CHMv2's crowns spread from dwarf pine onto the rim beside it) reaches TREE; else PX_STEEP,
+# which the verdict takes as unknown (OSM's land cover decides it, as for a dark pixel)
 TREE_SLOPE = 50.0
 VERDICTS = ("tree", "rock", "unknown", "none")  # a line's verdict (judge); its index is the code
 PX_NONE, PX_TREE, PX_ROCK, PX_DARK, PX_UNKNOWN, PX_STEEP = 0, 1, 2, 3, 4, 5  # what the orthophoto says of a pixel
@@ -577,9 +578,9 @@ def reference_masks(z: np.ndarray, s: np.ndarray, slope_grid: np.ndarray,
 
 
 def pixel_classes(gli: np.ndarray, lum: np.ndarray, ortho: Dict, slope: Optional[np.ndarray] = None,
-                  chm3: Optional[np.ndarray] = None) -> np.ndarray:
+                  chm: Optional[np.ndarray] = None) -> np.ndarray:
     """What the orthophoto says of each pixel: PX_TREE where its GLI is above tau (with slope given:
-    on terrain gentler than TREE_SLOPE or where chm3, CHMv2's highest within a pixel, reaches TREE;
+    on terrain gentler than TREE_SLOPE or where chm, CHMv2 at the pixel itself, reaches TREE;
     PX_STEEP elsewhere: vegetation of unknown height on a rim), else PX_ROCK where it is at least
     bright, else PX_DARK where darker than dark, else PX_UNKNOWN (also where no tile covers it, or
     the place has no thresholds)."""
@@ -595,7 +596,7 @@ def pixel_classes(gli: np.ndarray, lum: np.ndarray, ortho: Dict, slope: Optional
         green = gli > tau
         out[green] = PX_TREE
         if slope is not None:
-            tall = chm3 >= TREE if chm3 is not None else np.zeros(gli.shape, dtype=bool)
+            tall = chm >= TREE if chm is not None else np.zeros(gli.shape, dtype=bool)  # NaN: no tree
             out[green & (slope >= TREE_SLOPE) & ~tall] = PX_STEEP
     return out
 
@@ -605,7 +606,7 @@ def line_verdicts(pix: Dict, starts: np.ndarray, z: np.ndarray, surface: np.ndar
     """The verdict of each line (an index into VERDICTS) from its pixels above the limit on a
     surface (obstacle_pixels; starts: each line's first, every line with one): tall where the surface
     stands TREE above the terrain; tree when a tall pixel is green (PX_TREE: on gentle terrain or a
-    tree of CHMv2), or dark, unknown or green on steep terrain on OSM forest;
+    tree of CHMv2 at the pixel), or dark, unknown or green on steep terrain on OSM forest;
     rock when every tall pixel is bright, or dark or unknown on OSM rock; none without a tall pixel
     (marks of less than TREE: shrubs, rims); else unknown. Without the orthophoto every pixel is
     unknown (OSM alone decides), without OSM's land cover too every line with a tall pixel unknown.
@@ -663,17 +664,17 @@ def agreement(forest: np.ndarray, rock: np.ndarray, judged: SimpleNamespace, chm
 
 
 def set_thresholds(call: str, judged: SimpleNamespace, forest: np.ndarray, rock: np.ndarray, slope: np.ndarray,
-                   chm3: Optional[np.ndarray]):
+                   chm: Optional[np.ndarray]):
     """The orthophoto's thresholds of a call (study_ortho.threshold on the references) into
     judged.ortho and its ortho.json, and judged.classes (pixel_classes with the terrain's slope and
-    CHMv2) from them."""
+    CHMv2 at each pixel, shifted as analyse_call aligns it) from them."""
     if judged.gli is None:
         return
     import study_ortho
     judged.ortho.update(study_ortho.threshold(judged.gli, judged.lum, forest, rock))
     with open(os.path.join(call, "ortho.json"), "w", encoding="utf-8") as f:
         json.dump(judged.ortho, f, indent=1)
-    judged.classes = pixel_classes(judged.gli, judged.lum, judged.ortho, slope, chm3)
+    judged.classes = pixel_classes(judged.gli, judged.lum, judged.ortho, slope, chm)
 
 
 def judge_failure(study: Dict) -> Optional[str]:
@@ -1052,7 +1053,7 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     verdict = tall_pixel = tree_pixel = None
     if judging is not None:
         forest_ref, rock_ref = reference_masks(z, s, slope_grid, judging.landcover)
-        set_thresholds(call, judging, forest_ref, rock_ref, slope_grid, chm3)
+        set_thresholds(call, judging, forest_ref, rock_ref, slope_grid, chm)  # the pixel's CHMv2, not chm3
         result["judges"] = {"landcover": judging.landcover is not None, "ortho": judging.ortho}
         result["agreement"] = agreement(forest_ref, rock_ref, judging, chm3)
         del forest_ref, rock_ref

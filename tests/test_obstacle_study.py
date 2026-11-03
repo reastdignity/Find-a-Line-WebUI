@@ -468,20 +468,26 @@ def test_verdicts_on_a_canyon(judged_canyon):
 
 def test_green_on_a_rim(judged_canyon):
     """A green rim pixel on the wall's face (the terrain's slope there about 87 degrees): vegetation of
-    unknown height without a tree of CHMv2 (OSM's land cover decides, none here: unknown), a tree
-    where CHMv2 sees one of 5 m; the tree on the canyon's floor stays a tree."""
+    unknown height without a tree of CHMv2 at the pixel (OSM's land cover decides, none here: unknown,
+    also with CHMv2's 5 m in the neighbouring pixel), a tree where CHMv2 sees one of 5 m at the pixel;
+    the tree on the canyon's floor stays a tree."""
     call, dtm, real, rock = judged_canyon
     assert (obstacles.slope_degrees(dtm, 1.0)[:, RIMS] >= study.TREE_SLOPE).all()
     write_judges(call, dtm.shape, rim_gli=0.3)
     result = study.analyse_call(call, layers_of(dtm), judges=no_writing)
     assert result["variants"]["avg"]["verdicts"]["lines"] == tally(tree=real, unknown=rock)
 
-    def layers(call_, grid):
-        chm, wc = layers_of(dtm)(call_, grid)
-        chm[:, RIMS] = 5
-        return chm, wc
-    result = study.analyse_call(call, layers, judges=no_writing)
+    def layers(columns):
+        def read(call_, grid):
+            chm, wc = layers_of(dtm)(call_, grid)
+            chm[:, columns] = 5
+            return chm, wc
+        return read
+    result = study.analyse_call(call, layers(RIMS), judges=no_writing)
     assert result["variants"]["avg"]["verdicts"]["lines"] == tally(tree=real + rock)
+    result = study.analyse_call(call, layers([21, 78]), judges=no_writing)  # beside the rims (on the floor)
+    assert not result.get("chm_shift", {}).get("applied")  # CHMv2 is read where it is
+    assert result["variants"]["avg"]["verdicts"]["lines"] == tally(tree=real, unknown=rock)
 
     write_judges(call, dtm.shape, rim_cover=2, rim_gli=0.3)  # OSM: rock (study_landcover.ROCK)
     result = study.analyse_call(call, layers_of(dtm), judges=no_writing)
