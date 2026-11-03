@@ -1,0 +1,138 @@
+/* The 3D view's page (main.ts): the app's tokens and components under the .ui root #view3d, the canvas
+   filling the window between a top bar and the bar of the readout, the toolbar's controls and the note. */
+@import "../ui/ui.css";
+
+html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; }
+/* The paper of the "Edges" look (scene.ts): light grey, dark grey in the dark theme */
+#view3d { --paper: #eceae4; }
+@media (prefers-color-scheme: dark) { #view3d:not([data-theme="light"]) { --paper: #4a504c; } }
+#view3d[data-theme="dark"] { --paper: #4a504c; }
+#view3d { position: fixed; inset: 0; display: flex; flex-direction: column; background: var(--bg); color: var(--ink);
+          font: 14px/1.5 var(--font); }
+.v3-top { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--surface);
+          border-bottom: 1px solid var(--line); }
+.v3-title { margin: 0; font: 600 18px/1.2 var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.v3-stage { position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+.v3-canvas { display: block; width: 100%; height: 100%; }
+.v3-status { position: absolute; inset: 0; margin: auto; width: fit-content; height: fit-content; z-index: 1;
+             max-width: min(420px, calc(100% - 32px)); box-sizing: border-box; padding: 14px 18px;
+             display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center;
+             background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+.v3-hidden, .v3-status.v3-hidden, .v3-read.v3-hidden, #view3d .v3-hidden { display: none; }
+.v3-message { margin: 0; }
+.v3-error-title { color: var(--bad); }
+.v3-spin { width: 18px; height: 18px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%;
+           animation: v3-spin .8s linear infinite; }
+@keyframes v3-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .v3-spin { animation: none; } }
+
+.v3-credits { position: absolute; right: 0; bottom: 0; z-index: 1; max-width: min(70%, 560px); padding: 2px 8px;
+              font-size: 11px; line-height: 1.4; color: var(--ink-2); background: color-mix(in srgb, var(--surface) 80%, transparent);
+              border-top-left-radius: 6px; }
+.v3-credits a { color: inherit; }
+.v3-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 12px; background: var(--surface);
+          border-top: 1px solid var(--line); }
+.v3-readout { display: flex; flex-wrap: wrap; gap: 4px 14px; font-weight: 600; }
+.v3-read.v3-trees { color: var(--trees); }
+.v3-read.v3-wait { color: var(--muted); font-weight: 400; }
+.v3-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.v3-field { display: flex; align-items: center; gap: 8px; }
+.v3-field-label { color: var(--ink-2); }
+.v3-slider { width: min(260px, 50vw); min-height: var(--touch); accent-color: var(--accent); }
+.v3-note { flex-basis: 100%; margin: 0; font-size: 12px; color: var(--muted); }
+.v3-read:empty { display: none; }
+.v3-read.v3-edited { color: var(--accent); }
+.v3-read.v3-failed { color: var(--bad); font-weight: 400; }
+.v3-read.v3-nofit { color: var(--bad); }
+.v3-walkbox { display: flex; align-items: center; gap: 6px; flex: none; }
+.v3-speed { min-width: 44px; padding: 0 10px; }
+/* The views' switch and the phone's motion (views.ts): icons with their names; outside the orbit no anchor's
+   handle, no grip (the walker is dragged in the orbit only) and no edit hint; in the walker's eyes no pin */
+.v3-viewbox { display: flex; align-items: center; gap: 6px; flex: none; }
+#view3d .v3-views button { padding: 0 10px; }
+.v3-motion { padding: 0 12px; }
+.v3-motion.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+/* The zoom of the walker's views (views.ts): -, the indicator (the eyes' factor, the distance behind), + */
+.v3-zoom { display: flex; align-items: center; gap: 2px; flex: none; }
+.v3-zoom-value { min-width: 3.4em; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums;
+                 color: var(--ink-2); white-space: nowrap; }
+#view3d:not([data-view="orbit"]) .v3-handle, #view3d:not([data-view="orbit"]) .v3-grip,
+#view3d:not([data-view="orbit"]) .v3-hint, #view3d:not([data-view="orbit"]) .v3-phone-note,
+#view3d[data-view="eyes"] .v3-pin { display: none; }
+
+/* The overlay over the canvas (screen.ts): the anchors' handles, the walker's grip and pin, placed through the
+   CSSOM (transform: translate to their point) */
+.v3-overlay { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.v3-handle, .v3-at { position: absolute; left: 0; top: 0; }
+.v3-handle { width: 22px; height: 22px; margin: -11px 0 0 -11px; box-sizing: border-box; border-radius: 50%;
+             background: color-mix(in srgb, var(--accent) 55%, transparent); border: 3px solid #ffffff;
+             box-shadow: 0 0 0 1px rgb(0 0 0 / .6), 0 1px 4px rgb(0 0 0 / .45); pointer-events: auto; cursor: grab;
+             touch-action: none; }
+.v3-handle.v3-dragging { cursor: grabbing; background: var(--accent); }
+.v3-at { width: 0; height: 0; }
+.v3-grip { position: absolute; left: -14px; bottom: 0; width: 28px; pointer-events: none; touch-action: none; }
+.v3-grip.v3-grab { pointer-events: auto; cursor: grab; }
+.v3-grip.v3-dragging { cursor: grabbing; }
+/* The pin over a small walker: a drop of the accent with a white rim and a dark outline, readable on imagery,
+   shaded terrain, light and dark; its tip just above the walker's head (pin.ts sets its bottom) */
+.v3-pin { display: none; position: absolute; left: -9px; bottom: 0; width: 18px; height: 18px;
+          margin-bottom: 3px; pointer-events: none; box-sizing: border-box; border-radius: 50% 50% 50% 0; transform: rotate(-45deg);
+          transform-origin: center; background: var(--accent); border: 3px solid #ffffff;
+          box-shadow: 0 0 0 1px rgb(0 0 0 / .65), -1px 1px 4px rgb(0 0 0 / .45); }
+.v3-pin-on .v3-pin { display: block; }
+
+/* A readout's short form (line.ts): shown under 600 px instead of the sentence; the imagery's select
+   (imagery.ts): shown under 600 px instead of the segmented control */
+.v3-short, .v3-select { display: none; }
+
+/* The compact bar of phones and narrow screens: the readout on one line (wrapping, never scrolling), the walk,
+   the slider and the imagery control in one row, the notes in small type; the canvas gets the rest */
+.v3-phone .v3-bar { padding: 4px 8px; gap: 2px 8px; }
+.v3-phone .v3-readout { flex: 1 1 100%; gap: 0 10px; font-size: 12.5px; }
+.v3-phone .v3-toolbar { flex: 1 1 100%; flex-wrap: nowrap; gap: 8px; min-width: 0; }
+.v3-phone .v3-field { flex: 1 1 auto; min-width: 64px; }
+.v3-phone .v3-field-label { display: none; }
+.v3-phone .v3-slider { width: 100%; }
+.v3-phone .v3-toolbar .u-row { flex: 0 1 auto; flex-wrap: nowrap; gap: 6px; min-width: 0; }
+.v3-phone .v3-toolbar .u-seg button { padding: 0 8px; font-size: 12.5px; white-space: nowrap; }
+.v3-phone .v3-reduced, .v3-phone .v3-toolbar .u-small { font-size: 11px; line-height: 1.3; }
+.v3-phone .v3-walkbox { flex: 0 1 auto; min-width: 0; }
+.v3-phone .v3-viewbox { flex: none; }
+.v3-phone .v3-motion-note { font-size: 11px; line-height: 1.3; }
+.v3-phone .v3-note { font-size: 11px; line-height: 1.3; }
+/* Under 600 px (both levels): the short readout; the toolbar's controls (the walk's box and the imagery's row
+   unwrapped into it) in one row that may wrap (Back to the found line at level full), the select instead of the
+   segmented control, the notes of the row (no imagery, loading, reduced motion) each on a line of its own
+   under it */
+@media (max-width: 600px) {
+  #view3d .v3-bar { padding: 4px 8px; gap: 2px 8px; }
+  #view3d .v3-readout { flex: 1 1 100%; gap: 0 10px; font-size: 12.5px; }
+  #view3d .v3-long { display: none; }
+  #view3d .v3-short { display: inline; }
+  #view3d .v3-toolbar { flex: 1 1 100%; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
+  #view3d .v3-toolbar .u-row, #view3d .v3-walkbox, #view3d .v3-viewbox { display: contents; }
+  #view3d .v3-field { flex: 1 1 0; min-width: 72px; }
+  .v3-field-label { display: none; }
+  .v3-slider { width: 100%; }
+  #view3d .v3-toolbar .u-seg { display: none; }
+  #view3d .v3-toolbar .u-seg.v3-views { display: flex; flex: none; order: 1; }
+  #view3d .v3-views button { padding: 0 7px; }
+  #view3d .v3-motion { padding: 0 8px; order: 1; }
+  #view3d .v3-zoom { order: 1; }
+  /* the switch starts a row of its own in every view (in the walker's views with the zoom and the phone's motion
+     beside it), so the walker's slider keeps the first row's width with the walk and the imagery: a break before
+     the switch (an empty line of the row's full width), the rows' gap as a margin of what may start a row, so the
+     break adds no height; the bar as high in every view (no resize of the canvas when the view changes) */
+  #view3d .v3-toolbar { row-gap: 0; }
+  #view3d .v3-toolbar::before { content: ""; order: 1; flex-basis: 100%; height: 0; }
+  #view3d :is(.v3-views, .v3-zoom, .v3-motion, .v3-reset, .v3-imagery-note, .v3-imagery-status, .v3-reduced,
+              .v3-motion-note) { margin-top: 4px; }
+  #view3d .v3-zoom-value { min-width: 2.8em; font-size: 12.5px; }
+  #view3d .v3-select { display: block; flex: 0 1 auto; width: auto; min-width: 0; max-width: 50%; padding: 0 6px; }
+  #view3d .v3-walk { padding: 0 10px; }
+  #view3d .v3-speed { min-width: 40px; padding: 0 8px; }
+  #view3d .v3-reset { padding: 0 10px; }
+  #view3d .v3-imagery-note, #view3d .v3-imagery-status, #view3d .v3-reduced, #view3d .v3-motion-note {
+    flex: 1 1 100%; order: 2; font-size: 11px; line-height: 1.3; }
+  .v3-note { font-size: 11px; line-height: 1.3; }
+}

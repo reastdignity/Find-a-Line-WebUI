@@ -283,7 +283,10 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class Redact:
     """Removes server paths from texts for the public site: the data folder becomes relative
-    ("runs/<id>"), the folder of the app and other absolute paths "<path>"."""
+    ("runs/<id>"), the folder of the app and other absolute paths "<path>". The fields of RAW are
+    left alone: data, not text (the 3D view's heights in base64url, whose sha256 the web checks)."""
+
+    RAW = frozenset({"heights"})
 
     def __init__(self, data_dir: str):
         folders = {os.path.abspath(data_dir), os.path.realpath(data_dir)}
@@ -315,7 +318,7 @@ class Redact:
         if isinstance(value, list):
             return [self(v) for v in value]
         if isinstance(value, dict):
-            return {k: self(v) for k, v in value.items()}
+            return {k: v if k in self.RAW else self(v) for k, v in value.items()}
         return value
 
 
@@ -1542,6 +1545,25 @@ def quick_profile(data_dir: str, request: Dict, limits: Optional[Limits] = None)
         cache.remove_work(paths.work)
 
 
+def quick_patch(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
+    """The terrain of the 3D view around a line of a saved run (/api/patch): {"run": id, "line":
+    [lat1, lon1, lat2, lon2], "step": 1 or 2} -> {"meta": ..., "heights": the deflated heights in
+    base64url without padding} (search.patch_of_line; Redact leaves "heights" alone)."""
+    import base64
+
+    import search
+    with open(os.path.join(data_dir, "runs", request["run"], "run.json"), encoding="utf-8") as f:
+        meta = json.load(f)
+    lat1, lon1, lat2, lon2 = request["line"]
+    paths = search.Paths(data_dir, os.path.join(data_dir, "work", "profiles", uuid.uuid4().hex))
+    os.makedirs(paths.work)
+    try:
+        patch, body = search.patch_of_line(meta, paths, (lat1, lon1), (lat2, lon2), int(request.get("step", 1)))
+    finally:
+        cache.remove_work(paths.work)
+    return {"meta": patch, "heights": base64.urlsafe_b64encode(body).rstrip(b"=").decode("ascii")}
+
+
 def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
     """The places of a name (/api/place: {"q": name}) for the app's place box; Nominatim through
     osm.places (cached, counted by nominatim_quota)."""
@@ -1549,7 +1571,7 @@ def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     return {"places": osm.places(request["q"], os.path.join(data_dir, "cache"))}
 
 
-QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place}
+QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place, "patch": quick_patch}
 SLOT_MEMORY: Optional[int] = None  # the budget of a compute slot, in the quick lane's process (run_quick)
 
 

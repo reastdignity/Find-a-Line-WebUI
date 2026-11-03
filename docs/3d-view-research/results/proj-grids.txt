@@ -1,0 +1,29 @@
+ch_swisstopo_CHENyx06_ETRS.tif                              0.60 MB  type=HORIZONTAL_OFFSET                area=Switzerland                              added= src=ch_swisstopo
+ch_swisstopo_CHENyx06a.tif                                  1.02 MB  type=HORIZONTAL_OFFSET                area=Switzerland                              added= src=ch_swisstopo
+ch_swisstopo_chgeo2004_ETRS89_LHN95.tif                     0.26 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Switzerland                              added= src=ch_swisstopo
+ch_swisstopo_chgeo2004_ETRS89_LN02.tif                      0.30 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Switzerland                              added= src=ch_swisstopo
+es_ign_SPED2ETV2.tif                                        0.18 MB  type=HORIZONTAL_OFFSET                area=Spain - mainland and Balearic Islands    added= src=es_ign
+es_ign_egm08-rednap-canarias.tif                            0.08 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Spain - Canary Islands                   added= src=es_ign
+es_ign_egm08-rednap.tif                                     0.83 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Spain - mainland and Balearic Islands    added= src=es_ign
+eur_nkg_nkgrf03vel_realigned.tif                            0.36 MB  type=VELOCITY                         area=Nordic and Baltic countries              added= src=eur_nkg
+eur_nkg_nkgrf17vel.tif                                      0.72 MB  type=VELOCITY                         area=Nordic and Baltic countries              added= src=eur_nkg
+pl_gugik_geoid2011-PL-EVRF2007-NH.tif                       0.70 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Poland - onshore                         added=1.9 src=pl_gugik
+pl_gugik_geoid2011-PL-KRON86-NH.tif                         0.66 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Poland - onshore                         added=1.9 src=pl_gugik
+pl_gugik_geoid2021-PL-EVRF2007-NH.tif                       1.03 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Poland - onshore                         added=1.15 src=pl_gugik
+sk_gku_JTSK03_to_JTSK.tif                                   0.18 MB  type=HORIZONTAL_OFFSET                area=Slovakia                                 added= src=sk_gku
+sk_gku_Slovakia_ETRS89h_to_Baltic1957.tif                   0.49 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Slovakia                                 added= src=sk_gku
+sk_gku_Slovakia_ETRS89h_to_EVRF2007.tif                     0.60 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=Slovakia                                 added= src=sk_gku
+us_nga_egm08_25.tif                                        80.59 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=World                                    added= src=us_nga
+us_nga_egm96_15.tif                                         2.71 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=World                                    added= src=us_nga
+us_noaa_g2012ba0.tif                                       11.34 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Alaska                             added= src=us_noaa
+us_noaa_g2012bg0.tif                                        0.16 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Guam                               added= src=us_noaa
+us_noaa_g2012bh0.tif                                        0.37 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Hawaii                             added= src=us_noaa
+us_noaa_g2012bp0.tif                                        0.22 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Puerto Rico and the Virgin Islands added= src=us_noaa
+us_noaa_g2012bs0.tif                                        0.29 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - American Samoa                     added= src=us_noaa
+us_noaa_g2012bu0.tif                                       17.03 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Conterminous                       added= src=us_noaa
+us_noaa_g2018p0.tif                                         0.22 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Puerto Rico and the Virgin Islands added= src=us_noaa
+us_noaa_g2018u0.tif                                        16.74 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Conterminous                       added= src=us_noaa
+us_noaa_geoid03_conus.tif                                  16.45 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Conterminous                       added= src=us_noaa
+us_noaa_geoid06_ak.tif                                     11.48 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Alaska                             added= src=us_noaa
+us_noaa_geoid09_ak.tif                                     11.28 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Alaska                             added= src=us_noaa
+us_noaa_geoid09_conus.tif                                  16.77 MB  type=VERTICAL_OFFSET_GEOGRAPHIC_TO_VERTICAL area=USA - Conterminous                       added= src=us_noaa

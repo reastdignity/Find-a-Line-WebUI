@@ -226,7 +226,7 @@ def _group(uri):
 def test_metrics_log_groups():
     """The route groups of the metrics log: a handful of values, never the path itself."""
     expected = {
-        "/api/events": "events", "/api/events/x": "api", "/api/jobs": "api", "/api/runs/x/share": "api",
+        "/api/events": "events", "/api/events/x": "api", "/api/patch": "patch", "/api/patchx": "api", "/api/jobs": "api", "/api/runs/x/share": "api",
         "/cache/poland/ortho/live/wm256/13/4551/2774.jpg": "cache", "/s/<token>/map.html": "share",
         "/s/_viewer/viewer.js": "share", "/login/github": "auth", "/auth/github": "auth", "/logout": "auth",
         "/loginx": "page", "/app/app.js": "app", "/runs/x/data.js": "app", "/runs/runs.js": "app",

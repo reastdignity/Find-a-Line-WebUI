@@ -1,0 +1,12 @@
+cesium-widget [es2020]: min 3902 KB gzip-5 1044 KB gzip-9 1034 KB brotli 793 KB
+   top: @cesium/engine 2880 KB, @cesium/core 469 KB, @spz-loader/core 269 KB, meshoptimizer 144 KB, urijs 42 KB, dompurify 31 KB, grapheme-splitter 23 KB, @tweenjs/tween.js 12 KB
+cesium-viewer [es2020]: min 4151 KB gzip-5 1120 KB gzip-9 1110 KB brotli 855 KB
+   top: @cesium/engine 2905 KB, @cesium/core 471 KB, @spz-loader/core 270 KB, @cesium/widgets 207 KB, meshoptimizer 144 KB, urijs 42 KB, dompurify 31 KB, grapheme-splitter 23 KB
+three-own [es2020]: min 722 KB gzip-5 188 KB gzip-9 186 KB brotli 152 KB
+   top: three 673 KB, three-mesh-bvh 47 KB, @mapbox/martini 2 KB, ../../../AppData/Local/Temp/claude/c--Users-Krzysiek-Documents-Prywata-Find-a-Line/340cf8d7-2b3f-4aea-ba3b-303270039da7/scratchpad/3d-research/r3-work/entries/three-own.js 0 KB
+three-tiles [es2020]: min 817 KB gzip-5 219 KB gzip-9 217 KB brotli 178 KB
+   top: three 633 KB, 3d-tiles-renderer 183 KB, ../../../AppData/Local/Temp/claude/c--Users-Krzysiek-Documents-Prywata-Find-a-Line/340cf8d7-2b3f-4aea-ba3b-303270039da7/scratchpad/3d-research/r3-work/entries/three-tiles.js 1 KB
+giro3d [es2020]: min 1570 KB gzip-5 492 KB gzip-9 489 KB brotli 337 KB
+   top: three 549 KB, geotiff 302 KB, @giro3d/giro3d 279 KB, zstddec 151 KB, proj4 106 KB, ol 61 KB, pako 47 KB, lerc 23 KB
+itowns [es2020]: min 1326 KB gzip-5 374 KB gzip-9 371 KB brotli 307 KB
+   top: three 588 KB, itowns 281 KB, @maplibre/maplibre-gl-style-spec 125 KB, proj4 106 KB, laz-perf 57 KB, copc 28 KB, lru-cache 23 KB, 3d-tiles-renderer 20 KB

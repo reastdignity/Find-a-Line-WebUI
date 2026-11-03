@@ -1,0 +1,14 @@
+C:/Users/Krzysiek/AppData/Local/Temp/claude/c--Users-Krzysiek-Documents-Prywata-Find-a-Line/340cf8d7-2b3f-4aea-ba3b-303270039da7/scratchpad/3d-research/r3-work/dem-pl/patch.npy: 1025 x 1025 px at 1 m, relief 133 m; full grid 1050625 vertices, 2097152 triangles
+  max error 0.05 m:   537959 vertices (51.2%),  1073644 triangles
+  max error 0.10 m:   279320 vertices (26.6%),   557270 triangles
+  max error 0.25 m:    88449 vertices ( 8.4%),   176296 triangles
+  max error 0.50 m:    41684 vertices ( 4.0%),    83016 triangles
+  max error 1.00 m:    20127 vertices ( 1.9%),    40049 triangles
+  max error 2.00 m:     8960 vertices ( 0.9%),    17809 triangles
+C:/Users/Krzysiek/AppData/Local/Temp/claude/c--Users-Krzysiek-Documents-Prywata-Find-a-Line/340cf8d7-2b3f-4aea-ba3b-303270039da7/scratchpad/3d-research/r3-work/dem-ch/patch.npy: 1025 x 1025 px at 1 m, relief 653 m; full grid 1050625 vertices, 2097152 triangles
+  max error 0.05 m:   804110 vertices (76.5%),  1605195 triangles
+  max error 0.10 m:   604861 vertices (57.6%),  1207393 triangles
+  max error 0.25 m:   292995 vertices (27.9%),   584661 triangles
+  max error 0.50 m:   134322 vertices (12.8%),   267877 triangles
+  max error 1.00 m:    58129 vertices ( 5.5%),   115795 triangles
+  max error 2.00 m:    23551 vertices ( 2.2%),    46840 triangles

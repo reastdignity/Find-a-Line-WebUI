@@ -128,7 +128,7 @@ echo "== the metrics log"
 metrics=/var/log/nginx/findaline.metrics.log
 here=$(ip -4 -o addr show scope global | awk '{sub(/\/.*/, "", $4); print $4; exit}')  # this container's address
 # The group of each request's line (written when the request ends, so in this order)
-for pair in "/api/schema api" "/api/events events" "/cache/none.png cache" "/s/$TOKEN/map.html share" \
+for pair in "/api/schema api" "/api/events events" "/api/patch patch" "/cache/none.png cache" "/s/$TOKEN/map.html share" \
             "/login/github auth" "/auth/github?code=secretcode&state=x auth" "/app/app.js app" "/ page" "/privacy page"; do
   path=${pair% *}; group=${pair##* }
   code "https://$SITE$path" >/dev/null

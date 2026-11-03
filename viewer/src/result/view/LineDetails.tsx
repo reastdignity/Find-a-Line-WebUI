@@ -1,6 +1,6 @@
 // The selected line of a result (model.selected): "Spot k of N" with ‹ › and × (ends the selection), its
 // numbers, the other lines of its spot, and its actions: favourite,
-// copy link, zoom, and the profile again after it was closed.
+// copy link, zoom, the 3D view (where the shell gives it), and the profile again after it was closed.
 
 import { Fragment } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
@@ -14,6 +14,7 @@ import { FavouritePicker } from "./FavouritePicker";
 import { ResultNote } from "./ResultSummary";
 import { cx, num, Swatch, useModel } from "./common";
 import { day } from "../../time";
+import { t } from "../../i18n";
 
 const BY_LABEL: Record<string, string> = {clearance: "the most clearance", longest: "the longest",
                                           height: "the highest above the ground"};
@@ -48,6 +49,8 @@ export interface LineDetailsProps {
   model: ResultModel;
   /** The link "Copy link" gives (default appLink: this page with #run=…&line=…). */
   linkOf?(line: Line): string;
+  /** The address of the line's 3D view (/view3d#run=…&line=…); no button without it. */
+  view3dOf?(line: Line): string;
   /** "Zoom" was pressed (hidden without it). */
   onZoom?(line: Line): void;
   /** ‹ › or a line of the spot selected another line (e.g. to bring it into the map's view). */
@@ -94,7 +97,7 @@ const PAIRS: Record<string, string> = {"Previous spot": "Next spot", "Next spot"
                                        "Previous line of the spot": "Next line of the spot",
                                        "Next line of the spot": "Previous line of the spot"};
 
-export function LineDetails({model, linkOf, onZoom, onStep, part = "all", note = false}: LineDetailsProps) {
+export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "all", note = false}: LineDetailsProps) {
   useModel(model);
   const [copied, setCopied] = useState<{line: Line; ok: boolean; text: string} | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -163,6 +166,7 @@ export function LineDetails({model, linkOf, onZoom, onStep, part = "all", note =
       {model.favouritesOn && <FavouritePicker model={model} line={l} />}
       <Button icon="link" class="r-copy" onClick={link}>{shownCopy?.ok ? "Link copied" : "Copy link"}</Button>
       {onZoom && <Button icon="zoom" onClick={() => onZoom(l)}>Zoom</Button>}
+      {view3dOf && <Button icon="cliff" class="r-view3d" href={view3dOf(l)}>{t("ui.view3d.open")}</Button>}
       {model.profileClosed && <Button icon="ruler" class="r-reprofile" onClick={() => model.showProfile()}>Profile</Button>}
       {canReport() && <Button icon="warn" kind="ghost" class="r-report"
                               onClick={() => openReport({category: "results", about: `a line of ${l.run ? l.run.info.name : model.data.run.name}`,

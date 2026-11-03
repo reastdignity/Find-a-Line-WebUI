@@ -1,0 +1,612 @@
+<title>Find-a-Line 3D view</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: one reading column with a wide band for tables; Find-a-Line's own tokens (viewer/src/ui/tokens.css). */
+:root {
+  --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #6c7a73; --line: #d2dad4;
+  --accent: #2350c8; --accent-soft: #e1e8fa;
+  --ok: #1d7a47; --ok-soft: #e0f1e6; --warn: #995500; --warn-soft: #fbefd9; --bad: #b3261e; --bad-soft: #fbe4e1;
+  --clear: #e10fd6; --trees: #ef8300; --terrain: #bba680; --rock: #8a7b63; --tree-fill: #80ae6b; --sky: #e6eef5;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+    --accent: #86a4ff; --accent-soft: #1f2a48;
+    --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
+    --clear: #ff4cf4; --trees: #ff9f30; --terrain: #6e5f44; --rock: #948a72; --tree-fill: #3f6b36; --sky: #16202a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+  --accent: #86a4ff; --accent-soft: #1f2a48;
+  --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
+  --clear: #ff4cf4; --trees: #ff9f30; --terrain: #6e5f44; --rock: #948a72; --tree-fill: #3f6b36; --sky: #16202a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-block: 28px 72px; display: grid; gap: 40px; }
+.prose { max-width: 72ch; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.1; text-wrap: balance; margin: 0; letter-spacing: .01em; }
+h1 { font-size: clamp(36px, 6vw, 56px); font-weight: 700; }
+h2 { font-size: 30px; font-weight: 600; }
+h3 { font-size: 21px; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; border-radius: 3px; }
+code { font-family: var(--mono); font-size: .88em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+section { display: grid; gap: 16px; scroll-margin-top: 16px; }
+.lead { font-size: 18px; color: var(--ink-2); max-width: 68ch; }
+header { display: grid; gap: 14px; }
+nav.toc { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 14px; padding-top: 4px; }
+nav.toc a { color: var(--ink-2); text-decoration: none; border-bottom: 1px solid var(--line); }
+nav.toc a:hover { color: var(--accent); border-color: var(--accent); }
+
+figure.profile { margin: 0; background: var(--sky); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+figure.profile svg { display: block; width: 100%; height: auto; }
+figure.profile figcaption { font-size: 13px; color: var(--muted); padding: 8px 14px 12px; }
+.svg-rock { fill: var(--rock); } .svg-ground { fill: var(--terrain); } .svg-tree { fill: var(--tree-fill); }
+.svg-web { fill: none; stroke: var(--clear); stroke-width: 3; stroke-linecap: round; }
+.svg-unloaded { fill: none; stroke: var(--clear); stroke-width: 1.5; stroke-dasharray: 5 5; opacity: .6; }
+.svg-walker { fill: var(--ink); } .svg-anchor { fill: var(--surface); stroke: var(--ink); stroke-width: 2; }
+.svg-label { fill: var(--ink-2); font-family: var(--mono); font-size: 13px; }
+.svg-dim { stroke: var(--ink-2); stroke-width: 1; fill: none; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.letter { font-family: var(--display); font-weight: 700; font-size: 26px; color: var(--accent); line-height: 1; }
+.card h3 { font-size: 20px; flex: 1 1 auto; }
+.card dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; font-size: 13.5px; }
+.card dt { color: var(--muted); }
+.card dd { margin: 0; min-width: 0; }
+
+.chip { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+  background: var(--surface-2); color: var(--ink-2); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.bad { background: var(--bad-soft); color: var(--bad); }
+.chip.info { background: var(--accent-soft); color: var(--accent); }
+
+.steps { margin: 0; padding-left: 22px; display: grid; gap: 8px; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; }
+.two > div { display: grid; gap: 10px; align-content: start; min-width: 0; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; background: var(--surface-2); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.gates td:first-child { font-weight: 600; min-width: 150px; }
+table.gates td { min-width: 120px; }
+
+.callout { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 8px; padding: 12px 14px; display: grid; gap: 6px; }
+.callout .eyebrow { color: var(--warn); }
+blockquote { margin: 0; padding: 10px 14px; background: var(--surface-2); border-radius: 8px; font-size: 14px; }
+.note { font-size: 13px; color: var(--muted); }
+
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+details summary { cursor: pointer; font-weight: 600; }
+details[open] summary { margin-bottom: 10px; }
+details ul { margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13.5px; }
+footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 16px; }
+@media (max-width: 520px) { body { font-size: 14.5px; } h2 { font-size: 26px; } .lead { font-size: 16.5px; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Research · 1 November 2026 · branch line-3d-view · not merged</div>
+  <h1>3D view of a line</h1>
+  <p class="lead">Can Find-a-Line show a selected highline over a Google-Earth-like 3D landscape, with the webbing
+  sagging under a walker and anchors you can drag? Yes, but not with Google's 3D tiles, which are closed to European
+  projects. This page compares what is left: services, licences, cost and legality.</p>
+  <p class="prose"><b>Status, 2 November 2026: built</b> on branch <code>line-3d-view</code> (not yet in
+  <code>main</code>), as decided below: a "3D view" button in the line's details opens the run's own terrain around
+  the line with its orthophoto, Esri's imagery (with a key), the terrain shaded or "Edges" (paper with silhouettes,
+  creases and the mesh's edges), the webbing sagging under a walker who can walk, anchors dragged on the desktop, and a
+  simpler level for phones. One open takes 2.5–3.2 MB on a desktop and 0.75–1.2 MB on a phone (measured at Dolina
+  Bolechowicka and Lauterbrunnen). The ring of terrain from Mapterhorn waits, switched off, for its maintainer's
+  answer; the test on an iPhone comes next.</p>
+  <nav class="toc" aria-label="Contents">
+    <a href="#decisions">Decided</a><a href="#answer">The answer</a><a href="#gates">Gates</a><a href="#variants">Variants</a>
+    <a href="#editing">Editing and walker</a><a href="#heights">Heights</a><a href="#library">Library</a>
+    <a href="#size">Size and phones</a><a href="#privacy">Privacy</a><a href="#legal">Legal</a>
+    <a href="#effort">Effort and money</a><a href="#checks">Checks</a><a href="#sources">Sources</a>
+  </nav>
+</header>
+
+<figure class="profile">
+  <svg viewBox="0 0 800 250" role="img" aria-labelledby="profile-title">
+    <title id="profile-title">Schematic profile: two cliffs, the webbing sagging under a walker</title>
+    <path class="svg-rock" d="M0 250 L0 62 L70 58 L118 66 L132 112 L150 170 L176 214 L210 236 L240 250 Z"/>
+    <path class="svg-rock" d="M800 250 L800 60 L735 58 L692 66 L678 110 L660 166 L632 214 L592 240 L560 250 Z"/>
+    <path class="svg-ground" d="M230 250 L250 236 L300 230 L380 236 L460 232 L540 238 L580 246 L590 250 Z"/>
+    <g class="svg-tree"><circle cx="300" cy="222" r="11"/><circle cx="322" cy="226" r="9"/><circle cx="470" cy="222" r="12"/><circle cx="494" cy="227" r="9"/><circle cx="530" cy="230" r="8"/></g>
+    <path class="svg-unloaded" d="M120 66 Q405 70 690 66"/>
+    <path class="svg-web" d="M120 66 L399 96 Q405 97 411 96 L690 66"/>
+    <g class="svg-walker">
+      <circle cx="405" cy="61" r="5.5"/>
+      <path d="M401 68 h8 l2 27 h-12 Z"/>
+      <path d="M400 72 l-11 9 l2 3 l11 -8 Z M410 72 l11 9 l-2 3 l-11 -8 Z"/>
+    </g>
+    <circle class="svg-anchor" cx="120" cy="66" r="6"/><circle class="svg-anchor" cx="690" cy="66" r="6"/>
+    <text class="svg-label" x="96" y="46">A1</text><text class="svg-label" x="682" y="46">A2</text>
+    <path class="svg-dim" d="M440 66 L440 96"/><text class="svg-label" x="448" y="87">5.5 m</text>
+    <text class="svg-label" x="300" y="26">100 m span</text>
+  </svg>
+  <figcaption>What the view would draw, as a schematic: our sag model (<code>sag.ts</code>) gives a 100 m line
+  between anchors at one height, at the default rigging, a largest sag of 5.5 m with an 80 kg walker and 0.34 m
+  without (dashed).</figcaption>
+</figure>
+
+<section id="decisions">
+  <h2>Decided</h2>
+  <p class="prose">The choices made after reading this report, on 1 November 2026. The rest of the page is the
+  research they rest on.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Topic</th><th>Decision</th></tr></thead>
+    <tbody>
+      <tr><td>Path</td><td><span class="chip ok">B + C now</span> our own 3D view with Esri layers; A (KML) and D (Google) not planned</td></tr>
+      <tr><td>Library</td><td>three.js + 3DTilesRendererJS: our DEM near the line, a coarse ring of terrain around it</td></tr>
+      <tr><td>Phones</td><td>simplified (view, walker slider and walk), full editing on the desktop</td></tr>
+      <tr><td>Orthophoto</td><td>our cache first, then the service from the browser, as the 2D map</td></tr>
+      <tr><td>Mesh</td><td>built in the browser (martini, copied into the repository)</td></tr>
+      <tr><td>Ring terrain</td><td>Mapterhorn, after asking its maintainer about the public endpoint; it logs IP and referrer for 30 days</td></tr>
+      <tr><td>Local app</td><td>a setting for the user's own ArcGIS Location Platform key</td></tr>
+      <tr><td>Esri's terms</td><td>the About page's sentence extended to the 3D view</td></tr>
+      <tr><td>Privacy wording</td><td>approved at implementation</td></tr>
+      <tr><td>Licence notices</td><td><span class="chip ok">done on main</span> generate-license-file: THIRD-PARTY-LICENSES.txt, linked from About</td></tr>
+      <tr><td>Phone test</td><td>on the user's own iPhone of the 11/SE class (iOS 18)</td></tr>
+      <tr><td>Next</td><td><span class="chip info">a wave plan for approval</span> before any code</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="answer">
+  <h2>The answer</h2>
+  <div class="cards">
+    <article class="card">
+      <div class="card-head"><span class="letter">A</span><h3>KML + Google Earth</h3><span class="chip ok">Do first</span></div>
+      <p>A file of the line and a link: Google's own 3D, opened in Google Earth.</p>
+      <dl><dt>Works in</dt><dd>Google Earth Web/Pro; no editing</dd><dt>Money</dt><dd>0</dd>
+      <dt>Effort</dt><dd>low</dd><dt>Legal</dt><dd>very light</dd></dl>
+    </article>
+    <article class="card">
+      <div class="card-head"><span class="letter">B</span><h3>Our own data</h3><span class="chip ok">The embedded view</span></div>
+      <p>The run's DEM around the line and our orthophoto, in our own 3D page. Exact heights; cliff walls smeared.</p>
+      <dl><dt>Works in</dt><dd>public site and local app, no key</dd><dt>Money</dt><dd>0 outside; ~3 GB a month from the VPS</dd>
+      <dt>Effort</dt><dd>high</dd><dt>Legal</dt><dd>light</dd></dl>
+    </article>
+    <article class="card">
+      <div class="card-head"><span class="letter">C</span><h3>Esri</h3><span class="chip info">Add-on to B</span></div>
+      <p>Esri's Terrain 3D and World Imagery as layers of B: imagery where we have none, terrain for the distance.</p>
+      <dl><dt>Works in</dt><dd>public site; local app with the user's key</dd><dt>Money</dt><dd>0 within 2M tiles (shared with 2D)</dd>
+      <dt>Effort</dt><dd>low–medium on top of B</dd><dt>Legal</dt><dd>medium</dd></dl>
+    </article>
+    <article class="card">
+      <div class="card-head"><span class="letter">D</span><h3>Google 3D Maps</h3><span class="chip warn">Optional, later</span></div>
+      <p>Google's photorealistic 3D in a web component, our line and walker on top. Closest to the mock.</p>
+      <dl><dt>Works in</dt><dd>public site; local app with the user's billed key</dd><dt>Money</dt><dd>0 within 5,000 loads, card</dd>
+      <dt>Effort</dt><dd>high</dd><dt>Legal</dt><dd>heavy</dd></dl>
+    </article>
+  </div>
+  <div class="two">
+    <div>
+      <h3>Recommendation</h3>
+      <ol class="steps">
+        <li><strong>A first.</strong> A KML of the line (sag curve at absolute heights, anchors, the walker's spot,
+        credits) and links to Google Earth, swisstopo's 3D viewer and Google Maps' satellite view. The Google look of
+        the mock today, free, no key, no consent gate. No editing, no animated walker.</li>
+        <li><strong>B with C as an add-on</strong> as the view inside the app. It meets every requirement and keeps
+        the line on the heights the search used. With three.js it runs under today's CSP; CesiumJS only if the far
+        field is a must.</li>
+        <li><strong>D only later</strong>, if Google's mesh covers typical spots, the site has a terms page and a
+        consent gate, and Google answers the high-risk question. It needs its own renderer.</li>
+      </ol>
+    </div>
+    <div>
+      <h3>Decisions for you</h3>
+      <ul class="plain">
+        <li>The variants and their order.</li>
+        <li>Must the view show the far field? Yes: CesiumJS; no: three.js (<a href="#library">below</a>).</li>
+        <li>The patch's orthophoto: filled into our cache by the server, or loaded by the browser.</li>
+        <li>The mesh: built in the browser or on the server.</li>
+        <li>A terms page for the site and its wording (needed by D, firmer for C).</li>
+        <li>The privacy sentences proposed <a href="#privacy">below</a> (not applied).</li>
+        <li>Questions to Google, Esri, Fathom and GUGiK (<a href="#checks">below</a>).</li>
+        <li>The local app: a provider's 3D only with the user's own key, or our data only.</li>
+        <li>The phone level to aim for, and a test iPhone of the 11/SE class.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="gates">
+  <h2>Gates</h2>
+  <p class="prose">Checked in the order that rules out cheapest: open to an EEA operator, a hard stop instead of a
+  bill, a plan that allows a free public site (and donations), keys, then the terms that shape the design.</p>
+  <div class="table-wrap">
+  <table class="gates">
+    <thead><tr><th>Service</th><th>EEA</th><th>Hard stop</th><th>Permitted use</th><th>Design constraints</th><th>Verdict</th></tr></thead>
+    <tbody>
+      <tr><td>Google Map Tiles API, 3D tiles</td><td>"Photorealistic 3D tiles are not available." (403)</td><td>–</td><td>–</td><td>–</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>Google 3D Maps (Maps JS)</td><td>not among the changed services; EEA terms drop "No Use with Non-Google Maps"</td><td>per-day quota: requests "fail for the rest of the day"</td><td>no non-commercial clause</td><td>no caching or extraction; misalignment is ours; High Risk Activities banned; no pre-GA features near other maps; consent and terms page</td><td><span class="chip warn">passes, heavy</span></td></tr>
+      <tr><td>Esri Location Platform</td><td>–</td><td>pay-as-you-go off: "no longer have privileges"</td><td>revenue and non-revenue apps</td><td>visualization only; one request per user; users bound by Esri's terms; "Powered by Esri"</td><td><span class="chip ok">passes</span></td></tr>
+      <tr><td>Cesium ion, free plan</td><td>not mentioned</td><td>no: "continue to work without interruption", "may invoice"</td><td>"Personal and non-commercial use"; "must be inaccessible to third parties"</td><td>ion logo on the main window</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>Esri's resold Google 3D</td><td>–</td><td>–</td><td>"internal business purposes" only</td><td>–</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>MapTiler Free</td><td>–</td><td>pauses until next month</td><td>non-commercial only</td><td>terrain 30 m (5 m in some countries)</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>Mapbox</td><td>–</td><td>no cap, invoiced</td><td>–</td><td>–</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>Azure, Apple, HERE, Stadia, Bing</td><td>–</td><td>no cap / no free plan</td><td>Apple $99 a year; Stadia satellite $80 a month</td><td>Azure's elevation retired 2023</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>Sentinel-2 cloudless</td><td>–</td><td>–</td><td>non-commercial</td><td>10 m pixels</td><td><span class="chip bad">out</span></td></tr>
+      <tr><td>Mapterhorn, AWS Terrain Tiles</td><td>–</td><td>–</td><td>source licences; Mapterhorn has no usage policy</td><td>AWS: 30 m, frozen 2017</td><td><span class="chip">background only</span></td></tr>
+      <tr><td>swisstopo 3D</td><td>–</td><td>–</td><td>free, fair use to 20,000 users a day</td><td>source mandatory</td><td><span class="chip ok">usable in CH</span></td></tr>
+      <tr><td>Our DEM and orthophotos</td><td>–</td><td>–</td><td>already licensed</td><td>credits say "processed"</td><td><span class="chip ok">passes</span></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section id="variants">
+  <h2>The four variants</h2>
+  <div class="two">
+    <div>
+      <h3>A · KML and Google Earth</h3>
+      <ul class="plain">
+        <li>Built in the browser from the line: the webbing as a line at absolute heights, both anchors, the walker's
+        spot, the credits. Links: Google Earth Web at the line, swisstopo's 3D viewer for Swiss lines, Google Maps'
+        satellite view on phones.</li>
+        <li>Earth Web opens a local KML "even if you're not signed in": lines, placemarks, simple tours; no 3D
+        models. Earth Pro has models and tours but "will no longer be available for download beginning June 25,
+        2027".</li>
+        <li>The file holds only our data; a local KML "is not uploaded or submitted to Google". The camera link and
+        swisstopo's 3D parameters are undocumented.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>B · Our own data</h3>
+      <ul class="plain">
+        <li>The search's own DEM (1 m; 0.5 m data in Switzerland) as the ground, our orthophoto draped on it: the line
+        sits on the heights the search used, no datum conversion.</li>
+        <li>Nadir orthophotos stretch over vertical walls: cliffs look smeared where the mock shows rock.</li>
+        <li>Textures from our cached tiles and the national services: all 20 probed services send the CORS header
+        WebGL needs (Saxony-Anhalt only to https origins).</li>
+        <li>Public site and local app alike; no key; nothing new to third parties.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>C · Esri</h3>
+      <ul class="plain">
+        <li>Terrain 3D is public and unmetered: Esri bills tiles only from its basemap hosts, and its own SDK sends
+        no key to the terrain host. Tiles end at level 16, about 1.5 m on the ground at 50° N, built from the same
+        national lidar; heights orthometric in the national datums.</li>
+        <li>World Imagery at zoom 19–21 is the national orthophoto (GUGiK, swisstopo, GKÚ, IGN); Vantor in Malta,
+        South Tyrol and the USA.</li>
+        <li>2,000,000 basemap tiles a month free, shared with the 2D satellite layer: at the limit both go dark until
+        the next billing cycle.</li>
+      </ul>
+    </div>
+    <div>
+      <h3>D · Google 3D Maps</h3>
+      <ul class="plain">
+        <li>Google's mesh where it has "3D surface data", satellite on terrain elsewhere; GA in practice (default
+        channel since 23 Oct 2025).</li>
+        <li>No drag on the ground: an anchor moves by a click on its new spot; heights still from our DEM ("terrain
+        data" is Google content).</li>
+        <li>"Immersive Maps" per load: 5,000 free a month, then $7.00 per 1,000; a per-day quota (~150) is the hard
+        stop; a card on a Google Cloud billing account.</li>
+        <li>CSP with a nonce on every script and style, <code>'unsafe-eval'</code> and <code>worker-src blob:</code>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="editing">
+  <h2>Editing and the walker</h2>
+  <div class="two">
+    <div>
+      <ul class="plain">
+        <li><strong>The webbing</strong> comes from <code>sag.ts</code>: <code>estimate(span, dh, rigging)</code>
+        for the envelope, <code>athlete(x)</code> for the loaded webbing with the walker at x (61 points,
+        warm-started). Each point maps to 3D between the anchors.</li>
+        <li><strong>The walker</strong> starts where the sag is largest, follows a drag along the line and walks from
+        anchor to anchor on request; a 1.7 m low-poly mannequin.</li>
+      </ul>
+    </div>
+    <div>
+      <ul class="plain">
+        <li><strong>Dragging an anchor</strong> takes the height from our DEM patch, never from a provider's mesh;
+        length and sag update on every move.</li>
+        <li><strong>On release</strong> the server's profile (<code>/api/profile</code>, as Measure) gives clearance and
+        trees. Nothing is saved.</li>
+        <li><strong>The DEM patch</strong> is a new quick-lane request, built like <code>profile_of_line</code>; sent
+        as binary or base64url (standard base64 would be damaged by the public site's path redaction).</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="heights">
+  <h2>Heights</h2>
+  <p class="prose">Our anchor heights are bare ground in each source's own vertical datum. What each variant needs
+  to put the line where it belongs:</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th>Variant</th><th>Its heights</th><th>Our line needs</th></tr></thead>
+    <tbody>
+      <tr><td>B, our data</td><td>ours</td><td>nothing</td></tr>
+      <tr><td>C, Esri Terrain 3D</td><td>orthometric, from the same national DEMs</td><td>nothing in PL, CH, SK, ES (to confirm); Malta differs (24 m, EGM2008)</td></tr>
+      <tr><td>D, Google 3D Maps</td><td>ABSOLUTE: "mean sea level, calculated using EGM96"</td><td>our height + national geoid − EGM96 geoid at the line</td></tr>
+      <tr><td>A, KML</td><td>"above sea level", the EGM96 geoid</td><td>as D</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="prose">The geoid is 22–58 m in our European countries (+39.98 m at Żabi Koń, +51.82 m at Lauterbrunnen),
+  so a line on an ellipsoidal surface without a grid would hang tens of metres off. Taking our heights as EGM96
+  heights, as A and D would without the national grid, errs by up to about 1 m in Poland and 3 m in the Alps; the
+  national grids are 0.3–1.5 MB each. Without its grid, pyproj silently returns a geoid of 0, so the code must use an
+  explicit <code>vgridshift</code> pipeline that fails loudly.</p>
+  <p class="prose">Datum aside, Google's mesh is a surface model with trees and buildings, our anchors are bare
+  ground: a line on our heights can pass through Google's trees. Google's EEA terms make us "responsible for any
+  misalignment".</p>
+  <details>
+    <summary>Vertical datum of every source and its PROJ grid</summary>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Source</th><th>Datum</th><th>PROJ grid to ellipsoidal heights</th></tr></thead>
+      <tbody>
+        <tr><td>geoportal (PL)</td><td>PL-EVRF2007-NH</td><td><code>pl_gugik_geoid2021-PL-EVRF2007-NH.tif</code> (1.0 MB)</td></tr>
+        <tr><td>swisstopo</td><td>LN02</td><td><code>ch_swisstopo_chgeo2004_ETRS89_LN02.tif</code> (0.3 MB)</td></tr>
+        <tr><td>slovakia</td><td>Baltic 1957</td><td><code>sk_gku_Slovakia_ETRS89h_to_Baltic1957.tif</code> (0.5 MB)</td></tr>
+        <tr><td>usa, usgs10m</td><td>NAVD88</td><td><code>us_noaa_g2018u0.tif</code> (16.7 MB)</td></tr>
+        <tr><td>alaska, alaska_ifsar</td><td>NAVD88</td><td><code>us_noaa_g2012ba0.tif</code> (11.3 MB)</td></tr>
+        <tr><td>europe (FABDEM, Copernicus)</td><td>EGM2008</td><td><code>us_nga_egm08_25.tif</code> (80.6 MB)</td></tr>
+        <tr><td>nasadem</td><td>EGM96</td><td><code>us_nga_egm96_15.tif</code> (2.7 MB)</td></tr>
+        <tr><td>spain, spain_canarias</td><td>Alicante; islands local</td><td><code>es_ign_egm08-rednap(-canarias).tif</code></td></tr>
+        <tr><td>austria</td><td>EVRF2000 Austria</td><td><code>at_bev_GEOID_GRS80_Oesterreich.tif</code></td></tr>
+        <tr><td>denmark</td><td>DVR90</td><td><code>dk_sdfi_dvr90_2023.tif</code></td></tr>
+        <tr><td>finland</td><td>N2000</td><td><code>fi_nls_fin2023n2000.tif</code></td></tr>
+        <tr><td>German Länder</td><td>DHHN2016</td><td><code>de_bkg_gcg2016.tif</code></td></tr>
+        <tr><td>england, wales</td><td>ODN</td><td><code>uk_os_OSGM15_GB.tif</code></td></tr>
+        <tr><td>malta, malta2012</td><td>not stated</td><td>none</td></tr>
+        <tr><td>south_tyrol, luxembourg</td><td>provincial; NG95</td><td>none</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </details>
+</section>
+
+<section id="library">
+  <h2>Rendering library</h2>
+  <p class="prose">B and C need one library to draw the scene (D brings Google's). Each candidate was bundled with
+  our build settings, and the two finalists ran a test scene in headless Edge under the site's real headers: the
+  Żabi Koń DEM, our cached orthophoto, a sagging line updated live, a glTF walker, picking.</p>
+  <div class="table-wrap">
+  <table>
+    <thead><tr><th></th><th>three.js</th><th>CesiumJS (CesiumWidget)</th><th>Giro3D</th><th>iTowns</th><th>MapLibre</th></tr></thead>
+    <tbody>
+      <tr><td>Licence</td><td>MIT</td><td>Apache-2.0</td><td>MIT</td><td>CeCILL-B / MIT</td><td>BSD-3</td></tr>
+      <tr><td>Code, gzip</td><td class="num">188 KB</td><td class="num">1,044 + 275 KB</td><td class="num">492 KB</td><td class="num">374 KB</td><td class="num">291 + 145 KB</td></tr>
+      <tr><td>Today's CSP</td><td><span class="chip ok">0 violations</span></td><td><span class="chip warn">9 violations</span></td><td>blob workers</td><td>breaks in IIFE</td><td>ESM only</td></tr>
+      <tr><td>Our DEM</td><td>own mesh</td><td>custom terrain provider</td><td>elevation layer</td><td>elevation layer</td><td>raster-dem</td></tr>
+      <tr><td>Esri</td><td>imagery; terrain needs own decoder</td><td>imagery and terrain built in</td><td>via OpenLayers</td><td>WMTS</td><td>raster</td></tr>
+      <tr><td>Far field</td><td>with 3DTilesRendererJS (+31 KB)</td><td>globe built in</td><td>yes</td><td>yes</td><td>yes</td></tr>
+      <tr><td>Releases in a year</td><td class="num">12</td><td>13, monthly, API moving</td><td class="num">9</td><td class="num">0</td><td class="num">38</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="two">
+    <div>
+      <p><strong>three.js</strong> fits B best: it runs under today's CSP unchanged (re-checked: 0 violations, 0
+      errors), is small, and every part of the scene worked. It has no globe unless 3DTilesRendererJS is added, and
+      the camera controls and credits are ours.</p>
+      <p><strong>CesiumJS</strong> fits if the view must show the far field like Google Earth: globe, Esri imagery
+      and terrain built in. It costs about 1.3 MB of code, worker and asset folders outside the committed bundle, a
+      relaxed CSP on its page, monthly API churn, and reports of lost WebGL contexts on iPhone 11, XR and SE under
+      iOS 18.</p>
+      <p class="note">The deciding question: is a far field part of "Google-Earth-like"?</p>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Page</th><th>CSP additions on the 3D page only</th></tr></thead>
+      <tbody>
+        <tr><td>A</td><td>none</td></tr>
+        <tr><td>B, three.js</td><td>none (data from our server or <code>&lt;img&gt;</code> tiles)</td></tr>
+        <tr><td>B/C, CesiumWidget</td><td><code>'wasm-unsafe-eval'</code>; <code>style-src 'unsafe-inline'</code> or a build patch; tile hosts in <code>connect-src</code></td></tr>
+        <tr><td>D</td><td>a per-request nonce on scripts and styles, <code>'unsafe-eval'</code>, <code>worker-src blob:</code>, Google's hosts</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<section id="size">
+  <h2>Size, performance and phones</h2>
+  <div class="two">
+    <div>
+      <ul class="plain">
+        <li><strong>Per open</strong> (a 1.5 km square at 1 m, measured on our caches): the DEM 0.9 MB (PL) to 1.4 MB
+        (CH) as terrain-RGB, orthophoto tiles 7 KB (PL) and 16–18 KB (CH) each. The recommended mix is about
+        <strong>2.2–4.2 MB</strong>; 1000 opens a month are about 3 GB from the VPS.</li>
+        <li><strong>Orthophoto:</strong> zoom 17–21 is cached only 30 m around the chosen lines today, so an open
+        needs about 120–180 more tiles, through our cache or straight from the services.</li>
+        <li><strong>Mesh:</strong> 1 km of our DEM at 0.25 m error is 88k vertices in Poland, 293k in the Alps.</li>
+        <li><strong>Tests:</strong> headless Edge on Windows already has WebGL2; Linux CI needs SwiftShader.</li>
+      </ul>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Phone level</th><th>What</th><th>Textures</th></tr></thead>
+      <tbody>
+        <tr><td>Full, with editing</td><td>three.js, mesh at 0.5 m error, zoom 17 + zoom 19 near the line</td><td class="num">45–60 MB</td></tr>
+        <tr><td>Simplified, view only</td><td>mesh at 1–2 m, zoom 17, no dragging</td><td class="num">16–18 MB</td></tr>
+        <tr><td>Desktop only</td><td>zoom 19 everywhere, or CesiumJS with the far field</td><td class="num">225–248 MB</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+  <p class="note prose">iOS kills texture-heavy pages without an event and loses the WebGL context in some Cesium
+  scenes on iPhone 11, XR and SE under iOS 18: test on such a phone before promising the full level.</p>
+</section>
+
+<section id="privacy">
+  <h2>Privacy and terms, for approval</h2>
+  <p class="prose">Nothing applied: the privacy page is the user's statement. Today it says maps "load background
+  tiles (OpenStreetMap, OpenTopoMap, Esri, orthophoto services) directly: those services see your IP address."
+  A and B need no change.</p>
+  <div class="two">
+    <div class="callout">
+      <div class="eyebrow">Proposal · C, Esri</div>
+      <blockquote>Maps in your browser, the 3D view of a line included, load background tiles (OpenStreetMap,
+      OpenTopoMap, Esri, orthophoto services) and Esri's elevation tiles directly: those services see your IP
+      address.</blockquote>
+      <p class="note">And the About page's Esri sentence: "…may only be viewed in this map and in the 3D view of a
+      line: …".</p>
+    </div>
+    <div class="callout">
+      <div class="eyebrow">Proposal · D, Google</div>
+      <blockquote>The 3D view of a line can show Google's 3D map. It loads only after you choose it in that view:
+      your browser then contacts Google, which receives your IP address, browser data and the place you look at, uses
+      them under its own Privacy Policy and may transfer them to the USA (EU-US Data Privacy Framework). The choice
+      is remembered in this browser until you withdraw it in the view.</blockquote>
+      <p class="note">In the view, before anything loads: "Google 3D map: loading it sends your IP address and this
+      place to Google… [Show Google's 3D map] [Use the site's own 3D view] [ ] Remember in this browser."</p>
+    </div>
+  </div>
+  <p class="prose">A terms page (for D; the firmer footing for C): what the site is and that its results and the 3D
+  view are previews to check on the spot; Google's notice with links to its end-user terms and Privacy Policy; Esri's
+  terms and "view only"; the data licences and the Copernicus liability sentence; accounts and quotas; no warranty as
+  far as Polish law allows; contact; accepted at sign-in.</p>
+</section>
+
+<section id="legal">
+  <h2>Legal</h2>
+  <ul class="plain prose">
+    <li><strong>Roles.</strong> The public site is a controller even without income (Lindqvist). Embedding Google's
+    map makes it a joint controller of the transmission to Google (Fashion ID); consent must come first and is the
+    site's to collect. Esri is a processor under its DPA. The local app is the user's own household use.</li>
+    <li><strong>The Munich Google Fonts judgment</strong> (3 O 17493/20, €100): passing the IP to Google without
+    consent when an alternative existed. German, first instance; no Polish ruling or UODO guidance found.</li>
+    <li><strong>Transfers.</strong> Google LLC and Esri are "Active" on the EU-US Data Privacy Framework list.</li>
+    <li><strong>Device storage</strong> (Prawo komunikacji elektronicznej art. 399): consent unless "konieczne" for the
+    requested service; the consent gate of D covers it; fines up to 15 000 zł without revenue.</li>
+    <li><strong>High-risk clauses.</strong> Google bans "High Risk Activities": D shows no safety number from Google
+    content, labels itself a preview, and the question goes to Google. Esri only disclaims: a disclaimer fits.</li>
+    <li><strong>Data.</strong> PZGiK's NMT and orthophotos are free with the source stated; NMPT is not on that list
+    (ask GUGiK). FABDEM (BY-NC-SA) in 3D is shared adapted material: non-commercial, share-alike, never exported with
+    Esri imagery.</li>
+    <li><strong>Donations</strong> change nothing for Google, Esri, PZGiK, swisstopo or Copernicus; FABDEM is a grey
+    zone (ask Fathom); they may matter for the regulamin duty, the DSA and consumer law.</li>
+  </ul>
+</section>
+
+<section id="effort">
+  <h2>Effort and money</h2>
+  <div class="two">
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Part</th><th>For</th><th>Effort</th></tr></thead>
+      <tbody>
+        <tr><td>KML writer, links</td><td>A</td><td>low</td></tr>
+        <tr><td>Geoid offset at the line</td><td>A, D</td><td>low–medium</td></tr>
+        <tr><td>3D button, route, lazy bundle, vendor folder</td><td>B C D</td><td>medium</td></tr>
+        <tr><td>The 3D page's own CSP</td><td>B C D</td><td>low · D: medium</td></tr>
+        <tr><td>Webbing and walker in 3D</td><td>B C D</td><td>low</td></tr>
+        <tr><td>Anchor editing, profile on release</td><td>B C · D: click</td><td>medium</td></tr>
+        <tr><td>DEM patch in the quick lane</td><td>B C D</td><td>medium</td></tr>
+        <tr><td>Library: three.js (own controls, mesh)</td><td>B C</td><td>medium</td></tr>
+        <tr><td>Library: CesiumJS instead</td><td>B C</td><td>high</td></tr>
+        <tr><td>Textures (optional server fill)</td><td>B</td><td>medium (high)</td></tr>
+        <tr><td>Esri adapters, key, sentence</td><td>C</td><td>low–medium</td></tr>
+        <tr><td>Google page, consent, quota, key</td><td>D</td><td>high</td></tr>
+        <tr><td>Terms page</td><td>D (C)</td><td>low–medium</td></tr>
+        <tr><td>Edge tests, visual review on phones</td><td>B C D</td><td>medium</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <div class="table-wrap">
+    <table>
+      <thead><tr><th>Variant</th><th>A month at ≤ 1000 opens</th><th>At the stop</th></tr></thead>
+      <tbody>
+        <tr><td>A</td><td class="num">0</td><td>–</td></tr>
+        <tr><td>B</td><td>0 outside; ~3 GB from our server</td><td>–</td></tr>
+        <tr><td>C</td><td>0 within 2M tiles shared with 2D</td><td>Esri imagery, 3D and 2D, gone until the next cycle</td></tr>
+        <tr><td>D</td><td>0 within 5,000 loads; card</td><td>Google's map fails for the rest of the day</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<section id="checks">
+  <h2>Checks and questions</h2>
+  <div class="two">
+    <div>
+      <h3>By hand, before deciding on D</h3>
+      <p>Is it a textured mesh or imagery on terrain? Google's
+      <a href="https://developers.google.com/maps/documentation/javascript/3d/coverage">coverage map</a>, or Google
+      Earth Web at:</p>
+      <ul class="plain">
+        <li><a href="https://earth.google.com/web/@50.15595,19.75627,420a,900d,35y,0h,65t,0r">R1 Żabi Koń</a></li>
+        <li><a href="https://earth.google.com/web/@50.15286,19.78462,400a,900d,35y,0h,65t,0r">R2 Dolina Bolechowicka</a></li>
+        <li><a href="https://earth.google.com/web/@49.232,19.9817,1900a,1500d,35y,0h,65t,0r">R13 Kasprowy Wierch</a></li>
+        <li><a href="https://earth.google.com/web/@46.596,7.907,900a,1500d,35y,90h,65t,0r">R19 Lauterbrunnen</a> · <a href="https://map.geo.admin.ch/#/map?lang=en&amp;3d=true&amp;camera=7.907,46.596,2500,-35,0,">swisstopo 3D</a></li>
+        <li><a href="https://earth.google.com/web/@35.8565,14.383,150a,900d,35y,0h,65t,0r">R6 Dingli</a></li>
+        <li><a href="https://earth.google.com/web/@38.561,-109.568,1300a,1200d,35y,0h,65t,0r">R23 Moab</a></li>
+      </ul>
+      <p class="note">The Earth and swisstopo link syntaxes are undocumented. ArcGIS Scene Viewer, signed in with the
+      Location Platform account, counts against its free tiles.</p>
+    </div>
+    <div>
+      <h3>To the providers</h3>
+      <ul class="plain">
+        <li><strong>Google:</strong> is a highline "visual preview" with our own numbers a High Risk Activity?</li>
+        <li><strong>Esri:</strong> is Terrain 3D used from CesiumJS or three.js covered? May the browser read its
+        heights while an anchor is dragged?</li>
+        <li><strong>Fathom:</strong> do donations make our FABDEM use commercial?</li>
+        <li><strong>GUGiK:</strong> the legal basis for reusing NMPT free of charge.</li>
+      </ul>
+      <h3>Side findings for main</h3>
+      <ul class="plain">
+        <li>The bundles shipped without the licence notices of their libraries: fixed on main with
+        generate-license-file.</li>
+        <li>Standard base64 in a quick-lane answer would be damaged by the public site's path redaction.</li>
+        <li>NMPT's free reuse lacks a stated legal basis.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="sources">
+  <h2>Sources</h2>
+  <p class="prose">All read on 1 November 2026. The full list with quotes is in <code>docs/3d-view.md</code> on the
+  branch.</p>
+  <details>
+    <summary>Main sources</summary>
+    <ul>
+      <li><a href="https://developers.google.com/maps/comms/eea/map-tiles">Google: Map Tiles API in the EEA</a>; <a href="https://developers.google.com/maps/comms/eea/faq">EEA FAQ</a>; <a href="https://cloud.google.com/terms/maps-platform/eea">EEA terms</a>; <a href="https://cloud.google.com/terms/maps-platform/eea/maps-service-terms">EEA service terms</a></li>
+      <li><a href="https://developers.google.com/maps/billing-and-pricing/pricing">Google pricing</a>; <a href="https://developers.google.com/maps/billing-and-pricing/manage-costs">hard cap by quota</a>; <a href="https://developers.google.com/maps/documentation/javascript/3d/altitude-modes">altitude modes</a>; <a href="https://developers.google.com/maps/documentation/javascript/content-security-policy">CSP</a></li>
+      <li><a href="https://developers.google.com/maps/documentation/earth/import-data">Google Earth: KML import</a>; <a href="https://www.google.com/earth/about/versions/">Earth versions</a>; <a href="https://docs.ogc.org/is/12-007r2/12-007r2.html">OGC KML 2.3</a></li>
+      <li><a href="https://location.arcgis.com/pricing/">Esri pricing</a>; <a href="https://location.arcgis.com/help/billing/">billing</a>; <a href="https://www.esri.com/content/dam/esrisites/en-us/media/legal/platform/platform-legal.pdf">Location Platform Agreement</a>; <a href="https://developers.arcgis.com/cesiumjs/scenes/">Esri with CesiumJS</a></li>
+      <li><a href="https://cesium.com/platform/cesium-ion/pricing/">Cesium ion pricing</a>; <a href="https://cesium.com/legal/terms-of-service/">terms</a>; <a href="https://www.maptiler.com/cloud/terms/">MapTiler terms</a>; <a href="https://mapterhorn.com/">Mapterhorn</a>; <a href="https://docs.geo.admin.ch/visualize-data/terrain-service.html">swisstopo terrain</a></li>
+      <li><a href="http://publications.europa.eu/resource/celex/62017CJ0040">CJEU Fashion ID</a>; <a href="https://www.gesetze-bayern.de/Content/Document/Y-300-Z-BECKRS-B-2022-N-612">LG München I 3 O 17493/20</a>; <a href="https://www.dataprivacyframework.gov/">DPF list</a>; <a href="https://api.sejm.gov.pl/eli/acts/DU/2024/1221/text.html">Prawo komunikacji elektronicznej</a>; <a href="https://creativecommons.org/faq/">Creative Commons FAQ</a></li>
+    </ul>
+  </details>
+</section>
+
+<footer>A reading of the terms and the law on 1 November 2026, not legal advice. Effort is the work it takes Claude
+(low, medium, high). Nothing is built yet.</footer>
+</div>

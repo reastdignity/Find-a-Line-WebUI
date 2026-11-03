@@ -19,6 +19,10 @@ HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Sec
 The "map" pages are a run's own map.html (from the server and by its share link). The files are
 <page>-<device>-<theme>.png; a page whose click finds nothing on a device is left out.
 Phone screenshots of the viewport only (the shells scroll inside, not the page).
+
+With ESRI_API_KEY set, the pages showing Esri's imagery ("map-esri", the "view3d" pages but "view3d-shaded" and
+"view3d-edges") are for the review only: Esri's terms forbid storing or passing its imagery on, so delete them after
+looking and never publish them.
 """
 
 import argparse
@@ -43,10 +47,11 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 
 # name -> (interface ("map": the run's map.html, "shared": it by its share link), hash, actions after loading or None: a CSS selector to click, "scroll:<selector>" to
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
-# bottom of its panel (a "?" near the bottom: its bubble opens upwards), or a list of such steps[, the user:
-# "admin" (default), "walker", an approved user with the site's limits, or "visitor", not signed in]);
-# a step "full" takes the whole page, not only the viewport;
-# "{run}" is the clip's run; an interface starting with "/" is a path of web.py's server-rendered pages
+# bottom of its panel (a "?" near the bottom: its bubble opens upwards), "wait:<expression>" to wait until it is true,
+# or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, or "visitor",
+# not signed in]); a step "full" takes the whole page, not only the viewport;
+# "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
+# web.py's pages (the server-rendered ones and the 3D view's)
 # Leaflet's layer control opened as its expand() does (hover on a desktop, a tap on a phone: neither is the
 # same click on every device)
 LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
@@ -67,6 +72,21 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
                   "const init = {bubbles: true, clientX: x, clientY: y}, e = document.elementFromPoint(x, y); "
                   "e.dispatchEvent(new MouseEvent('mousemove', init)); e.dispatchEvent(new MouseEvent('click', init)); })()")
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
+# The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
+VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
+                "![...document.querySelectorAll('.v3-toolbar [role=status]')].some((e) => !e.hidden)")
+SHADED_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
+             "b.textContent.trim() === 'Shaded')?.click()")
+# The "Edges" look chosen and drawn (view3d/scene.ts sets data-edges)
+EDGES_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
+            "b.textContent.trim() === 'Edges')?.click()")
+EDGES_DRAWN = "wait:document.getElementById('view3d')?.dataset.edges === 'on'"
+VIEW3D = "#run={run}&line={line}"
+# The phone's motion (view3d/views.ts; its button only on touch screens): held upright facing north, then turned
+# 40 degrees right and tilted 10 degrees up: two events with DeviceOrientationEvent's angles (WebKit on Windows
+# cannot construct one)
+MOTION_TURN = ("js:for (const [alpha, beta] of [[0, 90], [-40, 100]]) "
+               "dispatchEvent(Object.assign(new Event('deviceorientation'), {alpha, beta, gamma: 0}))")
 PAGES = {
     "d-home": ("d", "", None),
     "d-home-limited": ("d", "", None, "walker"),  # the usage meters of a user with the site's limits
@@ -85,6 +105,7 @@ PAGES = {
     "d-result-intro": ("d", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
     "d-result-more": ("d", "#run={run}", [".r-filters .u-chip.u-add", "js:" + ANCHORS_SHOWN]),  # More filters: Anchors
     "d-result-credits": ("d", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones)
+    "d-line": ("d", "#run={run}&line={line}", None),  # a line selected: its details, the "3D view" button
     "d-favourites": ("d", "#favourites", None),
     "d-admin": ("d", "#admin", None),
     "d-layer": ("d", "#layer", None),             # the highline layer of the sample cube (tests/test_country_web.py)
@@ -126,6 +147,20 @@ PAGES = {
     "page-coverage-life": ("/coverage?lang=en", "", [".cov-scale button:nth-child(2)",
                                                      "js:" + COVERAGE_CLICK.format(key="us-ak")], "visitor"),
     "page-coverage-pl": ("/coverage?lang=pl", "", ["js:" + COVERAGE_CLICK.format(key="cz"), "full"], "visitor"),
+    # the 3D view of the first line at the device's level (a coarse pointer: the phone's), then at the other one;
+    # its imagery Esri's with ESRI_API_KEY set (the clip's run has no orthophoto), else the terrain shaded
+    "view3d": ("/view3d", VIEW3D, VIEW3D_READY),
+    "view3d-shaded": ("/view3d", VIEW3D, [VIEW3D_READY, SHADED_ON]),
+    "view3d-edges": ("/view3d", VIEW3D, [VIEW3D_READY, EDGES_ON, EDGES_DRAWN]),  # the terrain on paper with its edges
+    "view3d-phone": ("/view3d?level=phone", VIEW3D, VIEW3D_READY),
+    "view3d-full": ("/view3d?level=full", VIEW3D, VIEW3D_READY),
+    # the walker's views (view3d/views.ts): its eyes, behind it
+    "view3d-eyes": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]",
+                                        "wait:document.getElementById('view3d')?.dataset.view === 'eyes'"]),
+    "view3d-behind": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=behind]",
+                                          "wait:document.getElementById('view3d')?.dataset.view === 'behind'"]),
+    "view3d-motion": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]", ".v3-motion", MOTION_TURN,
+                                          "wait:document.getElementById('view3d')?.dataset.motion === 'on'"]),
 }
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
@@ -169,9 +204,17 @@ def clip_run(data: str) -> str:
     return run
 
 
+def first_line(data: str, run: str) -> str:
+    """The first line of a run as its links name it (keys.lineCoords: the anchors of its data.js row)."""
+    with open(os.path.join(data, "runs", run, "data.js"), encoding="utf-8") as f:
+        row = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"][0]
+    return ",".join(str(v) for v in row[:4])
+
+
 def with_credits(path: str):
-    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js (a run of local files has
-    none), so the map's attribution is as long as a real run's (on a phone: folded behind its button)."""
+    """The credits of a run of geoportal.gov.pl filled with FABDEM in its data.js and run.json (a run of local
+    files has none), so the map's and the 3D view's attribution are as long as a real run's (on a phone: folded
+    behind their button)."""
     import sources as src
     with open(path, encoding="utf-8") as f:
         prefix, _, text = f.read().partition(" = ")
@@ -179,6 +222,13 @@ def with_credits(path: str):
     data["attribution"] = [c.as_dict() for c in src.SOURCES["geoportal"].credits] + [src.FABDEM_CREDIT.as_dict()]
     with open(path, "w", encoding="utf-8") as f:
         f.write(f"{prefix} = {json.dumps(data, ensure_ascii=False)};\n")
+    # the same in its run.json, which the 3D view's patch gives on (search.patch_of_line)
+    meta_path = os.path.join(os.path.dirname(path), "run.json")
+    with open(meta_path, encoding="utf-8") as f:
+        meta = json.load(f)
+    meta["attribution"] = data["attribution"]
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=1)
 
 
 def certificate(folder: str):
@@ -274,6 +324,7 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     data = args.data_dir or tempfile.mkdtemp(prefix="ui-shots-")
     site, cookies, run, share, stop = serve(data)
+    line = first_line(data, run)
     wanted = [w for w in args.only.split(",") if w]
     pages = {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}
     themes = ["light", "dark"] if args.dark else ["light"]
@@ -285,7 +336,11 @@ def main():
                 options = dict(pw.devices[profile]) if profile else dict(DESKTOP)
                 options.pop("default_browser_type", None)
                 for theme in themes:
-                    context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True)
+                    # Chromium's motion sensors as a phone that allows them ("view3d-motion"; WebKit has no such
+                    # permission)
+                    sensors = ["accelerometer", "gyroscope", "magnetometer"] if engine == "chromium" else []
+                    context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True,
+                                                  permissions=sensors)
                     # the theme, and the intros put away (ui/Intro.tsx): the "-intro" pages open them; the
                     # coverage page's choices and the place map's coverage layer as on a first visit
                     context.add_init_script(f"try {{ localStorage.setItem('findaline-theme', {json.dumps(theme)}); "
@@ -303,7 +358,7 @@ def main():
                         page = context.new_page()  # a fresh page each: no menu or route of the one before
                         start = {"map": f"/runs/{run}/map.html", "shared": f"/s/{share}/map.html"}.get(
                             ui, ui if ui.startswith("/") else f"/?ui={ui}")
-                        page.goto(f"{site}{start}{hash_.format(run=run)}")
+                        page.goto(f"{site}{start}{hash_.format(run=run, line=line)}")
                         page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
                         try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
                             page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",
@@ -322,6 +377,13 @@ def main():
                                 continue
                             if step.startswith("js:"):
                                 page.evaluate(step[3:])
+                                page.wait_for_timeout(600)
+                                continue
+                            if step.startswith("wait:"):  # the 3D view: its terrain, then its imagery
+                                try:  # a function: an expression would need eval, which the CSP forbids
+                                    page.wait_for_function(f"() => ({step[5:]})", timeout=60000)
+                                except Exception:
+                                    print(f"{name} ({device}): still waiting for {step[5:]}")
                                 page.wait_for_timeout(600)
                                 continue
                             if step.startswith("low:"):  # the last one, at the bottom of its panel

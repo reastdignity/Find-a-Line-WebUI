@@ -39,6 +39,7 @@ import os
 import pickle
 import shutil
 import threading
+import zlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
@@ -130,6 +131,14 @@ TILE_MEMORY_SHARE = 0.5
 TILE_PX_MAX = 100e6
 DOWNLOAD_MB_PER_S = 5  # for the time estimate of area searches
 MAX_MEASURED_PX = 6000  # the longest line measured on the map, in pixels (profile_of_line builds a square grid around it)
+# The terrain of the 3D view around a line (patch_of_line, docs/3d-view-contract.md): PATCH_BLOCK·n + 1
+# samples on a side (the page meshes it in chunks of Martini(513)), at least PATCH_SIDE_MIN metres and
+# the line's length + PATCH_SIDE_MARGIN; at most MAX_MEASURED_PX (the quick lane's largest grid)
+PATCH_BLOCK = 512
+PATCH_SIDE_MIN = 1536
+PATCH_SIDE_MARGIN = 500
+PATCH_NO_DATA = -32768  # the int16 value of a sample without data
+PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
 # download slot): measured 2026-10-31 at 120 MiB after the imports, 240-400 MiB when it downloads
 # (Montserrat at 1 m, 2 WCS tiles of 32 MB per layer; El Capitan, 3DEP blocks)
@@ -1496,9 +1505,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
         # the run, earlier runs did too), falling back to the service for a tile not there
         ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
-        # an orthophoto's attribution may name the year of the run too (sources.YEAR)
-        ortho_service = source.ortho and dataclasses.replace(
-            source.ortho, attribution=src.dated(source.ortho.attribution, created.year))
+        ortho_service = _dated_ortho(source, created.year)
     map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
                 ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
     map_path = None
@@ -1530,6 +1537,12 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")
     return Result(results, spot_groups, meta, run, map_path)
+
+
+def _dated_ortho(source: src.Source, year: int) -> Optional[src.OrthoService]:
+    """The orthophoto service of a run's map (None without one): its attribution may name the year
+    of the run too (sources.YEAR)."""
+    return source.ortho and dataclasses.replace(source.ortho, attribution=src.dated(source.ortho.attribution, year))
 
 
 def _orthophoto(plan: Plan) -> bool:
@@ -1609,13 +1622,8 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
     are the same; offsets of filled gaps may differ a little (they come from a smaller
     surrounding). anchor1, anchor2: (lat, lon) of the anchors as the run saved them.
     """
-    p, rig = meta["params"], meta["params"]["rigging"]
-    values = {k: p[k] for k in ("resolution", "min_length", "max_length", "max_anchor_diff", "max_anchor_diff_m",
-                                "slope_threshold", "water", "coastline", "shore_buffer", "fill_gaps", "model")}
-    values.update(rig, nmpt=p["nmpt"] or "off", source=meta["source"]["id"], ortho="never", no_html=True)
-    if values["source"] == "files":
-        files = {d.get("layer"): d.get("file") for d in meta.get("data", [])}
-        values.update(elevation_file=files.get("Terrain file"), surface_file=files.get("Surface file"))
+    p = meta["params"]
+    values = _run_values(meta)
     to_xy = ar._to(meta["center"]["crs"])
     (x1, y1), (x2, y2) = to_xy(anchor1[1], anchor1[0]), to_xy(anchor2[1], anchor2[0])
     length = math.hypot(x2 - x1, y2 - y1)
@@ -1647,6 +1655,131 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
     del data
     gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
     return profile
+
+
+def _run_values(meta: Dict) -> Dict:
+    """The parameters of a search on the run's source, resolution, filling and water settings
+    (meta: its run.json), without the area: profile_of_line and patch_of_line."""
+    p = meta["params"]
+    values = {k: p[k] for k in ("resolution", "min_length", "max_length", "max_anchor_diff", "max_anchor_diff_m",
+                                "slope_threshold", "water", "coastline", "shore_buffer", "fill_gaps", "model")}
+    values.update(p["rigging"], nmpt=p["nmpt"] or "off", source=meta["source"]["id"], ortho="never", no_html=True)
+    if values["source"] == "files":
+        files = {d.get("layer"): d.get("file") for d in meta.get("data", [])}
+        values.update(elevation_file=files.get("Terrain file"), surface_file=files.get("Surface file"))
+    return values
+
+
+def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor2: Tuple[float, float],
+                  step: int = 1, side_m: Optional[float] = None) -> Tuple[Dict, bytes]:
+    """The terrain of the 3D view around a line of a saved run (docs/3d-view-contract.md, "/api/patch"):
+    (meta, the deflated heights). The run's source, resolution, filling and water settings (meta: its
+    run.json), without the surface model, on a square of PATCH_BLOCK·n + 1 samples centred on the
+    line's middle, its edges on the run's pixel edges, so the heights are those the search used.
+    side_m: the metres it must span (default: PATCH_SIDE_MIN, or the line's length + PATCH_SIDE_MARGIN);
+    step 2: every second sample of rows and columns. anchor1, anchor2: (lat, lon) as the run saved them.
+    """
+    from pyproj import Transformer
+    if step not in (1, 2):
+        raise ValueError("step: 1 or 2")
+    p = meta["params"]
+    values = _run_values(meta)
+    values["nmpt"] = "off"  # the 3D view draws the terrain only
+    crs, res = meta["center"]["crs"], float(p["resolution"])
+    to_xy = ar._to(crs)
+    (x1, y1), (x2, y2) = to_xy(anchor1[1], anchor1[0]), to_xy(anchor2[1], anchor2[0])
+    length = math.hypot(x2 - x1, y2 - y1)
+    if side_m is None:
+        side_m = max(PATCH_SIDE_MIN, length + PATCH_SIDE_MARGIN)
+    size = PATCH_BLOCK * max(1, math.ceil(side_m / res / PATCH_BLOCK)) + 1
+    if size > MAX_MEASURED_PX:
+        raise SearchError(f"the 3D view of this line needs {side_m / 1000:.1f} km on a side; at the {res:g} m "
+                          f"resolution of this run it shows at most {MAX_MEASURED_PX * res / 1000:g} km",
+                          "patch_too_large", km=round(side_m / 1000, 1), max=MAX_MEASURED_PX * res / 1000)
+    source, _ = src.choose_source(values["source"], anchor1[0], anchor1[1], paths.cache,
+                                  values.get("elevation_file"), values.get("surface_file"))
+    # The pixel holding the line's middle and half the samples on each side, on the run's pixel edges
+    ox, oy = source.grid_origin
+    half = size // 2
+    left = ox + (math.floor(((x1 + x2) / 2 - ox) / res) - half) * res
+    bottom = oy + (math.floor(((y1 + y2) / 2 - oy) / res) - half) * res
+    right, top = left + size * res, bottom + size * res
+    # The polygon a quarter of a pixel inside these edges: make_grid snaps it out onto them
+    to_lonlat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform
+    inset = res / 4
+    corners = [(left + inset, bottom + inset), (right - inset, bottom + inset), (right - inset, top - inset),
+               (left + inset, top - inset)]
+    ring = [list(to_lonlat(x, y)) for x, y in corners]
+    values["geometry"] = {"type": "Polygon", "coordinates": [ring + [ring[0]]]}
+    plan = plan_search(SearchParams(**values), paths, lambda kind, text: None, with_margin=False)
+    if plan.crs != crs:
+        raise SearchError(f"the run used {crs}, a search here would use {plan.crs}", "patch_crs")
+    grid = plan.grid
+    if (grid.width, grid.height) != (size, size) or abs(grid.left - left) > res / 100 or abs(grid.top - top) > res / 100:
+        raise RuntimeError(f"the patch's grid ({grid.width} x {grid.height} at {grid.left}, {grid.top}) is not "
+                           f"the square asked for ({size} x {size} at {left}, {top})")
+    data = prepare_data(plan, statistics=False)  # the heights only, no hypsometry
+    anchors = []
+    for x, y in ((x1, y1), (x2, y2)):
+        row, col = int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5))
+        inside = 0 <= row < size and 0 <= col < size
+        h = float(data.elevation[row, col]) if inside else math.nan
+        anchors.append({"x": grid.left + (col + 0.5) * res, "y": grid.top - (row + 0.5) * res,
+                        "h": round(h, 2) if math.isfinite(h) else None})
+    heights = np.array(data.elevation[::step, ::step])  # a copy: the grids go with the work folder
+    del data
+    gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
+    body, base_dm = encode_heights(heights)
+    # The sampled grid's outer edges: sample (i, j) has its centre at left + (j + 0.5)·res·step
+    sampled = res * step
+    s_left, s_top = grid.left + res / 2 - sampled / 2, grid.top - res / 2 + sampled / 2
+    # lon, lat as an affine function of the grid metres, fitted over a 5 x 5 lattice of the patch
+    cx, cy = (grid.left + right) / 2, (bottom + grid.top) / 2
+    xs, ys = (a.ravel() for a in np.meshgrid(np.linspace(left, right, 5), np.linspace(bottom, top, 5)))
+    lon, lat = to_lonlat(xs, ys)
+    design = np.column_stack([np.ones(xs.size), xs - cx, ys - cy])
+    (a0, a1, a2), (b0, b1, b2) = (np.linalg.lstsq(design, np.asarray(v), rcond=None)[0] for v in (lon, lat))
+    affine = [a0 - a1 * cx - a2 * cy, a1, a2, b0 - b1 * cx - b2 * cy, b1, b2]
+    created = datetime.fromisoformat(meta["created"]).astimezone() if meta.get("created") else datetime.now()
+    ortho_cache = ortho.cache_folder(paths.cache, source.ortho) if source.ortho else None
+    patch = {
+        "width": int(heights.shape[1]), "height": int(heights.shape[0]), "step": step, "res": sampled, "crs": plan.crs,
+        "left": s_left, "top": s_top, "base_dm": base_dm, "anchors": anchors, "affine": [float(v) for v in affine],
+        "rigging": dataclasses.asdict(plan.rigging), "model": p["model"],
+        # as the run's data.js (mapping.save_map), its cache seen from the run's map.html
+        "ortho": mp.ortho_entry(_dated_ortho(source, created.year), ortho_cache,
+                                os.path.join(paths.runs, meta["id"], "map.html")),
+        "attribution": meta.get("attribution", []),
+        "sha256": hashlib.sha256(body).hexdigest(),
+    }
+    return patch, body
+
+
+def encode_heights(heights: np.ndarray) -> Tuple[bytes, int]:
+    """The body of the 3D view's heights (docs/3d-view-contract.md, "Body"; the reference is
+    tests/data/make_patch_fixture.py encode): decimetres above base_dm as int16 (PATCH_NO_DATA
+    without data), row by row from the top as horizontal deltas (int16 wrapping), little-endian,
+    deflated in the zlib format. Returns (body, base_dm). SearchError patch_no_data without a
+    finite height, patch_relief for a relief above 3276.7 m."""
+    finite_min = np.nanmin(heights) if np.isfinite(heights).any() else math.nan
+    if not math.isfinite(finite_min):
+        raise SearchError("no elevation data around this line", "patch_no_data")
+    base_dm = int(math.floor(float(finite_min) * 10))
+    compressor = zlib.compressobj(6)
+    parts = []
+    for start in range(0, heights.shape[0], PATCH_ROWS):
+        block = heights[start:start + PATCH_ROWS].astype(np.float64)
+        finite = np.isfinite(block)
+        values = np.full(block.shape, PATCH_NO_DATA, dtype=np.int64)
+        values[finite] = np.rint(block[finite] * 10).astype(np.int64) - base_dm
+        if finite.any() and values[finite].max() > 32767:
+            raise SearchError("the relief around this line exceeds 3276.7 m", "patch_relief")
+        values = values.astype(np.int16)
+        deltas = values.copy()
+        deltas[:, 1:] = values[:, 1:] - values[:, :-1]  # int16 arithmetic wraps, the decoder wraps back
+        parts.append(compressor.compress(deltas.astype("<i2").tobytes()))
+    parts.append(compressor.flush())
+    return b"".join(parts), base_dm
 
 
 def run_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] = None,

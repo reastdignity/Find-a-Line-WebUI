@@ -1682,7 +1682,7 @@ def _error_codes() -> dict:
     from the source."""
     import ast
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    kinds = {"rate_": ["estimate", "profile", "place", "report", "time_zone", "job"],  # web.RATE_NAMES
+    kinds = {"rate_": ["estimate", "profile", "patch", "place", "report", "time_zone", "job"],  # web.RATE_NAMES
              "quota_use_": ["km2", "mpx", "nominatim", "download_mb"]}           # jobs.USAGE
     position = {"UserError": 1, "SearchError": 1, "Note": 1, "ServiceError": 1, "QuotaExceeded": 2,
                 "OverpassDayMax": 1}

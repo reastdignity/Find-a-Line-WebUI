@@ -2,7 +2,7 @@
 // (the 30 m rest faint, so the tiles stay readable), partial areas with a dashed edge.
 import "../../leaflet";
 import L from "leaflet";
-import { baseLayers } from "../../layers";
+import { baseLayers } from "../../baselayers";
 import { levelColour } from "../palette";
 import { BOXES, keyOf, levelOfKey, partialOfKey } from "./geo";
 import type { MapView, ViewContext } from "./view";

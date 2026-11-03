@@ -28,6 +28,8 @@ Settings and limits of the web app, from environment variables (pydantic-setting
 - WebKeys: keys the web process hands to the browser (ESRI_API_KEY: the satellite map of ArcGIS
   Location Platform, restricted to the site's address by its referrer), from the environment or a
   Docker secret of the same name given to the web service only (web_key); none: no such layer.
+- ViewSettings: the 3D view of a line (FINDALINE_3D_RING: its coarse ring of terrain from
+  FINDALINE_3D_RING_URL, off by default), from the environment only, read once by web.create_app.
 """
 
 import ipaddress
@@ -57,6 +59,7 @@ PUBLIC = {
     "download_mb_day_max": 10000,
     "estimate_rate": "20/minute;300/hour", "profile_rate": "30/minute;500/hour", "job_rate": "10/minute;60/hour",
     "place_rate": "10/minute;100/hour", "report_rate": "3/minute;20/day", "time_zone_rate": "5/minute;20/day",
+    "patch_rate": "10/minute;120/hour",
     "queue_max": 50, "free_disk_gb_min": 20,
 }
 # Limits on request values: field of Limits -> (parameter of SearchParams, "min" or "max")
@@ -154,6 +157,8 @@ class Limits(BaseSettings):
         None, description="estimates a user may ask for, in the notation of the limits library "
                           "(\"20/minute;300/hour\")")
     profile_rate: Optional[str] = Field(None, description="profiles a user may ask for, the same notation")
+    patch_rate: Optional[str] = Field(None, description="terrain patches of the 3D view a user may ask for, the "
+                                                         "same notation")
     place_rate: Optional[str] = Field(None, description="place lookups (the place box) a user may ask for, the "
                                                          "same notation")
     report_rate: Optional[str] = Field(None, description="problem reports a user may send, the same notation")
@@ -167,7 +172,8 @@ class Limits(BaseSettings):
         None, ge=0, description="no new searches while the disk of the data folder has less free space, GB; "
                                 "checked again before a search downloads and before it computes")
 
-    @field_validator("estimate_rate", "profile_rate", "place_rate", "report_rate", "time_zone_rate", "job_rate")
+    @field_validator("estimate_rate", "profile_rate", "patch_rate", "place_rate", "report_rate", "time_zone_rate",
+                     "job_rate")
     @classmethod
     def check_rate(cls, value: Optional[str]) -> Optional[str]:
         if value is not None:
@@ -454,6 +460,51 @@ class WebKeys(BaseSettings):
     def load(cls, secrets_dir: Optional[str] = None) -> "WebKeys":
         secrets_dir = secrets_dir or SECRETS_DIR
         return cls(_secrets_dir=secrets_dir if os.path.isdir(secrets_dir) else None)
+
+
+class ViewSettings(BaseSettings):
+    """The 3D view of a line (/view3d): its coarse ring of terrain around the patch, which the browser
+    loads itself from a tile server of Terrarium-encoded elevation in Web Mercator. Off by default: the
+    ring's server is someone else's (Mapterhorn), asked only once its maintainer agrees. From the
+    environment only (FINDALINE_3D_RING, FINDALINE_3D_RING_URL), read once by web.create_app."""
+    model_config = SettingsConfigDict(env_prefix="FINDALINE_3D_", extra="ignore")
+
+    ring: bool = Field(False, description="the 3D view shows the terrain around its patch, from ring_url "
+                                          "(FINDALINE_3D_RING: on/off)")
+    ring_url: str = Field("https://tiles.mapterhorn.com/{z}/{x}/{y}.webp",
+                          description="the ring's tile URL template with {z}, {x} and {y} (https; http only to "
+                                      "127.0.0.1 or localhost)")
+
+    @field_validator("ring_url")
+    @classmethod
+    def check_ring_url(cls, value: str) -> str:
+        value = value.strip()
+        parts = urlsplit(value)
+        local = parts.scheme == "http" and parts.hostname in ("localhost", "127.0.0.1")
+        if not parts.hostname or (parts.scheme != "https" and not local) or parts.username or parts.password:
+            raise ValueError("https://<host>/... expected (http:// only to 127.0.0.1 or localhost)")
+        if not all(f"{{{name}}}" in value for name in "zxy"):
+            raise ValueError("the template needs {z}, {x} and {y}")
+        if not all(" " < c <= "~" and c not in "\"'<>\\`" for c in value):
+            raise ValueError("a URL expected: printable ASCII without spaces, quotes or <>")
+        return value
+
+    @property
+    def ring_origin(self) -> str:
+        """scheme://host[:port] of the ring's tiles (what the 3D page's connect-src allows)."""
+        parts = urlsplit(self.ring_url)
+        return f"{parts.scheme}://{parts.netloc.lower()}"
+
+    @classmethod
+    def load(cls) -> "ViewSettings":
+        """From the environment; SystemExit naming what is wrong (the app does not start then)."""
+        from pydantic import ValidationError
+        try:
+            return cls()
+        except ValidationError as e:
+            raise SystemExit("the settings of the 3D view (FINDALINE_3D_RING, FINDALINE_3D_RING_URL) are wrong:\n"
+                             + "\n".join(f"  FINDALINE_3D_{str(error['loc'][0]).upper()}: {error['msg']}"
+                                         for error in e.errors()))
 
 
 def _read_key(keys, name: str, secrets_dir: Optional[str]) -> Optional[str]:

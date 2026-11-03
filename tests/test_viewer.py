@@ -5,6 +5,7 @@ Needs Node and `npm install` in viewer/; skipped without them.
 """
 
 import json
+import math
 import os
 import random
 import shutil
@@ -636,3 +637,565 @@ console.log(JSON.stringify([days.length, days[0].key, days[29].key, new Set(days
   [0.004, 0.07, 3.14159, 12.25, 99.96, 1234.567, 48300].map(m.km2Text), m.countText(1234), m.countryName("pl")]));""")
     assert found == [30, "2026-10-02", "2026-10-31", 30, [["2026-10-25", 2.5, 1], ["2026-10-31", 12.32, 2]], 12.32,
                      ["< 0.01", "0.07", "3.14", "12.3", "100", "1,235", "48,300"], "1,234", "Poland"]
+
+
+PATCH = os.path.join(REPO, "tests", "data", "patch_zabi_kon")
+
+
+def test_patch_decoder(tmp_path):
+    """view3d/decode.ts against the recorded patch (tests/data/make_patch_fixture.py, docs/3d-view-contract.md
+    "Body"): a whole answer (uint32 LE N, UTF-8 meta, the deflated heights) through DecompressionStream gives
+    the int16 values of `values_sha256` and the samples' heights; inflated bytes decode alone; a grid of
+    257 samples (step 2) is padded to 513 with no data."""
+    with open(PATCH + ".json", encoding="utf-8") as f:
+        fixture = json.load(f)
+    found = run_ts(tmp_path, "view3d/decode", f"""
+const fs = require("fs"), zlib = require("zlib"), crypto = require("crypto");
+const fx = {json.dumps(fixture)}, body = fs.readFileSync({json.dumps(PATCH + ".bin")});
+const meta = Buffer.from(JSON.stringify({{width: fx.width, height: fx.height, base_dm: fx.base_dm, step: 1,
+                                          attribution: "Główny Urząd Geodezji"}}), "utf-8");
+const head = Buffer.alloc(4); head.writeUInt32LE(meta.length);
+const answer = Buffer.concat([head, meta, body]);
+const sha = (v) => crypto.createHash("sha256").update(Buffer.from(v.buffer, v.byteOffset, v.byteLength)).digest("hex");
+(async () => {{
+  const p = await m.decodePatch(answer.buffer.slice(answer.byteOffset, answer.byteOffset + answer.length));
+  const alone = m.decodeValues(new Uint8Array(zlib.inflateSync(body)), fx.width, fx.height);
+  const at = (r, c) => {{ const h = p.heights[r * p.cols + c]; return Number.isNaN(h) ? null : Math.round(h * 10) / 10; }};
+  const small = m.toHeights(new Int16Array(257 * 257).fill(5), 257, 257, 100);
+  console.log(JSON.stringify({{sha: sha(p.values), alone: sha(alone), attribution: p.meta.attribution,
+    size: [p.cols, p.rows], samples: fx.samples.map(([r, c]) => at(r, c)),
+    small: [small.cols, small.rows, small.heights[0], small.heights[256 * 513 + 256], Number.isNaN(small.heights[257]),
+            Number.isNaN(small.heights[257 * 513])],
+    padded: [1, 513, 514, 1025, 1026].map(m.paddedSize)}}));
+}})();""")
+    assert found["sha"] == fixture["values_sha256"] and found["alone"] == fixture["values_sha256"]
+    assert found["attribution"] == "Główny Urząd Geodezji" and found["size"] == [513, 513]
+    assert found["samples"] == [h for _, _, h in fixture["samples"]]
+    assert found["small"] == [513, 513, 10.5, 10.5, True, True]
+    assert found["padded"] == [513, 513, 1025, 1025, 1537]
+
+
+def test_webbing_geometry(tmp_path):
+    """view3d/geometry.ts: the webbing from sag.ts between the anchors (its ends at the anchors, a level line's
+    lowest point in the middle, the walker's start at the envelope's largest sag, as sag.py), the scene's axes,
+    the walk's stepping, the affine and Web Mercator."""
+    rig = sag.Rigging()
+    rigging = {"pretension": rig.pretension, "stretch": rig.stretch, "webbing_weight": rig.webbing_weight,
+               "athlete_mass": rig.athlete_mass, "fall_zone": rig.fall_zone}
+    cases = [[{"x": 100.5, "y": 200.5, "h": 350.0}, {"x": 220.5, "y": 290.5, "h": 350.0}],
+             [{"x": -10.5, "y": 0.5, "h": 410.25}, {"x": 290.5, "y": -399.5, "h": 380.0}]]
+    found = run_ts(tmp_path, "view3d/geometry", f"""
+const out = {json.dumps(cases)}.map((a) => {{
+  const w = m.webbing(a, {json.dumps(rigging)}), u = w.unloaded, low = u.reduce((k, p, i) => p[2] < u[k][2] ? i : k, 0);
+  const at = m.loadedAt(w, a, w.start.s);
+  return {{span: w.span, dh: w.dh, first: u[0], last: u[u.length - 1], low: u[low], start: w.start, sag: at.sag,
+          walker: at.walker, curveEnd: at.points[at.points.length - 1]}};
+}});
+const o = m.originOf({{left: 1000, top: 5000, width: 513, height: 513, res: 2, base_dm: 2896}});
+console.log(JSON.stringify({{out, o, scene: m.toScene(o, 1513, 4487, 300), xy: m.sampleXY({{left: 1000, top: 5000, res: 2}}, 0, 3),
+  walk: [m.walkStep(10, 0.5, 100, 4, 1, false), m.walkStep(99, 1, 100, 1, 1, false), m.walkStep(0.5, 1, 100, 1, -1, false),
+         m.walkStep(10, 0.5, 100, 4, 1, true)],
+  lonLat: m.lonLat([19, 1e-5, 0, 50, 0, 1e-5], 100, 200), merc: m.mercator(180, 0)}}));""")
+    for a, ts in zip(cases, found["out"]):
+        p, q = a
+        span, dh = ((q["x"] - p["x"]) ** 2 + (q["y"] - p["y"]) ** 2) ** 0.5, p["h"] - q["h"]
+        assert ts["span"] == pytest.approx(span) and ts["dh"] == pytest.approx(dh)
+        assert ts["first"] == pytest.approx([p["x"], p["y"], p["h"]], abs=1e-6)
+        assert ts["last"] == pytest.approx([q["x"], q["y"], q["h"]], abs=1e-6)
+        assert ts["curveEnd"] == pytest.approx([q["x"], q["y"], q["h"]], abs=1e-6)
+        f, envelope = sag.envelope(span, dh, rig)
+        k = int(envelope.argmax())
+        assert ts["start"]["sag"] == pytest.approx(envelope[k], abs=1e-6)
+        at = int(round(ts["start"]["s"] / span * (len(f) - 1)))  # a level line has two equal largest sags
+        assert ts["start"]["s"] == pytest.approx(f[at] * span, abs=1e-9)
+        assert envelope[at] == pytest.approx(envelope[k], abs=1e-6)
+        assert ts["sag"] == pytest.approx(envelope[k], abs=1e-6)
+        t = ts["start"]["s"] / span
+        assert ts["walker"][2] == pytest.approx(p["h"] - dh * t - envelope[k], abs=1e-6)
+    level = found["out"][0]
+    assert level["low"][:2] == pytest.approx([160.5, 245.5], abs=1e-6)  # the middle of the span
+    assert abs(level["start"]["s"] - level["span"] / 2) <= level["span"] / 41 / 2 + 1e-9
+    assert found["o"] == {"cx": 1513, "cy": 4487, "h0": 289.6}
+    assert found["scene"] == pytest.approx([0, 10.4, 0]) and found["xy"] == [1007, 4999]
+    assert found["walk"] == [{"s": 12, "done": False}, {"s": 100, "done": True}, {"s": 0, "done": True},
+                             {"s": 10, "done": True}]
+    assert found["lonLat"] == pytest.approx([19.001, 50.002])
+    assert found["merc"] == pytest.approx([20037508.342789244, 0], abs=1e-6)
+
+
+def test_view3d_page_request(tmp_path):
+    """view3d/page.ts: the hash's run and line, the level (?level= over the pointer), the patch's step and the way
+    back to the app's run page."""
+    found = run_ts(tmp_path, "view3d/page", """
+const line = "50.1559508,19.7562722,50.1561234,19.7571234";
+const hash = "#run=" + encodeURIComponent("2026-11-01_12-00_Żabi Koń_ab12") + "&line=" + encodeURIComponent(line);
+const pages = [m.parsePage("", hash, false), m.parsePage("", hash, true), m.parsePage("?level=full", hash, true),
+               m.parsePage("?level=phone", hash, false), m.parsePage("", "#run=x&line=1,2,3", false),
+               m.parsePage("", "#run=x&line=1,2,3,abc", false)];
+console.log(JSON.stringify({pages, urls: pages.slice(0, 2).map(m.patchUrl), back: m.backUrl(pages[0])}));""")
+    pages = found["pages"]
+    assert pages[0] == {"run": "2026-11-01_12-00_Żabi Koń_ab12", "line": "50.1559508,19.7562722,50.1561234,19.7571234",
+                        "level": "full"}
+    assert [p["level"] for p in pages[:4]] == ["full", "phone", "full", "phone"]
+    assert pages[4]["line"] is None and pages[5]["line"] is None
+    run = "2026-11-01_12-00_%C5%BBabi%20Ko%C5%84_ab12"
+    assert found["urls"] == [f"/api/patch?run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234&step=1",
+                             f"/api/patch?run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234&step=2"]
+    assert found["back"] == f"/#run={run}&line=50.1559508%2C19.7562722%2C50.1561234%2C19.7571234"
+
+
+# A grid of 2 x 2 chunks (900 x 700 samples of data padded to 1025 with no data, a hole of no data inside) and a
+# line from sample (200, 100) to (600, 700) across three of them: the checks of view3d/terrain.ts' meshes
+TERRAIN_SCRIPT = """
+const CH = 512, cols = 1025, rows = 1025, width = 900, height = 700;
+const heights = new Float32Array(cols * rows).fill(NaN);
+const hole = (i, j) => i >= 300 && i < 340 && j >= 600 && j < 650;
+for (let i = 0; i < height; i++) for (let j = 0; j < width; j++) {
+  if (!hole(i, j)) heights[i * cols + j] = 300 + 20 * Math.sin(i / 37) + 15 * Math.cos(j / 23) + ((i * 7919 + j * 104729) % 13) / 6.5;
+}
+const meta = {left: 1000, top: 5000, res: 1, width, height, base_dm: 2800,
+  anchors: [{x: 1100.5, y: 4799.5, h: heights[200 * cols + 100]}, {x: 1700.5, y: 4399.5, h: heights[600 * cols + 700]}]};
+const patch = {meta, heights, cols, rows};
+const origin = {cx: 1450, cy: 4650, h0: 280};
+const forced = m.forcedSamples(patch);
+const out = {chunks: [], footprintMissing: 0, badTriangles: 0, skirtBad: 0, skirtOuter: 0, skirts: 0, empty: []};
+const inside = (ci, cj, i, j) => i >= ci * CH && i <= ci * CH + CH && j >= cj * CH && j <= cj * CH + CH;
+const counts = {};
+for (const error of [5, 0.25]) {
+  let total = 0;
+  for (let ci = 0; ci < 2; ci++) for (let cj = 0; cj < 2; cj++) {
+    const tile = m.chunkTile(patch, ci, cj, forced.all, origin.h0);
+    if (!tile) { if (error === 5) out.empty.push([ci, cj]); continue; }
+    const c = m.chunkMesh(patch, origin, ci, cj, tile, error, forced.line);
+    total += c.positions.length / 3;
+    if (error !== 5) continue;
+    const verts = new Set(Array.from(c.samples.subarray(0, c.surfaceVertices)));
+    for (const [i, j] of forced.line) if (inside(ci, cj, i, j) && !verts.has(i * cols + j)) out.footprintMissing++;
+    const rc = (v) => [Math.floor(c.samples[v] / cols), c.samples[v] % cols];
+    for (let t = 0; t < c.surfaceIndices; t += 3) {
+      const [a, b, d] = [c.indices[t], c.indices[t + 1], c.indices[t + 2]].map(rc);
+      const area = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]);
+      const s = Math.sign(area(a, b, d));
+      for (let i = Math.min(a[0], b[0], d[0]); i <= Math.max(a[0], b[0], d[0]); i++)
+        for (let j = Math.min(a[1], b[1], d[1]); j <= Math.max(a[1], b[1], d[1]); j++) {
+          const p = [i, j];
+          if (s * area(a, b, p) >= 0 && s * area(b, d, p) >= 0 && s * area(d, a, p) >= 0 && Number.isNaN(heights[i * cols + j]))
+            out.badTriangles++;
+        }
+    }
+    for (let v = c.surfaceVertices; v < c.positions.length / 3; v++) {
+      out.skirts++;
+      const [i, j] = rc(v), top = heights[i * cols + j] - origin.h0 - m.skirtDepth(error);
+      if (Math.abs(c.positions[3 * v + 1] - top) > 1e-3) out.skirtBad++;
+      if (!(i === CH || j === CH)) out.skirtOuter++;  // only along the edges between chunks
+    }
+    out.chunks.push([ci, cj, c.hasLine, c.surfaceVertices > 0, c.positions.length / 3 > c.surfaceVertices]);
+  }
+  counts[error] = total;
+}
+out.coarser = counts[5] < counts[0.25];
+const built = m.buildTerrain(patch, origin, 0.25, 20000);
+out.budget = [built.vertices <= 20000, built.maxError > 0.25, built.chunks.length];
+out.cells = [m.footprint({left: 0, top: 0, res: 1}, {x: 0.5, y: -0.5}, {x: 2.5, y: -2.5}),
+             m.footprint({left: 0, top: 0, res: 1}, {x: 0.5, y: -0.5}, {x: 3.5, y: -0.5}),
+             m.footprint({left: 0, top: 0, res: 2}, {x: 1, y: -1}, {x: 4.9, y: -2.2})];
+out.anchors = meta.anchors.map((a) => forced.line.some(([i, j]) => meta.left + j + 0.5 === a.x && meta.top - i - 0.5 === a.y));
+console.log(JSON.stringify(out));
+"""
+
+
+def test_view3d_terrain_chunks(tmp_path):
+    """view3d/terrain.ts: every chunk with data meshed (one without data left out), the anchors' samples and
+    every sample of the line's footprint vertices of the chunks holding them, no triangle over no data (the
+    padding and a hole) even in a coarse mesh, skirts only along the edges between chunks and their depth below,
+    the error raised until a budget holds, the footprint's cells (a corner crossed touches both cells)."""
+    found = run_ts(tmp_path, "view3d/terrain", TERRAIN_SCRIPT)
+    assert found["empty"] == []  # chunk (1, 0) holds rows 512 to 699 of data
+    assert found["anchors"] == [True, True]
+    assert found["footprintMissing"] == 0 and found["badTriangles"] == 0
+    assert found["skirts"] > 0 and found["skirtBad"] == 0 and found["skirtOuter"] == 0
+    chunks = {(ci, cj): rest for ci, cj, *rest in found["chunks"]}
+    assert chunks[(0, 0)] == [True, True, True] and chunks[(0, 1)] == [True, True, True]
+    assert chunks[(1, 1)] == [True, True, True] and chunks[(1, 0)][0] is False
+    assert found["coarser"] and found["budget"][:2] == [True, True]
+    assert found["cells"][0] == [[0, 0], [0, 1], [1, 0], [1, 1], [1, 2], [2, 1], [2, 2]]
+    assert found["cells"][1] == [[0, 0], [0, 1], [0, 2], [0, 3]]
+    assert found["cells"][2] == [[0, 0], [0, 1], [0, 2], [1, 2]]  # 2 m cells: v reaches 1 only at u = 2.125
+
+
+def test_view3d_terrain_of_the_recorded_patch(tmp_path):
+    """The recorded patch (513 x 513 of the clip at 1 m, its last 16 x 16 samples no data) as one chunk within
+    the budgets of the desktop and the phone, its anchors (tests/test_patch.py's line) vertices."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("make_patch_fixture",
+                                                  os.path.join(REPO, "tests", "data", "make_patch_fixture.py"))
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    with open(PATCH + ".json", encoding="utf-8") as f:
+        recorded = json.load(f)
+    with open(PATCH + ".bin", "rb") as f:
+        heights = fixture.decode(f.read(), 513, 513, recorded["base_dm"]).astype("<f4")
+    path = tmp_path / "heights.f32"
+    path.write_bytes(heights.tobytes())
+    found = run_ts(tmp_path, "view3d/terrain", f"""
+const buf = require("fs").readFileSync({json.dumps(str(path))});
+const heights = new Float32Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+const h = (i, j) => heights[i * 513 + j];
+const meta = {{left: 553665.5, top: 254908.5, res: 1, width: 513, height: 513, base_dm: {recorded["base_dm"]},
+  anchors: [{{x: 553665.5 + 206.5, y: 254908.5 - 256.5, h: h(256, 206)}}, {{x: 553665.5 + 306.5, y: 254908.5 - 256.5, h: h(256, 306)}}]}};
+const patch = {{meta, heights, cols: 513, rows: 513}}, origin = {{cx: 553665.5 + 256.5, cy: 254908.5 - 256.5, h0: meta.base_dm / 10}};
+const out = {{}};
+for (const [name, error, budget] of [["full", 0.25, 300000], ["phone", 1.5, 130000]]) {{
+  const t0 = Date.now(), built = m.buildTerrain(patch, origin, error, budget), c = built.chunks[0];
+  const verts = new Set(Array.from(c.samples.subarray(0, c.surfaceVertices)));
+  out[name] = {{vertices: built.vertices, triangles: c.indices.length / 3, error: built.maxError, chunks: built.chunks.length,
+    anchors: [256 * 513 + 206, 256 * 513 + 306].map((k) => verts.has(k)), ms: Date.now() - t0, hasLine: c.hasLine}};
+}}
+console.log(JSON.stringify(out));""")
+    print(found)
+    for level, budget in (("full", 300000), ("phone", 130000)):
+        f = found[level]
+        assert f["chunks"] == 1 and f["vertices"] <= budget and f["anchors"] == [True, True] and f["hasLine"]
+    assert found["full"]["vertices"] > found["phone"]["vertices"]
+
+
+def test_view3d_walker_on_the_webbing(tmp_path):
+    """view3d/webbing.ts: the walker's feet on the loaded webbing (sag.ts) at s, below the chord by the sag, the
+    curve of 61 points from anchor to anchor, the yaw along the line, the segment buffer, the readout's values."""
+    import math
+    rig = sag.Rigging()
+    rigging = {"pretension": rig.pretension, "stretch": rig.stretch, "webbing_weight": rig.webbing_weight,
+               "athlete_mass": rig.athlete_mass, "fall_zone": rig.fall_zone}
+    anchors = [{"x": 100.5, "y": 200.5, "h": 350.0}, {"x": 220.5, "y": 200.5, "h": 340.0}]
+    found = run_ts(tmp_path, "view3d/webbing", f"""
+const a = {json.dumps(anchors)}, w = m.webbing(a, {json.dumps(rigging)});
+const near = (p, pts) => Math.min(...pts.slice(1).map((q, k) => {{
+  const o = pts[k], d = [q[0] - o[0], q[1] - o[1], q[2] - o[2]], v = [p[0] - o[0], p[1] - o[1], p[2] - o[2]];
+  const t = Math.max(0, Math.min(1, (v[0] * d[0] + v[1] * d[1] + v[2] * d[2]) / (d[0] ** 2 + d[1] ** 2 + d[2] ** 2)));
+  return Math.hypot(v[0] - t * d[0], v[1] - t * d[1], v[2] - t * d[2]);
+}}));
+const poses = [w.start.s, 10, 60, 119].map((s) => {{
+  const p = m.walkerPose(w, a, s);
+  return {{s, at: p.at, sag: p.sag, n: p.points.length, first: p.points[0], last: p.points[p.points.length - 1],
+          near: near(p.at, p.points), yaw: p.yaw}};
+}});
+const buf = new Float32Array(60 * 6), pts = m.resample(w.unloaded);
+m.writeSegments(pts, {{cx: 100, cy: 200, h0: 300}}, buf);
+console.log(JSON.stringify({{poses, start: w.start, span: w.span, n: pts.length, seg: Array.from(buf.slice(0, 9)), p1: pts[1],
+  readout: m.readoutOf({{d: [0, 50, 120.2], z: [1, 2, 3], min: [50, 7.25], min_nmpt: [40, -0.5], water_m: 0, filled_m: 0}}),
+  clear: m.readoutOf({{d: [0, 120.2], z: [1, 3], min: [50, 7.25], min_nmpt: null, water_m: 0, filled_m: 0}}).overTrees,
+  text: m.metres(7.26)}}));""")
+    span = found["span"]
+    assert span == pytest.approx(120)
+    for pose in found["poses"]:
+        t = pose["s"] / span
+        assert pose["n"] == 61 and pose["first"] == pytest.approx([100.5, 200.5, 350.0], abs=1e-6)
+        assert pose["last"] == pytest.approx([220.5, 200.5, 340.0], abs=1e-6)
+        assert pose["at"][:2] == pytest.approx([100.5 + 120 * t, 200.5], abs=1e-6)
+        assert pose["at"][2] == pytest.approx(350.0 - 10 * t - pose["sag"], abs=1e-6)
+        assert pose["near"] < 0.05  # standing on the drawn curve
+        assert pose["yaw"] == pytest.approx(math.pi / 2)  # its front (+Z) turned east, along the line
+    start = found["poses"][0]
+    _, envelope = sag.envelope(span, 10.0, rig)
+    assert start["sag"] == pytest.approx(envelope.max(), abs=1e-6) and found["start"]["s"] == start["s"]
+    assert found["n"] == 61
+    p1 = [found["p1"][0] - 100, found["p1"][2] - 300, -(found["p1"][1] - 200)]  # in the scene's axes
+    assert found["seg"] == pytest.approx([0.5, 50, -0.5, *p1, *p1], abs=1e-3)
+    assert found["readout"] == {"length": 120.2, "clearance": 7.25, "overTrees": True,
+                                 "verdict": "terrain_only"} and found["clear"] is False
+    assert found["text"] == "7.3"
+
+
+def test_view3d_interaction(tmp_path):
+    """view3d/interact.ts: the walker dragged to the point of the span nearest the pointer's ray, the walk's start,
+    the pin's threshold, the moved line for /api/profile and the queue of its requests (300 ms after a release,
+    one in flight, a release during it waiting and only the newest sent, answers of older or cancelled keys
+    dropped)."""
+    found = run_ts(tmp_path, "view3d/interact", """
+const near = [
+  m.nearestOnSegment([30, 50, 100], [0, -0.6, -0.8], [0, 0, 0], [100, 0, 0]),  // looking down at x = 30
+  m.nearestOnSegment([-50, 10, 0], [1, 0, 0], [0, 0, 0], [100, 0, 0]),       // along the line: its near end
+  m.nearestOnSegment([500, 10, 0], [1, 0, 0], [0, 0, 0], [100, 0, 0]),       // past the far end
+  m.nearestOnSegment([70, 10, 10], [0, 0.6, 0.8], [0, 0, 0], [100, 0, 0]),   // pointing away: the nearest point
+  m.nearestOnSegment([0, 0, 0], [0, 0, 1], [5, 0, 0], [5, 0, 0]),            // no span
+];
+let now = 0, timers = [], calls = [], answers = [], resolvers = {};
+const clock = {setTimeout(fn, ms) { const h = {at: now + ms, fn}; timers.push(h); return h; },
+               clearTimeout(h) { timers = timers.filter((x) => x !== h); }};
+const advance = (ms) => { now += ms; for (const h of timers.filter((x) => x.at <= now)) { timers = timers.filter((x) => x !== h); h.fn(); } };
+const q = m.profileQueue((key) => { calls.push(key); return new Promise((ok, no) => { resolvers[key] = {ok, no}; }); },
+                         (o) => answers.push(o.key + ("value" in o ? ":" + o.value : ":error")), 300, clock);
+const tick = () => new Promise((r) => setTimeout(r, 0));
+(async () => {
+  const log = [];
+  q.push("a"); advance(200); q.push("b"); advance(299); log.push(calls.slice());  // debounced: nothing yet
+  advance(1); log.push(calls.slice());                                             // b sent
+  q.push("c"); advance(300); q.push("d"); advance(300); log.push(calls.slice());    // in flight: c, d wait
+  resolvers.b.ok(1); await tick(); log.push(calls.slice(), answers.slice());        // b dropped, d sent (not c)
+  resolvers.d.ok(2); await tick(); log.push(answers.slice());
+  q.push("e"); advance(300); q.cancel(); resolvers.e.ok(3); await tick(); log.push(answers.slice(), q.sent);
+  q.push("f"); advance(300); resolvers.f.no(new Error("429")); await tick(); log.push(answers.slice());
+  console.log(JSON.stringify({near, log, walk: [m.walkFrom(12, 100), m.walkFrom(100, 100), m.walkFrom(-1, 100)],
+    pin: [m.pinShown(6), m.pinShown(19.9), m.pinShown(20), m.pinShown(Infinity)], below: m.PIN_BELOW_PX,
+    line: m.lineParam([19.75627221, 50.15595081], [19.7, 50.2])}));
+})();""")
+    near = found["near"]
+    assert near[0] == pytest.approx(0.3) and near[1] == 0 and near[2] == 1
+    assert near[3] == pytest.approx(0.7) and near[4] == 0
+    log = found["log"]
+    assert log[0] == [] and log[1] == ["b"] and log[2] == ["b"]
+    assert log[3] == ["b", "d"] and log[4] == []
+    assert log[5] == ["d:2"]
+    assert log[6] == ["d:2"] and log[7] == 3  # e sent, its answer dropped
+    assert log[8] == ["d:2", "f:error"]
+    assert found["walk"] == [12, 0, 0]
+    assert found["pin"] == [True, True, False, False] and found["below"] == 20
+    assert found["line"] == "50.1559508,19.7562722,50.2000000,19.7000000"
+
+
+def test_view3d_verdict(tmp_path):
+    """view3d/webbing.ts: a line's verdict from its profile (fits; over the terrain only when the surface model's
+    clearance is ≤ 0; does not fit when the terrain's is below 0, whatever the surface's), its colour token and
+    the readout's text with the minus sign kept."""
+    found = run_ts(tmp_path, "view3d/webbing", """
+const p = (min, nmpt) => ({d: [0, 100], z: [1, 2], min: [50, min], min_nmpt: nmpt === null ? null : [40, nmpt], water_m: 0, filled_m: 0});
+const cases = [p(3, null), p(3, 1), p(3, 0), p(3, -0.5), p(0, null), p(0, -1), p(-0.01, null), p(-2.8, 5), p(-2.8, -3)];
+console.log(JSON.stringify({verdicts: cases.map((c) => m.verdictOf(c)), colours: cases.map((c) => m.VERDICT_COLOUR[m.verdictOf(c)]),
+  readout: m.readoutOf(p(-2.8, -3)), text: m.metres(-2.84)}));""")
+    assert found["verdicts"] == ["fits", "fits", "terrain_only", "terrain_only", "fits", "terrain_only", "no_fit",
+                                 "no_fit", "no_fit"]
+    assert found["colours"][:4] == ["--clear", "--clear", "--trees", "--trees"] and found["colours"][-1] == "--bad"
+    assert found["readout"] == {"length": 100, "clearance": -2.8, "overTrees": False, "verdict": "no_fit"}
+    assert found["text"] == "-2.8"
+
+
+def test_view3d_walker_views(tmp_path):
+    """view3d/look.ts (docs/3d-view-contract.md, "Wave F"): the cameras of the walker's eyes (1.6 m over the feet,
+    along the gaze) and of behind the walker (5 m back from its chest along the gaze, so above it when looking
+    down), the walker's yaw turning both, the pitch clamped per view; a drag's turn (eyes: grabbing the world, a
+    drag over the stage's height turns by the field of view; behind: as the orbit turns, π a height); the phone's
+    heading and pitch from DeviceOrientationEvent's angles (portrait and landscape, the screen's angle needed to
+    hold the heading when the phone tilts, steady when it points down), the gaze's offset from it (turning right
+    turns the view right, across ±π) and the dead band of the sensors' noise."""
+    found = run_ts(tmp_path, "view3d/look", """
+const r = (v) => v === null ? null : Array.isArray(v) ? v.map(r) : (typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, r(x)])) : Math.round(v * 1e6) / 1e6);
+const feet = [10, 2, -5];
+const look = (a, angle) => { const l = m.deviceLook(...a, angle); return l && r(l); };
+console.log(JSON.stringify(r({
+  eyes: m.cameraPose("eyes", {feet, yaw: 0}, {yaw: 0, pitch: 0}),
+  eyesTurned: m.cameraPose("eyes", {feet, yaw: Math.PI / 2}, {yaw: 0, pitch: 0}),
+  eyesLeft: m.cameraPose("eyes", {feet, yaw: 0}, {yaw: Math.PI / 2, pitch: 0}),
+  eyesUp: m.cameraPose("eyes", {feet, yaw: 0}, {yaw: 0, pitch: 3}),
+  behind: m.cameraPose("behind", {feet, yaw: 0}, m.VIEW_SPECS.behind.start),
+  behindLow: m.cameraPose("behind", {feet, yaw: 0}, {yaw: 0, pitch: 1}),
+  starts: [m.VIEW_SPECS.eyes.start, m.VIEW_SPECS.behind.start], fovs: [m.VIEW_SPECS.eyes.fov, m.VIEW_SPECS.behind.fov],
+  dragEyes: m.dragGaze("eyes", {yaw: 0, pitch: 0}, 100, 50, 700),
+  dragEyesDown: m.dragGaze("eyes", {yaw: 0, pitch: 0}, 0, 1e6, 700),
+  dragBehind: m.dragGaze("behind", {yaw: 0, pitch: -0.3}, 100, -50, 700),
+  dragBehindUp: m.dragGaze("behind", {yaw: 0, pitch: -0.3}, 0, -1e6, 700),
+  north: look([0, 90, 0], 0), east: look([-90, 90, 0], 0), up: look([0, 120, 0], 0),
+  landscape: look([0, 0, -90], 90), landscapeDown: look([0, 0, -60], 90), landscapeAsPortrait: look([0, 0, -60], 0),
+  flat: look([0, 0, 0], 0), flatTurned: look([-90, 0, 0], 0), none: m.deviceLook(null, 90, 0, 0),
+  right: m.motionOffset({heading: 0, pitch: 0.1}, {heading: 0.5, pitch: 0.3}),
+  across: m.motionOffset({heading: 3.0, pitch: 0}, {heading: -3.0, pitch: 0}),
+  moved: [m.gazeMoved({yaw: 0, pitch: 0}, {yaw: 0.001, pitch: -0.001}), m.gazeMoved({yaw: 0, pitch: 0}, {yaw: 0.01, pitch: 0}),
+          m.gazeMoved({yaw: 3.14159, pitch: 0}, {yaw: -3.14159, pitch: 0})],
+})));""")
+    approx = lambda v: pytest.approx(v, abs=1e-6)  # noqa: E731
+    assert found["eyes"] == {"position": [10, 3.6, -5], "target": approx([10, 3.6, -4])}
+    assert found["eyesTurned"]["target"] == approx([11, 3.6, -5])   # the walker's yaw turns the gaze
+    assert found["eyesLeft"]["target"] == approx([11, 3.6, -5])     # facing +Z (south), a yaw of +π/2 is east: left
+    assert found["eyesUp"]["target"][1] == approx(3.6 + math.sin(1.45))  # clamped, never upside down
+    c, s = math.cos(0.3), math.sin(0.3)
+    assert found["behind"] == {"position": approx([10, 3.2 + 5 * s, -5 - 5 * c]), "target": [10, 3.2, -5]}
+    assert found["behindLow"]["position"][1] == approx(3.2 - 5 * math.sin(0.25))  # at most 0.25 rad from below
+    assert found["starts"] == [{"yaw": 0, "pitch": -0.2}, {"yaw": 0, "pitch": -0.3}] and found["fovs"] == [60, 60]
+    k = math.radians(60) / 700
+    assert found["dragEyes"] == {"yaw": approx(100 * k), "pitch": approx(50 * k)}
+    assert found["dragEyesDown"]["pitch"] == 1.45
+    assert found["dragBehind"] == {"yaw": approx(-100 * math.pi / 700), "pitch": approx(-0.3 + 50 * math.pi / 700)}
+    assert found["dragBehindUp"]["pitch"] == 0.25
+    assert found["north"] == {"heading": 0, "pitch": 0}
+    assert found["east"] == {"heading": approx(math.pi / 2), "pitch": 0}   # turned right
+    assert found["up"] == {"heading": 0, "pitch": approx(math.pi / 6)}      # tilted up
+    assert found["landscape"] == {"heading": approx(math.pi / 2), "pitch": 0}
+    assert found["landscapeDown"] == {"heading": approx(math.pi / 2), "pitch": approx(-math.pi / 6)}
+    assert abs(found["landscapeAsPortrait"]["heading"] - math.pi / 2) > 0.3  # the screen's angle is needed
+    assert found["flat"] == {"heading": 0, "pitch": approx(-math.pi / 2)}  # pointing down: the screen's up
+    assert found["flatTurned"]["heading"] == approx(math.pi / 2) and found["none"] is None
+    assert found["right"] == {"yaw": -0.5, "pitch": approx(0.2)}
+    assert found["across"]["yaw"] == approx(-(2 * math.pi - 6.0))
+    assert found["moved"] == [False, True, False]
+
+
+def test_view3d_walker_zoom(tmp_path):
+    """view3d/look.ts (docs/3d-view-contract.md, "Wave F2"): the eyes' vertical angle from the horizontal one and
+    the canvas's aspect (60° wide on a desktop and on an upright phone), the zoom's range (eyes about 110° to ×8 of
+    60°, behind 1.5 to 30 m), the buttons' steps onto the grid of √2 and their clamps, the wheel's and the pinch's
+    factors, the indicator's text, the camera behind at the zoom's distance and a drag's turn given by the view."""
+    found = run_ts(tmp_path, "view3d/look", """
+const r = (v) => v === null ? null : Array.isArray(v) ? v.map(r) : (typeof v === "object" && v !== null ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, r(x)])) : (typeof v === "number" ? Math.round(v * 1e6) / 1e6 : v));
+const steps = (view, z, dir, n) => { const out = []; for (let i = 0; i < n; i++) { z = m.zoomStep(view, z, dir); out.push(z); } return out; };
+console.log(JSON.stringify(r({
+  vDesktop: m.verticalFov(60, 1.5), vPhone: m.verticalFov(60, 390 / 600), vSquare: m.verticalFov(90, 1), vBad: m.verticalFov(60, 0),
+  camEyes: m.cameraFov("eyes", 1, 2), camEyes2: m.cameraFov("eyes", 2, 1), camBehind: m.cameraFov("behind", 3, 0.5),
+  eyesRange: m.zoomRange("eyes"), behindRange: m.zoomRange("behind"),
+  angles: [m.eyesAngle(1), m.eyesAngle(m.zoomRange("eyes")[0]), m.eyesAngle(8)],
+  distances: [m.behindDistance(1), ...m.zoomRange("behind").map(m.behindDistance)],
+  eyesIn: steps("eyes", 1, 1, 8), eyesOut: steps("eyes", 1, -1, 4), behindIn: steps("behind", 1, 1, 5),
+  behindOut: steps("behind", 1, -1, 7), fromBetween: [m.zoomStep("eyes", 1.2, 1), m.zoomStep("eyes", 1.2, -1)],
+  clamps: [m.zoomBy("eyes", 4, 10), m.zoomBy("eyes", 1, 0.01), m.zoomBy("behind", 1, 1.5), m.clampZoom("eyes", NaN)],
+  wheel: [m.wheelFactor(-100), m.wheelFactor(100), m.wheelFactor(3, 1), m.wheelFactor(1e6), m.wheelFactor(0), m.wheelFactor(NaN)],
+  pinch: [m.pinchFactor([0, 0, 100, 0], [0, 0, 200, 0]), m.pinchFactor([10, 10, 10, 70], [0, 0, 0, 30]),
+          m.pinchFactor([5, 5, 5, 5], [0, 0, 50, 0])],
+  labels: [m.zoomLabel("eyes", 1), m.zoomLabel("eyes", Math.SQRT2), m.zoomLabel("eyes", 2), m.zoomLabel("eyes", 0.5),
+           m.zoomLabel("eyes", 8), m.zoomLabel("behind", 1), m.zoomLabel("behind", Math.SQRT2), m.zoomLabel("behind", 5 / 14.14),
+           m.zoomLabel("behind", 5 / 30)],
+  behindPose: m.cameraPose("behind", {feet: [0, 0, 0], yaw: 0}, {yaw: 0, pitch: 0}, 12),
+  dragTurn: m.dragGaze("eyes", {yaw: 0, pitch: 0}, 70, 0, 700, 0.1),
+})));""")
+    approx = lambda v: pytest.approx(v, abs=1e-5)  # noqa: E731
+    v = lambda h, a: math.degrees(2 * math.atan(math.tan(math.radians(h) / 2) / a))  # noqa: E731
+    assert found["vDesktop"] == approx(v(60, 1.5)) and found["vPhone"] == approx(v(60, 0.65))
+    assert found["vPhone"] > 60 > found["vDesktop"]  # an upright phone: taller than wide
+    assert found["vSquare"] == approx(90) and found["vBad"] == approx(60)
+    assert found["camEyes"] == approx(v(60, 2))
+    assert found["camEyes2"] == approx(2 * math.degrees(math.atan(math.tan(math.radians(30)) / 2)))
+    assert found["camBehind"] == 60  # behind the walker: a vertical angle, whatever the zoom
+    t30 = math.tan(math.radians(30))
+    assert found["eyesRange"] == approx([t30 / math.tan(math.radians(55)), 8])
+    assert found["behindRange"] == approx([5 / 30, 5 / 1.5])
+    assert found["angles"][0] == approx(60) and found["angles"][1] == approx(110)
+    assert 8 < found["angles"][2] < 8.5  # ×8: about 8°
+    assert found["distances"] == approx([5, 30, 1.5])
+    s2 = math.sqrt(2)
+    assert found["eyesIn"] == approx([s2, 2, 2 * s2, 4, 4 * s2, 8, 8, 8])  # clamped at ×8
+    assert found["eyesOut"] == approx([1 / s2, 0.5, found["eyesRange"][0], found["eyesRange"][0]])
+    assert found["behindIn"] == approx([s2, 2, 2 * s2, 5 / 1.5, 5 / 1.5])  # nearest 1.5 m
+    assert [5 / z for z in found["behindOut"]] == pytest.approx([5 * s2, 10, 10 * s2, 20, 20 * s2, 30, 30], rel=1e-4)
+    assert found["fromBetween"] == approx([s2, 1])  # onto the grid
+    assert found["clamps"] == approx([8, found["eyesRange"][0], 1.5, 1])
+    w = found["wheel"]
+    assert w[0] == approx(math.exp(0.2)) and w[1] == approx(math.exp(-0.2)) and w[2] == approx(math.exp(-0.096))
+    assert w[3] == approx(math.exp(-1)) and w[4] == 1 and w[5] == 1
+    assert found["pinch"] == approx([2, 0.5, 1])
+    assert found["labels"] == ["1", "1.4", "2", "0.5", "8", "5", "3.5", "14", "30"]
+    assert found["behindPose"] == {"position": approx([0, 1.2, -12]), "target": [0, 1.2, 0]}
+    assert found["dragTurn"] == {"yaw": approx(0.01), "pitch": 0}
+
+
+def test_view3d_feature_edges(tmp_path):
+    """view3d/edges.ts: the mesh's feature edges (an edge two faces share, turning by at least the angle; never
+    an edge of one face, a degenerate face or the index entries past the surface's: the skirts), and the pass's
+    sampling step (the pixel ratio, 1 to 2: lines one CSS pixel wide)."""
+    found = run_ts(tmp_path, "view3d/edges", """
+// two faces folded along the edge A-B (A = vertex 0, B = vertex 1) by phi degrees, a skirt face after them
+const fold = (phi) => {
+  const r = phi * Math.PI / 180;
+  return [0, 0, 0,  0, 0, 1,  1, 0, 0,  -Math.cos(r), Math.sin(r), 0,  0, -5, 0];
+};
+const faces = [0, 1, 2,  0, 3, 1,  0, 2, 4];
+// two vertical faces (walls: y is up) meeting along the vertical edge A-B, folded by phi degrees
+const wall = (phi) => {
+  const r = phi * Math.PI / 180;
+  return [0, 0, 0,  0, 1, 0,  1, 0, 0,  -Math.cos(r), 0, Math.sin(r),  0, -5, 0];
+};
+console.log(JSON.stringify({
+  flat: m.featureEdges(fold(0), faces, 6).length, at20: m.featureEdges(fold(20), faces, 6).length,
+  at20fine: Array.from(m.featureEdges(fold(20), faces, 6, 10)), at90: Array.from(m.featureEdges(fold(90), faces, 6)),
+  skirt: m.featureEdges(fold(0), faces, 9).length / 6, degenerate: m.featureEdges([0, 0, 0, 1, 0, 0, 2, 0, 0, 0, 0, 1], [0, 1, 2, 0, 1, 3], 6).length,
+  wall: m.featureEdges(wall(60), faces.slice(0, 6), 6).length,
+  wallOnly: Array.from(m.featureEdges(wall(60), faces.slice(0, 6), 6, undefined, "only")),
+  wallIn: m.featureEdges(wall(60), faces.slice(0, 6), 6, undefined, "in").length,
+  ledgeOnly: m.featureEdges(fold(90), faces, 6, undefined, "only").length,
+  angle: m.FEATURE_ANGLE, wallSlope: m.WALL_SLOPE, wallOpacity: m.WALL_OPACITY, silhouette: m.SILHOUETTE, crease: m.CREASE, strength: m.CREASE_STRENGTH,
+  steps: [0.5, 1, 1.5, 2, 3, NaN].map(m.sampleStep), layer: m.TERRAIN_LAYER}));""")
+    assert found["flat"] == 0 and found["at20"] == 0
+    for segment in (found["at20fine"], found["at90"]):  # the edge A-B, either way round
+        assert sorted([segment[:3], segment[3:]]) == [[0, 0, 0], [0, 0, 1]]
+    assert found["skirt"] == 1  # past the surface: the skirt face turns by 90° from the first along A-C
+    assert found["degenerate"] == 0
+    # the edges between two faces of a wall apart (drawn at 35%: they crawled as the camera turned); a wall meeting
+    # flat ground is no wall edge (at90 above: the first face flat, the second vertical)
+    assert found["wall"] == 0 and found["wallIn"] == 6 and found["ledgeOnly"] == 0
+    assert sorted([found["wallOnly"][:3], found["wallOnly"][3:]]) == [[0, 0, 0], [0, 1, 0]]
+    assert found["wallSlope"] == 65 and found["wallOpacity"] == 0.35
+    # the user's variant M of the prototype (docs/3d-view-contract.md, "Wave E")
+    assert found["angle"] == 28 and found["silhouette"] == [0.012, 0.035] and found["crease"] == [0.1, 0.28]
+    assert found["strength"] == 0.75 and found["layer"] == 1
+    assert found["steps"] == [1, 1, 1.5, 2, 2, 1]
+
+
+def test_view3d_imagery_edges(tmp_path):
+    """view3d/imagery.ts with the "Edges" look on a fake scene that can draw it: the fourth kind after Shaded, no
+    imagery credit, the scene's look switched on and off with the kind, the listeners told; without imagery the
+    control offers Shaded and Edges with the note that there is none."""
+    from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM, GEOPORTAL
+    ax, ay = CX - 100, CY + 50
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}],
+            "ortho": {**GEOPORTAL, "cache": None}, "attribution": None}
+    bounds = [{"x0": ax - 60, "y0": ay - 60, "x1": ax + 140, "y1": ay + 60},
+              {"x0": CX + 600, "y0": CY + 600, "x1": CX + 900, "y1": CY + 900}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+const looks = [], kinds = [];
+scene.edgesSupported = true;
+scene.setEdges = (on) => looks.push(on);
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: null}});
+  im.onChange((k) => kinds.push(k));
+  const seg = toolbar.children[0].children[0];
+  await new Promise((r) => setTimeout(r, 50));
+  textures.splice(0);
+  const out = {{available: im.available, buttons: seg.children.map((b) => b.textContent),
+               notes: toolbar.children[0].children.length, first: looks.splice(0)}};
+  await im.set("edges");
+  out.edges = {{textures: textures.splice(0), imagery: credits.imagery || null, looks: looks.splice(0),
+               checked: seg.children.map((b) => b.attrs["aria-checked"]), current: im.current,
+               select: toolbar.children[0].children[1].value}};
+  await im.set("shaded");
+  out.shaded = {{looks: looks.splice(0)}};
+  await im.set("edges");
+  await im.set("ortho");
+  out.ortho = {{looks: looks.splice(0), imagery: !!credits.imagery}};
+  out.kinds = kinds;
+  im.dispose();
+  const bare = m.createImagery({{...scene, toolbar: new El("div"), meta: {{...META, ortho: null}}}}, {{runId: "r1", esriKey: null}});
+  out.bare = {{available: bare.available}};
+  console.log(JSON.stringify(out));
+}})();""")
+    assert found["available"] == ["ortho", "shaded", "edges"]
+    assert found["buttons"] == ["Orthophoto", "Shaded", "Edges"]
+    assert found["notes"] == 3  # the control, its select and the loading status: there is imagery, no note
+    assert found["first"] == [False]  # the orthophoto first: the look off
+    edges = found["edges"]
+    assert edges["current"] == "edges" and edges["imagery"] is None and edges["looks"] == [True]
+    assert edges["textures"] == [[0, None, None], [1, None, None]]
+    assert edges["checked"] == ["false", "false", "true"] and edges["select"] == "edges"  # the select in sync
+    assert found["shaded"]["looks"] == [False]
+    assert found["ortho"]["looks"] == [True, False] and found["ortho"]["imagery"]
+    assert found["kinds"] == ["edges", "shaded", "edges", "ortho"]
+    assert found["bare"]["available"] == ["shaded", "edges"]
+
+
+def test_view3d_imagery_edges_note(tmp_path):
+    """Without imagery but with the "Edges" look: the control (Shaded, Edges) and the note that there is none."""
+    from test_view3d_tiles import EQUATOR, FAKE_DOM
+    meta = {"left": 0, "top": 513, "width": 513, "height": 513, "res": 1, "affine": EQUATOR,
+            "anchors": [{"x": 100, "y": 100, "h": 1}, {"x": 200, "y": 100, "h": 1}], "ortho": None, "attribution": None}
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = [{{x0: 0, y0: 0, x1: 513, y1: 513}}, {{x0: 0, y0: 0, x1: 513, y1: 513}}];
+{FAKE_DOM}
+scene.edgesSupported = true;
+scene.setEdges = () => {{}};
+const im = m.createImagery(scene, {{runId: "r", esriKey: null}});
+const row = toolbar.children[0];
+console.log(JSON.stringify({{available: im.available, texts: row.children.map((c) => [c.className, c.textContent || null]),
+                            buttons: row.children[0].children.map((b) => b.textContent)}}));""")
+    assert found["available"] == ["shaded", "edges"]
+    assert found["texts"] == [["u-seg", None], ["u-input v3-select", None],
+                              ["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded."],
+                              ["u-small v3-imagery-status", "Loading the imagery…"]]
+    assert found["buttons"] == ["Shaded", "Edges"]

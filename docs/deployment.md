@@ -361,8 +361,8 @@ Ubuntu's logrotate rotates them daily and keeps 14, compressed):
   `/favicon.ico` with it. Warnings (an answer buffered to a temporary file) and the refusals of the
   limits (`info`) are not logged.
 - `findaline.metrics.log`, one JSON line per request of the site on port 443, for the monitoring
-  (section 15): the time, the route group (`api`, `events`, `cache`, `share`, `auth`, `app`,
-  `page`), the method, the status, the response times, the size and whether a rate limit let it
+  (section 15): the time, the route group (`api`, `events`, `patch` (the 3D view's terrain: slow,
+  large answers kept apart from `api`), `cache`, `share`, `auth`, `app`, `page`), the method, the status, the response times, the size and whether a rate limit let it
   through. No address, no path or query, no Referer, no User-Agent.
 - `access.log` gets the requests for other names (masked the same way), `error.log` what nginx
   logs before a request is matched to a site (TLS handshakes, malformed requests).
@@ -472,7 +472,9 @@ python3 -c "import secrets; print(secrets.token_urlsafe(48))" > secrets/findalin
   radius, resolution, area and bounding box (`..._RADIUS_MAX=3500`, `..._RESOLUTION_MAX=30`,
   `..._AREA_KM2_MAX=50`, `..._BBOX_KM_MAX=75`), searches, km² and MB a day per user
   (`..._DOWNLOAD_MB_DAY_MAX=10000`) and the request rates (`..._JOB_RATE=10/minute;60/hour`);
-  README's table lists all of them.
+  README's table lists all of them. `FINDALINE_3D_RING` stays unset (off): the 3D view's coarse
+  ring of terrain from Mapterhorn's tiles is switched on only once its maintainer agrees (README,
+  *The 3D view of a line*); `web` reads it at its start.
 - `.env` (compose itself): `WORKER_CPUS` (the number of cores minus one, a whole number: it is
   also the worker's `NUMBA_NUM_THREADS`; `nproc` tells them),
   `WORKER_MEMORY`, `WORKER_COMPUTE_SLOTS`/`WORKER_DOWNLOAD_SLOTS` (section 1, 1 and 1 by

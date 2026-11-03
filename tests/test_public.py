@@ -18,7 +18,7 @@ sys.path.insert(0, REPO)
 import accounts as ac  # noqa: E402
 import messages  # noqa: E402
 import web  # noqa: E402
-from settings import AccountSettings, PublicSettings  # noqa: E402
+from settings import AccountSettings, PublicSettings, ViewSettings  # noqa: E402
 
 pytest.importorskip("httpx2")
 import httpx2  # noqa: E402
@@ -227,8 +227,11 @@ def test_public_guards(public, providers):
     assert TOKEN not in page.text and "<script" not in page.text
     assert public.get("/app/app.js").status_code == 200
     assert "FINDALINE_RUNS = [];" in public.get("/runs/runs.js").text  # the demo runs: none
-    for path in ("/api/schema", "/api/jobs", "/api/events", "/api/runs", "/api/profile?run=x&line=1,2,3,4"):
+    for path in ("/api/schema", "/api/jobs", "/api/events", "/api/runs", "/api/profile?run=x&line=1,2,3,4",
+                 "/api/patch?run=x&line=1,2,3,4"):
         assert public.get(path).status_code == 401, path
+    visitor = public.get("/view3d", follow_redirects=False)  # the 3D view: to the sign-in page
+    assert visitor.status_code == 303 and visitor.headers["location"] == "/"
     assert public.get("/docs").status_code == public.get("/nothing").status_code == 404
     headers = {"x-findaline-token": TOKEN, "origin": URL}
     assert public.post("/api/jobs", json={"params": {"lat": 50, "lon": 19}}, headers=headers).status_code == 401
@@ -552,7 +555,8 @@ def test_authorization_of_jobs(public, people, tmp_path):
               ("post", "/api/estimate"), ("get", f"/api/jobs/{job_a}"), ("get", f"/api/jobs/{job_a}/events"),
               ("post", f"/api/jobs/{job_a}/again"), ("delete", f"/api/jobs/{job_a}"), ("get", "/api/events"),
               ("get", "/api/osm?lat=50&lon=19"), ("post", "/api/osm"),
-              ("get", "/api/profile?run=x&line=1,2,3,4"), ("post", "/api/runs/x/demo")]
+              ("get", "/api/profile?run=x&line=1,2,3,4"), ("get", "/api/patch?run=x&line=1,2,3,4"),
+              ("post", "/api/runs/x/demo")]
     for who, code in DENIED.items():
         for method, path in routes:
             kwargs = {"json": request} if method == "post" else {}
@@ -587,6 +591,7 @@ def test_authorization_of_jobs(public, people, tmp_path):
     assert a.post("/api/osm", json={"action": "download", "region": "malta"}).status_code == 403
     assert admin.post("/api/osm", json={"action": "download", "region": "malta"}).status_code == 400  # unknown
     assert a.get("/api/profile?run=x&line=1,2,3,4", headers={"x-findaline-profile": "1"}).status_code == 404
+    assert a.get("/api/patch?run=x&line=1,2,3,4", headers={"x-findaline-patch": "1"}).status_code == 404
 
 
 def _public_server(data_dir, settings, account_settings, providers):
@@ -1131,6 +1136,46 @@ def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
     monkeypatch.setattr(osm, "BEFORE_REQUEST", None)
 
 
+def test_patches_of_the_public_site(run_people, tmp_path):
+    """/api/patch on the public site: another user's run 404, the header, the line, the bounds of the
+    profiles with the patch's codes (also for administrators), the rate of a limited user (10 a minute
+    by default); /view3d for approved users only, with its CSP and no-store, the app's keep theirs."""
+    a, b, admin, pending = run_people["a"], run_people["b"], run_people["admin"], run_people["pending"]
+    meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
+    lat, lon, ml = meta["area"]["lat"], meta["area"]["lon"], meta["params"]["max_length"]
+    headers = {"x-findaline-patch": "1"}
+    patch = lambda client, *p, run=RUN_A: client.get(f"/api/patch?run={run}&line={','.join(map(str, p))}",  # noqa: E731
+                                                     headers=headers)
+    assert patch(a, lat, lon, lat + 0.0003, lon, run=RUN_B).status_code == 404
+    assert b.get(f"/api/patch?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}", headers=headers).status_code == 404
+    assert a.get(f"/api/patch?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}").status_code == 403
+    assert patch(pending, lat, lon, lat + 0.0003, lon).status_code == 403
+    code = lambda answer: (answer.status_code, answer.json()["detail"]["code"])  # noqa: E731
+    assert code(patch(a, lat, lon, lat)) == (400, "patch_line")
+    assert code(patch(a, lat, lon, lat + 0.5, lon)) == (400, "patch_outside")
+    assert code(patch(admin, lat, lon, lat + 0.5, lon)) == (400, "patch_outside")  # everyone on the public site
+    d = (150 + ml * 0.9) / 111320  # both corners inside the margin, longer than the run's --max-length
+    assert code(patch(a, lat - d, lon - d, lat + d, lon + d)) == (400, "patch_line")
+    assert a.get(f"/api/patch?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}&step=3",
+                 headers=headers).status_code == 400
+    statuses = [patch(a, lat, lon, lat + 0.0003, lon).status_code for _ in range(11)]
+    assert statuses == [503] * 10 + [429]  # on to the (missing) worker, then the rate
+    assert code(patch(a, lat, lon, lat + 0.0003, lon)) == (429, "rate_patch")
+    assert patch(b, lat, lon, lat + 0.0003, lon, run=RUN_B).status_code == 503  # each user their own
+
+    page = a.get("/view3d")
+    assert page.status_code == 200 and page.headers["cache-control"] == "no-store"
+    assert page.headers["content-security-policy"] == web.PAGE_CSP["/view3d"]
+    assert '<meta name="findaline-3d-ring" content="off">' in page.text and '"local"' not in page.text
+    assert a.headers["x-findaline-token"] not in page.text and "findaline-token" not in page.text
+    for client in (pending, run_people["anonymous"]):
+        answer = client.get("/view3d", follow_redirects=False)
+        assert answer.status_code == 303 and answer.headers["location"] == "/"
+        assert answer.headers["cache-control"] == "no-store"
+    for path in ("/", "/api/jobs"):
+        assert a.get(path).headers["content-security-policy"] == web.SECURITY_HEADERS["Content-Security-Policy"]
+
+
 def test_profiles_and_deleting_runs(run_people, tmp_path):
     """Profiles of the public site: points in the run's box with a margin of its --max-length, at most
     --max-length apart, and the rate of a user; the owner deletes a run (folder and row), nobody else."""
@@ -1491,6 +1536,9 @@ def test_privacy_and_about_pages(run_people):
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
+    # the 3D view (approved wording); Mapterhorn only while the ring is on (test_view3d_ring)
+    assert web.html.escape(PRIVACY_3D) in text and "Mapterhorn" not in text and "Mapterhorn" not in about.text
+    assert web.html.escape(SOFTWARE_3D) in about.text
     # a year of the run reads as such (no run here): LGLN's credit and orthophoto
     assert "© GeoBasis-DE/LGLN &lt;year of the run&gt;, Daten geändert" in about.text
     assert "LGLN (&lt;year of the run&gt;), CC BY 4.0" in about.text and src.YEAR not in about.text
@@ -2441,7 +2489,7 @@ def test_cache_control(run_people, tmp_path):
                 (a, f"/runs/{RUN_A}/map.html", "private, no-cache"), (a, f"/runs/{RUN_A}/data.js", "private, no-cache"),
                 (anonymous, f"/s/{token}/map.html", "private, no-cache"), (anonymous, "/s/runs.js", "no-cache"),
                 (anonymous, "/runs/_viewer/viewer.js", "no-cache"), (anonymous, "/app/app.js", "no-cache"),
-                (anonymous, "/privacy", "no-cache")]
+                (anonymous, "/privacy", "no-cache"), (a, "/view3d", "no-store")]
     for client, path, value in expected:
         answer = client.get(path)
         assert answer.headers["cache-control"] == value, (path, answer.status_code, answer.headers["cache-control"])
@@ -3280,11 +3328,12 @@ def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):
 
 ESRI_KEY = "AAPTfake-esri-key_0123456789"  # a fake ArcGIS Location Platform key
 ESRI_TERMS = ('Satellite imagery: provided by Esri through ArcGIS Location Platform ("Powered by Esri"). By using '
-              "the satellite map you agree to comply with Esri's terms of use for it "
+              "the satellite imagery (in the map or in the 3D view of a line) you agree to comply with Esri's terms "
+              "of use for it "
               "(<a href='https://www.esri.com/content/dam/esrisites/en-us/media/legal/platform/platform-legal.pdf'>"
               "https://www.esri.com/content/dam/esrisites/en-us/media/legal/platform/platform-legal.pdf</a>). In "
-              "particular, its imagery may only be viewed in this map: it may not be downloaded, stored, copied or "
-              "passed on.")
+              "particular, it may only be viewed in this map and in the 3D view of a line: it may not be downloaded, "
+              "stored, copied or passed on.")
 
 
 def _app_flags(text: str) -> dict:
@@ -3355,6 +3404,148 @@ def test_satellite_key(tmp_path, clip_run, settings, account_settings, providers
     with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False),
                     base_url="http://127.0.0.1") as client:
         assert client.get("/runs/runs.js").text == "window.FINDALINE_RUNS = [];\n"  # the file, as before
+
+
+# The approved texts of the 3D view (docs/3d-view-contract.md, "Decisions at the wave-2 checkpoint")
+PRIVACY_3D = ("Maps in your browser and the 3D view of a line load background tiles and imagery (OpenStreetMap, "
+              "OpenTopoMap, Esri, orthophoto services) directly: those services see your IP address. The 3D view's "
+              "terrain comes from this site; it is computed for the view and not stored.")
+PRIVACY_RING = ("When the 3D view shows the terrain around its patch, your browser loads it from Mapterhorn "
+                "(tiles.mapterhorn.com), which logs each request with its IP address, referrer and browser for up to "
+                "30 days.")
+SOFTWARE_3D = ("The maps, the app and the 3D view include open-source libraries (Leaflet, Preact, i18next, three.js "
+               "and others); their licences and copyright notices: ")
+ABOUT_RING = ("<p>Terrain around the 3D view: © Mapterhorn (<a href='https://mapterhorn.com/attribution'>"
+              "mapterhorn.com/attribution</a>), from open elevation data under the licences of its sources.</p>")
+RING_ORIGINS = ("https://ags.cuzk.gov.cz", "https://basemap.nationalmap.gov", "https://data.geopf.fr",
+                "https://geo4.service24.rlp.de", "https://geodata.npolar.no", "https://geodienste.sachsen.de",
+                "https://geoservices.bayern.de", "https://geoservices.buergernetz.bz.it", "https://gis.natt.is",
+                "https://isk.geobasis-bb.de", "https://malta.coverage.wetransform.eu", "https://mapsneu.wien.gv.at",
+                "https://mapy.geoportal.gov.pl", "https://opendata.lgln.niedersachsen.de", "https://owsproxy.lgl-bw.de",
+                "https://service.gdi-sh.de", "https://services.thelist.tas.gov.au",
+                "https://spatial-img.information.qld.gov.au", "https://storitve.eprostor.gov.si",
+                "https://wmts.geo.admin.ch", "https://wmts1.geoportail.lu", "https://www.gds-srv.hessen.de",
+                "https://www.geodaten-mv.de", "https://www.geodatenportal.sachsen-anhalt.de", "https://www.ign.es",
+                "https://www.wms.nrw.de", "https://zbgisws.skgeodesy.sk")
+
+
+def test_view_settings(monkeypatch):
+    """settings.ViewSettings: the ring off by default with Mapterhorn's template, FINDALINE_3D_RING (on/off) and
+    FINDALINE_3D_RING_URL from the environment; the template https (http only to 127.0.0.1 or localhost) with
+    {z}, {x} and {y}; wrong settings stop the app with their names."""
+    for name in ("FINDALINE_3D_RING", "FINDALINE_3D_RING_URL"):
+        monkeypatch.delenv(name, raising=False)
+    default = ViewSettings.load()
+    assert not default.ring and default.ring_url == "https://tiles.mapterhorn.com/{z}/{x}/{y}.webp"
+    assert default.ring_origin == "https://tiles.mapterhorn.com"
+    for value, on in (("on", True), ("off", False), ("true", True), ("0", False)):
+        monkeypatch.setenv("FINDALINE_3D_RING", value)
+        assert ViewSettings.load().ring is on, value
+    monkeypatch.setenv("FINDALINE_3D_RING_URL", "http://127.0.0.1:8799/runs/tiles/{z}/{x}/{y}.png")
+    assert ViewSettings.load().ring_origin == "http://127.0.0.1:8799"
+    for good in ("http://localhost/{z}/{x}/{y}.png", "https://Tiles.Example.org:8443/t/{z}/{y}/{x}.webp?v=2"):
+        assert ViewSettings(ring_url=good).ring_url == good
+    assert ViewSettings(ring_url="https://Tiles.Example.org:8443/{z}/{x}/{y}").ring_origin == \
+        "https://tiles.example.org:8443"
+    for wrong in ("http://tiles.example.org/{z}/{x}/{y}.webp", "https://tiles.example.org/{z}/{x}.webp",
+                  "tiles.example.org/{z}/{x}/{y}", "ftp://127.0.0.1/{z}/{x}/{y}", "https:///{z}/{x}/{y}",
+                  "https://user@tiles.example.org/{z}/{x}/{y}", "https://tiles.example.org/{z}/{x}/{y} x",
+                  'https://tiles.example.org/{z}/{x}/{y}"><script>'):
+        with pytest.raises(ValueError):
+            ViewSettings(ring_url=wrong)
+    monkeypatch.setenv("FINDALINE_3D_RING", "maybe")
+    with pytest.raises(SystemExit, match="FINDALINE_3D_RING"):
+        ViewSettings.load()
+
+
+def test_view3d_ring(tmp_path, settings, account_settings, providers, monkeypatch):
+    """The 3D view's ring (settings.ViewSettings), read once by create_app: off, the page's meta says "off" and
+    its CSP is every page's, the privacy and about pages name no Mapterhorn; on, the meta holds the escaped
+    template, connect-src adds the ring's origin, Esri's imagery and every orthophoto service of the catalogue
+    (nothing else changes), and the pages carry the approved Mapterhorn texts; / and /api/jobs keep their
+    headers. Locally the same meta and CSP."""
+    import sources as src
+    assert web.ortho_origins() == RING_ORIGINS  # the catalogue's today: a new orthophoto service changes both
+    computed = {f"{urlsplit(u).scheme}://{urlsplit(u).netloc}" for s in src.SOURCES.values() if s.ortho is not None
+                for u in (s.ortho.url, s.ortho.base_url) if u}
+    assert set(web.ortho_origins()) == computed
+    user_id, cookie, csrf = session_of(tmp_path, account_settings, "a")
+    template = "https://tiles.example.org/t/{z}/{x}/{y}.webp?a=1&b=2"
+    every_page = web.SECURITY_HEADERS["Content-Security-Policy"]
+
+    def directives(policy: str) -> dict:
+        return {part.split()[0]: part.split()[1:] for part in policy.split("; ")}
+
+    for view in (ViewSettings(), ViewSettings(ring=True, ring_url=template)):
+        app = _public_app(tmp_path, settings, account_settings, providers, view=view)
+        with TestClient(app, base_url=URL) as signed, TestClient(app, base_url=URL) as anonymous:
+            signed.cookies.set(ac.SESSION_COOKIE, cookie, domain="lines.example.org")
+            page = signed.get("/view3d")
+            assert page.status_code == 200
+            policy = page.headers["content-security-policy"]
+            privacy, about = anonymous.get("/privacy").text, anonymous.get("/about").text
+            assert web.html.escape(PRIVACY_3D) in privacy and web.html.escape(SOFTWARE_3D) in about
+            if not view.ring:
+                assert '<meta name="findaline-3d-ring" content="off">' in page.text
+                assert policy == every_page == web.PAGE_CSP["/view3d"]
+                assert "Mapterhorn" not in privacy and "Mapterhorn" not in about
+            else:
+                assert ('<meta name="findaline-3d-ring" content="https://tiles.example.org/t/{z}/{x}/{y}.webp?a=1'
+                        '&amp;b=2">') in page.text
+                ring, base = directives(policy), directives(every_page)
+                assert ring["connect-src"] == (["'self'", "https://tiles.example.org",
+                                                "https://ibasemaps-api.arcgis.com"] + list(RING_ORIGINS))
+                assert {k: v for k, v in ring.items() if k != "connect-src"} == \
+                    {k: v for k, v in base.items() if k != "connect-src"}
+                assert web.html.escape(PRIVACY_RING) in privacy
+                # the facts in order: the 3D view's, then Mapterhorn's
+                assert privacy.index(web.html.escape(PRIVACY_3D)) < privacy.index(web.html.escape(PRIVACY_RING))
+                assert ABOUT_RING in about and "<script" not in about and "<script" not in privacy
+            for path in ("/", "/api/jobs"):
+                assert signed.get(path).headers["content-security-policy"] == every_page, path
+    # locally: read from the environment once, at the start
+    local = tmp_path / "local"
+    local.mkdir()
+    monkeypatch.setenv("FINDALINE_3D_RING", "on")
+    monkeypatch.delenv("FINDALINE_3D_RING_URL", raising=False)
+    app = web.create_app(str(local), token=TOKEN, start_scheduler=False)
+    monkeypatch.setenv("FINDALINE_3D_RING", "off")  # too late: the app keeps what it read
+    with TestClient(app, base_url=LOCAL) as client:
+        page = client.get("/view3d")
+        assert '<meta name="findaline-3d-ring" content="https://tiles.mapterhorn.com/{z}/{x}/{y}.webp">' in page.text
+        assert ("connect-src 'self' https://tiles.mapterhorn.com https://ibasemaps-api.arcgis.com"
+                in page.headers["content-security-policy"])
+        assert client.get("/").headers["content-security-policy"] == every_page
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        page = client.get("/view3d")
+        assert '<meta name="findaline-3d-ring" content="off">' in page.text
+        assert page.headers["content-security-policy"] == every_page
+
+
+def test_view3d_permissions_policy(tmp_path, settings, account_settings, providers):
+    """The 3D view's own Permissions-Policy (docs/3d-view-contract.md, "Wave F": the phone's motion turns the
+    walker's gaze): accelerometer, gyroscope and magnetometer for this origin, every other feature off as on every
+    page; the other pages keep every page's (all off), on the public site and locally."""
+    every_page = ("accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), "
+                  "payment=(), usb=()")
+    view3d = ("accelerometer=(self), camera=(), geolocation=(), gyroscope=(self), magnetometer=(self), "
+              "microphone=(), payment=(), usb=()")
+    assert web.SECURITY_HEADERS["Permissions-Policy"] == every_page and web.PAGE_PERMISSIONS == {"/view3d": view3d}
+    _, cookie, _ = session_of(tmp_path, account_settings, "a")
+    app = _public_app(tmp_path, settings, account_settings, providers)
+    with TestClient(app, base_url=URL) as signed, TestClient(app, base_url=URL) as anonymous:
+        signed.cookies.set(ac.SESSION_COOKIE, cookie, domain="lines.example.org")
+        page = signed.get("/view3d")
+        assert page.status_code == 200 and page.headers["permissions-policy"] == view3d
+        visitor = anonymous.get("/view3d", follow_redirects=False)
+        assert visitor.status_code == 303 and visitor.headers["permissions-policy"] == view3d
+        for client, path in ((signed, "/"), (signed, "/api/jobs"), (anonymous, "/privacy"), (signed, "/app/view3d.js")):
+            assert client.get(path).headers["permissions-policy"] == every_page, path
+    local = tmp_path / "local"
+    local.mkdir()
+    with TestClient(web.create_app(str(local), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        assert client.get("/view3d").headers["permissions-policy"] == view3d
+        assert client.get("/").headers["permissions-policy"] == every_page
 
 
 def test_satellite_key_in_no_saved_file(tmp_path):
