@@ -314,13 +314,14 @@ SL_DAV = "https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/{token}"
 SL_DISTRICTS = ("MZG", "NK", "SB", "SLS", "SPK", "WND")  # Merzig-Wadern, Neunkirchen, Regionalverband Saarbrücken,
                                                         # Saarlouis, Saarpfalz-Kreis, St. Wendel
 SL_RELEASE = "2025"
-# Pixels below SL_FLOOR metres, and those within SL_RING pixels of one, are no data (the user's decision of
-# 2026-11-03): the DGM1 holds patches at exactly 0.00 m (tile 327_5485 near Mettlach: 105 px with a rim of 64-195 m
-# falling from ground at about 205 m; a second one reported at 343_5457) that would make a pit with walls of 100 m
-# and more; no ground of the Land lies below about 135 m (the Moselle at Perl about 140 m). The source's gap filler
-# fills them
+# Pixels below SL_FLOOR metres, and those within SL_RING pixels of one, are no data (the user's decisions of
+# 2026-11-03): the survey holds patches at 0 m that would make a pit with walls of 100 m and more, their rims
+# falling from the ground to the patch: tile 327_5485 near Mettlach (DGM1 109 px, DOM1 91 px at 0.00 m, a rim of
+# one pixel from ground at about 205 m) and 343_5457 in Saarbrücken (DGM1 135 px down to -0.26 m, a ramp of five
+# pixels from ground at 184 m: 101-166 m at 1-5 px, the ground from 6 px), so 6 px: the ramp and a pixel more. No
+# ground of the Land lies below about 137 m (the Moselle at Perl 140.5 m). The source's gap filler fills them
 SL_FLOOR = 100.0
-SL_RING = 2
+SL_RING = 6
 # LVGL's DOP WMS (MapServer, layer sl_dop: the newest DOP, 2025, DOP20; EPSG:4326 offered; Fees none,
 # AccessConstraints noLimitations; white beyond the Land), dl-de/by-2.0 with the same notice
 SL_DOP = OrthoService("DOP20 Saarland (LVGL)", "https://geoportal.saarland.de/freewms/dop", "sl_dop",

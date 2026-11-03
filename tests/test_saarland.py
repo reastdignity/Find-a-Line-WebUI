@@ -449,7 +449,7 @@ def test_source():
     assert sl.grid_origin == (0.0, 0.0) and sl.fallbacks == ["europe"]
     assert isinstance(sl.nmt, ZipMemberTiles) and isinstance(sl.nmpt, ZipMemberTiles)
     assert sl.nmt.folder == "saarland/dgm1-2025" and sl.nmpt.folder == "saarland/dom1-2025"
-    assert sl.nmt.floor == sl.nmpt.floor == 100.0 and sl.nmt.ring == sl.nmpt.ring == 2
+    assert sl.nmt.floor == sl.nmpt.floor == 100.0 and sl.nmt.ring == sl.nmpt.ring == 6
     assert sl.nmt.ttl_days is None and sl.nmt.listing.share == germany.SL_SHARE
     assert len(sl.nmt.metalinks) == len(sl.nmpt.metalinks) == 6
     assert sl.nmt.metalinks[0] == ("https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/{token}/"
