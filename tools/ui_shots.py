@@ -42,12 +42,17 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
 # bottom of its panel (a "?" near the bottom: its bubble opens upwards), or a list of such steps[, the user:
 # "admin" (default), "walker", an approved user with the site's limits, or "visitor", not signed in]);
+# a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run; an interface starting with "/" is a path of web.py's server-rendered pages
 # Leaflet's layer control opened as its expand() does (hover on a desktop, a tap on a phone: neither is the
 # same click on every device)
 LAYERS_OPEN = "document.querySelector('.leaflet-control-layers').classList.add('leaflet-control-layers-expanded')"
 ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')].find((l) => "
            "l.textContent.trim() === 'Esri World Imagery')?.querySelector('input').click()")
+# The coverage page: a click on an area of the flat view (by its key), and a wait for moving maps and tiles
+COVERAGE_CLICK = "document.querySelector('.cov-shape[data-key=\"{key}\"]').dispatchEvent(new MouseEvent('click', {{bubbles: true}}))"
+SETTLE = "new Promise((done) => setTimeout(done, 2500))"
+ZOOM_OUT = "(window.FINDALINE_PLACE.map.setZoom(5), new Promise((done) => setTimeout(done, 2500)))"
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
@@ -85,9 +90,25 @@ PAGES = {
     "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
     "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
     "map-shared-credits": ("shared", "", ".u-credits-toggle"),
+    "d-new-coverage": ("d", "#new", [".n-coverage-btn", "js:" + ZOOM_OUT]),  # the data coverage on the place map
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
+    # the coverage map (viewer/src/coverage/page): a visitor, its three views, a card, the table, Polish
+    "page-coverage": ("/coverage?lang=en", "", None, "visitor"),
+    "page-coverage-full": ("/coverage?lang=en", "", "full", "visitor"),
+    "page-coverage-card": ("/coverage?lang=en", "", "js:" + COVERAGE_CLICK.format(key="pl"), "visitor"),
+    "page-coverage-partly": ("/coverage?lang=en", "", ["js:" + COVERAGE_CLICK.format(key="de")], "visitor"),
+    "page-coverage-europe": ("/coverage?lang=en", "", ".cov-zoombar button:nth-child(2)", "visitor"),
+    "page-coverage-leaflet": ("/coverage?lang=en", "", [".cov-bar .u-seg button:nth-child(2)", "js:" + SETTLE,
+                                                        ".cov-zoombar button:nth-child(2)", "js:" + SETTLE], "visitor"),
+    "page-coverage-globe": ("/coverage?lang=en", "", [".cov-bar .u-seg button:nth-child(3)",
+                                                      ".cov-zoombar button:nth-child(2)", "js:" + SETTLE], "visitor"),
+    "page-coverage-stars": ("/coverage?lang=en", "", [".cov-scale button:nth-child(3)",
+                                                      "js:" + COVERAGE_CLICK.format(key="es")], "visitor"),
+    "page-coverage-life": ("/coverage?lang=en", "", [".cov-scale button:nth-child(2)",
+                                                     "js:" + COVERAGE_CLICK.format(key="us-ak")], "visitor"),
+    "page-coverage-pl": ("/coverage?lang=pl", "", ["js:" + COVERAGE_CLICK.format(key="cz"), "full"], "visitor"),
 }
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
@@ -243,8 +264,11 @@ def main():
                 options.pop("default_browser_type", None)
                 for theme in themes:
                     context = browser.new_context(**options, color_scheme=theme, ignore_https_errors=True)
-                    # the theme, and the intros put away (ui/Intro.tsx): the "-intro" pages open them
+                    # the theme, and the intros put away (ui/Intro.tsx): the "-intro" pages open them; the
+                    # coverage page's choices and the place map's coverage layer as on a first visit
                     context.add_init_script(f"try {{ localStorage.setItem('findaline-theme', {json.dumps(theme)}); "
+                                            + "".join(f"localStorage.removeItem('findaline.{key}'); " for key in
+                                                      ("coverage.view", "coverage.scale", "coverage.lang", "layer.coverage"))
                                             + "".join(f"localStorage.setItem('findaline.intro.{intro}', 'seen'); "
                                                       for intro in INTROS) + "} catch (e) {}")
                     for name, (ui, hash_, steps, *who) in pages.items():
@@ -264,8 +288,11 @@ def main():
                                                    timeout=10000)
                         except Exception:
                             print(f"{name} ({device}): map tiles still loading")
-                        missing = False
+                        missing = full = False
                         for step in ([steps] if isinstance(steps, str) else steps or []):
+                            if step == "full":
+                                full = True
+                                continue
                             if step.startswith("scroll:"):
                                 page.evaluate("(sel) => { const e = document.querySelector(sel) || "
                                               "document.scrollingElement; e.scrollTop = e.scrollHeight; }", step[7:])
@@ -290,7 +317,7 @@ def main():
                             page.close()
                             continue
                         path = os.path.join(args.out, f"{name}-{device}-{theme}.png")
-                        page.screenshot(path=path)
+                        page.screenshot(path=path, full_page=full)
                         page.close()
                         print(path)
                     context.close()

@@ -5,7 +5,7 @@ formerly LMI) IslandsDEM v1.0 10 m as its gap filler, one national COG read in b
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import OrthoService, ReadmeRow, Source
+from ..source import Coverage, OrthoService, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
 from .arctic import ARCTIC_CREDIT, ARCTIC_DEM_2M, arctic_note
 from .world import COPERNICUS_DISCLAIMER, COPERNICUS_NOTICE
@@ -69,7 +69,8 @@ SOURCES: List[Source] = [
         # Both open: a run of Iceland never takes FABDEM's terms
         fallback="islandsdem10", more_fallbacks=("copernicus",),
         listing=ReadmeRow(IS_WHERE, "ArcticDEM v4.1 mosaic, 2 m (a surface model)", "–", IS_ORTHO_LISTING),
-        offline=IS_BOXES, sample=IS_SAMPLE, note=IS_NOTE_ARCTICDEM),
+        offline=IS_BOXES, sample=IS_SAMPLE, note=IS_NOTE_ARCTICDEM,
+        coverage=Coverage(provider="Polar Geospatial Center", added="2026-11-03", trees="surface")),
     Source(
         id="islandsdem10", name="IslandsDEM v1.0 (10 m)",
         description="Natural Science Institute of Iceland's IslandsDEM v1.0: elevation model 10 m of all of Iceland "

@@ -5,7 +5,7 @@ gaps."""
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, Source
+from ..source import Coverage, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
 
 # NZTM2000, the CRS of the files: one transverse Mercator for the main islands (173° E, scale 0.9996), so its
@@ -107,7 +107,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("New Zealand (main islands)", "LINZ LiDAR 1m DEM (national composite)",
                           "LINZ LiDAR 1m DSM (national composite)", "– (LINZ Basemaps needs a key)"),
         offline=(("nz", NZ_BOX),), sample=(-43.2280, 171.7180),
-        note=NZ_NOTE),
+        note=NZ_NOTE,
+        coverage=Coverage(provider="LINZ", added="2026-11-02", survey="2008–2026")),
     Source(
         id="nz8m", name="LINZ (New Zealand 8m DEM)",
         description="LINZ (New Zealand): DEM 8 m interpolated from the 20 m contours of the Topo50 map (2012), "

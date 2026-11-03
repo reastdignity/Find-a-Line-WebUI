@@ -1,0 +1,803 @@
+{
+ "areas": {
+  "at": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "BEV",
+   "res": [
+    1
+   ],
+   "source": "austria",
+   "survey": "mosaic",
+   "trees": "yes"
+  },
+  "au-qld": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "State of Queensland",
+   "res": [
+    1,
+    30
+   ],
+   "source": "queensland",
+   "survey": "2006–2024",
+   "trees": "no"
+  },
+  "au-tas": {
+   "added": "2026-11-02",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Tasmanian Government",
+   "res": [
+    2
+   ],
+   "source": "tasmania",
+   "survey": "2008–2020",
+   "trees": "no"
+  },
+  "ax": {
+   "added": "2026-11-01",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "NLS",
+   "res": [
+    2
+   ],
+   "source": "finland",
+   "survey": "",
+   "trees": "no"
+  },
+  "ca": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    }
+   ],
+   "partial": true,
+   "provider": "NRCan",
+   "res": [
+    1,
+    2,
+    30
+   ],
+   "source": "canada",
+   "survey": "lidar",
+   "trees": "yes"
+  },
+  "ca-nu": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "nunavut",
+   "survey": "",
+   "trees": "surface"
+  },
+  "ch": {
+   "added": "2026-10-26",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "swisstopo",
+   "res": [
+    1
+   ],
+   "source": "swisstopo",
+   "survey": "newest",
+   "trees": "yes"
+  },
+  "cz": {
+   "added": "2026-11-02",
+   "level": 2,
+   "notes": [
+    {
+     "code": "smoothed"
+    }
+   ],
+   "partial": false,
+   "provider": "ČÚZK",
+   "res": [
+    2
+   ],
+   "source": "czechia",
+   "survey": "2009–2013",
+   "trees": "yes"
+  },
+  "de-bb": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGB",
+   "res": [
+    1
+   ],
+   "source": "brandenburg",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-be": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGB",
+   "res": [
+    1
+   ],
+   "source": "brandenburg",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-bw": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGL",
+   "res": [
+    1
+   ],
+   "source": "baden_wurttemberg",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-by": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LDBV",
+   "res": [
+    1
+   ],
+   "source": "bavaria",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-he": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "HVBG",
+   "res": [
+    1
+   ],
+   "source": "hesse",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-mv": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LAiV M-V",
+   "res": [
+    1
+   ],
+   "source": "mecklenburg_vorpommern",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-ni": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGLN",
+   "res": [
+    1
+   ],
+   "source": "lower_saxony",
+   "survey": "newest",
+   "trees": "yes"
+  },
+  "de-nw": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Geobasis NRW",
+   "res": [
+    1
+   ],
+   "source": "north_rhine_westphalia",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-rp": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LVermGeo RP",
+   "res": [
+    1
+   ],
+   "source": "rhineland_palatinate",
+   "survey": "2022–2025",
+   "trees": "yes"
+  },
+  "de-sh": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "LVermGeo SH",
+   "res": [
+    1
+   ],
+   "source": "schleswig_holstein",
+   "survey": "2005–2025",
+   "trees": "no"
+  },
+  "de-sn": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GeoSN",
+   "res": [
+    1
+   ],
+   "source": "saxony",
+   "survey": "2018–2025",
+   "trees": "yes"
+  },
+  "de-st": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LVermGeo ST",
+   "res": [
+    1
+   ],
+   "source": "saxony_anhalt",
+   "survey": "",
+   "trees": "yes"
+  },
+  "dk": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Klimadatastyrelsen",
+   "res": [
+    1
+   ],
+   "source": "denmark",
+   "survey": "",
+   "trees": "yes"
+  },
+  "es": {
+   "added": "2026-10-23",
+   "level": 2,
+   "notes": [
+    {
+     "code": "short",
+     "params": {
+      "m": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "IGN España",
+   "res": [
+    5
+   ],
+   "source": "spain",
+   "survey": "pnoa",
+   "trees": "yes"
+  },
+  "es-cn": {
+   "added": "2026-10-23",
+   "level": 2,
+   "notes": [
+    {
+     "code": "short",
+     "params": {
+      "m": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "IGN España",
+   "res": [
+    5
+   ],
+   "source": "spain_canarias",
+   "survey": "pnoa",
+   "trees": "yes"
+  },
+  "fi": {
+   "added": "2026-11-01",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "NLS",
+   "res": [
+    2
+   ],
+   "source": "finland",
+   "survey": "",
+   "trees": "no"
+  },
+  "fr": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france",
+   "survey": "lidar_hd",
+   "trees": "yes"
+  },
+  "gb-eng": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Environment Agency",
+   "res": [
+    1
+   ],
+   "source": "england",
+   "survey": "2000–2022",
+   "trees": "yes"
+  },
+  "gb-sct": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": true,
+   "provider": "Scottish Government",
+   "res": [
+    1
+   ],
+   "source": "scotland",
+   "survey": "2023–2026",
+   "trees": "yes"
+  },
+  "gb-wls": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Welsh Government",
+   "res": [
+    1
+   ],
+   "source": "wales",
+   "survey": "2020–2022",
+   "trees": "yes"
+  },
+  "gl": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "greenland",
+   "survey": "",
+   "trees": "surface"
+  },
+  "is": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "iceland",
+   "survey": "",
+   "trees": "surface"
+  },
+  "it-bz": {
+   "added": "2026-11-01",
+   "level": 2,
+   "notes": [
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2004–2006"
+     }
+    },
+    {
+     "code": "short",
+     "params": {
+      "m": 15
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Provincia di Bolzano",
+   "res": [
+    2.5
+   ],
+   "source": "south_tyrol",
+   "survey": "2004–2006",
+   "trees": "yes"
+  },
+  "it-tn": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Provincia di Trento",
+   "res": [
+    1
+   ],
+   "source": "trento",
+   "survey": "2014",
+   "trees": "yes"
+  },
+  "li": {
+   "added": "2026-10-26",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "swisstopo",
+   "res": [
+    1
+   ],
+   "source": "swisstopo",
+   "survey": "newest",
+   "trees": "yes"
+  },
+  "lu": {
+   "added": "2026-11-01",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "ACT",
+   "res": [
+    1
+   ],
+   "source": "luxembourg",
+   "survey": "2024",
+   "trees": "yes"
+  },
+  "mt": {
+   "added": "2026-10-23",
+   "level": 1,
+   "notes": [
+    {
+     "code": "whole_m"
+    }
+   ],
+   "partial": false,
+   "provider": "MSDI",
+   "res": [
+    1
+   ],
+   "source": "malta",
+   "survey": "2018",
+   "trees": "yes"
+  },
+  "no": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "Kartverket",
+   "res": [
+    1
+   ],
+   "source": "norway",
+   "survey": "",
+   "trees": "yes"
+  },
+  "no-21": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "svalbard",
+   "survey": "",
+   "trees": "surface"
+  },
+  "no-22": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "svalbard",
+   "survey": "",
+   "trees": "surface"
+  },
+  "nz": {
+   "added": "2026-11-02",
+   "level": 1,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 8
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "LINZ",
+   "res": [
+    1
+   ],
+   "source": "new_zealand",
+   "survey": "2008–2026",
+   "trees": "yes"
+  },
+  "pl": {
+   "added": "2026-10-23",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "GUGiK",
+   "res": [
+    1
+   ],
+   "source": "geoportal",
+   "survey": "sheets",
+   "trees": "part"
+  },
+  "pr": {
+   "added": "2026-10-30",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "USGS",
+   "res": [
+    1
+   ],
+   "source": "usa",
+   "survey": "projects",
+   "trees": "no"
+  },
+  "si": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "ARSO",
+   "res": [
+    1
+   ],
+   "source": "slovenia",
+   "survey": "2011–2015",
+   "trees": "no"
+  },
+  "sk": {
+   "added": "2026-10-26",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "ÚGKK SR",
+   "res": [
+    1
+   ],
+   "source": "slovakia",
+   "survey": "2017–2023",
+   "trees": "yes"
+  },
+  "us": {
+   "added": "2026-10-30",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "USGS",
+   "res": [
+    1
+   ],
+   "source": "usa",
+   "survey": "projects",
+   "trees": "no"
+  },
+  "us-ak": {
+   "added": "2026-10-30",
+   "level": 2,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "short",
+     "params": {
+      "m": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "USGS",
+   "res": [
+    1,
+    5
+   ],
+   "source": "alaska",
+   "survey": "2012–2019",
+   "trees": "no"
+  },
+  "vi": {
+   "added": "2026-10-30",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "USGS",
+   "res": [
+    1
+   ],
+   "source": "usa",
+   "survey": "projects",
+   "trees": "no"
+  }
+ },
+ "countries": 23,
+ "partly": {
+  "au": [
+   "au-qld",
+   "au-tas"
+  ],
+  "de": [
+   "de-bb",
+   "de-be",
+   "de-bw",
+   "de-by",
+   "de-he",
+   "de-mv",
+   "de-ni",
+   "de-nw",
+   "de-rp",
+   "de-sh",
+   "de-sn",
+   "de-st"
+  ],
+  "gb": [
+   "gb-eng",
+   "gb-sct",
+   "gb-wls"
+  ],
+  "it": [
+   "it-bz",
+   "it-tn"
+  ]
+ },
+ "start": "2025-11-05",
+ "world": {
+  "level": 3,
+  "provider": "FABDEM / Copernicus DEM",
+  "res": [
+   30
+  ],
+  "trees": "rough"
+ }
+}

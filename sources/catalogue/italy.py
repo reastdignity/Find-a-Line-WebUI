@@ -4,7 +4,7 @@ of Trento (its LiDAR 2014 DTM and DSM 0.5 m, ASCII grids of 500 m)."""
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
 
@@ -87,7 +87,9 @@ SOURCES: List[Source] = [
                           "Province of Bolzano DSM, 2.5 m", "Province of Bolzano 2023"),
         offline=(("it-bz", (46.21, 47.10, 10.38, 12.48)),), sample=(46.5208, 11.7325),
         note="South Tyrol's models are 2.5 m from the LiDAR of 2004-2006 in the mountains: lines shorter "
-             "than about 15 m are not reliable, and rockfall since then is not in the data."),
+             "than about 15 m are not reliable, and rockfall since then is not in the data.",
+        coverage=Coverage(provider="Provincia di Bolzano", added="2026-11-01", survey="2004–2006",
+                          min_length=15, notes=("old_survey",))),
     Source(
         id="trento", name="Trento (LiDAR 2014, 0.5 m)",
         description="Autonomous Province of Trento: LiDAR 2014 terrain and surface (first returns) models 0.5 m, "
@@ -101,5 +103,6 @@ SOURCES: List[Source] = [
         offline=(("it-tn", (45.67, 46.54, 10.45, 11.97)),), sample=(45.9245, 10.8855),
         note="Trento's models come from the LiDAR of 2014 (with flights of 2018): rockfall and buildings since "
              "then are not in the data. Data: Provincia autonoma di Trento, CC BY 4.0. No open orthophoto "
-             "service of Trento: the map shows its own base layers."),
+             "service of Trento: the map shows its own base layers.",
+        coverage=Coverage(provider="Provincia di Trento", added="2026-11-02", survey="2014")),
 ]

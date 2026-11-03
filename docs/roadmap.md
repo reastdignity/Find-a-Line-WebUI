@@ -67,6 +67,32 @@ Rules for every step:
      and Finland obstacles at all (DTM + CHMv2), a task of its own (high effort: a new kind of layer, credits, probe).
    - *The rule on the data's own grid* (with "Obstacles lowered by averaging the DSM" under *To check*): the
      envelope and the obstacle height computed on the source's pixels, their maximum per working pixel.
+2. **A slope threshold for the resolution** (added by the user, 2026-11-02; a task of its own, found while
+   preparing the coverage map's 30 m vs 1 m contrast).
+   - *What is seen*: `--slope-threshold` defaults to 45° at every resolution. At 30 m the slope comes from
+     30 m blocks averaged from the data and is computed over 60 m (two pixels), so a 30 m wall gives about 27°: at
+     Żabi Koń no 30 m pixel reaches 45° (the steepest 41.8°), so a 30 m search finds nothing there. The first
+     version (4a99074, NASADEM 30 m) took anchors above `pixel * 1.15 + 6` degrees, 40.5° at 30 m, with lines of
+     200-2000 m.
+   - *Measured* (2026-11-02): nine places (Żabi Koń, Matterhorn, Preikestolen, Bastei, Verdon at the Imbut, Half
+     Dome, Delicate Arch, Stawamus Chief, Aoraki), radius 400 m, lines 30-150 m with anchors at most 10 m apart in
+     height; each place's 1 m data averaged to 30 m. A 30 m spot counts as real when a line of the 1 m search has
+     both anchors within 30 m (45 m) of one of its lines. Of the 1730 spots at 1 m:
+
+     | 30 m threshold | 30 m spots | Real (30 m / 45 m) | False (30 m / 45 m) | 1 m spots found (30 m / 45 m) |
+     | --- | --- | --- | --- | --- |
+     | 45° | 101 | 62 / 78 | 39 % / 23 % | 226 / 567 |
+     | 40.5° | 127 | 76 / 93 | 40 % / 27 % | 291 / 685 |
+     | 30° | 191 | 100 / 129 | 48 % / 32 % | 357 / 818 |
+     | 20° | 241 | 114 / 153 | 53 % / 37 % | 403 / 903 |
+
+     Small rocks gain the most from a lower threshold (Bastei: 2 spots at 45°, 19 at 30°, nearly all real); on
+     big walls the threshold hardly matters (Matterhorn: 9-10 spots at every threshold, none within 30 m of a
+     1 m line). Real 30 m data (FABDEM, Copernicus: radar, trees removed by estimate) are likely worse than this
+     averaged lidar.
+   - *To do*: a default threshold from the resolution (a rule like the first version's, or measured on more
+     places and on FABDEM itself), the form's hint for coarse sources, and perhaps longer default lines at 30 m;
+     the regression set's 30 m rows (R11, R12) re-baselined in the same commit.
 
 ## Done: the surface model above the terrain on steep rock (2026-11-02)
 - *What was seen*: on bare rock nearly every line was marked as over trees or buildings (Cwm Silyn all 2854 lines,
@@ -260,6 +286,38 @@ Users found the app hard to navigate.
     - Dropped (the user, 2026-10-29): one OpenTopoMap tile per mini map.
     - The tile usage policies of OpenTopoMap (and OSM) for the mini maps on the public site (see "To check").
   - Running the prototypes from the worktree with the usual data: `uv run findaline.py web --data-dir <main checkout>` (without it the worktree's own empty data folder is used).
+
+## Coverage map and animations (built 2026-11-02/03, branch `coverage-map`)
+
+Where the data is detailed, for people who never met an elevation model: a public page, a layer of the place map, the
+README's GIF and images, and videos and images for Facebook and Instagram (README, *Coverage map*).
+- **Prototypes** (stage A): three map looks, three quality scales, four stories, statics, a 30 m against 1 m
+  contrast at nine famous places, in a private artifact (https://claude.ai/artifact/4EmmvkDpv8HaEPNXPoGAmj).
+- **The user's picks**: statuses are the working sources and "the rest of the world at 30 m"; limitations only the
+  data's quality; all three map views with a switch (the flat d3 map the default); the quality scale switchable in
+  the legend (words, everyday sizes, stars; words the default); English and Polish for the coverage map only (its own
+  catalogue, `locales/coverage/`); all four stories at 10, 18 and 26 s, 4:5 and 9:16, light and dark, ending with the
+  logo, the address and a call to action; the renderer Playwright + ffmpeg of imageio-ffmpeg (group `ui`); Barlow
+  Condensed bundled for the whole app. The 30 m side of the contrast uses the first version's rule (anchors from
+  40.5°), counts spots and has a board "Is 30 m enough?" with the 45 m check (priority 2 above).
+- **Decided along the way**: the data comes from the catalogue (`Source.coverage`, `tools/coverage_data.py --check`);
+  Alaska is *detailed* (IfSAR 5 m statewide) with a note on its 1 m places, not hatched; Canada, Scotland, Tasmania
+  and Queensland are hatched (detailed in parts); France's overseas regions and the Chatham Islands stay at 30 m; the
+  sources on ArcticDEM (batch 3: Greenland, Svalbard and Jan Mayen, Nunavut, Iceland) are *detailed* at 2 m with trees
+  "in the heights" (`trees="surface"`: a surface model only); Denmark is shown (the VPS has the Datafordeler key); the
+  privacy page is unchanged (the page keeps its language, view and scale in the browser only); the media page is never
+  in dist. Wave 2 (`tools/coverage_media.py`): credits keep each provider's wording (our "Data:" left out when it
+  starts with a label of its own); a zoomed map is centred on the middle of its projected box (Equal Earth packs
+  degrees towards the poles: Malta and Puerto Rico fell off the frame); the 9:16 videos keep their empty top band
+  (Instagram's own header covers it); the poster's PDF is made by img2pdf (the user's pick over our own few lines; it
+  brings pikepdf, MPL-2.0, with qpdf); all 96 videos take about 70 min, so only the set the user picks is rendered.
+- **Wave 3** (review): on phones the lead goes below the map and its legend (the user's pick: the map starts at
+  about a third of the first screen, not half), the Leaflet view's buttons take the whole row, the flat view's dots
+  grow with the fourth root of the zoom; the end card lists the credits of every data a video showed; the captions
+  name one area per source (Malta, Luxembourg, South Tyrol, Trento, the four ArcticDEM areas).
+- **Open**: the music of the videos (a track with a licence, from the user; until then silent), then all 96
+  rendered; posting the videos and images; Firefox shows a fallback font in a run's map opened from disk (fonts in
+  `runs/_viewer/`, outside the page's folder).
 
 ## New data sources
 Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a hosted copy, see below), then Switzerland (done first, 2026-10-26: it needed no hosting); Greece has no usable national source. The USA was researched on 2026-10-26 and its terrain added on 2026-10-30 (below); its surface model is still to come.

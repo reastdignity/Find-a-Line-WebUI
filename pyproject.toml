@@ -48,10 +48,13 @@ dev = [
 tools = [
     "huggingface-hub>=2.3.0",
 ]
-# Screenshots of the UI on desktop and phone profiles (tools/ui_shots.py): `uv sync --group ui`, then
-# `uv run playwright install chromium webkit`; not installed by a plain `uv sync` nor in the image
+# Screenshots of the UI on desktop and phone profiles (tools/ui_shots.py) and the coverage map's media
+# (tools/coverage_media.py): `uv sync --group ui`, then `uv run playwright install chromium webkit`; not installed
+# by a plain `uv sync` nor in the image
 ui = [
     "playwright>=1.64.1",
+    "imageio-ffmpeg>=0.8.0",  # its ffmpeg encodes tools/coverage_media.py's videos and GIFs
+    "img2pdf>=0.6.3",  # the poster's PDF (pulls pikepdf and its qpdf)
 ]
 
 [tool.uv]

@@ -4,7 +4,7 @@ S-JTSK / Krovak East North (no key)."""
 from typing import List
 
 from ..credit import YEAR, Credit
-from ..source import OrthoService, ReadmeRow, Source
+from ..source import Coverage, OrthoService, ReadmeRow, Source
 from ..layers.imageserver import ImageServerTiles
 
 # ČÚZK's terms of its spatial data ("Podmínky poskytování prostorových dat ČÚZK", read 2026-11-02; Czech):
@@ -85,5 +85,6 @@ SOURCES: List[Source] = [
         offline=CZ_OFFLINE, sample=(50.6115, 16.1170),  # Adršpach (R44)
         note=f"Data: ČÚZK, {YEAR}, CC BY 4.0 (processed: mosaicked onto the working grid). DMR 5G comes mostly from "
              "the airborne laser scanning of 2009-2013, thinned: narrow rock towers may be smoothed. The surface "
-             "model DMP 1G lies on other pixels and is interpolated onto the terrain model's."),
+             "model DMP 1G lies on other pixels and is interpolated onto the terrain model's.",
+        coverage=Coverage(provider="ČÚZK", added="2026-11-02", survey="2009–2013", notes=("smoothed",))),
 ]

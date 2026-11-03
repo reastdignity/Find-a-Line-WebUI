@@ -2,6 +2,8 @@
 viewer/dist/** -text
 # The logo's files are copied into viewer/dist as they are, so they keep one line ending everywhere
 viewer/src/ui/logo/*.svg text eol=lf
+# So are the coverage map's outlines (coverage-shapes.json)
+viewer/src/coverage/shapes.json text eol=lf
 # Start scripts keep the line endings of their platform
 *.sh text eol=lf
 *.command text eol=lf

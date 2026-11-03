@@ -5,7 +5,7 @@ from functools import lru_cache
 from typing import Dict, List, Optional, Tuple
 
 from ..credit import CC_BY, YEAR, Credit
-from ..source import OrthoService, ReadmeRow, Source
+from ..source import Coverage, OrthoService, ReadmeRow, Source
 from ..layers.zipped import ZippedTiles
 
 # ARSO's (Agencija Republike Slovenije za okolje) lidar survey of Slovenia, flown 2011-2015 (blocks b_21 and b_25
@@ -87,7 +87,8 @@ SOURCES: List[Source] = [
         sample=(45.5690, 13.8630),
         note="Slovenia's model comes from ARSO's lidar of 2011-2015: rockfall and changes since then are not in "
              "the data, and there is no surface model (trees, buildings). Data: Agencija Republike Slovenije za "
-             "okolje, CC BY 4.0."),
+             "okolje, CC BY 4.0.",
+        coverage=Coverage(provider="ARSO", added="2026-11-03", survey="2011–2015")),
 ]
 
 # The tiles of the survey by block: the official tile index LIDAR_mreza_D96 (geohub.gov.si, ArcGIS MapServer

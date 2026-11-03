@@ -4,7 +4,7 @@ heights from the Géoplateforme's WMS-R; IGN's RGE ALTI 1 m fills their gaps (no
 from typing import List
 
 from ..credit import YEAR, Credit
-from ..source import OrthoService, ReadmeRow, Source
+from ..source import Coverage, OrthoService, ReadmeRow, Source
 from ..layers.wmsr import WmsrTiles
 
 # The Géoplateforme's WMS-R (WMS 1.3.0, raw heights as float32 GeoTIFF; data.geopf.fr also serves the WMTS
@@ -107,7 +107,8 @@ SOURCES: List[Source] = [
                  ("fr", (42.50, 43.40, 2.00, 5.90)), ("fr", (43.05, 43.40, -1.00, 2.00)),
                  ("fr", (42.80, 43.05, 1.00, 2.00)), ("fr", (41.30, 43.05, 8.50, 9.60))),
         sample=(43.7655, 6.3580),  # the Verdon, Escalès (R43)
-        note=FR_NOTE),
+        note=FR_NOTE,
+        coverage=Coverage(provider="IGN", added="2026-11-02", survey="lidar_hd")),
     Source(
         id="france_rgealti", name="IGN (RGE ALTI 1 m)",
         description="IGN (France, mainland and Corsica): RGE ALTI 1 m terrain model from the Géoplateforme's "

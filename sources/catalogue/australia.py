@@ -5,7 +5,7 @@ the gaps)."""
 from typing import List
 
 from ..credit import Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.fileblocks import FileBlocks
 from ..layers.imageserver import ImageServerTiles
 
@@ -158,7 +158,9 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Tasmania (AU)", "Tasmania 2 metre DEM (2021; lidar 2008-2020, elsewhere contours)",
                           "–", "theLIST orthophoto"),
         offline=(("au-tas", TAS_BOX),), sample=(-42.893, 147.237),
-        note=TAS_NOTE),
+        note=TAS_NOTE,
+        # Partial: about a third of the State has no lidar and is interpolated from contours
+        coverage=Coverage(provider="Tasmanian Government", added="2026-11-02", partial=True, survey="2008–2020")),
     Source(
         id="queensland", name="Queensland elevation DEM time series (lidar 1 m)",
         description="State of Queensland: the lidar DTMs of its DEM time series service (projects of 2006-2024, "
@@ -170,7 +172,10 @@ SOURCES: List[Source] = [
                           "State of Queensland DEM time series: lidar DTMs 1 m (2006-2024, ImageServer)", "–",
                           "Queensland latest State imagery"),
         offline=QLD_BOXES, sample=(-26.927, 152.947),
-        note=QLD_NOTE),
+        note=QLD_NOTE,
+        # Partial: lidar in parts of the State, DEM-H 30 m elsewhere
+        coverage=Coverage(provider="State of Queensland", added="2026-11-03", partial=True, rest=(30.0,),
+                          survey="2006–2024")),
     Source(
         id="queensland_demh", name="DEM-H 30 m (Geoscience Australia, Queensland's service)",
         description="Geoscience Australia's DEM-H (1 second SRTM, hydrologically enforced, 30 m) from the State of "

@@ -4,7 +4,7 @@ is read in blocks from the COGs of PGC's bucket on AWS (no key), its heights mov
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import OrthoService, ReadmeRow, Source
+from ..source import Coverage, OrthoService, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
 from ..vertical import EGM2008
 
@@ -112,7 +112,8 @@ SOURCES: List[Source] = [
         nmt=ARCTIC_DEM_2M, countries=("gl",), credits=(ARCTIC_CREDIT,), fallback="copernicus",
         listing=ReadmeRow("Greenland", "ArcticDEM v4.1 mosaic, 2 m (a surface model)", "–", ARCTIC_NO_ORTHO),
         offline=GL_BOXES, sample=(60.3786, -44.5502),  # Tasermiut fjord (R58)
-        note=ARCTIC_NOTE + " No open orthophoto of Greenland: the map shows its own base layers."),
+        note=ARCTIC_NOTE + " No open orthophoto of Greenland: the map shows its own base layers.",
+        coverage=Coverage(provider="Polar Geospatial Center", added="2026-11-03", trees="surface")),
     Source(
         id="svalbard", name="ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)",
         description="ArcticDEM v4.1 mosaic (Polar Geospatial Center): a 2 m surface model from satellite stereo, "
@@ -123,7 +124,8 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("Svalbard and Jan Mayen (NO)", "ArcticDEM v4.1 mosaic, 2 m (a surface model)", "–",
                           "Norwegian Polar Institute orthophoto (Svalbard)"),
         offline=SV_BOXES, sample=(78.1913, 15.1801),  # near Longyearbyen (R59)
-        note=ARCTIC_NOTE),
+        note=ARCTIC_NOTE,
+        coverage=Coverage(provider="Polar Geospatial Center", added="2026-11-03", trees="surface")),
     Source(
         id="nunavut", name="ArcticDEM v4.1 mosaic 2 m (Nunavut)",
         description="ArcticDEM v4.1 mosaic (Polar Geospatial Center): a 2 m surface model from satellite stereo, "
@@ -135,5 +137,6 @@ SOURCES: List[Source] = [
                           "– (no national orthophoto service)"),
         offline=NU_BOXES, sample=(70.7175, -71.4268),  # Sam Ford fjord (R60)
         note=ARCTIC_NOTE + " NRCan's lidar around the communities is not used (the source canada, NRCan's "
-                           "HRDEM mosaic, has it); the map shows its own base layers."),
+                           "HRDEM mosaic, has it); the map shows its own base layers.",
+        coverage=Coverage(provider="Polar Geospatial Center", added="2026-11-03", trees="surface")),
 ]

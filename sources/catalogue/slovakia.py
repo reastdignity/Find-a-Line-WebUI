@@ -3,7 +3,7 @@
 from typing import List
 
 from ..credit import CC_BY, Credit
-from ..source import ReadmeRow, OrthoService, Source
+from ..source import Coverage, ReadmeRow, OrthoService, Source
 from ..layers.gridtiles import GridTiles
 
 UGKK_CREDIT = Credit("DMR 5.0 / DMP 1.0 (ÚGKK SR, Slovakia)", "© ÚGKK SR", *CC_BY)
@@ -35,5 +35,6 @@ SOURCES: List[Source] = [
                         "ZBGIS (ÚGKK SR)"),
         # Poland's box overlaps it in the north: Poland comes first in SOURCES
         offline=(("sk", (47.7, 49.65, 16.8, 22.6)),), sample=(49.1700, 18.5750),
-        note="Data © ÚGKK SR, CC BY 4.0 (laser scanning 2017-2023)."),
+        note="Data © ÚGKK SR, CC BY 4.0 (laser scanning 2017-2023).",
+        coverage=Coverage(provider="ÚGKK SR", added="2026-10-26", survey="2017–2023")),
 ]
