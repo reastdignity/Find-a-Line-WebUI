@@ -400,11 +400,12 @@ A whole country can be searched offline, keeping only how many lines and spots e
 ```bash
 python findaline.py country run slovakia [--processes K] [--bands S,M,L,M2] [--max-tiles N] [--redo] [--yes]
 python findaline.py country status slovakia                 # the tiles by band and status, lines, spots, times
+python findaline.py country profile slovakia                # where the time and the memory went, per band and stage
 python findaline.py country build slovakia [--partial]      # the cube of the layer bands (run builds it at the end)
 python findaline.py country compare slovakia [--control M2] [--against L]
 ```
 
-`run` downloads what the country needs into the cache first (Slovakia: about 60 GB of DMR 5.0 tiles copied from the local mirror, `FINDALINE_MIRROR`, and the Copernicus water mask), then counts the tiles in as many processes as the memory and the physical cores allow, with a progress line every 30 s and the processes' logs in `countries/<id>/logs/`. It resumes where it stopped: Ctrl+C is safe, and the tiles that were being counted are counted again at the next run. `--redo` counts everything again; it is needed after a change of the country's configuration or outline. Everything goes into `countries/<id>/` of the data folder (its tiles' grids into `work/country-<id>/`, removed after each tile); `compare` writes `compare.json` there.
+`run` downloads what the country needs into the cache first (Slovakia: about 60 GB of DMR 5.0 tiles copied from the local mirror, `FINDALINE_MIRROR`, and the Copernicus water mask), then counts the tiles in as many processes as the memory and the physical cores allow (the tiles under the most lines found already first; a tile counted while the others end takes their cores), with a progress line every 30 s and the processes' logs in `countries/<id>/logs/`. It resumes where it stopped: Ctrl+C is safe, and the tiles that were being counted are counted again at the next run. `--redo` counts everything again; it is needed after a change of the country's configuration or outline. Everything goes into `countries/<id>/` of the data folder (its tiles' grids into `work/country-<id>/`, removed after each tile); `compare` writes `compare.json` there.
 
 ## Examples
 ### Żabi Koń, Dolina Kobylańska
