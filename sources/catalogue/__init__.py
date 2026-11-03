@@ -10,11 +10,13 @@ from ..source import Source
 from . import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
 from . import australia
 from . import slovenia
+from . import arctic
 
 # Spain's Canary Islands before the rest of Spain, Alaska before the rest of the USA, the global ones last;
 # Czechia first: its offline boxes lie inside Poland's and Slovakia's; France before Switzerland, Spain, England,
 # Hesse and Luxembourg: their offline boxes reach into France, its own keep clear of their land (the first box
 # holding a point wins); Australia (Tasmania and Queensland, each its own region) anywhere before the global
-# ones; Slovenia before Austria: Austria's offline box reaches over Triglav
-FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, spain, usa, canada, slovenia, austria, uk, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, world)
+# ones; Slovenia before Austria: Austria's offline box reaches over Triglav; the Arctic (Greenland, Svalbard, Nunavut)
+# before Canada: Canada's offline box holds north-western Greenland, and Nunavut's boxes lie inside it
+FAMILIES = (czechia, poland, france, switzerland, slovakia, malta, spain, usa, arctic, canada, slovenia, austria, uk, germany, italy, luxembourg, denmark, finland, norway, new_zealand, australia, world)
 SOURCES: Dict[str, Source] = {s.id: s for family in FAMILIES for s in family.SOURCES}

@@ -9,7 +9,9 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
 - read: the first tile's file asked for one byte (Range: bytes=0-0); a WCS a GetCoverage of
   16 x 16 pixels; a WMS-R (WmsrTiles) a GetMap of 16 x 16 pixels of the first tile; an ImageServer an
   exportImage of 16 x 16 pixels (a TIFF, not an error); blocks of big fixed files (FileBlocks) a window of
-  16 x 16 pixels of the first block's file; a local mirror is looked for on disk; a plain XYZ file
+  16 x 16 pixels of the first block's file (one of heights above the ellipsoid also its geoid grid: in the
+  cache, or its address answering a HEAD with its size; never downloaded); a local mirror is looked for on disk; a
+  plain XYZ file
   (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
@@ -60,6 +62,7 @@ from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
 from .readers.windows import _forget, _read_window, _same_crs
+from .vertical import Geoid
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
@@ -226,6 +229,24 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
     return f"window {100 * share:.0f}% with data"
 
 
+def _geoid(cache_dir: str, geoid: Geoid) -> str:
+    """The geoid grid of a layer of heights above the ellipsoid: in the data folder's cache, or else at its address
+    with its size (a HEAD: nothing downloaded; the first search that needs it downloads it). Made the grid a
+    --deep read uses when it is cached; raises with the reason when its address does not answer as expected."""
+    path = geoid.located(cache_dir)
+    if path:
+        geoid.grid = path
+        return f"{geoid.name} grid cached"
+    with host_slot(cache_dir, geoid.url):
+        net.rate_turn(geoid.url)
+        response = requests.head(geoid.url, headers=cache.http_headers(), timeout=REQUEST_TIMEOUT_S,
+                                 allow_redirects=True, verify=net.verify(geoid.url))
+    size = int(response.headers.get("content-length") or 0)
+    if response.status_code != 200 or size != geoid.size:
+        raise RuntimeError(f"{geoid.name} grid: HTTP {response.status_code}, {size} bytes ({geoid.size} expected)")
+    return f"{geoid.name} grid not cached ({geoid.size / 1e6:.0f} MB, downloaded by the first search)"
+
+
 def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[str, str]:
     """DescribeCoverage, then a GetCoverage of 16 x 16 pixels at the point, as the layer's reader
     asks them (its WCS version, its parameters and keys: WcsReader.describe_params, coverage_params)."""
@@ -342,6 +363,9 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
             row.notes.append("read only with --deep (the key's calls are limited)")
             return row
         try:
+            geoid = getattr(layer, "geoid", None)
+            if geoid is not None:
+                row.notes.append(_geoid(cache_dir, geoid))
             if deep:
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
             elif kind == "window":
