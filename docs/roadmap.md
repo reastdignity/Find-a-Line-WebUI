@@ -745,7 +745,37 @@ In steep mountains a user wants the outstanding lines, not every line. New value
   | `--min-height 50 --min-prominence 10` | 1 581 | 169 | 19 945 | 1.8 s | 3 MB |
 
   Montserrat's lines are high anyway (85% reach 50 m), so the height limits remove little there; the prominence of an anchor (towers) cuts the lines 40-fold. At Żabi Koń, a tower joined to the hillside by a high saddle, the prominence is mostly 0–6 m (17 m at most) and the drop (25–50 m) shows its exposure better: neither measure alone describes every "prominent" rock.
-- **Later**: `--max-spots N` (the N best spots instead of thresholds), access (distance of the anchors from an OSM path or road, a new `highway` theme), skipping low pairs already in `_line_ok` if pairs ever become the cost.
+- **Later**: `--max-spots N` (the N best spots instead of thresholds), skipping low pairs already in `_line_ok` if pairs ever become the cost; access and other filters: "Elevation filters", below.
+
+## Elevation filters (done 2026-11-03)
+A user who knows the band of a valley's walls, or wants the upper part of a massif only, filters by the anchors' heights. Three variants were weighed (the analysis of 2026-11-03): the height above sea level, the height above the search area's mean, and the height's percentile in the area. All three are a band of anchor heights in metres; they differ in where its limits come from.
+- **At search time**: `--min-elevation`/`--max-elevation` (off by default) keep the lines whose anchors both lie within the band, in the height system of the source (sources on different datums differ by up to about a metre). The anchors outside it are dropped in `search._lines` right after they are found, before the prominence, the drop and the pairs; the funnel's `anchors_kept` counts them. It takes milliseconds, and since pairs join anchors of similar heights only, the time of the pair search falls with the anchors dropped.
+- **In the viewer** (*More filters*, Anchors):
+  - the upper anchor's bound in metres (the lower one existed);
+  - the anchors' percentile in the search area: the lower anchor at least p_lo, the upper at most p_hi;
+  - the area's range and mean, as information;
+  - each anchor's percentile in the line details.
+- **The statistics** (`hypsometry.py`):
+  - The land with data of the whole search area: the main source's own terrain before any filling, less the water with data of `fill_water`'s rule (the lakes of the water body mask, the sea zone at most 1 m high).
+  - An exact histogram of 0.1 m bins, summed over the tile cores, so tiles give one grid's values.
+  - The mean, 101 quantiles and the km² go into run.json, data.js and lines.js: about 1 KB per run, nothing per line.
+  - The rank shown is max{p : q_p ≤ z}, which is floor(100·F(z)), with no interpolation.
+- *Decided* (the user, 2026-11-03):
+  - At search time only absolute heights. A percentile there would need a pass over a tiled area before the search, an estimated 5-15 % of a job. An absolute band is the same on every machine and comparable between runs.
+  - The reference is the whole search area, never a tile:
+    - a tile's size follows the free memory (`tile_core_size`), so per-tile statistics would give other lines on another machine;
+    - an anchor in an overlap would be judged by another tile's statistics;
+    - circles have no tiles.
+  - The mean is information only. The height above the mean depends on the area's extent and composition (a plain with one ridge, the bands of `--area coast`/`cliffs`), which makes it the weakest of the three. The percentile depends on the extent too, but it is robust and needs no knowledge of the terrain.
+  - Lines of runs saved without the statistics (all before 2026-11-03) pass the percentile filters, as lines of a run without a surface model pass the filter of the clearance above trees and buildings. Their details say "percentile not known". No migration.
+- **Later** (each with its effort):
+  - *Azimuth of the line* (low): the bearing between the anchors, as a filter in the viewer (sun, wind, the view).
+  - *Height above the surroundings within a radius R* (TPI, medium-high): the anchor's height above the mean, or its percentile, within R metres, independent of the area's extent. A box filter (summed-area table) over the grid, read at the anchors only; R adds to the tiles' overlap.
+  - *Access* (high): the anchors' distance from an OSM path or road, from a new `highway` theme. Moved here from "Prominent lines".
+  - *Protected areas* (high): national parks and reserves where highlining is banned or regulated. OSM's `boundary=protected_area`; WDPA's terms still to check. A flag per line and a filter.
+  - *Rock or forest at the anchor* (medium): the surface above the terrain at an anchor (`obstacles.obstacle_surface` has it), telling trees to rig on from rock to bolt.
+  - *A rigging platform behind the anchor* (medium): ground behind the anchor, away from the line, gentle enough to stand and rig on.
+  - *Lines over roads, railways and power lines* (high): OSM themes that cross a line, as a flag and a filter (safety, permits).
 
 ## Open pits and other terraced walls (looked at 2026-10-25, Bełchatów)
 - The Bełchatów and Szczerców pits (200–250 m deep, walls of benches, about 20° overall) gave lines of 1.1 km at most, all near the bottom: the rims have no pixels of 45° or more, and with 5.5 kN and 70 g/m the sag is about 45 m at 1 km, 114 m at 2 km, 207 m at 3 km and 475 m at 5 km, deeper than the pits for lines from rim to rim. With 10 kN and 45° lines of up to 1.9 km appear across the Bełchatów pit.
