@@ -494,17 +494,20 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
         assert state["scroll"] <= 0 and state["stage"] > 0.6, state
     assert four["count"] == first["count"] + (1 if level == "full" else 0), result
     # the walker's views (docs/3d-view-contract.md, "Wave P"): nothing clipped, overlapping or outside, the zoom's
-    # -, indicator and + shown, the walker's slider at least 40% of the window wide (the switch and the zoom on a row
-    # of their own; at 412 px about 190 px, before about 80 px) and no narrower than in the orbit
+    # -, indicator and + shown, the walker's slider at least 40% of the window wide in every view (the switch on a
+    # row of its own, in the walker's views with the zoom; at 412 px about 190 px, before about 74 px) and as wide as
+    # in the orbit; at the phone level the bar as high in every view (its note and the look hint take turns)
     orbit = result["orbit"]
-    assert orbit["view"] == "orbit", result
+    assert orbit["view"] == "orbit" and orbit["slider"] >= 0.4 * result["width"], result
     for name in ("eyes", "behind"):
         state = result[name]
         assert state["view"] == name, result
         assert state["clipped"] == [] and state["overlaps"] == [] and state["outside"] == [], state
         assert state["scroll"] <= 0 and state["stage"] > 0.6, state
         assert state["count"] == orbit["count"] + 3, state
-        assert state["slider"] >= 0.4 * result["width"] and state["slider"] >= orbit["slider"] - 0.5, state
+        assert state["slider"] >= 0.4 * result["width"] and abs(state["slider"] - orbit["slider"]) <= 0.5, state
+        if level == "phone":
+            assert abs(state["stage"] - orbit["stage"]) < 1e-6, state
     assert _violations(dom) == []
 
 
@@ -542,7 +545,7 @@ VIEWS_SCRIPT = """
     checked: [...document.querySelectorAll(".v3-views [role=radio]")].map((b) => b.getAttribute("aria-checked")),
     handles: shown(".v3-handle"), grips: shown(".v3-grip.v3-grab"), hint: shown(".v3-hint"), lookHint: shown(".v3-look-hint"),
     lookText: (document.querySelector(".v3-look-hint") || {}).textContent || null,
-    motion: shown(".v3-motion")});
+    phoneNote: shown(".v3-phone-note"), motion: shown(".v3-motion")});
   // a step: `act`, then the frame it asks for, then a pause in which no other frame may come
   const step = (name, act, then) => {
     const before = frames();
@@ -587,8 +590,8 @@ VIEWS_SCRIPT = """
 @pytest.mark.parametrize("level", ["full", "phone"])
 def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     """The walker's views (docs/3d-view-contract.md, "Wave F"): the switch (orbit first and chosen), the walker's
-    eyes (data-view="eyes", its field of view 60° wide, no anchor's handle, no grip and no edit hint, the look hint at level
-    full), a drag on the canvas turns the gaze and keeps the eyes where they are, the walker's slider moves the
+    eyes (data-view="eyes", its field of view 60° wide, no anchor's handle, no grip and no edit hint, the look hint, at
+    the phone level in place of its note), a drag on the canvas turns the gaze and keeps the eyes where they are, the walker's slider moves the
     camera with it, behind the walker another camera and field of view, back to the orbit its camera exactly as it
     was and the handles back at level full; each step draws, and nothing more while nothing changes; no motion
     button without a touch screen, no violation of the CSP."""
@@ -618,11 +621,11 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     full = level == "full"
     assert orbit["view"] == "orbit" and orbit["checked"] == ["true", "false", "false"]
     assert orbit["handles"] == (2 if full else 0) and orbit["hint"] == (1 if full else 0) and orbit["lookHint"] == 0
-    assert orbit["grips"] == (1 if full else 0) and orbit["motion"] == 0
+    assert orbit["grips"] == (1 if full else 0) and orbit["motion"] == 0 and orbit["phoneNote"] == (0 if full else 1)
     assert eyes["view"] == "eyes" and eyes["checked"] == ["false", "true", "false"] and cam["eyes"][7] == 60
-    assert eyes["handles"] == eyes["grips"] == eyes["hint"] == 0 and eyes["lookHint"] == (1 if full else 0)
+    assert eyes["handles"] == eyes["grips"] == eyes["hint"] == eyes["phoneNote"] == 0 and eyes["lookHint"] == 1
     assert eyes["motion"] == 0  # no touch screen here
-    assert eyes["lookText"] == ("Drag to look around, scroll to zoom." if full else None)  # a fine pointer: the wheel
+    assert eyes["lookText"] == "Drag to look around, scroll to zoom."  # a fine pointer (the wheel), at both levels
     assert cam["eyes"][4] < 0  # a little down at first
     assert cam["dragged"][:3] == cam["eyes"][:3] and cam["dragged"][3:6] != cam["eyes"][3:6]  # the gaze turned
     assert cam["dragged"][4] > cam["eyes"][4]  # dragged down: looking up (grabbing the world)
@@ -631,7 +634,7 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     assert cam["behind"][8] == 5  # the default distance (the clip's terrain is below that camera)
     assert behind["handles"] == behind["grips"] == 0
     assert back["view"] == "orbit" and cam["back"] == cam["orbit"], result  # the orbit's camera as it was
-    assert back["handles"] == orbit["handles"] and back["lookHint"] == 0
+    assert back["handles"] == orbit["handles"] and back["lookHint"] == 0 and back["phoneNote"] == orbit["phoneNote"]
     for state in (eyes, dragged, walked, behind, back):
         assert state["later"] == state["frames"], result  # drawn on demand only
     assert _violations(dom) == []

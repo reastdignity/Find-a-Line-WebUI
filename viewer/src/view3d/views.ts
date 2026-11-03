@@ -72,7 +72,7 @@ type Orientation = {alpha: number | null; beta: number | null; gamma: number | n
 type WalkerView = Exclude<ViewName, "orbit">;
 type WithPermission = {requestPermission?: () => Promise<string>};
 
-/** The views of `line`'s walker; `hints`: where the look hint goes (before `before`, null: last) at level full. */
+/** The views of `line`'s walker; `hints`: where the look hint goes (before `before`, null: last). */
 export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
                             hints: {parent: HTMLElement; before: Element | null}): Views {
   let view: ViewName = "orbit", gaze: Gaze = {yaw: 0, pitch: 0}, offset: Gaze = {yaw: 0, pitch: 0};
@@ -134,15 +134,13 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
   scene.toolbar.prepend(box);
 
   // the look hint names the zoom of the pointer: the wheel, or a pinch where the pointer is coarse (the test of
-  // the page's level, page.ts currentPage)
-  let lookHint: HTMLElement | null = null;
-  if (scene.level === "full") {
-    const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-    lookHint = document.createElement("p");
-    lookHint.className = "v3-note v3-look-hint v3-hidden";
-    lookHint.textContent = t(touch ? "ui.view3d.look_hint_touch" : "ui.view3d.look_hint");
-    hints.parent.insertBefore(lookHint, hints.before);
-  }
+  // the page's level, page.ts currentPage); in the walker's views it takes the place of the orbit's own line (the
+  // anchors' hint at level full, the phone level's note: view3d.css), so the bar keeps its height
+  const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  const lookHint = document.createElement("p");
+  lookHint.className = "v3-note v3-look-hint v3-hidden";
+  lookHint.textContent = t(touch ? "ui.view3d.look_hint_touch" : "ui.view3d.look_hint");
+  hints.parent.insertBefore(lookHint, hints.before);
 
   // The camera before every frame of a walker view
   const from = new Vector3(), to = new Vector3();
@@ -308,7 +306,7 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
     motionButton.classList.toggle("v3-hidden", view === "orbit");
     zoomBox.classList.toggle("v3-hidden", view === "orbit");
     showZoom();
-    lookHint?.classList.toggle("v3-hidden", view === "orbit");
+    lookHint.classList.toggle("v3-hidden", view === "orbit");
   };
 
   const self: Views = {

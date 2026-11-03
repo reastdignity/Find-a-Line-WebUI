@@ -48,7 +48,7 @@ function frame(root: HTMLElement, page: PageRequest) {
   readout.setAttribute("aria-live", "polite");
   const note = el("p", "v3-note", t("ui.view3d.preview_note"));
   bar.append(readout, toolbar, note);
-  if (page.level === "phone") bar.append(el("p", "v3-note", t("ui.view3d.phone_level")));
+  if (page.level === "phone") bar.append(el("p", "v3-note v3-phone-note", t("ui.view3d.phone_level")));
   root.append(top, stage, bar);
   root.classList.toggle("v3-phone", page.level === "phone");
   return {
