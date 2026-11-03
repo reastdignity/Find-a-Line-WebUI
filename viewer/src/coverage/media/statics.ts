@@ -7,7 +7,7 @@ import { levelColour } from "../palette";
 import { bgFill, chip, font, rrect, text, type Frame } from "../draw/canvas";
 import { drawLogo, logoHeight } from "../draw/logo";
 import {
-  captionTop, footer, layoutOf, legend, legendAboveFooter, legendWidth, levelLabel, levelTag, mapBox, plate, SITE,
+  captionTop, footer, layoutOf, legend, legendAboveFooter, legendWidth, levelLabel, levelTag, mapBox, mapBoxUnder, plate, SITE,
 } from "../draw/layout";
 import type { View } from "../draw/world";
 import type { Level } from "../types";
@@ -79,14 +79,15 @@ function listedAreas(f: Frame): string[] {
 /** A slide of a view (carousel and Stories): its map, the count or names of its areas, the legend, the footer. */
 function slide(view: View) {
   return (f: Frame) => {
-    const {ctx, th, W, H, lang} = f, box = mapBox(W, H);
-    bgFill(f);
-    drawMap(ctx, th, got().world, box, camFor(view, box));
+    const {ctx, th, W, H, lang} = f;
     const {world} = got(), shown = view === "world" ? [] : world.groups[view].filter(id => world.listed.includes(id));
     const sub = view === "world" ? summaryText(lang)
       : shown.length > 3 ? ct(lang, "count.areas", {count: shown.length})
       : `${ct(lang, "media.areas_named")} ${shown.map(id => areaName(id, lang)).join(", ")}`;
-    captionTop(f, ct(lang, `zoom.${view}`), sub);
+    const title = ct(lang, `zoom.${view}`), box = mapBoxUnder(f, title, sub);
+    bgFill(f);
+    drawMap(ctx, th, got().world, box, camFor(view, box));
+    captionTop(f, title, sub);
     legendAboveFooter(f);
     footer(f, layoutOf(W, H).small);
   };

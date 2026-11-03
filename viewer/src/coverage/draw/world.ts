@@ -20,17 +20,18 @@ export interface World {
   listed: string[];               // the areas a list or a caption names (see `listed`)
 }
 
-/** The areas a text names: an area with the same provider and resolutions as one before it (Puerto Rico and
- *  the Virgin Islands with the USA, Liechtenstein with Switzerland, Åland with Finland, the Canary Islands
- *  with Spain) is told by that one. */
-function listed(): string[] {
-  const seen = new Set<string>(), out: string[] = [];
+/** The areas a text names: of the areas with the same provider and resolutions (Puerto Rico and the Virgin
+ *  Islands with the USA, Liechtenstein with Switzerland, Åland with Finland, the Canary Islands with Spain)
+ *  only one, the first that is not `small` (else the first): coverage.json's order puts Puerto Rico before
+ *  the USA. */
+function listed(small: Set<string>): string[] {
+  const chosen = new Map<string, string>();
   for (const [id, area] of Object.entries(COVERAGE.areas)) {
-    const key = `${area.provider}|${area.res.join(",")}`;
-    if (!seen.has(key)) out.push(id);
-    seen.add(key);
+    const key = `${area.provider}|${area.res.join(",")}`, before = chosen.get(key);
+    if (before === undefined || small.has(before) && !small.has(id)) chosen.set(key, id);
   }
-  return out;
+  const names = new Set(chosen.values());
+  return Object.keys(COVERAGE.areas).filter(id => names.has(id));
 }
 
 export function prepareWorld(shapes: Shapes): World {
@@ -49,5 +50,5 @@ export function prepareWorld(shapes: Shapes): World {
     const country = byId.get(id.split("-")[0]), group = CONTINENT_GROUP[country?.properties.continent || ""];
     if (group) groups[group].push(id);
   }
-  return {countries, regions, byId, small, centroids, groups, listed: listed()};
+  return {countries, regions, byId, small, centroids, groups, listed: listed(new Set(small))};
 }

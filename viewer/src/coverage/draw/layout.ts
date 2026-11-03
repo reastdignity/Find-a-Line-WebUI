@@ -5,7 +5,7 @@
 import { ct, metres, type Lang } from "../i18n";
 import { levelColour } from "../palette";
 import type { Level } from "../types";
-import { font, rrect, text, type Box, type Frame } from "./canvas";
+import { font, rrect, text, wrapLines, type Box, type Frame } from "./canvas";
 import { hatchFor } from "./map";
 
 /** The address shown on the images. */
@@ -26,7 +26,26 @@ export function mapBox(W: number, H: number): Box {
   return layoutOf(W, H).wide ? {x: 0, y: H * .17, w: W, h: H * .83} : {x: 0, y: H * .26, w: W, h: H * (H / W > 1.5 ? .5 : .49)};
 }
 
-/** The title and a line under it above the map. */
+/** Where captionTop puts a tall frame's title and the line under it: their first baselines and the lowest
+ * point of their text (descenders included). */
+function tallCaption(f: Frame, title: string, sub: string | null): { y: number; subY: number; bottom: number } {
+  const {ctx, W, H} = f, L = layoutOf(W, H), max = W - 2 * L.pad;
+  const y = H * .1, rows = wrapLines(ctx, title, {size: L.title, weight: 700, max}).length, subY = y + rows * L.title * 1.15 * .95 + L.body * .2;
+  if (!sub) return {y, subY, bottom: y + (rows - 1) * L.title * 1.15 + L.title * .25};
+  const subRows = wrapLines(ctx, sub, {size: L.body, font: "b", weight: 500, max}).length;
+  return {y, subY, bottom: subY + (subRows - 1) * L.body * 1.15 + L.body * .3};
+}
+
+/** The map's box under a caption: mapBox, its top lowered in a tall frame when the caption reaches it (a long
+ * title or a line that wraps, as in Polish), its bottom kept. */
+export function mapBoxUnder(f: Frame, title: string, sub: string | null): Box {
+  const box = mapBox(f.W, f.H);
+  if (layoutOf(f.W, f.H).wide) return box;
+  const top = Math.max(box.y, tallCaption(f, title, sub).bottom + layoutOf(f.W, f.H).body * .5);
+  return {...box, y: top, h: box.y + box.h - top};
+}
+
+/** The title and a line under it above the map (mapBoxUnder keeps the map below them). */
 export function captionTop(f: Frame, title: string, sub: string | null, alpha = 1): void {
   const {ctx, th, W, H} = f, L = layoutOf(W, H);
   ctx.globalAlpha = alpha;
@@ -34,8 +53,9 @@ export function captionTop(f: Frame, title: string, sub: string | null, alpha = 
     text(ctx, title, L.pad, H * .085, {size: H * .07, color: th.ink, weight: 700, max: W - 2 * L.pad});
     if (sub) text(ctx, sub, L.pad, H * .14, {size: H * .032, font: "b", weight: 500, color: th.ink2, max: W - 2 * L.pad});
   } else {
-    const y = H * .1, h = text(ctx, title, L.pad, y, {size: L.title, color: th.ink, weight: 700, max: W - 2 * L.pad});
-    if (sub) text(ctx, sub, L.pad, y + h * .95 + L.body * .2, {size: L.body, font: "b", weight: 500, color: th.ink2, max: W - 2 * L.pad});
+    const {y, subY} = tallCaption(f, title, sub);
+    text(ctx, title, L.pad, y, {size: L.title, color: th.ink, weight: 700, max: W - 2 * L.pad});
+    if (sub) text(ctx, sub, L.pad, subY, {size: L.body, font: "b", weight: 500, color: th.ink2, max: W - 2 * L.pad});
   }
   ctx.globalAlpha = 1;
 }

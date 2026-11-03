@@ -7,7 +7,7 @@ import { areaName, ct, metres, resText, type Lang } from "../i18n";
 import { levelColour } from "../palette";
 import { bgFill, chip, clamp, ease, font, numberText, rrect, seg, text, textBottom, wrapLines, type Frame, type TextStyle } from "../draw/canvas";
 import { drawLogo, logoHeight } from "../draw/logo";
-import { captionTop, isTall, layoutOf, legendAboveFooter, mapBox, mapCredit, SITE } from "../draw/layout";
+import { captionTop, isTall, layoutOf, legendAboveFooter, mapBox, mapBoxUnder, mapCredit, SITE } from "../draw/layout";
 import { GROUPS, type View } from "../draw/world";
 import { got } from "./assets";
 
@@ -223,14 +223,15 @@ function revealSchedule(depth: Depth): Map<string, number> {
 /** The fill: the world at 30 m, the camera flying over the parts with data while their areas light up. */
 export function sceneTour(depth: Depth): Scene {
   return (f, p) => {
-    const {ctx, th, W, H, lang} = f, L = layoutOf(W, H), box = mapBox(W, H), plan = tourPlan(depth), at = revealSchedule(depth);
+    const {ctx, th, W, H, lang} = f, L = layoutOf(W, H), plan = tourPlan(depth), at = revealSchedule(depth);
+    const title = ct(lang, "media.fill.title"), sub = ct(lang, "media.world30"), box = mapBoxUnder(f, title, sub);
     let i = 0;
     while (i < plan.length - 2 && p > plan[i + 1][0]) i++;
     const [p0, a] = plan[i], [p1, b] = plan[i + 1];
     const cam = lerpCam(camFor(a, box), camFor(b, box), ease(seg(p, p0, p1)));
     bgFill(f);
     drawMap(ctx, th, got().world, box, cam, {reveal: id => { const t0 = at.get(id); return t0 === undefined ? 0 : ease(seg(p, t0, t0 + .05)); }});
-    captionTop(f, ct(lang, "media.fill.title"), ct(lang, "media.world30"));
+    captionTop(f, title, sub);
     // the newest area's name
     let newest: string | null = null, since = -1;
     const candidates = new Set(named([...at.keys()]));
@@ -250,10 +251,11 @@ export const summaryText = (lang: Lang): string => ct(lang, "count.countries", {
 
 /** The whole map with the count of countries. */
 export const sceneSummary: Scene = (f, p) => {
-  const {ctx, th, W, H, lang} = f, L = layoutOf(W, H), box = mapBox(W, H);
+  const {ctx, th, W, H, lang} = f, L = layoutOf(W, H), title = summaryText(lang), sub = ct(lang, "legend.rest");
+  const box = mapBoxUnder(f, title, sub);
   bgFill(f);
   drawMap(ctx, th, got().world, box, camFor("world", box));
-  captionTop(f, summaryText(lang), ct(lang, "legend.rest"), ease(seg(p, 0, .3)));
+  captionTop(f, title, sub, ease(seg(p, 0, .3)));
   if (!L.wide) legendAboveFooter(f);
   mapCredit(f);
 };
