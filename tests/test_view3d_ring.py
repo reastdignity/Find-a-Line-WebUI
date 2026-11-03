@@ -99,15 +99,20 @@ console.log(JSON.stringify({{esri: m.overlaySpecs("esri", ortho, "KEY"), nokey: 
   both: m.overlaySpecs("ortho", ortho, "KEY"), wms: m.overlaySpecs("ortho", {{...ortho, base: null}}, null),
   base: m.overlaySpecs("ortho", {{...ortho, url: null}}, null), shaded: m.overlaySpecs("shaded", ortho, "KEY"),
   edges: m.overlaySpecs("edges", ortho, "KEY"),
+  iceland: m.overlaySpecs("ortho", {{...ortho, base: null, wms_version: "1.1.1", wms_crs: "EPSG:3857"}}, null),
   none: m.overlaySpecs("ortho", null, null)}}));""")
     assert found["esri"] == [{"type": "xyz", "levels": 20, "url": "https://ibasemaps-api.arcgis.com/arcgis/rest/"
                               "services/World_Imagery/MapServer/tile/{z}/{y}/{x}?token=KEY"}]
     assert found["nokey"] == [] and found["shaded"] == [] and found["none"] == [] and found["edges"] == []
     assert found["both"] == [{"type": "xyz", "url": "https://example.org/base/{z}/{x}/{y}", "levels": 19},
                              {"type": "wms", "url": "https://example.org/wms", "layer": "Raster",
-                              "format": "image/png", "transparent": True}]
+                              "format": "image/png", "transparent": True, "version": "1.3.0", "crs": "EPSG:4326"}]
     assert found["wms"] == [{"type": "wms", "url": "https://example.org/wms", "layer": "Raster",
-                             "format": "image/jpeg", "transparent": False}]
+                             "format": "image/jpeg", "transparent": False, "version": "1.3.0", "crs": "EPSG:4326"}]
+    # a WMS of another version and CRS (batch 3's Iceland) as the 2D map asks it (orthophoto._get_map)
+    assert found["iceland"] == [{"type": "wms", "url": "https://example.org/wms", "layer": "Raster",
+                                 "format": "image/jpeg", "transparent": False, "version": "1.1.1",
+                                 "crs": "EPSG:3857"}]
     assert found["base"] == [{"type": "xyz", "url": "https://example.org/base/{z}/{x}/{y}", "levels": 19}]
 
 

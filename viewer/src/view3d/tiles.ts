@@ -114,8 +114,10 @@ export function uvOf(affine: Affine, p: TexturePlan): (x: number, y: number) => 
   };
 }
 
-/** An image drawn into a tile: from `url`, or the square [sx, sy, size] of it enlarged (a coarser tile). */
-export interface TileImage { url: string; crop?: [number, number, number] }
+/** An image drawn into a tile: from `url`, or the square [sx, sy, size] of it enlarged (a coarser tile); `white`:
+ *  drawn over white (a WMS asked for a JPEG may answer a PNG, transparent where it has no imagery, which our cache
+ *  keeps white: orthophoto.tile_content). */
+export interface TileImage { url: string; crop?: [number, number, number]; white?: boolean }
 
 /** A WMS over base tiles composed as orthophoto.tile_content composes our cache's tile: `jpeg` first; all white
  *  (no imagery there) → `base` instead; any white 8×8 block (the coverage's edge) → `base` with `png` (the WMS
@@ -143,16 +145,29 @@ export function wmsBbox(z: number, x: number, y: number): string {
   return [lat(y + 1), x / n * 360 - 180, lat(y), (x + 1) / n * 360 - 180].join(",");
 }
 
-/** A WMS GetMap of a tile (version 1.3.0, EPSG:4326): a JPEG, or with `transparent` a PNG transparent where
- *  the service has no imagery (orthophoto.py _get_map). */
+/** (left, bottom, right, top) of a tile in Web Mercator metres (orthophoto.py mercator_box). */
+export function mercatorBox(z: number, x: number, y: number): [number, number, number, number] {
+  const size = 2 * HALF / 2 ** z;
+  return [x * size - HALF, HALF - (y + 1) * size, (x + 1) * size - HALF, HALF - y * size];
+}
+
+/** A WMS GetMap of a tile: a JPEG (drawn over white), or with `transparent` a PNG transparent where the service has
+ *  no imagery, asked as orthophoto.py _get_map asks: version 1.3.0 with CRS EPSG:4326 in its lat-lon order, or
+ *  1.1.1 (`wms_version`, a service taking lon-lat only) with SRS in lon-lat order; with `wms_crs` EPSG:3857 the
+ *  tile's Mercator box, x before y in both. */
 export function wmsTile(ortho: Ortho, z: number, x: number, y: number, transparent = false): TileImage {
-  const url = ortho.url!;
+  const url = ortho.url!, version = ortho.wms_version ?? "1.3.0", mercator = ortho.wms_crs === "EPSG:3857";
+  const [south, west, north, east] = wmsBbox(z, x, y).split(",");
+  const bbox = mercator ? mercatorBox(z, x, y).join(",") : version === "1.1.1" ? [west, south, east, north].join(",")
+    : wmsBbox(z, x, y);
   const params: [string, string][] = [
     ["service", "WMS"], ["request", "GetMap"], ["layers", ortho.layer], ["styles", ""],
-    ["format", transparent ? "image/png" : "image/jpeg"], ["transparent", String(transparent)], ["version", "1.3.0"],
-    ["width", String(TILE_PX)], ["height", String(TILE_PX)], ["crs", "EPSG:4326"]];
+    ["format", transparent ? "image/png" : "image/jpeg"], ["transparent", String(transparent)], ["version", version],
+    ["width", String(TILE_PX)], ["height", String(TILE_PX)],
+    [version === "1.1.1" ? "srs" : "crs", mercator ? "EPSG:3857" : "EPSG:4326"]];
   return {url: url + (url.includes("?") ? "&" : "?") +
-    params.map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&") + "&bbox=" + wmsBbox(z, x, y)};
+    params.map(([k, v]) => k + "=" + encodeURIComponent(v)).join("&") + "&bbox=" + bbox,
+          ...(transparent ? {} : {white: true})};
 }
 
 /** The orthophoto's service for a tile with only one of a WMS (its JPEG) and base tiles. */

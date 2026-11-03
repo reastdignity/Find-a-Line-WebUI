@@ -131,10 +131,11 @@ export function isCut(planes: PlaneSpec[], p: [number, number, number]): boolean
   return planes.every((q) => q.normal[0] * p[0] + q.normal[1] * p[1] + q.normal[2] * p[2] + q.constant < 0);
 }
 
-/** One image overlay of the ring: XYZ tiles of a template, or a WMS (1.3.0, EPSG:4326). */
+/** One image overlay of the ring: XYZ tiles of a template, or a WMS in its version (1.3.0, or 1.1.1 taking
+ *  EPSG:4326 in lon-lat order) and CRS (EPSG:4326, or EPSG:3857), as the 2D map asks it. */
 export type OverlaySpec =
   | {type: "xyz"; url: string; levels: number}
-  | {type: "wms"; url: string; layer: string; format: string; transparent: boolean};
+  | {type: "wms"; url: string; layer: string; format: string; transparent: boolean; version: string; crs: string};
 
 /** The overlays of an imagery kind, bottom first: Esri's tiles; the orthophoto's base tiles with its WMS over
  *  them (transparent where it has no imagery, as the 2D map asks), or either alone; none for the shaded
@@ -146,7 +147,9 @@ export function overlaySpecs(kind: "ortho" | "esri" | "shaded" | "edges", ortho:
   const specs: OverlaySpec[] = [];
   if (ortho.base) specs.push({type: "xyz", url: ortho.base.url, levels: ortho.base.max_zoom + 1});
   if (ortho.url) specs.push({type: "wms", url: ortho.url, layer: ortho.layer,
-                             format: ortho.base ? "image/png" : "image/jpeg", transparent: !!ortho.base});
+                             format: ortho.base ? "image/png" : "image/jpeg", transparent: !!ortho.base,
+                             version: ortho.wms_version ?? "1.3.0",
+                             crs: ortho.wms_crs === "EPSG:3857" ? "EPSG:3857" : "EPSG:4326"});
   return specs;
 }
 

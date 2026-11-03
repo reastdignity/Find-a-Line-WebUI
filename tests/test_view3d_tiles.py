@@ -1,10 +1,12 @@
 """The imagery of the 3D view (viewer/src/view3d/tiles.ts, credits.ts, imagery.ts) in Node: the tiles covering a
 chunk, their URLs (our cache, the WMS over its base, the base alone, Esri), the UVs, the zoom within 2048 px and
-the budgets, the credits' HTML, the white test of a WMS's JPEG against orthophoto._white_blocks, and the imagery
-module on a fake scene (docs/3d-view-contract.md, "Wave 2"; "Wave 4", V4c)."""
+the budgets, the credits' HTML, the white test of a WMS's JPEG against orthophoto._white_blocks, a WMS's version and
+CRS against orthophoto._get_map, and the imagery module on a fake scene (docs/3d-view-contract.md, "Wave 2"; "Wave
+4", V4c)."""
 import io
 import json
 import math
+from urllib.parse import parse_qsl
 
 import numpy as np
 import pytest
@@ -141,6 +143,40 @@ console.log(JSON.stringify({{
     assert found["ortho"] == [True, None, None]
 
 
+def test_wms_versions_and_crs_as_the_cache_asks(tmp_path, monkeypatch):
+    """A WMS of OrthoService.wms_version 1.1.1 (SRS, EPSG:4326 in lon-lat order) or wms_crs EPSG:3857 (the tile's
+    Mercator box, x before y) is asked as orthophoto._get_map asks it (batch 3: Slovenia, Iceland); its JPEG is drawn
+    over white, its transparent PNG not."""
+    combos = [("1.3.0", "EPSG:4326"), ("1.1.1", "EPSG:4326"), ("1.1.1", "EPSG:3857"), ("1.3.0", "EPSG:3857")]
+    orthos = [{**GEOPORTAL, "base": None, **({"wms_version": v} if v != "1.3.0" else {}),
+               **({"wms_crs": c} if c != "EPSG:4326" else {})} for v, c in combos]
+    found = run_ts(tmp_path, "view3d/tiles", f"""
+const orthos = {json.dumps(orthos)};
+console.log(JSON.stringify({{
+  tiles: orthos.map((o) => [m.wmsTile(o, 17, 72000, 44000), m.wmsTile(o, 17, 72000, 44000, true)]),
+  boxes: [m.mercatorBox(17, 72000, 44000), m.mercatorBox(17, 65536, 65535)]}}));""")
+    asked = []
+    monkeypatch.setattr(orthophoto, "_get", lambda url, params, z, x, y: asked.append((url, params)) or b"")
+    for (version, crs), pair in zip(combos, found["tiles"]):
+        for tile, png in zip(pair, (False, True)):
+            asked.clear()
+            orthophoto._get_map(GEOPORTAL["url"], "Raster", 17, 72000, 44000, png=png, version=version, crs=crs)
+            [(url, params)] = asked
+            base, query = tile["url"].split("?", 1)
+            got = {k.upper(): v for k, v in parse_qsl(query, keep_blank_values=True)}
+            expected = {k: str(v) for k, v in params.items()}
+            assert base == url
+            assert [float(v) for v in got.pop("BBOX").split(",")] == pytest.approx(
+                [float(v) for v in expected.pop("BBOX").split(",")], abs=1e-9)
+            # the server leaves TRANSPARENT out of a JPEG's request (FALSE by default), the page names it
+            assert (got.pop("TRANSPARENT"), expected.pop("TRANSPARENT", "FALSE")) == (
+                ("true", "TRUE") if png else ("false", "FALSE"))
+            assert got == expected, (version, crs, png)
+            assert tile.get("white", False) is not png
+    assert found["boxes"] == [pytest.approx(list(orthophoto.mercator_box(17, 72000, 44000)), abs=1e-9),
+                              pytest.approx(list(orthophoto.mercator_box(17, 65536, 65535)), abs=1e-9)]
+
+
 def test_composed_everywhere(tmp_path):
     """A WMS over base tiles is composed on every tile (the corridor rule of 4b3da63 gave a patchwork of two
     flights), our cache first where it may hold the tile; a WMS without base tiles and base tiles alone as they
@@ -267,13 +303,16 @@ FAKE_DOM = """
 const loads = [];
 class El {
   constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this.hidden = false; this.className = "";
-                     this.textContent = ""; this.draws = []; }
+                     this.textContent = ""; this.draws = []; this.ops = []; }
   append(...c) { this.children.push(...c); }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   remove() { this.removed = true; }
-  // getImageData: the pixels global.PIXELS gives for the image drawn last, else a tainted canvas's error
-  getContext() { const self = this; return {fillRect() {}, clearRect() {}, set fillStyle(v) { self.fill = v; },
-                                            drawImage(img, ...a) { self.draws.push([img.src, ...a]); },
+  // getImageData: the pixels global.PIXELS gives for the image drawn last, else a tainted canvas's error; ops: the
+  // fills ([colour, x, y, w, h]) and images in their order
+  getContext() { const self = this; return {fillRect(...a) { self.ops.push(["fill", self.fill, ...a]); }, clearRect() {},
+                                            set fillStyle(v) { self.fill = v; },
+                                            drawImage(img, ...a) { self.draws.push([img.src, ...a]);
+                                                                   self.ops.push(["draw", img.src, ...a]); },
                                             getImageData(x, y, w, h) {
                                               if (!global.PIXELS) throw new Error("tainted");
                                               return {data: global.PIXELS(self.draws.at(-1)[0], w, h)}; }}; }
@@ -404,6 +443,38 @@ global.PIXELS = (src, w, h) => {{
     assert found["textures"] == 2
     tainted = found["tainted"]
     assert tainted["jpegs"] == found["jpegs"] and tainted["pngs"] == tainted["bases"] == found["jpegs"]
+
+
+def test_wms_tiles_drawn_over_white(tmp_path):
+    """A WMS without base tiles in another version and CRS (Iceland's gis.natt.is: 1.1.1 in Web Mercator, answering
+    PNG for JPEG) is asked so, and each of its tiles is drawn over white as our cache lays it (orthophoto._on_white),
+    not over the shaded terrain's colour a failed tile leaves."""
+    ax, ay = CX - 100, CY + 50
+    iceland = {**GEOPORTAL, "base": None, "cache": None, "wms_version": "1.1.1", "wms_crs": "EPSG:3857"}
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}], "ortho": iceland,
+            "attribution": None}
+    bounds = [{"x0": ax - 60, "y0": ay - 60, "x1": ax + 140, "y1": ay + 60},
+              {"x0": CX - 700, "y0": CY - 700, "x1": CX - 300, "y1": CY - 300}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+const canvases = [], create = document.createElement;
+document.createElement = (tag) => {{ const e = create(tag); if (tag === "canvas") canvases.push(e); return e; }};
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: null}});
+  await im.set("ortho");
+  console.log(JSON.stringify({{urls: loads.splice(0).map(([u]) => u),
+                              ops: canvases.filter((c) => c.ops.length).map((c) => c.ops)}}));
+}})();""")
+    assert found["urls"] and all("version=1.1.1" in u and "srs=EPSG%3A3857" in u for u in found["urls"])
+    # the default imagery's canvases, stopped by set() after their first fill, then one canvas per chunk
+    assert all(ops[0][:2] == ["fill", "#bba680"] for ops in found["ops"])
+    drawn = [ops for ops in found["ops"] if any(op[0] == "draw" for op in ops)]
+    assert len(drawn) == 2
+    for ops in drawn:
+        draws = [k for k, op in enumerate(ops) if op[0] == "draw"]
+        assert all(ops[k - 1] == ["fill", "#ffffff", *ops[k][2:4], 256, 256] for k in draws)
 
 
 def test_no_imagery_note(tmp_path):

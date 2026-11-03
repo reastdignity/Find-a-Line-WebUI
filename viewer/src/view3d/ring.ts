@@ -71,7 +71,7 @@ function regionPlugin(level: RingLevel, centre: Vector3) {
 
 function overlayOf(spec: OverlaySpec): ImageOverlay {
   return spec.type === "xyz" ? new XYZTilesOverlay({url: spec.url, levels: spec.levels})
-    : new WMSTilesOverlay({url: spec.url, layer: spec.layer, crs: "EPSG:4326", version: "1.3.0", styles: "",
+    : new WMSTilesOverlay({url: spec.url, layer: spec.layer, crs: spec.crs, version: spec.version, styles: "",
                            format: spec.format, transparent: spec.transparent});
 }
 

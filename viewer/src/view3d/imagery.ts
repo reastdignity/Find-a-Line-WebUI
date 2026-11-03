@@ -30,6 +30,8 @@ export interface Imagery {
 
 /** Images loaded at once (the browser's limit per host is about six). */
 const PARALLEL = 6;
+/** What a WMS's tile is laid on (orthophoto._on_white): its parts without imagery in a PNG answer. */
+const WHITE = "#ffffff";
 
 const LABELS: Record<ImageryKind, string> = {
   ortho: "ui.view3d.imagery_ortho", esri: "ui.view3d.imagery_esri", shaded: "ui.view3d.imagery_shaded",
@@ -82,19 +84,25 @@ class Loader {
 }
 
 function drawImage(ctx: CanvasRenderingContext2D, img: HTMLImageElement, part: TileImage, dx: number, dy: number) {
+  if (part.white) {  // a PNG answered for a JPEG: its parts without imagery white, as in our cache
+    ctx.fillStyle = WHITE;
+    ctx.fillRect(dx, dy, TILE_PX, TILE_PX);
+  }
   if (part.crop) {
     const [sx, sy, size] = part.crop;
     ctx.drawImage(img, sx, sy, size, size, dx, dy, TILE_PX, TILE_PX);
   } else ctx.drawImage(img, dx, dy, TILE_PX, TILE_PX);
 }
 
-/** (all white, any white 8×8 block) of a WMS's JPEG drawn on `probe`, a 256 px canvas; null when its pixels
- *  cannot be read (a tainted canvas, no 2D context). */
+/** (all white, any white 8×8 block) of a WMS's JPEG drawn on `probe`, a 256 px canvas, over white as the server
+ *  lays a PNG answer (orthophoto._on_white); null when its pixels cannot be read (a tainted canvas, no 2D
+ *  context). */
 function whiteOf(probe: HTMLCanvasElement, img: HTMLImageElement): [boolean, boolean] | null {
   try {
     const ctx = probe.getContext("2d", {willReadFrequently: true});
     if (!ctx) return null;
-    ctx.clearRect(0, 0, TILE_PX, TILE_PX);
+    ctx.fillStyle = WHITE;
+    ctx.fillRect(0, 0, TILE_PX, TILE_PX);
     ctx.drawImage(img, 0, 0, TILE_PX, TILE_PX);
     return whiteBlocks(ctx.getImageData(0, 0, TILE_PX, TILE_PX).data, TILE_PX, TILE_PX);
   } catch {

@@ -577,6 +577,23 @@ of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
   the canvas blank while frames were counted (fixed by the constant height); a resize of the canvas, e.g. turning
   the phone, deserves a look.
 
+## After the rebase onto main edca9a1 (2026-11-03)
+New sources batch 3 (main 07207a6) brought two options of an orthophoto's WMS, `OrthoService.wms_version` ("1.1.1":
+EPSG:4326 in lon-lat order only, Slovenia's and Iceland's services) and `wms_crs` ("EPSG:3857": Iceland's
+gis.natt.is serves Web Mercator only, and answers PNG when JPEG is asked). The 3D view asks them as
+`orthophoto._get_map` does:
+- `tiles.ts` `wmsTile`: version 1.3.0 with `crs` EPSG:4326 in lat-lon order, 1.1.1 with `srs` in lon-lat order;
+  EPSG:3857 the tile's Mercator box (`mercatorBox`, `orthophoto.mercator_box`), x before y in both;
+  `tests/test_view3d_tiles.py::test_wms_versions_and_crs_as_the_cache_asks` compares the four combinations with the
+  server's parameters. The JPEG asked is drawn over white (`TileImage.white`, `imagery.ts` `drawImage`; the white
+  test's probe too), as the server lays a PNG answer on white (`orthophoto._on_white`): its parts without imagery are
+  white in our cache and in the service's tiles alike (`test_wms_tiles_drawn_over_white`).
+- The ring: `ringmath.ts` `overlaySpecs` gives a WMS's `version` and `crs`, which 3d-tiles-renderer's
+  `WMSTilesOverlay` takes (its `WMSImageSource` writes SRS or CRS and the axis order of each). A PNG answer's
+  transparent parts show the ring's own colour there (the library composes the overlays; the far field only).
+- `mapping.ortho_entry` (data.js and the patch's meta) writes both options as `save_map` does since 07207a6;
+  `RING_ORIGINS` 21 → 27 (Svalbard's npolar, Iceland, Brandenburg, Schleswig-Holstein, Queensland, Slovenia).
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
