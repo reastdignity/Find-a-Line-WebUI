@@ -56,12 +56,14 @@ ground gentler than GENTLE, OSM forest where OSM has land cover; rock: ROCK_SLOP
 surface less than ROCK_HEIGHT above the terrain, not OSM forest): tau of the GLI and bright of the
 luminance halfway between their medians, dark the forest's 5th percentile. A line's verdict
 (line_verdicts) on each surface variant: among its pixels above the limit standing TREE above the
-terrain, tree when one is green (or dark/unknown on OSM forest), rock when all are bright (or
-dark/unknown on OSM rock), none without such a pixel, else unknown; the verdicts of the lines each rule
+terrain, tree when one is green on terrain gentler than TREE_SLOPE or where CHMv2 sees a tree (or
+dark/unknown/green on steeper terrain on OSM forest), rock when all are bright (or the same on OSM
+rock), none without such a pixel, else unknown; the verdicts of the lines each rule
 un-marks and keeps, those of the lines whose pixels above the limit all lie within ANCHOR_NEAR steps of
 an anchor (the forest's edge at an anchor), and the judges' agreement on the references. A place whose
 orthophoto splits both put more than WORKS_OVERLAP of the references on the wrong side (a leafless
-spring image) is listed but not summed. The pictures then show the orthophoto too, the groups of
+spring image), or that has fewer than REFERENCE_MIN forest reference pixels in the orthophoto, is
+listed but not summed. The pictures then show the orthophoto too, the groups of
 VERDICT_GROUPS for --chips-rule (A2 by default) on avg, and each group's contact sheet
 (<out>/<name>/sheets/<rule>-<group>.png).
 """
@@ -128,9 +130,17 @@ VARIANTS = ("avg", "max", "h")
 ROCK_SLOPE, ROCK_HEIGHT = 60.0, 0.5
 ANCHOR_NEAR = 3             # steps: a line whose pixels above its limit all lie this near an anchor
 WORKS_OVERLAP = 0.4         # the orthophoto's two splits both overlapping more: the judge fails at the place
+REFERENCE_MIN = 500         # fewer forest-reference pixels with a GLI: the judge fails there (Zamarla Turnia's
+                            # 358 were boulders and lidar noise, CHMv2 saw a tree on none of them)
+# Green is not a tree's height: the Giewont sheets (wave 1b) showed grass and dwarf pine at rim pixels that
+# stand TREE above the terrain only because the wall drops inside them. A green pixel counts as a tree only
+# on terrain gentler than TREE_SLOPE or where CHMv2 sees a tree (TREE within a pixel); else PX_STEEP, which
+# the verdict takes as unknown (OSM's land cover decides it, as for a dark pixel)
+TREE_SLOPE = 50.0
 VERDICTS = ("tree", "rock", "unknown", "none")  # a line's verdict (judge); its index is the code
-PX_NONE, PX_TREE, PX_ROCK, PX_DARK, PX_UNKNOWN = 0, 1, 2, 3, 4  # what the orthophoto says of a pixel
-PX_NAMES = {PX_NONE: None, PX_TREE: "green", PX_ROCK: "bright", PX_DARK: "dark", PX_UNKNOWN: "unknown"}
+PX_NONE, PX_TREE, PX_ROCK, PX_DARK, PX_UNKNOWN, PX_STEEP = 0, 1, 2, 3, 4, 5  # what the orthophoto says of a pixel
+PX_NAMES = {PX_NONE: None, PX_TREE: "green", PX_ROCK: "bright", PX_DARK: "dark", PX_UNKNOWN: "unknown",
+            PX_STEEP: "green on steep terrain"}
 LANDCOVER_NAMES = ("none", "forest", "rock")  # study_landcover's NONE, FOREST, ROCK
 REPORT_VERDICT_RULES = ("A2", "A2+V2", "A2+T")  # the rules of the report's verdicts per place
 VERDICT_GROUPS = {"unmarked-tree": "A1 removes the mark, the judges say tree",
@@ -566,10 +576,13 @@ def reference_masks(z: np.ndarray, s: np.ndarray, slope_grid: np.ndarray,
     return forest, rock
 
 
-def pixel_classes(gli: np.ndarray, lum: np.ndarray, ortho: Dict) -> np.ndarray:
-    """What the orthophoto says of each pixel: PX_TREE where its GLI is above tau, else PX_ROCK
-    where it is at least bright, else PX_DARK where darker than dark, else PX_UNKNOWN (also where
-    no tile covers it, or the place has no thresholds)."""
+def pixel_classes(gli: np.ndarray, lum: np.ndarray, ortho: Dict, slope: Optional[np.ndarray] = None,
+                  chm3: Optional[np.ndarray] = None) -> np.ndarray:
+    """What the orthophoto says of each pixel: PX_TREE where its GLI is above tau (with slope given:
+    on terrain gentler than TREE_SLOPE or where chm3, CHMv2's highest within a pixel, reaches TREE;
+    PX_STEEP elsewhere: vegetation of unknown height on a rim), else PX_ROCK where it is at least
+    bright, else PX_DARK where darker than dark, else PX_UNKNOWN (also where no tile covers it, or
+    the place has no thresholds)."""
     out = np.full(gli.shape, PX_UNKNOWN, dtype=np.uint8)
     tau, bright, dark = ortho.get("tau"), ortho.get("bright"), ortho.get("dark")
     if tau is None:
@@ -579,7 +592,11 @@ def pixel_classes(gli: np.ndarray, lum: np.ndarray, ortho: Dict) -> np.ndarray:
             out[lum < dark] = PX_DARK
         if bright is not None:
             out[(gli <= tau) & (lum >= bright)] = PX_ROCK
-        out[gli > tau] = PX_TREE
+        green = gli > tau
+        out[green] = PX_TREE
+        if slope is not None:
+            tall = chm3 >= TREE if chm3 is not None else np.zeros(gli.shape, dtype=bool)
+            out[green & (slope >= TREE_SLOPE) & ~tall] = PX_STEEP
     return out
 
 
@@ -587,7 +604,8 @@ def line_verdicts(pix: Dict, starts: np.ndarray, z: np.ndarray, surface: np.ndar
                   judged: SimpleNamespace) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """The verdict of each line (an index into VERDICTS) from its pixels above the limit on a
     surface (obstacle_pixels; starts: each line's first, every line with one): tall where the surface
-    stands TREE above the terrain; tree when a tall pixel is green, or dark or unknown on OSM forest;
+    stands TREE above the terrain; tree when a tall pixel is green (PX_TREE: on gentle terrain or a
+    tree of CHMv2), or dark, unknown or green on steep terrain on OSM forest;
     rock when every tall pixel is bright, or dark or unknown on OSM rock; none without a tall pixel
     (marks of less than TREE: shrubs, rims); else unknown. Without the orthophoto every pixel is
     unknown (OSM alone decides), without OSM's land cover too every line with a tall pixel unknown.
@@ -598,7 +616,7 @@ def line_verdicts(pix: Dict, starts: np.ndarray, z: np.ndarray, surface: np.ndar
         tall = surface[rows, cols] - z[rows, cols] >= TREE
     seen = judged.classes[rows, cols] if judged.classes is not None else np.full(len(rows), PX_UNKNOWN, np.uint8)
     cover = judged.landcover[rows, cols] if judged.landcover is not None else np.zeros(len(rows), np.uint8)
-    vague = (seen == PX_DARK) | (seen == PX_UNKNOWN)
+    vague = (seen == PX_DARK) | (seen == PX_UNKNOWN) | (seen == PX_STEEP)
     tree = tall & ((seen == PX_TREE) | (vague & (cover == FOREST)))
     rock = tall & ((seen == PX_ROCK) | (vague & (cover == ROCK)))
     if not len(rows):
@@ -644,27 +662,38 @@ def agreement(forest: np.ndarray, rock: np.ndarray, judged: SimpleNamespace, chm
     return out
 
 
-def set_thresholds(call: str, judged: SimpleNamespace, forest: np.ndarray, rock: np.ndarray):
+def set_thresholds(call: str, judged: SimpleNamespace, forest: np.ndarray, rock: np.ndarray, slope: np.ndarray,
+                   chm3: Optional[np.ndarray]):
     """The orthophoto's thresholds of a call (study_ortho.threshold on the references) into
-    judged.ortho and its ortho.json, and judged.classes (pixel_classes) from them."""
+    judged.ortho and its ortho.json, and judged.classes (pixel_classes with the terrain's slope and
+    CHMv2) from them."""
     if judged.gli is None:
         return
     import study_ortho
     judged.ortho.update(study_ortho.threshold(judged.gli, judged.lum, forest, rock))
     with open(os.path.join(call, "ortho.json"), "w", encoding="utf-8") as f:
         json.dump(judged.ortho, f, indent=1)
-    judged.classes = pixel_classes(judged.gli, judged.lum, judged.ortho)
+    judged.classes = pixel_classes(judged.gli, judged.lum, judged.ortho, slope, chm3)
+
+
+def judge_failure(study: Dict) -> Optional[str]:
+    """Why the orthophoto does not tell forest from rock at a place: "overlap" when a call's two
+    splits (GLI at tau, luminance at bright) both put more than WORKS_OVERLAP of the references on
+    the wrong side, "few forest px" when the orthophoto was read but fewer than REFERENCE_MIN forest
+    reference pixels have a GLI; None when it does (or no orthophoto was read: OSM alone judges)."""
+    orthos = [(judged or {}).get("ortho") for judged in study.get("judges") or []]
+    for ortho in orthos:
+        if ortho and all(ortho.get(k) is not None and ortho[k] > WORKS_OVERLAP for k in ("overlap", "bright_overlap")):
+            return "overlap"
+    if any(ortho and ortho.get("tiles") for ortho in orthos) \
+            and (study.get("agreement") or {}).get("forest_ortho", 0) < REFERENCE_MIN:
+        return "few forest px"
+    return None
 
 
 def judge_works(study: Dict) -> bool:
-    """Whether the orthophoto tells forest from rock at a place: False when a call's two splits
-    (GLI at tau, luminance at bright) both put more than WORKS_OVERLAP of the references on the
-    wrong side."""
-    for judged in study.get("judges") or []:
-        ortho = (judged or {}).get("ortho") or {}
-        if all(ortho.get(k) is not None and ortho[k] > WORKS_OVERLAP for k in ("overlap", "bright_overlap")):
-            return False
-    return True
+    """Whether the judges' verdicts of a place count (judge_failure)."""
+    return judge_failure(study) is None
 
 
 def ortho_patch(grid: Dict, rows: Tuple[int, int], cols: Tuple[int, int], folder: str, zoom: int,
@@ -1021,7 +1050,7 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     verdict = tall_pixel = tree_pixel = None
     if judging is not None:
         forest_ref, rock_ref = reference_masks(z, s, slope_grid, judging.landcover)
-        set_thresholds(call, judging, forest_ref, rock_ref)
+        set_thresholds(call, judging, forest_ref, rock_ref, slope_grid, chm3)
         result["judges"] = {"landcover": judging.landcover is not None, "ortho": judging.ortho}
         result["agreement"] = agreement(forest_ref, rock_ref, judging, chm3)
         del forest_ref, rock_ref
@@ -1430,9 +1459,11 @@ def judges_markdown(study: Dict) -> List[str]:
              f"{_share(a.get('rock_bright', 0), a.get('rock_ortho', 0))} rock pixels bright; CHMv2 >= {TREE:g} m on "
              f"{_share(a.get('forest_chm_tree', 0), a.get('forest_chm', 0))} forest pixels, below on "
              f"{_share(a.get('rock_chm_low', 0), a.get('rock_chm', 0))} rock pixels."]
-    if not judge_works(study):
-        lines[-1] += (f" WARNING: the orthophoto's two splits both overlap more than {WORKS_OVERLAP:g}: the verdicts "
-                      "of this place are not summed over all places.")
+    failure = judge_failure(study)
+    if failure is not None:
+        why = (f"the orthophoto's two splits both overlap more than {WORKS_OVERLAP:g}" if failure == "overlap" else
+               f"fewer than {REFERENCE_MIN} forest reference pixels with an orthophoto")
+        lines[-1] += f" WARNING: {why}: the verdicts of this place are not summed over all places."
     return lines
 
 
@@ -1502,21 +1533,22 @@ def judges_report(studies: List[Dict]) -> List[str]:
     judged = [st for st in studies if st.get("judges")]
     if not judged:
         return []
-    agree = ["| place | judge works | OSM forest, rock | tiles | tau (overlap) | bright (overlap) | dark | "
+    agree = ["| place | judge works | why | OSM forest, rock | tiles | tau (overlap) | bright (overlap) | dark | "
              "forest called green | rock called bright | CHMv2 tree on forest | CHMv2 low on rock |",
-             "|" + " --- |" * 11]
+             "|" + " --- |" * 12]
     per_place = ["| place | judge works | variant | rule | marked: tree/rock/unknown/none | "
                  "un-marked: tree/rock/unknown/none | kept: tree/rock/unknown/none |", "|" + " --- |" * 7]
     total, near, works = {}, {}, []
     for st in judged:
-        a, ok = st.get("agreement", {}), judge_works(st)
+        a, failure = st.get("agreement", {}), judge_failure(st)
+        ok = failure is None
         orthos = [j.get("ortho") or {} for j in st["judges"] if j]
         first = orthos[0] if orthos else {}
         pixels = a.get("pixels", 0)
         cover = (f"{100 * a.get('osm_forest', 0) / pixels:.0f} %, {100 * a.get('osm_rock', 0) / pixels:.0f} %"
                  if pixels and any(j["landcover"] for j in st["judges"] if j) else "-")
         agree.append("| " + " | ".join([
-            st["place"], "yes" if ok else "NO", cover, str(sum(o.get("tiles") or 0 for o in orthos)),
+            st["place"], "yes" if ok else "NO", failure or "-", cover, str(sum(o.get("tiles") or 0 for o in orthos)),
             f"{_number(first.get('tau'))} ({_number(first.get('overlap'), 2)})",
             f"{_number(first.get('bright'), 0)} ({_number(first.get('bright_overlap'), 2)})",
             _number(first.get("dark"), 0), _share(a.get("forest_green", 0), a.get("forest_ortho", 0)),
@@ -1558,13 +1590,15 @@ def judges_report(studies: List[Dict]) -> List[str]:
         "bright, darker than dark: a shadow) on the references of each place (forest: the surface "
         f"{TREE:g} m above the terrain on ground under {GENTLE:g} deg, OSM forest where mapped; rock: {ROCK_SLOPE:g} deg "
         f"or steeper, the surface under {ROCK_HEIGHT:g} m above the terrain, not OSM forest), and CHMv2 on them. A place "
-        f"where both splits put more than {WORKS_OVERLAP:g} of the references on the wrong side: the judge does not "
-        "work there (NO), its verdicts are listed but not summed.", "",
+        f"where both splits put more than {WORKS_OVERLAP:g} of the references on the wrong side (why: overlap), or with "
+        f"fewer than {REFERENCE_MIN} forest reference pixels in the orthophoto (few forest px): the judge does not work "
+        "there (NO), its verdicts are listed but not summed.", "",
         *agree, "",
         "## Verdicts per place", "",
         "A line's verdict from its pixels above the limit standing 3 m or more above the terrain on the variant "
-        "(none: no such pixel): tree when one is green, or dark/unknown on OSM forest; rock when all are bright, or "
-        "dark/unknown on OSM rock; else unknown.", "",
+        f"(none: no such pixel): tree when one is green on terrain under {TREE_SLOPE:g} deg or on a tree of CHMv2, or "
+        "dark/unknown/green on steeper terrain on OSM forest; rock when all are bright, or dark/unknown/green on "
+        "steeper terrain on OSM rock; else unknown.", "",
         *per_place, "",
         f"## Verdicts over all places where the judge works ({', '.join(works) if works else 'none'})", "",
         *sums, "",
