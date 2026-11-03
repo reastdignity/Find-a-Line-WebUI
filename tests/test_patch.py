@@ -170,6 +170,29 @@ def test_patch_without_data_outside_the_clip(clip_data, tmp_path):
         search.patch_of_line(meta, paths, a1, a2, step=3)
 
 
+def test_patch_loads_no_numba(clip_data, tmp_path):
+    """The quick lane never loads numba (tests/test_units.py::test_search_imports_numba_only_to_compute):
+    the patch of a line neither."""
+    import subprocess
+    data, meta = clip_data
+    (tmp_path / "meta.json").write_text(json.dumps(meta), "utf-8")
+    code = f"""
+import json, os, sys
+sys.path.insert(0, {REPO!r})
+import search
+paths = search.Paths({str(data)!r}, {str(tmp_path / "work")!r})
+os.makedirs(paths.work)
+meta = json.loads(open({str(tmp_path / "meta.json")!r}, encoding="utf-8").read())
+search.patch_of_line(meta, paths, {_latlon(*LINE[0])!r}, {_latlon(*LINE[1])!r}, side_m=500)
+print(json.dumps(sorted(m for m in sys.modules if m.split('.')[0] in
+                        ('numba', 'llvmlite', 'linesearch', 'lineprofiles', 'terrain', 'grouping'))))
+"""
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
+                            timeout=600, env=_offline_env())
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert json.loads(result.stdout.strip().splitlines()[-1]) == []
+
+
 def test_redact_leaves_the_heights_alone(tmp_path, monkeypatch):
     """On the public site the quick lane's answers are redacted, but not the heights: a substring that
     looks like a service key or a path survives there (the web checks their sha256), not in the meta."""
