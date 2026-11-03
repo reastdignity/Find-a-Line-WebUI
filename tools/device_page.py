@@ -16,8 +16,8 @@ would.
 
 `serve` answers GET only, without accounts, with nothing else of the app: the 3D page exactly as
 web.VIEW3D_HTML builds it locally (findaline-3d-ring "off"; the meta of ESRI_API_KEY when that is set, never
-written to a file) with the app's headers (web.SECURITY_HEADERS, the 3D page's Content-Security-Policy,
-Cache-Control no-store), /app/view3d.js, /app/view3d.css and /app/favicon.svg from viewer/dist, the recorded
+written to a file) with the app's headers (web.SECURITY_HEADERS, the 3D page's Content-Security-Policy and
+Permissions-Policy (the motion sensors allowed: web.PAGE_PERMISSIONS), Cache-Control no-store), /app/view3d.js, /app/view3d.css and /app/favicon.svg from viewer/dist, the recorded
 answers by run, line and step (anything not recorded: 404), the orthophoto tiles of /cache/ read-only from
 the data folder (as the app's /cache/ route), and an index page of the recorded lines at "/" (no script, the
 app's CSP). Its certificate is self-signed, made at each start for localhost and the PC's LAN IPv4 addresses
@@ -74,12 +74,23 @@ CHECKLIST = """\
     a. the terrain appears, the line is coloured once the profile is in;
     b. orbit (one finger), zoom (pinch), pan (two fingers): smooth, nothing jumps or disappears;
     c. every imagery kind of the control: the orthophoto, Esri (only with ESRI_API_KEY set at the
-       server's start), Shaded, Edges (once wave E is in): each draws, the credits change with it;
+       server's start), Shaded, Edges: each draws, the credits change with it;
     d. the walker: drag its slider end to end, then Walk (smooth? the speed control; Stop);
-    e. rotate the phone to landscape and back: the scene and the bar fit again;
-    f. leave it open five minutes without a reload (screen on), then orbit again: still drawn, no
+    e. the walker's views, Walker's eyes and Behind the walker (the switch's eye and figure): one finger
+       looks around (never upside down); the slider and Walk carry the camera along the line, the sag
+       moving it as walking would; Orbit gives back the camera as it was;
+    f. the zoom in both walker's views: a pinch and the - / + beside the switch; the indicator shows the
+       eyes' factor (x1 is 60 degrees wide) and the distance behind the walker in metres; the slider stays
+       wide enough to drag; each view keeps its zoom;
+    g. Phone motion (in a walker's view): iOS asks for the motion's permission inside the button's tap;
+       allowed, turning the phone turns the gaze, upright and in landscape, a finger's drag adds to it;
+       denied, the note "No phone motion: drag to look around." shows. With this server's self-signed
+       certificate iOS may refuse the sensors (no question, or the note): write it down, it is not a
+       failure of the page;
+    h. rotate the phone to landscape and back: the scene and the bar fit again;
+    i. leave it open five minutes without a reload (screen on), then orbit again: still drawn, no
        "context lost";
-    g. Back to the map: it goes to "/", which this server answers only with this index (no app here).
+    j. Back to the map: it goes to "/", which this server answers only with this index (no app here).
  5. `?level=full` on the phone too: heavier (full patch, finer textures); does it load and stay smooth?
  6. Dragging an anchor asks /api/profile for a line that was not recorded: an error there is expected.
     The data credits' notices link (ATTRIBUTION.txt) answers 404 here.
@@ -326,10 +337,12 @@ def make_app(data: str, esri_key: Optional[str] = None):
     cache_dir = os.path.normpath(os.path.join(data, "cache"))
     dist = web.APP_DIST
 
-    def headers(csp: Optional[str] = None, cache: str = "no-cache") -> Dict[str, str]:
+    def headers(csp: Optional[str] = None, cache: str = "no-cache", path: str = "") -> Dict[str, str]:
         found = dict(web.SECURITY_HEADERS)
         if csp:
             found["Content-Security-Policy"] = csp
+        if path in web.PAGE_PERMISSIONS:  # the 3D page's: the phone's motion
+            found["Permissions-Policy"] = web.PAGE_PERMISSIONS[path]
         found["Cache-Control"] = cache
         return found
 
@@ -340,7 +353,7 @@ def make_app(data: str, esri_key: Optional[str] = None):
         return HTMLResponse(index_page(index), headers=headers(cache="no-store"))
 
     def view3d(request: Request):
-        return HTMLResponse(page, headers=headers(page_csp, "no-store"))
+        return HTMLResponse(page, headers=headers(page_csp, "no-store", "/view3d"))
 
     def app_file(request: Request):
         return FileResponse(os.path.join(dist, request.path_params["name"]), headers=headers())

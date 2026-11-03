@@ -107,6 +107,10 @@ def test_record_and_serve(clip_data, tmp_path, monkeypatch):
         assert page.headers["content-security-policy"] == app_page.headers["content-security-policy"]
         assert page.headers["content-security-policy"] == web.page_csp(ViewSettings(ring=False))["/view3d"]
         assert page.headers["cache-control"] == "no-store"
+        # the phone's motion allowed as on the app's 3D page, nowhere else
+        assert page.headers["permissions-policy"] == app_page.headers["permissions-policy"]
+        assert page.headers["permissions-policy"] == web.PAGE_PERMISSIONS["/view3d"]
+        assert home.headers["permissions-policy"] == web.SECURITY_HEADERS["Permissions-Policy"]
         for name in ("view3d.js", "view3d.css", "favicon.svg"):
             assert session.get(f"{site}/app/{name}").status_code == 200
         assert session.get(site + "/app/app.js").status_code == 404  # nothing else of the app

@@ -133,11 +133,14 @@ export function createViews(scene: SceneCore, line: LineView, root: HTMLElement,
   box.append(motionNote);
   scene.toolbar.prepend(box);
 
+  // the look hint names the zoom of the pointer: the wheel, or a pinch where the pointer is coarse (the test of
+  // the page's level, page.ts currentPage)
   let lookHint: HTMLElement | null = null;
   if (scene.level === "full") {
+    const touch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
     lookHint = document.createElement("p");
     lookHint.className = "v3-note v3-look-hint v3-hidden";
-    lookHint.textContent = t("ui.view3d.look_hint");
+    lookHint.textContent = t(touch ? "ui.view3d.look_hint_touch" : "ui.view3d.look_hint");
     hints.parent.insertBefore(lookHint, hints.before);
   }
 

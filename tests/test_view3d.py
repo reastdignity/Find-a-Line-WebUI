@@ -109,10 +109,26 @@ INTERACT_SCRIPT = """
     document.body.appendChild(pre);
   };
   const readout = () => (document.querySelector(".v3-readout") || {}).innerText;
+  // under a virtual time budget headless Edge draws animation frames only while something loads: each poll loads a
+  // small file, so a frame the page asked for comes (with plain timers a busy machine could end the budget before
+  // the first frame, or before the frame of the canvas resized by the filled readout, which places the handles)
+  let n = 0;
   const until = (test, ms, then) => {
     const started = Date.now();
-    const poll = () => { if (test()) then(true); else if (Date.now() - started > ms) then(false); else setTimeout(poll, 100); };
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
     poll();
+  };
+  // settled: no frame drawn for a second (the handles where the last frame put them), at most `ms`
+  const settled = (ms, then) => {
+    let frames = root.dataset.frames, since = Date.now();
+    until(() => {
+      if (root.dataset.frames !== frames) { frames = root.dataset.frames; since = Date.now(); }
+      return Date.now() - since >= 1000;
+    }, ms, then);
   };
   const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
     pointerId: 7, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true}));
@@ -128,15 +144,16 @@ INTERACT_SCRIPT = """
     out.stopped = [root.dataset.walk, button.textContent];
     done();
   };
-  until(() => root.dataset.ready === "1", 25000, (ready) => {
+  until(() => root.dataset.ready === "1", 25000, (ready) => settled(15000, (still) => {
     out.ready = ready;
+    out.settled = still;
     out.handles = document.querySelectorAll(".v3-handle").length;
     out.walkButton = document.querySelectorAll(".v3-walk").length;
     out.speed = (document.querySelector(".v3-speed") || {}).textContent;
     out.hint = document.querySelectorAll(".v3-hint").length;
     out.pin = root.dataset.pin;
     out.edit = root.dataset.edit;
-    if (!ready || !out.handles) { setTimeout(() => { if (ready) walk(); else done(); }, 500); return; }
+    if (!ready || !out.handles) { if (ready) walk(); else done(); return; }
     const [h1, h2] = [...document.querySelectorAll(".v3-handle")].map((h) => h.getBoundingClientRect());
     const handle = document.querySelectorAll(".v3-handle")[1];
     const x0 = h2.left + h2.width / 2, y0 = h2.top + h2.height / 2;
@@ -164,7 +181,7 @@ INTERACT_SCRIPT = """
       out.afterReset = root.dataset.edit;
       walk();
     });
-  });
+  }));
 })();
 """
 
@@ -207,7 +224,7 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level):
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, result)
-    assert result["ready"], result
+    assert result["ready"] and result["settled"], result
     assert result["pin"] == "1" and result["edit"] == ""
     assert result["walkButton"] == 1 and result["speed"] == "×1"
     assert result["walking"] == ["1", "Stop"] and result["stopped"] == ["0", "Walk"] and result["speed4"] == "×4"
@@ -367,7 +384,8 @@ NARROW_SCRIPT = """
   const measure = () => {
     const readout = document.querySelector(".v3-readout");
     const items = [...document.querySelectorAll(".v3-toolbar input, .v3-toolbar button, .v3-toolbar select, " +
-                                                ".v3-toolbar .u-small, .v3-toolbar .v3-reduced, .v3-read, .v3-bar > .v3-note")]
+                                                ".v3-toolbar .u-small, .v3-toolbar .v3-reduced, .v3-toolbar .v3-zoom-value, " +
+                                                ".v3-read, .v3-bar > .v3-note")]
       .filter(shown);
     const boxes = items.map((e) => [name(e), e.getBoundingClientRect()]);
     const overlaps = [], outside = [];
@@ -384,7 +402,8 @@ NARROW_SCRIPT = """
       .filter((e) => e.scrollWidth > e.clientWidth + 1).map(name);
     const stage = document.querySelector(".v3-stage").getBoundingClientRect();
     return {readout: readout.innerText, clipped, overlaps, outside, count: boxes.length,
-            stage: stage.height / innerHeight, scroll: document.scrollingElement.scrollWidth - innerWidth};
+            stage: stage.height / innerHeight, scroll: document.scrollingElement.scrollWidth - innerWidth,
+            slider: document.querySelector(".v3-slider").getBoundingClientRect().width, view: root.dataset.view};
   };
   until(() => root.dataset.ready === "1", 25000, (ready) => {
     out.ready = ready;
@@ -412,7 +431,17 @@ NARROW_SCRIPT = """
       const after = document.querySelector(".v3-credits .u-credits");
       out.unfolded = {shown: !!after && shown(after), expanded: document.querySelector(".v3-credits .u-credits-toggle")?.getAttribute("aria-expanded"),
                       text: (after?.textContent || "").slice(0, 40)};
-      done();
+      // the walker's views as they come (the labels and Back to the found line as at the start): the switch, the
+      // zoom (and the phone's motion) on a row of their own, the slider as wide as in the orbit
+      select.querySelectorAll("option[value^=x-]").forEach((o) => o.remove());
+      document.querySelector(".v3-reset")?.classList.add("v3-hidden");
+      out.orbit = measure();
+      const view = (name, then) => {
+        const before = Number(root.dataset.frames);
+        document.querySelector(`.v3-views [data-view=${name}]`).click();
+        until(() => Number(root.dataset.frames) > before, 15000, () => { out[name] = measure(); then(); });
+      };
+      view("eyes", () => view("behind", done));
     });
   });
 })();
@@ -464,6 +493,18 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
         assert state["clipped"] == [] and state["overlaps"] == [] and state["outside"] == [], state
         assert state["scroll"] <= 0 and state["stage"] > 0.6, state
     assert four["count"] == first["count"] + (1 if level == "full" else 0), result
+    # the walker's views (docs/3d-view-contract.md, "Wave P"): nothing clipped, overlapping or outside, the zoom's
+    # -, indicator and + shown, the walker's slider at least 40% of the window wide (the switch and the zoom on a row
+    # of their own; at 412 px about 190 px, before about 80 px) and no narrower than in the orbit
+    orbit = result["orbit"]
+    assert orbit["view"] == "orbit", result
+    for name in ("eyes", "behind"):
+        state = result[name]
+        assert state["view"] == name, result
+        assert state["clipped"] == [] and state["overlaps"] == [] and state["outside"] == [], state
+        assert state["scroll"] <= 0 and state["stage"] > 0.6, state
+        assert state["count"] == orbit["count"] + 3, state
+        assert state["slider"] >= 0.4 * result["width"] and state["slider"] >= orbit["slider"] - 0.5, state
     assert _violations(dom) == []
 
 
@@ -500,6 +541,7 @@ VIEWS_SCRIPT = """
   const state = () => ({view: root.dataset.view, camera: root.dataset.camera, frames: frames(),
     checked: [...document.querySelectorAll(".v3-views [role=radio]")].map((b) => b.getAttribute("aria-checked")),
     handles: shown(".v3-handle"), grips: shown(".v3-grip.v3-grab"), hint: shown(".v3-hint"), lookHint: shown(".v3-look-hint"),
+    lookText: (document.querySelector(".v3-look-hint") || {}).textContent || null,
     motion: shown(".v3-motion")});
   // a step: `act`, then the frame it asks for, then a pause in which no other frame may come
   const step = (name, act, then) => {
@@ -580,6 +622,7 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     assert eyes["view"] == "eyes" and eyes["checked"] == ["false", "true", "false"] and cam["eyes"][7] == 60
     assert eyes["handles"] == eyes["grips"] == eyes["hint"] == 0 and eyes["lookHint"] == (1 if full else 0)
     assert eyes["motion"] == 0  # no touch screen here
+    assert eyes["lookText"] == ("Drag to look around, scroll to zoom." if full else None)  # a fine pointer: the wheel
     assert cam["eyes"][4] < 0  # a little down at first
     assert cam["dragged"][:3] == cam["eyes"][:3] and cam["dragged"][3:6] != cam["eyes"][3:6]  # the gaze turned
     assert cam["dragged"][4] > cam["eyes"][4]  # dragged down: looking up (grabbing the world)
