@@ -113,8 +113,9 @@ Rules of thumb:
   reach into the coverage and fail instead of being missing.
 - A download link with the survey year in it goes stale when a tile is surveyed again: find what the server answers
   then (LVermGeo SH: HTTP 200 with HTML) and make it an error that reads the index again, never a cached tile.
-- A file of a whole sea may hold the water surface instead of gaps (LVermGeo SH: 0.7-2.9 m): look at sea pixels
-  before trusting the sea mask to remove them.
+- A model may fill the sea with a constant instead of leaving gaps (LVermGeo SH's North Sea: 1.30 m, one value over
+  whole tiles): look at the sea pixels far from the shore (their distinct values, second differences), not at the
+  shore's strip, and set `Source.sea_fill` when the constant is above `SEA_LEVEL_TOLERANCE`.
 - Pick a regression centre where the steep pixels are (an anchor map, or a quick search with a small radius): the
   research's Rüdersdorf point lay 1 km from the quarry's walls, Tibrogargan's dome gave 9 lines.
 - Names, descriptions and notes of sources are printed to the console: keep them in characters of cp1250 (a Windows console), e.g. "1/3 arc-second", not ″.

@@ -1481,7 +1481,7 @@
       "checked": 68954,
       "lines": 8123,
       "spots": 69,
-      "csv_sha256": "3e7e16d2612b150206a9135238b5b4f85305357f6dcf4f871e271b602e0f90e0",
+      "csv_sha256": "2bff0c495661a640e966a6712c9e016a86124ba13cd3656bc83872b9549900e9",
       "length_km": 1610.413,
       "clearance_min": 0.0,
       "clearance_mean": 2.016,
@@ -1489,11 +1489,11 @@
       "over_trees": 0,
       "coverage": 100.0,
       "empty_tiles": 0,
-      "water_lines": 2912,
-      "water_spots": 20
+      "water_lines": 3427,
+      "water_spots": 24
     },
     "seconds": 33.5,
-    "notes": "--source auto picks schleswig_holstein (the centre is in DE-SH); first run on an empty cache: the Land's GeoJSON index (9 MB) and 12 XYZ files of 1 km (27 MB each, all of the survey of 2025-01-13); the coastline from the OSM world water polygons (cache/osm/water-polygons); the files hold a water surface of 0.7-2.9 m over the sea, so nothing is filled (sea 0.00 km2) and lines count as over water where that surface is at most 1 m (water_lines); the spots are on the cliffs of the Oberland's west and north-west edge and around the Lange Anna (54.1886, 7.8730), the best (clearance 12.4 m, 133 m) from 54.1853, 7.8762 to 54.1844, 7.8776"
+    "notes": "--source auto picks schleswig_holstein (the centre is in DE-SH); first run on an empty cache: the Land's GeoJSON index (9 MB) and 12 XYZ files of 1 km (27 MB each, all of the survey of 2025-01-13); the coastline from the OSM world water polygons (cache/osm/water-polygons); the files give the North Sea a constant 1.30 m (the provider's fill), so nothing is filled (sea 0.00 km2) and that constant counts as water (Source.sea_fill: water_lines 3427, 2912 by the 1 m tolerance alone); the spots are on the cliffs of the Oberland's west and north-west edge and around the Lange Anna (54.1886, 7.8730), the best (clearance 12.4 m, 133 m) from 54.1853, 7.8762 to 54.1844, 7.8776"
   },
   "R57": {
     "place": "Frog Buttress, Mt French, Scenic Rim, Queensland, Australia: the State's DEM time series ImageServer (the newest lidar DTM of each place, Scenic Rim 2023, 1 m, resampled by the service from Web Mercator) in GDA94 / MGA zone 56, DEM-H 30 m of the same service for the gaps",

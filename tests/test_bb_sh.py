@@ -315,9 +315,39 @@ def test_sources():
     assert sh.nmt.index_url == germany.SH_INDEX and net.verify(germany.SH_INDEX) is not True
     for host in ("inspire.brandenburg.de", "geodaten.schleswig-holstein.de"):
         assert src.HOST_SLOTS_OF[host] == 4
-    assert "image matching" in bb.note and "water surface" in sh.note
+    assert "image matching" in bb.note and "constant 1.30 m" in sh.note
+    assert sh.sea_fill == 1.30 and bb.sea_fill is None
     from sources import probe
     assert probe.strategy(sh.nmt) == "text" and probe.strategy(bb.nmt) == "wcs"
+
+
+@pytest.mark.parametrize("sea_fill", [None, 1.30])
+def test_sea_fill_counts_as_water(tmp_path, sea_fill):
+    """A source's constant over the sea (LVermGeo SH's 1.30 m) is water inside the sea zone only, to the
+    centimetre (a beach of 1.31 m stays land), and keeps its height; without sea_fill only the gaps filled with
+    0 m and data of at most SEA_LEVEL_TOLERANCE are."""
+    grid = make_grid((0, 0, 10, 4), 1.0, "EPSG:25832")
+    z = np.full((4, 10), 5.0, dtype="float32")
+    z[:, :5] = 1.30          # the sea zone: the provider's fill
+    z[0, 0] = np.nan         # a gap in it: filled with 0 m
+    z[1, 1] = 0.40           # sea at about 0 m
+    z[2, 4] = 1.31           # a beach
+    z[3, 7] = 1.30           # land of that height outside the zone
+    path = str(tmp_path / "nmt.npy")
+    np.save(path, z)
+    zone = np.zeros((4, 10), bool)
+    zone[:, :5] = True
+    out = src.fill_water(path, None, grid, np.zeros((4, 10), "uint8"), zone, str(tmp_path / "water.npy"),
+                         sea_value=sea_fill)
+    water = np.load(out)
+    expected = np.zeros((4, 10), bool)
+    expected[0, 0] = expected[1, 1] = True
+    if sea_fill is not None:
+        expected[:, :5] = True
+        expected[2, 4] = False
+    assert (water == expected).all()
+    filled = np.load(path)
+    assert filled[0, 0] == 0.0 and filled[2, 0] == np.float32(1.30)
 
 
 def test_probe_reads_the_first_kb(monkeypatch, tmp_path):

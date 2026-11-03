@@ -23,6 +23,7 @@ GAP_MATCH_SLOPE = 15  # degrees; only gentler ground is used to match heights
 GAP_MAX_LOCAL_SHIFT = 3  # m; local height offsets differing more from the overall one are ignored
 SHORE_BUFFER = 45  # m around water in the mask that may still be water (the mask is 30 m)
 SEA_LEVEL_TOLERANCE = 1.0  # m; data at most this high inside the sea counts as water
+SEA_FILL_EPS = 0.005  # m; data this close to a source's sea fill (Source.sea_fill) inside the sea counts as water
 # A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
@@ -58,7 +59,7 @@ def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
-               sea_zone: np.ndarray, out_path: str) -> str:
+               sea_zone: np.ndarray, out_path: str, sea_value: Optional[float] = None) -> str:
     """Give the sea and lakes an elevation where the data has none.
 
     National LiDAR models have no data over water, so lines across the sea (and
@@ -68,7 +69,9 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
     Copernicus mask (within SHORE_BUFFER, as the mask is 30 m) get the level of
     the lake's shore (the median elevation around it). The exact shoreline comes
     from the elevation data itself; gaps in the data on land stay without data.
-    Saves a boolean water mask (filled pixels, and lakes that have data) to out_path.
+    Saves a boolean water mask (filled pixels, lakes that have data, and the sea where
+    the data give it: at most SEA_LEVEL_TOLERANCE, or the source's constant sea_value)
+    to out_path.
     """
     from scipy import ndimage
 
@@ -107,9 +110,13 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
         water[rows, cols] |= area
         lake_px += int(area.sum())
     # Water that the elevation data covers: lakes measured by LiDAR, and sea given as
-    # about 0 m by the data itself (e.g. IGN Spain)
+    # about 0 m by the data itself (e.g. IGN Spain) or as the provider's constant (sea_value, Source.sea_fill)
     water |= (wbm == LAKE) & ~empty
-    water |= sea_zone & ~empty & (np.asarray(elevation) <= SEA_LEVEL_TOLERANCE)
+    data = np.asarray(elevation)
+    sea_level = data <= SEA_LEVEL_TOLERANCE
+    if sea_value is not None:
+        sea_level |= (data >= sea_value - SEA_FILL_EPS) & (data <= sea_value + SEA_FILL_EPS)
+    water |= sea_zone & ~empty & sea_level
     elevation.flush()
     if surface is not None:
         surface.flush()

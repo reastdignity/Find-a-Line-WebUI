@@ -76,6 +76,10 @@ class Source:
     neighbours: Tuple[str, ...] = ()
     bbox: Optional[Tuple[float, float, float, float]] = None  # (south, north, west, east) for --source auto
     grid_origin: Tuple[float, float] = (0.0, 0.0)  # pixel edges of the data in the working CRS (grid.make_grid)
+    # The constant a provider wrote into its terrain model over the sea instead of leaving it without
+    # data (LVermGeo SH's North Sea: 1.30 m): inside the sea zone, pixels of that value count as
+    # water (filling.fill_water, within SEA_FILL_EPS); their heights stay. None: no such fill
+    sea_fill: Optional[float] = None
     # Licences and notices of the data; a source with one credit gives it to its layers,
     # one with more sets each layer's own (europe: FABDEM and Copernicus)
     credits: Tuple[Credit, ...] = ()

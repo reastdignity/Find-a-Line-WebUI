@@ -278,8 +278,11 @@ SH_CREDIT = Credit("DGM1 (LVermGeo SH, Schleswig-Holstein)", f"{SH_ATTRIBUTION} 
 # veraltet". The files are plain "x y z" text of the cell centres (on x.5: edges on whole metres), centimetres,
 # 1000 x 1000 points, 27 MB, no Range, no compression. The server's TLS chain lacks its intermediate (net.HOST_CA_OF).
 # The 0.2 m bDOM is published as uncompressed GeoTIFFs of about 105 MB per km² without Range: no surface model
-# Over the sea the files hold a water surface of 0.7-2.9 m (no gaps): the sea is not filled, and only its pixels of at
-# most filling.SEA_LEVEL_TOLERANCE count as water
+# The sea has no gaps: the North Sea of the newer surveys is a constant 1.30 m written by the provider, not a measured
+# surface (one value, flat to the centimetre: Helgoland and Büsum 2025 100 % of a tile at sea, Sylt 2024; reason
+# unpublished, 2026-11-03), so it counts as water (sea_fill) and keeps its height; the Baltic and the surveys of
+# 2005-2007 give the sea about 0 m (-0.4 to +0.6 m), which counts as water by filling.SEA_LEVEL_TOLERANCE
+SH_SEA_FILL = 1.30
 SH_INDEX = ("https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/single.php"
             "?file=DGM1_SH__Massendownload.geojson&id=4")
 SH_NAME = r"^dgm1_32_(?P<east>\d+)_(?P<north>\d+)_1_sh_(?P<year>\d{4})\.xyz$"
@@ -445,7 +448,7 @@ SOURCES: List[Source] = [
         description="LVermGeo SH (Schleswig-Holstein, Germany): terrain model 1 m, plain XYZ files of 1 km listed by "
                     "a GeoJSON index, newest survey, ETRS89 / UTM 32N, DHHN2016",
         nmt=GeoJsonTiles("DGM1 (terrain)", [SH_INDEX], SH_NAME, "schleswig_holstein/dgm1", "EPSG:25832", "dgm1"),
-        countries=("de",), regions=("de-sh",), crs="EPSG:25832", ortho=SH_DOP,
+        countries=("de",), regions=("de-sh",), crs="EPSG:25832", ortho=SH_DOP, sea_fill=SH_SEA_FILL,
         credits=(SH_CREDIT,),
         neighbours=("lower_saxony", "mecklenburg_vorpommern", "denmark"),
         listing=ReadmeRow("Schleswig-Holstein (DE)", "LVermGeo SH DGM1, 1 m (XYZ); newest survey", "–",
@@ -457,6 +460,6 @@ SOURCES: List[Source] = [
         sample=(54.1840, 7.8820),  # Helgoland's cliffs (R56)
         note=f"Data {SH_ATTRIBUTION} (Quelle verändert; changed: mosaicked onto the working grid). Terrain model "
              f"only: the surface model is published only as uncompressed 0.2 m files. Survey years 2005-2025, the "
-             f"newest per 1 km tile. Over the sea the model holds a water surface of about 1-3 m, kept as data (only "
-             f"where it is at most 1 m does it count as water)."),
+             f"newest per 1 km tile. Over the North Sea the newer surveys give a constant 1.30 m instead of the "
+             f"water: it counts as water, and lines over it are measured from 1.30 m."),
 ]

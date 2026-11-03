@@ -708,7 +708,7 @@ def prepare_data(plan: Plan) -> Data:
                                  f"from {fallback.name}")
         if p.water == "fill":
             water_path = src.fill_water(elevation_path, surface_path, grid, wbm, sea_zone,
-                                        os.path.join(work, "water.npy"))
+                                        os.path.join(work, "water.npy"), sea_value=source.sea_fill)
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
     elevation = np.load(elevation_path, mmap_mode="r")

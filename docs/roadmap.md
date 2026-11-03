@@ -479,8 +479,13 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   Massendownload-Datei ist veraltet"): an error, never cached, and the kept index and its 0.25° answers are forgotten
   so the next search reads it again. The server sends no intermediate certificate: D-TRUST BR CA 1-20-1 2020 is in
   `sources/certs/` and trusted for that host only (`net.HOST_CA_OF`, `net.verify`; valid to 2035-02-11, the server's
-  leaf to 2027-04-15; checked live: without it Python fails the handshake). Over the sea the files hold a water surface
-  of 0.7-2.9 m without gaps, kept as data: it counts as water only where it is at most 1 m. Credit
+  leaf to 2027-04-15; checked live: without it Python fails the handshake). The sea has no gaps: in the newer surveys the
+  North Sea is a constant 1.30 m written by the provider (one value, flat to the centimetre over whole tiles:
+  Helgoland and Büsum 2025, Sylt 2024; its meaning unpublished), which counts as water through `Source.sea_fill`
+  (the user's choice of 2026-11-03 among keeping it, a generic rule for flat fills and cutting it out: the heights
+  stay, so lines over it are measured from 1.30 m, about high water); the Baltic and the surveys of 2005-2007 give
+  the sea about 0 m, water by `SEA_LEVEL_TOLERANCE`. A first reading of "a water surface of 0.7-2.9 m" was the strip
+  at the shore. Credit
   "©GeoBasis-DE/LVermGeo SH/CC BY 4.0 (Quelle verändert)"; orthophoto `sh_dop20_rgb`; a courtesy cap of 4.
   Neighbours: lower_saxony, mecklenburg_vorpommern, denmark. The probe reads the first KB of a tile (strategy `text`).
 - **Queensland, done 2026-11-02** (sources `queensland` and `queensland_demh`, region AU-QLD, R57 Frog Buttress): the
