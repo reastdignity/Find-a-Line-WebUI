@@ -680,15 +680,17 @@ def judge_failure(study: Dict) -> Optional[str]:
     """Why the orthophoto does not tell forest from rock at a place: "overlap" when a call's two
     splits (GLI at tau, luminance at bright) both put more than WORKS_OVERLAP of the references on
     the wrong side, "few forest px" when the orthophoto was read but fewer than REFERENCE_MIN forest
-    reference pixels have a GLI; None when it does (or no orthophoto was read: OSM alone judges)."""
+    reference pixels have a GLI (both, joined by a comma, when both hold); None when it does (or no
+    orthophoto was read: OSM alone judges)."""
     orthos = [(judged or {}).get("ortho") for judged in study.get("judges") or []]
-    for ortho in orthos:
-        if ortho and all(ortho.get(k) is not None and ortho[k] > WORKS_OVERLAP for k in ("overlap", "bright_overlap")):
-            return "overlap"
+    reasons = []
+    if any(ortho and all(ortho.get(k) is not None and ortho[k] > WORKS_OVERLAP for k in ("overlap", "bright_overlap"))
+           for ortho in orthos):
+        reasons.append("overlap")
     if any(ortho and ortho.get("tiles") for ortho in orthos) \
             and (study.get("agreement") or {}).get("forest_ortho", 0) < REFERENCE_MIN:
-        return "few forest px"
-    return None
+        reasons.append("few forest px")
+    return ", ".join(reasons) or None
 
 
 def judge_works(study: Dict) -> bool:
@@ -1461,9 +1463,10 @@ def judges_markdown(study: Dict) -> List[str]:
              f"{_share(a.get('rock_chm_low', 0), a.get('rock_chm', 0))} rock pixels."]
     failure = judge_failure(study)
     if failure is not None:
-        why = (f"the orthophoto's two splits both overlap more than {WORKS_OVERLAP:g}" if failure == "overlap" else
-               f"fewer than {REFERENCE_MIN} forest reference pixels with an orthophoto")
-        lines[-1] += f" WARNING: {why}: the verdicts of this place are not summed over all places."
+        why = {"overlap": f"the orthophoto's two splits both overlap more than {WORKS_OVERLAP:g}",
+               "few forest px": f"fewer than {REFERENCE_MIN} forest reference pixels with an orthophoto"}
+        lines[-1] += (f" WARNING: {' and '.join(why[k] for k in failure.split(', '))}: the verdicts of this place are "
+                      "not summed over all places.")
     return lines
 
 

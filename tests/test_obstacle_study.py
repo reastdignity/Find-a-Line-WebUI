@@ -507,6 +507,7 @@ def test_pixel_classes_and_judge_failure():
     assert study.judge_failure(place(study.REFERENCE_MIN)) is None
     assert study.judge_failure(place(study.REFERENCE_MIN - 1)) == "few forest px"
     assert study.judge_failure(place(10 ** 6, (0.5, 0.45))) == "overlap"
+    assert study.judge_failure(place(358, (0.47, 0.56))) == "overlap, few forest px"  # Zamarla Turnia
     assert study.judge_failure(place(0, tiles=0)) is None  # no orthophoto read: OSM alone judges
     assert not study.judge_works(place(358))
 
