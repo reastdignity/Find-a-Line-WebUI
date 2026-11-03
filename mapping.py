@@ -40,7 +40,10 @@ def pl1992_to_wgs84(easting: float, northing: float):
 def coordify(lines: LineTable, grid: Grid, nmpt_mode: Optional[str]) -> LineTable:
     """Add the coordinates of the anchors to the lines (in place): "anchor1", "anchor2" (lat, lon),
     "a1_xy", "a2_xy" (easting, northing in metres of the grid CRS, used for grouping) and
-    "over_obstacles" (the line passes over trees/buildings with --nmpt mark). Returns the lines."""
+    "over_obstacles" (the line passes over trees/buildings with --nmpt mark). Returns the lines.
+    Lines share anchors (a part of 2**17 lines on swiss-long holds about 7 000 different ones), so
+    each part transforms its different anchor pixels once and gathers their coordinates: the same
+    float64 values (a pixel's coordinates do not depend on the others transformed with it)."""
     c, n = lines.columns, len(lines)
     progress.compute.start("coordinates", n, unit="line")
     names = ("anchor1", "anchor2", "a1_xy", "a2_xy")
@@ -50,12 +53,18 @@ def coordify(lines: LineTable, grid: Grid, nmpt_mode: Optional[str]) -> LineTabl
         end = min(n, at + COORDINATE_PART)
         rows = np.column_stack([c["a1"][at:end, 0], c["a2"][at:end, 0]]).ravel()
         cols = np.column_stack([c["a1"][at:end, 1], c["a2"][at:end, 1]]).ravel()
-        easting, northing = grid.pixel_to_xy(rows, cols)
+        low = int(cols.min())
+        span = int(cols.max()) - low + 1
+        pixels, inverse = np.unique(rows * span + (cols - low), return_inverse=True)  # the part's anchor pixels
+        del rows, cols
+        easting, northing = grid.pixel_to_xy(pixels // span, pixels % span + low)
         lon, lat = transformer.transform(easting, northing)
+        easting, northing, lon, lat = (np.asarray(v, dtype=np.float64)[inverse] for v in (easting, northing, lon, lat))
+        del pixels, inverse
         for name, (a, b, first) in zip(names, ((lat, lon, 0), (lat, lon, 1), (easting, northing, 0),
                                                (easting, northing, 1))):
-            out[name][at:end, 0] = np.asarray(a, dtype=np.float64)[first::2]
-            out[name][at:end, 1] = np.asarray(b, dtype=np.float64)[first::2]
+            out[name][at:end, 0] = a[first::2]
+            out[name][at:end, 1] = b[first::2]
         progress.compute.update(end - at)
     c.update(out)
     c["over_obstacles"] = (c["clearance_nmpt"] <= 0) if nmpt_mode == "mark" else np.zeros(n, dtype=bool)

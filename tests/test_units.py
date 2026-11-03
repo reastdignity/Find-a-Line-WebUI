@@ -196,6 +196,52 @@ def test_covered_metres_match_profiles(monkeypatch):
     assert ls.covered_metres(a1, a2, 2.0, None).tolist() == [0.0] * len(a1)
 
 
+def _old_covered_metres(a1, a2, res, mask):
+    """linesearch.covered_metres before wave 3 of round 3 (Python's round() line by line): the reference."""
+    import linesearch as ls
+    out = np.zeros(len(a1))
+    if mask is None or len(a1) == 0:
+        return out
+    p, q = np.ascontiguousarray(a1, dtype=np.int64), np.ascontiguousarray(a2, dtype=np.int64)
+    counts = np.zeros(len(p), dtype=np.int64)
+    ls._covered_pixels(p, q, np.ascontiguousarray(mask, dtype=np.bool_), counts)
+    d = q - p
+    steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
+    lengths = np.hypot(d[:, 0], d[:, 1]) * res
+    out[:] = [round(float(n) * length / s, 1) if n else 0.0
+              for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+    return out
+
+
+def test_covered_metres_as_before(monkeypatch):
+    """covered_metres rounds whole parts with runs.round_floats: the values of the old round() per
+    line, halfway cases too (lines along a row or a column at 0.25 or 1.25 m give n * res with a 5
+    in the second decimal, exact in binary), lines of one step and of none, parts of any size."""
+    import linesearch as ls
+    rng = np.random.default_rng(29)
+    size = 120
+    a1 = rng.integers(0, size, (4000, 2))
+    a2 = rng.integers(0, size, (4000, 2))
+    straight = rng.random(len(a1)) < 0.4  # along a row or a column
+    axis = rng.integers(0, 2, len(a1))
+    a2[straight, axis[straight]] = a1[straight, axis[straight]]
+    diagonal = rng.random(len(a1)) < 0.1
+    span = rng.integers(-40, 40, len(a1))
+    a2[diagonal] = np.clip(a1[diagonal] + span[diagonal, None], 0, size - 1)
+    a2[:5] = a1[:5]  # no step
+    a2[5:10] = a1[5:10] + [0, 1]  # one step
+    a2 = np.clip(a2, 0, size - 1)
+    for share in (0.0, 0.05, 0.3, 0.9, 1.0):
+        mask = rng.random((size, size)) < share
+        for res in (0.25, 0.5, 1.0, 1.25, 2.0, 0.1, 0.15, 5.0, 30.0, 1 / 3):
+            expected = _old_covered_metres(a1, a2, res, mask)
+            got = ls.covered_metres(a1, a2, res, mask)
+            assert got.dtype == np.float64
+            assert list(map(repr, got.tolist())) == list(map(repr, expected.tolist())), (share, res)
+    monkeypatch.setattr(ls, "COVERED_PART", 37)
+    assert ls.covered_metres(a1, a2, 1.25, mask).tolist() == _old_covered_metres(a1, a2, 1.25, mask).tolist()
+
+
 def _profile_case(seed=13, size=300):
     """Terrain with walls (lines over a gap), a few pixels without data, a surface model missing in
     places, water and filled masks, and lines of 2 to about 300 pixels between non-NaN anchors."""
@@ -328,6 +374,70 @@ def test_evaluate_lines_matches_evaluate_line(model):
                                     values[i, 0], values[j, 0], values[i, 1], values[j, 1]))
         assert slow and fast == slow
         assert 0 < sum(0 < line.high_pct < 100 for line in fast)  # the threshold is crossed
+
+
+def _old_coordify(a1, a2, grid):
+    """mapping.coordify's coordinates before wave 3 of round 3 (every anchor of every line
+    transformed): the reference. Returns anchor1, anchor2, a1_xy, a2_xy."""
+    from pyproj import Transformer
+    rows = np.column_stack([a1[:, 0], a2[:, 0]]).ravel()
+    cols = np.column_stack([a1[:, 1], a2[:, 1]]).ravel()
+    easting, northing = grid.pixel_to_xy(rows, cols)
+    lon, lat = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform(easting, northing)
+    out = []
+    for a, b, first in ((lat, lon, 0), (lat, lon, 1), (easting, northing, 0), (easting, northing, 1)):
+        out.append(np.column_stack([np.asarray(a, dtype=np.float64)[first::2], np.asarray(b, dtype=np.float64)[first::2]]))
+    return out
+
+
+def test_coordify_as_before(monkeypatch):
+    """coordify transforms the different anchor pixels of a part once: the same float64 values as
+    every anchor transformed (the old code), in several CRSs (UTM, Swiss LV95, Polish 1992, the
+    Czech Krovak, British National Grid), anchors shared by many lines, parts of any size."""
+    import helpers as sh
+    import mapping
+    from grid import Grid
+    rng = np.random.default_rng(37)
+    cases = [("EPSG:32633", 447000.0, 5551000.0, 1.0), ("EPSG:2056", 2636000.0, 1158000.0, 1.0),
+             ("EPSG:2180", 565000.0, 160000.0, 5.0), ("EPSG:5514", -650000.0, -1020000.0, 2.0),
+             ("EPSG:27700", 330000.0, 400000.0, 0.5)]
+    for crs, left, top, res in cases:
+        grid = Grid(left=left, top=top, res=res, height=900, width=1300, crs=crs)
+        anchors = np.column_stack([rng.integers(0, 900, 700), rng.integers(0, 1300, 700)])
+        pairs = rng.integers(0, len(anchors), (5000, 2))
+        a1, a2 = anchors[pairs[:, 0]], anchors[pairs[:, 1]]
+        a1[:3] = [[0, 0], [899, 1299], [0, 1299]]  # the grid's corners
+        expected = _old_coordify(a1, a2, grid)
+        for part in (1 << 17, 1, 777):
+            monkeypatch.setattr(mapping, "COORDINATE_PART", part)
+            clearance = rng.normal(0, 3, len(a1))
+            table = sh.LineTable({"a1": a1.copy(), "a2": a2.copy(), "clearance_nmpt": clearance})
+            mapping.coordify(table, grid, "mark")
+            for name, values in zip(("anchor1", "anchor2", "a1_xy", "a2_xy"), expected):
+                got = table.columns[name]
+                assert got.dtype == np.float64 and got.tobytes() == values.tobytes(), (crs, part, name)
+            assert table.columns["over_obstacles"].tolist() == (clearance <= 0).tolist()
+
+
+def test_interp_forward_matches_interp():
+    """_evaluate's _interp_forward (the index walked forward along a line) gives exactly _interp's
+    value for non-decreasing x: the sag table's fractions and the t = i / steps of lines of 2 to
+    2 000 steps, other increasing tables, x on the table's points, below and above it, and NaN."""
+    import linesearch as ls
+    rng = np.random.default_rng(31)
+    tables = [np.linspace(0, 1, 42), np.cumsum(rng.random(17) + 0.01), np.array([0.0, 1.0]),
+              np.array([-1.0, 0.0, 0.0, 2.0])]
+    for xp in tables:
+        fp = rng.normal(0, 3, len(xp))
+        runs = [np.arange(1, steps) / steps for steps in (2, 3, 7, 41, 42, 43, 130, 1000, 2000)]
+        runs.append(np.sort(np.concatenate([xp, rng.uniform(xp[0] - 1, xp[-1] + 1, 300)])))
+        runs.append(np.concatenate([np.sort(rng.uniform(xp[0], xp[-1], 50)), [np.nan, np.inf]]))
+        for x in runs:
+            at = 0
+            for v in x.tolist():
+                got, at = ls._interp_forward(v, xp, fp, at)
+                expected = ls._interp(v, xp, fp)
+                assert repr(got) == repr(expected), (v, xp)
 
 
 @pytest.mark.parametrize("model", ["formula", "sag"])
