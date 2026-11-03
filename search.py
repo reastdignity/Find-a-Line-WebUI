@@ -28,6 +28,7 @@ asked, the bounding box of the grid, the pixels of the grid or of a tile, and th
 check_estimate the download; _lines the anchors and lines found.
 """
 
+import contextlib
 import dataclasses
 import gc
 import glob
@@ -1448,6 +1449,35 @@ def _remove_grids(work: str):
         src.filling.remove_grid(path)
 
 
+class _SilentBar:
+    """A progress bar that shows nothing (start, update and finish do nothing)."""
+
+    def start(self, *args, **kwargs):
+        pass
+
+    def update(self, *args, **kwargs):
+        pass
+
+    def finish(self, *args, **kwargs):
+        pass
+
+
+@contextlib.contextmanager
+def _silent_progress():
+    """The bars and the step left as they are while a search runs inside a step of another: a
+    profile at a tile edge (search_lines) runs profile_of_line, whose prepare_data would start
+    its own bars under "Step 1" and move the step, breaking the bar "profiles at tile edges"
+    and listing its seconds under step 1 (tools/perf_profile.py, jobs.StepClock)."""
+    bars = progress.download, progress.compute
+    progress.download = progress.compute = _SilentBar()
+    progress.set_step = lambda text: None  # shadows the class's method on the instance
+    try:
+        yield
+    finally:
+        progress.download, progress.compute = bars
+        del progress.set_step
+
+
 def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     """Steps 1-4 for one grid or, for a large area, tile by tile (resumable).
 
@@ -1518,8 +1548,9 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         for k in missing:
             paths = Paths(plan.paths.data, os.path.join(plan.paths.work, "edge"))
             os.makedirs(paths.work, exist_ok=True)
-            results.profiles[k] = profile_of_line(meta, paths, tuple(results.columns["anchor1"][k].tolist()),
-                                                  tuple(results.columns["anchor2"][k].tolist()))
+            with _silent_progress():  # its own step 1 (prepare_data) must not move the step or the bar
+                results.profiles[k] = profile_of_line(meta, paths, tuple(results.columns["anchor1"][k].tolist()),
+                                                      tuple(results.columns["anchor2"][k].tolist()))
             shutil.rmtree(paths.work, ignore_errors=True)
             progress.compute.update(1)
         progress.compute.finish()
