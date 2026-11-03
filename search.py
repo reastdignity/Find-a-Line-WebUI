@@ -75,8 +75,16 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 # surface, water, gaps, masks, temporaries), its lines, this many bytes per line (a line being
 # checked in step 3, one of step 4 with its coordinates, values and group, one of a tile done
 # already, or one being saved in step 5), and the profiles a circle keeps for every line, this
-# many bytes per point
-PIXEL_BYTES = 100  # 64 of them, and the union-find of the anchor prominence (terrain.py)
+# many bytes per point.
+# Measured 2026-11-03 (tools/perf_profile.py --cores 7, the RSS of a stage less the start's over
+# the grid's pixels; docs/performance.md, round 3, wave 2): step 1 peaks at the medians of the
+# surface pair's gap filling, 32 B per pixel on Windows (the Gozo coast's 50 Mpx tile, the
+# memory-mapped grids read so far included) and 38 where a neighbour's data fills a border over
+# half the grid first (a Tatras circle of 43.6 Mpx at 1 m); step 2 (the slopes, the prominence's
+# union-find and the drop over the anchors' windows) at 25 with dense anchors (swiss-long, 2.5 %
+# of the pixels; the Tatras' 2.65 million, 6.1 %), step 3 at 16; was 100 before the temporaries
+# of step 1 were cut
+PIXEL_BYTES = 50
 # Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
 # columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
 # 382 B at the peak of step 5; with a dict per line they were 2.2 KB, 1.6 KB and 3.1 KB (the
@@ -110,8 +118,14 @@ PROFILE_POINTS = 203
 # the others when they are opened): about 26 000 lines of 1 m at most, R9's 85 671 at 5 m
 CIRCLE_PROFILES_BYTES = 500e6
 # Tiles of large areas: the grids of one tile may use this share of the free memory (the rest
-# is for the lines of the tiles)
-TILE_MEMORY_SHARE = 0.25
+# is for the lines of the tiles, which _check_lines refuses over the budget)
+TILE_MEMORY_SHARE = 0.5
+# A tile (its core with the overlap) has at most this many pixels whatever the memory: a PC
+# with much memory would otherwise take one tile of hundreds of Mpx, whose grids alone hold
+# gigabytes, to save little work (the overlap's share of a tile falls slowly once the core is a
+# few overlaps wide: a 5 000 m core with 1 302 m of overlap, 58 Mpx at 1 m, computes 2.3 pixels
+# per pixel of the core; 14 000 m, 280 Mpx, 1.4). A tile of 64 Mpx holds about 2 GB of grids
+TILE_PX_MAX = 64e6
 DOWNLOAD_MB_PER_S = 5  # for the time estimate of area searches
 MAX_MEASURED_PX = 6000  # the longest line measured on the map, in pixels (profile_of_line builds a square grid around it)
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
@@ -178,6 +192,8 @@ class Plan:
     tiles: Optional[List[Tuple[tuple, gd.Grid]]] = None
     tile_core: Optional[float] = None
     tile_label: str = ""  # "Tile 3/15 · " while a tile of a large area is computed
+    # A tile's plan: the grid of the whole search (the world water polygons are read once for it)
+    search_grid: Optional[gd.Grid] = None
     owner: Optional[int] = None  # the user of the web app's job (None: the local app, the command line)
     # The memory the search may use (_check_lines): its compute slot's budget, or the memory free
     # when a search with limits was planned; None: not checked
@@ -225,6 +241,9 @@ class Data:
     # Pixels filled from the national data of a neighbour (Source.neighbours): not "filled gaps"
     # of less precise data (filled), but a seam of two surveys where they meet
     joined: Optional[np.ndarray] = None
+    # The search area on the grid (plan.area.mask(grid), computed once in step 1); None: computed
+    # where needed
+    mask: Optional[np.ndarray] = None
     # The heights of the land with data of the search area (of a tile's core), hypsometry.py
     terrain: Optional[hy.Histogram] = None
 
@@ -581,15 +600,15 @@ def line_threads(params: SearchParams) -> Optional[int]:
 def tile_core_size(params: SearchParams, res: float, max_px: Optional[float] = None,
                    memory: Optional[int] = None) -> float:
     """Side of a tile core in metres: --tile-size, or what the free memory (or `memory`, a compute
-    slot's budget) allows (and max_px, the pixels a tile may have with its overlap; in steps of
-    500 m, so the tiles stay the same when the free memory changes a little)."""
+    slot's budget) allows and max_px, the pixels a tile may have with its overlap (a site's
+    limit; TILE_PX_MAX at most either way); in steps of 500 m, so the tiles stay the same when
+    the free memory changes a little."""
     if params.tile_size:
         core = params.tile_size
     else:
         free = available_memory() if memory is None else memory
         side_px = math.sqrt(free * TILE_MEMORY_SHARE / memory_needed(1, 0))
-        if max_px:
-            side_px = min(side_px, math.sqrt(max_px))
+        side_px = min(side_px, math.sqrt(min(max_px or TILE_PX_MAX, TILE_PX_MAX)))
         core = max(500.0, math.floor((side_px * res - 2 * _overlap(params, res)) / 500) * 500)
     return max(res, math.floor(max(core, 10 * res) / res) * res)
 
@@ -631,8 +650,9 @@ def estimate_search(plan: Plan) -> Estimate:
     if p.water == "fill" and p.coastline == "world" and coast.world_file(plan.paths.cache) is None:
         download_mb += coast.WORLD_MB
         emit("info", f"OpenStreetMap water polygons (world): one download of ~{coast.WORLD_MB} MB")
+    # A tile's work folder is removed before the next tile's grids are made: the largest one's
     largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height) if plan.tiles else plan.grid
-    work_gb = largest.width * largest.height * 4 * (len(plan.layers) + bool(p.slope_file)) / 1e9
+    work_gb = largest.width * largest.height * work_bytes(plan) / 1e9
     estimate = Estimate(download_mb, work_gb)
     if isinstance(plan.area, ar.Polygon):  # areas are always confirmed: they can be large
         estimate.reasons.append(
@@ -643,6 +663,24 @@ def estimate_search(plan: Plan) -> Estimate:
     if work_gb > CONFIRM_DISK_GB:
         estimate.reasons.append(f"working grids take about {work_gb:.1f} GB of disk in {plan.paths.work}")
     return estimate
+
+
+def work_bytes(plan: Plan) -> int:
+    """The bytes per pixel that step 1 (prepare_data) writes into the work folder at most: float32
+    the terrain (nmt.npy) and surface models (nmpt.npy), the surface of the obstacles (obstacles.npy),
+    a slope file (slope.npy) and each fallback's terrain and surface (gap_nmt.npy, gap_nmpt.npy,
+    gap1_nmt.npy ...: made only where there are gaps, counted always); uint8 the water body mask
+    (wbm.npy); bool the water (water.npy) and the pixels filled by each fallback (filled.npy,
+    filled1.npy ...) and by each neighbour (joined0.npy ..., joined.npy). The neighbours' own grids
+    (border0_nmt.npy ...) cover the gaps at the border only and are not counted."""
+    p, source = plan.params, plan.source
+    surface = bool(plan.nmpt)
+    floats = 1 + surface + (surface and bool(plan.obstacles)) + bool(p.slope_file)
+    masks = _water_mask(plan) + (p.water == "fill")
+    if _fills_gaps(plan):
+        floats += len(source.fallbacks) * (1 + surface)
+        masks += len(source.fallbacks) + (len(source.neighbours) + 1 if source.neighbours else 0)
+    return 4 * floats + masks
 
 
 def _water_mask(plan: Plan) -> bool:
@@ -756,7 +794,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
         water_path = filled_path = joined_path = sea_zone = wbm = terrain = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
-            sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update)
+            sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update,
+                                                        extent=plan.search_grid)
             emit("info", f"Coastline: {coast_source}")
             if coast_source.startswith("OpenStreetMap"):
                 src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
@@ -764,6 +803,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 emit("warning", warning)
             progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(sea, p.shore_buffer, grid.res)
+            del sea  # only the zone is used from here on
             progress.compute.update(1)
             progress.compute.finish()
         elif _fills_gaps(plan):
@@ -780,7 +820,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                                         _core_window(grid, core) if core is not None else None)
             progress.compute.update(1)
             progress.compute.finish()
-        del mask
+        if p.water != "fill":
+            wbm = None  # used for the zone and the statistics only
         if _fills_gaps(plan):
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
@@ -801,15 +842,17 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
             water_path = src.fill_water(elevation_path, surface_path, grid, wbm, sea_zone,
                                         os.path.join(work, "water.npy"))
+            del wbm
             if bare is not None:
                 bare &= np.load(water_path)  # water the terrain model lacked: no obstacles there
+        del sea_zone
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
     elevation = np.load(elevation_path, mmap_mode="r")
     surface = np.load(surface_path, mmap_mode="r") if surface_path else None
     if surface is not None:
         progress.compute.start("surface coverage", 1, unit="step")
-        land = plan.area.mask(grid) & ~np.isnan(elevation)
+        land = mask & ~np.isnan(elevation)
         no_surface = (np.isnan(surface) & land).sum() / max(land.sum(), 1)
         progress.compute.update(1)
         progress.compute.finish()
@@ -833,7 +876,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
-                np.load(joined_path, mmap_mode="r") if joined_path else None, terrain)
+                np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
@@ -863,7 +906,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     # Step 2: Find raster pixels with significant slope for promising anchors
     _step(plan, 2, "finding significant slopes")
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid), data.slope)
+                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
     for seams in (data.filled, data.joined):
         if seams is None:
             continue
@@ -1148,7 +1191,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             work = os.path.join(plan.paths.work, f"tile{k}")
             os.makedirs(work, exist_ok=True)
             tile_plan = dataclasses.replace(plan, grid=tile, paths=Paths(plan.paths.data, work), tiles=None,
-                                            tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ")
+                                            tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ", search_grid=plan.grid)
             data = prepare_data(tile_plan, core)
             found, _ = _lines(tile_plan, data, core, before=count)
             histogram = data.terrain

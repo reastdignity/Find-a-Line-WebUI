@@ -19,9 +19,10 @@ import { useCornersAboveSheet, useCornersBesidePanel } from "./corners";
 import type { Line, RunData } from "../../types";
 import { loadRun } from "../load";
 import { ResultModel } from "../model";
-import { ResultMap, type Padding } from "../ResultMap";
+import { ResultMap, type Choice, type Padding } from "../ResultMap";
 import { Popover, useModel } from "./common";
 import { FilterBar } from "./FilterBar";
+import { LineChooser, type Area } from "./LineChooser";
 import { LineDetails } from "./LineDetails";
 import { LinesTable } from "./LinesTable";
 import { ProfileDock } from "./ProfileDock";
@@ -147,8 +148,31 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
   useCornersAboveSheet(phoneRef, () => map.getContainer(), !wide);
   useCornersBesidePanel(() => map.getContainer(), dockRef, PANEL + 12, 12, wide);
 
+  // The spots a click reached about as near, to choose from (closed by the map moving and by any change of
+  // the model: a selection, a filter)
+  const [choice, setChoice] = useState<{choices: Choice[]; at: {x: number; y: number}} | null>(null);
   useEffect(() => {
-    const resultMap = new ResultMap(map, model);
+    const close = () => setChoice(null);
+    map.on("movestart zoomstart", close);
+    const stop = model.subscribe(close);
+    return () => { map.off("movestart zoomstart", close); stop(); };
+  }, [model]);
+  /** The part of the viewport the map shows free of the panels and the sheet. */
+  const freeArea = (): Area => {
+    const box = map.getContainer().getBoundingClientRect();
+    if (!wideRef.current) {
+      const sheet = phoneRef.current?.querySelector(".u-sheet")?.getBoundingClientRect().top ?? box.bottom;
+      return {left: box.left, top: box.top + 64, right: box.right, bottom: Math.min(box.bottom, sheet)};
+    }
+    const p = padding();
+    return {left: box.left + p.left, top: box.top + p.top, right: box.right - p.right, bottom: box.bottom - p.bottom};
+  };
+
+  useEffect(() => {
+    const resultMap = new ResultMap(map, model, {onChoose: (choices, at) => {
+      const box = map.getContainer().getBoundingClientRect();
+      setChoice({choices, at: {x: box.left + at.x, y: box.top + at.y}});
+    }});
     (window as any).FINDALINE_RESULT = {model, view: resultMap};  // for tests and the browser console
     if (!line) resultMap.fitArea(padding(), false);
     setView(resultMap);
@@ -194,6 +218,9 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
   const pill = <Pill data={data} runs={runs} back={back} wide={wide} onRun={onRun} />;
   const files = {base, folder};
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
+  const chooser = choice && view && <LineChooser key={`${choice.at.x},${choice.at.y}`} model={model} view={view}
+                                                 choices={choice.choices} at={choice.at} area={freeArea()} dock={!wide}
+                                                 onClose={() => setChoice(null)} />;
 
   if (!wide) {
     return <div class="r-ws" ref={phoneRef}>
@@ -209,6 +236,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
         <FilterBar model={model} />
         <LinesTable model={model} view={view} onSelect={reveal} follow={false} />
       </Sheet>
+      {chooser}
     </div>;
   }
   const details = <LineDetails model={model} onZoom={zoom} onStep={reveal} linkOf={link} />;
@@ -222,6 +250,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
     <div class="b-dock" ref={dockRef}>
       <ProfileDock model={model} view={view} measured={measured} onCloseMeasured={closeMeasured} />
     </div>
+    {chooser}
   </div>;
 }
 

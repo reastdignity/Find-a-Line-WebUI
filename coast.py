@@ -21,7 +21,7 @@ import os
 import shutil
 import zipfile
 from datetime import date
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import numpy as np
 import requests
@@ -83,6 +83,20 @@ def _sea_from_coastline(lines, grid: Grid, copernicus_sea: np.ndarray) -> np.nda
 
 
 WORLD_SHAPEFILE = os.path.join("water-polygons-split-4326", "water_polygons.shp")
+# The world file's polygons read last in this process (_world_water): (shapefile, WGS84 box, CRS) →
+# their geometries in that CRS. A tiled search reads them once for its whole grid, and each tile
+# rasterizes those reaching it (reading them for every tile took 0.6 s a tile)
+_WORLD_READ: Dict[tuple, object] = {}
+
+
+def _world_water(shapefile: str, bbox: Tuple[float, float, float, float], crs):
+    """The world file's polygons in bbox (WGS84) as a GeoSeries in crs, read once per box and CRS."""
+    key = (os.path.abspath(shapefile), bbox, str(crs))
+    if key not in _WORLD_READ:
+        import geopandas as gpd
+        _WORLD_READ.clear()  # one search's at a time
+        _WORLD_READ[key] = gpd.read_file(shapefile, bbox=bbox).to_crs(crs).geometry
+    return _WORLD_READ[key]
 
 
 def world_file(cache_dir: str) -> Optional[str]:
@@ -154,9 +168,13 @@ def world_polygons(cache_dir: str, update: Optional[str] = None) -> str:
 
 
 def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
-             update: Optional[str] = None) -> Tuple[np.ndarray, str, Optional[str]]:
+             update: Optional[str] = None, extent: Optional[Grid] = None) -> Tuple[np.ndarray, str, Optional[str]]:
     """Boolean sea mask on the grid.
 
+    extent: the grid of the whole search when grid is one of its tiles (in the same CRS): the
+    world file's polygons are read once for it (_world_water) and each tile rasterizes those whose
+    box reaches it, which burns the same pixels as the polygons read for the tile alone (a polygon
+    away from the tile burns none).
     Returns (mask, description of the source, warning or None).
     """
     if not copernicus_sea.any():
@@ -166,11 +184,12 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
     # The world file holds the same OpenStreetMap data: once downloaded, Overpass is not needed
     downloaded = mode == "overpass" and world_file(cache_dir) is not None
     if mode == "world" or downloaded:
-        import geopandas as gpd
         shapefile = world_polygons(cache_dir, update)
         progress.compute.start("sea mask (world file)", 1, unit="step")
-        water = gpd.read_file(shapefile, bbox=_grid_bbox_wgs84(grid)).to_crs(grid.crs)
-        sea = _rasterize(water.geometry, grid)
+        water = _world_water(shapefile, _grid_bbox_wgs84(extent or grid), grid.crs)
+        if extent is not None:
+            water = water.iloc[np.sort(water.sindex.query(box(*grid.bounds)))]
+        sea = _rasterize(water, grid)
         progress.compute.update(1)
         progress.compute.finish()
         return sea, "OpenStreetMap water polygons (world file)", None
