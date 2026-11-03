@@ -1543,7 +1543,8 @@
       "empty_tiles": 0,
       "source": "ArcticDEM v4.1 mosaic 2 m (Greenland)"
     },
-    "seconds": 33.6
+    "seconds": 33.6,
+    "notes": "--source auto picks greenland (the centre is in GL); 4 blocks of 2 km of subtile 08_41_1_1 read in windows from PGC's bucket in us-west-2 (about 2.5 MB each, under a second a block from Poland) and the EGM2008 grid (cache/geoid/egm2008, 81 MB, once); N is about 42.8 m here; no sea in the circle; 100 % valid on walls of 54 % > 60°; the spots cross the gullies of the Ulamertorsuaq side's wall east of the centre (60.375-60.378 N, 44.546-44.547 W), the best 346 m with 58 m of clearance; 35 506 lines at r 600 m"
   },
   "R59": {
     "place": "The cliffs north of Templet, Tempelfjorden, Svalbard (NO-21): ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 33",
@@ -1568,7 +1569,8 @@
       "empty_tiles": 0,
       "source": "ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)"
     },
-    "seconds": 14.4
+    "seconds": 14.4,
+    "notes": "--source auto picks svalbard (the centre is in NO-21, Nominatim's ISO3166-2-lvl4 at zoom 8); 4 blocks of subtile 35_53; the coastline from the OSM world water polygons; Svalbard's sedimentary slopes give few lines: 35 lines in 2 spots on the cliffs north of Templet (78.4567 N, 17.2863-17.3009 E), the best 62 m with 1.9 m of clearance; the research's point near Longyearbyen (78.1913, 15.1801, the probe's sample) gave 11 lines in 1 spot at r 500 m, a point of the research's wall finder (78.4316, 16.5698) lay on the sea"
   },
   "R60": {
     "place": "Sam Ford fjord, Baffin Island, Nunavut (CA-NU): its granite walls, ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 19",
@@ -1593,6 +1595,7 @@
       "empty_tiles": 0,
       "source": "ArcticDEM v4.1 mosaic 2 m (Nunavut)"
     },
-    "seconds": 5.4
+    "seconds": 5.4,
+    "notes": "--source auto picks nunavut (the centre is in CA-NU); 4 blocks of subtile 22_31_1_2; no sea in the circle; the granite walls of Sam Ford fjord, the spots across their gullies (70.716-70.718 N, 71.423-71.430 W), the best 71 m with 64 m of clearance; r 500 m gave 72 748 lines: narrowed to 350 m"
   }
 }
