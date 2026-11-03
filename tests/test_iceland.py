@@ -36,6 +36,8 @@ def test_declaration():
     assert iceland_source.nmt.geoid is src.EGM2008 and iceland_source.ortho is iceland.IS_ORTHO
     assert IS.crs == "EPSG:8088" and IS.grid_origin == (0.0, 0.0) and IS.default_resolution == 10.0
     assert IS.nmpt is None and IS.ortho is iceland.IS_ORTHO
+    # The mapcache takes about 1 s a tile: detailed tiles for the 20 best groups, circles too (as swisstopo)
+    assert iceland.IS_ORTHO.detail == 20
     assert IS.nmt.folder == "iceland/islandsdem-v1.0-10m" and IS.nmt.ttl_days is None
     lat, lon = iceland.IS_SAMPLE
     assert IS.sample == iceland.IS_SAMPLE

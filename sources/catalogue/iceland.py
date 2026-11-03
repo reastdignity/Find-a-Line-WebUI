@@ -40,11 +40,13 @@ IS_DEM_10M = FileBlocks("IslandsDEM v1.0 10 m (terrain)", "iceland/islandsdem-v1
 # starts at 32 768 m/px, not Google's tiling), asked with each tile's Mercator box (OrthoService.wms_crs); it
 # answers PNG also when JPEG is asked, transparent where it has no imagery (the sea). CC BY 4.0 (its metadata
 # record bd0e7245-2f62-4b2a-82c3-3e6e10b7f9ee on gatt.natt.is), credited in the open data page's pattern
+# Detailed tiles for the 20 best groups only, circles too (as swisstopo): the mapcache takes about 1 s a
+# tile (R61's circle of 700 m wanted 12 498 tiles, 51 min)
 IS_ORTHO = OrthoService(
     "Orthophoto Grunnkort - Loftmynd (Natural Science Institute of Iceland)",
     "https://gis.natt.is/mapcache/web-mercator/wms", "grunnkort-loftmynd", "iceland/grunnkort-loftmynd/live",
     "\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", attribution_url=CC_BY[1],
-    wms_version="1.1.1", wms_crs="EPSG:3857")
+    wms_version="1.1.1", wms_crs="EPSG:3857", detail=20)
 IS_ORTHO_LISTING = "Grunnkort - Loftmynd (Natural Science Institute of Iceland), 25 cm"
 
 # The source `iceland` (ArcticDEM 2 m, its gaps from IslandsDEM, then Copernicus): Iceland with its islands
