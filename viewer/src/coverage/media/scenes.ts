@@ -28,9 +28,11 @@ export function placeCredit(place: string, lang: Lang): string {
   const c = got().contrast.places[place]?.fine.credits[0];
   if (!c) return "";
   // the year of the searches is in the credits (tools/coverage_contrast.py); the licence once, when the
-  // provider's attribution does not name it already ("©Kartverket, CC BY 4.0, processed")
-  const key = c.attribution.includes(c.licence) ? "media.data_credit_short" : "media.data_credit";
-  return ct(lang, key, {attribution: c.attribution, licence: c.licence});
+  // provider's attribution does not name it already ("©Kartverket, CC BY 4.0, processed"); without our
+  // "Data:" when the attribution starts with a label of its own ("Source: …", "Quelle: …")
+  const named = c.attribution.includes(c.licence);
+  if (/^\p{L}+:\s/u.test(c.attribution)) return named ? c.attribution : `${c.attribution} · ${c.licence}`;
+  return ct(lang, named ? "media.data_credit_short" : "media.data_credit", {attribution: c.attribution, licence: c.licence});
 }
 
 /** A title card: the title, a line under it and the logo's line drawn across above it. */
@@ -241,7 +243,7 @@ export function sceneTour(depth: Depth): Scene {
       chip(ctx, th, areaChip(newest, lang), L.wide ? L.pad : W / 2, y, L.body * .85,
         {align: L.wide ? "left" : "center", dot: levelColour(th, areaOf(newest)!.level)});
     }
-    if (!L.wide) legendAboveFooter(f, {partial: false});
+    if (!L.wide) legendAboveFooter(f);
     mapCredit(f);
   };
 }

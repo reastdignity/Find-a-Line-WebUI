@@ -285,7 +285,12 @@ README's GIF and images, and videos and images for Facebook and Instagram (READM
   Alaska is *detailed* (IfSAR 5 m statewide) with a note on its 1 m places, not hatched; Canada, Scotland and Tasmania
   are hatched (detailed in parts); France's overseas regions, Svalbard and the Chatham Islands stay at 30 m; Denmark is
   shown (the VPS has the Datafordeler key); the privacy page is unchanged (the page keeps its language, view and
-  scale in the browser only); the media page is never in dist.
+  scale in the browser only); the media page is never in dist. Wave 2 (`tools/coverage_media.py`): credits keep
+  each provider's wording (our "Data:" left out when it starts with a label of its own); a zoomed map is centred on
+  the middle of its projected box (Equal Earth packs degrees towards the poles: Malta and Puerto Rico fell off the
+  frame); the 9:16 videos keep their empty top band (Instagram's own header covers it); the poster's PDF is our own
+  few lines around the PNG's IDAT data (img2pdf would bring pikepdf and qpdf; the user decides); all 96 videos take
+  about 70 min, so only the set the user picks is rendered.
 - **Open**: the music of the 26 s videos (a track with a licence, from the user); posting the videos and images;
   the phone's first screen of /coverage (header and intro take most of it) and the Leaflet view's Europe preset on
   phones; Firefox shows a fallback font in a run's map opened from disk (fonts in `runs/_viewer/`, outside the

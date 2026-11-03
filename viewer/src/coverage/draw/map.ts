@@ -34,7 +34,11 @@ export function camFor(view: View, box: Box): Camera {
   for (let i = 0; i <= 8; i++) for (const y of [s, n, (s + n) / 2]) pts.push(p([w + (e - w) * i / 8, y])!);
   const xs = pts.map(q => q[0]), ys = pts.map(q => q[1]);
   const k = Math.min(box.w * .92 / (Math.max(...xs) - Math.min(...xs)), box.h * .92 / (Math.max(...ys) - Math.min(...ys)));
-  const cam = {lon, lat, k: view === "world" ? Math.min(k, 1) : k};
+  // the middle of the projected box, not of its latitudes: Equal Earth packs the degrees tighter towards the
+  // poles, so the box's middle latitude lies poleward of its middle and its equator side would fall off the
+  // frame (the world, never zoomed in, keeps its centre)
+  const mid = p.invert!([(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2])!;
+  const cam = view === "world" ? {lon, lat, k: Math.min(k, 1)} : {lon, lat: mid[1], k};
   cameras.set(key, cam);
   return cam;
 }
