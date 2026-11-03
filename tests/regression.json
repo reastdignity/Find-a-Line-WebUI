@@ -1570,7 +1570,7 @@
       "source": "ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)"
     },
     "seconds": 14.4,
-    "notes": "--source auto picks svalbard (the centre is in NO-21, Nominatim's ISO3166-2-lvl4 at zoom 8); 4 blocks of subtile 35_53; the coastline from the OSM world water polygons; Svalbard's sedimentary slopes give few lines: 35 lines in 2 spots on the cliffs north of Templet (78.4567 N, 17.2863-17.3009 E), the best 62 m with 1.9 m of clearance; the research's point near Longyearbyen (78.1913, 15.1801, the probe's sample) gave 11 lines in 1 spot at r 500 m, a point of the research's wall finder (78.4316, 16.5698) lay on the sea"
+    "notes": "--source auto picks svalbard (the centre is in NO-21, Nominatim's ISO3166-2-lvl4 at zoom 8); 4 blocks of subtile 35_52_1_1; the coastline from the OSM world water polygons; Svalbard's sedimentary slopes give few lines: 35 lines in 2 spots on the cliffs north of Templet (78.4567 N, 17.2863-17.3009 E), the best 62 m with 1.9 m of clearance; the research's point near Longyearbyen (78.1913, 15.1801, the probe's sample) gave 11 lines in 1 spot at r 500 m, a point of the research's wall finder (78.4316, 16.5698) lay on the sea"
   },
   "R60": {
     "place": "Sam Ford fjord, Baffin Island, Nunavut (CA-NU): its granite walls, ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 19",
