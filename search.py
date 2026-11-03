@@ -1425,6 +1425,16 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
     rows, cols = _tile_window(grid, tile)
     step = src.filling.strip_rows(tile.width)
 
+    def window(array: np.ndarray, r0: int, r1: int) -> np.ndarray:
+        """Rows [r0, r1) of the tile's window of an area grid, read through a mapping of its own:
+        the pages read leave the process's working set with it (the area's mappings of `data`
+        would keep them resident through steps 2-4 of every tile)."""
+        source = np.load(array.filename, mmap_mode="r")
+        try:
+            return np.array(source[rows.start + r0:rows.start + r1, cols])
+        finally:
+            del source
+
     def copy(array: Optional[np.ndarray], name: str) -> Optional[np.ndarray]:
         if array is None:
             return None
@@ -1432,14 +1442,14 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
         out = np.lib.format.open_memmap(path, mode="w+", dtype=array.dtype, shape=(tile.height, tile.width))
         for r0 in range(0, tile.height, step):
             r1 = min(tile.height, r0 + step)
-            out[r0:r1] = array[rows.start + r0:rows.start + r1, cols]
+            out[r0:r1] = window(array, r0, r1)
         out.flush()
         del out
         return np.load(path, mmap_mode="r")
 
     return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
                 copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
-                np.array(data.mask[rows, cols], dtype=bool), terrain)
+                window(data.mask, 0, tile.height), terrain)
 
 
 def _remove_grids(work: str):
