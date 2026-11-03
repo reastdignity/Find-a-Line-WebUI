@@ -19,7 +19,8 @@ layer's own path into the cache of --data-dir:
    downsamples).
 3. files: --samples cached tiles against their source files read through GDAL (/vsicurl/,
    /vsizip/): the largest difference, the share of equal values, the same pixels without
-   data (blocks: against the newest file with data there). n/a for WCS tiles and local files.
+   data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
+   against the files after its geoid's correction, as it caches them). n/a for WCS tiles and local files.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
 6. missing: tiles the service had no data for (normal over the sea; on land a lost tile).
@@ -348,6 +349,10 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_xyz(url, profile)
                 else:
                     source = _read_source(url, profile, resampling)
+                geoid = getattr(layer, "geoid", None)
+                if geoid is not None:  # heights above the ellipsoid: the layer caches them above its geoid
+                    source -= geoid.undulation(profile["crs"], profile["transform"],
+                                               (profile["height"], profile["width"]), grid=geoid.ensure(cache_dir))
             except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
                 break

@@ -1,0 +1,638 @@
+[
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 60.3786,
+   "lon": -44.5502,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:03+00:00",
+  "answer": {
+   "place_id": 273564929,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2184073,
+   "lat": "77.6192349",
+   "lon": "-42.8125967",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.7203519537297557,
+   "addresstype": "country",
+   "name": "Kalaallit Nunaat",
+   "display_name": "Kalaallit Nunaat",
+   "address": {
+    "country": "Kalaallit Nunaat",
+    "country_code": "gl"
+   },
+   "boundingbox": [
+    "59.5153870",
+    "83.8751720",
+    "-74.1250416",
+    "-10.0288759"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 60.3786,
+   "lon": -44.5502,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:04+00:00",
+  "answer": {
+   "place_id": 285489057,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 8512366,
+   "lat": "61.0000000",
+   "lon": "-45.0000000",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.5030392764316368,
+   "addresstype": "municipality",
+   "name": "Kujalleq",
+   "display_name": "Kujalleq, Kalaallit Nunaat",
+   "address": {
+    "municipality": "Kujalleq",
+    "ISO3166-2-lvl4": "GL-KU",
+    "country": "Kalaallit Nunaat",
+    "country_code": "gl"
+   },
+   "boundingbox": [
+    "59.5153870",
+    "62.7580642",
+    "-49.0314758",
+    "-41.2533175"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 70.7073,
+   "lon": -52.1184,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:05+00:00",
+  "answer": {
+   "place_id": 271564468,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2184073,
+   "lat": "77.6192349",
+   "lon": "-42.8125967",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.7203519537297557,
+   "addresstype": "country",
+   "name": "Kalaallit Nunaat",
+   "display_name": "Kalaallit Nunaat",
+   "address": {
+    "country": "Kalaallit Nunaat",
+    "country_code": "gl"
+   },
+   "boundingbox": [
+    "59.5153870",
+    "83.8751720",
+    "-74.1250416",
+    "-10.0288759"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 70.7073,
+   "lon": -52.1184,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:06+00:00",
+  "answer": {
+   "place_id": 271709008,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 8514493,
+   "lat": "76.5049265",
+   "lon": "-56.2911976",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 8,
+   "importance": 0.4908142378952293,
+   "addresstype": "municipality",
+   "name": "Avannaata",
+   "display_name": "Avannaata, Kalaallit Nunaat",
+   "address": {
+    "municipality": "Avannaata",
+    "ISO3166-2-lvl4": "GL-AV",
+    "country": "Kalaallit Nunaat",
+    "country_code": "gl"
+   },
+   "boundingbox": [
+    "68.7987780",
+    "81.4549833",
+    "-74.1250416",
+    "-43.9999972"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 78.1913,
+   "lon": 15.1801,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:07+00:00",
+  "answer": {
+   "place_id": 41684640,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2978650,
+   "lat": "61.1529386",
+   "lon": "8.7876653",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.8781324675124682,
+   "addresstype": "country",
+   "name": "Norge",
+   "display_name": "Norge",
+   "address": {
+    "country": "Norge",
+    "country_code": "no"
+   },
+   "boundingbox": [
+    "-54.6540000",
+    "81.0280176",
+    "-9.6846279",
+    "34.6889114"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 78.1913,
+   "lon": 15.1801,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:09+00:00",
+  "answer": {
+   "place_id": 271797674,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 1337397,
+   "lat": "78.7198519",
+   "lon": "20.3493328",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.6402388561257462,
+   "addresstype": "region",
+   "name": "Svalbard",
+   "display_name": "Svalbard, 9170, Norge",
+   "address": {
+    "region": "Svalbard",
+    "ISO3166-2-lvl4": "NO-21",
+    "postcode": "9170",
+    "country": "Norge",
+    "country_code": "no"
+   },
+   "boundingbox": [
+    "74.1354451",
+    "81.0280176",
+    "9.4208924",
+    "34.6889114"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 71.08,
+   "lon": -8.16,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:10+00:00",
+  "answer": {
+   "place_id": 41684640,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2978650,
+   "lat": "61.1529386",
+   "lon": "8.7876653",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.8781324675124682,
+   "addresstype": "country",
+   "name": "Norge",
+   "display_name": "Norge",
+   "address": {
+    "country": "Norge",
+    "country_code": "no"
+   },
+   "boundingbox": [
+    "-54.6540000",
+    "81.0280176",
+    "-9.6846279",
+    "34.6889114"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 71.08,
+   "lon": -8.16,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:11+00:00",
+  "answer": {
+   "place_id": 273832345,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 1337126,
+   "lat": "70.9951725",
+   "lon": "-8.4656563",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.5747659800115827,
+   "addresstype": "county",
+   "name": "Jan Mayen",
+   "display_name": "Jan Mayen, Norge",
+   "address": {
+    "county": "Jan Mayen",
+    "ISO3166-2-lvl4": "NO-22",
+    "country": "Norge",
+    "country_code": "no"
+   },
+   "boundingbox": [
+    "70.6261416",
+    "71.3598156",
+    "-9.6846279",
+    "-7.3126893"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 70.7175,
+   "lon": -71.4268,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:12+00:00",
+  "answer": {
+   "place_id": 378306621,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 1428125,
+   "lat": "61.0666922",
+   "lon": "-107.9917070",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9082390417046676,
+   "addresstype": "country",
+   "name": "Canada",
+   "display_name": "Canada",
+   "address": {
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "41.6765597",
+    "83.3362128",
+    "-141.0027500",
+    "-52.3237664"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 70.7175,
+   "lon": -71.4268,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:13+00:00",
+  "answer": {
+   "place_id": 279575216,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 9493166,
+   "lat": "76.9053119",
+   "lon": "-93.5025588",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 10,
+   "importance": 0.5052091181945576,
+   "addresstype": "county",
+   "name": "ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region",
+   "display_name": "ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region, ᓄᓇᕗᑦ Nunavut, Canada",
+   "address": {
+    "county": "ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region",
+    "state": "ᓄᓇᕗᑦ Nunavut",
+    "ISO3166-2-lvl4": "CA-NU",
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "51.1607309",
+    "83.3362128",
+    "-110.0033080",
+    "-59.6136767"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 63.75,
+   "lon": -68.52,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:15+00:00",
+  "answer": {
+   "place_id": 374811921,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 1428125,
+   "lat": "61.0666922",
+   "lon": "-107.9917070",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9082390417046676,
+   "addresstype": "country",
+   "name": "Canada",
+   "display_name": "Canada",
+   "address": {
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "41.6765597",
+    "83.3362128",
+    "-141.0027500",
+    "-52.3237664"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 63.75,
+   "lon": -68.52,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:16+00:00",
+  "answer": {
+   "place_id": 374540795,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "way",
+   "osm_id": 680609420,
+   "lat": "63.7366419",
+   "lon": "-68.5227046",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.24005854352635994,
+   "addresstype": "county",
+   "name": "ᐃᖃᓗᐃᑦ",
+   "display_name": "ᐃᖃᓗᐃᑦ, ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region, ᓄᓇᕗᑦ Nunavut, Canada",
+   "address": {
+    "county": "ᐃᖃᓗᐃᑦ",
+    "state": "ᓄᓇᕗᑦ Nunavut",
+    "ISO3166-2-lvl4": "CA-NU",
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "63.7085246",
+    "63.7763427",
+    "-68.6012079",
+    "-68.4254267"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 66.54,
+   "lon": -65.326,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:18+00:00",
+  "answer": {
+   "place_id": 370949224,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 1428125,
+   "lat": "61.0666922",
+   "lon": "-107.9917070",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9082390417046676,
+   "addresstype": "country",
+   "name": "Canada",
+   "display_name": "Canada",
+   "address": {
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "41.6765597",
+    "83.3362128",
+    "-141.0027500",
+    "-52.3237664"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 66.54,
+   "lon": -65.326,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:19+00:00",
+  "answer": {
+   "place_id": 275659797,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 9493166,
+   "lat": "76.9053119",
+   "lon": "-93.5025588",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 10,
+   "importance": 0.5052091181945576,
+   "addresstype": "county",
+   "name": "ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region",
+   "display_name": "ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region, ᓄᓇᕗᑦ Nunavut, Canada",
+   "address": {
+    "county": "ᕿᑭᖅᑖᓗᒃ Qikiqtaaluk Region",
+    "state": "ᓄᓇᕗᑦ Nunavut",
+    "ISO3166-2-lvl4": "CA-NU",
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "51.1607309",
+    "83.3362128",
+    "-110.0033080",
+    "-59.6136767"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 62.45,
+   "lon": -114.37,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:20+00:00",
+  "answer": {
+   "place_id": 374811921,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 1428125,
+   "lat": "61.0666922",
+   "lon": "-107.9917070",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.9082390417046676,
+   "addresstype": "country",
+   "name": "Canada",
+   "display_name": "Canada",
+   "address": {
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "41.6765597",
+    "83.3362128",
+    "-141.0027500",
+    "-52.3237664"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 62.45,
+   "lon": -114.37,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:21+00:00",
+  "answer": {
+   "place_id": 374258903,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 9476822,
+   "lat": "62.4540807",
+   "lon": "-114.3773850",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.5308406893277706,
+   "addresstype": "city",
+   "name": "Yellowknife",
+   "display_name": "Yellowknife, North Slave Region, Northwest Territories, Canada",
+   "address": {
+    "city": "Yellowknife",
+    "county": "North Slave Region",
+    "state": "Northwest Territories",
+    "ISO3166-2-lvl4": "CA-NT",
+    "country": "Canada",
+    "country_code": "ca"
+   },
+   "boundingbox": [
+    "62.4081428",
+    "62.5416714",
+    "-114.5181760",
+    "-114.2999970"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 58.9864,
+   "lon": 6.1904,
+   "zoom": 3
+  },
+  "fetched_at": "2026-11-03T07:14:22+00:00",
+  "answer": {
+   "place_id": 42009642,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 2978650,
+   "lat": "61.1529386",
+   "lon": "8.7876653",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 4,
+   "importance": 0.8781324675124682,
+   "addresstype": "country",
+   "name": "Norge",
+   "display_name": "Norge",
+   "address": {
+    "country": "Norge",
+    "country_code": "no"
+   },
+   "boundingbox": [
+    "-54.6540000",
+    "81.0280176",
+    "-9.6846279",
+    "34.6889114"
+   ]
+  }
+ },
+ {
+  "query": {
+   "format": "jsonv2",
+   "lat": 58.9864,
+   "lon": 6.1904,
+   "zoom": 8
+  },
+  "fetched_at": "2026-11-03T07:14:23+00:00",
+  "answer": {
+   "place_id": 158947794,
+   "licence": "Data © OpenStreetMap contributors, ODbL 1.0. http://osm.org/copyright",
+   "osm_type": "relation",
+   "osm_id": 405836,
+   "lat": "58.9363138",
+   "lon": "5.8058786",
+   "category": "boundary",
+   "type": "administrative",
+   "place_rank": 12,
+   "importance": 0.6048391818191322,
+   "addresstype": "county",
+   "name": "Rogaland",
+   "display_name": "Rogaland, Norge",
+   "address": {
+    "county": "Rogaland",
+    "ISO3166-2-lvl4": "NO-11",
+    "country": "Norge",
+    "country_code": "no"
+   },
+   "boundingbox": [
+    "58.0278534",
+    "59.8445742",
+    "4.4542745",
+    "7.2146667"
+   ]
+  }
+ }
+]

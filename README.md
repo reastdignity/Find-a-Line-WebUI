@@ -91,7 +91,10 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | – (USGS's Alaska imagery: licence restrictions) | 5 m | `canada` at the border, then `usgs10m` |
 | `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `canada` at the border, then `usgs10m` |
 | `usgs10m` | USA and its territories | – | USGS 3DEP seamless 1/3 arc-second DEM (about 10 m) | – | USGS Imagery | 10 m | `europe` |
-| `canada` | Canada, where it has lidar | CA | NRCan HRDEM national mosaic DTM, 1 m | NRCan HRDEM national mosaic DSM, 1 m | – (no national orthophoto service) | 1 m | `usa`, `alaska`, `alaska_ifsar` at the border, then `canada_2m`, then `mrdem30` |
+| `greenland` | Greenland | GL | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | – (no open orthophoto service) | 2 m | `copernicus` |
+| `svalbard` | Svalbard and Jan Mayen (NO) | NO | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | Norwegian Polar Institute orthophoto (Svalbard) | 2 m | `copernicus` |
+| `nunavut` | Nunavut (CA) | CA | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | – (no national orthophoto service) | 2 m | `canada` at the border, then `mrdem30` |
+| `canada` | Canada, where it has lidar | CA | NRCan HRDEM national mosaic DTM, 1 m | NRCan HRDEM national mosaic DSM, 1 m | – (no national orthophoto service) | 1 m | `usa`, `alaska`, `alaska_ifsar`, `nunavut` at the border, then `canada_2m`, then `mrdem30` |
 | `canada_2m` | Canada, where it has lidar | – | NRCan HRDEM national mosaic DTM, 2 m | NRCan HRDEM national mosaic DSM, 2 m | – (no national orthophoto service) | 2 m | `mrdem30` |
 | `mrdem30` | Canada | – | NRCan MRDEM-30 DTM, 30 m | NRCan MRDEM-30 DSM, 30 m | – (no national orthophoto service) | 30 m | – |
 | `slovenia` | Slovenia | SI | ARSO LiDAR DMR 1 m (2011-2015) | – | GURS DOF050 | 1 m | `austria` at the border, then `europe` |
@@ -123,6 +126,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `queensland_demh` | Queensland (AU) | – | Geoscience Australia DEM-H 30 m (from Queensland's service) | – | – | 30 m | – |
 | `islandsdem10` | Iceland | – | IslandsDEM v1.0, 10 m | – | Grunnkort - Loftmynd (Natural Science Institute of Iceland), 25 cm | 10 m | – |
 | `europe` | anywhere | – | [FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, 30 m (trees and buildings removed) | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m | – | 30 m | – |
+| `copernicus` | anywhere (the gap filler of the Arctic sources) | – | [Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m (a surface model) | – | – | 30 m | – |
 | `nasadem` | anywhere | – | NASADEM 30 m via the [OpenTopography API](https://portal.opentopography.org/apidocs/) | – | – | 30 m | `europe` |
 | `files` | your files | – | `--elevation-file` | `--surface-file` (optional) | – | the file's | `europe` |
 <!-- sources-table:end -->
@@ -283,7 +287,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--area` / `--buffer` / `--within` | – / 100 / – | Search an area instead of a circle: `coast`, `cliffs`, a GeoJSON/KML/GPX file or `osm:<name>`; `--buffer` around coastline, cliffs, points and lines; `--within` (needed for `coast` and `cliffs`): `osm:<name>` takes the coastline or cliffs within `--max-length` of that area, a box `S,W,N,E` clips the band |
 | `--tile-size` | from the free memory | Side of the square tiles a large area is computed in, metres |
 | `--ortho-detail` | 50 for an area, all for a circle; swisstopo: 20 | Detailed orthophoto only around this many best groups; the others load it online |
-| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `czechia`, `geoportal`, `france`, `france_rgealti`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `canada`, `canada_2m`, `mrdem30`, `slovenia`, `austria`, `scotland`, `wales`, `england`, `hesse`, `mecklenburg_vorpommern`, `saxony_anhalt`, `lower_saxony`, `saxony`, `baden_wurttemberg`, `bavaria`, `rhineland_palatinate`, `north_rhine_westphalia`, `brandenburg`, `schleswig_holstein`, `south_tyrol`, `trento`, `luxembourg`, `denmark`, `finland`, `norway`, `new_zealand`, `nz8m`, `tasmania`, `queensland`, `queensland_demh`, `islandsdem10`, `europe`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
+| `--source` | `auto` | Data source: <!-- source-ids:start -->`auto`, `czechia`, `geoportal`, `france`, `france_rgealti`, `swisstopo`, `slovakia`, `malta`, `malta2012`, `spain_canarias`, `spain`, `alaska`, `alaska_ifsar`, `usa`, `usgs10m`, `greenland`, `svalbard`, `nunavut`, `canada`, `canada_2m`, `mrdem30`, `slovenia`, `austria`, `scotland`, `wales`, `england`, `hesse`, `mecklenburg_vorpommern`, `saxony_anhalt`, `lower_saxony`, `saxony`, `baden_wurttemberg`, `bavaria`, `rhineland_palatinate`, `north_rhine_westphalia`, `brandenburg`, `schleswig_holstein`, `south_tyrol`, `trento`, `luxembourg`, `denmark`, `finland`, `norway`, `new_zealand`, `nz8m`, `tasmania`, `queensland`, `queensland_demh`, `islandsdem10`, `europe`, `copernicus`, `nasadem`, `files`<!-- source-ids:end --> (see *Data sources*) |
 | `--elevation-file` / `--surface-file` | | Your own terrain / surface raster (GeoTIFF, ASC...) |
 | `--water` | `fill` | Fill the sea and lakes where the data has none (`off` to skip) |
 | `--coastline` | `overpass` | Where the sea is: `overpass`, `world` or `copernicus` (see *Sea, lakes and gaps*) |

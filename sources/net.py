@@ -79,6 +79,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # published limits (its open data page, read 2026-11-03, says nothing on automated use): courtesy
     "ftp.natt.is": 4,
     "gis.natt.is": 4,
+    # Norsk Polarinstitutt's map services (Svalbard's orthophoto tiles): its terms (https://geodata.npolar.no/
+    # bruksvilkar, read 2026-11-02) reserve "the right ... to limit use (limiting number of service calls etc.)"
+    # without a number: courtesy
+    "geodata.npolar.no": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

@@ -237,7 +237,9 @@ GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", 
                      "de-by": "bayern", "de-rp": "rheinland-pfalz",
                      "gb-sct": "scotland", "de-nw": "nordrhein-westfalen", "it-tn": "nord-est",
                      "au-tas": "tasmania", "au-qld": "queensland",
-                     "de-bb": "brandenburg", "de-be": "brandenburg", "de-sh": "schleswig-holstein"}
+                     "de-bb": "brandenburg", "de-be": "brandenburg", "de-sh": "schleswig-holstein",
+                     # Geofabrik's Norway holds Svalbard and Jan Mayen (its outline reaches 81° N and 11.4° W)
+                     "no-21": "norway", "no-22": "norway"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",)}
 
