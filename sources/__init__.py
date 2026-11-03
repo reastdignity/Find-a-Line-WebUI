@@ -36,7 +36,7 @@ source) names its licence and the notice its data must be shown with (`Credit`):
 each run records them for the layers it used (run.json, the map, ATTRIBUTION.txt).
 
 The modules, each importing only those before it: net (HTTP, host slots, tile locks),
-credit, layer, composed (a layer of an index and a reader), readers/, indexes/, source,
+vertical (geoid grids), credit, layer, composed (a layer of an index and a reader), readers/, indexes/, source,
 layers/, catalogue/, choose (the source of a search), mosaic (layers on the working grid),
 filling (water and gaps). This package re-exports what the rest of the app uses. The names
 tests patch (net._get, net._sleep, choose.country_code, layer.DOWNLOAD_THREADS) are not
@@ -51,6 +51,11 @@ from .layers import blocks, degree, fileblocks, files, gridtiles, imageserver, i
 from .layers import s3blocks
 from .catalogue import austria, canada, czechia, denmark, finland, france, germany, italy, luxembourg, malta, new_zealand, norway, poland, slovakia, spain, switzerland, uk, usa, world
 from .catalogue import australia
+from .catalogue import slovenia
+from .catalogue import arctic
+from . import vertical
+from .vertical import EGM2008, Geoid, GeoidMissing
+from .catalogue import iceland
 from .net import HOST_SLOTS_OF, host_slot, tile_lock
 from .credit import CC_BY, YEAR, YEAR_TEXT, Credit, OSM_CREDIT, dated, dated_credit
 from .layer import Fetched, Layer, download_layers
@@ -72,6 +77,7 @@ from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.metalink import MetalinkTiles
 from .layers.s3blocks import S3Blocks
+from .layers.geojson import GeoJsonTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
@@ -89,4 +95,4 @@ __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "OrthoService", "Credit", "CC_
            "WATER_MASK", "WATER_MASK_CREDIT", "OFFLINE_BOXES", "choose_source", "source_unavailable", "used_data",
            "prepare_layer", "build_mosaic", "load_slope_file", "water_body_mask", "near", "fill_water",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
-           "_survey_year", "MetalinkTiles", "S3Blocks"]
+           "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing"]

@@ -808,7 +808,7 @@ def prepare_data(plan: Plan) -> Data:
             if surface_path and plan.obstacles:
                 bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
             water_path = src.fill_water(elevation_path, surface_path, grid, wbm, sea_zone,
-                                        os.path.join(work, "water.npy"))
+                                        os.path.join(work, "water.npy"), sea_value=source.sea_fill)
             del wbm
             if bare is not None:
                 bare &= np.load(water_path)  # water the terrain model lacked: no obstacles there

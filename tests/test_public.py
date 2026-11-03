@@ -3309,7 +3309,8 @@ def test_satellite_key(tmp_path, clip_run, settings, account_settings, providers
         assert _app_flags(signed.get("/runs/runs.js").text) == {"profiles": True, "favourites": True}
         assert _app_flags(anonymous.get("/s/runs.js").text) == {"profiles": False, "favourites": False}
         about = anonymous.get("/about").text
-        assert "Esri" not in about and "arcgis" not in about.lower()
+        # Esri's host (other providers serve their data from ArcGIS servers of their own: Queensland)
+        assert "Esri" not in about and "arcgis.com" not in about.lower()
 
     monkeypatch.setenv("ESRI_API_KEY", ESRI_KEY)
     signed, anonymous = clients()

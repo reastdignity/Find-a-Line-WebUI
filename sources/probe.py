@@ -9,7 +9,10 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
 - read: the first tile's file asked for one byte (Range: bytes=0-0); a WCS a GetCoverage of
   16 x 16 pixels; a WMS-R (WmsrTiles) a GetMap of 16 x 16 pixels of the first tile; an ImageServer an
   exportImage of 16 x 16 pixels (a TIFF, not an error); blocks of big fixed files (FileBlocks) a window of
-  16 x 16 pixels of the first block's file; a local mirror is looked for on disk;
+  16 x 16 pixels of the first block's file (one of heights above the ellipsoid also its geoid grid: in the
+  cache, or its address answering a HEAD with its size; never downloaded); a local mirror is looked for on disk; a
+  plain XYZ file
+  (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
 - the orthophoto: one base tile at the sample, or the WMS's GetCapabilities.
@@ -59,11 +62,13 @@ from .layers.indexed import IndexedTiles
 from .layers.blocks import DegreeBlocks
 from .layers.fileblocks import FileBlocks
 from .readers.windows import _forget, _read_window, _same_crs
+from .vertical import Geoid
 from .layers.gridtiles import GridTiles
 from .readers.tilebases import grid_tile_name
 from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
+from .layers.geojson import GeoJsonTiles
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -74,6 +79,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
+    (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"))
@@ -136,7 +142,7 @@ def _http(url: str, params=None, headers: Optional[Dict] = None) -> Tuple[int, s
     """GET (streamed): status, content type and the first KB of the body (from several chunks: MapServer
     sends its XML declaration alone first). Patched by the tests."""
     with requests.get(url, params=params, headers={**cache.http_headers(), **(headers or {})},
-                      timeout=REQUEST_TIMEOUT_S, stream=True) as response:
+                      timeout=REQUEST_TIMEOUT_S, stream=True, verify=net.verify(url)) as response:
         body = b""
         for chunk in response.iter_content(1024):
             body += chunk
@@ -181,6 +187,22 @@ def _read(cache_dir: str, url: Optional[str]) -> str:
     return ""
 
 
+def _xyz_head(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
+    """The first KB of a tile's plain XYZ file (no Range: the stream is closed after it); raises unless it
+    is text/plain whose first line holds three numbers (an outdated link answers an HTML page)."""
+    url = layer.index.request(tile).url
+    status, kind, body = _ask(cache_dir, url)
+    first = body.split(b"\n", 1)[0].split()
+    try:
+        numbers = len([float(v) for v in first]) == 3
+    except ValueError:
+        numbers = False
+    if status != 200 or not kind.startswith("text/plain") or not numbers:
+        text = " ".join(body[:200].decode("utf-8", "replace").split())
+        raise RuntimeError(f"HTTP {status} {kind} {text}")
+    return ""
+
+
 def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
     """WINDOW_PX x WINDOW_PX pixels at the top left of a block, from its first file; raises with the
     reason. A read GDAL could not complete although it returned (net.gdal_errors: what it could not
@@ -205,6 +227,24 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
     if not share:
         raise RuntimeError(f"no data in a window of {name}")
     return f"window {100 * share:.0f}% with data"
+
+
+def _geoid(cache_dir: str, geoid: Geoid) -> str:
+    """The geoid grid of a layer of heights above the ellipsoid: in the data folder's cache, or else at its address
+    with its size (a HEAD: nothing downloaded; the first search that needs it downloads it). Made the grid a
+    --deep read uses when it is cached; raises with the reason when its address does not answer as expected."""
+    path = geoid.located(cache_dir)
+    if path:
+        geoid.grid = path
+        return f"{geoid.name} grid cached"
+    with host_slot(cache_dir, geoid.url):
+        net.rate_turn(geoid.url)
+        response = requests.head(geoid.url, headers=cache.http_headers(), timeout=REQUEST_TIMEOUT_S,
+                                 allow_redirects=True, verify=net.verify(geoid.url))
+    size = int(response.headers.get("content-length") or 0)
+    if response.status_code != 200 or size != geoid.size:
+        raise RuntimeError(f"{geoid.name} grid: HTTP {response.status_code}, {size} bytes ({geoid.size} expected)")
+    return f"{geoid.name} grid not cached ({geoid.size / 1e6:.0f} MB, downloaded by the first search)"
 
 
 def _coverage(cache_dir: str, layer: WcsTiles, lat: float, lon: float) -> Tuple[str, str]:
@@ -256,7 +296,7 @@ def _image_service(cache_dir: str, layer: ImageServerTiles, lat: float, lon: flo
     (x,), (y,) = warp("EPSG:4326", layer.crs, [lon], [lat])
     res, (ox, oy) = layer.native_res, layer.origin
     left, bottom = math.floor((x - ox) / res - 8) * res + ox, math.floor((y - oy) / res - 8) * res + oy
-    reader = layer.reader
+    reader = layer.readers[layer.crs]  # a layer with zones: its default CRS
     status, _, body = _ask(cache_dir, reader.export_url,
                            reader.export_params(left, bottom, left + 16 * res, bottom + 16 * res, res))
     if status != 200 or body[:4] not in TIFF_MAGIC:
@@ -310,7 +350,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind == "index":
+        if kind in ("index", "text"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -323,12 +363,17 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
             row.notes.append("read only with --deep (the key's calls are limited)")
             return row
         try:
+            geoid = getattr(layer, "geoid", None)
+            if geoid is not None:
+                row.notes.append(_geoid(cache_dir, geoid))
             if deep:
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
             elif kind == "window":
                 row.notes.append(_window(cache_dir, layer, tiles[0]))
             elif kind == "getmap":
                 _getmap(cache_dir, layer, tiles[0])
+            elif kind == "text":
+                _xyz_head(cache_dir, layer, tiles[0])
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:

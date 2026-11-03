@@ -49,7 +49,7 @@ SOURCES: List[Source] = [
                     "Datafordeler's WCS, ETRS89 / UTM 32N, DVR90",
         nmt=_dhm("dhm_terraen", "dhm-terraen", "DHM/Terraen 0.4 m (terrain)"),
         nmpt=_dhm("dhm_overflade", "dhm-overflade", "DHM/Overflade 0.4 m (trees, buildings)"),
-        countries=("dk",), crs="EPSG:25832", credits=(DHM_CREDIT,),
+        countries=("dk",), crs="EPSG:25832", credits=(DHM_CREDIT,), neighbours=("schleswig_holstein",),
         listing=ReadmeRow("Denmark", "Klimadatastyrelsen DHM/Terræn, 0.4 m (WCS, API key)",
                           "Klimadatastyrelsen DHM/Overflade, 0.4 m (WCS, API key)"),
         # Jutland and the islands north of the border, the southern islands (Aero, Langeland, Lolland,
