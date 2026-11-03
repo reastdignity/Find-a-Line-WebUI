@@ -280,6 +280,75 @@ def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
     assert "Note: Data © Someone 2031." in "\n".join(events)
 
 
+def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
+    """estimate_search's working grids (search.work_bytes) are what step 1 writes into the work folder:
+    terrain and surface, the obstacles, the water body mask, the water, a fallback's terrain and surface
+    and its filled pixels, each the size of the grid (a sea and gaps on land that the fallback fills)."""
+    import search
+    import sources as src
+    from params import SearchParams
+    left, top, size = 500000, 300000, 240
+    terrain = np.full((size, size), 240.0)
+    terrain[:, 100:140] = 200.0
+    terrain[:, 200:] = np.nan  # the sea (the water body mask's ocean) without data
+    terrain[30:50, 30:60] = np.nan  # a gap on land: the fallback's
+    surface = terrain + 3.0
+    surface[150:170, 60:80] = np.nan  # a gap of the surface model only
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+    write_raster(tmp_path / "fallback.tif", np.full((size, size), 238.0), left, top)
+    water = np.zeros((size, size), np.uint8)
+    water[:, 205:] = src.OCEAN
+    water[100:110, 20:30] = src.LAKE
+    with rio.open(tmp_path / "wbm.tif", "w", driver="GTiff", width=size, height=size, count=1, dtype="uint8",
+                  crs="EPSG:2180", transform=from_origin(left, top, 1, 1)) as dst:
+        dst.write(water, 1)
+
+    class _WaterFile(src.FileLayer):  # the water body mask from a file: no tiles of the cache
+        def tiles(self, grid):
+            return []
+
+        def files(self, grid, cache_dir):
+            return [self.path]
+
+    mask = _WaterFile("Water body mask file", str(tmp_path / "wbm.tif"))
+    monkeypatch.setattr(src, "WATER_MASK", mask)
+    monkeypatch.setattr(src.filling, "WATER_MASK", mask)
+    credit = src.Credit("fallback", "© fallback", "CC BY 4.0", "https://example.org")
+    monkeypatch.setitem(src.SOURCES, "test_fallback", src.Source(
+        id="test_fallback", name="test fallback", description="fallback",
+        nmt=src.FileLayer("Fallback terrain", str(tmp_path / "fallback.tif")), credits=(credit,)))
+    choose = src.choose_source
+
+    def with_fallback(*args, **kwargs):
+        source, reason = choose(*args, **kwargs)
+        source.fallback = "test_fallback"
+        return source, reason
+    monkeypatch.setattr(src, "choose_source", with_fallback)
+    for name, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(name, value)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
+                          water="fill", fill_gaps="on", coastline="copernicus", ortho="never",
+                          northing=top - size / 2, easting=left + size / 2, radius=110, resolution=1)
+    plan = search.plan_search(params, paths, lambda kind, text: None)
+    assert plan.obstacles and plan.nmpt and plan.source.fallbacks == ["test_fallback"]
+    data = search.prepare_data(plan)
+    assert data.filled is not None and data.filled.any() and data.water.any()
+    written = {}
+    for path in glob.glob(str(tmp_path / "work" / "**" / "*.npy"), recursive=True):
+        grid = np.load(path, mmap_mode="r")
+        assert grid.shape == (plan.grid.height, plan.grid.width), path
+        written[os.path.basename(path)] = grid.nbytes
+        del grid
+    del data
+    assert sorted(written) == ["filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "nmpt.npy", "nmt.npy", "obstacles.npy",
+                               "water.npy", "wbm.npy"]
+    pixels = plan.grid.height * plan.grid.width
+    assert sum(written.values()) == search.work_bytes(plan) * pixels == 23 * pixels
+    assert search.estimate_search(plan).work_gb == 23 * pixels / 1e9
+
+
 def _fake_orthophoto(http_server, monkeypatch, folder: str = "fake/ortho/live"):
     """A service of tiles only (like SWISSIMAGE) on the test server, answering every tile with one
     JPEG, attached to the source of the local files; its requests are http_server.requests("/tiles/")."""

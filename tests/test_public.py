@@ -2967,12 +2967,12 @@ def test_memory_of_compute_slots(tmp_path, monkeypatch):
     budget = search.slot_memory(vps)
     quick = search.memory_needed(search.MAX_MEASURED_PX ** 2, 0)
     assert budget == int((20 * gib - quick - 2 * search.DOWNLOAD_PROCESS_BYTES) // 3)
-    assert 5 * gib < budget < 5.5 * gib
-    # The largest public search fits into one of the VPS's three slots, not into one of four
+    assert 5.5 * gib < budget < 6 * gib
+    # The largest public search fits into one of the VPS's three slots, not into one of eight
     assert search.memory_warning(vps, budget) is None
-    four = vps.model_copy(update={"compute_slots": 4})
-    warning = search.memory_warning(four, search.slot_memory(four))
-    assert warning and "for each of 4 compute slots" in warning and "FINDALINE_LIMIT_COMPUTE_SLOTS" in warning
+    eight = vps.model_copy(update={"compute_slots": 8})
+    warning = search.memory_warning(eight, search.slot_memory(eight))
+    assert warning and "for each of 8 compute slots" in warning and "FINDALINE_LIMIT_COMPUTE_SLOTS" in warning
     assert search.memory_warning(vps) is None  # one slot's warning: the memory free now
 
     # The budget is the search's memory and sizes its tiles, with limits or without

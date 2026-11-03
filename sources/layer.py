@@ -62,8 +62,10 @@ def _extent(path: str) -> Tuple[int, float]:
         return 0, 0.0
 
 
-def _clean(band: np.ndarray, zero_is_nodata: bool = False) -> np.ndarray:
-    band = band.astype(np.float32)
+def _clean(band: np.ndarray, zero_is_nodata: bool = False, copy: bool = True) -> np.ndarray:
+    """The band as float32 with NaN below VALID_MIN (and at 0 with zero_is_nodata); copy False:
+    in place when it is float32 already (an array of the caller's own)."""
+    band = band.astype(np.float32, copy=copy)
     band[band < VALID_MIN] = np.nan
     if zero_is_nodata:
         band[band == 0.0] = np.nan

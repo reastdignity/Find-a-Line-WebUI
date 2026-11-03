@@ -378,7 +378,8 @@ def test_estimate_lists_the_layers_at_once():
             return self.n, self.n, self.n * 10.0
     lines = []
     plan = types.SimpleNamespace(
-        params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None),
+        params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None, fill_gaps="off"),
+        nmpt="mark", obstacles=None,
         emit=lambda kind, text: lines.append(text), layers=[Layer("terrain", 2), Layer("surface", 3)],
         grid=Grid(left=0.0, top=1000.0, res=10.0, height=100, width=100, crs="EPSG:2180"),
         paths=types.SimpleNamespace(cache="unused", work="unused"), tiles=None, area=None,
@@ -386,6 +387,7 @@ def test_estimate_lists_the_layers_at_once():
     estimate = search.estimate_search(plan)
     assert lines == ["terrain: 2 tiles, 2 to download (~20 MB)", "surface: 3 tiles, 3 to download (~30 MB)"]
     assert estimate.download_mb == 50.0
+    assert estimate.work_gb == 100 * 100 * 8 / 1e9  # nmt.npy and nmpt.npy (search.work_bytes)
 
 
 # The composed layer, with fake parts

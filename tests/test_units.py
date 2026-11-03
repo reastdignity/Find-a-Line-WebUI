@@ -912,6 +912,40 @@ def test_webbing_heights():
     assert result[5] == float(np.max(webbing - 100.0)) and result[6] == float(np.cumsum(webbing - 100.0)[-1]) / 19
 
 
+def _near_by_dilation(mask, metres, res):
+    """sources.filling.near before 2026-11-03: n iterations of a 3 x 3 dilation (the reference)."""
+    import math
+    from scipy import ndimage
+    if metres <= 0:
+        return mask
+    return ndimage.binary_dilation(mask, structure=np.ones((3, 3)), iterations=max(1, math.ceil(metres / res)))
+
+
+def test_near_matches_the_dilation():
+    """near() grows a mask in one pass: exactly the n iterations of a 3 x 3 dilation it replaced, also at
+    the grid's edges (nothing outside the grid is in the mask), for empty and full masks."""
+    rng = np.random.default_rng(7)
+    shapes = [(1, 1), (1, 9), (9, 1), (37, 53), (64, 64)]
+    for shape in shapes:
+        masks = [np.zeros(shape, bool), np.ones(shape, bool)]
+        for density in (0.002, 0.02, 0.2, 0.6):
+            masks.append(rng.random(shape) < density)
+        edges = np.zeros(shape, bool)  # touching the grid's edges and corners only
+        edges[0, ::5] = edges[-1, 2::7] = edges[::4, 0] = edges[1::6, -1] = True
+        masks.append(edges)
+        corner = np.zeros(shape, bool)
+        corner[-1, -1] = True
+        masks.append(corner)
+        for mask in masks:
+            for n in range(1, 51):
+                for metres, res in ((n, 1.0), (2.0 * n - 0.5, 2.0), (0.3 * n, 0.3)):
+                    expected = _near_by_dilation(mask, metres, res)
+                    got = src.near(mask, metres, res)
+                    assert got.dtype == bool and got.shape == mask.shape
+                    assert np.array_equal(got, expected), (shape, n, metres, res)
+            assert src.near(mask, 0, 1.0) is mask and src.near(mask, 0.4, 1.0).sum() >= mask.sum()
+
+
 def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
     """coast within osm:<name>: the coastline within the reach of the area, not clipped to its land."""
     import osm
@@ -930,6 +964,201 @@ def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
     assert len(area.notes) == 1 and "1 piece(s)" in area.notes[0]  # ...with a note; 4 km away: nothing
     clipped = ar.from_spec("coast", 100, f"0,0,{1000 * m},{1000 * m}", "unused", reach=1000)
     assert not clipped.geometry.contains(Point(1050 * m, 500 * m))  # a box clips the band
+
+
+def test_world_water_read_once_for_the_tiles(tmp_path, monkeypatch):
+    """coast.sea_mask of the tiles of a search (extent: its whole grid) reads the world file's polygons
+    once, and each tile's mask is the one the polygons read for that tile alone gave."""
+    import geopandas as gpd
+    import coast
+    from shapely.geometry import Point, box
+    rng = np.random.default_rng(3)
+    polygons = [Point(14.20 + 0.10 * rng.random(), 36.00 + 0.06 * rng.random()).buffer(0.001 + 0.006 * rng.random())
+                for _ in range(80)] + [box(14.17, 35.99, 14.34, 36.004), box(14.25, 36.07, 14.40, 36.2)]
+    shapefile = str(tmp_path / "water_polygons.shp")
+    gpd.GeoDataFrame(geometry=polygons, crs="EPSG:4326").to_file(shapefile)
+    monkeypatch.setattr(coast, "world_polygons", lambda cache_dir, update=None: shapefile)
+    reads = []
+    read_file = gpd.read_file
+    monkeypatch.setattr(gpd, "read_file", lambda *a, **k: reads.append(k["bbox"]) or read_file(*a, **k))
+    crs = "EPSG:32633"
+    from rasterio.warp import transform_bounds
+    whole = gd.make_grid(transform_bounds("EPSG:4326", crs, 14.2, 36.0, 14.3, 36.06), 5, crs)
+    left, bottom, right, top = whole.bounds
+    tiles = [gd.make_grid((x, y, min(x + 3000, right), min(y + 2500, top)), 5, crs)
+             for x in np.arange(left, right, 2500) for y in np.arange(bottom, top, 2000)]
+    coast._WORLD_READ.clear()
+    for tile in tiles:
+        sea, _, _ = coast.sea_mask(tile, "unused", "world", np.ones((tile.height, tile.width), bool), extent=whole)
+        assert sea.dtype == bool and sea.shape == (tile.height, tile.width)
+        alone = read_file(shapefile, bbox=coast._grid_bbox_wgs84(tile)).to_crs(crs)
+        assert np.array_equal(sea, coast._rasterize(alone.geometry, tile))
+    assert len(reads) == 1 and reads[0] == coast._grid_bbox_wgs84(whole)
+    assert sum(coast._rasterize(gpd.GeoSeries(polygons, crs="EPSG:4326").to_crs(crs), t).sum() for t in tiles) > 0
+    coast._WORLD_READ.clear()
+
+
+def _fill_before(target, other, gaps, res):
+    """sources.filling._fill of 1056134 (the reference), without its progress bar."""
+    from scipy import ndimage
+    from sources.filling import GAP_MATCH_SLOPE, GAP_RING, GAP_MAX_LOCAL_SHIFT
+    values = np.asarray(target)
+    gy, gx = np.gradient(np.where(np.isfinite(values), values, other), res)
+    flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
+    both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
+    overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
+    labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
+    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
+    offsets = np.full(count + 1, overall)
+    if ring.any():
+        near = ring > 0
+        local = ndimage.median(values[near] - other[near], ring[near], index=np.arange(1, count + 1))
+        local = np.asarray(local, dtype=float)
+        usable = np.isfinite(local) & (np.abs(local - overall) <= GAP_MAX_LOCAL_SHIFT)
+        offsets[1:] = np.where(usable, local, overall)
+    count = int((gaps & np.isfinite(other)).sum())
+    target[gaps] = other[gaps] + offsets[labels[gaps]]
+    return count
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_gap_fill_as_before(seed, tmp_path):
+    """_fill with its temporaries computed in place fills every gap with the same float32 bits as before."""
+    from scipy import ndimage
+    rng = np.random.default_rng(seed)
+    shape = (157, 211)
+    y, x = np.mgrid[:shape[0], :shape[1]]
+    terrain = (300 + 40 * np.sin(x / 17) * np.cos(y / 23) + 25 * (x > 120) + rng.normal(0, 0.3, shape))
+    terrain = terrain.astype(np.float32)
+    terrain[60:66, :] += np.linspace(0, 90, shape[1], dtype=np.float32)  # a cliff band: steep pixels
+    gaps = ndimage.binary_dilation(rng.random(shape) < 0.002, iterations=4) | (rng.random(shape) < 0.01)
+    gaps[:5, :9] = True  # a gap at the corner
+    other = (terrain + 1.7 + rng.normal(0, 0.4, shape)).astype(np.float32)
+    other[rng.random(shape) < 0.03] = np.nan  # the filling source has gaps too
+    other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
+    if seed == 2:
+        other[:] = np.nan  # nothing to fill with
+    grids = []
+    for name in ("new", "old"):
+        grid = np.lib.format.open_memmap(str(tmp_path / f"{name}.npy"), mode="w+", dtype=np.float32, shape=shape)
+        grid[:] = np.where(gaps, np.nan, terrain)
+        grids.append(grid)
+    assert src.filling._fill(grids[0], other, gaps, 1.0) == _fill_before(grids[1], other, gaps, 1.0)
+    assert np.array_equal(np.asarray(grids[0]).view(np.uint32), np.asarray(grids[1]).view(np.uint32))
+
+
+def _place_before(src_file, grid, mosaic, categorical=False, shift=(0.0, 0.0)):
+    """sources.mosaic._place of 1056134 (the reference, a float32 mosaic for categorical rasters too)."""
+    import math
+    import rasterio as rio
+    from affine import Affine
+    from rasterio.transform import from_origin
+    from rasterio.warp import Resampling, reproject, transform_bounds
+    from rasterio.windows import from_bounds
+    from sources.layer import _clean
+    from sources.mosaic import WARP_THREADS
+    clean = (lambda band: band.astype(np.float32)) if categorical else _clean
+    grid_crs = rio.crs.CRS.from_user_input(grid.crs)
+    src_crs = src_file.crs or grid_crs
+    moved = Affine.translation(*shift)
+    src_bounds = rio.coords.BoundingBox(src_file.bounds.left + shift[0], src_file.bounds.bottom + shift[1],
+                                        src_file.bounds.right + shift[0], src_file.bounds.top + shift[1])
+    same_grid = src_crs == grid_crs and shift == (0.0, 0.0) and math.isclose(abs(src_file.res[0]), grid.res) \
+        and math.isclose(abs(src_file.res[1]), grid.res)
+    if same_grid:
+        row_off = int(round((grid.top - src_file.bounds.top) / grid.res))
+        col_off = int(round((src_file.bounds.left - grid.left) / grid.res))
+        if abs(row_off * grid.res - (grid.top - src_file.bounds.top)) < grid.res / 100:
+            r0, c0 = max(row_off, 0), max(col_off, 0)
+            r1, c1 = min(row_off + src_file.height, grid.height), min(col_off + src_file.width, grid.width)
+            if r0 < r1 and c0 < c1:
+                window = rio.windows.Window(c0 - col_off, r0 - row_off, c1 - c0, r1 - r0)
+                values = clean(src_file.read(1, window=window, masked=True).astype(np.float32).filled(np.nan))
+                target = mosaic[r0:r1, c0:c1]
+                mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
+            return
+    left, bottom, right, top = transform_bounds(src_crs, grid.crs, *src_bounds)
+    c0 = max(0, int(math.floor((left - grid.left) / grid.res)))
+    c1 = min(grid.width, int(math.ceil((right - grid.left) / grid.res)))
+    r0 = max(0, int(math.floor((grid.top - top) / grid.res)))
+    r1 = min(grid.height, int(math.ceil((grid.top - bottom) / grid.res)))
+    if r0 >= r1 or c0 >= c1:
+        return
+    src_res = abs(src_file.res[0]) * (111320 if src_crs.is_geographic else 1)
+    if categorical:
+        resampling = Resampling.nearest
+    else:
+        resampling = Resampling.average if src_res < grid.res * 0.75 else Resampling.bilinear
+    window_transform = from_origin(grid.left + c0 * grid.res, grid.top - r0 * grid.res, grid.res, grid.res)
+    values = np.full((r1 - r0, c1 - c0), np.nan, dtype=np.float32)
+    area = transform_bounds(grid.crs, src_crs, *grid.bounds)
+    area = (area[0] - shift[0], area[1] - shift[1], area[2] - shift[0], area[3] - shift[1])
+    margin = 3 * max(abs(src_file.res[0]), abs(src_file.res[1]))
+    window = from_bounds(area[0] - margin, area[1] - margin, area[2] + margin, area[3] + margin,
+                         src_file.transform).round_offsets().round_lengths()
+    window = window.intersection(rio.windows.Window(0, 0, src_file.width, src_file.height))
+    band = src_file.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
+    reproject(clean(band), values, src_transform=moved @ src_file.window_transform(window), src_crs=src_crs,
+              dst_transform=window_transform, dst_crs=grid.crs,
+              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
+    target = mosaic[r0:r1, c0:c1]
+    mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
+
+
+def test_mosaics_as_before(tmp_path):
+    """build_mosaic reads each window without its copies and places it in place: the same float32 bits
+    as before for heights (on the grid, reprojected, finer, shifted, with nodata, integers, NaN, values
+    below VALID_MIN); a categorical mosaic is uint8 with mosaic.NODATA where the float32 one had NaN."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    rng = np.random.default_rng(5)
+    grid = gd.make_grid((500000, 300000, 500600, 300400), 2, "EPSG:2180")
+
+    def tif(name, band, crs, left, top, res, nodata=None):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1,
+                      dtype=band.dtype, crs=crs, nodata=nodata, transform=from_origin(left, top, res, res)) as dst:
+            dst.write(band, 1)
+        return path
+
+    heights = (200 + rng.normal(0, 30, (150, 160))).astype(np.float32)
+    heights[10:20, 30:60] = -9999
+    heights[40:44, :] = -700  # below VALID_MIN: no data
+    on_grid = tif("on_grid", heights, "EPSG:2180", 500100, 300300, 2, nodata=-9999)
+    ints = (rng.integers(150, 260, (90, 100))).astype(np.int16)
+    ints[:5] = -32768
+    from rasterio.warp import transform_bounds
+    u_left, _, _, u_top = transform_bounds("EPSG:2180", "EPSG:32634", *grid.bounds)
+    utm = tif("utm", ints, "EPSG:32634", round(u_left) - 52.5, round(u_top) - 30, 5, nodata=-32768)
+    fine = (180 + rng.normal(0, 10, (400, 500))).astype(np.float32)
+    fine[100:150, 100:120] = np.nan
+    finer = tif("finer", fine, "EPSG:2180", 499950, 300420, 0.5, nodata=np.nan)
+    plain = tif("plain", (rng.random((120, 120)) * 300).astype(np.float64), "EPSG:2180", 500350, 300250, 2)
+    files = [on_grid, utm, finer, plain]
+    for shift in ((0.0, 0.0), (3.0, -1.5)):
+        new = src.build_mosaic(files, grid, str(tmp_path / "new.npy"), "test", shift=shift)
+        old = np.full((grid.height, grid.width), np.nan, np.float32)
+        for path in files:
+            with rio.open(path) as f:
+                _place_before(f, grid, old, shift=shift)
+        assert new.dtype == np.float32 and np.isfinite(old).any() and np.isnan(old).any()
+        assert np.array_equal(np.asarray(new).view(np.uint32), old.view(np.uint32))
+        del new
+    # The water body mask's categories in EPSG:4326, two overlapping tiles, part of the grid outside both
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", *grid.bounds)
+    step = 1 / 3600
+    a = rng.integers(0, 4, (int((north - south) / step) + 8, int((east - west) / step / 2) + 4)).astype(np.uint8)
+    b = rng.integers(0, 4, a.shape).astype(np.uint8)
+    first = tif("wbm_a", a, "EPSG:4326", west - 2 * step, north + 2 * step, step)
+    second = tif("wbm_b", b, "EPSG:4326", west + (east - west) * 0.3, north - (north - south) * 0.4, step)
+    new = src.build_mosaic([first, second], grid, str(tmp_path / "wbm.npy"), "water mask", categorical=True)
+    old = np.full((grid.height, grid.width), np.nan, np.float32)
+    for path in (first, second):
+        with rio.open(path) as f:
+            _place_before(f, grid, old, categorical=True)
+    assert new.dtype == np.uint8 and np.isnan(old).any() and {0, 1, 2, 3} <= set(np.unique(old[~np.isnan(old)]))
+    assert np.array_equal(new, np.where(np.isnan(old), src.mosaic.NODATA, old).astype(np.uint8))
+    del new
 
 
 def _fake_lines(n):
@@ -1045,11 +1274,11 @@ def test_cgroup_limits(tmp_path, monkeypatch):
     assert search.cgroup_limits(str(tmp_path / "missing")) == search.CgroupLimits()
 
     # The tiles follow the container's memory, the threads its quota, unless set explicitly
-    params = pm.SearchParams(lat=50, lon=19, max_length=100)
+    params = pm.SearchParams(lat=50, lon=19, max_length=2000)  # an overlap of 2 302 m at 1 m
     monkeypatch.setattr(search.psutil, "virtual_memory", lambda: type("M", (), {"available": 64 * gib})())
     small = _cgroup(tmp_path / "small", memory_max=str(4 * gib), memory_current="0", cpu_max="100000 100000")
     monkeypatch.setattr(search, "CGROUP_ROOT", small)
-    assert search.tile_core_size(params, 1.0) == 2000  # sqrt(4 GiB / 4 / 100 B) px less the overlaps
+    assert search.tile_core_size(params, 1.0) == 1500  # sqrt(4 GiB / 2 / 50 B) = 6 554 px less the overlaps
     monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
     assert search.line_threads(params) == 1
     assert search.line_threads(params.model_copy(update={"threads": 3})) == 3
@@ -1066,7 +1295,24 @@ def test_cgroup_limits(tmp_path, monkeypatch):
     assert search.line_threads(params) is None
     monkeypatch.delenv("NUMBA_NUM_THREADS")
     assert search.line_threads(params) is None
-    assert search.tile_core_size(params, 1.0) == 12000
+    assert search.tile_core_size(params, 1.0) == 3000  # TILE_PX_MAX: 8 000 px; the 64 GiB would allow 26 000
+
+
+def test_tile_at_most_tile_px_max():
+    """A tile has at most TILE_PX_MAX pixels with its overlap whatever the memory (a PC with much
+    memory would take one tile of hundreds of Mpx to save little work); a site's max_px below it
+    and --tile-size are as before."""
+    import search
+    params = pm.SearchParams(lat=50, lon=19, max_length=100)
+    assert search._overlap(params, 1.0) == 402 and search.TILE_PX_MAX == 64e6
+    assert search.tile_core_size(params, 1.0, memory=10 ** 12) == 7000  # 8 000 px less twice 402 m, in steps of 500
+    assert search.tile_core_size(params, 1.0, memory=10 ** 12, max_px=100e6) == 7000
+    small = int(300 * 300 * search.PIXEL_BYTES / search.TILE_MEMORY_SHARE)  # a tile of 300 px with its overlaps
+    assert search.tile_core_size(params, 1.0, memory=small) == 500
+    long = params.model_copy(update={"max_length": 2000})  # an overlap of 2 302 m
+    assert search.tile_core_size(long, 1.0, memory=10 ** 12) == 3000
+    assert search.tile_core_size(long, 1.0, memory=10 ** 12, max_px=36e6) == 1000  # 6 000 px less twice 2 302
+    assert search.tile_core_size(long.model_copy(update={"tile_size": 12000}), 1.0, memory=10 ** 12) == 12000
 
 
 def test_errors_without_query_strings(monkeypatch):
