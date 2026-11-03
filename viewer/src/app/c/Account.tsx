@@ -1,5 +1,5 @@
 // C's account: the user (the public site: name, privacy and about, sign out; Admin for administrators),
-// the OSM extracts locally and for administrators, the area searched (Searched.tsx), the theme and the way
+// the OSM extracts and the highline layer (LayerPage) locally and for administrators, the area searched (Searched.tsx), the theme and the way
 // to the other interfaces. A menu
 // under the header's account button on desktops, a page (#account) on phones. The Admin page (AdminC) is a
 // page of panels; the OSM page (OsmC) a panel next to the map it needs (the regions around its centre).
@@ -40,6 +40,7 @@ export function AccountBody({theme, setTheme, onPick, tries = TRIES_C, usage}:
     <nav class="c-account-links">
       {!user.local && user.admin && <a class="c-menu-item" href="#admin" onClick={pick}><Icon name="user" />Admin</a>}
       {(user.local || user.admin) && <a class="c-menu-item" href="#osm" onClick={pick}><Icon name="layers" />OpenStreetMap extracts</a>}
+      {(user.local || user.admin) && <a class="c-menu-item" href="#layer" onClick={pick}><Icon name="poly" />Highline layer</a>}
       {canReport() && <button type="button" class="c-menu-item" onClick={() => { pick(); openReport(); }}>
         <Icon name="warn" />Report a problem</button>}
       {!user.local && <a class="c-menu-item" href="/privacy" target="_blank"><Icon name="info" />Privacy</a>}

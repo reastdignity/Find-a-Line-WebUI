@@ -3,7 +3,7 @@
 
 .ui.c-app { flex-direction: column; }
 .ui .c-main { flex: 1; min-height: 0; position: relative; overflow-y: auto; }
-.ui .c-main-new, .ui .c-main-run, .ui .c-main-osm { display: flex; overflow: hidden; }
+.ui .c-main-new, .ui .c-main-run, .ui .c-main-osm, .ui .c-main-layer { display: flex; overflow: hidden; }
 .ui.c-has-nav .c-main { padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px)); }
 .ui .c-error { color: var(--bad); font-weight: 500; margin: 0; }
 .ui .c-app-error { padding: 8px 20px; background: var(--bad-soft); }
@@ -202,6 +202,34 @@
   border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .ui .c-osm { display: flex; flex-direction: column; gap: 10px; }
 .ui .c-mappage .c-newmap { flex: 1; }
+
+/* The highline layer (LayerPage.tsx): the panel's filters, the legend of the density classes (the tokens
+   --layer-1 … --layer-5 of ui/tokens.css, as the cells on the map), the view and the selected cell */
+.ui .c-layer { display: flex; flex-direction: column; gap: 14px; }
+.ui .c-layer-head { display: flex; flex-direction: column; gap: 2px; }
+.ui .c-layer-name { font-size: 16px; }
+.ui .c-layer-filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; align-items: end; }
+.ui .c-layer-filters > .u-field:first-child, .ui .c-layer-filters > .c-layer-note { grid-column: 1 / -1; }
+.ui .c-layer-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ui .c-layer-note { margin: 0; }
+/* on --surface: the class colours were checked against it (the dataviz skill's validator) */
+.ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--surface); }
+.ui .c-layer-legend p, .ui .c-layer-cell p { margin: 0; }
+.ui .c-layer-classes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ui .c-layer-swatch { display: block; height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
+.ui .c-layer-k1 { background: var(--layer-1); }
+.ui .c-layer-k2 { background: var(--layer-2); }
+.ui .c-layer-k3 { background: var(--layer-3); }
+.ui .c-layer-k4 { background: var(--layer-4); }
+.ui .c-layer-k5 { background: var(--layer-5); }
+.ui .c-layer-view { display: flex; flex-direction: column; gap: 8px; }
+.ui .c-layer-total { min-height: 20px; }
+.ui .c-layer-search { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.ui .c-layer-notes ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+.ui .c-layer-warn { color: var(--warn); font-weight: 500; }
+.ui .c-layer-credits { margin: 0; overflow-wrap: anywhere; }
 
 /* Phones */
 .ui.c-narrow .c-home { flex-direction: column; padding: 12px 16px 20px; gap: 14px; }

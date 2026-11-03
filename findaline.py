@@ -17,7 +17,8 @@ Run `python findaline.py --help` for all options. The cache commands
 (`python findaline.py cache status|update`, `osm download|update`) and the source probe
 (`python findaline.py sources check`) are update.py,
 the web application (`python findaline.py web`) is web.py, its worker as a process of
-its own (`python findaline.py worker`, with `web --no-worker`) jobs.py.
+its own (`python findaline.py worker`, with `web --no-worker`) jobs.py, the country layer
+(`python findaline.py country run|status|build|compare <id>`) country.py.
 """
 
 import gc
@@ -143,6 +144,9 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "worker":
         import jobs
         sys.exit(jobs.main(sys.argv[2:]))
+    if len(sys.argv) > 1 and sys.argv[1] == "country":
+        import country
+        sys.exit(country.main(sys.argv[2:]))
     searches, options = pm.parse_cli(description=DESCRIPTION)
     data_dir = cache.data_dir(options.data_dir)
     stopped = []

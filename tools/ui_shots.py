@@ -6,8 +6,9 @@ in the light theme and optionally the dark one.
 
 The site is the public one (signed in as an administrator, so Admin and the OSM extracts are there;
 the "-limited" pages as an approved user with the site's limits), run
-from a scratch data folder with a run of the Żabi Koń clip (tests/data, computed offline), a problem
-report and a worker of this process (the estimates of a new search need its quick lane). It is served over
+from a scratch data folder with a run of the Żabi Koń clip (tests/data, computed offline), the highline
+layer of a sample cube of made-up counts (tests/test_country_web.py's sample_cube), a problem report and
+a worker of this process (the estimates of a new search need its quick lane). It is served over
 HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Secure cookie (the session's
 `__Host-` cookie) to http://localhost.
 
@@ -60,6 +61,11 @@ ZOOM_OUT = "(window.FINDALINE_PLACE.map.setZoom(5), new Promise((done) => setTim
 ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t) return t.scrollIntoView({block: 'center'}); "
                  "[...document.querySelectorAll('.r-more-sec > h3')].find((h) => h.textContent === 'Anchors')"
                  "?.scrollIntoView({block: 'start'}); })()")
+# A click at the map's centre on what is there (the cells' canvas: Leaflet finds the cell under it)
+CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.getContainer().getBoundingClientRect(); "
+                  "const p = map.getSize().divideBy(2), x = box.left + p.x, y = box.top + p.y; "
+                  "const init = {bubbles: true, clientX: x, clientY: y}, e = document.elementFromPoint(x, y); "
+                  "e.dispatchEvent(new MouseEvent('mousemove', init)); e.dispatchEvent(new MouseEvent('click', init)); })()")
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
@@ -81,6 +87,8 @@ PAGES = {
     "d-result-credits": ("d", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones)
     "d-favourites": ("d", "#favourites", None),
     "d-admin": ("d", "#admin", None),
+    "d-layer": ("d", "#layer", None),             # the highline layer of the sample cube (tests/test_country_web.py)
+    "d-layer-cell": ("d", "#layer", "js:" + CELL_AT_CENTRE),  # its cell under the map's centre selected
     "d-osm": ("d", "#osm", None),
     "b-search": ("b", "#search", None),
     "b-search-hint": ("b", "#search", ".u-hint"),
@@ -91,6 +99,7 @@ PAGES = {
     "b-osm": ("b", "#osm", None),
     "c-home": ("c", "", None),
     "c-result": ("c", "#run={run}", None),
+    "c-layer": ("c", "#layer", None),
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
@@ -223,6 +232,9 @@ def serve(data: str):
     cookies = {"admin": cookie, "walker": users.new_session(walker.id)[0]}
     jobs = Jobs(data, public=True)
     run = clip_run(data)
+    sys.path.insert(0, os.path.join(REPO, "tests"))
+    from test_country_web import sample_cube
+    sample_cube(data)  # the highline layer's pages (#layer)
     jobs.add_run(run, admin.id, 1)
     share = "ui-shots-share-" + "x" * 30
     jobs.set_share(run, ac.digest(share))

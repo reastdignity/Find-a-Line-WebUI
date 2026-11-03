@@ -1,0 +1,74 @@
+{
+ "version": 2,
+ "_about": "Inputs of tools/perf_country.py estimate for docs/country-precompute.md (2026-11-02). Samples are named <place>-<band>-<res>m. Sources of every number: the report, section 'Method'.",
+ "pixel_bytes": 100,
+ "margin_m": 300,
+ "link_mb_s": 118,
+ "bands": {"S": [30, 300], "M": [300, 2000], "L": [2000, 5000]},
+ "variants": {"30-2000 m": ["S", "M"], "30-5000 m": ["S", "M", "L"], "2000-5000 m": ["L"]},
+ "strategies": {
+  "1 m": {"S": 1, "M": 1, "L": 1},
+  "2 m": {"S": 2, "M": 2, "L": 2},
+  "5 m": {"S": 5, "M": 5, "L": 5},
+  "split 1/2/5 m": {"S": 1, "M": 2, "L": 5},
+  "split 2/5/10 m": {"S": 2, "M": 5, "L": 10}
+ },
+ "cores_km": [2, 5, 10, 15, 20, 30, 40, 60],
+ "relief": "relief.json",
+ "bootstrap": 400,
+ "min_edge": {"S": 0.5, "M": 0.5, "L": 0.3},
+ "strata": {
+  "S": {"res": 1, "window": 1, "relief_edges": [100, 250], "steep_edges": [0.005, 0.01, 0.02, 0.05, 0.1, 0.2]},
+  "M": {"res": 2, "window": 3, "relief_edges": [100, 300], "steep_edges": [0.005, 0.01, 0.02, 0.05, 0.1]},
+  "L": {"res": 5, "window": 5, "relief_edges": [150, 400], "steep_edges": [0.005, 0.01, 0.02, 0.05, 0.1]}
+ },
+ "reference": "Ryzen 9 9900X",
+ "machines": {
+  "Ryzen 9 9900X": {"bench": "benches/bench-9900x.json", "memory_gb": 50},
+  "Ryzen 5 5650G": {"bench": "benches/bench-5650g-ssd.json", "memory_gb": 45}
+ },
+ "countries": {
+  "PL": {
+   "name": "Poland",
+   "osm": ["Polska"],
+   "area_km2": 311888,
+   "data": {
+    "1": {"terrain": {"download_mb_km2": 10.9, "cache_mb_km2": 2.6, "files_per_km2": 0.42},
+          "surface": {"download_mb_km2": 12.6, "cache_mb_km2": 3.0, "files_per_km2": 0.35}}
+   },
+   "service": {"mb_s": 5.9, "requests_per_min": null, "index_s": 4240}
+  },
+  "CH": {
+   "name": "Switzerland and Liechtenstein",
+   "osm": ["Schweiz", "Liechtenstein"],
+   "area_km2": 41445,
+   "data": {
+    "1": {"terrain": {"download_mb_km2": 17.6, "cache_mb_km2": 17.6, "files_per_km2": 1},
+          "surface": {"download_mb_km2": 15.9, "cache_mb_km2": 15.9, "files_per_km2": 1}},
+    "2": {"terrain": {"download_mb_km2": 1.24, "cache_mb_km2": 1.24, "files_per_km2": 1},
+          "surface": {"download_mb_km2": 15.9, "cache_mb_km2": 15.9, "files_per_km2": 1}}
+   },
+   "service": {"mb_s": 40, "requests_per_min": 36, "index_s": 4560}
+  },
+  "SK": {
+   "name": "Slovakia",
+   "osm": ["Slovensko"],
+   "area_km2": 49035,
+   "_data": "the local mirror of our 2 km tiles (FINDALINE_MIRROR): DMR 5.0 64.6 GB and DMP 1.0 77.9 GB in 12,826 tiles each (LERC 5 mm), copied into the cache with their sha256",
+   "data": {
+    "1": {"terrain": {"download_mb_km2": 1.26, "cache_mb_km2": 1.26, "files_per_km2": 0.25},
+          "surface": {"download_mb_km2": 1.52, "cache_mb_km2": 1.52, "files_per_km2": 0.25}}
+   },
+   "service": {"mb_s": 500, "local": true, "requests_per_min": null, "index_s": 0}
+  },
+  "UT": {
+   "name": "Utah",
+   "osm": ["Utah"],
+   "area_km2": 212818,
+   "data": {
+    "1": {"terrain": {"download_mb_km2": 3.1, "cache_mb_km2": 1.9, "files_per_km2": 1}}
+   },
+   "service": {"mb_s": 7.1, "requests_per_min": 138, "index_s": 3240}
+  }
+ }
+}
