@@ -866,56 +866,13 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     # lane, which import this module too, never load numba and llvmlite (their time and memory)
     import lineprofiles as lp
     import linesearch as ls
-    import terrain
 
     p, grid, emit = plan.params, plan.grid, plan.emit
 
-    # Step 2: Find raster pixels with significant slope for promising anchors
-    _step(plan, 2, "finding significant slopes")
-    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
-    for seams in (data.filled, data.joined):
-        if seams is None:
-            continue
-        # Slopes across the edge of a filled gap mix two surveys: not reliable anchors there
-        from scipy import ndimage
-        gaps = np.asarray(seams)
-        unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
-            ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
-        anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]
-    emit("info", f"Found {len(anchors)} potential anchors to evaluate")
-    _count(plan, "anchors", len(anchors))
-    if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
-        raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
-                          f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
-                          n=len(anchors), max=plan.limits.anchors_max)
-    if len(anchors) < 2:
-        if core is not None:  # a tile of a large area: nothing here
-            return sh.LineTable.empty(), mp.Groups.each_alone(0)
-        raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
-                          "no_steep_terrain")
-
-    # How far each anchor stands out (terrain.py); the limits for both anchors leave anchors out
-    progress.compute.start("anchor prominence and drop", 2, unit="step")
-    prom = terrain.prominence(data.elevation, anchors, plan.resolution, p.prominence_span)
-    progress.compute.update(1)
-    drop = terrain.drop(data.elevation, anchors, plan.resolution, p.drop_radius)
-    progress.compute.finish()
-    keep = np.ones(len(anchors), dtype=bool)
-    if p.min_prominence_both is not None:
-        keep &= prom >= p.min_prominence_both
-    if p.min_drop is not None:
-        keep &= drop >= p.min_drop
-    if not keep.all():
-        emit("info", f"Anchors left after the prominence and drop limits: {int(keep.sum())}")
-        anchors, prom, drop = anchors[keep], prom[keep], drop[keep]
-    # --min-prominence: one anchor of each line; the others stay as partners
-    strong = None if p.min_prominence is None else prom >= p.min_prominence
-    if len(anchors) < 2 or (strong is not None and not strong.any()):
-        if core is not None:
-            return sh.LineTable.empty(), mp.Groups.each_alone(0)
-        raise SearchError("No anchors stand out enough. Try a lower --min-prominence, --min-prominence-both "
-                          "or --min-drop.", "no_prominent_anchors")
+    found = _anchors(plan, data, quiet=core is not None)
+    if found is None:  # a tile of a large area: nothing here
+        return sh.LineTable.empty(), mp.Groups.each_alone(0)
+    anchors, prom, drop, strong = found.anchors, found.prominence, found.drop, found.strong
 
     # Step 3: Compare each promising anchor to every other anchor
     _step(plan, 3, "evaluating anchor pairs")
@@ -964,6 +921,71 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     progress.compute.finish()
     del a1, a2
     return results.without_pixels(), groups  # nothing reads the pixels from here on
+
+
+@dataclass
+class Anchors:
+    """Step 2's results: the anchors ([row, col]), their prominence and drop (terrain.py), and
+    the mask of the strong ones (--min-prominence; None: every anchor)."""
+    anchors: np.ndarray
+    prominence: np.ndarray
+    drop: np.ndarray
+    strong: Optional[np.ndarray]
+
+
+def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
+    """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
+    data), with their prominence and drop and the limits on them. Too few anchors: None when
+    quiet (a tile, a count), else SearchError. limits.anchors_max refuses too many either way."""
+    import terrain  # numba: only when computing (test_search_imports_numba_only_to_compute)
+
+    p, grid, emit = plan.params, plan.grid, plan.emit
+    _step(plan, 2, "finding significant slopes")
+    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
+                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
+    for seams in (data.filled, data.joined):
+        if seams is None:
+            continue
+        # Slopes across the edge of a filled gap mix two surveys: not reliable anchors there
+        from scipy import ndimage
+        gaps = np.asarray(seams)
+        unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
+            ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
+        anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]
+    emit("info", f"Found {len(anchors)} potential anchors to evaluate")
+    _count(plan, "anchors", len(anchors))
+    if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
+        raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
+                          f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
+                          n=len(anchors), max=plan.limits.anchors_max)
+    if len(anchors) < 2:
+        if quiet:
+            return None
+        raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
+                          "no_steep_terrain")
+
+    # How far each anchor stands out (terrain.py); the limits for both anchors leave anchors out
+    progress.compute.start("anchor prominence and drop", 2, unit="step")
+    prom = terrain.prominence(data.elevation, anchors, plan.resolution, p.prominence_span)
+    progress.compute.update(1)
+    drop = terrain.drop(data.elevation, anchors, plan.resolution, p.drop_radius)
+    progress.compute.finish()
+    keep = np.ones(len(anchors), dtype=bool)
+    if p.min_prominence_both is not None:
+        keep &= prom >= p.min_prominence_both
+    if p.min_drop is not None:
+        keep &= drop >= p.min_drop
+    if not keep.all():
+        emit("info", f"Anchors left after the prominence and drop limits: {int(keep.sum())}")
+        anchors, prom, drop = anchors[keep], prom[keep], drop[keep]
+    # --min-prominence: one anchor of each line; the others stay as partners
+    strong = None if p.min_prominence is None else prom >= p.min_prominence
+    if len(anchors) < 2 or (strong is not None and not strong.any()):
+        if quiet:
+            return None
+        raise SearchError("No anchors stand out enough. Try a lower --min-prominence, --min-prominence-both "
+                          "or --min-drop.", "no_prominent_anchors")
+    return Anchors(anchors, prom, drop, strong)
 
 
 def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
