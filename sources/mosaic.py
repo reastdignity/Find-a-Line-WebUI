@@ -70,7 +70,7 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
     return mosaic
 
 
-def _read(src, window) -> np.ndarray:
+def _read_band(src, window) -> np.ndarray:
     """Band 1 of src in window as float32 with NaN where it is masked: the values of
     src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan) without its two
     copies (the read's own array converted in place when it is float32 already)."""
@@ -109,7 +109,7 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
             r1, c1 = min(row_off + src.height, grid.height), min(col_off + src.width, grid.width)
             if r0 < r1 and c0 < c1:
                 window = rio.windows.Window(c0 - col_off, r0 - row_off, c1 - c0, r1 - r0)
-                _put(mosaic[r0:r1, c0:c1], clean(_read(src, window)), categorical)
+                _put(mosaic[r0:r1, c0:c1], clean(_read_band(src, window)), categorical)
             return
 
     # Part of the grid covered by this raster
@@ -135,7 +135,7 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
     window = from_bounds(area[0] - margin, area[1] - margin, area[2] + margin, area[3] + margin,
                          src.transform).round_offsets().round_lengths()
     window = window.intersection(rio.windows.Window(0, 0, src.width, src.height))
-    band = clean(_read(src, window))
+    band = clean(_read_band(src, window))
     reproject(band, values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
               src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
