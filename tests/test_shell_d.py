@@ -130,8 +130,17 @@ run({
             document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
             const escaped = !m.selected;
             later(() => { row().click(); later(() => {
-              window.FINDALINE_MAP.fire("click", {latlng: window.FINDALINE_MAP.getCenter()});
-              const clicked = !m.selected;
+              // A click takes the nearest line within reach, and the spot just shown lies about the centre:
+              // click where no line reaches, beyond a finger's reach too
+              const map = window.FINDALINE_MAP, view = window.FINDALINE_RESULT.view, size = map.getSize();
+              let beside = null;
+              for (let y = 20; y < size.y && !beside; y += 20)
+                for (let x = 20; x < size.x && !beside; x += 20) {
+                  const at = map.containerPointToLatLng([x, y]);
+                  if (!view.near(at, 40).length) beside = at;
+                }
+              map.fire("click", {latlng: beside || map.getCenter()});
+              const clicked = !!beside && !m.selected;
               later(() => { row().click(); later(() => {
                 button("Close the spot").click();
                 const closedSpot = !m.selected;
