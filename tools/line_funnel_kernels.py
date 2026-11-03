@@ -279,6 +279,20 @@ def cell_summary(order, starts, elev, rings, need_min):
     return mask, emin, emax
 
 
+@njit(cache=True)
+def anchor_masks(rings, need_min):
+    """Per anchor: its sectors with rings >= need_min as the bits of a uint64 (bit s: sector s)."""
+    masks = np.zeros(rings.shape[0], dtype=np.uint64)
+    one = np.uint64(1)
+    for j in range(rings.shape[0]):
+        m = np.uint64(0)
+        for s in range(SECTORS):
+            if rings[j, s] >= need_min:
+                m |= one << np.uint64(s)
+        masks[j] = m
+    return masks
+
+
 # ---------------------------------------------------------------------------------------------
 # The pair search, counted
 
@@ -296,7 +310,11 @@ C_SAMPLED = 35      # 1: the anchor's checked pairs were simulated
 C_SAMPLED_TESTS = 36  # its counted _line_ok tests
 C_SIM_MISMATCH = 37  # simulated decision != _line_ok's (must stay 0)
 C_N1_CANDIDATES = 38  # candidates N1 skips (production skips them before counting the candidates)
-N_COUNTERS = 39
+C_F8C_CANDIDATES = 39  # candidates F8c skips and N1 does not (production skips them before counting too)
+C_F8C_PARTNER_OWN = 40  # visits the per-partner part of F8c skips (not skipped by a cell rule before it)
+C_F8C_PARTNER_MASK = 41  # visits the per-partner mask test of F8c skips (not skipped by a rule before it)
+C_F8C_MASK_CANDIDATES = 42  # the candidates of C_F8C_CANDIDATES that only the mask test skips
+N_COUNTERS = 43
 
 ORDERS = ("ends_inward", "natural", "middle_out", "bit_reversal", "unscreened_first", "two_ends_bit_reversal",
           "higher_ends_inward", "higher_two_ends_bit_reversal", "production")
@@ -562,7 +580,8 @@ def _arc(r0, r1, c0, c1):
 def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, res,
                  min_length, max_length, max_dh_ratio, max_dh, down, cos_limit, strong,
                  use_sag, log_spans, ratios, table, fall_zone, first_only,
-                 rmax, big_k, cell_mask, cell_emin, cell_emax, d0, far2, split, longest, sample, counters, sim, hist):
+                 rmax, big_k, cell_mask, cell_emin, cell_emax, anchor_mask, d0, far2, split, longest, sample,
+                 counters, sim, hist):
     """ref_pairs (its counting pass) with counters per todo anchor q (columns C_*), the
     visits a candidate rule would skip (alone and cumulatively in the order F2a, F2b, N1,
     F8c, cell elevation, N3), and for the anchors with sample[q] the simulated pixel tests
@@ -573,10 +592,13 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
     F2a: the cell holds no anchor after i (its last, largest index <= i; first_only:
     gx < cx); F2b: the cell's nearest pixel is farther than far2 (squared, in pixels);
     N1: the Chebyshev distance > 2 R + 1 for R = rmax of i or of the partner, when R < big_k;
-    F8c: all sectors of i towards the cell (its corners' angles, one sector of margin) have
-    fewer rings than the need at the cell's nearest Chebyshev distance, or no anchor of the
-    cell is open (rings >= need_min, cell_mask) in the opposite sectors; cell elevation:
-    [cell_emin, cell_emax] misses e_i -+ (d0 + 1e-3); N3: |e_j - e_i| > d0 + 1e-3.
+    F8c (production's rule since 2026-11-03, linesearch._pairs): the largest ring of i in
+    the sectors towards the cell (its corners' angles, one sector of margin; the rings as
+    production holds them, capped at big_k) is below the need at the cell's nearest Chebyshev
+    distance, or no anchor of the cell is open (rings >= need_min, cell_mask) in the opposite
+    sectors, or (per partner) that largest ring is below the partner's need, or the partner
+    has no sector open for need_min (anchor_mask) among the opposite sectors of its cell; cell
+    elevation: [cell_emin, cell_emax] misses e_i -+ (d0 + 1e-3); N3: |e_j - e_i| > d0 + 1e-3.
     """
     reach = int(max_length / res) // cell + 1
     cells_y = starts.size // cells_x
@@ -606,22 +628,22 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                 f2a = gx < cx if first_only else order[end - 1] <= i
                 f2b = dy * dy + dx * dx > far2
                 f8_own, f8_partners = False, False
+                own_max, m = big_k, ~zero
                 if dy > 0 or dx > 0:
                     alo, ahi = _arc(y0 - ri, y1 - ri, x0 - ci, x1 - ci)
                     s_lo = int(math.floor(alo / width)) - 1
                     s_hi = int(math.floor(ahi / width)) + 1
                     need_c = min(RINGS, max(dy, dx) // 2)
-                    if need_c > 0:
-                        f8_own = True
-                        for s in range(s_lo, s_hi + 1):
-                            if rings[i, s % SECTORS] >= need_c:
-                                f8_own = False
-                                break
+                    own_max = 0
+                    for s in range(s_lo, s_hi + 1):
+                        own_max = max(own_max, np.int64(rings[i, s % SECTORS]))
+                    own_max = min(own_max, big_k)  # production's rings are capped at the largest need
+                    f8_own = own_max < need_c
                     m = zero
                     for s in range(s_lo + HALF, s_hi + HALF + 1):
                         m |= one << np.uint64(s % SECTORS)
                     f8_partners = (cell_mask[g] & m) == zero
-                f8c = f8_own or f8_partners
+                f8c_cell = f8_own or f8_partners
                 er = cell_emax[g] < ei - d0 - 1e-3 or cell_emin[g] > ei + d0 + 1e-3
                 for p in range(starts[g], end):
                     j = order[p]
@@ -631,6 +653,14 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                     n1 = (rmax[i] < big_k and cheb > 2 * rmax[i] + 1) or \
                         (rmax[j] < big_k and cheb > 2 * rmax[j] + 1)
                     n3 = abs(elev[j] - ei) > d0 + 1e-3
+                    f8_partner = own_max < min(RINGS, cheb // 2)
+                    mask_j = (anchor_mask[j] & m) == zero
+                    f8c = f8c_cell or f8_partner or mask_j
+                    if not (f2a or f2b or n1 or f8c_cell):
+                        if f8_partner:
+                            counters[q, C_F8C_PARTNER_OWN] += 1
+                        elif mask_j:
+                            counters[q, C_F8C_PARTNER_MASK] += 1
                     rules = (f2a, f2b, n1, f8c, er, n3)
                     cum = False
                     for r in range(6):
@@ -677,6 +707,10 @@ def funnel_pairs(z, anchors, elev, rings, todo, order, starts, cell, cells_x, re
                     counters[q, C_CANDIDATES] += 1
                     if n1:
                         counters[q, C_N1_CANDIDATES] += 1
+                    elif f8c:
+                        counters[q, C_F8C_CANDIDATES] += 1
+                        if not (f8c_cell or f8_partner):
+                            counters[q, C_F8C_MASK_CANDIDATES] += 1
                     need = min(RINGS, max(abs(dr), abs(dc)) // 2)
                     if rings[a, ref_sector(dr, dc)] < need:
                         counters[q, C_RINGS_A] += 1

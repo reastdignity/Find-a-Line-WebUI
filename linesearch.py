@@ -8,8 +8,9 @@ Three steps, none of which loses a valid line:
    with no open direction are dropped.
 2. Pairs. Partners are found on a grid of buckets and must pass the length and
    height-difference limits, and both anchors must be open towards each other. Buckets
-   that hold no partner to keep (lower indices, beyond the longest line or beyond what
-   the anchor's rings can reach) are skipped whole.
+   that hold no partner to keep (lower indices, beyond the longest line, beyond what the
+   anchor's rings can reach, outside its open sectors or with no partner open towards it)
+   are skipped whole.
 3. Exact check. The pixels of the line are checked from both anchors inwards and
    the check stops at the first pixel that is too high (most lines fail next to an
    anchor); lines of 130 to 1024 pixels test their middle in bit-reversal order after
@@ -32,6 +33,7 @@ import runs as rn
 from progress import progress
 
 SECTORS = 64   # direction sectors per anchor
+HALF = SECTORS // 2  # the opposite sector is s + HALF
 RINGS = 64     # rings of pixels around an anchor checked per sector
 EPS = 1e-6     # metres; borderline pairs are passed on to evaluate_line
 CHUNKS = 200   # anchors are processed in this many parts (progress updates)
@@ -184,12 +186,18 @@ def sector_masks() -> np.ndarray:
     return _MASKS[0]
 
 
+def smallest_need(min_length: float, res: float) -> int:
+    """The rings a pair of at least min_length needs at least (its Chebyshev length in pixels is
+    at least min_length / (res * sqrt 2)): an anchor with no sector open that far starts no pair,
+    and a partner with none open towards the anchor passes no rings test."""
+    return min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
+
+
 def largest_need(min_length: float, max_length: float, res: float) -> int:
     """The rings a pair can need at most ((its Chebyshev length in pixels) // 2 for lines up to
     max_length, with a pixel to spare), at least the need of the shortest line: _free_rings
     stops there, which changes no decision of find_valid_lines."""
-    need_min = min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
-    return min(RINGS, max(need_min, (int(max_length / res) + 1) // 2))
+    return min(RINGS, max(smallest_need(min_length, res), (int(max_length / res) + 1) // 2))
 
 
 @njit(parallel=True, cache=True)
@@ -249,7 +257,7 @@ def free_directions(z: np.ndarray, anchors: np.ndarray, res: float, gain: float,
     RING_CHUNK anchors at a time, so the rings of the anchors without an open direction (most
     of them) are never held all at once."""
     kmax, masks = largest_need(min_length, max_length, res), sector_masks()
-    need_min = min(RINGS, int(min_length / (res * math.sqrt(2))) // 2)
+    need_min = smallest_need(min_length, res)
     useful, rows = [], []
     for start in range(0, len(anchors), RING_CHUNK):
         rings = _free_rings(z, anchors[start:start + RING_CHUNK], res, gain, cap, offset, kmax, masks)
@@ -279,8 +287,69 @@ def _isqrt(n):
     return r
 
 
+@njit(cache=True)
+def _arc(r0, r1, c0, c1):
+    """The angles from the origin of the corners of the box rows r0..r1, columns c0..c1 (the
+    origin outside it, so they span less than pi): (lowest, highest), unwrapped."""
+    a0 = math.atan2(r0, c0)
+    lo, hi = 0.0, 0.0
+    for n in range(3):
+        dr = r0 if n == 0 else r1
+        dc = c0 if n == 1 else c1
+        d = math.atan2(dr, dc) - a0
+        if d > np.pi:
+            d -= 2 * np.pi
+        elif d <= -np.pi:
+            d += 2 * np.pi
+        lo, hi = min(lo, d), max(hi, d)
+    return a0 + lo, a0 + hi
+
+
+@njit(cache=True)
+def _cell_sectors(r0, r1, c0, c1):
+    """The sectors (_sector) of the lines from the origin to the pixels of the box rows r0..r1,
+    columns c0..c1 (the origin outside it): s_lo .. s_hi, unwrapped (take them modulo SECTORS),
+    with one sector of margin at each end for the rounding of atan2."""
+    alo, ahi = _arc(r0, r1, c0, c1)
+    width = 2 * np.pi / SECTORS
+    return int(math.floor(alo / width)) - 1, int(math.floor(ahi / width)) + 1
+
+
+@njit(cache=True)
+def _open_masks(rows, need):
+    """Per row of rings: its sectors open for at least need rings as the bits of a uint64."""
+    masks = np.zeros(rows.shape[0], dtype=np.uint64)
+    one = np.uint64(1)
+    for j in range(rows.shape[0]):
+        m = np.uint64(0)
+        for s in range(SECTORS):
+            if rows[j, s] >= need:
+                m |= one << np.uint64(s)
+        masks[j] = m
+    return masks
+
+
+@njit(cache=True)
+def _cell_open(rows, need, order, starts, slot):
+    """Per cell of the pair search: the OR of the sectors open for at least need rings of its
+    anchors (bit s: sector s; rows: the rings of free_directions, slot their row)."""
+    cells = starts.size
+    masks = np.zeros(cells, dtype=np.uint64)
+    one = np.uint64(1)
+    for g in range(cells):
+        end = starts[g + 1] if g + 1 < cells else order.size
+        m = np.uint64(0)
+        for p in range(starts[g], end):
+            row = slot[order[p]]
+            for s in range(SECTORS):
+                if rows[row, s] >= need:
+                    m |= one << np.uint64(s)
+        masks[g] = m
+    return masks
+
+
 @njit(parallel=True, cache=True)
-def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells_x, res,
+def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, open_mask, cell, cells_x, res,
            min_length, max_length, max_dh_ratio, max_dh, d0, far2, kmax, down, cos_limit, strong,
            use_sag, log_spans, ratios, table, fall_zone, first_only, offsets, out, buf, counts):
     """Partners of the anchors in todo that pass all tests: only partners with a higher index,
@@ -299,8 +368,13 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells
     is farther than sqrt(far2) pixels (beyond max_length), partners differing in height by
     more than d0 (the largest difference any length allows) and partners farther (Chebyshev)
     than 2 R + 1 pixels from either anchor when its largest ring R = rmax is below kmax (the
-    largest need of a pair): their need exceeds R. Those fail the rings' test, which comes
-    after the candidates are counted, so they are not counted as candidates.
+    largest need of a pair): their need exceeds R; and (F8c) cells none of whose sectors from
+    the anchor (_cell_sectors) is open for the need of the cell's nearest pixel, cells no
+    anchor of which has a sector open for the need of the shortest line (cell_open, _cell_open)
+    towards the anchor, partners whose need exceeds the anchor's largest ring in the sectors
+    of their cell, and partners none of whose sectors towards their cell's sectors is open for
+    the need of the shortest line (open_mask, _open_masks). Those fail the rings' test, which
+    comes after the candidates are counted, so they are not counted as candidates.
 
     counts[q] = [candidate pairs, pairs checked, lines] for todo[q]. With offsets None, the
     first buf.shape[1] pairs of todo[q] are written to buf[q] (the count goes on past them);
@@ -309,12 +383,14 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells
     keep = buf.shape[1]
     reach = int(max_length / res) // cell + 1
     cells_y = starts.size // cells_x
+    zero, one = np.uint64(0), np.uint64(1)
     for q in prange(todo.size):
         i = todo[q]
         ri, ci = anchors[i, 0], anchors[i, 1]
         cy, cx = ri // cell, ci // cell
         ei = elev[i]
-        ri_max = rmax[slot[i]]
+        slot_i = slot[i]
+        ri_max = rmax[slot_i]
         span = 2 * np.int64(ri_max) + 1 if ri_max < kmax else np.int64(1) << 40  # Chebyshev reach
         candidates, checked, found = 0, 0, 0
         gy0 = max(max(0, cy - reach), max(0, ri - span) // cell)
@@ -347,6 +423,23 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells
                         else:
                             lo = mid + 1
                     p0 = lo
+                # F8c: the anchor's rings in the sectors towards the cell, and the cell's open
+                # sectors towards the anchor (the anchor's own cell is never skipped)
+                x0 = gx * cell
+                dx = max(0, max(x0 - ci, ci - (x0 + cell - 1)))
+                own_max, m = kmax, ~zero
+                if dy > 0 or dx > 0:
+                    s_lo, s_hi = _cell_sectors(y0 - ri, y0 + cell - 1 - ri, x0 - ci, x0 + cell - 1 - ci)
+                    own_max = 0
+                    for s in range(s_lo, s_hi + 1):
+                        own_max = max(own_max, np.int64(rings[slot_i, s % SECTORS]))
+                    if own_max < min(RINGS, max(dy, dx) // 2):
+                        continue
+                    m = zero
+                    for s in range(s_lo + HALF, s_hi + HALF + 1):
+                        m |= one << np.uint64(s % SECTORS)
+                    if (cell_open[g] & m) == zero:
+                        continue
                 for p in range(p0, end):
                     j = order[p]
                     if first_only:
@@ -357,10 +450,13 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell, cells
                     if abs(elev[j] - ei) > d0:  # the height test below at the longest length
                         continue
                     cheb = max(abs(anchors[j, 0] - ri), abs(anchors[j, 1] - ci))
-                    if cheb > span:
+                    if cheb > span or own_max < min(RINGS, cheb // 2):
                         continue
-                    rj_max = rmax[slot[j]]
+                    slot_j = slot[j]
+                    rj_max = rmax[slot_j]
                     if rj_max < kmax and cheb > 2 * np.int64(rj_max) + 1:
+                        continue
+                    if (open_mask[slot_j] & m) == zero:
                         continue
                     a, b = (i, j) if i < j else (j, i)
                     dr, dc = anchors[b, 0] - anchors[a, 0], anchors[b, 1] - anchors[a, 1]
@@ -397,8 +493,9 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful:
                    strong: Optional[np.ndarray], use_sag: bool, log_spans, ratios, table, fall_zone: float):
     """The anchors pairs are searched from (the useful ones; with first, those of a tile's
     core) and _pairs' arguments before and after todo, with the useful anchors (the only
-    partners) bucketed into cells of a quarter of max_length. useful, rings, slot: those of
-    free_directions."""
+    partners) bucketed into cells of a quarter of max_length and the open sectors of every
+    cell and of every useful anchor (_cell_open, _open_masks: for F8c). useful, rings, slot:
+    those of free_directions."""
     todo_all = useful if first is None else useful[np.asarray(first)[useful]]
     cell = max(1, int(max_length / res) // 4)
     cells_x = z.shape[1] // cell + 1
@@ -407,11 +504,13 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful:
     order = useful[np.argsort(keys, kind="stable")]
     starts = np.searchsorted(np.sort(keys), np.arange(cells_y * cells_x)).astype(np.int64)
     rmax = rings.max(axis=1).astype(np.uint8) if len(rings) else np.zeros(0, dtype=np.uint8)
+    need_min = smallest_need(min_length, res)
+    cell_open, open_mask = _cell_open(rings, need_min, order, starts, slot), _open_masks(rings, need_min)
     kmax = largest_need(min_length, max_length, res)
     d0 = min(float(max_dh_ratio) * float(max_length), float(max_dh))
     far2 = int(math.floor((max_length / res + 2) ** 2))
     head = (z, anchors, elev, rings, slot, rmax)
-    tail = (order, starts, cell, cells_x, res, float(min_length), float(max_length),
+    tail = (order, starts, cell_open, open_mask, cell, cells_x, res, float(min_length), float(max_length),
             float(max_dh_ratio), float(max_dh), d0, far2, kmax, down, cos_limit,
             np.ones(len(anchors), dtype=np.bool_) if strong is None else np.asarray(strong, dtype=np.bool_),
             use_sag, log_spans, ratios, table, float(fall_zone), first is not None)

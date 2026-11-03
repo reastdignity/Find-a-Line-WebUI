@@ -811,6 +811,100 @@ def test_pair_buffer_overflow_matches_reference(model, buffer):
         assert overflowed > 5 and len(ref_out) > 10
 
 
+def _random_case(model, seed, first, strong, wall, max_length=150.0, size=400):
+    """Random terrain with raised blocks whose edges hold anchors (lines in every direction,
+    cells in every sector around an anchor, also across the -pi / pi seam of atan2) and
+    anchors anywhere, as a captured call rebuilt into the kernels' arguments."""
+    import dataclasses
+
+    import sag
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import perf_line_funnel as plf
+    rng = np.random.default_rng(seed)
+    z = (rng.random((size, size)) * 3 + 100).astype(np.float32)
+    anchors = []
+    for _ in range(12):
+        h, w = rng.integers(10, 80, 2)
+        r0, c0 = rng.integers(0, size - h), rng.integers(0, size - w)
+        z[r0:r0 + h, c0:c0 + w] += 40 + rng.random() * 40
+        edge = np.vstack([np.column_stack([np.full(w, r0), np.arange(c0, c0 + w)]),
+                          np.column_stack([np.full(w, r0 + h - 1), np.arange(c0, c0 + w)]),
+                          np.column_stack([np.arange(r0, r0 + h), np.full(h, c0)]),
+                          np.column_stack([np.arange(r0, r0 + h), np.full(h, c0 + w - 1)])])
+        anchors.append(edge[rng.random(len(edge)) < 0.3])
+    anchors.append(rng.integers(0, size, (150, 2)))
+    anchors = np.unique(np.vstack(anchors), axis=0)  # row-major, as helpers.find_significant_slopes
+    z[rng.random((size, size)) < 0.002] = np.nan
+    inputs = {"elevation": z, "anchors": anchors}
+    if first:
+        inputs["first"] = rng.random(len(anchors)) < 0.7
+    if strong:
+        inputs["strong"] = rng.random(len(anchors)) < 0.5
+    params = {"res": 1.0, "min_length": 20.0, "max_length": max_length, "max_dh_ratio": 0.3, "max_dh": np.inf,
+              "limits": {"max_wall_angle": 60.0} if wall else None, "sag": model == "sag",
+              "rigging": dataclasses.asdict(sag.Rigging()), "sag_min_span": 20.0, "sag_max_span": max_length}
+    return plf, plf.rebuild(inputs, params)
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("seed, first, strong, wall, max_length", [
+    (1, False, False, False, 150.0), (2, True, False, True, 150.0), (3, False, True, False, 60.0),
+    (4, True, True, True, 60.0), (5, False, False, True, 100.0)])
+def test_f8c_skips_only_rings_failures(model, seed, first, strong, wall, max_length):
+    """F8c (linesearch._pairs: the cells outside the anchor's open sectors or without a partner
+    open towards it, the partners whose need exceeds the anchor's rings in their cell's sectors
+    and the partners with no sector open towards their cell's sectors) skips only pairs the
+    rings test rejects: on random grids the written pairs and the
+    checked and found counts per anchor are the frozen reference's (self_check raises when
+    not), the candidates are the reference's less those N1 and F8c skip, no checked pair would
+    have been skipped, and every part of the rule skips something."""
+    import linesearch as ls
+    plf, a = _random_case(model, seed, first, strong, wall, max_length)
+    K = plf.K
+    chunks = plf.self_check(a)
+    c = np.vstack([c for _, _, c, _, _ in chunks]).sum(axis=0)
+    assert c[K.C_UNSAFE + 3] == 0 and c[K.C_CHECKED] > c[K.C_FOUND] > 20
+    assert c[K.C_SKIP + 3] > c[K.C_F8C_OWN] > 0 and c[K.C_F8C_PARTNERS] > 0 and c[K.C_F8C_PARTNER_MASK] > 0
+    if max_length == 150.0:  # with rings capped at 30 (60 m), N1 skips what F8c would
+        assert c[K.C_F8C_CANDIDATES] > c[K.C_F8C_MASK_CANDIDATES] > 0 and c[K.C_F8C_PARTNER_OWN] > 0
+    # the open sectors of the cells (pair_arguments) are the tool's
+    useful, rows, slot = plf.production_directions(a)
+    open_cells = ls._cell_open(rows, ls.smallest_need(a.min_length, a.res), a.order, a.starts, slot)
+    assert np.array_equal(open_cells, K.cell_summary(a.order, a.starts, a.elev, a.rings, a.need_min)[0])
+
+
+def test_cell_sectors_hold_every_pixel():
+    """linesearch._cell_sectors (the sectors of a cell seen from an anchor outside it, one of
+    margin at each end) gives the sectors of the tool's _arc and holds _sector of every pixel of
+    the cell, also for cells across the -pi / pi seam of atan2 and next to the anchor."""
+    import linesearch as ls
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import line_funnel_kernels as K
+    rng = np.random.default_rng(3)
+    width = 2 * np.pi / ls.SECTORS
+    spans = 0
+    for n in range(3000):
+        cell = int(rng.integers(1, 40))
+        if n % 3 == 0:  # the box of a cell next to the anchor's own, in any direction
+            gy, gx = rng.integers(-1, 2, 2)
+            r0, c0 = gy * cell - int(rng.integers(0, cell)), gx * cell - int(rng.integers(0, cell))
+        else:
+            r0, c0 = rng.integers(-300, 300, 2)
+        r1, c1 = r0 + cell - 1, c0 + cell - 1
+        if r0 <= 0 <= r1 and c0 <= 0 <= c1:
+            continue  # the anchor's own cell: _pairs never skips it
+        s_lo, s_hi = ls._cell_sectors(r0, r1, c0, c1)
+        alo, ahi = K._arc(r0, r1, c0, c1)
+        assert (s_lo, s_hi) == (int(np.floor(alo / width)) - 1, int(np.floor(ahi / width)) + 1)
+        assert 0 < s_hi - s_lo + 1 <= ls.SECTORS // 2 + 4
+        allowed = {s % ls.SECTORS for s in range(s_lo, s_hi + 1)}
+        for dr in range(r0, r1 + 1):
+            for dc in range(c0, c1 + 1):
+                assert ls._sector(dr, dc) in allowed, (r0, r1, c0, c1, dr, dc)
+        spans += (s_lo % ls.SECTORS) > (s_hi % ls.SECTORS)  # across the seam
+    assert spans > 50
+
+
 def test_wall_angles():
     """The downslope direction of a slope and the angle of lines leaving it."""
     import helpers as sh

@@ -55,6 +55,8 @@ PAIR_COUNTERS = {
     "F2a_with_prefix": K.C_PREFIX, "F8c_own_rings": K.C_F8C_OWN, "F8c_partners": K.C_F8C_PARTNERS,
     "sampled_anchors": K.C_SAMPLED, "sampled_line_ok_tests": K.C_SAMPLED_TESTS,
     "sim_mismatch": K.C_SIM_MISMATCH, "N1_candidates": K.C_N1_CANDIDATES,
+    "F8c_candidates": K.C_F8C_CANDIDATES, "F8c_partner_own": K.C_F8C_PARTNER_OWN,
+    "F8c_partner_mask": K.C_F8C_PARTNER_MASK, "F8c_mask_candidates": K.C_F8C_MASK_CANDIDATES,
 }
 RULES = ("F2a", "F2b", "N1", "F8c", "cell_elev", "N3")
 # The tests of the pair search in today's order: (name, counter of its rejections)
@@ -314,6 +316,7 @@ def funnel_inputs(a) -> SimpleNamespace:
     f.rmax = a.rings.max(axis=1).astype(np.int64) if len(a.anchors) else np.zeros(0, dtype=np.int64)
     f.big_k = min(ls.RINGS, (int(a.max_length / a.res) + 1) // 2)
     f.cell_mask, f.cell_emin, f.cell_emax = K.cell_summary(a.order, a.starts, a.elev, a.rings, a.need_min)
+    f.anchor_mask = K.anchor_masks(a.rings, a.need_min)
     f.d0 = min(a.max_dh_ratio * a.max_length, a.max_dh)
     f.far2 = int(math.floor((a.max_length / a.res + 2) ** 2))
     return f
@@ -324,9 +327,9 @@ def self_check(a, folder: str = "", sample_every: int = 1) -> List:
     the rings, then per chunk the counts of the counting pass and the pairs written, both
     against the references and funnel_pairs (run here, simulating the pixel orders for every
     sample_every-th anchor). The pairs and the checked and found counts must be equal; the
-    candidates are the references' less those N1 skips (production skips them before counting:
-    they fail the rings' test, which comes after the count). Returns per chunk (todo, the
-    references' counts, funnel_pairs' counters, simulated tests, histograms)."""
+    candidates are the references' less those N1 and F8c skip (production skips them before
+    counting: they fail the rings' test, which comes after the count). Returns per chunk (todo,
+    the references' counts, funnel_pairs' counters, simulated tests, histograms)."""
     capped = capped_rings(a)
     if not np.array_equal(production_rings(a), capped):
         raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
@@ -346,15 +349,16 @@ def self_check(a, folder: str = "", sample_every: int = 1) -> List:
         s = np.zeros((len(todo), K.N_ORDERS), dtype=np.int64)
         h = np.zeros((len(todo), K.N_HIST), dtype=np.int64)
         sample = (np.arange(q0, q0 + len(todo)) % sample_every) == 0
-        K.funnel_pairs(*a.args, todo, *a.tail, f.rmax, f.big_k, f.cell_mask, f.cell_emin, f.cell_emax, f.d0,
-                       f.far2, ls.LINE_ORDER_SPLIT, ls.LINE_ORDER_MAX, sample, c, s, h)
+        K.funnel_pairs(*a.args, todo, *a.tail, f.rmax, f.big_k, f.cell_mask, f.cell_emin, f.cell_emax,
+                       f.anchor_mask, f.d0, f.far2, ls.LINE_ORDER_SPLIT, ls.LINE_ORDER_MAX, sample, c, s, h)
         if not np.array_equal(c[:, [K.C_CANDIDATES, K.C_CHECKED, K.C_FOUND]], ref_counts):
             raise SelfCheckError(f"{folder}: funnel_pairs counts differ from ref_pairs")
         counts, out = ls.pair_chunk(head, todo, tail)
         if not (np.array_equal(counts[:, 1:], ref_counts[:, 1:]) and np.array_equal(out, ref_out)):
             raise SelfCheckError(f"{folder}: linesearch._pairs differs from ref_pairs")
-        if not np.array_equal(counts[:, 0], ref_counts[:, 0] - c[:, K.C_N1_CANDIDATES]):
-            raise SelfCheckError(f"{folder}: linesearch._pairs' candidates are not ref_pairs' less those N1 skips")
+        if not np.array_equal(counts[:, 0], ref_counts[:, 0] - c[:, K.C_N1_CANDIDATES] - c[:, K.C_F8C_CANDIDATES]):
+            raise SelfCheckError(f"{folder}: linesearch._pairs' candidates are not ref_pairs' less those N1 "
+                                 "and F8c skip")
         chunks.append((todo, ref_counts, c, s, h))
         q0 += len(todo)
     return chunks
@@ -535,8 +539,10 @@ def report(name: str, r: Dict) -> List[str]:
         out = left - p[key]
         lines.append(f"| {label} | {left} | {out} | {pct(out, left)} |")
         left = out
-    lines += ["", f"Visits {p['visits']}, candidates {p['candidates']} (production counts {p['candidates'] - p['N1_candidates']}: N1 skips the others), checked {p['checked']}, found {p['found']}, "
-              f"`_line_ok` pixel tests {p['line_ok_tests']}.", "",
+    produced = p['candidates'] - p['N1_candidates'] - p['F8c_candidates']
+    lines += ["", f"Visits {p['visits']}, candidates {p['candidates']} (production counts {produced}: N1 skips "
+              f"{p['N1_candidates']} and F8c {p['F8c_candidates']} of them before the count), checked {p['checked']}, "
+              f"found {p['found']}, `_line_ok` pixel tests {p['line_ok_tests']}.", "",
               "### Visits candidate rules would skip", "",
               "| Rule | alone | cumulative | checked pairs skipped (must be 0) |", "| --- | ---: | ---: | ---: |"]
     for rule in RULES:
@@ -544,7 +550,10 @@ def report(name: str, r: Dict) -> List[str]:
                      f"{pct(r['skip_cumulative'][rule], p['visits'])} | {r['skip_unsafe'][rule]} |")
     lines += ["", f"F2a with the within-cell prefix: {pct(p['F2a_with_prefix'], p['visits'])}; F8c by the anchor's "
               f"own rings {pct(p['F8c_own_rings'], p['visits'])}, by the partners' masks "
-              f"{pct(p['F8c_partners'], p['visits'])}.", "",
+              f"{pct(p['F8c_partners'], p['visits'])}, its per-partner parts after the cell rules: the anchor's "
+              f"rings {pct(p['F8c_partner_own'], p['visits'])}, the partner's mask "
+              f"{pct(p['F8c_partner_mask'], p['visits'])} (the mask alone skips {p['F8c_mask_candidates']} of the "
+              f"{p['F8c_candidates']} candidates F8c skips).", "",
               "Visits by cell size: " + ", ".join(f"{k} {v}" for k, v in r["box_visits"].items()), ""]
     w = r["work"]
     lines += ["### Work held by the anchors that find lines (F1)", "",
