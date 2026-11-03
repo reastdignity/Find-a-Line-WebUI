@@ -10,7 +10,9 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   16 x 16 pixels; a WMS-R (WmsrTiles) a GetMap of 16 x 16 pixels of the first tile; an ImageServer an
   exportImage of 16 x 16 pixels (a TIFF, not an error); blocks of big fixed files (FileBlocks) a window of
   16 x 16 pixels of the first block's file (one of heights above the ellipsoid also its geoid grid: in the
-  cache, or its address answering a HEAD with its size; never downloaded); a local mirror is looked for on disk; a
+  cache, or its address answering a HEAD with its size; never downloaded); blocks found through an index
+  (LidarBcBlocks) their index asked, then 16 x 16 pixels at the centre of the first block from its newest file;
+  a local mirror is looked for on disk; a
   plain XYZ file
   (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers;
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
@@ -41,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+from affine import Affine
 import rasterio as rio
 import requests
 from rasterio.warp import transform as warp
@@ -69,6 +72,7 @@ from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
 from .layers.geojson import GeoJsonTiles
+from .layers.lidarbc import LidarBcBlocks
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -80,6 +84,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
+    (LidarBcBlocks, "blocks"),  # before IndexedTiles and S3Blocks, of which it is one: never a byte range 0-0
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"))
@@ -203,11 +208,16 @@ def _xyz_head(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
     return ""
 
 
-def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
-    """WINDOW_PX x WINDOW_PX pixels at the top left of a block, from its first file; raises with the
-    reason. A read GDAL could not complete although it returned (net.gdal_errors: what it could not
-    fetch comes back as nodata or zeros) fails with GDAL's error, never as a share of the window."""
+def _window(cache_dir: str, layer: FileBlocks, tile, centre: bool = False) -> str:
+    """WINDOW_PX x WINDOW_PX pixels at the top left of a block (or at its centre: the files of an index's
+    blocks cover parts of them), from its first file; raises with the reason. A read GDAL could not complete
+    although it returned (net.gdal_errors: what it could not fetch comes back as nodata or zeros) fails with
+    GDAL's error, never as a share of the window."""
     request = layer.index.request(tile)
+    transform = request.transform
+    if centre:
+        rows, cols = request.shape
+        transform = transform * Affine.translation((cols - WINDOW_PX) // 2, (rows - WINDOW_PX) // 2)
     if not request.files:
         raise RuntimeError("no file for the first block")
     name, url, _ = request.files[0]
@@ -217,7 +227,7 @@ def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
             with rio.open(_remote(url)) as remote:
                 if remote.crs is not None and not _same_crs(remote.crs, request.crs):
                     raise RuntimeError(f"{name} is in {remote.crs.to_string()}, not {request.crs}")
-                values = _read_window(remote, request.transform, (WINDOW_PX, WINDOW_PX))
+                values = _read_window(remote, transform, (WINDOW_PX, WINDOW_PX))
         if errors:
             raise RuntimeError(f"{name} not read completely: " + "; ".join(dict.fromkeys(errors)))
     except (RuntimeError, rio.errors.RasterioError):
@@ -350,7 +360,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text"):
+        if kind in ("index", "text", "blocks"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -368,8 +378,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 row.notes.append(_geoid(cache_dir, geoid))
             if deep:
                 row.notes.append(_deep(cache_dir, layer, tiles[0], folder))
-            elif kind == "window":
-                row.notes.append(_window(cache_dir, layer, tiles[0]))
+            elif kind in ("window", "blocks"):
+                row.notes.append(_window(cache_dir, layer, tiles[0], centre=kind == "blocks"))
             elif kind == "getmap":
                 _getmap(cache_dir, layer, tiles[0])
             elif kind == "text":

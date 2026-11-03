@@ -87,6 +87,31 @@
    "survey": "lidar",
    "trees": "yes"
   },
+  "ca-bc": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "GeoBC",
+   "res": [
+    1,
+    2,
+    30
+   ],
+   "source": "british_columbia",
+   "survey": "lidar",
+   "trees": "yes"
+  },
   "ca-nu": {
    "added": "2026-11-03",
    "level": 2,

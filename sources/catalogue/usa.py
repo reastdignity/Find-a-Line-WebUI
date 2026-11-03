@@ -52,7 +52,7 @@ SOURCES: List[Source] = [
                     "the 5 m IfSAR DTM, then the 1/3 arc-second DEM; NAD83 / NAVD88",
         nmt=USGS_1M, countries=("us",), bbox=ALASKA_BOX, local_crs=nad83_utm_crs, ortho=None,
         fallback="alaska_ifsar", more_fallbacks=("usgs10m",), instead_without_data="alaska_ifsar",
-        credits=(USGS_1M_CREDIT,), note=ALASKA_NOTE, neighbours=("canada",),
+        credits=(USGS_1M_CREDIT,), note=ALASKA_NOTE, neighbours=("canada", "british_columbia"),
         listing=ReadmeRow("Alaska, where it has 1 m data", "USGS 3DEP 1 m DEM",
                         "–", "– (USGS's Alaska imagery: licence restrictions)"),
         offline=(("us", ALASKA_BOX),), sample=None,  # no 1 m DEM in Alaska yet (2026-10)
@@ -64,7 +64,7 @@ SOURCES: List[Source] = [
         description="USGS 3DEP (Alaska): IfSAR DTM 5 m (radar, 2012-2019), gaps from the 1/3 arc-second DEM",
         # bbox: where it may fill a neighbour's gaps (filling.neighbour_window); it has no countries of its own
         nmt=USGS_IFSAR, bbox=ALASKA_BOX, local_crs=nad83_utm_crs, ortho=None, fallback="usgs10m",
-        credits=(USGS_IFSAR_CREDIT,), neighbours=("canada",),
+        credits=(USGS_IFSAR_CREDIT,), neighbours=("canada", "british_columbia"),
         note=ALASKA_NOTE + " Alaska's IfSAR is a radar model at 5 m: lines shorter than about 30 m are not reliable.",
         listing=ReadmeRow("Alaska", "USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019)", "–",
                         "– (USGS's Alaska imagery: licence restrictions)"),
@@ -75,7 +75,7 @@ SOURCES: List[Source] = [
                     "NAD83 / UTM, NAVD88; gaps from the 1/3 arc-second DEM",
         # 10 km files of 10-450 MB per project: blocks of 1 km read by HTTP range requests
         nmt=USGS_1M, countries=("us", "pr", "vi"), local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
-        fallback="usgs10m", credits=(USGS_1M_CREDIT,), note=USA_NOTE, neighbours=("canada",),
+        fallback="usgs10m", credits=(USGS_1M_CREDIT,), note=USA_NOTE, neighbours=("canada", "british_columbia"),
         listing=ReadmeRow("USA, Puerto Rico, US Virgin Islands",
                         "USGS 3DEP 1 m DEM (lidar), newest project first", "–",
                         "USGS Imagery (NAIP, up to zoom 16)"),

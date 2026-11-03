@@ -1,0 +1,72 @@
+{
+ "recipe": "arcgis-lidarbc",
+ "recorded": "2026-11-03",
+ "case": {
+  "source": "british_columbia",
+  "layer": "nmt",
+  "lat": 48.25,
+  "lon": -124.5
+ },
+ "hosts": [
+  "https://nrs.objectstore.gov.bc.ca",
+  "https://services6.arcgis.com"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services/LiDAR_BC_S3_Public/FeatureServer/6/query?where=1%3D1&geometry=-124.5%2C48.25%2C-124.25%2C48.5&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=maptile%2Cyear%2Cprojection%2Cs3Url&returnGeometry=true&orderByFields=OBJECTID&resultOffset=0&resultRecordCount=1000&f=json&outSR=4326&geometryPrecision=6",
+   "status": 200,
+   "content_type": "application/json; charset=utf-8",
+   "body": "001.json"
+  },
+  {
+   "method": "GET",
+   "url": "https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services/LiDAR_BC_S3_Public/FeatureServer/5/query?where=1%3D1&geometry=-124.5%2C48.25%2C-124.25%2C48.5&geometryType=esriGeometryEnvelope&inSR=4326&spatialRel=esriSpatialRelIntersects&outFields=maptile%2Cyear%2Cprojection%2Cs3Url&returnGeometry=true&orderByFields=OBJECTID&resultOffset=0&resultRecordCount=1000&f=json&outSR=4326&geometryPrecision=6",
+   "status": 200,
+   "content_type": "application/json; charset=utf-8",
+   "body": "002.json"
+  },
+  {
+   "method": "GET",
+   "url": "https://nrs.objectstore.gov.bc.ca/gdwuts/?list-type=2&prefix=092%2F092c%2F2019%2Fdem%2Fbc_092c049&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "003.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://nrs.objectstore.gov.bc.ca/gdwuts/?list-type=2&prefix=092%2F092c%2F2019%2Fdem%2Fbc_092c058&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "004.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://nrs.objectstore.gov.bc.ca/gdwuts/?list-type=2&prefix=092%2F092c%2F2019%2Fdem%2Fbc_092c059&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "005.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://nrs.objectstore.gov.bc.ca/gdwuts/?list-type=2&prefix=092%2F092c%2F2023%2Fdem%2Fbc_092c049&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "006.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://nrs.objectstore.gov.bc.ca/gdwuts/?list-type=2&prefix=092%2F092c%2F2023%2Fdem%2Fbc_092c058&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "007.xml"
+  },
+  {
+   "method": "GET",
+   "url": "https://nrs.objectstore.gov.bc.ca/gdwuts/?list-type=2&prefix=092%2F092c%2F2023%2Fdem%2Fbc_092c059&max-keys=1000",
+   "status": 200,
+   "content_type": "application/xml",
+   "body": "008.xml"
+  }
+ ]
+}

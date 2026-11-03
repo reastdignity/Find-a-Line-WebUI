@@ -1,11 +1,12 @@
-"""Canada: NRCan's HRDEM national mosaic (1 m, then 2 m) and MRDEM-30 for the gaps, read in blocks from their COGs
-on AWS (no key)."""
+"""Canada: British Columbia's LidarBC surveys (a region source), NRCan's HRDEM national mosaic (1 m, then 2 m) and
+MRDEM-30 for the gaps, read in blocks from their COGs (no key)."""
 
 from typing import Dict, List, Tuple
 
 from ..credit import Credit
 from ..source import Coverage, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
+from ..layers.lidarbc import LidarBcBlocks, bc_utm_crs
 from .arctic import ARCTIC_ACKNOWLEDGEMENT
 from .world import COPERNICUS_NOTICE
 
@@ -89,12 +90,76 @@ def _mrdem(kind: str, description: str) -> FileBlocks:
                       credit=MRDEM_CREDIT)
 
 
+# British Columbia: GeoBC's LidarBC (the provincial lidar programme of 2023-2026 and the older surveys of NDMP, BCTS,
+# FAIB and purchased ones, 2011-2024): DEM (bare earth) and DSM GeoTIFFs of 1 m (2 m for BCTS 2016) per BCGS 1:20 000
+# sheet (0.1° x 0.2°) or 1:2 500 tile and survey year, in NAD83(CSRS) / UTM of zones 8-11 (2023+ files name the
+# compound CRS with CGVD2013 height, EPSG:6653/6654), CGVD2013 heights (the accuracy reports; BC's 2016 and 2019 files
+# equal NRCan's CGVD2013 projects at the Stawamus Chief to the millimetre), nodata -32767 (-9999 in NDMP 2019),
+# pixel edges on whole metres but for NDMP 2017 (fractional origins, read bilinearly). Files of anonymous S3
+# (https://nrs.objectstore.gov.bc.ca/gdwuts/<NNN>/<NNNl>/<year>/<dem|dsm>/bc_<sheet>...tif), listed by the LidarBC
+# index, an ArcGIS FeatureServer (LiDAR_BC_S3_Public: DEM layers 6 (1:20 000) and 5 (1:2 500), DSM 3 and 1; "Access
+# Only": queried, its answers cached in the worker, never published), each entry confirmed by a listing of the
+# bucket (its wrong entries drop out). A sheet holds several partial surveys clipped to their flights: composed
+# newest first per 1 km block. Three layouts: COGs (2015, 2020-2021), 512 px tiles (2016-2019), one-row strips
+# (2022+: a 1 km block of a 1:2 500 tile reads about half of its 2-8 MB file).
+# The "PixelIsPoint" files (2015-2018, 2021-2022) are read as GDAL reads them (their tie point at the pixel's
+# centre): wave 0 found them half a pixel off the "Area" files (BC 2016 against BC 2019 at the Chief: best shift
+# (-0.5, +0.5) px, median |d| 0.238 m against 0.302 m at (0, 0); BC 2017 against BC 2024 at Skaha: (+0.5, -0.5) px,
+# 0.086 against 0.283 m), and reading them with GTIFF_POINT_GEO_IGNORE (the tie point at the corner) did not remove
+# it (2026-11-03: Chief (-1, 0) px, 0.238 m, 0.449 at (0, 0); Skaha (0, -1) px, 0.087 m, 0.338 at (0, 0)), so the
+# composition keeps such offsets where an older survey fills a newer one's holes.
+# Limits: none published (OGL-BC's API Terms of Use, v1.1 of 2025-04-11: the provider "may, without notice, impose
+# and or adjust limits on your access or use of the API"; the LidarBC pages and catalogue records, read 2026-11-03):
+# net.HOST_SLOTS_OF caps the bucket at 4. The licence names no statement of LidarBC's own: OGL-BC's default one.
+LIDARBC_FS = "https://services6.arcgis.com/ubm4tcTYICKBpist/arcgis/rest/services/LiDAR_BC_S3_Public/FeatureServer"
+LIDARBC_BUCKET = "https://nrs.objectstore.gov.bc.ca/gdwuts"
+OGL_BC = ("OGL - British Columbia 2.0",
+          "https://www2.gov.bc.ca/gov/content/data/policy-standards/open-data/open-government-licence-bc")
+LIDARBC_CREDIT = Credit("LidarBC DEM / DSM 1 m (GeoBC, Province of British Columbia)",
+                        "Contains information licensed under the Open Government Licence – British Columbia.", *OGL_BC)
+
+
+def _lidarbc(kind: str, layers: Tuple[int, int], description: str) -> LidarBcBlocks:
+    # Blocks of 1 km on the files' whole metres: a block of a strip file reads its rows whole (2-4 MB)
+    return LidarBcBlocks(description, LIDARBC_FS, layers, LIDARBC_BUCKET, f"lidarbc-{kind}", f"canada/lidarbc-{kind}",
+                         bytes_per_tile=4e6)
+
+
+# British Columbia in region boxes inside Canada's (they come first): the province west of 120° W (Haida Gwaii and
+# the panhandle side west of 129.9° W and north of 51° N go to Alaska's box, which comes before, and the strip south
+# of 49.4° N with Vancouver and Victoria to the USA's: offline only, as for canada), the Okanagan and the Kootenays
+# east of it to 116° W, the Elk Valley to 114.6° W, the Columbia valley at Golden and Valemount west of the divide
+# (Banff, Lake Louise and Jasper stay in Alberta)
+BC_BOXES = (("ca-bc", (49.0, 60.0, -139.1, -120.0)), ("ca-bc", (48.2, 49.0, -125.0, -123.2)),
+            ("ca-bc", (49.0, 51.0, -120.0, -116.0)), ("ca-bc", (49.0, 50.3, -116.0, -114.6)),
+            ("ca-bc", (51.0, 51.8, -118.5, -116.6)), ("ca-bc", (51.0, 53.8, -120.0, -118.5)))
+
 CA_SCALE_NOTE = ("Lengths are measured on NRCan's grid, Canada Atlas Lambert (EPSG:3979), whose scale makes them "
                  "about 0.3 % short at Squamish, 0.7 % short at Canmore, 1.7 % long on the Niagara Escarpment and "
                  "3 % short around 60-65° N.")
 CA_NO_ORTHO = "– (no national orthophoto service)"
 
 SOURCES: List[Source] = [
+    Source(
+        id="british_columbia", name="LidarBC (DTM / DSM 1 m, British Columbia)",
+        description="GeoBC's LidarBC: lidar terrain and surface models 1 m of the provincial programme 2023-2026 "
+                    "and older surveys, newest first, NAD83(CSRS) / UTM, CGVD2013 heights; gaps from NRCan's HRDEM "
+                    "mosaic 1 m, then 2 m, then MRDEM-30",
+        nmt=_lidarbc("dem", (6, 5), "LidarBC DEM 1 m (terrain)"),
+        nmpt=_lidarbc("dsm", (3, 1), "LidarBC DSM 1 m (trees, buildings)"),
+        countries=("ca",), regions=("ca-bc",), local_crs=bc_utm_crs, credits=(LIDARBC_CREDIT,),
+        # Never FABDEM (its terms are not open): HRDEM, then its 2 m version, then MRDEM-30
+        fallback="canada", more_fallbacks=("canada_2m", "mrdem30"),
+        neighbours=("canada", "usa", "alaska", "alaska_ifsar"),
+        listing=ReadmeRow("British Columbia (CA), where it has lidar", "GeoBC LidarBC DEM 2011-2026, 1 m",
+                          "GeoBC LidarBC DSM, 1 m", CA_NO_ORTHO),
+        offline=BC_BOXES, sample=(49.432, -119.557),  # Skaha Bluffs, Penticton
+        note="Data: GeoBC, Open Government Licence - British Columbia. LidarBC covers the provincial programme's "
+             "surveys (much of the province since 2023, published monthly) and older ones; gaps are filled from "
+             "NRCan's HRDEM mosaic (1 m, then 2 m), then from MRDEM-30 (30 m). Its surface model equals the terrain "
+             "on bare ground; where only the gap filler has one, the surface is another survey. No open orthophoto "
+             "of British Columbia: the map shows its own base layers.",
+        coverage=Coverage(provider="GeoBC", added="2026-11-03", partial=True, rest=(2.0, 30.0), survey="lidar")),
     Source(
         id="canada", name="NRCan HRDEM mosaic (DTM / DSM 1 m)",
         description="NRCan HRDEM national mosaic: lidar terrain and surface models 1 m, NAD83(CSRS) / Canada Atlas "
@@ -105,7 +170,7 @@ SOURCES: List[Source] = [
         nmt=_hrdem(1, "dtm", "HRDEM mosaic DTM 1 m (terrain)", LARGER_1M),
         nmpt=_hrdem(1, "dsm", "HRDEM mosaic DSM 1 m (trees, buildings)", LARGER_1M),
         countries=("ca",), crs=CANADA_LCC, credits=(HRDEM_CREDIT,),
-        fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar", "nunavut"),
+        fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar", "nunavut", "british_columbia"),
         listing=ReadmeRow("Canada, where it has lidar", "NRCan HRDEM national mosaic DTM, 1 m",
                           "NRCan HRDEM national mosaic DSM, 1 m", CA_NO_ORTHO),
         # Rough boxes (the first holding a point wins, and the USA's and Alaska's come first: southern Ontario
