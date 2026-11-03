@@ -177,9 +177,9 @@ STEP_KEYS = ("1", "2", "3", "4", "5", "orthophoto", "other")
 STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator table", "free directions",
               "anchor pairs", "checking lines")
 # The funnel of the line search (job_funnel.step, search.Plan.funnel): grids searched, anchors found
-# and kept after the prominence and drop limits, anchors with an open direction and those pairs start
-# from, candidate pairs, pairs checked pixel by pixel and found, valid lines, lines left out by the
-# line limits, and the lines in the tiles' cores
+# and kept after the elevation, prominence and drop limits, anchors with an open direction and those
+# pairs start from, candidate pairs, pairs checked pixel by pixel and found, valid lines, lines left out
+# by the line limits, and the lines in the tiles' cores
 FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates", "checked", "found", "valid",
                 "left_out", "lines")
 

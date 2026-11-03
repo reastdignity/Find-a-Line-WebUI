@@ -5,7 +5,7 @@
 // under Node.
 
 import { dh, drop, lowerAnchor, NO_FILTERS, passes, prominence, range as valueRange, saveFilters, savedFilters,
-         wallAngle, type FilterRanges, type Filters, type LinesState } from "../filters";
+         upperAnchor, wallAngle, type FilterRanges, type Filters, type LinesState, type Range } from "../filters";
 import { groupLines, type Group } from "../grouping";
 import { detailMessage } from "../i18n";
 import { addFolder, loadRunFavourites, moveFavourite, saveFavourite, type FavouriteFolder,
@@ -14,7 +14,8 @@ import { FolderTree } from "../folders";
 import { lineCoords, lineKey, runLineKey } from "../keys";
 import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, type Row } from "../list";
 import { colorOf, inLocalPlane } from "../others";
-import { toLine, type Line, type Profile, type RunData, type RunInfo, type RunLines } from "../types";
+import { percentileRank, toLine, type Line, type Profile, type RunData, type RunInfo, type RunLines,
+         type Terrain } from "../types";
 
 export type { Filters, Group, LinesState, ListState, FilterRanges };
 export { NO_FILTERS };
@@ -80,11 +81,17 @@ const fromServer = () => typeof location !== "undefined" && location.protocol.st
 const appFlags = () => typeof window !== "undefined" ? window.FINDALINE_APP : undefined;
 const finite = (v: number) => isFinite(v) ? v : null;
 
+/** The range over two ranges (either may be null). */
+const both = (a: Range | null, b: Range | null): Range | null =>
+  a && b ? {min: Math.min(a.min, b.min), max: Math.max(a.max, b.max)} : a || b;
+
 /** The ranges of the lines' values the filters offer. */
 function lineRanges(all: Line[], highAbove: number, largestGroup: number, favourites: boolean): FilterRanges {
   return {len: valueRange(all, (l) => l.len), clr: valueRange(all, (l) => l.clr),
           clrN: valueRange(all, (l) => l.clrN), dh: valueRange(all, dh),
-          elev: valueRange(all, lowerAnchor), hmax: valueRange(all, (l) => l.hmax),
+          elev: valueRange(all, lowerAnchor), elevHigh: valueRange(all, upperAnchor),
+          pct: both(valueRange(all, (l) => l.pct1), valueRange(all, (l) => l.pct2)),
+          hmax: valueRange(all, (l) => l.hmax),
           hmean: valueRange(all, (l) => l.hmean), highPct: valueRange(all, (l) => l.highPct),
           highAbove, angle: valueRange(all, wallAngle),
           prom: valueRange(all, (l) => finite(prominence(l, Math.max))),
@@ -93,15 +100,17 @@ function lineRanges(all: Line[], highAbove: number, largestGroup: number, favour
           water: all.some((l) => l.water > 0), filled: all.some((l) => l.filled > 0), favourites};
 }
 
-/** A line measured between two points from its profile. */
-export function measuredLine(a: [number, number], b: [number, number], p: Profile): Line {
+/** A line measured between two points from its profile; its ends' percentiles from the run's terrain when known. */
+export function measuredLine(a: [number, number], b: [number, number], p: Profile, terrain?: Terrain | null): Line {
   const n = p.d.length - 1;
   if (p.z[0] === null || p.z[n] === null) throw new Error("no terrain data at a point");
   return {lat1: a[0], lon1: a[1], lat2: b[0], lon2: b[1], x1: 0, y1: 0, x2: 0, y2: 0,
           len: p.d[n], clr: p.min[1], clrN: p.min_nmpt ? p.min_nmpt[1] : null,
           e1: p.z[0]!, e2: p.z[n]!, over: false, water: p.water_m, filled: p.filled_m,
           hmax: p.max_height ? p.max_height[1] : NaN, hmean: NaN, highPct: NaN,
-          angle1: NaN, angle2: NaN, prom1: null, prom2: null, drop1: null, drop2: null, prof: p};
+          angle1: NaN, angle2: NaN, prom1: null, prom2: null, drop1: null, drop2: null,
+          pct1: terrain ? percentileRank(p.z[0]!, terrain.quantiles) : null,
+          pct2: terrain ? percentileRank(p.z[n]!, terrain.quantiles) : null, prof: p};
 }
 
 export class ResultModel {
@@ -153,7 +162,7 @@ export class ResultModel {
   constructor(data: RunData, options: ResultOptions = {}) {
     this.data = data;
     this.runId = data.run.id;
-    this.lines = data.lines.map((row) => toLine(row));
+    this.lines = data.lines.map((row) => toLine(row, undefined, data.terrain));
     this.gather();
     this.api = options.api || SERVER_API;
     const app = appFlags();
@@ -560,7 +569,7 @@ export class ResultModel {
   addRun(info: RunInfo, loaded: RunLines, color = colorOf(info.id)) {
     const run = {info, color};
     this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area,
-                              lines: loaded.lines.map((row) => toLine(row, run))});
+                              lines: loaded.lines.map((row) => toLine(row, run, loaded.terrain))});
     this.gather();
     this.compute();
     this.notify();
@@ -595,6 +604,6 @@ export class ResultModel {
   async measure(a: [number, number], b: [number, number]): Promise<Line> {
     if (!this.canCompute) throw new Error("this page cannot compute profiles");
     const key = [a[0], a[1], b[0], b[1]].map((v) => v.toFixed(7)).join(",");
-    return measuredLine(a, b, await this.api.profile(this.runId, key));
+    return measuredLine(a, b, await this.api.profile(this.runId, key), this.data.terrain);
   }
 }

@@ -1202,3 +1202,34 @@ identical runs on this busy PC; the stages are what counts.
   unchanged. The full offline `pytest` from PowerShell on each branch (784-785 passed).
 - Not done: a measurement on Linux (the process start and the per-line cost of 3b differ there);
   `locales/en.json`'s help of `--threads` does not name the children (the CLI's text does).
+
+## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
+
+The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,
+"Elevation filters"). `prepare_data` counts them right after the shore zone, in the Compute bar
+"terrain statistics" (`hypsometry.land_histogram`): an exact histogram of 0.1 m bins over blocks
+of about 1 Mpx of rows, within a tile's core only, summed over the tiles. The anchors' band of
+`--min-elevation`/`--max-elevation` in `_lines` is a mask over the anchors (milliseconds).
+
+Measured with `tools/perf_profile.py --cores 7` under the exclusive lock on cached data, with
+main's code (6d9d2c2) against the branch's (26adeea), both exported:
+- four pairs on the Gozo coast with `--tile-size 5000` (6 tiles, the largest 50.2 Mpx), one of
+  them with `--tracemalloc`;
+- one pair of R40 (a 1 m circle of 600 m).
+
+| | main | the branch |
+| --- | ---: | ---: |
+| the bar "terrain statistics", Gozo coast (6 tiles) | – | 0.3 s in every run (about 0.05 s a tile) |
+| the bar, R40 | – | 0.0 s |
+| step 1's wall time, Gozo coast | 39.0-41.9 s | 40.0-41.6 s |
+| step 1's peak RSS, Gozo coast (the surface pair's medians of the gap filling) | 1 710-1 925 MB (mean 1 815) | 1 704-1 904 MB (mean 1 806) |
+| step 1's peak of the traced heap (`--tracemalloc`) | 1 344 MB | 1 347 MB (the bar's own: 296 MB) |
+
+- The peak RSS of identical runs varies by about ±110 MB here. The traced heap shows no array
+  held past the bar, so `PIXEL_BYTES` stays 50.
+- The results are byte for byte in every pair: `lines.csv`, `lines.geojson` up to its
+  "findaline" part, and `data.js` and `lines.js` from their "lines". The terrain goes into
+  their heads, before "lines".
+- `tests/regression.py`'s sets water and search, and R56, gave every checksum unchanged.
+- The viewer ranks each line's anchors once when a run is loaded: a binary search in 101
+  quantiles per anchor.

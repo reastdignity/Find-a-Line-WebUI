@@ -61,6 +61,7 @@
 .ui .r-more-head { display: flex; align-items: center; gap: 8px; }
 .ui .r-more-sec { display: flex; flex-direction: column; gap: 8px; }
 .ui .r-more-sec > h3, .ui .r-field-lab { margin: 0; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ui .r-terrain { margin-top: 4px; }  /* the area's terrain: apart from the slider above, with the percentiles below */
 @media (pointer: coarse) { .ui .r-num { min-height: 40px; font-size: 16px; } }
 
 /* The list of lines */

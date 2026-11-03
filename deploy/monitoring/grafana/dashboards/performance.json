@@ -1605,7 +1605,7 @@
       "id": 89,
       "type": "timeseries",
       "title": "Line search funnel per day (F19)",
-      "description": "The counts of the line search of the searches finished in each day (UTC) of the last 30 days, from the grids and anchors to the lines (log scale): anchors found, kept after the prominence and drop limits, with an open direction, those pairs start from; candidate pairs, checked pixel by pixel, found; valid lines, left out by the line limits, the lines of the tiles' cores.",
+      "description": "The counts of the line search of the searches finished in each day (UTC) of the last 30 days, from the grids and anchors to the lines (log scale): anchors found, kept after the elevation, prominence and drop limits, with an open direction, those pairs start from; candidate pairs, checked pixel by pixel, found; valid lines, left out by the line limits, the lines of the tiles' cores.",
       "datasource": {
         "type": "prometheus",
         "uid": "victoriametrics"

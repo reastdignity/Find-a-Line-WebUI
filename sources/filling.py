@@ -63,6 +63,25 @@ def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
     return ndimage.maximum_filter1d(grown, size, axis=1, mode="constant", cval=0)
 
 
+def water_with_data(z: np.ndarray, wbm: Optional[np.ndarray], sea_zone: Optional[np.ndarray],
+                    sea_value: Optional[float] = None) -> np.ndarray:
+    """The water among the pixels of z that have data (fill_water's mask keeps it, the terrain's
+    statistics leave it out, hypsometry.py): lakes of the water body mask wbm (measured by LiDAR),
+    and the sea zone where the data give the sea: at most SEA_LEVEL_TOLERANCE high (about 0 m,
+    e.g. IGN Spain) or within SEA_FILL_EPS of sea_value (the provider's constant, Source.sea_fill).
+    None for a mask: none of that water."""
+    water = np.zeros(z.shape, bool)
+    if wbm is not None:
+        water |= wbm == LAKE
+    if sea_zone is not None:
+        with np.errstate(invalid="ignore"):
+            sea_level = z <= SEA_LEVEL_TOLERANCE
+            if sea_value is not None:
+                sea_level |= (z >= sea_value - SEA_FILL_EPS) & (z <= sea_value + SEA_FILL_EPS)
+        water |= sea_zone & sea_level
+    return water & np.isfinite(z)
+
+
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
                sea_zone: np.ndarray, out_path: str, sea_value: Optional[float] = None) -> str:
     """Give the sea and lakes an elevation where the data has none.
@@ -117,12 +136,7 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
         lake_px += int(area.sum())
     # Water that the elevation data covers: lakes measured by LiDAR, and sea given as
     # about 0 m by the data itself (e.g. IGN Spain) or as the provider's constant (sea_value, Source.sea_fill)
-    water |= (wbm == LAKE) & ~empty
-    data = np.asarray(elevation)
-    sea_level = data <= SEA_LEVEL_TOLERANCE
-    if sea_value is not None:
-        sea_level |= (data >= sea_value - SEA_FILL_EPS) & (data <= sea_value + SEA_FILL_EPS)
-    water |= sea_zone & ~empty & sea_level
+    water |= water_with_data(np.asarray(elevation), wbm, sea_zone, sea_value) & ~empty
     elevation.flush()
     if surface is not None:
         surface.flush()

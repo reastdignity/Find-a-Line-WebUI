@@ -52,6 +52,7 @@ import cache
 import coast
 import grid as gd
 import helpers as sh
+import hypsometry as hy
 import mapping as mp
 import messages
 import obstacles
@@ -245,6 +246,8 @@ class Data:
     # The search area on the grid (plan.area.mask(grid), computed once in step 1); None: computed
     # where needed
     mask: Optional[np.ndarray] = None
+    # The heights of the land with data of the search area (of a tile's core), hypsometry.py
+    terrain: Optional[hy.Histogram] = None
 
 
 @dataclass
@@ -252,6 +255,8 @@ class Lines:
     """Steps 2-4 results: every valid line (with the profiles it keeps) and the groups ("spots")."""
     results: sh.LineTable
     spot_groups: mp.Groups
+    # The terrain of the whole search area (hypsometry.statistics), None when not known
+    terrain: Optional[Dict] = None
 
 
 @dataclass
@@ -367,8 +372,15 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
     lines += [f"Length constraints: {params.min_length:g}m - {params.max_length:g}m",
               f"Anchor height difference: at most {params.max_anchor_diff:g}% of the length "
               f"and {params.max_anchor_diff_m:g}m",
-              f"Slope threshold: {params.slope_threshold:g} degrees",
-              f"NMPT (trees/buildings): {nmpt or 'not used'}"]
+              f"Slope threshold: {params.slope_threshold:g} degrees"]
+    lo, hi = params.min_elevation, params.max_elevation
+    if lo is not None and hi is not None:
+        lines.append(f"Anchor elevation: {lo:g}–{hi:g} m a.s.l.")
+    elif lo is not None:
+        lines.append(f"Anchor elevation: at least {lo:g} m a.s.l.")
+    elif hi is not None:
+        lines.append(f"Anchor elevation: at most {hi:g} m a.s.l.")
+    lines.append(f"NMPT (trees/buildings): {nmpt or 'not used'}")
     if params.model == "sag":
         lines.append(f"Clearance model: sag estimator ({params.pretension:g} kN, {params.stretch:g}% @ 10 kN, "
                      f"{params.webbing_weight:g} g/m, athlete {params.athlete_mass:g} kg, "
@@ -747,8 +759,22 @@ class _Background:
         return self._value
 
 
-def prepare_data(plan: Plan) -> Data:
-    """Step 1: download what is missing and build the grids (terrain, surface, water, gaps)."""
+def _core_window(grid, core: tuple) -> Tuple[slice, slice]:
+    """The rows and columns of grid whose pixel centres lie in core (left, bottom, right, top),
+    half-open like a line's first anchor in _lines: the cores of a tiled search lie on pixel
+    edges, so their windows split the area's pixels between the tiles."""
+    left, bottom, right, top = core
+    x, _ = grid.pixel_to_xy(0, np.arange(grid.width))
+    _, y = grid.pixel_to_xy(np.arange(grid.height), 0)
+    span = lambda inside: (slice(int(inside[0]), int(inside[-1]) + 1) if inside.size else slice(0, 0))
+    return (span(np.flatnonzero((bottom <= y) & (y < top))), span(np.flatnonzero((left <= x) & (x < right))))
+
+
+def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True) -> Data:
+    """Step 1: download what is missing and build the grids (terrain, surface, water, gaps).
+
+    statistics: count the heights of the land with data in the search area (Data.terrain,
+    hypsometry.py), within core (a tile's bounds) when given."""
     p, grid, source, emit = plan.params, plan.grid, plan.source, plan.emit
     cache_dir, work = plan.paths.cache, plan.paths.work
     _step(plan, 1, f"downloading elevation data ({source.name})")
@@ -767,7 +793,7 @@ def prepare_data(plan: Plan) -> Data:
             surface_path = src.prepare_layer(source.nmpt, grid, cache_dir,
                                              os.path.join(work, "nmpt.npy"), "surface", p.update, download=False)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
-        water_path = filled_path = joined_path = sea_zone = None
+        water_path = filled_path = joined_path = sea_zone = wbm = terrain = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
             sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update,
@@ -787,9 +813,18 @@ def prepare_data(plan: Plan) -> Data:
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
             progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
-            del wbm  # used for the zone only
             progress.compute.update(1)
             progress.compute.finish()
+        if statistics:
+            # The source's own terrain, before any filling (filled pixels are NaN still)
+            progress.compute.start("terrain statistics", 1, unit="step")
+            terrain = hy.land_histogram(np.load(elevation_path, mmap_mode="r"), mask, wbm, sea_zone,
+                                        _core_window(grid, core) if core is not None else None,
+                                        sea_value=source.sea_fill)
+            progress.compute.update(1)
+            progress.compute.finish()
+        if p.water != "fill":
+            wbm = None  # used for the zone and the statistics only
         if _fills_gaps(plan):
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
@@ -844,13 +879,13 @@ def prepare_data(plan: Plan) -> Data:
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
-                np.load(joined_path, mmap_mode="r") if joined_path else None, mask)
+                np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
     """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
-    return Lines(results, groups)
+    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution))
 
 
 def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0) -> Tuple[sh.LineTable, mp.Groups]:
@@ -960,8 +995,9 @@ class Anchors:
 
 def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
     """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
-    data), with their prominence and drop and the limits on them. Too few anchors: None when
-    quiet (a tile, a count), else SearchError. limits.anchors_max refuses too many either way."""
+    data) within the elevation band (--min/--max-elevation), with their prominence and drop and
+    the limits on them. Too few anchors: None when quiet (a tile, a count), else SearchError.
+    limits.anchors_max refuses too many either way."""
     import terrain  # numba: only when computing (test_search_imports_numba_only_to_compute)
 
     p, grid, emit = plan.params, plan.grid, plan.emit
@@ -974,13 +1010,31 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
             anchors = anchors[~at_seams(seams, anchors)]
     emit("info", f"Found {len(anchors)} potential anchors to evaluate")
     _count(plan, "anchors", len(anchors))
+    # --min-elevation / --max-elevation: both anchors of a line within the band, so anchors
+    # outside it are no partners either (compared in float32, the grid's type)
+    banded = False
+    if p.min_elevation is not None or p.max_elevation is not None:
+        z = data.elevation[anchors[:, 0], anchors[:, 1]]
+        inside = np.ones(len(anchors), dtype=bool)
+        if p.min_elevation is not None:
+            inside &= z >= np.float32(p.min_elevation)
+        if p.max_elevation is not None:
+            inside &= z <= np.float32(p.max_elevation)
+        if not inside.all():
+            banded = True
+            anchors = anchors[inside]
+            emit("info", f"Anchors within the elevation limits: {len(anchors)}")
     if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
         raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
-                          f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
-                          n=len(anchors), max=plan.limits.anchors_max)
+                          f"--slope-threshold, narrower --min-elevation/--max-elevation, a coarser --resolution "
+                          f"or a smaller area", "too_many_anchors", n=len(anchors), max=plan.limits.anchors_max)
     if len(anchors) < 2:
         if quiet:
             return None
+        if banded:
+            raise SearchError("Not enough steep terrain within the elevation limits. Try a wider "
+                              "--min-elevation/--max-elevation or a lower --slope-threshold.",
+                              "no_anchors_in_elevation_range")
         raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
                           "no_steep_terrain")
 
@@ -1095,6 +1149,9 @@ def _search_hash(plan: Plan) -> str:
     """What identifies the same tiled search, to resume it."""
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
                                         "opentopo_key", "tile_size", "group_distance", "group_by"})
+    for name in ("min_elevation", "max_elevation"):  # unset: the hash of before (its tiles resume)
+        if p[name] is None:
+            del p[name]
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
         key["owner"] = plan.owner
@@ -1134,6 +1191,7 @@ def _progress(run: Dict, status: str):
 
 
 TILE_FILE = "{}.table.pkl.gz"  # a finished tile's lines; "<k>.pkl.gz" of before held a dict per line
+TERRAIN_FILE = "{}.terrain.npz"  # its terrain's histogram (hypsometry.save), saved before the tile file
 
 
 def _save_tile(path: str, lines: sh.LineTable):
@@ -1169,26 +1227,32 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     folder = os.path.join(run["path"], "tiles")
     os.makedirs(folder, exist_ok=True)
     tables, count = [], 0
+    terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
+        terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
         if not os.path.exists(path):
             plan.emit("info", f"\n--- Tile {k + 1} of {len(plan.tiles)} ({tile.width} x {tile.height} px) ---")
             work = os.path.join(plan.paths.work, f"tile{k}")
             os.makedirs(work, exist_ok=True)
             tile_plan = dataclasses.replace(plan, grid=tile, paths=Paths(plan.paths.data, work), tiles=None,
                                             tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ", search_grid=plan.grid)
-            data = prepare_data(tile_plan)
+            data = prepare_data(tile_plan, core)
             found, _ = _lines(tile_plan, data, core, before=count)
+            histogram = data.terrain
             del data
             gc.collect()  # close the memory-mapped grids before deleting them (Windows)
             shutil.rmtree(work, ignore_errors=True)
             progress.set_step(f"{tile_plan.tile_label}Step 4/{STEPS}: saving the tile's lines")
+            hy.save(terrain_path, histogram)  # before the tile file, which marks the tile done
             _save_tile(path, found)
             table = found.without_pixels()  # what loading the file gives, without the round trip
             del found
         else:
             progress.set_step(f"Step 4/{STEPS}: loading tile {k + 1}/{len(plan.tiles)}")
             table = _load_tile(path).without_pixels()  # tile files of before, tiles without anchors
+            histogram = hy.load(terrain_path)  # None for a tile saved before the statistics
+        terrain = terrain + histogram if terrain is not None and histogram is not None else None
         tables.append(table)
         count += len(tables[-1])
         _check_lines(plan, count)
@@ -1216,7 +1280,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         progress.compute.finish()
         src.used_data[:] = used
     progress.set_step("")
-    return Lines(results, groups), run
+    return Lines(results, groups, hy.statistics(terrain, plan.resolution)), run
 
 
 def _merged_data() -> List[Dict]:
@@ -1272,7 +1336,8 @@ def _run_params(plan: Plan) -> Dict:
             "min_length": p.min_length, "max_length": p.max_length,
             "max_anchor_diff": p.max_anchor_diff,
             "max_anchor_diff_m": p.max_anchor_diff_m,
-            "slope_threshold": p.slope_threshold, "slope_file": p.slope_file, "high_above": p.high_above,
+            "slope_threshold": p.slope_threshold, "slope_file": p.slope_file,
+            "min_elevation": p.min_elevation, "max_elevation": p.max_elevation, "high_above": p.high_above,
             "min_height": p.min_height, "min_mean_height": p.min_mean_height, "min_high_share": p.min_high_share,
             "max_wall_angle": p.max_wall_angle, "min_prominence": p.min_prominence,
             "min_prominence_both": p.min_prominence_both, "prominence_span": p.prominence_span,
@@ -1294,6 +1359,13 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     p, emit = plan.params, plan.emit
     results, spot_groups = lines.results, lines.spot_groups
     _step(plan, 5, "saving the run and the map")
+    terrain = lines.terrain
+    if terrain is None:
+        emit("info", "Terrain of the search area: not known")
+    else:
+        q = terrain["quantiles"]
+        emit("info", f"Terrain of the search area: {q[0]:.0f}–{q[100]:.0f} m, mean {terrain['mean']:.0f} m, "
+                     f"median {q[50]:.0f} m ({terrain['km2']:.2f} km² of land with data)")
     center_lat, center_lon = plan.area.center
     x, y = plan.center_xy
     if run is None:
@@ -1316,6 +1388,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
                     "clear_spots": int((~results.columns["over_obstacles"][spot_groups.rep]).sum()),
                     # which lines have a profile in the map (runs before 2026-11: all of a circle's)
                     "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
+        "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
@@ -1474,7 +1547,7 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
     if plan.crs != meta["center"]["crs"]:
         raise SearchError(f"the run used {meta['center']['crs']}, a search here would use {plan.crs}", "profile_crs")
     plan.obstacles = p.get("obstacles")  # the run's rule; runs before it compared the surface model as it is
-    data = prepare_data(plan)
+    data = prepare_data(plan, statistics=False)
     grid, res = plan.grid, plan.resolution
     pixel = lambda x, y: (int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5)))
     sag_table = None

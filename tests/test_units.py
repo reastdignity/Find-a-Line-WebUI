@@ -1770,6 +1770,29 @@ def test_coded_errors():
     assert messages.quantity("slope_threshold", 45.0) == "45°" and messages.quantity("ortho_detail", 5) == "5"
 
 
+def test_elevation_band_validation():
+    """--min-elevation/--max-elevation: either bound alone, or both in order (equal is a band of one
+    height); a lower bound above the upper one is refused with its code."""
+    import messages
+    import params as pm
+    import runs
+    from pydantic import ValidationError
+    assert pm.SearchParams(lat=50, lon=19).min_elevation is None
+    assert pm.SearchParams(lat=50, lon=19, min_elevation=800).min_elevation == 800
+    assert pm.SearchParams(lat=50, lon=19, max_elevation=-20).max_elevation == -20
+    assert pm.SearchParams(lat=50, lon=19, min_elevation=800, max_elevation=800).max_elevation == 800
+    with pytest.raises(ValidationError) as error:
+        pm.SearchParams(lat=50, lon=19, min_elevation=1500, max_elevation=800)
+    coded = messages.user_error(error.value)
+    assert coded.code == "elevation_range" and "--min-elevation" in str(coded)
+    assert "--" not in coded.web_text()
+    base = {"radius": 100, "resolution": 1, "slope_threshold": 45, "min_length": 30, "max_length": 100,
+            "nmpt": None}
+    assert "anchors" not in runs.params_summary({"params": base})
+    assert runs.params_summary({"params": {**base, "min_elevation": 800, "max_elevation": 1500}}).endswith(
+        "anchors ≥800 m a.s.l., anchors ≤1500 m a.s.l.")
+
+
 HARD_FLOATS = [0.125, 0.375, 2.675, 1.005, 0.5, 1.5, 2.5, -0.5, -2.675, 0.0, -0.0, -0.004, -1e-9, 1e-300, 5e-324,
                1e300, -1e300, 2.0 ** 52 + 1, 4.5e15 + 0.5, 1e16, 123456.78905, 50.12345675, 19.00000005,
                float("nan"), float("inf"), float("-inf"), 0.1 + 0.2, 1 / 3, 1e22, 0.045, 0.055, 9.995]

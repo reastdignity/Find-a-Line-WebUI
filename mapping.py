@@ -368,11 +368,12 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
         "distance": group_distance, "by": group_by, "model": model,
         "rigging": dataclasses.asdict(rigging or Rigging()),
         "slope": SLOPE, "leash_fall": LEASH_FALL, "high_above": high_above, "max_zoom": MAX_ZOOM,
+        "terrain": run.get("terrain"),  # the search area's (hypsometry.statistics), None when not known
         "lines": None,
     }
     target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
     return (_script_head("window.FINDALINE_RUN", data),
-            _script_head(target, {"crs": crs, "area": data["area"], "lines": None}))
+            _script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], "lines": None}))
 
 
 def write_map_scripts(lines: LineTable, run_path: str, heads: Tuple[str, str], on_lines=lambda n, file: None,

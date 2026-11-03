@@ -179,6 +179,85 @@ def test_height_limits_filter_the_lines(tmp_path):
     assert sorted(map(line_values, both), key=key) == sorted(expected, key=key)
 
 
+def _search_here(tmp_path, monkeypatch, **values) -> tuple:
+    """A search in this process (offline, the lines not saved): (plan.funnel, the lines'
+    LineTable with its unrounded columns, the printed texts)."""
+    for key, v in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, v)
+    import search
+    from params import SearchParams
+    texts = []
+    params = SearchParams(water="off", fill_gaps="off", **values)
+    plan = search.plan_search(params, search.Paths(str(tmp_path), str(tmp_path / "work")),
+                              lambda kind, text: texts.append(text))
+    lines, _ = search.search_lines(plan)
+    return plan.funnel, lines.results, texts
+
+
+def _sorted_columns(table) -> dict:
+    """The value columns of a LineTable (and the anchors' coordinates), the lines in the order of
+    their anchors' coordinates."""
+    from helpers import LINE_VALUES
+    c = table.columns
+    order = np.lexsort((c["a2_xy"][:, 1], c["a2_xy"][:, 0], c["a1_xy"][:, 1], c["a1_xy"][:, 0]))
+    return {name: c[name][order] for name in (*LINE_VALUES, "a1_xy", "a2_xy")}
+
+
+def test_elevation_band_filters_the_lines(tmp_path, monkeypatch):
+    """--min-elevation/--max-elevation keep exactly the lines of the search without them whose
+    anchors both lie in the band (compared in float32, the grid's type), with the same values;
+    the band leaves the anchors out before the pairs (the funnel's "anchors_kept")."""
+    import search
+    common = {"elevation_file": os.path.join(DATA, "zabi_kon_nmt.tif"), "northing": 254608, "easting": 553966,
+              "radius": 290, "high_above": 15}
+    funnel, everything, _ = _search_here(tmp_path / "all", monkeypatch, **common)
+    same = lambda a, b: a.keys() == b.keys() and all(  # noqa: E731
+        np.array_equal(a[k], b[k], equal_nan=True) for k in a)
+    for lo, hi in ((330.333, None), (None, 340.333), (325.333, 345.333)):
+        band, table, texts = _search_here(tmp_path / f"{lo}-{hi}", monkeypatch, **common,
+                                          min_elevation=lo, max_elevation=hi)
+        c = everything.columns
+        inside = np.ones(len(everything), dtype=bool)
+        for z in (c["elev_a1"], c["elev_a2"]):
+            if lo is not None:
+                inside &= z >= float(np.float32(lo))
+            if hi is not None:
+                inside &= z <= float(np.float32(hi))
+        assert 0 < inside.sum() < len(everything)
+        assert same(_sorted_columns(table), _sorted_columns(everything.take(np.flatnonzero(inside))))
+        assert band["anchors"] == funnel["anchors"] == ZABI_KON["anchors"]
+        assert band["anchors_kept"] < funnel["anchors_kept"]
+        # no prominence or drop limits here: the anchors within the band are those kept
+        assert f"Anchors within the elevation limits: {band['anchors_kept']}" in texts
+        assert any(t.startswith("Anchor elevation: ") for t in texts)
+    # A band holding every anchor changes nothing, not even the order of the lines
+    wide, table, texts = _search_here(tmp_path / "wide", monkeypatch, **common, min_elevation=100,
+                                      max_elevation=1000)
+    assert wide == funnel and same(table.columns, everything.columns)
+    assert not any(t.startswith("Anchors within") for t in texts)
+    # No anchor in the band: its own error, not "not enough steep terrain"
+    with pytest.raises(search.SearchError) as error:
+        _search_here(tmp_path / "none", monkeypatch, **common, min_elevation=1000)
+    assert error.value.code == "no_anchors_in_elevation_range"
+
+
+def test_elevation_band_in_tiles(tmp_path):
+    """An area with an elevation band gives the same lines in tiles as in one grid."""
+    square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                                  [19.7522, 50.1580], [19.7522, 50.1546]]]}
+    path = tmp_path / "square.geojson"
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+    common = ["--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"), "--area", str(path),
+              "--max-length", "150", "--min-elevation", "325.333", "--max-elevation", "345.333"]
+    one_out, one = run_search(tmp_path / "one", *common)
+    tiled_out, tiled = run_search(tmp_path / "tiled", *common, "--tile-size", "150")
+    assert "one grid" in one_out and "tiles)" in tiled_out
+    assert "Anchor elevation: 325.333–345.333 m a.s.l." in one_out and "Anchors within the elevation limits" in one_out
+    assert one and one == tiled  # every column, the order of the anchors too
+    assert len(glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))) > 1
+    assert all(325.33 <= float(r[f"anchor{k}_elev_m"]) <= 345.34 for r in one for k in (1, 2))
+
+
 def test_area_in_tiles(tmp_path):
     """An area computed in tiles gives exactly the lines of one grid."""
     square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
@@ -192,7 +271,13 @@ def test_area_in_tiles(tmp_path):
     assert "one grid" in one_out and "tiles)" in tiled_out
     assert one and _lines(one) == _lines(tiled)
     assert one == tiled  # every column, the order of the anchors too (their pixels depend on it)
-    assert len(glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))) > 1
+    tile_files = glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))
+    assert len(tile_files) > 1
+    # The terrain of the area (hypsometry.py) from the tiles' cores: exactly that of one grid
+    assert sorted(f.replace(".table.pkl.gz", "") for f in tile_files) == sorted(
+        f.replace(".terrain.npz", "") for f in glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.npz")))
+    terrain = _terrain(tmp_path / "one")
+    assert terrain["run.json"] is not None and _terrain(tmp_path / "tiled") == terrain
     # the prominence and drop of the anchors too, so their limits give one grid's lines as well
     limits = ["--min-prominence", "2", "--min-drop", "30"]
     _, one_limited = run_search(tmp_path / "one-limited", *common, *limits)
@@ -206,6 +291,64 @@ def test_area_in_tiles(tmp_path):
         reps = {tuple(float(r[k]) for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
                 for r in rows if r["representative"] == "True"}
         assert with_profile == reps, name
+
+
+def _terrain(data_dir) -> dict:
+    """The terrain of the one run in data_dir as run.json, data.js and lines.js have it (all equal)."""
+    folder = glob.glob(str(data_dir / "runs" / "*" / "run.json"))[0].rsplit(os.sep, 1)[0]
+    read = lambda name: open(os.path.join(folder, name), encoding="utf-8").read()  # noqa: E731
+    found = {"run.json": json.loads(read("run.json"))["terrain"],
+             "data.js": json.loads(read("data.js").partition(" = ")[2].rstrip().rstrip(";"))["terrain"],
+             "lines.js": json.loads(read("lines.js").partition("] = ")[2].rstrip().rstrip(";"))["terrain"]}
+    assert found["run.json"] == found["data.js"] == found["lines.js"]
+    return found
+
+
+def test_terrain_of_the_clip(tmp_path):
+    """The Żabi Koń clip's terrain: 101 quantiles in order, the land of the circle, every anchor
+    between the lowest and the highest bin; printed after step 5, saved after the summary."""
+    output, rows = run_search(tmp_path, "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
+                              "--northing", "254608", "--easting", "553966", "--radius", "290")
+    terrain = _terrain(tmp_path)["run.json"]
+    q = terrain["quantiles"]
+    assert len(q) == 101 and q == sorted(q) and q[0] < terrain["mean"] < q[100]
+    assert terrain["km2"] == pytest.approx(np.pi * 0.29 ** 2, rel=0.01)  # all land with data
+    heights = [float(r[f"anchor{k}_elev_m"]) for r in rows for k in (1, 2)]
+    assert rows and q[0] <= min(heights) and max(heights) < q[100] + 0.1
+    line = f"Terrain of the search area: {q[0]:.0f}–{q[100]:.0f} m, mean {terrain['mean']:.0f} m, "            f"median {q[50]:.0f} m ({terrain['km2']:.2f} km² of land with data)"
+    assert line in output.splitlines(), output
+    meta = json.load(open(glob.glob(str(tmp_path / "runs" / "*" / "run.json"))[0], encoding="utf-8"))
+    assert list(meta).index("terrain") == list(meta).index("summary") + 1
+    runs_js = (tmp_path / "runs" / "runs.js").read_text(encoding="utf-8")
+    assert '"terrain"' not in runs_js and '"summary"' in runs_js
+
+
+def test_terrain_of_a_resumed_area(tmp_path, monkeypatch):
+    """A tiled area resumed finds its tiles' terrain files and gives the same terrain; a tile
+    finished without one (saved before the statistics) leaves the run's terrain unknown."""
+    for key, v in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, v)
+    import search
+    from params import SearchParams
+    square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                                  [19.7522, 50.1580], [19.7522, 50.1546]]]}
+    path = tmp_path / "square.geojson"
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+    params = SearchParams(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"), area=str(path), max_length=150,
+                          tile_size=150, water="off", fill_gaps="off", no_html=True)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+
+    def terrain():
+        plan = search.plan_search(params, paths, lambda kind, text: None)
+        assert plan.tiles
+        return search.search_lines(plan)[0].terrain
+
+    first = terrain()  # the run stays unfinished (no save_run): the next call resumes it
+    assert first is not None and terrain() == first
+    files = sorted(glob.glob(str(tmp_path / "runs" / "*" / "tiles" / "*.terrain.npz")))
+    assert len(files) > 1
+    os.remove(files[0])
+    assert terrain() is None
 
 
 def test_two_points(tmp_path):

@@ -1690,11 +1690,18 @@ def test_jobs_database_gets_owners(tmp_path):
     from settings import Limits
     plan = _plan(tmp_path, Limits(), northing=254608, easting=553966, radius=150)
     import hashlib as hl
+    # the formula of before the elevation band (its fields unset are left out, so tiled runs resume)
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
-                                        "opentopo_key", "tile_size", "group_distance", "group_by"})
+                                        "opentopo_key", "tile_size", "group_distance", "group_by",
+                                        "min_elevation", "max_elevation"})
     before = hl.sha1(json.dumps({"params": p, "source": plan.source.id, "resolution": plan.resolution},
                                 sort_keys=True).encode()).hexdigest()[:16]
     assert search._search_hash(plan) == before
+    params = plan.params
+    for name in ("min_elevation", "max_elevation"):
+        plan.params = params.model_copy(update={name: 800.0})
+        assert search._search_hash(plan) != before
+    plan.params = params
     plan.owner = 7
     assert search._search_hash(plan) != before
 

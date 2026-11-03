@@ -53,6 +53,11 @@ ESRI_ON = ("[...document.querySelectorAll('.leaflet-control-layers-base label')]
 COVERAGE_CLICK = "document.querySelector('.cov-shape[data-key=\"{key}\"]').dispatchEvent(new MouseEvent('click', {{bubbles: true}}))"
 SETTLE = "new Promise((done) => setTimeout(done, 2500))"
 ZOOM_OUT = "(window.FINDALINE_PLACE.map.setZoom(5), new Promise((done) => setTimeout(done, 2500)))"
+# The section "Anchors" of a result's More filters in view: its terrain line in the middle (the anchors'
+# heights and percentiles around it), else its heading at the top
+ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t) return t.scrollIntoView({block: 'center'}); "
+                 "[...document.querySelectorAll('.r-more-sec > h3')].find((h) => h.textContent === 'Anchors')"
+                 "?.scrollIntoView({block: 'start'}); })()")
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 PAGES = {
     "d-home": ("d", "", None),
@@ -70,6 +75,7 @@ PAGES = {
     "d-new-limited-hint": ("d", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
     "d-result": ("d", "#run={run}", None),
     "d-result-intro": ("d", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
+    "d-result-more": ("d", "#run={run}", [".r-filters .u-chip.u-add", "js:" + ANCHORS_SHOWN]),  # More filters: Anchors
     "d-result-credits": ("d", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones)
     "d-favourites": ("d", "#favourites", None),
     "d-admin": ("d", "#admin", None),
