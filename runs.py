@@ -18,6 +18,7 @@ A page opened from disk cannot list a folder, so runs.js and index.html are
 rewritten after every run.
 """
 
+import contextlib
 import html
 import json
 import math
@@ -266,10 +267,12 @@ FEATURE = ('{"type": "Feature", "geometry": {"type": "LineString", "coordinates"
            '"properties": {' + ", ".join(f"{json.dumps(name)}: %s" for name in FIELDS) + "}}")
 
 
-def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size: np.ndarray) -> tuple:
+def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size: np.ndarray,
+          csv: bool = True, geojson: bool = True) -> tuple:
     """The text of rows of lines.csv and of their features in lines.geojson (joined by ", ") of
     lines (a helpers.LineTable): a part of row_order. The same text as csv.writer and json.dumps
-    of the rows as dicts of Python values (round() of each), built column by column."""
+    of the rows as dicts of Python values (round() of each), built column by column; "" for a
+    file not wanted (csv, geojson: the texts of the values are made for both anyway)."""
     c = lines.columns
     pick = lambda name, k=None: c[name][order] if k is None else c[name][order, k]
     columns = [  # (csv, JSON) texts in the order of FIELDS
@@ -286,7 +289,9 @@ def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size
                     column_texts(pick(prom), 1, empty_nan=True), column_texts(pick(drop), 1, empty_nan=True)]
     if not len(order):
         return "", ""
-    table = "\r\n".join(map(",".join, zip(*(t for t, _ in columns)))) + "\r\n"
+    table = "\r\n".join(map(",".join, zip(*(t for t, _ in columns)))) + "\r\n" if csv else ""
+    if not geojson:
+        return table, ""
     values = [j for _, j in columns]
     lat1, lon1, lat2, lon2 = (values[FIELDS.index(name)] for name in
                               ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
@@ -321,32 +326,50 @@ def attribution_text(meta: Dict) -> str:
     return "\n".join(lines)
 
 
-def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None):
-    """Write lines.csv, lines.geojson, ATTRIBUTION.txt and run.json for a run: the lines (a
+RESULT_FILES = ("lines.csv", "lines.geojson", "ATTRIBUTION.txt", "run.json")  # what save_results writes
+
+
+def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, file: None,
+                 files: tuple = RESULT_FILES):
+    """Write lines.csv, lines.geojson, ATTRIBUTION.txt and run.json for a run (`files`: only
+    those, in that order; the children of saving.py write the line files apart): the lines (a
     helpers.LineTable) group by group (mapping.Groups).
 
-    Both line files are written together, LINES_CHUNK rows at a time, never all rows at once;
+    The line files are written together, LINES_CHUNK rows at a time, never all rows at once;
     on_lines(n, file) reports progress after each chunk, then run.json with n=0.
     """
-    # lines.geojson: the same text as json.dump of the whole collection, written in chunks of features
-    with open(os.path.join(run_path, "lines.csv"), "w", newline="", encoding="utf-8-sig") as table, \
-            open(os.path.join(run_path, "lines.geojson"), "w", encoding="utf-8") as geojson:
-        table.write(",".join(FIELDS) + "\r\n")  # csv.writer's header: no name needs quotes
-        geojson.write('{"type": "FeatureCollection", "features": [')
-        at, n = rep_positions(groups), len(groups.members)
-        for start in range(0, len(lines), LINES_CHUNK):
-            part = row_order(groups, min(start, n), min(start + LINES_CHUNK, n), at)
-            rows, features = _rows(lines, *part)
-            table.write(rows)
-            geojson.write((", " if start else "") + features)
-            on_lines(len(part[0]), "lines.csv, lines.geojson")
-        geojson.write('], "findaline": ' + _JSON.encode(public_meta(meta)) + "}")
+    want_csv, want_geojson = "lines.csv" in files, "lines.geojson" in files
+    if want_csv or want_geojson:
+        label = ", ".join(name for name in ("lines.csv", "lines.geojson") if name in files)
+        # lines.geojson: the same text as json.dump of the whole collection, written in chunks of features
+        with contextlib.ExitStack() as stack:
+            table = geojson = None
+            if want_csv:
+                table = stack.enter_context(open(os.path.join(run_path, "lines.csv"), "w", newline="",
+                                                 encoding="utf-8-sig"))
+                table.write(",".join(FIELDS) + "\r\n")  # csv.writer's header: no name needs quotes
+            if want_geojson:
+                geojson = stack.enter_context(open(os.path.join(run_path, "lines.geojson"), "w", encoding="utf-8"))
+                geojson.write('{"type": "FeatureCollection", "features": [')
+            at, n = rep_positions(groups), len(groups.members)
+            for start in range(0, len(lines), LINES_CHUNK):
+                part = row_order(groups, min(start, n), min(start + LINES_CHUNK, n), at)
+                rows, features = _rows(lines, *part, csv=want_csv, geojson=want_geojson)
+                if table is not None:
+                    table.write(rows)
+                if geojson is not None:
+                    geojson.write((", " if start else "") + features)
+                on_lines(len(part[0]), label)
+            if geojson is not None:
+                geojson.write('], "findaline": ' + _JSON.encode(public_meta(meta)) + "}")
 
-    with open(os.path.join(run_path, "ATTRIBUTION.txt"), "w", encoding="utf-8") as f:
-        f.write(attribution_text(meta))
-    with open(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    on_lines(0, "run.json")
+    if "ATTRIBUTION.txt" in files:
+        with open(os.path.join(run_path, "ATTRIBUTION.txt"), "w", encoding="utf-8") as f:
+            f.write(attribution_text(meta))
+    if "run.json" in files:
+        with open(os.path.join(run_path, "run.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        on_lines(0, "run.json")
 
 
 def _local_time(created: str) -> str:

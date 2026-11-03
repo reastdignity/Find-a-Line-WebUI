@@ -58,6 +58,7 @@ import obstacles
 import orthophoto as ortho
 import osm
 import runs as rn
+import saving
 import sag as sg
 import sources as src
 from settings import Limits
@@ -1277,34 +1278,56 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
-    def on_lines(n: int, file: str):
-        progress.compute.update(n, file=file)
-
-    progress.compute.start("saving results", len(results), unit="line")
-    rn.save_results(run["path"], results, spot_groups, meta, on_lines)
-    progress.compute.finish()
-    if "search" in run:
-        _progress(run, "done")
-    emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
     if not circle:
         # Large areas: only the group representatives carry a profile in the map
         representatives = set(spot_groups.rep.tolist())
         results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
 
-    map_path = None
+    def on_lines(n: int, file: str):
+        progress.compute.update(n, file=file)
+
+    def saved():
+        """After the results' files: a tiled run is done (not resumed again), the message."""
+        if "search" in run:
+            _progress(run, "done")
+        emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
+
+    ortho_cache = ortho_service = None
     if not p.no_html:
         source = plan.source
         # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
         # the run, earlier runs did too), falling back to the service for a tile not there
         ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
-        progress.compute.start("saving the map", len(results), unit="line")
         # an orthophoto's attribution may name the year of the run too (sources.YEAR)
         ortho_service = source.ortho and dataclasses.replace(
             source.ortho, attribution=src.dated(source.ortho.attribution, created.year))
-        map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance,
-                               p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, on_lines,
-                               p.high_above)
+    map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
+                ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
+    map_path = None
+    # The line files of a large run are written by processes of their own (saving.py: one per file
+    # with 4 or more threads of the line search, the results' apart from the map's with 2 or 3)
+    children = (saving.plan(saving.processes(line_threads(p)), map_files=not p.no_html)
+                if len(results) >= saving.MIN_LINES else [])
+    if not children:
+        progress.compute.start("saving results", len(results), unit="line")
+        rn.save_results(run["path"], results, spot_groups, meta, on_lines)
         progress.compute.finish()
+        saved()
+        if not p.no_html:
+            progress.compute.start("saving the map", len(results), unit="line")
+            map_path = mp.save_map(*map_args)
+            progress.compute.finish()
+    else:
+        heads = None if p.no_html else mp.map_heads(
+            plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance, p.group_by,
+            ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
+
+        def between():  # once the results' files are written, before the map's bar
+            rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
+            saved()
+        saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)
+        if not p.no_html:
+            map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
     if plan.index_runs:
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")

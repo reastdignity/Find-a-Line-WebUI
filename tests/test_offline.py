@@ -543,3 +543,40 @@ def test_funnel_of_the_line_search(tmp_path, monkeypatch):
     assert one["grids"] == 1 and tiled["grids"] > 1
     assert one["lines"] == tiled["lines"] == one["found_lines"] == tiled["found_lines"] > 0
     assert tiled["valid"] >= tiled["lines"]  # the tiles' overlaps find some lines twice
+
+
+def test_run_saved_by_children_as_in_process(tmp_path, monkeypatch):
+    """search.save_run with the line files written by child processes (saving.py) gives every
+    file of the run byte for byte as the search's own process writes it, on the Żabi Koń clip
+    (the profiles of lineprofiles' batch, every line's for a circle)."""
+    import dataclasses
+    from datetime import datetime
+
+    import saving
+    import search
+    from params import SearchParams
+    for name, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(name, value)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    values = dict(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"),
+                  surface_file=os.path.join(DATA, "zabi_kon_nmpt.tif"), water="off", fill_gaps="off",
+                  northing=254608, easting=553966, radius=290)
+    plan = search.plan_search(SearchParams(**values), paths, lambda kind, text: None)
+    plan = dataclasses.replace(plan, index_runs=False)
+    lines = search.find_lines(plan, search.prepare_data(plan))
+    assert len(lines.results) == ZABI_KON["lines"] and len(lines.results.profiles) == ZABI_KON["lines"]
+    created = datetime(2026, 11, 3, 12, 0, 0)
+    saved = {}
+    for count in (1, 4, 2):
+        folder = tmp_path / "runs" / f"by{count}"
+        folder.mkdir(parents=True)
+        monkeypatch.setattr(saving, "MIN_LINES", 10 ** 9 if count == 1 else 0)
+        monkeypatch.setattr(saving, "processes", lambda threads, count=count: count)
+        result = search.save_run(plan, lines, {"id": "r", "path": str(folder), "created": created, "name": "clip"})
+        assert result.map_path == str(folder / "map.html")
+        saved[count] = {name: (folder / name).read_bytes() for name in os.listdir(folder)}
+        assert not (tmp_path / "work" / saving.FOLDER).exists()
+    assert set(saved[1]) == {"map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "run.json",
+                             "ATTRIBUTION.txt"}
+    assert saved[4] == saved[1] and saved[2] == saved[1]
+    assert saved[1]["data.js"].count(b"null]") == 0  # a circle: every line with its profile
