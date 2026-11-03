@@ -461,6 +461,142 @@ def test_slots_of_the_worker(tmp_path, monkeypatch):
     _Phase.started.clear()
 
 
+def test_done_job_frees_its_compute_slot(tmp_path, monkeypatch):
+    """A compute process whose job is done already (it downloads the orthophoto after "done",
+    jobs.run_phase) holds no compute slot: the next job is claimed beside it. Its time limit still
+    ends it, without failing the job; ended on its own, it fails nothing; stop() kills it like the
+    others and the job stays done."""
+    import jobs as jb
+    _Phase.started.clear()
+    jobs = Jobs(str(tmp_path))
+    first, second, third = (jobs.add({"params": {}, "geometry": None}, f"job {i}") for i in range(3))
+    for job in (first, second, third):
+        jobs.set(job, "ready")
+    scheduler = Scheduler(jobs, limits=Limits(compute_seconds=60))
+    monkeypatch.setattr(scheduler, "context", type("Spawn", (), {"Process": _Phase})())
+    scheduler._begin()
+    try:
+        scheduler._check()
+        assert [r.job_id for r in scheduler.running["compute"]] == [first]
+        assert jobs.statuses([first, second, "none"]) == {first: "computing", second: "ready"}
+        # The first job's process saved its run and set "done", then goes on with the orthophoto
+        assert jobs.set(first, "done", when=("computing",), run_id="run-1", error=None)
+        scheduler._check()
+        assert [r.job_id for r in scheduler.running["compute"]] == [first, second]
+        lingering = scheduler.running["compute"][0]
+        assert lingering.process.alive and jobs.get(third)["status"] == "ready"  # one slot, computing
+        # Over the time limit: the lingering process is killed, the job stays done without an error
+        scheduler.running["compute"][0] = lingering._replace(started=time.time() - 61)
+        scheduler._check()
+        assert not lingering.process.alive and [r.job_id for r in scheduler.running["compute"]] == [second]
+        assert jobs.get(first)["status"] == "done" and jobs.get(first)["error"] is None
+        statuses = [e["data"]["status"] for e in jobs.events(0, first) if e["kind"] == "status"]
+        assert statuses == ["queued", "ready", "computing", "done"]
+        # Ended on its own after "done": nothing written either, the slot goes to the next job
+        assert jobs.set(second, "done", when=("computing",), run_id="run-2", error=None)
+        scheduler.running["compute"][0].process.alive = False
+        scheduler._check()
+        assert [r.job_id for r in scheduler.running["compute"]] == [third]
+        assert jobs.get(second)["status"] == "done" and jobs.get(second)["error"] is None
+        # stop() kills a lingering process too: its job stays done, a computing one is interrupted
+        assert jobs.set(third, "done", when=("computing",), run_id="run-3", error=None)
+        fourth = jobs.add({"params": {}, "geometry": None}, "job 4")
+        jobs.set(fourth, "ready")
+        scheduler._check()
+        assert [r.job_id for r in scheduler.running["compute"]] == [third, fourth]
+    finally:
+        scheduler.stop()
+    assert all(not p.alive for p in _Phase.started) and not any(scheduler.running.values())
+    assert jobs.get(third)["status"] == "done" and jobs.get(third)["error"] is None
+    assert jobs.get(fourth)["status"] == "failed" and jobs.get(fourth)["error"] == jb.INTERRUPTED
+    _Phase.started.clear()
+
+
+def test_orthophoto_after_done_in_the_worker(tmp_path, monkeypatch, http_server, capsys):
+    """The compute phase saves the run, writes its statistics and sets the job "done", then releases
+    the lines and downloads the orthophoto for offline use: its messages and progress are events of
+    the job after "done", its seconds go into job_steps, the tiles into the cache. An error of that
+    step leaves the job done and its run as it is (a warning event, a line on stderr)."""
+    import io
+    import re
+    import sqlite3
+
+    from PIL import Image
+    from http_server import Answer
+    import jobs as jb
+    import osm
+    import progress
+    import search
+    import sources as src
+    _offline(monkeypatch)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")  # the test server, not through the dead proxy
+    # run_phase in this process: what it changes here is put back after the test
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
+    monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
+    # The bars of a worker process (the module's defaults; a test that used progress.bars() in this
+    # process left bars without a label, which StepClock does not know)
+    monkeypatch.setattr(progress.progress, "download", progress._Bar("Download", 0, False))
+    monkeypatch.setattr(progress.progress, "compute", progress._Bar("Compute", 1, False))
+    out = io.BytesIO()
+    Image.new("RGB", (256, 256), (90, 120, 80)).save(out, "JPEG")
+    http_server.route("/tiles/", lambda request: Answer(200, out.getvalue(), {"Content-Type": "image/jpeg"}))
+    service = src.OrthoService("Fake orthophoto", None, "", "fake/ortho/live", "Fake imagery, CC BY 4.0",
+                               base_url=http_server.url("/tiles/{z}/{x}/{y}.jpg"), base_max_zoom=19)
+    choose = src.choose_source
+
+    def with_ortho(*args, **kwargs):
+        source, reason = choose(*args, **kwargs)
+        source.ortho = service
+        return source, reason
+    monkeypatch.setattr(src, "choose_source", with_ortho)
+    jobs = Jobs(str(tmp_path))
+    params = {"elevation_file": os.path.join(DATA, "zabi_kon_nmt.tif"), "northing": 254608, "easting": 553966,
+              "radius": 150, "water": "off", "fill_gaps": "off", "nmpt": "off", "ortho": "always", "ortho_detail": 2}
+
+    def run(job):
+        jobs.claim("queued", "downloading", "w1")
+        jb.run_phase(str(tmp_path), job, "download")
+        jobs.claim("ready", "computing", "w1")
+        jb.run_phase(str(tmp_path), job, "compute")
+        return jobs.get(job)
+    job = jobs.add({"params": params, "geometry": None}, "with orthophoto")
+    row = run(job)
+    assert row["status"] == "done", row["error"]
+    events = jobs.events(0, job)
+    done = next(e["seq"] for e in events if e["kind"] == "status" and e["data"]["status"] == "done")
+    said = [(e["seq"], e["data"]) for e in events if e["kind"] == "info" and "Orthophoto" in str(e["data"])]
+    assert len(said) == 2 and all(seq > done for seq, _ in said), said
+    found = re.match(r"Orthophoto for offline use: (\d+) tiles to download", said[0][1])
+    assert found and int(found.group(1)) > 16, said
+    n = int(found.group(1))
+    assert said[1][1].startswith(f"Orthophoto for offline use: {n} of {n} tiles saved (")
+    assert len(http_server.requests("/tiles/")) == n
+    assert sum(len(f) for _, _, f in os.walk(tmp_path / "cache" / "fake" / "ortho" / "live" / "wm256")) == n
+    assert any(e["seq"] > done and e["kind"] == "progress" and e["data"]["stage"] == "orthophoto tiles"
+               for e in events)
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    steps = dict(db.execute("SELECT step, seconds FROM job_steps WHERE job_id = ?", (job,)).fetchall())
+    db.close()
+    assert steps.get("orthophoto", 0) > 0 and steps["5"] > 0, steps
+    assert not os.path.exists(jobs.folder(job))
+    data = (tmp_path / "runs" / row["run_id"] / "data.js").read_text(encoding="utf-8")
+    assert json.loads(data.partition(" = ")[2].rstrip().rstrip(";"))["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256"
+
+    # The step failing: the job stays done with its run; a warning event and a line on stderr
+    def broken(plan, spots, confirm=None):
+        raise RuntimeError("the service is down")
+    monkeypatch.setattr(search, "download_orthophoto", broken)
+    second = jobs.add({"params": params, "geometry": None}, "broken orthophoto")
+    row = run(second)
+    assert row["status"] == "done" and row["error"] is None and row["run_id"], row
+    warnings = [e["data"] for e in jobs.events(0, second) if e["kind"] == "warning"]
+    assert warnings == ["The orthophoto could not be cached for offline use: the map loads it online"]
+    assert f"orthophoto of job {second} not cached: RuntimeError: the service is down" in capsys.readouterr().err
+    assert not os.path.exists(jobs.folder(second))
+
+
 def test_fair_claiming(tmp_path):
     """The worker takes the oldest waiting job of the user with the fewest jobs running (in any
     phase, any worker); the local app's jobs (no user) count as one user's."""
@@ -569,7 +705,8 @@ def test_worker_process(tmp_path, monkeypatch):
 
     import psutil
     with _black_hole() as proxy:
-        env = dict(os.environ, HTTP_PROXY=proxy, HTTPS_PROXY=proxy, NO_PROXY="", PYTHONIOENCODING="utf-8")
+        env = dict(os.environ, HTTP_PROXY=proxy, HTTPS_PROXY=proxy, NO_PROXY="", PYTHONIOENCODING="utf-8",
+                   FINDALINE_WARM_UP="0")  # its lanes only (the warm-up: test_public.py)
         jobs = Jobs(str(tmp_path))
         hanging = {"params": {"area": "osm:Nowhere at all"}, "geometry": None}  # Nominatim never answers
         job = jobs.add(hanging, "hanging")

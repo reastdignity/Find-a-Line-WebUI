@@ -73,7 +73,7 @@ SOURCES: List[Source] = [
         listing=ReadmeRow("anywhere", "[FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, "
                                     "30 m (trees and buildings removed)",
                         "[Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m"),
-        sample=(39.7217, 21.6306),
+        sample=(39.7217, 21.6306), obstacles=False,
         note="FABDEM is licensed for non-commercial use only (CC BY-NC-SA 4.0): results made from it may "
              "be shared only under the same terms. At 30 m only long lines can be found reliably."),
     Source(

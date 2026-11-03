@@ -2967,12 +2967,12 @@ def test_memory_of_compute_slots(tmp_path, monkeypatch):
     budget = search.slot_memory(vps)
     quick = search.memory_needed(search.MAX_MEASURED_PX ** 2, 0)
     assert budget == int((20 * gib - quick - 2 * search.DOWNLOAD_PROCESS_BYTES) // 3)
-    assert 5 * gib < budget < 5.5 * gib
-    # The largest public search fits into one of the VPS's three slots, not into one of four
+    assert 5.5 * gib < budget < 6 * gib
+    # The largest public search fits into one of the VPS's three slots, not into one of eight
     assert search.memory_warning(vps, budget) is None
-    four = vps.model_copy(update={"compute_slots": 4})
-    warning = search.memory_warning(four, search.slot_memory(four))
-    assert warning and "for each of 4 compute slots" in warning and "FINDALINE_LIMIT_COMPUTE_SLOTS" in warning
+    eight = vps.model_copy(update={"compute_slots": 8})
+    warning = search.memory_warning(eight, search.slot_memory(eight))
+    assert warning and "for each of 8 compute slots" in warning and "FINDALINE_LIMIT_COMPUTE_SLOTS" in warning
     assert search.memory_warning(vps) is None  # one slot's warning: the memory free now
 
     # The budget is the search's memory and sizes its tiles, with limits or without
@@ -3094,6 +3094,117 @@ def test_no_server_paths_in_public_events(tmp_path, monkeypatch):
         for form in (folder, folder.replace("\\", "/"), json.dumps(folder)[1:-1]):
             assert form not in texts, form
     assert "saved to runs" in texts
+    assert not os.path.exists(tmp_path / "runs" / "runs.js") and not os.path.exists(tmp_path / "runs" / "index.html")
+
+
+def test_runs_list_written_locally_only(tmp_path, monkeypatch):
+    """runs.write_index (runs.js and index.html of the runs folder, which only the local app and maps
+    opened from disk read) after a local job's run, not after a public one's; the viewer is installed
+    once a run (by its map)."""
+    import jobs as jb
+    import mapping
+    _phase_in_this_process(monkeypatch)
+    installed = []
+    install = mapping.install_viewer
+    monkeypatch.setattr(mapping, "install_viewer", lambda runs_dir: (installed.append(runs_dir), install(runs_dir)))
+    clip = {"params": {**CLIP, "northing": 254608, "easting": 553966, "radius": 100}, "geometry": None}
+    for public in (True, False):
+        data = tmp_path / ("public" if public else "local")
+        data.mkdir()
+        jobs = jb.Jobs(str(data), public=public)
+        job = jobs.add(clip, "clip", user_id=7 if public else None)
+        for phase, waiting in (("download", "queued"), ("compute", "ready")):
+            jobs.claim(waiting, jb.PHASE_STATUS[phase], "w1")
+            jb.run_phase(str(data), job, phase, None, public)
+        assert jobs.get(job)["status"] == "done", jobs.get(job)["error"]
+        runs = data / "runs"
+        assert os.path.exists(runs / "runs.js") == os.path.exists(runs / "index.html") == (not public)
+        assert os.path.exists(runs / "_viewer" / "viewer.js") and installed == [str(runs)]
+        installed.clear()
+    listed = (tmp_path / "local" / "runs" / "runs.js").read_text("utf-8")
+    assert jobs.get(job)["run_id"] in listed
+
+
+def test_scheduler_warms_numba_up(tmp_path, monkeypatch):
+    """Scheduler(warm_up=True) starts warmup.warm_up in a daemonic process of its own at its start,
+    once; stop() kills it; FINDALINE_WARM_UP=0 turns it off for `findaline.py worker` and `web`;
+    the housekeeping removes the folders of a killed warm-up after a day."""
+    import jobs as jb
+    import warmup
+    made, killed = [], []
+
+    class Process:
+        def __init__(self, target, args, daemon):
+            self.target, self.args, self.daemon, self.pid, self.started = target, args, daemon, 4242, False
+            made.append(self)
+
+        def start(self):
+            self.started = True
+
+        def is_alive(self):
+            return True
+
+        def join(self):
+            pass
+
+    monkeypatch.setattr(jb, "kill_tree", killed.append)
+    jobs = jb.Jobs(str(tmp_path))
+    off = jb.Scheduler(jobs)
+    off.context = type("Context", (), {"Process": Process})()
+    off._begin()
+    off.stop()
+    assert made == [] and killed == []
+    scheduler = jb.Scheduler(jobs, warm_up=True)
+    scheduler.context = type("Context", (), {"Process": Process})()
+    scheduler._begin()
+    scheduler._start_warm_up()  # once
+    assert [(p.target, p.args, p.daemon, p.started) for p in made] == [(warmup.warm_up, (str(tmp_path),), True, True)]
+    scheduler.stop()
+    assert killed == [4242]
+    monkeypatch.delenv("FINDALINE_WARM_UP", raising=False)
+    assert jb.warm_up_wanted()
+    monkeypatch.setenv("FINDALINE_WARM_UP", "0")
+    assert not jb.warm_up_wanted()
+    old = tmp_path / "work" / warmup.FOLDER / "killed"
+    old.mkdir(parents=True)
+    os.utime(old, (time.time() - 2 * 86400,) * 2)
+    jb.Scheduler(jobs).housekeeping()
+    assert not old.exists()
+
+
+def test_numba_warm_up(tmp_path):
+    """warmup.warm_up compiles every kernel of a search: afterwards a search (the Żabi Koń clip with its
+    surface model, a circle) compiles nothing (no new file in numba's cache, NUMBA_CACHE_DIR: as on the
+    public site, an empty folder before the warm-up). It writes nothing in the data folder but its own
+    temporary folder under work/, removed afterwards."""
+    import glob
+    import subprocess
+    numba_dir, data = tmp_path / "numba", tmp_path / "data"
+    env = {**os.environ, "NUMBA_CACHE_DIR": str(numba_dir), "HTTP_PROXY": "http://127.0.0.1:9",
+           "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "", "PYTHONIOENCODING": "utf-8"}
+    result = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {REPO!r}); import warmup; "
+                                                   f"warmup.warm_up({str(data)!r})"],
+                            capture_output=True, text=True, encoding="utf-8", timeout=900, env=env)
+    assert result.returncode == 0 and "warm-up failed" not in result.stderr, result.stdout + result.stderr
+    assert result.stdout == ""
+    files = lambda pattern: {os.path.basename(p) for p in glob.glob(str(numba_dir / "**" / pattern),  # noqa: E731
+                                                                  recursive=True)}
+    kernels = {name.split("-")[0] for name in files("*.nbi")}
+    assert {"linesearch._free_rings", "linesearch._pairs", "linesearch._copy_buffered", "linesearch._evaluate",
+            "linesearch._covered_pixels", "lineprofiles._profiles", "lineprofiles._compact", "terrain._prominence",
+            "terrain._window", "terrain._min_rows", "terrain._min_cols_at", "grouping.greedy",
+            "grouping.gather"} <= kernels, kernels
+    assert os.listdir(data) == ["work"] and os.listdir(data / "work") == ["warmup"]
+    assert os.listdir(data / "work" / "warmup") == []
+    compiled = files("*.nbc")
+    result = subprocess.run(
+        [sys.executable, "findaline.py", "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
+         "--surface-file", os.path.join(DATA, "zabi_kon_nmpt.tif"), "--northing", "254608", "--easting", "553966",
+         "--radius", "290", "--water", "off", "--fill-gaps", "off", "--ortho", "never", "--no-plot", "--yes",
+         "--data-dir", str(tmp_path / "clip")],
+        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert files("*.nbc") == compiled
 
 
 def test_usage(tmp_path, settings, account_settings, providers, monkeypatch):

@@ -14,7 +14,7 @@ from progress import progress
 
 from .source import Source
 from .catalogue.world import WATER_MASK
-from .mosaic import build_mosaic, prepare_layer, used_data
+from .mosaic import NODATA, build_mosaic, prepare_layer, used_data
 
 # Copernicus water body mask, 1°×1° tiles next to the DEM tiles: 1 ocean, 2 lake, 3 river
 OCEAN, LAKE = 1, 2
@@ -31,8 +31,8 @@ NEIGHBOUR_PAD = GAP_RING + 3  # pixels of the neighbour's data around its gaps (
 
 def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[str] = None,
                     download: bool = True) -> np.ndarray:
-    """Copernicus water body mask on the grid (OCEAN, LAKE...), open sea where tiles are missing
-    (downloaded first unless done already: download False)."""
+    """Copernicus water body mask on the grid (OCEAN, LAKE...) as uint8, open sea where tiles are
+    missing, mosaic.NODATA where no tile reaches (downloaded first unless done already: download False)."""
     if download:
         WATER_MASK.download(grid, cache_dir, update, "water mask")
     wbm = build_mosaic(WATER_MASK.files(grid, cache_dir), grid, out_path, "water mask", categorical=True)
@@ -45,16 +45,21 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
             r0, r1 = max(0, int((grid.top - top) // grid.res)), min(grid.height, int((grid.top - bottom) // grid.res) + 1)
             if r0 < r1 and c0 < c1:
                 block = wbm[r0:r1, c0:c1]
-                block[np.isnan(block)] = OCEAN
+                block[block == NODATA] = OCEAN
     return np.asarray(wbm)
 
 
 def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
-    """The mask grown by about `metres` (square neighbourhood)."""
+    """The mask grown by about `metres` (square neighbourhood): every pixel within n = ceil(metres / res)
+    pixels of it along both axes (the Chebyshev distance), nothing beyond the grid's edges. A running
+    maximum along the columns, then the rows (two passes of any n): exactly the n iterations of a 3 x 3
+    dilation it replaced (tests/test_units.py::test_near_matches_the_dilation), 2 bytes a pixel."""
     from scipy import ndimage
     if metres <= 0:
         return mask
-    return ndimage.binary_dilation(mask, structure=np.ones((3, 3)), iterations=max(1, math.ceil(metres / res)))
+    size = 2 * max(1, math.ceil(metres / res)) + 1
+    grown = ndimage.maximum_filter1d(np.asarray(mask, dtype=bool), size, axis=0, mode="constant", cval=0)
+    return ndimage.maximum_filter1d(grown, size, axis=1, mode="constant", cval=0)
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
@@ -75,11 +80,12 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
     elevation = np.load(elevation_path, mmap_mode="r+")
     surface = np.load(surface_path, mmap_mode="r+") if surface_path else None
     progress.compute.start("filling sea and lakes", 3, unit="step")
+    progress.compute.update(0, part="sea")
     empty = np.isnan(elevation)
     sea_fill = empty & sea_zone
-    progress.compute.update(1)
+    progress.compute.update(1, part="lakes")
     lake = empty & near(wbm == LAKE, SHORE_BUFFER, grid.res) & ~sea_fill
-    progress.compute.update(1)
+    progress.compute.update(1, part="levels")
 
     elevation[sea_fill] = 0.0
     if surface is not None:
@@ -149,14 +155,14 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     if not filled.any():
         np.save(out_path, filled)
         return out_path, 0
-    pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy")]
+    pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy", "terrain")]
     if surface_path:
         surface = np.load(surface_path, mmap_mode="r+")
         layer = fallback.nmpt or (fallback.nmt if surface_from_terrain else None)
         if layer is not None:
-            pairs.append((surface, layer, f"{name}_nmpt.npy"))
+            pairs.append((surface, layer, f"{name}_nmpt.npy", "surface"))
     sub = _subgrid(grid, window) if window is not None else grid
-    for target, layer, name in pairs:
+    for target, layer, name, which in pairs:
         gaps = np.isnan(target) if exclude is None else np.isnan(target) & ~exclude
         if not gaps.any():
             continue
@@ -169,8 +175,9 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         else:
             other = np.full(target.shape, np.nan, np.float32)
             other[window] = np.load(path, mmap_mode="r")
-        if _fill(target, other, gaps, grid.res) == 0:
+        if _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}") == 0:
             used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
+        del other, gaps  # before the next pair's mosaic
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
     return out_path, int(filled.sum())
@@ -197,20 +204,36 @@ def _footprint_shape(grid: Grid):
     return Point((left + right) / 2, (bottom + top) / 2).buffer(min(right - left, top - bottom) / 2)
 
 
-def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float) -> int:
+def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float, label: str = "gap filling") -> int:
     """Fill the gaps of target (a memory-mapped grid) from other, each gap shifted to the heights
-    around it (fill_gaps); returns the number of pixels filled."""
+    around it (fill_gaps); returns the number of pixels filled. A Compute bar `label` of three
+    parts: the slopes (where the offsets may be matched), the rings around the gaps, the medians."""
     from scipy import ndimage
 
     values = np.asarray(target)
-    gy, gx = np.gradient(np.where(np.isfinite(values), values, other), res)
-    flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
-    both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
-    overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
+    progress.compute.start(label, 3, unit="step")
+    progress.compute.update(0, part="slopes")
+    finite = np.isfinite(values)
+    gy, gx = np.gradient(np.where(finite, values, other), res)
+    # The slope in degrees, computed in place in gx (the same ufuncs on the same float32 values as
+    # np.degrees(np.arctan(np.hypot(gx, gy))), one array less); the gradients serve only this
+    np.hypot(gx, gy, out=gx)
+    np.arctan(gx, out=gx)
+    np.degrees(gx, out=gx)
+    flat = gx < GAP_MATCH_SLOPE
+    del gx, gy
+    both = ~gaps & finite & np.isfinite(other) & flat
+    del finite, flat
+    # The differences are a temporary: the median may partition them in place
+    overall = float(np.median(values[both] - other[both], overwrite_input=True)) if both.any() else 0.0
     # Offset of every gap from the ring of pixels around it
+    progress.compute.update(1, part="rings")
     labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
-    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
+    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2)
+    ring *= both & (labels == 0)  # integers, in place
+    del both
     offsets = np.full(count + 1, overall)
+    progress.compute.update(1, part="medians")
     if ring.any():
         # Only the ring pixels: scipy sorts every pixel it is given (10 s for a 58 Mpx tile)
         near = ring > 0
@@ -222,6 +245,8 @@ def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float) -
     count = int((gaps & np.isfinite(other)).sum())
     target[gaps] = other[gaps] + offsets[labels[gaps]]
     target.flush()
+    progress.compute.update(1)
+    progress.compute.finish(f"{count} px")
     return count
 
 
@@ -311,8 +336,14 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     from .choose import source_unavailable
 
     joined, counts = None, []
+    gaps = None  # border_gaps, computed again only after a neighbour's fill_gaps may have changed the grids
     for n, neighbour in enumerate(neighbours):
-        window = neighbour_window(neighbour, grid, border_gaps(elevation_path, surface_path, grid, exclude))
+        progress.compute.start(f"border gaps ({neighbour.name})", 1, unit="step")
+        if gaps is None:
+            gaps = border_gaps(elevation_path, surface_path, grid, exclude)
+        window = neighbour_window(neighbour, grid, gaps)
+        progress.compute.update(1)
+        progress.compute.finish()
         if window is None:
             continue
         why = source_unavailable(neighbour)
@@ -320,6 +351,7 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
             print(f"Gaps at the border not filled from {neighbour.name}: {why}")
             continue
         step = f"{os.path.splitext(out_path)[0]}{n}.npy"
+        gaps = None  # its terrain or surface pixels may be filled (also before a failure)
         try:
             _, pixels = fill_gaps(elevation_path, surface_path, grid, neighbour, cache_dir, step, update,
                                   exclude=exclude, name=f"border{n}", window=window, surface_from_terrain=False)

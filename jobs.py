@@ -597,6 +597,15 @@ class Jobs:
             row = db.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return dict(row) if row else None
 
+    def statuses(self, job_ids: Iterable[str]) -> Dict[str, str]:
+        """The status of each of these jobs, in one query (a job that is gone is left out)."""
+        job_ids = tuple(job_ids)
+        if not job_ids:
+            return {}
+        with self._db() as db:
+            rows = db.execute(f"SELECT id, status FROM jobs WHERE id IN {_in(job_ids)}", job_ids).fetchall()
+        return {r[0]: r[1] for r in rows}
+
     def all(self, user_id: Optional[int] = None) -> List[Dict]:
         """The newest jobs, of one user (None: of everyone)."""
         mine = "" if user_id is None else "WHERE user_id = ? "
@@ -1342,6 +1351,30 @@ def _write_statistics(jobs: Jobs, job_id: str, steps: StepClock, funnel: Dict[st
         print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
 
 
+def _orthophoto_after(jobs: Jobs, job_id: str, plan, spots: List[Dict], limits: Optional[Limits], on_event,
+                      steps: StepClock):
+    """The orthophoto step of a job done already (run_phase): search.download_orthophoto with the
+    worker's answer to its question (ortho_confirm), its progress and messages as events of the job
+    as before, then its seconds added to the job's steps (STEP_KEYS "orthophoto", as when it was part
+    of the phase; only that row: "other" keeps the phase's own value, so the phase's seconds outside
+    its steps still follow from its timestamps and its steps, tools/job_stats.py). An error leaves
+    the job and its run as they are: a line to stderr and a warning event (the map loads the
+    orthophoto online)."""
+    import search
+    try:
+        search.download_orthophoto(plan, spots, ortho_confirm(limits or Limits(), on_event))
+    except Exception as e:  # the job is done: never its status or its run
+        print(f"orthophoto of job {job_id} not cached: {type(e).__name__}: {cache.clean_error(e)}",
+              file=sys.stderr, flush=True)
+        on_event("warning", "The orthophoto could not be cached for offline use: the map loads it online")
+    try:
+        seconds, cpu = steps.result(), steps.cpu()
+        if "orthophoto" in seconds:
+            jobs.set_steps(job_id, {"orthophoto": seconds["orthophoto"]}, {"orthophoto": cpu.get("orthophoto")})
+    except Exception as e:  # statistics only
+        print(f"statistics of job {job_id} not written: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+
+
 def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] = None, public: bool = False,
               memory: Optional[int] = None):
     """A worker process: download the data of a job, or compute it. It ends the phase only if the
@@ -1408,6 +1441,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
                     params = params.model_copy(update={"tile_size": json.load(f)})
         plan = search.plan_search(params, paths, on_event, limits=limits, memory=memory)
         plan.owner = job["user_id"]  # a tiled search resumes only for the same user
+        plan.index_runs = not public  # runs.js and index.html of the runs folder: read locally only
         if safeguards is not None:  # the server's switch, also for a user without limits (its memory budget)
             plan.early_stop = safeguards.lines_early_stop
         if phase == "download":
@@ -1427,11 +1461,21 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
             jobs.set(job_id, "ready", when=working)
         else:
             lines, run = search.search_lines(plan)
-            result = search.save_run(plan, lines, ortho_confirm(limits or Limits(), on_event), run)
+            result = search.save_run(plan, lines, run)
+            spots = search.orthophoto_lines(plan, lines)  # the orthophoto's strips, before the lines go
             import runs as rn
             jobs.add_run(result.run["id"], job["user_id"], rn.folder_bytes(result.run["path"]))  # its owner
             _write_statistics(jobs, job_id, steps, plan.funnel)
-            jobs.set(job_id, "done", when=working, run_id=result.run["id"], error=None)
+            done = jobs.set(job_id, "done", when=working, run_id=result.run["id"], error=None)
+            if done:
+                # The orthophoto for offline use comes after "done": the page has the result, and
+                # the scheduler gives this compute slot to the next job meanwhile (Scheduler._occupied
+                # counts no process of a job done). The lines are released first, so the process
+                # holds its imports only: search.slot_memory reserves nothing for it
+                del lines, result
+                import gc
+                gc.collect()
+                _orthophoto_after(jobs, job_id, plan, spots, limits, on_event, steps)
         failed = False
     except (search.SearchError, ValueError, RuntimeError, requests.RequestException) as e:  # ValueError: parameters
         jobs.set(job_id, "failed", when=working, error=e)  # the web text of a coded error (Jobs.set)
@@ -1681,9 +1725,13 @@ class Scheduler:
     Limits.compute_slots computing jobs at a time."""
 
     def __init__(self, jobs: Jobs, worker_id: Optional[str] = None, limits: Optional[Limits] = None,
-                 public: bool = False):
+                 public: bool = False, warm_up: bool = False):
         self.jobs = jobs
         self.public = public  # the worker of the public site
+        # Compile numba's kernels in a process of their own at the start (warmup.py): `findaline.py
+        # worker` and `web` (warm_up_wanted); the tests leave it off
+        self.warm_up = warm_up
+        self.warming = None  # that process
         self.limits = limits or Limits.load(public)  # FINDALINE_LIMIT_* (none locally), for its processes too
         self.quick = None  # the process of the quick lane
         self.worker_id = worker_id or f"{socket.gethostname()}-{os.getpid()}-{uuid.uuid4().hex[:6]}"
@@ -1727,12 +1775,22 @@ class Scheduler:
         self.jobs.register(self.worker_id)
         self.beat = time.time()
         self.jobs.interrupted()  # jobs of workers that are gone
+        self._start_warm_up()
+
+    def _start_warm_up(self):
+        """The numba warm-up (warmup.warm_up) in a daemonic process, while jobs are claimed: the
+        first search after a start (the public worker's numba cache is in a tmpfs) or after a
+        change of the code finds the kernels compiled, or compiles fewer of them itself."""
+        if self.warm_up and self.warming is None:
+            import warmup
+            self.warming = self.context.Process(target=warmup.warm_up, args=(self.jobs.data_dir,), daemon=True)
+            self.warming.start()
 
     def housekeeping(self):
         """Clean the data folder up: temporary files of downloads killed while writing; events of
         jobs finished more than Limits.keep_events_days ago; answers of the quick lane nobody took;
         work folders of ended jobs (kept after an unexpected error) after KEEP_WORK_DAYS, and those
-        of estimates and profiles (left by a killed quick lane) after a day. Measures the cache by
+        of estimates and profiles (left by a killed quick lane) and of the warm-up after a day. Measures the cache by
         top-level folder (write_cache_sizes) and the coverage of the searches (COVERAGE_FILE), and
         writes what this round removed, when it ended and how long it took (HOUSEKEEPING_FILE), for
         the metrics."""
@@ -1749,7 +1807,7 @@ class Scheduler:
         removed["usage"] = self.jobs.forget_usage()
         unfinished = {job["id"] for job in self.jobs.waiting_or_running()}
         removed["work"] = _remove_old(os.path.join(data, "work", "jobs"), KEEP_WORK_DAYS, keep=unfinished)
-        for name in ("estimates", "profiles"):
+        for name in ("estimates", "profiles", "warmup"):  # warmup: warmup.FOLDER
             removed["work"] += _remove_old(os.path.join(data, "work", name), 1)
         try:
             _write_json(data, COVERAGE_FILE, coverage(self.jobs))
@@ -1769,6 +1827,9 @@ class Scheduler:
         with self.lock:
             self._kill_all()
             self.jobs.unregister(self.worker_id)
+            if self.warming is not None and self.warming.is_alive():
+                kill_tree(self.warming.pid)  # its temporary folder: removed by the housekeeping after a day
+                self.warming.join()
 
     def _kill_all(self):
         for phase in self.running:
@@ -1853,11 +1914,13 @@ class Scheduler:
                 process.join()
                 self.running[phase].remove(running)
                 # Ended without a word. Only the job's status of this phase tells that: a download
-                # process sets "ready" and may take a moment to exit, while the job already computes
+                # process sets "ready" and may take a moment to exit, while the job already computes;
+                # a compute process downloads the orthophoto after "done" (the time limit may end it)
                 self.jobs.set(job_id, "failed", when=(PHASE_STATUS[phase],),
                               error=f"the worker stopped (exit code {process.exitcode})")
         for phase, waiting, status in (("download", "queued", "downloading"), ("compute", "ready", "computing")):
-            while len(self.running[phase]) < self.slots[phase]:
+            free = self.slots[phase] - self._occupied(phase)
+            while free > 0:
                 job = self.jobs.claim(waiting, status, self.worker_id)
                 if not job:
                     break
@@ -1869,6 +1932,27 @@ class Scheduler:
                 self.running[phase].append(Running(job["id"], process, time.time(),
                                                    self.limits.phase_seconds(phase, osm),
                                                    "the OSM extract job" if osm else f"the {phase} phase"))
+                free -= 1
+
+    def _occupied(self, phase: str) -> int:
+        """The slots of a phase in use: its running processes, of the compute phase those whose job
+        still computes (one query, Jobs.statuses). A compute process of a job done already downloads
+        the orthophoto (run_phase, after "done") and holds no slot: the next job starts beside it.
+        It keeps its time limit (the kill ends the download only: the job's status is guarded by
+        `when`), is joined when it ends, and stop() kills it like the others; it holds its imports
+        only (the lines are released before the orthophoto), nothing search.slot_memory has to
+        reserve."""
+        running = self.running[phase]
+        if phase != "compute" or not running:
+            return len(running)
+        statuses = self.jobs.statuses(r.job_id for r in running)
+        return sum(1 for r in running if statuses.get(r.job_id) == PHASE_STATUS[phase])
+
+
+def warm_up_wanted() -> bool:
+    """Whether the worker of `findaline.py worker` and `web` warms numba up at its start
+    (Scheduler.warm_up): yes, unless FINDALINE_WARM_UP=0."""
+    return os.environ.get("FINDALINE_WARM_UP", "").strip() != "0"
 
 
 def warn_without_cgroup(root: Optional[str] = None) -> bool:
@@ -1907,7 +1991,7 @@ def main(argv: List[str]) -> int:
         os.environ["FINDALINE_PUBLIC_URL"], os.environ["FINDALINE_CONTACT"] = public.public_url, public.contact
     data = cache.data_dir(args.data_dir)
     cache.check_layout(os.path.join(data, "cache"))
-    scheduler = Scheduler(Jobs(data, public=args.public), public=args.public)
+    scheduler = Scheduler(Jobs(data, public=args.public), public=args.public, warm_up=warm_up_wanted())
     if args.public:
         warn_without_cgroup()
         import search

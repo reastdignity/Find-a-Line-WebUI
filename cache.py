@@ -410,28 +410,60 @@ def stale(row: Optional[Dict], ttl: Optional[int], update: Optional[str]) -> boo
 def due(cache_dir: str, path: str, processing: int = 1, update: Optional[str] = None,
         ttl: Optional[int] = None) -> bool:
     """Whether a file has to be downloaded: not there yet, or to be checked again (stale)."""
-    if state(cache_dir, path, processing) is None:
-        return True
-    return stale(info(cache_dir, path), ttl, update)
+    return due_many(cache_dir, [path], processing, update, ttl)[0]  # one connection, not two
+
+
+def due_many(cache_dir: str, paths: Iterable[str], processing: int = 1, update: Optional[str] = None,
+             ttl: Optional[int] = None) -> List[bool]:
+    """due() of each of many files (the tiles of a layer), in their order: the same answers, with
+    one connection per top-level folder instead of two per file (stale() reads the status and
+    checked_at of the row)."""
+    paths = list(paths)
+    answers: List[Optional[bool]] = [None] * len(paths)
+    by_top: Dict[str, List[int]] = {}
+    for k, path in enumerate(paths):
+        by_top.setdefault(_split(cache_dir, path)[0], []).append(k)
+    for top, ks in by_top.items():
+        db = _connect(cache_dir, top)
+        try:
+            for k in ks:
+                inner = _split(cache_dir, paths[k])[1]
+                if _state(db, paths[k], inner, processing) is None:
+                    answers[k] = True
+                elif not update or ttl is None:
+                    answers[k] = False  # stale() without looking at the row
+                else:
+                    row = db.execute("SELECT status, checked_at FROM files WHERE path = ?", (inner,)).fetchone()
+                    answers[k] = stale({"status": row[0], "checked_at": row[1]} if row else None, ttl, update)
+        finally:
+            db.close()
+    return answers
+
+
+def _state(db: sqlite3.Connection, path: str, inner: str, processing: int) -> Optional[str]:
+    """state() on an open connection to the index of the file's top-level folder; a file adopted
+    (one without a row) is committed at once, as state() does."""
+    row = db.execute("SELECT status, processing FROM files WHERE path = ?", (inner,)).fetchone()
+    if row and row[1] is not None and row[1] != processing:
+        return None  # made by another version of the processing: fetch again
+    if os.path.exists(path):
+        if row is None:  # a file without a row is adopted
+            mtime = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat(timespec="seconds")
+            with db:
+                db.execute("INSERT INTO files (path, status, fetched_at, checked_at, processing) "
+                           "VALUES (?, 'ok', ?, ?, ?)", (inner, mtime, mtime, processing))
+        return "ok"
+    return "missing" if row and row[0] == "missing" else None
 
 
 def state(cache_dir: str, path: str, processing: int = 1) -> Optional[str]:
     """"ok", "missing" (the service has no data there) or None (to be downloaded)."""
     top, inner = _split(cache_dir, path)
-    with _connect(cache_dir, top) as db:
-        row = db.execute("SELECT status, processing FROM files WHERE path = ?", (inner,)).fetchone()
-        if row and row[1] is not None and row[1] != processing:
-            result = None  # made by another version of the processing: fetch again
-        elif os.path.exists(path):
-            if row is None:  # a file without a row is adopted
-                mtime = datetime.fromtimestamp(os.path.getmtime(path), timezone.utc).isoformat(timespec="seconds")
-                db.execute("INSERT INTO files (path, status, fetched_at, checked_at, processing) "
-                           "VALUES (?, 'ok', ?, ?, ?)", (inner, mtime, mtime, processing))
-            result = "ok"
-        else:
-            result = "missing" if row and row[0] == "missing" else None
-    db.close()
-    return result
+    db = _connect(cache_dir, top)
+    try:
+        return _state(db, path, inner, processing)
+    finally:
+        db.close()
 
 
 def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:

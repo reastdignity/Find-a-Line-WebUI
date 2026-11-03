@@ -71,6 +71,44 @@ def test_synthetic_canyon(tmp_path):
     assert south and all(r["over_trees_buildings"] == "False" for r in south)
 
 
+def test_rock_rims_are_no_obstacles(tmp_path):
+    """The canyon with its walls inside pixels 120 and 169, its surface model made as the services
+    make theirs (the highest point of each pixel): the rim stands in the first pixel of every line,
+    which no longer marks a line (obstacles.py), while the trees on the floor of the northern rows
+    still do. run.json records the rule; a profile computed again uses its run's rule, for a run
+    from before it the surface model as it is."""
+    import search
+    left, top, size = 500000, 300000, 300
+    ground = lambda x: np.where((x >= 120.35) & (x < 169.65), 200.0, 240.0)  # noqa: E731
+    terrain = np.tile(ground(np.arange(size) + 0.5), (size, 1))
+    surface = np.tile(ground((np.arange(size * 10) + 0.5) / 10).reshape(size, 10).max(axis=1), (size, 1))
+    assert surface[0, 120] - terrain[0, 120] == 40 and surface[0, 169] - terrain[0, 169] == 40
+    surface[:100, 125:165] = 245.0  # trees on the floor in the north, away from the walls
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+
+    output, rows = run_search(tmp_path, "--elevation-file", str(tmp_path / "nmt.tif"),
+                              "--surface-file", str(tmp_path / "nmpt.tif"),
+                              "--northing", str(top - size / 2), "--easting", str(left + size / 2),
+                              "--radius", "140", "--resolution", "1", "--min-length", "20", "--max-length", "200")
+    # Both anchors in the north: the line crosses the trees (a steep line from row 89 may pass below them)
+    north = [r for r in rows if min(float(r["anchor1_northing"]), float(r["anchor2_northing"])) > top - 60]
+    south = [r for r in rows if max(float(r["anchor1_northing"]), float(r["anchor2_northing"])) < top - 110]
+    assert north and all(r["over_trees_buildings"] == "True" for r in north)
+    assert south and all(r["over_trees_buildings"] == "False" for r in south)
+
+    meta = json.load(open(glob.glob(str(tmp_path / "runs" / "*" / "run.json"))[0], encoding="utf-8"))
+    assert meta["params"]["obstacles"] == {"radius": 2, "min_height": 1.0}
+    line = next(r for r in south if r["anchor1_northing"] == r["anchor2_northing"])  # its first pixel 1 m out
+    anchors = [(float(line[f"anchor{k}_lat"]), float(line[f"anchor{k}_lon"])) for k in (1, 2)]
+    for rule, expected in ((meta["params"]["obstacles"], float(line["clearance_nmpt_m"])), (None, -6.15)):
+        meta["params"]["obstacles"] = rule
+        paths = search.Paths(str(tmp_path), str(tmp_path / f"profile-work-{rule is None}"))
+        os.makedirs(paths.work, exist_ok=True)
+        profile = search.profile_of_line(meta, paths, *anchors)
+        assert profile["min_nmpt"][1] == pytest.approx(expected, abs=0.01), rule
+
+
 # Known results of the Żabi Koń clip (update together with a deliberate change)
 ZABI_KON = {"anchors": 11609, "open": 620, "checked": 11313, "lines": 1301, "spots": 43}
 
@@ -240,6 +278,233 @@ def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
     assert src.SOURCES["lower_saxony"].ortho.attribution == f"LGLN ({src.YEAR}), CC BY 4.0"  # the catalogue unchanged
     # the console's note names the year of a run made now
     assert "Note: Data © Someone 2031." in "\n".join(events)
+
+
+def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
+    """estimate_search's working grids (search.work_bytes) are what step 1 writes into the work folder:
+    terrain and surface, the obstacles, the water body mask, the water, a fallback's terrain and surface
+    and its filled pixels, each the size of the grid (a sea and gaps on land that the fallback fills)."""
+    import search
+    import sources as src
+    from params import SearchParams
+    left, top, size = 500000, 300000, 240
+    terrain = np.full((size, size), 240.0)
+    terrain[:, 100:140] = 200.0
+    terrain[:, 200:] = np.nan  # the sea (the water body mask's ocean) without data
+    terrain[30:50, 30:60] = np.nan  # a gap on land: the fallback's
+    surface = terrain + 3.0
+    surface[150:170, 60:80] = np.nan  # a gap of the surface model only
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+    write_raster(tmp_path / "fallback.tif", np.full((size, size), 238.0), left, top)
+    water = np.zeros((size, size), np.uint8)
+    water[:, 205:] = src.OCEAN
+    water[100:110, 20:30] = src.LAKE
+    with rio.open(tmp_path / "wbm.tif", "w", driver="GTiff", width=size, height=size, count=1, dtype="uint8",
+                  crs="EPSG:2180", transform=from_origin(left, top, 1, 1)) as dst:
+        dst.write(water, 1)
+
+    class _WaterFile(src.FileLayer):  # the water body mask from a file: no tiles of the cache
+        def tiles(self, grid):
+            return []
+
+        def files(self, grid, cache_dir):
+            return [self.path]
+
+    mask = _WaterFile("Water body mask file", str(tmp_path / "wbm.tif"))
+    monkeypatch.setattr(src, "WATER_MASK", mask)
+    monkeypatch.setattr(src.filling, "WATER_MASK", mask)
+    credit = src.Credit("fallback", "© fallback", "CC BY 4.0", "https://example.org")
+    monkeypatch.setitem(src.SOURCES, "test_fallback", src.Source(
+        id="test_fallback", name="test fallback", description="fallback",
+        nmt=src.FileLayer("Fallback terrain", str(tmp_path / "fallback.tif")), credits=(credit,)))
+    choose = src.choose_source
+
+    def with_fallback(*args, **kwargs):
+        source, reason = choose(*args, **kwargs)
+        source.fallback = "test_fallback"
+        return source, reason
+    monkeypatch.setattr(src, "choose_source", with_fallback)
+    for name, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(name, value)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
+                          water="fill", fill_gaps="on", coastline="copernicus", ortho="never",
+                          northing=top - size / 2, easting=left + size / 2, radius=110, resolution=1)
+    plan = search.plan_search(params, paths, lambda kind, text: None)
+    assert plan.obstacles and plan.nmpt and plan.source.fallbacks == ["test_fallback"]
+    data = search.prepare_data(plan)
+    assert data.filled is not None and data.filled.any() and data.water.any()
+    written = {}
+    for path in glob.glob(str(tmp_path / "work" / "**" / "*.npy"), recursive=True):
+        grid = np.load(path, mmap_mode="r")
+        assert grid.shape == (plan.grid.height, plan.grid.width), path
+        written[os.path.basename(path)] = grid.nbytes
+        del grid
+    del data
+    assert sorted(written) == ["filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "nmpt.npy", "nmt.npy", "obstacles.npy",
+                               "water.npy", "wbm.npy"]
+    pixels = plan.grid.height * plan.grid.width
+    assert sum(written.values()) == search.work_bytes(plan) * pixels == 23 * pixels
+    assert search.estimate_search(plan).work_gb == 23 * pixels / 1e9
+
+
+def _fake_orthophoto(http_server, monkeypatch, folder: str = "fake/ortho/live"):
+    """A service of tiles only (like SWISSIMAGE) on the test server, answering every tile with one
+    JPEG, attached to the source of the local files; its requests are http_server.requests("/tiles/")."""
+    import io
+
+    from PIL import Image
+    from http_server import Answer
+    import sources as src
+    out = io.BytesIO()
+    Image.new("RGB", (256, 256), (120, 140, 90)).save(out, "JPEG")
+    http_server.route("/tiles/", lambda request: Answer(200, out.getvalue(), {"Content-Type": "image/jpeg"}))
+    service = src.OrthoService("Fake orthophoto", None, "", folder, "Fake imagery, CC BY 4.0",
+                               base_url=http_server.url("/tiles/{z}/{x}/{y}.jpg"), base_max_zoom=19)
+    choose = src.choose_source
+
+    def with_ortho(*args, **kwargs):
+        source, reason = choose(*args, **kwargs)
+        source.ortho = service
+        return source, reason
+    monkeypatch.setattr(src, "choose_source", with_ortho)
+    return service
+
+
+def test_orthophoto_after_the_run(tmp_path, monkeypatch, http_server):
+    """The orthophoto for offline use is a step after the run: save_run writes the run and the map
+    without a request (the map names the cache folder and loads a tile online until it is there),
+    orthophoto_lines picks one line per group by the detail rules, download_orthophoto fetches the
+    tiles not cached yet into the cache and its index and leaves the run's files as they were;
+    --ortho auto asks over CONFIRM_MINUTES, --ortho never and --no-html get nothing."""
+    import dataclasses
+
+    import area as ar
+    import cache
+    import orthophoto as ortho
+    import search
+    from params import SearchParams
+    for name, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")  # the test server, not through the dead proxy
+    service = _fake_orthophoto(http_server, monkeypatch)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
+    values = dict(elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"), water="off", fill_gaps="off", nmpt="off",
+                  northing=254608, easting=553966, radius=150)
+    events = []
+    plan = search.plan_search(SearchParams(ortho="always", **values), paths, lambda kind, text: events.append(text))
+    lines = search.find_lines(plan, search.prepare_data(plan))
+    result = search.save_run(plan, lines)
+    assert not http_server.log  # nothing fetched for the run and its map
+    folder = result.run["path"]
+    read = lambda name: open(os.path.join(folder, name), "rb").read()  # noqa: E731
+    files = {name: read(name) for name in os.listdir(folder) if os.path.isfile(os.path.join(folder, name))}
+    data = json.loads(files["data.js"].decode("utf-8").partition(" = ")[2].rstrip().rstrip(";"))
+    assert data["ortho"]["cache"] == "../../cache/fake/ortho/live/wm256" and data["ortho"]["base"]["max_zoom"] == 19
+
+    # One line per group, the best groups first: a circle every group, --ortho-detail or the
+    # service's detail that many, an area without either ORTHO_DETAIL
+    reps = lines.spot_groups.rep.tolist()
+    spots = search.orthophoto_lines(plan, lines)
+    assert len(spots) == len(reps) > 3
+    assert spots[0] == {k: lines.results.row(reps[0])[k] for k in ("anchor1", "anchor2")}
+    with_params = lambda **u: dataclasses.replace(plan, params=plan.params.model_copy(update=u))  # noqa: E731
+    with_service = lambda **u: dataclasses.replace(  # noqa: E731
+        plan, source=dataclasses.replace(plan.source, ortho=dataclasses.replace(service, **u)))
+    assert search.orthophoto_lines(with_params(ortho_detail=2), lines) == spots[:2]
+    assert search.orthophoto_lines(with_service(detail=3), lines) == spots[:3]
+    assert search.orthophoto_lines(dataclasses.replace(with_service(detail=3), params=plan.params.model_copy(
+        update={"ortho_detail": 1})), lines) == spots[:1]  # the option over the service
+    monkeypatch.setattr(search, "ORTHO_DETAIL", 2)
+    area = dataclasses.replace(plan, area=ar.Polygon(plan.area.shape_wgs84()))
+    assert search.orthophoto_lines(area, lines) == spots[:2]
+
+    # The download: the tiles of the overview and of the strips, not cached yet, into the cache
+    tiles_folder = ortho.cache_folder(paths.cache, service)
+    wanted = ortho.tiles_to_cache(spots, plan.area, 19)
+    assert len(wanted) > 16 and all(z <= 19 for z, _, _ in wanted)
+    assert search.download_orthophoto(plan, spots) == len(wanted) == len(http_server.requests("/tiles/"))
+    assert all(os.path.exists(ortho.tile_path(tiles_folder, *t)) for t in wanted)
+    assert cache.state(paths.cache, ortho.tile_path(tiles_folder, *sorted(wanted)[0])) == "ok"
+    assert {name: read(name) for name in files} == files  # the run's files as they were
+    said = [e for e in events if "Orthophoto" in e]
+    assert said[0].startswith(f"Orthophoto for offline use: {len(wanted)} tiles to download (~")
+    assert said[1].startswith(f"Orthophoto for offline use: {len(wanted)} of {len(wanted)} tiles saved (")
+    assert search.download_orthophoto(plan, spots) == 0  # all cached now
+    assert len(http_server.requests("/tiles/")) == len(wanted) and events[-1].startswith("Orthophoto for offline use: 0 tiles")
+
+    # --ortho auto over CONFIRM_MINUTES asks; no means none, yes downloads (into another folder here)
+    monkeypatch.setattr(search, "CONFIRM_MINUTES", 0)
+    auto = dataclasses.replace(with_service(folder="fake/ortho2/live"), params=plan.params.model_copy(update={"ortho": "auto"}))
+    asked = []
+
+    def no(kind, text):
+        asked.append(kind)
+        return False
+    assert search.download_orthophoto(auto, spots, no) == 0 and asked == ["ortho"]
+    assert len(http_server.requests("/tiles/")) == len(wanted)
+    assert search.download_orthophoto(auto, spots, lambda kind, text: True) == len(wanted)
+    assert len(http_server.requests("/tiles/")) == 2 * len(wanted)
+    # Nothing with --ortho never or --no-html: no message either
+    events.clear()
+    assert search.download_orthophoto(with_params(ortho="never"), spots) == 0
+    assert search.download_orthophoto(with_params(no_html=True), spots) == 0
+    assert not events and len(http_server.requests("/tiles/")) == 2 * len(wanted)
+
+
+def test_orthophoto_tiles_per_strip():
+    """tiles_to_cache tests each strip within its own bounding box (the union's box holds mostly
+    empty tiles when the lines are spread out): exactly the tiles of the union of the strips, as
+    the code of before 2026-11-02 found them (kept here as the reference), whatever the overlap."""
+    import math
+    import random
+
+    from shapely.geometry import LineString, box
+    from shapely.ops import unary_union
+    from shapely.prepared import prep
+    import area as ar
+    import orthophoto as ortho
+
+    def reference_tiles_in(area, zooms):
+        tiles = set()
+        prepared = prep(area)
+        minx, miny, maxx, maxy = area.bounds
+        for z in zooms:
+            size = ortho._tile_size(z)
+            for x in range(math.floor((minx + ortho._EARTH) / size), math.floor((maxx + ortho._EARTH) / size) + 1):
+                for y in range(math.floor((ortho._EARTH - maxy) / size), math.floor((ortho._EARTH - miny) / size) + 1):
+                    left, top = x * size - ortho._EARTH, ortho._EARTH - y * size
+                    if prepared.intersects(box(left, top - size, left + size, top)):
+                        tiles.add((z, x, y))
+        return tiles
+
+    def reference(lines, area, max_zoom):
+        scale = 1 / math.cos(math.radians(area.center[0]))
+        tiles = reference_tiles_in(area.shape_mercator(), ortho.OVERVIEW_ZOOMS)
+        strips = [LineString([ortho._to_mercator.transform(line["anchor1"][1], line["anchor1"][0]),
+                              ortho._to_mercator.transform(line["anchor2"][1], line["anchor2"][0])]
+                             ).buffer(ortho.BUFFER_M * scale) for line in lines]
+        if strips:
+            tiles |= reference_tiles_in(unary_union(strips), range(ortho.DETAIL_ZOOMS[0], max_zoom + 1))
+        return tiles
+
+    lat, lon = 50.1559508, 19.7562722
+    rnd = random.Random(7)
+
+    def strips(n, spread):
+        found = []
+        for _ in range(n):
+            a1 = (lat + rnd.uniform(-spread, spread) / 111000, lon + rnd.uniform(-spread, spread) / 71000)
+            length, angle = rnd.uniform(30, 600), rnd.uniform(0, 2 * math.pi)
+            found.append({"anchor1": a1, "anchor2": (a1[0] + length * math.sin(angle) / 111000,
+                                                      a1[1] + length * math.cos(angle) / 71000)})
+        return found
+    circle = ar.Circle(lat, lon, 300)
+    for lines, max_zoom in ((strips(5, 300), 21), (strips(30, 150), 21), (strips(3, 100), 19), ([], 21)):
+        expected = reference(lines, circle, max_zoom)
+        assert ortho.tiles_to_cache(lines, circle, max_zoom) == expected
+        assert max(z for z, _, _ in expected) == (max_zoom if lines else 16)
 
 
 def _funnel(tmp_path, monkeypatch, **values) -> dict:

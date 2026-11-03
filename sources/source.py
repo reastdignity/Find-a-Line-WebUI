@@ -118,6 +118,10 @@ class Source:
     sample: Optional[Tuple[float, float]] = None
     # How the coverage map shows it; None: not on the map (a source only used to fill gaps)
     coverage: Optional[Coverage] = None
+    # The surface model's obstacles are told from the terrain's own rock (obstacles.py): every
+    # surface model of a survey's points; not FABDEM + Copernicus, whose difference is by
+    # construction the trees and buildings FABDEM removed (on the same pixels)
+    obstacles: bool = True
 
     def __post_init__(self):
         if self.default_resolution is None:

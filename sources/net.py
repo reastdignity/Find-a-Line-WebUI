@@ -63,6 +63,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # Source Cooperative (the copy of the Tasmania 2 metre DEM): no terms page or limits published (2026-11-02;
     # its files are served through Cloudflare): courtesy
     "data.source.coop": 4,
+    # geoportal.gov.pl's WFS sheet indexes (GetCapabilities, GetFeature per year layer, asked in
+    # parallel: WfsSheets): GUGiK publishes no request limits (its terms and the geoportal's pages,
+    # docs/data-sources.md section 1): a courtesy cap; its orthophoto tiles take no slot
+    "mapy.geoportal.gov.pl": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
@@ -97,6 +101,19 @@ RATES_DB: Optional[str] = None  # the bucket of rate_turn; None: findaline-rates
 RATE_WAIT_S = 600  # longest wait for a turn of rate_turn
 _rate_limiters: Dict[Tuple[str, str, int], object] = {}  # (database, host, rate) -> pyrate_limiter.Limiter
 _rate_lock = threading.Lock()
+
+
+_sessions = threading.local()
+
+
+def session() -> requests.Session:
+    """The requests.Session of this thread: its connections stay open for the thread's next
+    requests (keep-alive, no new TLS handshake per request). One per thread, as requests'
+    sessions are not meant to be shared between threads; dropped with its thread."""
+    found = getattr(_sessions, "session", None)
+    if found is None:
+        found = _sessions.session = requests.Session()
+    return found
 
 
 def _host(url: Optional[str]) -> Optional[str]:

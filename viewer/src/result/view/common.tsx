@@ -29,6 +29,15 @@ export function Swatch({color, class: cls}: {color: string; class?: string}) {
   return <i class={"r-sw" + (cls ? " " + cls : "")} style={{background: color}} aria-hidden="true" />;
 }
 
+/** The first cells of a line's row (the list, the choice of spots on the map): its colour, length,
+ *  clearance and height. */
+export function LineCells({line: l}: {line: Line}) {
+  return <>
+    <Swatch color={lineColor(l)} />
+    <span>{num(l.len)} m</span><span>{num(l.clr, 1)} m</span><span>{isFinite(l.hmax) ? num(l.hmax) + " m" : "–"}</span>
+  </>;
+}
+
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
 export { cx };
 

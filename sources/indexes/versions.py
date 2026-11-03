@@ -6,6 +6,7 @@ import hashlib
 import math
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -38,6 +39,24 @@ class Sheet:
 def _sheet_order(sheet: Sheet) -> tuple:
     """Newer year first; within a year, the later publication (higher numbers in the file name)."""
     return (sheet.year,) + tuple(int(n) for n in re.findall(r"\d+", sheet.name)[:2])
+
+
+def _answers(index: CachedIndex, cache_dir: str, tiles: List[Tuple[float, float]],
+             update: Optional[str]) -> List[List[Dict]]:
+    """The listed versions of each 0.25° tile (south-west corners), in the order of the tiles.
+    A listing that says so (`tiles_at_once`: WfsSheets, whose requests take slots of their host)
+    is asked for that many tiles at once, each under its tile's lock (CachedIndex.answers), and
+    first told the data folder (`use`); the others one tile after another, as before. An error
+    is the first in the order of the tiles."""
+    listing = index.listing
+    use = getattr(listing, "use", None)
+    if use is not None:
+        use(index, cache_dir, update)
+    at_once = min(getattr(listing, "tiles_at_once", 1), len(tiles))
+    if at_once <= 1:
+        return [index.answers(cache_dir, lat, lon, update) for lat, lon in tiles]
+    with ThreadPoolExecutor(max_workers=at_once, thread_name_prefix="index-tiles") as pool:
+        return list(pool.map(lambda tile: index.answers(cache_dir, *tile, update), tiles))
 
 
 class NewestPerSheet(Versions):
@@ -84,8 +103,8 @@ class NewestPerSheet(Versions):
             shape = project(grid.area_shape, grid.crs, self.index_crs).intersection(
                 box(g_left, g_bottom, g_right, g_top))
         newest: Dict[str, Sheet] = {}
-        for lat, lon in osm.tiles(west, south, east, north):
-            for item in index.answers(cache_dir, lat, lon, update):
+        for items in _answers(index, cache_dir, osm.tiles(west, south, east, north), update):
+            for item in items:
                 left, bottom, right, top = item["extent"]
                 if not (left < g_right and right > g_left and bottom < g_top and top > g_bottom):
                     continue
@@ -116,7 +135,7 @@ class NewestPerSheet(Versions):
 
     def update_tile(self, index: CachedIndex, cache_dir: str, lat: float, lon: float) -> Tuple[list, list]:
         """The newer surveys of the cached sheets of one tile, and the newest of every sheet."""
-        listed = [self.sheet(item) for item in index.answers(cache_dir, lat, lon, "all")]
+        listed = [self.sheet(item) for item in _answers(index, cache_dir, [(lat, lon)], "all")[0]]
         newest: Dict[str, Sheet] = {}
         for sheet in listed:
             self._versions.setdefault(sheet.godlo, set()).add(sheet)

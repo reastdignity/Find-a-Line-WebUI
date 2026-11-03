@@ -14,23 +14,33 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 import test_lock as tl  # noqa: E402
 
 TOOL = os.path.join(REPO, "tools", "test_lock.py")
-# A command that marks its start in <name>.started (whole, through a rename) and ends once <name>.go exists
-CHILD = ("import os, sys, time\n"
+# A command that marks its start in <name>.started (whole, through a rename: its threads and its
+# priority) and ends once <name>.go exists
+CHILD = ("import os, sys, time, psutil\n"
          "folder, name = sys.argv[1], sys.argv[2]\n"
          "path = os.path.join(folder, name + '.started')\n"
-         "open(path + '.part', 'w').write(os.environ.get('NUMBA_NUM_THREADS', '-'))\n"
+         "priority = int(psutil.Process().nice())\n"
+         "open(path + '.part', 'w').write(f\"{os.environ.get('NUMBA_NUM_THREADS', '-')} {priority}\")\n"
          "os.replace(path + '.part', path)\n"
          "deadline = time.time() + 120\n"
          "while not os.path.exists(os.path.join(folder, name + '.go')) and time.time() < deadline:\n"
          "    time.sleep(0.05)\n")
 
 
-def entry(id, mode="shared", resources=(), started=True, at=1.0, expect=None):
-    return tl.Entry(id, f"t{id}", mode, list(resources), "x", 1, "c", 0.0, at if started else None, expect)
+def entry(id, mode="shared", resources=(), started=True, at=1.0, expect=None, first=False):
+    return tl.Entry(id, f"t{id}", mode, list(resources), "x", 1, "c", 0.0, at if started else None, expect, first)
 
 
-def admitted(entries, now=10.0, slots=3):
-    return tl.startable(entries, now, lambda e: e.expect, slots)
+def admitted(entries, now=10.0, slots=3, slack=0.0, passing=None):
+    return tl.startable(entries, now, lambda e: e.expect, slots, passing, slack)
+
+
+def priorities():
+    """The priorities (psutil's nice()) of a shared and an exclusive command started by this process."""
+    if os.name == "nt":
+        return int(subprocess.BELOW_NORMAL_PRIORITY_CLASS), int(subprocess.NORMAL_PRIORITY_CLASS)
+    own = os.nice(0)
+    return min(19, own + tl.NICE), own
 
 
 def test_who_may_start():
@@ -80,6 +90,53 @@ def test_backfill():
                      entry(4, resources=["docker"], started=False, expect=80.0)]) == {3}
     # Nothing running: the first waiting one starts, as before
     assert admitted([entry(1, "exclusive", started=False), entry(2, started=False, expect=1.0)]) == {1}
+    # The estimate to pass may differ from the one of the running ones (Queue: its kind's longest run)
+    assert admitted([running, exclusive, entry(3, started=False, expect=50.0)], passing=lambda e: 2 * e.expect) == set()
+
+
+def test_backfill_slack():
+    """With a slack, a later entry may end that long after the reservation of a waiting one; the
+    reservation counts the running ones that came before it only, so passing never adds up."""
+    running = entry(1, at=0.0, expect=100.0)             # expected to end at 100
+    exclusive = entry(2, "exclusive", started=False)     # so it may start at 100, at 220 with the slack
+    assert admitted([running, exclusive, entry(3, started=False, expect=95.0)], slack=120) == {3}
+    assert admitted([running, exclusive, entry(3, started=False, expect=210.0)], slack=120) == {3}   # ends at 220
+    assert admitted([running, exclusive, entry(3, started=False, expect=211.0)], slack=120) == set()
+    # One that passed it (expected to end at 210) does not move the reservation ...
+    passer = entry(3, at=10.0, expect=200.0)
+    assert admitted([running, exclusive, passer, entry(4, started=False, expect=205.0)], now=15.0, slack=120) == {4}
+    assert admitted([running, exclusive, passer, entry(4, started=False, expect=206.0)], now=15.0, slack=120) == set()
+    # ... and once only those that passed it hold it up, a later one has to end before them
+    assert admitted([exclusive, passer, entry(4, started=False, expect=195.0)], now=15.0, slack=120) == {4}
+    assert admitted([exclusive, passer, entry(4, started=False, expect=196.0)], now=15.0, slack=120) == set()
+    # A running one without an estimate, or past it, leaves the slack
+    for before in (entry(1, at=0.0), entry(1, at=0.0, expect=5.0)):
+        assert admitted([before, exclusive, entry(3, started=False, expect=120.0)], slack=120) == {3}
+        assert admitted([before, exclusive, entry(3, started=False, expect=121.0)], slack=120) == set()
+    # A later exclusive one still needs nothing running beside it
+    assert admitted([running, exclusive, entry(3, "exclusive", started=False, expect=1.0)], slack=120) == set()
+
+
+def test_first():
+    """--first ones wait ahead of the others (in their order), never ahead of a running one."""
+    assert admitted([entry(1), entry(2, started=False), entry(3, started=False, first=True)], slots=2) == {3}
+    assert admitted([entry(1), entry(2, started=False, first=True), entry(3, started=False, first=True)],
+                    slots=2) == {2}
+    assert admitted([entry(1, "exclusive"), entry(2, started=False, first=True)]) == set()
+    # Ahead of a waiting exclusive one; a first exclusive one keeps out the shared ones that came before it
+    assert admitted([entry(1), entry(2, "exclusive", started=False), entry(3, started=False, first=True)]) == {3}
+    assert admitted([entry(1), entry(2, started=False), entry(3, "exclusive", started=False, first=True)]) == set()
+    # One before a waiting one in the order did not pass it: the slack counts from its end
+    first = entry(3, at=5.0, expect=200.0, first=True)   # started after the exclusive one came, ends at 205
+    exclusive = entry(2, "exclusive", started=False)
+    assert admitted([first, exclusive, entry(4, started=False, expect=315.0)], slack=120) == {4}   # ends at 325
+    assert admitted([first, exclusive, entry(4, started=False, expect=316.0)], slack=120) == set()
+    # Nor did one later in the order that started before it came
+    early = entry(1, at=0.0, expect=100.0)
+    late = entry(2, "exclusive", started=False, first=True)
+    late.queued = 5.0
+    assert admitted([early, late, entry(3, started=False, expect=210.0)], slack=120) == {3}   # ends at 220
+    assert admitted([early, late, entry(3, started=False, expect=211.0)], slack=120) == set()
 
 
 def test_command_kind_and_key():
@@ -98,6 +155,14 @@ def test_command_kind_and_key():
     assert tl.command_kind(["python", "tools/perf_profile.py", "--cores", "4"]) == "perf_profile.py"
     assert tl.command_kind(["npm", "run", "build"]) == "npm"
     assert tl.command_kind(["python", "-c", "print(1)"]) is None
+    # uv's own options before the program it runs
+    assert tl.command_kind(["uv", "run", "--frozen", "pytest", "-q", "-p", "no:cacheprovider"]) == "pytest-all"
+    assert tl.command_kind(["uv", "run", "--frozen", "--project", ".claude/worktrees/x", "pytest", "tests/a.py"]) \
+        == "pytest"
+    assert tl.command_kind(["uv", "run", "--frozen", "python", "tests/regression.py", "--all"]) == "regression.py"
+    assert tl.command_kind(["uv", "run", "--frozen", "tools/check_source.py", "nz", "--lat", "1"]) == "check_source.py"
+    assert tl.command_kind(["uv", "--project", "x", "run", "-p", "3.12", "-m", "pytest"]) == "pytest-all"
+    assert tl.command_kind(["uv", "run", "--frozen", "python", "-c", "print(1)"]) is None
     assert tl.command_key([r"C:\x\.venv\Scripts\python.exe", "tests/regression.py"]) == "python tests/regression.py"
 
 
@@ -115,8 +180,26 @@ def test_estimates_from_history(tmp_path):
     for seconds in range(1, 11):                               # another pytest: its kind's 90th percentile
         queue.record(["pytest", f"tests/test_{seconds}.py"], seconds * 10.0, 0)
     assert estimate(["pytest", "tests/test_new.py"]) == 90.0
+    entry = tl.Entry(1, "t", "shared", [], "x", 1, "pytest tests/test_new.py", 0.0, None)
+    assert queue.estimate(entry, passing=True) == 100.0        # to pass: the longest of its kind's
+    entry.command = "pytest"
+    assert queue.estimate(entry, passing=True) == 30           # the same command's as before
     queue.record(["python", "-c", "pass"], 1.0, 0)
     assert estimate(["python", "-c", "pass"]) == 1.0 and estimate(["python", "-c", "other"]) is None
+
+
+def test_kinds_of_older_runs_migrated(tmp_path):
+    """A queue of before version 1 gets the kinds of uv's commands, which had none."""
+    queue = tl.Queue(str(tmp_path))
+    for key, kind in (("uv run --frozen pytest -q", None), ("python -c pass", None), ("pytest tests/a.py", "pytest")):
+        queue.db.execute("INSERT INTO history (key, kind, seconds, code, ended) VALUES (?, ?, 1, 0, 0)", (key, kind))
+    queue.db.execute("PRAGMA user_version = 0")
+    queue.db.close()
+    queue = tl.Queue(str(tmp_path))
+    kinds = queue.db.execute("SELECT kind FROM history ORDER BY id").fetchall()
+    assert kinds == [("pytest-all",), (None,), ("pytest",)]
+    assert queue.db.execute("PRAGMA user_version").fetchone()[0] == tl.QUEUE_VERSION
+    queue.db.close()
 
 
 def test_wrappers_set_up_a_new_queue_together(tmp_path):
@@ -204,12 +287,12 @@ def runs(tmp_path):
 
 
 def test_shared_together_exclusive_alone(runs):
-    """Two shared run together with capped threads; an exclusive waits for them, and a shared one
-    that comes after it waits for the exclusive although a slot is free."""
+    """Two shared run together with capped threads below the normal priority; an exclusive waits
+    for them, and a shared one that comes after it waits for the exclusive although a slot is free."""
+    shared, exclusive = priorities()
     a, b = runs.start("a"), runs.start("b")
     runs.wait_for(lambda: runs.started("a") and runs.started("b"))
-    threads = open(os.path.join(runs.folder, "a.started")).read()
-    assert threads == str(max(1, os.cpu_count() // 3))
+    assert open(os.path.join(runs.folder, "a.started")).read() == f"{max(1, os.cpu_count() // 3)} {shared}"
     e = runs.start("e", "--exclusive")
     runs.wait_for(lambda: runs.queued("exclusive") == 1)
     c = runs.start("c")
@@ -223,7 +306,7 @@ def test_shared_together_exclusive_alone(runs):
     runs.go("b")
     runs.wait_for(lambda: runs.started("e"))
     assert b.wait(timeout=60) == 0
-    assert open(os.path.join(runs.folder, "e.started")).read() == "-"  # all threads
+    assert open(os.path.join(runs.folder, "e.started")).read() == f"- {exclusive}"  # all threads
     time.sleep(0.5)
     assert not runs.started("c")
     runs.go("e")
@@ -259,6 +342,31 @@ def test_backfill_while_an_exclusive_waits(runs):
         assert db.execute("SELECT count(*) FROM history WHERE code = 0").fetchone()[0] == 4
     finally:
         db.close()
+
+
+def test_first_ahead_of_a_waiting_exclusive(runs):
+    """A --first one starts beside the running shared one while an exclusive one waits; another
+    shared one waits for the exclusive one."""
+    a = runs.start("a")
+    runs.wait_for(lambda: runs.started("a"))
+    e = runs.start("e", "--exclusive")
+    runs.wait_for(lambda: runs.queued("exclusive") == 1)
+    d = runs.start("d")
+    runs.wait_for(lambda: runs.queued("shared") == 2)
+    c = runs.start("c", "--first")
+    runs.wait_for(lambda: runs.started("c"))
+    status = subprocess.run([sys.executable, TOOL, "status"], env=runs.env, capture_output=True, text=True)
+    assert " shared first running" in status.stdout
+    time.sleep(0.5)
+    assert not runs.started("e") and not runs.started("d")
+    for name in "ac":
+        runs.go(name)
+    runs.wait_for(lambda: runs.started("e"))
+    assert not runs.started("d")
+    runs.go("e")
+    runs.wait_for(lambda: runs.started("d"))
+    runs.go("d")
+    assert a.wait(timeout=60) == c.wait(timeout=60) == e.wait(timeout=60) == d.wait(timeout=60) == 0
 
 
 def test_resources_one_at_a_time(runs):

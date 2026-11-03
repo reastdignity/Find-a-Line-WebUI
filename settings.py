@@ -118,7 +118,7 @@ class Limits(BaseSettings):
                                 "indexes and Overpass are asked per 0.25° tile of the box)")
     grid_mpx_max: Optional[float] = Field(
         None, gt=0, description="most pixels of a grid (a circle) or of a tile of an area with its overlap, millions "
-                                "(about 100 bytes of memory each); tiles are made smaller to fit")
+                                "(about 50 bytes of memory each); tiles are made smaller to fit")
     tiles_max: Optional[int] = Field(None, gt=0, description="most tiles over the bounding box of an area")
     anchors_max: Optional[int] = Field(None, gt=0, description="most anchors of a grid or a tile")
     lines_max: Optional[int] = Field(None, gt=0, description="most lines of a search (all its tiles)")
