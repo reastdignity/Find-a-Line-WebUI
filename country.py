@@ -652,9 +652,12 @@ class TileWork:
         work = os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band.name}-{name}")
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
+        # search_grid: the band's grid, as search_lines gives its tiles (the world file's water
+        # polygons read once per band in this process, coast.sea_mask's extent)
         tile_plan = dataclasses.replace(plan, params=plan.params.model_copy(update={"threads": threads}), grid=grid,
                                         paths=search.Paths(self.data_dir, work), tiles=None, funnel={},
-                                        tile_label=f"{band.name} {name} · ", emit=_print_event)
+                                        tile_label=f"{band.name} {name} · ", emit=_print_event,
+                                        search_grid=plan.grid)
         print(f"\n--- Band {band.name}, tile {name} ({grid.width} x {grid.height} px, {threads} threads) ---",
               flush=True)
         src.used_data.clear()
