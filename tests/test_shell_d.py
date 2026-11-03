@@ -411,7 +411,7 @@ run({
     next();
   }); },
   near(next) {
-    // 4 px beside a spot with similar lines (once selected, main's second canvas lay over the map), then beside
+    // 4 px beside a spot with similar lines (once its lines had a second canvas over the map), then beside
     // another: zoomed in on the first spot of the list until both are found
     let a = null, b = null;
     const first = model().rows[0].line, centre = [(first.lat1 + first.lat2) / 2, (first.lon1 + first.lon2) / 2];
@@ -530,7 +530,7 @@ run({
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_d_pick(data, tmp_path):
     """Lines taken on the map with the events a browser sends to whatever lies at a point (the canvas): a click 4 px
-    beside a line takes it, also while a spot with similar lines is selected (main's second canvas of those lines
+    beside a line takes it, also while a spot with similar lines is selected (a second canvas of those lines once
     lay over the map and took every click), a thin line of the selected spot is taken; the mouse shows the line and
     the pointer; a click beside every line ends the selection; 14 px away a finger's tap takes the line (also as
     WebKit sends it: a "mouse" click after a "touch" press), the mouse's click does not; while measuring a click is a

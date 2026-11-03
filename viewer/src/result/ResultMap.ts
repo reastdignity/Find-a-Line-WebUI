@@ -33,10 +33,6 @@ const REACH_TOUCH = 20;  // the same for a finger (a 40 px wide band)
 const TIE_MOUSE = 3;     // another spot within this many px more than the nearest one: the click is ambiguous
 const TIE_TOUCH = 8;
 const CHOICES_MAX = 6;
-// PROTOTYPE (removed before merging): ?pick=old keeps Leaflet's hit test of before, for comparison
-const OLD_PICK = (() => {
-  try { return new URLSearchParams(location.search).get("pick") === "old"; } catch { return false; }
-})();
 
 /** The distance of (px, py) from the segment a–b. */
 function segmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
@@ -44,7 +40,6 @@ function segmentDistance(px: number, py: number, ax: number, ay: number, bx: num
   const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
   return Math.hypot(px - ax - t * dx, py - ay - t * dy);
 }
-
 
 /** A canvas renderer whose redraw does nothing once its canvas is gone: Leaflet binds the redraw when it
  *  asks for the frame, so a frame asked for before the map or the renderer was removed may still run
@@ -61,9 +56,9 @@ export class ResultMap {
   private readonly map: L.Map;
   private readonly model: ResultModel;
   private readonly options: ResultMapOptions;
+  // One canvas for everything: Leaflet's canvas takes the mouse events of its whole box, so a second one
+  // (once that of the variants) would take every click and hover from the first
   private readonly renderer = new SafeCanvas({padding: 0.5});
-  // PROTOTYPE: the old second canvas only with ?pick=old (over the first one it took every click)
-  private readonly variantRenderer = OLD_PICK ? new SafeCanvas({padding: 0.5, tolerance: 5}) : this.renderer;
   private readonly area: L.GeoJSON;
   private readonly otherAreas = L.layerGroup();
   private readonly linesLayer = L.layerGroup();
@@ -96,7 +91,7 @@ export class ResultMap {
     this.layers = [this.area, this.otherAreas, this.linesLayer, this.topLayer, this.hoverLayer, this.measureLayer];
     this.layers.forEach((layer) => layer.addTo(map));
     map.on("click", this.onMapClick);
-    if (!OLD_PICK) map.on("mousemove", this.onMouseMove).on("mouseout", this.onMouseOut);
+    map.on("mousemove", this.onMouseMove).on("mouseout", this.onMouseOut);
     map.getContainer().addEventListener("pointerdown", this.onPress, true);
     document.addEventListener("keydown", this.onKey);
     this.unsubscribe = model.subscribe(() => this.render());
@@ -110,7 +105,7 @@ export class ResultMap {
     this.measureLayer.clearLayers();
     this.hoverAt(null);
     this.layers.forEach((layer) => this.map.removeLayer(layer));
-    [this.renderer, this.variantRenderer].forEach((r) => { if (this.map.hasLayer(r)) this.map.removeLayer(r); });
+    if (this.map.hasLayer(this.renderer)) this.map.removeLayer(this.renderer);
     this.map.off("click", this.onMapClick);
     this.map.off("mousemove", this.onMouseMove).off("mouseout", this.onMouseOut);
     this.map.getContainer().removeEventListener("pointerdown", this.onPress, true);
@@ -128,25 +123,13 @@ export class ResultMap {
   /** A line of the map; lines of other runs are dashed over trees/buildings. */
   private polyline(l: Line, options: L.PolylineOptions): L.Polyline {
     return L.polyline([[l.lat1, l.lon1], [l.lat2, l.lon2]],
-                      {color: this.color(l), renderer: this.renderer, interactive: OLD_PICK, bubblingMouseEvents: false,
+                      {color: this.color(l), renderer: this.renderer, interactive: false,
                        dashArray: l.run && l.over ? "6 4" : undefined, ...options});
   }
 
   /** A line a click can take; drawn later, it is on top. */
-  private target(pl: L.Polyline, l: Line, g: Group<Line>, variant: boolean) {
-    if (OLD_PICK) this.wire(pl, l, g, variant);
-    else this.targets.push({line: l, group: g, variant});
-  }
-
-  /** PROTOTYPE (?pick=old): clicks and hovers of a line as Leaflet's canvas found them before. */
-  private wire(pl: L.Polyline, l: Line, g: Group<Line>, variant: boolean) {
-    pl.on("click", (e: L.LeafletMouseEvent) => {
-      if (this.measuring) { this.addPoint(e.latlng); return; }
-      if (this.options.onLine) this.options.onLine(l, g, variant);
-      else this.model.select(l);
-    });
-    pl.on("mouseover", () => this.options.onHover?.(l));
-    pl.on("mouseout", () => this.options.onHover?.(null));
+  private target(l: Line, g: Group<Line>, variant: boolean) {
+    this.targets.push({line: l, group: g, variant});
   }
 
   /** Draw the model again (called on every change of it). */
@@ -177,25 +160,22 @@ export class ResultMap {
         this.polyline(l, {color: COLORS.favourite, weight: this.weight(l) + 7, opacity: 0.6 * (selected ? DIM : 1),
                           dashArray: undefined, interactive: false}).addTo(this.linesLayer);
       }
-      const pl = this.polyline(l, {weight: this.weight(l), opacity});
-      this.target(pl, l, g, false);
-      pl.addTo(this.linesLayer);
+      this.polyline(l, {weight: this.weight(l), opacity}).addTo(this.linesLayer);
+      this.target(l, g, false);
     }
     if (selected) {
       const {group, line} = selected, w = this.weight(line);
       // The variants of its group, thin; then the line over a dark halo (gold for a favourite), its anchors marked
       for (const m of group.members) {
         if (m === line) continue;
-        const variant = this.polyline(m, {weight: 1, opacity: 0.8, renderer: this.variantRenderer});
-        this.target(variant, m, group, true);
-        variant.addTo(this.topLayer);
+        this.polyline(m, {weight: 1, opacity: 0.8}).addTo(this.topLayer);
+        this.target(m, group, true);
       }
       const favourite = model.favouritesOn && model.isFavourite(line);
       this.polyline(line, {color: favourite ? COLORS.favourite : "#000", weight: w + 8, opacity: favourite ? 0.8 : 0.45,
                            dashArray: undefined, interactive: false}).addTo(this.topLayer);
-      const pl = this.polyline(line, {weight: w + 2, opacity: 1});
-      this.target(pl, line, group, false);
-      pl.addTo(this.topLayer);
+      this.polyline(line, {weight: w + 2, opacity: 1}).addTo(this.topLayer);
+      this.target(line, group, false);
       for (const at of [[line.lat1, line.lon1], [line.lat2, line.lon2]] as [number, number][]) {
         L.circleMarker(at, {radius: 5, color: "#000", weight: 2, fillColor: "#fff", fillOpacity: 1,
                             interactive: false, renderer: this.renderer}).addTo(this.topLayer);
@@ -394,7 +374,6 @@ export class ResultMap {
   // ends the selection; while measuring it is a point
   private onMapClick = (e: L.LeafletMouseEvent) => {
     if (this.measuring) { this.addPoint(e.latlng); return; }
-    if (OLD_PICK) { if (this.model.selected) this.model.select(null); return; }  // PROTOTYPE: lines' clicks did not bubble
     const found = this.pick(e.latlng, this.byFinger(e));
     if (found.length > 1 && this.options.onChoose) this.options.onChoose(found, e.containerPoint);
     else if (found.length) this.choose(found[0]);
