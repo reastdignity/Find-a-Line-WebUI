@@ -998,6 +998,55 @@ def test_world_water_read_once_for_the_tiles(tmp_path, monkeypatch):
     coast._WORLD_READ.clear()
 
 
+def _fill_before(target, other, gaps, res):
+    """sources.filling._fill of 1056134 (the reference), without its progress bar."""
+    from scipy import ndimage
+    from sources.filling import GAP_MATCH_SLOPE, GAP_RING, GAP_MAX_LOCAL_SHIFT
+    values = np.asarray(target)
+    gy, gx = np.gradient(np.where(np.isfinite(values), values, other), res)
+    flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
+    both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
+    overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
+    labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
+    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
+    offsets = np.full(count + 1, overall)
+    if ring.any():
+        near = ring > 0
+        local = ndimage.median(values[near] - other[near], ring[near], index=np.arange(1, count + 1))
+        local = np.asarray(local, dtype=float)
+        usable = np.isfinite(local) & (np.abs(local - overall) <= GAP_MAX_LOCAL_SHIFT)
+        offsets[1:] = np.where(usable, local, overall)
+    count = int((gaps & np.isfinite(other)).sum())
+    target[gaps] = other[gaps] + offsets[labels[gaps]]
+    return count
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_gap_fill_as_before(seed, tmp_path):
+    """_fill with its temporaries computed in place fills every gap with the same float32 bits as before."""
+    from scipy import ndimage
+    rng = np.random.default_rng(seed)
+    shape = (157, 211)
+    y, x = np.mgrid[:shape[0], :shape[1]]
+    terrain = (300 + 40 * np.sin(x / 17) * np.cos(y / 23) + 25 * (x > 120) + rng.normal(0, 0.3, shape))
+    terrain = terrain.astype(np.float32)
+    terrain[60:66, :] += np.linspace(0, 90, shape[1], dtype=np.float32)  # a cliff band: steep pixels
+    gaps = ndimage.binary_dilation(rng.random(shape) < 0.002, iterations=4) | (rng.random(shape) < 0.01)
+    gaps[:5, :9] = True  # a gap at the corner
+    other = (terrain + 1.7 + rng.normal(0, 0.4, shape)).astype(np.float32)
+    other[rng.random(shape) < 0.03] = np.nan  # the filling source has gaps too
+    other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
+    if seed == 2:
+        other[:] = np.nan  # nothing to fill with
+    grids = []
+    for name in ("new", "old"):
+        grid = np.lib.format.open_memmap(str(tmp_path / f"{name}.npy"), mode="w+", dtype=np.float32, shape=shape)
+        grid[:] = np.where(gaps, np.nan, terrain)
+        grids.append(grid)
+    assert src.filling._fill(grids[0], other, gaps, 1.0) == _fill_before(grids[1], other, gaps, 1.0)
+    assert np.array_equal(np.asarray(grids[0]).view(np.uint32), np.asarray(grids[1]).view(np.uint32))
+
+
 def _fake_lines(n):
     import helpers as sh
     return sh.LineTable.from_rows([

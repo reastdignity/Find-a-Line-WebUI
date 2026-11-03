@@ -177,6 +177,7 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
             other[window] = np.load(path, mmap_mode="r")
         if _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}") == 0:
             used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
+        del other, gaps  # before the next pair's mosaic
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
     return out_path, int(filled.sum())
@@ -212,14 +213,25 @@ def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float, l
     values = np.asarray(target)
     progress.compute.start(label, 3, unit="step")
     progress.compute.update(0, part="slopes")
-    gy, gx = np.gradient(np.where(np.isfinite(values), values, other), res)
-    flat = np.degrees(np.arctan(np.hypot(gx, gy))) < GAP_MATCH_SLOPE
-    both = ~gaps & np.isfinite(values) & np.isfinite(other) & flat
-    overall = float(np.median(values[both] - other[both])) if both.any() else 0.0
+    finite = np.isfinite(values)
+    gy, gx = np.gradient(np.where(finite, values, other), res)
+    # The slope in degrees, computed in place in gx (the same ufuncs on the same float32 values as
+    # np.degrees(np.arctan(np.hypot(gx, gy))), one array less); the gradients serve only this
+    np.hypot(gx, gy, out=gx)
+    np.arctan(gx, out=gx)
+    np.degrees(gx, out=gx)
+    flat = gx < GAP_MATCH_SLOPE
+    del gx, gy
+    both = ~gaps & finite & np.isfinite(other) & flat
+    del finite, flat
+    # The differences are a temporary: the median may partition them in place
+    overall = float(np.median(values[both] - other[both], overwrite_input=True)) if both.any() else 0.0
     # Offset of every gap from the ring of pixels around it
     progress.compute.update(1, part="rings")
     labels, count = ndimage.label(gaps, structure=np.ones((3, 3)))
-    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2) * (both & (labels == 0))
+    ring = ndimage.grey_dilation(labels, size=(GAP_RING * 2 + 1,) * 2)
+    ring *= both & (labels == 0)  # integers, in place
+    del both
     offsets = np.full(count + 1, overall)
     progress.compute.update(1, part="medians")
     if ring.any():
@@ -324,9 +336,12 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     from .choose import source_unavailable
 
     joined, counts = None, []
+    gaps = None  # border_gaps, computed again only after a neighbour's fill_gaps may have changed the grids
     for n, neighbour in enumerate(neighbours):
         progress.compute.start(f"border gaps ({neighbour.name})", 1, unit="step")
-        window = neighbour_window(neighbour, grid, border_gaps(elevation_path, surface_path, grid, exclude))
+        if gaps is None:
+            gaps = border_gaps(elevation_path, surface_path, grid, exclude)
+        window = neighbour_window(neighbour, grid, gaps)
         progress.compute.update(1)
         progress.compute.finish()
         if window is None:
@@ -336,6 +351,7 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
             print(f"Gaps at the border not filled from {neighbour.name}: {why}")
             continue
         step = f"{os.path.splitext(out_path)[0]}{n}.npy"
+        gaps = None  # its terrain or surface pixels may be filled (also before a failure)
         try:
             _, pixels = fill_gaps(elevation_path, surface_path, grid, neighbour, cache_dir, step, update,
                                   exclude=exclude, name=f"border{n}", window=window, surface_from_terrain=False)
