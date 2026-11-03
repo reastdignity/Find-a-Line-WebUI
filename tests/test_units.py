@@ -1047,6 +1047,120 @@ def test_gap_fill_as_before(seed, tmp_path):
     assert np.array_equal(np.asarray(grids[0]).view(np.uint32), np.asarray(grids[1]).view(np.uint32))
 
 
+def _place_before(src_file, grid, mosaic, categorical=False, shift=(0.0, 0.0)):
+    """sources.mosaic._place of 1056134 (the reference, a float32 mosaic for categorical rasters too)."""
+    import math
+    import rasterio as rio
+    from affine import Affine
+    from rasterio.transform import from_origin
+    from rasterio.warp import Resampling, reproject, transform_bounds
+    from rasterio.windows import from_bounds
+    from sources.layer import _clean
+    from sources.mosaic import WARP_THREADS
+    clean = (lambda band: band.astype(np.float32)) if categorical else _clean
+    grid_crs = rio.crs.CRS.from_user_input(grid.crs)
+    src_crs = src_file.crs or grid_crs
+    moved = Affine.translation(*shift)
+    src_bounds = rio.coords.BoundingBox(src_file.bounds.left + shift[0], src_file.bounds.bottom + shift[1],
+                                        src_file.bounds.right + shift[0], src_file.bounds.top + shift[1])
+    same_grid = src_crs == grid_crs and shift == (0.0, 0.0) and math.isclose(abs(src_file.res[0]), grid.res) \
+        and math.isclose(abs(src_file.res[1]), grid.res)
+    if same_grid:
+        row_off = int(round((grid.top - src_file.bounds.top) / grid.res))
+        col_off = int(round((src_file.bounds.left - grid.left) / grid.res))
+        if abs(row_off * grid.res - (grid.top - src_file.bounds.top)) < grid.res / 100:
+            r0, c0 = max(row_off, 0), max(col_off, 0)
+            r1, c1 = min(row_off + src_file.height, grid.height), min(col_off + src_file.width, grid.width)
+            if r0 < r1 and c0 < c1:
+                window = rio.windows.Window(c0 - col_off, r0 - row_off, c1 - c0, r1 - r0)
+                values = clean(src_file.read(1, window=window, masked=True).astype(np.float32).filled(np.nan))
+                target = mosaic[r0:r1, c0:c1]
+                mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
+            return
+    left, bottom, right, top = transform_bounds(src_crs, grid.crs, *src_bounds)
+    c0 = max(0, int(math.floor((left - grid.left) / grid.res)))
+    c1 = min(grid.width, int(math.ceil((right - grid.left) / grid.res)))
+    r0 = max(0, int(math.floor((grid.top - top) / grid.res)))
+    r1 = min(grid.height, int(math.ceil((grid.top - bottom) / grid.res)))
+    if r0 >= r1 or c0 >= c1:
+        return
+    src_res = abs(src_file.res[0]) * (111320 if src_crs.is_geographic else 1)
+    if categorical:
+        resampling = Resampling.nearest
+    else:
+        resampling = Resampling.average if src_res < grid.res * 0.75 else Resampling.bilinear
+    window_transform = from_origin(grid.left + c0 * grid.res, grid.top - r0 * grid.res, grid.res, grid.res)
+    values = np.full((r1 - r0, c1 - c0), np.nan, dtype=np.float32)
+    area = transform_bounds(grid.crs, src_crs, *grid.bounds)
+    area = (area[0] - shift[0], area[1] - shift[1], area[2] - shift[0], area[3] - shift[1])
+    margin = 3 * max(abs(src_file.res[0]), abs(src_file.res[1]))
+    window = from_bounds(area[0] - margin, area[1] - margin, area[2] + margin, area[3] + margin,
+                         src_file.transform).round_offsets().round_lengths()
+    window = window.intersection(rio.windows.Window(0, 0, src_file.width, src_file.height))
+    band = src_file.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
+    reproject(clean(band), values, src_transform=moved @ src_file.window_transform(window), src_crs=src_crs,
+              dst_transform=window_transform, dst_crs=grid.crs,
+              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
+    target = mosaic[r0:r1, c0:c1]
+    mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
+
+
+def test_mosaics_as_before(tmp_path):
+    """build_mosaic reads each window without its copies and places it in place: the same float32 bits
+    as before for heights (on the grid, reprojected, finer, shifted, with nodata, integers, NaN, values
+    below VALID_MIN); a categorical mosaic is uint8 with mosaic.NODATA where the float32 one had NaN."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    rng = np.random.default_rng(5)
+    grid = gd.make_grid((500000, 300000, 500600, 300400), 2, "EPSG:2180")
+
+    def tif(name, band, crs, left, top, res, nodata=None):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1,
+                      dtype=band.dtype, crs=crs, nodata=nodata, transform=from_origin(left, top, res, res)) as dst:
+            dst.write(band, 1)
+        return path
+
+    heights = (200 + rng.normal(0, 30, (150, 160))).astype(np.float32)
+    heights[10:20, 30:60] = -9999
+    heights[40:44, :] = -700  # below VALID_MIN: no data
+    on_grid = tif("on_grid", heights, "EPSG:2180", 500100, 300300, 2, nodata=-9999)
+    ints = (rng.integers(150, 260, (90, 100))).astype(np.int16)
+    ints[:5] = -32768
+    from rasterio.warp import transform_bounds
+    u_left, _, _, u_top = transform_bounds("EPSG:2180", "EPSG:32634", *grid.bounds)
+    utm = tif("utm", ints, "EPSG:32634", round(u_left) - 52.5, round(u_top) - 30, 5, nodata=-32768)
+    fine = (180 + rng.normal(0, 10, (400, 500))).astype(np.float32)
+    fine[100:150, 100:120] = np.nan
+    finer = tif("finer", fine, "EPSG:2180", 499950, 300420, 0.5, nodata=np.nan)
+    plain = tif("plain", (rng.random((120, 120)) * 300).astype(np.float64), "EPSG:2180", 500350, 300250, 2)
+    files = [on_grid, utm, finer, plain]
+    for shift in ((0.0, 0.0), (3.0, -1.5)):
+        new = src.build_mosaic(files, grid, str(tmp_path / "new.npy"), "test", shift=shift)
+        old = np.full((grid.height, grid.width), np.nan, np.float32)
+        for path in files:
+            with rio.open(path) as f:
+                _place_before(f, grid, old, shift=shift)
+        assert new.dtype == np.float32 and np.isfinite(old).any() and np.isnan(old).any()
+        assert np.array_equal(np.asarray(new).view(np.uint32), old.view(np.uint32))
+        del new
+    # The water body mask's categories in EPSG:4326, two overlapping tiles, part of the grid outside both
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", *grid.bounds)
+    step = 1 / 3600
+    a = rng.integers(0, 4, (int((north - south) / step) + 8, int((east - west) / step / 2) + 4)).astype(np.uint8)
+    b = rng.integers(0, 4, a.shape).astype(np.uint8)
+    first = tif("wbm_a", a, "EPSG:4326", west - 2 * step, north + 2 * step, step)
+    second = tif("wbm_b", b, "EPSG:4326", west + (east - west) * 0.3, north - (north - south) * 0.4, step)
+    new = src.build_mosaic([first, second], grid, str(tmp_path / "wbm.npy"), "water mask", categorical=True)
+    old = np.full((grid.height, grid.width), np.nan, np.float32)
+    for path in (first, second):
+        with rio.open(path) as f:
+            _place_before(f, grid, old, categorical=True)
+    assert new.dtype == np.uint8 and np.isnan(old).any() and {0, 1, 2, 3} <= set(np.unique(old[~np.isnan(old)]))
+    assert np.array_equal(new, np.where(np.isnan(old), src.mosaic.NODATA, old).astype(np.uint8))
+    del new
+
+
 def _fake_lines(n):
     import helpers as sh
     return sh.LineTable.from_rows([

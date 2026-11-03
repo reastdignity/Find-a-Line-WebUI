@@ -14,7 +14,7 @@ from progress import progress
 
 from .source import Source
 from .catalogue.world import WATER_MASK
-from .mosaic import build_mosaic, prepare_layer, used_data
+from .mosaic import NODATA, build_mosaic, prepare_layer, used_data
 
 # Copernicus water body mask, 1°×1° tiles next to the DEM tiles: 1 ocean, 2 lake, 3 river
 OCEAN, LAKE = 1, 2
@@ -31,8 +31,8 @@ NEIGHBOUR_PAD = GAP_RING + 3  # pixels of the neighbour's data around its gaps (
 
 def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[str] = None,
                     download: bool = True) -> np.ndarray:
-    """Copernicus water body mask on the grid (OCEAN, LAKE...), open sea where tiles are missing
-    (downloaded first unless done already: download False)."""
+    """Copernicus water body mask on the grid (OCEAN, LAKE...) as uint8, open sea where tiles are
+    missing, mosaic.NODATA where no tile reaches (downloaded first unless done already: download False)."""
     if download:
         WATER_MASK.download(grid, cache_dir, update, "water mask")
     wbm = build_mosaic(WATER_MASK.files(grid, cache_dir), grid, out_path, "water mask", categorical=True)
@@ -45,7 +45,7 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
             r0, r1 = max(0, int((grid.top - top) // grid.res)), min(grid.height, int((grid.top - bottom) // grid.res) + 1)
             if r0 < r1 and c0 < c1:
                 block = wbm[r0:r1, c0:c1]
-                block[np.isnan(block)] = OCEAN
+                block[block == NODATA] = OCEAN
     return np.asarray(wbm)
 
 

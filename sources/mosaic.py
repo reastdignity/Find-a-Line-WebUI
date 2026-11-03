@@ -26,6 +26,10 @@ WARP_THREADS = max(1, min(8, int(os.environ.get("NUMBA_NUM_THREADS") or os.cpu_c
 # What the layers prepared in this process came from (Layer.used), saved with the run
 used_data: List[Dict] = []
 
+# A categorical mosaic (build_mosaic: the water body mask's categories 0-3) is uint8 with this code
+# where no raster has a value (NaN in the float32 mosaics)
+NODATA = 255
+
 
 def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label: str,
                   update: Optional[str] = None, download: bool = True, quiet: bool = False) -> str:
@@ -49,12 +53,13 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
 
     Tiles already on the grid are copied; others are reprojected, averaging when
     the data is finer than the grid and interpolating bilinearly when it is coarser
-    (categorical rasters, such as a water mask, use the nearest value instead).
+    (categorical rasters, such as a water mask, use the nearest value instead: their
+    mosaic is uint8, NODATA where no raster has a value, the categories below it).
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.float32,
+    mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8 if categorical else np.float32,
                                        shape=(grid.height, grid.width))
-    mosaic[:] = np.nan
+    mosaic[:] = NODATA if categorical else np.nan
     progress.compute.start(f"stitching {label}", len(files), unit="tile")
     for path in files:
         progress.compute.update(1)
@@ -65,9 +70,30 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
     return mosaic
 
 
+def _read(src, window) -> np.ndarray:
+    """Band 1 of src in window as float32 with NaN where it is masked: the values of
+    src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan) without its two
+    copies (the read's own array converted in place when it is float32 already)."""
+    band = src.read(1, window=window, masked=True)
+    values = band.data.astype(np.float32, copy=False)
+    mask = np.ma.getmask(band)
+    if mask is not np.ma.nomask:
+        np.copyto(values, np.nan, where=mask)
+    return values
+
+
+def _put(target: np.ndarray, values: np.ndarray, categorical: bool):
+    """values (float32, NaN for none) into the pixels of target (a part of the mosaic) that have
+    none yet: a raster placed before wins (np.where(np.isnan(target), values, target) in place)."""
+    if categorical:  # uint8: NODATA for NaN, the categories (whole numbers below NODATA) as they are
+        np.copyto(target, values, where=(target == NODATA) & ~np.isnan(values), casting="unsafe")
+    else:
+        np.copyto(target, values, where=np.isnan(target))
+
+
 def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
            shift: Tuple[float, float] = (0.0, 0.0)):
-    clean = (lambda band: band.astype(np.float32)) if categorical else _clean
+    clean = (lambda band: band) if categorical else (lambda band: _clean(band, copy=False))
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src.crs or grid_crs
     moved = Affine.translation(*shift)
@@ -83,9 +109,7 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
             r1, c1 = min(row_off + src.height, grid.height), min(col_off + src.width, grid.width)
             if r0 < r1 and c0 < c1:
                 window = rio.windows.Window(c0 - col_off, r0 - row_off, c1 - c0, r1 - r0)
-                values = clean(src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan))
-                target = mosaic[r0:r1, c0:c1]
-                mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
+                _put(mosaic[r0:r1, c0:c1], clean(_read(src, window)), categorical)
             return
 
     # Part of the grid covered by this raster
@@ -111,12 +135,12 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
     window = from_bounds(area[0] - margin, area[1] - margin, area[2] + margin, area[3] + margin,
                          src.transform).round_offsets().round_lengths()
     window = window.intersection(rio.windows.Window(0, 0, src.width, src.height))
-    band = src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
-    reproject(clean(band), values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
+    band = clean(_read(src, window))
+    reproject(band, values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
               src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
-    target = mosaic[r0:r1, c0:c1]
-    mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
+    del band
+    _put(mosaic[r0:r1, c0:c1], values, categorical)
 
 
 def load_slope_file(slope_file: str, grid: Grid, out_path: str) -> str:
