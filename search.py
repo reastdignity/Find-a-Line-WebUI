@@ -923,6 +923,30 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     return results.without_pixels(), groups  # nothing reads the pixels from here on
 
 
+def at_seams(gaps: np.ndarray, anchors: np.ndarray) -> np.ndarray:
+    """Which anchors ([row, col]) lie at a seam of the mask `gaps` (filled gaps, a neighbour's
+    data): binary_dilation(gaps) & ~binary_erosion(gaps) of scipy with a 3 x 3 structure, read
+    at the anchors only. The dilation is "a gap within the anchor's 3 x 3 neighbourhood", the
+    erosion "all 9 pixels gaps" with the outside of the grid as no gap (border_value 0): an
+    anchor is at a seam when its neighbourhood, clipped at the grid's edges, holds a gap and
+    either a pixel that is not a gap or a place outside the grid. Nine gathers at the anchors
+    instead of two operations over the whole grid (tests/test_units.py::test_seams_as_before)."""
+    h, w = gaps.shape
+    rows, cols = anchors[:, 0], anchors[:, 1]
+    any_gap = np.zeros(len(anchors), dtype=bool)
+    all_gaps = np.ones(len(anchors), dtype=bool)
+    for dr in (-1, 0, 1):
+        r = rows + dr
+        r_in = (r >= 0) & (r < h)
+        r = np.clip(r, 0, h - 1)
+        for dc in (-1, 0, 1):
+            c = cols + dc
+            gap = np.asarray(gaps[r, np.clip(c, 0, w - 1)], dtype=bool) & r_in & (c >= 0) & (c < w)
+            any_gap |= gap
+            all_gaps &= gap
+    return any_gap & ~all_gaps
+
+
 @dataclass
 class Anchors:
     """Step 2's results: the anchors ([row, col]), their prominence and drop (terrain.py), and
@@ -944,14 +968,8 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
                                          plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
     for seams in (data.filled, data.joined):
-        if seams is None:
-            continue
-        # Slopes across the edge of a filled gap mix two surveys: not reliable anchors there
-        from scipy import ndimage
-        gaps = np.asarray(seams)
-        unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
-            ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
-        anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]
+        if seams is not None:  # slopes across the edge of a filled gap mix two surveys: not reliable anchors there
+            anchors = anchors[~at_seams(seams, anchors)]
     emit("info", f"Found {len(anchors)} potential anchors to evaluate")
     _count(plan, "anchors", len(anchors))
     if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:

@@ -946,6 +946,41 @@ def test_near_matches_the_dilation():
             assert src.near(mask, 0, 1.0) is mask and src.near(mask, 0.4, 1.0).sum() >= mask.sum()
 
 
+def test_seams_as_before():
+    """search.at_seams: the seams of a mask tested at the anchors give exactly the old expression over
+    the whole grid (scipy's 3 x 3 dilation and not its erosion, border 0), read at the anchors: every
+    pixel an anchor, grids of 1 x 1 up to 50 x 50, gaps at the edges and corners, empty and full masks."""
+    from scipy import ndimage
+    import search
+
+    def before(gaps, anchors):
+        unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
+            ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
+        return unreliable[anchors[:, 0], anchors[:, 1]]
+
+    rng = np.random.default_rng(11)
+    shapes = [(1, 1), (1, 2), (2, 1), (2, 2), (1, 7), (7, 1), (3, 3), (4, 9), (13, 5), (50, 50)]
+    shapes += [tuple(rng.integers(1, 51, 2)) for _ in range(20)]
+    for shape in shapes:
+        masks = [np.zeros(shape, bool), np.ones(shape, bool)]
+        for density in (0.05, 0.3, 0.5, 0.8, 0.97):
+            masks += [rng.random(shape) < density for _ in range(3)]
+        edges = np.zeros(shape, bool)
+        edges[0, ::3] = edges[-1, 1::4] = edges[::2, 0] = edges[2::5, -1] = True
+        masks += [edges, ~edges]
+        for corner in ((0, 0), (0, -1), (-1, 0), (-1, -1)):
+            mask = np.zeros(shape, bool)
+            mask[corner] = True
+            masks += [mask, ~mask]
+        rows, cols = np.indices(shape)
+        anchors = np.column_stack([rows.ravel(), cols.ravel()]).astype(np.int32)
+        for mask in masks:
+            assert np.array_equal(search.at_seams(mask, anchors), before(mask, anchors)), shape
+            some = anchors[rng.random(len(anchors)) < 0.3]  # a subset, and none
+            assert np.array_equal(search.at_seams(mask, some), before(mask, some)), shape
+    assert search.at_seams(np.ones((4, 4), bool), np.empty((0, 2), np.int32)).shape == (0,)
+
+
 def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
     """coast within osm:<name>: the coastline within the reach of the area, not clipped to its land."""
     import osm
