@@ -6,6 +6,8 @@ OpenStreetMap data kept in the cache (cache/osm, see cache.py).
   large areas are just more tiles:
     coastline  natural=coastline ways (the sea mask, coast.py)
     cliff      natural=cliff ways and climbing=crag features (search areas)
+    landcover  woods and forests, bare rock and scree, as ways and multipolygon relations
+               (tools/study_landcover.py; polygons() makes areas of them)
   A tile comes from the Overpass API, or from the downloaded Geofabrik extracts
   (osmextract.py) when they cover it whole; such tiles are rebuilt when the extracts
   are updated.
@@ -32,7 +34,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 
 import requests
-from shapely.geometry import LineString, MultiLineString, Point, shape
+import shapely
+from shapely.geometry import LineString, MultiLineString, MultiPolygon, Point, Polygon, shape
+from shapely.ops import polygonize, unary_union
 
 import cache
 import messages
@@ -62,6 +66,11 @@ THEME_TAGS = {
     "coastline": [("way", "natural", "coastline")],
     "cliff": [("way", "natural", "cliff"), ("node", "climbing", "crag"), ("way", "climbing", "crag"),
               ("relation", "climbing", "crag")],
+    # Land cover, the obstacle study's judge of what a surface model's pixel is (tools/study_landcover.py):
+    # trees, and bare rock and scree (buildings come from ESA WorldCover there)
+    "landcover": [(kind, key, value) for key, value in (("natural", "wood"), ("landuse", "forest"),
+                                                        ("natural", "bare_rock"), ("natural", "scree"))
+                  for kind in ("way", "relation")],
 }
 THEMES = {name: "".join(f'{kind}["{key}"="{value}"]({{bbox}});' for kind, key, value in tags)
           for name, tags in THEME_TAGS.items()}
@@ -78,16 +87,83 @@ def tile_name(lat: float, lon: float) -> str:
     return f"{'N' if lat >= 0 else 'S'}{abs(lat):05.2f}_{'E' if lon >= 0 else 'W'}{abs(lon):06.2f}"
 
 
-def _geometry(element: Dict):
+def _geometry(element: Dict) -> Tuple[Optional[object], Optional[List[str]]]:
+    """The geometry of an element of Overpass "out geom" and, for a relation, the roles of its member
+    ways in the order of the MultiLineString's parts ("outer", "inner", "" or another role); (None,
+    None) without a geometry."""
     if element["type"] == "node":
-        return Point(element["lon"], element["lat"])
+        return Point(element["lon"], element["lat"]), None
     if element["type"] == "way" and len(element.get("geometry", [])) > 1:
-        return LineString([(p["lon"], p["lat"]) for p in element["geometry"]])
+        return LineString([(p["lon"], p["lat"]) for p in element["geometry"]]), None
     if element["type"] == "relation":
-        parts = [[(p["lon"], p["lat"]) for p in m["geometry"]] for m in element.get("members", [])
-                 if len(m.get("geometry") or []) > 1]
-        return MultiLineString(parts) if parts else None
-    return None
+        members = [m for m in element.get("members", []) if len(m.get("geometry") or []) > 1]
+        if members:
+            return (MultiLineString([[(p["lon"], p["lat"]) for p in m["geometry"]] for m in members]),
+                    [m.get("role") or "" for m in members])
+    return None, None
+
+
+def feature(geometry, element_id: str, tags: Dict, roles: Optional[List[str]] = None) -> Dict:
+    """A theme tile's GeoJSON feature; a relation's member roles in properties["roles"] (tiles
+    written before the roles were kept have none: polygons() takes every part as outer)."""
+    properties = {"id": element_id, "tags": tags}
+    if roles is not None:
+        properties["roles"] = roles
+    return {"type": "Feature", "geometry": geometry.__geo_interface__, "properties": properties}
+
+
+def _polygonal(geometry):
+    """The polygonal part of a geometry made valid (shapely.make_valid), or None when none is left."""
+    if not geometry.is_valid:
+        geometry = shapely.make_valid(geometry)
+    if isinstance(geometry, (Polygon, MultiPolygon)):
+        return None if geometry.is_empty else geometry
+    parts = [g for g in getattr(geometry, "geoms", ()) if isinstance(g, (Polygon, MultiPolygon)) and not g.is_empty]
+    return unary_union(parts) if parts else None
+
+
+def _rings(lines) -> List[Polygon]:
+    """The closed rings the lines make (joined end to end), each filled: polygonize's faces without
+    their holes, so a ring inside another stays a ring of its own."""
+    if not lines:
+        return []
+    return [Polygon(face.exterior) for face in polygonize(unary_union(lines))]
+
+
+def polygons(features: List[Dict]) -> List[Tuple[object, Dict]]:
+    """The areas of a theme's features (theme()'s dicts) as (Polygon or MultiPolygon, tags), in WGS84.
+
+    A closed way (first point == last point, at least 4 points) is a polygon; a relation is its outer
+    rings less its inner rings (rings joined from the member ways; an outer ring inside an inner one,
+    an island in a hole, stays), parts without a role counting as outer. Invalid geometry is made
+    valid; open ways, points and relations without a closed outer ring are left out."""
+    found = []
+    for item in features:
+        geometry = item["geometry"]
+        if not hasattr(geometry, "geom_type"):
+            geometry = shape(geometry)
+        area = None
+        if isinstance(geometry, LineString):
+            coords = list(geometry.coords)
+            if len(coords) >= 4 and coords[0] == coords[-1]:
+                area = _polygonal(Polygon(coords))
+        elif isinstance(geometry, MultiLineString):
+            parts = list(geometry.geoms)
+            roles = item.get("roles") or [""] * len(parts)
+            outer = _rings([p for p, r in zip(parts, roles) if r != "inner"])
+            inner = _rings([p for p, r in zip(parts, roles) if r == "inner"])
+            if outer:
+                area = unary_union(outer)
+                if inner:
+                    holes = unary_union(inner)
+                    area = area.difference(holes)
+                    for ring in outer:  # an island in a hole comes back, less the holes inside it
+                        if ring.within(holes):
+                            area = area.union(ring.difference(unary_union([h for h in inner if h.within(ring)])))
+                area = _polygonal(area)
+        if area is not None:
+            found.append((area, item.get("tags", {})))
+    return found
 
 
 def theme_path(cache_dir: str, theme: str, lat: float, lon: float) -> str:
@@ -218,11 +294,9 @@ def fetch_tile(theme: str, lat: float, lon: float, cache_dir: str):
         response.raise_for_status()
     features = []
     for element in response.json().get("elements", []):
-        geometry = _geometry(element)
+        geometry, roles = _geometry(element)
         if geometry is not None:
-            features.append({"type": "Feature", "geometry": geometry.__geo_interface__,
-                             "properties": {"id": f"{element['type']}/{element['id']}",
-                                            "tags": element.get("tags", {})}})
+            features.append(feature(geometry, f"{element['type']}/{element['id']}", element.get("tags", {}), roles))
     write_tile(path, features)
     cache.record(cache_dir, path, url=response.url.split("?")[0])
 
