@@ -18,18 +18,20 @@ not searched again unless --again. analyse <out>/<name> and report <out> redo th
 
 Where the surface model's own pixels are finer than the grid (sheets of 0.5 m under a grid of
 1 m: the grid holds their average), analyse builds them from the cached files (fine_grid: the
-surface on its files' lattice, the terrain interpolated onto it) and pools per pixel of the grid
-the highest fine surface (s-max) and the highest fine surface minus terrain (h-max) among the fine
-pixels it overlaps (fine-nmpt.npy, fine-nmt.npy, s-max.npy, h-max.npy and fine.json in the
-call's folder). The surface variants avg (the grid's), max (s-max) and h (the terrain plus
-h-max) are each counted under VARIANT_RULES (the rules below and A2+T: A2, and every pixel where
-CHMv2 sees a tree on WorldCover's tree cover stays an obstacle), each line's limit the same, the
-pixels above it the variant's; the kernel checks A2 on every variant.
+surface on its files' lattice, the terrain interpolated onto it) and warps onto the grid with
+GDAL's Resampling.max (what sources.mosaic would give with max instead of average) the fine surface
+(s-max) and the fine surface minus terrain (h-max): fine-nmpt.npy, fine-nmt.npy, s-max.npy,
+h-max.npy and fine.json in the call's folder. GDAL's max takes every fine pixel overlapping a grid
+pixel at all, also by half (fine_grid). The surface variants avg (the grid's), max (s-max) and h
+(the terrain plus h-max) are each counted under VARIANT_RULES (the rules below and A2+T: A2, and
+every pixel where CHMv2 sees a tree on WorldCover's tree cover stays an obstacle), each line's
+limit the same, the pixels above it the variant's; the kernel checks A2 on every variant.
 
 analyse takes every line over trees/buildings (clearance over the surface model <= 0) and the
 pixels where the surface stands above the line's limit, and asks which of them each rule keeps
 as obstacles: A<r> (the envelope of r pixels, obstacles.is_obstacle, r = 1..10), A1+W<deg>/<px>
-(with the band around steep terrain), B<k> (a tolerance of k * res * tan(slope) + MIN_HEIGHT),
+(A1 with the band around steep terrain; radius 1 given, as the report of 2026-11-02 computed it
+while obstacles.RADIUS was 1), B<k> (a tolerance of k * res * tan(slope) + MIN_HEIGHT),
 C<deg> (none on terrain at least that steep), D<k> (none within k steps of an anchor), F (A1
 where CHMv2 sees a tree within a pixel or the terrain is gentler than GENTLE) and F-trees (A1
 where CHMv2 sees a tree). A line stays marked while one of its pixels does. The production
@@ -362,18 +364,23 @@ def _fine_lattice(files: List[str], res: float, left: float, top: float) -> Opti
 
 def fine_grid(call: str) -> Optional[Dict]:
     """The surface model's own pixels where they are finer than the call's grid (a working grid of
-    1 m from sheets of 0.5 m holds their average): fine-nmpt.npy and fine-nmt.npy (float32 memmaps
-    on the lattice of the finest surface file, the terrain interpolated bilinearly onto it as
-    sources.mosaic does for coarser files), then per pixel of the grid s-max.npy, the highest
-    surface among the fine pixels it overlaps, and h-max.npy, the highest surface minus terrain
-    there (maxpool; NaN where none of them has data). All in the call's folder with fine.json
-    (FINE_JSON's keys); returns fine.json's content when a fine grid exists, else None (no surface
-    files, none finer, or a capture from before grid.json named the files).
+    1 m from sheets of 0.5 m holds their average, sources.mosaic's Resampling.average):
+    fine-nmpt.npy and fine-nmt.npy (float32 memmaps on the lattice of the finest surface file, the
+    terrain interpolated bilinearly onto it as sources.mosaic does for coarser files), then on the
+    call's grid s-max.npy, the fine surface warped with GDAL's Resampling.max (warp_max), and
+    h-max.npy, the fine surface minus terrain warped the same way: what the search would read if
+    sources.mosaic._place took max instead of average (NaN where no fine pixel has data). All in the
+    call's folder with fine.json (res, k, files, left and top of the fine grid, offset, the warp's
+    seconds); returns fine.json's content when a fine grid exists, else None (no surface files,
+    none finer, or a capture from before grid.json named the files).
 
-    Where the files' pixel edges meet the grid's (offset 0), each pixel of the grid holds k x k fine
-    pixels; where they lie half a fine pixel off (geoportal's sheets of 0.5 m have their edges at
-    .25 and .75 m, the grid of 1 m at .5), it overlaps k + 1 of them each way, the outer ones by
-    half: the fine grid then has one more row and column, and the window of maxpool is k + 1."""
+    GDAL's max (3.12) takes every source pixel that overlaps a target pixel at all: where the
+    files' pixel edges meet the grid's (offset 0) the k x k inside it, where they lie half a fine
+    pixel off (geoportal's sheets of 0.5 m have their edges at .25 and .75 m, the grid of 1 m at
+    .5) the k + 1 of them each way, the outer ones overlapping by half (tests/test_obstacle_study.py
+    checks both): the fine grid then has one more row and column."""
+    import time
+
     from grid import Grid
     from sources import mosaic
 
@@ -396,40 +403,49 @@ def fine_grid(call: str) -> Optional[Dict]:
         fine_on = Grid(left=left, top=top, res=r, height=rows, width=cols, crs=grid["crs"])
         surface = mosaic.build_mosaic(nmpt, fine_on, os.path.join(call, "fine-nmpt.npy"), "fine surface")
         terrain = mosaic.build_mosaic(nmt, fine_on, os.path.join(call, "fine-nmt.npy"), "fine terrain")
-        window = (k + (1 if oy else 0), k + (1 if ox else 0))
+        target = Grid(left=grid["left"], top=grid["top"], res=res, height=height, width=width, crs=grid["crs"])
+        seconds = {}
         for name, minus in (("s-max.npy", None), ("h-max.npy", terrain)):
             out = np.lib.format.open_memmap(os.path.join(call, name), mode="w+", dtype=np.float32,
                                             shape=(height, width))
-            maxpool(surface, k, minus, window, out)
+            start = time.perf_counter()
+            warp_max(surface, fine_on, target, out, minus)
+            seconds[name[:-4]] = round(time.perf_counter() - start, 3)
             out.flush()
             del out
         del surface, terrain
-        fine.update(res=r, k=k, offset=[ox, oy], window=list(window), left=left, top=top)
+        fine.update(res=r, k=k, left=left, top=top, offset=[ox, oy], seconds=seconds)
     with open(path, "w") as f:
         json.dump(fine, f, indent=1)
     return fine if fine["res"] is not None else None
 
 
-def maxpool(a: np.ndarray, k: int, minus: Optional[np.ndarray] = None, window: Optional[Tuple[int, int]] = None,
-            out: Optional[np.ndarray] = None, block_rows: int = 256) -> np.ndarray:
-    """The highest value (of a - minus when given) within each window of window = (rows, cols)
-    fine pixels (k x k when not given) at a stride of k: float32 of a's shape // k (less the
-    window's extra pixel), NaN only where the whole window is NaN (np.fmax). Blocks of block_rows
-    rows of the result, so a memory-mapped fine grid is never read whole."""
-    wr, wc = window or (k, k)
-    height, width = (a.shape[0] - (wr - k)) // k, (a.shape[1] - (wc - k)) // k
-    if out is None:
-        out = np.empty((height, width), dtype=np.float32)
-    for r0 in range(0, height, block_rows):
-        r1 = min(height, r0 + block_rows)
-        part = np.asarray(a[r0 * k:r1 * k + wr - k, :width * k + wc - k], dtype=np.float32)
+def warp_max(fine: np.ndarray, fine_on, grid, out: np.ndarray, minus: Optional[np.ndarray] = None,
+             block_rows: int = 512) -> np.ndarray:
+    """fine (less minus when given; grids of the Grid fine_on) warped onto grid's pixels into out
+    with GDAL's Resampling.max (NaN for no data), block_rows rows of out at a time from the fine rows
+    under them and one fine pixel more each way, so a memory-mapped fine grid is never read whole
+    (what one warp of the whole grid gives: the margin holds every source pixel max takes)."""
+    from affine import Affine
+    from rasterio.warp import Resampling, reproject
+
+    from sources import mosaic
+
+    r = fine_on.res
+    for r0 in range(0, grid.height, block_rows):
+        r1 = min(grid.height, r0 + block_rows)
+        f0 = max(0, int(math.floor((fine_on.top - (grid.top - r0 * grid.res)) / r)) - 1)
+        f1 = min(fine_on.height, int(math.ceil((fine_on.top - (grid.top - r1 * grid.res)) / r)) + 1)
+        part = np.asarray(fine[f0:f1], dtype=np.float32)
         if minus is not None:
-            part = part - np.asarray(minus[r0 * k:r1 * k + wr - k, :width * k + wc - k], dtype=np.float32)
-        top = np.full((r1 - r0, width), np.nan, dtype=np.float32)
-        for dr in range(wr):
-            for dc in range(wc):
-                np.fmax(top, part[dr:dr + (r1 - r0) * k:k, dc:dc + width * k:k], out=top)
-        out[r0:r1] = top
+            part = part - np.asarray(minus[f0:f1], dtype=np.float32)
+        values = np.full((r1 - r0, grid.width), np.nan, dtype=np.float32)
+        reproject(part, values, src_transform=Affine(r, 0, fine_on.left, 0, -r, fine_on.top - f0 * r),
+                  src_crs=fine_on.crs, dst_transform=Affine(grid.res, 0, grid.left, 0, -grid.res,
+                                                            grid.top - r0 * grid.res),
+                  dst_crs=grid.crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.max,
+                  num_threads=mosaic.WARP_THREADS)
+        out[r0:r1] = values
     return out
 
 
@@ -537,7 +553,7 @@ def rule_flags(z: np.ndarray, s: np.ndarray, res: float, pix: Dict, chm3: Option
             flags[f"A{r}"] = sv > obstacles.envelope(z, r)[rows, cols] + np.float32(obstacles.MIN_HEIGHT)
         for wall in WALLS:
             if wanted(f"A1+W{wall[0]}/{wall[1]}"):
-                flags[f"A1+W{wall[0]}/{wall[1]}"] = obstacles.is_obstacle(z, s, res, wall=wall)[rows, cols]
+                flags[f"A1+W{wall[0]}/{wall[1]}"] = obstacles.is_obstacle(z, s, res, radius=1, wall=wall)[rows, cols]
         height = s - z
         for r in CONTEXT_RADII:
             if not any(wanted(f"A{r}+V{k}") for k in CONTEXT_REACH):
@@ -999,8 +1015,8 @@ def variants_markdown(study: Dict) -> List[str]:
         return ["", "Surface variants: none (no surface model finer than the grid)."] if fine is not None else []
     fine = study.get("fine") or {}
     lines = ["", f"Surface variants (the surface model's own pixels of {fine.get('res')} m, offset "
-                 f"{fine.get('offset')}, windows of {fine.get('window')}): avg the grid's surface, max the highest "
-                 "fine pixel, h the terrain plus the highest fine height above it.", "",
+                 f"{fine.get('offset')}): avg the grid's surface, max the fine surface warped with GDAL's max, h the "
+                 "terrain plus the fine height above the terrain warped so.", "",
              "| variant | rule | marked | lost (tree/building): lines, objects | lost (CHMv2 tree/building) | "
              "removed, rock only | kept, rock only: lines, objects | kept, tree/building |",
              "| --- | --- | --- | --- | --- | --- | --- | --- |"]

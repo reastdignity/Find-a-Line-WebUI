@@ -148,8 +148,9 @@ def test_variants_on_a_canyon(tmp_path):
     over_tree = np.array([sh.evaluate_line(a, b, dtm, 1.0, s1)[4] <= 0
                           for a, b in zip(lines.columns["a1"], lines.columns["a2"])])
     result = study.analyse_call(call, layers_of(dtm))
+    assert set(result["fine"].pop("seconds")) == {"s-max", "h-max"}
     assert result["fine"] == {"res": 0.5, "k": 2, "files": {"nmt": 1, "nmpt": 2}, "offset": [0.0, 0.0],
-                              "window": [2, 2], "left": LEFT, "top": TOP}
+                              "left": LEFT, "top": TOP}
     np.testing.assert_array_equal(np.load(os.path.join(call, "s-max.npy")), dsm)
     h_max = np.load(os.path.join(call, "h-max.npy"))
     assert (h_max[:, [20, 79]] == 37.5).all() and (h_max[TREE_ROWS, TREE_COLS] == 45).all()
@@ -188,10 +189,12 @@ def face_surface(x):
 
 @pytest.mark.parametrize("offset", [0.0, 0.25])
 def test_fine_grid(tmp_path, offset):
-    """s-max is the highest fine surface pixel a grid pixel overlaps (k x k with the edges on the
-    grid's, k + 1 each way with them a quarter metre off, as geoportal's sheets of 0.5 m under its
-    grid of 1 m); h-max of the tree is its height, of the face about half a fine pixel times the
-    tangent of its slope."""
+    """s-max, the fine surface warped with GDAL's max: with the files' edges on the grid's the
+    highest of the k x k fine pixels inside a grid pixel, exactly; with them a quarter metre off (as
+    geoportal's sheets of 0.5 m under its grid of 1 m) between the highest of the one fine pixel
+    wholly inside each way and that of the k + 1 overlapping it (GDAL 3.12 takes the latter: the
+    half-overlapping pixels count); h-max of the tree is its height, of the face about half a fine
+    pixel times the tangent of its slope."""
     rows, cols = 8, 60
     nmt, nmpt = write_model(str(tmp_path / "cache"), face_ground, face_surface, rows, cols, offset)
     call = tmp_path / "call-0"
@@ -200,19 +203,26 @@ def test_fine_grid(tmp_path, offset):
         json.dump({"crs": CRS, "left": LEFT, "top": TOP, "res": 1.0, "height": rows, "width": cols, "core": None,
                    "nmt_files": nmt, "nmpt_files": nmpt}, f)
     fine = study.fine_grid(str(call))
-    window = 2 if offset == 0 else 3
-    assert fine == {"res": 0.5, "k": 2, "files": {"nmt": 1, "nmpt": 2}, "offset": [offset, 0.0],
-                    "window": [2, window], "left": LEFT + (offset - 0.5 if offset else 0.0), "top": TOP}
-    assert np.load(call / "fine-nmpt.npy").shape == (2 * rows, 2 * cols + (window - 2))
-    assert np.load(call / "fine-nmt.npy").shape == (2 * rows, 2 * cols + (window - 2))
+    extra = 1 if offset else 0
+    assert set(fine) == {"res", "k", "files", "offset", "left", "top", "seconds"}
+    assert {k: fine[k] for k in ("res", "k", "files", "offset", "left", "top")} == {
+        "res": 0.5, "k": 2, "files": {"nmt": 1, "nmpt": 2}, "offset": [offset, 0.0],
+        "left": LEFT + (offset - 0.5 if offset else 0.0), "top": TOP}
+    assert np.load(call / "fine-nmpt.npy").shape == (2 * rows, 2 * cols + extra)
+    assert np.load(call / "fine-nmt.npy").shape == (2 * rows, 2 * cols + extra)
 
-    fine_row = pixel_maxima(face_surface, offset - MARGIN, 2 * (cols + 2 * MARGIN), 0.5, 10)
-    first = 2 * MARGIN - (1 if offset else 0)  # the fine pixel where pixel 0's window starts
-    expected = [fine_row[first + 2 * j:first + 2 * j + window].max() for j in range(cols)]
+    fine_row = np.float32(pixel_maxima(face_surface, offset - MARGIN, 2 * (cols + 2 * MARGIN), 0.5, 10))
+    first = 2 * MARGIN - extra  # the first fine pixel overlapping pixel 0
+    overlapping = np.array([fine_row[first + 2 * j:first + 2 * j + 2 + extra].max() for j in range(cols)])
     s_max = np.load(call / "s-max.npy")
-    np.testing.assert_array_equal(s_max, np.tile(np.float32(expected), (rows, 1)))
+    assert (s_max == s_max[0]).all()  # the rows are all alike
     if not offset:  # the highest point of each pixel of 1 m
+        np.testing.assert_array_equal(s_max[0], overlapping)
         np.testing.assert_array_equal(s_max[0], pixel_maxima(face_surface, 0.0, cols, 1.0, 20).astype(np.float32))
+    else:
+        inside = fine_row[first + 1:first + 1 + 2 * cols:2]  # the one fine pixel wholly inside each way
+        assert (inside <= s_max[0]).all() and (s_max[0] <= overlapping).all()
+        np.testing.assert_array_equal(s_max[0], overlapping)  # what GDAL 3.12 does
     h_max = np.load(call / "h-max.npy")
     np.testing.assert_allclose(h_max[:, 10:13], 20.0, atol=1e-4)
     face = h_max[:, 32:38]
@@ -237,15 +247,25 @@ def test_fine_grid_none(tmp_path):
         assert not os.path.exists(call / "s-max.npy")
 
 
-def test_maxpool():
-    a = np.arange(4 * 6, dtype=np.float32).reshape(4, 6)
-    a[0:2, 0:2] = np.nan
-    a[2, 3] = np.nan
-    pooled = study.maxpool(a, 2, block_rows=1)
-    np.testing.assert_array_equal(pooled, [[np.nan, 9, 11], [19, 21, 23]])
-    np.testing.assert_array_equal(study.maxpool(a, 2, minus=np.ones_like(a)), pooled - 1)
-    wide = np.arange(5 * 7, dtype=np.float32).reshape(5, 7)  # windows of 3 at a stride of 2
-    np.testing.assert_array_equal(study.maxpool(wide, 2, window=(3, 3)), [[16, 18, 20], [30, 32, 34]])
+@pytest.mark.parametrize("offset", [0.0, 0.25])
+def test_warp_max_in_blocks(offset):
+    """Blocks of rows give what one warp gives; NaN only where no fine pixel has data."""
+    from grid import Grid
+    rng = np.random.default_rng(5)
+    extra = 1 if offset else 0
+    fine = rng.normal(100, 10, (2 * 13 + extra, 2 * 11 + extra)).astype(np.float32)
+    fine[:4, :4] = np.nan  # the fine pixels of grid pixels 0-1 of rows 0-1 (half of pixel 1 with the offset)
+    minus = rng.normal(50, 5, fine.shape).astype(np.float32)
+    fine_on = Grid(left=LEFT + (offset - 0.5 if offset else 0.0), top=TOP, res=0.5, height=fine.shape[0],
+                   width=fine.shape[1], crs=CRS)
+    grid = Grid(left=LEFT, top=TOP, res=1.0, height=13, width=11, crs=CRS)
+    whole = study.warp_max(fine, fine_on, grid, np.empty((13, 11), np.float32), minus, block_rows=100)
+    for rows in (1, 2, 5):
+        np.testing.assert_array_equal(study.warp_max(fine, fine_on, grid, np.empty((13, 11), np.float32), minus,
+                                                     block_rows=rows), whole)
+    none = np.zeros(whole.shape, dtype=bool)
+    none[:2, :2 - extra] = True  # the offset along x: there column 1 overlaps a fine pixel with data
+    np.testing.assert_array_equal(np.isnan(whole), none)
 
 
 def test_without_outside_layers(tmp_path):
@@ -293,7 +313,7 @@ def test_report(tmp_path):
                        "classes": {"real": 4, "real_chm": 5, "rock_only": 3, "other": 2},
                        "checks": [{"raw_equal": True}],
                        "chm_shift": [None],
-                       **({"fine": {"res": 0.5, "k": 2, "offset": [0.25, 0.25], "window": [3, 3]},
+                       **({"fine": {"res": 0.5, "k": 2, "offset": [0.25, 0.25]},
                            "variants": {"avg": {"marked": 9, "classes": {"real": 4}, "rules": rules},
                                         "h": {"marked": 6, "classes": {"real": 4},
                                               "rules": {**rules, "A2+T": {**rules["A2"], "marked": 4}}}}}
