@@ -226,6 +226,9 @@ class Data:
     # Pixels filled from the national data of a neighbour (Source.neighbours): not "filled gaps"
     # of less precise data (filled), but a seam of two surveys where they meet
     joined: Optional[np.ndarray] = None
+    # The search area on the grid (plan.area.mask(grid), computed once in step 1); None: computed
+    # where needed
+    mask: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -741,6 +744,7 @@ def prepare_data(plan: Plan) -> Data:
                 emit("warning", warning)
             progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(sea, p.shore_buffer, grid.res)
+            del sea  # only the zone is used from here on
             progress.compute.update(1)
             progress.compute.finish()
         elif _fills_gaps(plan):
@@ -748,6 +752,7 @@ def prepare_data(plan: Plan) -> Data:
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
             progress.compute.start("shore zone", 1, unit="step")
             sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
+            del wbm  # used for the zone only
             progress.compute.update(1)
             progress.compute.finish()
         if _fills_gaps(plan):
@@ -770,15 +775,17 @@ def prepare_data(plan: Plan) -> Data:
                 bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
             water_path = src.fill_water(elevation_path, surface_path, grid, wbm, sea_zone,
                                         os.path.join(work, "water.npy"))
+            del wbm
             if bare is not None:
                 bare &= np.load(water_path)  # water the terrain model lacked: no obstacles there
+        del sea_zone
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
     elevation = np.load(elevation_path, mmap_mode="r")
     surface = np.load(surface_path, mmap_mode="r") if surface_path else None
     if surface is not None:
         progress.compute.start("surface coverage", 1, unit="step")
-        land = plan.area.mask(grid) & ~np.isnan(elevation)
+        land = mask & ~np.isnan(elevation)
         no_surface = (np.isnan(surface) & land).sum() / max(land.sum(), 1)
         progress.compute.update(1)
         progress.compute.finish()
@@ -802,7 +809,7 @@ def prepare_data(plan: Plan) -> Data:
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
-                np.load(joined_path, mmap_mode="r") if joined_path else None)
+                np.load(joined_path, mmap_mode="r") if joined_path else None, mask)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
@@ -832,7 +839,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     # Step 2: Find raster pixels with significant slope for promising anchors
     _step(plan, 2, "finding significant slopes")
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid), data.slope)
+                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
     for seams in (data.filled, data.joined):
         if seams is None:
             continue
