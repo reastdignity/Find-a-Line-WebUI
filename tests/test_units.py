@@ -2017,3 +2017,103 @@ def test_estimate_layers_in_parallel():
     one, two = Fake(1), Fake(2)
     assert estimate_layers([two, one, two], None, "cache") == [(2, 0, 2.0), (1, 0, 1.0), (2, 0, 2.0)]
     assert sorted(calls) == [1, 2]
+
+
+def _batch_profiles(n: int, rng) -> "sh.Profiles":
+    """A helpers.Profiles of n lines as lineprofiles.line_profiles gives one: 2-30 points each,
+    some without data, over water or a filled gap, a missing min_nmpt."""
+    import helpers as sh
+    counts = rng.integers(2, 30, n)
+    offsets = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
+    total = int(offsets[-1])
+    d = np.round(rng.random(total) * 500, 1)
+    z = np.round(rng.normal(400, 50, total), 2)
+    s = np.round(z + rng.random(total) * 3, 2)
+    z[rng.random(total) < 0.02] = np.nan
+    w = (rng.random(total) < 0.3).astype(np.uint8)
+    g = (rng.random(total) < 0.1).astype(np.uint8)
+    small = np.column_stack([np.round(rng.random(n) * 500, 1), np.round(rng.random(n) * 50, 2),
+                             np.round(rng.random(n) * 500, 1), np.round(rng.random(n) * 50, 2),
+                             np.round(rng.random(n) * 500, 1), np.round(rng.random(n) * 90, 2),
+                             np.round(rng.random(n) * 100, 1), np.round(rng.random(n) * 100, 1)])
+    small[rng.random(n) < 0.3, 2:4] = np.nan
+    flags = np.zeros(n, dtype=np.int64)
+    for k, (lo, hi) in enumerate(zip(offsets[:-1].tolist(), offsets[1:].tolist())):
+        flags[k] = (1 if w[lo:hi].any() else 0) | (2 if g[lo:hi].any() else 0) | (4 if np.isnan(z[lo:hi]).any() else 0)
+    return sh.Profiles(offsets, d, z, s, w, g, small, flags)
+
+
+def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
+    """saving.py: the line files of a run written by child processes (one per file, or the
+    results' apart from the map's) are byte for byte those save_results and save_map write in
+    one process, for 50 000 lines with the profiles of a batch, profiles that are dicts, lines
+    without one and values hard to round; the children's progress reaches the Compute bars
+    "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
+    removed; a failing child raises RuntimeError naming its file."""
+    import os
+    from shapely.geometry import Point
+    import mapping as mp
+    import runs as rn
+    import saving
+    from progress import progress
+
+    class Area:
+        center = (50.0, 19.1)
+
+        @staticmethod
+        def shape_wgs84():
+            return Point(19.1, 50.0).buffer(0.01)
+
+    rng = np.random.default_rng(7)
+    n = 50_000
+    lines = _fake_lines(n)
+    hard = np.array(HARD_FLOATS)
+    for shift, name in enumerate(["length", "clearance", "clearance_nmpt", "height_max", "high_pct", "prom1", "drop2"]):
+        lines.columns[name][:len(hard)] = np.roll(hard, shift)
+    lines.columns["anchor1"][:len(hard)] = np.column_stack([np.roll(hard, 1), np.roll(hard, -2)])
+    batch = _batch_profiles(n, rng)
+    lines.profiles = {k: batch[k] for k in range(n) if k % 7}
+    lines.profiles[7] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
+    members = rng.permutation(n).astype(np.int64)
+    start = np.concatenate([[0], np.sort(rng.integers(0, n + 1, 3000)), [n]]).astype(np.int64)
+    rep = np.array([members[rng.integers(a, b)] if b > a else n + g for g, (a, b) in enumerate(zip(start[:-1], start[1:]))],
+                   dtype=np.int64)
+    groups = mp.Groups(rep, members, start)
+    meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00", "summary": {"lines": n},
+            "attribution": [], "source": {"id": "files"}, "params": {"x": 1.5}, "data": [{"file": "C:/a/b.tif"}]}
+    one = tmp_path / "one"
+    one.mkdir()
+    rn.save_results(str(one), lines, groups, meta)
+    mp.save_map(lines, Area, str(one), str(tmp_path / "runs"), meta, "EPSG:2180")
+    files = ("lines.csv", "lines.geojson", "data.js", "lines.js", "run.json", "ATTRIBUTION.txt", "map.html")
+    assert sorted(os.listdir(one)) == sorted(files)
+
+    work = tmp_path / "work"
+    for count in (4, 2):
+        folder = tmp_path / f"children{count}"
+        folder.mkdir()
+        heads = mp.map_heads(Area, str(folder / "map.html"), meta, "EPSG:2180")
+        states = []
+        progress.subscribe(states.append)
+        try:
+            saving.save(str(work), str(folder), lines, groups, meta, heads, saving.plan(count),
+                        lambda: rn.save_results(str(folder), lines, groups, meta, files=("ATTRIBUTION.txt", "run.json")))
+        finally:
+            progress.unsubscribe(states.append)
+        mp.save_map(lines, Area, str(folder), str(tmp_path / "runs"), meta, "EPSG:2180", files=("map.html",))
+        for name in files:
+            assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
+        assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
+        # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)
+        bars = [(s["stage"], s["count"], s["total"], s["done"]) for s in states if s["stage"].startswith("saving")]
+        assert [b for b in bars if b[3]] == [("saving results", n, n, True), ("saving the map", n, n, True)]
+        for stage in ("saving results", "saving the map"):
+            counts = [c for name, c, total, done in bars if name == stage and not done]
+            assert counts and counts == sorted(counts) and 0 <= counts[0] and counts[-1] <= n, stage
+    assert saving.plan(1) == [] and saving.plan(2) == [saving.RESULT_FILES, saving.MAP_FILES]
+    assert saving.plan(3, map_files=False) == [("lines.csv",), ("lines.geojson",)] and len(saving.plan(4)) == 4
+    assert [saving.processes(t) for t in (1, 2, 3, 4, 24)] == [1, 2, 2, 4, 4]
+    with pytest.raises(RuntimeError, match="saving lines"):  # the run folder missing: every child fails
+        saving.save(str(work), str(tmp_path / "missing"), lines, groups, meta, heads, [("lines.csv",), ("lines.js",)],
+                    lambda: None)
+    assert not (work / saving.FOLDER).exists()

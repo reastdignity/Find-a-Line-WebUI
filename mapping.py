@@ -2,6 +2,7 @@
 Converting results to GPS coordinates and displaying them on maps.
 """
 
+import contextlib
 import dataclasses
 import html
 import json
@@ -295,10 +296,14 @@ def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
     return list(map(",".join, zip(*columns))) if stop > start else []
 
 
+MAP_FILES = ("data.js", "lines.js")  # the scripts of a map (write_map_scripts); save_map adds map.html
+
+
 def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, crs: str,
              group_distance: float = 20, group_by: str = "clearance", ortho_cache: Optional[str] = None,
              ortho_service=None, model: str = "formula", rigging: Optional[Rigging] = None,
-             on_lines=lambda n, file: None, high_above: float = HIGH_ABOVE) -> str:
+             on_lines=lambda n, file: None, high_above: float = HIGH_ABOVE,
+             files: tuple = MAP_FILES + ("map.html",)) -> str:
     """Save the interactive map of a run: map.html, data.js and lines.js in its folder.
 
     The map is the viewer (viewer/src, TypeScript), the same bundle for every run in
@@ -309,11 +314,29 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
     browser like group_lines. Orthophoto tiles are read from ortho_cache (a
     {z}/{x}/{y}.jpg folder) when present there, and from the WMS of ortho_service
     (a sources.OrthoService) otherwise. Both scripts are written together, LINES_CHUNK
-    lines at a time, never all rows at once; on_lines(n, file) reports progress after
-    each chunk. Returns the path of map.html.
+    lines at a time, never all rows at once (write_map_scripts; the children of saving.py
+    write them apart); on_lines(n, file) reports progress after each chunk. `files`: only
+    those of the three; map.html also installs the viewer. Returns the path of map.html.
     """
-    install_viewer(runs_dir)
     path = os.path.join(run_path, "map.html")
+    if "map.html" in files:
+        install_viewer(runs_dir)
+    scripts = tuple(name for name in MAP_FILES if name in files)
+    if scripts:
+        heads = map_heads(area, path, run, crs, group_distance, group_by, ortho_cache, ortho_service, model,
+                          rigging, high_above)
+        write_map_scripts(lines, run_path, heads, on_lines, scripts)
+    if "map.html" in files:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER))
+    return path
+
+
+def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, group_by: str = "clearance",
+              ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
+              rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Tuple[str, str]:
+    """The heads of data.js and lines.js of a run (save_map's arguments; `path` its map.html,
+    which the orthophoto cache's URL is relative to): everything before the lines."""
     data = {
         "run": {"id": run["id"], "name": run["name"], "created": run["created"],
                 "description": run.get("description", "")},
@@ -334,23 +357,39 @@ def save_map(lines: LineTable, area, run_path: str, runs_dir: str, run: Dict, cr
         "slope": SLOPE, "leash_fall": LEASH_FALL, "high_above": high_above, "max_zoom": MAX_ZOOM,
         "lines": None,
     }
-    encoder = json.JSONEncoder(separators=(",", ":"))
     target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
-    with open(os.path.join(run_path, "data.js"), "w", encoding="utf-8") as full,             open(os.path.join(run_path, "lines.js"), "w", encoding="utf-8") as short:
-        full.write(_script_head("window.FINDALINE_RUN", data))
-        short.write(_script_head(target, {"crs": crs, "area": data["area"], "lines": None}))
+    return (_script_head("window.FINDALINE_RUN", data),
+            _script_head(target, {"crs": crs, "area": data["area"], "lines": None}))
+
+
+def write_map_scripts(lines: LineTable, run_path: str, heads: Tuple[str, str], on_lines=lambda n, file: None,
+                      files: tuple = MAP_FILES):
+    """data.js and lines.js (`files`: only one of them) of a run: their heads (map_heads), then
+    the lines LINES_CHUNK at a time (map_rows; data.js with each line's profile, or null)."""
+    encoder = json.JSONEncoder(separators=(",", ":"))
+    want_full, want_short = "data.js" in files, "lines.js" in files
+    label = ", ".join(name for name in MAP_FILES if name in files)
+    with contextlib.ExitStack() as stack:
+        full = short = None
+        if want_full:
+            full = stack.enter_context(open(os.path.join(run_path, "data.js"), "w", encoding="utf-8"))
+            full.write(heads[0])
+        if want_short:
+            short = stack.enter_context(open(os.path.join(run_path, "lines.js"), "w", encoding="utf-8"))
+            short.write(heads[1])
         for start in range(0, len(lines), LINES_CHUNK):
             stop = min(start + LINES_CHUNK, len(lines))
             separator = "," if start else ""
             rows = map_rows(lines, start, stop)
             profiles = lines.profiles
-            full.write(separator + ",".join(
-                f"[{row},{encoder.encode(profile_dict(profiles[k])) if k in profiles else 'null'}]"
-                for k, row in enumerate(rows, start)))
-            short.write(separator + ",".join(f"[{row}]" for row in rows))
-            on_lines(stop - start, "data.js, lines.js")
-        full.write("]};\n")
-        short.write("]};\n")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(MAP_HTML.format(title=html.escape(run["name"]), viewer=VIEWER_FOLDER))
-    return path
+            if full is not None:
+                full.write(separator + ",".join(
+                    f"[{row},{encoder.encode(profile_dict(profiles[k])) if k in profiles else 'null'}]"
+                    for k, row in enumerate(rows, start)))
+            if short is not None:
+                short.write(separator + ",".join(f"[{row}]" for row in rows))
+            on_lines(stop - start, label)
+        if full is not None:
+            full.write("]};\n")
+        if short is not None:
+            short.write("]};\n")
