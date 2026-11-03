@@ -1622,5 +1622,30 @@
       "empty_tiles": 0
     },
     "seconds": 9.7
+  },
+  "R62": {
+    "place": "Hafragil, the canyon of the Jokulsa a Fjollum below Dettifoss, Iceland: ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, gaps from IslandsDEM v1.0 10 m, on UTM zone 28 (R61's place at 2 m)",
+    "args": "--lat 65.8239 --lon -16.3934 --radius 700 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "is"
+    ],
+    "expected": {
+      "anchors": 37637,
+      "open": 3076,
+      "checked": 49232,
+      "lines": 965,
+      "spots": 53,
+      "csv_sha256": "2dcdc41a847a025c629176d0add6bae3c15974c9d716e0b6a5dcd3fe4c53af3a",
+      "length_km": 191.965,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.35,
+      "clearance_max": 2.19,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 2.5,
+    "notes": "--source auto picks iceland (the centre is in IS); 4 blocks of 2 km of ArcticDEM, nothing filled (IslandsDEM fills only ArcticDEM's voids); no sea; R61's place at 2 m: 965 lines in 53 spots, clearance at most 2.2 m, against 7 492 lines and 16.5 m at 10 m. A cross-section of the canyon (65.8232 N, 16.3836 W to 65.8216 N, 16.3888 W) agrees with IslandsDEM to 1 m on its floor and 9 m on its walls: the walls are about 60 degrees, so at 2 m the terrain next to an anchor stands close under the webbing, which 10 m smooths into a sharp edge (the 10 m clearances are too high)"
   }
 }

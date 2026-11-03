@@ -27,9 +27,13 @@ NODATA = -3.4028234663852886e+38  # IslandsDEM's
 
 
 def test_declaration():
-    """By hand only (no countries, no offline boxes), on the file's own pixels in EPSG:8088, no fallback until the
-    merge gives it the open Copernicus source; the constants the source `iceland` is built from."""
-    assert IS.countries == () and IS.offline == () and IS.fallback is None and IS.fallbacks == []
+    """By hand only (no countries, no offline boxes), on the file's own pixels in EPSG:8088, the open Copernicus
+    source beyond it; the source `iceland`: ArcticDEM, its gaps from IslandsDEM, then Copernicus (never FABDEM)."""
+    assert IS.countries == () and IS.offline == () and IS.fallback == "copernicus" and IS.fallbacks == ["copernicus"]
+    iceland_source = src.SOURCES["iceland"]
+    assert iceland_source.countries == ("is",) and iceland_source.offline == iceland.IS_BOXES
+    assert iceland_source.fallbacks == ["islandsdem10", "copernicus"] and iceland_source.nmpt is None
+    assert iceland_source.nmt.geoid is src.EGM2008 and iceland_source.ortho is iceland.IS_ORTHO
     assert IS.crs == "EPSG:8088" and IS.grid_origin == (0.0, 0.0) and IS.default_resolution == 10.0
     assert IS.nmpt is None and IS.ortho is iceland.IS_ORTHO
     assert IS.nmt.folder == "iceland/islandsdem-v1.0-10m" and IS.nmt.ttl_days is None
@@ -48,11 +52,12 @@ def test_printed_texts_in_cp1250():
              IS.credits[0].data]
     for text in texts:
         text.encode("cp1250")
-    assert IS.credits[0].attribution.startswith("IslandsDEM v1.0 by Náttúrufræðistofnun is licensed under CC BY 4.0.")
+    assert IS.credits[0].attribution.startswith('"IslandsDEM v1.0" by Náttúrufræðistofnun is licensed under CC BY '
+                                                '4.0.')
     assert "Copernicus WorldDEM-30" in IS.credits[0].attribution
     assert iceland.IS_OPEN_DATA in IS.credits[0].notice
     assert (iceland.IS_ORTHO.attribution, iceland.IS_ORTHO.attribution_url) == (
-        "Grunnkort - Loftmynd by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1])
+        '"Grunnkort - Loftmynd" by Náttúrufræðistofnun is licensed under CC BY 4.0', src.CC_BY[1])
 
 
 @pytest.mark.parametrize("lat, lon, tile", [

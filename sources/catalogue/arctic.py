@@ -64,11 +64,16 @@ ARCTIC_DEM_2M = FileBlocks("ArcticDEM v4.1 mosaic 2 m (surface, EGM2008)", "arct
                            ARCTIC_CRS, 2.0, ARCTIC_BLOCK_M, arcticdem_files(ARCTIC_BLOCK_M), extent=ARCTIC_EXTENT,
                            bytes_per_tile=2.5e6, credit=ARCTIC_CREDIT, geoid=EGM2008)
 
-ARCTIC_NOTE = ("Data: ArcticDEM, Polar Geospatial Center, CC BY 4.0 (processed). " + ARCTIC_ACKNOWLEDGEMENT
-               + " ArcticDEM is a surface model from satellite stereo images: snow and ice, the few trees and the "
-                 "buildings are part of it (there is no terrain model without them, so the check of trees is "
-                 "off), and the steepest faces have voids, filled from 30 m data. Its heights above the "
-                 "ellipsoid are moved to the EGM2008 geoid (heights above the sea).")
+def arctic_note(filled_from: str) -> str:
+    """The note of a source on ArcticDEM whose voids are filled from filled_from."""
+    return ("Data: ArcticDEM, Polar Geospatial Center, CC BY 4.0 (processed). " + ARCTIC_ACKNOWLEDGEMENT
+            + " ArcticDEM is a surface model from satellite stereo images: snow and ice, the few trees and the "
+              "buildings are part of it (there is no terrain model without them, so the check of trees is "
+              f"off), and the steepest faces have voids, filled from {filled_from}. Its heights above the "
+              "ellipsoid are moved to the EGM2008 geoid (heights above the sea).")
+
+
+ARCTIC_NOTE = arctic_note("30 m data")
 ARCTIC_NO_ORTHO = "– (no open orthophoto service)"
 
 # Greenland in boxes along the Davis Strait, Baffin Bay and the Nares Strait in the west (the first box holding a

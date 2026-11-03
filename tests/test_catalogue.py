@@ -17,7 +17,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
        "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
-       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "islandsdem10", "europe", "copernicus", "nasadem"]
+       "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "iceland", "islandsdem10", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
 DECLARED = {'czechia': {'crs': 'EPSG:5514',
@@ -1459,10 +1459,30 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                  'origin': (0.0, 0.0),
                  'zones': ('EPSG:28355', 'EPSG:28354')},
                          'nmpt': None},
+            'iceland': {'crs': None,
+                        'countries': ('is',),
+                        'bbox': None,
+                        'fallbacks': ['islandsdem10', 'copernicus'],
+                        'grid_origin': (0.0, 0.0),
+                        'default_resolution': 2.0,
+                        'instead_without_data': None,
+                        'local_crs': 'utm_crs',
+                        'ortho': 'iceland/grunnkort-loftmynd/live',
+                        'credits': ['ArcticDEM v4.1 mosaic 2 m (Polar Geospatial Center)'],
+                        'nmt': {'class': 'FileBlocks',
+                                'description': 'ArcticDEM v4.1 mosaic 2 m (surface, EGM2008)',
+                                'folder': 'arcticdem/mosaic-v4.1-2m-egm08',
+                                'prefix': None,
+                                'native_res': 2.0,
+                                'processing': 1,
+                                'ttl_days': None,
+                                'credit': 'ArcticDEM v4.1 mosaic 2 m (Polar Geospatial Center)',
+                                'shift': (0.0, 0.0)},
+                        'nmpt': None},
             'islandsdem10': {'crs': 'EPSG:8088',
                              'countries': (),
                              'bbox': None,
-                             'fallbacks': [],
+                             'fallbacks': ['copernicus'],
                              'grid_origin': (0.0, 0.0),
                              'default_resolution': 10.0,
                              'instead_without_data': None,
@@ -1847,7 +1867,8 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("nz", (-47.6, -34.0, 166.0, 178.9)),
          ("au-tas", (-43.70, -39.45, 143.75, 148.55)),
          ("au-qld", (-29.00, -9.10, 138.00, 151.00)), ("au-qld", (-28.60, -9.10, 151.00, 152.50)),
-         ("au-qld", (-28.20, -9.10, 152.50, 153.60))]
+         ("au-qld", (-28.20, -9.10, 152.50, 153.60)),
+         ("is", (63.2, 66.6, -24.6, -13.4))]
 
 
 def test_country_code_offline(monkeypatch, tmp_path):
@@ -2015,12 +2036,15 @@ ATTRIBUTIONS = {
     "greenland": "ArcticDEM, Polar Geospatial Center, CC BY 4.0, processed",
     "svalbard": "ArcticDEM, Polar Geospatial Center, CC BY 4.0, processed",
     "nunavut": "ArcticDEM, Polar Geospatial Center, CC BY 4.0, processed",
-    "islandsdem10": "IslandsDEM v1.0 by Náttúrufræðistofnun is licensed under CC BY 4.0. This product was in part "
+    "iceland": "ArcticDEM, Polar Geospatial Center, CC BY 4.0, processed",
+    "islandsdem10": "\"IslandsDEM v1.0\" by Náttúrufræðistofnun is licensed under CC BY 4.0. This product was "
+                    "in part "
                     "produced using Copernicus WorldDEM-30 © DLR e.V. 2010-2014 and © Airbus Defence and Space GmbH "
                     "2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved.",
 }
 ORTHOS = {  # source: (attribution, attribution_url)
-    "islandsdem10": ("Grunnkort - Loftmynd by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
+    "islandsdem10": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
+    "iceland": ("\"Grunnkort - Loftmynd\" by Náttúrufræðistofnun is licensed under CC BY 4.0", src.CC_BY[1]),
     "austria": ("Datenquelle: basemap.at", "https://basemap.at"),
     "slovakia": ("© GKÚ Bratislava, NLC, CC BY 4.0", src.CC_BY[1]),
     "malta": ("Orthoimagery 2018: Planning Authority, Malta, CC BY 4.0", src.CC_BY[1]),
