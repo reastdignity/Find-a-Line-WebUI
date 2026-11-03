@@ -225,6 +225,54 @@ def test_two_processes(env, full):
     assert workers and workers <= {"slot-0", "slot-1"} and control == {"pending"}
 
 
+def test_timeline_counts_the_process_tree(tmp_path):
+    """The run's timeline counts each worker's process tree: on Windows a venv's python.exe only
+    starts the interpreter as its child, so the worker's own process holds a few MB and no CPU."""
+    import subprocess
+    import time
+    import psutil
+    import country
+    script = tmp_path / "busy.py"
+    script.write_text("import subprocess, sys, time\n"
+                      "if sys.argv[1:] == ['child']:\n"
+                      "    held = b'x' * 300_000_000\n"
+                      "    end = time.time() + 60\n"
+                      "    while time.time() < end:\n"
+                      "        pass\n"
+                      "else:\n"
+                      "    subprocess.run([sys.executable, __file__, 'child'])\n", encoding="utf-8")
+    os.makedirs(tmp_path / "logs")
+    m = country.Manifest(str(tmp_path))
+    worker = subprocess.Popen([sys.executable, str(script)])
+    try:
+        deadline = time.monotonic() + 60
+        while sum(p.memory_info().rss for p in psutil.Process(worker.pid).children(recursive=True)) < 3e8:
+            assert time.monotonic() < deadline, "the child never held its 300 MB"
+            time.sleep(0.2)
+        samples = country._RunSamples(str(tmp_path))
+        samples.sample([worker.pid], m)
+        time.sleep(1)
+        samples.sample([worker.pid], m)
+        with open(samples.path, encoding="utf-8") as f:
+            header, *rows = f.read().splitlines()
+        last = dict(zip(header.split(","), rows[-1].split(",")))
+        assert last["workers"] == "1" and float(last["workers_cores"]) > 0
+        assert float(last["workers_rss_gib"]) >= 0.27 and float(last["workers_private_gib"]) >= 0.27
+    finally:
+        m.close()
+        try:
+            tree = psutil.Process(worker.pid)
+            tree = [tree] + tree.children(recursive=True)
+        except psutil.Error:
+            tree = []
+        for process in tree:
+            try:
+                process.kill()
+            except psutil.Error:
+                pass
+        worker.wait(30)
+
+
 def test_failing_tiles(env, full, monkeypatch, capsys):
     """A tile failing once is counted again; failing twice it is failed, status shows it, and build
     refuses the partial cube without --partial."""

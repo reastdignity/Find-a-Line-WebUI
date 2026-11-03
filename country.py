@@ -1036,8 +1036,9 @@ def _disk_counters() -> Tuple[int, int]:
 class _RunSamples:
     """A run's timeline: logs/samples-<start>.csv, a row every RUN_SAMPLE_SECONDS (and at the start
     and the end) with the machine's CPU % and memory, the workers' cores (their CPU seconds over
-    the interval), working set and private bytes (_private), the tiles being counted, and the
-    disks' read and write MB/s. `country profile` sums up the last one."""
+    the interval), working set and private bytes (_private), each of a worker's process tree (a
+    venv's python.exe on Windows runs the interpreter as its child), the tiles being counted, and
+    the disks' read and write MB/s. `country profile` sums up the last one."""
 
     COLUMNS = ("time", "seconds", "machine_cpu_pct", "ram_used_gib", "ram_available_gib", "workers",
                "workers_cores", "workers_rss_gib", "workers_private_gib", "running_tiles", "disk_read_mbs",
@@ -1048,7 +1049,7 @@ class _RunSamples:
         self.started = self.last = time.monotonic()
         psutil.cpu_percent(None)  # the first call only starts the interval
         self.disk = _disk_counters()
-        self.cpu: Dict[int, float] = {}
+        self.cpu: Dict[Tuple[int, float], float] = {}
         with open(self.path, "w", encoding="utf-8") as f:
             f.write(",".join(self.COLUMNS) + "\n")
 
@@ -1058,15 +1059,21 @@ class _RunSamples:
         alive, cores, rss, private = 0, 0.0, 0, 0
         for pid in pids:
             try:
-                process = psutil.Process(pid)
-                times, memory = process.cpu_times(), process.memory_info()
+                worker = psutil.Process(pid)
+                tree = [worker] + worker.children(recursive=True)
             except psutil.Error:
                 continue
             alive += 1
-            cpu = times.user + times.system
-            cores += (cpu - self.cpu.get(pid, cpu)) / interval  # nothing before a process's first sample
-            self.cpu[pid] = cpu
-            rss, private = rss + int(memory.rss), private + _private(memory)
+            for process in tree:
+                try:
+                    key = (process.pid, process.create_time())
+                    times, memory = process.cpu_times(), process.memory_info()
+                except psutil.Error:
+                    continue
+                cpu = times.user + times.system
+                cores += (cpu - self.cpu.get(key, cpu)) / interval  # nothing before a process's first sample
+                self.cpu[key] = cpu
+                rss, private = rss + int(memory.rss), private + _private(memory)
         disk, ram = _disk_counters(), psutil.virtual_memory()
         try:
             running = manifest.db.execute("SELECT COUNT(*) FROM tiles WHERE status = 'running'").fetchone()[0]
