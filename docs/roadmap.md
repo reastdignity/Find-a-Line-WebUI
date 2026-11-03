@@ -288,8 +288,8 @@ README's GIF and images, and videos and images for Facebook and Instagram (READM
   scale in the browser only); the media page is never in dist. Wave 2 (`tools/coverage_media.py`): credits keep
   each provider's wording (our "Data:" left out when it starts with a label of its own); a zoomed map is centred on
   the middle of its projected box (Equal Earth packs degrees towards the poles: Malta and Puerto Rico fell off the
-  frame); the 9:16 videos keep their empty top band (Instagram's own header covers it); the poster's PDF is our own
-  few lines around the PNG's IDAT data (img2pdf would bring pikepdf and qpdf; the user decides); all 96 videos take
+  frame); the 9:16 videos keep their empty top band (Instagram's own header covers it); the poster's PDF is made by
+  img2pdf (the user's pick over our own few lines; it brings pikepdf, MPL-2.0, with qpdf); all 96 videos take
   about 70 min, so only the set the user picks is rendered.
 - **Open**: the music of the 26 s videos (a track with a licence, from the user); posting the videos and images;
   the phone's first screen of /coverage (header and intro take most of it) and the Leaflet view's Europe preset on

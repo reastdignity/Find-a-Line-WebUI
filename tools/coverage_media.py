@@ -25,8 +25,8 @@ frame rate, size, number of frames, audio), a failure is an error.
 `--out` defaults to <data folder>/work/coverage-media/ (`--data-dir`, FINDALINE_DATA, else the repository).
 `all` writes the 96 videos (4 stories x 3 lengths x 2 formats x 2 themes x 2 languages), the GIFs and every
 image, skipping the files that exist unless `--force`. `readme` writes the README's English GIFs and maps into
-docs/images/. The poster is a PNG of 300 dpi and a PDF of one A3 page holding the same pixels (the PNG's
-compressed data, so nothing is lost).
+docs/images/. The poster is a PNG of 300 dpi and a PDF of one A3 page made by img2pdf, which holds the PNG's
+compressed data as they are, so nothing is lost.
 """
 
 import argparse
@@ -38,13 +38,12 @@ import json
 import os
 import re
 import shutil
-import struct
 import subprocess
 import sys
 import tempfile
 import threading
 import time
-from typing import Dict, Iterator, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -234,46 +233,14 @@ def png_file(png: bytes, dpi: Optional[int] = None) -> bytes:
     return out.getvalue()
 
 
-def png_chunks(png: bytes) -> Iterator:
-    if png[:8] != b"\x89PNG\r\n\x1a\n":
-        raise Failure("not a PNG")
-    at = 8
-    while at < len(png):
-        length, kind = struct.unpack(">I4s", png[at:at + 8])
-        yield kind, png[at + 8:at + 8 + length]
-        at += 12 + length
-
-
 def pdf_of_png(png: bytes, dpi: int) -> bytes:
-    """A PDF of one page the size of the image at `dpi`, the image its whole content. The PNG's IDAT data are a
-    zlib stream with PNG's predictors, which PDF's FlateDecode reads as they are (/Predictor 15)."""
-    chunks = list(png_chunks(png))
-    width, height, depth, colour, _, _, interlace = struct.unpack(">IIBBBBB", chunks[0][1])
-    if (depth, colour, interlace) != (8, 2, 0):
-        raise Failure("the PDF takes an 8-bit RGB PNG without interlacing")
-    data = b"".join(body for kind, body in chunks if kind == b"IDAT")
-    w, h = width * 72 / dpi, height * 72 / dpi
-    content = f"q {w:.4f} 0 0 {h:.4f} 0 0 cm /Im0 Do Q".encode()
-    objects = [
-        b"<< /Type /Catalog /Pages 2 0 R >>",
-        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-        f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {w:.4f} {h:.4f}] "
-        f"/Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>".encode(),
-        f"<< /Type /XObject /Subtype /Image /Width {width} /Height {height} /ColorSpace /DeviceRGB "
-        f"/BitsPerComponent 8 /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors 3 /BitsPerComponent 8 "
-        f"/Columns {width} >> /Length {len(data)} >>\nstream\n".encode() + data + b"\nendstream",
-        f"<< /Length {len(content)} >>\nstream\n".encode() + content + b"\nendstream",
-    ]
-    out = bytearray(b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n")
-    offsets = []
-    for number, body in enumerate(objects, 1):
-        offsets.append(len(out))
-        out += f"{number} 0 obj\n".encode() + body + b"\nendobj\n"
-    xref = len(out)
-    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
-    out += b"".join(f"{offset:010d} 00000 n \n".encode() for offset in offsets)
-    out += f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n".encode()
-    return bytes(out)
+    """A PDF of one page the size of the image at `dpi`, the image its whole content (img2pdf takes the IDAT data
+    of a PNG without interlacing as they are: FlateDecode with PNG's predictors, nothing compressed again)."""
+    try:
+        import img2pdf
+    except ImportError:
+        raise Failure("img2pdf is missing: uv sync --group ui")
+    return img2pdf.convert(png, layout_fun=img2pdf.get_fixed_dpi_layout_fun((dpi, dpi)), nodate=True)
 
 
 # --- the media page ------------------------------------------------------------------------------------------

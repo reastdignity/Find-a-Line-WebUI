@@ -6,12 +6,9 @@ no group `ui`)."""
 import importlib.util
 import io
 import os
-import re
 import shutil
-import struct
 import sys
 import wave
-import zlib
 
 import numpy as np
 import pytest
@@ -23,6 +20,7 @@ import coverage_media as cm  # noqa: E402
 
 needs_ffmpeg = pytest.mark.skipif(importlib.util.find_spec("imageio_ffmpeg") is None,
                                   reason="imageio-ffmpeg is in the group ui")
+needs_img2pdf = pytest.mark.skipif(importlib.util.find_spec("img2pdf") is None, reason="img2pdf is in the group ui")
 
 
 def _png(rgb: np.ndarray) -> bytes:
@@ -157,7 +155,7 @@ def test_encoded_gif_and_a_failing_ffmpeg(tmp_path):
         _encode(cm.video_command(ffmpeg, str(tmp_path / "x.mp4"), 1), [b"not a png" * 1000])
 
 
-def test_png_and_poster_pdf():
+def test_png_file():
     rgba = np.zeros((40, 30, 4), np.uint8)
     rgba[..., 0], rgba[..., 3] = np.arange(30, dtype=np.uint8) * 8, 255
     png = cm.png_file(_png(rgba), 300)
@@ -169,22 +167,25 @@ def test_png_and_poster_pdf():
     with pytest.raises(cm.Failure, match="transparent"):
         cm.png_file(_png(rgba))
 
+
+@needs_img2pdf
+def test_poster_pdf():
+    import pikepdf
+    rgb = np.zeros((40, 30, 3), np.uint8)
+    rgb[..., 0] = np.arange(30, dtype=np.uint8) * 8
+    rgb[..., 2] = np.arange(40, dtype=np.uint8)[:, None] * 6
+    png = cm.png_file(_png(rgb), 300)
     pdf = cm.pdf_of_png(png, 300)
-    assert pdf.startswith(b"%PDF-1.4") and pdf.endswith(b"%%EOF\n")
-    assert b"/MediaBox [0 0 7.2000 9.6000]" in pdf      # 30 x 40 px at 300 dpi in points
-    # the xref's offsets point at their objects, startxref at the xref
-    xref = int(re.search(rb"startxref\n(\d+)", pdf)[1])
-    assert pdf[xref:xref + 4] == b"xref"
-    for number, offset in enumerate(re.findall(rb"(\d{10}) 00000 n", pdf), 1):
-        assert pdf[int(offset):].startswith(b"%d 0 obj" % number)
-    # the image's data are the PNG's, which inflate to its filtered rows
-    idat = b"".join(body for kind, body in cm.png_chunks(png) if kind == b"IDAT")
-    assert idat in pdf and len(zlib.decompress(idat)) == 40 * (1 + 30 * 3)
+    assert pdf == cm.pdf_of_png(png, 300)                 # no date in it
+    with pikepdf.open(io.BytesIO(pdf)) as doc:
+        page, = doc.pages
+        assert [float(v) for v in page.mediabox] == pytest.approx([0, 0, 7.2, 9.6])   # 30 x 40 px at 300 dpi
+        image, = page.get_images().values()
+        assert image.Filter == pikepdf.Name.FlateDecode    # the PNG's rows as they are
+        assert np.array_equal(np.asarray(pikepdf.PdfImage(image).as_pil_image()), rgb)
     # A3 at 300 dpi
     width, height = 3508 * 72 / 300, 4961 * 72 / 300
     assert (round(width / 72 * 25.4), round(height / 72 * 25.4)) == (297, 420)
-    with pytest.raises(cm.Failure):
-        cm.pdf_of_png(_png(np.zeros((4, 4, 4), np.uint8)), 300)    # RGBA
 
 
 def _browser_ready() -> bool:
@@ -215,10 +216,3 @@ def test_render_end_to_end(tmp_path):
                     "lang": "en"})
         assert page.frame(0.5) == page.frame(0.5)
     assert sorted(os.listdir(tmp_path)) == ["gh-oceania.png", "s.mp4"]
-
-
-def test_pdf_header_struct():
-    """png_chunks reads the IHDR the PDF needs."""
-    png = cm.png_file(_png(np.full((3, 5, 4), 255, np.uint8)))
-    kind, body = next(cm.png_chunks(png))
-    assert kind == b"IHDR" and struct.unpack(">II", body[:8]) == (5, 3)

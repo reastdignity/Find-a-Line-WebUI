@@ -54,6 +54,7 @@ tools = [
 ui = [
     "playwright>=1.64.1",
     "imageio-ffmpeg>=0.8.0",  # its ffmpeg encodes tools/coverage_media.py's videos and GIFs
+    "img2pdf>=0.6.3",  # the poster's PDF (pulls pikepdf and its qpdf)
 ]
 
 [tool.uv]
