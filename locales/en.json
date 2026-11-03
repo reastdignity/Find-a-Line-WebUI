@@ -48,7 +48,7 @@
   "field.slope_threshold.help": "The terrain must be at least this steep for an anchor. A higher value keeps only edges of walls and gives fewer anchors. Default 45°.",
   "field.min_elevation.label": "Anchor elevation, at least",
   "field.min_elevation.unit": "m a.s.l.",
-  "field.min_elevation.help": "Keeps lines whose two anchors both lie at least this high above sea level, in the heights of the elevation data. Use it to search only the upper walls of a valley, or to leave out the rock above a certain height.",
+  "field.min_elevation.help": "Keeps lines whose two anchors both lie at least this high above sea level, in the heights of the elevation data. Use it to search only the upper walls of a valley, or to leave out the crags near the valley floor.",
   "field.max_elevation.label": "Anchor elevation, at most",
   "field.max_elevation.unit": "m a.s.l.",
   "field.max_elevation.help": "Keeps lines whose two anchors both lie at most this high above sea level, in the heights of the elevation data. Use it to leave out high ground you cannot reach, or to search only the lower crags.",
