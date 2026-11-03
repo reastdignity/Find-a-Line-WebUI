@@ -624,8 +624,9 @@ def estimate_search(plan: Plan) -> Estimate:
     if p.water == "fill" and p.coastline == "world" and coast.world_file(plan.paths.cache) is None:
         download_mb += coast.WORLD_MB
         emit("info", f"OpenStreetMap water polygons (world): one download of ~{coast.WORLD_MB} MB")
+    # A tile's work folder is removed before the next tile's grids are made: the largest one's
     largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height) if plan.tiles else plan.grid
-    work_gb = largest.width * largest.height * 4 * (len(plan.layers) + bool(p.slope_file)) / 1e9
+    work_gb = largest.width * largest.height * work_bytes(plan) / 1e9
     estimate = Estimate(download_mb, work_gb)
     if isinstance(plan.area, ar.Polygon):  # areas are always confirmed: they can be large
         estimate.reasons.append(
@@ -636,6 +637,24 @@ def estimate_search(plan: Plan) -> Estimate:
     if work_gb > CONFIRM_DISK_GB:
         estimate.reasons.append(f"working grids take about {work_gb:.1f} GB of disk in {plan.paths.work}")
     return estimate
+
+
+def work_bytes(plan: Plan) -> int:
+    """The bytes per pixel that step 1 (prepare_data) writes into the work folder at most: float32
+    the terrain (nmt.npy) and surface models (nmpt.npy), the surface of the obstacles (obstacles.npy),
+    a slope file (slope.npy) and each fallback's terrain and surface (gap_nmt.npy, gap_nmpt.npy,
+    gap1_nmt.npy ...: made only where there are gaps, counted always); uint8 the water body mask
+    (wbm.npy); bool the water (water.npy) and the pixels filled by each fallback (filled.npy,
+    filled1.npy ...) and by each neighbour (joined0.npy ..., joined.npy). The neighbours' own grids
+    (border0_nmt.npy ...) cover the gaps at the border only and are not counted."""
+    p, source = plan.params, plan.source
+    surface = bool(plan.nmpt)
+    floats = 1 + surface + (surface and bool(plan.obstacles)) + bool(p.slope_file)
+    masks = _water_mask(plan) + (p.water == "fill")
+    if _fills_gaps(plan):
+        floats += len(source.fallbacks) * (1 + surface)
+        masks += len(source.fallbacks) + (len(source.neighbours) + 1 if source.neighbours else 0)
+    return 4 * floats + masks
 
 
 def _water_mask(plan: Plan) -> bool:
