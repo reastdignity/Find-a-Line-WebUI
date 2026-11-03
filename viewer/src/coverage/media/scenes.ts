@@ -173,8 +173,9 @@ export const sceneVerify: Scene = (f, p) => {
   textBottom(ctx, note, L.pad, H - L.small * 2.2, {size: L.small * 1.1, font: "b", weight: 500, color: th.muted, max: W - 2 * L.pad, lh: 1.35});
 };
 
-/** The end card: the logo, the call to action and the address. */
-export function sceneEnd(credit: string | null): Scene {
+/** The end card: the logo, the call to action and the address, above the credits of the data shown before it
+ * (one paragraph each, from the bottom up). */
+export function sceneEnd(credits: string[]): Scene {
   return (f, p) => {
     const {ctx, th, W, H, lang} = f, L = layoutOf(W, H);
     bgFill(f);
@@ -186,8 +187,9 @@ export function sceneEnd(credit: string | null): Scene {
     const h = text(ctx, ct(lang, "media.cta"), W / 2, ctaY, {size: L.title, color: th.ink, align: "center", weight: 700, max: W * .86});
     chip(ctx, th, SITE, W / 2, ctaY + h - L.title * .75 + L.body * .4, L.body * .9, {align: "center", bg: th.clear, color: th.bg});
     ctx.textAlign = "left";
-    if (credit) {
-      textBottom(ctx, credit, W / 2, H - L.small * 1.3, {size: L.small, font: "m", weight: 500, color: th.muted, align: "center", max: W - 2 * L.pad, lh: 1.3});
+    let bottom = H - L.small * 1.3;
+    for (const credit of [...credits].reverse()) {
+      bottom = textBottom(ctx, credit, W / 2, bottom, {size: L.small, font: "m", weight: 500, color: th.muted, align: "center", max: W - 2 * L.pad, lh: 1.3}) - L.small * .5;
       ctx.textAlign = "left";
     }
     ctx.globalAlpha = 1;
@@ -197,11 +199,12 @@ export function sceneEnd(credit: string | null): Scene {
 /** The name of an area with its resolutions, for a chip: "Norway · 1 m". */
 const areaChip = (id: string, lang: Lang): string => `${areaName(id, lang)} · ${resText(areaOf(id)!.res, lang)}`;
 
-/** Areas a caption names: those `listed` (world.ts) and not drawn as dots (islands and microstates are
- *  coloured, but not named: "U.S. Virgin Islands" says little in a tour). */
+/** Areas a caption names: those `listed` (world.ts), so the islands of a bigger area go unnamed ("U.S. Virgin
+ *  Islands" says little in a tour) while areas of their own drawn as dots (Malta, Luxembourg, South Tyrol) are
+ *  named. */
 const named = (ids: string[]): string[] => {
-  const {listed, small} = got().world;
-  return ids.filter(id => listed.includes(id) && !small.includes(id));
+  const {listed} = got().world;
+  return ids.filter(id => listed.includes(id));
 };
 
 /** The tour's camera keyframes (p, view) over the parts of the world with data. */

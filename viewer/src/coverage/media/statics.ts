@@ -143,7 +143,7 @@ export const STATICS: StaticImage[] = [
   {name: "carousel-1-cover", width: POST[0], height: POST[1], group: "carousel", draw: cover},
   ...VIEWS.map((v, i) => ({name: `carousel-${i + 2}-${v}`, width: POST[0], height: POST[1], group: "carousel" as const, draw: slide(v)})),
   {name: "carousel-6-legend", width: POST[0], height: POST[1], group: "carousel", draw: legendSlide},
-  {name: "carousel-7-end", width: POST[0], height: POST[1], group: "carousel", draw: f => sceneEnd(ct(f.lang, "map.credit"))(f, 1)},
+  {name: "carousel-7-end", width: POST[0], height: POST[1], group: "carousel", draw: f => sceneEnd([ct(f.lang, "map.credit")])(f, 1)},
   ...VIEWS.map(v => ({name: `story-${v}`, width: STORY[0], height: STORY[1], group: "stories" as const, draw: slide(v)})),
   {name: "poster", width: POSTER_SIZE[0], height: POSTER_SIZE[1], group: "poster", draw: poster},
 ];

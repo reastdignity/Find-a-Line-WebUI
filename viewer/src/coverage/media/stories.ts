@@ -19,19 +19,22 @@ export interface TimedScene { start: number; dur: number; draw: Scene }
 /** The scenes of a story with their start and duration in seconds; `place` the contrast's first place. */
 export function storyScenes(story: Story, length: Length, place: string, lang: Lang): TimedScene[] {
   const depth = DEPTH[length], others = otherPlaces(place);
-  const S = (w: number, draw: Scene, min: Depth = 0) => ({w, draw, min});
-  const end = sceneEnd(story === "contrast" ? placeCredit(place, lang) : ct(lang, "map.credit"));
-  const tour = sceneTour(depth), contrast = sceneContrast;
+  // a scene showing data carries its credit, which the end card repeats
+  const S = (w: number, draw: Scene, min: Depth = 0, credit?: string) => ({w, draw, min, credit});
+  const map = ct(lang, "map.credit"), tour = sceneTour(depth);
+  const contrast = (p: string, w: number, min: Depth = 0) => S(w, sceneContrast(p), min, placeCredit(p, lang));
   const list = {
-    contrast: [S(1.1, sceneTitle(ct(lang, "media.hook"), ct(lang, `place.${place}`))), S(4, contrast(place)),
-      S(3, contrast(others[0] || place), 2), S(3, contrast(others[1] || place), 2),
-      S(2.6, sceneVerify, 1), S(2, sceneSummary, 1), S(1.6, end)],
-    fill: [S(1.1, sceneTitle(ct(lang, "media.fill.title"), null)), S(depth === 0 ? 5 : 7.5, tour), S(1.6, sceneSummary, 1), S(1.6, end)],
+    contrast: [S(1.1, sceneTitle(ct(lang, "media.hook"), ct(lang, `place.${place}`))), contrast(place, 4),
+      contrast(others[0] || place, 3, 2), contrast(others[1] || place, 3, 2),
+      S(2.6, sceneVerify, 1), S(2, sceneSummary, 1, map)],
+    fill: [S(1.1, sceneTitle(ct(lang, "media.fill.title"), null)), S(depth === 0 ? 5 : 7.5, tour, 0, map),
+      S(1.6, sceneSummary, 1, map)],
     timeline: [S(1, sceneTitle(ct(lang, "media.timeline.title"), ct(lang, "media.timeline.start"))),
-      S(depth === 0 ? 6 : 8, sceneTimeline(depth)), S(1.6, sceneSummary, 2), S(1.6, end)],
-    mix: [S(3.4, contrast(place)), S(3, contrast(others[0] || place), 2), S(2.4, sceneVerify, 2), S(depth === 0 ? 4 : 6, tour),
-      S(1.4, sceneSummary, 1), S(1.6, end)],
+      S(depth === 0 ? 6 : 8, sceneTimeline(depth), 0, map), S(1.6, sceneSummary, 2, map)],
+    mix: [contrast(place, 3.4), contrast(others[0] || place, 3, 2), S(2.4, sceneVerify, 2), S(depth === 0 ? 4 : 6, tour, 0, map),
+      S(1.4, sceneSummary, 1, map)],
   }[story].filter(s => depth >= s.min);
+  list.push(S(1.6, sceneEnd([...new Set(list.flatMap(s => s.credit ? [s.credit] : []))])));
   const total = LENGTHS[length], sum = list.reduce((a, s) => a + s.w, 0);
   let at = 0;
   return list.map(s => { const dur = s.w / sum * total, scene = {start: at, dur, draw: s.draw}; at += dur; return scene; });

@@ -57,7 +57,9 @@ export function mountFlat(el: HTMLElement, ctx: ViewContext): MapView {
     .translateExtent([[-W * 0.2, -H * 0.2], [W * 1.2, H * 1.2]])
     .on("zoom", e => {
       g.attr("transform", e.transform.toString());
-      dots.attr("r", 3.5 / Math.sqrt(e.transform.k));
+      // a dot grows on the screen with the fourth root of the zoom: on a phone's narrow map the square root
+      // made the dots of Luxembourg, Liechtenstein and South Tyrol cover Switzerland and Austria
+      dots.attr("r", 3.5 * e.transform.k ** -.75);
       // the hatch keeps its width on the screen
       for (const pattern of patterns) pattern.attr("patternTransform", `rotate(45) scale(${1 / e.transform.k})`);
       tip.hidden = true;

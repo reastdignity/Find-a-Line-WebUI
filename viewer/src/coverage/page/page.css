@@ -132,7 +132,9 @@ body.cov-body { background: #f3f5f2; }
   .cov-legend { position: static; margin-top: 10px; max-width: none; box-shadow: none; }
   .cov-items { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; }
   .cov-mapbox { height: min(62vh, 520px); min-height: 340px; }
-  .cov-in-leaflet .cov-zoombar { right: 54px; }
+  /* the four buttons in one row: the layers' control goes below them */
+  .cov-in-leaflet .cov-zoombar { right: 10px; }
+  .cov-in-leaflet .leaflet-top.leaflet-right { top: 44px; }
   .cov .cov-h1 { font-size: 26px; }
 }
 
