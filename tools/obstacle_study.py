@@ -12,8 +12,19 @@ findaline.py. Each search runs in a child process with a data folder of its own,
 <out>/<name>/data, whose cache/ links to the real cache (--cache), as tests/regression.py does,
 and with linesearch.find_valid_lines wrapped as tools/perf_line_funnel.py wraps it: every call's
 grids, anchors and parameters (<out>/<name>/capture/call-<k>/), with the georeference of its grid
-and the lines it found. A captured place is not searched again unless --again. analyse
-<out>/<name> and report <out> redo those steps alone.
+(grid.json: also the source, its grid origin, the cached terrain and surface files under the grid,
+the orthophoto service and the search area in WGS84) and the lines it found. A captured place is
+not searched again unless --again. analyse <out>/<name> and report <out> redo those steps alone.
+
+Where the surface model's own pixels are finer than the grid (sheets of 0.5 m under a grid of
+1 m: the grid holds their average), analyse builds them from the cached files (fine_grid: the
+surface on its files' lattice, the terrain interpolated onto it) and pools per pixel of the grid
+the highest fine surface (s-max) and the highest fine surface minus terrain (h-max) among the fine
+pixels it overlaps (fine-nmpt.npy, fine-nmt.npy, s-max.npy, h-max.npy and fine.json in the
+call's folder). The surface variants avg (the grid's), max (s-max) and h (the terrain plus
+h-max) are each counted under VARIANT_RULES (the rules below and A2+T: A2, and every pixel where
+CHMv2 sees a tree on WorldCover's tree cover stays an obstacle), each line's limit the same, the
+pixels above it the variant's; the kernel checks A2 on every variant.
 
 analyse takes every line over trees/buildings (clearance over the surface model <= 0) and the
 pixels where the surface stands above the line's limit, and asks which of them each rule keeps
@@ -23,7 +34,7 @@ C<deg> (none on terrain at least that steep), D<k> (none within k steps of an an
 where CHMv2 sees a tree within a pixel or the terrain is gentler than GENTLE) and F-trees (A1
 where CHMv2 sees a tree). A line stays marked while one of its pixels does. The production
 kernel checks the counts: linesearch.evaluate_lines over the raw surface gives the captured
-clearances, over obstacles.obstacle_surface the marks of A1.
+clearances, over obstacles.obstacle_surface of radius 1 and 2 the marks of A1 and A2.
 
 What a pixel is comes from two layers read by HTTP range requests (here only, never in the app):
 Meta/WRI's CHMv2 canopy heights (about 1 m, trees; CC BY 4.0) and ESA WorldCover 2021 (10 m,

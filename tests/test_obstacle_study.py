@@ -1,6 +1,9 @@
 """tools/obstacle_study.py on a synthetic canyon: the capture of a find_valid_lines call, the
 rules' counts checked against the production kernel, the outside layers' classes, the shift of
-CHMv2, the names of the WorldCover tiles, the report, and a cache link removed without its target."""
+CHMv2, the names of the WorldCover tiles, the report, and a cache link removed without its target.
+The surface model's own pixels (fine_grid) come from GeoTIFFs of 0.5 m (the surface, two files)
+and 1 m (the terrain) written from a fine model as the services make theirs: the terrain at each
+pixel's centre, the surface the highest point of the pixel."""
 
 import json
 import os
@@ -19,6 +22,47 @@ import obstacles  # noqa: E402
 
 ROWS, COLS, FINE = 60, 100, 10
 TREE_ROWS, TREE_COLS = slice(20, 26), slice(48, 52)
+LEFT, TOP, CRS = 500000.0, 300000.0, "EPSG:2180"
+MARGIN = 4  # metres the files reach beyond the grid (the terrain is interpolated bilinearly near its edge)
+
+
+def write_tif(path, values, left, top, res):
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with rio.open(path, "w", driver="GTiff", height=values.shape[0], width=values.shape[1], count=1,
+                  dtype="float32", crs=CRS, transform=from_origin(left, top, res, res), nodata=np.nan) as dst:
+        dst.write(values.astype(np.float32), 1)
+    return str(path)
+
+
+def pixel_maxima(f, start, pixels, res, samples):
+    """The highest of `samples` points of f (a function of x in metres) in each of `pixels` pixels of
+    res metres from start."""
+    x = start + (np.arange(pixels * samples) + 0.5) * res / samples
+    return f(x).reshape(pixels, samples).max(axis=1)
+
+
+def write_model(folder, ground, surface, rows, cols, offset=0.0, fine=20, tree=None):
+    """The model as the files of a cache: the surface in pixels of 0.5 m whose edges lie offset metres
+    after the grid's (two files, split at a column), the terrain in pixels of 1 m on the grid's.
+    ground, surface: functions of x (metres from the grid's left edge); tree: (rows, cols, metres) of
+    the grid's 1 m pixels added to the surface. Returns (nmt_files, nmpt_files)."""
+    start = offset - MARGIN
+    n = 2 * (cols + 2 * MARGIN)
+    nmpt = np.tile(pixel_maxima(surface, start, n, 0.5, fine // 2), (2 * (rows + 2 * MARGIN), 1))
+    if tree is not None:
+        t_rows, t_cols, height = tree
+        top_px = lambda r: 2 * (r + MARGIN)  # noqa: E731
+        nmpt[top_px(t_rows.start):top_px(t_rows.stop),
+             2 * (t_cols.start + MARGIN) - round(2 * offset):2 * (t_cols.stop + MARGIN) - round(2 * offset)] += height
+    split = n // 2
+    top = TOP + MARGIN
+    nmpt_files = [write_tif(os.path.join(folder, "nmpt", "w.tif"), nmpt[:, :split], LEFT + start, top, 0.5),
+                  write_tif(os.path.join(folder, "nmpt", "e.tif"), nmpt[:, split:], LEFT + start + split * 0.5,
+                            top, 0.5)]
+    nmt = np.tile(ground(np.arange(-MARGIN, cols + MARGIN) + 0.5), (rows + 2 * MARGIN, 1))
+    return [write_tif(os.path.join(folder, "nmt", "t.tif"), nmt, LEFT - MARGIN, top, 1.0)], nmpt_files
 
 
 def canyon_grids():
@@ -32,13 +76,21 @@ def canyon_grids():
     return dtm, dsm
 
 
-def capture_call(tmp_path):
-    """One find_valid_lines call captured as obstacle_study.capture captures it."""
+def canyon_ground(x):
+    return np.where((x >= 20.35) & (x < 79.65), 50.0, 100.0)
+
+
+def capture_call(tmp_path, fine=False):
+    """One find_valid_lines call captured as obstacle_study.capture captures it; fine: with the
+    canyon's surface model in pixels of 0.5 m (and the tree) in a cache that grid.json names."""
     dtm, dsm = canyon_grids()
     anchors = sh.find_significant_slopes(dtm, 1.0, 45, np.ones(dtm.shape, dtype=bool))
     wrapper = study.Capture(str(tmp_path / "capture"))
-    wrapper.grid = SimpleNamespace(crs="EPSG:2180", left=500000.0, top=300000.0, res=1.0, height=ROWS,
-                                   width=COLS), None
+    wrapper.grid = SimpleNamespace(crs=CRS, left=LEFT, top=TOP, res=1.0, height=ROWS, width=COLS), None
+    if fine:
+        nmt, nmpt = write_model(str(tmp_path / "cache"), canyon_ground, canyon_ground, ROWS, COLS, fine=FINE,
+                                tree=(TREE_ROWS, TREE_COLS, 45.0))
+        wrapper.meta = {"source": "test", "grid_origin": [0.0, 0.0], "nmt_files": nmt, "nmpt_files": nmpt}
     lines = wrapper(dtm, dsm, anchors, 1.0, 50, 70, "mark", threads=2)
     return str(tmp_path / "capture" / "call-0"), dtm, dsm, lines
 
@@ -86,6 +138,116 @@ def test_rules_on_a_canyon(tmp_path):
     assert all(os.path.getsize(folder / "chips-A1" / e["png"]) > 1000 for v in picked.values() for e in v)
 
 
+def test_variants_on_a_canyon(tmp_path):
+    """The canyon's surface model of 0.5 m: its maxima are the working grid's surface (max marks
+    what avg marks); the terrain plus the highest height above it (h) stands below the rim's
+    limits at the walls (37.5 m above the floor, the terrain interpolated a quarter metre from the
+    wall) and the tree's full 45 m: h marks only the lines over the tree, under every rule."""
+    call, dtm, dsm, lines = capture_call(tmp_path, fine=True)
+    s1 = obstacles.obstacle_surface(dtm, dsm, 1.0)
+    over_tree = np.array([sh.evaluate_line(a, b, dtm, 1.0, s1)[4] <= 0
+                          for a, b in zip(lines.columns["a1"], lines.columns["a2"])])
+    result = study.analyse_call(call, layers_of(dtm))
+    assert result["fine"] == {"res": 0.5, "k": 2, "files": {"nmt": 1, "nmpt": 2}, "offset": [0.0, 0.0],
+                              "window": [2, 2], "left": LEFT, "top": TOP}
+    np.testing.assert_array_equal(np.load(os.path.join(call, "s-max.npy")), dsm)
+    h_max = np.load(os.path.join(call, "h-max.npy"))
+    assert (h_max[:, [20, 79]] == 37.5).all() and (h_max[TREE_ROWS, TREE_COLS] == 45).all()
+    assert result["checks"]["variants"] == {"max": {"raw_equal": True, "a2_equal": True},
+                                            "h": {"raw_equal": True, "a2_equal": True}}
+    assert result["checks"]["a1_equal"] and result["checks"]["a2_equal"]
+
+    variants = result["variants"]
+    assert set(variants) == {"avg", "max", "h"} and variants["max"] == variants["avg"]
+    assert variants["avg"]["rules"] == {name: result["rules"][name] for name in study.VARIANT_RULES}
+    real, rock = int(over_tree.sum()), int((~over_tree).sum())
+    assert variants["h"]["marked"] == real and variants["h"]["classes"] == {"real": real, "real_chm": real,
+                                                                           "rock_only": 0}
+    for name in study.VARIANT_RULES:
+        assert variants["h"]["rules"][name] == {"marked": real, "lost": 0, "lost_objects": 0, "lost_chm": 0,
+                                                "removed_rock": 0, "residual_rock": 0, "residual_objects": 0,
+                                                "kept_real": real}, name
+    assert variants["avg"]["rules"]["raw"]["removed_rock"] == 0 and variants["avg"]["rules"]["A2"]["removed_rock"] == rock
+    assert variants["avg"]["rules"]["A2+T"] == variants["avg"]["rules"]["A2"]  # the tree is A2's already
+
+    # Without the files the variants are avg alone, its counts the same
+    plain = study.analyse_call(capture_call(tmp_path / "plain")[0], layers_of(dtm))
+    assert plain["fine"] == {"res": None, "k": None, "files": {"nmt": 0, "nmpt": 0}}
+    assert plain["variants"] == {"avg": variants["avg"]} and plain["rules"] == result["rules"]
+
+
+def face_ground(x):
+    """Flat ground at 50 m, a face of 75 degrees from x = 30 m to 40 m, a plateau above it."""
+    return 50.0 + np.tan(np.radians(75)) * np.clip(x - 30.0, 0.0, 10.0)
+
+
+def face_surface(x):
+    """The ground and a tree of 20 m on the flat ground from x = 10 m to 13 m."""
+    return face_ground(x) + np.where((x >= 10) & (x < 13), 20.0, 0.0)
+
+
+@pytest.mark.parametrize("offset", [0.0, 0.25])
+def test_fine_grid(tmp_path, offset):
+    """s-max is the highest fine surface pixel a grid pixel overlaps (k x k with the edges on the
+    grid's, k + 1 each way with them a quarter metre off, as geoportal's sheets of 0.5 m under its
+    grid of 1 m); h-max of the tree is its height, of the face about half a fine pixel times the
+    tangent of its slope."""
+    rows, cols = 8, 60
+    nmt, nmpt = write_model(str(tmp_path / "cache"), face_ground, face_surface, rows, cols, offset)
+    call = tmp_path / "call-0"
+    call.mkdir()
+    with open(call / "grid.json", "w") as f:
+        json.dump({"crs": CRS, "left": LEFT, "top": TOP, "res": 1.0, "height": rows, "width": cols, "core": None,
+                   "nmt_files": nmt, "nmpt_files": nmpt}, f)
+    fine = study.fine_grid(str(call))
+    window = 2 if offset == 0 else 3
+    assert fine == {"res": 0.5, "k": 2, "files": {"nmt": 1, "nmpt": 2}, "offset": [offset, 0.0],
+                    "window": [2, window], "left": LEFT + (offset - 0.5 if offset else 0.0), "top": TOP}
+    assert np.load(call / "fine-nmpt.npy").shape == (2 * rows, 2 * cols + (window - 2))
+    assert np.load(call / "fine-nmt.npy").shape == (2 * rows, 2 * cols + (window - 2))
+
+    fine_row = pixel_maxima(face_surface, offset - MARGIN, 2 * (cols + 2 * MARGIN), 0.5, 10)
+    first = 2 * MARGIN - (1 if offset else 0)  # the fine pixel where pixel 0's window starts
+    expected = [fine_row[first + 2 * j:first + 2 * j + window].max() for j in range(cols)]
+    s_max = np.load(call / "s-max.npy")
+    np.testing.assert_array_equal(s_max, np.tile(np.float32(expected), (rows, 1)))
+    if not offset:  # the highest point of each pixel of 1 m
+        np.testing.assert_array_equal(s_max[0], pixel_maxima(face_surface, 0.0, cols, 1.0, 20).astype(np.float32))
+    h_max = np.load(call / "h-max.npy")
+    np.testing.assert_allclose(h_max[:, 10:13], 20.0, atol=1e-4)
+    face = h_max[:, 32:38]
+    assert (face > 0.4 * np.tan(np.radians(75)) / 2).all() and (face < 0.25 * np.tan(np.radians(75)) + 1e-3).all()
+    assert study.fine_grid(str(call)) == fine  # read from fine.json the second time
+
+
+def test_fine_grid_none(tmp_path):
+    """No surface files, or none finer than three quarters of the grid's pixels: nothing to measure."""
+    nmt, nmpt = write_model(str(tmp_path / "cache"), face_ground, face_surface, 4, 10)
+    call = tmp_path / "call-0"
+    call.mkdir()
+    for files, grid_res in (([], 1.0), (nmpt, 0.6)):
+        with open(call / "grid.json", "w") as f:
+            json.dump({"crs": CRS, "left": LEFT, "top": TOP, "res": grid_res, "height": 4, "width": 10, "core": None,
+                       "nmt_files": nmt, "nmpt_files": files}, f)
+        if os.path.exists(call / "fine.json"):
+            os.remove(call / "fine.json")
+        assert study.fine_grid(str(call)) is None
+        with open(call / "fine.json") as f:
+            assert json.load(f)["res"] is None
+        assert not os.path.exists(call / "s-max.npy")
+
+
+def test_maxpool():
+    a = np.arange(4 * 6, dtype=np.float32).reshape(4, 6)
+    a[0:2, 0:2] = np.nan
+    a[2, 3] = np.nan
+    pooled = study.maxpool(a, 2, block_rows=1)
+    np.testing.assert_array_equal(pooled, [[np.nan, 9, 11], [19, 21, 23]])
+    np.testing.assert_array_equal(study.maxpool(a, 2, minus=np.ones_like(a)), pooled - 1)
+    wide = np.arange(5 * 7, dtype=np.float32).reshape(5, 7)  # windows of 3 at a stride of 2
+    np.testing.assert_array_equal(study.maxpool(wide, 2, window=(3, 3)), [[16, 18, 20], [30, 32, 34]])
+
+
 def test_without_outside_layers(tmp_path):
     call, dtm, dsm, lines = capture_call(tmp_path)
     result = study.analyse_call(call)
@@ -130,10 +292,21 @@ def test_report(tmp_path):
             json.dump({"place": place, "source": "test", "res": 1.0, "lines": 10, "marked": 9, "rules": rules,
                        "classes": {"real": 4, "real_chm": 5, "rock_only": 3, "other": 2},
                        "checks": [{"raw_equal": True}],
-                       "chm_shift": [None]}, f)
+                       "chm_shift": [None],
+                       **({"fine": {"res": 0.5, "k": 2, "offset": [0.25, 0.25], "window": [3, 3]},
+                           "variants": {"avg": {"marked": 9, "classes": {"real": 4}, "rules": rules},
+                                        "h": {"marked": 6, "classes": {"real": 4},
+                                              "rules": {**rules, "A2+T": {**rules["A2"], "marked": 4}}}}}
+                          if place == "R2" else {})}, f)
     text = study.report(str(tmp_path))
     assert "| R1 | test | 1.0 | 10 | 4 | 5 |" in text and "| A1 | 10 (56 %) | 2 (25 %), 2 | 2 (20 %) | 6 (100 %) | 0, 0 | 8 |" in text
     assert "Places where a check failed: none" in text
+    assert text.index("| R1 | test |") < text.index("## Surface variants") < text.index("## Over all places")
+    assert "| R2 | 0.5 | avg | 9 | 4 | 5 | 5 | 5 | 5 | 5 | 5 | 5 | - |" in text  # A2+T not in the rules given
+    assert "| R2 | 0.5 | h | 6 | 4 | 5 | 5 | 5 | 5 | 5 | 5 | 5 | 4 |" in text and "| R1 | None |" not in text
+    with open(tmp_path / "R2" / "study.json") as f:
+        place = study.place_markdown(json.load(f))
+    assert "| h | A2+T | 4 (67 %) | 1, 1 | 1 | 3 | 0, 0 | 4 |" in place
 
 
 @pytest.mark.skipif(not hasattr(os.path, "isjunction"), reason="Python before 3.12")
