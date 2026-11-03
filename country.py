@@ -4,6 +4,7 @@ searched offline in fixed tiles that keep only counts (countcube.py), then summe
 
     findaline.py country run <id> [--processes K] [--bands S,M,L,M2] [--max-tiles N] [--redo] [--yes]
     findaline.py country status <id>
+    findaline.py country profile <id>
     findaline.py country build <id> [--partial]
     findaline.py country compare <id> [--control M2] [--against L]
     findaline.py country worker <id> --slot K      (started by run, one per process)
@@ -22,9 +23,10 @@ the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
     country.json   the configuration (Country as JSON), the sha256 of the outline and of both
                    (the config hash every tile file records), the CRS and the cube's origin
     area.geojson   the outline (WGS84), fetched once (osm:<name> through Nominatim)
-    manifest.sqlite  the tiles (schema v1, cache.migrate; WAL, claims in BEGIN IMMEDIATE)
+    manifest.sqlite  the tiles (schema v2, cache.migrate; WAL, claims in BEGIN IMMEDIATE, the
+                   heaviest first: their weight from the lines of the tiles done already)
     run.lock       held by `run` (one run at a time; workers stop when it is free)
-    logs/          run.log, worker-<k>.log
+    logs/          run.log, worker-<k>.log, samples-<start>.csv (a run's timeline)
     tiles/<band>/<name>.npz   the counts of a tile (countcube.VERSION)
     cube/          the cube (countcube.build) and a copy of area.geojson
     compare.json   `compare`'s result
@@ -33,6 +35,7 @@ the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
 import argparse
 import dataclasses
 import gc
+import glob
 import hashlib
 import json
 import math
@@ -42,11 +45,12 @@ import shutil
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import psutil
@@ -58,11 +62,17 @@ REPO = os.path.dirname(os.path.abspath(__file__))
 PROGRESS_SECONDS = 30      # between the progress lines of a run
 WORKER_PROGRESS_SECONDS = 600  # between the text progress lines of a worker's bars (its log)
 ATTEMPTS = 2               # a tile that fails goes back to pending once, then stays failed
-# The memory of a worker besides its tile's grids (search.memory_needed of the pixels): an
-# evaluated part of the sink (linesearch.SINK_PART lines, about 100+ MB with its temporaries), the
-# counter's pending arrays (countcube.PENDING_MAX entries of lines and spots), the interpreter, numpy,
-# numba, GDAL
-WORKER_MARGIN = 1 << 30
+# The memory of a counting worker: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel of its tile's grid.
+# Measured on Slovakia's runs (2026-11-03): a worker's peak working set was 2.3 GiB at 38-40 Mpx in
+# the bands S, M and L alike (50-53 B/px above 0.5 GiB of imports, an evaluated part of the sink and
+# the counter's pending arrays), the memory-mapped grids included and the tiles of 200-400 M lines
+# too (the sink holds one part at a time); both values with a margin. Not search.memory_needed: a
+# count holds no table of lines, no profiles and no step 4, and that model follows the app's.
+COUNT_PIXEL_BYTES = 64
+WORKER_BASE = 512 << 20
+RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
+TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (_MemorySampler)
+RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
 DISK_PIXEL_BYTES = 16      # a tile's grids in its work folder (float32 terrain, masks of water and gaps)
 DISK_SPARE = 1 << 30       # free disk kept besides the work folders
 RESPAWNS_PER_WORKER = 2    # workers that stopped abnormally are started again at most this often (on average)
@@ -300,6 +310,11 @@ MIGRATIONS = [
         id INTEGER PRIMARY KEY CHECK (id = 1),
         bands TEXT NOT NULL, tiles_left INTEGER, processes INTEGER NOT NULL, started_at TEXT);
     """,
+    # v2: the work a pending tile is expected to take (_weights, set by each run): claimed heaviest
+    # first, so the long tiles never come last; NULL (nothing known) after the others, in rowid order
+    """
+    ALTER TABLE tiles ADD COLUMN weight REAL;
+    """,
 ]
 
 
@@ -344,9 +359,9 @@ class Manifest:
             (json.dumps(list(bands)), tiles_left, processes, _now())))
 
     def claim(self, worker: str, cores: int) -> Optional[Tuple[str, str, Tuple[float, ...], int]]:
-        """The next pending tile of the run's bands (in the order they were added: bands as
-        configured, rows from the north), marked running; with the threads its count may use (the
-        logical cores shared by the workers still busy). None when nothing is left to claim."""
+        """The next pending tile of the run's bands (the heaviest first, by weight; then in the
+        order they were added: bands as configured, rows from the north), marked running; with the
+        threads its count may use (_threads). None when nothing is left to claim."""
         def work(db):
             row = db.execute("SELECT bands, tiles_left, processes FROM run WHERE id = 1").fetchone()
             if row is None or (row[1] is not None and row[1] <= 0):
@@ -354,19 +369,26 @@ class Manifest:
             bands = json.loads(row[0])
             marks = ",".join("?" * len(bands))
             tile = db.execute(f"SELECT band, name, core FROM tiles WHERE status = 'pending' AND band IN ({marks}) "
-                              f"ORDER BY rowid LIMIT 1", bands).fetchone()
+                              f"ORDER BY weight IS NULL, weight DESC, rowid LIMIT 1", bands).fetchone()
             if tile is None:
                 return None
             db.execute("UPDATE tiles SET status = 'running', attempts = attempts + 1, worker = ?, started_at = ?, "
                        "error = NULL WHERE band = ? AND name = ?", (worker, _now(), tile[0], tile[1]))
             if row[1] is not None:
                 db.execute("UPDATE run SET tiles_left = tiles_left - 1 WHERE id = 1")
-            running, pending = db.execute(
-                f"SELECT SUM(status = 'running'), SUM(status = 'pending') FROM tiles WHERE band IN ({marks})",
-                bands).fetchone()
-            busy = max(1, min(row[2], (running or 0) + (pending or 0)))
-            return tile[0], tile[1], tuple(json.loads(tile[2])), max(1, cores // busy)
+            return tile[0], tile[1], tuple(json.loads(tile[2])), _threads(db, bands, row[2], cores)
         return self._write(work)
+
+    def threads(self, cores: int) -> int:
+        """The threads a counting tile may use now (_threads; one when no run is set)."""
+        row = self.db.execute("SELECT bands, processes FROM run WHERE id = 1").fetchone()
+        return 1 if row is None else _threads(self.db, json.loads(row[0]), row[1], cores)
+
+    def set_weights(self, weights: Dict[Tuple[str, str], float]) -> None:
+        """The weights of pending tiles by (band, name) (_weights)."""
+        self._write(lambda db: db.executemany(
+            "UPDATE tiles SET weight = ? WHERE band = ? AND name = ? AND status = 'pending'",
+            [(w, band, name) for (band, name), w in weights.items()]))
 
     def done(self, band: str, name: str, seconds: float, lines: int, spots: int):
         self._write(lambda db: db.execute(
@@ -399,6 +421,65 @@ class Manifest:
         return out
 
 
+def _threads(db, bands: Sequence[str], processes: int, cores: int) -> int:
+    """The threads of a counting tile: the logical cores shared by the workers still busy (the
+    running and pending tiles of the run's bands, at most its processes)."""
+    marks = ",".join("?" * len(bands))
+    running, pending = db.execute(
+        f"SELECT SUM(status = 'running'), SUM(status = 'pending') FROM tiles WHERE band IN ({marks})",
+        list(bands)).fetchone()
+    busy = max(1, min(processes, (running or 0) + (pending or 0)))
+    return max(1, cores // busy)
+
+
+def _weights(manifest: Manifest, bands: Sequence[str]) -> Dict[Tuple[str, str], float]:
+    """The expected work of the pending tiles of these bands: the lines of the tiles done already
+    (of any band) whose core overlaps theirs; empty when no tile is done yet. Beyond its grid, a
+    tile's time goes to the pair search of its lines, and the lines of every band lie where the
+    terrain is steep (Slovakia: the Tatras' tiles took 14 and 35 min, most others seconds)."""
+    rows = manifest.db.execute("SELECT band, name, core, status, lines FROM tiles").fetchall()
+    done = [(json.loads(core), lines or 0) for _, _, core, status, lines in rows if status == "done"]
+    if not done:
+        return {}
+    cores = np.array([c for c, _ in done], dtype=np.float64)
+    lines = np.array([n for _, n in done], dtype=np.float64)
+    out = {}
+    for band, name, core, status, _ in rows:
+        if status == "pending" and band in bands:
+            left, bottom, right, top = json.loads(core)
+            over = (cores[:, 0] < right) & (left < cores[:, 2]) & (cores[:, 1] < top) & (bottom < cores[:, 3])
+            out[(band, name)] = float(lines[over].sum())
+    return out
+
+
+class _Rethreading:
+    """The sink of a tile's count that sets numba's threads as the other workers end: after a part
+    (search.count_tile hands the parts over between the line search's chunks, in the thread that
+    starts its kernels), at most every RETHREAD_SECONDS, the threads threads_now() gives (the
+    manifest's _threads). So the tiles counted last take the cores of the workers that are done;
+    the counts never depend on the threads (tests/test_units.py::test_kernels_independent_of_threads)."""
+
+    def __init__(self, sink, threads_now: Callable[[], int], threads: int, clock=time.monotonic):
+        self.sink, self.threads_now, self.threads, self.clock = sink, threads_now, threads, clock
+        self.most = threads  # the most threads the count got (the tile's meta: threads_max)
+        self.looked = clock()
+
+    def __call__(self, part):
+        self.sink(part)
+        if self.clock() - self.looked < RETHREAD_SECONDS:
+            return
+        self.looked = self.clock()
+        try:
+            threads = self.threads_now()
+        except sqlite3.Error:  # the manifest busy for longer than its timeout: the next look
+            return
+        if threads != self.threads:
+            import numba
+            self.threads = max(1, min(threads, numba.config.NUMBA_NUM_THREADS))
+            numba.set_num_threads(self.threads)
+            self.most = max(self.most, self.threads)
+
+
 # --- the work of a tile --------------------------------------------------------------------------
 
 def _peak_memory() -> Optional[int]:
@@ -420,6 +501,116 @@ def _commit() -> Optional[str]:
         return out.stdout.strip() or None if out.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None
+
+
+def _private(memory) -> int:
+    """The private bytes of a psutil memory_info: what the system cannot drop (Windows' commit; else
+    the resident pages less the shared ones). The memory-mapped grids are file pages: they count in
+    the working set (rss) only."""
+    private = getattr(memory, "private", None)
+    return int(private if private is not None else memory.rss - getattr(memory, "shared", 0))
+
+
+def _io_counters() -> Tuple[int, int]:
+    """Bytes read and written by this process so far (its file reads and writes; the pages of the
+    memory-mapped grids the system writes are not among them)."""
+    try:
+        io = psutil.Process().io_counters()
+        return int(io.read_bytes), int(io.write_bytes)
+    except (psutil.Error, AttributeError):
+        return 0, 0
+
+
+class _StageClock:
+    """A progress listener (progress.subscribe) summing the wall and CPU seconds of a tile per
+    stage: the label of the bar running, "other" between the bars. CPU: time.process_time, every
+    thread of the process, so the CPU over the wall seconds is the cores a stage used."""
+
+    def __init__(self, clock=time.monotonic, cpu=time.process_time):
+        self.clock, self.cpu = clock, cpu
+        self.current = "other"
+        self.since, self.cpu_since = clock(), cpu()
+        self.times: Dict[str, List[float]] = {}
+        self.lock = threading.Lock()  # bars may be updated from the threads of a pool
+
+    def _add(self):
+        now, cpu = self.clock(), self.cpu()
+        times = self.times.setdefault(self.current, [0.0, 0.0])
+        times[0] += now - self.since
+        times[1] += cpu - self.cpu_since
+        self.since, self.cpu_since = now, cpu
+
+    def __call__(self, state: Dict):
+        if not state.get("bar"):
+            return  # the text of a step
+        stage = state.get("stage") or "other"
+        with self.lock:
+            if not state.get("done"):
+                if stage != self.current:
+                    self._add()
+                    self.current = stage
+            elif stage == self.current:
+                self._add()
+                self.current = "other"
+
+    def result(self) -> Dict[str, List[float]]:
+        """{stage: [seconds, CPU seconds]} up to now."""
+        with self.lock:
+            self._add()
+            return {name: [round(s, 3), round(c, 3)] for name, (s, c) in self.times.items()}
+
+
+class _TimedSink:
+    """The counter's wall and CPU seconds (numpy on one thread, between the line search's chunks
+    and at its end): a sink, and its result()."""
+
+    def __init__(self, counter):
+        self.counter, self.seconds, self.cpu = counter, 0.0, 0.0
+
+    def _timed(self, call, *args):
+        t, c = time.monotonic(), time.process_time()
+        try:
+            return call(*args)
+        finally:
+            self.seconds += time.monotonic() - t
+            self.cpu += time.process_time() - c
+
+    def __call__(self, part):
+        self._timed(self.counter, part)
+
+    def result(self):
+        return self._timed(self.counter.result)
+
+
+class _MemorySampler(threading.Thread):
+    """This process's memory while a tile is counted, every TILE_SAMPLE_SECONDS: the peak working
+    set (rss) and private bytes (_private), and the peak private bytes per stage of clock."""
+
+    def __init__(self, clock: _StageClock):
+        super().__init__(daemon=True)
+        self.clock, self.process, self.halt = clock, psutil.Process(), threading.Event()
+        self.rss = self.private = 0
+        self.stages: Dict[str, int] = {}
+
+    def run(self):
+        while not self.halt.is_set():
+            self.sample()
+            self.halt.wait(TILE_SAMPLE_SECONDS)
+
+    def sample(self):
+        try:
+            memory = self.process.memory_info()
+        except psutil.Error:
+            return
+        private, stage = _private(memory), self.clock.current
+        self.rss, self.private = max(self.rss, int(memory.rss)), max(self.private, private)
+        self.stages[stage] = max(self.stages.get(stage, 0), private)
+
+    def stop(self) -> Dict:
+        self.halt.set()
+        self.join()
+        self.sample()
+        return {"rss": self.rss, "private": self.private, "stages": dict(self.stages)}
 
 
 class TileWork:
@@ -447,10 +638,13 @@ class TileWork:
     def tile_path(self, band: str, name: str) -> str:
         return os.path.join(self.folder, "tiles", band, f"{name}.npz")
 
-    def count(self, band_name: str, name: str, core: Tuple[float, ...], threads: int) -> Dict:
-        """One tile: step 1, the count, its file; returns its meta."""
+    def count(self, band_name: str, name: str, core: Tuple[float, ...], threads: int,
+              threads_now: Optional[Callable[[], int]] = None) -> Dict:
+        """One tile: step 1, the count, its file; returns its meta. threads_now: the threads the
+        count may take as it goes on (_Rethreading), else threads throughout."""
         import search
         import sources as src
+        from progress import progress
         band, plan, table = self._band(band_name)
         started = _now()
         res = plan.resolution
@@ -464,14 +658,27 @@ class TileWork:
         print(f"\n--- Band {band.name}, tile {name} ({grid.width} x {grid.height} px, {threads} threads) ---",
               flush=True)
         src.used_data.clear()
-        t0 = time.time()
-        data = search.prepare_data(tile_plan)
-        t1 = time.time()
-        counter = countcube.TileCounter(grid, self.origin, core, band.lengths,
-                                        float(band.lengths[1]) >= self.country.last_edge)
-        funnel = search.count_tile(tile_plan, data, core, counter, table)
-        counts = counter.result()
-        t2 = time.time()
+        # The profile of the tile (`country profile`): seconds and CPU per stage, the counter's
+        # share, the memory sampled while it runs, its file reads and writes
+        clock = _StageClock()
+        sampler = _MemorySampler(clock)
+        cpu0, (read0, written0) = time.process_time(), _io_counters()
+        progress.subscribe(clock)
+        sampler.start()
+        try:
+            t0 = time.time()
+            data = search.prepare_data(tile_plan)
+            t1 = time.time()
+            counter = _TimedSink(countcube.TileCounter(grid, self.origin, core, band.lengths,
+                                                       float(band.lengths[1]) >= self.country.last_edge))
+            sink = counter if threads_now is None else _Rethreading(counter, threads_now, threads)
+            funnel = search.count_tile(tile_plan, data, core, sink, table)
+            counts = counter.result()
+            t2 = time.time()
+        finally:
+            memory = sampler.stop()
+            progress.unsubscribe(clock)
+        read1, written1 = _io_counters()
         del data
         gc.collect()  # close the memory-mapped grids before their folder is removed (Windows)
         meta = {"version": countcube.VERSION, "config": self.state["hash"], "origin": list(self.origin),
@@ -479,7 +686,11 @@ class TileWork:
                 "grid": {"width": grid.width, "height": grid.height, "res": res, "left": grid.left, "top": grid.top},
                 "lines": counts.lines, "spots": int(len(counts.spot_ids)), "dropped": counts.dropped,
                 "funnel": dict(funnel), "seconds": {"prepare": round(t1 - t0, 3), "count": round(t2 - t1, 3)},
-                "threads": threads, "peak_memory": _peak_memory(), "commit": self.commit,
+                "stages": clock.result(), "sink": [round(counter.seconds, 3), round(counter.cpu, 3)],
+                "cpu_seconds": round(time.process_time() - cpu0, 3), "memory": memory,
+                "io": {"read": read1 - read0, "write": written1 - written0},
+                "threads": threads, "threads_max": getattr(sink, "most", threads), "peak_memory": _peak_memory(),
+                "commit": self.commit,
                 "data": json.loads(json.dumps(src.used_data)), "started": started, "finished": _now()}
         path = self.tile_path(band.name, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -507,7 +718,7 @@ class TileWork:
                 break
             band, name, core, threads = claimed
             try:
-                meta = self.count(band, name, core, threads)
+                meta = self.count(band, name, core, threads, threads_now=lambda: manifest.threads(self.cores))
             except Exception as e:  # the tile fails (pending again once, then failed); the others go on
                 traceback.print_exc()
                 sys.stdout.flush()
@@ -579,9 +790,9 @@ def _duration(seconds: float) -> str:
 
 def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
     """The processes of a run (at most the physical cores, each with the memory of the largest
-    tile: search.memory_needed of its pixels plus WORKER_MARGIN) and the bytes each needs."""
+    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel) and the bytes each needs."""
     import search
-    per = search.memory_needed(largest_px, 0) + WORKER_MARGIN
+    per = WORKER_BASE + COUNT_PIXEL_BYTES * largest_px
     available = search.available_memory() if available is None else available
     cores = psutil.cpu_count(logical=False) or os.cpu_count() or 1
     return max(1, min(cores, int(available // per))), per
@@ -749,6 +960,11 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
+        weights = _weights(manifest, selected)
+        if weights:
+            manifest.set_weights(weights)
+            say(f"The heaviest tiles first: {sum(w > 0 for w in weights.values())} of {len(weights)} pending tiles "
+                f"lie under the lines of the tiles done already")
         shutil.rmtree(os.path.join(data_dir, "work", f"country-{country.id}"), ignore_errors=True)
         counts = manifest.counts()
         todo = sum(counts.get(b, {}).get("pending", 0) for b in selected)
@@ -808,16 +1024,80 @@ def _run_here(folder: str, data_dir: str, manifest: Manifest, say) -> int:
     return 0
 
 
+def _disk_counters() -> Tuple[int, int]:
+    """Bytes read and written by the machine's disks so far."""
+    try:
+        disk = psutil.disk_io_counters()
+        return (int(disk.read_bytes), int(disk.write_bytes)) if disk else (0, 0)
+    except (psutil.Error, RuntimeError):
+        return 0, 0
+
+
+class _RunSamples:
+    """A run's timeline: logs/samples-<start>.csv, a row every RUN_SAMPLE_SECONDS (and at the start
+    and the end) with the machine's CPU % and memory, the workers' cores (their CPU seconds over
+    the interval), working set and private bytes (_private), the tiles being counted, and the
+    disks' read and write MB/s. `country profile` sums up the last one."""
+
+    COLUMNS = ("time", "seconds", "machine_cpu_pct", "ram_used_gib", "ram_available_gib", "workers",
+               "workers_cores", "workers_rss_gib", "workers_private_gib", "running_tiles", "disk_read_mbs",
+               "disk_write_mbs")
+
+    def __init__(self, folder: str):
+        self.path = os.path.join(folder, "logs", f"samples-{datetime.now():%Y%m%d-%H%M%S}.csv")
+        self.started = self.last = time.monotonic()
+        psutil.cpu_percent(None)  # the first call only starts the interval
+        self.disk = _disk_counters()
+        self.cpu: Dict[int, float] = {}
+        with open(self.path, "w", encoding="utf-8") as f:
+            f.write(",".join(self.COLUMNS) + "\n")
+
+    def sample(self, pids: Sequence[int], manifest: Manifest):
+        now = time.monotonic()
+        interval = max(now - self.last, 1e-6)
+        alive, cores, rss, private = 0, 0.0, 0, 0
+        for pid in pids:
+            try:
+                process = psutil.Process(pid)
+                times, memory = process.cpu_times(), process.memory_info()
+            except psutil.Error:
+                continue
+            alive += 1
+            cpu = times.user + times.system
+            cores += (cpu - self.cpu.get(pid, cpu)) / interval  # nothing before a process's first sample
+            self.cpu[pid] = cpu
+            rss, private = rss + int(memory.rss), private + _private(memory)
+        disk, ram = _disk_counters(), psutil.virtual_memory()
+        try:
+            running = manifest.db.execute("SELECT COUNT(*) FROM tiles WHERE status = 'running'").fetchone()[0]
+        except sqlite3.Error:
+            running = ""
+        row = (datetime.now().isoformat(timespec="seconds"), f"{now - self.started:.1f}",
+               f"{psutil.cpu_percent(None):.1f}", f"{ram.used / 2 ** 30:.2f}", f"{ram.available / 2 ** 30:.2f}",
+               alive, f"{cores:.2f}", f"{rss / 2 ** 30:.2f}", f"{private / 2 ** 30:.2f}", running,
+               f"{(disk[0] - self.disk[0]) / interval / 1e6:.1f}", f"{(disk[1] - self.disk[1]) / interval / 1e6:.1f}")
+        self.disk, self.last = disk, now
+        with open(self.path, "a", encoding="utf-8") as f:
+            f.write(",".join(map(str, row)) + "\n")
+
+
 def _run_workers(country_id, data_dir, folder, manifest: Manifest, k: int, selected, say, started) -> int:
-    """K worker processes until none is left; a progress line every PROGRESS_SECONDS; on Ctrl+C the
-    workers killed (jobs.kill_tree) and their tiles pending again."""
+    """K worker processes until none is left; a progress line every PROGRESS_SECONDS, a row of the
+    run's timeline every RUN_SAMPLE_SECONDS; on Ctrl+C the workers killed (jobs.kill_tree) and
+    their tiles pending again."""
     import jobs
     procs = {slot: _worker_process(country_id, data_dir, folder, slot) for slot in range(k)}
-    say(f"Started {k} workers (logs in {os.path.join(folder, 'logs')})")
-    respawns, last = 0, time.time()
+    samples = _RunSamples(folder)
+    say(f"Started {k} workers (logs in {os.path.join(folder, 'logs')}, the timeline in "
+        f"{os.path.basename(samples.path)})")
+    samples.sample([p.pid for p in procs.values()], manifest)
+    respawns, last, sampled = 0, time.time(), time.time()
     try:
         while procs:
             time.sleep(1)
+            if time.time() - sampled >= RUN_SAMPLE_SECONDS:
+                sampled = time.time()
+                samples.sample([p.pid for p in procs.values()], manifest)
             for slot, proc in list(procs.items()):
                 code = proc.poll()
                 if code is None:
@@ -843,6 +1123,7 @@ def _run_workers(country_id, data_dir, folder, manifest: Manifest, k: int, selec
         n = manifest.release_running()
         say(f"Stopped: the workers were stopped, {n} tiles being counted are pending again")
         return 130
+    samples.sample([], manifest)  # the end
     return 0
 
 
@@ -905,6 +1186,83 @@ def status(country_id: str, data_dir: str) -> int:
     finally:
         manifest.close()
     return 0
+
+
+def _quantiles(values) -> str:
+    values = np.asarray(values, dtype=np.float64)
+    return f"median {np.median(values):.2f}, p90 {np.percentile(values, 90):.2f}, max {values.max():.2f}"
+
+
+def profile(country_id: str, data_dir: str) -> int:
+    """`country profile`: where the time and the memory of the counted tiles went, per band and
+    stage (the tiles' meta: stages, sink, cpu_seconds, memory, io, threads), and the sums of the
+    last run's timeline (logs/samples-*.csv)."""
+    from collections import Counter
+    folder = folder_of(data_dir, country_id)
+    country = Country.from_config(read_state(folder)["config"])
+    gib = 2 ** 30
+    for band in country.bands:
+        paths = sorted(glob.glob(os.path.join(folder, "tiles", band.name, "*.npz")))
+        if not paths:
+            continue
+        metas = [_tile_meta(p) for p in paths]
+        walls = np.array([m["seconds"]["prepare"] + m["seconds"]["count"] for m in metas])
+        print(f"Band {band.name}: {len(metas)} tiles, {walls.sum() / 3600:.2f} h of tile time; seconds per tile "
+              f"{_quantiles(walls)}")
+        profiled = [m for m in metas if "stages" in m]
+        if len(profiled) < len(metas):
+            print(f"  {len(metas) - len(profiled)} tiles counted before their stages were measured")
+        if not profiled:
+            continue
+        stages: Dict[str, List[float]] = {}
+        for m in profiled:
+            for name, (seconds, cpu) in m["stages"].items():
+                total = stages.setdefault(name, [0.0, 0.0])
+                total[0] += seconds
+                total[1] += cpu
+        whole = sum(seconds for seconds, _ in stages.values()) or 1.0
+        print(f"  {'Stage':<48} {'Hours':>7} {'Share':>6} {'Cores':>6}")
+        for name, (seconds, cpu) in sorted(stages.items(), key=lambda item: -item[1][0]):
+            print(f"  {name[:48]:<48} {seconds / 3600:>7.2f} {seconds / whole:>6.1%} "
+                  f"{cpu / seconds if seconds else 0.0:>6.2f}")
+        sink = np.array([m["sink"] for m in profiled], dtype=np.float64)
+        print(f"  the counter (in 'anchor pairs' and after it): {sink[:, 0].sum() / 3600:.2f} h, "
+              f"{sink[:, 0].sum() / whole:.1%} of the time")
+        claimed = Counter(m["threads"] for m in profiled)
+        most = Counter(m.get("threads_max", m["threads"]) for m in profiled)
+        print(f"  cores of a tile on average {sum(m['cpu_seconds'] for m in profiled) / whole:.2f}; threads claimed "
+              f"{dict(sorted(claimed.items()))}, at most {dict(sorted(most.items()))}")
+        print(f"  memory of a tile (GiB): private {_quantiles([m['memory']['private'] / gib for m in profiled])}; "
+              f"working set {_quantiles([m['memory']['rss'] / gib for m in profiled])}")
+        print(f"  file reads of a tile (MB) {_quantiles([m['io']['read'] / 1e6 for m in profiled])}; "
+              f"writes {_quantiles([m['io']['write'] / 1e6 for m in profiled])}")
+    timelines = sorted(glob.glob(os.path.join(folder, "logs", "samples-*.csv")))
+    if timelines:
+        _profile_timeline(timelines[-1])
+    return 0
+
+
+def _profile_timeline(path: str):
+    """The sums of a run's timeline (_RunSamples)."""
+    import csv
+    with open(path, encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(f) if r["running_tiles"] != ""]
+    if len(rows) < 2:
+        return
+
+    def column(key):
+        return np.array([float(r[key]) for r in rows])
+
+    workers, running, cores = column("workers"), column("running_tiles"), column("workers_cores")
+    busy = workers.max()
+    print(f"The last run's timeline ({os.path.basename(path)}): {column('seconds')[-1] / 60:.1f} min, "
+          f"{busy:.0f} workers; machine CPU {column('machine_cpu_pct').mean():.0f} % on average; the workers' cores "
+          f"{cores.mean():.1f} on average, {cores.max():.1f} at most; memory used up to "
+          f"{column('ram_used_gib').max():.1f} GiB (the workers' private bytes up to "
+          f"{column('workers_private_gib').max():.1f} GiB); fewer tiles than workers {np.mean(running < busy):.0%} "
+          f"of the time; disks {column('disk_read_mbs').mean():.0f} MB/s read and "
+          f"{column('disk_write_mbs').mean():.0f} MB/s written on average (at most {column('disk_read_mbs').max():.0f} "
+          f"and {column('disk_write_mbs').max():.0f})")
 
 
 def _tile_meta(path: str) -> Dict:
@@ -1128,6 +1486,8 @@ def main(argv: List[str]) -> int:
                                                        "everything again (needed after a change of the configuration)")
     r.add_argument("--yes", action="store_true", help="do not ask before starting")
     commands.add_parser("status", help="the tiles of each band by status, lines, spots, seconds, errors")
+    commands.add_parser("profile", help="where the time and the memory of the counted tiles went, per band and "
+                                        "stage, and the last run's timeline")
     b = commands.add_parser("build", help="the cube of the layer bands' tiles")
     b.add_argument("--partial", action="store_true", help="build while tiles are missing")
     c = commands.add_parser("compare", help="a control band against the same lengths of another band")
@@ -1148,6 +1508,8 @@ def main(argv: List[str]) -> int:
             return run(args.id, data_dir, args.processes, bands, args.max_tiles, args.redo, args.yes)
         if args.command == "status":
             return status(args.id, data_dir)
+        if args.command == "profile":
+            return profile(args.id, data_dir)
         if args.command == "build":
             return build(args.id, data_dir, args.partial)
         if args.command == "compare":

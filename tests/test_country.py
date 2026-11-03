@@ -168,6 +168,10 @@ def test_cube_equals_one_grid(env, full):
     assert meta["config"] == state["hash"] and meta["origin"] == state["origin"] and meta["band"] == "S"
     assert meta["lines"] == counts.lines and meta["spots"] == len(counts.spot_ids) and "dropped" in meta
     assert meta["seconds"]["count"] >= 0 and meta["threads"] >= 1 and meta["data"] and "peak_memory" in meta
+    # its profile (`country profile`): seconds and CPU per stage, the counter, the memory, the file reads
+    assert "finding anchors" in meta["stages"] and all(len(v) == 2 for v in meta["stages"].values())
+    assert meta["memory"]["rss"] > 0 and meta["memory"]["private"] > 0 and meta["cpu_seconds"] > 0
+    assert len(meta["sink"]) == 2 and meta["io"]["read"] >= 0 and meta["threads_max"] >= meta["threads"]
 
 
 def test_status_and_compare(env, full, capsys):
@@ -182,6 +186,10 @@ def test_status_and_compare(env, full, capsys):
         result = json.load(f)
     assert result["lengths"] == [60, 150] and result["lines"]["control"] > 0 and result["lines"]["against"] > 0
     assert set(result["cells"]) == {"1", "4"} and result["seconds"]["control"] > 0
+    capsys.readouterr()
+    assert _country("profile", ID, "--data-dir", data) == 0
+    out = capsys.readouterr().out
+    assert "Band S:" in out and "finding anchors" in out and "memory of a tile" in out
 
 
 def test_resume(env, full):
@@ -203,6 +211,11 @@ def test_two_processes(env, full):
     _assert_same_cube(_cube(data), full["reference"])
     logs = os.path.join(data, "countries", ID, "logs")
     assert {"run.log", "worker-0.log", "worker-1.log"} <= set(os.listdir(logs))
+    timelines = [n for n in os.listdir(logs) if n.startswith("samples-") and n.endswith(".csv")]
+    assert len(timelines) == 1
+    with open(os.path.join(logs, timelines[0]), encoding="utf-8") as f:
+        rows = f.read().splitlines()
+    assert rows[0].startswith("time,seconds,machine_cpu_pct,") and len(rows) >= 3  # the start and the end
     db = sqlite3.connect(os.path.join(data, "countries", ID, "manifest.sqlite"))
     try:
         workers = {r[0] for r in db.execute("SELECT worker FROM tiles WHERE band IN ('S', 'M')")}
@@ -250,3 +263,94 @@ def test_failing_tiles(env, full, monkeypatch, capsys):
     with open(os.path.join(data, "countries", ID, "cube", "cube.json"), encoding="utf-8") as f:
         info = json.load(f)
     assert info["partial"] is True and any("Partial" in n for n in info["notes"])
+
+
+def test_worker_count(monkeypatch):
+    """The processes of a run from the measured memory of a count (WORKER_BASE plus
+    COUNT_PIXEL_BYTES per pixel of the largest tile), at most the physical cores, at least one."""
+    import country
+    monkeypatch.setattr(country.psutil, "cpu_count", lambda logical=True: 24 if logical else 12)
+    per = country.WORKER_BASE + country.COUNT_PIXEL_BYTES * 38_500_000
+    assert country.worker_count(38_500_000, 31 * 2 ** 30) == (11, per)  # Slovakia's S tiles, 31 GiB free
+    assert country.worker_count(38_500_000, 100 * 2 ** 30)[0] == 12
+    assert country.worker_count(38_500_000, 2 ** 30)[0] == 1
+
+
+def _tile(name, core):
+    import types
+    return types.SimpleNamespace(name=name, core=core)
+
+
+def test_heaviest_tiles_first(tmp_path):
+    """A manifest of schema v1 gets the column of the weights; a run claims the tiles under the
+    most lines of the tiles done already first (_weights: the cores that overlap, not those that
+    only touch), the others after them in their order."""
+    import cache
+    import country
+    db = sqlite3.connect(tmp_path / "manifest.sqlite")
+    cache.migrate(db, country.MIGRATIONS[:1])
+    db.execute("INSERT INTO tiles (band, name, core) VALUES ('A', 'a1', '[0, 0, 10, 10]')")
+    db.commit()
+    db.close()
+    m = country.Manifest(str(tmp_path))
+    try:
+        assert "weight" in [r[1] for r in m.db.execute("PRAGMA table_info(tiles)")]
+        m.add_tiles("B", [_tile("b2", (20, 0, 40, 20)), _tile("b1", (0, 0, 20, 20)), _tile("b3", (0, 20, 20, 40))])
+        assert country._weights(m, ["B"]) == {}  # nothing done yet: the order they were added
+        m.add_tiles("A", [_tile("a2", (10, 0, 20, 10)), _tile("a3", (0, 10, 10, 20))])
+        m.db.execute("UPDATE tiles SET status = 'done', lines = CASE name WHEN 'a1' THEN 5 WHEN 'a2' THEN 100 "
+                     "ELSE 0 END WHERE band = 'A'")
+        weights = country._weights(m, ["B"])
+        assert weights == {("B", "b2"): 0.0, ("B", "b1"): 105.0, ("B", "b3"): 0.0}
+        m.set_weights(weights)
+        m.set_run(["B"], None, 2)
+        assert [m.claim("w", 24)[1] for _ in range(3)] == ["b1", "b2", "b3"] and m.claim("w", 24) is None
+    finally:
+        m.close()
+
+
+def test_threads_follow_the_busy_workers(tmp_path, monkeypatch):
+    """A tile claimed while every worker is busy gets the cores they share; as the others end, its
+    count takes theirs (_Rethreading sets numba's threads between the parts, at most every
+    RETHREAD_SECONDS); the parts reach the counter unchanged."""
+    import numba
+    import country
+    m = country.Manifest(str(tmp_path))
+    try:
+        m.add_tiles("B", [_tile(f"b{k}", (k, 0, k + 1, 1)) for k in range(6)])
+        m.set_run(["B"], None, 4)
+        assert m.claim("w", 24)[3] == 6  # 4 workers busy
+        m.db.execute("UPDATE tiles SET status = 'done' WHERE status = 'pending'")
+        assert m.threads(24) == 24  # the last tile alone
+    finally:
+        m.close()
+    clock, calls, parts = [0.0], [], []
+    monkeypatch.setattr(numba, "set_num_threads", calls.append)
+    most = numba.config.NUMBA_NUM_THREADS
+    sink = country._Rethreading(parts.append, lambda: most, 1, clock=lambda: clock[0])
+    sink("part 1")
+    assert parts == ["part 1"] and calls == []
+    clock[0] = country.RETHREAD_SECONDS
+    sink("part 2")
+    assert parts == ["part 1", "part 2"] and calls == ([most] if most > 1 else []) and sink.most == most
+
+
+def test_stage_clock():
+    """_StageClock sums the wall and CPU seconds per stage of the bars, "other" between them; the
+    updates of a stage and the states of the steps do not move it."""
+    import country
+    t, c = [0.0], [0.0]
+    clock = country._StageClock(clock=lambda: t[0], cpu=lambda: c[0])
+
+    def at(seconds, cpu, state):
+        t[0], c[0] = seconds, cpu
+        clock(state)
+
+    at(1, 1, {"bar": "Compute", "stage": "stitching terrain", "done": False})
+    at(3, 2, {"bar": "Compute", "stage": "stitching terrain", "done": False})  # an update
+    at(4, 3, {"bar": "Compute", "stage": "stitching terrain", "done": True})
+    at(5, 3.5, {"bar": "", "stage": "", "done": True, "step": "Step 3/3: evaluating anchor pairs"})
+    at(6, 4, {"bar": "Compute", "stage": "anchor pairs", "done": False})
+    at(10, 20, {"bar": "Compute", "stage": "anchor pairs", "done": True})
+    t[0], c[0] = 11, 21
+    assert clock.result() == {"other": [4.0, 3.0], "stitching terrain": [3.0, 2.0], "anchor pairs": [4.0, 16.0]}
