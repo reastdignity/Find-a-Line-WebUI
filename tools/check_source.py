@@ -19,7 +19,8 @@ layer's own path into the cache of --data-dir:
    downsamples).
 3. files: --samples cached tiles against their source files read through GDAL (/vsicurl/,
    /vsizip/): the largest difference, the share of equal values, the same pixels without
-   data (blocks: against the newest file with data there). n/a for WCS tiles and local files.
+   data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
+   against the files after its geoid's correction, as it caches them). n/a for WCS tiles and local files.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
 6. missing: tiles the service had no data for (normal over the sea; on land a lost tile).
@@ -239,6 +240,22 @@ def _read_zip(layer: src.ZippedTiles, url: str, profile: Dict) -> np.ndarray:
     return values
 
 
+def _read_xyz(url: str, profile: Dict) -> np.ndarray:
+    """A plain XYZ file of a GeoJsonTiles layer read by GDAL's XYZ driver (not the layer's own parser) on the
+    pixels of a cached tile; its server needs net.verify (an incomplete TLS chain), so it is downloaded by
+    src.net._get, not read by /vsicurl/."""
+    response = src.net._get(url, binary_types=("text/plain",))
+    if response is None:
+        raise RuntimeError(f"{cache.clean_url(url)}: not found")
+    with rio.io.MemoryFile(response.content, ext=".xyz") as memfile, memfile.open() as source:
+        with WarpedVRT(source, src_crs=profile["crs"], crs=profile["crs"], transform=profile["transform"],
+                       width=profile["width"], height=profile["height"], nodata=-9999.0,
+                       resampling=Resampling.nearest) as vrt:
+            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return values
+
+
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
@@ -326,9 +343,16 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
             try:
                 resampling = Resampling.average if getattr(layer, "average", 1) > 1 else Resampling.nearest
                 # A ZippedTiles layer without members reads plain files (Trento's ASCII grids)
-                source = (_read_zip(layer, url, profile)
-                          if isinstance(layer, src.ZippedTiles) and layer.members is not None
-                          else _read_source(url, profile, resampling))
+                if isinstance(layer, src.ZippedTiles) and layer.members is not None:
+                    source = _read_zip(layer, url, profile)
+                elif isinstance(layer, src.GeoJsonTiles):
+                    source = _read_xyz(url, profile)
+                else:
+                    source = _read_source(url, profile, resampling)
+                geoid = getattr(layer, "geoid", None)
+                if geoid is not None:  # heights above the ellipsoid: the layer caches them above its geoid
+                    source -= geoid.undulation(profile["crs"], profile["transform"],
+                                               (profile["height"], profile["width"]), grid=geoid.ensure(cache_dir))
             except (rio.errors.RasterioError, RuntimeError, zipfile.BadZipFile) as e:
                 problems.append(f"{name}: {cache.clean_error(e)}")
                 break

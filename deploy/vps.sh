@@ -651,11 +651,11 @@ start() {
     compose ps
 }
 
-# The Geofabrik extracts osm_data leaves out (docs/deployment.md, section 9): the US (12 GB) and
-# Canada (6.5 GB): the features of their themes, Alaska's and the Arctic's long coastlines, would
-# be loaded by every search process that builds a theme tile there, and their sea comes from the
-# world file anyway
-OSM_EXTRACTS_SKIP=(us canada)
+# The Geofabrik extracts osm_data leaves out (docs/deployment.md, section 9): the US (12 GB),
+# Canada (6.5 GB) and Nunavut (1.5 GB, the source nunavut's region): the features of their themes,
+# Alaska's and the Arctic's long coastlines, would be loaded by every search process that builds a
+# theme tile there, and their sea comes from the world file anyway
+OSM_EXTRACTS_SKIP=(us canada nunavut)
 
 osm_data() {
     step "OpenStreetMap data (section 9)"

@@ -51,7 +51,7 @@ PUBLIC = {
     "not_allowed": ["update", "threads", "tile_size", "source", "water", "shore_buffer", "fill_gaps", "coastline",
                     "ortho", "ortho_detail"],
     "radius_max": 3500, "resolution_max": 30,
-    "region_km2_max": 2500, "area_km2_max": 50, "bbox_km_max": 75, "grid_mpx_max": 36, "tiles_max": 300, "anchors_max": 3_000_000,
+    "region_km2_max": 2500, "area_km2_max": 50, "bbox_km_max": 75, "grid_mpx_max": 64, "tiles_max": 300, "anchors_max": 3_000_000,
     "lines_max": 1_500_000, "download_mb_max": 3000, "ortho_minutes": 10,
     "jobs_active_max": 2, "jobs_day_max": 20, "mpx_day_max": 250, "runs_gb_max": 5, "nominatim_day_max": 50,
     "download_mb_day_max": 10000,

@@ -82,11 +82,11 @@ timer, SSH, the free disk, the monitoring; a timer runs it daily, section 15).
   meanwhile. One computing search keeps only about 1.5 cores busy (docs/performance.md), so a
   larger machine runs several: `WORKER_COMPUTE_SLOTS` and `WORKER_DOWNLOAD_SLOTS` in `.env`.
   With more than one compute slot each search gets an equal share of the memory free at the
-  worker's start, after about 3.4 GB for the quick lane (a profile measured on a map) and 0.5 GB
-  per download slot: the largest public search (a tile of 36 million pixels and 1.5 million
-  lines) needs about 4.1 GB, and the worker warns at its start (`docker compose logs worker`)
+  worker's start, after about 1.8 GB for the quick lane (a profile measured on a map) and 0.5 GB
+  per download slot: the largest public search (a tile of 64 million pixels and 1.5 million
+  lines) needs about 3.9 GB, and the worker warns at its start (`docker compose logs worker`)
   when it does not fit into a slot. For the 8-core, 24 GB VPS: `WORKER_CPUS=7`,
-  `WORKER_MEMORY=20g`, `WORKER_COMPUTE_SLOTS=3` (about 5.2 GB each), `WORKER_DOWNLOAD_SLOTS=2`;
+  `WORKER_MEMORY=20g`, `WORKER_COMPUTE_SLOTS=3` (about 6.2 GB each), `WORKER_DOWNLOAD_SLOTS=2`;
   each computing search keeps all `WORKER_CPUS` numba threads (`NUMBA_NUM_THREADS`), which only
   its line search uses. Each user's oldest waiting search goes first when that user has the
   fewest searches running, so one user's queue does not hold the others back.
@@ -565,10 +565,13 @@ switzerland, liechtenstein, slovakia, malta, canary-islands, spain, us/puerto-ri
 us/us-virgin-islands, austria, wales, england, hessen, mecklenburg-vorpommern, sachsen-anhalt,
 niedersachsen, nord-est, luxembourg, denmark and finland, and since batch 2 of the new sources (2026-11-02) norway
 (1.4 GB), new-zealand (0.4 GB), czech-republic (0.95 GB), sachsen (0.27 GB), baden-wuerttemberg (0.65 GB) and france
-(5.1 GB, kept: the user, 2026-11-02): about 19.3 GB of extracts (France 5.1 GB, Poland 2.1 GB, England 1.7 GB, Spain
-1.5 GB, Norway 1.4 GB, the rest below 1 GB each) and the world file's 1.2 GB unpacked; at Geofabrik's usual speed the downloads take
+(5.1 GB, kept: the user, 2026-11-02), bayern (0.86 GB), rheinland-pfalz (0.27 GB), scotland (0.33 GB),
+nordrhein-westfalen (0.92 GB) and tasmania (0.05 GB), and since batch 3 (2026-11-03) slovenia (0.31 GB), brandenburg
+(0.30 GB, Berlin's too), schleswig-holstein (0.16 GB), queensland (0.20 GB), greenland (0.03 GB) and iceland
+(0.06 GB; Svalbard and Jan Mayen are in norway's): about 22.8 GB of extracts (France 5.1 GB, Poland 2.1 GB, England
+1.7 GB, Spain 1.5 GB, Norway 1.4 GB, the rest below 1 GB each) and the world file's 1.2 GB unpacked; at Geofabrik's usual speed the downloads take
 some minutes each and reading the themes from an extract about 10 s per 2 GB. Left out
-(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB) and Canada (6.5 GB): the features of
+(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB), Canada (6.5 GB) and Nunavut (1.5 GB): the features of
 their themes, Alaska's and the Arctic's long coastlines, would be read by every search process
 building a theme tile there, and their sea comes from the world file anyway; a coast or cliffs
 area there still asks Overpass. `deploy/vps.sh` does all of this after the start

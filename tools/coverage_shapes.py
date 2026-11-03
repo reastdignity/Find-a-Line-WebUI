@@ -4,7 +4,7 @@ The coverage map's outlines: countries and regions from Natural Earth (public do
 Writes viewer/src/coverage/shapes.json, a GeoJSON FeatureCollection whose properties are `ShapeProperties` of
 viewer/src/coverage/types.ts: every country of Natural Earth's admin-0 (1:50m), then the regions of the coverage
 map's areas from its admin-1 (1:10m: ISO 3166-2 codes, the Canary Islands from both provinces, the nations of
-Great Britain by `geonunit`). A country its source covers only in part (`Coverage.box`, else the source's
+Great Britain by `geonunit`, Jan Mayen, which admin-1 lacks, cut from Norway's outline: CUT). A country its source covers only in part (`Coverage.box`, else the source's
 `bbox`: France without its overseas regions, Norway without Svalbard, New Zealand without the Chatham Islands)
 is split: the covered part keeps the id, the rest is a feature of the same id with `rest: true`. Areas under
 SMALL_KM2 are `small` (drawn as a dot too). tests/test_coverage.py checks that every area has a shape.
@@ -43,6 +43,8 @@ FILES = {
 }
 # Regions made of several admin-1 units (ISO 3166-2 codes); any other region is its own code
 MERGED = {"es-cn": ("ES-GC", "ES-TF")}
+# Regions without an admin-1 unit: their country's outline within a box (south, north, west, east)
+CUT = {"no-22": ("no", (70.5, 71.5, -9.5, -7.5))}
 # Regions of Great Britain: Natural Earth's admin-1 units of a nation (`geonunit`)
 NATIONS = {"gb-eng": "England", "gb-wls": "Wales", "gb-sct": "Scotland", "gb-nir": "Northern Ireland"}
 SMALL_KM2 = 10_000
@@ -151,6 +153,14 @@ def shapes(admin0: str, admin1: str) -> dict:
         else:
             features.append(feature(id_, "country", continent, geom))
     for id_ in regions():
+        if id_ in CUT:
+            country, (south, north, west, east) = CUT[id_]
+            geom = shapely.union_all(list(countries[countries["id"] == country].geometry)).intersection(
+                shapely.box(west, south, east, north))
+            if geom.is_empty:
+                raise SystemExit(f"region {id_}: not in {country}'s outline")
+            features.append(feature(id_, "region", None, geom))
+            continue
         if id_ in NATIONS:
             rows = units[(units["adm0_a3"] == "GBR") & (units["geonunit"] == NATIONS[id_])]
         else:

@@ -20,14 +20,14 @@ export interface World {
   listed: string[];               // the areas a list or a caption names (see `listed`)
 }
 
-/** The areas a text names: of the areas with the same provider and resolutions (Puerto Rico and the Virgin
- *  Islands with the USA, Liechtenstein with Switzerland, Åland with Finland, the Canary Islands with Spain)
+/** The areas a text names: of the areas of one source (Puerto Rico and the Virgin Islands with the USA,
+ *  Liechtenstein with Switzerland, Åland with Finland, Berlin with Brandenburg, Jan Mayen with Svalbard)
  *  only one, the first that is not `small` (else the first): coverage.json's order puts Puerto Rico before
- *  the USA. */
+ *  the USA. Not by provider: Greenland, Svalbard, Nunavut and Iceland share ArcticDEM's. */
 function listed(small: Set<string>): string[] {
   const chosen = new Map<string, string>();
   for (const [id, area] of Object.entries(COVERAGE.areas)) {
-    const key = `${area.provider}|${area.res.join(",")}`, before = chosen.get(key);
+    const key = area.source, before = chosen.get(key);
     if (before === undefined || small.has(before) && !small.has(id)) chosen.set(key, id);
   }
   const names = new Set(chosen.values());

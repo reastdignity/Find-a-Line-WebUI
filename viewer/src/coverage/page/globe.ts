@@ -14,7 +14,7 @@ const AIMS: Record<BoxName, {centre: [number, number]; k: number}> = {
   world: {centre: [10, 25], k: 1},
   europe: {centre: [12, 52], k: 2.6},
   na: {centre: [-100, 48], k: 1.7},
-  oceania: {centre: [160, -38], k: 2.2},
+  oceania: {centre: [157, -30], k: 1.8},
 };
 const MAX_K = 8;
 const SPIN = 0.006;  // degrees per millisecond

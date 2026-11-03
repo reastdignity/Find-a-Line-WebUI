@@ -33,6 +33,12 @@ class OrthoService:
     # A link for the attribution (a licence page, or the provider's site where its terms ask for a
     # link: basemap.at); the about page and the map show the attribution as a link to it
     attribution_url: Optional[str] = None
+    # The WMS version asked: "1.3.0" (EPSG:4326 in its lat-lon axis order), or "1.1.1" for a WMS that
+    # takes EPSG:4326 in lon-lat order only (GURS's DOF answers a 1.3.0 request with a white image)
+    wms_version: str = "1.3.0"
+    # The CRS the WMS is asked in: "EPSG:4326" (the box of a tile in degrees), or "EPSG:3857" for a WMS
+    # that serves Web Mercator only (gis.natt.is's mapcache), asked with each tile's own Mercator box
+    wms_crs: str = "EPSG:4326"
 
     @property
     def ttl_days(self) -> Optional[int]:
@@ -56,7 +62,8 @@ class Coverage:
     rest: Tuple[float, ...] = ()  # the coarser resolutions (metres) of the rest of its areas: a mix
     level: Optional[int] = None   # 1 (≤ 1 m), 2 (2-5 m); None: from the default resolution
     survey: str = ""        # years ("2018", "2017–2023" with an en dash), a code of "survey.<code>", "" unknown
-    trees: Optional[str] = None   # "yes", "no", "part"; None: "yes" with a surface layer, else "no"
+    trees: Optional[str] = None   # "yes", "no", "part", "surface" (only a surface model); None: "yes" with a
+                                  # surface layer, else "no"
     min_length: Optional[float] = None  # metres: shorter lines are not reliable (note "short")
     # Codes of further notes (locales/coverage "note.<code>"): "smoothed", "whole_m", "old_survey" (its
     # years: `survey`)
@@ -99,6 +106,10 @@ class Source:
     neighbours: Tuple[str, ...] = ()
     bbox: Optional[Tuple[float, float, float, float]] = None  # (south, north, west, east) for --source auto
     grid_origin: Tuple[float, float] = (0.0, 0.0)  # pixel edges of the data in the working CRS (grid.make_grid)
+    # The constant a provider wrote into its terrain model over the sea instead of leaving it without
+    # data (LVermGeo SH's North Sea: 1.30 m): inside the sea zone, pixels of that value count as
+    # water (filling.fill_water, within SEA_FILL_EPS); their heights stay. None: no such fill
+    sea_fill: Optional[float] = None
     # Licences and notices of the data; a source with one credit gives it to its layers,
     # one with more sets each layer's own (europe: FABDEM and Copernicus)
     credits: Tuple[Credit, ...] = ()

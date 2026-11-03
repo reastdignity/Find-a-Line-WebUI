@@ -6,8 +6,9 @@
 export type Level = 1 | 2 | 3;
 
 /** Whether the data knows trees and buildings (a surface model next to the terrain): "part" in some of
- *  the area only, "rough" at 30 m (the rest of the world). */
-export type Trees = "yes" | "no" | "part" | "rough";
+ *  the area only, "rough" at 30 m (the rest of the world), "surface" in the heights (only a surface model:
+ *  ArcticDEM). */
+export type Trees = "yes" | "no" | "part" | "rough" | "surface";
 
 /** A remark on an area's data: locales/coverage "note.<code>", its params interpolated (numbers are
  *  metres, written with their unit by i18n.ts noteText). */

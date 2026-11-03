@@ -13,6 +13,27 @@
    "survey": "mosaic",
    "trees": "yes"
   },
+  "au-qld": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "State of Queensland",
+   "res": [
+    1,
+    30
+   ],
+   "source": "queensland",
+   "survey": "2006–2024",
+   "trees": "no"
+  },
   "au-tas": {
    "added": "2026-11-02",
    "level": 2,
@@ -66,6 +87,26 @@
    "survey": "lidar",
    "trees": "yes"
   },
+  "ca-nu": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "nunavut",
+   "survey": "",
+   "trees": "surface"
+  },
   "ch": {
    "added": "2026-10-26",
    "level": 1,
@@ -94,6 +135,32 @@
    ],
    "source": "czechia",
    "survey": "2009–2013",
+   "trees": "yes"
+  },
+  "de-bb": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGB",
+   "res": [
+    1
+   ],
+   "source": "brandenburg",
+   "survey": "",
+   "trees": "yes"
+  },
+  "de-be": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LGB",
+   "res": [
+    1
+   ],
+   "source": "brandenburg",
+   "survey": "",
    "trees": "yes"
   },
   "de-bw": {
@@ -186,6 +253,23 @@
    "source": "rhineland_palatinate",
    "survey": "2022–2025",
    "trees": "yes"
+  },
+  "de-sh": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "LVermGeo SH",
+   "res": [
+    1
+   ],
+   "source": "schleswig_holstein",
+   "survey": "2005–2025",
+   "trees": "no"
   },
   "de-sn": {
    "added": "2026-11-02",
@@ -342,6 +426,46 @@
    "survey": "2020–2022",
    "trees": "yes"
   },
+  "gl": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "greenland",
+   "survey": "",
+   "trees": "surface"
+  },
+  "is": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "iceland",
+   "survey": "",
+   "trees": "surface"
+  },
   "it-bz": {
    "added": "2026-11-01",
    "level": 2,
@@ -437,6 +561,46 @@
    "survey": "",
    "trees": "yes"
   },
+  "no-21": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "svalbard",
+   "survey": "",
+   "trees": "surface"
+  },
+  "no-22": {
+   "added": "2026-11-03",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Polar Geospatial Center",
+   "res": [
+    2
+   ],
+   "source": "svalbard",
+   "survey": "",
+   "trees": "surface"
+  },
   "nz": {
    "added": "2026-11-02",
    "level": 1,
@@ -491,6 +655,23 @@
    ],
    "source": "usa",
    "survey": "projects",
+   "trees": "no"
+  },
+  "si": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "ARSO",
+   "res": [
+    1
+   ],
+   "source": "slovenia",
+   "survey": "2011–2015",
    "trees": "no"
   },
   "sk": {
@@ -580,12 +761,15 @@
    "trees": "no"
   }
  },
- "countries": 20,
+ "countries": 23,
  "partly": {
   "au": [
+   "au-qld",
    "au-tas"
   ],
   "de": [
+   "de-bb",
+   "de-be",
    "de-bw",
    "de-by",
    "de-he",
@@ -593,6 +777,7 @@
    "de-ni",
    "de-nw",
    "de-rp",
+   "de-sh",
    "de-sn",
    "de-st"
   ],

@@ -1,0 +1,65 @@
+{
+ "recipe": "imageserver-queensland",
+ "recorded": "2026-11-02",
+ "hosts": [
+  "https://spatial-img.information.qld.gov.au"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=494770%2C7021640%2C494786%2C7021656&bboxSR=28356&imageSR=28356&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22sortValue%22%3A%220%22%2C%22where%22%3A%22product_type+%3D+8+AND+res_value+%3C%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "001-full.tif",
+   "case": "full"
+  },
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=494770%2C7021640%2C494778%2C7021656&bboxSR=28356&imageSR=28356&size=8%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22sortValue%22%3A%220%22%2C%22where%22%3A%22product_type+%3D+8+AND+res_value+%3C%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "002-left.tif",
+   "case": "left"
+  },
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=494778%2C7021640%2C494786%2C7021656&bboxSR=28356&imageSR=28356&size=8%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22sortValue%22%3A%220%22%2C%22where%22%3A%22product_type+%3D+8+AND+res_value+%3C%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "003-right.tif",
+   "case": "right"
+  },
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=343040%2C7707480%2C343056%2C7707496&bboxSR=28354&imageSR=28354&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22sortValue%22%3A%220%22%2C%22where%22%3A%22product_type+%3D+8+AND+res_value+%3C%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "004-isa.tif",
+   "case": "isa"
+  },
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=562000%2C7002000%2C562016%2C7002016&bboxSR=28356&imageSR=28356&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22sortValue%22%3A%220%22%2C%22where%22%3A%22product_type+%3D+8+AND+res_value+%3C%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "005-sea.tif",
+   "case": "sea"
+  },
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=494400%2C7021400%2C494880%2C7021880&bboxSR=28356&imageSR=28356&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22ascending%22%3Atrue%2C%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22sortValue%22%3A%220%22%2C%22where%22%3A%22product_type+%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "006-demh.tif",
+   "case": "demh"
+  },
+  {
+   "method": "GET",
+   "url": "https://spatial-img.information.qld.gov.au/arcgis/rest/services/Elevation/DEM_TimeSeries_AllUsers/ImageServer/exportImage?bbox=494770%2C7021640%2C494786%2C7021656&bboxSR=28356&imageSR=28356&size=16%2C16&format=tiff&pixelType=F32&noData=-9999&interpolation=RSP_NearestNeighbor&compression=LZ77&mosaicRule=%7B%22mosaicMethod%22%3A%22esriMosaicAttribute%22%2C%22sortField%22%3A%22ZOrder%22%2C%22where%22%3A%22no_field+%3D+1%22%7D&f=image",
+   "status": 200,
+   "content_type": "image/tiff",
+   "body": "007-bad-where.json",
+   "case": "bad-where"
+  }
+ ]
+}

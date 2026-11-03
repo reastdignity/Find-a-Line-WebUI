@@ -11,7 +11,7 @@ import type { View, World } from "./world";
 /** The boxes (west-south, east-north) the cameras of the views frame. */
 export const BOXES: Record<View, [[number, number], [number, number]]> = {
   world: [[-170, -58], [190, 80]], europe: [[-11, 35], [33, 71.5]], na: [[-168, 16], [-52, 71]],
-  oceania: [[140, -48], [180, -26]],
+  oceania: [[138, -48], [180, -10]],
 };
 
 export interface Camera { lon: number; lat: number; k: number }

@@ -22,12 +22,12 @@ export const partialOfKey = (key: string): boolean => {
   return !rest && !!areaOf(id)?.partial;
 };
 
-/** The zoom presets: [[west, south], [east, north]] in degrees. Tasmania lies inside Oceania's box. */
+/** The zoom presets: [[west, south], [east, north]] in degrees. Tasmania and Queensland lie inside Oceania's box. */
 export const BOXES = {
   world: [[-170, -58], [190, 80]],
   europe: [[-11, 35], [33, 71.5]],
   na: [[-168, 16], [-52, 71]],
-  oceania: [[140, -48], [180, -26]],
+  oceania: [[138, -48], [180, -10]],
 } as const;
 export type BoxName = keyof typeof BOXES;
 export const BOX_NAMES = Object.keys(BOXES) as BoxName[];

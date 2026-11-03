@@ -19,6 +19,7 @@ from .. import net
 from ..net import _gdal_http, _remote
 from ..layer import Fetched, _clean, _write_tile
 from ..composed import Reader
+from ..vertical import Geoid
 
 
 class BlockRequest(NamedTuple):
@@ -103,7 +104,7 @@ def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], na
 
 
 def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affine, shape: Tuple[int, int],
-                path: str, what: str) -> Fetched:
+                path: str, what: str, geoid: Optional[Geoid] = None) -> Fetched:
     """Compose a block from windows of remote files (name, url, survey year), newest first:
     each file fills only the pixels still without data, and the next one is read only while
     some remain. Saved to path with the names and years of the files used (tags "sources",
@@ -112,7 +113,11 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     raises: never a block of what GDAL made of the missing bytes. (Answers that never came GDAL
     asks again itself: net.GDAL_RETRY_CODES; a read it reports as failed raises at once.) After
     any failure GDAL's cache of the file's ranges is dropped (rasterio.cache.invalidate), or
-    the next read in this process would find the same short answer there."""
+    the next read in this process would find the same short answer there.
+
+    With geoid (heights above the ellipsoid: ArcticDEM), the block is saved as h - N, heights above that geoid
+    (tag "vertical": its name); N is computed first, so a missing grid (GeoidMissing) asks no file."""
+    undulation = geoid.undulation(crs, transform, shape) if geoid is not None and files else None
     block = np.full(shape, np.nan, dtype=np.float32)
     used, years = [], []
     with _gdal_http():
@@ -151,7 +156,11 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
     url = files[0][1] if files else None
     if not used:
         return Fetched(0, url)
-    _write_tile(path, block, crs, transform, tags={"sources": ",".join(used), "years": ",".join(years)})
+    tags = {"sources": ",".join(used), "years": ",".join(years)}
+    if undulation is not None:
+        block -= undulation
+        tags["vertical"] = geoid.name
+    _write_tile(path, block, crs, transform, tags=tags)
     return Fetched(os.path.getsize(path), url)
 
 
@@ -162,13 +171,16 @@ def _forget(url: str):
 
 
 class Windows(Reader):
-    """Reads a BlockRequest: windows of its files composed newest first (_read_block)."""
+    """Reads a BlockRequest: windows of its files composed newest first (_read_block); with geoid, files of
+    heights above the ellipsoid saved as heights above that geoid (its grid made ready by the layer:
+    FileBlocks)."""
 
-    def __init__(self, description: str):
-        self.description = description
+    def __init__(self, description: str, geoid: Optional[Geoid] = None):
+        self.description, self.geoid = description, geoid
 
     def url(self, request: BlockRequest) -> Optional[str]:
         return request.files[0][1] if request.files else None
 
     def fetch(self, request: BlockRequest, path: str) -> Fetched:
-        return _read_block(request.files, request.crs, request.transform, request.shape, path, self.description)
+        return _read_block(request.files, request.crs, request.transform, request.shape, path, self.description,
+                           self.geoid)

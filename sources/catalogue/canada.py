@@ -6,6 +6,7 @@ from typing import Dict, List, Tuple
 from ..credit import Credit
 from ..source import Coverage, ReadmeRow, Source
 from ..layers.fileblocks import FileBlocks
+from .arctic import ARCTIC_ACKNOWLEDGEMENT
 from .world import COPERNICUS_NOTICE
 
 # NAD83(CSRS) / Canada Atlas Lambert, the CRS of all of NRCan's mosaics: the working grid too, so the pixels are
@@ -19,6 +20,11 @@ CANELEVATION = "https://canelevation-dem.s3.ca-central-1.amazonaws.com"
 OGL_CANADA = ("OGL - Canada 2.0", "https://open.canada.ca/en/open-government-licence-canada")
 OGL_STATEMENT = "Contains information licensed under the Open Government Licence – Canada."
 HRDEM_CREDIT = Credit("HRDEM national mosaic, DTM / DSM 1 m and 2 m (NRCan)", OGL_STATEMENT, *OGL_CANADA)
+# The 2 m mosaic's own credit: its surface model of the far north (the cells with a DSM only, Baffin's) is ArcticDEM v4.1 moved to
+# CGVD2013 (wave 0 of batch 3: HRDEM 2 m DSM = ArcticDEM - N to 5 cm), so PGC's acknowledgement goes with it
+HRDEM_2M_CREDIT = Credit("HRDEM national mosaic, DTM / DSM 2 m (NRCan)", OGL_STATEMENT, *OGL_CANADA,
+                         notice="In the far north its surface model is ArcticDEM v4.1 (Polar Geospatial Center): "
+                                + ARCTIC_ACKNOWLEDGEMENT)
 # MRDEM's record (open.canada.ca 18752265-bda3-498c-a4ba-9dfe68cb98da) asks for the Copernicus sentence too: its
 # DTM outside the lidar is Copernicus GLO-30 with forests and settlements removed
 # (with its disclaimer, in the record's words)
@@ -70,7 +76,7 @@ def _hrdem(res: int, kind: str, description: str, larger: CellExtents) -> FileBl
     block_m = 1000 * res
     return FileBlocks(description, f"canada/hrdem-{res}m-{kind}/live", CANADA_LCC, float(res), block_m,
                       hrdem_files(res, kind, larger, block_m), extent=CANADA_EXTENT, bytes_per_tile=2e6,
-                      credit=HRDEM_CREDIT)
+                      credit=HRDEM_2M_CREDIT if res == 2 else HRDEM_CREDIT)
 
 
 # MRDEM-30 (NRCan, 2024): one COG per model for all of Canada (mrdem-30-dtm.tif, 83.9 GB; float32, LZW, 512 px
@@ -99,7 +105,7 @@ SOURCES: List[Source] = [
         nmt=_hrdem(1, "dtm", "HRDEM mosaic DTM 1 m (terrain)", LARGER_1M),
         nmpt=_hrdem(1, "dsm", "HRDEM mosaic DSM 1 m (trees, buildings)", LARGER_1M),
         countries=("ca",), crs=CANADA_LCC, credits=(HRDEM_CREDIT,),
-        fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar"),
+        fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar", "nunavut"),
         listing=ReadmeRow("Canada, where it has lidar", "NRCan HRDEM national mosaic DTM, 1 m",
                           "NRCan HRDEM national mosaic DSM, 1 m", CA_NO_ORTHO),
         # Rough boxes (the first holding a point wins, and the USA's and Alaska's come first: southern Ontario
@@ -118,7 +124,7 @@ SOURCES: List[Source] = [
                     "model only, from ArcticDEM's satellite stereo), EPSG:3979, CGVD2013 heights; gaps from MRDEM-30",
         nmt=_hrdem(2, "dtm", "HRDEM mosaic DTM 2 m (terrain)", LARGER_2M),
         nmpt=_hrdem(2, "dsm", "HRDEM mosaic DSM 2 m (trees, buildings)", LARGER_2M),
-        crs=CANADA_LCC, credits=(HRDEM_CREDIT,), fallback="mrdem30",
+        crs=CANADA_LCC, credits=(HRDEM_2M_CREDIT,), fallback="mrdem30",
         listing=ReadmeRow("Canada, where it has lidar", "NRCan HRDEM national mosaic DTM, 2 m",
                           "NRCan HRDEM national mosaic DSM, 2 m", CA_NO_ORTHO),
         sample=(49.6820, -123.1430),

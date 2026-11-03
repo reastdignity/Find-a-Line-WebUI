@@ -301,15 +301,16 @@ README's GIF and images, and videos and images for Facebook and Instagram (READM
   Condensed bundled for the whole app. The 30 m side of the contrast uses the first version's rule (anchors from
   40.5°), counts spots and has a board "Is 30 m enough?" with the 45 m check (priority 2 above).
 - **Decided along the way**: the data comes from the catalogue (`Source.coverage`, `tools/coverage_data.py --check`);
-  Alaska is *detailed* (IfSAR 5 m statewide) with a note on its 1 m places, not hatched; Canada, Scotland and Tasmania
-  are hatched (detailed in parts); France's overseas regions, Svalbard and the Chatham Islands stay at 30 m; Denmark is
-  shown (the VPS has the Datafordeler key); the privacy page is unchanged (the page keeps its language, view and
-  scale in the browser only); the media page is never in dist. Wave 2 (`tools/coverage_media.py`): credits keep
-  each provider's wording (our "Data:" left out when it starts with a label of its own); a zoomed map is centred on
-  the middle of its projected box (Equal Earth packs degrees towards the poles: Malta and Puerto Rico fell off the
-  frame); the 9:16 videos keep their empty top band (Instagram's own header covers it); the poster's PDF is made by
-  img2pdf (the user's pick over our own few lines; it brings pikepdf, MPL-2.0, with qpdf); all 96 videos take
-  about 70 min, so only the set the user picks is rendered.
+  Alaska is *detailed* (IfSAR 5 m statewide) with a note on its 1 m places, not hatched; Canada, Scotland, Tasmania
+  and Queensland are hatched (detailed in parts); France's overseas regions and the Chatham Islands stay at 30 m; the
+  sources on ArcticDEM (batch 3: Greenland, Svalbard and Jan Mayen, Nunavut, Iceland) are *detailed* at 2 m with trees
+  "in the heights" (`trees="surface"`: a surface model only); Denmark is shown (the VPS has the Datafordeler key); the
+  privacy page is unchanged (the page keeps its language, view and scale in the browser only); the media page is never
+  in dist. Wave 2 (`tools/coverage_media.py`): credits keep each provider's wording (our "Data:" left out when it
+  starts with a label of its own); a zoomed map is centred on the middle of its projected box (Equal Earth packs
+  degrees towards the poles: Malta and Puerto Rico fell off the frame); the 9:16 videos keep their empty top band
+  (Instagram's own header covers it); the poster's PDF is made by img2pdf (the user's pick over our own few lines; it
+  brings pikepdf, MPL-2.0, with qpdf); all 96 videos take about 70 min, so only the set the user picks is rendered.
 - **Open**: the music of the 26 s videos (a track with a licence, from the user); posting the videos and images;
   the phone's first screen of /coverage (header and intro take most of it) and the Leaflet view's Europe preset on
   phones; Firefox shows a fallback font in a run's map opened from disk (fonts in `runs/_viewer/`, outside the
@@ -512,6 +513,114 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   (Finland's border is too irregular for a few boxes; the online lookup decides); "Could not delete the work folder ...
   filled.npy (WinError 32)" when gap filling covers a whole search (seen in the Darrans); the surface models stand
   several metres above the terrain models on steep rock (the Stawamus Chief: now the first of the roadmap's *Priorities (open)*).
+
+### Batch 3 of the survey's order (started 2026-11-02)
+- **Plan** (the user, 2026-11-02): wave 0 research (Slovenia, Ontario, Sicily, Queensland; the German Länder left;
+  the Arctic), wave 1 Slovenia, Brandenburg with Berlin, Schleswig-Holstein and Queensland, wave 2 the Arctic
+  (ArcticDEM in UTM with an EGM2008 geoid correction, no DSM, Copernicus GLO-30 as the open gap filler: Greenland,
+  Svalbard, Iceland, Nunavut; done 2026-11-03). Not now: Ontario and Sicily (the user), Saarland and Hamburg later, Thuringia (its
+  download host answers a maintenance page; mail drafted) and Bremen postponed. Mails drafted to GURS (CLSS),
+  Queensland (the licence's version), TLBG and SITR (`local/mail-drafts.md`, 14-17).
+- **Slovenia, done 2026-11-02** (source `slovenia`, SI, R54 the Osp gorge): ARSO's lidar survey of 2011-2015 (LSS),
+  its DMR 1 m as plain `x;y;z` text tiles of 1 km (`https://gis.arso.gov.si/lidar/dmr1/<block>/D96TM/TM1_<E>_<N>.asc`,
+  about 26 MB each; a file in the wrong block answers 404), points on whole metres (pixel edges on .5, `grid_origin`
+  0.5), heights to the centimetre, EPSG:3794, read bit for bit by GDAL's XYZ driver (`ZippedTiles` without members).
+  The block of each tile comes from a static table of the official LIDAR_mreza_D96 index (21 263 tiles in 19 blocks,
+  827 runs in the module); a tile outside it is missing without a request (`ZipTiling`'s `url` may give None). No
+  surface model (the survey's is Esri zLAS only); no published limits: a courtesy cap of 2 connections (four at once
+  from one IP, two data folders downloading together, stalled the server for minutes). Credit "Agencija Republike
+  Slovenije za okolje, LiDAR DMR 1 m, 2011-2015" (CC BY 4.0; ARSO's terms PDF is served over HTTP only, named in the
+  notice). Orthophoto GURS's DOF050, whose WMS answers 1.3.0 in EPSG:4326 with white images and needs 1.1.1 with
+  lon-lat order (`OrthoService.wms_version`, also in `data.js` and the viewer; checked live). Before Austria in
+  FAMILIES; Austria is its neighbour both ways. Open: the vertical datum (SVS2000 presumably, not named in the files);
+  the CLSS 2023-25 survey (0.5 m, with a surface model) is in a viewer only (LAZ, 20 downloads a day): the mail to GURS.
+- **Brandenburg with Berlin, done 2026-11-02** (source `brandenburg`, regions DE-BB and DE-BE, R55 the Rüdersdorf
+  quarry): LGB's INSPIRE WCS 2.0.1 (`el_dgm1_wcs` / `el_dom1_wcs`, coverage `el_elevationgridcoverage`, axes x/y,
+  EPSG:25833, pixel edges on whole metres), 2 km tiles of 1 m with DEFLATE (about 8 MB), bit for bit LGB's and
+  Berlin's files. The DGM answers 0 outside the Länder (`zero_is_nodata`, as in M-V: the pit of Rüdersdorf crosses
+  0 m NHN, so its 94 px of exactly 0.00 m are filled), the DOM -9999 untagged; the DOM is the lowest of each 5 × 5
+  pixels of the 0.2 m image-matching bDOM. The extent comes with 0.01 mm of noise, so `WcsReader` reads extents to
+  the millimetre (the edge tiles, answered HTTP 400, are missing rather than failed). dl-de/by-2.0 with LGB's example
+  credit word for word ("© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0 (Daten geändert)").
+  Orthophoto `bebb_dop20c`; "live" folders; a courtesy cap of 4. Neighbours: geoportal, saxony, saxony_anhalt,
+  mecklenburg_vorpommern, lower_saxony. Little highline terrain: R55 finds 3 lines of 22-27 m on the quarry's north
+  wall (the research's point, 1 km away, had none), kept as the source's test.
+- **Schleswig-Holstein, done 2026-11-02** (source `schleswig_holstein`, region DE-SH, R56 Helgoland): LVermGeo SH's
+  DGM1 only (the 0.2 m bDOM is uncompressed, about 105 MB per km², without Range). The whole Land's GeoJSON index
+  (9 MB, 18 685 tiles, the survey year 2005-2025 in each link) is read once per TTL by `GeoJsonFiles` (a
+  `MetalinkFiles` of GeoJSON), newest per tile. The files are plain "x y z" text (27 MB, no Range), read by `XyzFile`
+  streamed with a byte cap, `text/plain` only. An outdated link answers HTTP 200 with an HTML page ("Die verwendete
+  Massendownload-Datei ist veraltet"): an error, never cached, and the kept index and its 0.25° answers are forgotten
+  so the next search reads it again. The server sends no intermediate certificate: D-TRUST BR CA 1-20-1 2020 is in
+  `sources/certs/` and trusted for that host only (`net.HOST_CA_OF`, `net.verify`; valid to 2035-02-11, the server's
+  leaf to 2027-04-15; checked live: without it Python fails the handshake). The sea has no gaps: in the newer surveys the
+  North Sea is a constant 1.30 m written by the provider (one value, flat to the centimetre over whole tiles:
+  Helgoland and Büsum 2025, Sylt 2024; its meaning unpublished), which counts as water through `Source.sea_fill`
+  (the user's choice of 2026-11-03 among keeping it, a generic rule for flat fills and cutting it out: the heights
+  stay, so lines over it are measured from 1.30 m, about high water); the Baltic and the surveys of 2005-2007 give
+  the sea about 0 m, water by `SEA_LEVEL_TOLERANCE`. A first reading of "a water surface of 0.7-2.9 m" was the strip
+  at the shore. Credit
+  "©GeoBasis-DE/LVermGeo SH/CC BY 4.0 (Quelle verändert)"; orthophoto `sh_dop20_rgb`; a courtesy cap of 4.
+  Neighbours: lower_saxony, mecklenburg_vorpommern, denmark. The probe reads the first KB of a tile (strategy `text`).
+- **Queensland, done 2026-11-02** (sources `queensland` and `queensland_demh`, region AU-QLD, R57 Frog Buttress): the
+  State's DEM time series ImageServer (ArcGIS 11.5, 536 rasters, one per project). The lidar DTMs (`product_type = 8
+  AND res_value <= 1`: the type also holds photogrammetric 5-25 m DEMs and a bathymetry) by the service's ZOrder
+  (newest first with a few exceptions the provider chose, kept) are asked by exportImage in GDA94 / MGA of the place
+  (zones 54-56, `mga_crs`, `ImageServerTiles(zones=...)`) at 1 m, nearest neighbour: every project is stored in Web
+  Mercator at 1.13-1.14 m, so the service resamples once; a box equals its halves. 1 km tiles of about 4 MB. Gaps
+  from the same service's DEM-H (`queensland_demh`, 30 m), never FABDEM (BY-NC-SA cannot be combined with BY-SA).
+  The terms (checked again live): the item info's "available publically under Creative Commons
+  Attribution-Share-Alike licence (CC BY-SA)" without a version (data.qld.gov.au says CC BY 3.0: the mail asks); the
+  services' Copyright Texts verbatim as the credits (the DEM's and the imagery's differ in punctuation; both end in
+  the year 2026, kept verbatim: read them again when the service changes them), the no-warranty acknowledgement as
+  the notice, the note says derived results are shared under CC BY-SA where they are an adaptation. Orthophoto the
+  State imagery's tile cache to z20 (CC BY-SA too). A courtesy cap of 4. check_source all PASS in zone 56
+  (Tibrogargan) and 55 (Townsville, my check). Open: DEM-H was not exercised by a search (only the probe and a
+  recorded tile), zone 54 only by a recorded tile.
+- **The Arctic on ArcticDEM, done 2026-11-03** (the user's choice: UTM, no DSM, Copernicus as the open gap filler):
+  - *Geoid*: ArcticDEM's heights are above the WGS84 ellipsoid (the sea at 27-32 m), so `sources/vertical.py` moves
+    them to EGM2008 before they are cached: PROJ's 2.5' grid `us_nga_egm08_25.tif` (80.6 MB, its sha256 checked)
+    downloaded once into `cache/geoid/egm2008/` and read with rasterio, bilinear on its points; `FileBlocks` /
+    `Windows(geoid=...)` cache each block as h - N (tag `vertical`, folder `-egm08`), N on a 9 x 9 lattice per 2 km
+    block (within 1.5 mm of N at every pixel, 60-90 deg N). Never PROJ's own lookup: pyproj gives N = 0 without a word
+    when it lacks the grid. Checked against GeographicLib's GeoidEval (Nuuk, Longyearbyen, Qikiqtarjuaq: within
+    8 mm, my check) and by check_source against Copernicus (also EGM2008): Sam Ford (0, 0), median -0.26 m;
+    Hafragil (0, 0), median -0.01 m.
+  - *ArcticDEM v4.1 mosaic 2 m* (PGC, August 2023, CC BY 4.0 with PGC's NSF acknowledgement verbatim and the
+    dataset's citation, both checked on its policy page): one COG per 50 km subtile of a 100 km tile of EPSG:3413 on
+    PGC's AWS bucket (no key, no published limits), named from the block's position (`arcticdem_files`; four names
+    of the research reproduced, a subtile over the ocean answers 404, three files checked live), read in 2 km blocks
+    (about 2.5 MB, under a second each). A photogrammetric surface model with voids on the steepest faces; the
+    sources have no surface model (the tree check is off) and fill the voids from open data only, never FABDEM.
+    Each source's working grid is the UTM zone of its centre (one resampling).
+  - *greenland* (GL, R58 Tasermiut: 35 506 lines, the best 346 m with 58 m of clearance; gaps from `copernicus`,
+    a new source of GLO-30 alone sharing europe's surface folder): six offline boxes before Canada's, clear of
+    Iceland; no open orthophoto. *svalbard* (regions NO-21 and NO-22, R59 Templet: 35 lines, sedimentary slopes):
+    the Norwegian Polar Institute's orthophoto tiles in Web Mercator to z17, "© Norwegian Polar Institute" with a
+    link to npolar.no, CC BY 4.0 by its terms (they except only the service in EPSG:25833, CC BY-NC 4.0, which is
+    not used; the one used is the same imagery in Web Mercator: a question to NPI); Geofabrik's norway extract holds
+    both regions. *nunavut* (region CA-NU, option B: R60 Sam Ford, 33 203 lines at r 350 m, the best 71 m with 64 m
+    of clearance): gaps from `mrdem30`, `canada` its neighbour both ways; `canada_2m` now credits PGC too (its far
+    north is ArcticDEM moved to CGVD2013). Its Geofabrik extract (1.5 GB, mostly coastline) is left out on the VPS
+    like Canada's. Open: a sub-pixel shift check against NRCan's lidar around a Nunavut community (GLO-30 fits too
+    badly on 1000 m walls: Tasermiut and Uummannaq disagree; under *To check*); NPI's 5 m DTM of Svalbard as its gap
+    filler.
+  - *Iceland* (source `iceland`, IS, R62 Hafragil): ArcticDEM, its voids from `islandsdem10`, then `copernicus`.
+    `islandsdem10` (by hand, R61) is the Natural Science Institute of Iceland's (Natturufraedistofnun, formerly LMI)
+    IslandsDEM v1.0: one national COG (3 GB: 52 000 x 37 000 px, float32, ZSTD with predictor 2, decoded by the
+    wheels' GDAL on Windows and in the image; heights above sea level, merged from ArcticDEM strips, lidar and
+    GLO-30), read in 5 km `FileBlocks` on its own pixels in EPSG:8088 (Lambert 2016: scale within 0.035 % over
+    Iceland); exactly the file's values, check_source (0, 0) against Copernicus. Credit in the open data page's
+    pattern ('"IslandsDEM v1.0" by Natturufraedistofnun is licensed under CC BY 4.0', its Icelandic name in the files
+    and the map) with the Copernicus sentence. The orthophoto "Grunnkort - Loftmynd" (25 cm or better, not yet the
+    whole country; CC BY 4.0 by its metadata record) comes from the institute's MapCache, a WMS 1.1.1 serving
+    EPSG:3857 only and answering PNG to a JPEG request: `OrthoService.wms_crs = "EPSG:3857"` asks each tile's
+    Mercator box (server and viewer; `data.js` names it only when not EPSG:4326) and non-JPEG answers are cached as
+    JPEG over white. It is slow (about 1 s a tile: R61's circle took 51 min for 12 498 tiles), so detailed tiles are cached for the
+    20 best groups only, circles too (`detail`, as swisstopo; the user, 2026-11-03). Courtesy caps of 4
+    for ftp.natt.is and gis.natt.is. At Hafragil 2 m gives 965 lines with at most 2.2 m of clearance where 10 m gave
+    7 492 with 16.5 m: both models agree on the canyon's section, its walls are about 60 deg, and 10 m smooths them
+    into sharp edges. Open: IslandsDEM 2 m (no index or URL pattern: ask natt@natt.is).
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
@@ -717,6 +826,7 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 ## To check
 - **"Over trees/buildings" on bare rock**: done 2026-11-02 (*Done: the surface model above the terrain on steep rock*).
 - **Known highlines from SlackMap** (the user's idea, 2026-11-01): [SlackMap](https://slackmap.com), the International Slackline Association's community map of lines and spots (open source, GPL-3.0: github.com/International-Slackline-Association/slackmap; also an iOS app), lists rigged highlines with both anchors. Two uses: (1) choose the regression places of new sources where highlines are actually rigged, not only where the search finds many lines; (2) check the search against them: which known lines does it find (with which clearance and wall angles), which not and why (the data's resolution, trees in the DSM, the limits), per country and per source. Its data were out of reach on 2026-11-01: slackmap.com has no A record, the map's GeoJSON files (`data.slackmap.com/geojson/lines/all.geojson`, `.../spots/all.geojson`, as the web app's `web/src/app/api/constants.ts` names them) point to a CloudFront distribution without addresses, and `api.slackmap.com` answers details by id only. Try again later or ask the ISA for an export; check the data's licence (user contributions) before keeping a copy in the repository. Candidates measured for R27 in Wales then (radius 400 m, lines of 50–400 m): Dinorwig slate quarries at Llanberis (53.1245, -4.1100) 934 lines in 20 spots of 51–101 m, Cwm Silyn (53.0300, -4.2150) 2854 lines in 42 spots of 200–389 m, Dorothea quarry 19, Pen-yr-Orsedd quarry none.
+- **ArcticDEM's position to a fraction of a pixel** (the user, 2026-11-03): check_source's shift search against Copernicus GLO-30 found (0, 0) at Sam Ford and Hafragil, but on 1000 m walls (Tasermiut, Uummannaq) GLO-30's 30 m pixels fit too badly to tell, and its step of a whole pixel cannot see half a metre. Compare ArcticDEM 2 m (EGM2008, as cached) with NRCan's HRDEM lidar 1 m (CGVD2013) around a Nunavut community that has both (Iqaluit, Pond Inlet or Clyde River): a sub-pixel shift search (0.25 m steps, gentle slopes only, as the gap fill's offsets) and the median of the height difference after the shift (CGVD2013 minus EGM2008 is a few decimetres there: take it from the two geoid models, not from the data). A shift above 0.5 m or a height offset above 1 m goes into the layer like `MALTA_2012_SHIFT`; otherwise the result goes into the Arctic entry under *New data sources*.
 - **Interpolating to a finer grid lowers the number of lines** (seen 2026-11-01 in South Tyrol, R30 at the Sella towers): the same search at the data's 2.5 m found 11 347 lines in 115 spots, at `--resolution 1` (bilinear from 2.5 m) 295 lines in 6 spots. Find out which is closer to the truth: more pixels sampled under each line at 1 m, or a clearance check that the interpolation makes stricter (smoothed rims, lower anchors); compare with a place that has both 2.5 m and 0.5 m data (South Tyrol's settlements, or Switzerland's 0.5 m averaged to 2.5 m and interpolated back).
 - **Obstacles lowered by averaging the DSM** (measured 2026-10-26 at Lauterbrunnen, 0.5 → 1 m): the highest 0.5 m value of a pixel is above its mean by 0.25 m (median) and 7.7 m (99th percentile), so single treetops come out lower than they are; at 2 m and coarser more so. Taking the maximum of the DSM instead does not work: the clearance limit comes from the anchor heights in the averaged DTM, and anchors lie on cliff edges, where the maximum of a pixel is the rim (up to 189 m above the mean on vertical walls); the pixels next to every anchor and along every wall would become obstacles, so nearly every line from a cliff would be marked as over trees, and single wrong DSM points would spread over whole pixels. To try instead: the maximum of the obstacle height above the ground (DSM − DTM on the data's grid), added to the averaged DTM; on bare rock it is about 0, tree crowns keep their height. Costs: both models on one fine grid first (Polish NMPT 0.5 m, NMT 1 m), mixed pixels on slopes and forest edges, changed results over trees. Measure on the regression places before deciding.
 - **Hugging Face for the Slovak tiles**: dataset repository or Storage Bucket (FABDEM's mirror is a bucket); the docs disagree on a soft cap per public repository (300 GB or 1 TB) and on limits for anonymous downloads; check before uploading (134 GB at 1 m as cut, 2 × 12 826 files plus two indexes; about 530 GB with the 0.5 m cycle).
