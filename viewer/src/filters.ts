@@ -10,6 +10,9 @@ export interface Filters {
   clrNMin: number | null;     // clearance over trees/buildings (lines without the surface model pass)
   dhMax: number | null;       // height difference of the anchors
   elevMin: number | null;     // height of the lower anchor
+  elevMax: number | null;     // height of the upper anchor
+  pctMin: number | null;      // percentile of the lower anchor in its run's area (lines without one pass)
+  pctMax: number | null;      // ... of the upper anchor
   heightMin: number | null;   // largest height of the webbing above the terrain
   meanMin: number | null;     // its mean along the line
   highPctMin: number | null;  // % of the line at least high_above over the terrain
@@ -24,13 +27,14 @@ export interface Filters {
 }
 
 export const NO_FILTERS: Filters = {lenMin: null, lenMax: null, clrMin: null, clrNMin: null, dhMax: null,
-                                    elevMin: null, heightMin: null, meanMin: null, highPctMin: null,
+                                    elevMin: null, elevMax: null, pctMin: null, pctMax: null, heightMin: null, meanMin: null, highPctMin: null,
                                     angleMax: null, promMin: null, promBothMin: null, dropMin: null, water: "all", hideFilled: false, groupMin: null,
                                     favOnly: false};
 const STORAGE_KEY = "findaline.filters";
 
 export const dh = (l: Line) => Math.abs(l.e1 - l.e2);
 export const lowerAnchor = (l: Line) => Math.min(l.e1, l.e2);
+export const upperAnchor = (l: Line) => Math.max(l.e1, l.e2);
 export const wallAngle = (l: Line) => Math.max(l.angle1, l.angle2);
 const known = (v: number | null) => v === null ? NaN : v;  // NaN fails every limit
 /** The prominence of the more (Math.max) or less (Math.min) prominent anchor; NaN if not known. */
@@ -42,6 +46,9 @@ export function passes(l: Line, f: Filters): boolean {
     (f.clrMin === null || l.clr >= f.clrMin) &&
     (f.clrNMin === null || l.clrN === null || l.clrN >= f.clrNMin) &&
     (f.dhMax === null || dh(l) <= f.dhMax) && (f.elevMin === null || lowerAnchor(l) >= f.elevMin) &&
+    (f.elevMax === null || upperAnchor(l) <= f.elevMax) &&
+    (f.pctMin === null || l.pct1 === null || l.pct2 === null || Math.min(l.pct1, l.pct2) >= f.pctMin) &&
+    (f.pctMax === null || l.pct1 === null || l.pct2 === null || Math.max(l.pct1, l.pct2) <= f.pctMax) &&
     (f.heightMin === null || l.hmax >= f.heightMin) && (f.meanMin === null || l.hmean >= f.meanMin) &&
     (f.highPctMin === null || l.highPct >= f.highPctMin) && (f.angleMax === null || wallAngle(l) <= f.angleMax) &&
     (f.promMin === null || prominence(l, Math.max) >= f.promMin) &&
@@ -65,6 +72,8 @@ export interface FilterRanges {
   clrN: Range | null;
   dh: Range | null;
   elev: Range | null;
+  elevHigh: Range | null;  // of the upper anchor
+  pct: Range | null;       // of both anchors' percentiles (null: no line has them)
   hmax: Range | null;
   hmean: Range | null;
   highPct: Range | null;

@@ -44,6 +44,9 @@ export interface Line {
   angle1: number; angle2: number;  // degrees between the line and the downslope direction at the anchors
   prom1: number | null; prom2: number | null;  // prominence of the anchors, m
   drop1: number | null; drop2: number | null;  // drop below the anchors, m
+  // percentile rank of each anchor's height in its run's search area (percentileRank; null: the run has no
+  // terrain statistics). Derived in the browser: never saved with a favourite
+  pct1: number | null; pct2: number | null;
   prof: Profile | null;
   run?: OtherRun;  // set for the lines of another run
 }
@@ -54,10 +57,18 @@ export interface OtherRun {
   color: string;
 }
 
+/** The terrain of a run's search area (hypsometry.statistics): the heights of its land with data. */
+export interface Terrain {
+  mean: number;         // m
+  quantiles: number[];  // 101: quantiles[p] the lower edge (0.1 m) of the first bin holding p % of the land
+  km2: number;          // land with data
+}
+
 /** <run>/lines.js: window.FINDALINE_LINES[id], the lines without profiles. */
 export interface RunLines {
   crs: string;
   area: Geometry;
+  terrain?: Terrain | null;  // runs saved before 2026-11-03 have none
   lines: LineRow[];  // without the profile at the end
 }
 
@@ -111,6 +122,7 @@ export interface RunData {
   leash_fall: number;
   high_above: number;             // m: from this height above the terrain a part of a line is high
   max_zoom: number;
+  terrain?: Terrain | null;       // runs saved before 2026-11-03 have none
   lines: LineRow[];
 }
 
@@ -126,9 +138,23 @@ declare global {
   }
 }
 
-export function toLine(d: LineRow, run?: OtherRun): Line {
+/** The percentile rank of height z among quantiles q: the largest p with q[p] <= z, 0 below q[0]
+ * (hypsometry.statistics' bins: exactly floor(100 * share of the land at or below z's bin)). */
+export function percentileRank(z: number, q: number[]): number {
+  if (!(z >= q[0])) return 0;
+  let lo = 0, hi = q.length - 1;  // q[lo] <= z
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (q[mid] <= z) lo = mid; else hi = mid - 1;
+  }
+  return lo;
+}
+
+export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null): Line {
+  const q = terrain ? terrain.quantiles : null;
   return {lat1: d[0], lon1: d[1], lat2: d[2], lon2: d[3], x1: d[4], y1: d[5], x2: d[6], y2: d[7],
           len: d[8], clr: d[9], clrN: d[10], e1: d[11], e2: d[12], over: d[13], water: d[14], filled: d[15],
           hmax: d[16], hmean: d[17], highPct: d[18], angle1: d[19], angle2: d[20], prom1: d[21], prom2: d[22],
-          drop1: d[23], drop2: d[24], prof: d[25] || null, run};
+          drop1: d[23], drop2: d[24],
+          pct1: q ? percentileRank(d[11], q) : null, pct2: q ? percentileRank(d[12], q) : null, prof: d[25] || null, run};
 }

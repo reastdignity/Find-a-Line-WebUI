@@ -399,6 +399,133 @@ def test_result_model(tmp_path, clip_data):
     assert out["notified"] > 10
 
 
+def _rank_reference(h, z: float) -> int:
+    """The percentile rank of height z in histogram h, as Python reads it: floor(100 * the share of the
+    land at or below z's bin), in integers."""
+    import numpy as np
+    import hypsometry as hy
+    k = int(np.clip((int(np.rint(z * 100)) - hy.LOW_CM) // hy.BIN_CM, 0, hy.BINS - 1))
+    return int(h.counts[:k + 1].sum()) * 100 // h.n
+
+
+def test_percentile_rank_matches_python(tmp_path):
+    """types.ts percentileRank on the quantiles of hypsometry.statistics gives exactly Python's rank of a
+    height in the histogram: random heights in centimetres with a plateau, heights below the lowest and above
+    the highest, and each quantile and 1 cm either side of it."""
+    import numpy as np
+    import hypsometry as hy
+    rng = random.Random(7)
+    cm = [rng.randint(41_234, 128_765) for _ in range(5000)] + [80_000] * 3000 + [41_230, 128_770]
+    heights = np.array(cm, np.float64) / 100
+    h = hy.land_histogram(heights[None, :], np.ones((1, heights.size), bool))  # a grid of one row
+    q = hy.statistics(h, 1.0)["quantiles"]
+    zs = [c / 100 for c in rng.sample(cm, 300)] + [0.0, 412.0, 1287.71, 1300.0, 800.0, 799.99, 800.01]
+    zs += [v + d for v in q for d in (-0.01, 0.0, 0.01)]
+    found = run_ts(tmp_path, "types", f"""
+const q = {json.dumps(q)};
+console.log(JSON.stringify({json.dumps(zs)}.map((z) => m.percentileRank(z, q))));""")
+    assert found == [_rank_reference(h, z) for z in zs]
+    assert found[300] == 0 and found[303] == 100 and min(found) == 0 and max(found) == 100
+
+
+FILTER_SCRIPT = r"""
+const data = JSON.parse(require("fs").readFileSync(process.argv[2], "utf-8"));
+const terrain = data.terrain;
+const upper = (l) => Math.max(l.e1, l.e2);
+const out = {};
+const api = {loadFavourites: async () => [], saveFavourite: async () => {},
+             profile: async () => ({d: [0, 5, 10], z: [terrain.quantiles[62] + 0.05, 1, terrain.quantiles[5]],
+                                    min: [5, 3], water_m: 0, filled_m: 0})};
+(async () => {
+  const model = new m.ResultModel(data, {favourites: false, api, profiles: true});
+  out.pct = model.lines.map((l) => [l.pct1, l.pct2]);
+  out.ranges = {elevHigh: model.ranges.elevHigh, pct: model.ranges.pct};
+  const elevMax = [...model.lines.map(upper)].sort((a, b) => a - b)[Math.floor(model.lines.length / 2)];
+  model.setFilters({...m.NO_FILTERS, elevMax});
+  out.elevMax = {value: elevMax, shown: model.shown.lines, uppers: model.groups.flatMap((g) => g.members.map(upper))};
+  model.setFilters({...m.NO_FILTERS, pctMin: 30});
+  out.pctMin = model.shown.lines;
+  model.setFilters({...m.NO_FILTERS, pctMax: 70});
+  out.pctMax = model.shown.lines;
+  // Another run without terrain statistics: its lines pass a percentile filter
+  model.setFilters({...m.NO_FILTERS, pctMin: 30});
+  model.addRun({id: "other", name: "Other", created: "2026-11-01T00:00:00+00:00", description: ""},
+               {crs: data.crs, area: data.area, lines: data.lines.map((r) => r.slice(0, 25))});
+  out.withOther = {shown: model.shown.lines, otherPct: model.others.get("other").lines.map((l) => [l.pct1, l.pct2])};
+  // A measured line: its ends' ranks with the run's terrain, null without
+  const measured = await model.measure([49, 19], [49.001, 19.001]);
+  out.measured = [measured.pct1, measured.pct2];
+  const p = await api.profile();
+  const bare = m.measuredLine([49, 19], [49.001, 19.001], p);
+  out.bare = [bare.pct1, bare.pct2];
+  // A run saved without the statistics
+  const old = {...data};
+  delete old.terrain;
+  const oldModel = new m.ResultModel(old, {favourites: false, api});
+  out.old = {pct: oldModel.lines.map((l) => [l.pct1, l.pct2]), range: oldModel.ranges.pct};
+  oldModel.setFilters({...m.NO_FILTERS, pctMin: 30, pctMax: 40});
+  out.old.shown = oldModel.shown.lines;
+  // The details of a line
+  const line = {...model.lines[0], pct1: 62, pct2: null};
+  out.facts = m.lineFacts(line, 10).filter(([k]) => k.startsWith("Anchor ")).map(([, v]) => v);
+  out.ordinals = [1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 62, 100, 111, 0].map(m.ordinal);
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_elevation_and_percentile_filters(tmp_path, clip_data):
+    """filters.ts and result/model.ts: the upper anchor's bound, the anchors' percentiles in the run's area
+    (types.ts percentileRank of data.js `terrain`), lines of a run without the statistics (another run shown, a
+    run saved before them) passing a percentile filter, a measured line's percentiles, and lineFacts' text."""
+    import numpy as np
+    import hypsometry as hy
+    _, data = clip_data
+    rows = data["lines"]
+    # The run's terrain from its anchors' heights: percentiles spread over the lines
+    heights = np.array([r[11] for r in rows] + [r[12] for r in rows], np.float64)
+    h = hy.land_histogram(heights[None, :], np.ones((1, heights.size), bool))  # a grid of one row
+    data = {**data, "terrain": hy.statistics(h, 1.0)}
+    data_path = tmp_path / "data.json"
+    data_path.write_text(json.dumps(data), encoding="utf-8")
+    entry = tmp_path / "entry.ts"
+    src = os.path.join(VIEWER, "src").replace("\\", "/")
+    entry.write_text(f'export * from "{src}/result/model";\nexport {{ lineFacts, ordinal }} from '
+                     f'"{src}/result/view/LineDetails";\n', encoding="utf-8")
+    bundle = tmp_path / "filters.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  "bundle: true, format: 'cjs', platform: 'node', "
+                                  "loader: {'.png': 'dataurl', '.svg': 'text'}, "
+                                  f"outfile: {json.dumps(str(bundle))}}})"], cwd=VIEWER, check=True)
+    script = tmp_path / "filters-test.cjs"
+    # LineDetails' imports read the page's meta tags when loaded
+    script.write_text("globalThis.document = {querySelector: () => null};\n"
+                      f"const m = require({json.dumps(str(bundle))});\n{FILTER_SCRIPT}", encoding="utf-8")
+    result = subprocess.run(["node", str(script), str(data_path)], capture_output=True, text=True,
+                            encoding="utf-8", timeout=120)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    pct = [[_rank_reference(h, r[11]), _rank_reference(h, r[12])] for r in rows]
+    assert out["pct"] == pct and len({p for pair in pct for p in pair}) > 10
+    uppers = [max(r[11], r[12]) for r in rows]
+    assert out["ranges"] == {"elevHigh": {"min": min(uppers), "max": max(uppers)},
+                             "pct": {"min": min(map(min, pct)), "max": max(map(max, pct))}}
+    elev = out["elevMax"]
+    assert elev["shown"] == sum(u <= elev["value"] for u in uppers) < len(rows)
+    assert sorted(elev["uppers"]) == sorted(u for u in uppers if u <= elev["value"])
+    assert out["pctMin"] == sum(min(p) >= 30 for p in pct) < len(rows)
+    assert out["pctMax"] == sum(max(p) <= 70 for p in pct) < len(rows)
+    assert out["withOther"] == {"shown": out["pctMin"] + len(rows), "otherPct": [[None, None]] * len(rows)}
+    q = data["terrain"]["quantiles"]
+    assert out["measured"] == [_rank_reference(h, q[62] + 0.05), _rank_reference(h, q[5])] and out["measured"][0] >= 62
+    assert out["bare"] == [None, None]
+    assert out["old"] == {"pct": [[None, None]] * len(rows), "range": None, "shown": len(rows)}
+    assert out["facts"][0].endswith(f" · {rows[0][11]:.1f} m (62nd percentile)")
+    assert out["facts"][1].endswith(f" · {rows[0][12]:.1f} m (percentile not known)")
+    assert out["ordinals"] == ["1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "62nd",
+                               "100th", "111th", "0th"]
+
+
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 
 

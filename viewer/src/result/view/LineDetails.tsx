@@ -58,12 +58,20 @@ export interface LineDetailsProps {
   note?: boolean;
 }
 
+/** A whole number as an English ordinal: 1st, 2nd, 3rd, 4th, 11th-13th, 21st, ... */
+export function ordinal(n: number): string {
+  const tens = n % 100, ones = n % 10;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : ones === 1 ? "st" : ones === 2 ? "nd" : ones === 3 ? "rd" : "th";
+  return `${n}${suffix}`;
+}
+
 /** The facts of a line beyond its four numbers, as label and value. */
 export function lineFacts(l: Line, highAbove: number): [string, string][] {
   const facts: [string, string][] = [];
   if (l.run) facts.push(["Run", `${day(l.run.info.created)} ${l.run.info.name}`]);
-  facts.push(["Anchor 1", `${l.lat1.toFixed(6)}, ${l.lon1.toFixed(6)} · ${num(l.e1, 1)} m`]);
-  facts.push(["Anchor 2", `${l.lat2.toFixed(6)}, ${l.lon2.toFixed(6)} · ${num(l.e2, 1)} m`]);
+  const pct = (p: number | null) => p === null ? " (percentile not known)" : ` (${ordinal(p)} percentile)`;
+  facts.push(["Anchor 1", `${l.lat1.toFixed(6)}, ${l.lon1.toFixed(6)} · ${num(l.e1, 1)} m${pct(l.pct1)}`]);
+  facts.push(["Anchor 2", `${l.lat2.toFixed(6)}, ${l.lon2.toFixed(6)} · ${num(l.e2, 1)} m${pct(l.pct2)}`]);
   if (l.clrN !== null) facts.push(["Over trees/buildings", `${num(l.clrN, 1)} m clear`]);
   if (isFinite(l.hmax)) {
     facts.push(["Above the ground", `up to ${num(l.hmax)} m, mean ${num(l.hmean)} m, ` +

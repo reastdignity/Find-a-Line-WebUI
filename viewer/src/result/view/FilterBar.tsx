@@ -149,6 +149,7 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
                                                  step={step} kind={kind} unit={unit}
                                                  onChange={(v) => set(model, {[key]: v} as Partial<Filters>)} />;
   const maxDistance = Math.max(100, Math.round(3 * model.data.distance));
+  const terrain = model.data.terrain;  // the percentiles' reference (each run's lines against its own area)
   return <section class="r-more" aria-label="More filters">
     <div class="r-more-head"><b class="u-h4">Filters</b>
       <span class="u-grow" />
@@ -195,6 +196,12 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
       <h3>Anchors</h3>
       {limit("Height difference at most", "dhMax", r.dh, 0.5, "max")}
       {limit("Lower anchor at least", "elevMin", r.elev, 1, "min", "m a.s.l.")}
+      {limit("Upper anchor at most", "elevMax", r.elevHigh, 1, "max", "m a.s.l.")}
+      {terrain && <div class="u-small r-terrain">
+        Terrain of the search area: {num(terrain.quantiles[0])}–{num(terrain.quantiles[100])} m, mean {num(terrain.mean)} m
+        {model.others.size > 0 && <><br />Other runs: against their own areas</>}</div>}
+      {limit("Lower anchor's percentile at least", "pctMin", r.pct, 1, "min", "%")}
+      {limit("Upper anchor's percentile at most", "pctMax", r.pct, 1, "max", "%")}
       {limit("Angle to the wall at most", "angleMax", r.angle, 1, "max", "°")}
       {limit("One anchor prominent at least", "promMin", r.prom, 0.5, "min")}
       {limit("Both anchors prominent at least", "promBothMin", r.prom, 0.5, "min")}

@@ -56,7 +56,7 @@ export function favouriteLine(f: Favourite): Line {
   return {lat1, lon1, lat2, lon2, x1: 0, y1: 0, x2: 0, y2: 0, len: d.len, clr: d.clr, clrN: d.clrN, e1: d.e1,
           e2: d.e2, over: d.over, water: d.water, filled: d.filled, hmax: nan(d.hmax), hmean: nan(d.hmean),
           highPct: nan(d.highPct), angle1: nan(d.angle1), angle2: nan(d.angle2), prom1: d.prom1, prom2: d.prom2,
-          drop1: d.drop1, drop2: d.drop2, prof: null};
+          drop1: d.drop1, drop2: d.drop2, pct1: null, pct2: null, prof: null};  // percentiles: never saved
 }
 
 let mapToken = "";  // the token of a map's changes, from the server's answer (a map is a static page)
