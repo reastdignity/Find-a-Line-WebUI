@@ -841,3 +841,44 @@ After a change of the search, a new machine or more samples: run the searches of
 [country-precompute/samples.sh](country-precompute/samples.sh) again (one at a time under the
 exclusive test lock), then `relief` (the Copernicus tiles stay cached) and `estimate`, and rebuild this
 report and its page from the estimate: [country-precompute/report/README.md](country-precompute/report/README.md).
+
+## 8. The band study
+
+The Slovak pilot's control band M2 (1-2 km on 2 m at 60°) against the layer's L (5 m at 45°) lost 3.9 % of
+the 1 km cells with a spot and cost half as much (`country compare`, 2026-11-03). Before the world is
+counted (for now the sources of 2 m or finer), the user chose to measure more variants first
+(2026-11-03): data first, the criterion of the choice later. `tools/band_study.py` sets them up and
+compares them.
+
+**Areas.** Stage 1 in Slovakia, from the local mirror, with the surface model marking lines over trees
+(its 73 GB do not fit for the whole country, a few GB for the squares): the High and Belianske Tatras
+(20 km around 49.19, 20.15), Slovenský raj (20 km around 48.93, 20.38), Malá Fatra (20 km around
+49.21, 19.05) and Súľovské skaly with Manínska tiesňava (12 km around 49.155, 18.56), each clipped to
+the country. Stage 2 counts the variants that pass stage 1 in Lauterbrunnen, Zion, Lysefjord, Gozo
+and the Jura or Saxon Switzerland. Each area is a country of its own (`countries/<area>/`), counted by
+`findaline.py country run <area>`.
+
+**Bands and pairs.** Every area counts every band; the reference of each length range is its finest
+grid at 60°, the current layer's bands (S, M, and L split at 2 km so that each part has its own cost)
+are the area's layer bands, so its cube shows the layer as it is.
+
+| Lengths | Reference | Current | Variants |
+| --- | --- | --- | --- |
+| 30-300 m | S1m60: 1 m, 60° | S1m60 | S2m60: 2 m (sources of 2 m) |
+| 300-1000 m | M1m60: 1 m, 60° | M2m60: 2 m, 60° | (the current band; per bin 300-600 and 600-1000 m, so also an S/M edge at 600 m) |
+| 1-2 km | L1-2m60: 2 m, 60° (the pilot's M2) | L1-5m45: 5 m, 45° | L1-5m50, L1-5m55: 5 m at 50° and 55°; L1-3m55: 3 m at 55° |
+| 2-5 km | L2-5m45: 5 m, 45° | L2-5m45 | L2-10m45: 10 m, 45° |
+
+**What is compared.** The numbers of spots cannot be compared alone: a coarser grid makes other spots
+(Zion's 30-300 m lines gave 30 000 spots on 1 m, 42 000 on 2 m and 51 000 on 5 m). `analyse` compares
+each variant with its reference by where they lie, over all lines and over the lines not over trees
+(the layer's filter, which depends on the surface model's rule on walls, so stage 1 waits for the
+user's check of that rule; the obstacle rule is part of a country's hash): the spots of the reference
+with a spot of the variant within one 50 m cluster at both ends (recall) and the other way round
+(precision), the 1 and 4 km cells with a spot that the variant loses and adds, the Spearman
+correlation of spots per cell, per length bin, and the bands' tile seconds, CPU seconds and memory.
+It writes `study.json`, `study.md` and a picture of the cells of each pair.
+
+    uv run python tools/band_study.py setup --data-dir <data>
+    uv run python findaline.py country run sk-tatry --data-dir <data> --yes   (each area in turn)
+    uv run python tools/band_study.py analyse --data-dir <data> --out <folder>

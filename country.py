@@ -100,7 +100,9 @@ class Country:
     bands: Tuple[Band, ...]
     tension: Tuple[Tuple[float, float], ...]  # T(L): (span m, pretension kN), sag.tension_at
     rig: Dict[str, float] = field(default_factory=dict)      # SearchParams' webbing fields
-    options: Dict[str, str] = field(default_factory=dict)    # nmpt, water, coastline, fill_gaps (elevation_file: tests)
+    # nmpt, water, coastline, fill_gaps; within: a box S,W,N,E clipping the area (tools/band_study.py's
+    # squares); elevation_file, surface_file: tests
+    options: Dict[str, str] = field(default_factory=dict)
 
     def config(self) -> Dict:
         """The configuration as JSON values (country.json)."""
@@ -159,8 +161,14 @@ def _sha256_file(path: str) -> str:
 
 
 def config_hash(config: Dict, area_sha256: str) -> str:
-    """What every tile file records (meta "config"): the configuration and the outline."""
-    text = json.dumps({"config": config, "area_sha256": area_sha256}, sort_keys=True)
+    """What every tile file records (meta "config"): the configuration and the outline, and with the
+    surface model the obstacle rule (obstacles.RULE: tiles of another rule are counted again; without
+    the surface model the hash is the one of before)."""
+    value = {"config": config, "area_sha256": area_sha256}
+    if (config.get("options") or {}).get("nmpt", "off") != "off":
+        import obstacles
+        value["obstacles"] = obstacles.RULE
+    text = json.dumps(value, sort_keys=True)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -183,10 +191,11 @@ def _write_json(path: str, value: Dict):
 
 
 def _write_outline(country: Country, folder: str, data_dir: str):
-    """area.geojson: the outline of the country's area spec, as it is (WGS84)."""
+    """area.geojson: the outline of the country's area spec (clipped to the box of its option
+    "within", if any), as it is (WGS84)."""
     import area as ar
     from shapely.geometry import mapping
-    shape = ar.from_spec(country.area, 0.0, None, os.path.join(data_dir, "cache")).geometry
+    shape = ar.from_spec(country.area, 0.0, country.options.get("within"), os.path.join(data_dir, "cache")).geometry
     feature = {"type": "Feature", "properties": {"id": country.id, "name": country.name, "area": country.area},
                "geometry": mapping(shape)}
     _write_json(os.path.join(folder, "area.geojson"), feature)
@@ -222,7 +231,12 @@ def setup(country_id: str, folder: str, data_dir: str, redo: bool, say) -> Tuple
         raise CountryError(f"The configuration of {country_id} changed since its tiles were counted: run again with "
                            f"--redo to count everything again")
     outline = os.path.join(folder, "area.geojson")
-    if not os.path.exists(outline) or (stored is not None and stored.get("area") != config["area"]):
+
+    def within(c):
+        return (c.get("options") or {}).get("within")
+
+    if not os.path.exists(outline) or (stored is not None and (stored.get("area") != config["area"]
+                                                               or within(stored) != within(config))):
         say(f"Outline of {country.name}: {country.area}")
         _write_outline(country, folder, data_dir)
     area_sha = _sha256_file(outline)
@@ -273,8 +287,9 @@ def band_plan(country: Country, band: Band, folder: str, data_dir: str, emit=Non
     from params import SearchParams
     values = form_params(country, band)
     values["area"] = os.path.join(folder, "area.geojson")
-    if country.options.get("elevation_file"):
-        values["elevation_file"] = country.options["elevation_file"]
+    for key in ("elevation_file", "surface_file"):
+        if country.options.get(key):
+            values[key] = country.options[key]
     paths = search.Paths(data_dir, os.path.join(data_dir, "work", f"country-{country.id}"))
     try:
         return search.plan_search(SearchParams(**values), paths, emit or (lambda kind, text: None), tiled=False)

@@ -324,6 +324,36 @@ def test_worker_count(monkeypatch):
     assert country.worker_count(38_500_000, 2 ** 30)[0] == 1
 
 
+def test_config_hash_follows_the_obstacle_rule(monkeypatch):
+    """Without the surface model the hash is the one of before (Slovakia's tiles keep theirs); with
+    it, another obstacle rule gives another hash, so its tiles are counted again."""
+    import hashlib
+    import country
+    import obstacles
+    config = {"id": "x", "options": {"nmpt": "off"}}
+    before = hashlib.sha256(json.dumps({"config": config, "area_sha256": "a"}, sort_keys=True).encode("utf-8"))
+    assert country.config_hash(config, "a") == before.hexdigest()
+    marked = {"id": "x", "options": {"nmpt": "mark"}}
+    first = country.config_hash(marked, "a")
+    assert first != country.config_hash({"id": "x", "options": {"nmpt": "off"}}, "a")
+    monkeypatch.setattr(obstacles, "RULE", {"radius": 3, "min_height": 1.0})
+    assert country.config_hash(marked, "a") != first
+
+
+def test_outline_within_a_box(tmp_path):
+    """The option "within" clips the outline of the area spec to its box (S,W,N,E)."""
+    import country
+    from shapely.geometry import shape
+    area = tmp_path / "square.geojson"
+    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": SQUARE}))
+    c = country.Country(id="boxed", name="Boxed", source="files", area=str(area), bands=(), tension=(),
+                        options={"within": "50.1500,19.7500,50.1600,19.7556"})
+    country._write_outline(c, str(tmp_path), str(tmp_path))
+    with open(tmp_path / "area.geojson", encoding="utf-8") as f:
+        bounds = shape(json.load(f)["geometry"]).bounds
+    assert bounds == pytest.approx((19.7522, 50.1546, 19.7556, 50.1580))
+
+
 def _tile(name, core):
     import types
     return types.SimpleNamespace(name=name, core=core)
