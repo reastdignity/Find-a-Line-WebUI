@@ -271,6 +271,19 @@
    "survey": "2005–2025",
    "trees": "no"
   },
+  "de-sl": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LVGL",
+   "res": [
+    1
+   ],
+   "source": "saarland",
+   "survey": "2025",
+   "trees": "yes"
+  },
   "de-sn": {
    "added": "2026-11-02",
    "level": 1,
@@ -778,6 +791,7 @@
    "de-nw",
    "de-rp",
    "de-sh",
+   "de-sl",
    "de-sn",
    "de-st"
   ],

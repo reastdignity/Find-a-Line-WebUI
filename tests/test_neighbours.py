@@ -209,3 +209,4 @@ def test_declared_neighbours():
     assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada",)
     assert src.SOURCES["nunavut"].neighbours == ("canada",)
     assert src.SOURCES["canada"].neighbours == ("usa", "alaska", "alaska_ifsar", "nunavut")
+    assert src.SOURCES["saarland"].neighbours == ("rhineland_palatinate", "france", "luxembourg")

@@ -16,7 +16,7 @@ from sources.indexes.metalink import ShaTile  # noqa: E402
 
 IDS = ["czechia", "geoportal", "france", "france_rgealti", "swisstopo", "slovakia", "malta", "malta2012", "spain_canarias", "spain", "alaska",
        "alaska_ifsar", "usa", "usgs10m", "greenland", "svalbard", "nunavut", "canada", "canada_2m", "mrdem30", "slovenia", "austria", "scotland", "wales", "england", "hesse",
-       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
+       "mecklenburg_vorpommern", "saxony_anhalt", "lower_saxony", "saxony", "baden_wurttemberg", "bavaria", "saarland", "rhineland_palatinate", "north_rhine_westphalia", "brandenburg", "schleswig_holstein", "south_tyrol", "trento", "luxembourg", "denmark",
        "finland", "norway", "new_zealand", "nz8m", "tasmania", "queensland", "queensland_demh", "iceland", "islandsdem10", "europe", "copernicus", "nasadem"]
 
 # Every source and layer as it was declared on 2026-10-31 (sources.py before the package)
@@ -1002,6 +1002,36 @@ DECLARED = {'czechia': {'crs': 'EPSG:5514',
                                  'credit': 'DGM1 / DOM20 (LDBV, Bavaria)',
                                  'shift': (0.0, 0.0),
                                  'index_url': 'https://geodaten.bayern.de/odd/a/dom20/meta/DOM/metalink/091.meta4'}},
+            'saarland': {'crs': 'EPSG:25832',
+                         'countries': ('de',),
+                         'bbox': None,
+                         'fallbacks': ['europe'],
+                         'grid_origin': (0.0, 0.0),
+                         'default_resolution': 1.0,
+                         'instead_without_data': None,
+                         'local_crs': 'utm_crs',
+                         'ortho': 'saarland/ortho/live',
+                         'credits': ['DGM1 / DOM1 (LVGL, Saarland)'],
+                         'nmt': {'class': 'ZipMemberTiles',
+                                 'description': 'DGM1 (terrain)',
+                                 'folder': 'saarland/dgm1-2025',
+                                 'prefix': 'dgm1',
+                                 'native_res': 1.0,
+                                 'processing': 1,
+                                 'ttl_days': None,
+                                 'credit': 'DGM1 / DOM1 (LVGL, Saarland)',
+                                 'shift': (0.0, 0.0),
+                                 'index_url': 'https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten'},
+                         'nmpt': {'class': 'ZipMemberTiles',
+                                  'description': 'DOM1 (trees, buildings)',
+                                  'folder': 'saarland/dom1-2025',
+                                  'prefix': 'dom1',
+                                  'native_res': 1.0,
+                                  'processing': 1,
+                                  'ttl_days': None,
+                                  'credit': 'DGM1 / DOM1 (LVGL, Saarland)',
+                                  'shift': (0.0, 0.0),
+                                  'index_url': 'https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten'}},
             'rhineland_palatinate': {'crs': 'EPSG:25832',
                                      'countries': ('de',),
                                      'bbox': None,
@@ -1672,6 +1702,8 @@ PATHS = [
     ("baden_wurttemberg", "nmpt", (248, 2661), "baden_wurttemberg/dom1/live/24_266/248_2661.tif", (248, 2661)),
     ("bavaria", "nmt", "sha", "bavaria/dgm1/67_551/673_5516_0123abcd.tif", None),
     ("bavaria", "nmpt", "sha", "bavaria/dom20-1m/67_551/673_5516_0123abcd.tif", None),
+    ("saarland", "nmt", "sha-year-sl", "saarland/dgm1-2025/32_548/327_5485_2025_0123abcd.tif", None),
+    ("saarland", "nmpt", "sha-year-sl", "saarland/dom1-2025/32_548/327_5485_2025_0123abcd.tif", None),
     ("rhineland_palatinate", "nmt", "sha-year", "rhineland_palatinate/dgm1/41_544/412_5447_2022_0123abcd.tif", None),
     ("rhineland_palatinate", "nmpt", "sha-year", "rhineland_palatinate/dom1/41_544/412_5447_2022_0123abcd.tif",
      None),
@@ -1734,7 +1766,8 @@ def test_tile_paths(tmp_path, sid, kind, tile, path, tile_of):
             "lgln": lambda: src.Sheet(**LGLN),
             "block": lambda: src.Block(**BLOCK), "sha": lambda: ShaTile(673, 5516, 0, "0123abcd"),
             "sha-year": lambda: ShaTile(412, 5447, 2022, "0123abcd"),
-            "sha-sh": lambda: ShaTile(426, 6005, 2025, "0123abcd")}.get(tile, lambda: tile)()
+            "sha-sh": lambda: ShaTile(426, 6005, 2025, "0123abcd"),
+            "sha-year-sl": lambda: ShaTile(327, 5485, 2025, "0123abcd")}.get(tile, lambda: tile)()
     layer = getattr(src.SOURCES[sid], kind)
     cache_dir = str(tmp_path)
     assert os.path.relpath(layer.tile_path(cache_dir, tile), cache_dir).replace(os.sep, "/") == path
@@ -1769,6 +1802,7 @@ def test_water_mask_and_tile_urls(tmp_path):
     ("lower_saxony", "nmpt", 51.88, 10.44, "lower_saxony/sheet-index/dom1/N51.88_E010.44.json"),
     ("bavaria", "nmpt", 49.77, 11.41, "bavaria/sheet-index/dom20/N49.77_E011.41.json"),
     ("rhineland_palatinate", "nmt", 49.15, 7.78, "rhineland_palatinate/sheet-index/dgm1/N49.15_E007.78.json"),
+    ("saarland", "nmpt", 49.46, 6.86, "saarland/sheet-index/dom1/N49.46_E006.86.json"),
     ("schleswig_holstein", "nmt", 54.18, 7.88, "schleswig_holstein/sheet-index/dgm1/N54.18_E007.88.json"),
     ("alaska_ifsar", "nmt", 61.2, -149.9, "usa/sheet-index/ifsar5m/N61.20_W149.90.json"),
 ])
@@ -1801,7 +1835,7 @@ def test_layer_surface():
     # The relations search.py (WcsTiles, OpenTopographyTiles) and update.py (IndexedTiles) rely on
     indexed = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.IndexedTiles)}
     assert indexed == {"geoportal", "swisstopo", "alaska", "alaska_ifsar", "usa", "lower_saxony", "bavaria",
-                       "rhineland_palatinate", "scotland", "schleswig_holstein"}
+                       "rhineland_palatinate", "scotland", "schleswig_holstein", "saarland"}
     wcs = {sid for sid, s in src.SOURCES.items() if isinstance(s.nmt, src.WcsTiles)}
     assert wcs == {"malta", "malta2012", "spain_canarias", "spain", "england", "hesse", "mecklenburg_vorpommern",
                    "saxony_anhalt", "south_tyrol", "denmark", "norway", "north_rhine_westphalia", "brandenburg"}
@@ -1850,7 +1884,9 @@ BOXES = CZ_BOXES + [("mt", (35.78, 36.10, 14.15, 14.60)), ("pl", (49.0, 54.9, 14
          ("de-he", (49.39, 51.66, 7.77, 10.24)), ("de-mv", (53.1, 54.7, 10.59, 14.42)),
          ("de-st", (50.94, 53.05, 10.56, 13.19)), ("de-ni", (51.29, 53.9, 6.65, 11.6)),
          ("de-sn", (50.15, 51.72, 11.79, 15.06)), ("de-bw", (47.52, 49.83, 7.44, 10.54)),
-         ("de-by", (47.27, 50.57, 8.97, 13.84)), ("de-rp", (48.96, 50.95, 6.54, 8.51)),
+         ("de-by", (47.27, 50.57, 8.97, 13.84)),
+         ("de-sl", (49.11, 49.64, 6.54, 7.41)), ("de-sl", (49.38, 49.52, 6.36, 6.54)),
+         ("de-rp", (48.96, 50.95, 6.54, 8.51)),
          ("de-rp", (50.19, 50.95, 6.11, 6.54)),
          ("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25)),
          ("de-bb", (51.36, 53.56, 11.26, 14.77)),
@@ -2005,6 +2041,7 @@ ATTRIBUTIONS = {
     "baden_wurttemberg": "Datenquelle: LGL, www.lgl-bw.de, Daten geändert",
     "bavaria": "Bayerische Vermessungsverwaltung – www.geodaten.bayern.de, Daten geändert",
     "rhineland_palatinate": "©GeoBasis-DE / LVermGeoRP {year}, dl-de/by-2-0, www.lvermgeo.rlp.de [Daten bearbeitet]",
+    "saarland": "© GeoBasis DE/LVGL-SL {year}, dl-de/by-2-0, Daten geändert",
     "finland": "Contains data from the National Land Survey of Finland Elevation model 2 m {year}, CC BY 4.0, processed",
     "norway": "©Kartverket, CC BY 4.0, processed",
     "new_zealand": "Sourced from LINZ. CC BY 4.0",
@@ -2058,6 +2095,7 @@ ORTHOS = {  # source: (attribution, attribution_url)
     "bavaria": ("Bayerische Vermessungsverwaltung – www.geodaten.bayern.de, CC BY 4.0", src.CC_BY[1]),
     "rhineland_palatinate": ("©GeoBasis-DE / LVermGeoRP {year}, dl-de/by-2-0, www.lvermgeo.rlp.de",
                              "https://www.govdata.de/dl-de/by-2-0"),
+    "saarland": ("© GeoBasis DE/LVGL-SL {year}, dl-de/by-2-0", "https://www.govdata.de/dl-de/by-2-0"),
     "geoportal": ("GUGiK", None),
     "tasmania": ("theLIST orthophoto: Creative Commons BY-NC-ND 3.0 AU © State of Tasmania",
                  "https://creativecommons.org/licenses/by-nc-nd/3.0/au/"),

@@ -12,7 +12,9 @@ Per source and layer, at the source's sample point (Source.sample) on a tiny gri
   16 x 16 pixels of the first block's file (one of heights above the ellipsoid also its geoid grid: in the
   cache, or its address answering a HEAD with its size; never downloaded); a local mirror is looked for on disk; a
   plain XYZ file
-  (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers;
+  (GeoJsonTiles: its server has no Range) the first KB of its text, which must be "x y z" numbers; a member
+  of a remote ZIP archive (ZipMemberTiles) its local header, by a Range of a few hundred bytes (the index's
+  estimate read the archives' ends and directories);
 - --deep: the first tile downloaded (Layer.download_tile into the temporary folder) and checked
   for data;
 - the orthophoto: one base tile at the sample, or the WMS's GetCapabilities.
@@ -69,6 +71,8 @@ from .layers.files import FileLayer
 from .layers.zipped import ZippedTiles
 from .layers.s3blocks import S3Blocks
 from .layers.geojson import GeoJsonTiles
+from .layers.zipmembers import ZipMemberTiles
+from .readers.zipmember import LOCAL_SIZE, ArchiveChanged, local_header, member_name, ranged
 from .catalogue import SOURCES
 from .choose import source_unavailable
 
@@ -80,6 +84,7 @@ ORTHO_ZOOM = 15         # the zoom of the orthophoto's base tile asked for
 # How each kind of layer is probed; a new kind needs its entry (tests/test_probe.py)
 STRATEGIES: Sequence[Tuple[type, str]] = (
     (GeoJsonTiles, "text"),  # before IndexedTiles, of which it is one
+    (ZipMemberTiles, "zip"),  # the same
     (WcsTiles, "wcs"), (OpenTopographyTiles, "api"), (IndexedTiles, "index"), (DegreeTiles, "tiles"),
     (DegreeBlocks, "tiles"), (FileBlocks, "window"), (GridTiles, "tiles"), (FileLayer, "file"),
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"))
@@ -201,6 +206,24 @@ def _xyz_head(cache_dir: str, layer: GeoJsonTiles, tile) -> str:
         text = " ".join(body[:200].decode("utf-8", "replace").split())
         raise RuntimeError(f"HTTP {status} {kind} {text}")
     return ""
+
+
+def _zip_header(cache_dir: str, layer: ZipMemberTiles, tile) -> str:
+    """The local file header of the first tile's member, by one Range of its fixed part, its name and 64 bytes
+    (never the member's data); raises unless it is the member's (the archive was replaced, or moved: a 404)."""
+    request = layer.index.request(tile)
+    last = request.offset + LOCAL_SIZE + len(request.member.encode("utf-8")) + 63
+    with host_slot(cache_dir, request.url):
+        try:
+            body, total, _ = ranged(request.url, request.offset, last, REQUEST_TIMEOUT_S)
+        except ArchiveChanged as e:
+            raise RuntimeError(str(e)) from None
+    _, name_length, _ = local_header(body)
+    if member_name(body[LOCAL_SIZE:LOCAL_SIZE + name_length], request.flags) != request.member:
+        raise RuntimeError(f"the local header at {request.offset} is not {request.member}'s")
+    if total is not None and request.length and total != request.length:
+        raise RuntimeError(f"the archive has {total} bytes, its directory was read from {request.length}")
+    return f"member {request.member.rsplit('/', 1)[-1]} ({request.size / 1e6:.1f} MB)"
 
 
 def _window(cache_dir: str, layer: FileBlocks, tile) -> str:
@@ -350,7 +373,7 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
         except (requests.RequestException, RuntimeError, ValueError, OSError) as e:
             tiles = None
             printed.write(cache.clean_error(e))
-        if kind in ("index", "text"):
+        if kind in ("index", "text", "zip"):
             row.index = OK if tiles else FAILED
             if not tiles:
                 row.notes.append(printed.getvalue().strip() or "no tile at the sample point")
@@ -374,6 +397,8 @@ def probe_layer(source: Source, layer: Layer, what: str, cache_dir: str, folder:
                 _getmap(cache_dir, layer, tiles[0])
             elif kind == "text":
                 _xyz_head(cache_dir, layer, tiles[0])
+            elif kind == "zip":
+                row.notes.append(_zip_header(cache_dir, layer, tiles[0]))
             else:
                 note = _read(cache_dir, _first_url(layer, tiles[0]))
                 if note:

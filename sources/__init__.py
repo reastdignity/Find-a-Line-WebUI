@@ -78,6 +78,7 @@ from .layers.zipped import ZippedTiles
 from .layers.metalink import MetalinkTiles
 from .layers.s3blocks import S3Blocks
 from .layers.geojson import GeoJsonTiles
+from .layers.zipmembers import ZipMemberTiles
 from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
@@ -95,4 +96,5 @@ __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "Coverage", "OrthoService", "C
            "WATER_MASK", "WATER_MASK_CREDIT", "OFFLINE_BOXES", "choose_source", "source_unavailable", "used_data",
            "prepare_layer", "build_mosaic", "load_slope_file", "water_body_mask", "near", "fill_water",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
-           "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing"]
+           "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing",
+           "ZipMemberTiles"]

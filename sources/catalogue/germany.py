@@ -3,8 +3,9 @@ and DOM1 from STAC), Hesse (HVBG's DGM1 and DOM1 from WCS), Mecklenburg-Vorpomme
 DOM1 from WCS), Saxony (GeoSN's DGM1 and DOM1, zipped 2 km GeoTIFFs) and Baden-Württemberg (LGL's DGM1
 and DOM1, zipped 2 km tiles of 1 km XYZ grids or GeoTIFFs), Bavaria (LDBV's DGM1 and DOM20 listed by
 Metalinks), Rhineland-Palatinate (LVermGeo RP's DGM1 and DOM1 listed by Metalinks), North Rhine-Westphalia
-(Geobasis NRW's DGM1 and DOM1 from WCS), Brandenburg with Berlin (LGB's DGM1 and DOM1 from WCS) and
-Schleswig-Holstein (LVermGeo SH's DGM1, plain XYZ files listed by a GeoJSON index)."""
+(Geobasis NRW's DGM1 and DOM1 from WCS), Brandenburg with Berlin (LGB's DGM1 and DOM1 from WCS),
+Schleswig-Holstein (LVermGeo SH's DGM1, plain XYZ files listed by a GeoJSON index) and Saarland (LVGL's DGM1
+and DOM1, members of district ZIP archives read by HTTP Range)."""
 
 from typing import List
 
@@ -15,6 +16,7 @@ from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
 from ..layers.metalink import MetalinkTiles
 from ..layers.geojson import GeoJsonTiles
+from ..layers.zipmembers import ZipMemberTiles
 
 # LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
 # the provider named "© GeoBasis-DE / LVermGeo ST"; dl-de/by-2.0 §3 asks for a note of changes ("Daten
@@ -291,6 +293,51 @@ SH_DOP = OrthoService("DOP20 Schleswig-Holstein (LVermGeo SH)", "https://service
                       "sh_dop20_rgb", "schleswig_holstein/ortho/live", SH_ATTRIBUTION, attribution_url=CC_BY[1])
 
 
+# LVGL's open data (the shop's page "Offene Geobasisdaten", https://www.shop.lvgl.saarland.de/index.php?option=
+# com_content&view=article&id=18, read 2026-11-03): dl-de/by-2.0, "Vorgabe des Lizenzgebers zum Quellenvermerk:
+# „© GeoBasis DE/LVGL-SL (Jahr der Bereitstellung)“" (the ISO metadata of the DGM1, DOM1 and DOP: "© GeoBasis
+# DE/LVGL-SL (Jahr)"); the year of the run (YEAR) stands for the year of the download, as for LGLN and LVermGeo RP;
+# "Daten geändert" for dl-de/by-2.0 §3 (a mosaic on our grid, the 0 m patches taken out)
+SL_ATTRIBUTION = f"© GeoBasis DE/LVGL-SL {YEAR}"
+SL_CREDIT = Credit("DGM1 / DOM1 (LVGL, Saarland)", f"{SL_ATTRIBUTION}, dl-de/by-2-0, Daten geändert", *DL_DE_BY)
+# The DGM1 and DOM1 of 2025 (lidar, "Laserscanbefliegung 2025"): 1 km GeoTIFFs of 1 m (float32 in centimetres,
+# uncompressed, strips of 2 rows, -9999, EPSG:25832, DHHN2016, edges on whole metres) d[go]m1_32_<Ekm>_<Nkm>_1_SL_2025
+# .tif in one ZIP per Landkreis and model (deflated members of 0.8-2.8 MB; ZIPs of 0.56-1.17 GB, 5.5 and 6.2 GB in all)
+# on LVGL's Nextcloud share "Opendata". The share's token was reissued once (Mapterhorn's wWELJP3D5aRsrqi of 2025 is
+# gone): it comes from the stable link the shop's page gives, which redirects to .../index.php/s/<token> (to http:
+# the redirect is not followed, the archives are read over https), resolved again with every reading of the
+# directories. The twelve archives are named here (WebDAV listing is not used): a new survey brings new names, set by
+# hand (the probe sees a missing archive). 294 tiles lie in two districts' ZIPs (identical): the first named wins.
+# No WCS (the INSPIRE WMS's TIFF is an RGB picture), no limits published (net.HOST_SLOTS_OF)
+SL_SHARE = "https://www.shop.lvgl.saarland.de/cloud/freiegeobasisdaten"
+SL_DAV = "https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/{token}"
+SL_DISTRICTS = ("MZG", "NK", "SB", "SLS", "SPK", "WND")  # Merzig-Wadern, Neunkirchen, Regionalverband Saarbrücken,
+                                                        # Saarlouis, Saarpfalz-Kreis, St. Wendel
+SL_RELEASE = "2025"
+# Pixels below SL_FLOOR metres, and those within SL_RING pixels of one, are no data (the user's decision of
+# 2026-11-03): the DGM1 holds patches at exactly 0.00 m (tile 327_5485 near Mettlach: 105 px with a rim of 64-195 m
+# falling from ground at about 205 m; a second one reported at 343_5457) that would make a pit with walls of 100 m
+# and more; no ground of the Land lies below about 135 m (the Moselle at Perl about 140 m). The source's gap filler
+# fills them
+SL_FLOOR = 100.0
+SL_RING = 2
+# LVGL's DOP WMS (MapServer, layer sl_dop: the newest DOP, 2025, DOP20; EPSG:4326 offered; Fees none,
+# AccessConstraints noLimitations; white beyond the Land), dl-de/by-2.0 with the same notice
+SL_DOP = OrthoService("DOP20 Saarland (LVGL)", "https://geoportal.saarland.de/freewms/dop", "sl_dop",
+                      "saarland/ortho/live", f"{SL_ATTRIBUTION}, dl-de/by-2-0", attribution_url=DL_DE_BY[1])
+
+
+def _sl(kind: str, description: str, bytes_per_tile: float) -> ZipMemberTiles:
+    """DGM1 or DOM1 of LVGL: members of the six district ZIPs of the release, read by HTTP Range."""
+    upper = kind.upper()
+    archives = [f"{SL_DAV}/OD_{upper}1_{SL_RELEASE}_tif_LK/{upper}1_tif_{district}_EPSG-25832_Entstehung-{SL_RELEASE}.zip"
+                for district in SL_DISTRICTS]
+    return ZipMemberTiles(description, archives,
+                          rf"(?i)(?:^|/){kind}1_32_(?P<east>\d+)_(?P<north>\d+)_1_sl_(?P<year>\d{{4}})\.tif$",
+                          f"saarland/{kind}1-{SL_RELEASE}", "EPSG:25832", f"{kind}1", share=SL_SHARE,
+                          bytes_per_tile=bytes_per_tile, floor=SL_FLOOR, ring=SL_RING)
+
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -403,6 +450,24 @@ SOURCES: List[Source] = [
              f"averaged to 1 m). The surface model comes from image matching of aerial photographs, not from "
              f"laser scanning: smoother over trees and less exact (0.4-0.6 m). The files name no survey years.",
         coverage=Coverage(provider="LDBV", added="2026-11-02")),
+    # Saarland before Rhineland-Palatinate: RP's offline box holds the whole Land
+    Source(
+        id="saarland", name="LVGL (DGM1 / DOM1)",
+        description="LVGL (Saarland, Germany): terrain and surface models 1 m of 2025, members of district ZIP "
+                    "archives read by HTTP Range, ETRS89 / UTM 32N, DHHN2016",
+        nmt=_sl("dgm", "DGM1 (terrain)", 1.8e6), nmpt=_sl("dom", "DOM1 (trees, buildings)", 2.0e6),
+        countries=("de",), regions=("de-sl",), crs="EPSG:25832", ortho=SL_DOP,
+        credits=(SL_CREDIT,),
+        neighbours=("rhineland_palatinate", "france", "luxembourg"),
+        listing=ReadmeRow("Saarland (DE)", "LVGL DGM1, 1 m (2025)", "LVGL DOM1, 1 m (2025)", "LVGL DOP20"),
+        # The Land, then Perl east of the Moselle (Luxembourg's box, later in SOURCES, reaches 6.54° E); the first box
+        # also holds a strip of Lorraine, as RP's does
+        offline=(("de-sl", (49.11, 49.64, 6.54, 7.41)), ("de-sl", (49.38, 49.52, 6.36, 6.54))),
+        sample=(49.4611, 6.8573),  # the Michelbach quarry at Schmelz
+        note=f"Data {SL_ATTRIBUTION}, dl-de/by-2.0 (changed: mosaicked onto the working grid, heights below "
+             f"{SL_FLOOR:.0f} m and {SL_RING} pixels around them taken out: patches at 0 m in the survey, filled "
+             f"like gaps). Survey 2025.",
+        coverage=Coverage(provider="LVGL", added="2026-11-03", survey="2025")),
     Source(
         id="rhineland_palatinate", name="LVermGeo RP (DGM1 / DOM1)",
         description="LVermGeo (Rhineland-Palatinate, Germany): terrain and surface models 1 m, newest survey per "
@@ -410,7 +475,7 @@ SOURCES: List[Source] = [
         nmt=_rp("dgm", "DGM1 (terrain)"), nmpt=_rp("dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-rp",), crs="EPSG:25832", ortho=RP_DOP,
         credits=(RP_CREDIT,),
-        neighbours=("hesse", "luxembourg", "france", "baden_wurttemberg", "north_rhine_westphalia"),
+        neighbours=("hesse", "luxembourg", "france", "baden_wurttemberg", "north_rhine_westphalia", "saarland"),
         listing=ReadmeRow("Rhineland-Palatinate (DE)", "LVermGeo RP DGM1, 1 m; newest survey",
                           "LVermGeo RP DOM1, 1 m", "LVermGeo RP DOP20"),
         # Two boxes: Luxembourg's (to 6.54° E) comes later in SOURCES and would lose its points to one box

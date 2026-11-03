@@ -87,6 +87,12 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # bruksvilkar, read 2026-11-02) reserve "the right ... to limit use (limiting number of service calls etc.)"
     # without a number: courtesy
     "geodata.npolar.no": 4,
+    # LVGL Saarland's Nextcloud (the open-data share's district ZIPs, read by Range: Saarland): no published limits
+    # (the shop's articles 18 "Offene Geobasisdaten", 19 "Anleitung Open Data" and 4 "Benutzerhinweise", the DGM and
+    # DOM category pages 1060 and 1066 of https://www.shop.lvgl.saarland.de, the DOP WMS's capabilities (Fees none,
+    # AccessConstraints noLimitations) and the share's capabilities (downloadlimit default -1), read 2026-11-03):
+    # courtesy for a small server, two at once
+    "www.shop.lvgl.saarland.de": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
