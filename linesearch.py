@@ -28,6 +28,7 @@ import numpy as np
 from numba import njit, prange
 
 import helpers as sh
+import runs as rn
 from progress import progress
 
 SECTORS = 64   # direction sectors per anchor
@@ -470,6 +471,32 @@ def _interp(x, xp, fp):
     return result
 
 
+@njit(cache=True)
+def _interp_forward(x, xp, fp, j):
+    """_interp of x when x is not below the x of the call before on the same xp: j is the index
+    that call returned (0 at the first). The same result to the last bit; the index (the last
+    xp[j] <= x, searchsorted's) is found by walking forward from j instead of a binary search.
+    Returns (value, index)."""
+    n = xp.size
+    if x != x:
+        return x, j
+    if x < xp[0]:
+        return fp[0], j
+    if x > xp[n - 1]:
+        return fp[n - 1], j
+    while j < n - 1 and xp[j + 1] <= x:
+        j += 1
+    if j == n - 1 or xp[j] == x:
+        return fp[j], j
+    slope = (fp[j + 1] - fp[j]) / (xp[j + 1] - xp[j])
+    result = slope * (x - xp[j]) + fp[j]
+    if result != result:
+        result = slope * (x - xp[j + 1]) + fp[j + 1]
+        if result != result and fp[j] == fp[j + 1]:
+            result = fp[j]
+    return result, j
+
+
 @njit(parallel=True, cache=True)
 def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, ratios, ratio_index,
               sag, fractions, fall_zone, high_above, out):
@@ -501,6 +528,7 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
         clearance, nmpt, seen = np.inf, np.inf, False
         height_max, height_sum, high = -np.inf, 0.0, 0
         row = np.empty(fractions.size) if use_sag else blend
+        at = 0  # _interp_forward's index: t only grows along the line
         if use_sag:
             for f in range(fractions.size):
                 row[f] = ((1 - a) * (1 - b) * sag[i0, j0, f] + a * (1 - b) * sag[i0 + 1, j0, f]
@@ -510,7 +538,8 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
             r = r1 + int(np.rint(dr * t))
             c = c1 + int(np.rint(dc * t))
             if use_sag:
-                limit = e1 + (e2 - e1) * t - _interp(t, fractions, row) - fall_zone
+                sagged, at = _interp_forward(t, fractions, row, at)
+                limit = e1 + (e2 - e1) * t - sagged - fall_zone
             else:
                 limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
             margin = limit - np.float64(z[r, c])
@@ -606,8 +635,9 @@ def _covered_pixels(a1, a2, mask, out):
 
 def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np.ndarray]) -> np.ndarray:
     """Metres of each line over the pixels of a mask (water, filled gaps): the values of
-    helpers.line_profile ("water_m", "filled_m") without the rest of the profile (float64).
-    Python's round() of every value, COVERED_PART lines at a time (its lists stay small)."""
+    helpers.line_profile ("water_m", "filled_m") without the rest of the profile (float64),
+    COVERED_PART lines at a time: Python's round(count * length / steps, 1) of every line
+    (runs.round_floats of the same float64 products and quotients), 0.0 where no pixel is set."""
     out = np.zeros(len(a1))
     if mask is None or len(a1) == 0:
         return out
@@ -620,8 +650,8 @@ def covered_metres(a1: np.ndarray, a2: np.ndarray, res: float, mask: Optional[np
         d = q - p
         steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
         lengths = np.hypot(d[:, 0], d[:, 1]) * res
-        out[at:at + len(p)] = [round(float(n) * length / s, 1) if n else 0.0
-                               for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+        some = np.flatnonzero(counts)  # the others stay 0.0 (a line may have no pixel between its anchors)
+        out[at + some] = rn.round_floats(counts[some] * lengths[some] / steps[some], 1)
     return out
 
 

@@ -196,6 +196,52 @@ def test_covered_metres_match_profiles(monkeypatch):
     assert ls.covered_metres(a1, a2, 2.0, None).tolist() == [0.0] * len(a1)
 
 
+def _old_covered_metres(a1, a2, res, mask):
+    """linesearch.covered_metres before wave 3 of round 3 (Python's round() line by line): the reference."""
+    import linesearch as ls
+    out = np.zeros(len(a1))
+    if mask is None or len(a1) == 0:
+        return out
+    p, q = np.ascontiguousarray(a1, dtype=np.int64), np.ascontiguousarray(a2, dtype=np.int64)
+    counts = np.zeros(len(p), dtype=np.int64)
+    ls._covered_pixels(p, q, np.ascontiguousarray(mask, dtype=np.bool_), counts)
+    d = q - p
+    steps = np.maximum(np.abs(d[:, 0]), np.abs(d[:, 1]))
+    lengths = np.hypot(d[:, 0], d[:, 1]) * res
+    out[:] = [round(float(n) * length / s, 1) if n else 0.0
+              for n, length, s in zip(counts.tolist(), lengths.tolist(), steps.tolist())]
+    return out
+
+
+def test_covered_metres_as_before(monkeypatch):
+    """covered_metres rounds whole parts with runs.round_floats: the values of the old round() per
+    line, halfway cases too (lines along a row or a column at 0.25 or 1.25 m give n * res with a 5
+    in the second decimal, exact in binary), lines of one step and of none, parts of any size."""
+    import linesearch as ls
+    rng = np.random.default_rng(29)
+    size = 120
+    a1 = rng.integers(0, size, (4000, 2))
+    a2 = rng.integers(0, size, (4000, 2))
+    straight = rng.random(len(a1)) < 0.4  # along a row or a column
+    axis = rng.integers(0, 2, len(a1))
+    a2[straight, axis[straight]] = a1[straight, axis[straight]]
+    diagonal = rng.random(len(a1)) < 0.1
+    span = rng.integers(-40, 40, len(a1))
+    a2[diagonal] = np.clip(a1[diagonal] + span[diagonal, None], 0, size - 1)
+    a2[:5] = a1[:5]  # no step
+    a2[5:10] = a1[5:10] + [0, 1]  # one step
+    a2 = np.clip(a2, 0, size - 1)
+    for share in (0.0, 0.05, 0.3, 0.9, 1.0):
+        mask = rng.random((size, size)) < share
+        for res in (0.25, 0.5, 1.0, 1.25, 2.0, 0.1, 0.15, 5.0, 30.0, 1 / 3):
+            expected = _old_covered_metres(a1, a2, res, mask)
+            got = ls.covered_metres(a1, a2, res, mask)
+            assert got.dtype == np.float64
+            assert list(map(repr, got.tolist())) == list(map(repr, expected.tolist())), (share, res)
+    monkeypatch.setattr(ls, "COVERED_PART", 37)
+    assert ls.covered_metres(a1, a2, 1.25, mask).tolist() == _old_covered_metres(a1, a2, 1.25, mask).tolist()
+
+
 def _profile_case(seed=13, size=300):
     """Terrain with walls (lines over a gap), a few pixels without data, a surface model missing in
     places, water and filled masks, and lines of 2 to about 300 pixels between non-NaN anchors."""
@@ -328,6 +374,70 @@ def test_evaluate_lines_matches_evaluate_line(model):
                                     values[i, 0], values[j, 0], values[i, 1], values[j, 1]))
         assert slow and fast == slow
         assert 0 < sum(0 < line.high_pct < 100 for line in fast)  # the threshold is crossed
+
+
+def _old_coordify(a1, a2, grid):
+    """mapping.coordify's coordinates before wave 3 of round 3 (every anchor of every line
+    transformed): the reference. Returns anchor1, anchor2, a1_xy, a2_xy."""
+    from pyproj import Transformer
+    rows = np.column_stack([a1[:, 0], a2[:, 0]]).ravel()
+    cols = np.column_stack([a1[:, 1], a2[:, 1]]).ravel()
+    easting, northing = grid.pixel_to_xy(rows, cols)
+    lon, lat = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform(easting, northing)
+    out = []
+    for a, b, first in ((lat, lon, 0), (lat, lon, 1), (easting, northing, 0), (easting, northing, 1)):
+        out.append(np.column_stack([np.asarray(a, dtype=np.float64)[first::2], np.asarray(b, dtype=np.float64)[first::2]]))
+    return out
+
+
+def test_coordify_as_before(monkeypatch):
+    """coordify transforms the different anchor pixels of a part once: the same float64 values as
+    every anchor transformed (the old code), in several CRSs (UTM, Swiss LV95, Polish 1992, the
+    Czech Krovak, British National Grid), anchors shared by many lines, parts of any size."""
+    import helpers as sh
+    import mapping
+    from grid import Grid
+    rng = np.random.default_rng(37)
+    cases = [("EPSG:32633", 447000.0, 5551000.0, 1.0), ("EPSG:2056", 2636000.0, 1158000.0, 1.0),
+             ("EPSG:2180", 565000.0, 160000.0, 5.0), ("EPSG:5514", -650000.0, -1020000.0, 2.0),
+             ("EPSG:27700", 330000.0, 400000.0, 0.5)]
+    for crs, left, top, res in cases:
+        grid = Grid(left=left, top=top, res=res, height=900, width=1300, crs=crs)
+        anchors = np.column_stack([rng.integers(0, 900, 700), rng.integers(0, 1300, 700)])
+        pairs = rng.integers(0, len(anchors), (5000, 2))
+        a1, a2 = anchors[pairs[:, 0]], anchors[pairs[:, 1]]
+        a1[:3] = [[0, 0], [899, 1299], [0, 1299]]  # the grid's corners
+        expected = _old_coordify(a1, a2, grid)
+        for part in (1 << 17, 1, 777):
+            monkeypatch.setattr(mapping, "COORDINATE_PART", part)
+            clearance = rng.normal(0, 3, len(a1))
+            table = sh.LineTable({"a1": a1.copy(), "a2": a2.copy(), "clearance_nmpt": clearance})
+            mapping.coordify(table, grid, "mark")
+            for name, values in zip(("anchor1", "anchor2", "a1_xy", "a2_xy"), expected):
+                got = table.columns[name]
+                assert got.dtype == np.float64 and got.tobytes() == values.tobytes(), (crs, part, name)
+            assert table.columns["over_obstacles"].tolist() == (clearance <= 0).tolist()
+
+
+def test_interp_forward_matches_interp():
+    """_evaluate's _interp_forward (the index walked forward along a line) gives exactly _interp's
+    value for non-decreasing x: the sag table's fractions and the t = i / steps of lines of 2 to
+    2 000 steps, other increasing tables, x on the table's points, below and above it, and NaN."""
+    import linesearch as ls
+    rng = np.random.default_rng(31)
+    tables = [np.linspace(0, 1, 42), np.cumsum(rng.random(17) + 0.01), np.array([0.0, 1.0]),
+              np.array([-1.0, 0.0, 0.0, 2.0])]
+    for xp in tables:
+        fp = rng.normal(0, 3, len(xp))
+        runs = [np.arange(1, steps) / steps for steps in (2, 3, 7, 41, 42, 43, 130, 1000, 2000)]
+        runs.append(np.sort(np.concatenate([xp, rng.uniform(xp[0] - 1, xp[-1] + 1, 300)])))
+        runs.append(np.concatenate([np.sort(rng.uniform(xp[0], xp[-1], 50)), [np.nan, np.inf]]))
+        for x in runs:
+            at = 0
+            for v in x.tolist():
+                got, at = ls._interp_forward(v, xp, fp, at)
+                expected = ls._interp(v, xp, fp)
+                assert repr(got) == repr(expected), (v, xp)
 
 
 @pytest.mark.parametrize("model", ["formula", "sag"])
@@ -856,6 +966,9 @@ def test_prominence_and_drop_match_the_whole_grid(seed):
     for res, span in [(1.0, 0.5), (1.0, 1), (1.0, 2), (1.0, 5), (2.0, 24), (1.0, 37), (0.5, 40), (1.0, 1000)]:
         new = terrain.prominence(z, anchors, res, span)
         assert np.array_equal(new, _old_prominence(z, anchors, res, span), equal_nan=True), (res, span)
+        ordered = anchors[np.lexsort((anchors[:, 1], anchors[:, 0]))]  # row-major: no lexsort inside
+        assert np.array_equal(terrain.prominence(z, ordered, res, span), _old_prominence(z, ordered, res, span),
+                              equal_nan=True), (res, span)
     for res, radius in [(1.0, 0.5), (1.0, 1), (1.0, 3), (2.0, 21), (1.0, 64), (1.0, 500)]:
         new = terrain.drop(z, anchors, res, radius)
         assert np.array_equal(new, _old_drop(z, anchors, res, radius), equal_nan=True), (res, radius)
@@ -944,6 +1057,86 @@ def test_near_matches_the_dilation():
                     assert got.dtype == bool and got.shape == mask.shape
                     assert np.array_equal(got, expected), (shape, n, metres, res)
             assert src.near(mask, 0, 1.0) is mask and src.near(mask, 0.4, 1.0).sum() >= mask.sum()
+
+
+def _slopes_before(elevation, res, slope_threshold, area_mask, slope=None, block_rows=512):
+    """helpers.find_significant_slopes before 2026-11-03 (one thread, blocks of 512 rows), the reference."""
+    height, width = elevation.shape
+    anchors = []
+    for r0 in range(0, height, block_rows):
+        r1 = min(height, r0 + block_rows)
+        if slope is None:
+            h0, h1 = max(0, r0 - 1), min(height, r1 + 1)
+            z = np.asarray(elevation[h0:h1], dtype=np.float32)
+            gy, gx = np.gradient(z, res)
+            block = np.degrees(np.arctan(np.hypot(gx, gy)))[r0 - h0:r0 - h0 + (r1 - r0)]
+        else:
+            block = np.asarray(slope[r0:r1])
+        rows, cols = np.nonzero(block >= slope_threshold)
+        rows += r0
+        inside = area_mask[rows, cols]
+        anchors.append(np.column_stack([rows[inside], cols[inside]]).astype(np.int32))
+    return np.concatenate(anchors) if anchors else np.empty((0, 2), dtype=np.int32)
+
+
+def test_significant_slopes_as_before():
+    """find_significant_slopes in blocks on threads: exactly the anchors of the old single-threaded
+    pass, in row-major order (what terrain.prominence's lexsort gives), for any block size and thread
+    count, with NaN, a slope raster and grids of two rows or columns (np.gradient needs two)."""
+    import helpers as sh
+    rng = np.random.default_rng(5)
+    for shape in [(2, 2), (2, 40), (40, 2), (2, 3), (511, 7), (513, 9), (700, 300), (1500, 120)]:
+        z = np.cumsum(rng.normal(0, 2.0, shape), axis=0).astype(np.float32)
+        z += rng.normal(0, 1.5, shape).astype(np.float32)
+        z[rng.random(shape) < 0.02] = np.nan
+        mask = rng.random(shape) < 0.9
+        slope = (rng.random(shape) * 90).astype(np.float32)
+        for res, threshold in ((1.0, 45), (0.5, 60), (2.0, 30)):
+            expected = _slopes_before(z, res, threshold, mask)
+            expected_slope = _slopes_before(z, res, threshold, mask, slope)
+            for block_rows, threads in ((256, None), (512, 1), (1, 3), (7, 8), (100, 2), (2000, 4)):
+                got = sh.find_significant_slopes(z, res, threshold, mask, block_rows=block_rows, threads=threads)
+                assert got.dtype == np.int32 and np.array_equal(got, expected), (shape, res, block_rows, threads)
+                got = sh.find_significant_slopes(z, res, threshold, mask, slope, block_rows=block_rows,
+                                                 threads=threads)
+                assert np.array_equal(got, expected_slope), (shape, res, block_rows, threads)
+            if len(expected):
+                assert np.array_equal(np.lexsort((expected[:, 1], expected[:, 0])), np.arange(len(expected)))
+
+
+def test_seams_as_before():
+    """search.at_seams: the seams of a mask tested at the anchors give exactly the old expression over
+    the whole grid (scipy's 3 x 3 dilation and not its erosion, border 0), read at the anchors: every
+    pixel an anchor, grids of 1 x 1 up to 50 x 50, gaps at the edges and corners, empty and full masks."""
+    from scipy import ndimage
+    import search
+
+    def before(gaps, anchors):
+        unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
+            ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
+        return unreliable[anchors[:, 0], anchors[:, 1]]
+
+    rng = np.random.default_rng(11)
+    shapes = [(1, 1), (1, 2), (2, 1), (2, 2), (1, 7), (7, 1), (3, 3), (4, 9), (13, 5), (50, 50)]
+    shapes += [tuple(rng.integers(1, 51, 2)) for _ in range(20)]
+    for shape in shapes:
+        masks = [np.zeros(shape, bool), np.ones(shape, bool)]
+        for density in (0.05, 0.3, 0.5, 0.8, 0.97):
+            masks += [rng.random(shape) < density for _ in range(3)]
+        edges = np.zeros(shape, bool)
+        edges[0, ::3] = edges[-1, 1::4] = edges[::2, 0] = edges[2::5, -1] = True
+        masks += [edges, ~edges]
+        for corner in ((0, 0), (0, -1), (-1, 0), (-1, -1)):
+            mask = np.zeros(shape, bool)
+            mask[corner] = True
+            masks += [mask, ~mask]
+        rows, cols = np.indices(shape)
+        anchors = np.column_stack([rows.ravel(), cols.ravel()]).astype(np.int32)
+        for mask in masks:
+            assert np.array_equal(search.at_seams(mask, anchors), before(mask, anchors)), shape
+            some = anchors[rng.random(len(anchors)) < 0.3]  # a subset, and none
+            assert np.array_equal(search.at_seams(mask, some), before(mask, some)), shape
+    assert search.at_seams(np.ones((4, 4), bool), np.empty((0, 2), np.int32)).shape == (0,)
 
 
 def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
@@ -1934,3 +2127,103 @@ def test_estimate_layers_in_parallel():
     one, two = Fake(1), Fake(2)
     assert estimate_layers([two, one, two], None, "cache") == [(2, 0, 2.0), (1, 0, 1.0), (2, 0, 2.0)]
     assert sorted(calls) == [1, 2]
+
+
+def _batch_profiles(n: int, rng) -> "sh.Profiles":
+    """A helpers.Profiles of n lines as lineprofiles.line_profiles gives one: 2-30 points each,
+    some without data, over water or a filled gap, a missing min_nmpt."""
+    import helpers as sh
+    counts = rng.integers(2, 30, n)
+    offsets = np.concatenate([[0], np.cumsum(counts)]).astype(np.int64)
+    total = int(offsets[-1])
+    d = np.round(rng.random(total) * 500, 1)
+    z = np.round(rng.normal(400, 50, total), 2)
+    s = np.round(z + rng.random(total) * 3, 2)
+    z[rng.random(total) < 0.02] = np.nan
+    w = (rng.random(total) < 0.3).astype(np.uint8)
+    g = (rng.random(total) < 0.1).astype(np.uint8)
+    small = np.column_stack([np.round(rng.random(n) * 500, 1), np.round(rng.random(n) * 50, 2),
+                             np.round(rng.random(n) * 500, 1), np.round(rng.random(n) * 50, 2),
+                             np.round(rng.random(n) * 500, 1), np.round(rng.random(n) * 90, 2),
+                             np.round(rng.random(n) * 100, 1), np.round(rng.random(n) * 100, 1)])
+    small[rng.random(n) < 0.3, 2:4] = np.nan
+    flags = np.zeros(n, dtype=np.int64)
+    for k, (lo, hi) in enumerate(zip(offsets[:-1].tolist(), offsets[1:].tolist())):
+        flags[k] = (1 if w[lo:hi].any() else 0) | (2 if g[lo:hi].any() else 0) | (4 if np.isnan(z[lo:hi]).any() else 0)
+    return sh.Profiles(offsets, d, z, s, w, g, small, flags)
+
+
+def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
+    """saving.py: the line files of a run written by child processes (one per file, or the
+    results' apart from the map's) are byte for byte those save_results and save_map write in
+    one process, for 50 000 lines with the profiles of a batch, profiles that are dicts, lines
+    without one and values hard to round; the children's progress reaches the Compute bars
+    "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
+    removed; a failing child raises RuntimeError naming its file."""
+    import os
+    from shapely.geometry import Point
+    import mapping as mp
+    import runs as rn
+    import saving
+    from progress import progress
+
+    class Area:
+        center = (50.0, 19.1)
+
+        @staticmethod
+        def shape_wgs84():
+            return Point(19.1, 50.0).buffer(0.01)
+
+    rng = np.random.default_rng(7)
+    n = 50_000
+    lines = _fake_lines(n)
+    hard = np.array(HARD_FLOATS)
+    for shift, name in enumerate(["length", "clearance", "clearance_nmpt", "height_max", "high_pct", "prom1", "drop2"]):
+        lines.columns[name][:len(hard)] = np.roll(hard, shift)
+    lines.columns["anchor1"][:len(hard)] = np.column_stack([np.roll(hard, 1), np.roll(hard, -2)])
+    batch = _batch_profiles(n, rng)
+    lines.profiles = {k: batch[k] for k in range(n) if k % 7}
+    lines.profiles[7] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
+    members = rng.permutation(n).astype(np.int64)
+    start = np.concatenate([[0], np.sort(rng.integers(0, n + 1, 3000)), [n]]).astype(np.int64)
+    rep = np.array([members[rng.integers(a, b)] if b > a else n + g for g, (a, b) in enumerate(zip(start[:-1], start[1:]))],
+                   dtype=np.int64)
+    groups = mp.Groups(rep, members, start)
+    meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00", "summary": {"lines": n},
+            "attribution": [], "source": {"id": "files"}, "params": {"x": 1.5}, "data": [{"file": "C:/a/b.tif"}]}
+    one = tmp_path / "one"
+    one.mkdir()
+    rn.save_results(str(one), lines, groups, meta)
+    mp.save_map(lines, Area, str(one), str(tmp_path / "runs"), meta, "EPSG:2180")
+    files = ("lines.csv", "lines.geojson", "data.js", "lines.js", "run.json", "ATTRIBUTION.txt", "map.html")
+    assert sorted(os.listdir(one)) == sorted(files)
+
+    work = tmp_path / "work"
+    for count in (4, 2):
+        folder = tmp_path / f"children{count}"
+        folder.mkdir()
+        heads = mp.map_heads(Area, str(folder / "map.html"), meta, "EPSG:2180")
+        states = []
+        progress.subscribe(states.append)
+        try:
+            saving.save(str(work), str(folder), lines, groups, meta, heads, saving.plan(count),
+                        lambda: rn.save_results(str(folder), lines, groups, meta, files=("ATTRIBUTION.txt", "run.json")))
+        finally:
+            progress.unsubscribe(states.append)
+        mp.save_map(lines, Area, str(folder), str(tmp_path / "runs"), meta, "EPSG:2180", files=("map.html",))
+        for name in files:
+            assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
+        assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
+        # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)
+        bars = [(s["stage"], s["count"], s["total"], s["done"]) for s in states if s["stage"].startswith("saving")]
+        assert [b for b in bars if b[3]] == [("saving results", n, n, True), ("saving the map", n, n, True)]
+        for stage in ("saving results", "saving the map"):
+            counts = [c for name, c, total, done in bars if name == stage and not done]
+            assert counts and counts == sorted(counts) and 0 <= counts[0] and counts[-1] <= n, stage
+    assert saving.plan(1) == [] and saving.plan(2) == [saving.RESULT_FILES, saving.MAP_FILES]
+    assert saving.plan(3, map_files=False) == [("lines.csv",), ("lines.geojson",)] and len(saving.plan(4)) == 4
+    assert [saving.processes(t) for t in (1, 2, 3, 4, 24)] == [1, 2, 2, 4, 4]
+    with pytest.raises(RuntimeError, match="saving lines"):  # the run folder missing: every child fails
+        saving.save(str(work), str(tmp_path / "missing"), lines, groups, meta, heads, [("lines.csv",), ("lines.js",)],
+                    lambda: None)
+    assert not (work / saving.FOLDER).exists()

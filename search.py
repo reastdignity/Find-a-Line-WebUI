@@ -58,6 +58,7 @@ import obstacles
 import orthophoto as ortho
 import osm
 import runs as rn
+import saving
 import sag as sg
 import sources as src
 from settings import Limits
@@ -866,56 +867,13 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     # lane, which import this module too, never load numba and llvmlite (their time and memory)
     import lineprofiles as lp
     import linesearch as ls
-    import terrain
 
     p, grid, emit = plan.params, plan.grid, plan.emit
 
-    # Step 2: Find raster pixels with significant slope for promising anchors
-    _step(plan, 2, "finding significant slopes")
-    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope)
-    for seams in (data.filled, data.joined):
-        if seams is None:
-            continue
-        # Slopes across the edge of a filled gap mix two surveys: not reliable anchors there
-        from scipy import ndimage
-        gaps = np.asarray(seams)
-        unreliable = ndimage.binary_dilation(gaps, structure=np.ones((3, 3))) & \
-            ~ndimage.binary_erosion(gaps, structure=np.ones((3, 3)))
-        anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]
-    emit("info", f"Found {len(anchors)} potential anchors to evaluate")
-    _count(plan, "anchors", len(anchors))
-    if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
-        raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
-                          f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
-                          n=len(anchors), max=plan.limits.anchors_max)
-    if len(anchors) < 2:
-        if core is not None:  # a tile of a large area: nothing here
-            return sh.LineTable.empty(), mp.Groups.each_alone(0)
-        raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
-                          "no_steep_terrain")
-
-    # How far each anchor stands out (terrain.py); the limits for both anchors leave anchors out
-    progress.compute.start("anchor prominence and drop", 2, unit="step")
-    prom = terrain.prominence(data.elevation, anchors, plan.resolution, p.prominence_span)
-    progress.compute.update(1)
-    drop = terrain.drop(data.elevation, anchors, plan.resolution, p.drop_radius)
-    progress.compute.finish()
-    keep = np.ones(len(anchors), dtype=bool)
-    if p.min_prominence_both is not None:
-        keep &= prom >= p.min_prominence_both
-    if p.min_drop is not None:
-        keep &= drop >= p.min_drop
-    if not keep.all():
-        emit("info", f"Anchors left after the prominence and drop limits: {int(keep.sum())}")
-        anchors, prom, drop = anchors[keep], prom[keep], drop[keep]
-    # --min-prominence: one anchor of each line; the others stay as partners
-    strong = None if p.min_prominence is None else prom >= p.min_prominence
-    if len(anchors) < 2 or (strong is not None and not strong.any()):
-        if core is not None:
-            return sh.LineTable.empty(), mp.Groups.each_alone(0)
-        raise SearchError("No anchors stand out enough. Try a lower --min-prominence, --min-prominence-both "
-                          "or --min-drop.", "no_prominent_anchors")
+    found = _anchors(plan, data, quiet=core is not None)
+    if found is None:  # a tile of a large area: nothing here
+        return sh.LineTable.empty(), mp.Groups.each_alone(0)
+    anchors, prom, drop, strong = found.anchors, found.prominence, found.drop, found.strong
 
     # Step 3: Compare each promising anchor to every other anchor
     _step(plan, 3, "evaluating anchor pairs")
@@ -964,6 +922,90 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     progress.compute.finish()
     del a1, a2
     return results.without_pixels(), groups  # nothing reads the pixels from here on
+
+
+def at_seams(gaps: np.ndarray, anchors: np.ndarray) -> np.ndarray:
+    """Which anchors ([row, col]) lie at a seam of the mask `gaps` (filled gaps, a neighbour's
+    data): binary_dilation(gaps) & ~binary_erosion(gaps) of scipy with a 3 x 3 structure, read
+    at the anchors only. The dilation is "a gap within the anchor's 3 x 3 neighbourhood", the
+    erosion "all 9 pixels gaps" with the outside of the grid as no gap (border_value 0): an
+    anchor is at a seam when its neighbourhood, clipped at the grid's edges, holds a gap and
+    either a pixel that is not a gap or a place outside the grid. Nine gathers at the anchors
+    instead of two operations over the whole grid (tests/test_units.py::test_seams_as_before)."""
+    h, w = gaps.shape
+    rows, cols = anchors[:, 0], anchors[:, 1]
+    any_gap = np.zeros(len(anchors), dtype=bool)
+    all_gaps = np.ones(len(anchors), dtype=bool)
+    for dr in (-1, 0, 1):
+        r = rows + dr
+        r_in = (r >= 0) & (r < h)
+        r = np.clip(r, 0, h - 1)
+        for dc in (-1, 0, 1):
+            c = cols + dc
+            gap = np.asarray(gaps[r, np.clip(c, 0, w - 1)], dtype=bool) & r_in & (c >= 0) & (c < w)
+            any_gap |= gap
+            all_gaps &= gap
+    return any_gap & ~all_gaps
+
+
+@dataclass
+class Anchors:
+    """Step 2's results: the anchors ([row, col]), their prominence and drop (terrain.py), and
+    the mask of the strong ones (--min-prominence; None: every anchor)."""
+    anchors: np.ndarray
+    prominence: np.ndarray
+    drop: np.ndarray
+    strong: Optional[np.ndarray]
+
+
+def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
+    """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
+    data), with their prominence and drop and the limits on them. Too few anchors: None when
+    quiet (a tile, a count), else SearchError. limits.anchors_max refuses too many either way."""
+    import terrain  # numba: only when computing (test_search_imports_numba_only_to_compute)
+
+    p, grid, emit = plan.params, plan.grid, plan.emit
+    _step(plan, 2, "finding significant slopes")
+    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
+                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope,
+                                         threads=line_threads(p))
+    for seams in (data.filled, data.joined):
+        if seams is not None:  # slopes across the edge of a filled gap mix two surveys: not reliable anchors there
+            anchors = anchors[~at_seams(seams, anchors)]
+    emit("info", f"Found {len(anchors)} potential anchors to evaluate")
+    _count(plan, "anchors", len(anchors))
+    if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
+        raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
+                          f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
+                          n=len(anchors), max=plan.limits.anchors_max)
+    if len(anchors) < 2:
+        if quiet:
+            return None
+        raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
+                          "no_steep_terrain")
+
+    # How far each anchor stands out (terrain.py); the limits for both anchors leave anchors out
+    progress.compute.start("anchor prominence and drop", 2, unit="step")
+    prom = terrain.prominence(data.elevation, anchors, plan.resolution, p.prominence_span)
+    progress.compute.update(1)
+    drop = terrain.drop(data.elevation, anchors, plan.resolution, p.drop_radius)
+    progress.compute.finish()
+    keep = np.ones(len(anchors), dtype=bool)
+    if p.min_prominence_both is not None:
+        keep &= prom >= p.min_prominence_both
+    if p.min_drop is not None:
+        keep &= drop >= p.min_drop
+    if not keep.all():
+        emit("info", f"Anchors left after the prominence and drop limits: {int(keep.sum())}")
+        anchors, prom, drop = anchors[keep], prom[keep], drop[keep]
+    # --min-prominence: one anchor of each line; the others stay as partners
+    strong = None if p.min_prominence is None else prom >= p.min_prominence
+    if len(anchors) < 2 or (strong is not None and not strong.any()):
+        if quiet:
+            return None
+        raise SearchError("No anchors stand out enough. Try a lower --min-prominence, --min-prominence-both "
+                          "or --min-drop.", "no_prominent_anchors")
+    return Anchors(anchors, prom, drop, strong)
 
 
 def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
@@ -1277,34 +1319,56 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
-    def on_lines(n: int, file: str):
-        progress.compute.update(n, file=file)
-
-    progress.compute.start("saving results", len(results), unit="line")
-    rn.save_results(run["path"], results, spot_groups, meta, on_lines)
-    progress.compute.finish()
-    if "search" in run:
-        _progress(run, "done")
-    emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
     if not circle:
         # Large areas: only the group representatives carry a profile in the map
         representatives = set(spot_groups.rep.tolist())
         results.profiles = {k: v for k, v in results.profiles.items() if k in representatives}
 
-    map_path = None
+    def on_lines(n: int, file: str):
+        progress.compute.update(n, file=file)
+
+    def saved():
+        """After the results' files: a tiled run is done (not resumed again), the message."""
+        if "search" in run:
+            _progress(run, "done")
+        emit("info", f"Run \"{name}\" saved to {os.path.abspath(run['path'])}")
+
+    ortho_cache = ortho_service = None
     if not p.no_html:
         source = plan.source
         # The folder the map reads the orthophoto tiles from (download_orthophoto fills it after
         # the run, earlier runs did too), falling back to the service for a tile not there
         ortho_cache = ortho.cache_folder(plan.paths.cache, source.ortho) if _orthophoto(plan) else None
-        progress.compute.start("saving the map", len(results), unit="line")
         # an orthophoto's attribution may name the year of the run too (sources.YEAR)
         ortho_service = source.ortho and dataclasses.replace(
             source.ortho, attribution=src.dated(source.ortho.attribution, created.year))
-        map_path = mp.save_map(results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance,
-                               p.group_by, ortho_cache, ortho_service, p.model, plan.rigging, on_lines,
-                               p.high_above)
+    map_args = (results, plan.area, run["path"], plan.paths.runs, meta, plan.crs, plan.group_distance, p.group_by,
+                ortho_cache, ortho_service, p.model, plan.rigging, on_lines, p.high_above)
+    map_path = None
+    # The line files of a large run are written by processes of their own (saving.py: one per file
+    # with 4 or more threads of the line search, the results' apart from the map's with 2 or 3)
+    children = (saving.plan(saving.processes(line_threads(p)), map_files=not p.no_html)
+                if len(results) >= saving.MIN_LINES else [])
+    if not children:
+        progress.compute.start("saving results", len(results), unit="line")
+        rn.save_results(run["path"], results, spot_groups, meta, on_lines)
         progress.compute.finish()
+        saved()
+        if not p.no_html:
+            progress.compute.start("saving the map", len(results), unit="line")
+            map_path = mp.save_map(*map_args)
+            progress.compute.finish()
+    else:
+        heads = None if p.no_html else mp.map_heads(
+            plan.area, os.path.join(run["path"], "map.html"), meta, plan.crs, plan.group_distance, p.group_by,
+            ortho_cache, ortho_service, p.model, plan.rigging, p.high_above)
+
+        def between():  # once the results' files are written, before the map's bar
+            rn.save_results(run["path"], results, spot_groups, meta, files=("ATTRIBUTION.txt", "run.json"))
+            saved()
+        saving.save(plan.paths.work, run["path"], results, spot_groups, meta, heads, children, between)
+        if not p.no_html:
+            map_path = mp.save_map(*map_args, files=("map.html",))  # and the viewer installed
     if plan.index_runs:
         rn.write_index(plan.paths.runs, viewer=p.no_html)  # save_map installed the viewer already
     progress.set_step("")

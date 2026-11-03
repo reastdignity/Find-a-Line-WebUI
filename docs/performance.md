@@ -1080,3 +1080,125 @@ exported; the wall times vary by ±10 s between identical runs (medians given), 
 - `tests/test_units.py::test_tile_at_most_tile_px_max` and the cgroup test (the tiles follow the
   container's memory up to the cap), `tests/test_public.py::test_memory_of_compute_slots` (the
   budget per slot, the warning when the largest public search does not fit).
+
+### Done, wave 3 (stage 3: the one-core parts of steps 2-5; every result byte for byte)
+
+Branch `perf-r3-wave3`: the merges of `perf-r3-step2` (agent F: 3a, 3e), `perf-r3-step5` (agent G:
+3b) and `perf-r3-step34` (agent H: 3c, 3d), all from a432d15. Each agent measured on this PC with
+`tools/perf_profile.py` under the exclusive lock, cached data, the code of a432d15 exported as the
+base, base and new interleaved, numba warm. The wall of a whole run moves by ±10 s between
+identical runs on this busy PC; the stages are what counts.
+
+- **3a, step 2** (F). Step 2 of `_lines` is `_anchors(plan, data, quiet)` → `Anchors(anchors,
+  prominence, drop, strong)`, the shape the branch `country-precompute` shares (None for a tile
+  without anchors; the same `SearchError`s otherwise). The seams of filled gaps and a neighbour's
+  data are tested at the anchors only (`search.at_seams`: nine gathers at the anchors instead of
+  scipy's 3 × 3 dilation and erosion over the whole grid, with the outside of the grid as no gap;
+  `test_seams_as_before` keeps the old expression on 30 shapes with edge, corner, empty and full
+  masks). `helpers.find_significant_slopes` runs its blocks (256 rows now, 512 before) on a thread
+  pool of `line_threads` (numpy releases the GIL; the slope in place, about 3 float32 copies of a
+  block in flight per thread) and joins the anchors in the blocks' order, exactly the one pass's
+  row-major order (`test_significant_slopes_as_before`: block sizes 1-2000, 1-8 threads, NaN, a
+  slope raster; numpy 2.5.4's float32 `hypot`/`arctan`/`degrees` give the same values for any
+  slice offset and in place). `terrain.prominence` skips its lexsort when the anchors come
+  row-major (0.24 s at the Tatras' 2.65 million anchors). On the Gozo coast with 5 km tiles step 2
+  fell 7.7-8.2 → 3.8-4.1 s (finding anchors 2.4 → 0.5 s, the seams 1.8 → 0 s) and the peak by
+  50-130 MB (the two full-grid seam masks are gone).
+- **The prominence's sort and union-find** were measured and left as they are. On the Gozo coast
+  (6 tiles, 52 M window pixels): the window 0.3 s, the argsort 0.9 s, the union-find 2.0 s, the
+  drop 0.35 s; under 0.2 s each on R40 and R41. The sort is 1.5 % of the job; the union of the
+  windows is one 8-connected component per tile (two on two tiles, the largest holding 89-93 %),
+  so a union-find per component would have nothing to run in parallel.
+- **3e, the mosaics' decoding** (F). `build_mosaic` opens the cached files with `GDAL_NUM_THREADS`
+  = `WARP_THREADS` (GDAL reads it when a file is opened), so their DEFLATE blocks decode on several
+  threads: 60 of Malta's 2 000 px tiles 3.6-3.9 → 1.2 s on 7 threads, FABDEM's 36 tiles 6.8-7.1 →
+  2.4 s (the arrays' hashes equal). The Gozo coast's mosaics 15.6-15.8 → 12.2-12.7 s on 7 cores
+  (the terrain's stitching 3.3-4.6 → 1.6-2.3 s; the surface and gap-fill mosaics are mostly the
+  reprojection, threaded already). Remote reads keep one thread (`net._gdal_http`).
+
+| Job (F) | cores | wall before → after | step 1 | all mosaics | finding anchors | seams | prominence and drop | step 2 | peak RSS MB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gozo coast, `--tile-size 5000` | 7 | 68.7-71.4 → 61.8-63.3 | 47.5-48.6 → 43.3-45.8 | 15.6-15.8 → 12.2-12.7 | 2.4 → **0.5** | 1.7-1.8 → **0.0** | 3.6-4.0 → 3.5-3.6 | **7.7-8.2 → 4.0-4.1** | 1 784-1 850 → 1 705-1 720 |
+| Gozo coast, `--tile-size 5000` | all (24) | 69.4-70.5 → 59.4-63.6 | 47.3-48.9 → 43.0-46.3 | 14.0-17.7 → 13.4-13.8 | 2.4-2.6 → 0.5-0.6 | 1.9 → 0.0 | 3.6 → 3.3-3.5 | 7.9-8.1 → 3.8-4.1 | 1 790-1 871 → 1 753-1 761 |
+| R41 | 7 | 6.1-8.1 → 5.8-6.6 | 2.5-3.2 → 2.3-3.2 | 0.6-1.2 → 0.5-0.9 | 0.1 → 0.0 | 0.0-0.1 → 0.0 | 0.5-0.7 → 0.5 | 0.6-0.9 → 0.5 | 371-390 → 358-374 |
+| R40 | 7 | 4.4-4.9 → 4.2-4.5 | 1.2-1.4 → 1.0 | 0.3-0.4 → 0.1 | 0.0 | 0.0 | 0.4 | 0.4 | 316-332 → 311-313 |
+
+- **3b, step 5 in processes of its own** (G). The texts of `lines.csv`, `lines.geojson`,
+  `data.js` and `lines.js` were built on one core (18-20 s of swiss-long's 37 on this PC, 112 s
+  for 2.07 million lines on the VPS). A run of `saving.MIN_LINES` (100 000) lines or more hands
+  its lines to children when the line search has 2 or more threads (`saving.processes`: 2 and 3
+  threads two children, the results' files apart from the map's; 4 or more four, one per file).
+  `saving.hand_over` writes the columns of the `LineTable`, the groups' arrays and the arrays of
+  every `helpers.Profiles` batch the profiles come from as `.npy` in the search's work folder,
+  plus run.json's values, the dict profiles of tile edges and the scripts' heads
+  (`mapping.map_heads`) as JSON; each child (`python saving.py <folder> <run> <files>`, a plain
+  subprocess: the worker's phase process is daemonic and may not start multiprocessing's) maps
+  them and runs the same writing functions (`runs.save_results(files=)`,
+  `mapping.write_map_scripts`), so every file is byte for byte the one process's. A child's
+  progress reaches the bars through its stdout (the parent reads "<count>\t<file>" lines; "saving
+  results" shows the slower of csv and geojson, the parent writes ATTRIBUTION.txt, run.json and
+  the tiled run's "done" between the bars as before, then "saving the map"); its stderr fails the
+  step as a `RuntimeError` (redacted on the public site as every error); the hand-over folder is
+  removed afterwards, also on failure. Measured on 7 cores: swiss-long's step 5 19.8-20.3 →
+  12.7-13.1 s (the slowest child, lines.geojson, sets it: each child makes the texts of its values
+  itself, and a child takes about 1.2 s to start and import numpy, runs, mapping and rasterio
+  through grid, never `search`); with the children forced R9's 3.0-3.1 → 3.4 s and R44's 1.8 → 2.3
+  s, hence the threshold. With all 24 threads swiss-long gave 18.4-18.8 s, unexplained (five
+  processes on SMT siblings?). The VPS's core is about 4 times slower per line (112 s / 2.07 M
+  against 12 µs a line here), so its break-even lies lower, perhaps 50 000: to read from
+  `tools/job_stats.py` after a deploy. Memory: the parent holds the table as before (`LINE_BYTES`
+  counts it); each child about 75 MiB of imports plus the mapped pages, file-backed and shared
+  (about 200 B per line of page cache in all, reclaimable in a cgroup): swiss-long's tree peaks at
+  2 469 MB of RSS (4 × 340 MB for the children) over the parent's 906-938, physically about 350 MB
+  plus the imports. `tests/test_units.py::test_saved_by_children_as_in_process` (50 000 synthetic
+  lines with a profiles batch, dict profiles, lines without one, the hard floats; 4 and 2
+  children; the bars; a failing child) and `tests/test_offline.py::test_run_saved_by_children_as_in_process`
+  (the Żabi Koń clip through `save_run` with 1, 4 and 2 processes: every file equal).
+
+| Search (G, lines) | threads | step 5 before → after | job peak RSS MB | tree peak after |
+| --- | --- | ---: | ---: | ---: |
+| swiss-long (1 695 554) | 7 cores | 19.8-20.3 → **12.7-13.1** | 906-938 | 2 469 (4 children of about 340) |
+| swiss-long | all (24) | 20.9-21.3 → 18.4-18.8 | 901-922 | 2 479 |
+| R9 (85 671, every profile; the children forced) | 7 cores | 3.0-3.1 → 3.4 | 360-365 | 790 |
+| R44 (37 687; forced) | 7 cores | 1.8 → 2.3 | 327-332 | 686 |
+
+- **3c, the exact fixes of steps 3-4** (H). `linesearch.covered_metres` rounds whole parts with
+  `runs.round_floats` instead of Python's `round()` per line (the same float64 products and
+  quotients, 0.0 where no pixel is set; `test_covered_metres_as_before` keeps the old code, with
+  the halfway cases of lines along a row or a column at 0.25 and 1.25 m): 0.86 → 0.17 s per mask
+  for swiss-long's 1.7 million lines. `mapping.coordify` transforms each part's different anchor
+  pixels once (`np.unique` on a pixel key, the coordinates gathered back; a part of 2¹⁷ lines of
+  swiss-long holds about 7 000 different pixels of its 262 144 anchors; `test_coordify_as_before`:
+  five CRSs, the grid's corners, parts of 1, 777 and 2¹⁷ lines, compared by `tobytes`): 1.14 →
+  0.18 s, swiss-long's step 4 2.7-2.9 → 1.6-1.7 s. `linesearch._evaluate` walks the sag table's
+  index forward along a line (`_interp_forward`: the index of `searchsorted` and the arithmetic of
+  `_interp`, `test_interp_forward_matches_interp`) instead of a binary search per pixel: a bench of
+  237 625 sag pairs 0.18-0.22 → 0.16 s; the "checking lines" stage of R16 and R5 (0.0-0.1 s) is
+  too short to show it. The `row` buffer per line stays (42 floats; a per-thread buffer needs
+  numba's thread ids for no measurable gain).
+- **3d, the profiles at tile edges** (H): measured and left. None on the Gozo coast's 5 km tiles;
+  10 on its 9 tiles of a VPS slot (`--memory 4886000000` after wave 2's tiles), 5.0 s in all (0.5
+  s each, about 6 % of an 81 s run). About one per tile, so no batch of extra profiles inside
+  `_lines`. The baseline's 0.0 s for "profiles at tile edges" was a measuring artefact:
+  `profile_of_line` runs `prepare_data`, whose `_step` moves the progress step to step 1, so
+  `tools/perf_profile.py` lists those seconds under step 1's stitching and filling stages. With
+  the 138 tiles the VPS had before wave 2 the count was likely larger.
+
+| Run (H) | threads | wall before → after | step 4 | coordinates | over water and gaps | checking lines | peak RSS MB |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| swiss-long | 7 cores | 42.4 → 40.5 | **2.7 → 1.6** | 1.1 → 0.2 | 0.6 → 0.4 | 1.8 → 1.9 | 937 → 903 |
+| swiss-long | all (24) | 36.4 → 36.3 | 2.9 → 1.7 | 1.1 → 0.2 | 0.7 → 0.3 | 1.2 → 1.2 | 928 → 904 |
+| Gozo coast, `--tile-size 5000` | 7 | 58.4 → 61.0 | 2.8 → 2.5 | 0.2 → 0.1 | 0.3 → 0.1 | 0.3 → 0.3 | 1 826 → 1 697 |
+| Gozo coast, the VPS's tiles (`--memory 4886000000`, 9 tiles) | 7 | 97.5 → 80.9 | 3.4 → 2.9 | 0.2 → 0.1 | 0.3 → 0.1 | 0.4 → 0.3 | 1 426 → 1 512 |
+| R16 (sag) | 7 / 24 | 24.4 → 15.9 / 16.6 → 16.7 | 0.7 → 0.6 | 0.0 | 0.0 | 0.0 | about 300 |
+| R5 (sag) | 7 / 24 | 6.3 → 6.3 / 6.3 → 6.1 | 0.0 | 0.0 | 0.0 | 0.1 | 270-300 |
+
+- Byte for byte (each agent, base against new): `lines.csv` whole, `lines.geojson` up to its
+  "findaline" part, `data.js` and `lines.js` from their "lines": F's 12 pairs of R40, R41 and the
+  Gozo coast with 5 km tiles (7 cores and all threads, two rounds); G's 29 runs of swiss-long, R9
+  and R44; H's swiss-long (7 and 24 threads), R5, R9, R13, R16 and the Gozo coast with 5 km tiles
+  and with the VPS's tiles. `tests/regression.py` on cached data: F R1 R4 R9 R13 R14 R16 R22 R40
+  R41, G R9 R13 R16 R40 R44, H R5 R9 R14 R16 R22, every checksum and the open and checked counts
+  unchanged. The full offline `pytest` from PowerShell on each branch (784-785 passed).
+- Not done: a measurement on Linux (the process start and the per-line cost of 3b differ there);
+  `locales/en.json`'s help of `--threads` does not name the children (the CLI's text does).
