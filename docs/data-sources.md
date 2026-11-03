@@ -118,6 +118,25 @@ Rules of thumb:
   shore's strip, and set `Source.sea_fill` when the constant is above `SEA_LEVEL_TOLERANCE`.
 - Pick a regression centre where the steep pixels are (an anchor map, or a quick search with a small radius): the
   research's Rüdersdorf point lay 1 km from the quarry's walls, Tibrogargan's dome gave 9 lines.
+- Heights above the ellipsoid (ArcticDEM; the sea lies at 27-32 m there) go into the cache above a geoid
+  (`FileBlocks(geoid=...)`, `sources/vertical.py`). Never let PROJ do it: pyproj's transformation to EGM2008 heights
+  gives N = 0 without a word when its grid is missing. Check N against GeographicLib's GeoidEval at a few points, and
+  the corrected heights against Copernicus GLO-30 (EGM2008 heights too) with `tools/check_source.py`.
+- A shift search against GLO-30 on walls of 1000 m is noise (Tasermiut and Uummannaq disagree, each fits badly at its
+  best shift): judge it where GLO-30 fits (median |d| of a few metres), or against lidar.
+- Check the size of a new region's Geofabrik extract before it reaches the VPS (`osm.catalogue_extracts`): Nunavut's
+  is 1.5 GB, mostly coastline, and is left out like Canada's (`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`).
+- A file name computed from the position (ArcticDEM's subtiles) is checked against the provider's own listing (its
+  STAC items) at a few places, and a place without a file must answer 404 (a missing block, not an error).
+- A WMS may serve Web Mercator only (a MapCache: its WMTS matrix set named "EPSG:3857" need not be Google's tiling):
+  ask it with each XYZ tile's Mercator box (`OrthoService.wms_crs`). It may also answer PNG to a JPEG request,
+  transparent where it has no imagery: the cache converts such answers to JPEG over white.
+- Check that the wheels' GDAL decodes a file's compression, on Windows and in the Docker image (IslandsDEM's ZSTD
+  with predictor 2: yes, rasterio 1.5.2 / GDAL 3.12.2).
+- Measure an orthophoto service's time per tile before relying on it: gis.natt.is takes about 1 s a tile, so the
+  orthophoto of a 700 m circle with 727 spots (12 498 tiles) took 51 min.
+- A provider's terms may except one service by name (the Norwegian Polar Institute: CC BY 4.0, but its orthophoto
+  service in EPSG:25833 CC BY-NC 4.0): quote the exception and name the service used in the module.
 - Names, descriptions and notes of sources are printed to the console: keep them in characters of cp1250 (a Windows console), e.g. "1/3 arc-second", not ″.
 - When more than one product would be needed (a gap filler, a second region, a seamless model), present the options with a recommendation and let the user decide before writing it.
 - For own hosting: COG tiles of 1 km in the source grid, LERC_ZSTD with `MAX_Z_ERROR=0.005` (5 mm) was the smallest and fastest (Slovak DSM 0.5 m: 5.5 MB per km², 0.2 s per tile); a JSON index with checksums; attribution and licence file next to the data.

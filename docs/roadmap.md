@@ -444,7 +444,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Plan** (the user, 2026-11-02): wave 0 research (Slovenia, Ontario, Sicily, Queensland; the German Länder left;
   the Arctic), wave 1 Slovenia, Brandenburg with Berlin, Schleswig-Holstein and Queensland, wave 2 the Arctic
   (ArcticDEM in UTM with an EGM2008 geoid correction, no DSM, Copernicus GLO-30 as the open gap filler: Greenland,
-  Svalbard, Iceland, Nunavut). Not now: Ontario and Sicily (the user), Saarland and Hamburg later, Thuringia (its
+  Svalbard, Iceland, Nunavut; done 2026-11-03). Not now: Ontario and Sicily (the user), Saarland and Hamburg later, Thuringia (its
   download host answers a maintenance page; mail drafted) and Bremen postponed. Mails drafted to GURS (CLSS),
   Queensland (the licence's version), TLBG and SITR (`local/mail-drafts.md`, 14-17).
 - **Slovenia, done 2026-11-02** (source `slovenia`, SI, R54 the Osp gorge): ARSO's lidar survey of 2011-2015 (LSS),
@@ -503,6 +503,48 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   State imagery's tile cache to z20 (CC BY-SA too). A courtesy cap of 4. check_source all PASS in zone 56
   (Tibrogargan) and 55 (Townsville, my check). Open: DEM-H was not exercised by a search (only the probe and a
   recorded tile), zone 54 only by a recorded tile.
+- **The Arctic on ArcticDEM, done 2026-11-03** (the user's choice: UTM, no DSM, Copernicus as the open gap filler):
+  - *Geoid*: ArcticDEM's heights are above the WGS84 ellipsoid (the sea at 27-32 m), so `sources/vertical.py` moves
+    them to EGM2008 before they are cached: PROJ's 2.5' grid `us_nga_egm08_25.tif` (80.6 MB, its sha256 checked)
+    downloaded once into `cache/geoid/egm2008/` and read with rasterio, bilinear on its points; `FileBlocks` /
+    `Windows(geoid=...)` cache each block as h - N (tag `vertical`, folder `-egm08`), N on a 9 x 9 lattice per 2 km
+    block (within 1.5 mm of N at every pixel, 60-90 deg N). Never PROJ's own lookup: pyproj gives N = 0 without a word
+    when it lacks the grid. Checked against GeographicLib's GeoidEval (Nuuk, Longyearbyen, Qikiqtarjuaq: within
+    8 mm, my check) and by check_source against Copernicus (also EGM2008): Sam Ford (0, 0), median -0.26 m;
+    Hafragil (0, 0), median -0.01 m.
+  - *ArcticDEM v4.1 mosaic 2 m* (PGC, August 2023, CC BY 4.0 with PGC's NSF acknowledgement verbatim and the
+    dataset's citation, both checked on its policy page): one COG per 50 km subtile of a 100 km tile of EPSG:3413 on
+    PGC's AWS bucket (no key, no published limits), named from the block's position (`arcticdem_files`; four names
+    of the research reproduced, a subtile over the ocean answers 404, three files checked live), read in 2 km blocks
+    (about 2.5 MB, under a second each). A photogrammetric surface model with voids on the steepest faces; the
+    sources have no surface model (the tree check is off) and fill the voids from open data only, never FABDEM.
+    Each source's working grid is the UTM zone of its centre (one resampling).
+  - *greenland* (GL, R58 Tasermiut: 35 506 lines, the best 346 m with 58 m of clearance; gaps from `copernicus`,
+    a new source of GLO-30 alone sharing europe's surface folder): six offline boxes before Canada's, clear of
+    Iceland; no open orthophoto. *svalbard* (regions NO-21 and NO-22, R59 Templet: 35 lines, sedimentary slopes):
+    the Norwegian Polar Institute's orthophoto tiles in Web Mercator to z17, "© Norwegian Polar Institute" with a
+    link to npolar.no, CC BY 4.0 by its terms (they except only the service in EPSG:25833, CC BY-NC 4.0, which is
+    not used; the one used is the same imagery in Web Mercator: a question to NPI); Geofabrik's norway extract holds
+    both regions. *nunavut* (region CA-NU, option B: R60 Sam Ford, 33 203 lines at r 350 m, the best 71 m with 64 m
+    of clearance): gaps from `mrdem30`, `canada` its neighbour both ways; `canada_2m` now credits PGC too (its far
+    north is ArcticDEM moved to CGVD2013). Its Geofabrik extract (1.5 GB, mostly coastline) is left out on the VPS
+    like Canada's. Open: a sub-pixel shift check against NRCan's lidar around a Nunavut community (GLO-30 fits too
+    badly on 1000 m walls: Tasermiut and Uummannaq disagree); NPI's 5 m DTM of Svalbard as its gap filler.
+  - *Iceland* (source `iceland`, IS, R62 Hafragil): ArcticDEM, its voids from `islandsdem10`, then `copernicus`.
+    `islandsdem10` (by hand, R61) is the Natural Science Institute of Iceland's (Natturufraedistofnun, formerly LMI)
+    IslandsDEM v1.0: one national COG (3 GB: 52 000 x 37 000 px, float32, ZSTD with predictor 2, decoded by the
+    wheels' GDAL on Windows and in the image; heights above sea level, merged from ArcticDEM strips, lidar and
+    GLO-30), read in 5 km `FileBlocks` on its own pixels in EPSG:8088 (Lambert 2016: scale within 0.035 % over
+    Iceland); exactly the file's values, check_source (0, 0) against Copernicus. Credit in the open data page's
+    pattern ('"IslandsDEM v1.0" by Natturufraedistofnun is licensed under CC BY 4.0', its Icelandic name in the files
+    and the map) with the Copernicus sentence. The orthophoto "Grunnkort - Loftmynd" (25 cm or better, not yet the
+    whole country; CC BY 4.0 by its metadata record) comes from the institute's MapCache, a WMS 1.1.1 serving
+    EPSG:3857 only and answering PNG to a JPEG request: `OrthoService.wms_crs = "EPSG:3857"` asks each tile's
+    Mercator box (server and viewer; `data.js` names it only when not EPSG:4326) and non-JPEG answers are cached as
+    JPEG over white. It is slow (about 1 s a tile: R61's circle took 51 min for 12 498 tiles). Courtesy caps of 4
+    for ftp.natt.is and gis.natt.is. At Hafragil 2 m gives 965 lines with at most 2.2 m of clearance where 10 m gave
+    7 492 with 16.5 m: both models agree on the canyon's section, its walls are about 60 deg, and 10 m smooths them
+    into sharp edges. Open: IslandsDEM 2 m (no index or URL pattern: ask natt@natt.is).
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
