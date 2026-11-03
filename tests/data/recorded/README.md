@@ -14,6 +14,7 @@ stay small.
 | `stac/lgln-dgm1/` | LGLN STAC API, items of the DGM1 (one page; 15 tiles of 1 km with two surveys each) | 52.75° N, 11.5° E (the Elbe, the eastern edge of Lower Saxony) | © GeoBasis-DE/LGLN 2026, [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | `tnm/dem1m/` | The National Map Access API, products of the 1 m DEM | 48.75° N, 95.25° W (Lake of the Woods, the Canadian border) | USGS, public domain |
 | `tnm/ifsar5m/` | The National Map Access API, products of Alaska's IfSAR DTM | 59.75° N, 141° W (the Gulf of Alaska) | USGS, public domain |
+| `arcgis/lidarbc-dem/` | LidarBC's index, an ArcGIS FeatureServer (`LiDAR_BC_S3_Public`, query of the DEM layers 6 and 5 over the tile, recorded 2026-11-03), then GeoBC's S3 bucket (`nrs.objectstore.gov.bc.ca/gdwuts`, ListObjectsV2) under each sheet and survey folder the index named: two hosts, the bucket's addresses in `expected.json` | 48.25° N, 124.5° W (the south-west coast of Vancouver Island, the edge of the data) | Province of British Columbia (GeoBC), [Open Government Licence – British Columbia](https://www2.gov.bc.ca/gov/content/data/policy-standards/open-data/open-government-licence-bc) (the bucket's file names, dates and ETags); the index item is "Access Only": its answers are kept here only as test data of our own queries |
 
 Files of a case: `answers.json` (the recipe, the date, the tile, the recorded hosts and every request in
 order: method, URL, status, content type, body file), the bodies (`001.xml`, `002.json.gz`...: gzipped above

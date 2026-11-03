@@ -1,0 +1,24 @@
+{
+ "date": "2026-11-03",
+ "url": "https://www.shop.lvgl.saarland.de/cloud/public.php/dav/files/<token>/OD_DGM1_2025_tif_LK/DGM1_tif_NK_EPSG-25832_Entstehung-2025.zip",
+ "length": 559134521,
+ "etag": "\"6e4a7e555a23bc6447ce3cfb1f6004a4\"",
+ "members": 311,
+ "tiles": 310,
+ "expected": {
+  "name": "DGM1_tif_NK/dgm1_32_348_5475_1_SL_2025.tif",
+  "method": 8,
+  "flags": 8,
+  "crc": 1931815963,
+  "size": 1593908,
+  "usize": 4003508,
+  "offset": 74
+ },
+ "ranges": [
+  {
+   "first": 559068964,
+   "last": 559134520,
+   "body": "001-tail.bin.gz"
+  }
+ ]
+}

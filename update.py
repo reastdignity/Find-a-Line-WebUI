@@ -97,7 +97,7 @@ def _check(cache_dir: str, row: Dict, update: str) -> Optional[Check]:
     for layer in _sheet_layers():
         top = layer.folder.split("/")[0]
         if path.startswith(f"{top}/sheet-index/{layer.prefix}/"):
-            if not cache.stale(row, cache.TTL_DAYS["sheet-index"], update):
+            if not cache.stale(row, getattr(layer.index, "ttl_days", cache.TTL_DAYS["sheet-index"]), update):
                 return None
             name = os.path.basename(path)[:-len(".json")]
             lat, lon = osmextract._tile_corner(name)

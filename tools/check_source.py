@@ -20,7 +20,8 @@ layer's own path into the cache of --data-dir:
 3. files: --samples cached tiles against their source files read through GDAL (/vsicurl/,
    /vsizip/): the largest difference, the share of equal values, the same pixels without
    data (blocks: against the newest file with data there; a layer of heights above the ellipsoid
-   against the files after its geoid's correction, as it caches them). n/a for WCS tiles and local files.
+   against the files after its geoid's correction, as it caches them; a member of a remote ZIP
+   (ZipMemberTiles) read again by Range and opened by GDAL, with the layer's floor rule applied). n/a for WCS tiles and local files.
 4. alignment: the cached tiles' pixel edges against Source.grid_origin, their pixel size and CRS.
 5. precision: the share of whole-metre and whole-centimetre heights; WARN above 90% whole metres.
 6. missing: tiles the service had no data for (normal over the sea; on land a lost tile).
@@ -56,6 +57,7 @@ import cache  # noqa: E402
 import search  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
+from sources.readers.zipmember import drop_below  # noqa: E402
 from params import SearchParams  # noqa: E402
 from progress import progress  # noqa: E402
 
@@ -256,6 +258,20 @@ def _read_xyz(url: str, profile: Dict) -> np.ndarray:
     return values
 
 
+def _read_member(layer: src.ZipMemberTiles, tile, profile: Dict) -> np.ndarray:
+    """A tile's member of a remote ZIP read again by the layer's Range reader (its inflating and CRC-32
+    check), then opened by GDAL's GTiff driver on the pixels of the cached tile, with the layer's floor
+    rule applied as the layer applies it (its 0 m patches would differ otherwise); GDAL's /vsizip/ is
+    not used: its requests would read the archive's directory outside sources.net."""
+    data, _ = layer.reader._member(tile, f"{layer.description} tile {tile.godlo}")
+    with rio.io.MemoryFile(data) as memfile, memfile.open() as source:
+        with WarpedVRT(source, crs=profile["crs"], transform=profile["transform"], width=profile["width"],
+                       height=profile["height"], resampling=Resampling.nearest) as vrt:
+            values = vrt.read(1, masked=True).astype(np.float32).filled(np.nan)
+    values[values < -500] = np.nan  # as the layers clean their tiles (sources.layer.VALID_MIN)
+    return drop_below(values, layer.floor, layer.ring)
+
+
 def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
     """The files a cached tile comes from, newest first; None: no file to compare with."""
     if isinstance(layer, (src.WcsTiles, WmsrTiles, src.ImageServerTiles, src.FileLayer, src.OpenTopographyTiles)):
@@ -347,6 +363,8 @@ def check_files(layer, grid, cache_dir, samples: int) -> Check:
                     source = _read_zip(layer, url, profile)
                 elif isinstance(layer, src.GeoJsonTiles):
                     source = _read_xyz(url, profile)
+                elif isinstance(layer, src.ZipMemberTiles):
+                    source = _read_member(layer, tile, profile)
                 else:
                     source = _read_source(url, profile, resampling)
                 geoid = getattr(layer, "geoid", None)

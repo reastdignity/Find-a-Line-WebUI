@@ -27,6 +27,7 @@ class Answer:
     status: int = 200
     body: bytes = b""
     headers: Dict[str, str] = field(default_factory=dict)
+    ranges: bool = True  # False: a Range header is ignored (the whole body with 200, as some servers answer)
 
 
 @dataclass
@@ -206,7 +207,7 @@ class HttpServer:
             answer = Answer(404, b"not found", {"Content-Type": "text/plain"})
         status, body, headers = answer.status, answer.body, dict(answer.headers)
         headers.setdefault("Content-Type", "application/octet-stream")
-        if status == 200:
+        if status == 200 and answer.ranges:
             headers["Accept-Ranges"] = "bytes"
             ranges = _ranges(request.headers["range"], len(body)) if "range" in request.headers else None
             if ranges == []:

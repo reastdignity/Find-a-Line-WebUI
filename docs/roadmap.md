@@ -625,6 +625,57 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
     7 492 with 16.5 m: both models agree on the canyon's section, its walls are about 60 deg, and 10 m smooths them
     into sharp edges. Open: IslandsDEM 2 m (no index or URL pattern: ask natt@natt.is).
 
+### Batch 4 of the survey's order (started 2026-11-03)
+- **Plan** (the user, 2026-11-03): wave 0 research of Colombia, British Columbia, Saarland and Hamburg; wave 1
+  Saarland and British Columbia. Hamburg not built: its DGM1 2022 and image-matching bDOM 2022 (one 1.3 GB ZIP each,
+  dl-de/by-2.0) are readable by the same ZIP part, but the city has no highline terrain (at most 13-14 m of relief
+  within 11 m at Blankenese); worth it only to close the coverage map's hole. Colombia waits for IGAC: its MDT
+  ImageServers (CC BY 4.0 per the open data catalogue, the services name no licence) are on mapas2.igac.gov.co, which
+  refuses connections from outside Colombia, and mapas.igac.gov.co/image answered 502 for an afternoon; Suesca's rocks
+  have 10 m only. Mails drafted to LVGL, LidarBC and IGAC (`local/mail-drafts.md`, 21-23).
+- **Saarland, done 2026-11-03** (source `saarland`, region DE-SL, R63 the Michelbach quarry at Schmelz): LVGL's
+  lidar DGM1 and DOM1 of 2025 (1 m, float32, cm, DHHN2016, EPSG:25832, pixel edges on whole metres), open data under
+  dl-de/by-2.0 ("© GeoBasis DE/LVGL-SL {year}, dl-de/by-2-0, Daten geändert"), in six district ZIPs per model on
+  LVGL's Nextcloud share (5.5 and 6.2 GB). No WCS, ATOM or per-tile files exist (the 2016 DGM's INSPIRE feed hands out
+  WMS pictures), so a new part reads one member at a time by HTTP Range: the archives' central directories (35-106
+  kB each) kept per TTL with their ETags, one Range of about 2 MB a tile, CRC-32 checked (`ZipDirectories`,
+  `ZipMember`, `ZipMemberTiles`; own code on the standard library: remotezip and fsspec make their own requests
+  outside `sources.net`, without host slots, rates, retries or `servicecounts`, and keep no directory between
+  runs). The share's token is resolved from its stable redirect (`cloud/freiegeobasisdaten`; the link of 2025 is 404);
+  the 12 archive names are fixed in the module. The survey holds patches at 0 m with falling rims (327_5485, 343_5457:
+  a ramp of five pixels), so heights below 100 m and 6 px around them are no data (the user: 6 px), filled from
+  `europe`; the lowest ground found is the Moselle at Perl, 140.5 m. Orthophoto LVGL's DOP 2025 (WMS `sl_dop`,
+  DOP20, white beyond the Land). Data checks: 12 PASS at the quarry and at R63. The first place tried, the
+  Felsenwege at Saarbrücken (Buntsandstein walls of 18-25 m), gives no lines: its walls face the Saar, not each
+  other. At Kleinblittersdorf LVGL's tiles reach some 300 m into France. Before `rhineland_palatinate` in SOURCES
+  (its offline box holds the Land); neighbours RP, France, Luxembourg; Geofabrik's `saarland` extract. Open: a patch
+  at a tile's edge leaves its rim in the next tile (rare: apply the rule on the mosaic if one shows up); LVGL's
+  answer on limits and the stable link (mail 21).
+- **British Columbia, done 2026-11-03** (source `british_columbia`, region CA-BC, R64 McIntyre Bluff at Oliver):
+  GeoBC's LidarBC DEM and DSM (1 m; BCTS 2016 2 m), OGL-BC ("Contains information licensed under the Open Government
+  Licence – British Columbia.", the licence's default: LidarBC names none), GeoTIFFs per BCGS 1:20 000 sheet or 1:2 500
+  tile and survey year on GeoBC's object storage, NAD83(CSRS) / UTM 8-11 (2023+ files name the compound EPSG:6653/6654
+  with CGVD2013: `windows._same_crs` takes a compound CRS by its horizontal part). Found through the "Access Only"
+  FeatureServer `LiDAR_BC_S3_Public` (the user's choice) and confirmed by a ListObjectsV2 per (sheet, survey folder),
+  which drops its wrong entries (LAZ listed as `.tif`, "2011" paths that answer 404) and gives the ETags; answers
+  kept 30 days (monthly publication). Blocks of 1 km composed newest first; the working grid NAD83(CSRS) / UTM of the
+  place; gaps from `canada` (HRDEM 1 m), `canada_2m`, `mrdem30`, never FABDEM. It adds the provincial programme's
+  2023-2025 surveys (212 000 km² published, monthly more; HRDEM had a value at 5 of 42 random points there), newer
+  surveys in the Okanagan (2024/2025 against HRDEM's 2018/2019), raster DSMs on the programme's tiles, and older
+  places HRDEM lacks (Kinnaird Bluffs, Castlegar). At the Chief it holds the same surveys as HRDEM (72 % of a 500 m
+  window from LidarBC, no raster DSM there): R41 is pinned to `--source canada` (unchanged), and `canada` is not
+  British Columbia's neighbour (R41 would fill its border pixels from LidarBC). R64 narrowed to r 300 m and 50-200 m
+  (108 228 lines in 522 spots; r 600 m gave 210 425). Offline Victoria and Vancouver stay with the USA's boxes (as for
+  `canada`). No orthophoto (BC's imagery WMS is "Access Only"). Open: the "PixelIsPoint" files of 2015-2018 and
+  2021-2022 lie half a pixel off the "Area" ones (Chief 2016 against 2019 (-0.5, +0.5) px, Skaha 2017 against 2024
+  (+0.5, -0.5) px) and `GTIFF_POINT_GEO_IGNORE` does not fix it: which is right needs an independent reference (and
+  LidarBC's answer, mail 22); the 2022+ 1:20 000 sheets are one-row strips (about 30 MB read per 1 km block): wider
+  blocks along the rows, or measure jobs first; `ComposedBlocks` keys a block by the files within the search's
+  bounds, so another extent reads it again (key it by every file over the block); on BC's DSM (its DTM on bare
+  ground) `obstacles.RULE` keeps 97 % of the rock-only lines clean but misses 54 % of the lines over a tree at R64
+  (pines within the 2 px envelope of the walls; `tools/obstacle_study.py`): McIntyre Bluff goes into the places of
+  the obstacles task (branch `obstacles-fine-grid`, its forest-edge case) before any change of the rule.
+
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
 - **Access**: no elevation WCS exists. swisstopo recommends its download service for offline use: the STAC API `https://data.geo.admin.ch/api/stac/v1` (collections `ch.swisstopo.swissalti3d`, `ch.swisstopo.swisssurface3d-raster`; items `swissalti3d_<year>_<E>-<N>`, bbox in WGS84, 100 items per page). Files on S3/CloudFront, about 40 MB/s, sha256 in the item (`file:checksum`). Fair use: no bulk bot traffic, exponential backoff with jitter.

@@ -31,10 +31,27 @@ class BlockRequest(NamedTuple):
     shape: Tuple[int, int]
 
 
+def _horizontal(crs: rio.crs.CRS) -> rio.crs.CRS:
+    """The horizontal part of a compound CRS (EPSG:6654, NAD83(CSRS) / UTM zone 11N + CGVD2013 height: EPSG:2955),
+    else the CRS itself."""
+    wkt = crs.to_wkt()
+    if "COMPD_CS" not in wkt and "COMPOUNDCRS" not in wkt:
+        return crs
+    import pyproj  # only for a compound CRS (BC's 2023+ files)
+    parts = pyproj.CRS.from_wkt(wkt).sub_crs_list
+    return rio.crs.CRS.from_wkt(parts[0].to_wkt()) if parts else crs
+
+
 def _same_crs(a, b) -> bool:
     """Whether two CRSs are the same; also when one names only the ellipsoid of the other's
-    datum (Alaska's IfSAR files: Alaska Albers on "GRS80, datum not specified")."""
+    datum (Alaska's IfSAR files: Alaska Albers on "GRS80, datum not specified"), and when one is
+    a compound CRS whose horizontal part is the other (British Columbia's files of 2023 and later
+    name NAD83(CSRS) / UTM + CGVD2013 height, EPSG:6653/6654: the heights are what they are, the
+    pixels are those of EPSG:3157/2955)."""
     a, b = rio.crs.CRS.from_user_input(a), rio.crs.CRS.from_user_input(b)
+    if a == b or (a.to_epsg() is not None and a.to_epsg() == b.to_epsg()):
+        return True
+    a, b = _horizontal(a), _horizontal(b)
     if a == b or (a.to_epsg() is not None and a.to_epsg() == b.to_epsg()):
         return True
     ellipsoid = {"NAD83": "GRS80", "WGS84": "WGS84"}

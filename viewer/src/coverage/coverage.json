@@ -87,6 +87,31 @@
    "survey": "lidar",
    "trees": "yes"
   },
+  "ca-bc": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "gaps",
+     "params": {
+      "res": 1
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "GeoBC",
+   "res": [
+    1,
+    2,
+    30
+   ],
+   "source": "british_columbia",
+   "survey": "lidar",
+   "trees": "yes"
+  },
   "ca-nu": {
    "added": "2026-11-03",
    "level": 2,
@@ -270,6 +295,19 @@
    "source": "schleswig_holstein",
    "survey": "2005–2025",
    "trees": "no"
+  },
+  "de-sl": {
+   "added": "2026-11-03",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "LVGL",
+   "res": [
+    1
+   ],
+   "source": "saarland",
+   "survey": "2025",
+   "trees": "yes"
   },
   "de-sn": {
    "added": "2026-11-02",
@@ -778,6 +816,7 @@
    "de-nw",
    "de-rp",
    "de-sh",
+   "de-sl",
    "de-sn",
    "de-st"
   ],

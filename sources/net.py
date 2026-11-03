@@ -87,6 +87,18 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # bruksvilkar, read 2026-11-02) reserve "the right ... to limit use (limiting number of service calls etc.)"
     # without a number: courtesy
     "geodata.npolar.no": 4,
+    # LVGL Saarland's Nextcloud (the open-data share's district ZIPs, read by Range: Saarland): no published limits
+    # (the shop's articles 18 "Offene Geobasisdaten", 19 "Anleitung Open Data" and 4 "Benutzerhinweise", the DGM and
+    # DOM category pages 1060 and 1066 of https://www.shop.lvgl.saarland.de, the DOP WMS's capabilities (Fees none,
+    # AccessConstraints noLimitations) and the share's capabilities (downloadlimit default -1), read 2026-11-03):
+    # courtesy for a small server, two at once
+    "www.shop.lvgl.saarland.de": 2,
+    # GeoBC's object storage (LidarBC's files, British Columbia): no published limits (the OGL-BC API Terms of Use,
+    # v1.1 of 2025-04-11, https://www2.gov.bc.ca/gov/content/data/policy-standards/data-policies/open-data/
+    # api-terms-of-use-for-ogl-information: the provider "may, without notice, impose and or adjust limits on your
+    # access or use of the API"; LidarBC's pages and catalogue records, read 2026-11-03, give no numbers); a
+    # provincial server shared with other ministries' buckets: courtesy
+    "nrs.objectstore.gov.bc.ca": 4,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
