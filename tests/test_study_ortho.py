@@ -170,15 +170,25 @@ def test_threshold():
     assert out["dark"] == pytest.approx(np.percentile(lum[:400], 5))
     assert out["overlap"] == pytest.approx(((f < out["tau"]).sum() + (r > out["tau"]).sum()) / 800)
     assert 0 < out["overlap"] < 0.1
+    # The luminance's split: bright halfway between the medians (the rock brighter), the share of
+    # the forest at bright or above and of the rock below it
+    fl, rl = lum[:400], lum[400:800]
+    assert out["bright"] == pytest.approx((np.median(fl) + np.median(rl)) / 2)
+    assert out["bright_overlap"] == pytest.approx(((fl >= out["bright"]).sum() + (rl < out["bright"]).sum()) / 800)
+    assert 0.1 < out["bright_overlap"] < 0.4  # the ranges overlap from 80 to 120
+    same = study_ortho.threshold(gli, np.where(np.isnan(lum), np.nan, 100.0), forest, rock)  # one luminance: one side
+    assert same["bright"] == 100.0 and same["bright_overlap"] == pytest.approx(0.5)
 
     few = np.zeros(1000, bool)
     few[400:449] = True
     out = study_ortho.threshold(gli, lum, forest, few)
     assert out["rock_median"] is None and out["tau"] is None and out["overlap"] is None
+    assert out["bright"] is None and out["bright_overlap"] is None
     assert out["forest_median"] is not None and out["dark"] is not None
     out = study_ortho.threshold(gli, lum, np.zeros(1000, bool), rock)
     assert out == {"tau": None, "dark": None, "forest_median": None,
-                   "rock_median": pytest.approx(np.median(r)), "overlap": None}
+                   "rock_median": pytest.approx(np.median(r)), "overlap": None, "bright": None,
+                   "bright_overlap": None}
 
 
 def test_write_greenness(tmp_path, monkeypatch):

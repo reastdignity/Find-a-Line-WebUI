@@ -44,7 +44,26 @@ CC BY 4.0). Tree: CHMv2 >= TREE m within a pixel; built-up: WorldCover 50; rock:
 within a pixel and WorldCover neither tree cover nor built-up. A line whose pixels are all rock
 should lose its mark ("rock only"), a line with a tree or a building should keep it ("real").
 Also measured: the shift of CHMv2 against the surface's height above the terrain on gentle
-ground, and pictures of sample lines (<out>/<name>/chips/).
+ground, and pictures of sample lines (<out>/<name>/chips-<rule>/).
+
+Two more judges (unless --no-judges; each call's files kept in its folder): OSM's land cover
+(tools/study_landcover.py: landcover.npy, forest or rock, its 0.25 degree tiles from Overpass only,
+the data folder's daily cap) and the orthophoto of the source (tools/study_ortho.py: its green leaf
+index and luminance at zoom 19 in the strips of the call's lines, ortho-gli.npy, ortho-lum.npy,
+ortho.json; the tiles land in the data folder's cache, the real one through the place's link). The
+orthophoto's thresholds are set per call on references (forest: the surface TREE above the terrain on
+ground gentler than GENTLE, OSM forest where OSM has land cover; rock: ROCK_SLOPE or steeper with the
+surface less than ROCK_HEIGHT above the terrain, not OSM forest): tau of the GLI and bright of the
+luminance halfway between their medians, dark the forest's 5th percentile. A line's verdict
+(line_verdicts) on each surface variant: among its pixels above the limit standing TREE above the
+terrain, tree when one is green (or dark/unknown on OSM forest), rock when all are bright (or
+dark/unknown on OSM rock), none without such a pixel, else unknown; the verdicts of the lines each rule
+un-marks and keeps, those of the lines whose pixels above the limit all lie within ANCHOR_NEAR steps of
+an anchor (the forest's edge at an anchor), and the judges' agreement on the references. A place whose
+orthophoto splits both put more than WORKS_OVERLAP of the references on the wrong side (a leafless
+spring image) is listed but not summed. The pictures then show the orthophoto too, the groups of
+VERDICT_GROUPS for --chips-rule (A2 by default) on avg, and each group's contact sheet
+(<out>/<name>/sheets/<rule>-<group>.png).
 """
 
 import argparse
@@ -102,6 +121,25 @@ FINE_SHARE = 0.75           # the surface's pixels count as finer than the grid 
 # sees a tree (TREE within a pixel) on WorldCover's tree cover stays an obstacle
 VARIANT_RULES = ("raw", "A1", "A2", "A3", "A2+V1", "A2+V2", "F", "A2+T")
 VARIANTS = ("avg", "max", "h")
+# The judges (OSM's land cover: tools/study_landcover.py; the orthophoto's greenness and luminance:
+# tools/study_ortho.py). The references of the orthophoto's thresholds: forest, the surface TREE above
+# the terrain on ground gentler than GENTLE (and OSM forest where OSM has land cover); rock, terrain of
+# ROCK_SLOPE or more with the surface less than ROCK_HEIGHT above it (and not OSM forest)
+ROCK_SLOPE, ROCK_HEIGHT = 60.0, 0.5
+ANCHOR_NEAR = 3             # steps: a line whose pixels above its limit all lie this near an anchor
+WORKS_OVERLAP = 0.4         # the orthophoto's two splits both overlapping more: the judge fails at the place
+VERDICTS = ("tree", "rock", "unknown", "none")  # a line's verdict (judge); its index is the code
+PX_NONE, PX_TREE, PX_ROCK, PX_DARK, PX_UNKNOWN = 0, 1, 2, 3, 4  # what the orthophoto says of a pixel
+PX_NAMES = {PX_NONE: None, PX_TREE: "green", PX_ROCK: "bright", PX_DARK: "dark", PX_UNKNOWN: "unknown"}
+LANDCOVER_NAMES = ("none", "forest", "rock")  # study_landcover's NONE, FOREST, ROCK
+REPORT_VERDICT_RULES = ("A2", "A2+V2", "A2+T")  # the rules of the report's verdicts per place
+VERDICT_GROUPS = {"unmarked-tree": "A1 removes the mark, the judges say tree",
+                  "unmarked-rock": "A1 removes the mark, the judges say rock",
+                  "unmarked-unknown": "A1 removes the mark, the judges cannot tell",
+                  "kept-rock": "A1 keeps the mark, the judges say rock",
+                  "kept-tree": "A1 keeps the mark, the judges say tree"}
+ALL_GROUPS = {**GROUPS, **VERDICT_GROUPS}
+SHEET_COLUMNS = 2           # pictures a row of a contact sheet
 
 
 def rule_names() -> List[str]:
@@ -465,6 +503,211 @@ def fine_surfaces(call: str, z: np.ndarray, s: np.ndarray) -> Tuple[Dict, Option
 
 
 # ---------------------------------------------------------------------------------------------
+# the judges (OSM's land cover, the orthophoto) on a grid
+
+def lines_wgs84(grid: Dict, a1: np.ndarray, a2: np.ndarray) -> List[Dict]:
+    """The lines of a call as orthophoto.strip_tiles takes them: {"anchor1": (lat, lon), "anchor2": ...}."""
+    if not len(a1):
+        return []
+    lat1, lon1 = _to_wgs84(grid, a1[:, 0], a1[:, 1])
+    lat2, lon2 = _to_wgs84(grid, a2[:, 0], a2[:, 1])
+    return [{"anchor1": (float(lat1[k]), float(lon1[k])), "anchor2": (float(lat2[k]), float(lon2[k]))}
+            for k in range(len(a1))]
+
+
+def judge_layers(cache_dir: str) -> Callable:
+    """The judges of a call's grid, written into its folder unless they are there already:
+    landcover.npy (study_landcover.write_landcover) and ortho-gli.npy, ortho-lum.npy, ortho.json
+    (study_ortho.write_greenness over the strips of every line of the call), from the cache of the
+    data folder the capture ran with (OSM's tiles and the orthophoto's land in the real cache through
+    the place's link); nothing for a capture whose grid.json names no source (from before the
+    judges)."""
+    def judges(call: str, grid: Dict, a1: np.ndarray, a2: np.ndarray):
+        if not grid.get("source"):
+            return
+        import study_landcover
+        import study_ortho
+        if not os.path.exists(os.path.join(call, study_landcover.FILE)):
+            study_landcover.write_landcover(call, grid, cache_dir)
+        if not os.path.exists(os.path.join(call, "ortho.json")):
+            study_ortho.write_greenness(call, grid, grid["source"], lines_wgs84(grid, a1, a2), cache_dir)
+    return judges
+
+
+def load_judges(call: str) -> Optional[SimpleNamespace]:
+    """The judges kept in a call's folder: landcover (uint8; None when OSM's could not be had),
+    gli and lum (None without the orthophoto's files) and ortho (ortho.json's content, None
+    without); None when neither judge's files are there."""
+    lc_path, ortho_path = os.path.join(call, "landcover.npy"), os.path.join(call, "ortho.json")
+    if not os.path.exists(lc_path) and not os.path.exists(ortho_path):
+        return None
+    landcover = np.load(lc_path) if os.path.exists(lc_path) else None
+    gli = lum = ortho = None
+    if os.path.exists(ortho_path):
+        with open(ortho_path, encoding="utf-8") as f:
+            ortho = json.load(f)
+        gli, lum = np.load(os.path.join(call, "ortho-gli.npy")), np.load(os.path.join(call, "ortho-lum.npy"))
+    return SimpleNamespace(landcover=landcover if landcover is not None and landcover.size else None,
+                           gli=gli, lum=lum, ortho=ortho, classes=None)
+
+
+def reference_masks(z: np.ndarray, s: np.ndarray, slope_grid: np.ndarray,
+                    landcover: Optional[np.ndarray]) -> Tuple[np.ndarray, np.ndarray]:
+    """The pixels sure to be forest and sure to be rock, on which the orthophoto's thresholds are
+    set and the judges compared (see ROCK_SLOPE)."""
+    from study_landcover import FOREST
+    with np.errstate(invalid="ignore"):
+        height = s - z
+        forest = (height >= TREE) & (slope_grid < GENTLE)
+        rock = (slope_grid >= ROCK_SLOPE) & (height < ROCK_HEIGHT)
+    if landcover is not None:
+        forest &= landcover == FOREST
+        rock &= landcover != FOREST
+    return forest, rock
+
+
+def pixel_classes(gli: np.ndarray, lum: np.ndarray, ortho: Dict) -> np.ndarray:
+    """What the orthophoto says of each pixel: PX_TREE where its GLI is above tau, else PX_ROCK
+    where it is at least bright, else PX_DARK where darker than dark, else PX_UNKNOWN (also where
+    no tile covers it, or the place has no thresholds)."""
+    out = np.full(gli.shape, PX_UNKNOWN, dtype=np.uint8)
+    tau, bright, dark = ortho.get("tau"), ortho.get("bright"), ortho.get("dark")
+    if tau is None:
+        return out
+    with np.errstate(invalid="ignore"):
+        if dark is not None:
+            out[lum < dark] = PX_DARK
+        if bright is not None:
+            out[(gli <= tau) & (lum >= bright)] = PX_ROCK
+        out[gli > tau] = PX_TREE
+    return out
+
+
+def line_verdicts(pix: Dict, starts: np.ndarray, z: np.ndarray, surface: np.ndarray,
+                  judged: SimpleNamespace) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The verdict of each line (an index into VERDICTS) from its pixels above the limit on a
+    surface (obstacle_pixels; starts: each line's first, every line with one): tall where the surface
+    stands TREE above the terrain; tree when a tall pixel is green, or dark or unknown on OSM forest;
+    rock when every tall pixel is bright, or dark or unknown on OSM rock; none without a tall pixel
+    (marks of less than TREE: shrubs, rims); else unknown. Without the orthophoto every pixel is
+    unknown (OSM alone decides), without OSM's land cover too every line with a tall pixel unknown.
+    Also the pixels' tall and tree (tall and counted as a tree) flags."""
+    from study_landcover import FOREST, ROCK
+    rows, cols = pix["row"], pix["col"]
+    with np.errstate(invalid="ignore"):
+        tall = surface[rows, cols] - z[rows, cols] >= TREE
+    seen = judged.classes[rows, cols] if judged.classes is not None else np.full(len(rows), PX_UNKNOWN, np.uint8)
+    cover = judged.landcover[rows, cols] if judged.landcover is not None else np.zeros(len(rows), np.uint8)
+    vague = (seen == PX_DARK) | (seen == PX_UNKNOWN)
+    tree = tall & ((seen == PX_TREE) | (vague & (cover == FOREST)))
+    rock = tall & ((seen == PX_ROCK) | (vague & (cover == ROCK)))
+    if not len(rows):
+        return np.zeros(0, dtype=np.int8), tall, tree
+    count = lambda f: np.add.reduceat(f.astype(np.int64), starts)  # noqa: E731
+    n_tall, n_tree, n_rock = count(tall), count(tree), count(rock)
+    verdict = np.where(n_tall == 0, VERDICTS.index("none"),
+                       np.where(n_tree > 0, VERDICTS.index("tree"),
+                                np.where(n_rock == n_tall, VERDICTS.index("rock"), VERDICTS.index("unknown"))))
+    return verdict.astype(np.int8), tall, tree
+
+
+def verdict_counts(verdict: np.ndarray, per_line: Dict, chosen: np.ndarray, names=VARIANT_RULES) -> Dict:
+    """Of the chosen lines: their verdicts ("lines"), and per rule those of the lines it un-marks
+    and of those it keeps ({verdict: lines})."""
+    def tally(lines: np.ndarray) -> Dict:
+        return {v: int((lines & (verdict == i)).sum()) for i, v in enumerate(VERDICTS)}
+    return {"lines": tally(chosen),
+            "rules": {name: {"unmarked": tally(~per_line[name] & chosen), "kept": tally(per_line[name] & chosen)}
+                      for name in names if name in per_line}}
+
+
+def agreement(forest: np.ndarray, rock: np.ndarray, judged: SimpleNamespace, chm3: Optional[np.ndarray]) -> Dict:
+    """The judges on the references (pixel counts, summed over calls): the forest's pixels with an
+    orthophoto and those it calls green, the rock's with one and those it calls bright, the
+    forest's with CHMv2 and those at TREE or more, the rock's with CHMv2 and those below; and the
+    grid's pixels of OSM forest and rock."""
+    from study_landcover import FOREST, ROCK
+    count = lambda f: int(f.sum())  # noqa: E731
+    out = {"forest": count(forest), "rock": count(rock), "forest_ortho": 0, "forest_green": 0, "rock_ortho": 0,
+           "rock_bright": 0, "forest_chm": 0, "forest_chm_tree": 0, "rock_chm": 0, "rock_chm_low": 0,
+           "pixels": int(forest.size), "osm_forest": 0, "osm_rock": 0}
+    if judged.gli is not None:
+        seen = np.isfinite(judged.gli)
+        out.update(forest_ortho=count(forest & seen), forest_green=count(forest & (judged.classes == PX_TREE)),
+                   rock_ortho=count(rock & seen), rock_bright=count(rock & (judged.classes == PX_ROCK)))
+    if chm3 is not None:
+        known = chm3 >= 0
+        out.update(forest_chm=count(forest & known), forest_chm_tree=count(forest & (chm3 >= TREE)),
+                   rock_chm=count(rock & known), rock_chm_low=count(rock & known & (chm3 < TREE)))
+    if judged.landcover is not None:
+        out.update(osm_forest=count(judged.landcover == FOREST), osm_rock=count(judged.landcover == ROCK))
+    return out
+
+
+def set_thresholds(call: str, judged: SimpleNamespace, forest: np.ndarray, rock: np.ndarray):
+    """The orthophoto's thresholds of a call (study_ortho.threshold on the references) into
+    judged.ortho and its ortho.json, and judged.classes (pixel_classes) from them."""
+    if judged.gli is None:
+        return
+    import study_ortho
+    judged.ortho.update(study_ortho.threshold(judged.gli, judged.lum, forest, rock))
+    with open(os.path.join(call, "ortho.json"), "w", encoding="utf-8") as f:
+        json.dump(judged.ortho, f, indent=1)
+    judged.classes = pixel_classes(judged.gli, judged.lum, judged.ortho)
+
+
+def judge_works(study: Dict) -> bool:
+    """Whether the orthophoto tells forest from rock at a place: False when a call's two splits
+    (GLI at tau, luminance at bright) both put more than WORKS_OVERLAP of the references on the
+    wrong side."""
+    for judged in study.get("judges") or []:
+        ortho = (judged or {}).get("ortho") or {}
+        if all(ortho.get(k) is not None and ortho[k] > WORKS_OVERLAP for k in ("overlap", "bright_overlap")):
+            return False
+    return True
+
+
+def ortho_patch(grid: Dict, rows: Tuple[int, int], cols: Tuple[int, int], folder: str, zoom: int,
+                per_pixel: int = 4) -> Optional[np.ndarray]:
+    """The orthophoto over grid pixels rows[0]:rows[1], cols[0]:cols[1] (RGB uint8, per_pixel samples
+    a grid pixel each way): the cached tiles of zoom composed with PIL into one image on their
+    mercator_box, read by the nearest pixel at the samples' centres reprojected with pyproj; grey
+    where no tile is cached, None when none is."""
+    from PIL import Image
+    from pyproj import Transformer
+
+    import orthophoto
+
+    (r0, r1), (c0, c1) = rows, cols
+    res = grid["res"] / per_pixel
+    x = grid["left"] + c0 * grid["res"] + (np.arange((c1 - c0) * per_pixel) + 0.5) * res
+    y = grid["top"] - r0 * grid["res"] - (np.arange((r1 - r0) * per_pixel) + 0.5) * res
+    mx, my = Transformer.from_crs(grid["crs"], "EPSG:3857", always_xy=True).transform(*np.meshgrid(x, y))
+    west, _, _, north = orthophoto.mercator_box(zoom, 0, 0)
+    size = orthophoto.mercator_box(zoom, 1, 0)[0] - west
+    tx, ty = np.floor((mx - west) / size).astype(np.int64), np.floor((north - my) / size).astype(np.int64)
+    x0, y0 = int(tx.min()), int(ty.min())
+    nx, ny = int(tx.max()) - x0 + 1, int(ty.max()) - y0 + 1
+    px = orthophoto.TILE_PX
+    mosaic = Image.new("RGB", (nx * px, ny * px), (128, 128, 128))
+    found = False
+    for i in range(nx):
+        for j in range(ny):
+            path = orthophoto.tile_path(folder, zoom, x0 + i, y0 + j)
+            if os.path.exists(path):
+                with Image.open(path) as tile:
+                    mosaic.paste(tile.convert("RGB").resize((px, px)), (i * px, j * px))
+                found = True
+    if not found:
+        return None
+    left, _, _, top = orthophoto.mercator_box(zoom, x0, y0)
+    image = np.asarray(mosaic)
+    col = np.clip(np.floor((mx - left) / size * px).astype(np.int64), 0, nx * px - 1)
+    row = np.clip(np.floor((top - my) / size * px).astype(np.int64), 0, ny * px - 1)
+    return image[row, col]
+
+
+# ---------------------------------------------------------------------------------------------
 # analyse
 
 class SavedTable(SimpleNamespace):
@@ -655,12 +898,19 @@ def _per_line(flags: Dict, starts: np.ndarray) -> Dict:
 
 
 def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[Dict] = None,
-                 chip_rule: str = "A1") -> Optional[Dict]:
+                 chip_rule: str = "A1", judges: Optional[Callable] = None) -> Optional[Dict]:
     """The counts of one find_valid_lines call (see the module's docstring). layers(call, grid)
     gives CHMv2 and WorldCover on the grid (outside_layers); chips, when given, collects the
     candidates for pictures per group of chip_rule: {group: [(call, line, info)]}. The surface
     variants (fine_surfaces) are counted under VARIANT_RULES ("variants"), avg from the counts of
-    the working grid's surface, the others over every line again."""
+    the working grid's surface, the others over every line again.
+
+    judges(call, grid, a1, a2), when given, writes the judges' files into the call's folder
+    (judge_layers); with those files there the result also holds "judges" (OSM's land cover had,
+    ortho.json with the thresholds set on the references), "agreement", each variant's "verdicts"
+    (verdict_counts) and "near_anchor" (the lines whose pixels above the limit on avg all lie within
+    ANCHOR_NEAR steps of an anchor), and the chips are the groups of VERDICT_GROUPS; without them
+    the result is what it was before the judges."""
     import linesearch as ls
     import perf_line_funnel as plf
 
@@ -764,11 +1014,29 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     if shift is not None:
         result["chm_shift"] = shift
 
+    # The judges: the orthophoto's thresholds on the references, the verdict of each line
+    if judges is not None:
+        judges(call, grid, a1, a2)
+    judging = load_judges(call) if judges is not None else None
+    verdict = tall_pixel = tree_pixel = None
+    if judging is not None:
+        forest_ref, rock_ref = reference_masks(z, s, slope_grid, judging.landcover)
+        set_thresholds(call, judging, forest_ref, rock_ref)
+        result["judges"] = {"landcover": judging.landcover is not None, "ortho": judging.ortho}
+        result["agreement"] = agreement(forest_ref, rock_ref, judging, chm3)
+        del forest_ref, rock_ref
+        verdict, tall_pixel, tree_pixel = line_verdicts(pix, starts, z, s, judging)
+        near = (np.logical_and.reduceat(np.minimum(pix["step"], pix["steps"] - pix["step"]) <= ANCHOR_NEAR, starts)
+                if len(starts) else np.zeros(0, dtype=bool))
+        result["near_anchor"] = verdict_counts(verdict, per_line, near & inside)
+
     # The surface variants: each line's limit is the same, the pixels above it are the variant's
     result["variants"] = {"avg": {"marked": result["marked"],
                                   "classes": {k: result["classes"][k] for k in ("real", "real_chm", "rock_only")},
                                   "rules": {name: result["rules"][name] for name in VARIANT_RULES
                                             if name in result["rules"]}}}
+    if verdict is not None:
+        result["variants"]["avg"]["verdicts"] = verdict_counts(verdict, per_line, inside)
     others = {name: surface for name, surface in surfaces.items() if name != "avg"}
     variant_checks = {}
     for name, pv in (obstacle_pixels(z, others, res, table, a1, a2) if others else {}).items():
@@ -785,6 +1053,9 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
                         "rock_only": int((judged_v.rock_only & inside_v).sum())},
             "rules": _rule_counts(flags_v, per_line_v, judged_v, inside_v, np.searchsorted(lines_v, pv["line"]), pv,
                                   z.shape)}
+        if judging is not None:
+            result["variants"][name]["verdicts"] = verdict_counts(
+                line_verdicts(pv, starts_v, z, others[name], judging)[0], per_line_v, inside_v)
         if n:
             raw_v, a2_v = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
             raw_v[lines_v], a2_v[lines_v] = True, per_line_v["A2"]
@@ -794,39 +1065,64 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
 
     if chips is not None and len(idx):
         a1_kept, f1 = per_line[chip_rule], flags[chip_rule]
-        groups = {"removed_rock": ~a1_kept & rock_only, "lost": ~a1_kept & real_chm,
-                  "kept_real": a1_kept & (count(f1 & real_chm_pixel) > 0),
-                  "residual_rock": a1_kept & (count(f1 & ~rock) == 0)}
-        within = {"removed_rock": None, "lost": real_chm_pixel, "kept_real": f1 & real_chm_pixel,
-                  "residual_rock": f1}  # the pixels a picture centres on: its worst one among these
+        if verdict is None:
+            groups = {"removed_rock": ~a1_kept & rock_only, "lost": ~a1_kept & real_chm,
+                      "kept_real": a1_kept & (count(f1 & real_chm_pixel) > 0),
+                      "residual_rock": a1_kept & (count(f1 & ~rock) == 0)}
+            # the pixels a picture centres on: its worst one among the first of these with one
+            within = {"removed_rock": (), "lost": (real_chm_pixel,), "kept_real": (f1 & real_chm_pixel,),
+                      "residual_rock": (f1,)}
+        else:  # the verdict's groups: centred on a pixel that made the verdict (a tall one, the rule's)
+            is_ = lambda name: verdict == VERDICTS.index(name)  # noqa: E731
+            groups = {"unmarked-tree": ~a1_kept & is_("tree"), "unmarked-rock": ~a1_kept & is_("rock"),
+                      "unmarked-unknown": ~a1_kept & is_("unknown"), "kept-rock": a1_kept & is_("rock"),
+                      "kept-tree": a1_kept & is_("tree")}
+            within = {"unmarked-tree": (tree_pixel, tall_pixel), "unmarked-rock": (tall_pixel,),
+                      "unmarked-unknown": (tall_pixel,), "kept-rock": (f1 & tall_pixel, f1),
+                      "kept-tree": (f1 & tree_pixel, tree_pixel, f1)}
         ends = np.append(starts[1:], len(pix["line"]))
         for group, members in groups.items():
             for k in np.flatnonzero(members & inside):
                 segment = np.arange(starts[k], ends[k])
-                if within[group] is not None:
-                    segment = segment[within[group][segment]]
+                for chosen in within[group]:
+                    if chosen[segment].any():
+                        segment = segment[chosen[segment]]
+                        break
                 focus = segment[np.argmin(pix["margin"][segment])]
                 r, c = rows[focus], cols[focus]
                 info = {"step": int(pix["step"][focus]), "height": float(s[r, c] - z[r, c]),
                         "slope": float(slope_grid[r, c]),
                         "chm": None if chm3 is None else float(chm3[r, c]),
                         "worldcover": None if wc is None or np.isnan(wc[r, c]) else int(wc[r, c])}
+                if verdict is not None:
+                    info.update(verdict=VERDICTS[verdict[k]],
+                                landcover=None if judging.landcover is None
+                                else LANDCOVER_NAMES[int(judging.landcover[r, c])],
+                                ortho=None if judging.classes is None else PX_NAMES[int(judging.classes[r, c])])
                 chips.setdefault(group, []).append((call, int(idx[k]), info))
     return result
+
+
+def _add(a, b):
+    """Counts added key by key (a part one side lacks taken from the other)."""
+    if a is None or b is None:
+        return a if a is not None else b
+    if isinstance(a, dict):
+        return {k: _add(a.get(k), b.get(k)) for k in set(a) | set(b)}
+    if isinstance(a, list):
+        return [x + y for x, y in zip(a, b)]
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
+        return a + b
+    return a
+
+
 def merge(results: List[Dict]) -> Dict:
     """The sum of the calls' counts."""
-    def add(a, b):
-        if isinstance(a, dict):
-            return {k: add(a.get(k), b.get(k)) for k in set(a) | set(b)}
-        if isinstance(a, list):
-            return [x + y for x, y in zip(a, b)]
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)) and not isinstance(a, bool):
-            return a + b
-        return a if a is not None else b
     total = None
     for r in results:
-        r = {k: v for k, v in r.items() if k not in ("chm_shift", "height_median", "checks", "res", "proxies", "fine")}
-        total = r if total is None else add(total, r)
+        r = {k: v for k, v in r.items()
+             if k not in ("chm_shift", "height_median", "checks", "res", "proxies", "fine", "judges")}
+        total = r if total is None else _add(total, r)
     return total or {}
 
 
@@ -854,8 +1150,12 @@ def source_of(folder: str) -> Optional[str]:
     return None
 
 
-def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str = "A1") -> Dict:
-    """Analyse a captured place: <folder>/study.json, study.md and chips/ (the groups of chip_rule)."""
+def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str = "A2", judges: bool = True,
+            data_dir: Optional[str] = None) -> Dict:
+    """Analyse a captured place: <folder>/study.json, study.md, chips-<rule>/ (the groups of
+    chip_rule) and their contact sheets (sheets/). judges: OSM's land cover and the orthophoto
+    (judge_layers) from the cache of data_dir, the data folder the capture ran with (default
+    <folder>/data); without them the study is what it was before the judges."""
     calls = sorted(glob.glob(os.path.join(folder, "capture", "call-*")), key=lambda p: int(p.rsplit("-", 1)[1]))
     layers = None
     if outside:
@@ -865,9 +1165,11 @@ def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str 
             print(f"CHMv2's index not read ({cache.clean_error(e)}): without CHMv2", file=sys.stderr)
             index = None
         layers = outside_layers(index)
+    cache_dir = os.path.join(os.path.abspath(data_dir or os.path.join(folder, "data")), "cache")
+    judge = judge_layers(cache_dir) if judges else None
     results, candidates = [], {}
     for call in calls:
-        part = analyse_call(call, layers, candidates, chip_rule)
+        part = analyse_call(call, layers, candidates, chip_rule, judge)
         if part is not None:
             results.append(part)
     study = {"place": place_name(folder), "source": source_of(folder), "calls": len(calls),
@@ -875,7 +1177,9 @@ def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str 
              "checks": [r["checks"] for r in results],
              "chm_shift": [r.get("chm_shift") for r in results],
              "proxies": results[0]["proxies"] if results else None, "fine": merged_fine(results)}
-    picked = pictures(folder, candidates, samples, chip_rule) if results else {}
+    if any("judges" in r for r in results):
+        study["judges"] = [r.get("judges") for r in results]
+    picked = pictures(folder, candidates, samples, chip_rule, cache_dir) if results else {}
     study["chips"], study["chip_rule"] = picked, chip_rule
     with open(os.path.join(folder, "study.json"), "w", encoding="utf-8") as f:
         json.dump(study, f, indent=1, ensure_ascii=False)
@@ -887,32 +1191,62 @@ def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str 
 # ---------------------------------------------------------------------------------------------
 # pictures
 
-def pictures(folder: str, candidates: Dict, samples: int, rule: str = "A1") -> Dict:
+def pictures(folder: str, candidates: Dict, samples: int, rule: str = "A1", cache_dir: Optional[str] = None) -> Dict:
     """Up to `samples` pictures per group, chosen at random (seed 0): chips-<rule>/<group>-<n>.png,
-    drawn call by call (each call's grids loaded once)."""
+    drawn call by call (each call's grids loaded once; the orthophoto's tiles from cache_dir, default
+    <folder>/data/cache), and a contact sheet of each group (contact_sheet: sheets/<rule>-<group>.png)."""
     out = os.path.join(folder, chips_dir(rule))
     shutil.rmtree(out, ignore_errors=True)
+    sheets = os.path.join(folder, "sheets")
+    for old in glob.glob(os.path.join(sheets, f"{_safe(rule)}-*.png")):
+        os.remove(old)
+    cache_dir = cache_dir or os.path.join(folder, "data", "cache")
     rng = np.random.default_rng(0)
     chosen = []
-    for group in GROUPS:
+    for group in ALL_GROUPS:
         members = candidates.get(group, [])
         if members:
             for n, choice in enumerate(sorted(rng.choice(len(members), min(samples, len(members)), replace=False))):
                 chosen.append((members[choice][0], group, n, *members[choice][1:]))
     picked, loaded = {}, None
-    for call, group, n, line, info in sorted(chosen, key=lambda c: (c[0], list(GROUPS).index(c[1]), c[2])):
+    for call, group, n, line, info in sorted(chosen, key=lambda c: (c[0], list(ALL_GROUPS).index(c[1]), c[2])):
         if loaded is None or loaded.call != call:
-            loaded = _load_for_picture(call)
+            loaded = _load_for_picture(call, cache_dir)
         entry = draw(os.path.join(out, f"{group}-{n}.png"), place_name(folder), group, loaded, line, info, rule)
         picked.setdefault(group, []).append(entry)
-    return {group: sorted(picked[group], key=lambda e: e["png"]) for group in GROUPS if group in picked}
+    picked = {group: sorted(picked[group], key=lambda e: e["png"]) for group in ALL_GROUPS if group in picked}
+    for group, entries in picked.items():
+        contact_sheet([os.path.join(out, e["png"]) for e in entries], os.path.join(sheets, sheet_name(rule, group)))
+    return picked
+
+
+def _safe(rule: str) -> str:
+    return re.sub(r"[^A-Za-z0-9.-]", "_", rule)
 
 
 def chips_dir(rule: str) -> str:
-    return "chips-" + re.sub(r"[^A-Za-z0-9.-]", "_", rule)
+    return "chips-" + _safe(rule)
 
 
-def _load_for_picture(call: str) -> SimpleNamespace:
+def sheet_name(rule: str, group: str) -> str:
+    return f"{_safe(rule)}-{group}.png"
+
+
+def contact_sheet(pngs: List[str], path: str, columns: int = SHEET_COLUMNS) -> str:
+    """The pictures tiled `columns` to a row (PIL) into one PNG, for a review at a glance."""
+    from PIL import Image
+    images = [Image.open(p).convert("RGB") for p in pngs]
+    width, height = max(i.width for i in images), max(i.height for i in images)
+    sheet = Image.new("RGB", (width * min(columns, len(images)), height * math.ceil(len(images) / columns)), "white")
+    for k, image in enumerate(images):
+        sheet.paste(image, ((k % columns) * width, (k // columns) * height))
+        image.close()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    sheet.save(path, optimize=True)
+    return path
+
+
+def _load_for_picture(call: str, cache_dir: Optional[str] = None) -> SimpleNamespace:
     import perf_line_funnel as plf
     inputs, params, _ = plf.load_call(call)
     with open(os.path.join(call, "grid.json")) as f:
@@ -924,9 +1258,17 @@ def _load_for_picture(call: str) -> SimpleNamespace:
     res = float(params["res"])
     path = os.path.join(call, "chmv2.npy")  # kept by outside_layers
     chm = np.load(path) if os.path.exists(path) else None
+    ortho = None  # (the tiles' folder, zoom) of the orthophoto the judge read
+    judged = load_judges(call)
+    if cache_dir is not None and judged is not None and judged.ortho is not None and grid.get("source"):
+        import orthophoto
+        import sources
+        source = sources.SOURCES.get(grid["source"])
+        if source is not None and source.ortho is not None:
+            ortho = (orthophoto.cache_folder(cache_dir, source.ortho), judged.ortho["zoom"])
     return SimpleNamespace(call=call, z=z, s=s, s1=obstacles.obstacle_surface(z, s, res),
                            chm=chm if chm is not None and chm.size else None, res=res, grid=grid,
-                           table=saved_table(inputs, params), a1=lines["a1"], a2=lines["a2"])
+                           table=saved_table(inputs, params), a1=lines["a1"], a2=lines["a2"], ortho=ortho)
 
 
 def _to_wgs84(grid: Dict, rows, cols):
@@ -939,7 +1281,8 @@ def _to_wgs84(grid: Dict, rows, cols):
 
 def draw(path: str, place: str, group: str, d: SimpleNamespace, line: int, info: Dict, rule: str = "A1") -> Dict:
     """A picture of one line around a pixel: the terrain shaded, the surface's height above it,
-    CHMv2, and the profile there (terrain, surface, A1's obstacle surface, the limit)."""
+    CHMv2, the profile there (terrain, surface, A1's obstacle surface, the limit) and the orthophoto
+    the judge read (ortho_patch, at its zoom); OSM's land cover and the verdict in the title."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -958,19 +1301,25 @@ def draw(path: str, place: str, group: str, d: SimpleNamespace, line: int, info:
     h, w = d.z.shape
     r0, r1, c0, c1 = max(0, fr - WINDOW), min(h, fr + WINDOW + 1), max(0, fc - WINDOW), min(w, fc + WINDOW + 1)
     terrain = d.z[r0:r1, c0:c1]
-    fig, axes = plt.subplots(1, 4, figsize=(15, 3.8))
+    fig, axes = plt.subplots(1, 5, figsize=(19, 3.8))
     shade = LightSource(315, 45).hillshade(np.nan_to_num(terrain, nan=float(np.nanmin(terrain))), dx=d.res, dy=d.res)
+    ortho = getattr(d, "ortho", None)
+    photo = None if ortho is None else ortho_patch(d.grid, (r0, r1), (c0, c1), *ortho)
     panels = [(shade, "terrain, shaded", "gray", 0, 1), (d.s[r0:r1, c0:c1] - terrain, "surface - terrain (m)",
                                                            "viridis", 0, 20),
-              (None if d.chm is None else d.chm[r0:r1, c0:c1], "CHMv2 (m)", "viridis", 0, 20)]
-    for ax, (image, title, cmap, low, high) in zip(axes[:3], panels):
+              (None if d.chm is None else d.chm[r0:r1, c0:c1], "CHMv2 (m)", "viridis", 0, 20),
+              (photo, "orthophoto" + ("" if ortho is None else f" (zoom {ortho[1]})"), None, None, None)]
+    for ax, (image, title, cmap, low, high) in zip([axes[0], axes[1], axes[2], axes[4]], panels):
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_title(title, fontsize=9)
         if image is None:
-            ax.text(0.5, 0.5, "no CHMv2", ha="center", va="center", transform=ax.transAxes)
+            ax.text(0.5, 0.5, "no CHMv2" if cmap else "no orthophoto", ha="center", va="center", transform=ax.transAxes)
             continue
-        ax.imshow(image, cmap=cmap, vmin=low, vmax=high, interpolation="nearest")
+        if cmap is None:  # RGB at several samples a grid pixel, on the grid pixels' coordinates
+            ax.imshow(image, extent=(-0.5, c1 - c0 - 0.5, r1 - r0 - 0.5, -0.5), interpolation="nearest")
+        else:
+            ax.imshow(image, cmap=cmap, vmin=low, vmax=high, interpolation="nearest")
         ax.plot(cols - c0, rows - r0, color="red", lw=1)
         ax.plot([fc - c0], [fr - r0], "o", mfc="none", mec="cyan", ms=9, mew=2)
         ax.set_xlim(-0.5, c1 - c0 - 0.5)
@@ -988,9 +1337,11 @@ def draw(path: str, place: str, group: str, d: SimpleNamespace, line: int, info:
     ax.legend(fontsize=7)
     lat, lon = _to_wgs84(d.grid, [a1[0], a2[0], fr], [a1[1], a2[1], fc])
     chm = "-" if info["chm"] is None else f"{info['chm']:.0f} m"
-    fig.suptitle(f"{place}, {group}: {GROUPS[group].replace('A1', rule)}. Pixel {focus} of {steps} steps, surface {info['height']:.1f} m "
-                 f"above the terrain, slope up to {info['slope']:.0f} deg, CHMv2 {chm}, WorldCover "
-                 f"{'-' if info['worldcover'] is None else int(info['worldcover'])}", fontsize=9)
+    judged = (f", OSM {info.get('landcover') or '-'}, orthophoto {info.get('ortho') or '-'}: verdict {info['verdict']}"
+              if "verdict" in info else "")
+    fig.suptitle(f"{place}, {group}: {ALL_GROUPS[group].replace('A1', rule)}. Pixel {focus} of {steps} steps, surface "
+                 f"{info['height']:.1f} m above the terrain, slope up to {info['slope']:.0f} deg, CHMv2 {chm}, WorldCover "
+                 f"{'-' if info['worldcover'] is None else int(info['worldcover'])}{judged}", fontsize=9)
     fig.tight_layout()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     fig.savefig(path, dpi=70)
@@ -1007,27 +1358,97 @@ def _pct(part, whole) -> str:
     return f"{part} ({100 * part / whole:.0f} %)" if whole else str(part)
 
 
+def _tally(counts: Optional[Dict]) -> str:
+    """{verdict: lines} as tree/rock/unknown/none."""
+    return "/".join(str((counts or {}).get(v, 0)) for v in VERDICTS)
+
+
 def variants_markdown(study: Dict) -> List[str]:
-    """The table of the surface variants of a place (after its rules' table); none without them."""
+    """The table of the surface variants of a place (after its rules' table), with the judges'
+    verdicts of the lines each rule un-marks and keeps when they ran; none without either."""
     variants = study.get("variants") or {}
-    if len(variants) < 2:
+    judged = any("verdicts" in v for v in variants.values())
+    if len(variants) < 2 and not judged:
         fine = study.get("fine")
         return ["", "Surface variants: none (no surface model finer than the grid)."] if fine is not None else []
     fine = study.get("fine") or {}
-    lines = ["", f"Surface variants (the surface model's own pixels of {fine.get('res')} m, offset "
+    head = (["", f"Surface variants (the surface model's own pixels of {fine.get('res')} m, offset "
                  f"{fine.get('offset')}): avg the grid's surface, max the fine surface warped with GDAL's max, h the "
-                 "terrain plus the fine height above the terrain warped so.", "",
-             "| variant | rule | marked | lost (tree/building): lines, objects | lost (CHMv2 tree/building) | "
-             "removed, rock only | kept, rock only: lines, objects | kept, tree/building |",
-             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+                 "terrain plus the fine height above the terrain warped so."] if len(variants) > 1 else
+            ["", "Surface variants: avg alone (no surface model finer than the grid)."])
+    if judged:
+        head[-1] += (" Verdicts (tree/rock/unknown/none) of the judges over each line's pixels above its limit on "
+                     "the variant: of the lines the rule un-marks and of those it keeps.")
+    lines = head + ["", "| variant | rule | marked | lost (tree/building): lines, objects | lost (CHMv2 tree/building) | "
+                        "removed, rock only | kept, rock only: lines, objects | kept, tree/building |"
+                    + (" un-marked: tree/rock/unknown/none | kept: tree/rock/unknown/none |" if judged else ""),
+                    "| --- | --- | --- | --- | --- | --- | --- | --- |" + (" --- | --- |" if judged else "")]
     for variant in VARIANTS:
         v = variants.get(variant)
         for name in VARIANT_RULES if v else ():
             r = v["rules"].get(name)
             if r:
-                lines.append(f"| {variant} | {name} | {_pct(r['marked'], v['marked'])} | {r['lost']}, {r['lost_objects']} | "
-                             f"{r['lost_chm']} | {r['removed_rock']} | {r['residual_rock']}, {r['residual_objects']} | "
-                             f"{r['kept_real']} |")
+                row = (f"| {variant} | {name} | {_pct(r['marked'], v['marked'])} | {r['lost']}, {r['lost_objects']} | "
+                       f"{r['lost_chm']} | {r['removed_rock']} | {r['residual_rock']}, {r['residual_objects']} | "
+                       f"{r['kept_real']} |")
+                if judged:
+                    verdicts = (v.get("verdicts") or {}).get("rules", {}).get(name, {})
+                    row += f" {_tally(verdicts.get('unmarked'))} | {_tally(verdicts.get('kept'))} |"
+                lines.append(row)
+    return lines
+
+
+def _share(part: int, whole: int) -> str:
+    return f"{100 * part / whole:.0f} % of {whole}" if whole else "- (none)"
+
+
+def _number(value, digits: int = 3) -> str:
+    return "-" if value is None else f"{value:.{digits}f}"
+
+
+def judges_markdown(study: Dict) -> List[str]:
+    """The judges of a place in a few lines: OSM's land cover, the orthophoto's thresholds per call,
+    and how the orthophoto and CHMv2 agree with the references; none without the judges."""
+    if not study.get("judges"):
+        return []
+    a = study.get("agreement", {})
+    calls = [j for j in study["judges"] if j]
+    osm = (f"OSM land cover forest on {100 * a.get('osm_forest', 0) / a['pixels']:.0f} %, rock on "
+           f"{100 * a.get('osm_rock', 0) / a['pixels']:.0f} % of the grid"
+           if any(j["landcover"] for j in calls) and a.get("pixels") else "no OSM land cover")
+    orthos = []
+    for j in calls:
+        o = j.get("ortho")
+        orthos.append("none" if o is None else
+                      f"zoom {o.get('zoom')}, {o.get('tiles')} tiles: tau {_number(o.get('tau'))} (overlap "
+                      f"{_number(o.get('overlap'), 2)}), bright {_number(o.get('bright'), 0)} (overlap "
+                      f"{_number(o.get('bright_overlap'), 2)}), dark {_number(o.get('dark'), 0)}")
+    lines = ["", "Judges: " + osm + "; the orthophoto " + "; ".join(orthos) + ". On the references (forest: the "
+             f"surface {TREE:g} m above the terrain on ground under {GENTLE:g} deg, OSM forest where mapped; rock: "
+             f"{ROCK_SLOPE:g} deg or steeper, the surface under {ROCK_HEIGHT:g} m above the terrain, not OSM forest): "
+             f"the orthophoto calls {_share(a.get('forest_green', 0), a.get('forest_ortho', 0))} forest pixels green and "
+             f"{_share(a.get('rock_bright', 0), a.get('rock_ortho', 0))} rock pixels bright; CHMv2 >= {TREE:g} m on "
+             f"{_share(a.get('forest_chm_tree', 0), a.get('forest_chm', 0))} forest pixels, below on "
+             f"{_share(a.get('rock_chm_low', 0), a.get('rock_chm', 0))} rock pixels."]
+    if not judge_works(study):
+        lines[-1] += (f" WARNING: the orthophoto's two splits both overlap more than {WORKS_OVERLAP:g}: the verdicts "
+                      "of this place are not summed over all places.")
+    return lines
+
+
+def near_anchor_markdown(study: Dict) -> List[str]:
+    """The lines whose pixels above the limit (avg, raw) all lie within ANCHOR_NEAR steps of an
+    anchor (a forest's edge at an anchor), and per rule the verdicts of those it un-marks."""
+    near = study.get("near_anchor")
+    if not near:
+        return []
+    lines = ["", f"Near an anchor: {sum(near['lines'].values())} lines whose pixels above the limit (avg) all lie "
+                 f"within {ANCHOR_NEAR} steps of an anchor, tree/rock/unknown/none {_tally(near['lines'])}.", "",
+             "| rule | un-marked: tree | rock | unknown | none |", "| --- | --- | --- | --- | --- |"]
+    for name in VARIANT_RULES:
+        r = near["rules"].get(name)
+        if r and name != "raw":
+            lines.append("| " + " | ".join([name] + [str(r["unmarked"][v]) for v in VERDICTS]) + " |")
     return lines
 
 
@@ -1045,7 +1466,9 @@ def place_markdown(study: Dict) -> str:
         if r:
             lines.append(f"| {name} | {_pct(r['marked'], marked)} | {r['lost']}, {r['lost_objects']} | {r['lost_chm']} | "
                          f"{r['removed_rock']} | {r['residual_rock']}, {r['residual_objects']} | {r['kept_real']} |")
+    lines += judges_markdown(study)
     lines += variants_markdown(study)
+    lines += near_anchor_markdown(study)
     lines += ["", "r needed by A (1..10, 11: more):", ""]
     for k, v in study.get("r_needed", {}).items():
         lines.append(f"- {k}: {v}")
@@ -1056,7 +1479,8 @@ def place_markdown(study: Dict) -> str:
     for k, v in study.get("slope", {}).items():
         lines.append(f"- {k}: {v}")
     for group, entries in study.get("chips", {}).items():
-        lines += ["", f"## {GROUPS[group].replace('A1', study.get('chip_rule') or 'A1')}", ""]
+        rule = study.get("chip_rule") or "A1"
+        lines += ["", f"## {ALL_GROUPS[group].replace('A1', rule)}", "", f"Contact sheet: sheets/{sheet_name(rule, group)}", ""]
         for e in entries:
             lat, lon = e["pixel"]
             lines.append(f"- [{e['png']}]({chips_dir(study.get('chip_rule') or 'A1')}/{e['png']}): pixel {lat}, {lon} "
@@ -1069,6 +1493,84 @@ def check_passed(c: Dict) -> bool:
     """A call's checks (analyse_call): every kernel check that ran gave the tool's counts."""
     return (all(c.get(k, True) for k in ("raw_equal", "a1_equal", "a2_equal")) and not c.get("marked_without_pixels")
             and all(all(v.values()) for v in c.get("variants", {}).values()))
+
+
+def judges_report(studies: List[Dict]) -> List[str]:
+    """The report's sections of the judges (none when no place has them): their agreement per
+    place, the verdicts per place under REPORT_VERDICT_RULES, and over the places where the judge
+    works the verdicts per variant and rule and those of the lines near an anchor."""
+    judged = [st for st in studies if st.get("judges")]
+    if not judged:
+        return []
+    agree = ["| place | judge works | OSM forest, rock | tiles | tau (overlap) | bright (overlap) | dark | "
+             "forest called green | rock called bright | CHMv2 tree on forest | CHMv2 low on rock |",
+             "|" + " --- |" * 11]
+    per_place = ["| place | judge works | variant | rule | marked: tree/rock/unknown/none | "
+                 "un-marked: tree/rock/unknown/none | kept: tree/rock/unknown/none |", "|" + " --- |" * 7]
+    total, near, works = {}, {}, []
+    for st in judged:
+        a, ok = st.get("agreement", {}), judge_works(st)
+        orthos = [j.get("ortho") or {} for j in st["judges"] if j]
+        first = orthos[0] if orthos else {}
+        pixels = a.get("pixels", 0)
+        cover = (f"{100 * a.get('osm_forest', 0) / pixels:.0f} %, {100 * a.get('osm_rock', 0) / pixels:.0f} %"
+                 if pixels and any(j["landcover"] for j in st["judges"] if j) else "-")
+        agree.append("| " + " | ".join([
+            st["place"], "yes" if ok else "NO", cover, str(sum(o.get("tiles") or 0 for o in orthos)),
+            f"{_number(first.get('tau'))} ({_number(first.get('overlap'), 2)})",
+            f"{_number(first.get('bright'), 0)} ({_number(first.get('bright_overlap'), 2)})",
+            _number(first.get("dark"), 0), _share(a.get("forest_green", 0), a.get("forest_ortho", 0)),
+            _share(a.get("rock_bright", 0), a.get("rock_ortho", 0)),
+            _share(a.get("forest_chm_tree", 0), a.get("forest_chm", 0)),
+            _share(a.get("rock_chm_low", 0), a.get("rock_chm", 0))]) + " |")
+        for variant in VARIANTS:
+            v = (st.get("variants") or {}).get(variant) or {}
+            verdicts = v.get("verdicts")
+            if not verdicts:
+                continue
+            for name in REPORT_VERDICT_RULES:
+                r = verdicts["rules"].get(name)
+                if r:
+                    per_place.append("| " + " | ".join([st["place"], "yes" if ok else "NO", variant, name,
+                                                        _tally(verdicts["lines"]), _tally(r["unmarked"]),
+                                                        _tally(r["kept"])]) + " |")
+            if ok:
+                total[variant] = _add(total.get(variant), verdicts)
+        if ok:
+            works.append(st["place"])
+            near = _add(near, st.get("near_anchor")) or {}
+    sums = ["| variant | rule | marked: tree/rock/unknown/none | un-marked: tree/rock/unknown/none | "
+            "kept: tree/rock/unknown/none |", "| --- | --- | --- | --- | --- |"]
+    for variant in VARIANTS:
+        for name in VARIANT_RULES if variant in total else ():
+            r = total[variant]["rules"].get(name)
+            if r:
+                sums.append(f"| {variant} | {name} | {_tally(total[variant]['lines'])} | {_tally(r['unmarked'])} | "
+                            f"{_tally(r['kept'])} |")
+    near_rows = ["| rule | un-marked: tree | rock | unknown | none |", "| --- | --- | --- | --- | --- |"]
+    for name in VARIANT_RULES:
+        r = (near.get("rules") or {}).get(name)
+        if r and name != "raw":
+            near_rows.append("| " + " | ".join([name] + [str(r["unmarked"][v]) for v in VERDICTS]) + " |")
+    return [
+        "## Judges", "",
+        "OSM's land cover (forest, rock) and the orthophoto (its green leaf index split at tau, its luminance at "
+        "bright, darker than dark: a shadow) on the references of each place (forest: the surface "
+        f"{TREE:g} m above the terrain on ground under {GENTLE:g} deg, OSM forest where mapped; rock: {ROCK_SLOPE:g} deg "
+        f"or steeper, the surface under {ROCK_HEIGHT:g} m above the terrain, not OSM forest), and CHMv2 on them. A place "
+        f"where both splits put more than {WORKS_OVERLAP:g} of the references on the wrong side: the judge does not "
+        "work there (NO), its verdicts are listed but not summed.", "",
+        *agree, "",
+        "## Verdicts per place", "",
+        "A line's verdict from its pixels above the limit standing 3 m or more above the terrain on the variant "
+        "(none: no such pixel): tree when one is green, or dark/unknown on OSM forest; rock when all are bright, or "
+        "dark/unknown on OSM rock; else unknown.", "",
+        *per_place, "",
+        f"## Verdicts over all places where the judge works ({', '.join(works) if works else 'none'})", "",
+        *sums, "",
+        f"## Near an anchor (pixels above the limit on avg all within {ANCHOR_NEAR} steps of an anchor), over the same "
+        f"places: {_tally(near.get('lines'))} lines tree/rock/unknown/none", "",
+        *near_rows, ""]
 
 
 def report(out: str) -> str:
@@ -1119,6 +1621,7 @@ def report(out: str) -> str:
                                                      for r in VARIANT_RULES]) + " |")
     shifts = [f"- {st['place']}: {st.get('chm_shift')}" for st in studies]
     checks = [st["place"] for st in studies if any(not check_passed(c) for c in st.get("checks", []))]
+    judged = judges_report(studies)
     text = "\n".join([
         "# Obstacles on rock: the rules side by side", "",
         "Lines over trees/buildings per place under each rule (tools/obstacle_study.py); ideal: the lines with a "
@@ -1134,7 +1637,7 @@ def report(out: str) -> str:
         *variants, "",
         f"## Over all places ({marked} lines over trees/buildings: {real} with a tree (CHMv2 and WorldCover) or "
         f"building, {real_chm} with a tree by CHMv2 alone or a building, {rock} rock only)",
-        "", *sums, "",
+        "", *sums, "", *judged,
         "## CHMv2 against the surface's height above the terrain (gentle ground)", "", *shifts, "",
         "## Checks", "", "Places where a check failed: " + (", ".join(checks) if checks else "none"), ""])
     with open(os.path.join(out, "study.md"), "w", encoding="utf-8") as f:
@@ -1179,7 +1682,8 @@ def run(args) -> int:
                                cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT)
         print(f"{name}: analysing", flush=True)
         subprocess.run([sys.executable, os.path.abspath(__file__), "analyse", folder, "--samples", str(args.samples),
-                        "--chips-rule", args.chips_rule] + ([] if args.outside else ["--offline"]), cwd=HERE, env=env)
+                        "--chips-rule", args.chips_rule] + ([] if args.outside else ["--offline"])
+                       + ([] if args.judges else ["--no-judges"]), cwd=HERE, env=env)
     print(report(out))
     return 0
 
@@ -1195,7 +1699,9 @@ def main(argv=None) -> int:
     p.add_argument("--again", action="store_true", help="search places captured already again")
     p.add_argument("--samples", type=int, default=6, help="pictures per group and place")
     p.add_argument("--offline", dest="outside", action="store_false", help="without CHMv2 and WorldCover")
-    p.add_argument("--chips-rule", default="A1", help="the rule whose groups the pictures show")
+    p.add_argument("--no-judges", dest="judges", action="store_false",
+                   help="without OSM's land cover and the orthophoto (the study as before the judges)")
+    p.add_argument("--chips-rule", default="A2", help="the rule whose groups the pictures show")
     p = sub.add_parser("capture", help="(child) one search with find_valid_lines captured")
     p.add_argument("--out", required=True)
     p.add_argument("search_args", nargs=argparse.REMAINDER)
@@ -1203,7 +1709,9 @@ def main(argv=None) -> int:
     p.add_argument("folder")
     p.add_argument("--samples", type=int, default=6)
     p.add_argument("--offline", dest="outside", action="store_false")
-    p.add_argument("--chips-rule", default="A1")
+    p.add_argument("--no-judges", dest="judges", action="store_false")
+    p.add_argument("--data-dir", help="the data folder the capture ran with (default: <folder>/data)")
+    p.add_argument("--chips-rule", default="A2")
     p = sub.add_parser("report", help="the report of the analysed places")
     p.add_argument("out")
     args = parser.parse_args(argv)
@@ -1213,7 +1721,7 @@ def main(argv=None) -> int:
         search_args = args.search_args[1:] if args.search_args[:1] == ["--"] else args.search_args
         return capture(args.out, search_args)
     if args.command == "analyse":
-        analyse(args.folder, args.samples, args.outside, args.chips_rule)
+        analyse(args.folder, args.samples, args.outside, args.chips_rule, args.judges, args.data_dir)
         return 0
     print(report(args.out))
     return 0

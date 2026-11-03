@@ -18,9 +18,11 @@ its base_max_zoom at most.
 
 threshold splits the GLI of a place into green and not green: tau halfway between the median GLI
 of its sure forest and of its sure rock (the study tool knows those masks), with the share of both
-sets on the wrong side of tau (overlap), and dark, the 5th percentile of the forest's luminance
-(darker pixels, shadows on walls, tell nothing). write_greenness keeps ortho-gli.npy, ortho-lum.npy
-and ortho.json in a call's folder.
+sets on the wrong side of tau (overlap); the luminance likewise into bright and not (bright halfway
+between the medians, bright_overlap: bare rock is bright where a leafless spring image gives forest
+and rock the same GLI); and dark, the 5th percentile of the forest's luminance (darker pixels,
+shadows on walls, tell nothing). write_greenness keeps ortho-gli.npy, ortho-lum.npy and ortho.json
+in a call's folder.
 """
 
 import json
@@ -150,12 +152,16 @@ def greenness_on_grid(grid: Dict, source_id: str, lines: List[Dict], cache_dir: 
 def threshold(gli: np.ndarray, lum: np.ndarray, forest: np.ndarray, rock: np.ndarray) -> Dict:
     """tau (halfway between the median GLI of the forest's pixels and of the rock's), dark (the
     DARK_PERCENTILE of the forest's luminance), both medians, and overlap (the forest's pixels
-    below tau and the rock's above it, over both); a value is None when a set it needs has fewer
-    than MIN_PIXELS pixels with a GLI."""
+    below tau and the rock's above it, over both); bright (halfway between the median luminance of
+    the forest's pixels and of the rock's) and bright_overlap (the forest's pixels at bright or
+    above and the rock's below it, over both); a value is None when a set it needs has fewer than
+    MIN_PIXELS pixels with a GLI (a luminance)."""
     forest_gli = gli[forest & np.isfinite(gli)]
     rock_gli = gli[rock & np.isfinite(gli)]
     forest_lum = lum[forest & np.isfinite(lum)]
-    out = {"tau": None, "dark": None, "forest_median": None, "rock_median": None, "overlap": None}
+    rock_lum = lum[rock & np.isfinite(lum)]
+    out = {"tau": None, "dark": None, "forest_median": None, "rock_median": None, "overlap": None,
+           "bright": None, "bright_overlap": None}
     if forest_gli.size >= MIN_PIXELS:
         out["forest_median"] = float(np.median(forest_gli))
     if forest_lum.size >= MIN_PIXELS:
@@ -166,6 +172,10 @@ def threshold(gli: np.ndarray, lum: np.ndarray, forest: np.ndarray, rock: np.nda
         tau = (out["forest_median"] + out["rock_median"]) / 2
         wrong = int((forest_gli < tau).sum()) + int((rock_gli > tau).sum())
         out.update(tau=float(tau), overlap=wrong / (forest_gli.size + rock_gli.size))
+    if forest_lum.size >= MIN_PIXELS and rock_lum.size >= MIN_PIXELS:
+        bright = (float(np.median(forest_lum)) + float(np.median(rock_lum))) / 2
+        wrong = int((forest_lum >= bright).sum()) + int((rock_lum < bright).sum())
+        out.update(bright=bright, bright_overlap=wrong / (forest_lum.size + rock_lum.size))
     return out
 
 

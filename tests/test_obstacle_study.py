@@ -321,6 +321,7 @@ def test_report(tmp_path):
     text = study.report(str(tmp_path))
     assert "| R1 | test | 1.0 | 10 | 4 | 5 |" in text and "| A1 | 10 (56 %) | 2 (25 %), 2 | 2 (20 %) | 6 (100 %) | 0, 0 | 8 |" in text
     assert "Places where a check failed: none" in text
+    assert "## Judges" not in text and "Near an anchor" not in text  # without the judges: as before them
     assert text.index("| R1 | test |") < text.index("## Surface variants") < text.index("## Over all places")
     assert "| R2 | 0.5 | avg | 9 | 4 | 5 | 5 | 5 | 5 | 5 | 5 | 5 | - |" in text  # A2+T not in the rules given
     assert "| R2 | 0.5 | h | 6 | 4 | 5 | 5 | 5 | 5 | 5 | 5 | 5 | 4 |" in text and "| R1 | None |" not in text
@@ -347,3 +348,232 @@ def test_kernel_sees_the_obstacle_surface():
     table = ls.evaluate_lines(np.array([[0, 1], [2, 3]]), anchors, dtm, 1.0, obstacles.obstacle_surface(dtm, dsm, 1.0),
                               None, "mark")
     assert (table.columns["clearance_nmpt"] <= 0).tolist() == [True, False]
+
+
+# ---------------------------------------------------------------------------------------------
+# the judges (OSM's land cover, the orthophoto) on the canyon: their files written by hand
+
+RIMS, ROCK_REF = [20, 79], [19, 80]  # the tall pixels of the walls (surface 50 m above), the rock reference
+
+
+def write_judges(call, shape, rim_cover=None, rim_lum=200.0, ortho=True):
+    """landcover.npy (forest under the tree, rim_cover at the rims) and, with ortho, the orthophoto:
+    the tree green (GLI 0.3) and darker (100), everything else grey (GLI 0), the walls bright (200,
+    the rims rim_lum), the floor between (150)."""
+    import study_landcover as sl
+    cover = np.zeros(shape, np.uint8)
+    cover[TREE_ROWS, TREE_COLS] = sl.FOREST
+    if rim_cover is not None:
+        cover[:, RIMS] = rim_cover
+    np.save(os.path.join(call, "landcover.npy"), cover)
+    for name in ("ortho-gli.npy", "ortho-lum.npy", "ortho.json"):
+        if os.path.exists(os.path.join(call, name)):
+            os.remove(os.path.join(call, name))
+    if not ortho:
+        return
+    gli = np.zeros(shape, np.float32)
+    gli[TREE_ROWS, TREE_COLS] = 0.3
+    lum = np.full(shape, 150.0, np.float32)
+    lum[:, ROCK_REF] = 200
+    lum[:, RIMS] = rim_lum
+    lum[TREE_ROWS, TREE_COLS] = 100
+    np.save(os.path.join(call, "ortho-gli.npy"), gli)
+    np.save(os.path.join(call, "ortho-lum.npy"), lum)
+    with open(os.path.join(call, "ortho.json"), "w") as f:
+        json.dump({"zoom": 19, "tiles": 3, "tau": None, "dark": None, "forest_median": None, "rock_median": None,
+                   "overlap": None}, f)
+
+
+def no_writing(call, grid, a1, a2):
+    """The judges as judge_layers calls them, their files already in the call's folder."""
+
+
+def without_judges(result):
+    """A result less what the judges add."""
+    out = {k: v for k, v in result.items() if k not in ("judges", "agreement", "near_anchor")}
+    out["variants"] = {name: {k: v for k, v in variant.items() if k != "verdicts"}
+                       for name, variant in result["variants"].items()}
+    return out
+
+
+@pytest.fixture
+def judged_canyon(tmp_path, monkeypatch):
+    """The canyon's call and its lines over the tree; the tree's 24 pixels are enough of a forest."""
+    import study_ortho
+    monkeypatch.setattr(study_ortho, "MIN_PIXELS", 20)
+    call, dtm, dsm, lines = capture_call(tmp_path)
+    s1 = obstacles.obstacle_surface(dtm, dsm, 1.0)
+    over_tree = np.array([sh.evaluate_line(a, b, dtm, 1.0, s1)[4] <= 0
+                          for a, b in zip(lines.columns["a1"], lines.columns["a2"])])
+    return call, dtm, int(over_tree.sum()), int((~over_tree).sum())
+
+
+def tally(tree=0, rock=0, unknown=0, none=0):
+    return {"tree": tree, "rock": rock, "unknown": unknown, "none": none}
+
+
+def test_verdicts_on_a_canyon(judged_canyon):
+    """The tree green over OSM forest: tree; the rims bright and not green: rock; the rims dark:
+    OSM's land cover decides (rock, unknown, tree); without the orthophoto OSM alone; the thresholds
+    set on the references go into ortho.json; the counts of before stay as they were."""
+    import study_landcover as sl
+    call, dtm, real, rock = judged_canyon
+    plain = study.analyse_call(call, layers_of(dtm))
+    write_judges(call, dtm.shape)
+    result = study.analyse_call(call, layers_of(dtm), judges=no_writing)
+    assert without_judges(result) == plain
+
+    with open(os.path.join(call, "ortho.json")) as f:
+        ortho = json.load(f)
+    assert result["judges"] == {"landcover": True, "ortho": ortho}
+    assert ortho["tau"] == pytest.approx(0.15) and ortho["bright"] == 150 and ortho["dark"] == 100
+    assert ortho["overlap"] == 0 and ortho["bright_overlap"] == 0
+    agreement = result["agreement"]
+    assert {k: agreement[k] for k in ("forest", "forest_ortho", "forest_green", "rock", "rock_ortho", "rock_bright",
+                                      "forest_chm", "forest_chm_tree", "rock_chm", "rock_chm_low")} == {
+        "forest": 24, "forest_ortho": 24, "forest_green": 24, "rock": 120, "rock_ortho": 120, "rock_bright": 120,
+        "forest_chm": 24, "forest_chm_tree": 24, "rock_chm": 120, "rock_chm_low": 120}
+    assert agreement["osm_forest"] == 24 and agreement["osm_rock"] == 0 and agreement["pixels"] == dtm.size
+
+    verdicts = result["variants"]["avg"]["verdicts"]
+    assert verdicts["lines"] == tally(tree=real, rock=rock)
+    assert set(verdicts["rules"]) == set(study.VARIANT_RULES)
+    assert verdicts["rules"]["raw"] == {"unmarked": tally(), "kept": tally(tree=real, rock=rock)}
+    for name in ("A1", "A2", "A3", "A2+T"):  # the rims' lines lose their marks, the tree's keep theirs
+        assert verdicts["rules"][name] == {"unmarked": tally(rock=rock), "kept": tally(tree=real)}, name
+    # The rims stand at the first step from an anchor, the tree in the middle
+    assert result["near_anchor"]["lines"] == tally(rock=rock)
+    assert result["near_anchor"]["rules"]["A2"]["unmarked"] == tally(rock=rock)
+
+    for cover, expected in ((sl.ROCK, "rock"), (sl.NONE, "unknown"), (sl.FOREST, "tree")):
+        write_judges(call, dtm.shape, rim_cover=cover, rim_lum=10)  # in the walls' shadow
+        dark = study.analyse_call(call, layers_of(dtm), judges=no_writing)
+        lines = dark["variants"]["avg"]["verdicts"]["lines"]
+        assert lines == {**tally(tree=real), expected: lines[expected]} and sum(lines.values()) == real + rock
+        assert lines[expected] == (rock + real if expected == "tree" else rock), cover
+
+    write_judges(call, dtm.shape, rim_cover=sl.ROCK, ortho=False)  # OSM alone
+    alone = study.analyse_call(call, layers_of(dtm), judges=no_writing)
+    assert alone["judges"] == {"landcover": True, "ortho": None}
+    assert alone["variants"]["avg"]["verdicts"]["lines"] == tally(tree=real, rock=rock)
+    os.remove(os.path.join(call, "landcover.npy"))
+    np.save(os.path.join(call, "landcover.npy"), np.zeros(0, np.uint8))  # OSM could not be had either
+    neither = study.analyse_call(call, layers_of(dtm), judges=no_writing)
+    assert neither["variants"]["avg"]["verdicts"]["lines"] == tally(unknown=real + rock)
+    # A judge asked for but never written (a capture from before grid.json named its source)
+    os.remove(os.path.join(call, "landcover.npy"))
+    assert study.analyse_call(call, layers_of(dtm), judges=no_writing) == plain
+
+
+def test_verdicts_of_the_variants(tmp_path, monkeypatch):
+    """h marks only the lines over the tree, all judged tree; max what avg marks, as avg judges them."""
+    import study_ortho
+    monkeypatch.setattr(study_ortho, "MIN_PIXELS", 20)
+    call, dtm, dsm, lines = capture_call(tmp_path, fine=True)
+    write_judges(call, dtm.shape)
+    result = study.analyse_call(call, layers_of(dtm), judges=no_writing)
+    v = result["variants"]
+    real = v["h"]["marked"]
+    assert v["max"]["verdicts"] == v["avg"]["verdicts"]
+    assert v["h"]["verdicts"]["lines"] == tally(tree=real)
+    assert v["h"]["verdicts"]["rules"]["A2"] == {"unmarked": tally(), "kept": tally(tree=real)}
+
+
+def test_judge_layers_of_an_old_capture(tmp_path):
+    """A grid.json without its source (a capture from before the judges): nothing written, nothing judged."""
+    call = tmp_path / "call-0"
+    call.mkdir()
+    study.judge_layers(str(tmp_path / "cache"))(str(call), {"crs": CRS}, np.zeros((0, 2)), np.zeros((0, 2)))
+    assert os.listdir(call) == [] and study.load_judges(str(call)) is None
+
+
+def test_chips_and_contact_sheets(judged_canyon, tmp_path):
+    """The verdict's groups of A2 and a contact sheet of each, two pictures a row, five panels each."""
+    from PIL import Image
+    call, dtm, real, rock = judged_canyon
+    write_judges(call, dtm.shape)
+    chips = {}
+    study.analyse_call(call, layers_of(dtm), chips, "A2", judges=no_writing)
+    assert {g: len(v) for g, v in chips.items()} == {"unmarked-rock": rock, "kept-tree": real}
+    assert {e[2]["verdict"] for e in chips["unmarked-rock"]} == {"rock"}
+    assert {(e[2]["landcover"], e[2]["ortho"]) for e in chips["kept-tree"]} == {("forest", "green")}
+    assert {e[2]["ortho"] for e in chips["unmarked-rock"]} == {"bright"}
+    picked = study.pictures(str(tmp_path), chips, 3, "A2")
+    assert {g: len(v) for g, v in picked.items()} == {"unmarked-rock": 3, "kept-tree": 3}
+    chip = Image.open(tmp_path / "chips-A2" / picked["kept-tree"][0]["png"])
+    for group in picked:
+        with Image.open(tmp_path / "sheets" / f"A2-{group}.png") as sheet:
+            assert sheet.size == (2 * chip.width, 2 * chip.height)  # three pictures: two rows of two
+    assert chip.width > 1200  # five panels
+
+
+def test_ortho_patch(tmp_path):
+    """The cached tiles composed on the panel's pixels: a tile's colour where it is cached, grey where
+    not, None without any."""
+    from PIL import Image
+    import orthophoto
+    lat, lon = 50.1559508, 19.7562722
+    z = 19
+    x, y = orthophoto._to_mercator.transform(lon, lat)
+    size = orthophoto._tile_size(z)
+    tx, ty = int((x + orthophoto._EARTH) // size), int((orthophoto._EARTH - y) // size)
+    left, _, _, top = orthophoto.mercator_box(z, tx, ty)
+    grid = {"crs": "EPSG:3857", "left": left, "top": top, "res": size / 16, "height": 16, "width": 32}
+    folder = str(tmp_path / "wm256")
+    assert study.ortho_patch(grid, (0, 16), (0, 32), folder, z) is None
+    path = orthophoto.tile_path(folder, z, tx, ty)
+    os.makedirs(os.path.dirname(path))
+    Image.new("RGB", (256, 256), (20, 200, 30)).save(path, "JPEG", quality=95)
+    patch = study.ortho_patch(grid, (0, 16), (0, 32), folder, z, per_pixel=2)
+    assert patch.shape == (32, 64, 3)
+    assert np.abs(patch[:, :32].astype(int) - (20, 200, 30)).max() < 8  # the tile
+    assert (patch[:, 32:] == 128).all()  # the tile east of it: not cached
+
+
+def test_report_with_judges(tmp_path):
+    """The judges' sections: their agreement per place (a place whose two splits both overlap more
+    than WORKS_OVERLAP marked NO), the verdicts per place, their sums over the places where the judge
+    works, the lines near an anchor; and in a place's study.md the judges' line, the verdict columns
+    and the near-anchor table."""
+    rules = {name: {"marked": 5, "lost": 1, "lost_objects": 1, "lost_chm": 1, "removed_rock": 3, "residual_rock": 0,
+                    "residual_objects": 0, "kept_real": 4}
+             for name in study.rule_names() + ["A2+T"]}
+    verdicts = {"lines": tally(tree=4, rock=3, unknown=1, none=1),
+                "rules": {name: {"unmarked": tally(tree=1, rock=2, none=1), "kept": tally(tree=3, rock=1, unknown=1)}
+                          for name in study.VARIANT_RULES}}
+    near = {"lines": tally(tree=1, rock=2), "rules": {name: {"unmarked": tally(rock=2), "kept": tally(tree=1)}
+                                                      for name in study.VARIANT_RULES}}
+    agreement = {"forest": 100, "rock": 50, "forest_ortho": 80, "forest_green": 60, "rock_ortho": 40, "rock_bright": 30,
+                 "forest_chm": 100, "forest_chm_tree": 90, "rock_chm": 50, "rock_chm_low": 45, "pixels": 1000,
+                 "osm_forest": 200, "osm_rock": 100}
+    for place, overlaps in (("R1", (0.1, 0.2)), ("R2", (0.5, 0.45))):
+        os.makedirs(tmp_path / place)
+        with open(tmp_path / place / "study.json", "w") as f:
+            json.dump({"place": place, "source": "test", "res": 1.0, "lines": 10, "marked": 9, "rules": rules,
+                       "classes": {"real": 4, "real_chm": 5, "rock_only": 3, "other": 2},
+                       "checks": [{"raw_equal": True}], "chm_shift": [None],
+                       "judges": [{"landcover": True, "ortho": {"zoom": 19, "tiles": 12, "tau": 0.05, "dark": 40.0,
+                                                                 "overlap": overlaps[0], "bright": 120.0,
+                                                                 "bright_overlap": overlaps[1]}}],
+                       "agreement": agreement, "near_anchor": near,
+                       "variants": {"avg": {"marked": 9, "classes": {"real": 4}, "rules": rules,
+                                            "verdicts": verdicts}}}, f)
+    text = study.report(str(tmp_path))
+    assert text.index("## Over all places") < text.index("## Judges") < text.index("## Verdicts per place") \
+        < text.index("## Verdicts over all places where the judge works (R1)") < text.index("## Near an anchor") \
+        < text.index("## CHMv2 against")
+    assert "| R1 | yes | 20 %, 10 % | 12 | 0.050 (0.10) | 120 (0.20) | 40 | 75 % of 80 | 75 % of 40 | 90 % of 100 | " \
+           "90 % of 50 |" in text
+    assert "| R2 | NO |" in text
+    assert "| R2 | NO | avg | A2 | 4/3/1/1 | 1/2/0/1 | 3/1/1/0 |" in text
+    assert "| avg | A2 | 4/3/1/1 | 1/2/0/1 | 3/1/1/0 |" in text  # R1's alone: R2 is not summed
+    assert "places: 1/2/0/0 lines tree/rock/unknown/none" in text and "| A2 | 0 | 2 | 0 | 0 |" in text
+
+    with open(tmp_path / "R2" / "study.json") as f:
+        place = study.place_markdown(json.load(f))
+    assert "Judges: OSM land cover forest on 20 %, rock on 10 % of the grid; the orthophoto zoom 19, 12 tiles: tau " \
+           "0.050 (overlap 0.50), bright 120 (overlap 0.45), dark 40." in place and "WARNING" in place
+    assert "Surface variants: avg alone" in place
+    assert "| avg | A2 | 5 (56 %) | 1, 1 | 1 | 3 | 0, 0 | 4 | 1/2/0/1 | 3/1/1/0 |" in place
+    assert "Near an anchor: 3 lines" in place and "| A2+T | 0 | 2 | 0 | 0 |" in place
+    assert place.index("Judges:") < place.index("Surface variants") < place.index("Near an anchor")
