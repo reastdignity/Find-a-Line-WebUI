@@ -289,6 +289,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--resolution` | the data's own, at least 1 | Working resolution in metres, at least 1 (each source's default is in *Data sources*) |
 | `--min-length` / `--max-length` | 30 / 1000 | Line length constraints, in metres |
 | `--slope-threshold` | 45 | Minimum terrain slope (degrees) for an anchor |
+| `--min-elevation` / `--max-elevation` | | Keep only lines whose anchors both lie at least / at most this many metres above sea level (in the height system of the data source); anchors outside are left out before the pairs are searched |
 | `--max-anchor-diff` / `--max-anchor-diff-m` | 5 / 50 | Maximum height difference of the anchors: % of the line length / metres (whichever is smaller) |
 | `--slope-file` | | Your own slope raster in degrees (GeoTIFF or ASC) instead of computing it from NMT |
 | `--nmpt` | `mark` | `mark` or `reject` lines that pass too close to trees or buildings; `off` skips the check and the NMPT download |

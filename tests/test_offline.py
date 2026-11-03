@@ -179,6 +179,85 @@ def test_height_limits_filter_the_lines(tmp_path):
     assert sorted(map(line_values, both), key=key) == sorted(expected, key=key)
 
 
+def _search_here(tmp_path, monkeypatch, **values) -> tuple:
+    """A search in this process (offline, the lines not saved): (plan.funnel, the lines'
+    LineTable with its unrounded columns, the printed texts)."""
+    for key, v in OFFLINE_ENV.items():
+        monkeypatch.setenv(key, v)
+    import search
+    from params import SearchParams
+    texts = []
+    params = SearchParams(water="off", fill_gaps="off", **values)
+    plan = search.plan_search(params, search.Paths(str(tmp_path), str(tmp_path / "work")),
+                              lambda kind, text: texts.append(text))
+    lines, _ = search.search_lines(plan)
+    return plan.funnel, lines.results, texts
+
+
+def _sorted_columns(table) -> dict:
+    """The value columns of a LineTable (and the anchors' coordinates), the lines in the order of
+    their anchors' coordinates."""
+    from helpers import LINE_VALUES
+    c = table.columns
+    order = np.lexsort((c["a2_xy"][:, 1], c["a2_xy"][:, 0], c["a1_xy"][:, 1], c["a1_xy"][:, 0]))
+    return {name: c[name][order] for name in (*LINE_VALUES, "a1_xy", "a2_xy")}
+
+
+def test_elevation_band_filters_the_lines(tmp_path, monkeypatch):
+    """--min-elevation/--max-elevation keep exactly the lines of the search without them whose
+    anchors both lie in the band (compared in float32, the grid's type), with the same values;
+    the band leaves the anchors out before the pairs (the funnel's "anchors_kept")."""
+    import search
+    common = {"elevation_file": os.path.join(DATA, "zabi_kon_nmt.tif"), "northing": 254608, "easting": 553966,
+              "radius": 290, "high_above": 15}
+    funnel, everything, _ = _search_here(tmp_path / "all", monkeypatch, **common)
+    same = lambda a, b: a.keys() == b.keys() and all(  # noqa: E731
+        np.array_equal(a[k], b[k], equal_nan=True) for k in a)
+    for lo, hi in ((330.333, None), (None, 340.333), (325.333, 345.333)):
+        band, table, texts = _search_here(tmp_path / f"{lo}-{hi}", monkeypatch, **common,
+                                          min_elevation=lo, max_elevation=hi)
+        c = everything.columns
+        inside = np.ones(len(everything), dtype=bool)
+        for z in (c["elev_a1"], c["elev_a2"]):
+            if lo is not None:
+                inside &= z >= float(np.float32(lo))
+            if hi is not None:
+                inside &= z <= float(np.float32(hi))
+        assert 0 < inside.sum() < len(everything)
+        assert same(_sorted_columns(table), _sorted_columns(everything.take(np.flatnonzero(inside))))
+        assert band["anchors"] == funnel["anchors"] == ZABI_KON["anchors"]
+        assert band["anchors_kept"] < funnel["anchors_kept"]
+        # no prominence or drop limits here: the anchors within the band are those kept
+        assert f"Anchors within the elevation limits: {band['anchors_kept']}" in texts
+        assert any(t.startswith("Anchor elevation: ") for t in texts)
+    # A band holding every anchor changes nothing, not even the order of the lines
+    wide, table, texts = _search_here(tmp_path / "wide", monkeypatch, **common, min_elevation=100,
+                                      max_elevation=1000)
+    assert wide == funnel and same(table.columns, everything.columns)
+    assert not any(t.startswith("Anchors within") for t in texts)
+    # No anchor in the band: its own error, not "not enough steep terrain"
+    with pytest.raises(search.SearchError) as error:
+        _search_here(tmp_path / "none", monkeypatch, **common, min_elevation=1000)
+    assert error.value.code == "no_anchors_in_elevation_range"
+
+
+def test_elevation_band_in_tiles(tmp_path):
+    """An area with an elevation band gives the same lines in tiles as in one grid."""
+    square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                                  [19.7522, 50.1580], [19.7522, 50.1546]]]}
+    path = tmp_path / "square.geojson"
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+    common = ["--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"), "--area", str(path),
+              "--max-length", "150", "--min-elevation", "325.333", "--max-elevation", "345.333"]
+    one_out, one = run_search(tmp_path / "one", *common)
+    tiled_out, tiled = run_search(tmp_path / "tiled", *common, "--tile-size", "150")
+    assert "one grid" in one_out and "tiles)" in tiled_out
+    assert "Anchor elevation: 325.333–345.333 m a.s.l." in one_out and "Anchors within the elevation limits" in one_out
+    assert one and one == tiled  # every column, the order of the anchors too
+    assert len(glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))) > 1
+    assert all(325.33 <= float(r[f"anchor{k}_elev_m"]) <= 345.34 for r in one for k in (1, 2))
+
+
 def test_area_in_tiles(tmp_path):
     """An area computed in tiles gives exactly the lines of one grid."""
     square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],

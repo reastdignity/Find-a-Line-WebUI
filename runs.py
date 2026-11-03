@@ -390,6 +390,7 @@ def params_summary(meta: Dict) -> str:
     if "max_anchor_diff" in p:
         text += f", Δh ≤{p['max_anchor_diff']:g}% / {p['max_anchor_diff_m']:g} m"
     limits = [f"{text}{p[key]:g}{unit}" for key, text, unit in (
+        ("min_elevation", "anchors ≥", " m a.s.l."), ("max_elevation", "anchors ≤", " m a.s.l."),
         ("min_height", "height ≥", " m"), ("min_mean_height", "mean height ≥", " m"),
         ("min_high_share", f"≥{p.get('high_above', 20):g} m high over ≥", "%"),
         ("max_wall_angle", "wall angle ≤", "°"), ("min_prominence", "an anchor prominent ≥", " m"),

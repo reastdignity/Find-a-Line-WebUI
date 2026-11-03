@@ -346,8 +346,15 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
     lines += [f"Length constraints: {params.min_length:g}m - {params.max_length:g}m",
               f"Anchor height difference: at most {params.max_anchor_diff:g}% of the length "
               f"and {params.max_anchor_diff_m:g}m",
-              f"Slope threshold: {params.slope_threshold:g} degrees",
-              f"NMPT (trees/buildings): {nmpt or 'not used'}"]
+              f"Slope threshold: {params.slope_threshold:g} degrees"]
+    lo, hi = params.min_elevation, params.max_elevation
+    if lo is not None and hi is not None:
+        lines.append(f"Anchor elevation: {lo:g}–{hi:g} m a.s.l.")
+    elif lo is not None:
+        lines.append(f"Anchor elevation: at least {lo:g} m a.s.l.")
+    elif hi is not None:
+        lines.append(f"Anchor elevation: at most {hi:g} m a.s.l.")
+    lines.append(f"NMPT (trees/buildings): {nmpt or 'not used'}")
     if params.model == "sag":
         lines.append(f"Clearance model: sag estimator ({params.pretension:g} kN, {params.stretch:g}% @ 10 kN, "
                      f"{params.webbing_weight:g} g/m, athlete {params.athlete_mass:g} kg, "
@@ -841,13 +848,31 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
         anchors = anchors[~unreliable[anchors[:, 0], anchors[:, 1]]]
     emit("info", f"Found {len(anchors)} potential anchors to evaluate")
     _count(plan, "anchors", len(anchors))
+    # --min-elevation / --max-elevation: both anchors of a line within the band, so anchors
+    # outside it are no partners either (compared in float32, the grid's type)
+    banded = False
+    if p.min_elevation is not None or p.max_elevation is not None:
+        z = data.elevation[anchors[:, 0], anchors[:, 1]]
+        inside = np.ones(len(anchors), dtype=bool)
+        if p.min_elevation is not None:
+            inside &= z >= np.float32(p.min_elevation)
+        if p.max_elevation is not None:
+            inside &= z <= np.float32(p.max_elevation)
+        if not inside.all():
+            banded = True
+            anchors = anchors[inside]
+            emit("info", f"Anchors within the elevation limits: {len(anchors)}")
     if plan.limits and plan.limits.anchors_max and len(anchors) > plan.limits.anchors_max:
         raise SearchError(f"{len(anchors)} anchors, at most {plan.limits.anchors_max} on this site: a higher "
-                          f"--slope-threshold, a coarser --resolution or a smaller area", "too_many_anchors",
-                          n=len(anchors), max=plan.limits.anchors_max)
+                          f"--slope-threshold, narrower --min-elevation/--max-elevation, a coarser --resolution "
+                          f"or a smaller area", "too_many_anchors", n=len(anchors), max=plan.limits.anchors_max)
     if len(anchors) < 2:
         if core is not None:  # a tile of a large area: nothing here
             return sh.LineTable.empty(), mp.Groups.each_alone(0)
+        if banded:
+            raise SearchError("Not enough steep terrain within the elevation limits. Try a wider "
+                              "--min-elevation/--max-elevation or a lower --slope-threshold.",
+                              "no_anchors_in_elevation_range")
         raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
                           "no_steep_terrain")
 
@@ -1009,6 +1034,9 @@ def _search_hash(plan: Plan) -> str:
     """What identifies the same tiled search, to resume it."""
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
                                         "opentopo_key", "tile_size", "group_distance", "group_by"})
+    for name in ("min_elevation", "max_elevation"):  # unset: the hash of before (its tiles resume)
+        if p[name] is None:
+            del p[name]
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
         key["owner"] = plan.owner
@@ -1186,7 +1214,8 @@ def _run_params(plan: Plan) -> Dict:
             "min_length": p.min_length, "max_length": p.max_length,
             "max_anchor_diff": p.max_anchor_diff,
             "max_anchor_diff_m": p.max_anchor_diff_m,
-            "slope_threshold": p.slope_threshold, "slope_file": p.slope_file, "high_above": p.high_above,
+            "slope_threshold": p.slope_threshold, "slope_file": p.slope_file,
+            "min_elevation": p.min_elevation, "max_elevation": p.max_elevation, "high_above": p.high_above,
             "min_height": p.min_height, "min_mean_height": p.min_mean_height, "min_high_share": p.min_high_share,
             "max_wall_angle": p.max_wall_angle, "min_prominence": p.min_prominence,
             "min_prominence_both": p.min_prominence_both, "prominence_span": p.prominence_span,

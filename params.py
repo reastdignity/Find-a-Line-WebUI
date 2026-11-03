@@ -106,6 +106,12 @@ class SearchParams(BaseModel):
                                    "search")
     max_anchor_diff_m: float = field(50, "maximum height difference of the anchors in metres", "search")
     slope_threshold: float = field(45, "minimum terrain slope in degrees for a pixel to be an anchor", "search")
+    min_elevation: Optional[float] = field(None, "keep only lines whose anchors both lie at least this many "
+                                                 "metres above sea level (in the height system of the data "
+                                                 "source)", "search")
+    max_elevation: Optional[float] = field(None, "keep only lines whose anchors both lie at most this many "
+                                                 "metres above sea level (in the height system of the data "
+                                                 "source)", "search")
     slope_file: Optional[str] = field(None, "use your own slope raster (degrees, GeoTIFF/ASC) instead of "
                                             "computing slope from NMT", "search", cli_only=True)
     nmpt: Literal["mark", "reject", "off"] = field(
@@ -240,6 +246,9 @@ class SearchParams(BaseModel):
             box_bounds(self.within)  # a box S,W,N,E in range
         if not 0 < self.slope_threshold <= 90:
             raise UserError("--slope-threshold is more than 0 and at most 90 degrees", "slope_range")
+        if (self.min_elevation is not None and self.max_elevation is not None
+                and self.min_elevation > self.max_elevation):
+            raise UserError("--min-elevation cannot be above --max-elevation", "elevation_range")
         if self.ortho_detail is not None and self.ortho_detail < 0:
             raise UserError("--ortho-detail cannot be negative", "not_negative", field="ortho_detail")
         if self.name is not None and (len(self.name) > MAX_NAME
@@ -272,8 +281,8 @@ class SearchParams(BaseModel):
 TOPICS = {
     "where": ["lat", "lon", "northing", "easting", "radius", "area", "buffer", "within", "name"],
     "height": ["nmpt", "high_above", "min_height", "min_mean_height", "min_high_share"],
-    "anchors": ["slope_threshold", "min_prominence", "min_prominence_both", "prominence_span", "min_drop",
-                "drop_radius"],
+    "anchors": ["slope_threshold", "min_elevation", "max_elevation", "min_prominence", "min_prominence_both",
+                "prominence_span", "min_drop", "drop_radius"],
     "lines": ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "max_wall_angle"],
     "data": ["source", "resolution", "water", "coastline", "shore_buffer", "fill_gaps", "update"],
     "rigging": ["model", "pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"],
