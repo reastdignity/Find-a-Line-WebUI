@@ -41,9 +41,12 @@ FOLDER = "saving"  # the hand-over folder, in the search's work folder
 RESULT_FILES = ("lines.csv", "lines.geojson")  # runs.save_results
 MAP_FILES = ("data.js", "lines.js")  # mapping.write_map_scripts
 # Below this many lines the search's process writes the files itself: a child takes about a second
-# to start (the interpreter and the imports: numpy, rasterio through grid, pyproj), more than the
-# files of a small run take to write (R44's 37 687 lines: 1.5 s for all four on the dev PC)
-MIN_LINES = 50_000
+# to start (the interpreter and the imports: numpy, rasterio through grid, pyproj), and the texts
+# of each file's values are made again in every child, so a run gains only when its slowest file
+# takes longer than that (measured on the dev PC with 7 cores, docs/performance.md round 3, wave
+# 3: swiss-long's 1.7 M lines 20 → 13 s, R9's 85 671 lines with every profile 3.1 → 3.4 s; the
+# VPS's core is about 4 times slower per line, so its break-even lies lower)
+MIN_LINES = 100_000
 STDERR_LINES = 30  # of a failed child's stderr kept in the error
 PROFILE_ARRAYS = ("offsets", "d", "z", "s", "w", "g", "small", "flags")  # helpers.Profiles
 
