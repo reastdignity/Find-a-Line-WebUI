@@ -985,3 +985,95 @@ Branch `perf-round3`, the agents' branches `perf-r3-ortho` (A: 1a, 1h), `perf-r3
   counts the lookups as before, in the other phase.
 - **Checks.** Full offline `pytest`, `tests/regression.py` (R1, R9, R13, R14, R15, R16, R18) on cached data: every checksum and
   the open and checked counts unchanged.
+
+### Done, wave 2 (stage 2: the memory of step 1 and the size of the tiles; every result byte for byte)
+
+Branch `perf-r3-step1` (agent D: 2b, 2a bis, 2a, 2d; 2c by hand). Measured on this PC with
+`tools/perf_profile.py --cores 7` under the exclusive lock, cached data, the code of each commit
+exported; the wall times vary by ±10 s between identical runs (medians given), the peaks were stable.
+
+- **2b, `near()` in two passes.** The shore zone and the lakes' shores were n = ceil(metres / res)
+  iterations of a 3 × 3 dilation; now a running maximum along the columns, then the rows
+  (`scipy.ndimage.maximum_filter1d`, size 2n + 1, 0 beyond the grid): the same Chebyshev ball for
+  any n (`tests/test_units.py::test_near_matches_the_dilation`: random, edge, empty and full masks,
+  n 1-50). On a 7 600² grid: 0.26 s at 2 B per pixel, against 0.31-0.41 s for the dilation and
+  0.33-0.45 s at 13 B per pixel for `distance_transform_cdt` (the contract's first idea, which
+  also gives -1 everywhere for an empty mask).
+- **2a bis, the world water polygons once per search.** `coast.sea_mask` read the world file
+  (`read_file(bbox)`, `to_crs`) for every tile. Now `coast._world_water` reads it once for the
+  whole search's grid (`Plan.search_grid`, the `extent` of a tile) and each tile rasterizes the
+  polygons whose box reaches it: the same pixels (all 138 VPS tiles of the Gozo coast compared).
+  Inside `sea_mask` 0.05 s a tile instead of 0.375; the stage on the VPS's tiles 83 → 31-33 s.
+  The coastline mode of Overpass and the extracts (0.06 s a tile) was left as it was.
+- **2a, the temporaries and held arrays of step 1.** `_fill` computes the slope in place in one
+  gradient and releases both gradients after the flat mask; the median of the overall offset
+  partitions its temporary; the ring of labels is multiplied in place. `fill_gaps` releases the
+  terrain pair's grid before the surface pair's mosaic; `fill_from_neighbours` computes the border
+  gaps again only after a neighbour's `fill_gaps` ran. The mosaics read each window once
+  (`_read_band`, `_clean(copy=False)`) and put it in place (`np.copyto`). The water body mask is
+  uint8 with `mosaic.NODATA` 255 (reprojected in float32 as before: GDAL's warper chunks a window
+  by its bytes per pixel, so a uint8 warp might pick another nearest pixel at a chunk edge).
+  `prepare_data` computes the area mask once per grid (`Data.mask`, also step 2's) and releases
+  the sea mask and the water body mask after their last use. The code of before is kept in
+  `test_gap_fill_as_before` and `test_mosaics_as_before`.
+- **2d, the disk estimate.** `search.work_bytes` counts what `prepare_data` writes: float32 the
+  terrain, the surface, the obstacles, a slope file and each fallback's terrain and surface; uint8
+  the water body mask; boolean the water, filled and joined masks. About 23 B per pixel instead
+  of 4 per layer (`tests/test_offline.py::test_work_estimate_counts_the_grids_written` compares
+  it with the files of a search).
+
+| Job | wall before → after | step 1 | step 1's peak RSS | B per pixel of step 1 (the largest tile, 7 604 × 6 602 = 50.2 Mpx, the start's 135 MB taken off) |
+| --- | ---: | ---: | ---: | ---: |
+| Gozo coast, `--tile-size 5000` (5 runs before, 2 after) | 62-85 (76) → 60-68 s | 41-63 (55) → 38-46 (42) s | 2 387-2 552 (2 530) → 1 704-1 805 MB | **47.7 → 32.3** |
+| the same with `--tracemalloc` | 138 → 131 s | 41.0 → 37.5 s | 2 533 → 1 977 MB (traced heap 1 673 → 1 344 MB) | heap only: 33.3 → 26.8 |
+| Gozo coast, the VPS's tiles (`--memory 4886000000`, 138 tiles) | 409 → 351 (2a bis) → 347 s | 332 → 275 → 275 s | 767 → 761 → 680 MB | – |
+| R16 (3 runs before, 2 after) | 19.3-21.4 → 15.1-16.9 s | 13.4-15.2 → 9.7-10.4 s | 327-337 → 291-307 MB | – |
+| R9 | 4.6 → 4.6 s | 0.2 → 0.2 s | 373 → 369 MB | – |
+
+- The peak of step 1 is still at the surface pair's medians of the gap filling (1 805 MB); the
+  rings part fell from 2 266 to 1 553 MB, "(between bars)" from 1 562 to 1 077 MB. The 25-30 B
+  the plan hoped for was not reached: the rest is the memory-mapped grids read so far (16 B)
+  and `_fill`'s labels and ring (int32).
+- Byte for byte: `lines.csv`, `lines.geojson` (up to its "findaline" part), `data.js` and
+  `lines.js` (from their "lines") of R9, R16 and the Gozo coast with 5 km tiles and with the
+  VPS's tiles; every grid of step 1 per tile of R9, R16 and the Gozo coast 5 km by sha256 (nmt,
+  nmpt, obstacles, wbm, water, filled, gap_nmt, gap_nmpt, the sea mask, every `near()` and the
+  area mask); the world-file sea masks of all 138 VPS tiles read once against read per tile;
+  `tests/regression.py` R1 R2 R4 R9 R13 R14 R15 R16 R18 on cached data, every checksum and the
+  open and checked counts unchanged.
+
+#### 2c: the memory model and the tiles (by hand, after the measurements)
+
+- `PIXEL_BYTES` 100 → **50**: step 1 peaks at 32 B per pixel on Windows (above) and at 38 where
+  a neighbour's data fills a border first (a Tatras circle at 1 m, 49.188° N 20.06° E, r 3 km:
+  6 601² = 43.6 Mpx, 49 % from geoportal.gov.pl and 24 km² joined from Slovakia's DMR 5.0:
+  1 785 MB at the surface medians of that border fill, the highest measured: the neighbour's
+  windowed grids over half the grid); step 2 at 25 with dense anchors: swiss-long (21.2 Mpx,
+  522 000 anchors, 2.5 % of the pixels: the prominence and drop at 670 MB over the start's 140)
+  and the Tatras (2.65 million anchors, 6.1 %: 1 192 MB, 24.7 B per pixel); step 3 at 16 (the
+  Tatras: 815 MB). The quick lane's reserve of a compute slot's budget (`slot_memory`: a grid of
+  `MAX_MEASURED_PX`² at `PIXEL_BYTES`) falls from 3.6 to 1.8 GB, so the VPS's three slots get
+  about 5.5 GB each instead of 4.89.
+- `TILE_MEMORY_SHARE` 0.25 → **0.5**: the grids of a tile may take half the budget (the lines
+  the rest; a search over it is refused by `_check_lines`, early with F7).
+- `TILE_PX_MAX` **64 Mpx** (new): a tile has at most this many pixels with its overlap, whatever
+  the memory; a PC with much memory would otherwise take one tile of hundreds of Mpx (this PC: 280
+  Mpx, 9 GB of grids) to save little work: the overlap's share of a tile falls slowly once the
+  core is a few overlaps wide. A site's `grid_mpx_max` below it applies as before, `--tile-size`
+  too. With these, at 1 m:
+
+| Lines up to | overlap | VPS before: core, pixels per pixel of the core | VPS after (36 Mpx) | this PC after (64 Mpx; before: about 70 Mpx tiles) |
+| ---: | ---: | ---: | ---: | ---: |
+| 150 m (`typical`) | 452 m | 2 500 m, 1.85 | 5 000 m, 1.39 | 7 000 m, 1.27 |
+| 400 m (`long`) | 702 m | 2 000 m, 2.9 | 4 500 m, 1.72 | 6 500 m, 1.48 |
+| 1 000 m (the default) | 1 302 m | 500 m, **38.5** | **3 000 m, 3.5** | 5 000 m, 2.3 |
+| 2 000 m (the public maximum) | 2 302 m | 500 m, **104** | 1 000 m, 31 | 3 000 m, 6.4 |
+
+- The Gozo coast with 3 000 m cores (`--memory 3140000000`, what the VPS gets for the default
+  lines after 2c) against its 500 m cores (138 tiles, 347 s after 2a): 17 tiles of at most 5 104² px (26 Mpx) in 96.5 s (step 1 67.5 s, step 2 13.5 s), the peak 1 115 MB: 3.6 times faster than the 500 m cores (347 s: step 1 275 s, step 2 48.5 s; 680 MB) and 1.6 times slower than this PC's 5 km cores (60 s, 1 704 MB).
+- A larger public `grid_mpx_max` (64 Mpx, 3.2 GB of grids at `PIXEL_BYTES`, within a slot of
+  5.5 GB with `LINES_MAX` × 450 B = 0.7 GB) would give 4 500 m cores (2.5 pixels per pixel) for the
+  default lines and 2 500 m (8.1) for 2 000 m lines: the user's decision (README's "Limits" row).
+- `tests/test_units.py::test_tile_at_most_tile_px_max` and the cgroup test (the tiles follow the
+  container's memory up to the cap), `tests/test_public.py::test_memory_of_compute_slots` (the
+  budget per slot, the warning when the largest public search does not fit).

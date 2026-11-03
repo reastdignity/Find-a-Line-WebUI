@@ -76,11 +76,13 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 # already, or one being saved in step 5), and the profiles a circle keeps for every line, this
 # many bytes per point.
 # Measured 2026-11-03 (tools/perf_profile.py --cores 7, the RSS of a stage less the start's over
-# the tile's pixels; docs/performance.md, round 3, wave 2): step 1 peaks at 32 B per pixel on
-# Windows at the medians of the surface pair's gap filling (the Gozo coast's 50 Mpx tile, the
-# memory-mapped grids read so far included), step 2 (the slopes, the prominence's union-find and
-# the drop over the anchors' windows) at 25-30 with dense anchors (swiss-long: 2.5 % of the
-# pixels; the Tatras at 1 m); was 100 before the temporaries of step 1 were cut
+# the grid's pixels; docs/performance.md, round 3, wave 2): step 1 peaks at the medians of the
+# surface pair's gap filling, 32 B per pixel on Windows (the Gozo coast's 50 Mpx tile, the
+# memory-mapped grids read so far included) and 38 where a neighbour's data fills a border over
+# half the grid first (a Tatras circle of 43.6 Mpx at 1 m); step 2 (the slopes, the prominence's
+# union-find and the drop over the anchors' windows) at 25 with dense anchors (swiss-long, 2.5 %
+# of the pixels; the Tatras' 2.65 million, 6.1 %), step 3 at 16; was 100 before the temporaries
+# of step 1 were cut
 PIXEL_BYTES = 50
 # Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
 # columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
