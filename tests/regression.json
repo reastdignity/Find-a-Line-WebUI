@@ -1519,5 +1519,80 @@
     },
     "seconds": 22.7,
     "notes": "--source auto picks queensland (the centre is in AU-QLD, Nominatim's ISO3166-2-lvl4); first run on an empty cache: 9 tiles of 1 km asked by exportImage in MGA 56 (about 3.8 MB each), 34 MB with the water mask in 16 s; all lidar, so DEM-H fills nothing; inland, no sea; no surface model, so no line is over trees (over_trees 0 says nothing of the forest); the spots are on Frog Buttress's curved cliff on Mt French (-27.9823 to -27.9834, 152.6205-152.6220), across its bay; Mt Tibrogargan (-26.927, 152.947) was tried first: 9 lines at r 800 m, 13 at r 1500 m (a dome, few gaps to span)"
+  },
+  "R58": {
+    "place": "Tasermiut fjord, South Greenland: the wall of Ulamertorsuaq's side, ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 23",
+    "args": "--lat 60.3786 --lon -44.5502 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "gl"
+    ],
+    "expected": {
+      "anchors": 166098,
+      "open": 49613,
+      "checked": 660081,
+      "lines": 35506,
+      "spots": 422,
+      "csv_sha256": "cdd472b4d0ee4210c5a968ee61a3903dd8f0660bafd2f1fae03373c6806c7ee1",
+      "length_km": 8160.202,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.531,
+      "clearance_max": 58.2,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "ArcticDEM v4.1 mosaic 2 m (Greenland)"
+    },
+    "seconds": 33.6
+  },
+  "R59": {
+    "place": "The cliffs north of Templet, Tempelfjorden, Svalbard (NO-21): ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 33",
+    "args": "--lat 78.4564 --lon 17.2895 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "no"
+    ],
+    "expected": {
+      "anchors": 42588,
+      "open": 10029,
+      "checked": 5483,
+      "lines": 35,
+      "spots": 2,
+      "csv_sha256": "2a091ebdbfd8948e5b4471299a6b44e00fc80f5b7a44e252ae50215349d64375",
+      "length_km": 2.411,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.816,
+      "clearance_max": 1.86,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)"
+    },
+    "seconds": 14.4
+  },
+  "R60": {
+    "place": "Sam Ford fjord, Baffin Island, Nunavut (CA-NU): its granite walls, ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 19",
+    "args": "--lat 70.7175 --lon -71.4268 --radius 350 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 45110,
+      "open": 18602,
+      "checked": 107869,
+      "lines": 33203,
+      "spots": 238,
+      "csv_sha256": "04e64888c1ceb6f2b474664b37a535f45bb36a24564a7e63bded77cf5ba78e2e",
+      "length_km": 5050.52,
+      "clearance_min": 0.0,
+      "clearance_mean": 4.892,
+      "clearance_max": 64.19,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "ArcticDEM v4.1 mosaic 2 m (Nunavut)"
+    },
+    "seconds": 5.4
   }
 }
