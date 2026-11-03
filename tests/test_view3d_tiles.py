@@ -142,7 +142,7 @@ console.log(JSON.stringify({{
 
 
 def test_composed_everywhere(tmp_path):
-    """A WMS over base tiles is composed on every tile (the corridor rule of 704ccfa gave a patchwork of two
+    """A WMS over base tiles is composed on every tile (the corridor rule of 4b3da63 gave a patchwork of two
     flights), our cache first where it may hold the tile; a WMS without base tiles and base tiles alone as they
     are."""
     found = run_ts(tmp_path, "view3d/tiles", f"""

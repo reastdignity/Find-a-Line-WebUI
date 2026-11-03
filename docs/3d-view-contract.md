@@ -425,7 +425,7 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   the visual review, CLAUDE.md (code map, sync rules), `docs/3d-view.md`'s status, full checks, the report.
 - **Measured (V4b's `measure`, 2026-11-02)**: R2 took 13.3 MB of imagery a desktop open (5.8 MB a phone open):
   geoportal.gov.pl's HighResolution WMS as a transparent PNG (~83 KB a tile) over every WMTS base tile (~5 KB).
-  A WMS limited to the line's corridor (704ccfa) gave 1.6 MB but a patchwork of two flights (the base's darker,
+  A WMS limited to the line's corridor (4b3da63) gave 1.6 MB but a patchwork of two flights (the base's darker,
   blurrier imagery around the corridor's): rejected. The same WMS tile as JPEG is ~11 KB (zooms 16-18 at R2).
 - **V4c, the orthophoto as the 2D map's cache composes it** (in parallel with V4a; branch `l3d-w4-ortho`): for a
   service with a WMS and base tiles, each tile mirrors `orthophoto.tile_content`: the WMS as JPEG first; all white
@@ -448,7 +448,7 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
 - **4b (V4b)**: `tools/device_page.py` (`record`, `serve`, `measure`), its test; the recordings of R2 and R19 in the
   coordinator's scratch folder.
 - **4c (V4c)**: the orthophoto composed as `orthophoto.tile_content` composes the 2D map's cache (JPEG first,
-  `whiteBlocks` with `WHITE_MIN` 250; the corridor rule of 704ccfa reverted); data of an open (`measure`): R2 2.5-2.6
+  `whiteBlocks` with `WHITE_MIN` 250; the corridor rule of 4b3da63 reverted); data of an open (`measure`): R2 2.5-2.6
   MB desktop, 1.2 MB phone (imagery 1.7 / 0.9 MB, was 13.3 / 5.8); R19 3.1-3.2 MB and 0.75-0.85 MB. No white or edge
   tile turned up in R2's samples: the base and PNG path is checked by tests only.
 - **4a (V4a)**: under 600 px a short readout (`ui.view3d.*_short`), the imagery as a native select (`.v3-select`),
@@ -527,13 +527,16 @@ where anchors are dragged):
   round 3's wave 1): the ring's orthophoto origins 13 → 21 (`RING_ORIGINS`), `tests/test_patch.py::
   test_patch_loads_no_numba` (the quick lane never loads numba, the patch neither); the profile of a run saved
   after 212c7a0 applies its obstacle rule (`Plan.obstacles` in run.json), so the 3D view's verdict follows it.
+  Later that day the branch was rebased onto `main`, a432d15 and then edca9a1 (also line picking on the map,
+  performance round 3's wave 2, the test lock's slots, the public grid limit, new sources batch 3), which left
+  no merge commits: the merge's own changes are the commit 390c051.
 
 ## Wave P: polish after wave F2 (2026-11-03)
 The coordinator merges `main` into the branch meanwhile (new sources, obstacles on rock, performance round 3; none
 of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
 - **The phone bar in the walker's views**: since F2 the walker's slider is about 95 px wide at 412 px (Pixel 7)
   beside the zoom's −, indicator and +. Give it back at least the width it had in those views before F2 (measure
-  at 21b32e5), keeping the user's decision (the zoom's buttons and indicator beside the view switch, in the
+  at eaea8fd), keeping the user's decision (the zoom's buttons and indicator beside the view switch, in the
   walker's views only), at 390-412 px without a horizontal scroll; the orbit view's bar and the desktop's as they
   are.
 - **The look hint names the zoom**: `ui.view3d.look_hint` becomes "Drag to look around, scroll to zoom." and a new
@@ -556,8 +559,8 @@ of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
   Behind, light and dark (the screenshots' folder in the report; never with Esri's imagery chosen).
 
 ## After wave P (2026-11-03)
-- **VP** (8b7f870): under 600 px a break before the views' switch (`.v3-toolbar::before`, the rows' gap as margins,
-  so it adds no height); the walker's slider at 412 px (Pixel 7) 73.7 px before F2 and at ea50546 (the switch
+- **VP** (52edd35): under 600 px a break before the views' switch (`.v3-toolbar::before`, the rows' gap as margins,
+  so it adds no height); the walker's slider at 412 px (Pixel 7) 73.7 px before F2 and at e340305 (the switch
   shared its row, F2 had not shrunk it), 187.7 px in the walker's views after; at 390 px (iPhone 13, WebKit) 159.7
   px throughout. The look hint names the zoom (`look_hint`, `look_hint_touch` where the pointer is coarse).
   `tools/device_page.py` served `/view3d` with every page's Permissions-Policy, which turned the motion sensors
@@ -566,7 +569,7 @@ of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
   polled with plain timers, under which headless Edge draws no frame unless something loads (the canvas's redraw
   after the readout fills in places the handles it drags): it polls with a small fetch and drags once no frame
   came for a second (15 s limit, `settled` asserted).
-- **At the merge (4b31cfa, the coordinator)**: the break in the orbit too (its slider 74 px at 412 px beside the
+- **At the merge (fbed384, the coordinator)**: the break in the orbit too (its slider 74 px at 412 px beside the
   switch; now as wide as in the walker's views, the bar as high in every view); the look hint at the phone level
   as well, in place of its note (`v3-phone-note`, hidden in the walker's views as the anchors' hint is), so the
   bar keeps its height when the view changes.
