@@ -471,6 +471,32 @@ def _interp(x, xp, fp):
     return result
 
 
+@njit(cache=True)
+def _interp_forward(x, xp, fp, j):
+    """_interp of x when x is not below the x of the call before on the same xp: j is the index
+    that call returned (0 at the first). The same result to the last bit; the index (the last
+    xp[j] <= x, searchsorted's) is found by walking forward from j instead of a binary search.
+    Returns (value, index)."""
+    n = xp.size
+    if x != x:
+        return x, j
+    if x < xp[0]:
+        return fp[0], j
+    if x > xp[n - 1]:
+        return fp[n - 1], j
+    while j < n - 1 and xp[j + 1] <= x:
+        j += 1
+    if j == n - 1 or xp[j] == x:
+        return fp[j], j
+    slope = (fp[j + 1] - fp[j]) / (xp[j + 1] - xp[j])
+    result = slope * (x - xp[j]) + fp[j]
+    if result != result:
+        result = slope * (x - xp[j + 1]) + fp[j + 1]
+        if result != result and fp[j] == fp[j + 1]:
+            result = fp[j]
+    return result, j
+
+
 @njit(parallel=True, cache=True)
 def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, ratios, ratio_index,
               sag, fractions, fall_zone, high_above, out):
@@ -502,6 +528,7 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
         clearance, nmpt, seen = np.inf, np.inf, False
         height_max, height_sum, high = -np.inf, 0.0, 0
         row = np.empty(fractions.size) if use_sag else blend
+        at = 0  # _interp_forward's index: t only grows along the line
         if use_sag:
             for f in range(fractions.size):
                 row[f] = ((1 - a) * (1 - b) * sag[i0, j0, f] + a * (1 - b) * sag[i0 + 1, j0, f]
@@ -511,7 +538,8 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
             r = r1 + int(np.rint(dr * t))
             c = c1 + int(np.rint(dc * t))
             if use_sag:
-                limit = e1 + (e2 - e1) * t - _interp(t, fractions, row) - fall_zone
+                sagged, at = _interp_forward(t, fractions, row, at)
+                limit = e1 + (e2 - e1) * t - sagged - fall_zone
             else:
                 limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
             margin = limit - np.float64(z[r, c])

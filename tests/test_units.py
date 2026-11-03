@@ -376,6 +376,27 @@ def test_evaluate_lines_matches_evaluate_line(model):
         assert 0 < sum(0 < line.high_pct < 100 for line in fast)  # the threshold is crossed
 
 
+def test_interp_forward_matches_interp():
+    """_evaluate's _interp_forward (the index walked forward along a line) gives exactly _interp's
+    value for non-decreasing x: the sag table's fractions and the t = i / steps of lines of 2 to
+    2 000 steps, other increasing tables, x on the table's points, below and above it, and NaN."""
+    import linesearch as ls
+    rng = np.random.default_rng(31)
+    tables = [np.linspace(0, 1, 42), np.cumsum(rng.random(17) + 0.01), np.array([0.0, 1.0]),
+              np.array([-1.0, 0.0, 0.0, 2.0])]
+    for xp in tables:
+        fp = rng.normal(0, 3, len(xp))
+        runs = [np.arange(1, steps) / steps for steps in (2, 3, 7, 41, 42, 43, 130, 1000, 2000)]
+        runs.append(np.sort(np.concatenate([xp, rng.uniform(xp[0] - 1, xp[-1] + 1, 300)])))
+        runs.append(np.concatenate([np.sort(rng.uniform(xp[0], xp[-1], 50)), [np.nan, np.inf]]))
+        for x in runs:
+            at = 0
+            for v in x.tolist():
+                got, at = ls._interp_forward(v, xp, fp, at)
+                expected = ls._interp(v, xp, fp)
+                assert repr(got) == repr(expected), (v, xp)
+
+
 @pytest.mark.parametrize("model", ["formula", "sag"])
 def test_kernels_independent_of_threads(model):
     """The parallel kernels give the same results (==, in the same order) with any number of
