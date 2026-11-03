@@ -505,6 +505,33 @@ where anchors are dragged):
   wheel and buttons change `data-camera`'s angle in Eyes and its distance in Behind, no CSP violation, the phone
   bar still fits at 390-412 px).
 
+## Wave P: polish after wave F2 (2026-11-03)
+The coordinator merges `main` into the branch meanwhile (new sources, obstacles on rock, performance round 3; none
+of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
+- **The phone bar in the walker's views**: since F2 the walker's slider is about 95 px wide at 412 px (Pixel 7)
+  beside the zoom's −, indicator and +. Give it back at least the width it had in those views before F2 (measure
+  at 21b32e5), keeping the user's decision (the zoom's buttons and indicator beside the view switch, in the
+  walker's views only), at 390-412 px without a horizontal scroll; the orbit view's bar and the desktop's as they
+  are.
+- **The look hint names the zoom**: `ui.view3d.look_hint` becomes "Drag to look around, scroll to zoom." and a new
+  `ui.view3d.look_hint_touch` "Drag to look around, pinch to zoom." is shown where the pointer is coarse (the test
+  the page's level uses); `motion_denied` stays.
+- **The iPhone checklist** (`tools/device_page.py` `CHECKLIST`): the walker's views (Eyes and Behind, dragging to
+  look, the slider and the walk carrying the camera), Phone motion (iOS asks inside the button's tap; turning the
+  phone turns the gaze, in landscape too; a denial shows the note; with the self-signed certificate iOS may refuse
+  the sensors: to be noted, not a failure of the page), the zoom (pinch and +/− in both views, the indicator), and
+  Edges without "(once wave E is in)".
+- **The flaky `test_view3d_interaction`**: `[full]` failed once on 2026-11-03 while three sessions ran pytest and
+  passed alone; its assertion was not kept (an earlier failure, on 2026-11-02, was the walk's: `walked` 0 after
+  half a second, no frame drawn). Reproduce it under load (several copies at once), then wait for conditions with
+  deadlines instead of fixed times; never loosen what it checks.
+- It owns `view3d.css`, `views.ts` and `look.ts` (for the hint and the bar only), the two texts in
+  `locales/en.json`, `tools/device_page.py` and its test, `tests/test_view3d.py` and `tests/test_viewer.py` (where a
+  Node test needs it); `viewer/dist` rebuilt. Not `web.py`, `jobs.py`, `search.py`, `CLAUDE.md`, `README.md` or this
+  contract (the coordinator's, merged with `main` meanwhile). Checks: tsc, `node build.mjs`, `tests/test_viewer.py`,
+  `tests/test_view3d.py`, `tests/test_device_page.py`, and `tools/ui_shots.py`'s 3D pages on both phones in Eyes and
+  Behind, light and dark (the screenshots' folder in the report; never with Esri's imagery chosen).
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
