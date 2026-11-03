@@ -15,9 +15,9 @@ anchors dragged on the desktop with the server's profile on release, and a simpl
 open, measured with `tools/device_page.py measure`: R2 (Dolina Bolechowicka, 1 m, geoportal.gov.pl's orthophoto)
 2.5-2.6 MB on the desktop and 1.2 MB on a phone; R19 (Lauterbrunnen, 2 m, SWISSIMAGE) 3.1-3.2 MB and 0.75-0.85 MB.
 The ring of coarse terrain around the patch (Mapterhorn's tiles) is built but off (`FINDALINE_3D_RING`) until
-Mapterhorn's maintainer answers. Variants A and D below were not built. Open: the test on the user's iPhone
-(`tools/device_page.py serve` and its checklist), the ring's bytes with Mapterhorn's own tiles, and the 2D map's
-"Edges" (an idea in the roadmap).
+Mapterhorn's maintainer answers. Variants A and D below were not built. On 2026-11-03 the user tried it on their
+iPhone (iOS 18) with `tools/device_page.py serve` and its checklist: everything works. Open: the ring's bytes with
+Mapterhorn's own tiles, and the 2D map's "Edges" (an idea in the roadmap).
 
 The terms of the services were read on 2026-11-01; the deciding sentences are quoted in the appendix with their
 URLs. This is a reading of the terms and the law, not legal advice: where the text leaves a question open, the

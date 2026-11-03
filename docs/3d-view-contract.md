@@ -594,6 +594,12 @@ gis.natt.is serves Web Mercator only, and answers PNG when JPEG is asked). The 3
 - `mapping.ortho_entry` (data.js and the patch's meta) writes both options as `save_map` does since 07207a6;
   `RING_ORIGINS` 21 → 27 (Svalbard's npolar, Iceland, Brandenburg, Schleswig-Holstein, Queensland, Slovenia).
 
+## The iPhone test (2026-11-03)
+The user opened the device page (`tools/device_page.py serve`, at 1428dfe) on their iPhone (iOS 18) over the
+home network: 15 lines recorded from five runs (Dolina Bolechowicka, Gryffenbach, Mürren's rim, Kozie Czuby,
+Serra de Bernia), each at the levels phone and full, with the checklist of wave P (the walker's views, Phone
+motion, the zoom, the phone turned, five minutes open). The user's verdict: "Looks good. Everything works."
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
