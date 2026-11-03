@@ -538,8 +538,9 @@ def _tiny_extract(path):
 
 
 def test_extract_features_with_roles(tmp_path):
-    """_take_features takes the landcover theme from an extract: the wood relation's member ways with
-    their roles, the scree way, and the other themes as before; polygons() makes the wood's hole."""
+    """_take_features takes the themes of EXTRACT_THEMES (no landcover) from an extract; asked for
+    landcover, the wood relation's member ways with their roles and the scree way, which polygons()
+    makes areas of (the wood's hole not forest)."""
     from shapely.geometry import Point
 
     import osm
@@ -547,8 +548,11 @@ def test_extract_features_with_roles(tmp_path):
     _tiny_extract(pbf)
     osmextract._take_features(str(pbf), str(out), "2026-11-03T00:00:00+00:00")
     themes = json.loads(out.read_text())["themes"]
-    assert set(themes) == set(osm.THEME_TAGS)
+    assert set(themes) == set(osmextract.EXTRACT_THEMES) == {"coastline", "cliff"}
     assert [f["properties"]["id"] for f in themes["cliff"]] == ["way/25"]
+    osmextract._take_features(str(pbf), str(out), "2026-11-03T00:00:00+00:00", ("landcover", "cliff"))
+    themes = json.loads(out.read_text())["themes"]
+    assert set(themes) == {"landcover", "cliff"}
     by_id = {f["properties"]["id"]: f for f in themes["landcover"]}
     assert set(by_id) == {"relation/31", "way/24"}
     assert by_id["relation/31"]["properties"]["roles"] == ["outer", "outer", "inner"]
@@ -559,38 +563,50 @@ def test_extract_features_with_roles(tmp_path):
     assert abs(areas["wood"].area - (0.01 - 0.0036)) < 1e-9 and abs(areas["scree"].area - 0.0001) < 1e-9
 
 
-def test_extract_without_a_new_theme(tmp_path):
-    """An extract whose themes.json was taken before a theme existed does not give its tiles (Overpass
-    instead of a KeyError), and osm update takes its features again even when it is up to date."""
+def test_themes_not_from_the_extracts(tmp_path):
+    """landcover never comes from the extracts (Overpass instead), even from a themes.json holding it;
+    an extract whose themes.json lacks a theme of EXTRACT_THEMES (taken before it existed) does not give
+    its tiles either (Overpass instead of a KeyError)."""
     cache_dir = fake_cache(tmp_path)  # its themes.json has cliff and coastline only
+    themes = os.path.join(cache_dir, "island", "osm-extract", "island.themes.json")
+    assert osmextract._missing_themes(themes) == []
+    assert osmextract._missing_themes(themes + ".none") == ["coastline", "cliff"]
+    assert osmextract.build_tile(cache_dir, "cliff", 50.0, 10.0)
+    assert not osmextract.build_tile(cache_dir, "landcover", 50.0, 10.0)
+    with open(themes) as f:
+        data = json.load(f)
+    data["themes"] = {"cliff": data["themes"]["cliff"], "landcover": []}  # as an old file lacking coastline
+    with open(themes, "w") as f:
+        json.dump(data, f)
+    os.utime(themes, (1, 1))  # osmextract._load sees the change whatever the clock's resolution
+    assert osmextract._missing_themes(themes) == ["coastline"]
+    assert not osmextract.build_tile(cache_dir, "coastline", 50.0, 10.0)
     assert not osmextract.build_tile(cache_dir, "landcover", 50.0, 10.0)
     assert osmextract.build_tile(cache_dir, "cliff", 50.0, 10.0)
-    themes = os.path.join(cache_dir, "island", "osm-extract", "island.themes.json")
-    assert osmextract._missing_themes(themes) == ["landcover"]
-    assert osmextract._missing_themes(themes + ".none") == list(osmextract.osm.THEME_TAGS)
 
 
-def test_update_takes_new_themes_of_an_extract_up_to_date(tmp_path, monkeypatch):
-    """osm update of an extract with no new diffs takes its theme features again when its
-    themes.json lacks a theme, and leaves a complete one alone."""
+def test_update_takes_a_missing_extract_theme_again(tmp_path, monkeypatch):
+    """osm update of an extract with no new diffs takes its theme features again when its themes.json
+    lacks a theme of EXTRACT_THEMES, never because of landcover (the extracts never hold it)."""
     from datetime import datetime
     from types import SimpleNamespace
 
     import osmium.replication.utils as replication
-    cache_dir = fake_cache(tmp_path)
+    cache_dir = fake_cache(tmp_path)  # cliff and coastline: complete, no landcover
     pbf = os.path.join(cache_dir, "island", "osm-extract", "island.osm.pbf")
-    header = SimpleNamespace(url="https://example.invalid/replication", sequence=7, timestamp=None)
+    header = SimpleNamespace(url="https://example.invalid/replication", sequence=7,
+                             timestamp=datetime(2026, 11, 3))
     monkeypatch.setattr(replication, "get_replication_header", lambda path: header)
     monkeypatch.setattr(osmextract, "_replication_server", lambda url: SimpleNamespace(
         set_request_parameter=lambda *args: None, get_state_info=lambda: SimpleNamespace(sequence=7)))
     finished = []
     monkeypatch.setattr(osmextract, "_finish", lambda *args: finished.append(args[1]))
-    assert osmextract.update(cache_dir, "island", pbf) and finished == ["island"]
+    assert not osmextract.update(cache_dir, "island", pbf) and finished == []
     themes = pbf[:-len(".osm.pbf")] + ".themes.json"
     with open(themes) as f:
         data = json.load(f)
-    data["themes"]["landcover"] = []
+    del data["themes"]["coastline"]
     with open(themes, "w") as f:
         json.dump(data, f)
-    header.timestamp = datetime(2026, 11, 3)
-    assert not osmextract.update(cache_dir, "island", pbf) and finished == ["island"]
+    os.utime(themes, (1, 1))
+    assert osmextract.update(cache_dir, "island", pbf) and finished == ["island"]

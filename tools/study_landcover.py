@@ -9,11 +9,13 @@ reads each call folder's grid.json (the georeference obstacle_study.py's capture
 landcover.npy beside it: uint8 on the working grid, NONE (0), FOREST (1: natural=wood,
 landuse=forest) or ROCK (2: natural=bare_rock, natural=scree), rock painted after forest so it
 wins where both are mapped; a pixel is the class of the area holding its centre. The features are
-the OSM theme "landcover" (osm.THEME_TAGS), its 0.25° tiles from the data folder's cache, built from
-the Geofabrik extracts when they cover a tile (an extract taken before the theme existed needs
-`findaline.py osm update` first) or else asked from Overpass, which counts against its daily cap
-(osm.OVERPASS_DAY_MAX). When the tiles cannot be had (the service down, the cap reached) the file
-is an empty array and the reason is printed: the study goes on without this judge.
+the OSM theme "landcover" (osm.THEME_TAGS), its 0.25° tiles from the data folder's cache or else
+asked from Overpass, never built from the Geofabrik extracts (osmextract.EXTRACT_THEMES: a country's
+land cover is about 100 times the other themes). Each new tile is one query of the data folder's
+daily cap (osm.OVERPASS_DAY_MAX, 75): the limit of a study run, whose places take 1-4 tiles each,
+so a study of many places fills its tiles over a day or two (cached tiles are kept a year). When the
+tiles cannot be had (the service down, the cap reached) the file is an empty array and the reason is
+printed: the study goes on without this judge.
 
 OSM maps land cover unevenly: a wood without a polygon is NONE, not rock, so only FOREST and ROCK
 say something. Ways and relations are made areas by osm.polygons (outer rings less inner ones).

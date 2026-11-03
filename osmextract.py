@@ -5,12 +5,15 @@ An extract is the whole OSM data of a country or a region (.osm.pbf), kept in
 cache/<country>/osm-extract/ (deleting the country folder removes it too):
     <region>.osm.pbf        the extract
     <region>.geojson        its outline (from the Geofabrik index)
-    <region>.themes.json    the features of the themes (osm.THEME_TAGS) taken from it (one written
+    <region>.themes.json    the features of the themes of EXTRACT_THEMES taken from it (one written
                             before a theme existed lacks it: its tiles come from Overpass until the
                             next `osm update` takes the features again)
 `findaline.py osm update` (and `cache update`, after cache.TTL_DAYS["osm-extract"])
 applies the diffs of Geofabrik's replication service with pyosmium, so only the
 changes are downloaded.
+
+The theme landcover (osm.THEME_TAGS) is never taken from the extracts: its tiles always come from
+Overpass (see EXTRACT_THEMES).
 
 A theme tile (osm.py) is built from the extracts when the part of the tile outside
 their outlines is open sea: it lies in no other country of the Geofabrik index. A
@@ -36,6 +39,11 @@ import servicecounts
 from progress import progress
 
 INDEX_URL = "https://download.geofabrik.de/index-v1.json"
+# The themes taken from the extracts; the others (landcover, the obstacle study's) come from Overpass
+# only. A country's woods, forests, bare rock and scree are about 100 times the other themes: Poland's
+# themes.json grew from 8.8 MB to 936 MB, 6.2 GB of memory and 9 s to load in every process building
+# a tile (measured 2026-11-03), and taking them from the extract 199 s instead of about 10 s
+EXTRACT_THEMES = ("coastline", "cliff")
 DIFF_BATCH_KB = 100 * 1024  # diffs kept in memory at a time while updating
 
 
@@ -133,8 +141,11 @@ def _covered(cache_dir: str, tile, used: List[tuple]) -> bool:
 
 
 def build_tile(cache_dir: str, theme: str, lat: float, lon: float) -> bool:
-    """Build a theme tile from the extracts if they give all of it; whether they did. An extract
-    whose features were taken before the theme existed does not give it."""
+    """Build a theme tile from the extracts if they give all of it; whether they did. A theme outside
+    EXTRACT_THEMES never comes from them, nor one an extract's themes.json lacks (taken before the
+    theme existed)."""
+    if theme not in EXTRACT_THEMES:
+        return False
     tile = box(lon, lat, lon + osm.TILE_DEG, lat + osm.TILE_DEG)
     used = []
     for rid, pbf in extracts(cache_dir):
@@ -155,11 +166,11 @@ def build_tile(cache_dir: str, theme: str, lat: float, lon: float) -> bool:
     return True
 
 
-def _take_features(pbf: str, out: str, timestamp: str):
-    """Save the features of every theme in an extract (three passes over the file:
+def _take_features(pbf: str, out: str, timestamp: str, theme_names=EXTRACT_THEMES):
+    """Save the features of the themes theme_names in an extract (three passes over the file:
     the tagged objects, the ways of relations, the nodes of all ways)."""
     import osmium
-    wanted = {(kind, key, value): name for name, tags in osm.THEME_TAGS.items() for kind, key, value in tags}
+    wanted = {(kind, key, value): name for name in theme_names for kind, key, value in osm.THEME_TAGS[name]}
     items, way_refs = [], {}
     progress.compute.start("OSM extract: themes", 3, unit="pass")
     tag_filter = osmium.filter.TagFilter(*{(key, value) for _, key, value in wanted})
@@ -195,7 +206,7 @@ def _take_features(pbf: str, out: str, timestamp: str):
         points = [location[ref] for ref in way_refs.get(way_id, ()) if ref in location]
         return points if len(points) > 1 else None
 
-    themes: Dict[str, List[Dict]] = {name: [] for name in osm.THEME_TAGS}
+    themes: Dict[str, List[Dict]] = {name: [] for name in theme_names}
     for item in items:
         kind, number = item["id"].split("/")
         roles = None
@@ -327,10 +338,10 @@ def _replication_server(url: str):
 
 
 def _missing_themes(themes: str) -> List[str]:
-    """The themes of osm.THEME_TAGS a themes.json lacks (all of them when there is none)."""
+    """The themes of EXTRACT_THEMES a themes.json lacks (all of them when there is none)."""
     if not os.path.exists(themes):
-        return list(osm.THEME_TAGS)
-    return [name for name in osm.THEME_TAGS if name not in _load(themes)["themes"]]
+        return list(EXTRACT_THEMES)
+    return [name for name in EXTRACT_THEMES if name not in _load(themes)["themes"]]
 
 
 def update(cache_dir: str, rid: str, pbf: str) -> bool:

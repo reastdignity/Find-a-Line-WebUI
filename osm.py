@@ -10,7 +10,8 @@ OpenStreetMap data kept in the cache (cache/osm, see cache.py).
                (tools/study_landcover.py; polygons() makes areas of them)
   A tile comes from the Overpass API, or from the downloaded Geofabrik extracts
   (osmextract.py) when they cover it whole; such tiles are rebuilt when the extracts
-  are updated.
+  are updated. landcover always comes from Overpass (osmextract.EXTRACT_THEMES: a
+  country's land cover is about 100 times the other themes).
 - Nominatim answers (cache/osm/nominatim.sqlite): place names and countries, so the
   same point is not asked twice.
 
@@ -67,7 +68,8 @@ THEME_TAGS = {
     "cliff": [("way", "natural", "cliff"), ("node", "climbing", "crag"), ("way", "climbing", "crag"),
               ("relation", "climbing", "crag")],
     # Land cover, the obstacle study's judge of what a surface model's pixel is (tools/study_landcover.py):
-    # trees, and bare rock and scree (buildings come from ESA WorldCover there)
+    # trees, and bare rock and scree (buildings come from ESA WorldCover there). From Overpass only, never
+    # from the extracts (osmextract.EXTRACT_THEMES: 936 MB of Poland's, against 8.8 MB of the others)
     "landcover": [(kind, key, value) for key, value in (("natural", "wood"), ("landuse", "forest"),
                                                         ("natural", "bare_rock"), ("natural", "scree"))
                   for kind in ("way", "relation")],
