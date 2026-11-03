@@ -505,6 +505,29 @@ where anchors are dragged):
   wheel and buttons change `data-camera`'s angle in Eyes and its distance in Behind, no CSP violation, the phone
   bar still fits at 390-412 px).
 
+## After waves F and F2 (2026-11-02/03)
+- **VF** (`look.ts` pure and Node-tested, `views.ts` the switch, the drag and the motion): the view switch first
+  in the bar (icons, their names from 600 px on; under 600 px on a row of its own with the phone's motion); the
+  eyes 1.6 m over the walker's feet on the loaded webbing (its mannequin, pin and grip hidden), behind 5 m back
+  from its chest along the gaze, never under the terrain; both placed before every frame, so they draw on demand
+  as the rest; leaving them gives back the orbit's camera (`View.setOrbit`, `place`). The phone's motion is a
+  toggle where `DeviceOrientationEvent` exists and the pointer is coarse; a note when denied or silent for 2 s;
+  changes under 0.15° draw nothing. The root's `data-view`, `data-motion`, `data-camera`; `ui_shots` pages
+  `view3d-eyes`, `view3d-behind`, `view3d-motion` (Chromium given the sensors' permissions). `web.PAGE_PERMISSIONS`
+  as decided; the privacy page unchanged (the readings stay in the page).
+- **VF2**: `look.ts` `zoomRange`, `zoomStep`, `zoomBy`, `wheelFactor`, `pinchFactor`, `eyesAngle`,
+  `behindDistance`, `verticalFov`, `cameraFov`, `zoomLabel`; the eyes from 110° to ×8 of 60° (about 8.3°); the
+  wheel kept from the page in the walker's views only; a pinch turns nothing until every finger is lifted; a drag
+  in the eyes turns by the camera's vertical angle per stage height, so the world follows the finger at every
+  zoom; `data-camera` adds the horizontal angle and the distance to the point looked at.
+- **At the merges**: the Edges' walls back at 35 % (`WALL_OPACITY`, the user's choice from the orbit videos);
+  `test_view3d_interaction[full]` failed once under load (wave P); the walker's slider about 95 px on a Pixel 7
+  in the walker's views (wave P).
+- **`main` merged into the branch on 2026-11-03** (1056134: new sources batch 2, obstacles on rock, performance
+  round 3's wave 1): the ring's orthophoto origins 13 → 21 (`RING_ORIGINS`), `tests/test_patch.py::
+  test_patch_loads_no_numba` (the quick lane never loads numba, the patch neither); the profile of a run saved
+  after 212c7a0 applies its obstacle rule (`Plan.obstacles` in run.json), so the 3D view's verdict follows it.
+
 ## Wave P: polish after wave F2 (2026-11-03)
 The coordinator merges `main` into the branch meanwhile (new sources, obstacles on rock, performance round 3; none
 of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
