@@ -1647,5 +1647,30 @@
     },
     "seconds": 2.5,
     "notes": "--source auto picks iceland (the centre is in IS); 4 blocks of 2 km of ArcticDEM, nothing filled (IslandsDEM fills only ArcticDEM's voids); no sea; R61's place at 2 m: 965 lines in 53 spots, clearance at most 2.2 m, against 7 492 lines and 16.5 m at 10 m. A cross-section of the canyon (65.8232 N, 16.3836 W to 65.8216 N, 16.3888 W) agrees with IslandsDEM to 1 m on its floor and 9 m on its walls: the walls are about 60 degrees, so at 2 m the terrain next to an anchor stands close under the webbing, which 10 m smooths into a sharp edge (the 10 m clearances are too high)"
+  },
+  "R63": {
+    "place": "The Michelbach quarry at Schmelz, Saarland, Germany (benched walls of up to 45 m): LVGL's DGM1 and DOM1 (1 m, lidar 2025) read as members of the district ZIPs by HTTP Range, ETRS89 / UTM 32N",
+    "args": "--lat 49.4614 --lon 6.8605 --radius 500 --min-length 20 --max-length 300",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 62635,
+      "open": 4549,
+      "checked": 60201,
+      "lines": 4460,
+      "spots": 206,
+      "csv_sha256": "21beb6f99b499b00c73fd55be8a24be47a85f2beb8d40998b33708d33907dd14",
+      "length_km": 547.727,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.745,
+      "clearance_max": 5.85,
+      "over_trees": 830,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 16.2,
+    "notes": "--source auto picks saarland (the centre is in DE-SL); 4 members of 1 km of the DGM1 and of the DOM1 (all in the Saarlouis district's archives) read by one Range each after the six archives' central directories of each model; nothing below 100 m (the 0 m rule takes nothing out here), nothing filled, no water; the spots are on the quarry's benches (the best, 70 m with a clearance of 5.8 m, from 49.4631, 6.8644 to 49.4627, 6.8651); 830 lines over trees (the DOM1 is lidar). The first choice, the Felsenwege at Saarbrücken (49.2055, 7.0168, radius 400 m, 20-300 m), gave no line: 15 617 anchors, 470 with an open direction, 6 pairs checked, none valid (its walls of 18-25 m face the Saar, not each other)"
   }
 }
