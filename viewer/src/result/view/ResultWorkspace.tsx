@@ -219,7 +219,7 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, runs, onRun, 
   const files = {base, folder};
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
   const chooser = choice && view && <LineChooser key={`${choice.at.x},${choice.at.y}`} model={model} view={view}
-                                                 choices={choice.choices} at={choice.at} area={freeArea()}
+                                                 choices={choice.choices} at={choice.at} area={freeArea()} dock={!wide}
                                                  onClose={() => setChoice(null)} />;
 
   if (!wide) {

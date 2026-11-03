@@ -474,6 +474,13 @@ run({
     const mouse = !!model().selected;
     click(f.p, true);
     result.finger = [mouse, selectedIs(f.g)];
+    // WebKit's click after a tap: a "mouse" PointerEvent, the press before it a "touch" one
+    model().select(null);
+    const x = box().left + f.p.x, y = box().top + f.p.y, init = {bubbles: true, cancelable: true, clientX: x, clientY: y, view: window};
+    document.elementFromPoint(x, y).dispatchEvent(new PointerEvent("pointerdown", {...init, pointerType: "touch"}));
+    document.elementFromPoint(x, y).dispatchEvent(new PointerEvent("click", {...init, pointerType: "mouse"}));
+    result.webkitTap = selectedIs(f.g);
+    document.elementFromPoint(x, y).dispatchEvent(new PointerEvent("pointerdown", {...init, pointerType: "mouse"}));
     // measuring: a click on a line is a point, not a selection
     model().select(null);
     let measured = null;
@@ -525,9 +532,10 @@ def test_shell_d_pick(data, tmp_path):
     """Lines taken on the map with the events a browser sends to whatever lies at a point (the canvas): a click 4 px
     beside a line takes it, also while a spot with similar lines is selected (main's second canvas of those lines
     lay over the map and took every click), a thin line of the selected spot is taken; the mouse shows the line and
-    the pointer; a click beside every line ends the selection; 14 px away a finger's tap takes the line, the mouse's
-    click does not; while measuring a click is a point; where spots lie about as near, a list of them: its second row
-    taken, Esc closes it and the selection stays; no CSP violations."""
+    the pointer; a click beside every line ends the selection; 14 px away a finger's tap takes the line (also as
+    WebKit sends it: a "mouse" click after a "touch" press), the mouse's click does not; while measuring a click is a
+    point; where spots lie about as near, a list of them: its second row taken, Esc closes it and the selection
+    stays; no CSP violations."""
     page = stub_page(data, "dpick", PICK_SCRIPT % {"small": SMALL})
     with _server(data) as port:
         r = _edge(port, page + f"?ui=d#run={SMALL}", tmp_path / "edge-pick")
@@ -535,7 +543,7 @@ def test_shell_d_pick(data, tmp_path):
     assert r["found"] == [True, True] and r["near"] and r["switched"], r
     assert r["variant"] == [True, True], r
     assert r["hover"] == [True, True] and r["unhover"] and r["beside"] == [True, True], r
-    assert r["fingerFound"] and r["finger"] == [False, True] and r["measuring"] == [True, True], r
+    assert r["fingerFound"] and r["finger"] == [False, True] and r["webkitTap"] and r["measuring"] == [True, True], r
     assert r["crowd"] and r["list"][0] == r["list"][1] >= 2 and r["list"][2], r
     assert r["chosen"] == [True, True] and r["escaped"] == [True, True, True], r
     assert r["csp"] == []

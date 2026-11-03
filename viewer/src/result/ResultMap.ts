@@ -45,12 +45,6 @@ function segmentDistance(px: number, py: number, ax: number, ay: number, bx: num
   return Math.hypot(px - ax - t * dx, py - ay - t * dy);
 }
 
-/** Was the click a finger's: its pointer type, else (a browser whose click is no PointerEvent) a coarse pointer. */
-function byFinger(e: L.LeafletMouseEvent): boolean {
-  const type = (e.originalEvent as PointerEvent).pointerType;
-  if (type) return type === "touch";
-  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
-}
 
 /** A canvas renderer whose redraw does nothing once its canvas is gone: Leaflet binds the redraw when it
  *  asks for the frame, so a frame asked for before the map or the renderer was removed may still run
@@ -85,6 +79,7 @@ export class ResultMap {
   private targets: {line: Line; group: Group<Line>; variant: boolean}[] = [];
   private projected: Float64Array | null = null;
   private projectedZoom = NaN;
+  private pressedBy = "";  // the pointer type of the last press on the map
   private measuring: ((a: L.LatLng, b: L.LatLng) => void) | null = null;
   private points: L.LatLng[] = [];
   private readonly measureListeners = new Set<(measuring: boolean) => void>();
@@ -102,6 +97,7 @@ export class ResultMap {
     this.layers.forEach((layer) => layer.addTo(map));
     map.on("click", this.onMapClick);
     if (!OLD_PICK) map.on("mousemove", this.onMouseMove).on("mouseout", this.onMouseOut);
+    map.getContainer().addEventListener("pointerdown", this.onPress, true);
     document.addEventListener("keydown", this.onKey);
     this.unsubscribe = model.subscribe(() => this.render());
     this.render();
@@ -117,6 +113,7 @@ export class ResultMap {
     [this.renderer, this.variantRenderer].forEach((r) => { if (this.map.hasLayer(r)) this.map.removeLayer(r); });
     this.map.off("click", this.onMapClick);
     this.map.off("mousemove", this.onMouseMove).off("mouseout", this.onMouseOut);
+    this.map.getContainer().removeEventListener("pointerdown", this.onPress, true);
     document.removeEventListener("keydown", this.onKey);
   }
 
@@ -280,10 +277,20 @@ export class ResultMap {
     this.options.onHover?.(line);
   }
 
+  /** Was the click a finger's: the type of the press before it (WebKit's click after a tap is a "mouse"
+   *  PointerEvent), else the click's own, else (no PointerEvent) a coarse pointer. */
+  private byFinger(e: L.LeafletMouseEvent): boolean {
+    const type = this.pressedBy || (e.originalEvent as PointerEvent).pointerType;
+    if (type) return type === "touch";
+    return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  }
+
+  private onPress = (e: PointerEvent) => { this.pressedBy = e.pointerType; };
+
   // The line a click would take, under the mouse (Leaflet's canvas passes its mousemove on about 30 times
   // a second, not while the map is dragged); none while measuring or for the mouse events of a finger
   private onMouseMove = (e: L.LeafletMouseEvent) => {
-    if (this.measuring || (e.originalEvent as any).sourceCapabilities?.firesTouchEvents) {
+    if (this.measuring || this.pressedBy === "touch" || (e.originalEvent as any).sourceCapabilities?.firesTouchEvents) {
       this.setMapHovered(null);
       return;
     }
@@ -388,7 +395,7 @@ export class ResultMap {
   private onMapClick = (e: L.LeafletMouseEvent) => {
     if (this.measuring) { this.addPoint(e.latlng); return; }
     if (OLD_PICK) { if (this.model.selected) this.model.select(null); return; }  // PROTOTYPE: lines' clicks did not bubble
-    const found = this.pick(e.latlng, byFinger(e));
+    const found = this.pick(e.latlng, this.byFinger(e));
     if (found.length > 1 && this.options.onChoose) this.options.onChoose(found, e.containerPoint);
     else if (found.length) this.choose(found[0]);
     else if (this.model.selected) this.model.select(null);

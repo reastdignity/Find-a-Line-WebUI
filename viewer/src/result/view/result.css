@@ -94,6 +94,8 @@
 .ui .r-choose { position: fixed; z-index: 1100; width: min(320px, calc(100vw - 24px)); padding: 8px 6px 6px;
   display: flex; flex-direction: column; gap: 2px; }
 .ui .r-choose-new { visibility: hidden; }  /* until it is measured and placed */
+.ui .r-choose.r-choose-dock { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); width: auto;
+  max-height: 55vh; overflow-y: auto; }
 .ui .r-choose-title { margin: 0 8px 2px; color: var(--ink-2); }
 .ui .r-choose .r-row { grid-template-columns: 18px 1fr 1fr 1fr auto; }
 .ui .r-choose .r-row.r-head { position: static; min-height: 22px; }

@@ -1,5 +1,6 @@
 // The choice of spots a click on the map reached about as near (ResultMap's onChoose): a small panel
-// next to the click's point, kept within the free part of the map, a row per spot (its line's colour,
+// next to the click's point, kept within the free part of the map (on a phone at the bottom of the
+// screen, over the sheet, where it hides neither the point nor the lines), a row per spot (its line's colour,
 // length, clearance, height and its place in the list); the pointer over a row or its focus highlights
 // its line, a click or Enter selects it. Esc, a press outside, the map moving and any change of the model
 // close it. Styles in result.css (r-choose).
@@ -20,6 +21,8 @@ export interface LineChooserProps {
   at: {x: number; y: number};
   /** The part of the viewport the map shows free of panels. */
   area: Area;
+  /** At the bottom of the screen (a phone), not beside the point. */
+  dock?: boolean;
   onClose(): void;
 }
 
@@ -35,19 +38,20 @@ function place(at: {x: number; y: number}, w: number, h: number, area: Area): {l
   return {left: Math.max(left0, fit(x, left0, right - w)), top: Math.max(top0, fit(y, top0, bottom - h))};
 }
 
-export function LineChooser({model, view, choices, at, area, onClose}: LineChooserProps) {
+export function LineChooser({model, view, choices, at, area, dock = false, onClose}: LineChooserProps) {
   const panel = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{left: number; top: number} | null>(null);
+  const placed = dock || !!pos;
 
   useLayoutEffect(() => {
     const box = panel.current;
-    if (box) setPos(place(at, box.offsetWidth, box.offsetHeight, area));
+    if (box && !dock) setPos(place(at, box.offsetWidth, box.offsetHeight, area));
   }, [at.x, at.y]);
 
   // The first row takes the focus once the panel is placed (hidden before, it could not)
   useEffect(() => {
-    if (pos) panel.current?.querySelector<HTMLElement>(".r-row[tabindex]")?.focus({preventScroll: true});
-  }, [!!pos]);
+    if (placed) panel.current?.querySelector<HTMLElement>(".r-row[tabindex]")?.focus({preventScroll: true});
+  }, [placed]);
 
   useEffect(() => {
     const outside = (e: Event) => { if (panel.current && !panel.current.contains(e.target as Node)) onClose(); };
@@ -75,9 +79,9 @@ export function LineChooser({model, view, choices, at, area, onClose}: LineChoos
   };
   const selected = model.selected?.group;
 
-  return <div ref={panel} class={cx("u-panel r-choose", !pos && "r-choose-new")} role="dialog"
-              aria-label="Spots at this point" style={pos ? {left: `${pos.left}px`, top: `${pos.top}px`}
-                                                          : {left: `${at.x}px`, top: `${at.y}px`}}>
+  const style = dock ? undefined : pos ? {left: `${pos.left}px`, top: `${pos.top}px`} : {left: `${at.x}px`, top: `${at.y}px`};
+  return <div ref={panel} class={cx("u-panel r-choose", dock && "r-choose-dock", !placed && "r-choose-new")} role="dialog"
+              aria-label="Spots at this point" style={style}>
     <p class="u-small r-choose-title">{choices.length} spots here: which one?</p>
     <div class="r-row r-head" role="presentation">
       <span /><span class="r-col">Length</span><span class="r-col">Clear.</span><span class="r-col">Height</span><span />
