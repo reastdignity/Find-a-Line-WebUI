@@ -49,10 +49,13 @@ const runId = decodeURIComponent(location.pathname.split("/")[2]);
     out.selectedLayers = count() - before;
     view.highlight(group.members[1]);
     view.hoverAt([group.rep.lat1, group.rep.lon1]);
-    // A click on a variant (the middle of the line, in screen pixels) through Leaflet's canvas
-    const shown = model.selected!.line, variant = group.members.find((m) => m !== shown)!;
-    const p = map.latLngToContainerPoint([(variant.lat1 + variant.lat2) / 2, (variant.lon1 + variant.lon2) / 2]);
-    const canvas: HTMLCanvasElement = (view as any).variantRenderer._container;  // the variants' own canvas
+    // A click on a variant (the middle of one where it is the nearest line, in screen pixels) through the canvas
+    const shown = model.selected!.line;
+    const middle = (m: Line) => map.latLngToContainerPoint([(m.lat1 + m.lat2) / 2, (m.lon1 + m.lon2) / 2]);
+    const variant = group.members.find((m) => m !== shown &&
+      view.near(map.containerPointToLatLng(middle(m)), 8)[0]?.line === m)!;
+    const p = middle(variant);
+    const canvas: HTMLCanvasElement = (view as any).renderer._container;  // the map's one canvas of the run
     const fire = (type: string, x: number, y: number) => {
       const r = div.getBoundingClientRect();
       canvas.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, clientX: r.left + x,

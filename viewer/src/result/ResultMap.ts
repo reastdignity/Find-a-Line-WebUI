@@ -258,9 +258,10 @@ export class ResultMap {
   }
 
   /** Was the click a finger's: the type of the press before it (WebKit's click after a tap is a "mouse"
-   *  PointerEvent), else the click's own, else (no PointerEvent) a coarse pointer. */
+   *  PointerEvent), else the click's own, else (no PointerEvent, or a click fired by code: map.fire) a
+   *  coarse pointer. */
   private byFinger(e: L.LeafletMouseEvent): boolean {
-    const type = this.pressedBy || (e.originalEvent as PointerEvent).pointerType;
+    const type = this.pressedBy || (e.originalEvent as PointerEvent | undefined)?.pointerType;
     if (type) return type === "touch";
     return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   }
@@ -270,7 +271,7 @@ export class ResultMap {
   // The line a click would take, under the mouse (Leaflet's canvas passes its mousemove on about 30 times
   // a second, not while the map is dragged); none while measuring or for the mouse events of a finger
   private onMouseMove = (e: L.LeafletMouseEvent) => {
-    if (this.measuring || this.pressedBy === "touch" || (e.originalEvent as any).sourceCapabilities?.firesTouchEvents) {
+    if (this.measuring || this.pressedBy === "touch" || (e.originalEvent as any)?.sourceCapabilities?.firesTouchEvents) {
       this.setMapHovered(null);
       return;
     }
@@ -375,7 +376,9 @@ export class ResultMap {
   private onMapClick = (e: L.LeafletMouseEvent) => {
     if (this.measuring) { this.addPoint(e.latlng); return; }
     const found = this.pick(e.latlng, this.byFinger(e));
-    if (found.length > 1 && this.options.onChoose) this.options.onChoose(found, e.containerPoint);
+    if (found.length > 1 && this.options.onChoose) {
+      this.options.onChoose(found, e.containerPoint ?? this.map.latLngToContainerPoint(e.latlng));
+    }
     else if (found.length) this.choose(found[0]);
     else if (this.model.selected) this.model.select(null);
   };
