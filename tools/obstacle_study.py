@@ -83,6 +83,12 @@ GROUPS = {"removed_rock": "A1 removes the mark, all pixels rock",
 DISTANCES = ((1, 1), (2, 2), (3, 3), (4, 5), (6, 10), (11, 20), (21, 10 ** 9))
 SLOPES = ((0, 30), (30, 50), (50, 70), (70, 80), (80, 91))
 REPORT_RULES = ("raw", "A1", "A2", "A3", "A1+W75/2", "A1+W75/3", "A1+V2", "A2+V2", "A3+V2", "C65", "D2", "F")
+FINE_SHARE = 0.75           # the surface's pixels count as finer than the grid below this share of its res
+# The rules counted on every surface variant (avg: the working grid's surface, max: the highest fine
+# pixel, h: the terrain plus the highest fine height above it); A2+T: A2, and every pixel where CHMv2
+# sees a tree (TREE within a pixel) on WorldCover's tree cover stays an obstacle
+VARIANT_RULES = ("raw", "A1", "A2", "A3", "A2+V1", "A2+V2", "F", "A2+T")
+VARIANTS = ("avg", "max", "h")
 
 
 def rule_names() -> List[str]:
@@ -97,12 +103,14 @@ def rule_names() -> List[str]:
 
 class Capture:
     """perf_line_funnel's capture of every find_valid_lines call, plus the georeference of the
-    call's grid (from search._lines) and the lines it returned (lines.npz)."""
+    call's grid (from search._lines), what its layers came from (layer_meta) and the lines it
+    returned (lines.npz)."""
 
     def __init__(self, out: str):
         import perf_line_funnel as plf
         self.inner = plf.Capture(out, None)
         self.grid = None  # (grid, core) of the running search._lines
+        self.meta: Dict = {}  # layer_meta of its plan
 
     def __call__(self, *args, **kwargs):
         k = self.inner.n
@@ -111,11 +119,27 @@ class Capture:
         grid, core = self.grid
         with open(os.path.join(folder, "grid.json"), "w") as f:
             json.dump({"crs": grid.crs, "left": grid.left, "top": grid.top, "res": grid.res, "height": grid.height,
-                       "width": grid.width, "core": list(core) if core is not None else None}, f, indent=1)
+                       "width": grid.width, "core": list(core) if core is not None else None, **self.meta},
+                      f, indent=1)
         c = result.columns
         np.savez(os.path.join(folder, "lines.npz"), a1=c["a1"], a2=c["a2"], clearance=c["clearance"],
                  clearance_nmpt=c["clearance_nmpt"])
         return result
+
+
+def layer_meta(plan) -> Dict:
+    """What grid.json records of a search's layers: the source, its pixel edges, the cached files
+    of the terrain and the surface model under the grid (absolute paths: analyse reads them
+    through the place's cache link), the orthophoto service and the search area in WGS84."""
+    import area as ar
+
+    source, cache_dir = plan.source, plan.paths.cache
+    files = lambda layer: [os.path.abspath(p) for p in layer.files(plan.grid, cache_dir)]  # noqa: E731
+    outline = json.loads(ar.outline_geojson(plan.area))
+    return {"source": source.id, "grid_origin": list(source.grid_origin), "nmt_files": files(source.nmt),
+            "nmpt_files": files(source.nmpt) if plan.nmpt and source.nmpt is not None else [],
+            "ortho": source.ortho.name if source.ortho is not None else None,
+            "area_wgs84": outline.get("geometry", outline) if outline.get("type") == "Feature" else outline}
 
 
 def capture(out: str, search_args: List[str]) -> int:
@@ -131,7 +155,7 @@ def capture(out: str, search_args: List[str]) -> int:
     original = search._lines
 
     def lines(plan, data, core=None, before=0):
-        wrapper.grid = plan.grid, core
+        wrapper.grid, wrapper.meta = (plan.grid, core), layer_meta(plan)
         return original(plan, data, core, before)
 
     search._lines = lines  # find_lines and search_lines look it up at each call
@@ -296,6 +320,124 @@ def chm_shift(z: np.ndarray, s: np.ndarray, chm: np.ndarray, res: float, slope: 
 
 
 # ---------------------------------------------------------------------------------------------
+# the surface model's own pixels (finer than the working grid)
+
+def _fine_lattice(files: List[str], res: float, left: float, top: float) -> Optional[Dict]:
+    """The finest pixels among files (headers only, projected files: a geographic one never lies on
+    the grid's pixels): {"res", "k", "offset"} or None when none is finer than FINE_SHARE * res.
+    offset (x, y) in metres: where the files' pixel edges lie after the grid's left and top edges,
+    within one fine pixel (0 when they meet)."""
+    import rasterio as rio
+
+    finest = None
+    for path in files:
+        with rio.open(path) as src:
+            if src.crs is not None and src.crs.is_geographic:
+                continue
+            r = abs(src.res[0])
+            if finest is None or r < finest[0]:
+                finest = (r, src.transform.c, src.transform.f)
+    if finest is None or finest[0] >= FINE_SHARE * res:
+        return None
+    r, file_left, file_top = finest
+    k = round(res / r)
+    assert abs(res / r - k) < 1e-6, f"the surface's pixels of {r} m do not divide the grid's {res} m"
+
+    def offset(d: float) -> float:
+        d = d % r
+        return 0.0 if min(d, r - d) < r * 1e-6 else d
+    return {"res": r, "k": k, "offset": [offset(file_left - left), offset(top - file_top)]}
+
+
+def fine_grid(call: str) -> Optional[Dict]:
+    """The surface model's own pixels where they are finer than the call's grid (a working grid of
+    1 m from sheets of 0.5 m holds their average): fine-nmpt.npy and fine-nmt.npy (float32 memmaps
+    on the lattice of the finest surface file, the terrain interpolated bilinearly onto it as
+    sources.mosaic does for coarser files), then per pixel of the grid s-max.npy, the highest
+    surface among the fine pixels it overlaps, and h-max.npy, the highest surface minus terrain
+    there (maxpool; NaN where none of them has data). All in the call's folder with fine.json
+    (FINE_JSON's keys); returns fine.json's content when a fine grid exists, else None (no surface
+    files, none finer, or a capture from before grid.json named the files).
+
+    Where the files' pixel edges meet the grid's (offset 0), each pixel of the grid holds k x k fine
+    pixels; where they lie half a fine pixel off (geoportal's sheets of 0.5 m have their edges at
+    .25 and .75 m, the grid of 1 m at .5), it overlaps k + 1 of them each way, the outer ones by
+    half: the fine grid then has one more row and column, and the window of maxpool is k + 1."""
+    from grid import Grid
+    from sources import mosaic
+
+    path = os.path.join(call, "fine.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            fine = json.load(f)
+        if fine["res"] is None or all(os.path.exists(os.path.join(call, n)) for n in ("s-max.npy", "h-max.npy")):
+            return fine if fine["res"] is not None else None
+    with open(os.path.join(call, "grid.json")) as f:
+        grid = json.load(f)
+    nmt, nmpt = grid.get("nmt_files", []), grid.get("nmpt_files", [])
+    res, height, width = grid["res"], grid["height"], grid["width"]
+    lattice = _fine_lattice(nmpt, res, grid["left"], grid["top"]) if nmpt and nmt else None
+    fine = {"res": None, "k": None, "files": {"nmt": len(nmt), "nmpt": len(nmpt)}}
+    if lattice is not None:
+        r, k, (ox, oy) = lattice["res"], lattice["k"], lattice["offset"]
+        left, top = grid["left"] + ox - (r if ox else 0.0), grid["top"] - oy + (r if oy else 0.0)
+        rows, cols = height * k + (1 if oy else 0), width * k + (1 if ox else 0)
+        fine_on = Grid(left=left, top=top, res=r, height=rows, width=cols, crs=grid["crs"])
+        surface = mosaic.build_mosaic(nmpt, fine_on, os.path.join(call, "fine-nmpt.npy"), "fine surface")
+        terrain = mosaic.build_mosaic(nmt, fine_on, os.path.join(call, "fine-nmt.npy"), "fine terrain")
+        window = (k + (1 if oy else 0), k + (1 if ox else 0))
+        for name, minus in (("s-max.npy", None), ("h-max.npy", terrain)):
+            out = np.lib.format.open_memmap(os.path.join(call, name), mode="w+", dtype=np.float32,
+                                            shape=(height, width))
+            maxpool(surface, k, minus, window, out)
+            out.flush()
+            del out
+        del surface, terrain
+        fine.update(res=r, k=k, offset=[ox, oy], window=list(window), left=left, top=top)
+    with open(path, "w") as f:
+        json.dump(fine, f, indent=1)
+    return fine if fine["res"] is not None else None
+
+
+def maxpool(a: np.ndarray, k: int, minus: Optional[np.ndarray] = None, window: Optional[Tuple[int, int]] = None,
+            out: Optional[np.ndarray] = None, block_rows: int = 256) -> np.ndarray:
+    """The highest value (of a - minus when given) within each window of window = (rows, cols)
+    fine pixels (k x k when not given) at a stride of k: float32 of a's shape // k (less the
+    window's extra pixel), NaN only where the whole window is NaN (np.fmax). Blocks of block_rows
+    rows of the result, so a memory-mapped fine grid is never read whole."""
+    wr, wc = window or (k, k)
+    height, width = (a.shape[0] - (wr - k)) // k, (a.shape[1] - (wc - k)) // k
+    if out is None:
+        out = np.empty((height, width), dtype=np.float32)
+    for r0 in range(0, height, block_rows):
+        r1 = min(height, r0 + block_rows)
+        part = np.asarray(a[r0 * k:r1 * k + wr - k, :width * k + wc - k], dtype=np.float32)
+        if minus is not None:
+            part = part - np.asarray(minus[r0 * k:r1 * k + wr - k, :width * k + wc - k], dtype=np.float32)
+        top = np.full((r1 - r0, width), np.nan, dtype=np.float32)
+        for dr in range(wr):
+            for dc in range(wc):
+                np.fmax(top, part[dr:dr + (r1 - r0) * k:k, dc:dc + width * k:k], out=top)
+        out[r0:r1] = top
+    return out
+
+
+def fine_surfaces(call: str, z: np.ndarray, s: np.ndarray) -> Tuple[Dict, Optional[Dict]]:
+    """The surface variants of a call: {"avg": s (the working grid's, the average of the fine
+    pixels), "max": s-max, "h": z + h-max} (NaN of the fine grids: s), and fine.json's content;
+    avg alone without a fine grid."""
+    fine = fine_grid(call)
+    surfaces = {"avg": s}
+    if fine is not None:
+        s_max = np.load(os.path.join(call, "s-max.npy"))
+        h_max = np.load(os.path.join(call, "h-max.npy"))
+        surfaces["max"] = np.where(np.isnan(s_max), s, s_max)
+        surfaces["h"] = np.where(np.isnan(h_max), s, z + h_max)
+    with open(os.path.join(call, "fine.json")) as f:
+        return surfaces, json.load(f)
+
+
+# ---------------------------------------------------------------------------------------------
 # analyse
 
 class SavedTable(SimpleNamespace):
@@ -321,27 +463,36 @@ def line_pixels(a1, a2) -> Tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     return t, r1 + np.rint(dr * t).astype(np.intp), c1 + np.rint(dc * t).astype(np.intp), steps
 
 
-def obstacle_pixels(z: np.ndarray, s: np.ndarray, res: float, table, a1: np.ndarray, a2: np.ndarray) -> Dict:
+def obstacle_pixels(z: np.ndarray, s, res: float, table, a1: np.ndarray, a2: np.ndarray):
     """The pixels where the surface stands at or above each line's limit (the computation of
     helpers.evaluate_line): line (index into a1), step from anchor 1, the line's steps, row,
-    col and the margin (limit minus surface, <= 0), in the order of the lines."""
-    parts = {k: [] for k in ("line", "step", "steps", "row", "col", "margin")}
+    col and the margin (limit minus surface, <= 0), in the order of the lines. s: a surface, or
+    {name: surface} for those of several surfaces at once ({name: pixels}; each line's limit
+    computed once)."""
+    surfaces = s if isinstance(s, dict) else {None: s}
+    parts = {name: {k: [] for k in ("line", "step", "steps", "row", "col", "margin")} for name in surfaces}
     for k in range(len(a1)):
         t, rows, cols, steps = line_pixels(a1[k], a2[k])
         length = float(np.hypot(*(a2[k] - a1[k]))) * res
         limit = sh.max_safe_elevation(t, length, float(z[a1[k][0], a1[k][1]]), float(z[a2[k][0], a2[k][1]]), table)
-        margin = limit - s[rows, cols]
-        with np.errstate(invalid="ignore"):
-            bad = np.flatnonzero(margin <= 0)  # NaN: not measured
-        parts["line"].append(np.full(len(bad), k))
-        parts["step"].append(bad + 1)
-        parts["steps"].append(np.full(len(bad), steps))
-        parts["row"].append(rows[bad])
-        parts["col"].append(cols[bad])
-        parts["margin"].append(margin[bad])
+        for name, surface in surfaces.items():
+            margin = limit - surface[rows, cols]
+            with np.errstate(invalid="ignore"):
+                bad = np.flatnonzero(margin <= 0)  # NaN: not measured
+            if not len(bad):
+                continue
+            part = parts[name]
+            part["line"].append(np.full(len(bad), k))
+            part["step"].append(bad + 1)
+            part["steps"].append(np.full(len(bad), steps))
+            part["row"].append(rows[bad])
+            part["col"].append(cols[bad])
+            part["margin"].append(margin[bad])
     empty = {"line": np.int64, "step": np.int64, "steps": np.int64, "row": np.intp, "col": np.intp,
              "margin": np.float64}
-    return {k: np.concatenate(v) if v else np.zeros(0, dtype=empty[k]) for k, v in parts.items()}
+    found = {name: {k: np.concatenate(v) if v else np.zeros(0, dtype=empty[k]) for k, v in part.items()}
+             for name, part in parts.items()}
+    return found if isinstance(s, dict) else found[None]
 
 
 def in_core(a1: np.ndarray, a2: np.ndarray, grid: Dict) -> np.ndarray:
@@ -358,37 +509,56 @@ def in_core(a1: np.ndarray, a2: np.ndarray, grid: Dict) -> np.ndarray:
 
 
 def rule_flags(z: np.ndarray, s: np.ndarray, res: float, pix: Dict, chm3: Optional[np.ndarray],
-               slope_grid: np.ndarray) -> Dict:
-    """Per rule, which of the pixels (obstacle_pixels) it keeps as obstacles."""
+               slope_grid: np.ndarray, wc: Optional[np.ndarray] = None, names=None) -> Dict:
+    """Per rule, which of the pixels (obstacle_pixels) it keeps as obstacles: the rules of
+    rule_names() and A2+T, or those of names only (F, F-trees and A2+T need CHMv2; A2+T without
+    WorldCover is A2)."""
+    wanted = (lambda name: True) if names is None else (lambda name: name in names)  # noqa: E731
     rows, cols = pix["row"], pix["col"]
     sv, zv = s[rows, cols], z[rows, cols]
     slope = slope_grid[rows, cols]
     flags = {"raw": np.ones(len(rows), dtype=bool)}
+    radii = [r for r in RADII if wanted(f"A{r}") or (r in CONTEXT_RADII and any(wanted(f"A{r}+V{k}") for k in
+                                                                                  CONTEXT_REACH))
+             or (r == 1 and (wanted("F") or wanted("F-trees"))) or (r == 2 and wanted("A2+T"))]
     with np.errstate(invalid="ignore"):
-        for r in RADII:
+        for r in radii:
             flags[f"A{r}"] = sv > obstacles.envelope(z, r)[rows, cols] + np.float32(obstacles.MIN_HEIGHT)
         for wall in WALLS:
-            flags[f"A1+W{wall[0]}/{wall[1]}"] = obstacles.is_obstacle(z, s, res, wall=wall)[rows, cols]
+            if wanted(f"A1+W{wall[0]}/{wall[1]}"):
+                flags[f"A1+W{wall[0]}/{wall[1]}"] = obstacles.is_obstacle(z, s, res, wall=wall)[rows, cols]
         height = s - z
         for r in CONTEXT_RADII:
+            if not any(wanted(f"A{r}+V{k}") for k in CONTEXT_REACH):
+                continue
             crowns = np.where((height >= TREE) & (slope_grid < CANOPY_SLOPE)
                               & obstacles.is_obstacle(z, s, res, radius=r), s, np.float32(-np.inf))
             for k in CONTEXT_REACH:
-                near = ndimage.maximum_filter(crowns, size=2 * k + 1, mode="constant", cval=-np.inf)[rows, cols]
-                flags[f"A{r}+V{k}"] = flags[f"A{r}"] | ((sv - zv > obstacles.MIN_HEIGHT)
-                                                          & (near >= sv - obstacles.MIN_HEIGHT))
+                if wanted(f"A{r}+V{k}"):
+                    near = ndimage.maximum_filter(crowns, size=2 * k + 1, mode="constant", cval=-np.inf)[rows, cols]
+                    flags[f"A{r}+V{k}"] = flags[f"A{r}"] | ((sv - zv > obstacles.MIN_HEIGHT)
+                                                              & (near >= sv - obstacles.MIN_HEIGHT))
         for k in SLOPE_FACTORS:
-            flags[f"B{k:g}"] = sv - zv > k * res * np.tan(np.radians(slope)) + obstacles.MIN_HEIGHT
+            if wanted(f"B{k:g}"):
+                flags[f"B{k:g}"] = sv - zv > k * res * np.tan(np.radians(slope)) + obstacles.MIN_HEIGHT
         for degrees in MASK_SLOPES:
-            flags[f"C{degrees}"] = (sv - zv > obstacles.MIN_HEIGHT) & (slope < degrees)
+            if wanted(f"C{degrees}"):
+                flags[f"C{degrees}"] = (sv - zv > obstacles.MIN_HEIGHT) & (slope < degrees)
     for k in ANCHOR_ZONES:
-        flags[f"D{k}"] = np.minimum(pix["step"], pix["steps"] - pix["step"]) > k
+        if wanted(f"D{k}"):
+            flags[f"D{k}"] = np.minimum(pix["step"], pix["steps"] - pix["step"]) > k
     if chm3 is not None:
         tree = chm3[rows, cols] >= SHRUB
         with np.errstate(invalid="ignore"):
-            flags["F"] = flags["A1"] & (tree | (slope < GENTLE))
-        flags["F-trees"] = flags["A1"] & tree
-    return flags
+            if wanted("F"):
+                flags["F"] = flags["A1"] & (tree | (slope < GENTLE))
+        if wanted("F-trees"):
+            flags["F-trees"] = flags["A1"] & tree
+    if wanted("A2+T"):
+        flags["A2+T"] = flags["A2"].copy()
+        if chm3 is not None and wc is not None:
+            flags["A2+T"] |= (chm3[rows, cols] >= TREE) & (wc[rows, cols] == TREE_COVER)
+    return {name: f for name, f in flags.items() if wanted(name)}
 
 
 def _bins(values: np.ndarray, bins) -> List[int]:
@@ -400,11 +570,70 @@ def _slope_bins(values: np.ndarray) -> List[int]:
         return [int(((values >= lo) & (values < hi)).sum()) for lo, hi in SLOPES]
 
 
+def _judge(pix: Dict, starts: np.ndarray, z: np.ndarray, s: np.ndarray, chm3: Optional[np.ndarray],
+           wc: Optional[np.ndarray]) -> SimpleNamespace:
+    """What the pixels are: a tree when CHMv2 and WorldCover agree and the lidar's surface stands
+    TREE above its terrain there too (CHMv2 takes rock towers and their shadows for trees at times
+    and spreads the crowns of a forest onto the rock beside it), "tree_chm" by CHMv2 alone; and per
+    line (starts: its first pixel) whether one of its pixels is real or all are rock."""
+    rows, cols = pix["row"], pix["col"]
+    none = np.zeros(len(rows), dtype=bool)
+    tree_chm = chm3[rows, cols] >= TREE if chm3 is not None else none
+    with np.errstate(invalid="ignore"):
+        tall = s[rows, cols] - z[rows, cols] >= TREE
+    tree = tree_chm & (wc[rows, cols] == TREE_COVER) & tall if wc is not None else none
+    built = wc[rows, cols] == BUILT_UP if wc is not None else none
+    rock = none
+    if chm3 is not None and wc is not None:
+        c, w = chm3[rows, cols], wc[rows, cols]
+        rock = (c >= 0) & (c < SHRUB) & (w > 0) & (w != TREE_COVER) & (w != BUILT_UP)
+    real_pixel, real_chm_pixel = tree | built, tree_chm | built
+    count = lambda f: np.add.reduceat(f.astype(np.int64), starts) if len(f) else np.zeros(0, dtype=np.int64)  # noqa: E731
+    return SimpleNamespace(rock=rock, real_pixel=real_pixel, real_chm_pixel=real_chm_pixel, count=count,
+                           real=count(real_pixel) > 0, real_chm=count(real_chm_pixel) > 0,
+                           rock_only=count(~rock) == 0)
+
+
+def _objects(shape, rows: np.ndarray, cols: np.ndarray, chosen: np.ndarray) -> int:
+    """Separate objects (8 neighbours) among the chosen pixels: lines of one spot share theirs."""
+    if not chosen.any():
+        return 0
+    mask = np.zeros(shape, dtype=bool)
+    mask[rows[chosen], cols[chosen]] = True
+    return int(ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))[1])
+
+
+def _rule_counts(flags: Dict, per_line: Dict, judged: SimpleNamespace, inside: np.ndarray, line_of: np.ndarray,
+                 pix: Dict, shape) -> Dict:
+    """Per rule: the lines it keeps marked, the real ones it loses (lines, objects), those real by
+    CHMv2 alone, the rock-only ones it removes and keeps (lines, objects), the real ones it keeps."""
+    j, rows, cols = judged, pix["row"], pix["col"]
+    counts = {}
+    for name, keep in per_line.items():
+        f = flags[name]
+        lost = ~keep & j.real & inside
+        residual = keep & (j.count(f & ~j.rock) == 0) & inside
+        counts[name] = {"marked": int((keep & inside).sum()), "lost": int(lost.sum()),
+                        "lost_objects": _objects(shape, rows, cols, j.real_pixel & lost[line_of]),
+                        "lost_chm": int((~keep & j.real_chm & inside).sum()),
+                        "removed_rock": int((~keep & j.rock_only & inside).sum()),
+                        "residual_rock": int(residual.sum()),
+                        "residual_objects": _objects(shape, rows, cols, f & j.rock & residual[line_of]),
+                        "kept_real": int((keep & (j.count(f & j.real_pixel) > 0) & inside).sum())}
+    return counts
+
+
+def _per_line(flags: Dict, starts: np.ndarray) -> Dict:
+    return {name: np.logical_or.reduceat(f, starts) if len(f) else np.zeros(0, dtype=bool) for name, f in flags.items()}
+
+
 def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[Dict] = None,
                  chip_rule: str = "A1") -> Optional[Dict]:
     """The counts of one find_valid_lines call (see the module's docstring). layers(call, grid)
     gives CHMv2 and WorldCover on the grid (outside_layers); chips, when given, collects the
-    candidates for pictures per group of chip_rule: {group: [(call, line, info)]}."""
+    candidates for pictures per group of chip_rule: {group: [(call, line, info)]}. The surface
+    variants (fine_surfaces) are counted under VARIANT_RULES ("variants"), avg from the counts of
+    the working grid's surface, the others over every line again."""
     import linesearch as ls
     import perf_line_funnel as plf
 
@@ -423,20 +652,34 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     with np.errstate(invalid="ignore"):
         marked = lines["clearance_nmpt"] <= 0  # NaN: not measured, never marked
     slope_grid = obstacles.slope_degrees(z, res)
+    surfaces, fine = fine_surfaces(call, z, s)
 
-    # The production kernel: the raw surface gives the captured clearances, the obstacle surface A1's marks
-    checks = {"lines": n}
+    # The production kernel: the raw surface gives the captured clearances, the obstacle surface of
+    # radius r the marks of A<r>; on every variant, its raw surface the lines it marks and its A2
+    checks, kernel = {"lines": n}, {}
     if n:
         anchors = np.vstack([a1, a2])
         found = np.column_stack([np.arange(n), np.arange(n) + n])
         down = sh.downslope(z, anchors, res)
+
+        def marks(surface: np.ndarray) -> Optional[np.ndarray]:
+            table_ = ls.evaluate_lines(found, anchors, z, res, surface, table, "mark", params["high_above"], None, down)
+            if len(table_) != n:
+                return None
+            with np.errstate(invalid="ignore"):
+                return table_.columns["clearance_nmpt"] <= 0
+
         raw = ls.evaluate_lines(found, anchors, z, res, s, table, "mark", params["high_above"], None, down)
         checks["raw_equal"] = bool(len(raw) == n and np.array_equal(raw.columns["clearance_nmpt"],
                                                                      lines["clearance_nmpt"], equal_nan=True))
-        rule = ls.evaluate_lines(found, anchors, z, res, obstacles.obstacle_surface(z, s, res), table, "mark",
-                                 params["high_above"], None, down)
-        with np.errstate(invalid="ignore"):
-            kernel_a1 = rule.columns["clearance_nmpt"] <= 0
+        for name, surface in surfaces.items():
+            if name != "avg":
+                kernel[name, "raw"] = marks(surface)
+            for r in (1, 2) if name == "avg" else (2,):
+                kernel[name, f"A{r}"] = marks(obstacles.obstacle_surface(z, surface, res, radius=r))
+
+    def equal(marks_: np.ndarray, key) -> bool:
+        return kernel[key] is not None and bool(np.array_equal(marks_, kernel[key]))
 
     idx = np.flatnonzero(marked)
     pix = obstacle_pixels(z, s, res, table, a1[idx], a2[idx])
@@ -455,32 +698,18 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
             chm = _moved(chm, round(-shift["north_m"] / res), round(shift["east_m"] / res))  # aligned
             shift["applied"] = True
         chm3 = ndimage.maximum_filter(np.where(np.isnan(chm), -1, chm), size=3, mode="constant", cval=-1)
-    flags = rule_flags(z, s, res, pix, chm3, slope_grid)
-    per_line = {name: np.logical_or.reduceat(f, starts) if len(f) else np.zeros(0, dtype=bool)
-                for name, f in flags.items()}
+    flags = rule_flags(z, s, res, pix, chm3, slope_grid, wc)
+    per_line = _per_line(flags, starts)
     if n:
-        a1_marks = np.zeros(n, dtype=bool)
-        a1_marks[idx] = per_line["A1"]
-        checks["a1_equal"] = bool(np.array_equal(a1_marks, kernel_a1))
+        for r in (1, 2):
+            a_marks = np.zeros(n, dtype=bool)
+            a_marks[idx] = per_line[f"A{r}"]
+            checks[f"a{r}_equal"] = equal(a_marks, ("avg", f"A{r}"))
 
-    # What the pixels are: a tree when CHMv2 and WorldCover agree and the lidar's surface stands
-    # TREE above its terrain there too (CHMv2 takes rock towers and their shadows for trees at times
-    # and spreads the crowns of a forest onto the rock beside it), "tree_chm" by CHMv2 alone
     rows, cols = pix["row"], pix["col"]
-    none = np.zeros(len(rows), dtype=bool)
-    tree_chm = chm3[rows, cols] >= TREE if chm3 is not None else none
-    with np.errstate(invalid="ignore"):
-        tall = s[rows, cols] - z[rows, cols] >= TREE
-    tree = tree_chm & (wc[rows, cols] == TREE_COVER) & tall if wc is not None else none
-    built = wc[rows, cols] == BUILT_UP if wc is not None else none
-    rock = none
-    if chm3 is not None and wc is not None:
-        c, w = chm3[rows, cols], wc[rows, cols]
-        rock = (c >= 0) & (c < SHRUB) & (w > 0) & (w != TREE_COVER) & (w != BUILT_UP)
-    real_pixel, real_chm_pixel = tree | built, tree_chm | built
-    count = lambda f: np.add.reduceat(f.astype(np.int64), starts) if len(f) else np.zeros(0, dtype=np.int64)  # noqa: E731
-    real, real_chm = count(real_pixel) > 0, count(real_chm_pixel) > 0
-    rock_only = count(~rock) == 0
+    judged = _judge(pix, starts, z, s, chm3, wc)
+    real, real_chm, rock_only, rock = judged.real, judged.real_chm, judged.rock_only, judged.rock
+    real_pixel, real_chm_pixel, count = judged.real_pixel, judged.real_chm_pixel, judged.count
 
     # The worst pixel of each line (raw) and the radius A needs
     order = np.lexsort((pix["margin"], pix["line"]))
@@ -490,42 +719,51 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
     height = s[rows[worst], cols[worst]] - z[rows[worst], cols[worst]]
     r_needed = 1 + sum(per_line[f"A{r}"].astype(np.int64) for r in RADII)
 
-    inside = in_core(a1, a2, grid)[idx]
+    core = in_core(a1, a2, grid)
+    inside = core[idx]
     line_of = pix["line"]
-
-    def objects(chosen: np.ndarray) -> int:
-        """Separate objects (8 neighbours) among the chosen pixels: lines of one spot share theirs."""
-        if not chosen.any():
-            return 0
-        mask = np.zeros(z.shape, dtype=bool)
-        mask[rows[chosen], cols[chosen]] = True
-        return int(ndimage.label(mask, structure=np.ones((3, 3), dtype=bool))[1])
-
     classes = {"real": real & inside, "rock_only": rock_only & inside,
                "other": ~real & ~rock_only & inside}  # rock_only and real never meet
-    result = {"checks": checks, "res": res, "lines": int(in_core(a1, a2, grid).sum()), "marked": int(inside.sum()),
+    result = {"checks": checks, "res": res, "lines": int(core.sum()), "marked": int(inside.sum()),
               "classes": {**{k: int(v.sum()) for k, v in classes.items()}, "real_chm": int((real_chm & inside).sum()),
-                          "real_objects": objects(real_pixel & inside[line_of]),
-                          "rock_objects": objects(rock & (rock_only & inside)[line_of])},
-              "rules": {},
+                          "real_objects": _objects(z.shape, rows, cols, real_pixel & inside[line_of]),
+                          "rock_objects": _objects(z.shape, rows, cols, rock & (rock_only & inside)[line_of])},
+              "rules": _rule_counts(flags, per_line, judged, inside, line_of, pix, z.shape),
               "r_needed": {k: np.bincount(r_needed[v], minlength=12)[1:].tolist() for k, v in classes.items()},
               "distance": {k: _bins(nearest[v], DISTANCES) for k, v in classes.items()},
               "slope": {k: _slope_bins(slope[v]) for k, v in classes.items()},
               "height_median": {k: float(np.nanmedian(height[v])) if v.any() else None for k, v in classes.items()},
-              "proxies": {"chmv2": chm is not None, "worldcover": wc is not None}}
-    for name, keep in per_line.items():
-        f = flags[name]
-        lost = ~keep & real & inside
-        residual = keep & (count(f & ~rock) == 0) & inside
-        result["rules"][name] = {"marked": int((keep & inside).sum()), "lost": int(lost.sum()),
-                                 "lost_objects": objects(real_pixel & lost[line_of]),
-                                 "lost_chm": int((~keep & real_chm & inside).sum()),
-                                 "removed_rock": int((~keep & rock_only & inside).sum()),
-                                 "residual_rock": int(residual.sum()),
-                                 "residual_objects": objects(f & rock & residual[line_of]),
-                                 "kept_real": int((keep & (count(f & real_pixel) > 0) & inside).sum())}
+              "proxies": {"chmv2": chm is not None, "worldcover": wc is not None}, "fine": fine}
     if shift is not None:
         result["chm_shift"] = shift
+
+    # The surface variants: each line's limit is the same, the pixels above it are the variant's
+    result["variants"] = {"avg": {"marked": result["marked"],
+                                  "classes": {k: result["classes"][k] for k in ("real", "real_chm", "rock_only")},
+                                  "rules": {name: result["rules"][name] for name in VARIANT_RULES
+                                            if name in result["rules"]}}}
+    others = {name: surface for name, surface in surfaces.items() if name != "avg"}
+    variant_checks = {}
+    for name, pv in (obstacle_pixels(z, others, res, table, a1, a2) if others else {}).items():
+        lines_v = np.unique(pv["line"])
+        starts_v = np.searchsorted(pv["line"], lines_v)
+        flags_v = rule_flags(z, others[name], res, pv, chm3, slope_grid, wc, VARIANT_RULES)
+        per_line_v = _per_line(flags_v, starts_v)
+        judged_v = _judge(pv, starts_v, z, others[name], chm3, wc)
+        inside_v = core[lines_v]
+        result["variants"][name] = {
+            "marked": int(inside_v.sum()),
+            "classes": {"real": int((judged_v.real & inside_v).sum()),
+                        "real_chm": int((judged_v.real_chm & inside_v).sum()),
+                        "rock_only": int((judged_v.rock_only & inside_v).sum())},
+            "rules": _rule_counts(flags_v, per_line_v, judged_v, inside_v, np.searchsorted(lines_v, pv["line"]), pv,
+                                  z.shape)}
+        if n:
+            raw_v, a2_v = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
+            raw_v[lines_v], a2_v[lines_v] = True, per_line_v["A2"]
+            variant_checks[name] = {"raw_equal": equal(raw_v, (name, "raw")), "a2_equal": equal(a2_v, (name, "A2"))}
+    if variant_checks:
+        checks["variants"] = variant_checks
 
     if chips is not None and len(idx):
         a1_kept, f1 = per_line[chip_rule], flags[chip_rule]
@@ -548,8 +786,6 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
                         "worldcover": None if wc is None or np.isnan(wc[r, c]) else int(wc[r, c])}
                 chips.setdefault(group, []).append((call, int(idx[k]), info))
     return result
-
-
 def merge(results: List[Dict]) -> Dict:
     """The sum of the calls' counts."""
     def add(a, b):
@@ -562,9 +798,19 @@ def merge(results: List[Dict]) -> Dict:
         return a if a is not None else b
     total = None
     for r in results:
-        r = {k: v for k, v in r.items() if k not in ("chm_shift", "height_median", "checks", "res", "proxies")}
+        r = {k: v for k, v in r.items() if k not in ("chm_shift", "height_median", "checks", "res", "proxies", "fine")}
         total = r if total is None else add(total, r)
     return total or {}
+
+
+def merged_fine(results: List[Dict]) -> Optional[Dict]:
+    """fine.json of a place: that of its call with the finest surface pixels (the first call's
+    without one), with the files of every call summed."""
+    fines = [r["fine"] for r in results if r.get("fine")]
+    if not fines:
+        return None
+    best = min((f for f in fines if f["res"] is not None), key=lambda f: f["res"], default=fines[0])
+    return {**best, "files": {k: sum(f["files"][k] for f in fines) for k in ("nmt", "nmpt")}}
 
 
 def place_name(folder: str) -> str:
@@ -601,7 +847,7 @@ def analyse(folder: str, samples: int = 6, outside: bool = True, chip_rule: str 
              "res": results[0]["res"] if results else None, **merge(results),
              "checks": [r["checks"] for r in results],
              "chm_shift": [r.get("chm_shift") for r in results],
-             "proxies": results[0]["proxies"] if results else None}
+             "proxies": results[0]["proxies"] if results else None, "fine": merged_fine(results)}
     picked = pictures(folder, candidates, samples, chip_rule) if results else {}
     study["chips"], study["chip_rule"] = picked, chip_rule
     with open(os.path.join(folder, "study.json"), "w", encoding="utf-8") as f:
@@ -734,6 +980,30 @@ def _pct(part, whole) -> str:
     return f"{part} ({100 * part / whole:.0f} %)" if whole else str(part)
 
 
+def variants_markdown(study: Dict) -> List[str]:
+    """The table of the surface variants of a place (after its rules' table); none without them."""
+    variants = study.get("variants") or {}
+    if len(variants) < 2:
+        fine = study.get("fine")
+        return ["", "Surface variants: none (no surface model finer than the grid)."] if fine is not None else []
+    fine = study.get("fine") or {}
+    lines = ["", f"Surface variants (the surface model's own pixels of {fine.get('res')} m, offset "
+                 f"{fine.get('offset')}, windows of {fine.get('window')}): avg the grid's surface, max the highest "
+                 "fine pixel, h the terrain plus the highest fine height above it.", "",
+             "| variant | rule | marked | lost (tree/building): lines, objects | lost (CHMv2 tree/building) | "
+             "removed, rock only | kept, rock only: lines, objects | kept, tree/building |",
+             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
+    for variant in VARIANTS:
+        v = variants.get(variant)
+        for name in VARIANT_RULES if v else ():
+            r = v["rules"].get(name)
+            if r:
+                lines.append(f"| {variant} | {name} | {_pct(r['marked'], v['marked'])} | {r['lost']}, {r['lost_objects']} | "
+                             f"{r['lost_chm']} | {r['removed_rock']} | {r['residual_rock']}, {r['residual_objects']} | "
+                             f"{r['kept_real']} |")
+    return lines
+
+
 def place_markdown(study: Dict) -> str:
     rules = study.get("rules", {})
     marked = study.get("marked", 0)
@@ -748,6 +1018,7 @@ def place_markdown(study: Dict) -> str:
         if r:
             lines.append(f"| {name} | {_pct(r['marked'], marked)} | {r['lost']}, {r['lost_objects']} | {r['lost_chm']} | "
                          f"{r['removed_rock']} | {r['residual_rock']}, {r['residual_objects']} | {r['kept_real']} |")
+    lines += variants_markdown(study)
     lines += ["", "r needed by A (1..10, 11: more):", ""]
     for k, v in study.get("r_needed", {}).items():
         lines.append(f"- {k}: {v}")
@@ -765,6 +1036,12 @@ def place_markdown(study: Dict) -> str:
                          f"([satellite](https://www.google.com/maps/@{lat},{lon},19z/data=!3m1!1e3)), anchors "
                          f"{e['anchor1']} - {e['anchor2']}")
     return "\n".join(lines) + "\n"
+
+
+def check_passed(c: Dict) -> bool:
+    """A call's checks (analyse_call): every kernel check that ran gave the tool's counts."""
+    return (all(c.get(k, True) for k in ("raw_equal", "a1_equal", "a2_equal")) and not c.get("marked_without_pixels")
+            and all(all(v.values()) for v in c.get("variants", {}).values()))
 
 
 def report(out: str) -> str:
@@ -802,9 +1079,19 @@ def report(out: str) -> str:
             sums.append(f"| {name} | {_pct(t['marked'], marked)} | {_pct(t['lost'], real)}, {t['lost_objects']} | "
                         f"{_pct(t['lost_chm'], real_chm)} | {_pct(t['removed_rock'], rock)} | "
                         f"{t['residual_rock']}, {t['residual_objects']} | {t['kept_real']} |")
+    head = ["place", "fine res", "variant", "marked", "ideal"] + list(VARIANT_RULES)
+    variants = ["| " + " | ".join(head) + " |", "|" + " --- |" * len(head)]
+    for st in studies:
+        fine = st.get("fine") or {}
+        for name in VARIANTS:
+            v = (st.get("variants") or {}).get(name)
+            if v:
+                variants.append("| " + " | ".join([st["place"], str(fine.get("res")), name, str(v["marked"]),
+                                                   str(v.get("classes", {}).get("real", "-"))]
+                                                  + [str(v["rules"][r]["marked"]) if r in v["rules"] else "-"
+                                                     for r in VARIANT_RULES]) + " |")
     shifts = [f"- {st['place']}: {st.get('chm_shift')}" for st in studies]
-    checks = [st["place"] for st in studies if any(not c.get("raw_equal", True) or not c.get("a1_equal", True)
-                                                   or c.get("marked_without_pixels") for c in st.get("checks", []))]
+    checks = [st["place"] for st in studies if any(not check_passed(c) for c in st.get("checks", []))]
     text = "\n".join([
         "# Obstacles on rock: the rules side by side", "",
         "Lines over trees/buildings per place under each rule (tools/obstacle_study.py); ideal: the lines with a "
@@ -812,6 +1099,12 @@ def report(out: str) -> str:
         "above its terrain) or a building (WorldCover) among the pixels above their limit; objects: separate "
         "groups of such pixels (the lines of one spot share theirs).", "",
         *rows, "",
+        "## Surface variants", "",
+        "The lines marked under each rule on each surface: avg the working grid's (what the search reads), max the "
+        "highest of the surface model's own pixels within each grid pixel, h the terrain plus the highest height "
+        "of the fine surface above the fine terrain (places without a finer surface model: avg only); ideal as "
+        "above, judged on that surface.", "",
+        *variants, "",
         f"## Over all places ({marked} lines over trees/buildings: {real} with a tree (CHMv2 and WorldCover) or "
         f"building, {real_chm} with a tree by CHMv2 alone or a building, {rock} rock only)",
         "", *sums, "",
