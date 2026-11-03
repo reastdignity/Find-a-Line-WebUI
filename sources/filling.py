@@ -50,11 +50,16 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
 
 
 def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
-    """The mask grown by about `metres` (square neighbourhood)."""
+    """The mask grown by about `metres` (square neighbourhood): every pixel within n = ceil(metres / res)
+    pixels of it along both axes (the Chebyshev distance), nothing beyond the grid's edges. A running
+    maximum along the columns, then the rows (two passes of any n): exactly the n iterations of a 3 x 3
+    dilation it replaced (tests/test_units.py::test_near_matches_the_dilation), 2 bytes a pixel."""
     from scipy import ndimage
     if metres <= 0:
         return mask
-    return ndimage.binary_dilation(mask, structure=np.ones((3, 3)), iterations=max(1, math.ceil(metres / res)))
+    size = 2 * max(1, math.ceil(metres / res)) + 1
+    grown = ndimage.maximum_filter1d(np.asarray(mask, dtype=bool), size, axis=0, mode="constant", cval=0)
+    return ndimage.maximum_filter1d(grown, size, axis=1, mode="constant", cval=0)
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,

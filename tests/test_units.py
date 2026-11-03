@@ -912,6 +912,40 @@ def test_webbing_heights():
     assert result[5] == float(np.max(webbing - 100.0)) and result[6] == float(np.cumsum(webbing - 100.0)[-1]) / 19
 
 
+def _near_by_dilation(mask, metres, res):
+    """sources.filling.near before 2026-11-03: n iterations of a 3 x 3 dilation (the reference)."""
+    import math
+    from scipy import ndimage
+    if metres <= 0:
+        return mask
+    return ndimage.binary_dilation(mask, structure=np.ones((3, 3)), iterations=max(1, math.ceil(metres / res)))
+
+
+def test_near_matches_the_dilation():
+    """near() grows a mask in one pass: exactly the n iterations of a 3 x 3 dilation it replaced, also at
+    the grid's edges (nothing outside the grid is in the mask), for empty and full masks."""
+    rng = np.random.default_rng(7)
+    shapes = [(1, 1), (1, 9), (9, 1), (37, 53), (64, 64)]
+    for shape in shapes:
+        masks = [np.zeros(shape, bool), np.ones(shape, bool)]
+        for density in (0.002, 0.02, 0.2, 0.6):
+            masks.append(rng.random(shape) < density)
+        edges = np.zeros(shape, bool)  # touching the grid's edges and corners only
+        edges[0, ::5] = edges[-1, 2::7] = edges[::4, 0] = edges[1::6, -1] = True
+        masks.append(edges)
+        corner = np.zeros(shape, bool)
+        corner[-1, -1] = True
+        masks.append(corner)
+        for mask in masks:
+            for n in range(1, 51):
+                for metres, res in ((n, 1.0), (2.0 * n - 0.5, 2.0), (0.3 * n, 0.3)):
+                    expected = _near_by_dilation(mask, metres, res)
+                    got = src.near(mask, metres, res)
+                    assert got.dtype == bool and got.shape == mask.shape
+                    assert np.array_equal(got, expected), (shape, n, metres, res)
+            assert src.near(mask, 0, 1.0) is mask and src.near(mask, 0.4, 1.0).sum() >= mask.sum()
+
+
 def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
     """coast within osm:<name>: the coastline within the reach of the area, not clipped to its land."""
     import osm
