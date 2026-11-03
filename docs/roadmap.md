@@ -673,8 +673,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   blocks along the rows, or measure jobs first; `ComposedBlocks` keys a block by the files within the search's
   bounds, so another extent reads it again (key it by every file over the block); on BC's DSM (its DTM on bare
   ground) `obstacles.RULE` keeps 97 % of the rock-only lines clean but misses 54 % of the lines over a tree at R64
-  (pines within the 2 px envelope of the walls; `tools/obstacle_study.py`, whose own `a1_equal` check fails there):
-  a study over several BC places before any change of the rule.
+  (pines within the 2 px envelope of the walls; `tools/obstacle_study.py`): McIntyre Bluff goes into the places of
+  the obstacles task (branch `obstacles-fine-grid`, its forest-edge case) before any change of the rule.
 
 ### Switzerland (swisstopo): sheet-like files from STAC
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
