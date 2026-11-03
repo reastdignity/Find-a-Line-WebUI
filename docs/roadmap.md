@@ -268,6 +268,29 @@ Users found the app hard to navigate.
     - The tile usage policies of OpenTopoMap (and OSM) for the mini maps on the public site (see "To check").
   - Running the prototypes from the worktree with the usual data: `uv run findaline.py web --data-dir <main checkout>` (without it the worktree's own empty data folder is used).
 
+## Coverage map and animations (built 2026-11-02/03, branch `coverage-map`)
+
+Where the data is detailed, for people who never met an elevation model: a public page, a layer of the place map, the
+README's GIF and images, and videos and images for Facebook and Instagram (README, *Coverage map*).
+- **Prototypes** (stage A): three map looks, three quality scales, four stories, statics, a 30 m against 1 m
+  contrast at nine famous places, in a private artifact (https://claude.ai/artifact/4EmmvkDpv8HaEPNXPoGAmj).
+- **The user's picks**: statuses are the working sources and "the rest of the world at 30 m"; limitations only the
+  data's quality; all three map views with a switch (the flat d3 map the default); the quality scale switchable in
+  the legend (words, everyday sizes, stars; words the default); English and Polish for the coverage map only (its own
+  catalogue, `locales/coverage/`); all four stories at 10, 18 and 26 s, 4:5 and 9:16, light and dark, ending with the
+  logo, the address and a call to action; the renderer Playwright + ffmpeg of imageio-ffmpeg (group `ui`); Barlow
+  Condensed bundled for the whole app. The 30 m side of the contrast uses the first version's rule (anchors from
+  40.5°), counts spots and has a board "Is 30 m enough?" with the 45 m check (priority 2 above).
+- **Decided along the way**: the data comes from the catalogue (`Source.coverage`, `tools/coverage_data.py --check`);
+  Alaska is *detailed* (IfSAR 5 m statewide) with a note on its 1 m places, not hatched; Canada, Scotland and Tasmania
+  are hatched (detailed in parts); France's overseas regions, Svalbard and the Chatham Islands stay at 30 m; Denmark is
+  shown (the VPS has the Datafordeler key); the privacy page is unchanged (the page keeps its language, view and
+  scale in the browser only); the media page is never in dist.
+- **Open**: the music of the 26 s videos (a track with a licence, from the user); posting the videos and images;
+  the phone's first screen of /coverage (header and intro take most of it) and the Leaflet view's Europe preset on
+  phones; Firefox shows a fallback font in a run's map opened from disk (fonts in `runs/_viewer/`, outside the
+  page's folder).
+
 ## New data sources
 Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a hosted copy, see below), then Switzerland (done first, 2026-10-26: it needed no hosting); Greece has no usable national source. The USA was researched on 2026-10-26 and its terrain added on 2026-10-30 (below); its surface model is still to come.
 
