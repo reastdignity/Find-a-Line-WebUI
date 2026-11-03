@@ -1274,11 +1274,11 @@ def test_cgroup_limits(tmp_path, monkeypatch):
     assert search.cgroup_limits(str(tmp_path / "missing")) == search.CgroupLimits()
 
     # The tiles follow the container's memory, the threads its quota, unless set explicitly
-    params = pm.SearchParams(lat=50, lon=19, max_length=100)
+    params = pm.SearchParams(lat=50, lon=19, max_length=2000)  # an overlap of 2 302 m at 1 m
     monkeypatch.setattr(search.psutil, "virtual_memory", lambda: type("M", (), {"available": 64 * gib})())
     small = _cgroup(tmp_path / "small", memory_max=str(4 * gib), memory_current="0", cpu_max="100000 100000")
     monkeypatch.setattr(search, "CGROUP_ROOT", small)
-    assert search.tile_core_size(params, 1.0) == 2000  # sqrt(4 GiB / 4 / 100 B) px less the overlaps
+    assert search.tile_core_size(params, 1.0) == 1500  # sqrt(4 GiB / 2 / 50 B) = 6 554 px less the overlaps
     monkeypatch.delenv("NUMBA_NUM_THREADS", raising=False)
     assert search.line_threads(params) == 1
     assert search.line_threads(params.model_copy(update={"threads": 3})) == 3
@@ -1295,7 +1295,24 @@ def test_cgroup_limits(tmp_path, monkeypatch):
     assert search.line_threads(params) is None
     monkeypatch.delenv("NUMBA_NUM_THREADS")
     assert search.line_threads(params) is None
-    assert search.tile_core_size(params, 1.0) == 12000
+    assert search.tile_core_size(params, 1.0) == 3000  # TILE_PX_MAX: 8 000 px; the 64 GiB would allow 26 000
+
+
+def test_tile_at_most_tile_px_max():
+    """A tile has at most TILE_PX_MAX pixels with its overlap whatever the memory (a PC with much
+    memory would take one tile of hundreds of Mpx to save little work); a site's max_px below it
+    and --tile-size are as before."""
+    import search
+    params = pm.SearchParams(lat=50, lon=19, max_length=100)
+    assert search._overlap(params, 1.0) == 402 and search.TILE_PX_MAX == 64e6
+    assert search.tile_core_size(params, 1.0, memory=10 ** 12) == 7000  # 8 000 px less twice 402 m, in steps of 500
+    assert search.tile_core_size(params, 1.0, memory=10 ** 12, max_px=100e6) == 7000
+    small = int(300 * 300 * search.PIXEL_BYTES / search.TILE_MEMORY_SHARE)  # a tile of 300 px with its overlaps
+    assert search.tile_core_size(params, 1.0, memory=small) == 500
+    long = params.model_copy(update={"max_length": 2000})  # an overlap of 2 302 m
+    assert search.tile_core_size(long, 1.0, memory=10 ** 12) == 3000
+    assert search.tile_core_size(long, 1.0, memory=10 ** 12, max_px=36e6) == 1000  # 6 000 px less twice 2 302
+    assert search.tile_core_size(long.model_copy(update={"tile_size": 12000}), 1.0, memory=10 ** 12) == 12000
 
 
 def test_errors_without_query_strings(monkeypatch):

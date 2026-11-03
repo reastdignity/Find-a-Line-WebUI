@@ -74,8 +74,14 @@ ORTHO_DETAIL = 50  # groups of an area with detailed orthophoto, unless the serv
 # surface, water, gaps, masks, temporaries), its lines, this many bytes per line (a line being
 # checked in step 3, one of step 4 with its coordinates, values and group, one of a tile done
 # already, or one being saved in step 5), and the profiles a circle keeps for every line, this
-# many bytes per point
-PIXEL_BYTES = 100  # 64 of them, and the union-find of the anchor prominence (terrain.py)
+# many bytes per point.
+# Measured 2026-11-03 (tools/perf_profile.py --cores 7, the RSS of a stage less the start's over
+# the tile's pixels; docs/performance.md, round 3, wave 2): step 1 peaks at 32 B per pixel on
+# Windows at the medians of the surface pair's gap filling (the Gozo coast's 50 Mpx tile, the
+# memory-mapped grids read so far included), step 2 (the slopes, the prominence's union-find and
+# the drop over the anchors' windows) at 25-30 with dense anchors (swiss-long: 2.5 % of the
+# pixels; the Tatras at 1 m); was 100 before the temporaries of step 1 were cut
+PIXEL_BYTES = 50
 # Measured 2026-10-31 (tools/perf_lines_memory.py, the 403 026 lines of the Gozo coast): as
 # columns (helpers.LineTable) 421 B per line at the peak of step 4, 236 B held between tiles,
 # 382 B at the peak of step 5; with a dict per line they were 2.2 KB, 1.6 KB and 3.1 KB (the
@@ -109,8 +115,14 @@ PROFILE_POINTS = 203
 # the others when they are opened): about 26 000 lines of 1 m at most, R9's 85 671 at 5 m
 CIRCLE_PROFILES_BYTES = 500e6
 # Tiles of large areas: the grids of one tile may use this share of the free memory (the rest
-# is for the lines of the tiles)
-TILE_MEMORY_SHARE = 0.25
+# is for the lines of the tiles, which _check_lines refuses over the budget)
+TILE_MEMORY_SHARE = 0.5
+# A tile (its core with the overlap) has at most this many pixels whatever the memory: a PC
+# with much memory would otherwise take one tile of hundreds of Mpx, whose grids alone hold
+# gigabytes, to save little work (the overlap's share of a tile falls slowly once the core is a
+# few overlaps wide: a 5 000 m core with 1 302 m of overlap, 58 Mpx at 1 m, computes 2.3 pixels
+# per pixel of the core; 14 000 m, 280 Mpx, 1.4). A tile of 64 Mpx holds about 2 GB of grids
+TILE_PX_MAX = 64e6
 DOWNLOAD_MB_PER_S = 5  # for the time estimate of area searches
 MAX_MEASURED_PX = 6000  # the longest line measured on the map, in pixels (profile_of_line builds a square grid around it)
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
@@ -574,15 +586,15 @@ def line_threads(params: SearchParams) -> Optional[int]:
 def tile_core_size(params: SearchParams, res: float, max_px: Optional[float] = None,
                    memory: Optional[int] = None) -> float:
     """Side of a tile core in metres: --tile-size, or what the free memory (or `memory`, a compute
-    slot's budget) allows (and max_px, the pixels a tile may have with its overlap; in steps of
-    500 m, so the tiles stay the same when the free memory changes a little)."""
+    slot's budget) allows and max_px, the pixels a tile may have with its overlap (a site's
+    limit; TILE_PX_MAX at most either way); in steps of 500 m, so the tiles stay the same when
+    the free memory changes a little."""
     if params.tile_size:
         core = params.tile_size
     else:
         free = available_memory() if memory is None else memory
         side_px = math.sqrt(free * TILE_MEMORY_SHARE / memory_needed(1, 0))
-        if max_px:
-            side_px = min(side_px, math.sqrt(max_px))
+        side_px = min(side_px, math.sqrt(min(max_px or TILE_PX_MAX, TILE_PX_MAX)))
         core = max(500.0, math.floor((side_px * res - 2 * _overlap(params, res)) / 500) * 500)
     return max(res, math.floor(max(core, 10 * res) / res) * res)
 
