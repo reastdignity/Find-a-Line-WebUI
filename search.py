@@ -122,9 +122,10 @@ TILE_MEMORY_SHARE = 0.5
 # A tile (its core with the overlap) has at most this many pixels whatever the memory: a PC
 # with much memory would otherwise take one tile of hundreds of Mpx, whose grids alone hold
 # gigabytes, to save little work (the overlap's share of a tile falls slowly once the core is a
-# few overlaps wide: a 5 000 m core with 1 302 m of overlap, 58 Mpx at 1 m, computes 2.3 pixels
-# per pixel of the core; 14 000 m, 280 Mpx, 1.4). A tile of 64 Mpx holds about 2 GB of grids
-TILE_PX_MAX = 64e6
+# few overlaps wide: a 7 000 m core with 1 302 m of overlap, 92 Mpx at 1 m, computes 1.9 pixels
+# per pixel of the core; 14 000 m, 280 Mpx, 1.4). A tile of 100 Mpx holds about 3.2 GB of grids
+# at the 32 B per pixel measured (the user's choice of 2026-11-03 over 64 Mpx)
+TILE_PX_MAX = 100e6
 DOWNLOAD_MB_PER_S = 5  # for the time estimate of area searches
 MAX_MEASURED_PX = 6000  # the longest line measured on the map, in pixels (profile_of_line builds a square grid around it)
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
