@@ -1078,7 +1078,7 @@
   },
   "R41": {
     "place": "Stawamus Chief, Squamish, British Columbia, Canada: NRCan's HRDEM national mosaic 1 m (DTM and DSM), blocks of 1 km read by HTTP range requests from its 500 km COGs on AWS, in its own EPSG:3979 (Canada Atlas Lambert, scale -0.26 % here)",
-    "args": "--lat 49.682 --lon -123.143 --radius 800 --min-length 50 --max-length 400",
+    "args": "--source canada --lat 49.682 --lon -123.143 --radius 800 --min-length 50 --max-length 400",
     "sets": [
       "sources",
       "ca"
@@ -1100,7 +1100,7 @@
       "filled_km2": 0.01,
       "filled_from": "NRCan HRDEM mosaic (DTM / DSM 2 m)"
     },
-    "notes": "--source auto picks canada (the centre is in CA); first run on an empty cache: blocks of 1 km of the 500 km COG 2_4, about 2 MB each; the three peaks of the Chief with the North and South Gully between them (179 spots of lines of 50-400 m); the lines over the gullies' forest are over_trees (all of them until obstacles.py's envelope, 2026-11-02: the granite rims); gaps (0.3 km2, the creeks and the shore) filled from the 2 m mosaic and MRDEM-30; lengths on EPSG:3979 are 0.26 % short here; also measured: radius 800 m with the default lengths, 36533 lines in 283 spots (30-919 m), 84 s on an empty cache",
+    "notes": "pinned to --source canada (since 2026-11-03 --source auto picks british_columbia here, the centre being in CA-BC: R41 stays a test of the HRDEM mosaic); first run on an empty cache: blocks of 1 km of the 500 km COG 2_4, about 2 MB each; the three peaks of the Chief with the North and South Gully between them (179 spots of lines of 50-400 m); the lines over the gullies' forest are over_trees (all of them until obstacles.py's envelope, 2026-11-02: the granite rims); gaps (0.3 km2, the creeks and the shore) filled from the 2 m mosaic and MRDEM-30; lengths on EPSG:3979 are 0.26 % short here; also measured: radius 800 m with the default lengths, 36533 lines in 283 spots (30-919 m), 84 s on an empty cache",
     "seconds": 10.7
   },
   "R42": {
@@ -1647,5 +1647,30 @@
     },
     "seconds": 2.5,
     "notes": "--source auto picks iceland (the centre is in IS); 4 blocks of 2 km of ArcticDEM, nothing filled (IslandsDEM fills only ArcticDEM's voids); no sea; R61's place at 2 m: 965 lines in 53 spots, clearance at most 2.2 m, against 7 492 lines and 16.5 m at 10 m. A cross-section of the canyon (65.8232 N, 16.3836 W to 65.8216 N, 16.3888 W) agrees with IslandsDEM to 1 m on its floor and 9 m on its walls: the walls are about 60 degrees, so at 2 m the terrain next to an anchor stands close under the webbing, which 10 m smooths into a sharp edge (the 10 m clearances are too high)"
+  },
+  "R64": {
+    "place": "McIntyre Bluff, Oliver, British Columbia (CA-BC): GeoBC's LidarBC DEM and DSM 1 m of the 2024 programme (1:2 500 tiles of one-row strips in EPSG:6654, NAD83(CSRS) / UTM 11N + CGVD2013), found through the LidarBC FeatureServer and the bucket's listing, blocks of 1 km composed newest first",
+    "args": "--lat 49.2582 --lon -119.5016 --radius 300 --min-length 50 --max-length 200",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 58198,
+      "open": 9262,
+      "checked": 433587,
+      "lines": 108228,
+      "spots": 522,
+      "csv_sha256": "bbd1ebc8fcdb557b6b3c44dd1f60a8d75ca07eb7fb418bd444f18effc922bdbe",
+      "length_km": 11690.178,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.57,
+      "clearance_max": 39.06,
+      "over_trees": 36942,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 4.6,
+    "notes": "--source auto picks british_columbia (the centre is in CA-BC); first run on an empty cache: 4 blocks of 1 km per model from the 2024 programme's 1:2 500 strip tiles (082e023_3_2_2, _3_2_4, _4_1_1, ...; about 4 MB read a block, the rows whole), 6 + 6 blocks and 23 MB in 19 s at radius 600 m; nothing filled (LidarBC covers the circle; an older NDMP 2017 tile fills only holes of 2024). Every spot's anchors lie within 2 px of a pixel steeper than 60 degrees: the bluff's face and the gullies below it, the best 155 m with 39 m of clearance. Narrowed from radius 600 m and 50-400 m (210 425 lines in 1 150 spots, 93 s on an empty cache) and radius 300 m with 50-400 m (127 750 lines): the face is steep over its whole height; over_trees (obstacles.RULE A2 on BC's DSM, which equals its DTM on bare ground): tools/obstacle_study.py (CHMv2 and WorldCover, 2026-11-03) finds 598 of the 36 942 over rock only (11 objects) and 26 383 over a tree or building, while the rule leaves 36 992 lines over a tree unmarked (the pines next to the walls, within the envelope's 2 px)"
   }
 }

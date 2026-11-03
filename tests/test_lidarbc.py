@@ -327,9 +327,11 @@ def test_declaration():
     assert BC.regions == ("ca-bc",) and BC.countries == ("ca",) and BC.crs is None
     assert BC.local_crs is bc_utm_crs and BC.grid_origin == (0.0, 0.0)
     assert BC.fallbacks == ["canada", "canada_2m", "mrdem30"]  # never FABDEM
-    assert set(BC.neighbours) == {"canada", "usa", "alaska", "alaska_ifsar"}
+    assert set(BC.neighbours) == {"usa", "alaska", "alaska_ifsar"}
     for sid in BC.neighbours:
         assert "british_columbia" in src.SOURCES[sid].neighbours
+    # canada is its first gap filler, no neighbour: a search on HRDEM in British Columbia (R41) takes nothing of it
+    assert "canada" not in BC.neighbours and "british_columbia" not in src.SOURCES["canada"].neighbours
     for layer, kind, layers in ((BC.nmt, "dem", (6, 5)), (BC.nmpt, "dsm", (3, 1))):
         assert isinstance(layer, LidarBcBlocks) and layer.layers == layers
         assert layer.folder == f"canada/lidarbc-{kind}" and layer.block_m == 1000 and layer.native_res == 1.0

@@ -102,8 +102,8 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `greenland` | Greenland | GL | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | – (no open orthophoto service) | 2 m | `copernicus` |
 | `svalbard` | Svalbard and Jan Mayen (NO) | NO | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | Norwegian Polar Institute orthophoto (Svalbard) | 2 m | `copernicus` |
 | `nunavut` | Nunavut (CA) | CA | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | – (no national orthophoto service) | 2 m | `canada` at the border, then `mrdem30` |
-| `british_columbia` | British Columbia (CA), where it has lidar | CA | GeoBC LidarBC DEM 2011-2026, 1 m | GeoBC LidarBC DSM, 1 m | – (no national orthophoto service) | 1 m | `canada`, `usa`, `alaska`, `alaska_ifsar` at the border, then `canada`, then `canada_2m`, then `mrdem30` |
-| `canada` | Canada, where it has lidar | CA | NRCan HRDEM national mosaic DTM, 1 m | NRCan HRDEM national mosaic DSM, 1 m | – (no national orthophoto service) | 1 m | `usa`, `alaska`, `alaska_ifsar`, `nunavut`, `british_columbia` at the border, then `canada_2m`, then `mrdem30` |
+| `british_columbia` | British Columbia (CA), where it has lidar | CA | GeoBC LidarBC DEM 2011-2026, 1 m | GeoBC LidarBC DSM, 1 m | – (no national orthophoto service) | 1 m | `usa`, `alaska`, `alaska_ifsar` at the border, then `canada`, then `canada_2m`, then `mrdem30` |
+| `canada` | Canada, where it has lidar | CA | NRCan HRDEM national mosaic DTM, 1 m | NRCan HRDEM national mosaic DSM, 1 m | – (no national orthophoto service) | 1 m | `usa`, `alaska`, `alaska_ifsar`, `nunavut` at the border, then `canada_2m`, then `mrdem30` |
 | `canada_2m` | Canada, where it has lidar | – | NRCan HRDEM national mosaic DTM, 2 m | NRCan HRDEM national mosaic DSM, 2 m | – (no national orthophoto service) | 2 m | `mrdem30` |
 | `mrdem30` | Canada | – | NRCan MRDEM-30 DTM, 30 m | NRCan MRDEM-30 DSM, 30 m | – (no national orthophoto service) | 30 m | – |
 | `slovenia` | Slovenia | SI | ARSO LiDAR DMR 1 m (2011-2015) | – | GURS DOF050 | 1 m | `austria` at the border, then `europe` |

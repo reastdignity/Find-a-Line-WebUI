@@ -148,9 +148,12 @@ SOURCES: List[Source] = [
         nmt=_lidarbc("dem", (6, 5), "LidarBC DEM 1 m (terrain)"),
         nmpt=_lidarbc("dsm", (3, 1), "LidarBC DSM 1 m (trees, buildings)"),
         countries=("ca",), regions=("ca-bc",), local_crs=bc_utm_crs, credits=(LIDARBC_CREDIT,),
-        # Never FABDEM (its terms are not open): HRDEM, then its 2 m version, then MRDEM-30
+        # Never FABDEM (its terms are not open): HRDEM, then its 2 m version, then MRDEM-30. canada is no neighbour
+        # (either way): it is the first gap filler here, and as a neighbour of canada this source would fill the
+        # border gaps of a search on HRDEM inside British Columbia (R41 at the Chief: 33 pixels from LidarBC, the
+        # filled area 0.01 -> 0 km2), not across a border
         fallback="canada", more_fallbacks=("canada_2m", "mrdem30"),
-        neighbours=("canada", "usa", "alaska", "alaska_ifsar"),
+        neighbours=("usa", "alaska", "alaska_ifsar"),
         listing=ReadmeRow("British Columbia (CA), where it has lidar", "GeoBC LidarBC DEM 2011-2026, 1 m",
                           "GeoBC LidarBC DSM, 1 m", CA_NO_ORTHO),
         offline=BC_BOXES, sample=(49.432, -119.557),  # Skaha Bluffs, Penticton
@@ -170,7 +173,7 @@ SOURCES: List[Source] = [
         nmt=_hrdem(1, "dtm", "HRDEM mosaic DTM 1 m (terrain)", LARGER_1M),
         nmpt=_hrdem(1, "dsm", "HRDEM mosaic DSM 1 m (trees, buildings)", LARGER_1M),
         countries=("ca",), crs=CANADA_LCC, credits=(HRDEM_CREDIT,),
-        fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar", "nunavut", "british_columbia"),
+        fallback="canada_2m", more_fallbacks=("mrdem30",), neighbours=("usa", "alaska", "alaska_ifsar", "nunavut"),
         listing=ReadmeRow("Canada, where it has lidar", "NRCan HRDEM national mosaic DTM, 1 m",
                           "NRCan HRDEM national mosaic DSM, 1 m", CA_NO_ORTHO),
         # Rough boxes (the first holding a point wins, and the USA's and Alaska's come first: southern Ontario
