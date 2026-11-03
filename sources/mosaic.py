@@ -63,7 +63,9 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
     progress.compute.start(f"stitching {label}", len(files), unit="tile")
     for path in files:
         progress.compute.update(1)
-        with rio.open(path) as src:
+        # The cached files' blocks decoded on WARP_THREADS (GDAL reads it when the file is opened;
+        # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http)
+        with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS)), rio.open(path) as src:
             _place(src, grid, mosaic, categorical, shift)
     mosaic.flush()
     progress.compute.finish()

@@ -190,14 +190,19 @@ def prominence(elevation: np.ndarray, anchors: np.ndarray, res: float, span: flo
     z = np.ascontiguousarray(elevation, dtype=np.float32)
     h, w = z.shape
     span_px = max(1, math.ceil(span / res))
-    by_row = np.lexsort((anchors[:, 1], anchors[:, 0]))
-    rows, cols = anchors[by_row, 0], anchors[by_row, 1]
+    anchor_pixel = anchors[:, 0] * w + anchors[:, 1]
+    if np.all(anchor_pixel[1:] >= anchor_pixel[:-1]):
+        # Row-major already (find_significant_slopes gives them so): the stable lexsort's order
+        rows, cols = np.ascontiguousarray(anchors[:, 0]), np.ascontiguousarray(anchors[:, 1])
+    else:
+        by_row = np.lexsort((anchors[:, 1], anchors[:, 0]))
+        rows, cols = anchors[by_row, 0], anchors[by_row, 1]
     row_starts = np.searchsorted(rows, np.arange(h + 1))
     index_type = np.zeros(0, dtype=np.int32 if h * w < 2 ** 31 else np.int64)
     pixels = _window(z, rows, cols, row_starts, span_px - 1, index_type)
     order = pixels[np.argsort(-z.ravel()[pixels])]  # the order of equal heights does not change the result
     del pixels
-    return _prominence(z, order, anchors[:, 0] * w + anchors[:, 1], span_px)
+    return _prominence(z, order, anchor_pixel, span_px)
 
 
 @njit(parallel=True, cache=True)
