@@ -13,7 +13,7 @@ import { formatValue, sortKey, SORT_KEYS, type SortKey } from "../../list";
 import type { Line } from "../../types";
 import type { ResultModel, Spot } from "../model";
 import type { ResultMap } from "../ResultMap";
-import { cx, lineColor, num, Swatch, useModel } from "./common";
+import { cx, LineCells, useModel } from "./common";
 
 const PAGE = 100;
 const COLUMNS: {key: string; head: string; title: string}[] = [
@@ -114,10 +114,7 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
               onClick={(e) => { e.stopPropagation(); model.toggleFavourite(l); }}>
         <Icon name="star" fav={model.isFavourite(l)} /></button>
     : <span />;
-  const cells = (l: Line) => <>
-    <Swatch color={lineColor(l)} />
-    <span>{num(l.len)} m</span><span>{num(l.clr, 1)} m</span><span>{isFinite(l.hmax) ? num(l.hmax) + " m" : "–"}</span>
-  </>;
+  const cells = (l: Line) => <LineCells line={l} />;
 
   return <div class="r-table" ref={listRef}>
     <div class="r-table-tools">
