@@ -167,3 +167,21 @@ def test_blocks_cached_above_the_geoid(http_server, tmp_path, monkeypatch):
         assert np.isnan(values[0, 0]) and np.isnan(raw[0, 0])
         assert np.array_equal(values[1:, 1:], (raw - n)[1:, 1:])
         assert (raw[1:, 1:] == band[:20, :20][1:, 1:]).all()
+
+
+def test_check_source_compares_after_the_geoid(http_server, tmp_path, monkeypatch):
+    """tools/check_source.py's file comparison applies the layer's geoid as the layer does: equal values."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import check_source as cs
+    monkeypatch.setattr(src.layer, "DOWNLOAD_THREADS", 1)
+    band = np.add.outer(np.arange(40) * 0.5, np.arange(40) * 0.25).astype(np.float32) + 100
+    left, top = -150000.0, -2400000.0
+    _file(str(tmp_path / "files" / "a.tif"), left, top, band)
+    http_server.add_folder("/files", str(tmp_path / "files"))
+    geoid, _ = _served_geoid(http_server, tmp_path)
+    layer = FileBlocks("H", "test/h-tg", "EPSG:3413", 2.0, 40, http_server.url("/files/a.tif"), geoid=geoid)
+    grid = gd.make_grid((left + 2, top - 78, left + 78, top - 2), 2.0, "EPSG:3413")
+    cache_dir = str(tmp_path / "cache")
+    layer.download(grid, cache_dir, None, "test")
+    check = cs.check_files(layer, grid, cache_dir, 4)
+    assert check["status"] == cs.PASS and "max |d| 0.0000 m" in check["text"], check["text"]
