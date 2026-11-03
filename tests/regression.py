@@ -10,7 +10,8 @@
 
 Each test runs with its own temporary data folder (runs, map, work) whose cache/ links
 to the real cache (or to --cache, e.g. an empty folder to test downloads). The output
-of every search is kept in the log folder printed at the end.
+of every search is in the log folder printed at the end, which is removed when no test
+differs, unless --keep.
 
 What is compared (expected values in regression.json):
 - the counts of the search: anchors, open anchors, checked pairs, lines, spots, water...;
@@ -357,6 +358,8 @@ def main():
     parser.add_argument("--update", action="store_true", help="store the results of the run tests as expected")
     parser.add_argument("--write-doc", action="store_true", help="rewrite the table in docs/regression-tests.md")
     parser.add_argument("--browser", action="store_true", help="also check the map in a headless browser")
+    parser.add_argument("--keep", action="store_true",
+                        help="keep the log folder (runs, maps, output) also when no test differs")
     parser.add_argument("--cache", help="cache folder for the searches (default: the real one, "
                                          "cache/ in FINDALINE_DATA or the repository)")
     args = parser.parse_args()
@@ -417,9 +420,14 @@ def main():
         print(f"Expected values updated in {TESTS}")
     if args.write_doc:
         write_doc(tests)
+    if failed or args.keep:
+        where = f"logs in {work}"
+    else:  # rmtree removes the cache links as links, never what they point to
+        shutil.rmtree(work, ignore_errors=True)
+        where = f"some of the logs left in {work}" if os.path.exists(work) else "logs removed (--keep keeps them)"
     if ids:
         print(f"\n{len(ids) - len(failed) - len(skipped)} ok, {len(failed)} different, {len(skipped)} skipped; "
-              f"logs in {work}")
+              f"{where}")
     sys.exit(1 if failed and not args.update else 0)
 
 

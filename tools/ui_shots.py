@@ -21,8 +21,10 @@ Phone screenshots of the viewport only (the shells scroll inside, not the page).
 """
 
 import argparse
+import gc
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -234,13 +236,15 @@ def serve(data: str):
     cert_file, key_file = certificate(data)
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
                                            ssl_certfile=cert_file, ssl_keyfile=key_file))
-    threading.Thread(target=server.run, daemon=True).start()
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
     while not server.started:
         time.sleep(0.1)
 
     def stop():
         server.should_exit = True
         scheduler.stop()
+        thread.join(timeout=10)
     return site, cookies, run, share, stop
 
 
@@ -250,7 +254,7 @@ def main():
     parser.add_argument("--only", default="", help="pages whose name contains this (comma-separated)")
     parser.add_argument("--devices", default="desktop,iphone,pixel", help="of: " + ", ".join(DEVICES))
     parser.add_argument("--dark", action="store_true", help="the dark theme too")
-    parser.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one)")
+    parser.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
     args = parser.parse_args()
 
     from playwright.sync_api import sync_playwright
@@ -330,6 +334,9 @@ def main():
                 browser.close()
     finally:
         stop()
+        if not args.data_dir:  # the folder made above (tools/clean_temp.py removes those of runs that did not end)
+            gc.collect()  # SQLite connections left in reference cycles keep their files open on Windows
+            shutil.rmtree(data, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -23,8 +23,8 @@ uv run tests/regression.py R1 --update --write-doc   # store new results, rewrit
 - Always checked: the map data (`data.js` has every line; profiles for every line of a circle (run.json `summary.profiles` "all") and otherwise for the line shown for each group: an area, or a circle whose profiles would take more than `search.CIRCLE_PROFILES_BYTES`; `lines.js` the same lines); with `check_profiles` (R16) that profiles computed again from the cache (`search.profile_of_line`) equal the saved ones; with `--browser` that the map shows the spots of `lines.csv`.
 - Each test records its time (`seconds`); one more than twice as slow (and 5 s slower) gets a warning, not a failure.
 - R17 (`kind: osm`, set `network`) builds the coastline and cliff tiles of Malta from the Geofabrik extract and fetches them from Overpass: the features and geometries must be the same. It is skipped without the extract (`findaline.py osm download malta`) or when Overpass does not answer.
-- After upgrading libraries (`uv lock`), checksums may change with identical lines: compare two log folders' `lines.csv` files to see what changed, then re-baseline.
-- The table below is generated from `tests/regression.json` (`--write-doc`); edit the JSON, not the table. Each test's log stays in the folder printed at the end.
+- After upgrading libraries (`uv lock`), checksums may change with identical lines: compare two log folders' `lines.csv` files to see what changed (the run before the upgrade with `--keep`), then re-baseline.
+- The table below is generated from `tests/regression.json` (`--write-doc`); edit the JSON, not the table. The log folder (each test's runs, map and output) is printed at the end and kept when a test differs or with `--keep`; otherwise it is removed (`tools/clean_temp.py` removes the kept ones later).
 - The offline tests (`uv run pytest`, ~25 s) need no network and no cache: a synthetic canyon and a 600 × 600 m clip of Żabi Koń (`tests/data`, cut by `make_fixture.py`).
 
 ## When a number differs
