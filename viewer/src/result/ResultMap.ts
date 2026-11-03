@@ -1,8 +1,10 @@
 // Draws a ResultModel on a Leaflet map that the caller (a shell of the app) owns: the run's area,
 // its lines (pink clear, orange over trees/buildings), gold halos of favourites, other runs in their
 // colours, the selected line emphasised (halo, anchors) with the others dimmed and its group's
-// variants thin and clickable, a hover highlight, the profile's hover marker and a measure mode.
-// No popups, no controls, no DOM outside the map: the shell's panels show the rest.
+// variants thin, a hover highlight, the profile's hover marker and a measure mode. Everything is drawn
+// on one canvas, none of it interactive: a click takes the nearest line within a few pixels (more for a
+// finger), the mouse shows it before, and when several spots lie about as near the caller may let the
+// user choose (onChoose). No popups, no controls, no DOM outside the map: the shell's panels show the rest.
 
 import L from "leaflet";
 import type { Group } from "../grouping";
@@ -12,14 +14,43 @@ import type { ResultModel } from "./model";
 
 export interface Padding { top: number; right: number; bottom: number; left: number }
 
+/** A line a click reached: `px` its distance from the click on the screen. */
+export interface Choice { line: Line; group: Group<Line>; variant: boolean; px: number }
+
 export interface ResultMapOptions {
   /** A line (`variant`: a thin line of the selected group) was clicked; default: model.select(line). */
   onLine?(line: Line, group: Group<Line>, variant: boolean): void;
-  /** The mouse entered (a line) or left (null) a line. */
+  /** The mouse came to (a line) or left (null) the line a click would take. */
   onHover?(line: Line | null): void;
+  /** Several spots lie about as near a click (`choices`: one line each, the nearest first; `at`: the click's
+   *  point in the map's container): let the user choose. Without it the nearest line is taken. */
+  onChoose?(choices: Choice[], at: L.Point): void;
 }
 
 const DIM = 0.25;  // opacity of the lines not selected while one is
+const REACH_MOUSE = 8;   // px from a line's axis a click of the mouse still takes it
+const REACH_TOUCH = 20;  // the same for a finger (a 40 px wide band)
+const TIE_MOUSE = 3;     // another spot within this many px more than the nearest one: the click is ambiguous
+const TIE_TOUCH = 8;
+const CHOICES_MAX = 6;
+// PROTOTYPE (removed before merging): ?pick=old keeps Leaflet's hit test of before, for comparison
+const OLD_PICK = (() => {
+  try { return new URLSearchParams(location.search).get("pick") === "old"; } catch { return false; }
+})();
+
+/** The distance of (px, py) from the segment a–b. */
+function segmentDistance(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const dx = bx - ax, dy = by - ay, len2 = dx * dx + dy * dy;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / len2)) : 0;
+  return Math.hypot(px - ax - t * dx, py - ay - t * dy);
+}
+
+/** Was the click a finger's: its pointer type, else (a browser whose click is no PointerEvent) a coarse pointer. */
+function byFinger(e: L.LeafletMouseEvent): boolean {
+  const type = (e.originalEvent as PointerEvent).pointerType;
+  if (type) return type === "touch";
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+}
 
 /** A canvas renderer whose redraw does nothing once its canvas is gone: Leaflet binds the redraw when it
  *  asks for the frame, so a frame asked for before the map or the renderer was removed may still run
@@ -37,7 +68,8 @@ export class ResultMap {
   private readonly model: ResultModel;
   private readonly options: ResultMapOptions;
   private readonly renderer = new SafeCanvas({padding: 0.5});
-  private readonly variantRenderer = new SafeCanvas({padding: 0.5, tolerance: 5});  // thin lines that can still be clicked
+  // PROTOTYPE: the old second canvas only with ?pick=old (over the first one it took every click)
+  private readonly variantRenderer = OLD_PICK ? new SafeCanvas({padding: 0.5, tolerance: 5}) : this.renderer;
   private readonly area: L.GeoJSON;
   private readonly otherAreas = L.layerGroup();
   private readonly linesLayer = L.layerGroup();
@@ -46,7 +78,13 @@ export class ResultMap {
   private readonly measureLayer = L.layerGroup();
   private readonly layers: L.Layer[];
   private marker: L.CircleMarker | null = null;
-  private hovered: Line | null = null;
+  private hovered: Line | null = null;     // a row of the list under the mouse
+  private mapHovered: Line | null = null;  // the line a click on the map would take
+  // The lines a click can reach in the order they are drawn (the last one on top), and their ends in the
+  // map's pixels at `projectedZoom` (x1, y1, x2, y2 each; panning keeps them)
+  private targets: {line: Line; group: Group<Line>; variant: boolean}[] = [];
+  private projected: Float64Array | null = null;
+  private projectedZoom = NaN;
   private measuring: ((a: L.LatLng, b: L.LatLng) => void) | null = null;
   private points: L.LatLng[] = [];
   private readonly measureListeners = new Set<(measuring: boolean) => void>();
@@ -63,6 +101,7 @@ export class ResultMap {
     this.layers = [this.area, this.otherAreas, this.linesLayer, this.topLayer, this.hoverLayer, this.measureLayer];
     this.layers.forEach((layer) => layer.addTo(map));
     map.on("click", this.onMapClick);
+    if (!OLD_PICK) map.on("mousemove", this.onMouseMove).on("mouseout", this.onMouseOut);
     document.addEventListener("keydown", this.onKey);
     this.unsubscribe = model.subscribe(() => this.render());
     this.render();
@@ -77,6 +116,7 @@ export class ResultMap {
     this.layers.forEach((layer) => this.map.removeLayer(layer));
     [this.renderer, this.variantRenderer].forEach((r) => { if (this.map.hasLayer(r)) this.map.removeLayer(r); });
     this.map.off("click", this.onMapClick);
+    this.map.off("mousemove", this.onMouseMove).off("mouseout", this.onMouseOut);
     document.removeEventListener("keydown", this.onKey);
   }
 
@@ -91,11 +131,17 @@ export class ResultMap {
   /** A line of the map; lines of other runs are dashed over trees/buildings. */
   private polyline(l: Line, options: L.PolylineOptions): L.Polyline {
     return L.polyline([[l.lat1, l.lon1], [l.lat2, l.lon2]],
-                      {color: this.color(l), renderer: this.renderer, bubblingMouseEvents: false,
+                      {color: this.color(l), renderer: this.renderer, interactive: OLD_PICK, bubblingMouseEvents: false,
                        dashArray: l.run && l.over ? "6 4" : undefined, ...options});
   }
 
-  /** Clicks and hovers of a line (a click while measuring is a point of the measurement). */
+  /** A line a click can take; drawn later, it is on top. */
+  private target(pl: L.Polyline, l: Line, g: Group<Line>, variant: boolean) {
+    if (OLD_PICK) this.wire(pl, l, g, variant);
+    else this.targets.push({line: l, group: g, variant});
+  }
+
+  /** PROTOTYPE (?pick=old): clicks and hovers of a line as Leaflet's canvas found them before. */
   private wire(pl: L.Polyline, l: Line, g: Group<Line>, variant: boolean) {
     pl.on("click", (e: L.LeafletMouseEvent) => {
       if (this.measuring) { this.addPoint(e.latlng); return; }
@@ -116,6 +162,8 @@ export class ResultMap {
     this.linesLayer.clearLayers();
     this.topLayer.clearLayers();
     this.otherAreas.clearLayers();
+    this.targets = [];
+    this.projected = null;
     model.others.forEach((run) => {
       L.geoJSON(run.area as any, {interactive: false,
                                   style: {renderer: this.renderer, color: run.color, weight: 1, dashArray: "6",
@@ -133,7 +181,7 @@ export class ResultMap {
                           dashArray: undefined, interactive: false}).addTo(this.linesLayer);
       }
       const pl = this.polyline(l, {weight: this.weight(l), opacity});
-      this.wire(pl, l, g, false);
+      this.target(pl, l, g, false);
       pl.addTo(this.linesLayer);
     }
     if (selected) {
@@ -142,20 +190,22 @@ export class ResultMap {
       for (const m of group.members) {
         if (m === line) continue;
         const variant = this.polyline(m, {weight: 1, opacity: 0.8, renderer: this.variantRenderer});
-        this.wire(variant, m, group, true);
+        this.target(variant, m, group, true);
         variant.addTo(this.topLayer);
       }
       const favourite = model.favouritesOn && model.isFavourite(line);
       this.polyline(line, {color: favourite ? COLORS.favourite : "#000", weight: w + 8, opacity: favourite ? 0.8 : 0.45,
                            dashArray: undefined, interactive: false}).addTo(this.topLayer);
       const pl = this.polyline(line, {weight: w + 2, opacity: 1});
-      this.wire(pl, line, group, false);
+      this.target(pl, line, group, false);
       pl.addTo(this.topLayer);
       for (const at of [[line.lat1, line.lon1], [line.lat2, line.lon2]] as [number, number][]) {
         L.circleMarker(at, {radius: 5, color: "#000", weight: 2, fillColor: "#fff", fillOpacity: 1,
                             interactive: false, renderer: this.renderer}).addTo(this.topLayer);
       }
     }
+    // The line under the mouse may be gone (a filter)
+    if (this.mapHovered && !this.targets.some((t) => t.line === this.mapHovered)) this.setMapHovered(null);
     this.drawHover();
   }
 
@@ -167,9 +217,81 @@ export class ResultMap {
 
   private drawHover() {
     this.hoverLayer.clearLayers();
-    const l = this.hovered;
+    const l = this.hovered || this.mapHovered;
     if (l) this.polyline(l, {weight: 7, opacity: 1, interactive: false}).addTo(this.hoverLayer);
   }
+
+  // --- picking a line ---
+
+  /** The ends of the targets in the map's pixels at its zoom (computed again after a zoom or a render). */
+  private ends(): Float64Array {
+    const zoom = this.map.getZoom();
+    if (this.projected && this.projectedZoom === zoom) return this.projected;
+    const xy = new Float64Array(this.targets.length * 4);
+    this.targets.forEach(({line}, k) => {
+      const a = this.map.project([line.lat1, line.lon1], zoom), b = this.map.project([line.lat2, line.lon2], zoom);
+      xy[4 * k] = a.x; xy[4 * k + 1] = a.y; xy[4 * k + 2] = b.x; xy[4 * k + 3] = b.y;
+    });
+    this.projected = xy;
+    this.projectedZoom = zoom;
+    return xy;
+  }
+
+  /** The spots with a line within `reach` px of a point, each by its nearest line, the nearest first (of
+   *  two as near, the one drawn later: it is on top). */
+  near(at: L.LatLng, reach: number): Choice[] {
+    const xy = this.ends(), p = this.map.project(at, this.projectedZoom);
+    const best = new Map<Group<Line>, Choice & {k: number}>();
+    for (let k = 0; k < this.targets.length; k++) {
+      const px = segmentDistance(p.x, p.y, xy[4 * k], xy[4 * k + 1], xy[4 * k + 2], xy[4 * k + 3]);
+      if (px > reach) continue;
+      const t = this.targets[k], had = best.get(t.group);
+      if (!had || px <= had.px) best.set(t.group, {...t, px, k});
+    }
+    return [...best.values()].sort((a, b) => a.px - b.px || b.k - a.k)
+      .map(({line, group, variant, px}) => ({line, group, variant, px}));
+  }
+
+  /** What a click at a point takes: the nearest spot's line, or the spots about as near (ambiguous). */
+  private pick(at: L.LatLng, finger: boolean): Choice[] {
+    const found = this.near(at, finger ? REACH_TOUCH : REACH_MOUSE);
+    if (found.length < 2) return found;
+    const tie = found[0].px + (finger ? TIE_TOUCH : TIE_MOUSE);
+    return found.filter((c) => c.px <= tie).slice(0, CHOICES_MAX);
+  }
+
+  /** Take a line as a click on it does (onLine, else model.select). */
+  choose(c: Choice) {
+    if (this.options.onLine) this.options.onLine(c.line, c.group, c.variant);
+    else this.model.select(c.line);
+  }
+
+  /** Give the focus back to the map (a choice closed with Esc). */
+  focusMap() {
+    this.map.getContainer().focus({preventScroll: true});
+  }
+
+  private setMapHovered(line: Line | null) {
+    if (line === this.mapHovered) return;
+    this.mapHovered = line;
+    const canvas = (this.renderer as any)._container as HTMLElement | undefined;
+    canvas?.classList.toggle("leaflet-interactive", !!line);  // Leaflet's pointer cursor
+    this.drawHover();
+    this.options.onHover?.(line);
+  }
+
+  // The line a click would take, under the mouse (Leaflet's canvas passes its mousemove on about 30 times
+  // a second, not while the map is dragged); none while measuring or for the mouse events of a finger
+  private onMouseMove = (e: L.LeafletMouseEvent) => {
+    if (this.measuring || (e.originalEvent as any).sourceCapabilities?.firesTouchEvents) {
+      this.setMapHovered(null);
+      return;
+    }
+    const found = this.near(e.latlng, REACH_MOUSE);
+    this.setMapHovered(found.length ? found[0].line : null);
+  };
+
+  private onMouseOut = () => this.setMapHovered(null);
 
   /** The point of the profile under the mouse; null: none. */
   hoverAt(at: L.LatLngExpression | null) {
@@ -261,9 +383,14 @@ export class ResultMap {
     done(a, b);
   }
 
-  // A click beside the lines (theirs do not bubble) ends the selection
+  // A click takes the nearest line, lets the user choose between spots about as near or, beside the lines,
+  // ends the selection; while measuring it is a point
   private onMapClick = (e: L.LeafletMouseEvent) => {
-    if (this.measuring) this.addPoint(e.latlng);
+    if (this.measuring) { this.addPoint(e.latlng); return; }
+    if (OLD_PICK) { if (this.model.selected) this.model.select(null); return; }  // PROTOTYPE: lines' clicks did not bubble
+    const found = this.pick(e.latlng, byFinger(e));
+    if (found.length > 1 && this.options.onChoose) this.options.onChoose(found, e.containerPoint);
+    else if (found.length) this.choose(found[0]);
     else if (this.model.selected) this.model.select(null);
   };
 

@@ -353,6 +353,194 @@ def test_shell_d_desktop(data, tmp_path):
     assert r["csp"] == []
 
 
+PICK_SCRIPT = """
+const SMALL = "%(small)s";
+const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
+const map = () => window.FINDALINE_MAP, view = () => window.FINDALINE_RESULT.view;
+const box = () => map().getContainer().getBoundingClientRect();
+// A point of the map's container (without Leaflet's rounding of layer points)
+const point = (lat, lon) => map().layerPointToContainerPoint(map().project([lat, lon]).subtract(map().getPixelOrigin()));
+const dist = (p, l) => {
+  const a = point(l.lat1, l.lon1), b = point(l.lat2, l.lon2), dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0;
+  return Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+};
+// The lines drawn: the shown line of each spot, all lines of the selected one
+const drawn = () => {
+  const m = model(), sel = m.selected && m.selected.group, out = [];
+  m.groups.forEach((g) => (g === sel ? g.members : [m.shownOf(g)]).forEach((l) => out.push({l, g})));
+  return out;
+};
+const free = (p) => {
+  const el = document.elementFromPoint(box().left + p.x, box().top + p.y);
+  return !!el && el.tagName === "CANVAS" && !!el.closest(".leaflet-overlay-pane");
+};
+// A whole pixel `offset` px beside the middle of a drawn line that `want` takes, where that line is the nearest
+// of its spot's and the other spots' lines are `margin` px farther; `avoid`: spots to keep 40 px away
+const beside = (want, offset, margin, avoid = []) => {
+  const all = drawn();
+  for (const {l, g} of all) {
+    if (!want(l, g)) continue;
+    const a = point(l.lat1, l.lon1), b = point(l.lat2, l.lon2), len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (len < 2 * offset + 30) continue;
+    for (const side of [1, -1]) {
+      const p = {x: Math.round((a.x + b.x) / 2 - side * offset * (b.y - a.y) / len),
+                 y: Math.round((a.y + b.y) / 2 + side * offset * (b.x - a.x) / len)};
+      const mine = dist(p, l);
+      if (!free(p) || all.some((o) => o.l !== l && (o.g === g ? dist(p, o.l) < mine : dist(p, o.l) < mine + margin))) continue;
+      if (avoid.some((h) => h.members.some((x) => dist(p, x) < 40))) continue;
+      return {p, l, g};
+    }
+  }
+  return null;
+};
+// What the browser sends for a click of the mouse (or a tap of a finger) at a point: to the element there
+const click = (p, finger) => {
+  const x = box().left + p.x, y = box().top + p.y, init = {bubbles: true, cancelable: true, clientX: x, clientY: y, view: window};
+  document.elementFromPoint(x, y).dispatchEvent(finger ? new PointerEvent("click", {...init, pointerType: "touch"})
+                                                       : new MouseEvent("click", init));
+};
+const move = (p) => {
+  const x = box().left + p.x, y = box().top + p.y;
+  document.elementFromPoint(x, y).dispatchEvent(new MouseEvent("mousemove", {bubbles: true, clientX: x, clientY: y, view: window}));
+};
+const selectedIs = (g) => !!model().selected && model().selected.group === g;
+run({
+  open(next) { wait(() => model() && map() && $(".b-results .r-rows .r-row"), () => {
+    result.zoom = map().getZoom();
+    next();
+  }); },
+  near(next) {
+    // 4 px beside a spot with similar lines (once selected, main's second canvas lay over the map), then beside
+    // another: zoomed in on the first spot of the list until both are found
+    let a = null, b = null;
+    const first = model().rows[0].line, centre = [(first.lat1 + first.lat2) / 2, (first.lon1 + first.lon2) / 2];
+    for (let z = result.zoom + 1; z <= map().getMaxZoom() && !b; z++) {
+      map().setView(centre, z, {animate: false});
+      a = beside((l, g) => g.members.length > 1, 4, 6);
+      b = a && beside((l, g) => g !== a.g, 4, 6, [a.g]);
+    }
+    result.found = [!!a, !!b];
+    model().select(null);
+    click(a.p);
+    result.near = selectedIs(a.g);
+    click(b.p);
+    result.switched = selectedIs(b.g);
+    // the mouse shows the line a click takes, and Leaflet's pointer
+    model().select(null);
+    later(() => {
+      move(a.p);
+      later(() => {
+        result.hover = [view().mapHovered === a.l, !!$(".leaflet-overlay-pane canvas.leaflet-interactive")];
+        // beside every line: the selection ends, the pointer goes
+        const empty = (() => {
+          const w = box().width, h = box().height;
+          for (let y = 80; y < h - 80; y += 10) for (let x = 20; x < w - 420; x += 10)
+            if (free({x, y}) && drawn().every((d) => dist({x, y}, d.l) > 40)) return {x, y};
+          return null;
+        })();
+        move(empty);
+        click(a.p);  // selected again, then a click beside every line
+        later(() => {
+          result.unhover = !$(".leaflet-overlay-pane canvas.leaflet-interactive");
+          click(empty);
+          result.beside = [!!empty, !model().selected];
+          // a thin line of a selected spot, clear of its other lines (taken, it is the one its spot shows)
+          let v = null;
+          for (const g of model().groups.filter((h) => h.members.length > 1).slice(0, 40)) {
+            model().select(g);
+            v = beside((l, h) => h === g && l !== model().selected.line, 2, 3);
+            if (v) break;
+          }
+          if (v) click(v.p);
+          result.variant = v ? [selectedIs(v.g), model().selected.line === v.l] : "none";
+          next();
+        }, 100);
+      }, 100);
+    }, 100);
+  },
+  finger(next) {
+    // 14 px: a finger's tap takes the line, the mouse's click does not (no other spot within 8 px more)
+    let f = null;
+    model().select(null);
+    const first = model().rows[0].line, centre = [(first.lat1 + first.lat2) / 2, (first.lon1 + first.lon2) / 2];
+    for (let z = result.zoom + 1; z <= map().getMaxZoom() && !f; z++) {
+      map().setView(centre, z, {animate: false});
+      f = beside(() => true, 14, 9);
+    }
+    result.fingerFound = !!f;
+    model().select(null);
+    click(f.p);
+    const mouse = !!model().selected;
+    click(f.p, true);
+    result.finger = [mouse, selectedIs(f.g)];
+    // measuring: a click on a line is a point, not a selection
+    model().select(null);
+    let measured = null;
+    view().startMeasure((p, q) => { measured = [p, q]; });
+    click(beside(() => true, 0, 6).p);
+    result.measuring = [view().isMeasuring, !model().selected];
+    view().cancelMeasure();
+    view().clearMeasure();
+    next();
+  },
+  choose(next) {
+    // Zoomed out, a click where several spots lie about as near: the list of them; the second one taken
+    model().select(null);
+    map().setZoom(result.zoom - 2, {animate: false});
+    later(() => {
+      let at = null, near = [];
+      for (const {l} of drawn()) {
+        const p = point((l.lat1 + l.lat2) / 2, (l.lon1 + l.lon2) / 2), q = {x: Math.round(p.x), y: Math.round(p.y)};
+        if (!free(q)) continue;
+        near = view().near(map().containerPointToLatLng([q.x, q.y]), 8);
+        if (near.length > 1 && near[1].px <= near[0].px + 3) { at = q; break; }
+      }
+      result.crowd = !!at;
+      click(at);
+      later(() => {
+        const rows = $$(".r-choose [role=option]");
+        result.list = [rows.length, Math.min(6, near.filter((c) => c.px <= near[0].px + 3).length),
+                       !!document.activeElement.closest(".r-choose")];
+        rows[1].click();
+        later(() => {
+          result.chosen = [selectedIs(near[1].group), !$(".r-choose")];
+          // the list again (the selected spot's lines drawn now), closed with Esc
+          click(at);
+          later(() => {
+            const reopened = !!$(".r-choose");
+            document.activeElement.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true, cancelable: true}));
+            later(() => { result.escaped = [reopened, !$(".r-choose"), selectedIs(near[1].group)]; next(); });
+          });
+        });
+      });
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_d_pick(data, tmp_path):
+    """Lines taken on the map with the events a browser sends to whatever lies at a point (the canvas): a click 4 px
+    beside a line takes it, also while a spot with similar lines is selected (main's second canvas of those lines
+    lay over the map and took every click), a thin line of the selected spot is taken; the mouse shows the line and
+    the pointer; a click beside every line ends the selection; 14 px away a finger's tap takes the line, the mouse's
+    click does not; while measuring a click is a point; where spots lie about as near, a list of them: its second row
+    taken, Esc closes it and the selection stays; no CSP violations."""
+    page = stub_page(data, "dpick", PICK_SCRIPT % {"small": SMALL})
+    with _server(data) as port:
+        r = _edge(port, page + f"?ui=d#run={SMALL}", tmp_path / "edge-pick")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert r["found"] == [True, True] and r["near"] and r["switched"], r
+    assert r["variant"] == [True, True], r
+    assert r["hover"] == [True, True] and r["unhover"] and r["beside"] == [True, True], r
+    assert r["fingerFound"] and r["finger"] == [False, True] and r["measuring"] == [True, True], r
+    assert r["crowd"] and r["list"][0] == r["list"][1] >= 2 and r["list"][2], r
+    assert r["chosen"] == [True, True] and r["escaped"] == [True, True, True], r
+    assert r["csp"] == []
+
+
 PHONE_SCRIPT = """
 const SMALL = "%(small)s";
 run({
