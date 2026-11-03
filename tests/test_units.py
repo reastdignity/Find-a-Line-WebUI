@@ -1217,20 +1217,8 @@ def _fill_before(target, other, gaps, res):
 @pytest.mark.parametrize("seed", [0, 1, 2])
 def test_gap_fill_as_before(seed, tmp_path):
     """_fill with its temporaries computed in place fills every gap with the same float32 bits as before."""
-    from scipy import ndimage
-    rng = np.random.default_rng(seed)
-    shape = (157, 211)
-    y, x = np.mgrid[:shape[0], :shape[1]]
-    terrain = (300 + 40 * np.sin(x / 17) * np.cos(y / 23) + 25 * (x > 120) + rng.normal(0, 0.3, shape))
-    terrain = terrain.astype(np.float32)
-    terrain[60:66, :] += np.linspace(0, 90, shape[1], dtype=np.float32)  # a cliff band: steep pixels
-    gaps = ndimage.binary_dilation(rng.random(shape) < 0.002, iterations=4) | (rng.random(shape) < 0.01)
-    gaps[:5, :9] = True  # a gap at the corner
-    other = (terrain + 1.7 + rng.normal(0, 0.4, shape)).astype(np.float32)
-    other[rng.random(shape) < 0.03] = np.nan  # the filling source has gaps too
-    other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
-    if seed == 2:
-        other[:] = np.nan  # nothing to fill with
+    terrain, gaps, other = _gap_fill_case(seed)
+    shape = terrain.shape
     grids = []
     for name in ("new", "old"):
         grid = np.lib.format.open_memmap(str(tmp_path / f"{name}.npy"), mode="w+", dtype=np.float32, shape=shape)
@@ -1352,6 +1340,310 @@ def test_mosaics_as_before(tmp_path):
     assert new.dtype == np.uint8 and np.isnan(old).any() and {0, 1, 2, 3} <= set(np.unique(old[~np.isnan(old)]))
     assert np.array_equal(new, np.where(np.isnan(old), src.mosaic.NODATA, old).astype(np.uint8))
     del new
+
+
+# Step 1 in strips of rows (the area of a tiled search, search.search_lines: prepare_data(strips=True)):
+# each function with `rows` gives the whole-grid function's values, for any strip height
+
+def _memmap(tmp_path, name, array):
+    out = np.lib.format.open_memmap(str(tmp_path / name), mode="w+", dtype=array.dtype, shape=array.shape)
+    out[:] = array
+    out.flush()
+    return out
+
+
+def _bits(a):
+    return np.asarray(a).view(np.uint32)
+
+
+def test_near_rows_as_near():
+    """near_rows gives near() of the whole grid for any strip height (a halo of n rows), also at the
+    grid's edges, for empty and full masks and n of 0 (a copy)."""
+    rng = np.random.default_rng(11)
+    for shape in ((1, 7), (37, 53), (64, 20)):
+        masks = [np.zeros(shape, bool), np.ones(shape, bool), rng.random(shape) < 0.05, rng.random(shape) < 0.4]
+        for mask in masks:
+            for metres, res in ((0, 1.0), (1, 1.0), (2.5, 1.0), (45, 2.0), (9.0, 0.3), (100, 1.0)):
+                expected = src.near(mask, metres, res)
+                for rows in (1, 3, 16, shape[0], shape[0] + 5):
+                    out = np.zeros(shape, bool)
+                    got = src.filling.near_rows(lambda r0, r1: mask[r0:r1], metres, res, out, rows)
+                    assert got is out and np.array_equal(got, expected), (shape, metres, res, rows)
+
+
+def test_median_of_rows_is_np_median(monkeypatch):
+    """The overall offset of _fill in strips (filling._median_of: a selection on the float32 bit
+    patterns, read chunk by chunk) is np.median of the values held whole: odd and even counts,
+    ties, negative values, -0.0, the extremes, and the histogram refined over several rounds."""
+    rng = np.random.default_rng(5)
+    cases = [rng.normal(0, 3, n).astype(np.float32) for n in (1, 2, 3, 4, 1000, 100001)]
+    cases.append(np.round(rng.normal(0, 3, 5000), 1).astype(np.float32))  # many ties
+    cases.append(np.full(70001, 2.5, np.float32))
+    cases.append(np.array([-0.0, 0.0, 0.0, -0.0], np.float32))
+    cases.append(np.array([3.0, -1e-40, 1e38, -1e38, 7.0, -7.5], np.float32))
+    cases.append(rng.choice(np.array([-2.0, -1.0, 0.0, 1.0, 2.0], np.float32), 300000))
+    for small in (False, True):
+        if small:  # bins of a few keys and a few values collected: the range narrows round by round
+            monkeypatch.setattr(src.filling, "SELECT_BINS", 4)
+            monkeypatch.setattr(src.filling, "SELECT_COLLECT", 50)
+        for values in cases:
+            for chunk in (1, 7, 1000, len(values)):
+                parts = [values[i:i + chunk] for i in range(0, len(values), chunk)]
+                keys = src.filling._KeyRange()
+                for part in parts:
+                    keys.add(part)
+                assert keys.n == len(values)
+                got = src.filling._median_of(lambda: iter(parts), keys)
+                assert got == float(np.median(values)), (len(values), chunk, small)
+    keys = src.filling._keys(np.array([-np.inf, -1e38, -2.0, -0.0, 0.0, 1e-45, 2.0, np.inf], np.float32))
+    assert np.all(np.diff(keys) > 0)  # the keys follow the values
+    assert all(src.filling._key_value(int(k)) == v or (np.isnan(v))
+               for k, v in zip(keys, [-np.inf, -1e38, -2.0, -0.0, 0.0, 1e-45, 2.0, np.inf]))
+
+
+def _gap_fill_case(seed):
+    """A terrain with gaps and a filling source (test_gap_fill_as_before's)."""
+    from scipy import ndimage
+    rng = np.random.default_rng(seed)
+    shape = (157, 211)
+    y, x = np.mgrid[:shape[0], :shape[1]]
+    terrain = (300 + 40 * np.sin(x / 17) * np.cos(y / 23) + 25 * (x > 120) + rng.normal(0, 0.3, shape))
+    terrain = terrain.astype(np.float32)
+    terrain[60:66, :] += np.linspace(0, 90, shape[1], dtype=np.float32)  # a cliff band: steep pixels
+    gaps = ndimage.binary_dilation(rng.random(shape) < 0.002, iterations=4) | (rng.random(shape) < 0.01)
+    gaps[:5, :9] = True  # a gap at the corner
+    other = (terrain + 1.7 + rng.normal(0, 0.4, shape)).astype(np.float32)
+    other[rng.random(shape) < 0.03] = np.nan  # the filling source has gaps too
+    other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
+    if seed == 2:
+        other[:] = np.nan  # nothing to fill with
+    return terrain, gaps, other
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_fill_rows_as_before(seed, tmp_path):
+    """_fill in strips of rows fills every gap with the float32 bits of _fill on the whole grid
+    (test_gap_fill_as_before's reference): any strip height, also the filling source known on a
+    window of the grid only (a neighbour's, NaN outside), the same count; its temporary mask gone."""
+    terrain, gaps, other = _gap_fill_case(seed)
+    shape = terrain.shape
+    whole = _memmap(tmp_path, "whole.npy", np.where(gaps, np.nan, terrain).astype(np.float32))
+    expected = _fill_before(whole, other, gaps, 1.0)
+    gaps_mm = _memmap(tmp_path, "gaps.npy", gaps)
+    other_mm = _memmap(tmp_path, "other.npy", other)
+    for rows in (1, 5, 40, shape[0], 500):
+        grid = _memmap(tmp_path, f"rows{rows}.npy", np.where(gaps, np.nan, terrain).astype(np.float32))
+        count = src.filling._fill(grid, other_mm, gaps_mm, 1.0, "test", rows=rows, work=str(tmp_path))
+        assert count == expected and np.array_equal(_bits(grid), _bits(whole)), rows
+        assert not os.path.exists(tmp_path / "both.npy")
+    window = (slice(20, 120), slice(30, 190))
+    other_w = np.full(shape, np.nan, np.float32)
+    other_w[window] = other[window]
+    whole_w = _memmap(tmp_path, "whole_w.npy", np.where(gaps, np.nan, terrain).astype(np.float32))
+    expected = _fill_before(whole_w, other_w, gaps, 1.0)
+    sub = _memmap(tmp_path, "sub.npy", np.ascontiguousarray(other[window]))
+    for rows in (7, 64):
+        grid = _memmap(tmp_path, f"window{rows}.npy", np.where(gaps, np.nan, terrain).astype(np.float32))
+        count = src.filling._fill(grid, sub, gaps_mm, 1.0, "test", rows=rows, window=window, work=str(tmp_path))
+        assert count == expected and np.array_equal(_bits(grid), _bits(whole_w)), rows
+
+
+def test_fill_water_rows_as_before(tmp_path):
+    """fill_water in strips of rows: the same terrain and surface bits, the same water mask, for any
+    strip height (lakes crossing strips, a lake measured, the sea given by the data, a provider's
+    constant), and the bare mask of the pixels filled."""
+    from grid import Grid
+    rng = np.random.default_rng(3)
+    H, W = 90, 160  # 2 m pixels: the lakes' shore buffer (SHORE_BUFFER) reaches 23 px
+    z = (rng.random((H, W)) * 30 + 2).astype(np.float32)
+    z[:, :12] = np.nan  # the sea without data
+    z[:, 12:15] = rng.choice([0.2, 0.9, 1.1, 1.3, 4.0], (H, 3)).astype(np.float32)  # the shore
+    z[5:12, 30:40] = np.nan  # lakes without data (the second crosses the strips)
+    z[40:70, 20:25] = np.nan
+    z[80:88, 50:60] = np.nan
+    z[60:62, 120:122] = np.nan  # a gap on land, away from any lake: stays without data
+    z[2:4, 20:22] = np.nan  # no data at the edge of a lake's shore buffer
+    wbm = np.zeros((H, W), np.uint8)
+    wbm[:, :13] = src.OCEAN
+    for r, c in ((slice(4, 13), slice(29, 41)), (slice(39, 71), slice(19, 26)), (slice(79, 89), slice(49, 61)),
+                 (slice(20, 24), slice(50, 55))):  # the last a lake the data measured
+        wbm[r, c] = src.LAKE
+    sea_zone = np.zeros((H, W), bool)
+    sea_zone[:, :18] = True
+    surface = (z + 2).astype(np.float32)
+    surface[:, :12] = np.nan
+    surface[50:55, 22:24] = np.nan
+    surface[30:33, 100:102] = np.nan  # the surface alone without data: stays so
+    grid = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
+    wbm_mm, zone_mm = _memmap(tmp_path, "wbm.npy", wbm), _memmap(tmp_path, "zone.npy", sea_zone)
+    for sea_value in (None, 1.3):
+        np.save(str(tmp_path / "nmt_w.npy"), z)
+        np.save(str(tmp_path / "nmpt_w.npy"), surface)
+        water_w = np.load(src.fill_water(str(tmp_path / "nmt_w.npy"), str(tmp_path / "nmpt_w.npy"), grid, wbm,
+                                         sea_zone, str(tmp_path / "water_w.npy"), sea_value=sea_value))
+        filled_w = np.load(str(tmp_path / "nmt_w.npy"))
+        assert water_w[:, :12].all() and water_w[40:70, 20:25].all() and water_w[20:24, 50:55].all()
+        assert np.isnan(filled_w).sum() == 4 and np.isnan(np.load(str(tmp_path / "nmpt_w.npy"))).sum() == 4 + 6
+        for rows in (1, 5, 13, H, 200):
+            nmt, nmpt = _memmap(tmp_path, "nmt_s.npy", z), _memmap(tmp_path, "nmpt_s.npy", surface)
+            del nmt, nmpt
+            water_s = np.load(src.fill_water(str(tmp_path / "nmt_s.npy"), str(tmp_path / "nmpt_s.npy"), grid, wbm_mm,
+                                             zone_mm, str(tmp_path / "water_s.npy"), sea_value=sea_value, rows=rows,
+                                             bare_path=str(tmp_path / "bare.npy")))
+            assert np.array_equal(water_s, water_w), (sea_value, rows)
+            for name in ("nmt", "nmpt"):
+                assert np.array_equal(_bits(np.load(str(tmp_path / f"{name}_s.npy"))),
+                                      _bits(np.load(str(tmp_path / f"{name}_w.npy")))), (name, sea_value, rows)
+            bare = np.load(str(tmp_path / "bare.npy"))
+            assert np.array_equal(bare, water_s & np.isnan(z)) and bare.any()
+            assert not os.path.exists(tmp_path / "lake.npy")
+
+
+def test_border_gaps_rows_as_whole(tmp_path):
+    """border_gaps in strips of rows marks the gaps of the whole grid (the footprint and its edge
+    strip by strip), for a circle's footprint and an area's outline, and neighbour_window finds
+    the same window from them in strips."""
+    from types import SimpleNamespace
+    from grid import Grid
+    from shapely.geometry import Polygon
+    rng = np.random.default_rng(9)
+    H, W = 120, 100
+    z = (rng.random((H, W)) * 10 + 100).astype(np.float32)
+    z[:, :20] = np.nan  # a gap reaching the west edge, large
+    z[50:53, -2:] = np.nan  # a sliver at the east edge: too small
+    z[20:40, 40:60] = np.nan  # a hole inside the data: no border
+    z[-30:, 30:70] = np.nan  # reaching the south edge
+    z[:6, :] = np.nan  # the north edge: outside a circle's footprint mostly
+    s = z.copy()
+    s[60:80, 85:] = np.nan  # the surface alone without data at the east edge
+    exclude = np.zeros((H, W), bool)
+    exclude[-14:, 30:50] = True  # a sea zone over part of the southern gap
+    np.save(str(tmp_path / "nmt.npy"), z)
+    np.save(str(tmp_path / "nmpt.npy"), s)
+    circle = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
+    outline = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
+    outline.area_shape = Polygon([(500010, 299790), (500190, 299800), (500180, 299990), (500030, 299960)])
+    neighbour = SimpleNamespace(offline=[("x", (0.0, 90.0, 0.0, 180.0))], bbox=None)  # boxes: the world's east
+    anywhere = SimpleNamespace(offline=[], bbox=None)
+    exclude_mm = _memmap(tmp_path, "exclude.npy", exclude)
+    for grid in (circle, outline):
+        for surface in (None, str(tmp_path / "nmpt.npy")):
+            for excluded in (None, exclude):
+                whole = src.filling.border_gaps(str(tmp_path / "nmt.npy"), surface, grid, excluded)
+                assert whole.any() and not whole[20:40, 40:60].any() and not whole[50:53, -2:].any()
+                for rows in (1, 7, 50, H):
+                    out = _memmap(tmp_path, "border.npy", np.zeros((H, W), bool))
+                    got = src.filling.border_gaps(str(tmp_path / "nmt.npy"), surface, grid,
+                                                  None if excluded is None else exclude_mm, rows=rows, out=out)
+                    assert got is out and np.array_equal(np.asarray(got), whole), (rows, surface, excluded)
+                    assert not os.path.exists(tmp_path / "edge.npy")
+                    for source in (neighbour, anywhere):
+                        expected = src.filling.neighbour_window(source, grid, whole)
+                        assert src.filling.neighbour_window(source, grid, got, rows=rows) == expected
+                    del got, out
+    # no gaps at all: an empty mask either way
+    np.save(str(tmp_path / "full.npy"), np.ones((H, W), np.float32))
+    out = _memmap(tmp_path, "border2.npy", np.ones((H, W), bool))
+    assert not src.filling.border_gaps(str(tmp_path / "full.npy"), None, circle, None, rows=10, out=out).any()
+    assert src.filling.neighbour_window(neighbour, circle, out, rows=10) is None
+
+
+def test_rasterize_into_as_whole(tmp_path):
+    """sources.filling.rasterize_into burns into a memory-mapped mask the pixels of coast._rasterize
+    (polygons, holes, none, empty), of area.Polygon.mask and, all touched, of the footprint
+    border_gaps took from geometry_mask; _sea_from_coastline_rows keeps the faces of
+    _sea_from_coastline (the Copernicus mask's share of each face counted strip by strip)."""
+    import coast
+    from grid import Grid
+    from rasterio.features import geometry_mask
+    from shapely.geometry import LineString, Point, Polygon
+    rng = np.random.default_rng(2)
+    H, W = 131, 97
+    grid = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
+    left, top = grid.left, grid.top
+    polygons = []
+    for _ in range(9):
+        cx, cy = left + rng.random() * W * 2, top - rng.random() * H * 2
+        hull = Polygon([(cx + rng.normal(0, 50), cy + rng.normal(0, 50)) for _ in range(6)]).convex_hull
+        polygons.append(Point(cx, cy).buffer(rng.random() * 80, 4).union(hull))
+    ring = Point(left + 100, top - 150).buffer(60).difference(Point(left + 100, top - 150).buffer(20))
+    circle = Point(left + W, top - H).buffer(min(W, H))
+    cases = [polygons, polygons[:1], [ring], [circle], [Polygon()], []]
+    for geometries in cases:
+        expected = coast._rasterize(geometries, grid)
+        out = src.filling.new_mask(str(tmp_path / "mask.npy"), (H, W))
+        got = src.filling.rasterize_into(geometries, grid, out)
+        assert got is out and np.array_equal(np.asarray(got), expected), len(geometries)
+        touched = geometry_mask(geometries, (H, W), grid.transform, invert=True, all_touched=True) \
+            if any(not g.is_empty for g in geometries) else np.zeros((H, W), bool)
+        out = src.filling.new_mask(str(tmp_path / "touched.npy"), (H, W))
+        assert np.array_equal(np.asarray(src.filling.rasterize_into(geometries, grid, out, all_touched=True)), touched)
+        del out, got
+    lines = [LineString([(left - 10, top - 100 - 40 * k), (left + W * 2 + 10, top - 60 - 50 * k)]) for k in range(3)]
+    lines.append(LineString([(left + 80, top + 10), (left + 90, top - 120), (left + 60, top - H * 2 - 10)]))
+    copernicus = rng.random((H, W)) < 0.3
+    copernicus[:50] = rng.random((50, W)) < 0.8  # the north is sea, with noise
+    expected = coast._sea_from_coastline(lines, grid, copernicus)
+    assert expected.any() and not expected.all()
+    for rows in (1, 9, H):
+        out = src.filling.new_mask(str(tmp_path / "sea.npy"), (H, W))
+        out[:] = True
+        got = coast._sea_from_coastline_rows(lines, grid, lambda r0, r1: copernicus[r0:r1], out, rows)
+        assert got is out and np.array_equal(np.asarray(got), expected), rows
+        del out, got
+
+
+def test_mosaic_rows_as_whole(tmp_path):
+    """build_mosaic in strips of rows: a raster on the grid (copied) and rasters of the grid's CRS
+    resampled (bilinear from a coarser one, averaged from a finer one: an exact transformation)
+    give the bits of the whole mosaic; a raster of another CRS (bilinear, and a categorical one
+    by the nearest pixel) the same pixels within GDAL's approximate transformer, whose
+    interpolation depends on the destination (a tile's extent today), so cross-CRS mosaics of an
+    area may differ a little from one grid's."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_bounds
+    rng = np.random.default_rng(6)
+    grid = gd.make_grid((500000, 300000, 500600, 300400), 2, "EPSG:2180")
+
+    def tif(name, band, crs, left, top, res, nodata=None):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1,
+                      dtype=band.dtype, crs=crs, nodata=nodata, transform=from_origin(left, top, res, res)) as dst:
+            dst.write(band, 1)
+        return path
+
+    heights = (200 + rng.normal(0, 30, (150, 160))).astype(np.float32)
+    heights[10:20, 30:60] = -9999
+    on_grid = tif("on_grid", heights, "EPSG:2180", 500100, 300300, 2, nodata=-9999)
+    coarse = (rng.normal(0, 30, (90, 130))).astype(np.float32)
+    coarser = tif("coarser", coarse, "EPSG:2180", 499951, 300441, 5, nodata=np.nan)
+    fine = (180 + rng.normal(0, 10, (400, 500))).astype(np.float32)
+    fine[100:150, 100:120] = np.nan
+    finer = tif("finer", fine, "EPSG:2180", 499950, 300420, 0.5, nodata=np.nan)
+    u_left, _, _, u_top = transform_bounds("EPSG:2180", "EPSG:32634", *grid.bounds)
+    y, x = np.mgrid[:90, :100]
+    smooth = (200 + 30 * np.sin(x / 9) * np.cos(y / 11)).astype(np.float32)  # a slope of at most 3.4 m a pixel
+    utm = tif("utm", smooth, "EPSG:32634", round(u_left) - 52.5, round(u_top) - 30, 5, nodata=np.nan)
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", *grid.bounds)
+    step = 1 / 3600
+    categories = rng.integers(0, 4, (int((north - south) / step) + 8, int((east - west) / step) + 8)).astype(np.uint8)
+    wbm = tif("wbm", categories, "EPSG:4326", west - 2 * step, north + 2 * step, step)
+    cases = (("same crs", [on_grid, coarser, finer], False, 0.0), ("other crs", [utm], False, 3.4 * 0.125),
+             ("wbm", [wbm], True, None))
+    for name, files, categorical, within in cases:
+        whole = np.array(src.build_mosaic(files, grid, str(tmp_path / "whole.npy"), "test", categorical=categorical))
+        assert (whole != src.mosaic.NODATA).any() if categorical else np.isfinite(whole).any()
+        for rows in (1, 7, 60, grid.height, 1000):
+            got = np.array(src.build_mosaic(files, grid, str(tmp_path / "rows.npy"), "test", categorical=categorical,
+                                            rows=rows))
+            if categorical:
+                assert np.mean(got != whole) < 0.01, (name, rows)
+            elif within:
+                assert np.array_equal(np.isnan(got), np.isnan(whole)) and np.nanmax(np.abs(got - whole)) <= within, \
+                    (name, rows)
+            else:
+                assert np.array_equal(_bits(got), _bits(whole)), (name, rows)
 
 
 def _fake_lines(n):
