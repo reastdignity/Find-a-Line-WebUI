@@ -376,6 +376,49 @@ def test_evaluate_lines_matches_evaluate_line(model):
         assert 0 < sum(0 < line.high_pct < 100 for line in fast)  # the threshold is crossed
 
 
+def _old_coordify(a1, a2, grid):
+    """mapping.coordify's coordinates before wave 3 of round 3 (every anchor of every line
+    transformed): the reference. Returns anchor1, anchor2, a1_xy, a2_xy."""
+    from pyproj import Transformer
+    rows = np.column_stack([a1[:, 0], a2[:, 0]]).ravel()
+    cols = np.column_stack([a1[:, 1], a2[:, 1]]).ravel()
+    easting, northing = grid.pixel_to_xy(rows, cols)
+    lon, lat = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform(easting, northing)
+    out = []
+    for a, b, first in ((lat, lon, 0), (lat, lon, 1), (easting, northing, 0), (easting, northing, 1)):
+        out.append(np.column_stack([np.asarray(a, dtype=np.float64)[first::2], np.asarray(b, dtype=np.float64)[first::2]]))
+    return out
+
+
+def test_coordify_as_before(monkeypatch):
+    """coordify transforms the different anchor pixels of a part once: the same float64 values as
+    every anchor transformed (the old code), in several CRSs (UTM, Swiss LV95, Polish 1992, the
+    Czech Krovak, British National Grid), anchors shared by many lines, parts of any size."""
+    import helpers as sh
+    import mapping
+    from grid import Grid
+    rng = np.random.default_rng(37)
+    cases = [("EPSG:32633", 447000.0, 5551000.0, 1.0), ("EPSG:2056", 2636000.0, 1158000.0, 1.0),
+             ("EPSG:2180", 565000.0, 160000.0, 5.0), ("EPSG:5514", -650000.0, -1020000.0, 2.0),
+             ("EPSG:27700", 330000.0, 400000.0, 0.5)]
+    for crs, left, top, res in cases:
+        grid = Grid(left=left, top=top, res=res, height=900, width=1300, crs=crs)
+        anchors = np.column_stack([rng.integers(0, 900, 700), rng.integers(0, 1300, 700)])
+        pairs = rng.integers(0, len(anchors), (5000, 2))
+        a1, a2 = anchors[pairs[:, 0]], anchors[pairs[:, 1]]
+        a1[:3] = [[0, 0], [899, 1299], [0, 1299]]  # the grid's corners
+        expected = _old_coordify(a1, a2, grid)
+        for part in (1 << 17, 1, 777):
+            monkeypatch.setattr(mapping, "COORDINATE_PART", part)
+            clearance = rng.normal(0, 3, len(a1))
+            table = sh.LineTable({"a1": a1.copy(), "a2": a2.copy(), "clearance_nmpt": clearance})
+            mapping.coordify(table, grid, "mark")
+            for name, values in zip(("anchor1", "anchor2", "a1_xy", "a2_xy"), expected):
+                got = table.columns[name]
+                assert got.dtype == np.float64 and got.tobytes() == values.tobytes(), (crs, part, name)
+            assert table.columns["over_obstacles"].tolist() == (clearance <= 0).tolist()
+
+
 def test_interp_forward_matches_interp():
     """_evaluate's _interp_forward (the index walked forward along a line) gives exactly _interp's
     value for non-decreasing x: the sag table's fractions and the t = i / steps of lines of 2 to
