@@ -465,8 +465,8 @@ def test_source():
     assert sl.neighbours == ("rhineland_palatinate", "france", "luxembourg")
     from sources import probe
     assert probe.strategy(sl.nmt) == "zip"
-    sources = list(src.SOURCES)
-    assert sources.index("saarland") < sources.index("rhineland_palatinate") < sources.index("luxembourg")
+    ids = [s.id for s in germany.SOURCES]  # the catalogue's order of SOURCES itself: tests/test_catalogue.py
+    assert ids.index("saarland") < ids.index("rhineland_palatinate")
 
 
 @pytest.mark.parametrize("lat, lon, inside", [
