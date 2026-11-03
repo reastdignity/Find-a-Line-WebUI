@@ -229,13 +229,17 @@ def fetch_tile(theme: str, lat: float, lon: float, cache_dir: str):
 
 # Geofabrik's regions for what its index does not name: it gives ISO 3166-1 codes to countries
 # ("iso3166-1:alpha2", "iso3166-2" for a few territories) but none to the regions of a country.
-# By the codes of Source.regions and Source.countries (Åland lies within Geofabrik's Finland) ...
+# By the codes of Source.regions and Source.countries (Åland lies within Geofabrik's Finland, Berlin within its
+# "Brandenburg (mit Berlin)") ...
 GEOFABRIK_OF_CODE = {"gb-eng": "england", "gb-wls": "wales", "de-he": "hessen", "de-mv": "mecklenburg-vorpommern",
                      "de-st": "sachsen-anhalt", "de-ni": "niedersachsen", "it-bz": "nord-est", "ax": "finland",
                      "de-sn": "sachsen", "de-bw": "baden-wuerttemberg",
                      "de-by": "bayern", "de-rp": "rheinland-pfalz",
                      "gb-sct": "scotland", "de-nw": "nordrhein-westfalen", "it-tn": "nord-est",
-                     "au-tas": "tasmania"}
+                     "au-tas": "tasmania", "au-qld": "queensland",
+                     "de-bb": "brandenburg", "de-be": "brandenburg", "de-sh": "schleswig-holstein",
+                     # Geofabrik's Norway holds Svalbard and Jan Mayen (its outline reaches 81° N and 11.4° W)
+                     "no-21": "norway", "no-22": "norway"}
 # ... and by source, for a source covering a part of its country that Geofabrik keeps apart
 GEOFABRIK_OF_SOURCE = {"spain_canarias": ("canary-islands",)}
 

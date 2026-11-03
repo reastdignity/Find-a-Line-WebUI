@@ -1415,5 +1415,237 @@
       "water_spots": 235
     },
     "seconds": 6.6
+  },
+  "R54": {
+    "args": "--lat 45.5715 --lon 13.8625 --radius 300 --min-length 50 --max-length 200",
+    "sets": [
+      "sources",
+      "si"
+    ],
+    "place": "Osp and Mišja peč, the Osp valley above Koper, Slovenia: ARSO's lidar of 2011 (block b_21), DMR 1 m as plain x;y;z text tiles of 1 km in D96/TM",
+    "notes": "--source auto picks slovenia (the centre is in SI); 6 tiles of 1 km (about 26 MB of text each, 1-2 s alone; with two searches downloading at once, four connections to ARSO, the server stalled for minutes); no sea; the spots cross the Osp gorge below the village's overhanging wall (45.5712-45.5726 N, 13.8624-13.8632 E), the best 66-155 m with up to 18 m of clearance; a radius of 600 m to 400 m gave 60 458 lines: narrowed to 300 m and 200 m",
+    "expected": {
+      "anchors": 27114,
+      "open": 4593,
+      "checked": 113714,
+      "lines": 17065,
+      "spots": 70,
+      "csv_sha256": "3bd61efec78af1582bcfcefa9a2b3bd0d87c3fba1d244621197cadb3a849b659",
+      "length_km": 2478.733,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.512,
+      "clearance_max": 18.14,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 3.9
+  },
+  "R55": {
+    "place": "Rüdersdorf limestone quarry east of Berlin, Brandenburg, Germany: LGB's DGM1 / DOM1 (1 m) from its INSPIRE WCS in ETRS89 / UTM 33N (the DOM the lowest of each 5 x 5 pixels of the 0.2 m image-matching bDOM)",
+    "args": "--lat 52.4815 --lon 13.8030 --radius 700 --min-length 20 --max-length 300",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 53496,
+      "open": 936,
+      "checked": 146,
+      "lines": 3,
+      "spots": 1,
+      "csv_sha256": "9d2e46be3cc1a4684b72d514aa0bbebb7265b22b3d19cd7da820b094fa8a9566",
+      "length_km": 0.074,
+      "clearance_min": 0.37,
+      "clearance_mean": 0.993,
+      "clearance_max": 1.32,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "filled_km2": 0.08,
+      "filled_from": "FABDEM + Copernicus DEM"
+    },
+    "seconds": 10.1,
+    "notes": "--source auto picks brandenburg (the centre is in DE-BB); 3 WCS tiles of 2 km per layer (about 8 MB each with DEFLATE); the circle is on the quarry's north side, where its steepest walls are (at 52.4745, 13.7965, the research's point, the circle held 5073 anchors without an open direction and no line); Brandenburg has no highline terrain: the quarry's walls are terraced, so only 3 lines of 22-27 m in one spot (52.4811, 13.7943-13.7946), with --min-length 20; all 3 were over trees in the DOM before main's obstacle rule (212c7a0), none after it: the DOM stood on the wall's own rock; the DGM's pixels of exactly 0.00 m where the pit's walls cross sea level (94 px) are taken as no data (zero_is_nodata) and filled from FABDEM"
+  },
+  "R56": {
+    "place": "Helgoland's red sandstone cliffs and the Lange Anna stack, Schleswig-Holstein, Germany: LVermGeo SH's DGM1 (1 m, survey 2025) from plain XYZ files of 1 km listed by the Land's GeoJSON index, ETRS89 / UTM 32N",
+    "args": "--lat 54.1840 --lon 7.8820 --radius 900 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "de"
+    ],
+    "expected": {
+      "anchors": 45015,
+      "open": 6485,
+      "checked": 68954,
+      "lines": 8123,
+      "spots": 69,
+      "csv_sha256": "2bff0c495661a640e966a6712c9e016a86124ba13cd3656bc83872b9549900e9",
+      "length_km": 1610.413,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.016,
+      "clearance_max": 12.43,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "water_lines": 3427,
+      "water_spots": 24
+    },
+    "seconds": 33.5,
+    "notes": "--source auto picks schleswig_holstein (the centre is in DE-SH); first run on an empty cache: the Land's GeoJSON index (9 MB) and 12 XYZ files of 1 km (27 MB each, all of the survey of 2025-01-13); the coastline from the OSM world water polygons (cache/osm/water-polygons); the files give the North Sea a constant 1.30 m (the provider's fill), so nothing is filled (sea 0.00 km2) and that constant counts as water (Source.sea_fill: water_lines 3427, 2912 by the 1 m tolerance alone); the spots are on the cliffs of the Oberland's west and north-west edge and around the Lange Anna (54.1886, 7.8730), the best (clearance 12.4 m, 133 m) from 54.1853, 7.8762 to 54.1844, 7.8776"
+  },
+  "R57": {
+    "place": "Frog Buttress, Mt French, Scenic Rim, Queensland, Australia: the State's DEM time series ImageServer (the newest lidar DTM of each place, Scenic Rim 2023, 1 m, resampled by the service from Web Mercator) in GDA94 / MGA zone 56, DEM-H 30 m of the same service for the gaps",
+    "args": "--lat -27.983 --lon 152.620 --radius 800 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "au"
+    ],
+    "expected": {
+      "anchors": 16597,
+      "open": 1532,
+      "checked": 6057,
+      "lines": 1144,
+      "spots": 15,
+      "csv_sha256": "e509bacdf1c0efc78e543b839475fb8b37ecbf353beef57081b4efe09d4ffebc",
+      "length_km": 132.796,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.081,
+      "clearance_max": 8.99,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 22.7,
+    "notes": "--source auto picks queensland (the centre is in AU-QLD, Nominatim's ISO3166-2-lvl4); first run on an empty cache: 9 tiles of 1 km asked by exportImage in MGA 56 (about 3.8 MB each), 34 MB with the water mask in 16 s; all lidar, so DEM-H fills nothing; inland, no sea; no surface model, so no line is over trees (over_trees 0 says nothing of the forest); the spots are on Frog Buttress's curved cliff on Mt French (-27.9823 to -27.9834, 152.6205-152.6220), across its bay; Mt Tibrogargan (-26.927, 152.947) was tried first: 9 lines at r 800 m, 13 at r 1500 m (a dome, few gaps to span)"
+  },
+  "R58": {
+    "place": "Tasermiut fjord, South Greenland: the wall of Ulamertorsuaq's side, ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 23",
+    "args": "--lat 60.3786 --lon -44.5502 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "gl"
+    ],
+    "expected": {
+      "anchors": 166098,
+      "open": 49613,
+      "checked": 660081,
+      "lines": 35506,
+      "spots": 422,
+      "csv_sha256": "cdd472b4d0ee4210c5a968ee61a3903dd8f0660bafd2f1fae03373c6806c7ee1",
+      "length_km": 8160.202,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.531,
+      "clearance_max": 58.2,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "ArcticDEM v4.1 mosaic 2 m (Greenland)"
+    },
+    "seconds": 33.6,
+    "notes": "--source auto picks greenland (the centre is in GL); 4 blocks of 2 km of subtile 08_41_1_1 read in windows from PGC's bucket in us-west-2 (about 2.5 MB each, under a second a block from Poland) and the EGM2008 grid (cache/geoid/egm2008, 81 MB, once); N is about 42.8 m here; no sea in the circle; 100 % valid on walls of 54 % > 60°; the spots cross the gullies of the Ulamertorsuaq side's wall east of the centre (60.375-60.378 N, 44.546-44.547 W), the best 346 m with 58 m of clearance; 35 506 lines at r 600 m"
+  },
+  "R59": {
+    "place": "The cliffs north of Templet, Tempelfjorden, Svalbard (NO-21): ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 33",
+    "args": "--lat 78.4564 --lon 17.2895 --radius 600 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "no"
+    ],
+    "expected": {
+      "anchors": 42588,
+      "open": 10029,
+      "checked": 5483,
+      "lines": 35,
+      "spots": 2,
+      "csv_sha256": "2a091ebdbfd8948e5b4471299a6b44e00fc80f5b7a44e252ae50215349d64375",
+      "length_km": 2.411,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.816,
+      "clearance_max": 1.86,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "ArcticDEM v4.1 mosaic 2 m (Svalbard, Jan Mayen)"
+    },
+    "seconds": 14.4,
+    "notes": "--source auto picks svalbard (the centre is in NO-21, Nominatim's ISO3166-2-lvl4 at zoom 8); 4 blocks of subtile 35_52_1_1; the coastline from the OSM world water polygons; Svalbard's sedimentary slopes give few lines: 35 lines in 2 spots on the cliffs north of Templet (78.4567 N, 17.2863-17.3009 E), the best 62 m with 1.9 m of clearance; the research's point near Longyearbyen (78.1913, 15.1801, the probe's sample) gave 11 lines in 1 spot at r 500 m, a point of the research's wall finder (78.4316, 16.5698) lay on the sea"
+  },
+  "R60": {
+    "place": "Sam Ford fjord, Baffin Island, Nunavut (CA-NU): its granite walls, ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, on UTM zone 19",
+    "args": "--lat 70.7175 --lon -71.4268 --radius 350 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "ca"
+    ],
+    "expected": {
+      "anchors": 45110,
+      "open": 18602,
+      "checked": 107869,
+      "lines": 33203,
+      "spots": 238,
+      "csv_sha256": "04e64888c1ceb6f2b474664b37a535f45bb36a24564a7e63bded77cf5ba78e2e",
+      "length_km": 5050.52,
+      "clearance_min": 0.0,
+      "clearance_mean": 4.892,
+      "clearance_max": 64.19,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "source": "ArcticDEM v4.1 mosaic 2 m (Nunavut)"
+    },
+    "seconds": 5.4,
+    "notes": "--source auto picks nunavut (the centre is in CA-NU); 4 blocks of subtile 22_31_1_2; no sea in the circle; the granite walls of Sam Ford fjord, the spots across their gullies (70.716-70.718 N, 71.423-71.430 W), the best 71 m with 64 m of clearance; r 500 m gave 72 748 lines: narrowed to 350 m"
+  },
+  "R61": {
+    "args": "--source islandsdem10 --lat 65.8239 --lon -16.3934 --radius 700 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "is"
+    ],
+    "place": "Hafragil, the canyon of the Jokulsa a Fjollum below Dettifoss, Iceland: IslandsDEM v1.0 10 m, one national COG (EPSG:8088) read in blocks of 5 km",
+    "notes": "--source islandsdem10 (no countries: by hand; the gap filler of the source iceland); 4 blocks of 5 km (about 0.6 MB each, about 1 s from Windows); no sea; the spots cross the canyon below its basalt walls (65.819-65.830 N, 16.383-16.396 W), the best 175-352 m with up to 16.5 m of clearance; at 10 m the walls come out at most about 68 degrees. Asbyrgi (66.006, -16.508), the research's point, gave 2 lines at 700 m: weaker",
+    "expected": {
+      "anchors": 1087,
+      "open": 1066,
+      "checked": 18083,
+      "lines": 7492,
+      "spots": 727,
+      "csv_sha256": "63877ba6265477d5ff347a403d29ee0d24bf51958035dc3a2371a98999d8ff7f",
+      "length_km": 2210.883,
+      "clearance_min": 0.0,
+      "clearance_mean": 4.059,
+      "clearance_max": 16.46,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 9.7
+  },
+  "R62": {
+    "place": "Hafragil, the canyon of the Jokulsa a Fjollum below Dettifoss, Iceland: ArcticDEM v4.1 mosaic 2 m (PGC) moved to EGM2008, gaps from IslandsDEM v1.0 10 m, on UTM zone 28 (R61's place at 2 m)",
+    "args": "--lat 65.8239 --lon -16.3934 --radius 700 --min-length 50 --max-length 400",
+    "sets": [
+      "sources",
+      "is"
+    ],
+    "expected": {
+      "anchors": 37637,
+      "open": 3076,
+      "checked": 49232,
+      "lines": 965,
+      "spots": 53,
+      "csv_sha256": "2dcdc41a847a025c629176d0add6bae3c15974c9d716e0b6a5dcd3fe4c53af3a",
+      "length_km": 191.965,
+      "clearance_min": 0.0,
+      "clearance_mean": 0.35,
+      "clearance_max": 2.19,
+      "over_trees": 0,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "seconds": 2.5,
+    "notes": "--source auto picks iceland (the centre is in IS); 4 blocks of 2 km of ArcticDEM, nothing filled (IslandsDEM fills only ArcticDEM's voids); no sea; R61's place at 2 m: 965 lines in 53 spots, clearance at most 2.2 m, against 7 492 lines and 16.5 m at 10 m. A cross-section of the canyon (65.8232 N, 16.3836 W to 65.8216 N, 16.3888 W) agrees with IslandsDEM to 1 m on its floor and 9 m on its walls: the walls are about 60 degrees, so at 2 m the terrain next to an anchor stands close under the webbing, which 10 m smooths into a sharp edge (the 10 m clearances are too high)"
   }
 }

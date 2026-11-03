@@ -51,9 +51,10 @@ class Histogram:
 
 def land_histogram(z: np.ndarray, area_mask: np.ndarray, wbm: Optional[np.ndarray] = None,
                    sea_zone: Optional[np.ndarray] = None, window: Optional[Tuple[slice, slice]] = None,
-                   block_px: int = 1_000_000) -> Histogram:
+                   block_px: int = 1_000_000, sea_value: Optional[float] = None) -> Histogram:
     """The histogram of the land with data (see above) of the grid z (raw terrain, NaN without
-    data) inside area_mask, within window (rows, columns) of the grid when given. Read in blocks
+    data) inside area_mask, within window (rows, columns) of the grid when given (sea_value: the
+    source's constant over the sea, Source.sea_fill). Read in blocks
     of rows of about block_px pixels: no temporary array of the whole grid."""
     rows, cols = window or (slice(None), slice(None))
     part = lambda a: None if a is None else a[rows, cols]
@@ -66,7 +67,7 @@ def land_histogram(z: np.ndarray, area_mask: np.ndarray, wbm: Optional[np.ndarra
         zb = np.asarray(block(z))
         keep = np.asarray(block(area_mask)) & np.isfinite(zb)
         if wbm is not None or sea_zone is not None:
-            keep &= ~water_with_data(zb, block(wbm), block(sea_zone))
+            keep &= ~water_with_data(zb, block(wbm), block(sea_zone), sea_value)
         cm = np.rint(zb[keep].astype(np.float64) * 100).astype(np.int64)
         del keep
         h.sum_cm += int(cm.sum())

@@ -60,6 +60,10 @@ WATER_MASK = DegreeTiles("Copernicus water body mask", "copernicus30/2021/wbm",
                          lambda lat, lon: _copernicus_url(lat, lon, "WBM"), native_res=30,
                          bytes_per_tile=1e5, credit=WATER_MASK_CREDIT)
 
+# The surface model of europe and the terrain of copernicus: one layer, one folder
+COPERNICUS_DEM = DegreeTiles("Copernicus DEM GLO-30 (surface)", "copernicus30/2021/dem", _copernicus_url,
+                             native_res=30, bytes_per_tile=20e6, credit=COPERNICUS_CREDIT)
+
 
 SOURCES: List[Source] = [
     Source(
@@ -67,8 +71,7 @@ SOURCES: List[Source] = [
         description="FABDEM V1-2 (terrain, trees and buildings removed) and Copernicus GLO-30 (surface), 30 m",
         nmt=DegreeTiles("FABDEM (terrain)", "fabdem/v1-2", _fabdem_url, native_res=30, bytes_per_tile=20e6,
                         credit=FABDEM_CREDIT),
-        nmpt=DegreeTiles("Copernicus DEM GLO-30 (surface)", "copernicus30/2021/dem", _copernicus_url,
-                         native_res=30, bytes_per_tile=20e6, credit=COPERNICUS_CREDIT),
+        nmpt=COPERNICUS_DEM,
         fallback=None, credits=(FABDEM_CREDIT, COPERNICUS_CREDIT),
         listing=ReadmeRow("anywhere", "[FABDEM](https://data.bris.ac.uk/data/dataset/s5hqmjcdj8yo2ibzi9b4ew3sn) V1-2, "
                                     "30 m (trees and buildings removed)",
@@ -76,6 +79,18 @@ SOURCES: List[Source] = [
         sample=(39.7217, 21.6306), obstacles=False,
         note="FABDEM is licensed for non-commercial use only (CC BY-NC-SA 4.0): results made from it may "
              "be shared only under the same terms. At 30 m only long lines can be found reliably."),
+    Source(
+        id="copernicus", name="Copernicus DEM GLO-30",
+        description="Copernicus DEM GLO-30, 30 m: a radar surface model (trees and buildings in it), EGM2008 "
+                    "heights; open data (FABDEM's terms are not)",
+        # The open gap filler of the sources whose runs stay open (the Arctic's): no fallback of its own
+        nmt=COPERNICUS_DEM, fallback=None, credits=(COPERNICUS_CREDIT,),
+        listing=ReadmeRow("anywhere (the gap filler of the Arctic sources)",
+                          "[Copernicus DEM GLO-30](https://registry.opendata.aws/copernicus-dem/), 30 m (a surface "
+                          "model)"),
+        sample=(39.7217, 21.6306),
+        note="Copernicus DEM GLO-30 is a radar surface model at 30 m (trees and buildings are part of it): only "
+             "long lines can be found reliably."),
     Source(
         id="nasadem", name="NASADEM (OpenTopography)",
         description="NASADEM 30 m (SRTM, includes some vegetation), from the OpenTopography API",

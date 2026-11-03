@@ -1056,24 +1056,27 @@ exported; the wall times vary by ±10 s between identical runs (medians given), 
   about 5.5 GB each instead of 4.89.
 - `TILE_MEMORY_SHARE` 0.25 → **0.5**: the grids of a tile may take half the budget (the lines
   the rest; a search over it is refused by `_check_lines`, early with F7).
-- `TILE_PX_MAX` **64 Mpx** (new): a tile has at most this many pixels with its overlap, whatever
-  the memory; a PC with much memory would otherwise take one tile of hundreds of Mpx (this PC: 280
+- `TILE_PX_MAX` (new): a tile has at most this many pixels with its overlap, whatever the
+  memory; a PC with much memory would otherwise take one tile of hundreds of Mpx (this PC: 280
   Mpx, 9 GB of grids) to save little work: the overlap's share of a tile falls slowly once the
   core is a few overlaps wide. A site's `grid_mpx_max` below it applies as before, `--tile-size`
-  too. With these, at 1 m:
+  too. Merged at 64 Mpx (about 2 GB of grids); the user chose **100 Mpx** (3.2 GB) on 2026-11-03,
+  and raised the public `grid_mpx_max` from 36 to **64 Mpx** at once (3.2 GB of grids at
+  `PIXEL_BYTES` and `LINES_MAX` × 450 B = 0.7 GB of lines in a slot of about 6 GB). A cap on the
+  core's overlaps (the plan's "4 overlaps") was tried first and dropped: it cut the cores of
+  short lines (`typical` 5 000 → 1 500 m) where the memory allows large ones. With these, at 1 m:
 
-| Lines up to | overlap | VPS before: core, pixels per pixel of the core | VPS after (36 Mpx) | this PC after (64 Mpx; before: about 70 Mpx tiles) |
+| Lines up to | overlap | VPS before: core, pixels per pixel of the core | VPS after (64 Mpx; 36 Mpx would give) | this PC after (100 Mpx; before: about 70 Mpx tiles) |
 | ---: | ---: | ---: | ---: | ---: |
-| 150 m (`typical`) | 452 m | 2 500 m, 1.85 | 5 000 m, 1.39 | 7 000 m, 1.27 |
-| 400 m (`long`) | 702 m | 2 000 m, 2.9 | 4 500 m, 1.72 | 6 500 m, 1.48 |
-| 1 000 m (the default) | 1 302 m | 500 m, **38.5** | **3 000 m, 3.5** | 5 000 m, 2.3 |
-| 2 000 m (the public maximum) | 2 302 m | 500 m, **104** | 1 000 m, 31 | 3 000 m, 6.4 |
+| 150 m (`typical`) | 452 m | 2 500 m, 1.85 | 6 500 m, 1.30 (5 000 m, 1.39) | 9 000 m, 1.21 |
+| 400 m (`long`) | 702 m | 2 000 m, 2.9 | 6 000 m, 1.52 (4 500 m, 1.72) | 8 500 m, 1.36 |
+| 1 000 m (the default) | 1 302 m | 500 m, **38.5** | **4 500 m, 2.5** (3 000 m, 3.5) | 7 000 m, 1.9 |
+| 2 000 m (the public maximum) | 2 302 m | 500 m, **104** | 2 500 m, 8.1 (1 000 m, 31) | 5 000 m, 3.7 |
 
-- The Gozo coast with 3 000 m cores (`--memory 3140000000`, what the VPS gets for the default
-  lines after 2c) against its 500 m cores (138 tiles, 347 s after 2a): 17 tiles of at most 5 104² px (26 Mpx) in 96.5 s (step 1 67.5 s, step 2 13.5 s), the peak 1 115 MB: 3.6 times faster than the 500 m cores (347 s: step 1 275 s, step 2 48.5 s; 680 MB) and 1.6 times slower than this PC's 5 km cores (60 s, 1 704 MB).
-- A larger public `grid_mpx_max` (64 Mpx, 3.2 GB of grids at `PIXEL_BYTES`, within a slot of
-  5.5 GB with `LINES_MAX` × 450 B = 0.7 GB) would give 4 500 m cores (2.5 pixels per pixel) for the
-  default lines and 2 500 m (8.1) for 2 000 m lines: the user's decision (README's "Limits" row).
+- The Gozo coast with 3 000 m cores (`--memory 3140000000`, what the VPS would get for the
+  default lines with the site's 36 Mpx) against its 500 m cores (138 tiles, 347 s after 2a): 17 tiles of at most 5 104² px (26 Mpx) in 96.5 s (step 1 67.5 s, step 2 13.5 s), the peak 1 115 MB: 3.6 times faster than the 500 m cores (347 s: step 1 275 s, step 2 48.5 s; 680 MB) and 1.6 times slower than this PC's 5 km cores (60 s, 1 704 MB).
+- A circle of the public maximum radius (3 500 m) at 1 m is 7 601² = 57.8 Mpx with the margin:
+  allowed with 64 Mpx, refused before (a coarser resolution was needed).
 - `tests/test_units.py::test_tile_at_most_tile_px_max` and the cgroup test (the tiles follow the
   container's memory up to the cap), `tests/test_public.py::test_memory_of_compute_slots` (the
   budget per slot, the warning when the largest public search does not fit).

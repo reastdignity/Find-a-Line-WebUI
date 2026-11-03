@@ -144,6 +144,19 @@ def test_water_with_data_is_fill_waters_rule(tmp_path):
     assert np.array_equal(water & np.isfinite(z), rule)
     assert rule[:, 10:14].any() and not rule[:, 10:14].all() and rule[20:24, 30:35].all()
     assert not filling.water_with_data(z, None, None).any()
+    # A provider's constant over the sea (Source.sea_fill, 1.30 m in Schleswig-Holstein): water within
+    # SEA_FILL_EPS of it in the sea zone, in fill_water's mask and out of the statistics alike
+    z[:, 10:14] = rng.choice([0.2, 1.3, 1.304, 1.31, 4.0], (40, 4))
+    np.save(path, z)
+    water = np.load(filling.fill_water(path, None, grid, wbm, sea_zone, str(tmp_path / "water.npy"), sea_value=1.3))
+    rule = filling.water_with_data(z, wbm, sea_zone, 1.3)
+    assert np.array_equal(water & np.isfinite(z), rule)
+    extra = rule & ~filling.water_with_data(z, wbm, sea_zone)
+    band = z[:, 10:14]
+    assert np.array_equal(extra[:, 10:14], (band == np.float32(1.3)) | (band == np.float32(1.304)))
+    mask = np.ones(z.shape, bool)
+    assert hy.land_histogram(z, mask, wbm, sea_zone, sea_value=1.3).n == \
+        hy.land_histogram(z, mask, wbm, sea_zone).n - int(extra.sum())
 
 
 def test_terrain_in_the_map_and_not_in_runs_js(tmp_path):

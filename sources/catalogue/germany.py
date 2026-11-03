@@ -1,7 +1,10 @@
 """The German Länder: Saxony-Anhalt (LVermGeo's DGM1 and DOM1 from WCS), Lower Saxony (LGLN's DGM1
 and DOM1 from STAC), Hesse (HVBG's DGM1 and DOM1 from WCS), Mecklenburg-Vorpommern (LAiV's DGM1 and
 DOM1 from WCS), Saxony (GeoSN's DGM1 and DOM1, zipped 2 km GeoTIFFs) and Baden-Württemberg (LGL's DGM1
-and DOM1, zipped 2 km tiles of 1 km XYZ grids or GeoTIFFs)."""
+and DOM1, zipped 2 km tiles of 1 km XYZ grids or GeoTIFFs), Bavaria (LDBV's DGM1 and DOM20 listed by
+Metalinks), Rhineland-Palatinate (LVermGeo RP's DGM1 and DOM1 listed by Metalinks), North Rhine-Westphalia
+(Geobasis NRW's DGM1 and DOM1 from WCS), Brandenburg with Berlin (LGB's DGM1 and DOM1 from WCS) and
+Schleswig-Holstein (LVermGeo SH's DGM1, plain XYZ files listed by a GeoJSON index)."""
 
 from typing import List
 
@@ -11,6 +14,7 @@ from ..layers.stac import StacTiles
 from ..layers.wcs import WcsTiles
 from ..layers.zipped import ZippedTiles
 from ..layers.metalink import MetalinkTiles
+from ..layers.geojson import GeoJsonTiles
 
 # LVermGeo's terms of use (Nutzungsbedingungen V 5.0, 01.03.2024, no. 2): open data under dl-de/by-2.0,
 # the provider named "© GeoBasis-DE / LVermGeo ST"; dl-de/by-2.0 §3 asks for a note of changes ("Daten
@@ -236,6 +240,57 @@ def _nw(kind: str, description: str, zero_is_nodata: bool, params=()) -> WcsTile
                     zero_is_nodata=zero_is_nodata, params=params)
 
 
+# LGB's open data (the WCS's AccessConstraints, also of its DOP WMS and in each file's metadata, read 2026-11-02):
+# dl-de/by-2.0, "Namensnennung: "GeoBasis-DE/LGB" ... Hinweis: werden auch Daten des Bundeslandes Berlin genutzt, ist
+# der Copyright-Vermerk um den Hinweis "© Geoportal Berlin, dl-de/by-2-0" zu ergänzen. Beispiel: „© GeoBasis-DE/LGB,
+# dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0 (Daten geändert)"": that example, word for word (one source for
+# both Länder, so always with Berlin; "Daten geändert": a mosaic on our grid)
+BB_ATTRIBUTION = "© GeoBasis-DE/LGB, dl-de/by-2-0; © Geoportal Berlin, dl-de/by-2-0"
+BB_CREDIT = Credit("DGM1 / DOM1 (LGB, Brandenburg and Berlin)", f"{BB_ATTRIBUTION} (Daten geändert)", *DL_DE_BY)
+# LGB's INSPIRE WCS 2.0.1 of the DGM1 and DOM1 (MapServer, coverage el_elevationgridcoverage, axes x/y, EPSG:25833,
+# extent 248000-466000 / 5690000-5936000 given with 0.01 mm of noise: WcsReader rounds it), Brandenburg and Berlin
+BB_WCS = "https://inspire.brandenburg.de/services/el_{kind}1_wcs"
+# LGB's DOP20 of Berlin and Brandenburg, a MapProxy WMS in EPSG:4326 (dl-de/by-2.0, the same notice), no key
+BB_DOP = OrthoService("DOP20 Berlin/Brandenburg (LGB)", "https://isk.geobasis-bb.de/mapproxy/dop20c/service/wms",
+                      "bebb_dop20c", "brandenburg/ortho/live", BB_ATTRIBUTION, attribution_url=DL_DE_BY[1])
+
+
+def _bb(kind: str, description: str, zero_is_nodata: bool) -> WcsTiles:
+    """DGM1 or DOM1 of LGB from its INSPIRE WCS: GeoTIFF float32 with EPSG:25833, pixel edges on whole metres, equal
+    bit for bit to LGB's 1 km files (Berlin's too); 2 km tiles at the native 1 m with DEFLATE (8 MB, 1.5 s; 4 km
+    answered too). Inside the extent but outside the Länder the DGM answers 0 without nodata, the DOM -9999 without a
+    nodata tag; a request beyond the extent is answered HTTP 400 (outside: missing once the extent is known).
+    Files are republished every few months: "live"."""
+    return WcsTiles(description, BB_WCS.format(kind=kind), "el_elevationgridcoverage", "EPSG:25833",
+                    f"brandenburg/{kind}1/live", native_res=1.0, fetch_res=1.0, tile_px=2000,
+                    zero_is_nodata=zero_is_nodata, params=(("GEOTIFF:COMPRESSION", "DEFLATE"),))
+
+
+# LVermGeo SH's licence of its open data (https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/
+# lizenz.html, Stand 01.08.2022, read 2026-11-02): CC BY 4.0, "(4) Veränderungen ... sind im Quellenvermerk mit Hinweis
+# zu versehen, dass die Daten geändert wurden", the notice "©GeoBasis-DE/LVermGeo SH/CC BY 4.0" with "(Quelle
+# verändert)": word for word (a mosaic on our grid is a change)
+SH_ATTRIBUTION = "©GeoBasis-DE/LVermGeo SH/CC BY 4.0"
+SH_CREDIT = Credit("DGM1 (LVermGeo SH, Schleswig-Holstein)", f"{SH_ATTRIBUTION} (Quelle verändert)", *CC_BY)
+# The whole Land's index of the DGM1 (9 MB, 18 685 features of 1 km in EPSG:25832, 2026-11-02): each feature's
+# link_data a massen.php link naming the file dgm1_32_<Ekm>_<Nkm>_1_sh_<year>.xyz, the survey's year (2005-2025) in it;
+# an outdated link (another year) answers HTTP 200 with an HTML page "Die verwendete Massendownload-Datei ist
+# veraltet". The files are plain "x y z" text of the cell centres (on x.5: edges on whole metres), centimetres,
+# 1000 x 1000 points, 27 MB, no Range, no compression. The server's TLS chain lacks its intermediate (net.HOST_CA_OF).
+# The 0.2 m bDOM is published as uncompressed GeoTIFFs of about 105 MB per km² without Range: no surface model
+# The sea has no gaps: the North Sea of the newer surveys is a constant 1.30 m written by the provider, not a measured
+# surface (one value, flat to the centimetre: Helgoland and Büsum 2025 100 % of a tile at sea, Sylt 2024; reason
+# unpublished, 2026-11-03), so it counts as water (sea_fill) and keeps its height; the Baltic and the surveys of
+# 2005-2007 give the sea about 0 m (-0.4 to +0.6 m), which counts as water by filling.SEA_LEVEL_TOLERANCE
+SH_SEA_FILL = 1.30
+SH_INDEX = ("https://geodaten.schleswig-holstein.de/gaialight-sh/_apps/dladownload/single.php"
+            "?file=DGM1_SH__Massendownload.geojson&id=4")
+SH_NAME = r"^dgm1_32_(?P<east>\d+)_(?P<north>\d+)_1_sh_(?P<year>\d{4})\.xyz$"
+# LVermGeo SH's DOP20 WMS of the GDI-SH (EPSG:4326 offered; its Fees "© GeoBasis-DE/LVermGeo SH/CC BY 4.0"), no key
+SH_DOP = OrthoService("DOP20 Schleswig-Holstein (LVermGeo SH)", "https://service.gdi-sh.de/WMS_SH_DOP20col_OpenGBD",
+                      "sh_dop20_rgb", "schleswig_holstein/ortho/live", SH_ATTRIBUTION, attribution_url=CC_BY[1])
+
+
 SOURCES: List[Source] = [
     # Hesse and Mecklenburg-Vorpommern before Lower Saxony: their offline boxes overlap Lower
     # Saxony's (northern Hesse, western M-V with Schwerin), and the first box holding a point wins
@@ -258,7 +313,7 @@ SOURCES: List[Source] = [
         nmt=_laiv("https://www.geodaten-mv.de/dienste/inspire_el_dgm_wcs", "mv_dgm", "dgm", "DGM1 (terrain)"),
         nmpt=_laiv("https://www.geodaten-mv.de/dienste/dom_wcs", "mv_dom1", "dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-mv",), crs="EPSG:25833", ortho=LAIV_DOP,
-        neighbours=("lower_saxony", "geoportal"),
+        neighbours=("lower_saxony", "geoportal", "brandenburg", "schleswig_holstein"),
         credits=(LAIV_CREDIT,),
         listing=ReadmeRow("Mecklenburg-Vorpommern (DE)", "LAiV DGM1, 1 m (WCS)", "LAiV DOM1, 1 m (WCS)",
                           "LAiV DOP"),
@@ -273,7 +328,7 @@ SOURCES: List[Source] = [
         nmt=_lvermgeo("dgm", "DGM1 (terrain)", True), nmpt=_lvermgeo("dom", "DOM1 (trees, buildings)", False),
         countries=("de",), regions=("de-st",), crs="EPSG:25832", ortho=LVERMGEO_DOP,
         credits=(LVERMGEO_CREDIT,),
-        neighbours=("lower_saxony", "saxony"),
+        neighbours=("lower_saxony", "saxony", "brandenburg"),
         listing=ReadmeRow("Saxony-Anhalt (DE)", "LVermGeo DGM1, 1 m (WCS)", "LVermGeo DOM1, 1 m (WCS)",
                           "LVermGeo DOP20"),
         offline=(("de-st", (50.94, 53.05, 10.56, 13.19)),), sample=(51.7340, 11.0200),
@@ -288,7 +343,8 @@ SOURCES: List[Source] = [
         nmt=_lgln("dgm", "DGM1 (terrain)"), nmpt=_lgln("dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-ni",), crs="EPSG:25832", ortho=LGLN_DOP,
         credits=(LGLN_CREDIT,),
-        neighbours=("saxony_anhalt", "hesse", "mecklenburg_vorpommern", "north_rhine_westphalia"),
+        neighbours=("saxony_anhalt", "hesse", "mecklenburg_vorpommern", "north_rhine_westphalia", "brandenburg",
+                    "schleswig_holstein"),
         listing=ReadmeRow("Lower Saxony (DE)", "LGLN DGM1, 1 m; newest survey", "LGLN DOM1, 1 m",
                           "LGLN DOP20"),
         offline=(("de-ni", (51.29, 53.9, 6.65, 11.6)),), sample=(51.8770, 10.4460),
@@ -302,7 +358,7 @@ SOURCES: List[Source] = [
         nmt=_geosn("dgm", "DGM1 (terrain)"), nmpt=_geosn("dom", "DOM1 (trees, buildings)"),
         countries=("de",), regions=("de-sn",), crs="EPSG:25833", ortho=GEOSN_DOP,
         credits=(GEOSN_CREDIT,),
-        neighbours=("geoportal", "saxony_anhalt", "czechia", "bavaria"),
+        neighbours=("geoportal", "saxony_anhalt", "czechia", "bavaria", "brandenburg"),
         listing=ReadmeRow("Saxony (DE)", "GeoSN DGM1, 1 m (2 km tiles)", "GeoSN DOM1, 1 m (2 km tiles)",
                           "GeoSN DOP20"),
         offline=(("de-sn", (50.15, 51.72, 11.79, 15.06)),), sample=(50.9200, 14.2100),
@@ -369,4 +425,41 @@ SOURCES: List[Source] = [
         offline=(("de-nw", (50.75, 52.53, 5.86, 9.46)), ("de-nw", (50.32, 50.75, 6.20, 8.25))), sample=(51.3200, 8.5400),
         note="Data Geobasis NRW, dl-de/zero-2.0 (changed: mosaicked onto the working grid). The WCS names no "
              "survey years."),
+    # Brandenburg (with Berlin inside its box) and Schleswig-Holstein after their neighbours: their offline boxes
+    # overlap Saxony-Anhalt's, Saxony's and Mecklenburg-Vorpommern's (Lower Saxony's and M-V's), which take those
+    # points offline (and Poland's, before them, the east of Brandenburg); online the regions decide
+    Source(
+        id="brandenburg", name="LGB (DGM1 / DOM1)",
+        description="LGB (Brandenburg and Berlin, Germany): terrain and photogrammetric surface models 1 m from its "
+                    "WCS, ETRS89 / UTM 33N, DHHN2016",
+        nmt=_bb("dgm", "DGM1 (terrain)", True),
+        nmpt=_bb("dom", "DOM1, lowest of the 0.2 m bDOM (trees, buildings)", False),
+        countries=("de",), regions=("de-bb", "de-be"), crs="EPSG:25833", ortho=BB_DOP,
+        credits=(BB_CREDIT,),
+        neighbours=("geoportal", "saxony", "saxony_anhalt", "mecklenburg_vorpommern", "lower_saxony"),
+        listing=ReadmeRow("Brandenburg and Berlin (DE)", "LGB DGM1, 1 m (WCS)",
+                          "LGB DOM1, 1 m (WCS; image matching)", "LGB DOP20"),
+        offline=(("de-bb", (51.36, 53.56, 11.26, 14.77)),), sample=(52.4745, 13.7965),
+        note=f"Data {BB_ATTRIBUTION} (changed: mosaicked onto the working grid). The surface model comes from "
+             f"image matching of aerial photographs (the lowest of each 5 x 5 pixels of the 0.2 m bDOM), not from "
+             f"laser scanning: tree crowns come out lower and less exact. The WCS names no survey years."),
+    Source(
+        id="schleswig_holstein", name="LVermGeo SH (DGM1)",
+        description="LVermGeo SH (Schleswig-Holstein, Germany): terrain model 1 m, plain XYZ files of 1 km listed by "
+                    "a GeoJSON index, newest survey, ETRS89 / UTM 32N, DHHN2016",
+        nmt=GeoJsonTiles("DGM1 (terrain)", [SH_INDEX], SH_NAME, "schleswig_holstein/dgm1", "EPSG:25832", "dgm1"),
+        countries=("de",), regions=("de-sh",), crs="EPSG:25832", ortho=SH_DOP, sea_fill=SH_SEA_FILL,
+        credits=(SH_CREDIT,),
+        neighbours=("lower_saxony", "mecklenburg_vorpommern", "denmark"),
+        listing=ReadmeRow("Schleswig-Holstein (DE)", "LVermGeo SH DGM1, 1 m (XYZ); newest survey", "–",
+                          "LVermGeo SH DOP20"),
+        # The Land south of the Danish islands, Angeln and North Frisia west of the Flensburg Fjord, then Sylt (one
+        # box would hold Als, Aero and Langeland, which come later in SOURCES)
+        offline=(("de-sh", (53.36, 54.56, 7.85, 11.32)), ("de-sh", (54.56, 54.84, 7.85, 10.15)),
+                 ("de-sh", (54.84, 55.06, 8.27, 8.60))),
+        sample=(54.1840, 7.8820),  # Helgoland's cliffs (R56)
+        note=f"Data {SH_ATTRIBUTION} (Quelle verändert; changed: mosaicked onto the working grid). Terrain model "
+             f"only: the surface model is published only as uncompressed 0.2 m files. Survey years 2005-2025, the "
+             f"newest per 1 km tile. Over the North Sea the newer surveys give a constant 1.30 m instead of the "
+             f"water: it counts as water, and lines over it are measured from 1.30 m."),
 ]

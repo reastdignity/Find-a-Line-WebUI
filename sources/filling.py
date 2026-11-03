@@ -23,6 +23,7 @@ GAP_MATCH_SLOPE = 15  # degrees; only gentler ground is used to match heights
 GAP_MAX_LOCAL_SHIFT = 3  # m; local height offsets differing more from the overall one are ignored
 SHORE_BUFFER = 45  # m around water in the mask that may still be water (the mask is 30 m)
 SEA_LEVEL_TOLERANCE = 1.0  # m; data at most this high inside the sea counts as water
+SEA_FILL_EPS = 0.005  # m; data this close to a source's sea fill (Source.sea_fill) inside the sea counts as water
 # A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
@@ -62,22 +63,27 @@ def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
     return ndimage.maximum_filter1d(grown, size, axis=1, mode="constant", cval=0)
 
 
-def water_with_data(z: np.ndarray, wbm: Optional[np.ndarray], sea_zone: Optional[np.ndarray]) -> np.ndarray:
+def water_with_data(z: np.ndarray, wbm: Optional[np.ndarray], sea_zone: Optional[np.ndarray],
+                    sea_value: Optional[float] = None) -> np.ndarray:
     """The water among the pixels of z that have data (fill_water's mask keeps it, the terrain's
     statistics leave it out, hypsometry.py): lakes of the water body mask wbm (measured by LiDAR),
-    and the sea zone at most SEA_LEVEL_TOLERANCE high (sea given as about 0 m by the data itself,
-    e.g. IGN Spain). None for a mask: none of that water."""
+    and the sea zone where the data give the sea: at most SEA_LEVEL_TOLERANCE high (about 0 m,
+    e.g. IGN Spain) or within SEA_FILL_EPS of sea_value (the provider's constant, Source.sea_fill).
+    None for a mask: none of that water."""
     water = np.zeros(z.shape, bool)
     if wbm is not None:
         water |= wbm == LAKE
     if sea_zone is not None:
         with np.errstate(invalid="ignore"):
-            water |= sea_zone & (z <= SEA_LEVEL_TOLERANCE)
+            sea_level = z <= SEA_LEVEL_TOLERANCE
+            if sea_value is not None:
+                sea_level |= (z >= sea_value - SEA_FILL_EPS) & (z <= sea_value + SEA_FILL_EPS)
+        water |= sea_zone & sea_level
     return water & np.isfinite(z)
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
-               sea_zone: np.ndarray, out_path: str) -> str:
+               sea_zone: np.ndarray, out_path: str, sea_value: Optional[float] = None) -> str:
     """Give the sea and lakes an elevation where the data has none.
 
     National LiDAR models have no data over water, so lines across the sea (and
@@ -87,7 +93,9 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
     Copernicus mask (within SHORE_BUFFER, as the mask is 30 m) get the level of
     the lake's shore (the median elevation around it). The exact shoreline comes
     from the elevation data itself; gaps in the data on land stay without data.
-    Saves a boolean water mask (filled pixels, and lakes that have data) to out_path.
+    Saves a boolean water mask (filled pixels, lakes that have data, and the sea where
+    the data give it: at most SEA_LEVEL_TOLERANCE, or the source's constant sea_value)
+    to out_path.
     """
     from scipy import ndimage
 
@@ -127,8 +135,8 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
         water[rows, cols] |= area
         lake_px += int(area.sum())
     # Water that the elevation data covers: lakes measured by LiDAR, and sea given as
-    # about 0 m by the data itself (e.g. IGN Spain)
-    water |= water_with_data(np.asarray(elevation), wbm, sea_zone) & ~empty
+    # about 0 m by the data itself (e.g. IGN Spain) or as the provider's constant (sea_value, Source.sea_fill)
+    water |= water_with_data(np.asarray(elevation), wbm, sea_zone, sea_value) & ~empty
     elevation.flush()
     if surface is not None:
         surface.flush()
