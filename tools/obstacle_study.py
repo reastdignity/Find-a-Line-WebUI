@@ -63,7 +63,8 @@ un-marks and keeps, those of the lines whose pixels above the limit all lie with
 an anchor (the forest's edge at an anchor), and the judges' agreement on the references. A place whose
 orthophoto splits both put more than WORKS_OVERLAP of the references on the wrong side (a leafless
 spring image), or that has fewer than REFERENCE_MIN forest reference pixels in the orthophoto, is
-listed but not summed. The pictures then show the orthophoto too, the groups of
+listed but not summed; a place without a split of the orthophoto (no service, no tiles, tau null) is
+judged by OSM alone and summed apart (judge_group). The pictures then show the orthophoto too, the groups of
 VERDICT_GROUPS for --chips-rule (A2 by default) on avg, and each group's contact sheet
 (<out>/<name>/sheets/<rule>-<group>.png).
 """
@@ -130,6 +131,9 @@ VARIANTS = ("avg", "max", "h")
 ROCK_SLOPE, ROCK_HEIGHT = 60.0, 0.5
 ANCHOR_NEAR = 3             # steps: a line whose pixels above its limit all lie this near an anchor
 WORKS_OVERLAP = 0.4         # the orthophoto's two splits both overlapping more: the judge fails at the place
+OSM_ONLY = "OSM only"       # judge_failure of a place without an orthophoto split: OSM's land cover alone judges
+JUDGE_GROUPS = {"orthophoto": "judged by the orthophoto (and OSM where it is dark or unsure)",
+                "OSM": "judged by OSM's land cover alone (no orthophoto split)"}
 REFERENCE_MIN = 500         # fewer forest-reference pixels with a GLI: the judge fails there (Zamarla Turnia's
                             # 358 were boulders and lidar noise, CHMv2 saw a tree on none of them)
 # Green is not a tree's height: the Giewont sheets (wave 1b) showed grass and dwarf pine at rim pixels that
@@ -678,12 +682,15 @@ def set_thresholds(call: str, judged: SimpleNamespace, forest: np.ndarray, rock:
 
 
 def judge_failure(study: Dict) -> Optional[str]:
-    """Why the orthophoto does not tell forest from rock at a place: "overlap" when a call's two
-    splits (GLI at tau, luminance at bright) both put more than WORKS_OVERLAP of the references on
-    the wrong side, "few forest px" when the orthophoto was read but fewer than REFERENCE_MIN forest
-    reference pixels have a GLI (both, joined by a comma, when both hold); None when it does (or no
-    orthophoto was read: OSM alone judges)."""
+    """Why the orthophoto does not judge a place: "OSM only" when no call has a split of it (no
+    service, no tiles, or tau null for want of forest or rock references: OSM's land cover alone
+    judges, summed apart); "overlap" when a call's two splits (GLI at tau, luminance at bright) both
+    put more than WORKS_OVERLAP of the references on the wrong side, "few forest px" when fewer than
+    REFERENCE_MIN forest reference pixels have a GLI (both, joined by a comma, when both hold: the
+    judge failed); None when the orthophoto judges it."""
     orthos = [(judged or {}).get("ortho") for judged in study.get("judges") or []]
+    if not any(ortho and ortho.get("tiles") and ortho.get("tau") is not None for ortho in orthos):
+        return OSM_ONLY
     reasons = []
     if any(ortho and all(ortho.get(k) is not None and ortho[k] > WORKS_OVERLAP for k in ("overlap", "bright_overlap"))
            for ortho in orthos):
@@ -695,8 +702,15 @@ def judge_failure(study: Dict) -> Optional[str]:
 
 
 def judge_works(study: Dict) -> bool:
-    """Whether the judges' verdicts of a place count (judge_failure)."""
+    """Whether the orthophoto judges a place (judge_failure)."""
     return judge_failure(study) is None
+
+
+def judge_group(study: Dict) -> str:
+    """The group a place's verdicts are summed in: "orthophoto", "OSM" (OSM's land cover alone) or
+    "failed" (listed, never summed)."""
+    failure = judge_failure(study)
+    return "orthophoto" if failure is None else "OSM" if failure == OSM_ONLY else "failed"
 
 
 def ortho_patch(grid: Dict, rows: Tuple[int, int], cols: Tuple[int, int], folder: str, zoom: int,
@@ -1463,7 +1477,10 @@ def judges_markdown(study: Dict) -> List[str]:
              f"{_share(a.get('forest_chm_tree', 0), a.get('forest_chm', 0))} forest pixels, below on "
              f"{_share(a.get('rock_chm_low', 0), a.get('rock_chm', 0))} rock pixels."]
     failure = judge_failure(study)
-    if failure is not None:
+    if failure == OSM_ONLY:
+        lines[-1] += (" Note: no split of the orthophoto (no service, no tiles or too few references): the verdicts "
+                      "come from OSM's land cover alone and are summed apart.")
+    elif failure is not None:
         why = {"overlap": f"the orthophoto's two splits both overlap more than {WORKS_OVERLAP:g}",
                "few forest px": f"fewer than {REFERENCE_MIN} forest reference pixels with an orthophoto"}
         lines[-1] += (f" WARNING: {' and '.join(why[k] for k in failure.split(', '))}: the verdicts of this place are "
@@ -1532,8 +1549,9 @@ def check_passed(c: Dict) -> bool:
 
 def judges_report(studies: List[Dict]) -> List[str]:
     """The report's sections of the judges (none when no place has them): their agreement per
-    place, the verdicts per place under REPORT_VERDICT_RULES, and over the places where the judge
-    works the verdicts per variant and rule and those of the lines near an anchor."""
+    place, the verdicts per place under REPORT_VERDICT_RULES, and per group of places (judge_group:
+    judged by the orthophoto, by OSM alone; the failed ones only listed) the verdicts per variant and
+    rule and those of the lines near an anchor."""
     judged = [st for st in studies if st.get("judges")]
     if not judged:
         return []
@@ -1542,17 +1560,20 @@ def judges_report(studies: List[Dict]) -> List[str]:
              "|" + " --- |" * 12]
     per_place = ["| place | judge works | variant | rule | marked: tree/rock/unknown/none | "
                  "un-marked: tree/rock/unknown/none | kept: tree/rock/unknown/none |", "|" + " --- |" * 7]
-    total, near, works = {}, {}, []
+    total = {group: {} for group in JUDGE_GROUPS}
+    near = {group: {} for group in JUDGE_GROUPS}
+    members = {group: [] for group in (*JUDGE_GROUPS, "failed")}
+    works = {"orthophoto": "yes", "OSM": "OSM", "failed": "NO"}
     for st in judged:
-        a, failure = st.get("agreement", {}), judge_failure(st)
-        ok = failure is None
+        a, failure, group = st.get("agreement", {}), judge_failure(st), judge_group(st)
+        members[group].append(st["place"])
         orthos = [j.get("ortho") or {} for j in st["judges"] if j]
         first = orthos[0] if orthos else {}
         pixels = a.get("pixels", 0)
         cover = (f"{100 * a.get('osm_forest', 0) / pixels:.0f} %, {100 * a.get('osm_rock', 0) / pixels:.0f} %"
                  if pixels and any(j["landcover"] for j in st["judges"] if j) else "-")
         agree.append("| " + " | ".join([
-            st["place"], "yes" if ok else "NO", failure or "-", cover, str(sum(o.get("tiles") or 0 for o in orthos)),
+            st["place"], works[group], failure or "-", cover, str(sum(o.get("tiles") or 0 for o in orthos)),
             f"{_number(first.get('tau'))} ({_number(first.get('overlap'), 2)})",
             f"{_number(first.get('bright'), 0)} ({_number(first.get('bright_overlap'), 2)})",
             _number(first.get("dark"), 0), _share(a.get("forest_green", 0), a.get("forest_ortho", 0)),
@@ -1567,27 +1588,35 @@ def judges_report(studies: List[Dict]) -> List[str]:
             for name in REPORT_VERDICT_RULES:
                 r = verdicts["rules"].get(name)
                 if r:
-                    per_place.append("| " + " | ".join([st["place"], "yes" if ok else "NO", variant, name,
+                    per_place.append("| " + " | ".join([st["place"], works[group], variant, name,
                                                         _tally(verdicts["lines"]), _tally(r["unmarked"]),
                                                         _tally(r["kept"])]) + " |")
-            if ok:
-                total[variant] = _add(total.get(variant), verdicts)
-        if ok:
-            works.append(st["place"])
-            near = _add(near, st.get("near_anchor")) or {}
-    sums = ["| variant | rule | marked: tree/rock/unknown/none | un-marked: tree/rock/unknown/none | "
-            "kept: tree/rock/unknown/none |", "| --- | --- | --- | --- | --- |"]
-    for variant in VARIANTS:
-        for name in VARIANT_RULES if variant in total else ():
-            r = total[variant]["rules"].get(name)
-            if r:
-                sums.append(f"| {variant} | {name} | {_tally(total[variant]['lines'])} | {_tally(r['unmarked'])} | "
-                            f"{_tally(r['kept'])} |")
-    near_rows = ["| rule | un-marked: tree | rock | unknown | none |", "| --- | --- | --- | --- | --- |"]
-    for name in VARIANT_RULES:
-        r = (near.get("rules") or {}).get(name)
-        if r and name != "raw":
-            near_rows.append("| " + " | ".join([name] + [str(r["unmarked"][v]) for v in VERDICTS]) + " |")
+            if group in total:
+                total[group][variant] = _add(total[group].get(variant), verdicts)
+        if group in near:
+            near[group] = _add(near[group], st.get("near_anchor")) or {}
+    blocks = []
+    for group, title in JUDGE_GROUPS.items():
+        sums = ["| variant | rule | marked: tree/rock/unknown/none | un-marked: tree/rock/unknown/none | "
+                "kept: tree/rock/unknown/none |", "| --- | --- | --- | --- | --- |"]
+        for variant in VARIANTS:
+            for name in VARIANT_RULES if variant in total[group] else ():
+                r = total[group][variant]["rules"].get(name)
+                if r:
+                    sums.append(f"| {variant} | {name} | {_tally(total[group][variant]['lines'])} | "
+                                f"{_tally(r['unmarked'])} | {_tally(r['kept'])} |")
+        near_rows = ["| rule | un-marked: tree | rock | unknown | none |", "| --- | --- | --- | --- | --- |"]
+        for name in VARIANT_RULES:
+            r = (near[group].get("rules") or {}).get(name)
+            if r and name != "raw":
+                near_rows.append("| " + " | ".join([name] + [str(r["unmarked"][v]) for v in VERDICTS]) + " |")
+        places = ", ".join(members[group]) or "none"
+        blocks += [f"## Verdicts over all places {title} ({places})", "", *sums, "",
+                   f"## Near an anchor (pixels above the limit on avg all within {ANCHOR_NEAR} steps of an anchor), "
+                   f"places {title}: {_tally(near[group].get('lines'))} lines tree/rock/unknown/none", "",
+                   *near_rows, ""]
+    blocks += ["## Places where the judge failed (listed above, not summed): "
+               + (", ".join(members["failed"]) or "none"), ""]
     return [
         "## Judges", "",
         "OSM's land cover (forest, rock) and the orthophoto (its green leaf index split at tau, its luminance at "
@@ -1596,19 +1625,18 @@ def judges_report(studies: List[Dict]) -> List[str]:
         f"or steeper, the surface under {ROCK_HEIGHT:g} m above the terrain, not OSM forest), and CHMv2 on them. A place "
         f"where both splits put more than {WORKS_OVERLAP:g} of the references on the wrong side (why: overlap), or with "
         f"fewer than {REFERENCE_MIN} forest reference pixels in the orthophoto (few forest px): the judge does not work "
-        "there (NO), its verdicts are listed but not summed.", "",
+        "there (NO), its verdicts are listed but not summed. A place without a split of the orthophoto (no service, no "
+        "tiles, or too few references for tau: OSM only) is judged by OSM's land cover alone (OSM) and summed apart.",
+        "",
         *agree, "",
         "## Verdicts per place", "",
         "A line's verdict from its pixels above the limit standing 3 m or more above the terrain on the variant "
-        f"(none: no such pixel): tree when one is green on terrain under {TREE_SLOPE:g} deg or on a tree of CHMv2, or "
+        f"(none: no such pixel): tree when one is green on terrain under {TREE_SLOPE:g} deg or where CHMv2 at the pixel "
+        f"reaches {TREE:g} m, or "
         "dark/unknown/green on steeper terrain on OSM forest; rock when all are bright, or dark/unknown/green on "
         "steeper terrain on OSM rock; else unknown.", "",
         *per_place, "",
-        f"## Verdicts over all places where the judge works ({', '.join(works) if works else 'none'})", "",
-        *sums, "",
-        f"## Near an anchor (pixels above the limit on avg all within {ANCHOR_NEAR} steps of an anchor), over the same "
-        f"places: {_tally(near.get('lines'))} lines tree/rock/unknown/none", "",
-        *near_rows, ""]
+        *blocks]
 
 
 def report(out: str) -> str:

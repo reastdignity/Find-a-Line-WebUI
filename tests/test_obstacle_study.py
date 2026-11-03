@@ -506,16 +506,21 @@ def test_pixel_classes_and_judge_failure():
         study.PX_TREE, study.PX_STEEP, study.PX_TREE, study.PX_ROCK, study.PX_DARK, study.PX_UNKNOWN, study.PX_UNKNOWN]
     assert study.pixel_classes(gli, lum, ortho)[1] == study.PX_TREE  # without the slope: green alone
 
-    def place(forest_ortho, overlaps=(0.1, 0.1), tiles=10):
-        return {"judges": [{"landcover": True, "ortho": {"tiles": tiles, "overlap": overlaps[0],
+    def place(forest_ortho, overlaps=(0.1, 0.1), tiles=10, tau=0.05):
+        return {"judges": [{"landcover": True, "ortho": {"tiles": tiles, "tau": tau, "overlap": overlaps[0],
                                                           "bright_overlap": overlaps[1]}}],
                 "agreement": {"forest_ortho": forest_ortho}}
     assert study.judge_failure(place(study.REFERENCE_MIN)) is None
     assert study.judge_failure(place(study.REFERENCE_MIN - 1)) == "few forest px"
     assert study.judge_failure(place(10 ** 6, (0.5, 0.45))) == "overlap"
     assert study.judge_failure(place(358, (0.47, 0.56))) == "overlap, few forest px"  # Zamarla Turnia
-    assert study.judge_failure(place(0, tiles=0)) is None  # no orthophoto read: OSM alone judges
-    assert not study.judge_works(place(358))
+    assert not study.judge_works(place(358)) and study.judge_group(place(358)) == "failed"
+    # No split of the orthophoto: no tiles (no service), or tau null (too few references): OSM alone
+    for osm_only in (place(0, tiles=0), place(10 ** 6, tau=None), place(0, (None, None), tau=None),
+                     {"judges": [{"landcover": True, "ortho": None}], "agreement": {}}):
+        assert study.judge_failure(osm_only) == study.OSM_ONLY and study.judge_group(osm_only) == "OSM"
+        assert not study.judge_works(osm_only)
+    assert study.judge_group(place(study.REFERENCE_MIN)) == "orthophoto"
 
 
 def test_verdicts_of_the_variants(tmp_path, monkeypatch):
@@ -583,6 +588,11 @@ def test_ortho_patch(tmp_path):
     assert (patch[:, 32:] == 128).all()  # the tile east of it: not cached
 
 
+def _times(counts, k):
+    """Counts (nested dicts of ints) times k."""
+    return {key: _times(v, k) if isinstance(v, dict) else v * k for key, v in counts.items()}
+
+
 def test_report_with_judges(tmp_path):
     """The judges' sections: their agreement per place (a place whose two splits both overlap more
     than WORKS_OVERLAP marked NO), the verdicts per place, their sums over the places where the judge
@@ -599,28 +609,35 @@ def test_report_with_judges(tmp_path):
     agreement = {"forest": 1000, "rock": 50, "forest_ortho": 800, "forest_green": 600, "rock_ortho": 40, "rock_bright": 30,
                  "forest_chm": 100, "forest_chm_tree": 90, "rock_chm": 50, "rock_chm_low": 45, "pixels": 1000,
                  "osm_forest": 200, "osm_rock": 100}
-    for place, overlaps in (("R1", (0.1, 0.2)), ("R2", (0.5, 0.45))):
+    for place, overlaps in (("R1", (0.1, 0.2)), ("R2", (0.5, 0.45)), ("R3", None)):  # R3: no split, OSM alone
         os.makedirs(tmp_path / place)
         with open(tmp_path / place / "study.json", "w") as f:
             json.dump({"place": place, "source": "test", "res": 1.0, "lines": 10, "marked": 9, "rules": rules,
                        "classes": {"real": 4, "real_chm": 5, "rock_only": 3, "other": 2},
                        "checks": [{"raw_equal": True}], "chm_shift": [None],
-                       "judges": [{"landcover": True, "ortho": {"zoom": 19, "tiles": 12, "tau": 0.05, "dark": 40.0,
-                                                                 "overlap": overlaps[0], "bright": 120.0,
-                                                                 "bright_overlap": overlaps[1]}}],
-                       "agreement": agreement, "near_anchor": near,
+                       "judges": [{"landcover": True, "ortho": None if overlaps is None else {
+                           "zoom": 19, "tiles": 12, "tau": 0.05, "dark": 40.0, "overlap": overlaps[0], "bright": 120.0,
+                           "bright_overlap": overlaps[1]}}],
+                       "agreement": agreement, "near_anchor": near if overlaps else _times(near, 10),
                        "variants": {"avg": {"marked": 9, "classes": {"real": 4}, "rules": rules,
-                                            "verdicts": verdicts}}}, f)
+                                            "verdicts": verdicts if overlaps else _times(verdicts, 10)}}}, f)
     text = study.report(str(tmp_path))
+    orthophoto, osm = (f"places {study.JUDGE_GROUPS[g]}" for g in ("orthophoto", "OSM"))
     assert text.index("## Over all places") < text.index("## Judges") < text.index("## Verdicts per place") \
-        < text.index("## Verdicts over all places where the judge works (R1)") < text.index("## Near an anchor") \
-        < text.index("## CHMv2 against")
+        < text.index(f"## Verdicts over all {orthophoto} (R1)") < text.index("## Near an anchor") \
+        < text.index(f"## Verdicts over all {osm} (R3)") \
+        < text.index("## Places where the judge failed (listed above, not summed): R2") < text.index("## CHMv2 against")
+    assert "| R3 | OSM | OSM only |" in text and "| R3 | OSM | avg | A2 | 40/30/10/10 | 10/20/0/10 | 30/10/10/0 |" in text
     assert "| R1 | yes | - | 20 %, 10 % | 12 | 0.050 (0.10) | 120 (0.20) | 40 | 75 % of 800 | 75 % of 40 | 90 % of 100 | " \
            "90 % of 50 |" in text
     assert "| R2 | NO | overlap |" in text
     assert "| R2 | NO | avg | A2 | 4/3/1/1 | 1/2/0/1 | 3/1/1/0 |" in text
-    assert "| avg | A2 | 4/3/1/1 | 1/2/0/1 | 3/1/1/0 |" in text  # R1's alone: R2 is not summed
-    assert "places: 1/2/0/0 lines tree/rock/unknown/none" in text and "| A2 | 0 | 2 | 0 | 0 |" in text
+    assert text.count("\n| avg | A2 | 4/3/1/1 | 1/2/0/1 | 3/1/1/0 |") == 1  # R1's alone: R2 is not summed
+    assert "| avg | A2 | 40/30/10/10 | 10/20/0/10 | 30/10/10/0 |" in text  # R3's, apart
+    assert f"{orthophoto}: 1/2/0/0 lines tree/rock/unknown/none" in text and "| A2 | 0 | 2 | 0 | 0 |" in text
+    assert f"{osm}: 10/20/0/0 lines tree/rock/unknown/none" in text and "| A2 | 0 | 20 | 0 | 0 |" in text
+    with open(tmp_path / "R3" / "study.json") as f:
+        assert "verdicts come from OSM's land cover alone" in study.place_markdown(json.load(f))
 
     with open(tmp_path / "R2" / "study.json") as f:
         place = study.place_markdown(json.load(f))
