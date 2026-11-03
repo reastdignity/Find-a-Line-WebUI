@@ -555,6 +555,25 @@ of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
   `tests/test_view3d.py`, `tests/test_device_page.py`, and `tools/ui_shots.py`'s 3D pages on both phones in Eyes and
   Behind, light and dark (the screenshots' folder in the report; never with Esri's imagery chosen).
 
+## After wave P (2026-11-03)
+- **VP** (8b7f870): under 600 px a break before the views' switch (`.v3-toolbar::before`, the rows' gap as margins,
+  so it adds no height); the walker's slider at 412 px (Pixel 7) 73.7 px before F2 and at ea50546 (the switch
+  shared its row, F2 had not shrunk it), 187.7 px in the walker's views after; at 390 px (iPhone 13, WebKit) 159.7
+  px throughout. The look hint names the zoom (`look_hint`, `look_hint_touch` where the pointer is coarse).
+  `tools/device_page.py` served `/view3d` with every page's Permissions-Policy, which turned the motion sensors
+  off: now `web.PAGE_PERMISSIONS` (its test checks it); its checklist has the walker's views, Phone motion and the
+  zoom. `test_view3d_interaction` was not reproduced under load (12/12 and 24/24 with CPU burners); its script
+  polled with plain timers, under which headless Edge draws no frame unless something loads (the canvas's redraw
+  after the readout fills in places the handles it drags): it polls with a small fetch and drags once no frame
+  came for a second (15 s limit, `settled` asserted).
+- **At the merge (4b31cfa, the coordinator)**: the break in the orbit too (its slider 74 px at 412 px beside the
+  switch; now as wide as in the walker's views, the bar as high in every view); the look hint at the phone level
+  as well, in place of its note (`v3-phone-note`, hidden in the walker's views as the anchors' hint is), so the
+  bar keeps its height when the view changes.
+- **To watch on the iPhone** (checklist item h): in Playwright's WebKit a bar 4 px higher after a view switch left
+  the canvas blank while frames were counted (fixed by the constant height); a resize of the canvas, e.g. turning
+  the phone, deserves a look.
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
