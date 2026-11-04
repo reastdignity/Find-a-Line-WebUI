@@ -142,6 +142,12 @@ export interface CountryCube { id: string; name: string; crs: string; cell_m: nu
                                credits: Credit[]; notes: string[] }
 /** /api/countries/<id>/cells: the cells with a count, each [i, j, count, lat, lon of SW, SE, NE, NW]. */
 export interface CountryCells { level: number; cell_m: number; total: number; max: number; cells: number[][] }
+/** /api/countries/<id>/histogram: the counts in view per bin of each dimension, each dimension under every other
+ *  filter but its own (length: the 9 bins of edges.length; the others: bins 0..4 of their edges, then unknown). */
+export interface CountryHistogram { level: number; cell_m: number; total: number; length: number[]; prominence: number[];
+                                    wall: number[]; clearance: number[]; height: number[] }
+/** /api/countries/<id>/outline: the country's outline in WGS84 (a Polygon or MultiPolygon), simplified by `tolerance`. */
+export interface CountryOutline { tolerance: number; area_km2: number; geometry: GeoJSON }
 
 /** A match of the place box (/api/place, osm.places): bbox [S, W, N, E] or null for a point. */
 export interface Place { name: string; lat: number; lon: number; bbox: [number, number, number, number] | null; type: string }
@@ -236,6 +242,10 @@ export const api = {
   countries: () => call<{countries: CountryCube[]}>("GET", "/api/countries"),
   countryCells: (id: string, query: Record<string, string>, signal?: AbortSignal) =>
     call<CountryCells>("GET", `/api/countries/${encodeURIComponent(id)}/cells?${new URLSearchParams(query)}`, undefined, signal),
+  countryHistogram: (id: string, query: Record<string, string>, signal?: AbortSignal) =>
+    call<CountryHistogram>("GET", `/api/countries/${encodeURIComponent(id)}/histogram?${new URLSearchParams(query)}`, undefined, signal),
+  countryOutline: (id: string, signal?: AbortSignal) =>
+    call<CountryOutline>("GET", `/api/countries/${encodeURIComponent(id)}/outline`, undefined, signal),
   countryRequest: (id: string, band: string, level: number, i: number, j: number) =>
     call<SearchRequest>("GET", `/api/countries/${encodeURIComponent(id)}/request?` +
                                new URLSearchParams({band, level: String(level), i: String(i), j: String(j)})),

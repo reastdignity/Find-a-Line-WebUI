@@ -26,8 +26,8 @@ export function appLink(model: ResultModel, l: Line): string {
   return `${base}#run=${encodeURIComponent(model.runOf(l))}&line=${encodeURIComponent(model.lineLink(l))}`;
 }
 
-/** Put a text on the clipboard; false when the browser does not allow it. */
-async function copy(text: string): Promise<boolean> {
+/** Put a text on the clipboard; false when the browser does not allow it (then LinkField shows it to copy by hand). */
+export async function copy(text: string): Promise<boolean> {
   try {
     if (!navigator.clipboard) return false;
     await navigator.clipboard.writeText(text);

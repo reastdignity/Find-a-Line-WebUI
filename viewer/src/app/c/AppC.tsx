@@ -80,7 +80,13 @@ export function AppC() {
   const runs = useRuns();
 
   useEffect(() => {
-    const changed = () => { setRoute(parseRoute(location.hash)); setNavs((n) => n + 1); };
+    // The highline layer writes its view and filters into the hash in place, and reads Back and pasted links
+    // itself: a change within #layer is no navigation (the page stays, nothing re-renders)
+    const changed = () => {
+      const next = parseRoute(location.hash);
+      setRoute((r) => r.page === "layer" && next.page === "layer" ? r : next);
+      if (next.page !== "layer") setNavs((n) => n + 1);
+    };
     window.addEventListener("hashchange", changed);
     api.schema().then(setSchema, (e) => setError(e.message));
     return () => window.removeEventListener("hashchange", changed);
@@ -131,7 +137,7 @@ export function AppC() {
       page = <OsmPage />;
       break;
     case "layer":
-      page = <LayerPage key={route.country || ""} country={route.country} />;
+      page = <LayerPage key="layer" params={route.params} />;  // one instance: the page writes its hash in place
       break;
     default:
       page = <Home jobs={jobs} runs={runs} usage={usage} highlight={highlight} wide={wide} />;
