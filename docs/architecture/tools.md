@@ -136,7 +136,7 @@ never change; they change only by a decision that the counters may change.
 ```mermaid
 flowchart TD
     capture["perf_line_funnel.py capture<br/>a search with find_valid_lines wrapped"]
-    call[("call-&lt;k&gt;/inputs.npz, params.json, timings.json<br/>one call per tile")]
+    callk[("call-&lt;k&gt;/inputs.npz, params.json, timings.json<br/>one call per tile")]
     rebuild["load_call, rebuild<br/>the set-up of find_valid_lines mirrored"]
     prod["linesearch.py<br/>free_directions, pair_arguments, pair_chunk"]
     refs["line_funnel_kernels.py<br/>ref_free_rings, ref_pairs, ref_line_ok"]
@@ -152,7 +152,7 @@ flowchart TD
     doc[("docs/performance.md<br/>Order of elimination")]
     memory["perf_lines_memory.py --call<br/>bytes per line from the same capture"]
     tests["tests/test_units.py<br/>test_free_rings_match_reference, test_pairs_match_reference"]
-    capture --> call --> rebuild --> check
+    capture --> callk --> rebuild --> check
     prod --> check
     refs --> check
     check --> rings --> ok
@@ -162,7 +162,7 @@ flowchart TD
     ok -- yes --> work --> out
     ok -- yes --> orders --> out
     out --> doc
-    call --> memory
+    callk --> memory
     tests -. "runs self_check" .-> check
     classDef step fill:#e1e8fa,stroke:#2350c8,color:#17201c
     classDef q fill:#fbefd9,stroke:#995500,color:#17201c

@@ -71,11 +71,12 @@ def names_of(cell: str):
 def present(name: str, text: str) -> bool:
     """Whether a name of a table cell is in the text: as it is, or a dotted name (`Jobs.add`,
     `search.Paths`) by its last part."""
-    def word(s):
-        return re.search(r"(?<![\w.])" + re.escape(s) + r"(?![\w])", text) is not None
+    def word(s, before=r"(?<![\w.])"):
+        return re.search(before + re.escape(s) + r"(?![\w])", text) is not None
     if word(name):
         return True
-    return "." in name and re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+", name) is not None and word(name.split(".")[-1])
+    # An attribute or a method: its last part after a dot (`self.listeners`, `def add`)
+    return "." in name and re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)+", name) is not None and word(name.split(".")[-1], r"(?<!\w)")
 
 
 @pytest.mark.parametrize("path", FILES, ids=[p.name for p in FILES])

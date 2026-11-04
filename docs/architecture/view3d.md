@@ -39,7 +39,7 @@ sequenceDiagram
     P->>P: currentPage: ?level=phone|full, else pointer coarse → phone
     P->>W: GET /api/patch?run&line&step=1|2, header X-Findaline-Patch (patchUrl)
     W->>W: run_access, current_user, four finite numbers, step 1 or 2
-    W->>W: public: profile_problem(patch=True): patch_outside, patch_admin_only; within_rate "patch"
+    W->>W: public: profile_problem(patch=True): patch_outside, patch_admin_only, within_rate "patch"
     W->>J: quick_add("patch")
     loop every QUICK_POLL, at most QUICK_WAIT_MAX
         W->>J: quick_take
@@ -103,7 +103,7 @@ sequenceDiagram
     S->>T: buildTerrain(MAX_ERROR[level], VERTEX_BUDGET[level])
     T->>T: forcedSamples: the anchors and the line's footprint
     T->>T: chunkTile per 513 × 513 chunk, one shared Martini(513)
-    T->>T: chunkMesh with skirts; error × 1.5 until vertices fit the budget
+    T->>T: chunkMesh with skirts, error × 1.5 until vertices fit the budget
     S->>S: createView: renderer, OrbitControls, drawn on demand (invalidate)
     P->>P: createLine (webbing from sag.ts), createWalk, createPin, createEdit (level full), createViews
     S-->>P: onDrawn: the first frame
@@ -115,7 +115,7 @@ sequenceDiagram
     R->>X: TilesRenderer + TerrariumMeshPlugin: FINDALINE_3D_RING_URL tiles, RING[level].radius
     P->>W: GET /api/profile?run&line, header X-Findaline-Profile (fetchProfile)
     W-->>P: the profile (quick lane: profile_of_line)
-    P->>P: edit.found → line.setProfile: readoutOf, VERDICT_COLOUR; root data-ready
+    P->>P: edit.found → line.setProfile: readoutOf, VERDICT_COLOUR, root data-ready
 ```
 
 ## 3. The page's modules
@@ -225,9 +225,9 @@ stateDiagram-v2
     [*] --> found: the found line, its profile from fetchProfile
     found --> moving: a handle grabbed (raycast on pickTargets, three-mesh-bvh)
     moving --> found: released without a move
-    moving --> waiting: released: profileQueue.push(lineParam)
+    moving --> waiting: released - profileQueue.push(lineParam)
     waiting --> moving: grabbed again (the request cancelled)
-    waiting --> checked: /api/profile answered: setProfile
+    waiting --> checked: /api/profile answered - setProfile
     waiting --> error: /api/profile failed
     checked --> moving: grabbed again
     error --> moving: grabbed again

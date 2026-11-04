@@ -423,7 +423,7 @@ with Python's `re` on the same patterns (`tests/test_deploy.py::test_access_log_
 | proxy | [deploy/monitoring/compose.yaml](../../deploy/monitoring/compose.yaml) | service `socket-proxy` |
 | appmetrics | [deploy/monitoring/telegraf.conf](../../deploy/monitoring/telegraf.conf) | `inputs.prometheus` of `127.0.0.1:8766/metrics` |
 | factsfiles | [deploy/monitoring/telegraf.conf](../../deploy/monitoring/telegraf.conf) | `inputs.file` as `findaline_facts`, `findaline_check`, `findaline_backup`, `findaline_ssh` |
-| agent | [deploy/monitoring/systemd/telegraf.service.d/findaline.conf](../../deploy/monitoring/systemd/telegraf.service.d/findaline.conf) | `ExecStart`, `[agent]` of `telegraf.conf` |
+| agent | [deploy/monitoring/systemd/telegraf.service.d/findaline.conf](../../deploy/monitoring/systemd/telegraf.service.d/findaline.conf), [deploy/monitoring/telegraf.conf](../../deploy/monitoring/telegraf.conf) | `ExecStart`, `[agent]` of `telegraf.conf` |
 | regex | [deploy/monitoring/telegraf.conf](../../deploy/monitoring/telegraf.conf) | `processors.regex` |
 | starlark | [deploy/monitoring/telegraf.conf](../../deploy/monitoring/telegraf.conf) | `processors.starlark`, `aggregators.basicstats`, `aggregators.quantile` |
 | vm | [deploy/monitoring/compose.yaml](../../deploy/monitoring/compose.yaml) | service `victoriametrics` |
