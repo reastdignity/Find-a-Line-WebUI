@@ -1,19 +1,17 @@
-// Prototype C (dashboard): home with the searches as cards and the favourite lines as a trip list
+// The interface (C, a dashboard): home with the searches as cards and the favourite lines as a trip list
 // (Home), a focused search page (NewSearch), a three-column result (ResultPage), the account; pages
 // in the hash (route.ts), so Back and Forward work. On phones (< 768 px) the cards stack and a bottom
 // navigation leads to Home, Favourites and the account; the result is a map with a sheet.
-// Styles in c.css (classes c-*, under the kit's .ui). ShellC is the frame with the result page and the
-// account's links to the other interfaces given: AppC with its own result, D (app/d) with B's.
+// Styles in c.css (classes c-*, under the kit's .ui).
 
-import type { ComponentChildren } from "preact";
 import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 import { BottomNav, DESKTOP, Panel, Screen, useMedia, type NavItem, type Theme } from "../../ui/components";
 import { Icon, Logo } from "../../ui/icons";
-import { storedTheme, type UiChoice } from "../../ui/choice";
+import { storedTheme } from "../../ui/choice";
 import { useUsage } from "../../search";
 import { api, type RunListed, type Schema, type Usage } from "../api";
 import { useJobs } from "../useJobs";
-import { AccountBody, AccountMenu, AdminPage, OsmPage, TRIES_C } from "./Account";
+import { AccountBody, AccountMenu, AdminPage, OsmPage } from "./Account";
 import { Home, type RunsState } from "./Home";
 import { NewSearch } from "./NewSearch";
 import { ResultPage } from "./ResultPage";
@@ -49,8 +47,8 @@ function useRuns(): RunsState {
 }
 
 /** The desktop header: the logo, Home and Favourites, the account. */
-function Header({route, theme, setTheme, tries, usage}:
-                {route: Route; theme: Theme; setTheme(t: Theme): void; tries: UiChoice[]; usage: Usage | null}) {
+function Header({route, theme, setTheme, usage}:
+                {route: Route; theme: Theme; setTheme(t: Theme): void; usage: Usage | null}) {
   const on = (page: Route["page"]) => route.page === page ? "c-nav-item u-on" : "c-nav-item";
   return <header class="c-top">
     <a class="c-logo" href="#home" aria-label="Find-a-Line: home"><Logo /></a>
@@ -60,7 +58,7 @@ function Header({route, theme, setTheme, tries, usage}:
         <Icon name="star" />Favourites</a>
     </nav>
     <span class="u-grow" />
-    <AccountMenu theme={theme} setTheme={setTheme} tries={tries} usage={usage} />
+    <AccountMenu theme={theme} setTheme={setTheme} usage={usage} />
   </header>;
 }
 
@@ -69,25 +67,7 @@ function PhoneHeader() {
   return <header class="c-top c-top-phone"><a class="c-logo" href="#home" aria-label="Find-a-Line: home"><Logo /></a></header>;
 }
 
-/** What a shell's result page gets: the run, the route's line (`nav` changes with every navigation),
- *  the job to edit and run again (none for a run without one), the layout. */
-export interface ResultPageProps { id: string; line: string | null; nav: number; editJob: string | null; wide: boolean }
-
-export interface ShellProps {
-  /** The root's class of this interface (u-app-c, u-app-d). */
-  ui: string;
-  /** The other interfaces the account links to. */
-  tries: UiChoice[];
-  result(props: ResultPageProps): ComponentChildren;
-}
-
 export function AppC() {
-  return <ShellC ui="u-app-c" tries={TRIES_C}
-                 result={({id, line, nav, editJob, wide}) =>
-                   <ResultPage key={id} id={id} line={line} nav={nav} editJob={editJob} wide={wide} />} />;
-}
-
-export function ShellC({ui, tries, result}: ShellProps) {
   const wide = useMedia(DESKTOP);
   const [theme, setTheme] = useState<Theme>(initialTheme);
   const [route, setRoute] = useState<Route>(() => parseRoute(location.hash));
@@ -135,14 +115,14 @@ export function ShellC({ui, tries, result}: ShellProps) {
                         onStarted={started} />;
       break;
     case "run":
-      page = result({id: route.id, line: route.line, nav: navs, editJob, wide});
+      page = <ResultPage key={route.id} id={route.id} line={route.line} nav={navs} editJob={editJob} wide={wide} />;
       break;
     case "favourites":
       page = <div class="c-page c-page-wide"><Panel title="Favourite lines" class="c-favs c-favs-page">
         <FavouritesPage wide={wide} /></Panel></div>;
       break;
     case "account":
-      page = <div class="c-page"><Panel title="Account"><AccountBody theme={theme} setTheme={setTheme} tries={tries} usage={usage.usage} /></Panel></div>;
+      page = <div class="c-page"><Panel title="Account"><AccountBody theme={theme} setTheme={setTheme} usage={usage.usage} /></Panel></div>;
       break;
     case "admin":
       page = <AdminPage jobs={jobs.jobs} />;
@@ -157,8 +137,8 @@ export function ShellC({ui, tries, result}: ShellProps) {
       page = <Home jobs={jobs} runs={runs} usage={usage} highlight={highlight} wide={wide} />;
   }
 
-  return <Screen theme={theme} class={`${ui} c-app${wide ? " c-wide" : " c-narrow"}${nav && !wide ? " c-has-nav" : ""}`}>
-    {!focused && (wide ? <Header route={route} theme={theme} setTheme={setTheme} tries={tries} usage={usage.usage} /> : <PhoneHeader />)}
+  return <Screen theme={theme} class={`u-app-c c-app${wide ? " c-wide" : " c-narrow"}${nav && !wide ? " c-has-nav" : ""}`}>
+    {!focused && (wide ? <Header route={route} theme={theme} setTheme={setTheme} usage={usage.usage} /> : <PhoneHeader />)}
     {error && <p class="c-error c-app-error">{error}</p>}
     <main class={`c-main c-main-${route.page}`}>{page}</main>
     {!wide && nav && <BottomNav items={NAV} value={nav} onChange={(v) => go("#" + v)} />}

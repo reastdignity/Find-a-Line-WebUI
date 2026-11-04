@@ -375,7 +375,6 @@
   "intro.result.easy_off": "Turn grouping off only when you look at a small part of the map.",
   "intro.result.check": "<b>Check on the spot.</b> The result comes from terrain data. It does not see loose rock, small trees or new buildings, and it does not check a fall onto the backup. Check every line before you rig it.",
 
-  "ui.try": "Try interface {{ui}}",
   "ui.credits.toggle": "Data credits",
   "ui.coverage.intro": "How much a search can see depends on the elevation data of the place: detailed lidar in many countries, rough 30 m data elsewhere.",
   "ui.coverage.link": "See the coverage map.",

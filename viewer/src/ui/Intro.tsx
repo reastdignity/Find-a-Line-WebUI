@@ -37,15 +37,14 @@ export interface IntroState {
   close(dontShow: boolean): void;
 }
 
-/** The state of the intro `name`: open at first when it was not seen and `visible` (a panel that stays
- *  mounted while hidden opens it only when it is shown). */
-export function useIntro(name: string, visible = true): IntroState {
+/** The state of the intro `name`: open at first when it was not seen. */
+export function useIntro(name: string): IntroState {
   const [open, setOpen] = useState(false);
   useEffect(() => {
-    if (!visible || introSeen(name)) return;
+    if (introSeen(name)) return;
     shown.add(name);
     setOpen(true);
-  }, [visible]);
+  }, []);
   return {open, show: () => setOpen(true), close: (dontShow) => { remember(name, !dontShow); setOpen(false); }};
 }
 

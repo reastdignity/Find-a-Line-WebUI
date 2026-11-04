@@ -1,6 +1,6 @@
 // The texts of the interface: the message catalogue locales/<language>.json at the root of the
 // repository, shared with the server (messages.py reads the same file and formats it the same way).
-// Keys are flat and namespaced ("field.radius.label", "choice.nmpt.off", "ui.try"); `{{name}}` is
+// Keys are flat and namespaced ("field.radius.label", "choice.nmpt.off", "ui.searched.today"); `{{name}}` is
 // replaced by a value, and a key with `count` takes its plural form ("<key>_one", "<key>_other",
 // "<key>_zero" for 0) where the catalogue has one. i18next's core only: no React bindings, the
 // texts are read when a component draws.

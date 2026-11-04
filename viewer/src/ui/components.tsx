@@ -1,4 +1,4 @@
-// Base components of the new interfaces (prototypes B and C). Styles in ui.css (classes u-*),
+// Base components of the interface (C) and the kit's demos. Styles in ui.css (classes u-*),
 // which apply only inside an element of the class "ui" (see Screen). No inline style strings:
 // the only `style` props are CSSOM (allowed by the CSP's style-src 'self').
 
@@ -105,19 +105,6 @@ export function Segmented<T extends string>({options, value, onChange, label}:
   </div>;
 }
 
-export interface TabItem<T extends string> extends Option<T> { badge?: string | number }
-
-/** Tabs over a panel's content (the content is the caller's). */
-export function Tabs<T extends string>({tabs, value, onChange, label}:
-                                       {tabs: TabItem<T>[]; value: T; onChange: (value: T) => void; label?: string}) {
-  return <div class="u-tabs" role="tablist" aria-label={label}>
-    {tabs.map((t) => <button type="button" key={t.value} role="tab" aria-selected={t.value === value}
-                             class={t.value === value ? "u-on" : ""} onClick={() => onChange(t.value)}>
-      {t.icon && <Icon name={t.icon} />}{t.label}
-      {t.badge !== undefined && t.badge !== "" && <span class="u-badge u-n">{t.badge}</span>}</button>)}
-  </div>;
-}
-
 // ---- panels and fields -----------------------------------------------------------------------
 
 /** A raised card; `padded` lays its children out in a column with gaps. */
@@ -206,37 +193,11 @@ export function Stats({children}: {children?: ComponentChildren}) {
   return <div class="u-stats">{children}</div>;
 }
 
-/** A dark message bar with an optional action and a close button (placing it is the caller's). */
-export function Toast({children, action, onClose}:
-                      {children?: ComponentChildren; action?: {label: string; onClick: () => void};
-                       onClose?: () => void}) {
-  return <div class="u-toast" role="status">
-    <div class="u-toast-text">{children}</div>
-    {action && <Button onClick={action.onClick}>{action.label}</Button>}
-    {onClose && <IconButton icon="close" label="Close" onClick={onClose} />}
-  </div>;
-}
-
 // ---- navigation ------------------------------------------------------------------------------
 
 export interface NavItem<T extends string> { value: T; label: string; icon: IconName; badge?: string | number }
 
-/** B's left navigation: the mark on top, the items, then `bottom` (e.g. the account). */
-export function Rail<T extends string>({items, value, onChange, top, bottom}:
-                                       {items: NavItem<T>[]; value: T | null; onChange: (value: T) => void;
-                                        top?: ComponentChildren; bottom?: ComponentChildren}) {
-  return <nav class="u-rail" aria-label="Main">
-    {top}
-    {items.map((it) => <button type="button" key={it.value} class={cx("u-rail-item", it.value === value && "u-on")}
-                               aria-current={it.value === value ? "page" : undefined} onClick={() => onChange(it.value)}>
-      <Icon name={it.icon} />{it.label}
-      {it.badge !== undefined && it.badge !== "" && <span class="u-badge">{it.badge}</span>}</button>)}
-    <div class="u-rail-sp" />
-    {bottom}
-  </nav>;
-}
-
-/** C's navigation on phones, at the bottom of the screen. */
+/** The navigation on phones, at the bottom of the screen. */
 export function BottomNav<T extends string>({items, value, onChange}:
                                             {items: NavItem<T>[]; value: T | null; onChange: (value: T) => void}) {
   return <nav class="u-bnav" aria-label="Main">
@@ -261,8 +222,8 @@ function snapHeight(snap: Snap, height: number, peek: number, top: number): numb
 
 /** A bottom sheet on phones: peek, half or full height, dragged by its handle (pointer events, so
  *  touch too), or moved one state with a click or the arrow keys. Wider screens (`DESKTOP`) get
- *  `desktop`: a panel at the left or right side (full height), floating (its content's height), docked
- *  (in the page's flow, e.g. a flex column) or the sheet as on phones. Its position is absolute in
+ *  `desktop`: a panel at the left or right side (full height), docked (in the page's flow, e.g. a flex
+ *  column) or the sheet as on phones. Its position is absolute in
  *  the nearest positioned ancestor (the map's container), whose height the states divide; at full it
  *  leaves `top` pixels above it (a top bar). `snap`/`onSnap` control it, or it keeps its own state
  *  from `initial`. */
@@ -270,7 +231,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
                        desktop = "left"}:
                       {label: string; header?: ComponentChildren; children?: ComponentChildren; snap?: Snap;
                        onSnap?: (snap: Snap) => void; initial?: Snap; peek?: number; top?: number;
-                       desktop?: "left" | "right" | "float" | "docked" | "sheet"}) {
+                       desktop?: "left" | "right" | "docked" | "sheet"}) {
   const wide = useMedia(DESKTOP);
   const [own, setOwn] = useState<Snap>(initial);
   const current = snap ?? own;
@@ -293,7 +254,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
   }, [wide, desktop]);
 
   if (wide && desktop !== "sheet") {
-    const side = desktop === "float" ? "u-left u-float" : desktop === "docked" ? "u-docked" : `u-${desktop}`;
+    const side = desktop === "docked" ? "u-docked" : `u-${desktop}`;
     return <section ref={ref} class={`u-panel u-side ${side}`} aria-label={label}>
       {header && <div class="u-sheet-head">{header}</div>}
       <div class="u-sheet-body">{children}</div>

@@ -2,7 +2,7 @@
    class .ui and its classes start with u-, so the pages outside it (runs/index.html) are untouched. */
 @import "./tokens.css";
 
-/* The root: a full-screen page of its own (the new shells) or a block (the gallery's columns) */
+/* The root: a full-screen page of its own (the app, a run's map, the kit's demos) or a block (the gallery's columns) */
 .ui { font: 14px/1.45 var(--font); color: var(--ink); background: var(--bg); -webkit-text-size-adjust: 100%; }
 .ui *, .ui *::before, .ui *::after { box-sizing: border-box; }
 .ui.u-screen { position: fixed; inset: 0; overflow: hidden; display: flex; }
@@ -80,10 +80,6 @@
 .ui .u-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
 .ui .u-panel.u-pad { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
 .ui .u-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.ui .u-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-.ui .u-tabs button { padding: 0 12px; min-height: 40px; font-weight: 500; color: var(--ink-2); border: 0; background: none; cursor: pointer;
-  border-bottom: 2px solid transparent; margin-bottom: -1px; display: flex; gap: 6px; align-items: center; white-space: nowrap; }
-.ui .u-tabs button.u-on { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* Fields and inputs */
 .ui .u-field { display: flex; flex-direction: column; gap: 6px; }
@@ -161,32 +157,14 @@
 .ui .u-stat b small { font-size: 14px; font-weight: 500; margin-left: 2px; color: var(--ink-2); }
 .ui .u-stat span { font-size: 11.5px; color: var(--ink-2); }
 
-/* Toast */
-.ui .u-toast { display: flex; align-items: center; gap: 14px; padding: 8px 8px 8px 16px; border-radius: 12px; background: var(--ink); color: var(--bg);
-  box-shadow: var(--shadow); max-width: min(560px, calc(100vw - 32px)); }
-.ui .u-toast-text { flex: 1; min-width: 0; }
-.ui .u-toast .u-btn { background: var(--bg); color: var(--ink); border-color: transparent; }
-.ui .u-toast .u-ib { background: transparent; border-color: transparent; color: var(--bg); }
-
-/* Rail (B: the left navigation) */
-.ui .u-rail { width: 72px; flex: none; background: var(--surface); border-right: 1px solid var(--line); display: flex; flex-direction: column;
-  align-items: center; gap: 6px; padding: 12px 0; z-index: 3; }
-.ui .u-rail-sp { flex: 1; }
-.ui .u-rail-item { width: 60px; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 0; border: 0; border-radius: 10px;
-  background: none; font-size: 10.5px; color: var(--ink-2); font-weight: 500; cursor: pointer; position: relative; text-decoration: none; }
-.ui .u-rail-item:hover { background: var(--surface-2); }
-.ui .u-rail-item.u-on { background: var(--accent-soft); color: var(--accent); }
-.ui .u-rail-item .u-ic { width: 20px; height: 20px; }
-.ui .u-rail-item .u-badge, .ui .u-bnav-item .u-badge { position: absolute; top: 2px; left: calc(50% + 4px); }
-.ui .u-mark .u-logomark { width: 32px; height: 32px; }
-
-/* Bottom navigation (C on phones) */
+/* Bottom navigation (phones) */
 .ui .u-bnav { position: absolute; left: 0; right: 0; bottom: 0; min-height: 64px; padding-bottom: env(safe-area-inset-bottom, 0px);
   background: var(--surface); border-top: 1px solid var(--line); display: flex; justify-content: space-around; align-items: stretch; z-index: 4; }
 .ui .u-bnav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; border: 0;
   background: none; font-size: 11.5px; color: var(--muted); font-weight: 500; cursor: pointer; position: relative; }
 .ui .u-bnav-item.u-on { color: var(--accent); }
 .ui .u-bnav-item .u-ic { width: 22px; height: 22px; }
+.ui .u-bnav-item .u-badge { position: absolute; top: 2px; left: calc(50% + 4px); }
 
 /* Sheet: a bottom sheet on phones (peek / half / full), a side or floating panel on desktops */
 .ui .u-sheet { position: absolute; left: 0; right: 0; bottom: 0; background: var(--surface); border-radius: 20px 20px 0 0;
@@ -201,7 +179,6 @@
 .ui .u-side { position: absolute; top: 12px; bottom: 12px; width: min(400px, calc(100% - 24px)); display: flex; flex-direction: column; z-index: 5; }
 .ui .u-side.u-left { left: 12px; }
 .ui .u-side.u-right { right: 12px; }
-.ui .u-side.u-float { bottom: auto; max-height: calc(100% - 24px); }
 .ui .u-side.u-docked { position: relative; top: 0; bottom: 0; left: 0; right: 0; width: 400px; border-radius: 0; box-shadow: none; border-width: 0 1px; }
 .ui .u-side .u-sheet-head { padding: 14px 16px 8px; }
 .ui .u-side .u-sheet-body { padding: 0 16px 16px; }
@@ -227,9 +204,6 @@
 .ui .u-split-tab:hover { color: var(--accent); border-color: var(--accent); }
 
 /* Touch targets on coarse pointers */
-@media (pointer: coarse) {
-  .ui .u-tabs button, .ui .u-rail-item { min-height: 44px; }
-}
 
 /* Gallery (?ui=kit) */
 .ui.u-gallery { overflow: auto; display: block; }
@@ -243,9 +217,8 @@
 .ui .u-gal-icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 6px; }
 .ui .u-gal-icons div { display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); padding: 6px 0; }
 .ui .u-gal-stage { position: relative; height: 340px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--map-bg); }
-.ui .u-gal-stage .u-rail { position: absolute; top: 0; bottom: 0; left: 0; }
 
-/* Stub shells of wave 1 */
+/* A plain page of messages (the kit's demo of a result: its list of runs, loading, an error) */
 .ui .u-stub { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 14px; padding: 24px 16px; overflow: auto; }
 .ui .u-stub > * { max-width: 100%; }
 
@@ -253,7 +226,7 @@
   .ui *, .ui *::before, .ui *::after { transition: none !important; animation-duration: 0s !important; animation-iteration-count: 1 !important; }
 }
 
-/* The Leaflet controls of the prototypes' maps, in both themes (the layers icon is a dark picture) */
+/* The Leaflet controls of the maps under .ui, in both themes (the layers icon is a dark picture) */
 .ui .leaflet-bar a { background: var(--surface); color: var(--ink); border-color: var(--line); }
 .ui .leaflet-bar a:hover, .ui .leaflet-bar a:focus { background: var(--surface-2); }
 .ui .leaflet-bar a.leaflet-disabled { background: var(--surface); color: var(--muted); opacity: .6; }
@@ -263,7 +236,7 @@
 .ui[data-theme="dark"] .leaflet-control-layers-toggle { filter: invert(.9); }
 .ui .leaflet-control-scale-line { background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--ink); border-color: var(--ink-2); }
 .ui .leaflet-control-attribution { background: color-mix(in srgb, var(--surface) 80%, transparent); color: var(--ink-2); }
-/* The uncertain shore in view (shoreLayer.ts shoreControl): a small note at the map's top left, under the title bar */
+/* The uncertain shore in view (shoreLayer.ts shoreControl): a small note at the map's top left */
 .ui .u-shore { background: color-mix(in srgb, var(--surface) 92%, transparent); color: var(--ink); border: 1px solid var(--line);
   border-radius: 6px; padding: 6px 10px; font-size: 12.5px; line-height: 1.35; max-width: 320px; box-shadow: var(--shadow); }
 .ui .u-shore-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }

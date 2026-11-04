@@ -1,4 +1,4 @@
-// The OpenStreetMap extracts (C and D; B shows them in its panel): the
+// The OpenStreetMap extracts (#osm, from the account; the local app and administrators): the
 // Geofabrik regions at the map's centre to download, so the coastline and the cliffs come from the
 // disk instead of the (often overloaded) Overpass API, and the downloaded extracts to update.
 

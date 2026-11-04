@@ -1,6 +1,6 @@
 // "Report a problem" (the public site): any part of the app opens the report's dialog (app/ReportDialog,
-// mounted by each shell) with what it knows (a run, a line, a category), without props through the
-// shells: a window event. The page's own context (address, interface, window) is added when it opens.
+// mounted with the interface by app.tsx) with what it knows (a run, a line, a category), without props
+// through the pages: a window event. The page's own context (address, interface, window) is added when it opens.
 
 import { user } from "./app/api";
 import { chooseUi } from "./ui/choice";
@@ -35,7 +35,7 @@ export function canReport(): boolean {
 export function currentContext(): ReportContext {
   const ui = chooseUi();
   return {page: (location.pathname + location.search + location.hash).slice(0, 300),
-          ...(["b", "c", "d"].includes(ui) ? {ui} : {}), viewport: `${innerWidth}x${innerHeight}`};
+          ...(ui === "c" ? {ui} : {}), viewport: `${innerWidth}x${innerHeight}`};
 }
 
 /** Open the report's dialog. */

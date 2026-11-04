@@ -25,8 +25,7 @@ export function shoreLayer(shore: Shore, renderer: L.Renderer = L.svg({padding: 
 
 /** The control of the uncertain shore in the map's view: a legend of the two kinds with the metres of each in
  *  view (updated on every move), and a "?" opening a longer explanation; hidden while the view holds none; at
- *  the top left under the run's title bar (workspace.css moves the corner down). `shoreControl(map, shore)
- *  .remove()` takes it off. */
+ *  the top left of the map. `shoreControl(map, shore).remove()` takes it off. */
 export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPosition = "topleft"): L.Control {
   const boxes = shore.segments.map(segmentBox);
   const box = L.DomUtil.create("div", "u-shore");

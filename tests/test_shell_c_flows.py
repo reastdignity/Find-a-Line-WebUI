@@ -1,11 +1,11 @@
-"""Prototype D of the new interface (?ui=d, viewer/src/app/d) in headless Edge, offline: C's home and new search
-(test_shell_c's fixtures and page helpers) with B's result (result/view/ResultWorkspace): the panel on the right,
-the profile docked at the bottom of the page, "‹ Home", the line in the hash and in copied links, Back and
-Forward, and phones (C's bottom navigation, B's sheet); no CSP violations anywhere."""
+"""More of C (the app's interface, viewer/src/app/c) in headless Edge, offline, with test_shell_c's fixtures and page
+helpers: the place box and the drawing tools of the new search, the selection and the profile's card of the result
+(closed and back, Esc, a click beside the lines, the focus), the map's controls in the dark theme, the favourite
+folders from the picker to the shelf, lines picked on the map by mouse and finger, and the intros; no CSP
+violations anywhere."""
 
 import json
 import os
-import urllib.parse
 
 import pytest
 
@@ -13,20 +13,13 @@ from test_shell_c import BIG, SMALL, _edge, big_clip, data, stub_page  # noqa: F
 from test_web import EDGE, _server
 
 DESKTOP_SCRIPT = """
-const BIG = "%(big)s", SMALL = "%(small)s", POINT = {lat: 50.1559508, lng: 19.7562722};
+const SMALL = "%(small)s", POINT = {lat: 50.1559508, lng: 19.7562722};
 const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
-const near = (a, b) => Math.abs(a - b) <= 16;
-let job = "";
+const rows = () => $$(".c-col-list .r-rows > .r-spot > .r-row");
+const cardShown = () => !!$(".r-card .fal-profile-title");
 run({
-  home(next) { wait(() => card("run", SMALL) && card("run", BIG) && $(".c-account-btn"), () => {
-    result.home = [$$(".c-card").map((c) => c.dataset.run || c.dataset.job), !!$(".ui.u-app-d.c-app"), !!$(".c-top")];
-    $(".c-account-btn").click();
-    later(() => { result.account = text(".c-account-links"); $(".c-account-btn").click(); next(); });
-  }); },
   newSearch(next) {
-    $(".c-new").click();
-    wait(() => window.FINDALINE_PLACE && $(".s-panel") && $(".c-bar .s-start"), () => {
-      result.newPage = [location.hash, text(".s-card.u-on b")];
+    wait(() => $(".c-new"), () => { $(".c-new").click(); wait(() => window.FINDALINE_PLACE && $(".s-panel") && $(".c-bar .s-start"), () => {
       // The place box: Enter looks the name up, ↓ and Enter pick the second match, the map goes there
       const box = $(".s-placebox input"), key = (k) => box.dispatchEvent(new KeyboardEvent("keydown", {key: k, bubbles: true}));
       box.value = "Giewont";
@@ -45,90 +38,47 @@ run({
           const drawing = place.map.pm.globalDrawModeEnabled();
           place.setMode("point");
           result.draw = [drawing, place.map.pm.globalDrawModeEnabled()];
-          window.FINDALINE_PLACE.map.fire("click", {latlng: POINT});
-          wait(() => text(".c-bar .s-bar-line").startsWith("Ready"), () => {
-            $(".c-bar .s-start").click();
-            wait(() => location.hash === "#home" && $(".c-card-new"), () => {
-              job = $(".c-card-new").dataset.job;
-              result.started = [job, $(".c-card-new").dataset.status];
-              next();
-            });
-          });
+          next();
         }); }, 100);
       }); }, 100);
-    });
-  },
-  progress(next) {
-    pushEvent({seq: 1000001, job, kind: "status", data: {status: "computing"}});
-    wait(() => card("job", job).dataset.status === "running", () => {
-      pushEvent({seq: 1000002, job, kind: "status", data: {status: "done", run_id: SMALL}});
-      wait(() => card("job", job).dataset.status === "done" && card("job", job).dataset.run === SMALL, () => {
-        result.done = $$(`.c-card[data-run="${SMALL}"]`).length;
-        next();
-      });
-    });
+    }); });
   },
   open(next) {
-    card("job", job).querySelector("a.c-card-open").click();
-    wait(() => $(".b-results .r-rows .r-row") && $(".d-map.leaflet-container") && model(), () => {
-      const panel = $(".b-results").getBoundingClientRect(), dock = $(".b-dock").getBoundingClientRect();
-      result.layout = {hash: location.hash, header: !!$(".c-top"), panelRight: near(panel.right, innerWidth - 12),
-                       panelTall: panel.height > innerHeight - 40, dockBottom: near(dock.bottom, innerHeight - 12),
-                       dockLeftOfPanel: dock.right <= panel.left, home: !!button("Home"), edit: !!button("Edit & run again"),
-                       actions: $$(".b-run-actions .r-actions button").map((b) => b.getAttribute("aria-label") || b.textContent.trim()),
-                       name: text(".b-pill-name"), sort: text(".r-col.r-on")};
-      result.sorted = model().rows.slice(0, 5).every((r, k, all) => k === 0 || all[k - 1].line.clr >= r.line.clr);
-      // The map's controls follow the theme: in the dark one the zoom buttons are the panel's colour, also
+    location.hash = "#run=" + SMALL;
+    wait(() => rows().length && $(".c-col-map .leaflet-container") && model(), () => {
+      // The map's controls follow the theme: in the dark one the zoom buttons are the panels' colour, also
       // focused (after a click) and disabled (at the last zoom), where Leaflet's own are light grey
       const root = $(".ui"), map = window.FINDALINE_MAP, colour = (q) => getComputedStyle($(q)).backgroundColor;
       root.dataset.theme = "dark";
       map.setZoom(map.getMaxZoom(), {animate: false});
       $(".leaflet-control-zoom-out").focus();
       later(() => {
-        result.dark = {panel: colour(".b-results"), zoom: colour(".leaflet-control-zoom-in"), layers: colour(".leaflet-control-layers"),
+        result.dark = {panel: colour(".c-col-list"), zoom: colour(".leaflet-control-zoom-in"), layers: colour(".leaflet-control-layers"),
                        disabled: $(".leaflet-control-zoom-in").classList.contains("leaflet-disabled"),
                        focused: colour(".leaflet-control-zoom-out")};
         delete root.dataset.theme;
         $(".leaflet-control-zoom-out").blur();
-        next();
-      });
-    });
-  },
-  select(next) {
-    $$(".b-results .r-rows > .r-spot > .r-row")[0].click();
-    wait(() => $(".b-results .r-dtitle") && $(".b-dock .fal-profile-title"), () => {
-      const m = model(), dock = $(".b-dock .r-dock").getBoundingClientRect();
-      result.selected = [text(".b-results .r-eyebrow"), text(".b-dock .fal-profile-title"),
-                         decodeURIComponent(location.hash) === `#run=${SMALL}&line=${m.lineLink(m.selected.line)}`,
-                         near(dock.bottom, innerHeight - 12)];
-      const shown = (s) => !!$(s) && getComputedStyle($(s)).display !== "none";
-      result.fullHead = [shown(".b-dock .fal-profile-head"), shown(".b-dock .fal-profile-legend"), shown(".b-dock .fal-scale"),
-                         !$(".b-dock .r-facts")];
-      button("Next spot").click();
-      later(() => {
-        result.stepped = [text(".b-results .r-eyebrow"), m.position,
-                          decodeURIComponent(location.hash) === `#run=${SMALL}&line=${m.lineLink(m.selected.line)}`];
-        next();
+        rows()[0].click();
+        wait(() => $(".c-col-details .r-dtitle") && cardShown(), next);
       });
     });
   },
   leave(next) {
     // The profile closed with × comes back with "Profile" and when the spot is selected again; Escape, a
     // click beside the lines and × of the details end the selection; › keeps the focus on itself
-    const m = model(), dock = () => !!$(".b-dock .fal-profile-title");
-    $(".b-dock .fal-close").click();
+    const m = model();
+    button("Close the profile").click();
     later(() => {
-      const closed = [dock(), !!$(".r-reprofile")];
-      $(".r-reprofile").click();
+      const closed = [cardShown(), !!$(".c-col-details .r-reprofile")];
+      $(".c-col-details .r-reprofile").click();
       later(() => {
-        const shownAgain = dock();
-        $(".b-dock .fal-close").click();
+        const shownAgain = cardShown();
+        button("Close the profile").click();
         later(() => {
-          const rows = () => $$(".b-results .r-rows > .r-spot > .r-row");
-          const k = rows().indexOf($(".b-results .r-row.r-sel")), row = () => rows()[k];
+          const k = rows().indexOf($(".c-col-list .r-row.r-sel")), row = () => rows()[k];
           row().click();  // the selected row: unselects
           later(() => { row().click(); later(() => {  // the same spot again: its profile is back
-            const reselected = [!!m.selected, dock()];
+            const reselected = [!!m.selected, cardShown()];
             document.activeElement.blur();
             document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
             const escaped = !m.selected;
@@ -148,7 +98,7 @@ run({
                 button("Close the spot").click();
                 const closedSpot = !m.selected;
                 later(() => { row().click(); later(() => {
-                  const nextButton = $(".b-results .r-details button[aria-label='Next spot']");
+                  const nextButton = $(".c-col-details button[aria-label='Next spot']");
                   nextButton.focus();
                   nextButton.click();
                   later(() => {
@@ -167,67 +117,24 @@ run({
   },
   audit(next) {
     // The profile's point goes with its line; a popover closed with Esc gives the focus back to its button
-    const view = window.FINDALINE_RESULT.view, chart = $(".b-dock .fal-hover"), box = chart.getBoundingClientRect();
-    chart.dispatchEvent(new PointerEvent("pointerdown", {pointerType: "touch", pointerId: 7, bubbles: true,
-                                                        clientX: box.left + box.width / 2, clientY: box.top + 5}));
-    const dot = !!view.marker;
-    button("Next spot").click();
-    later(() => {
-      const dotGone = !view.marker;
-      button("Compare").click();
+    wait(() => $(".r-card .fal-hover"), () => {
+      const view = window.FINDALINE_RESULT.view, chart = $(".r-card .fal-hover"), box = chart.getBoundingClientRect();
+      chart.dispatchEvent(new PointerEvent("pointerdown", {pointerType: "touch", pointerId: 7, bubbles: true,
+                                                          clientX: box.left + box.width / 2, clientY: box.top + 5}));
+      const dot = !!view.marker;
+      button("Next spot").click();
       later(() => {
-        const inside = !!document.activeElement.closest(".r-pop");
-        document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+        const dotGone = !view.marker;
+        button("Compare").click();
         later(() => {
-          result.audit = {dot, dotGone, inside, closed: !$(".r-pop"), back: document.activeElement.textContent.trim()};
-          next();
+          const inside = !!document.activeElement.closest(".r-pop");
+          document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true}));
+          later(() => {
+            result.audit = {dot, dotGone, inside, closed: !$(".r-pop"), back: document.activeElement.textContent.trim()};
+            next();
+          });
         });
       });
-    });
-  },
-  filter(next) {
-    const m = model(), before = m.shown.spots;
-    button("Clearance").click();
-    wait(() => $(".r-editor input[type=number]"), () => {
-      const input = $(".r-editor input[type=number]");
-      input.value = "1000";
-      input.dispatchEvent(new Event("change", {bubbles: true}));
-      later(() => {
-        result.filtered = [before, m.shown.spots, $$(".u-chip.u-on").map((c) => c.textContent.trim())];
-        button("Remove the clearance filter").click();
-        later(() => {
-          result.cleared = m.shown.spots;
-          if (!m.selected) $$(".b-results .r-rows > .r-spot > .r-row")[1].click();
-          next();
-        });
-      });
-    });
-  },
-  copy(next) {
-    wait(() => $(".b-results .r-copy"), () => {
-      $(".b-results .r-copy").click();
-      later(() => { result.copied = COPIED[0] || ""; result.line = model().lineLink(model().selected.line); next(); });
-    });
-  },
-  goHome(next) {
-    button("Home").click();
-    wait(() => location.hash === "#home" && $(".c-cards") && !$(".d-map"), () => { result.home2 = location.hash; next(); });
-  },
-  back(next) {
-    history.back();
-    wait(() => location.hash.startsWith("#run=") && model() && model().selected && $(".b-results .r-dtitle"), () => {
-      result.back = [decodeURIComponent(location.hash), model().lineLink(model().selected.line)];
-      history.forward();
-      wait(() => location.hash === "#home" && $(".c-cards"), () => { result.forward = location.hash; next(); });
-    });
-  },
-  link(next) {
-    // the copied link has no ?ui=, so it would load the page again (and this script with it): its hash only
-    result.copiedPage = COPIED[0].split("#")[0] === location.origin + location.pathname;
-    location.hash = COPIED[0].slice(COPIED[0].indexOf("#"));
-    wait(() => $(".b-results .r-dtitle") && model() && model().selected, () => {
-      result.linked = [model().lineLink(model().selected.line), !!$(".u-app-d")];
-      next();
     });
   },
   folders(next) {
@@ -235,7 +142,7 @@ run({
     const favs = () => fetch("/api/favourites").then((r) => r.json());
     const poll = (ok, then, tries = 30) => favs().then((b) => ok(b) || !tries ? then(b) : later(() => poll(ok, then, tries - 1)));
     const type = (input, value) => { input.value = value; input.dispatchEvent(new Event("input", {bubbles: true})); };
-    $(".b-results .r-details .r-fav").click();
+    $(".c-col-details .r-fav").click();
     later(() => {
       result.picker = $$(".r-pop .r-folder").map((b) => b.textContent.trim());
       $$(".r-pop button").find((b) => b.textContent.trim().startsWith("New folder")).click();
@@ -243,7 +150,7 @@ run({
         type($(".r-newfolder input"), "Trip");
         later(() => { $(".r-newfolder button[type=submit]").click(); poll((b) => b.favourites.length === 1, (b) => {
           const trip = b.folders[0];
-          result.saved = [b.folders.map((f) => f.name), b.favourites[0].folder_id === trip.id, text(".b-results .r-fav")];
+          result.saved = [b.folders.map((f) => f.name), b.favourites[0].folder_id === trip.id, text(".c-col-details .r-fav")];
           location.hash = "#favourites";
           wait(() => $(".c-shelf .c-folder-row"), () => {
             result.shelf = {tree: $$(".c-tree-name").map((b) => b.textContent.replace(/\\d+$/, "").trim()),
@@ -319,46 +226,26 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_d_desktop(data, tmp_path):
-    """C's home with the runs as cards and its account menu (Try interface B, Try interface C); New search returns home
-    with the new card, which runs and turns done; its card opens B's result on a full-screen map: the panel on
-    the right, the profile docked at the bottom left of it, "‹ Home", Edit & run again and the run's actions,
-    sorted by clearance, the map's controls dark in the dark theme (focused and disabled too); a row selects its line (details under the row, the profile in the dock, the hash),
-    ‹ › and a filter chip; Copy link gives the address without ?ui=; Home returns; Back and Forward; the copied
-    link opens the line (in D, the interface remembered); no CSP violations."""
-    page = stub_page(data, "dtest", DESKTOP_SCRIPT % {"big": BIG, "small": SMALL})
+def test_shell_c_flows(data, tmp_path):
+    """The new search's place box (Enter looks a name up, ↓ and Enter pick a match, the map goes there) and its
+    drawing tools (leaving draw mode ends an unfinished polygon); the result: the map's controls dark in the dark
+    theme (focused and disabled too); the profile's card closed by × comes back by "Profile" and with its spot
+    selected again; Esc, a click beside every line and "Close the spot" end the selection; › keeps the focus; the
+    profile's point on the map goes with Next spot; Esc on Compare gives the focus back; the favourite button's
+    new folder, the line saved into it, the #favourites shelf with a subfolder, Move to…, drag and drop and
+    deleting a folder after a confirmation; no CSP violations."""
+    page = stub_page(data, "cflows", DESKTOP_SCRIPT % {"small": SMALL})
     with _server(data) as port:
-        r = _edge(port, page + "?ui=d", tmp_path / "edge")
+        r = _edge(port, page + "?ui=c", tmp_path / "edge", size="1400,900")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert set(r["home"][0]) == {SMALL, BIG} and r["home"][1] and r["home"][2], r
-    assert all(t in r["account"] for t in ("Try interface B", "Try interface C")) and "Try interface D" not in r["account"], r
-    assert "Old interface" not in r["account"], r
-    assert r["newPage"] == ["#new", "Typical highline"] and r["started"][1] == "waiting" and r["done"] == 1, r
-    assert r["leave"] == {"closed": [False, True], "shownAgain": True, "reselected": [True, True], "escaped": True,
-                          "clicked": True, "closedSpot": True, "focus": "Next spot", "stepped": True}, r
-    assert r["audit"] == {"dot": True, "dotGone": True, "inside": True, "closed": True, "back": "Compare"}, r
-    assert r["draw"] == [True, False], r
     assert r["places"] == [["Giewont"], ["Kraków", "Giewont"]] and r["went"] == [True, 15, "Giewont", True], r
-    layout = r["layout"]
-    assert layout["hash"] == f"#run={SMALL}" and not layout["header"] and layout["name"] == "Small run", r
-    assert layout["panelRight"] and layout["panelTall"] and layout["dockBottom"] and layout["dockLeftOfPanel"], r
-    assert layout["home"] and layout["edit"] and {"Compare", "Download"} <= set(layout["actions"])
-    assert any(a.startswith("Measure") for a in layout["actions"]), r
-    assert layout["sort"].startswith("Clear.") and r["sorted"], r
+    assert r["draw"] == [True, False], r
     dark = r["dark"]
     assert dark["disabled"] and dark["zoom"] == dark["layers"] == dark["panel"] != "rgb(255, 255, 255)", r
     assert dark["focused"] not in (dark["panel"], "rgb(244, 244, 244)"), r
-    assert r["selected"][0].startswith("Spot 1 of ") and r["selected"][1].startswith("Profile"), r
-    assert r["selected"][2] and r["selected"][3], r
-    assert r["fullHead"] == [True, True, True, True], r  # D's dock: the profile's full head, not the card's compact one
-    assert r["stepped"][0].startswith("Spot 2 of ") and r["stepped"][1] == 1 and r["stepped"][2], r
-    before, after, chips = r["filtered"]
-    assert after < before and any(c.startswith("Clearance ≥") for c in chips) and r["cleared"] == before, r
-    assert "ui=" not in r["copied"] and r["copiedPage"], r  # the reader's interface opens it
-    assert r["copied"].endswith(f"#run={SMALL}&line=" + urllib.parse.quote(r["line"], safe="")), r
-    assert r["home2"] == "#home", r
-    assert r["back"] == [f"#run={SMALL}&line={r['line']}", r["line"]], r
-    assert r["forward"] == "#home" and r["linked"] == [r["line"], True], r
+    assert r["leave"] == {"closed": [False, True], "shownAgain": True, "reselected": [True, True], "escaped": True,
+                          "clicked": True, "closedSpot": True, "focus": "Next spot", "stepped": True}, r
+    assert r["audit"] == {"dot": True, "dotGone": True, "inside": True, "closed": True, "back": "Compare"}, r
     assert r["picker"] == ["Favourites (top level)"] and r["saved"] == [["Trip"], True, "Favourite"], r
     assert r["shelf"] == {"tree": ["Favourites", "Trip"], "top": ["Trip"]} and r["sub"] == [True], r
     assert r["targets"] == [["Favourites (top level)", False], ["Trip", True], ["Day 1", False]] and r["moved"], r
@@ -421,7 +308,7 @@ const move = (p) => {
 };
 const selectedIs = (g) => !!model().selected && model().selected.group === g;
 run({
-  open(next) { wait(() => model() && map() && $(".b-results .r-rows .r-row"), () => {
+  open(next) { wait(() => model() && map() && $(".c-col-list .r-rows .r-row"), () => {
     result.zoom = map().getZoom();
     next();
   }); },
@@ -450,7 +337,7 @@ run({
         // beside every line: the selection ends, the pointer goes
         const empty = (() => {
           const w = box().width, h = box().height;
-          for (let y = 80; y < h - 80; y += 10) for (let x = 20; x < w - 420; x += 10)
+          for (let y = 80; y < h - 80; y += 10) for (let x = 20; x < w - 20; x += 10)
             if (free({x, y}) && drawn().every((d) => dist({x, y}, d.l) > 40)) return {x, y};
           return null;
         })();
@@ -498,8 +385,7 @@ run({
     document.elementFromPoint(x, y).dispatchEvent(new PointerEvent("pointerdown", {...init, pointerType: "mouse"}));
     // measuring: a click on a line is a point, not a selection
     model().select(null);
-    let measured = null;
-    view().startMeasure((p, q) => { measured = [p, q]; });
+    view().startMeasure(() => {});
     click(beside(() => true, 0, 6).p);
     result.measuring = [view().isMeasuring, !model().selected];
     view().cancelMeasure();
@@ -543,17 +429,17 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_d_pick(data, tmp_path):
-    """Lines taken on the map with the events a browser sends to whatever lies at a point (the canvas): a click 4 px
-    beside a line takes it, also while a spot with similar lines is selected (a second canvas of those lines once
-    lay over the map and took every click), a thin line of the selected spot is taken; the mouse shows the line and
-    the pointer; a click beside every line ends the selection; 14 px away a finger's tap takes the line (also as
-    WebKit sends it: a "mouse" click after a "touch" press), the mouse's click does not; while measuring a click is a
-    point; where spots lie about as near, a list of them: its second row taken, Esc closes it and the selection
-    stays; no CSP violations."""
-    page = stub_page(data, "dpick", PICK_SCRIPT % {"small": SMALL})
+def test_shell_c_pick(data, tmp_path):
+    """Lines taken on the result's map with the events a browser sends to whatever lies at a point (the canvas): a
+    click 4 px beside a line takes it, also while a spot with similar lines is selected (a second canvas of those
+    lines once lay over the map and took every click), a thin line of the selected spot is taken; the mouse shows
+    the line and the pointer; a click beside every line ends the selection; 14 px away a finger's tap takes the
+    line (also as WebKit sends it: a "mouse" click after a "touch" press), the mouse's click does not; while
+    measuring a click is a point; where spots lie about as near, a list of them: its second row taken, Esc closes
+    it and the selection stays; no CSP violations."""
+    page = stub_page(data, "cpick", PICK_SCRIPT % {"small": SMALL})
     with _server(data) as port:
-        r = _edge(port, page + f"?ui=d#run={SMALL}", tmp_path / "edge-pick")
+        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-pick", size="1400,900")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
     assert r["found"] == [True, True] and r["near"] and r["switched"], r
     assert r["variant"] == [True, True], r
@@ -562,64 +448,6 @@ def test_shell_d_pick(data, tmp_path):
     assert r["crowd"] and r["list"][0] == r["list"][1] >= 2 and r["list"][2], r
     assert r["chosen"] == [True, True] and r["escaped"] == [True, True, True], r
     assert r["csp"] == []
-
-
-PHONE_SCRIPT = """
-const SMALL = "%(small)s";
-run({
-  home(next) { wait(() => card("run", SMALL) && $(".u-bnav"), () => {
-    result.home = {width: innerWidth, nav: $$(".u-bnav-item").map((b) => b.textContent.trim()), overflow: overflow()};
-    next();
-  }); },
-  result(next) {
-    card("run", SMALL).querySelector("a.c-card-open").click();
-    wait(() => $(".u-sheet .r-rows .r-row") && window.FINDALINE_RESULT, () => {
-      result.sheet = {sheet: !!$(".d-layer .u-sheet"), panel: !!$(".b-results"), nav: !!$(".u-bnav"), top: !!$(".b-top-run .b-pill"),
-                      peek: text(".u-sheet-head"), overflow: overflow()};
-      $$(".u-sheet .r-rows > .r-spot > .r-row")[0].click();
-      wait(() => $(".u-sheet-head .r-eyebrow"), () => { result.peek = text(".u-sheet-head .r-eyebrow"); next(); });
-    });
-  },
-  heights(next) {
-    // From the sheet's style (headless Edge does not run the transition): half the map, full under the top bar
-    const sheet = () => ({snap: $(".u-sheet").className, height: parseFloat($(".u-sheet").style.height), inner: innerHeight,
-                          bar: $(".b-top").getBoundingClientRect().bottom});
-    result.half = sheet();
-    $(".u-sheet-handle").click();
-    later(() => { result.full = sheet(); $(".u-sheet-handle").click(); later(next); });
-  },
-  step(next) {
-    button("Next spot").click();
-    later(() => {
-      result.stepped = text(".u-sheet-head .r-eyebrow");
-      result.after = overflow();
-      button("Home").click();
-      wait(() => location.hash === "#home" && $(".u-bnav"), () => { result.home2 = location.hash; next(); });
-    });
-  },
-});
-"""
-
-
-@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_d_phone(data, tmp_path):
-    """Below 768 px: C's home with the bottom navigation; the result is B's sheet over the map ("Spot k of N" with
-    ‹ ›, no panel, no bottom navigation) under a top bar whose Home returns; a selected line leaves the sheet at
-    half the map, and at full it stays below the top bar; nothing wider than the window; no CSP violations."""
-    page = stub_page(data, "dphone", PHONE_SCRIPT % {"small": SMALL})
-    with _server(data) as port:
-        r = _edge(port, page + "?ui=d", tmp_path / "edge-phone", size="500,900")
-    assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert r["home"]["width"] < 768 and r["home"]["nav"] == ["Home", "Favourites", "Account"] and not r["home"]["overflow"], r
-    sheet = r["sheet"]
-    assert sheet["sheet"] and not sheet["panel"] and not sheet["nav"] and sheet["top"] and not sheet["overflow"], r
-    assert r["peek"].startswith("Spot 1 of ") and r["stepped"].startswith("Spot 2 of ") and not r["after"], r
-    half, full = r["half"], r["full"]
-    assert "u-half" in half["snap"] and half["height"] <= half["inner"] / 2 + 1, r  # a selected line keeps it half
-    assert "u-full" in full["snap"] and full["inner"] - full["height"] >= full["bar"], r
-    assert r["home2"] == "#home", r
-    assert r["csp"] == []
-
 
 
 INTRO_SCRIPT = """
@@ -666,7 +494,7 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_d_intros(data, tmp_path):
+def test_shell_c_intros(data, tmp_path):
     """The intro of a new search ("How a search works") opens once: Got it with "Do not show again" (checked at
     first) puts it away in localStorage, so the next new search opens none; the link in the panel opens it again,
     and Got it without "Do not show again" forgets it. The local app has no limits. A result opens "How to read the
@@ -674,9 +502,9 @@ def test_shell_d_intros(data, tmp_path):
     from test_shell_c import C_STUBS
     from test_web import INTROS_SEEN
     stubs = C_STUBS.replace(INTROS_SEEN, "") + 'try { localStorage.removeItem("findaline.intro.search"); localStorage.removeItem("findaline.intro.result"); } catch (e) {}\n'
-    page = stub_page(data, "dintro", INTRO_SCRIPT % {"small": SMALL}, stubs=stubs)
+    page = stub_page(data, "cintro", INTRO_SCRIPT % {"small": SMALL}, stubs=stubs)
     with _server(data) as port:
-        r = _edge(port, page + "?ui=d#new", tmp_path / "edge-intro")
+        r = _edge(port, page + "?ui=c#new", tmp_path / "edge-intro")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
     search = r["search"]
     assert search["title"] == "How a search works" and search["checked"] and search["before"] is None, r

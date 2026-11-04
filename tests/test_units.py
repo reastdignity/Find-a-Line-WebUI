@@ -2069,7 +2069,7 @@ def test_viewer_keys_in_catalogue():
             if file.endswith((".ts", ".tsx")):
                 with open(os.path.join(folder, file), encoding="utf-8") as f:
                     used |= set(re.findall(r"""\bt\(\s*["']([^"'`]+)["']""", f.read()))
-    assert "ui.try" in used
+    assert "ui.credits.toggle" in used
     missing = [k for k in used if not {k, f"{k}_one", f"{k}_other"} & set(texts)]
     assert not missing, missing
 

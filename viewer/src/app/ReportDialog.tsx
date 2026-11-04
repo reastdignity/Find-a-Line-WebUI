@@ -88,5 +88,5 @@ export function ReportDialog() {
   </dialog>;
 }
 
-/** The notice after a sign-in and the report's dialog: what every shell mounts. */
+/** The notice after a sign-in and the report's dialog: what app.tsx mounts with the interface. */
 export { BetaNotice } from "./BetaNotice";

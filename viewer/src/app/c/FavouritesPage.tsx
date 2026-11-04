@@ -1,4 +1,4 @@
-// C's (and D's) page of favourite lines in folders, as a browser's bookmarks manager: on desktops the
+// C's page of favourite lines in folders, as a browser's bookmarks manager: on desktops the
 // folder tree on the left (the top level "Favourites", folders folded and unfolded, with counts) and
 // the chosen folder on the right (its folders, then its lines sorted by any value, each opening its
 // line in the result); on phones one column with the path and the folders to go into. New folder,

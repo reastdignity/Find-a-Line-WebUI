@@ -1,6 +1,7 @@
-"""Prototype C of the new interface (?ui=c, viewer/src/app/c) in headless Edge, offline: home with the searches
-as cards and their mini maps, the focused new search, the three-column result, favourites, the hash's pages
-with Back and Forward, phones, and the public site signed in; no CSP violations anywhere."""
+"""C, the app's interface (?ui=c, the default; viewer/src/app/c), in headless Edge, offline: home with the
+searches as cards and their mini maps, the focused new search, the three-column result, favourites, the hash's
+pages with Back and Forward, phones, and the public site signed in; no CSP violations anywhere. More of it in
+test_shell_c_flows.py."""
 
 import json
 import os
@@ -401,7 +402,7 @@ run({
   result(next) {
     location.hash = "#run=" + SMALL;
     wait(() => $(".u-sheet .r-rows .r-row") && window.FINDALINE_RESULT, () => {
-      result.sheet = [!!$(".u-sheet"), !!$(".c-col-list"), !!$(".u-bnav"), overflow()];
+      result.sheet = [!!$(".u-sheet"), !!$(".c-col-list"), !!$(".u-bnav"), overflow(), !!$(".c-phone-top .c-pill")];
       $$(".u-sheet .r-rows > .r-spot > .r-row")[0].click();
       wait(() => $(".u-sheet-head .r-eyebrow"), () => {
         result.peek = text(".u-sheet-head .r-eyebrow");
@@ -421,8 +422,12 @@ run({
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_phone(data, tmp_path):
     """Below 768 px: home's cards stack with small mini maps, "New search" is full width, the bottom navigation
-    leads to Favourites and the account; the new search's bar stays at the bottom under the scrolling form;
-    the result is a map with a sheet ("Spot k of N", ‹ ›); nothing wider than the window; no CSP violations."""
+    leads to Favourites and the account (no links to other interfaces); the new search's bar stays at the bottom
+    under the scrolling form; the result is a map with a sheet ("Spot k of N", ‹ ›) under a top bar, without the
+    bottom navigation; a line's link opened directly shows its spot in the sheet's peek; a selected line leaves the
+    sheet at half the map, at full it stays below the top bar, whose Home returns; nothing wider than the window;
+    no CSP violations."""
+    import urllib.parse
     page = stub_page(data, "cphone", PHONE_SCRIPT % {"small": SMALL})
     with _server(data) as port:
         r = _edge(port, page + "?ui=c", tmp_path / "edge-phone", size="500,900")
@@ -431,11 +436,62 @@ def test_shell_c_phone(data, tmp_path):
     assert home["width"] < 768 and home["nav"] == ["Home", "Favourites", "Account"], r
     assert home["newWidth"] == home["main"] and home["stacked"] and home["thumb"] < 140 and not home["overflow"], r
     assert r["favourites"] == ["Favourites", False], r
-    assert "Old interface" not in r["account"][0] and "Try interface B" in r["account"][0] and "Try interface D" in r["account"][0] and not r["account"][1], r
+    assert "Try interface" not in r["account"][0] and "Old interface" not in r["account"][0] and not r["account"][1], r
     assert r["newSearch"] == {"bar": True, "scrolls": True, "nav": False, "overflow": False}, r
-    assert r["sheet"] == [True, False, False, False], r
+    assert r["sheet"] == [True, False, False, False, True], r
     assert r["peek"].startswith("Spot 1 of ") and r["stepped"].startswith("Spot 2 of ") and not r["after"], r
     assert r["csp"] == []
+    # A line's link opened directly: its spot in the sheet's peek with ‹ ›; the sheet's heights; Home
+    line = first_line(data, SMALL)
+    page = stub_page(data, "cphonelink", PHONE_LINK_SCRIPT % {"line": line})
+    link = f"#run={urllib.parse.quote(SMALL, safe='')}&line={urllib.parse.quote(line, safe='')}"
+    with _server(data) as port:
+        r = _edge(port, page + "?ui=c" + link, tmp_path / "edge-phone-link", size="500,900")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert r["linked"] and r["peek"].startswith("Spot ") and r["stepped"] != r["peek"] and not r["overflow"], r
+    half, full = r["half"], r["full"]
+    assert "u-half" in half["snap"] and half["height"] <= half["inner"] / 2 + 1, r  # a selected line keeps it half
+    assert "u-full" in full["snap"] and full["inner"] - full["height"] >= full["bar"], r  # under the top bar
+    assert r["home"] == "#home", r
+    assert r["csp"] == []
+
+
+def first_line(data_dir, run_id: str) -> str:
+    """The link of the run's first line in data.js (keys.ts lineCoords: its anchors joined)."""
+    with open(os.path.join(str(data_dir), "runs", run_id, "data.js"), encoding="utf-8") as f:
+        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
+    return ",".join(str(v) for v in data["lines"][0][:4])
+
+
+PHONE_LINK_SCRIPT = """
+const LINE = "%(line)s";
+const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
+run({
+  linked(next) { wait(() => model() && model().selected && $(".u-sheet-head .r-eyebrow"), () => {
+    result.linked = model().lineLink(model().selected.line) === LINE;
+    result.peek = text(".u-sheet-head .r-eyebrow");
+    result.overflow = overflow();
+    next();
+  }); },
+  heights(next) {
+    // From the sheet's style (headless Edge does not run the transition): half the map, full under the top bar
+    const sheet = () => ({snap: $(".u-sheet").className, height: parseFloat($(".u-sheet").style.height), inner: innerHeight,
+                          bar: $(".c-phone-top").getBoundingClientRect().bottom});
+    result.half = sheet();
+    $(".u-sheet-handle").click();
+    later(() => { result.full = sheet(); $(".u-sheet-handle").click(); later(next); });
+  },
+  step(next) {
+    const m = model();  // the linked line's spot may be the last one: then back
+    button(m.position < m.rows.length - 1 ? "Next spot" : "Previous spot").click();
+    later(() => {
+      result.stepped = text(".u-sheet-head .r-eyebrow");
+      button("Home").click();
+      wait(() => location.hash === "#home" && $(".u-bnav"), () => { result.home = location.hash; next(); });
+    });
+  },
+});
+"""
 
 
 def add_credits(data_dir, run_id: str):
@@ -530,8 +586,8 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_c_result_from_d(data, tmp_path):
-    """What C's result took from D: the run's data credits in the map's attribution (not folded on a desktop) with
+def test_shell_c_result_extras(data, tmp_path):
+    """C's result on a desktop: the run's data credits in the map's attribution (not folded on a desktop) with
     the link to ATTRIBUTION.txt; the profile in a card over the bottom of the map (12 px from its edges, not in the
     details), the attribution and the scale above it; the line's 3D view; where spots lie about as near, a click
     lists them next to it within the map, and a row selects its spot; no CSP violations."""
@@ -924,8 +980,8 @@ run({
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-def test_shell_c_phone_from_d(data, tmp_path):
-    """C's result on a phone with what it took from D: no Compare in the top bar (Measure, Download; Share on the
+def test_shell_c_phone_extras(data, tmp_path):
+    """C's result on a phone: no Compare in the top bar (Measure, Download; Share on the
     public site), the data credits folded behind their "Data credits" button, the choice of near spots docked over
     the sheet, the line's 3D view in the sheet; no CSP violations."""
     add_credits(data, SMALL)
@@ -1058,6 +1114,24 @@ run({
       });
     });
   },
+  resultShare(next) {
+    if (ADMIN) return next();
+    // The result's Share (the run is shared by the card already: a new link)
+    location.hash = "#run=" + RUN;
+    const share = () => $$(".c-result-top .r-actions button").find((b) => b.textContent.trim() === "Share");
+    wait(() => $(".r-rows .r-row") && share(), () => {
+      result.actions = $$(".c-result-top .r-actions > * button").map((b) => b.textContent.trim()).filter(Boolean);
+      share().click();
+      wait(() => button("New link"), () => {
+        button("New link").click();
+        wait(() => $(".r-share .r-linkfield input"), () => {
+          result.resultLink = $(".r-share .r-linkfield input").value;
+          location.hash = "#home";
+          wait(() => card("run", RUN), next);
+        });
+      });
+    });
+  },
   remove(next) {
     if (ADMIN) return next();
     card("run", RUN).querySelector(".c-card-menu").click();
@@ -1077,7 +1151,8 @@ run({
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_public(tmp_path, clip_run, monkeypatch):
     """The public site, signed in through a fake GitHub: a user's own run as a card whose menu shares it (a link
-    shown once) and deletes it after an in-page confirmation; the account menu has the user, privacy and about,
+    shown once), the result's actions (Measure, Compare, Share, Download) with Share making a new link, and the
+    card's menu deleting it after an in-page confirmation; the account menu has the user, privacy and about,
     no Admin; an administrator's has Admin, whose page embeds the old admin panel; no CSP violations."""
     import re
     import socket
@@ -1162,6 +1237,8 @@ def test_shell_c_public(tmp_path, clip_run, monkeypatch):
         assert [(s["category"], s["context"].get("line") is not None, bool(s["context"]["user_agent"])) for s in sent] ==             [("water", True, True), ("interface", False, True)], sent
         assert r["menu"] == ["Open the result", "Share…", "Report a problem…", "Delete…"], r
         assert r["link"].startswith(f"{site}/s/") and r["shared"] == "shared", r
+        assert r["actions"][:4] == ["Measure", "Compare", "Share", "Download"], r
+        assert r["resultLink"].startswith(f"{site}/s/") and r["resultLink"] != r["link"], r
         assert r["confirm"].startswith("Delete “A's run”") and r["deleted"], r
         assert not (data / "runs" / RUN_A).exists()
         assert r["csp"] == []

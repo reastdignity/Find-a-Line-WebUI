@@ -1,8 +1,7 @@
 // C's result (c3) in the app: the shared result in columns (result/view/ResultColumns, also a run's
 // map.html) with "‹ Home", Edit & run again, the app's orthophoto cache and the line's 3D view. The
 // selected line is kept in the hash (#run=<id>&line=…, replaced, so Back leaves the result); a hash with
-// another line (Back, Forward, a copied link) opens that line. A copied link has no ?ui=: it opens
-// whichever interface its reader uses.
+// another line (Back, Forward, a copied link) opens that line. A copied link has no ?ui=.
 
 import { Button } from "../../ui/components";
 import { Icon } from "../../ui/icons";
@@ -11,14 +10,17 @@ import type { Line } from "../../types";
 import type { ResultModel } from "../../result/model";
 import { orthoForApp } from "../../result/load";
 import { ResultColumns } from "../../result/view/ResultColumns";
-import type { ResultPageProps } from "./AppC";
 import { editHash, go, runHash } from "./route";
 
 /** The link "Copy link" gives: this page with the line's hash, without ?ui=. */
 const linkOf = (model: ResultModel, l: Line) => location.origin + hrefWithoutUi() + runHash(model.runOf(l), model.lineLink(l));
 /** The line's 3D view (web.py /view3d), with the hash of the run's page. */
 const view3dOf = (model: ResultModel, l: Line) => "/view3d" + runHash(model.runOf(l), model.lineLink(l));
-const back = {label: "Home", text: true, onClick: () => go("#home")};
+const back = {label: "Home", onClick: () => go("#home")};
+
+/** What the result page gets: the run, the route's line (`nav` changes with every navigation), the job to
+ *  edit and run again (none for a run without one), the layout. */
+export interface ResultPageProps { id: string; line: string | null; nav: number; editJob: string | null; wide: boolean }
 
 export function ResultPage({id, line, nav = 0, editJob, wide}: Omit<ResultPageProps, "nav"> & {nav?: number}) {
   const actions = (compact: boolean) => editJob && (compact
