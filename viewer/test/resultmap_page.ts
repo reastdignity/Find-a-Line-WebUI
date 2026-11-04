@@ -54,7 +54,11 @@ const runId = decodeURIComponent(location.pathname.split("/")[2]);
     const shoreBox = addShore(map, shore, overlays);
     map.setView([lat, lon], 17, {animate: false});
     const shoreEl = div.querySelector<HTMLElement>(".u-shore");
-    out.shore = {overlays: Object.keys(overlays).length, shown: !!shoreEl && !shoreEl.hidden, text: shoreEl?.textContent ?? ""};
+    const more = shoreEl?.querySelector<HTMLElement>(".u-shore-more"), helpButton = shoreEl?.querySelector<HTMLButtonElement>(".u-shore-help");
+    const closed = !!more?.hidden;
+    helpButton?.click();
+    out.shore = {overlays: Object.keys(overlays).length, shown: !!shoreEl && !shoreEl.hidden, text: shoreEl?.textContent ?? "",
+                 help: [closed, !!more && !more.hidden, helpButton?.getAttribute("aria-expanded")]};
     map.setView([lat + 0.05, lon], 17, {animate: false});
     out.shoreAway = !!shoreEl && shoreEl.hidden;
     shoreBox?.remove();

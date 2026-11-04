@@ -1,5 +1,6 @@
 // The uncertain shore on a Leaflet map (shore.ts): the segments as an overlay of the layer control, and a
-// small control (top left, under the run's title bar) naming the metres of it in view, shown only while the view holds some.
+// small control (top left, under the run's title bar) with a legend of the two kinds, the metres of each in view and a
+// "?" with a longer explanation, shown only while the view holds some.
 
 import L from "leaflet";
 import { t } from "./i18n";
@@ -22,21 +23,44 @@ export function shoreLayer(shore: Shore, renderer: L.Renderer = L.svg({padding: 
   return group;
 }
 
-/** The control naming the metres of uncertain shore in the map's view, updated on every move; hidden when the
- *  view holds none; at the top left under the run's title bar (workspace.css moves the corner down).
- *  `shoreControl(map, shore).remove()` takes it off. */
+/** The control of the uncertain shore in the map's view: a legend of the two kinds with the metres of each in
+ *  view (updated on every move), and a "?" opening a longer explanation; hidden while the view holds none; at
+ *  the top left under the run's title bar (workspace.css moves the corner down). `shoreControl(map, shore)
+ *  .remove()` takes it off. */
 export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPosition = "topleft"): L.Control {
   const boxes = shore.segments.map(segmentBox);
   const box = L.DomUtil.create("div", "u-shore");
   box.setAttribute("role", "status");
-  box.title = t("ui.shore.help");
+  L.DomEvent.disableClickPropagation(box);
+  const head = L.DomUtil.create("div", "u-shore-head", box);
+  const title = L.DomUtil.create("b", "", head);
+  title.textContent = t("ui.shore.title");
+  const help = L.DomUtil.create("button", "u-hint u-shore-help", head);
+  help.type = "button";
+  help.textContent = "?";
+  help.setAttribute("aria-label", t("ui.shore.help_button"));
+  help.setAttribute("aria-expanded", "false");
+  const rows: Record<ShoreKind, HTMLElement> = {surface: L.DomUtil.create("div", "u-shore-row", box),
+                                                 sea: L.DomUtil.create("div", "u-shore-row", box)};
+  const texts: Record<ShoreKind, HTMLElement> = {} as Record<ShoreKind, HTMLElement>;
+  for (const kind of ["surface", "sea"] as const) {
+    L.DomUtil.create("span", `u-shore-swatch u-shore-${kind}`, rows[kind]).setAttribute("aria-hidden", "true");
+    texts[kind] = L.DomUtil.create("span", "", rows[kind]);
+  }
+  const more = L.DomUtil.create("p", "u-shore-more", box);
+  more.textContent = t("ui.shore.help");
+  more.hidden = true;
+  help.onclick = () => {
+    more.hidden = !more.hidden;
+    help.setAttribute("aria-expanded", String(!more.hidden));
+  };
   const update = () => {
     const b = map.getBounds();
     const view: LatLngBox = {south: b.getSouth(), west: b.getWest(), north: b.getNorth(), east: b.getEast()};
     const m = metresInView(shore, view, boxes);
-    const total = m.surface + m.sea;
-    box.hidden = total === 0;
-    if (total) box.textContent = t("ui.shore.in_view", {surface: m.surface, sea: m.sea});
+    box.hidden = m.surface + m.sea === 0;
+    texts.surface.textContent = t("ui.shore.surface_m", {m: m.surface});
+    texts.sea.textContent = t("ui.shore.sea_m", {m: m.sea});
   };
   const Control = L.Control.extend({
     onAdd() { map.on("moveend zoomend resize", update); update(); return box; },

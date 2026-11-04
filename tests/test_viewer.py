@@ -562,7 +562,8 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert out["after"] == 0
     # The uncertain shore (shoreLayer.ts): one overlay, the control with the metres while the segment is in view
     assert out["shore"]["overlays"] == 1 and out["shore"]["shown"] is True
-    assert "90 m" in out["shore"]["text"] and "0 m" in out["shore"]["text"]
+    assert "90 m: the sea" in out["shore"]["text"] and "0 m: the foot" in out["shore"]["text"]
+    assert out["shore"]["help"] == [True, True, "true"]  # the explanation closed at first, opened by the "?"
     assert out["shoreAway"] is True
     assert test_web._violations(dom) == []
 
