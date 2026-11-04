@@ -31,7 +31,7 @@ import mapping as mp
 import params as pm
 import runs as rn
 import search
-from progress import progress
+from progress import progress, utf8_output
 
 DESCRIPTION = ("Find highline spots using elevation data (geoportal.gov.pl, Malta, FABDEM/"
                "Copernicus, NASADEM or your own files).")
@@ -132,9 +132,7 @@ def main(params: pm.SearchParams, options: pm.CliOptions, paths: search.Paths):
 
 
 if __name__ == "__main__":
-    # Output redirected to a file gets the Windows code page, which has no "²" and the like
-    for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(encoding="utf-8", errors="replace")
+    utf8_output()  # output redirected to a file gets the Windows code page, which has no "²" and the like
     if len(sys.argv) > 1 and sys.argv[1] in ("cache", "osm", "sources"):
         import update
         sys.exit(update.main(sys.argv[1:]))
