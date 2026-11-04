@@ -1907,6 +1907,18 @@ def test_errors_without_query_strings(monkeypatch):
     assert cache.clean_error("404 for url: https://x.org/a?key=k&b=1 (why?)") == "404 for url: https://x.org/a?... (why?)"
 
 
+def test_run_folder_names():
+    """A run's folder takes its name in ASCII (anyascii): letters without a Unicode decomposition were
+    dropped before ("Għar Ħasan" -> "Gar-asan", "Ærø" -> "r") and other scripts gave "run"."""
+    import runs as rn
+    for name, folder in (("Żabi Koń", "Zabi-Kon"), ("Łódź", "Lodz"), ("Għar Ħasan", "Ghar-Hasan"), ("Ta' Ċenċ", "Ta-Cenc"),
+                         ("Tromsø", "Tromso"), ("Ærø", "Aero"), ("Straße", "Strasse"), ("Đakovo", "Dakovo"),
+                         ("Þingvellir", "Thingvellir"), ("Γαύδος", "Gaydos"), ("Санкт-Петербург", "Sankt-Peterburg"),
+                         ("coast ±100 m within osm:Gozo", "coast-100-m-within-osm-Gozo"), ("", "run"), ("—", "run")):
+        assert rn._slug(name) == folder, (name, rn._slug(name))
+    assert len(rn._slug("Ħ" * 60)) == 40
+
+
 def test_run_ids_and_public_meta(tmp_path):
     """Run ids are unique within one second and not guessable; lines.geojson lists no cache files."""
     import json

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"  # scipy 1.18 needs it
 dependencies = [
     "affine>=3.0",  # 3.0: the @ operator (`*` of transforms is deprecated)
+    "anyascii>=0.3.3",  # run folder names in ASCII (runs._slug); ISC, chosen 2026-11-04 over Unidecode (GPL)
     "authlib>=1.9.1",  # 1.9.1: fixes up to GHSA-8m4g-j4wp-wgcg (empty HMAC keys); 1.8+: its client on httpx2
     "contextily>=1.6",
     "fastapi>=0.162.0",

@@ -25,13 +25,13 @@ import math
 import os
 import re
 import secrets
-import unicodedata
 from datetime import datetime
 from typing import Dict, Iterable, List, Optional
 from urllib.parse import quote
 
 import numpy as np
 import requests
+from anyascii import anyascii
 
 import cache
 import osm
@@ -85,9 +85,9 @@ def place_name(lat: float, lon: float, cache_dir: str) -> Optional[str]:
 
 
 def _slug(text: str) -> str:
-    text = text.replace("ł", "l").replace("Ł", "L")
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"[^A-Za-z0-9]+", "-", text).strip("-")[:40] or "run"
+    """A run's name as a folder name: ASCII by anyascii (ħ -> h, ø -> o, ß -> ss, Γαύδος -> Gaydos, where
+    the Unicode decomposition of before dropped the letters), the rest as dashes, at most 40 characters."""
+    return re.sub(r"[^A-Za-z0-9]+", "-", anyascii(text)).strip("-")[:40] or "run"
 
 
 def new_run(runs_dir: str, name: str, created: datetime) -> Dict:
