@@ -458,3 +458,157 @@ def test_nested_region_id(tmp_path):
     assert osmextract.extracts(str(cache_dir)) == [("us/puerto-rico", pbf)]
     assert osmextract.build_tile(str(cache_dir), "cliff", 18.0, -66.25)
     assert [r["id"] for r in osmextract.downloaded(str(cache_dir))] == ["us/puerto-rico"]
+
+
+def _ring(west, south, east, north):
+    return square(west, south, east, north)["coordinates"][0]
+
+
+def test_polygons_of_ways_and_relations():
+    """osm.polygons: a closed way is a polygon, a relation its outer rings (joined from several ways)
+    less its inner rings, an island in a hole stays; open ways, points and relations without a closed
+    outer ring are left out; a self-crossing way is made valid; a relation without roles (theme tiles
+    of before) takes every part as outer."""
+    from shapely.geometry import LineString, MultiLineString, Point
+
+    import osm
+    outer = _ring(0, 0, 10, 10)
+    wood = {"id": "relation/1", "tags": {"natural": "wood"}, "roles": ["outer", "outer", "inner", "outer"],
+            "geometry": MultiLineString([outer[:3], outer[2:], _ring(2, 2, 8, 8), _ring(4, 4, 6, 6)])}
+    scree = {"id": "way/2", "tags": {"natural": "scree"}, "geometry": LineString(_ring(20, 0, 21, 1))}
+    found = osm.polygons([
+        wood, scree,
+        {"id": "way/3", "tags": {}, "geometry": LineString([(0, 0), (1, 1), (2, 0)])},  # open
+        {"id": "node/4", "tags": {}, "geometry": Point(0, 0)},
+        {"id": "relation/5", "tags": {}, "roles": ["outer"], "geometry": MultiLineString([outer[:3]])},  # not closed
+        {"id": "way/6", "tags": {"x": "bow"}, "geometry": LineString([(0, 0), (1, 1), (1, 0), (0, 1), (0, 0)])},
+        {"id": "relation/7", "tags": {"x": "old"}, "geometry": MultiLineString([_ring(30, 0, 31, 1)])},
+    ])
+    assert [tags for _, tags in found] == [{"natural": "wood"}, {"natural": "scree"}, {"x": "bow"}, {"x": "old"}]
+    area, _ = found[0]
+    assert area.area == 100 - 36 + 4
+    assert not area.contains(Point(3, 3)) and area.contains(Point(1, 1)) and area.contains(Point(5, 5))
+    assert found[1][0].area == 1 and found[2][0].is_valid and found[2][0].area == 0.5 and found[3][0].area == 1
+    # Dicts of GeoJSON geometry are taken too
+    line = {"type": "LineString", "coordinates": _ring(0, 0, 1, 1)}
+    assert osm.polygons([{"tags": {}, "geometry": line}])[0][0].area == 1
+
+
+def test_overpass_relations_keep_their_roles(tmp_path, monkeypatch):
+    """A relation of Overpass "out geom" keeps its member ways' roles in properties["roles"], in the
+    order of its parts (members without a geometry left out of both); ways get none."""
+    import osm
+    geometry = [{"lon": x, "lat": y} for x, y in _ring(10.0, 50.0, 10.1, 50.1)]
+    hole = [{"lon": x, "lat": y} for x, y in _ring(10.02, 50.02, 10.08, 50.08)]
+    answer = {"elements": [
+        {"type": "relation", "id": 1, "tags": {"type": "multipolygon", "landuse": "forest"},
+         "members": [{"type": "way", "ref": 11, "role": "outer", "geometry": geometry},
+                     {"type": "node", "ref": 12, "role": "label", "lat": 50.05, "lon": 10.05},
+                     {"type": "way", "ref": 13, "role": "inner", "geometry": hole}]},
+        {"type": "way", "id": 2, "tags": {"natural": "scree"}, "geometry": hole}]}
+    with _fake_server(json.dumps(answer).encode()) as (url, served):
+        _overpass_here(monkeypatch, url)
+        found = {f["id"]: f for f in osm.theme("landcover", 10.0, 50.0, 10.1, 50.1, str(tmp_path))}
+    assert len(served) == 1
+    assert found["relation/1"]["roles"] == ["outer", "inner"] and "roles" not in found["way/2"]
+    forest = dict((tags.get("landuse"), area) for area, tags in osm.polygons(found.values()))["forest"]
+    assert abs(forest.area - (0.01 - 0.0036)) < 1e-9
+
+
+def _tiny_extract(path):
+    """An .osm.pbf with a wood multipolygon (two outer ways making one ring, an inner way), a closed
+    scree way, a cliff and an unrelated way (pyosmium's SimpleWriter)."""
+    import osmium
+    from osmium.osm.mutable import Node, Relation, Way
+    points = {1: (10.0, 50.0), 2: (10.1, 50.0), 3: (10.1, 50.1), 4: (10.0, 50.1),
+              5: (10.02, 50.02), 6: (10.08, 50.02), 7: (10.08, 50.08), 8: (10.02, 50.08),
+              9: (10.15, 50.15), 10: (10.16, 50.15), 11: (10.16, 50.16), 12: (10.15, 50.16)}
+    writer = osmium.SimpleWriter(str(path))
+    try:
+        for ref, location in points.items():
+            writer.add_node(Node(id=ref, location=location, tags={}))
+        writer.add_way(Way(id=21, nodes=[1, 2, 3], tags={}))
+        writer.add_way(Way(id=22, nodes=[3, 4, 1], tags={}))
+        writer.add_way(Way(id=23, nodes=[5, 6, 7, 8, 5], tags={}))
+        writer.add_way(Way(id=24, nodes=[9, 10, 11, 12, 9], tags={"natural": "scree"}))
+        writer.add_way(Way(id=25, nodes=[9, 11], tags={"natural": "cliff"}))
+        writer.add_way(Way(id=26, nodes=[1, 3], tags={"highway": "track"}))
+        writer.add_relation(Relation(id=31, members=[("w", 21, "outer"), ("w", 22, "outer"), ("w", 23, "inner")],
+                                     tags={"type": "multipolygon", "natural": "wood"}))
+    finally:
+        writer.close()
+
+
+def test_extract_features_with_roles(tmp_path):
+    """_take_features takes the themes of EXTRACT_THEMES (no landcover) from an extract; asked for
+    landcover, the wood relation's member ways with their roles and the scree way, which polygons()
+    makes areas of (the wood's hole not forest)."""
+    from shapely.geometry import Point
+
+    import osm
+    pbf, out = tmp_path / "tiny.osm.pbf", tmp_path / "tiny.themes.json"
+    _tiny_extract(pbf)
+    osmextract._take_features(str(pbf), str(out), "2026-11-03T00:00:00+00:00")
+    themes = json.loads(out.read_text())["themes"]
+    assert set(themes) == set(osmextract.EXTRACT_THEMES) == {"coastline", "cliff"}
+    assert [f["properties"]["id"] for f in themes["cliff"]] == ["way/25"]
+    osmextract._take_features(str(pbf), str(out), "2026-11-03T00:00:00+00:00", ("landcover", "cliff"))
+    themes = json.loads(out.read_text())["themes"]
+    assert set(themes) == {"landcover", "cliff"}
+    by_id = {f["properties"]["id"]: f for f in themes["landcover"]}
+    assert set(by_id) == {"relation/31", "way/24"}
+    assert by_id["relation/31"]["properties"]["roles"] == ["outer", "outer", "inner"]
+    assert "roles" not in by_id["way/24"]["properties"] and "roles" not in themes["cliff"][0]["properties"]
+    features = [{**f["properties"], "geometry": f["geometry"]} for f in themes["landcover"]]
+    areas = {tags.get("natural"): area for area, tags in osm.polygons(features)}
+    assert areas["wood"].contains(Point(10.01, 50.01)) and not areas["wood"].contains(Point(10.05, 50.05))
+    assert abs(areas["wood"].area - (0.01 - 0.0036)) < 1e-9 and abs(areas["scree"].area - 0.0001) < 1e-9
+
+
+def test_themes_not_from_the_extracts(tmp_path):
+    """landcover never comes from the extracts (Overpass instead), even from a themes.json holding it;
+    an extract whose themes.json lacks a theme of EXTRACT_THEMES (taken before it existed) does not give
+    its tiles either (Overpass instead of a KeyError)."""
+    cache_dir = fake_cache(tmp_path)  # its themes.json has cliff and coastline only
+    themes = os.path.join(cache_dir, "island", "osm-extract", "island.themes.json")
+    assert osmextract._missing_themes(themes) == []
+    assert osmextract._missing_themes(themes + ".none") == ["coastline", "cliff"]
+    assert osmextract.build_tile(cache_dir, "cliff", 50.0, 10.0)
+    assert not osmextract.build_tile(cache_dir, "landcover", 50.0, 10.0)
+    with open(themes) as f:
+        data = json.load(f)
+    data["themes"] = {"cliff": data["themes"]["cliff"], "landcover": []}  # as an old file lacking coastline
+    with open(themes, "w") as f:
+        json.dump(data, f)
+    os.utime(themes, (1, 1))  # osmextract._load sees the change whatever the clock's resolution
+    assert osmextract._missing_themes(themes) == ["coastline"]
+    assert not osmextract.build_tile(cache_dir, "coastline", 50.0, 10.0)
+    assert not osmextract.build_tile(cache_dir, "landcover", 50.0, 10.0)
+    assert osmextract.build_tile(cache_dir, "cliff", 50.0, 10.0)
+
+
+def test_update_takes_a_missing_extract_theme_again(tmp_path, monkeypatch):
+    """osm update of an extract with no new diffs takes its theme features again when its themes.json
+    lacks a theme of EXTRACT_THEMES, never because of landcover (the extracts never hold it)."""
+    from datetime import datetime
+    from types import SimpleNamespace
+
+    import osmium.replication.utils as replication
+    cache_dir = fake_cache(tmp_path)  # cliff and coastline: complete, no landcover
+    pbf = os.path.join(cache_dir, "island", "osm-extract", "island.osm.pbf")
+    header = SimpleNamespace(url="https://example.invalid/replication", sequence=7,
+                             timestamp=datetime(2026, 11, 3))
+    monkeypatch.setattr(replication, "get_replication_header", lambda path: header)
+    monkeypatch.setattr(osmextract, "_replication_server", lambda url: SimpleNamespace(
+        set_request_parameter=lambda *args: None, get_state_info=lambda: SimpleNamespace(sequence=7)))
+    finished = []
+    monkeypatch.setattr(osmextract, "_finish", lambda *args: finished.append(args[1]))
+    assert not osmextract.update(cache_dir, "island", pbf) and finished == []
+    themes = pbf[:-len(".osm.pbf")] + ".themes.json"
+    with open(themes) as f:
+        data = json.load(f)
+    del data["themes"]["coastline"]
+    with open(themes, "w") as f:
+        json.dump(data, f)
+    os.utime(themes, (1, 1))
+    assert osmextract.update(cache_dir, "island", pbf) and finished == ["island"]

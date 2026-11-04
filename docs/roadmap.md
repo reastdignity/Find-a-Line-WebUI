@@ -52,22 +52,8 @@ Rules for every step:
 - The highest risk is in step 5 (tile borders, duplicate lines) and step 7 (viewer matching Python); step 1 must be done before them.
 
 ## Priorities (open)
-1. **Obstacles on rock: what is left** (after the surface model on steep rock, done 2026-11-02, below).
-   - *Forest edges right at an anchor*: the envelope also excuses crowns that stand below the rock beside them (a
-     forest reaching the rim just below an anchor: R28, R29, R35 in tools/obstacle_study.py's pictures). A test of
-     the crowns around such a pixel (A<r>+V<k>: a crown within 1-2 pixels on terrain under 50° reaching its height)
-     kept few of them (A2+V2 lost 20 % of the lines with a tree by the proxies, A2 22 %): the proxies count rims
-     beside a forest as trees too, so the real share is unknown (3 of 11 pictures were trees).
-   - *CHMv2 as a layer* (Meta/WRI's canopy heights, checked 2026-11-02): CC BY 4.0 without share-alike (credit "Meta
-     and World Resources Institute (WRI) - 2026. Version 2 High Resolution Canopy Height Maps (CHMv2). Source imagery
-     for CHM © 2016 Vantor"), anonymous AWS bucket `dataforgood-fb-data` (us-east-1, not requester pays), z10 quadkey
-     COGs in EPSG:3857 (1.19 m, uint8 metres, about 0.34 MB per km² of mountain forest), imagery dates per area in
-     `metadata/<quadkey>.geojson` (the Tatras 2015 and 2019), trees only. Measured by the study: shifted 2-6 m against
-     the lidar in places, tors and their shadows taken for trees of up to 17 m (Castle Hill), forests spread onto the
-     rock beside them, "trees" by 1192 lines of the treeless Cwm Silyn: no filter on its own; it could give the USA
-     and Finland obstacles at all (DTM + CHMv2), a task of its own (high effort: a new kind of layer, credits, probe).
-   - *The rule on the data's own grid* (with "Obstacles lowered by averaging the DSM" under *To check*): the
-     envelope and the obstacle height computed on the source's pixels, their maximum per working pixel.
+1. **Obstacles on rock: what is left** - measured and closed 2026-11-04 (*Done: what was left of the obstacles on
+   rock*, below): the rule stays A2 on the averaged surface model, no CHMv2 layer for it, no height cap.
 2. **A slope threshold for the resolution** (added by the user, 2026-11-02; a task of its own, found while
    preparing the coverage map's 30 m vs 1 m contrast).
    - *What is seen*: `--slope-threshold` defaults to 45° at every resolution. At 30 m the slope comes from
@@ -143,6 +129,66 @@ Rules for every step:
   (Malta's cliffs: the foot filled with 0 m, the face in the surface model); FABDEM + Copernicus compared as they are
   (`Source.obstacles`); the rule recorded in run.json (`params.obstacles`), a profile computed again uses its run's
   (runs before it: the surface model as it is); no option to switch it off. The regression set re-baselined.
+
+## Done: what was left of the obstacles on rock (measured 2026-11-03/04)
+The three sub-items of priority 1 (forest edges right at an anchor, CHMv2 as a layer, the rule on the data's own grid)
+shared one cause: no trustworthy judge of what a tall pixel of the surface model is (CHMv2 puts trees on rock), and no
+native-resolution data in the study's capture. Branch `obstacles-fine-grid` (tag `history/obstacles-fine-grid`): the
+tool, not the rule, changed.
+- *The tool* (`tools/obstacle_study.py`, `tools/study_landcover.py`, `tools/study_ortho.py`): the capture records the
+  layers' cached files; `analyse` builds the surface model on its own lattice (0.5 m sheets) and warps it onto the grid
+  with GDAL's `max` and `med` (what `sources.mosaic` would give with those instead of `average`), so the variants
+  avg / max / h (native surface minus terrain, pooled by max, over the averaged terrain) / med / hmed are counted under
+  the same rules; two more judges beside CHMv2 and WorldCover: OSM's land cover (a theme `landcover` of woods, forests,
+  bare rock and scree as polygons, from Overpass only: a Land's polygons would make the extracts' `themes.json` 100 times
+  bigger) and the source's orthophoto at zoom 19 (a green leaf index and the luminance on the grid, thresholds from each
+  place's sure forest and sure rock); a verdict tree / rock / unknown / none per line (green counts as a tree only on
+  terrain under 50 deg or where CHMv2 at the pixel reaches 3 m: grass and dwarf pine on rims are green too), the lines
+  each rule un-marks and keeps by verdict, the subset whose marked pixels lie within 3 steps of an anchor, pictures with
+  the orthophoto as a fifth panel and contact sheets per group. Measured on 25 places (the regression places with a
+  surface model, the eight of 2026-11-02 and McIntyre Bluff R64) plus seven runs at 2 and 5 m; reports in the main
+  checkout's git-ignored `local/obstacle-study-2026-11-04/`.
+- *The judges are weak*: the green index separates forest from rock with an overlap of 0.32-0.69 of the references
+  (leafless spring imagery in Poland and Lower Saxony, shadow on walls, lichen on granite), seven places have no
+  orthophoto service and three no rock reference, so OSM's polygons decide most verdicts, and those are coarse (open
+  pine savanna mapped as forest in BC). CHMv2 against the surface model over 62 Mpx of gentle ground: 85 % agree on
+  "tree >= 3 m", CHMv2 alone sees trees 2.7 times as often as the surface model alone, |difference| median 3.9 m, p90
+  10.4 m, the surface model 1.4 m higher; on steep ground CHMv2 sees trees on 1-7 % of the bare pixels of alpine rock
+  (Giewont, Zamarla Turnia, Cwm Silyn) but on 64-96 % in forested crags (Zabi Kon, Bedkowska, Berdorf): it projects the
+  forest beside a wall onto it. The contact sheets decide more than the counts.
+- *Forest edges right at an anchor* are real where the forest reaches the rim: Hohenstein (R28) about 1400 of 3139
+  lines, the Bode gorge (R29) about 3400 of 8524 (the last pixel holds a crown of 7-17 m by CHMv2, 2 of 3 and 4 of 6
+  samples trees), Finstermunz 2 of 6; in alpine places (Giewont, Preikestolen, Zamarla Turnia, Cwm Silyn, McIntyre
+  Bluff) the "trees" A2 un-marks at an anchor are the rim with grass or dwarf pine. A2+V2 recovers a fifth of them
+  (R28 1397 to 1097). A2+T (A2, or CHMv2's tree on WorldCover's tree cover restores the mark) recovers nearly all (R28
+  to 265, R29 to 618, R35 2008 to 101) but re-marks rock where CHMv2 is noisy: Preikestolen keeps 33 512 rock lines
+  marked instead of 18 669, Trento +1500, Bolechowicka +280; over 17 places 15 700 fewer trees lost against 20 000 more
+  marks on rock. *Decided* (the user, 2026-11-04): A2 stays; the loss of some trees right under an anchor in a forest
+  is accepted; CHMv2 is not built as a layer for this rule (it remains a candidate for sources without a surface model:
+  *United States*, below).
+- *The data's own grid*: at 1 m from 0.5 m sheets `max` and `h` add thousands of marks on bare rock (Zamarla Turnia
+  +14 485 / +19 829, all rock; Giewont +1378, 936 rock) because geoportal's 0.5 m pixels lie a quarter metre off the
+  1 m grid and GDAL's `max` takes every overlapping fine pixel (a 1.5 m footprint); the median stays within a few
+  percent of the average and recovers no crowns. At coarser grids the averaged surface hides forest: at 5 m A2 on
+  `average` un-marks about 1000 lines over spruce at Giewont (120 of 3196 marked, 1124 with `max`), Bolechowicka and
+  Bedkowska lose 19 and 55 lines of real forest, which `max` recovers without dropping any line, while on bare rock it
+  adds 10-13 % false marks (Zamarla Turnia 5 m: 19 to 591 of 4246; 2 m: +2962 of 30 864); at 2 m from 1 m sheets Zabi
+  Kon gains 106 trees and 7 rock lines. *Decided* (the user, 2026-11-04): `average` everywhere, as before; the
+  under-detection of trees at grids of 2-5 m from finer data is known and accepted (`max` from 2 m up was the
+  alternative on the table: consistent with the native 2-5 m products, a re-baseline of every such regression place).
+- *A height cap* (A2+H: a pixel more than H above the terrain is a wall, not a tree): H60 un-marks 3958 of
+  Preikestolen's 23 915 lines (its overhanging walls stand 93-98 m over their foot in the surface model, a ribbon wider
+  than the 2 px envelope), H80 2056; forests keep their marks from H60 up; but McIntyre Bluff's surface model holds
+  power lines 130 m above the ground (dotted straight lines; swisstopo excludes them, LidarBC does not), which are real
+  obstacles a cap would hide. *Decided*: no cap; the overhang ribbon stays A2's known residual.
+- *Lauterbrunnen (R19, R20): every line over trees* is a property of the data, not a bug (checked 2026-11-04 against
+  the 2022 point clouds of tiles 2635_1160 and 2636_1160): the layers align to 3 mm, and the surface model's strip of
+  100-170 m over the terrain at the foot of both valley walls (0.18 % of the pixels, 3 px wide) is vegetation hanging
+  over overhanging walls, carried out over the floor by swisstopo's spike-free triangulation (98-99 % of those cells
+  have a vegetation point within 5 m of the raster's height); the lines there cross real forest on the floor anyway.
+- *Not solved*: overhangs in every 2.5D surface model (the lip over the foot: Preikestolen, Lauterbrunnen), and the
+  orthophoto as a judge (a leaf-on index or a texture measure would be needed; the tool keeps both judges for the next
+  question).
 
 ## Stage 0: refactoring
 - `findaline.main(args)` becomes a library function `run_search(params, on_progress)`. One parameter schema (pydantic) is shared by the CLI, the API and the browser form, with types, defaults, limits and help texts in one place. argparse is generated from it.
@@ -700,6 +746,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Data**: swissALTI3D (DTM, 0.5 m and 2 m) and swissSURFACE3D Raster (DSM, 0.5 m), whole country and Liechtenstein; 1 km tiles as COG GeoTIFF float32 (mm), LV95 EPSG:2056 with LN02 heights; pixel edges on whole metres (`grid_origin` 0); about 26 MB (0.5 m) or 1 MB (2 m) per tile. Licence: open government data, commercial use allowed, "© swisstopo" required.
 - **Access**: no elevation WCS exists. swisstopo recommends its download service for offline use: the STAC API `https://data.geo.admin.ch/api/stac/v1` (collections `ch.swisstopo.swissalti3d`, `ch.swisstopo.swisssurface3d-raster`; items `swissalti3d_<year>_<E>-<N>`, bbox in WGS84, 100 items per page). Files on S3/CloudFront, about 40 MB/s, sha256 in the item (`file:checksum`). Fair use: no bulk bot traffic, exponential backoff with jitter.
 - **Versions**: every tile exists per survey year (2019, 2024, 2025...), not every year for every tile; DSM tiles of neighbouring areas may be of different years.
+- **Overhangs** (checked 2026-11-04): swissSURFACE3D Raster is a spike-free TIN of the classes ground, vegetation, buildings, bridges and more (power lines excluded), so vegetation hanging over an overhanging wall is carried out over its foot: at Lauterbrunnen a strip 3 px wide and 100-170 m above swissALTI3D along both valley walls (0.18 % of the pixels; the layers themselves align to 3 mm). Every line there is over trees anyway (forest on the floor). Details: *Done: what was left of the obstacles on rock*.
 - **Plan**: a layer on the `SheetTiles` pattern: STAC answers cached per 0.25° tile (policy `sheet-index`), the newest year per tile, older years deleted when a newer one is downloaded; the 2 m files for working grids of 2 m and more, 0.5 m below. Orthophoto: SWISSIMAGE WMTS in EPSG:3857 (`https://wmts.geo.admin.ch/1.0.0/ch.swisstopo.swissimage/default/current/3857/{z}/{x}/{y}.jpeg`: the map's own tiling, CDN), with a lower default `--ortho-detail` to respect the fair-use terms (decided).
 - **Tests**: a regression test with the DSM (e.g. the cliffs of Lauterbrunnen), the data checks of a new source (shift against Copernicus, coverage at 5 m, a tile against its file); pytest with a fake STAC (newest year, deleting older ones).
 - **Done 2026-10-26** (`sources.StacTiles`, source `swisstopo`): the index logic of `SheetTiles` became a base class, `IndexedTiles`, shared by both. An item holds a COG and an XYZ zip at each resolution (`gsd`); only the COGs are used, stored as published in `switzerland/<product>/<res>m/<year>_<E>-<N>.tif` and checked against `file:checksum` (sha256 multihash `1220…`). Files: float32 metres, nodata -9999, pixel edges on whole metres, DTM values finer than mm, DSM in cm; 2 m tile 1.3 MB, 0.5 m 17–20 MB, about 0.5 s each from CloudFront. A 0.25° index tile in the Alps is about 1300 items in 14 pages (9 s), so it is cached as planned. At Lauterbrunnen the DTM has 2019 and 2025 surveys per tile, the DSM 2022. Data checks: no shift against Copernicus GLO-30 (DSM) or FABDEM (DTM) in a ±200 m search, 100% valid pixels at 2 and 5 m, a 2 m mosaic identical to its files. SWISSIMAGE WMTS has imagery up to zoom 20 (21 answers 400): `OrthoService` got `url=None` (base tiles only, cached up to its last zoom, enlarged by the map above it) and `detail` (20 groups, circles too; `--ortho-detail` overrides). Regression tests R19 (2 m) and R20 (1 m: the 0.5 m terrain files). Since the default resolution became 1 m (2026-10-26) a default search uses the 0.5 m terrain files (about 37 MB per km² with the DSM instead of 18); the 2 m files serve `--resolution 2` and coarser. `cache update` replaced a 2019 tile by its 2025 survey and deleted the older file.
@@ -768,6 +815,7 @@ Checked at Yosemite (El Capitan), Moab and Boulder (Flatirons) with the TNM API,
 - *Possible way in*: an `IndexedTiles` layer over the TNM API, with the newest project per tile, so that `cache update` finds newer projects. Window reads of the COGs (range requests) would spare downloading a 250 MB tile for a small circle. The alternative is `WcsTiles`-like requests to the ImageServer. Decide after the data checks.
 
 **Surface (DSM): nothing ready nationally at 1 m.**
+- *CHMv2 as the surface for sources without one* (Meta/WRI canopy heights, CC BY 4.0, measured against 23 lidar surface models on 2026-11-04, *Done: what was left of the obstacles on rock*): on gentle ground 85 % agreement on "tree >= 3 m", heights within 3.9 m (median) / 10.4 m (p90), CHMv2 alone seeing trees 2.7 times as often as the lidar alone; on steep ground it projects the forest beside a wall onto it (trees on 64-96 % of the bare pixels of forested crags). Usable as a flag "over trees" with crowns spread 1-2 px onto rock, not for the clearance margin; a task of its own (a new kind of layer on z10 quadkey COGs in EPSG:3857, credit, probe).
 - *Planetary Computer* `3dep-lidar-dsm` (STAC `https://planetarycomputer.microsoft.com/api/stac/v1`):
   - 2 m COGs made with PDAL from the 3DEP point clouds, noise removed.
   - The STAC search needs no account. The files (Azure blobs) need a free SAS token from the Planetary Computer API.
@@ -902,7 +950,7 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **Known highlines from SlackMap** (the user's idea, 2026-11-01): [SlackMap](https://slackmap.com), the International Slackline Association's community map of lines and spots (open source, GPL-3.0: github.com/International-Slackline-Association/slackmap; also an iOS app), lists rigged highlines with both anchors. Two uses: (1) choose the regression places of new sources where highlines are actually rigged, not only where the search finds many lines; (2) check the search against them: which known lines does it find (with which clearance and wall angles), which not and why (the data's resolution, trees in the DSM, the limits), per country and per source. Its data were out of reach on 2026-11-01: slackmap.com has no A record, the map's GeoJSON files (`data.slackmap.com/geojson/lines/all.geojson`, `.../spots/all.geojson`, as the web app's `web/src/app/api/constants.ts` names them) point to a CloudFront distribution without addresses, and `api.slackmap.com` answers details by id only. Try again later or ask the ISA for an export; check the data's licence (user contributions) before keeping a copy in the repository. Candidates measured for R27 in Wales then (radius 400 m, lines of 50–400 m): Dinorwig slate quarries at Llanberis (53.1245, -4.1100) 934 lines in 20 spots of 51–101 m, Cwm Silyn (53.0300, -4.2150) 2854 lines in 42 spots of 200–389 m, Dorothea quarry 19, Pen-yr-Orsedd quarry none.
 - **ArcticDEM's position to a fraction of a pixel** (the user, 2026-11-03): check_source's shift search against Copernicus GLO-30 found (0, 0) at Sam Ford and Hafragil, but on 1000 m walls (Tasermiut, Uummannaq) GLO-30's 30 m pixels fit too badly to tell, and its step of a whole pixel cannot see half a metre. Compare ArcticDEM 2 m (EGM2008, as cached) with NRCan's HRDEM lidar 1 m (CGVD2013) around a Nunavut community that has both (Iqaluit, Pond Inlet or Clyde River): a sub-pixel shift search (0.25 m steps, gentle slopes only, as the gap fill's offsets) and the median of the height difference after the shift (CGVD2013 minus EGM2008 is a few decimetres there: take it from the two geoid models, not from the data). A shift above 0.5 m or a height offset above 1 m goes into the layer like `MALTA_2012_SHIFT`; otherwise the result goes into the Arctic entry under *New data sources*.
 - **Interpolating to a finer grid lowers the number of lines** (seen 2026-11-01 in South Tyrol, R30 at the Sella towers): the same search at the data's 2.5 m found 11 347 lines in 115 spots, at `--resolution 1` (bilinear from 2.5 m) 295 lines in 6 spots. Find out which is closer to the truth: more pixels sampled under each line at 1 m, or a clearance check that the interpolation makes stricter (smoothed rims, lower anchors); compare with a place that has both 2.5 m and 0.5 m data (South Tyrol's settlements, or Switzerland's 0.5 m averaged to 2.5 m and interpolated back).
-- **Obstacles lowered by averaging the DSM** (measured 2026-10-26 at Lauterbrunnen, 0.5 → 1 m): the highest 0.5 m value of a pixel is above its mean by 0.25 m (median) and 7.7 m (99th percentile), so single treetops come out lower than they are; at 2 m and coarser more so. Taking the maximum of the DSM instead does not work: the clearance limit comes from the anchor heights in the averaged DTM, and anchors lie on cliff edges, where the maximum of a pixel is the rim (up to 189 m above the mean on vertical walls); the pixels next to every anchor and along every wall would become obstacles, so nearly every line from a cliff would be marked as over trees, and single wrong DSM points would spread over whole pixels. To try instead: the maximum of the obstacle height above the ground (DSM − DTM on the data's grid), added to the averaged DTM; on bare rock it is about 0, tree crowns keep their height. Costs: both models on one fine grid first (Polish NMPT 0.5 m, NMT 1 m), mixed pixels on slopes and forest edges, changed results over trees. Measure on the regression places before deciding.
+- **Obstacles lowered by averaging the DSM**: measured 2026-11-04 with the variants max / h / med of tools/obstacle_study.py (*Done: what was left of the obstacles on rock*): real at 2-5 m grids from finer data (forest crowns hidden), harmful at 1 m from 0.5 m sheets (false marks on rock); `average` kept everywhere.
 - **Hugging Face for the Slovak tiles**: dataset repository or Storage Bucket (FABDEM's mirror is a bucket); the docs disagree on a soft cap per public repository (300 GB or 1 TB) and on limits for anonymous downloads; check before uploading (134 GB at 1 m as cut, 2 × 12 826 files plus two indexes; about 530 GB with the 0.5 m cycle).
 - **geoportal.gov.pl sheet files instead of WCS** (done 2026-10-25, `SheetTiles`: newest sheet of 0.5–1 m per godło, cached as GeoTIFF, working grid aligned to the sheet pixels, offline from the cached sheets; the Polish regression tests now take 3 min instead of 15). Findings: the EVRF2007 NMT index covers all of Poland (63 465 sheets 1:5000 of ≤ 1 m in PL-1992, plus PL-2000 sheets in some cities), the NMPT about 85% (53 846, all laser scans, `.asc`); the newest NMT sheet is `.asc` for 94% of the sheets, `.xyz.zip` for most others; in 56% of the sheets it is labelled "aerial photos", but in a sample these held the values of the earlier laser scan (4 of 5 identical, 1 within ±3 cm). Before: the EVRF2007 WCS spends 30–50 s generating each 2 km ASCII tile (75 MB, 55 s in all; four parallel requests take as long as one), while the sheet files linked from the WFS indexes (`url_do_pobrania` on `opendata.geoportal.gov.pl`) download at about 17 MB/s: a 1 m NMT sheet of about 2.3×2.3 km (37 MB) in 2 s, roughly 30× faster per km². It is also the download path the geoportal pages describe, and the cache would then match the units GUGiK updates (sheet, year, `nr_zglosz`). To check first: whether the EVRF2007 indexes cover all of Poland with 1 m sheets, the sheet formats (`.asc`, `.xyz.zip`, `.zip`), the NMPT sheets, and choosing between sheets of different years and sources (laser scan vs aerial photos). The geoportal pages give no limits for parallel requests; technical contact: service.desk@gugik.gov.pl.
 - **geoportal.gov.pl height system** (done 2026-10-24: switched to EVRF2007 at native resolution, averaged locally, Polish tests re-baselined; the server's own downsampling left most of the Tatras empty at 5 m): the sources used the KRON86 coverages (`DTM_PL-KRON86-NH_TIFF`, `DSM_PL-KRON86-NH`), whose sheet indexes end in 2019. The WCS also has `DTM_PL-EVRF2007-NH` (ASCII grid only) and `DSM_PL-EVRF2007-NH`. Checked on 2026-10-24 by comparing 200×200 m windows of both coverages with the sheet files (difference of differences, so the resampling of the WCS cancels out): the difference between the two coverages equals the difference between the newest KRON86 and the newest EVRF2007 sheet (residual median 0.00 m, p5–p95 about ±0.2 m) at Żabi Koń (2013 vs 2023), Kasprowy (2012 vs 2025), Sokoliki (2012 vs 2025) and Gdańsk (2018 vs 2024); in Warsaw the EVRF2007 coverage matches the 2025 sheet within ±0.1 m. So **the KRON86 coverage holds surveys up to 2019 and the EVRF2007 one the newest**, 5–13 years newer in these places. Before step 2: switch NMT and NMPT to EVRF2007 (NMT only as ASCII grid: `fmt="image/x-aaigrid"`) and re-baseline the Polish regression tests. To watch: some newest sheets come from aerial photos, not laser scanning (Sokoliki 2025); at Żabi Koń the 2024 "aerial photo" sheet holds exactly the values of the 2023 laser scan.
@@ -981,7 +1029,7 @@ The user's idea (2026-11-01): search whole countries offline in fixed tiles, kee
 - **Open**:
   - **T(L) as an option of the app's search** (the user, 2026-11-02): a field of `params.py` (span:kN points), `sag.TensionTable` (done for the country layer), `viewer/src/sag.ts` (the same solver: Python and the browser must match to 1e-6 m), the form, README. The profiles of `/api/profile` and the map's sag line follow it.
   - **Lines across a border**: only lines with both anchors in the country are counted. A layer of several countries needs the cells of both CRSs, or one CRS per region, and the tiles at the border searched over both countries' data.
-  - **The surface model in the cube**: count again with `--nmpt mark` once the obstacle rule of *Priorities (open)* 1 is settled (on bare rock nearly every line is marked as over trees today) and the disk has room for the DMP.
+  - **The surface model in the cube**: count again with `--nmpt mark` once the disk has room for the DMP (the obstacle rule is settled: A2 on the averaged surface, 2026-11-04).
   - **Many countries**: the cube's arrays memory-mapped again (a build into a new folder swapped in, as Windows refuses replacing a mapped file); a query engine (DuckDB) only if the queries grow.
   - **The layer's look**: the legend's class breaks (fixed guesses from the report's strata) after the first real cube; a lighter base map under the cells.
 

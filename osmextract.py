@@ -5,10 +5,15 @@ An extract is the whole OSM data of a country or a region (.osm.pbf), kept in
 cache/<country>/osm-extract/ (deleting the country folder removes it too):
     <region>.osm.pbf        the extract
     <region>.geojson        its outline (from the Geofabrik index)
-    <region>.themes.json    the features of the themes (osm.THEME_TAGS) taken from it
+    <region>.themes.json    the features of the themes of EXTRACT_THEMES taken from it (one written
+                            before a theme existed lacks it: its tiles come from Overpass until the
+                            next `osm update` takes the features again)
 `findaline.py osm update` (and `cache update`, after cache.TTL_DAYS["osm-extract"])
 applies the diffs of Geofabrik's replication service with pyosmium, so only the
 changes are downloaded.
+
+The theme landcover (osm.THEME_TAGS) is never taken from the extracts: its tiles always come from
+Overpass (see EXTRACT_THEMES).
 
 A theme tile (osm.py) is built from the extracts when the part of the tile outside
 their outlines is open sea: it lies in no other country of the Geofabrik index. A
@@ -34,6 +39,11 @@ import servicecounts
 from progress import progress
 
 INDEX_URL = "https://download.geofabrik.de/index-v1.json"
+# The themes taken from the extracts; the others (landcover, the obstacle study's) come from Overpass
+# only. A country's woods, forests, bare rock and scree are about 100 times the other themes: Poland's
+# themes.json grew from 8.8 MB to 936 MB, 6.2 GB of memory and 9 s to load in every process building
+# a tile (measured 2026-11-03), and taking them from the extract 199 s instead of about 10 s
+EXTRACT_THEMES = ("coastline", "cliff")
 DIFF_BATCH_KB = 100 * 1024  # diffs kept in memory at a time while updating
 
 
@@ -131,14 +141,18 @@ def _covered(cache_dir: str, tile, used: List[tuple]) -> bool:
 
 
 def build_tile(cache_dir: str, theme: str, lat: float, lon: float) -> bool:
-    """Build a theme tile from the extracts if they give all of it; whether they did."""
+    """Build a theme tile from the extracts if they give all of it; whether they did. A theme outside
+    EXTRACT_THEMES never comes from them, nor one an extract's themes.json lacks (taken before the
+    theme existed)."""
+    if theme not in EXTRACT_THEMES:
+        return False
     tile = box(lon, lat, lon + osm.TILE_DEG, lat + osm.TILE_DEG)
     used = []
     for rid, pbf in extracts(cache_dir):
         outline, themes = pbf[:-len(".osm.pbf")] + ".geojson", pbf[:-len(".osm.pbf")] + ".themes.json"
         if os.path.exists(outline) and os.path.exists(themes) and _load(outline).intersects(tile):
             used.append((rid, _load(outline), _load(themes)))
-    if not used or not _covered(cache_dir, tile, used):
+    if not used or any(theme not in u[2]["themes"] for u in used) or not _covered(cache_dir, tile, used):
         return False
     features: Dict[str, Dict] = {}
     for _, _, data in used:
@@ -152,11 +166,11 @@ def build_tile(cache_dir: str, theme: str, lat: float, lon: float) -> bool:
     return True
 
 
-def _take_features(pbf: str, out: str, timestamp: str):
-    """Save the features of every theme in an extract (three passes over the file:
+def _take_features(pbf: str, out: str, timestamp: str, theme_names=EXTRACT_THEMES):
+    """Save the features of the themes theme_names in an extract (three passes over the file:
     the tagged objects, the ways of relations, the nodes of all ways)."""
     import osmium
-    wanted = {(kind, key, value): name for name, tags in osm.THEME_TAGS.items() for kind, key, value in tags}
+    wanted = {(kind, key, value): name for name in theme_names for kind, key, value in osm.THEME_TAGS[name]}
     items, way_refs = [], {}
     progress.compute.start("OSM extract: themes", 3, unit="pass")
     tag_filter = osmium.filter.TagFilter(*{(key, value) for _, key, value in wanted})
@@ -173,10 +187,10 @@ def _take_features(pbf: str, out: str, timestamp: str):
         elif kind == "way":
             way_refs[obj.id] = [n.ref for n in obj.nodes]
         else:
-            item["ways"] = [m.ref for m in obj.members if m.type == "w"]
+            item["ways"] = [(m.ref, m.role) for m in obj.members if m.type == "w"]
         items.append(item)
     progress.compute.update(1)
-    members = {ref for item in items for ref in item.get("ways", ())} - set(way_refs)
+    members = {ref for item in items for ref, _ in item.get("ways", ())} - set(way_refs)
     if members:
         for way in osmium.FileProcessor(pbf, osmium.osm.WAY).with_filter(osmium.filter.IdFilter(members)):
             way_refs[way.id] = [n.ref for n in way.nodes]
@@ -192,21 +206,22 @@ def _take_features(pbf: str, out: str, timestamp: str):
         points = [location[ref] for ref in way_refs.get(way_id, ()) if ref in location]
         return points if len(points) > 1 else None
 
-    themes: Dict[str, List[Dict]] = {name: [] for name in osm.THEME_TAGS}
+    themes: Dict[str, List[Dict]] = {name: [] for name in theme_names}
     for item in items:
         kind, number = item["id"].split("/")
+        roles = None
         if kind == "node":
             geometry = Point(item["point"])
         elif kind == "way":
             points = line(int(number))
             geometry = LineString(points) if points else None
-        else:  # like Overpass "out geom": the member ways as lines
-            parts = [p for p in map(line, item["ways"]) if p]
-            geometry = MultiLineString(parts) if parts else None
+        else:  # like Overpass "out geom": the member ways as lines, with their roles
+            parts = [(points, role) for points, role in ((line(ref), role) for ref, role in item["ways"]) if points]
+            geometry = MultiLineString([points for points, _ in parts]) if parts else None
+            roles = [role for _, role in parts]
         if geometry is None:
             continue
-        feature = {"type": "Feature", "geometry": geometry.__geo_interface__,
-                   "properties": {"id": item["id"], "tags": item["tags"]}}
+        feature = osm.feature(geometry, item["id"], item["tags"], roles)
         for name in item["themes"]:
             themes[name].append(feature)
     progress.compute.finish(", ".join(f"{name} {len(found)}" for name, found in themes.items()))
@@ -322,8 +337,16 @@ def _replication_server(url: str):
     return Counted(url)
 
 
+def _missing_themes(themes: str) -> List[str]:
+    """The themes of EXTRACT_THEMES a themes.json lacks (all of them when there is none)."""
+    if not os.path.exists(themes):
+        return list(EXTRACT_THEMES)
+    return [name for name in EXTRACT_THEMES if name not in _load(themes)["themes"]]
+
+
 def update(cache_dir: str, rid: str, pbf: str) -> bool:
-    """Apply the replication diffs to an extract; whether there was anything new.
+    """Apply the replication diffs to an extract; whether there was anything new. An extract up to
+    date has its theme features taken again when its themes.json lacks a theme (_missing_themes).
 
     When the diffs cannot be applied (too old for the server), the extract is
     downloaded again. `rid` may be the extract's file name (cache update: us_alaska for us/alaska).
@@ -343,6 +366,11 @@ def update(cache_dir: str, rid: str, pbf: str) -> bool:
         raise RuntimeError(f"the replication service {header.url} does not answer")
     if newest.sequence <= header.sequence:
         cache.checked(cache_dir, [pbf])
+        if _missing_themes(themes):  # taken before a theme existed: taken again from the extract as it is
+            print(f"OSM extract {rid}: up to date, taking the features of new themes "
+                  f"({', '.join(_missing_themes(themes))})")
+            _finish(cache_dir, rid, pbf, themes, (cache.info(cache_dir, pbf) or {}).get("url") or header.url)
+            return True
         print(f"OSM extract {rid}: up to date ({header.timestamp:%Y-%m-%d %H:%M} UTC)")
         return False
     progress.download.start(f"OSM extract {rid}: diffs", newest.sequence - header.sequence, unit="diff")

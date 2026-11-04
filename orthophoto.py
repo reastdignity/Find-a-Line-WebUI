@@ -80,22 +80,30 @@ def _tiles_in(area, zooms: Iterable[int]) -> Set[Tile]:
     return tiles
 
 
-def tiles_to_cache(lines: List[Dict], area, max_zoom: int = DETAIL_ZOOMS[-1]) -> Set[Tile]:
-    """Tiles for the overview of the search area (area.Area) and the strips around lines
-    ("anchor1", "anchor2" as (lat, lon)), up to max_zoom (a service of tiles only: its last
-    zoom, the map enlarges it). Each strip is tested within its own bounding box: the union's
-    box holds mostly empty tiles when the lines are spread out (a long coast), and the set
-    joins the strips' tiles as the union of the strips would."""
-    # Web Mercator stretches distances by 1/cos(latitude)
-    scale = 1 / math.cos(math.radians(area.center[0]))
-    tiles = _tiles_in(area.shape_mercator(), OVERVIEW_ZOOMS)
-    zooms = range(DETAIL_ZOOMS[0], max_zoom + 1)
+def strip_tiles(lines: List[Dict], zooms: Iterable[int], scale: float) -> Set[Tile]:
+    """Tiles (any zoom in zooms) of the strips of BUFFER_M * scale Mercator metres on each side of
+    the lines ("anchor1", "anchor2" as (lat, lon)); scale is Web Mercator's stretch, 1/cos(latitude).
+    Each strip is tested within its own bounding box: the union's box holds mostly empty tiles when
+    the lines are spread out (a long coast), and the set joins the strips' tiles as the union of the
+    strips would."""
+    zooms = list(zooms)
+    tiles = set()
     for line in lines:
         (lat1, lon1), (lat2, lon2) = line["anchor1"], line["anchor2"]
         strip = LineString([_to_mercator.transform(lon1, lat1),
                             _to_mercator.transform(lon2, lat2)]).buffer(BUFFER_M * scale)
         tiles |= _tiles_in(strip, zooms)
     return tiles
+
+
+def tiles_to_cache(lines: List[Dict], area, max_zoom: int = DETAIL_ZOOMS[-1]) -> Set[Tile]:
+    """Tiles for the overview of the search area (area.Area) and the strips around lines
+    ("anchor1", "anchor2" as (lat, lon)), up to max_zoom (a service of tiles only: its last
+    zoom, the map enlarges it): strip_tiles."""
+    # Web Mercator stretches distances by 1/cos(latitude)
+    scale = 1 / math.cos(math.radians(area.center[0]))
+    tiles = _tiles_in(area.shape_mercator(), OVERVIEW_ZOOMS)
+    return tiles | strip_tiles(lines, range(DETAIL_ZOOMS[0], max_zoom + 1), scale)
 
 
 def missing_tiles(tiles: Iterable[Tile], folder: str, cache_dir: Optional[str] = None,
