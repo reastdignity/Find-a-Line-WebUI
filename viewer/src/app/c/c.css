@@ -183,6 +183,11 @@
   border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .ui .c-osm { display: flex; flex-direction: column; gap: 10px; }
 .ui .c-mappage .c-newmap { flex: 1; }
+/* three columns (MapPage with `aside`): the panel, the map, the right panel (the highline layer's histograms) */
+.ui .c-mappage-3 { display: grid; grid-template-columns: 400px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); }
+.ui .c-mappage-3 .c-sidepanel { width: auto; min-height: 0; }
+.ui .c-mappage-3 .c-newmap { min-width: 0; min-height: 0; }
+.ui .c-sidepanel-right { border-right: 0; border-left: 1px solid var(--line); padding: 16px 16px; }
 
 /* The highline layer (LayerPage.tsx): the panel's filters, the legend of the density classes (the tokens
    --layer-1 … --layer-5 of ui/tokens.css, as the cells on the map), the view and the selected cell */
@@ -198,7 +203,7 @@
   border-radius: 10px; background: var(--surface); }
 .ui .c-layer-legend p, .ui .c-layer-cell p { margin: 0; }
 .ui .c-layer-classes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
-.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ui .c-layer-classes li { display: flex; flex-direction: column; gap: 3px; font-size: 11px; white-space: nowrap; color: var(--ink-2); font-variant-numeric: tabular-nums; }
 .ui .c-layer-swatch { display: block; height: 14px; border-radius: 3px; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent); }
 .ui .c-layer-k1 { background: var(--layer-1); }
 .ui .c-layer-k2 { background: var(--layer-2); }
@@ -211,6 +216,43 @@
 .ui .c-layer-notes ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .ui .c-layer-warn { color: var(--warn); font-weight: 500; }
 .ui .c-layer-credits { margin: 0; overflow-wrap: anywhere; }
+.ui .c-layer-link { display: flex; align-items: center; gap: 10px; }
+.ui .c-layer-outline-label { background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 2px 6px; font-size: 12px; font-weight: 600; box-shadow: none; }
+.ui .c-layer-outline-label::before { display: none; }
+/* The right panel (LayerHistograms.tsx): the total in view, the histogram by length, four small ones in two columns */
+.ui .c-layer-right { display: flex; flex-direction: column; gap: 16px; }
+.ui .c-layer-hist-title { font: 600 13px/1.2 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 6px; }
+.ui .c-layer-inview { display: flex; flex-direction: column; }
+.ui .c-layer-inview p { margin: 0; }
+.ui .c-layer-stat { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.ui .c-layer-stat-n { font: 600 30px/1 var(--display); font-variant-numeric: tabular-nums; }
+.ui .c-layer-stat-u { color: var(--muted); font-size: 12px; }
+.ui .c-layer-hist { display: flex; flex-direction: column; min-width: 0; }
+.ui .c-layer-hist p { margin: 6px 0 0; }
+.ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 150px;
+  border-bottom: 1px solid var(--line); }
+.ui .c-layer-hist-small .c-layer-hist-bars { height: 72px; }
+.ui .c-layer-hist-small .c-layer-bar { padding: 0; }
+.ui .c-layer-hist-small .c-layer-bar-n { font-size: 8px; letter-spacing: -.02em; }
+.ui .c-layer-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 100%; min-width: 0; min-height: 0;
+  margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
+.ui .c-layer-bar-off { cursor: default; }
+.ui .c-layer-bar-n { font-size: 9px; line-height: 1.2; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted);
+  overflow: hidden; white-space: nowrap; }
+.ui .c-layer-bar-fill { display: block; min-height: 1px; border-radius: 3px 3px 0 0; background: var(--layer-1);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 10%, transparent); }
+.ui .c-layer-bar.u-on .c-layer-bar-fill { background: var(--layer-3); }
+.ui .c-layer-bar.u-on .c-layer-bar-n { color: var(--ink); }
+.ui .c-layer-bar:hover .c-layer-bar-fill { background: var(--layer-4); }
+.ui .c-layer-bar:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 4px; }
+.ui .c-layer-hist-axis { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); font-size: 10px; color: var(--muted);
+  text-align: center; font-variant-numeric: tabular-nums; margin-top: 3px; overflow: hidden; }
+.ui .c-layer-hist-axis span { overflow: hidden; white-space: nowrap; }
+.ui .c-layer-hist-edges { display: flex; justify-content: space-between; }
+.ui .c-layer-hist-edges span { flex: 0 0 auto; }
+.ui .c-layer-smalls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
+.ui .c-layer-waiting .c-layer-stat, .ui .c-layer-waiting .c-layer-hist-bars { opacity: .55; }
 
 /* Phones */
 .ui.c-narrow .c-home { flex-direction: column; padding: 12px 16px 20px; gap: 14px; }
@@ -236,6 +278,11 @@
 .ui.c-narrow .c-mappage { flex-direction: column; overflow: hidden; }
 .ui.c-narrow .c-mappage .c-newmap { order: -1; flex: none; height: 34vh; border-bottom: 1px solid var(--line); }
 .ui.c-narrow .c-sidepanel { width: auto; flex: 1; min-height: 0; border-right: 0; overflow-y: auto; }
+/* three columns on a phone: the map on top, then the panel, then the right panel in one scrolling column */
+.ui.c-narrow .c-mappage-3 { display: flex; overflow-y: auto; }
+.ui.c-narrow .c-mappage-3 .c-newmap { flex: none; }
+.ui.c-narrow .c-mappage-3 .c-sidepanel { flex: none; overflow: visible; }
+.ui.c-narrow .c-mappage-3 .c-sidepanel-right { border-left: 0; border-top: 1px solid var(--line); }
 
 /* Problem reports on the admin page */
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }

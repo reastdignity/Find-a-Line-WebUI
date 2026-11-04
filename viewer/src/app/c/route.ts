@@ -1,7 +1,8 @@
 // C's pages in the address's hash, so the server needs no routes and Back and Forward work:
 // #home (the default), #new (#new&edit=<job>: edit & run again; #new&cell=<id>:<band>:<level>:<i>:<j>: a
 // cell of the highline layer), #favourites (#favourites&folder=<id>: a folder of them), #account, #admin, #osm,
-// #layer (#layer&country=<id>: the highline layer of a country) and
+// #layer (the highline layer: #layer&country=<id>&view=<lat>,<lon>,<zoom>&mode=…, every filter of the page in its
+// parameters, LayerPage's layerState.ts) and
 // #run=<id>&line=<lat1,lon1,lat2,lon2> (the line optional; the link LineDetails copies, appLink).
 
 export type Route =
@@ -11,7 +12,7 @@ export type Route =
   | {page: "account"}
   | {page: "admin"}
   | {page: "osm"}
-  | {page: "layer"; country: string | null}
+  | {page: "layer"; params: URLSearchParams}
   | {page: "run"; id: string; line: string | null};
 
 const PLAIN = ["favourites", "account", "admin", "osm"] as const;
@@ -24,7 +25,7 @@ export function parseRoute(hash: string): Route {
   const run = params.get("run");
   if (run) return {page: "run", id: run, line: params.get("line") || null};
   if (params.has("new")) return {page: "new", edit: params.get("edit") || null, cell: params.get("cell") || null};
-  if (params.has("layer")) return {page: "layer", country: params.get("country") || null};
+  if (params.has("layer")) return {page: "layer", params};
   for (const page of PLAIN) if (params.has(page)) return {page};
   return {page: "home"};
 }
@@ -45,9 +46,13 @@ export function folderOfHash(hash: string): number | null {
   return value && /^\d+$/.test(value) ? Number(value) : null;
 }
 
-/** The highline layer, of a country (null: the first). */
-export function layerHash(country: string | null): string {
-  return country ? `#layer&country=${encodeURIComponent(country)}` : "#layer";
+/** The highline layer with the given parameters (a country, the view, the filters: layerState.ts), or a country's
+ *  (null: the first). An empty value is left out. */
+export function layerHash(params: Record<string, string> | string | null): string {
+  if (params === null) return "#layer";
+  if (typeof params === "string") params = {country: params};
+  const parts = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v).replace(/%2C/g, ",")}`);
+  return parts.length ? `#layer&${parts.join("&")}` : "#layer";
 }
 
 /** A new search of a cell of the highline layer (#new&cell=<id>:<band>:<level>:<i>:<j>, api.countryRequest). */

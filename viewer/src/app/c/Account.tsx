@@ -68,10 +68,14 @@ export function AccountMenu({theme, setTheme, tries, usage}:
   </Popover>;
 }
 
-/** A page with a panel on the left and the map it uses on the right (on phones the map on top, the panel scrolling under it). */
-export function MapPage({title, children}: {title: string; children: (place: PlaceMap) => ComponentChildren}) {
+/** A page with a panel on the left and the map it uses on the right (on phones the map on top, the panel scrolling
+ *  under it); `aside` (its label) adds a third column on the right, an element the children fill (a portal:
+ *  LayerPage), under the panel on phones. */
+export function MapPage({title, aside, children}:
+                        {title: string; aside?: string; children: (place: PlaceMap, aside: HTMLElement | null) => ComponentChildren}) {
   const ref = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<PlaceMap | null>(null);
+  const [right, setRight] = useState<HTMLElement | null>(null);
   useEffect(() => {
     const placeMap = new PlaceMap(ref.current!, {controls: "bottomright"});
     placeMap.setSearchVisible(false);
@@ -81,12 +85,13 @@ export function MapPage({title, children}: {title: string; children: (place: Pla
     observer.observe(ref.current!);
     return () => { observer.disconnect(); placeMap.map.remove(); };
   }, []);
-  return <div class="c-mappage">
+  return <div class={aside ? "c-mappage c-mappage-3" : "c-mappage"}>
     <aside class="c-sidepanel" aria-label={title}>
       <h1 class="u-h">{title}</h1>
-      {place && children(place)}
+      {place && (!aside || right) && children(place, right)}
     </aside>
     <div class="c-newmap" ref={ref} />
+    {aside && <aside class="c-sidepanel c-sidepanel-right" aria-label={aside} ref={setRight} />}
   </div>;
 }
 
