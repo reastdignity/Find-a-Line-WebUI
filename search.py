@@ -760,11 +760,12 @@ AREA_TEMP_BYTES = 4
 
 def tile_bytes(plan: Plan) -> int:
     """The bytes per pixel of a tile's copies of the area's grids (search_lines: _tile_data): float32
-    the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled and the
-    joined masks when the search makes them."""
+    the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled, the
+    joined and the covered masks (the gaps with the shore faces) when the search makes them."""
     p, source = plan.params, plan.source
     floats = 1 + bool(plan.nmpt) + bool(p.slope_file)
     masks = (p.water == "fill") + (_fills_gaps(plan) and (bool(source.fallback) + bool(source.neighbours)))
+    masks += p.water == "fill" and bool(plan.nmpt)
     return 4 * floats + masks
 
 
@@ -1476,7 +1477,7 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
 
     return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
                 copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
-                window(data.mask, 0, tile.height), terrain)
+                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"))
 
 
 def _remove_grids(work: str):

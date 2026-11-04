@@ -537,11 +537,11 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     os.makedirs(os.path.join(paths.work, "tile0"))
     tile = search._tile_data(data, plan.grid, largest, os.path.join(paths.work, "tile0"), data.tile_terrain[0])
     copies = written_in(os.path.join(paths.work, "tile0"), (largest.height, largest.width))
-    assert sorted(copies) == ["filled.npy", "nmt.npy", "surface.npy", "water.npy"]
+    assert sorted(copies) == ["covered.npy", "filled.npy", "nmt.npy", "surface.npy", "water.npy"]
     tile_pixels = largest.height * largest.width
-    assert sum(copies.values()) == search.tile_bytes(plan) * tile_pixels == 10 * tile_pixels
+    assert sum(copies.values()) == search.tile_bytes(plan) * tile_pixels == 11 * tile_pixels
     assert tile.mask.shape == (largest.height, largest.width) and tile.terrain is data.tile_terrain[0]
-    assert search.estimate_search(plan).work_gb == (27 * pixels + 10 * tile_pixels) / 1e9  # the area's, a tile's
+    assert search.estimate_search(plan).work_gb == (28 * pixels + 11 * tile_pixels) / 1e9  # the area's, a tile's
     del tile, data
 
 
