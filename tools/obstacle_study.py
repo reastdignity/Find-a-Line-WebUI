@@ -117,13 +117,23 @@ GROUPS = {"removed_rock": "A1 removes the mark, all pixels rock",
           "residual_rock": "A1 keeps the mark, its pixels all rock"}
 DISTANCES = ((1, 1), (2, 2), (3, 3), (4, 5), (6, 10), (11, 20), (21, 10 ** 9))
 SLOPES = ((0, 30), (30, 50), (50, 70), (70, 80), (80, 91))
-REPORT_RULES = ("raw", "A1", "A2", "A3", "A1+W75/2", "A1+W75/3", "A1+V2", "A2+V2", "A3+V2", "C65", "D2", "F")
+REPORT_RULES = ("raw", "A1", "A2", "A3", "A1+W75/2", "A1+W75/3", "A1+V2", "A2+V2", "A3+V2", "C65", "D2", "F", "A2+H60")
+HEIGHT_CAPS = (40, 60, 80)  # A2+H<m>: A2, and a pixel stays an obstacle only while the surface stands at most m metres
+                            # above the terrain (an overhanging wall's lip over its foot is higher than any tree or
+                            # building at a highline spot)
 FINE_SHARE = 0.75           # the surface's pixels count as finer than the grid below this share of its res
 # The rules counted on every surface variant (avg: the working grid's surface, max: the highest fine
 # pixel, h: the terrain plus the highest fine height above it); A2+T: A2, and every pixel where CHMv2
 # sees a tree (TREE within a pixel) on WorldCover's tree cover stays an obstacle
-VARIANT_RULES = ("raw", "A1", "A2", "A3", "A2+V1", "A2+V2", "F", "A2+T")
-VARIANTS = ("avg", "max", "h")
+VARIANT_RULES = ("raw", "A1", "A2", "A3", "A2+V1", "A2+V2", "F", "A2+T") + tuple(f"A2+H{h}" for h in HEIGHT_CAPS)
+# avg the working grid's surface; max/med the fine surface warped with GDAL's max/med; h/hmed the terrain plus the
+# fine surface's height above the fine terrain warped so (FINE_FILES)
+VARIANTS = ("avg", "max", "h", "med", "hmed")
+FINE_FILES = {"s-max.npy": ("max", False), "h-max.npy": ("max", True), "s-med.npy": ("med", False),
+              "h-med.npy": ("med", True)}  # file: (GDAL's resampling, less the fine terrain)
+OVER_AVG_RULE = "A2"        # the rule of the table of the lines each variant adds over avg
+CHM_GENTLE, CHM_STEEP = 30.0, 50.0  # degrees: CHMv2 against the surface model on gentle and on steep ground
+DIFF_STEP, DIFF_MAX = 0.25, 40.0    # metres: the histogram of (s - z) - CHMv2 where both see a tree
 # The judges (OSM's land cover: tools/study_landcover.py; the orthophoto's greenness and luminance:
 # tools/study_ortho.py). The references of the orthophoto's thresholds: forest, the surface TREE above
 # the terrain on ground gentler than GENTLE (and OSM forest where OSM has land cover); rock, terrain of
@@ -147,7 +157,7 @@ PX_NONE, PX_TREE, PX_ROCK, PX_DARK, PX_UNKNOWN, PX_STEEP = 0, 1, 2, 3, 4, 5  # w
 PX_NAMES = {PX_NONE: None, PX_TREE: "green", PX_ROCK: "bright", PX_DARK: "dark", PX_UNKNOWN: "unknown",
             PX_STEEP: "green on steep terrain"}
 LANDCOVER_NAMES = ("none", "forest", "rock")  # study_landcover's NONE, FOREST, ROCK
-REPORT_VERDICT_RULES = ("A2", "A2+V2", "A2+T")  # the rules of the report's verdicts per place
+REPORT_VERDICT_RULES = ("A2", "A2+V2", "A2+T", "A2+H60")  # the rules of the report's verdicts per place
 VERDICT_GROUPS = {"unmarked-tree": "A1 removes the mark, the judges say tree",
                   "unmarked-rock": "A1 removes the mark, the judges say rock",
                   "unmarked-unknown": "A1 removes the mark, the judges cannot tell",
@@ -161,7 +171,7 @@ def rule_names() -> List[str]:
     return (["raw"] + [f"A{r}" for r in RADII] + [f"A1+W{d}/{p}" for d, p in WALLS]
             + [f"A{r}+V{k}" for r in CONTEXT_RADII for k in CONTEXT_REACH]
             + [f"B{k:g}" for k in SLOPE_FACTORS] + [f"C{d}" for d in MASK_SLOPES]
-            + [f"D{k}" for k in ANCHOR_ZONES] + ["F", "F-trees"])
+            + [f"D{k}" for k in ANCHOR_ZONES] + ["F", "F-trees"] + [f"A2+H{h}" for h in HEIGHT_CAPS])
 
 
 # ---------------------------------------------------------------------------------------------
@@ -422,18 +432,18 @@ def fine_grid(call: str) -> Optional[Dict]:
     terrain interpolated bilinearly onto it as sources.mosaic does for coarser files), then on the
     call's grid s-max.npy, the fine surface warped with GDAL's Resampling.max (warp_max), and
     h-max.npy, the fine surface minus terrain warped the same way: what the search would read if
-    sources.mosaic._place took max instead of average (NaN where no fine pixel has data). All in the
-    call's folder with fine.json (res, k, files, left and top of the fine grid, offset, the warp's
-    seconds); returns fine.json's content when a fine grid exists, else None (no surface files,
-    none finer, or a capture from before grid.json named the files).
+    sources.mosaic._place took max instead of average (NaN where no fine pixel has data); s-med.npy
+    and h-med.npy the same with GDAL's Resampling.med (FINE_FILES). All in the call's folder with
+    fine.json (res, k, files, left and top of the fine grid, offset, the warps' seconds); returns
+    fine.json's content when a fine grid exists, else None (no surface files, none finer, or a
+    capture from before grid.json named the files). Fine grids built before are reused: only the
+    warps missing are made.
 
     GDAL's max (3.12) takes every source pixel that overlaps a target pixel at all: where the
     files' pixel edges meet the grid's (offset 0) the k x k inside it, where they lie half a fine
     pixel off (geoportal's sheets of 0.5 m have their edges at .25 and .75 m, the grid of 1 m at
     .5) the k + 1 of them each way, the outer ones overlapping by half (tests/test_obstacle_study.py
     checks both): the fine grid then has one more row and column."""
-    import time
-
     from grid import Grid
     from sources import mosaic
 
@@ -441,10 +451,22 @@ def fine_grid(call: str) -> Optional[Dict]:
     if os.path.exists(path):
         with open(path) as f:
             fine = json.load(f)
-        if fine["res"] is None or all(os.path.exists(os.path.join(call, n)) for n in ("s-max.npy", "h-max.npy")):
+        missing = [n for n in FINE_FILES if not os.path.exists(os.path.join(call, n))]
+        if fine["res"] is None or not missing:
             return fine if fine["res"] is not None else None
     with open(os.path.join(call, "grid.json")) as f:
         grid = json.load(f)
+    if os.path.exists(path) and all(os.path.exists(os.path.join(call, f"fine-{n}.npy")) for n in ("nmpt", "nmt")):
+        # The fine grids are there: only the warps missing (a variant added since)
+        surface = np.load(os.path.join(call, "fine-nmpt.npy"), mmap_mode="r")
+        terrain = np.load(os.path.join(call, "fine-nmt.npy"), mmap_mode="r")
+        fine_on = Grid(left=fine["left"], top=fine["top"], res=fine["res"], height=surface.shape[0],
+                       width=surface.shape[1], crs=grid["crs"])
+        fine["seconds"] = {**fine.get("seconds", {}), **_warp_fine(call, grid, surface, terrain, fine_on, missing)}
+        del surface, terrain
+        with open(path, "w") as f:
+            json.dump(fine, f, indent=1)
+        return fine
     nmt, nmpt = grid.get("nmt_files", []), grid.get("nmpt_files", [])
     res, height, width = grid["res"], grid["height"], grid["width"]
     lattice = _fine_lattice(nmpt, res, grid["left"], grid["top"]) if nmpt and nmt else None
@@ -456,16 +478,7 @@ def fine_grid(call: str) -> Optional[Dict]:
         fine_on = Grid(left=left, top=top, res=r, height=rows, width=cols, crs=grid["crs"])
         surface = mosaic.build_mosaic(nmpt, fine_on, os.path.join(call, "fine-nmpt.npy"), "fine surface")
         terrain = mosaic.build_mosaic(nmt, fine_on, os.path.join(call, "fine-nmt.npy"), "fine terrain")
-        target = Grid(left=grid["left"], top=grid["top"], res=res, height=height, width=width, crs=grid["crs"])
-        seconds = {}
-        for name, minus in (("s-max.npy", None), ("h-max.npy", terrain)):
-            out = np.lib.format.open_memmap(os.path.join(call, name), mode="w+", dtype=np.float32,
-                                            shape=(height, width))
-            start = time.perf_counter()
-            warp_max(surface, fine_on, target, out, minus)
-            seconds[name[:-4]] = round(time.perf_counter() - start, 3)
-            out.flush()
-            del out
+        seconds = _warp_fine(call, grid, surface, terrain, fine_on, list(FINE_FILES))
         del surface, terrain
         fine.update(res=r, k=k, left=left, top=top, offset=[ox, oy], seconds=seconds)
     with open(path, "w") as f:
@@ -473,12 +486,36 @@ def fine_grid(call: str) -> Optional[Dict]:
     return fine if fine["res"] is not None else None
 
 
+def _warp_fine(call: str, grid: Dict, surface: np.ndarray, terrain: np.ndarray, fine_on, names: List[str]) -> Dict:
+    """The files of FINE_FILES named, warped from the fine grids onto the call's grid; their seconds."""
+    import time
+
+    from grid import Grid
+
+    target = Grid(left=grid["left"], top=grid["top"], res=grid["res"], height=grid["height"], width=grid["width"],
+                  crs=grid["crs"])
+    seconds = {}
+    for name in names:
+        resampling, less = FINE_FILES[name]
+        out = np.lib.format.open_memmap(os.path.join(call, name), mode="w+", dtype=np.float32,
+                                        shape=(grid["height"], grid["width"]))
+        start = time.perf_counter()
+        warp_max(surface, fine_on, target, out, terrain if less else None, resampling=resampling)
+        seconds[name[:-4]] = round(time.perf_counter() - start, 3)
+        out.flush()
+        del out
+    return seconds
+
+
 def warp_max(fine: np.ndarray, fine_on, grid, out: np.ndarray, minus: Optional[np.ndarray] = None,
-             block_rows: int = 512) -> np.ndarray:
+             block_rows: int = 512, resampling: str = "max") -> np.ndarray:
     """fine (less minus when given; grids of the Grid fine_on) warped onto grid's pixels into out
-    with GDAL's Resampling.max (NaN for no data), block_rows rows of out at a time from the fine rows
-    under them and one fine pixel more each way, so a memory-mapped fine grid is never read whole
-    (what one warp of the whole grid gives: the margin holds every source pixel max takes)."""
+    with GDAL's Resampling.max, or another resampling ("med"; NaN for no data), block_rows rows of
+    out at a time from the fine rows under them and one fine pixel more each way, so a memory-mapped
+    fine grid is never read whole (what one warp of the whole grid gives: the margin holds every
+    source pixel max takes). GDAL 3.12's med takes the same pixels as its max (every one overlapping
+    the grid pixel, also by half), unweighted, and of an even number the lower of the middle two;
+    NaN is no data to both."""
     from affine import Affine
     from rasterio.warp import Resampling, reproject
 
@@ -496,7 +533,7 @@ def warp_max(fine: np.ndarray, fine_on, grid, out: np.ndarray, minus: Optional[n
         reproject(part, values, src_transform=Affine(r, 0, fine_on.left, 0, -r, fine_on.top - f0 * r),
                   src_crs=fine_on.crs, dst_transform=Affine(grid.res, 0, grid.left, 0, -grid.res,
                                                             grid.top - r0 * grid.res),
-                  dst_crs=grid.crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.max,
+                  dst_crs=grid.crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=getattr(Resampling, resampling),
                   num_threads=mosaic.WARP_THREADS)
         out[r0:r1] = values
     return out
@@ -504,15 +541,17 @@ def warp_max(fine: np.ndarray, fine_on, grid, out: np.ndarray, minus: Optional[n
 
 def fine_surfaces(call: str, z: np.ndarray, s: np.ndarray) -> Tuple[Dict, Optional[Dict]]:
     """The surface variants of a call: {"avg": s (the working grid's, the average of the fine
-    pixels), "max": s-max, "h": z + h-max} (NaN of the fine grids: s), and fine.json's content;
-    avg alone without a fine grid."""
+    pixels), "max": s-max, "h": z + h-max, "med": s-med, "hmed": z + h-med} (NaN of the fine grids:
+    s), and fine.json's content; avg alone without a fine grid."""
     fine = fine_grid(call)
     surfaces = {"avg": s}
     if fine is not None:
-        s_max = np.load(os.path.join(call, "s-max.npy"))
-        h_max = np.load(os.path.join(call, "h-max.npy"))
-        surfaces["max"] = np.where(np.isnan(s_max), s, s_max)
-        surfaces["h"] = np.where(np.isnan(h_max), s, z + h_max)
+        for kind in ("max", "med"):
+            surface = np.load(os.path.join(call, f"s-{kind}.npy"))
+            height = np.load(os.path.join(call, f"h-{kind}.npy"))
+            surfaces[kind] = np.where(np.isnan(surface), s, surface)
+            surfaces["h" if kind == "max" else "hmed"] = np.where(np.isnan(height), s, z + height)
+        surfaces = {name: surfaces[name] for name in VARIANTS}
     with open(os.path.join(call, "fine.json")) as f:
         return surfaces, json.load(f)
 
@@ -753,6 +792,44 @@ def ortho_patch(grid: Dict, rows: Tuple[int, int], cols: Tuple[int, int], folder
     return image[row, col]
 
 
+def chm_against_surface(z: np.ndarray, s: np.ndarray, chm: np.ndarray, slope_grid: np.ndarray) -> Dict:
+    """CHMv2 (as the analysis aligned it) against the surface's height above the terrain over the
+    whole grid, counts summed over calls: on gentle ground (under CHM_GENTLE) where both have data,
+    a tree (TREE) by both, by the surface model only, by CHMv2 only, by neither, and where both see
+    one the histogram of (s - z) - CHMv2 in DIFF_STEP bins from -DIFF_MAX to DIFF_MAX (the outside
+    in the end bins); on steep ground (CHM_STEEP or steeper) the pixels bare in the surface model
+    (s - z under 1 m) and those of them where CHMv2 sees a tree (trees on rock), and the pixels
+    TREE high in it and those of them where CHMv2 sees less than SHRUB."""
+    with np.errstate(invalid="ignore"):
+        height = s - z
+        both = np.isfinite(height) & np.isfinite(chm)
+        gentle, steep = both & (slope_grid < CHM_GENTLE), both & (slope_grid >= CHM_STEEP)
+        tree_s, tree_c = height >= TREE, chm >= TREE
+        bare, low = height < SHRUB, chm < SHRUB
+    count = lambda f: int(f.sum())  # noqa: E731
+    trees = gentle & tree_s & tree_c
+    bins = int(round(2 * DIFF_MAX / DIFF_STEP))
+    diff = np.clip(height[trees] - chm[trees], -DIFF_MAX, DIFF_MAX - DIFF_STEP / 2)
+    histogram = np.histogram(diff, bins=bins, range=(-DIFF_MAX, DIFF_MAX))[0]
+    return {"gentle": count(gentle), "both": count(trees), "dsm_only": count(gentle & tree_s & ~tree_c),
+            "chm_only": count(gentle & ~tree_s & tree_c), "neither": count(gentle & ~tree_s & ~tree_c),
+            "diff": histogram.tolist(), "steep_bare": count(steep & bare), "steep_bare_chm_tree": count(steep & bare & tree_c),
+            "steep_tall": count(steep & tree_s), "steep_tall_chm_low": count(steep & tree_s & low)}
+
+
+def histogram_quantile(counts: List[int], q: float, absolute: bool = False) -> Optional[float]:
+    """The q quantile of chm_against_surface's histogram (its bins' centres; of their absolute values
+    with absolute); None when it is empty."""
+    counts = np.asarray(counts, dtype=np.int64)
+    if not counts.sum():
+        return None
+    centres = -DIFF_MAX + (np.arange(len(counts)) + 0.5) * DIFF_STEP
+    if absolute:
+        order = np.argsort(np.abs(centres), kind="stable")
+        centres, counts = np.abs(centres)[order], counts[order]
+    return float(centres[np.searchsorted(np.cumsum(counts), q * counts.sum())])
+
+
 # ---------------------------------------------------------------------------------------------
 # analyse
 
@@ -828,7 +905,7 @@ def rule_flags(z: np.ndarray, s: np.ndarray, res: float, pix: Dict, chm3: Option
                slope_grid: np.ndarray, wc: Optional[np.ndarray] = None, names=None) -> Dict:
     """Per rule, which of the pixels (obstacle_pixels) it keeps as obstacles: the rules of
     rule_names() and A2+T, or those of names only (F, F-trees and A2+T need CHMv2; A2+T without
-    WorldCover is A2)."""
+    WorldCover is A2; A2+H<m>: A2 where the surface stands at most m above the terrain)."""
     wanted = (lambda name: True) if names is None else (lambda name: name in names)  # noqa: E731
     rows, cols = pix["row"], pix["col"]
     sv, zv = s[rows, cols], z[rows, cols]
@@ -836,10 +913,14 @@ def rule_flags(z: np.ndarray, s: np.ndarray, res: float, pix: Dict, chm3: Option
     flags = {"raw": np.ones(len(rows), dtype=bool)}
     radii = [r for r in RADII if wanted(f"A{r}") or (r in CONTEXT_RADII and any(wanted(f"A{r}+V{k}") for k in
                                                                                   CONTEXT_REACH))
-             or (r == 1 and (wanted("F") or wanted("F-trees"))) or (r == 2 and wanted("A2+T"))]
+             or (r == 1 and (wanted("F") or wanted("F-trees")))
+             or (r == 2 and (wanted("A2+T") or any(wanted(f"A2+H{h}") for h in HEIGHT_CAPS)))]
     with np.errstate(invalid="ignore"):
         for r in radii:
             flags[f"A{r}"] = sv > obstacles.envelope(z, r)[rows, cols] + np.float32(obstacles.MIN_HEIGHT)
+        for h in HEIGHT_CAPS:
+            if wanted(f"A2+H{h}"):
+                flags[f"A2+H{h}"] = flags["A2"] & (sv - zv <= h)
         for wall in WALLS:
             if wanted(f"A1+W{wall[0]}/{wall[1]}"):
                 flags[f"A1+W{wall[0]}/{wall[1]}"] = obstacles.is_obstacle(z, s, res, radius=1, wall=wall)[rows, cols]
@@ -1022,6 +1103,7 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
             shift["applied"] = True
         chm3 = ndimage.maximum_filter(np.where(np.isnan(chm), -1, chm), size=3, mode="constant", cval=-1)
     flags = rule_flags(z, s, res, pix, chm3, slope_grid, wc)
+    chm_surface = chm_against_surface(z, s, chm, slope_grid) if chm is not None else None
     per_line = _per_line(flags, starts)
     if n:
         for r in (1, 2):
@@ -1059,6 +1141,8 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
               "proxies": {"chmv2": chm is not None, "worldcover": wc is not None}, "fine": fine}
     if shift is not None:
         result["chm_shift"] = shift
+    if chm_surface is not None:
+        result["chm_surface"] = chm_surface
 
     # The judges: the orthophoto's thresholds on the references, the verdict of each line
     if judges is not None:
@@ -1085,6 +1169,11 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
         result["variants"]["avg"]["verdicts"] = verdict_counts(verdict, per_line, inside)
     others = {name: surface for name, surface in surfaces.items() if name != "avg"}
     variant_checks = {}
+    over_avg = np.zeros(n, dtype=bool)  # OVER_AVG_RULE's marks on avg, and the verdicts there (-1: not marked)
+    over_avg[idx] = per_line[OVER_AVG_RULE]
+    verdict_avg = np.full(n, -1, dtype=np.int8)
+    if verdict is not None:
+        verdict_avg[idx] = verdict
     for name, pv in (obstacle_pixels(z, others, res, table, a1, a2) if others else {}).items():
         lines_v = np.unique(pv["line"])
         starts_v = np.searchsorted(pv["line"], lines_v)
@@ -1099,9 +1188,18 @@ def analyse_call(call: str, layers: Optional[Callable] = None, chips: Optional[D
                         "rock_only": int((judged_v.rock_only & inside_v).sum())},
             "rules": _rule_counts(flags_v, per_line_v, judged_v, inside_v, np.searchsorted(lines_v, pv["line"]), pv,
                                   z.shape)}
+        marks_v = np.zeros(n, dtype=bool)
+        marks_v[lines_v] = per_line_v[OVER_AVG_RULE]
+        added, dropped = marks_v & ~over_avg & core, over_avg & ~marks_v & core
+        result["variants"][name]["over_avg"] = {"added": int(added.sum()), "dropped": int(dropped.sum())}
         if judging is not None:
-            result["variants"][name]["verdicts"] = verdict_counts(
-                line_verdicts(pv, starts_v, z, others[name], judging)[0], per_line_v, inside_v)
+            verdict_v = line_verdicts(pv, starts_v, z, others[name], judging)[0]
+            result["variants"][name]["verdicts"] = verdict_counts(verdict_v, per_line_v, inside_v)
+            full_v = np.full(n, -1, dtype=np.int8)
+            full_v[lines_v] = verdict_v
+            tally = lambda chosen, of: {v: int((chosen & (of == i)).sum()) for i, v in enumerate(VERDICTS)}  # noqa: E731
+            result["variants"][name]["over_avg"].update(added_verdicts=tally(added, full_v),
+                                                        dropped_verdicts=tally(dropped, verdict_avg))
         if n:
             raw_v, a2_v = np.zeros(n, dtype=bool), np.zeros(n, dtype=bool)
             raw_v[lines_v], a2_v[lines_v] = True, per_line_v["A2"]
@@ -1419,8 +1517,8 @@ def variants_markdown(study: Dict) -> List[str]:
         return ["", "Surface variants: none (no surface model finer than the grid)."] if fine is not None else []
     fine = study.get("fine") or {}
     head = (["", f"Surface variants (the surface model's own pixels of {fine.get('res')} m, offset "
-                 f"{fine.get('offset')}): avg the grid's surface, max the fine surface warped with GDAL's max, h the "
-                 "terrain plus the fine height above the terrain warped so."] if len(variants) > 1 else
+                 f"{fine.get('offset')}): avg the grid's surface, max (med) the fine surface warped with GDAL's max "
+                 "(med), h (hmed) the terrain plus the fine height above the terrain warped so."] if len(variants) > 1 else
             ["", "Surface variants: avg alone (no surface model finer than the grid)."])
     if judged:
         head[-1] += (" Verdicts (tree/rock/unknown/none) of the judges over each line's pixels above its limit on "
@@ -1545,6 +1643,101 @@ def check_passed(c: Dict) -> bool:
     """A call's checks (analyse_call): every kernel check that ran gave the tool's counts."""
     return (all(c.get(k, True) for k in ("raw_equal", "a1_equal", "a2_equal")) and not c.get("marked_without_pixels")
             and all(all(v.values()) for v in c.get("variants", {}).values()))
+
+
+def _group_label(study: Dict) -> str:
+    """yes / OSM / NO / - (no judges) of a place's judge."""
+    if not study.get("judges"):
+        return "-"
+    return {"orthophoto": "yes", "OSM": "OSM", "failed": "NO"}[judge_group(study)]
+
+
+def over_avg_report(studies: List[Dict]) -> List[str]:
+    """The lines each surface variant marks under OVER_AVG_RULE that avg does not (added), and those
+    avg marks that it does not (dropped), per place, with the judges' verdicts (added: the variant's,
+    dropped: avg's); none without a fine grid anywhere."""
+    rows = []
+    for st in studies:
+        for name in VARIANTS[1:]:
+            o = ((st.get("variants") or {}).get(name) or {}).get("over_avg")
+            if o:
+                rows.append("| " + " | ".join([st["place"], _group_label(st), name, str(o["added"]),
+                                               _tally(o.get("added_verdicts")) if "added_verdicts" in o else "-",
+                                               str(o["dropped"]),
+                                               _tally(o.get("dropped_verdicts")) if "dropped_verdicts" in o else "-"])
+                            + " |")
+    if not rows:
+        return []
+    return [f"## Lines each variant adds over avg under {OVER_AVG_RULE}", "",
+            f"The lines a surface variant marks under {OVER_AVG_RULE} that avg does not (added; the verdict on the "
+            "variant's surface) and those avg marks that it does not (dropped; the verdict on avg), tree/rock/unknown/"
+            "none; judge: yes (the orthophoto), OSM (OSM alone), NO (failed), - (no judges).", "",
+            "| place | judge | variant | added | added: tree/rock/unknown/none | dropped | dropped: tree/rock/unknown/none |",
+            "|" + " --- |" * 7, *rows, ""]
+
+
+def caps_report(studies: List[Dict]) -> List[str]:
+    """What each A2+H<m> un-marks beyond A2 on avg per place: the lines, their verdicts (A2's kept
+    less A2+H<m>'s kept) and the lines of a tree or building by CHMv2 and WorldCover it loses more."""
+    rows = []
+    for st in studies:
+        rules = st.get("rules") or {}
+        if "A2" not in rules or not all(f"A2+H{h}" in rules for h in HEIGHT_CAPS):
+            continue
+        verdicts = (((st.get("variants") or {}).get("avg") or {}).get("verdicts") or {}).get("rules") or {}
+        cells = [st["place"], _group_label(st), str(rules["A2"]["marked"])]
+        for h in HEIGHT_CAPS:
+            r = rules[f"A2+H{h}"]
+            beyond = ("-" if not verdicts else
+                      _tally({v: verdicts["A2"]["kept"][v] - verdicts[f"A2+H{h}"]["kept"][v] for v in VERDICTS}))
+            cells += [str(rules["A2"]["marked"] - r["marked"]), beyond, str(r["lost"] - rules["A2"]["lost"])]
+        rows.append("| " + " | ".join(cells) + " |")
+    if not rows:
+        return []
+    head = ["place", "judge", "A2 marked"]
+    for h in HEIGHT_CAPS:
+        head += [f"H{h} un-marks", f"H{h}: tree/rock/unknown/none", f"H{h} loses (CHMv2 tree/building)"]
+    return ["## What A2+H<m> un-marks beyond A2 (avg)", "",
+            "A2+H<m>: A2, and a pixel stays an obstacle only while the surface stands at most m metres above the "
+            "terrain there (an overhanging wall's lip over its foot); per place the lines A2 keeps marked and A2+H<m> "
+            "does not, their verdicts, and the lines with a tree (CHMv2 and WorldCover) or building it loses beyond "
+            "A2's.", "",
+            "| " + " | ".join(head) + " |", "|" + " --- |" * len(head), *rows, ""]
+
+
+def _chm_cells(c: Dict) -> List[str]:
+    """The cells of chm_against_surface's counts."""
+    def q(value):
+        return "-" if value is None else f"{value:.2f}"
+    def part(count):
+        return f"{count} ({100 * count / gentle:.1f} %)" if gentle else str(count)
+    gentle = c["gentle"]
+    return [str(gentle), part(c["both"]), part(c["dsm_only"]), part(c["chm_only"]),
+            part(c["neither"]), q(histogram_quantile(c["diff"], 0.5, True)),
+            q(histogram_quantile(c["diff"], 0.9, True)), q(histogram_quantile(c["diff"], 0.5)),
+            _share(c["steep_bare_chm_tree"], c["steep_bare"]), _share(c["steep_tall_chm_low"], c["steep_tall"])]
+
+
+def chm_surface_report(studies: List[Dict]) -> List[str]:
+    """CHMv2 against the surface model per place and summed (chm_against_surface); none without CHMv2."""
+    rows, total = [], None
+    for st in studies:
+        c = st.get("chm_surface")
+        if c:
+            rows.append("| " + " | ".join([st["place"]] + _chm_cells(c)) + " |")
+            total = _add(total, c)
+    if not rows:
+        return []
+    return ["## CHMv2 against the surface model", "",
+            f"Over each place's whole grid, CHMv2 as the analysis aligned it: on gentle ground (under {CHM_GENTLE:g} deg) "
+            f"where both have data, a tree ({TREE:g} m) by both, by the surface model (s - z) only, by CHMv2 only, by "
+            "neither; where both see one, |(s - z) - CHMv2| (median, 90th percentile) and its median (bias, the surface "
+            f"model higher when positive; {DIFF_STEP:g} m bins); on steep ground ({CHM_STEEP:g} deg or steeper) the "
+            f"pixels bare in the surface model (s - z under {SHRUB:g} m) where CHMv2 sees a tree (trees on rock), and "
+            f"the pixels {TREE:g} m high in it where CHMv2 sees under {SHRUB:g} m.", "",
+            "| place | gentle px | both tree | DSM only | CHMv2 only | neither | abs diff median | abs diff p90 | "
+            "bias median | steep bare: CHMv2 tree | steep tall: CHMv2 low |", "|" + " --- |" * 11,
+            *rows, "| all | " + " | ".join(_chm_cells(total)) + " |", ""]
 
 
 def judges_report(studies: List[Dict]) -> List[str]:
@@ -1698,12 +1891,13 @@ def report(out: str) -> str:
         "## Surface variants", "",
         "The lines marked under each rule on each surface: avg the working grid's (what the search reads), max the "
         "highest of the surface model's own pixels within each grid pixel, h the terrain plus the highest height "
-        "of the fine surface above the fine terrain (places without a finer surface model: avg only); ideal as "
-        "above, judged on that surface.", "",
-        *variants, "",
+        "of the fine surface above the fine terrain, med and hmed the same with the median (GDAL's med: the lower "
+        "middle one of an even number) instead of the highest (places without a finer surface model: avg only); "
+        "ideal as above, judged on that surface.", "",
+        *variants, "", *over_avg_report(studies), *chm_surface_report(studies),
         f"## Over all places ({marked} lines over trees/buildings: {real} with a tree (CHMv2 and WorldCover) or "
         f"building, {real_chm} with a tree by CHMv2 alone or a building, {rock} rock only)",
-        "", *sums, "", *judged,
+        "", *sums, "", *caps_report(studies), *judged,
         "## CHMv2 against the surface's height above the terrain (gentle ground)", "", *shifts, "",
         "## Checks", "", "Places where a check failed: " + (", ".join(checks) if checks else "none"), ""])
     with open(os.path.join(out, "study.md"), "w", encoding="utf-8") as f:

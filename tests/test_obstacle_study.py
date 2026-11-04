@@ -148,26 +148,35 @@ def test_variants_on_a_canyon(tmp_path):
     over_tree = np.array([sh.evaluate_line(a, b, dtm, 1.0, s1)[4] <= 0
                           for a, b in zip(lines.columns["a1"], lines.columns["a2"])])
     result = study.analyse_call(call, layers_of(dtm))
-    assert set(result["fine"].pop("seconds")) == {"s-max", "h-max"}
+    assert set(result["fine"].pop("seconds")) == {"s-max", "h-max", "s-med", "h-med"}
     assert result["fine"] == {"res": 0.5, "k": 2, "files": {"nmt": 1, "nmpt": 2}, "offset": [0.0, 0.0],
                               "left": LEFT, "top": TOP}
     np.testing.assert_array_equal(np.load(os.path.join(call, "s-max.npy")), dsm)
     h_max = np.load(os.path.join(call, "h-max.npy"))
     assert (h_max[:, [20, 79]] == 37.5).all() and (h_max[TREE_ROWS, TREE_COLS] == 45).all()
-    assert result["checks"]["variants"] == {"max": {"raw_equal": True, "a2_equal": True},
-                                            "h": {"raw_equal": True, "a2_equal": True}}
+    assert result["checks"]["variants"] == {name: {"raw_equal": True, "a2_equal": True} for name in study.VARIANTS[1:]}
     assert result["checks"]["a1_equal"] and result["checks"]["a2_equal"]
 
     variants = result["variants"]
-    assert set(variants) == {"avg", "max", "h"} and variants["max"] == variants["avg"]
+    assert list(variants) == list(study.VARIANTS)
+    assert {k: v for k, v in variants["max"].items() if k != "over_avg"} == variants["avg"]
     assert variants["avg"]["rules"] == {name: result["rules"][name] for name in study.VARIANT_RULES}
     real, rock = int(over_tree.sum()), int((~over_tree).sum())
-    assert variants["h"]["marked"] == real and variants["h"]["classes"] == {"real": real, "real_chm": real,
-                                                                           "rock_only": 0}
-    for name in study.VARIANT_RULES:
-        assert variants["h"]["rules"][name] == {"marked": real, "lost": 0, "lost_objects": 0, "lost_chm": 0,
-                                                "removed_rock": 0, "residual_rock": 0, "residual_objects": 0,
-                                                "kept_real": real}, name
+    # h, med and hmed: the rims' fine pixels hold the wall's top in one of two (med: the lower middle of the
+    # 2 x 2, the floor), so only the tree (45 m: more than A2+H40 allows) stays marked
+    for variant in ("h", "med", "hmed"):
+        assert variants[variant]["marked"] == real and variants[variant]["classes"] == {
+            "real": real, "real_chm": real, "rock_only": 0}, variant
+        for name in study.VARIANT_RULES:
+            kept = 0 if name == "A2+H40" else real
+            assert variants[variant]["rules"][name] == {"marked": kept, "lost": real - kept, "lost_objects": 1 if kept == 0 else 0,
+                                                        "lost_chm": real - kept, "removed_rock": 0, "residual_rock": 0,
+                                                        "residual_objects": 0, "kept_real": kept}, (variant, name)
+    for variant in study.VARIANTS[1:]:  # A2 marks the tree's lines on every surface
+        assert variants[variant]["over_avg"] == {"added": 0, "dropped": 0}, variant
+    np.testing.assert_array_equal(np.load(os.path.join(call, "s-med.npy"))[:, [20, 79]], 50.0)
+    assert result["rules"]["A2+H40"]["marked"] == 0 and result["rules"]["A2+H40"]["lost"] == real
+    assert result["rules"]["A2+H60"]["marked"] == result["rules"]["A2+H80"]["marked"] == real
     assert variants["avg"]["rules"]["raw"]["removed_rock"] == 0 and variants["avg"]["rules"]["A2"]["removed_rock"] == rock
     assert variants["avg"]["rules"]["A2+T"] == variants["avg"]["rules"]["A2"]  # the tree is A2's already
 
@@ -223,11 +232,23 @@ def test_fine_grid(tmp_path, offset):
         inside = fine_row[first + 1:first + 1 + 2 * cols:2]  # the one fine pixel wholly inside each way
         assert (inside <= s_max[0]).all() and (s_max[0] <= overlapping).all()
         np.testing.assert_array_equal(s_max[0], overlapping)  # what GDAL 3.12 does
+    # s-med: GDAL's med over the same fine pixels, of an even number the lower middle one (the rows of the
+    # model alike: each fine column twice)
+    columns = np.array([np.sort(fine_row[first + 2 * j:first + 2 * j + 2 + extra]) for j in range(cols)])
+    s_med = np.load(call / "s-med.npy")
+    np.testing.assert_array_equal(s_med[0], columns[:, 0] if not offset else columns[:, 1])
+    assert np.isfinite(np.load(call / "h-med.npy")).all()
     h_max = np.load(call / "h-max.npy")
     np.testing.assert_allclose(h_max[:, 10:13], 20.0, atol=1e-4)
     face = h_max[:, 32:38]
     assert (face > 0.4 * np.tan(np.radians(75)) / 2).all() and (face < 0.25 * np.tan(np.radians(75)) + 1e-3).all()
     assert study.fine_grid(str(call)) == fine  # read from fine.json the second time
+    # A warp missing (a variant added after the fine grids were built): made from the fine grids kept
+    built = os.path.getmtime(call / "fine-nmpt.npy")
+    os.remove(call / "s-med.npy")
+    again = study.fine_grid(str(call))
+    np.testing.assert_array_equal(np.load(call / "s-med.npy"), s_med)
+    assert os.path.getmtime(call / "fine-nmpt.npy") == built and set(again["seconds"]) == set(fine["seconds"])
 
 
 def test_fine_grid_none(tmp_path):
@@ -259,6 +280,12 @@ def test_warp_max_in_blocks(offset):
     fine_on = Grid(left=LEFT + (offset - 0.5 if offset else 0.0), top=TOP, res=0.5, height=fine.shape[0],
                    width=fine.shape[1], crs=CRS)
     grid = Grid(left=LEFT, top=TOP, res=1.0, height=13, width=11, crs=CRS)
+    for kind in ("max", "med"):
+        whole = study.warp_max(fine, fine_on, grid, np.empty((13, 11), np.float32), minus, block_rows=100,
+                               resampling=kind)
+        for rows in (1, 2, 5):
+            np.testing.assert_array_equal(study.warp_max(fine, fine_on, grid, np.empty((13, 11), np.float32), minus,
+                                                         block_rows=rows, resampling=kind), whole)
     whole = study.warp_max(fine, fine_on, grid, np.empty((13, 11), np.float32), minus, block_rows=100)
     for rows in (1, 2, 5):
         np.testing.assert_array_equal(study.warp_max(fine, fine_on, grid, np.empty((13, 11), np.float32), minus,
@@ -639,6 +666,9 @@ def test_report_with_judges(tmp_path):
     with open(tmp_path / "R3" / "study.json") as f:
         assert "verdicts come from OSM's land cover alone" in study.place_markdown(json.load(f))
 
+    assert "## What A2+H<m> un-marks beyond A2 (avg)" in text and "| R1 | yes | 5 | 0 | 0/0/0/0 | 0 |" in text
+    assert "## CHMv2 against the surface model" not in text and "## Lines each variant adds over avg" not in text
+
     with open(tmp_path / "R2" / "study.json") as f:
         place = study.place_markdown(json.load(f))
     assert "Judges: OSM land cover forest on 20 %, rock on 10 % of the grid; the orthophoto zoom 19, 12 tiles: tau " \
@@ -648,3 +678,41 @@ def test_report_with_judges(tmp_path):
     assert "| avg | A2 | 5 (56 %) | 1, 1 | 1 | 3 | 0, 0 | 4 | 1/2/0/1 | 3/1/1/0 |" in place
     assert "Near an anchor: 3 lines" in place and "| A2+T | 0 | 2 | 0 | 0 |" in place
     assert place.index("Judges:") < place.index("Surface variants") < place.index("Near an anchor")
+
+
+def test_height_caps_on_a_wall():
+    """A2+H<m> on a wall of 100 m whose lip the surface model draws 4 pixels out over its foot (an
+    overhang): A2 keeps the lip (no terrain within two pixels reaches it), every cap un-marks it; a tree
+    of 30 m on the floor stays under every cap, one of 70 m only under A2+H80."""
+    z = np.zeros((20, 60), np.float32)
+    z[:, 40:] = 100
+    s = z.copy()
+    s[:, 36:40] = 100  # the lip
+    s[5, 10], s[5, 20] = 30, 70
+    pix = {"row": np.array([10, 10, 5, 5]), "col": np.array([36, 37, 10, 20]), "step": np.ones(4, np.int64),
+           "steps": np.full(4, 9, np.int64)}
+    names = ["A2"] + [f"A2+H{h}" for h in study.HEIGHT_CAPS]
+    flags = study.rule_flags(z, s, 1.0, pix, None, obstacles.slope_degrees(z, 1.0), None, names)
+    assert flags["A2"].tolist() == [True, True, True, True]
+    assert flags["A2+H40"].tolist() == flags["A2+H60"].tolist() == [False, False, True, False]
+    assert flags["A2+H80"].tolist() == [False, False, True, True]
+
+
+def test_chm_against_the_surface(judged_canyon):
+    """The canyon's CHMv2 (44 m on the tree, 0 elsewhere) against its surface model: on the gentle floor
+    the tree by both (the surface 1 m higher), nothing by one alone; on the walls the rims tall in the
+    surface model with CHMv2 low, the walls' tops bare without a tree of CHMv2."""
+    call, dtm, real, rock = judged_canyon
+    result = study.analyse_call(call, layers_of(dtm))
+    assert not result.get("chm_shift", {}).get("applied")
+    c = result["chm_surface"]
+    gentle = int((obstacles.slope_degrees(dtm, 1.0) < study.CHM_GENTLE).sum())
+    assert {k: v for k, v in c.items() if k != "diff"} == {
+        "gentle": gentle, "both": 24, "dsm_only": 0, "chm_only": 0, "neither": gentle - 24,
+        "steep_bare": 120, "steep_bare_chm_tree": 0, "steep_tall": 120, "steep_tall_chm_low": 120}
+    assert sum(c["diff"]) == 24
+    assert study.histogram_quantile(c["diff"], 0.5) == study.histogram_quantile(c["diff"], 0.9, True) == 1.125
+    assert study.histogram_quantile([0] * len(c["diff"]), 0.5) is None
+    text = "\n".join(study.chm_surface_report([{"place": "canyon", "chm_surface": c}] * 2))
+    assert f"| canyon | {gentle} | 24 (0.4 %) | 0 (0.0 %) | 0 (0.0 %) | {gentle - 24} (99.6 %) | 1.12 | 1.12 | 1.12 | "            "0 % of 120 | 100 % of 120 |" in text
+    assert f"| all | {2 * gentle} | 48 (0.4 %) |" in text
