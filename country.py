@@ -69,9 +69,9 @@ ATTEMPTS = 2               # a tile that fails goes back to pending once, then s
 # Tatras tile of 474 M lines at 24 threads: 16 B/px of its 53 Mpx, in the pair search; a tile of
 # 61 M lines alone 0.54 GiB, 11 B/px, at the prominence and drop), the memory-mapped grids outside
 # (file-backed, about 20 B/px in the working set); 32 B/px is twice that largest rise. Before the
-# strips a tile's gap filling peaked at 45-94 B/px, and every worker also carried 0.8-1.6 GiB of
-# OpenBLAS's untouched buffers (one per logical core). Not search.memory_needed: a count holds no
-# table of lines, no profiles and no step 4, and that model follows the app's.
+# strips a tile's gap filling peaked at 45-94 B/px, and every worker's private bytes also held about
+# 1.5 GiB that OpenBLAS reserved and never touched (_worker_env). Not search.memory_needed: a count
+# holds no table of lines, no profiles and no step 4, and that model follows the app's.
 COUNT_PIXEL_BYTES = 32
 WORKER_BASE = 512 << 20
 RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
@@ -983,11 +983,13 @@ def _progress_line(manifest: Manifest, bands: Sequence[str], processes: int, sta
 
 def _worker_env() -> Dict[str, str]:
     """The environment of a `country worker` process: text progress, UTF-8 output, and one BLAS
-    thread. numpy's OpenBLAS commits about 32 MB of buffers per thread when it is imported, one per
-    logical core unless OPENBLAS_NUM_THREADS says otherwise: 0.76 GiB of a worker's private bytes on
-    24 logical cores (1.6 GiB at the end of a tile, never in the working set), which the memory model
-    of worker_count (COUNT_PIXEL_BYTES) would pay for every worker. A count calls no BLAS routine on
-    anything large (helpers.downslope's 3-vector products at the anchors, sag's 3 x 3 solves)."""
+    thread. numpy and SciPy each load their own OpenBLAS, and each commits about 32 MB of buffers per
+    thread when it is loaded, one thread per logical core unless OPENBLAS_NUM_THREADS says otherwise:
+    0.76 GiB of a worker's private bytes after numpy on 24 logical cores, 1.5 GiB after SciPy. The
+    buffers are reserved, never touched (never in the working set): they count against Windows' commit
+    limit, not the RAM, and made the private bytes a worker_count model is measured on 1.5 GiB larger.
+    A count calls no BLAS routine on anything large (helpers.downslope's 3-vector products at the
+    anchors, sag's 3 x 3 solves)."""
     return {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1",
             "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
 
