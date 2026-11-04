@@ -63,12 +63,17 @@ PROGRESS_SECONDS = 30      # between the progress lines of a run
 WORKER_PROGRESS_SECONDS = 600  # between the text progress lines of a worker's bars (its log)
 ATTEMPTS = 2               # a tile that fails goes back to pending once, then stays failed
 # The memory of a counting worker: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel of its tile's grid.
-# Measured on Slovakia's runs (2026-11-03): a worker's peak working set was 2.3 GiB at 38-40 Mpx in
-# the bands S, M and L alike (50-53 B/px above 0.5 GiB of imports, an evaluated part of the sink and
-# the counter's pending arrays), the memory-mapped grids included and the tiles of 200-400 M lines
-# too (the sink holds one part at a time); both values with a margin. Not search.memory_needed: a
-# count holds no table of lines, no profiles and no step 4, and that model follows the app's.
-COUNT_PIXEL_BYTES = 64
+# Measured on Slovakia's runs (2026-11-03, step 1 on the whole tile at once): a worker's peak private
+# bytes were 2.3 GiB at 38-53 Mpx (45 B/px, up to 94 on a border tile, the peak in the gap filling)
+# and 1.9-2.5 GiB through steps 2-3 (26 B/px median, 37 at most above 0.5 GiB of imports, with what
+# step 1 left on the heap), the tiles of 200-400 M lines no higher (the sink holds one part at a
+# time). Since 2026-11-04 step 1 runs in strips (TileWork.count: prepare_data(strips=True)) and the
+# tile's private peak measured 0.9 GiB at 53 Mpx and 0.75 GiB at 27 Mpx with FABDEM-filled gaps
+# (about 5 B/px above the process's 0.6 GiB, docs/performance.md "Round 4"): 40 B/px keeps the
+# margin of the old steps 2-3 until the heavy tiles are measured again in strips. Not
+# search.memory_needed: a count holds no table of lines, no profiles and no step 4, and that model
+# follows the app's.
+COUNT_PIXEL_BYTES = 40
 WORKER_BASE = 512 << 20
 RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
 # A tile is heavy when its weight (_weights: the lines of the done tiles under its core) reaches
@@ -83,7 +88,8 @@ LIGHT_CORES = 2
 LIGHT_THREADS = 3
 TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (_MemorySampler)
 RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
-DISK_PIXEL_BYTES = 16      # a tile's grids in its work folder (float32 terrain, masks of water and gaps)
+# A tile's grids in its work folder: search.work_bytes of the band's plan (the float32 terrain, surface
+# and gap fillers, the masks) plus search.AREA_TEMP_BYTES of step 1's temporaries in strips (_disk_bytes)
 DISK_SPARE = 1 << 30       # free disk kept besides the work folders
 RESPAWNS_PER_WORKER = 2    # workers that stopped abnormally are started again at most this often (on average)
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -716,7 +722,14 @@ class TileWork:
         sampler.start()
         try:
             t0 = time.time()
-            data = search.prepare_data(tile_plan, statistics=False)  # no terrain histogram: the cube holds none
+            # Step 1 in strips of rows on the tile's own grid (round 3's wave 4 for a tiled area): the
+            # grids memory-mapped in the work folder as the plain path writes them, one int32 array of
+            # labels and a strip's temporaries in memory at a time, so the private memory of a worker
+            # is not the whole tile's gap filling any more (COUNT_PIXEL_BYTES); steps 2-3 read the same
+            # files with the same argument types (warmup.SEARCHES), so no copy of a tile's window
+            # (search._tile_data) is needed: the window is the grid. No terrain histogram: the cube
+            # holds none.
+            data = search.prepare_data(tile_plan, statistics=False, strips=True)
             t1 = time.time()
             counter = _TimedSink(countcube.TileCounter(grid, self.origin, core, band.lengths,
                                                        float(band.lengths[1]) >= self.country.last_edge))
@@ -845,6 +858,13 @@ class _Log:
 def _duration(seconds: float) -> str:
     from progress import _duration as text
     return text(seconds)
+
+
+def _disk_bytes(plan) -> int:
+    """The bytes per pixel a tile's work folder holds at most: the grids step 1 writes for the
+    band's plan and its temporaries in strips."""
+    import search
+    return search.work_bytes(plan) + search.AREA_TEMP_BYTES
 
 
 def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
@@ -1010,12 +1030,13 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     _finish_state(state, folder, plans)
     manifest = Manifest(folder)
     try:
-        largest = 0
+        largest = disk = 0
         for band in country.bands:
             tiles = search.fixed_tiles(plans[band.name], band.core_m)
             manifest.add_tiles(band.name, tiles)
             if band.name in selected and tiles:
                 largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
+                disk = max(disk, max(t.grid.width * t.grid.height for t in tiles) * _disk_bytes(plans[band.name]))
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
@@ -1033,7 +1054,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         elif max_tiles is not None or todo:
             k = max(1, min(k, todo, max_tiles if max_tiles is not None else todo))
         k_eff = max(1, k)  # the processes counting at once (0: this one)
-        need = k_eff * largest * DISK_PIXEL_BYTES + DISK_SPARE
+        need = k_eff * disk + DISK_SPARE
         free = shutil.disk_usage(data_dir).free
         for band in country.bands:
             c = counts.get(band.name, {})
