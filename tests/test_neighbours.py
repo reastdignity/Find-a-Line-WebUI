@@ -211,3 +211,21 @@ def test_declared_neighbours():
     assert src.SOURCES["canada"].neighbours == ("usa", "alaska", "alaska_ifsar", "nunavut")
     assert src.SOURCES["saarland"].neighbours == ("rhineland_palatinate", "france", "luxembourg")
     assert src.SOURCES["british_columbia"].neighbours == ("usa", "alaska", "alaska_ifsar")
+
+
+def test_border_gaps_once_unless_a_neighbour_wrote(scene, monkeypatch):
+    """The border gaps are found once for all neighbours; again only after one wrote pixels into
+    the grids (or failed midway), since an attempt that found no data of its own leaves them.
+    fill_gaps also tells the pixels written to either grid."""
+    grid, path, tmp = scene
+    calls = []
+    original = src.filling.border_gaps
+    monkeypatch.setattr(src.filling, "border_gaps", lambda *a, **k: calls.append(1) or original(*a, **k))
+    useless = _neighbour(tmp, grid, "useless", slice(40, 100), 100.0)
+    useful = _neighbour(tmp, grid, "useful", slice(0, 40), 120.0)
+    _, counts = src.filling.fill_from_neighbours(path, None, grid, [useless, useful, useless], str(tmp / "cache"),
+                                                 str(tmp / "joined.npy"))
+    assert [n > 0 for _, n in counts] == [False, True]  # the third finds no border gap left
+    assert len(calls) == 2  # once at the start, once after the useful one filled the border
+    assert src.filling.fill_from_neighbours(path, None, grid, [], str(tmp / "cache"), str(tmp / "none.npy")) == (None, [])
+    assert src.filling.fill_gaps(path, None, grid, useless, str(tmp / "cache"), str(tmp / "again.npy"))[1:] == (100, 100)  # the hole: terrain pixels, pixels written

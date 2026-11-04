@@ -1353,6 +1353,154 @@ that file with a `<dynamic>` module name (every later import fails with "No modu
   mapped pages, 4b (the tiles in parallel, next round), the `bytes` plan of the contract (the
   one-grid path is covered by the checksums and swiss-long's four files byte for byte).
 
+## Round 4 (2026-11-04): the country layer
+
+The runs of Slovakia's pilot (`countries/slovakia`: 3435 tiles of the bands S, M, L and M2, counted
+on 2026-11-02/03 on this PC, 12 cores / 24 threads and 61.6 GiB of which other programs held 35 GiB,
+the code of 1f3ad11, before F8c), read from the manifest, the tiles' meta, the logs and the timeline
+of the M2 run (the scripts: `local/country-perf-2026-11-04/scripts/`). Three dimensions as in round 3:
+the wall of a run from its start to its end, the CPU of its tiles, the memory of a worker.
+
+### What the runs showed
+
+| Run | Bands | Workers | Wall | Tile seconds | Workers busy | Tail |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| 2026-11-02 evening | S | 7 | 45.6 min | 5.17 h | 97 % | none: every tile light, rows from the north |
+| 2026-11-03 morning | M, L | 6 | 60.5 min | 4.36 h | 72 % | L E-360000_N-1200000 (2101 s) started at +25 min and ended at +60: one tile running from +41 (no weights yet: they came with v2 of the manifest) |
+| 2026-11-03 noon | M2 | 7 | 46.8 min | 4.14 h | 76 % | the heaviest tile (2804 s) claimed first, by weight, and the run's length; 1-2 tiles running from +33 |
+
+- Per run besides the tiles: the prefetch 20-50 s (the first run at 1 m 5.5 min from the mirror),
+  the numba warm-up 1 s, the cube 6-18 s. Together 2.55 h for 13.66 h of tile seconds; at 7 workers
+  busy throughout, 1.95 h.
+- The critical path is the heaviest tile of each band (the Tatras): M2 E-350000_N-1190000 took 46
+  min (2.1 billion pairs, 474 M lines, 17 686 s of CPU: 6.3 cores on average, since `_Rethreading`
+  gave it 12-24 threads only once the others were done), L E-360000_N-1200000 35 min, M 14.5 min.
+  `_threads` gave every tile 24 // 7 = 3 threads while all seven workers were busy, and the machine
+  stood at 62-70 % of its 24 threads through those 33 minutes (7-9 idle), at 88 % in the tail.
+
+| Band | Tiles | Tile seconds | Median s | prepare (step 1) | count (steps 2-3) | Tiles with 0 lines | Pixels of a tile / its core |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| S 1 m, cores of 5 km | 2122 | 5.17 h | 8.6 | 51 % | 49 % | 1700 = 76 % of the seconds (3.9 h) | 1.54 |
+| M 2 m, 10 km | 575 | 2.18 h | 9.4 | 56 % | 44 % (max 860 s) | 336 = 42 % | 1.59 |
+| L 5 m, 20 km | 163 | 2.17 h | 25.9 | 43 % (22 s) | 57 % (max 2070 s) | 75 = 19 % | 2.34 |
+| M2 2 m, 10 km | 575 | 4.14 h (11.85 h CPU) | 13.8 | 40 % | 60 % | 385 = 35 % | 2.13 |
+
+- The stages of M2 (the one band counted with them): anchor pairs 44.7 % (4.8 cores), stitching
+  terrain 16.1 % (1.5), other 8.6 %, prominence and drop 6.1 %, sea and lakes 3.9 %, anchors 3.4 %,
+  gap filling 3.2 %, area coverage 2.8 %, water mask 2.2 %, border gaps 3 × 1.8 %, shore zone 1.7 %.
+  Its 22 tiles of more than a million lines spend 93 % in the pairs (318 s each); the two Tatras
+  tiles are 35 % of the band.
+- A tile with no line (385 of M2's, 13.8 s each) is step 1: stitching 4.1 s, other 2.3, gap filling
+  1.1, sea and lakes 1.0, anchors 0.9, coverage 0.7, prominence 0.6, water mask 0.6, border gaps 3 ×
+  0.57 (inland too: a no-data patch touching the tile's edge is a "border gap", each neighbour whose
+  rough box holds the tile is tried, finds nothing, and the gaps are labelled again for the next),
+  shore zone 0.4. Such tiles have anchors (a median of 1126 in S, 2513 in M2), so they cannot be
+  told apart before the pair search: they can only be made cheaper.
+- Coarse grids read fine data: L stitches 5 m pixels from the 1 m tiles of the mirror (25 times the
+  pixels needed): 22 of its 26 s per tile, 1.0 h of the band's 2.17; M at 2 m 4 times (6.5 s against
+  S's 3.7 at the same pixels).
+- Memory: 2.2-2.3 GiB private per tile of 38-40 Mpx (about 60 B/px, the peak in step 1's gap
+  filling), 2.9 GiB for M2's 53 Mpx; `worker_count` = min(12 physical cores, 26 GiB free / 3.7 GiB)
+  = 7: the memory, not the cores, set the workers on this PC. Disk: 266 MB read and 107 MB written
+  per tile, 200-236 MB/s of writes with 7 workers (an SSD; the Unraid array of docs/country-precompute.md
+  would not keep up). The timeline's `workers_cores` and `workers_private_gib` were 0.0 through the
+  run (the workers' process trees not found), so `country profile` knew no worker memory.
+- F8c (bcefaf8, after these runs) makes the pair kernel 17-52 % faster: the heaviest tiles about
+  30 % shorter on the next run, before any of the below.
+
+### The plan: stages 1-3 (the user's choice, 2026-11-04)
+
+| Stage | Item | Dimension | Effort | Expected |
+| --- | --- | --- | --- | --- |
+| 1 | A1 threads for the heavy tiles from the start (`_threads`: a heavy tile, `HEAVY_SHARE` of the run's largest weight, takes the cores left after `LIGHT_CORES` per light tile running; a light one at most `LIGHT_THREADS` while a heavy one runs) | wall | low | M2 47 → 33-35 min, M + L 60 → 45 |
+| 1 | A2 all bands in one `country run` (no code: one manifest, the weights of every band, one tail) | wall | none | one tail instead of three |
+| 1 | B1 the border gaps once per tile (again only after a neighbour wrote pixels), none for a tile inside the outline (`Plan.border`, `country._at_border`) | CPU | low | about 10 % of the tile seconds |
+| 1 | C2 the timeline's worker samples | measurement | low | `country profile` with the workers' memory |
+| 2 | C1 step 1 in strips per tile (`prepare_data(strips=True)` of round 3's wave 4 on the tile's own grid, the grids memory-mapped) | RAM | low-medium | about 60 → 25-30 B/px private, `COUNT_PIXEL_BYTES` 64 → about 32: twice the workers where the memory sets them (this PC 7 → 12) |
+| 2 | B2 an averaged copy of the mirror at 2 m and 5 m (as `Download(average=)` of Bavaria's DOM20) | CPU | medium | L 22 → about 2 s per tile; about 2 h of 13.7 |
+| 3 | A3 the weights of a first band from the relief of Copernicus 30 m (`perf_country.py relief`) | wall | low-medium | no tail in the first band of a new country |
+| 3 | B4 measure "other" (2.3 s per tile between the bars) | CPU | low | to be seen |
+| 3 | B3 step 1 once per group of tiles (round 3's wave 4 for the country layer: the overlaps repeat 1.5-2.3 times the pixels) | CPU, consistency | medium-high | 20-25 % of the tile seconds; one median per border gap |
+
+Not taken: skipping empty tiles by the relief at 30 m (it changes the counts: cliffs of 1 m are not
+seen at 30 m), splitting the heaviest cores (A1 should do).
+
+### Done, stage 1 (2026-11-04, branch `country-perf-1`: the counts byte for byte)
+
+- **A1, the threads of the heavy tiles** (`country._threads`, `_heavy_weight`): a tile whose weight
+  reaches `HEAVY_SHARE` (5 %) of the run's largest takes its share of the logical cores left after
+  `LIGHT_CORES` (2) per light tile running; a light tile keeps at most `LIGHT_THREADS` (3) while a
+  heavy one runs; without weights (the first band of a country) the rule of before, `cores // busy`.
+  The heaviness goes with the claim and into `_Rethreading`'s looks.
+- **B1, the border gaps once** (`sources.filling.fill_from_neighbours`): labelled again only after
+  a neighbour wrote pixels into either grid (`fill_gaps` returns `(path, terrain pixels filled,
+  pixels written)`) or failed midway, not after every attempt; and none for a tile whose grid lies
+  inside the country's outline (`country._at_border` → `Plan.border` False: no neighbour has data
+  there). The app's searches keep every value: a neighbour that filled nothing left the grids as
+  they were, and `Plan.border` stays True outside the country layer.
+- **A2**: nothing to code; `country run <id>` without `--bands` counts every band in one manifest,
+  so the weights of every band order one queue and the run has one tail.
+- **C2**: not reproduced. The M2 run of 2026-11-04 sampled the workers' cores (up to 22.7) and
+  private bytes (up to 19.5 GiB) in 399 of its 402 rows with the code as it was; the zeros of
+  2026-11-03 stay unexplained (the same sampler, `_RunSamples`, finds the interpreter under the
+  venv's launcher in `tests/test_country.py` too).
+
+Measured: Slovakia's M2 band counted again on a copy of `countries/slovakia` (its M2 tiles pending,
+the weights from the other bands' tiles), the real cache and mirror, this PC, under the exclusive
+lock; the base is the run of 2026-11-03 (7 workers; this run got 8, since other programs held less
+memory: `worker_count`), and the new run has F8c (bcefaf8) as well. All 575 tiles' counts are
+identical to the base's.
+
+| | Base (2026-11-03) | Stage 1 (2026-11-04) |
+| --- | ---: | ---: |
+| Wall of the run | 46.8 min | 35.0 min (−25 %) |
+| Workers | 7 | 8 |
+| Tile seconds | 4.14 h | 3.38 h (−18 %) |
+| CPU seconds of the tiles | 11.85 h | 11.25 h |
+| Machine CPU, mean | 75 % | 92 % |
+| Workers busy | 76 % | 73 % (fewer than 8 running from +24 min of 35) |
+| The heaviest tile, E-350000_N-1190000 (474 M lines) | 2804 s at 3 threads (12-24 in the tail) | 2097 s at 24 threads from the claim (F8c as well) |
+| E-340000_N-1190000 (318 M lines) | 2418 s | 1736 s |
+| Anchor pairs, all tiles | 1.86 h | 1.41 h |
+| "other" | 0.36 h | 0.20 h |
+| Border gaps, the second and third neighbour | 0.08 + 0.08 h | 0.00 + 0.00 h (the first 0.07 → 0.07: the border tiles) |
+| An empty tile | 13.6 s | 11.5 s |
+| Median tile | 13.8 s | 11.9 s |
+
+The run is its heaviest tile again: 2097 s = 35 min, while the other 574 tiles were done at +24
+min (8 workers) — A1 moved that tile from 47 to 35 min together with F8c, and the rest of the band
+no longer waits for it from +33 but from +24. What is left of the tail is the pair search of one
+tile on the whole machine (its 2.1 billion pairs): splitting such a core (A4) or the count mode's
+parts over two processes would be the next step for it, not taken in this round. The CPU of the
+machine is at 92 % now, so stage 2's extra workers (C1) pay only where the memory, not the cores,
+set `worker_count` (this PC with other programs open; the 5650G).
+
+**Where the gain comes from** (the user's question: not the eighth worker?). The light part of the
+band (3.38 h less the two heaviest tiles' 1.06 h = 2.32 h) took 23 min on 6 light workers and would
+take about 28 on 5: under the heaviest tile's 35 min either way, so the eighth worker moved the end
+of the light part, not the run's end; and the tile seconds are work per tile, which more workers
+make slower, not faster (the machine at 92 %). To split the heavy tiles' gain between F8c and A1,
+the tile E-360000_N-1190000 (61 M lines, 667 s in the base run at 3 threads beside 6 workers) was
+counted alone with the stage 1 code (`local/country-perf-2026-11-04/stage1/one_tile.log`):
+
+| Threads, alone | Wall | Anchor pairs | CPU seconds | Cores used |
+| ---: | ---: | ---: | ---: | ---: |
+| 3 | 356 s | 340 s | 1033 | 2.9 |
+| 12 | 149 s | 134 s | 1585 | 10.6 |
+| 24 | 129 s | 115 s | 2433 | 18.9 (12 physical) |
+
+Alone, the pair search of a heavy tile scales 2.4 times from 3 to 12 threads and 2.8 to 24; the
+same tile at 3 threads went 667 → 356 s between the base and stage 1 (F8c and no neighbours
+competing), and in the stage 1 run it took 496 s at 12 threads beside 7 workers. So inside a run
+on a full machine the threads of A1 bought the heaviest tiles little (2804 → 2097 s is mostly
+F8c): 8 workers on 12 physical cores leave a heavy tile no idle cores to take; A1 pays where
+cores are idle: the last third of a run, a machine with more cores than workers (the memory sets
+`worker_count`), a run of one heavy band. The run's floor is max(the heaviest tile beside the
+others, the light part on the light workers): 35 and 24 min here; the heavy tile alone would take
+about a quarter of that, so a schedule that runs the heaviest tiles before or after the light ones
+is no better (10-20 min of heavy tiles plus 23 of light ones). Lower means a shorter light part
+(stage 2's B2, stage 3's B3) and then a split of the heaviest cores (A4).
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,

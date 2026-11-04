@@ -432,3 +432,45 @@ def test_stage_clock():
     at(10, 20, {"bar": "Compute", "stage": "anchor pairs", "done": True})
     t[0], c[0] = 11, 21
     assert clock.result() == {"other": [4.0, 3.0], "stitching terrain": [3.0, 2.0], "anchor pairs": [4.0, 16.0]}
+
+
+def test_heavy_tiles_take_the_spare_cores(tmp_path):
+    """A heavy tile (its weight at least HEAVY_SHARE of the run's largest) shares the cores left
+    after LIGHT_CORES per light tile running with the other heavy ones; a light tile keeps at most
+    LIGHT_THREADS while a heavy one runs, and the share of before when none does (the first band
+    of a country has no weights: every tile light, the rule of before)."""
+    import country
+    m = country.Manifest(str(tmp_path))
+    try:
+        m.add_tiles("B", [_tile(f"b{k}", (k, 0, k + 1, 1)) for k in range(8)])
+        m.set_run(["B"], None, 4)
+        assert m.claim("w", 24)[3:] == (6, False)  # no weights: 24 // 4, as before
+        m.db.execute("UPDATE tiles SET status = 'pending', worker = NULL")
+        m.set_weights({("B", "b0"): 1000.0, ("B", "b1"): 60.0, ("B", "b2"): 40.0, ("B", "b3"): 1.0})
+        band, name, _, threads, heavy = m.claim("w0", 24)
+        assert (name, heavy, threads) == ("b0", True, 24)  # the heaviest first, alone: every core
+        assert m.claim("w1", 24)[1:] == ("b1", (1, 0, 2, 1), 12, True)  # (24 - 0) // 2 heavy running
+        assert m.claim("w2", 24)[1:] == ("b2", (2, 0, 3, 1), 3, False)  # 40 < 5 % of 1000: light, 3 at most
+        assert m.claim("w3", 24)[1:] == ("b3", (3, 0, 4, 1), 3, False)
+        assert m.threads(24, heavy=True) == 10  # (24 - 2 * 2 light) // 2 heavy
+        assert m.threads(24, heavy=False) == 3
+        m.db.execute("UPDATE tiles SET status = 'done' WHERE name IN ('b1', 'b2')")
+        assert m.threads(24, heavy=True) == 22  # one heavy and one light left running
+        m.db.execute("UPDATE tiles SET status = 'done' WHERE name != 'b0'")
+        assert m.threads(24, heavy=True) == 24
+    finally:
+        m.close()
+
+
+def test_no_neighbours_for_a_tile_inside_the_outline():
+    """A tile's grid inside the country's outline holds no border: the plan's border flag is off
+    (search.prepare_data asks no neighbour); a tile reaching the outline keeps it."""
+    import country
+    import grid as gd
+    from shapely.geometry import box
+    g = gd.make_grid((1000, 1000, 2000, 2000), 10, "EPSG:2180")
+    assert country._at_border(g)  # no outline known: a border is possible
+    g.area_shape = box(0, 0, 5000, 5000)
+    assert not country._at_border(g)
+    g.area_shape = box(1500, 0, 5000, 5000)
+    assert country._at_border(g)

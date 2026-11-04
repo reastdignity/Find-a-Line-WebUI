@@ -1037,6 +1037,7 @@ The user's idea (2026-11-01): search whole countries offline in fixed tiles, kee
   - The layer lives in the local app (page `#layer`, the local user and administrators).
   - A run resumes per tile. SQLite holds only the manifest; the counts are numpy files.
   - **The pilot runs without the surface model**: C: had 107 GB free, and copying the mirror into `cache/` takes 134 GB (DMR 61, DMP 73). Hard links of the mirror's files were offered and declined. The trees dimension stays in the cube, empty for Slovakia.
+- **Round 4 of the performance work (2026-11-04)**: the pilot's runs profiled and three stages planned (docs/performance.md, "Round 4"): stage 1 the heavy tiles' threads, all bands in one run, the border gaps once and none inside the outline; stage 2 step 1 in strips per tile (the memory per worker) and an averaged mirror for the coarse bands; stage 3 the weights of a first band from the relief, "other" measured, step 1 per group of tiles.
 - **Open**:
   - **T(L) as an option of the app's search** (the user, 2026-11-02): a field of `params.py` (span:kN points), `sag.TensionTable` (done for the country layer), `viewer/src/sag.ts` (the same solver: Python and the browser must match to 1e-6 m), the form, README. The profiles of `/api/profile` and the map's sag line follow it.
   - **Lines across a border**: only lines with both anchors in the country are counted. A layer of several countries needs the cells of both CRSs, or one CRS per region, and the tiles at the border searched over both countries' data.

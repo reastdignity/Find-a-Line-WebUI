@@ -400,7 +400,7 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
               cache_dir: str, out_path: str, update: Optional[str] = None,
               exclude: Optional[np.ndarray] = None, name: str = "gap",
               window: Optional[Tuple[slice, slice]] = None, surface_from_terrain: bool = True,
-              rows: Optional[int] = None) -> Tuple[str, int]:
+              rows: Optional[int] = None) -> Tuple[str, int, int]:
     """Fill the remaining gaps in the data on land from another source.
 
     Each gap gets the other source shifted by the median height difference in a
@@ -409,8 +409,8 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     gentle slopes are used for this: on a cliff, a shift of a metre between two
     surveys changes the height by tens of metres. A local offset more than
     GAP_MAX_LOCAL_SHIFT from the overall median is not trusted.
-    Saves a boolean mask of the filled pixels to out_path; returns
-    (out_path, number of filled pixels). Pixels in `exclude` (the sea) are left alone.
+    Saves a boolean mask of the filled pixels to out_path; returns (out_path, the terrain
+    pixels filled, the pixels written to either grid). Pixels in `exclude` (the sea) are left alone.
     The fallback's grids are saved next to out_path as <name>_nmt.npy and <name>_nmpt.npy.
     window (rows, columns): the fallback is brought onto that part of the grid only (a
     neighbour: around the gaps at the border), nothing is filled outside it. Without a surface
@@ -431,7 +431,8 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         filled &= ~exclude
     if not filled.any():
         np.save(out_path, filled)
-        return out_path, 0
+        return out_path, 0, 0
+    written = 0
     pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy", "terrain")]
     if surface_path:
         surface = np.load(surface_path, mmap_mode="r+")
@@ -452,12 +453,14 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
         else:
             other = np.full(target.shape, np.nan, np.float32)
             other[window] = np.load(path, mmap_mode="r")
-        if _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}") == 0:
+        count = _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}")
+        written += count
+        if count == 0:
             used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
         del other, gaps  # before the next pair's mosaic
     filled &= np.isfinite(elevation)
     np.save(out_path, filled)
-    return out_path, int(filled.sum())
+    return out_path, int(filled.sum()), written
 
 
 def _gaps_rows(target: np.ndarray, exclude: Optional[np.ndarray], out: np.ndarray, rows: int) -> bool:
@@ -475,14 +478,15 @@ def _gaps_rows(target: np.ndarray, exclude: Optional[np.ndarray], out: np.ndarra
 def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid, fallback: "Source",
                     cache_dir: str, out_path: str, update: Optional[str], exclude: Optional[np.ndarray],
                     name: str, window: Optional[Tuple[slice, slice]], surface_from_terrain: bool,
-                    rows: int) -> Tuple[str, int]:
+                    rows: int) -> Tuple[str, int, int]:
     """fill_gaps in strips of rows (its values)."""
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
     filled = new_mask(out_path, elevation.shape)
     if not _gaps_rows(elevation, exclude, filled, rows):
         filled.flush()
-        return out_path, 0
+        return out_path, 0, 0
+    written = 0
     pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy", "terrain", filled)]  # the terrain's gaps: filled so far
     if surface_path:
         surface = np.load(surface_path, mmap_mode="r+")
@@ -504,8 +508,10 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
                              quiet=window is not None, rows=rows)
         record = used_data[-1]  # prepare_layer's
         other = np.load(path, mmap_mode="r")
-        if _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}", rows=rows,
-                 window=window, work=work) == 0:
+        count = _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}", rows=rows,
+                      window=window, work=work)
+        written += count
+        if count == 0:
             used_data[:] = [entry for entry in used_data if entry is not record]  # no credit either
         del other, gaps  # before the next pair's mosaic
         if gaps_path:
@@ -517,7 +523,7 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
         count += int(block.sum())
     filled.flush()
     del filled
-    return out_path, count
+    return out_path, count, written
 
 
 def _subgrid(grid: Grid, window: Tuple[slice, slice]) -> Grid:
@@ -771,8 +777,8 @@ def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid
     filled, counts = None, []
     for n, fallback in enumerate(fallbacks):
         step = out_path if n == 0 else f"{os.path.splitext(out_path)[0]}{n}.npy"
-        _, pixels = fill_gaps(elevation_path, surface_path, grid, fallback, cache_dir, step, update,
-                              exclude=exclude, name="gap" if n == 0 else f"gap{n}", rows=rows)
+        _, pixels, _ = fill_gaps(elevation_path, surface_path, grid, fallback, cache_dir, step, update,
+                                 exclude=exclude, name="gap" if n == 0 else f"gap{n}", rows=rows)
         counts.append((fallback, pixels))
         if rows is not None:
             if n and pixels:
@@ -942,9 +948,13 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     gaps to the next. Saves the mask of the terrain pixels filled to out_path; returns
     (out_path, or None when they filled nothing, [(neighbour, filled pixels)]).
     rows: in strips of that many rows (the border gaps memory-mapped next to out_path
-    meanwhile, the masks joined strip by strip)."""
+    meanwhile, the masks joined strip by strip). The border gaps are found once, and again only
+    after a neighbour wrote pixels into either grid or failed midway (an attempt that found no
+    data of its own under the gaps leaves them as they were)."""
     from .choose import source_unavailable
 
+    if not neighbours:
+        return None, []
     joined, counts = None, []
     gaps = None  # border_gaps, computed again only after a neighbour's fill_gaps may have changed the grids
     border_path = os.path.join(os.path.dirname(out_path), "border.npy")
@@ -967,14 +977,16 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
             print(f"Gaps at the border not filled from {neighbour.name}: {why}")
             continue
         step = f"{os.path.splitext(out_path)[0]}{n}.npy"
-        gaps = None  # its terrain or surface pixels may be filled (also before a failure)
         try:
-            _, pixels = fill_gaps(elevation_path, surface_path, grid, neighbour, cache_dir, step, update,
-                                  exclude=exclude, name=f"border{n}", window=window, surface_from_terrain=False,
-                                  rows=rows)
+            _, pixels, written = fill_gaps(elevation_path, surface_path, grid, neighbour, cache_dir, step, update,
+                                           exclude=exclude, name=f"border{n}", window=window,
+                                           surface_from_terrain=False, rows=rows)
         except (RuntimeError, requests.RequestException) as e:
+            gaps = None  # some of its pixels may have been filled before the failure
             print(f"Gaps at the border not filled from {neighbour.name}: {cache.clean_error(e)}")
             continue
+        if written:
+            gaps = None  # its terrain or surface pixels were filled: the border gaps again for the next one
         counts.append((neighbour, pixels))
         if pixels:
             if rows is not None:

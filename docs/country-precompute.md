@@ -99,8 +99,11 @@ what is missing from it.
 | 7 | **3DEP's 1 m windows for coarse bands** | A 5 m band reads the same 1 m windows as a 1 m one | - | The COGs' overviews: 5.4 times fewer bytes at 2 m, 16 at 4 m, 44 at 8 m (measured in Zion) |
 | 8 | **Quality of coarse grids** | S at 2 m keeps the ranking of the cells; M at 5 m is a different search (section 1) | "Interpolating to a finer grid lowers the number of lines" (to check) | - |
 
-The line search of `line-order` (in `main` since 5026838: its CPU −51-78 %) is in every number of
-this report. Its order of tests was measured to be close to the best, so more speed has to come from
+The pilot's runs were profiled on 2026-11-04 (docs/performance.md, "Round 4": the wall of a run is
+its heaviest tile at 3 threads, step 1 is 40-56 % of the tile seconds and all of an empty tile's, the
+border gaps of inland tiles, 60 B/px per worker); its stages 1-3 address bottleneck 4 and the memory
+per worker. The line search of `line-order` (in `main` since 5026838: its CPU −51-78 %) is in every
+number of this report. Its order of tests was measured to be close to the best, so more speed has to come from
 doing less (bands, grids, counting), not from the kernels.
 
 ## 1. Resolution

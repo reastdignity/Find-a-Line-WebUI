@@ -224,6 +224,9 @@ class Plan:
     # How obstacles are told from the terrain's own rock (obstacles.RULE, recorded in run.json);
     # None: the surface model as it is (no surface model, a source without the rule, runs before it)
     obstacles: Optional[Dict] = None
+    # Whether the grid may hold a border of the source's data (Source.neighbours fill the gaps
+    # there): the country layer sets False for a tile whose grid lies inside the country's outline
+    border: bool = True
 
 
 STEPS = 5
@@ -974,8 +977,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
         if _fills_gaps(plan):
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
-                elevation_path, surface_path, grid, [src.SOURCES[n] for n in source.neighbours], cache_dir,
-                os.path.join(work, "joined.npy"), p.update, exclude=sea_zone, rows=rows)
+                elevation_path, surface_path, grid, [src.SOURCES[n] for n in source.neighbours] if plan.border else [],
+                cache_dir, os.path.join(work, "joined.npy"), p.update, exclude=sea_zone, rows=rows)
             filled = []
             if source.fallback:
                 filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
