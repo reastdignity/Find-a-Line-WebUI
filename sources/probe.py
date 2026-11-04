@@ -179,7 +179,7 @@ def _grid(source: Source):
 def _first_url(layer: Layer, tile) -> Optional[str]:
     url = layer.tile_url(tile)
     if isinstance(layer, GridTiles) and url:
-        url = f"{url}/{grid_tile_name(*tile)}"  # tile_url gives the base (a host or the mirror)
+        url = f"{url}/{grid_tile_name(*tile[1:])}"  # tile_url gives the base (a host or the mirror); (res, i, j)
     return url
 
 

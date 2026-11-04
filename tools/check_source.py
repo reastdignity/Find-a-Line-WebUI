@@ -280,7 +280,7 @@ def _sources_of(layer: src.Layer, tile) -> Optional[List[str]]:
         return [url for _, url, _ in tile.files]
     if isinstance(layer, src.GridTiles):
         base = layer.tile_url(tile)
-        return [f"{base}/{src.grid_tile_name(*tile)}"] if base else None
+        return [f"{base}/{src.grid_tile_name(*tile[1:])}"] if base else None  # a tile (res, i, j)
     url = layer.tile_url(tile)
     return [url] if url else None
 
