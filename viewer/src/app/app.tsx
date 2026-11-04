@@ -1,4 +1,4 @@
-// The app (python findaline.py web): one of the interfaces of ui/choice.ts (?ui=b|c|d, D the default, or a
+// The app (python findaline.py web): one of the interfaces of ui/choice.ts (?ui=b|c|d, C the default, or a
 // demo of the kit), with the beta notice and Report a problem around it; the browser's time zone sent once
 // per browser session on the public site (timeZone.ts).
 

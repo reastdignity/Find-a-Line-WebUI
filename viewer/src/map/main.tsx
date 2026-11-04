@@ -1,15 +1,16 @@
 // A run's own map (map.html, from disk, from the app's server or a share link): the result as the app
-// shows it (result/view/RunOnMap). map.html loads this bundle after its data (data.js:
-// window.FINDALINE_RUN) and the list of runs (../runs.js: window.FINDALINE_RUNS, none on a share
-// link); the lines of other runs come from their lines.js (Compare). The selected line is the hash,
-// #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
+// shows it by default (result/view/ResultColumns: C's columns, on phones a map with a sheet). map.html
+// loads this bundle after its data (data.js: window.FINDALINE_RUN) and the list of runs (../runs.js:
+// window.FINDALINE_RUNS, none on a share link); the lines of other runs come from their lines.js
+// (Compare). The selected line is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied
+// link opens it.
 
 import "../leaflet";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
 import type { ResultModel } from "../result/model";
-import { RunOnMap } from "../result/view/RunOnMap";
+import { ResultColumns } from "../result/view/ResultColumns";
 import type { BackAction } from "../result/view/ResultWorkspace";
 import { DESKTOP, Screen, useMedia } from "../ui/components";
 import { storedTheme } from "../ui/choice";
@@ -43,8 +44,8 @@ function RunMap({data}: {data: RunData}) {
   const others = (window.FINDALINE_RUNS || []).some((r) => r.id !== data.run.id && r.has_lines);
   const show = others ? undefined : (["measure", "share", "download"] as const).slice();
   return <Screen theme={storedTheme()}>
-    <RunOnMap data={data} runId={data.run.id} line={route.line} nav={route.nav} wide={wide} back={backOf(data.run.id)}
-              hashOf={hashOf} linkOf={linkOf} base="../" folder="" show={show} />
+    <ResultColumns data={data} runId={data.run.id} line={route.line} nav={route.nav} wide={wide} back={backOf(data.run.id)}
+                   hashOf={hashOf} linkOf={linkOf} base="../" folder="" show={show} />
   </Screen>;
 }
 

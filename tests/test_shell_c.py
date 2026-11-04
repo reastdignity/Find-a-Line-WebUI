@@ -232,9 +232,9 @@ run({
   },
   select(next) {
     $$(".c-col-list .r-rows > .r-spot > .r-row")[0].click();
-    wait(() => $(".c-col-details .r-dtitle") && $(".c-col-details .fal-profile-title"), () => {
+    wait(() => $(".c-col-details .r-dtitle") && $(".c-dock-slot .fal-profile-title"), () => {
       const model = window.FINDALINE_RESULT.model;
-      result.selected = [text(".c-col-details .r-eyebrow"), text(".c-col-details .fal-profile-title"),
+      result.selected = [text(".c-col-details .r-eyebrow"), text(".c-dock-slot .fal-profile-title"),
                          decodeURIComponent(location.hash) === `#run=${SMALL}&line=${model.lineLink(model.selected.line)}`];
       button("Next spot").click();
       later(() => {
@@ -301,7 +301,9 @@ run({
     });
   },
   link(next) {
-    location.href = COPIED[0];
+    // the copied link has no ?ui=, so it would load the page again (and this script with it): its hash only
+    result.copiedPage = COPIED[0].split("#")[0] === location.origin + location.pathname;
+    location.hash = COPIED[0].slice(COPIED[0].indexOf("#"));
     wait(() => $(".c-col-details .r-dtitle") && window.FINDALINE_RESULT, () => {
       const model = window.FINDALINE_RESULT.model;
       result.linked = model.lineLink(model.selected.line);
@@ -325,9 +327,10 @@ def test_shell_c_desktop(data, tmp_path):
     """Home: the runs as cards, the small run's mini map with its lines, the big one's box only (its lines.js not
     loaded); New search starts with "Typical highline", Start is enabled after the estimate and returns home
     with the new card highlighted, which runs (progress) and turns done with its run; the card opens the
-    result in three columns sorted by clearance, a row selects its line (details, profile, the hash),
-    ‹ › and a filter chip; a favourite shows in home's aside; Back and Forward; the copied link opens the
-    line; Edit & run again opens the form with the job's request; no CSP violations."""
+    result in three columns sorted by clearance, a row selects its line (details, the profile in its card over the
+    map, the hash),
+    ‹ › and a filter chip; a favourite shows in home's aside; Back and Forward; the copied link (without ?ui=)
+    opens the line; Edit & run again opens the form with the job's request; no CSP violations."""
     import urllib.parse
     page = stub_page(data, "ctest", DESKTOP_SCRIPT % {"big": BIG, "small": SMALL})
     with _server(data) as port:
@@ -352,6 +355,7 @@ def test_shell_c_desktop(data, tmp_path):
     assert after < before and any(c.startswith("Clearance ≥") for c in chips) and r["cleared"] == before, r
     assert r["favourite"] == [1, True], r
     assert r["copied"].endswith(f"#run={SMALL}&line=" + urllib.parse.quote(r["favLine"], safe="")), r
+    assert "ui=" not in r["copied"] and r["copiedPage"], r  # the reader's interface opens it
     assert r["aside"][0] == 1 and r["aside"][1].startswith(f"#run={SMALL}&line="), r
     assert r["back"][0] == f"#run={SMALL}&line={r['favLine']}" and r["back"][1] == r["favLine"], r
     assert r["forward"] == "#home" and r["linked"] == r["favLine"], r
@@ -432,6 +436,171 @@ def test_shell_c_phone(data, tmp_path):
     assert r["newSearch"] == {"bar": True, "scrolls": True, "nav": False, "overflow": False}, r
     assert r["sheet"] == [True, False, False, False], r
     assert r["peek"].startswith("Spot 1 of ") and r["stepped"].startswith("Spot 2 of ") and not r["after"], r
+    assert r["csp"] == []
+
+
+def add_credits(data_dir, run_id: str):
+    """The run's data.js with the credits of a source (a run of an elevation file has none)."""
+    path = os.path.join(str(data_dir), "runs", run_id, "data.js")
+    with open(path, encoding="utf-8") as f:
+        data = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))
+    data["attribution"] = [{"data": "FABDEM V1-2", "attribution": "FABDEM V1-2 © University of Bristol",
+                            "licence": "CC BY-NC-SA 4.0", "url": "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+                            "notice": ""}]
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("window.FINDALINE_RUN = " + json.dumps(data) + ";\n")
+
+
+# The map of a result: the points of its lines, what lies at a point, a click there as a browser sends it
+MAP_JS = """
+const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
+const map = () => window.FINDALINE_MAP, view = () => window.FINDALINE_RESULT.view;
+const box = () => map().getContainer().getBoundingClientRect();
+const point = (lat, lon) => map().layerPointToContainerPoint(map().project([lat, lon]).subtract(map().getPixelOrigin()));
+const drawn = () => {
+  const m = model(), sel = m.selected && m.selected.group, out = [];
+  m.groups.forEach((g) => (g === sel ? g.members : [m.shownOf(g)]).forEach((l) => out.push({l, g})));
+  return out;
+};
+const free = (p) => {
+  const el = document.elementFromPoint(box().left + p.x, box().top + p.y);
+  return !!el && el.tagName === "CANVAS" && !!el.closest(".leaflet-overlay-pane");
+};
+const click = (p) => {
+  const x = box().left + p.x, y = box().top + p.y;
+  document.elementFromPoint(x, y).dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, clientX: x, clientY: y, view: window}));
+};
+const selectedIs = (g) => !!model().selected && model().selected.group === g;
+/** Zoomed out, a point where several spots lie about as near (in the map's free part): [the point, the spots near it]. */
+const crowded = (zoom) => {
+  map().setZoom(zoom, {animate: false});
+  for (const {l} of drawn()) {
+    const p = point((l.lat1 + l.lat2) / 2, (l.lon1 + l.lon2) / 2), q = {x: Math.round(p.x), y: Math.round(p.y)};
+    if (!free(q)) continue;
+    const near = view().near(map().containerPointToLatLng([q.x, q.y]), 8);
+    if (near.length > 1 && near[1].px <= near[0].px + 3) return [q, near];
+  }
+  return [null, []];
+};
+"""
+
+EXTRAS_SCRIPT = MAP_JS + """
+const SMALL = "%(small)s";
+const rect = (s) => $(s).getBoundingClientRect();
+run({
+  open(next) { wait(() => model() && map() && $(".c-col-list .r-rows .r-row") && $(".u-credits"), () => {
+    result.zoom = map().getZoom();
+    result.credits = {text: text(".leaflet-control-attribution"), toggle: getComputedStyle($(".u-credits-toggle")).display,
+                      links: $$(".leaflet-control-attribution a").map((a) => a.getAttribute("href"))};
+    result.actions = $$(".c-result-top .r-actions > *").map((b) => b.textContent.trim());
+    next();
+  }); },
+  card(next) {
+    $$(".c-col-list .r-rows > .r-spot > .r-row")[0].click();
+    // once the card's new size was observed, the attribution and the scale above it
+    const above = () => rect(".leaflet-bottom.leaflet-right").bottom <= rect(".c-dock-slot > .r-dock").top + 1;
+    const settled = (then, tries = 25) => above() || !tries ? then() : later(() => settled(then, tries - 1), 200);
+    wait(() => $(".c-dock-slot .fal-profile-title") && $(".c-col-details .r-dtitle"), () => settled(() => {
+      const col = rect(".c-col-map"), card = rect(".c-dock-slot > .r-dock"), m = model();
+      result.card = {inDetails: !!$(".c-col-details .r-dock"),
+                     insets: [card.left - col.left, col.right - card.right, col.bottom - card.bottom].map(Math.round),
+                     attributionAbove: rect(".leaflet-bottom.leaflet-right").bottom <= card.top + 1,
+                     scaleAbove: rect(".leaflet-bottom.leaflet-left").bottom <= card.top + 1};
+      result.view3d = [($(".c-col-details .r-view3d") || {getAttribute: () => ""}).getAttribute("href"),
+                       "/view3d#run=" + encodeURIComponent(SMALL) + "&line=" + encodeURIComponent(m.lineLink(m.selected.line))];
+      next();
+    }));
+  },
+  choose(next) {
+    model().select(null);
+    later(() => {
+      const [at, near] = crowded(result.zoom - 2);
+      result.crowd = !!at;
+      click(at);
+      later(() => {
+        const rows = $$(".r-choose [role=option]"), panel = rect(".r-choose"), col = rect(".c-col-map");
+        result.list = [rows.length, !$(".r-choose-dock"), panel.left >= col.left && panel.right <= col.right
+                       && panel.top >= col.top && panel.bottom <= col.bottom, !!document.activeElement.closest(".r-choose")];
+        rows[1].click();
+        later(() => { result.chosen = [selectedIs(near[1].group), !$(".r-choose")]; next(); });
+      });
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_result_from_d(data, tmp_path):
+    """What C's result took from D: the run's data credits in the map's attribution (not folded on a desktop) with
+    the link to ATTRIBUTION.txt; the profile in a card over the bottom of the map (12 px from its edges, not in the
+    details), the attribution and the scale above it; the line's 3D view; where spots lie about as near, a click
+    lists them next to it within the map, and a row selects its spot; no CSP violations."""
+    add_credits(data, SMALL)
+    page = stub_page(data, "cextras", EXTRAS_SCRIPT % {"small": SMALL})
+    with _server(data) as port:
+        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-extras")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert "FABDEM V1-2 © University of Bristol" in r["credits"]["text"] and r["credits"]["toggle"] == "none", r
+    assert f"/runs/{SMALL}/ATTRIBUTION.txt" in r["credits"]["links"], r
+    assert "Compare" in r["actions"], r
+    assert r["card"] == {"inDetails": False, "insets": [12, 12, 12], "attributionAbove": True, "scaleAbove": True}, r
+    assert r["view3d"][0] == r["view3d"][1], r
+    assert r["crowd"] and r["list"][0] >= 2 and r["list"][1:] == [True, True, True], r
+    assert r["chosen"] == [True, True], r
+    assert r["csp"] == []
+
+
+PHONE_EXTRAS_SCRIPT = MAP_JS + """
+const SMALL = "%(small)s";
+run({
+  open(next) { wait(() => model() && map() && $(".u-sheet .r-rows .r-row") && $(".u-credits-toggle"), () => {
+    result.zoom = map().getZoom();
+    result.actions = $$(".c-phone-top .r-actions button").map((b) => b.getAttribute("aria-label") || b.textContent.trim());
+    result.credits = {toggle: getComputedStyle($(".u-credits-toggle")).display, label: text(".u-credits-toggle"),
+                      folded: getComputedStyle($(".u-credits")).display};
+    next();
+  }); },
+  choose(next) {
+    const [at, near] = crowded(result.zoom - 2);
+    result.crowd = !!at;
+    click(at);
+    later(() => {
+      const panel = $(".r-choose");
+      result.list = [$$(".r-choose [role=option]").length, !!panel && panel.classList.contains("r-choose-dock")];
+      $$(".r-choose [role=option]")[1].click();
+      later(() => { result.chosen = [selectedIs(near[1].group), !$(".r-choose")]; next(); });
+    });
+  },
+  view3d(next) {
+    wait(() => $(".u-sheet .r-view3d"), () => {
+      const m = model();
+      result.view3d = [$(".u-sheet .r-view3d").getAttribute("href"),
+                       "/view3d#run=" + encodeURIComponent(SMALL) + "&line=" + encodeURIComponent(m.lineLink(m.selected.line))];
+      next();
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_phone_from_d(data, tmp_path):
+    """C's result on a phone with what it took from D: no Compare in the top bar (Measure, Download; Share on the
+    public site), the data credits folded behind their "Data credits" button, the choice of near spots docked over
+    the sheet, the line's 3D view in the sheet; no CSP violations."""
+    add_credits(data, SMALL)
+    page = stub_page(data, "cphonex", PHONE_EXTRAS_SCRIPT % {"small": SMALL})
+    with _server(data) as port:
+        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-phonex", size="500,900")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert "Compare" not in r["actions"] and any(a.startswith("Measure") for a in r["actions"]), r
+    assert "Download" in r["actions"], r  # Share: on the public site only
+    assert r["credits"]["toggle"] != "none" and r["credits"]["label"] == "Data credits", r
+    assert r["credits"]["folded"] == "none", r
+    assert r["crowd"] and r["list"][0] >= 2 and r["list"][1], r
+    assert r["chosen"] == [True, True], r
+    assert r["view3d"][0] == r["view3d"][1], r
     assert r["csp"] == []
 
 

@@ -4,11 +4,11 @@
 // again and the run's actions on top, the panel on the right with the list and the selected line's
 // details, the profile docked at the bottom; on phones C's bottom navigation and B's sheet ("Spot k of
 // N" with ‹ ›). The selected line is kept in C's hash (#run=<id>&line=…, replaced), and a copied link
-// opens it in D.
+// (without ?ui=) opens it in whichever interface its reader uses.
 
 import { Button } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import { uiHref, type UiChoice } from "../../ui/choice";
+import { hrefWithoutUi, type UiChoice } from "../../ui/choice";
 import type { Line } from "../../types";
 import type { ResultModel } from "../../result/model";
 import { orthoForApp } from "../../result/load";
@@ -19,8 +19,8 @@ import "../c/c.css";
 
 const TRIES: UiChoice[] = ["b", "c"];
 
-/** The link "Copy link" gives: this page in D with the line's hash, whichever interface is remembered. */
-const linkOf = (model: ResultModel, l: Line) => location.origin + uiHref("d") + runHash(model.runOf(l), model.lineLink(l));
+/** The link "Copy link" gives: this page with the line's hash, without ?ui= (the reader's interface opens it). */
+const linkOf = (model: ResultModel, l: Line) => location.origin + hrefWithoutUi() + runHash(model.runOf(l), model.lineLink(l));
 /** The line's 3D view (web.py /view3d), with the hash of the run's page. */
 const view3dOf = (model: ResultModel, l: Line) => "/view3d" + runHash(model.runOf(l), model.lineLink(l));
 const back = {label: "Home", text: true, onClick: () => go("#home")};
