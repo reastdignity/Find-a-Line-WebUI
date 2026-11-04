@@ -12,9 +12,10 @@ export function shoreStyle(kind: ShoreKind, renderer?: L.Renderer): L.PathOption
           dashArray: kind === "surface" ? "4 3" : undefined, interactive: false, renderer};
 }
 
-/** The overlay of a run's shore: a polygon per segment. */
-export function shoreLayer(shore: Shore, renderer?: L.Renderer): L.LayerGroup {
-  const group = L.layerGroup();
+/** The overlay of a run's shore: a polygon per segment on a renderer of its own (an SVG pane that leaves the map
+ *  with the group, so a result's canvas and its clicks are not touched). */
+export function shoreLayer(shore: Shore, renderer: L.Renderer = L.svg({padding: 0.5})): L.LayerGroup {
+  const group = L.layerGroup([renderer]);
   for (const s of shore.segments) {
     L.polygon(s.ring.map(([lon, lat]) => [lat, lon] as [number, number]), shoreStyle(s.kind, renderer)).addTo(group);
   }
@@ -45,9 +46,8 @@ export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPositi
 
 /** Both on a map, when the run has a shore: the overlay (on, in `overlays` for the layer control under its name)
  *  and the control. */
-export function addShore(map: L.Map, shore: Shore | null | undefined, overlays: Record<string, L.Layer>,
-                         renderer?: L.Renderer): L.Control | null {
+export function addShore(map: L.Map, shore: Shore | null | undefined, overlays: Record<string, L.Layer>): L.Control | null {
   if (!hasShore(shore)) return null;
-  overlays[t("ui.shore.layer")] = shoreLayer(shore, renderer).addTo(map);
+  overlays[t("ui.shore.layer")] = shoreLayer(shore).addTo(map);
   return shoreControl(map, shore);
 }
