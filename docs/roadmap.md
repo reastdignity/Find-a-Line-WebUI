@@ -23,6 +23,7 @@ Planned features and the decisions already made for them. Nothing here is implem
 | Runs in public (stage 4) | Private to their owner, shared by an unguessable link (renewable, revocable); an admin can mark a run as a public demo. |
 | Orthophoto in public (stage 4) | Ordinary users get a cache limited per job; above the limit the map loads the orthophoto online. |
 | Own code or library (stage 4) | Popular, maintained libraries first (table under "Stage 4"); the job queue and the Nominatim cache stay our own. |
+| Shore faces (2026-11-04) | Where the terrain model has no data on a sea cliff's face and the surface model has, the face takes the surface model's heights, reached from the terrain's data edge downwards (`FACE_TOLERANCE` 1.5 m), and the surface model's sea surface is the exact shoreline (A + C of the analysis; not a guessed slope, not FABDEM, not a new source); ships, moles and boulders stay at 0 m; such pixels are filled data, not water. |
 | Monitoring (2026-10-31) | Telegraf (a container with the host's network) → VictoriaMetrics → Grafana (opened through an SSH tunnel only), alerts to ntfy, statistics kept without a time limit, aggregates only; users by country from the browser's time zone and from the searched areas; the area searched shown to each user and its total on the sign-in page ([monitoring.md](monitoring.md)). |
 
 ## Order
@@ -93,6 +94,25 @@ Rules for every step:
    - *To do*: a default threshold from the resolution (a rule like the first version's, or measured on more
      places and on FABDEM itself), the form's hint for coarse sources, and perhaps longer default lines at 30 m;
      the regression set's 30 m rows (R11, R12) re-baselined in the same commit.
+
+## Done: shore faces from the surface model (2026-11-04)
+- *What was seen*: in the 3D view a sea cliff of Gozo (Ta' Cenc, 36.018828, 14.246257) cut off sharply: a wall from the
+  terrain's last pixel (20-50 m) straight down to 0 m.
+- *Cause*: Malta's DTM 2018 has no data on the lower 5-15 m of its cliff faces (no ground returns), the DSM has it and
+  equals the terrain there (bare rock: within 1 m on 84% of the coast's pixels where both have data); the OSM coastline
+  runs 5-10 m inland along the cliff's top edge; `fill_water` set every pixel without terrain data within `--shore-buffer`
+  (20 m) of the mapped sea to 0 m and `fill_gaps` leaves that zone alone. Along the coasts of Malta, Gozo and Comino
+  (231 km, every cached tile): 202 cliff places with 26 526 pixels above 20 m set to 0 m (Dingli, Hal Far, Fomm ir-Rih,
+  Ta' Cenc, Dwejra, Ghasri, Xlendi, Sanap), and 57 ships, moles and rock platforms that must stay at 0 m.
+- *Options*: A the face from the surface model; B a guessed slope from the data edge to the coastline; C the exact
+  shoreline from the surface model's sea surface; D `--shore-buffer 0` with FABDEM on the face; E a new source (the LiDAR
+  point cloud, EMODnet); F the 3D view alone drawing the surface model there.
+- *Decided* (the user, 2026-11-04): A + C. `sources.filling.fill_shore_from_surface` before `fill_water`: in the sea zone,
+  where the terrain has no data, the surface model's sea surface (`water_with_data` on it) stays for the sea fill and the
+  pixels above it reached from the terrain's data edge downwards (8 neighbours, each at most `FACE_TOLERANCE` 1.5 m above
+  the neighbour it is reached from) take the surface model's heights; they are filled data (`filled_m`, `Data.covered`), not water, and no seam
+  (the anchors at a cliff's top edge stand next to its face: as a seam they were lost, R15 606 -> 1 lines); the 3D patch takes the run's surface model for this (no obstacle surface). No migration: runs
+  from before keep their files, a profile or patch computed again follows the new rule.
 
 ## Done: the surface model above the terrain on steep rock (2026-11-02)
 - *What was seen*: on bare rock nearly every line was marked as over trees or buildings (Cwm Silyn all 2854 lines,
