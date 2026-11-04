@@ -33,8 +33,8 @@ as obstacles: A<r> (the envelope of r pixels, obstacles.is_obstacle, r = 1..10),
 (A1 with the band around steep terrain; radius 1 given, as the report of 2026-11-02 computed it
 while obstacles.RADIUS was 1), B<k> (a tolerance of k * res * tan(slope) + MIN_HEIGHT),
 C<deg> (none on terrain at least that steep), D<k> (none within k steps of an anchor), F (A1
-where CHMv2 sees a tree within a pixel or the terrain is gentler than GENTLE) and F-trees (A1
-where CHMv2 sees a tree). A line stays marked while one of its pixels does. The production
+where CHMv2 sees something growing, SHRUB m within a pixel, or the terrain is gentler than
+GENTLE) and F-trees (A1 where CHMv2 sees that). A line stays marked while one of its pixels does. The production
 kernel checks the counts: linesearch.evaluate_lines over the raw surface gives the captured
 clearances, over obstacles.obstacle_surface of radius 1 and 2 the marks of A1 and A2.
 
