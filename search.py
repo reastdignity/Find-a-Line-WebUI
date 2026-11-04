@@ -738,13 +738,14 @@ def work_bytes(plan: Plan) -> int:
     the terrain (nmt.npy) and surface models (nmpt.npy), the surface of the obstacles (obstacles.npy),
     a slope file (slope.npy) and each fallback's terrain and surface (gap_nmt.npy, gap_nmpt.npy,
     gap1_nmt.npy ...: made only where there are gaps, counted always); uint8 the water body mask
-    (wbm.npy); bool the water (water.npy) and the pixels filled by each fallback (filled.npy,
-    filled1.npy ...) and by each neighbour (joined0.npy ..., joined.npy). The neighbours' own grids
-    (border0_nmt.npy ...) cover the gaps at the border only and are not counted."""
+    (wbm.npy); bool the water (water.npy), the shore faces from the surface model with the gaps
+    (covered.npy, with a surface model and the water filled) and the pixels filled by each fallback
+    (filled.npy, filled1.npy ...) and by each neighbour (joined0.npy ..., joined.npy). The neighbours'
+    own grids (border0_nmt.npy ...) cover the gaps at the border only and are not counted."""
     p, source = plan.params, plan.source
     surface = bool(plan.nmpt)
     floats = 1 + surface + (surface and bool(plan.obstacles)) + bool(p.slope_file)
-    masks = _water_mask(plan) + (p.water == "fill")
+    masks = _water_mask(plan) + (p.water == "fill") + (p.water == "fill" and surface)
     if _fills_gaps(plan):
         floats += len(source.fallbacks) * (1 + surface)
         masks += len(source.fallbacks) + (len(source.neighbours) + 1 if source.neighbours else 0)
@@ -1001,6 +1002,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                     os.replace(face_path, covered_path)
                     if filled_path is not None:
                         src.filling._or_rows(covered_path, filled_path, rows or grid.height)
+                else:
+                    src.filling.remove_grid(face_path)  # an empty mask: nothing to count
             if surface_path and plan.obstacles:
                 if rows is None:
                     bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
