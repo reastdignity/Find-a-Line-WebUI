@@ -63,23 +63,52 @@ def _osm_coastline(grid: Grid, cache_dir: str, update: Optional[str]):
             if isinstance(f["geometry"], (LineString, MultiLineString))]
 
 
+def _clear(out: np.ndarray, rows: int):
+    """A memory-mapped mask set False, strip by strip."""
+    for r0 in range(0, out.shape[0], rows):
+        out[r0:r0 + rows] = False
+
+
+def _faces(lines, grid: Grid) -> list:
+    """The parts of the grid's frame split along the coastline."""
+    frame = box(*grid.bounds)
+    faces = [face.intersection(frame) for face in polygonize(unary_union(lines + [frame.exterior]))]
+    return [face for face in faces if not face.is_empty]
+
+
 def _sea_from_coastline(lines, grid: Grid, copernicus_sea: np.ndarray) -> np.ndarray:
     """Split the area along the coastline and keep the parts the Copernicus mask calls sea.
 
     The coastline gives the exact shore; the coarse mask only decides which side
     of it is water, which it does reliably away from the shore.
     """
-    frame = box(*grid.bounds)
-    faces = list(polygonize(unary_union(lines + [frame.exterior])))
     sea = []
-    for face in faces:
-        face = face.intersection(frame)
-        if face.is_empty:
-            continue
+    for face in _faces(lines, grid):
         inside = _rasterize([face], grid)
         if inside.any() and copernicus_sea[inside].mean() > 0.5:
             sea.append(face)
     return _rasterize(sea, grid)
+
+
+def _sea_from_coastline_rows(lines, grid: Grid, copernicus_rows, out: np.ndarray, rows: int) -> np.ndarray:
+    """_sea_from_coastline into out (a boolean grid, memory-mapped): each face burned into out in
+    turn (sources.filling.rasterize_into), its pixels and those the mask calls sea counted strip
+    by strip (the same test: their share over 0.5), then the sea faces burned into out."""
+    from sources.filling import rasterize_into
+    sea = []
+    for face in _faces(lines, grid):
+        _clear(out, rows)
+        rasterize_into([face], grid, out)
+        pixels = inside_sea = 0
+        for r0 in range(0, grid.height, rows):
+            r1 = min(grid.height, r0 + rows)
+            inside = np.asarray(out[r0:r1])
+            pixels += int(inside.sum())
+            inside_sea += int(np.asarray(copernicus_rows(r0, r1), dtype=bool)[inside].sum())
+        if pixels and inside_sea / pixels > 0.5:
+            sea.append(face)
+    _clear(out, rows)
+    return rasterize_into(sea, grid, out)
 
 
 WORLD_SHAPEFILE = os.path.join("water-polygons-split-4326", "water_polygons.shp")
@@ -213,3 +242,48 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
         return sea, "OpenStreetMap coastline (Overpass or extracts)", None
 
     return copernicus_sea, "Copernicus water body mask", None
+
+
+def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update: Optional[str],
+                  out: np.ndarray, rows: int) -> Tuple[np.ndarray, str, Optional[str]]:
+    """sea_mask in strips of `rows` rows into out (a boolean grid of the grid, memory-mapped):
+    copernicus_rows(r0, r1) gives the rows [r0, r1) of the Copernicus mask's sea. Returns (out,
+    description of the source, warning or None): the same pixels and texts (the mask is out in
+    every case)."""
+    strips = [(r0, min(grid.height, r0 + rows)) for r0 in range(0, grid.height, rows)]
+
+    def copernicus() -> np.ndarray:
+        for r0, r1 in strips:
+            out[r0:r1] = copernicus_rows(r0, r1)
+        return out
+
+    if not any(np.asarray(copernicus_rows(r0, r1)).any() for r0, r1 in strips):
+        return copernicus(), "no sea in the area", None  # inland (sea_mask)
+    downloaded = mode == "overpass" and world_file(cache_dir) is not None
+    if mode == "world" or downloaded:
+        from sources.filling import rasterize_into
+        shapefile = world_polygons(cache_dir, update)
+        progress.compute.start("sea mask (world file)", 1, unit="step")
+        _clear(out, rows)
+        rasterize_into(_world_water(shapefile, _grid_bbox_wgs84(grid), grid.crs), grid, out)
+        progress.compute.update(1)
+        progress.compute.finish()
+        return out, "OpenStreetMap water polygons (world file)", None
+    if mode == "overpass":
+        try:
+            lines = _osm_coastline(grid, cache_dir, update)
+        except (requests.RequestException, ValueError) as e:
+            warning = Note(f"OpenStreetMap coastline could not be downloaded from Overpass ({cache.clean_error(e)}). "
+                           "Using the Copernicus water body mask instead: its shoreline is only accurate "
+                           "to about 70 m (90% of the coast), so lines near the shore may be missed or "
+                           "land next to the sea may be taken for water. Run again later, or use "
+                           "--coastline world.", "coast_fallback")
+            return copernicus(), "Copernicus water body mask (fallback)", warning
+        if not lines:
+            return copernicus(), "no coastline nearby (OpenStreetMap)", None
+        progress.compute.start("sea mask (coastline)", 1, unit="step")
+        _sea_from_coastline_rows(lines, grid, copernicus_rows, out, rows)
+        progress.compute.update(1)
+        progress.compute.finish()
+        return out, "OpenStreetMap coastline (Overpass or extracts)", None
+    return copernicus(), "Copernicus water body mask", None

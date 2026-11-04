@@ -32,41 +32,51 @@ NODATA = 255
 
 
 def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label: str,
-                  update: Optional[str] = None, download: bool = True, quiet: bool = False) -> str:
+                  update: Optional[str] = None, download: bool = True, quiet: bool = False,
+                  rows: Optional[int] = None) -> str:
     """Download what is missing (unless done already: download False) and bring the layer
     onto the working grid (.npy). quiet: no line about its tiles without data (a neighbour
-    filling the gaps at a border has none beyond it)."""
+    filling the gaps at a border has none beyond it). rows: the mosaic in strips (build_mosaic)."""
     if download:
         layer.download(grid, cache_dir, update, label)
     tiles = (layer.tiles(grid) or []) if layer.folder and not quiet else []  # local files are not in the cache
     empty = sum(cache.state(cache_dir, layer.tile_path(cache_dir, t)) == "missing" for t in tiles)
     if empty:  # normal over the sea; on land a sign of a lost tile (see the regression tests)
         print(f"{layer.description}: {empty} of {len(tiles)} tiles without data (the service has none there)")
-    build_mosaic(layer.files(grid, cache_dir), grid, out_path, label, shift=layer.shift)
+    build_mosaic(layer.files(grid, cache_dir), grid, out_path, label, shift=layer.shift, rows=rows)
     used_data.append(layer.used(grid, cache_dir))
     return out_path
 
 
 def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
-                 categorical: bool = False, shift: Tuple[float, float] = (0.0, 0.0)) -> np.ndarray:
+                 categorical: bool = False, shift: Tuple[float, float] = (0.0, 0.0),
+                 rows: Optional[int] = None) -> np.ndarray:
     """Stitch rasters into a memory-mapped array covering the grid.
 
     Tiles already on the grid are copied; others are reprojected, averaging when
     the data is finer than the grid and interpolating bilinearly when it is coarser
     (categorical rasters, such as a water mask, use the nearest value instead: their
     mosaic is uint8, NODATA where no raster has a value, the categories below it).
+    rows: a raster reprojected onto more rows of the grid than that is warped in strips of
+    that many rows (the area of a tiled search: no temporary of the whole grid). Bilinear and
+    nearest give the same values as the whole; `average` may differ by about a millimetre
+    at a strip's edge (GDAL warps a large part in chunks of its own anyway).
     """
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8 if categorical else np.float32,
                                        shape=(grid.height, grid.width))
-    mosaic[:] = NODATA if categorical else np.nan
+    if rows is None:
+        mosaic[:] = NODATA if categorical else np.nan
+    else:
+        for r0 in range(0, grid.height, rows):
+            mosaic[r0:r0 + rows] = NODATA if categorical else np.nan
     progress.compute.start(f"stitching {label}", len(files), unit="tile")
     for path in files:
         progress.compute.update(1)
         # The cached files' blocks decoded on WARP_THREADS (GDAL reads it when the file is opened;
         # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http)
         with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS)), rio.open(path) as src:
-            _place(src, grid, mosaic, categorical, shift)
+            _place(src, grid, mosaic, categorical, shift, rows)
     mosaic.flush()
     progress.compute.finish()
     return mosaic
@@ -94,7 +104,7 @@ def _put(target: np.ndarray, values: np.ndarray, categorical: bool):
 
 
 def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
-           shift: Tuple[float, float] = (0.0, 0.0)):
+           shift: Tuple[float, float] = (0.0, 0.0), rows: Optional[int] = None):
     clean = (lambda band: band) if categorical else (lambda band: _clean(band, copy=False))
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src.crs or grid_crs
@@ -127,22 +137,43 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
         resampling = Resampling.nearest
     else:
         resampling = Resampling.average if src_res < grid.res * 0.75 else Resampling.bilinear
+    if rows is None or r1 - r0 <= rows:
+        # Read only the part of the raster under the grid (plus a margin for resampling)
+        values = _warp(src, src_crs, grid, moved, shift, clean, (r0, r1, c0, c1), grid.bounds, resampling)
+        _put(mosaic[r0:r1, c0:c1], values, categorical)
+        return
+    for s0 in range(r0, r1, rows):  # strips of the part: the raster read under each strip
+        s1 = min(r1, s0 + rows)
+        bounds = (grid.left + c0 * grid.res, grid.top - s1 * grid.res, grid.left + c1 * grid.res,
+                  grid.top - s0 * grid.res)
+        values = _warp(src, src_crs, grid, moved, shift, clean, (s0, s1, c0, c1), bounds, resampling)
+        _put(mosaic[s0:s1, c0:c1], values, categorical)
+
+
+def _warp(src, src_crs, grid: Grid, moved: Affine, shift: Tuple[float, float], clean, part: Tuple[int, int, int, int],
+          bounds: Tuple[float, float, float, float], resampling: Resampling) -> np.ndarray:
+    """The raster reprojected onto part (r0, r1, c0, c1) of the grid, float32 with NaN: the raster
+    read under bounds (of the grid's CRS) plus a margin for the resampling."""
+    r0, r1, c0, c1 = part
     window_transform = from_origin(grid.left + c0 * grid.res, grid.top - r0 * grid.res, grid.res, grid.res)
     values = np.full((r1 - r0, c1 - c0), np.nan, dtype=np.float32)
-
-    # Read only the part of the raster under the grid (plus a margin for resampling)
-    area = transform_bounds(grid.crs, src_crs, *grid.bounds)
+    area = transform_bounds(grid.crs, src_crs, *bounds)
     area = (area[0] - shift[0], area[1] - shift[1], area[2] - shift[0], area[3] - shift[1])
     margin = 3 * max(abs(src.res[0]), abs(src.res[1]))
     window = from_bounds(area[0] - margin, area[1] - margin, area[2] + margin, area[3] + margin,
                          src.transform).round_offsets().round_lengths()
-    window = window.intersection(rio.windows.Window(0, 0, src.width, src.height))
+    try:
+        window = window.intersection(rio.windows.Window(0, 0, src.width, src.height))
+    except rio.errors.WindowError:  # a strip the raster does not reach: nothing from it
+        return values
+    if window.width <= 0 or window.height <= 0:
+        return values
     band = clean(_read_band(src, window))
     reproject(band, values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
               src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
     del band
-    _put(mosaic[r0:r1, c0:c1], values, categorical)
+    return values
 
 
 def load_slope_file(slope_file: str, grid: Grid, out_path: str) -> str:
