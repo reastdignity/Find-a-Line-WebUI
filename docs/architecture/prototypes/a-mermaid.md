@@ -41,7 +41,7 @@ flowchart TD
     subgraph compute["Compute phase: search_lines"]
         S1["Step 1/5 downloading elevation data<br/>prepare_data: mosaics, sea mask, shore from the surface,<br/>water and gaps filled, obstacles, terrain statistics"]
         T{"one grid or tiles?<br/>(tile_core_size from the memory budget)"}
-        S2["Step 2/5 finding significant slopes<br/>_anchors: slope ≥ threshold (60°), elevation band,<br/>prominence and drop, ANCHORS_MAX"]
+        S2["Step 2/5 finding significant slopes<br/>_anchors: slope ≥ slope_threshold (45° by default), elevation band,<br/>prominence and drop, ANCHORS_MAX"]
         S3["Step 3/5 evaluating anchor pairs<br/>find_valid_lines: free directions → pairs →<br/>_line_ok → _evaluate; early check at lines_max / memory"]
         S4["Step 4/5 coordinates, groups and profiles<br/>line_coordinates, group_lines, line_profiles"]
         TL["per tile: _tile_data → _lines(core) → tiles/k.npz<br/>then LineTable.join, groups of all tiles,<br/>profiles at tile edges"]
