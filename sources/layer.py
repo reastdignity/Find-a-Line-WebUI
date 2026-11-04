@@ -19,6 +19,7 @@ from .net import _part, host_slot, tile_lock
 from .credit import Credit
 
 DOWNLOAD_THREADS = 8  # tiles of one download (all its layers) at a time; each connection is slow
+SERIAL_SQUARE = 4  # blocks a side of the squares of a serial layer, one task of the pool each
 VALID_MIN = -500  # metres; anything lower is treated as "no data"
 
 
@@ -205,12 +206,32 @@ def estimate_layers(layers: Sequence[Layer], grid: Grid, cache_dir: str,
     return each_layer(layers, lambda layer: layer.estimate(grid, cache_dir, update))
 
 
+def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
+    """The tiles of a layer whose index makes block requests (sources/readers/windows.py) in squares of size_m
+    on their CRS from 0, by the centres of their requests: each square's tiles in their order, the squares in the
+    order of their first tile."""
+    found: Dict[tuple, list] = {}
+    for tile in tiles:
+        r = layer.index.request(tile)
+        x = r.transform.c + r.transform.a * r.shape[1] / 2
+        y = r.transform.f + r.transform.e * r.shape[0] / 2
+        found.setdefault((str(r.crs), math.floor(x / size_m), math.floor(y / size_m)), []).append(tile)
+    return list(found.values())
+
+
 def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: str,
-                    update: Optional[str] = None):
+                    update: Optional[str] = None, group_m: Optional[float] = None):
     """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
     so a slow tile of one layer does not hold the others: one progress bar for all their tiles,
     a line per layer of how many it has. Each tile under its lock and a slot of its host
-    (Layer._download_and_record), skipped when another search downloaded it meanwhile."""
+    (Layer._download_and_record), skipped when another search downloaded it meanwhile.
+
+    The tiles of a layer reading range by range (`serial`) go to the pool in squares of SERIAL_SQUARE x
+    SERIAL_SQUARE, one task each, its tiles one after another: a tile shared by neighbours is then found in
+    GDAL's cache of ranges. With group_m (the country prefetch), the tiles of the layers read by windows of big
+    files (a layer whose `groups` is true) are downloaded in squares of group_m, each a task that reads every
+    file once over its tiles (ComposedLayer._download_group): the same cached files with a fraction of the
+    bytes and requests."""
     # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
     # seconds), each layer once; the lines in the order of the layers
     distinct = list({id(layer): layer for layer, _ in layers}.values())
@@ -229,16 +250,50 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
         received = 0
         pool = ThreadPoolExecutor(max_workers=DOWNLOAD_THREADS)
         try:
-            futures = [pool.submit(layer._download_and_record, tile, cache_dir, update, True, roles[id(layer)])
-                       for layer, tile in todo]
+            futures = {}
+            for layer, tiles, kind in _tasks(todo, group_m):
+                if kind == "group":
+                    future = pool.submit(layer._download_group, tiles, cache_dir, update, roles[id(layer)])
+                else:  # a tile, or a square of a serial layer's: one after another
+                    future = pool.submit(_download_each, layer, tiles, cache_dir, update, roles[id(layer)])
+                futures[future] = len(tiles)
             for future in as_completed(futures):
                 received += future.result()
-                progress.download.update(1, MB=f"{received / 1e6:.0f}")
+                progress.download.update(futures[future], MB=f"{received / 1e6:.0f}")
         finally:
             pool.shutdown(cancel_futures=True)  # after an error: the tiles not started yet are not
         progress.download.finish(f"{received / 1e6:.0f} MB")
     for layer, _ in layers:
         layer.downloaded(grid, cache_dir)
+
+
+def _tasks(todo: Sequence[Tuple[Layer, Any]], group_m: Optional[float]) -> List[Tuple[Layer, list, str]]:
+    """The tasks of download_layers' pool: (layer, tiles, kind), "tile" one tile each, "square" a serial layer's
+    squares of SERIAL_SQUARE blocks, "group" with group_m the squares of the layers that read in groups (after
+    the tiles' tasks, each layer's in the order of todo)."""
+    tasks, by_layer = [], {}
+    for layer, tile in todo:
+        if group_m and getattr(layer, "groups", False):
+            kind = "group"
+        elif getattr(layer, "serial", False):
+            kind = "square"
+        else:
+            tasks.append((layer, [tile], "tile"))
+            continue
+        by_layer.setdefault((id(layer), kind), (layer, kind, []))[2].append(tile)
+    for layer, kind, tiles in by_layer.values():
+        if kind == "group":
+            size = group_m
+        else:
+            r = layer.index.request(tiles[0])
+            size = abs(r.transform.a) * r.shape[1] * SERIAL_SQUARE
+        tasks += [(layer, square, kind) for square in squares(layer, tiles, size)]
+    return tasks
+
+
+def _download_each(layer: Layer, tiles: Sequence, cache_dir: str, update: Optional[str], role: str) -> int:
+    """Layer._download_and_record of the tiles, one after another."""
+    return sum(layer._download_and_record(tile, cache_dir, update, True, role) for tile in tiles)
 
 
 def _hemi(value: int, positive: str, negative: str, digits: int) -> str:

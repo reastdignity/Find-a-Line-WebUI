@@ -120,9 +120,12 @@ LIDARBC_CREDIT = Credit("LidarBC DEM / DSM 1 m (GeoBC, Province of British Colum
 
 
 def _lidarbc(kind: str, layers: Tuple[int, int], description: str) -> LidarBcBlocks:
-    # Blocks of 1 km on the files' whole metres: a block of a strip file reads its rows whole (2-4 MB)
+    # Blocks of 1 km on the files' whole metres: a block of a strip file reads its rows whole (2-4 MB cached, about
+    # 35 MB read a km² of a 1:20 000 sheet); range by range in squares (serial) the neighbours find those rows in
+    # GDAL's cache: 559 -> 236 MB and 58 -> 28 s for 16 blocks at Fernie, 53 -> 48 MB and 19 -> 23 s for 9 blocks of
+    # 1:2 500 tiles at McIntyre Bluff (2026-11-04, docs/performance.md "Window reads")
     return LidarBcBlocks(description, LIDARBC_FS, layers, LIDARBC_BUCKET, f"lidarbc-{kind}", f"canada/lidarbc-{kind}",
-                         bytes_per_tile=4e6)
+                         bytes_per_tile=4e6, serial=True)
 
 
 # British Columbia in region boxes inside Canada's (they come first): the province west of 120° W (Haida Gwaii and

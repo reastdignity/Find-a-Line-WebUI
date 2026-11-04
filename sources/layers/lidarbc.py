@@ -137,14 +137,14 @@ class LidarBcBlocks(S3Blocks):
 
     def __init__(self, description: str, featureserver: str, layers: Sequence[int], bucket: str, prefix: str,
                  folder: str, native_res: float = 1.0, block_m: float = 1000, bytes_per_tile: float = 4e6,
-                 ttl_days: float = 30):
+                 ttl_days: float = 30, serial: bool = False):
         IndexedTiles.__init__(self, description, featureserver, prefix, folder, native_res, bytes_per_tile)
         self.featureserver, self.layers, self.bucket, self.block_m = featureserver, tuple(layers), bucket, block_m
         self.index_crs = BC_ALBERS  # unused: every item names its own CRS
         self.index = CachedIndex(description, LidarBcFiles(featureserver, layers, bucket),
                                  ComposedBlocks(folder, block_m, native_res), prefix, folder.split("/")[0],
                                  ttl_days=ttl_days)
-        self.reader = Windows(description)
+        self.reader = Windows(description, serial=serial)
 
     def _box(self, lat: float, lon: float) -> Tuple[float, float, float, float]:
         raise NotImplementedError("LidarBcFiles lists by the FeatureServer's footprints")

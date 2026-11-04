@@ -17,6 +17,7 @@ first out. What limits it when many people queue jobs?
 | --- | --- |
 | `tools/perf_profile.py --out <dir> --name <n> [--cores N] -- <findaline options> --data-dir <scratch>` | Runs a search in its own process, follows the progress bars and samples CPU time and memory every 0.1 s: a table per stage (wall s, CPU s, cores busy, peak memory) and a timeline chart |
 | `tools/perf_download.py --out <dir> --osm-from cache/osm --threads 2 4 8 -- <findaline options>` | The download phase (`search.download_data`) on an empty cache (only the OSM themes and Nominatim answers copied), with `sources.layer.DOWNLOAD_THREADS` set |
+| `tools/perf_window_reads.py --out <dir> --source <id> --lat .. --lon .. --radius 800 --mode blocks --mode group=5000 ...` | The blocks of a layer read by windows of big remote files on an empty scratch cache, each mode in a child process: bytes and requests (GDAL's network statistics and our own range requests), seconds, peak memory, and what the files' internal tiles predict ("Window reads") |
 | `tools/perf_sqlite.py --out <dir> --jobs 1 4 8 16 --pages 30 [--burst]` | `jobs.sqlite` with the real `jobs.Jobs` under K phase processes, the worker, the quick lane and M open pages |
 | `tools/perf_profile.py ... --tracemalloc` | The same, with the peak of Python's heap per stage (numpy arrays included, memory-mapped grids not; several times slower) |
 | `tools/perf_lines_memory.py --call <capture>/call-<k> --out <dir> [--repo <checkout>]` | A call captured by `tools/perf_line_funnel.py` through steps 3, 4 and 5 by the code of a checkout: the traced heap per line at the peaks of step 3, of step 4's coordinates, groups and profiles, held, and at the peak of step 5 (`search.LINE_BYTES`) |
@@ -1531,3 +1532,148 @@ main's code (6d9d2c2) against the branch's (26adeea), both exported:
 - `tests/regression.py`'s sets water and search, and R56, gave every checksum unchanged.
 - The viewer ranks each line's anchors once when a run is loaded: a binary search in 101
   quantiles per anchor.
+
+## Window reads (2026-11-04, branch `window-reads`)
+
+The layers read by windows of big remote files (`sources/readers/windows.py`: FileBlocks, the USGS blocks,
+Scotland's and British Columbia's) cached about a third of what they downloaded. The estimate of the data of every
+current source (docs/country-precompute.md, section 2) put the difference at about 37 of its 49.5 TB.
+
+### How it was measured
+
+`tools/perf_window_reads.py` downloads a layer's blocks over a circle into an empty scratch cache, each mode in a
+child process (GDAL's settings must be in the environment before it starts), and counts:
+- the bytes and requests of GDAL's /vsicurl/ from GDAL's network statistics (`CPL_VSIL_NETWORK_STATS_ENABLED`,
+  read through ctypes from the GDAL library that rasterio carries);
+- the bytes and requests of our own range requests (`ranges.get_range`);
+- the seconds and the process's peak memory;
+- what the files' internal tiles predict (`BLOCK_SIZE_x_y` of their headers), summed per block and each tile once.
+
+### Why a block costs 2.35 times its tiles
+
+A block of 1000 px over a file's tiles of 512 px touches 2.95 x 2.95 tiles on average: 2.28 times its own pixels.
+GDAL reads every touched tile whole, and the next block reads the tiles it shares with this one again. The
+prediction from the headers matched the measured bytes to 0.2 % (Austria: 65.7 MB predicted, 65.8 MB downloaded for
+12 blocks; Canada: 111.5 / 111.6 MB).
+
+| 12 blocks of 1 km | Downloaded | Each tile once (the file's density) | Cached | Downloaded / cached |
+| --- | ---: | ---: | ---: | ---: |
+| Austria (Innsbruck) | 5.5 MB/km² | 2.3 MB/km² | 1.85 MB/km² | 3.0 |
+| Canada (Squamish) | 9.3 MB/km² | 3.9 MB/km² | 2.4 MB/km² | 4.0 |
+
+The rest of the difference is the files' compression (LZW without a predictor) against the cache's (DEFLATE with
+the floating-point predictor).
+
+### What GDAL does (measured)
+
+- **GDAL's cache of ranges** (`CPL_VSIL_CURL_CACHE_SIZE`) never serves a block that the app reads with
+  `GDAL_HTTP_MULTIRANGE=YES`: a multi-range request bypasses it, and so do `PARALLEL` and the default. With 256 MB
+  and one thread, a block-by-block read still downloaded 88.0 of 88.0 MB. Only `SERIAL`, each range a request of its
+  own, goes through it: then 50.0 MB, equal to "each tile once" (49.8 MB).
+- **A big window through /vsicurl/** is fetched exactly, tiles only and in 1-2 requests, only with
+  `GDAL_NUM_THREADS` > 1 (48.01 MB for tiles of 47.99 MB). With one thread GTiff reads it tile by tile with
+  read-ahead: 1.2-1.45 times the bytes and many requests.
+- **With `GDAL_NUM_THREADS` > 1 an answer cut short goes unseen.** A tile range cut short once or every time
+  (`tests/http_server.py`, `truncate`) left wrong values and no error in `net.gdal_errors()`; with one thread GDAL
+  asked again or raised. So the app keeps one thread, and the grouped reads fetch their bytes themselves (below).
+- **Through rasterio's opener** (`rasterio.abc.MultiByteRangeResourceContainer`) GTiff asks a window's tiles in
+  one `get_byte_ranges` call, a range per row of tiles, only up to some size. A window of 6000 x 4000 px of
+  Luxembourg's float64 went tile by tile in plain reads: 831 requests whole, 36 in strips of 512 rows, the same
+  bytes. Even in strips, Canada's and the USA's files went partly tile by tile (417 and 844 requests for 72
+  blocks), so each strip's tiles are now fetched beforehand from the header's offsets (`RangeFile.prefetch`, a
+  request per row of tiles) and GDAL's reads served from them. A COG's tiles in a row lie a few bytes apart (each
+  tile's size before it, its last bytes after it), so the ranges are merged across gaps of up to 16 KB; GDAL asks a
+  row 4 bytes beyond the last tile's trailer, so each tile is prefetched with 64 bytes on either side (without
+  them every row was fetched twice: Canada 382 MB instead of 274).
+
+### C: range by range through GDAL's cache, the blocks in squares
+
+`Windows(serial=True)`: GDAL_HTTP_MULTIRANGE SERIAL and a cache of 256 MB (`sources.net.RANGE_CACHE_BYTES`, set in
+the environment when `sources.net` is imported), and `download_layers` hands the layer's blocks to its pool in
+squares of 4 x 4, each square's blocks read one after another by one thread. Squares as plain tasks of the pool did
+not reuse much (8 threads read neighbours at the same time: Canada -32 %, Austria -40 % at 16 blocks).
+
+| Blocks (one circle each) | Today: MB / GET / s | C: MB / GET / s |
+| --- | --- | --- |
+| Austria, 36 | 199 / 39 / 12.6 | 105 / 81 / 7.2 |
+| Luxembourg, 12 | 136 / 85 / 8.1 | 124 / 239 / 4.2 |
+| British Columbia at Fernie (1:20 000 sheets of one-row strips), 16 | 559 / 483 / 57.7 | 236 / 132 / 28.4 |
+| British Columbia at McIntyre Bluff (1:2 500 tiles), 9 | 53 / 61 / 19.4 | 48 / 50 / 23.0 |
+| Wales, 16 | 55 / 27 / 2.4 | 39 / 76 / 3.4 |
+| New Zealand, 16 | 51 / 17 / 9.3 | 30 / 37 / 11.1 |
+| Finland (2 km blocks), 12 | 50 / 18 / 6.1 | 42 / 58 / 7.7 |
+| Tasmania (2 km blocks), 9 | 85 / 14 / 10.0 | 52 / 26 / 18.3 |
+| Svalbard (ArcticDEM, 2 km blocks), 16 | 26 / 19 / 5.3 | 15 / 39 / 6.9 |
+| Scotland (a file per block), 12 | 176 / 72 / 4.5 | 176 / 36 / 12.0 |
+| Canada, 36 | 296 / 50 / 15.0 | 149 / 88 / 23.2 |
+| USA (Zion), 30 | 169 / 32 / 8.7 | 118 / 128 / 26.0 |
+
+C saves bytes nearly everywhere but asks more requests, one after another, and where each request waits long (S3
+across the ocean) it is slower. **Decided (the user, 2026-11-04): C only where it was faster too**: Austria,
+Luxembourg and British Columbia (its strip sheets gain far more than its tiles lose). With 64 MB of cache instead
+of 256: Austria -43 % instead of -47 %, Canada -42 % instead of -50 %. `search.DOWNLOAD_PROCESS_BYTES` holds the
+cache (768 MiB).
+
+### B: the country prefetch in groups
+
+`download_layers(group_m=)` (`country._prefetch` with `PREFETCH_GROUP_M`): each square of group_m is one task of
+the pool. `windows.read_group` opens each file once through `sources/readers/ranges.py` and reads one window over the
+blocks that need it, in strips whose tiles are fetched beforehand. Every range is asked by requests and taken only whole: HTTP 206 with the
+Content-Range asked and as many bytes, else asked again. The blocks are composed as `_read_block` composes each, so
+the cache is the same byte for byte. Checked with `tools/cache_diff.py` against block-by-block caches of Austria,
+Canada, Wales, New Zealand, Luxembourg, Scotland, British Columbia (strips; tiles with PixelIsPoint files),
+Finland, Tasmania and Svalbard (the geoid), and offline in `tests/test_window_groups.py`.
+
+#### The size of a group
+
+A group of G px over a file's tiles of T px reads (1 + T/G)² times the file's own bytes (each tile once, the tiles at
+its edges once more with the neighbouring group), against 2.28 for blocks of 1000 px over tiles of 512. The model
+below takes the measured factor of today's blocks per source; its window held whole costs about 8 bytes a pixel
+(the values and mask, the strip being read, the blocks' arrays), times the pool's 8 threads:
+
+| | Today (blocks of 1 km) | 5 km | 10 km | 20 km | 50 km (a file) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Canada's lidar, both models (TB) | 29.8 | 15.2 | 13.8 | 13.2 | 12.8 |
+| USA, 3DEP 1 m (TB) | 21.4 | 16.4 | 15.6 | 15.2 | 15.0 |
+| ArcticDEM (TB) | 4.4 | 3.6 | 3.0 | 2.8 | 2.6 |
+| New Zealand, both models (TB) | 2.1 | 1.5 | 1.3 | 1.3 | 1.2 |
+| Austria, both models (TB) | 0.9 | 0.5 | 0.4 | 0.4 | 0.4 |
+| The other window sources (TB) | 0.9 | 0.8 | 0.7 | 0.7 | 0.7 |
+| **Together (TB)** | **59.5** | **38.0** | **35.0** | **33.6** | **32.7** |
+| Requests a km² and file (tiles of 512 px) | 1 | 0.43 | 0.21 | 0.10 | 0.04 |
+| Memory, 8 threads, 1 m data (the model; measured below) | ~0.3 GiB | 1.5 GiB | 6 GiB | 24 GiB | 149 GiB |
+
+**Decided (the user, 2026-11-04): 10 km.** Groups larger than that need the blocks composed row of blocks by row of
+blocks as the strips come in, so that the memory grows with G and not G² (about 0.15 GiB a thread at 20 km): a
+later step worth 4-7 % of the window sources' bytes.
+
+#### Measured (the prefetch of each strip and its padding in place)
+
+One thread, the same 72 blocks (a circle of 3.5 km; a group of 10 km is not full there), MB / GET / seconds / peak
+memory of the process:
+
+| | Blocks | Groups of 5 km | Groups of 10 km |
+| --- | --- | --- | --- |
+| Canada (Squamish) | 483 / 86 / 77.8 s / 180 MB | 289 / 62 / 58.6 s / 585 MB | 274 / 54 / 52.5 s / 751 MB |
+| USA (Zion) | 385 / 88 / 112.1 s / 162 MB | 282 / 158 / 77.4 s / 553 MB | 266 / 112 / 89.9 s / 1187 MB |
+
+A thread reads a km² 1.3-1.5 times as fast in groups: fewer bytes, and one request per row of tiles instead of
+one per block. With 8 threads the groups are as fast only where there are enough of them for the threads: on the
+circle of 3.5 km, 1-9 squares, groups of 10 km took longer than the blocks (Canada 32.5 s, USA 55.3 s against 17.7
+and 21.9 s). On a circle of 7.5 km with groups of 5 km (9-16 squares; the blocks' rate from the circle of 3.5 km):
+
+| 8 threads | Blocks | Groups of 5 km |
+| --- | --- | --- |
+| Canada | 9.6 MB/km², 244 blocks a minute | 5.1 MB/km², 380 blocks a minute, 2.1 GB peak |
+| USA | 5.4 MB/km², 197 blocks a minute | 3.7 MB/km², 253 blocks a minute, 2.4 GB peak |
+| Austria | 5.5 MB/km², 190 blocks a minute (C: 2.8 MB/km², 325) | 3.0 MB/km², 660 blocks a minute, 0.8 GB peak |
+
+A country holds thousands of groups, so its threads stay busy and a group of 10 km reads as fast per thread as its
+measurement on one thread. One full group of 10 km (Canada, a circle of 10 km on one thread, 484 blocks: 1311 MB,
+4.85 MB/km², 192 GET, 233 s (193 s in a second run), 124-150 blocks a minute) peaked at 1.84 GB: 17 bytes a pixel,
+not the model's 8. The window and its mask (5 B), the blocks being composed (4 B), every block's slice held until the
+window was done (4 B) and GDAL's block cache holding the window's decoded tiles while its file is open (4 B; one
+cache for the process, at most `GDAL_CACHEMAX`, 5 % of the memory: 3.1 GB on this PC). The slices are now applied one
+by one (`_group_values` yields them): 1.50 GB, the same 1311 MB in 192 requests. Eight threads at 10 km: 8 times
+about 0.9 GB and GDAL's cache, about 10.5 GB, well within the 45-50 GB of either machine (docs/country-precompute.md,
+4.1); the prefetch runs before the country's workers start.

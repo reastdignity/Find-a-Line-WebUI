@@ -26,6 +26,13 @@ import servicecounts
 # for a whole tile; a block of a FileBlocks/TnmBlocks layer is one slot however many range
 # requests GDAL makes for it (merged, several ranges per request: GDAL_HTTP_MULTIRANGE).
 HOST_SLOTS = 8
+# GDAL's cache of the ranges it downloaded (CPL_VSIL_CURL_CACHE_SIZE, 16 MB by default), in each
+# process: the layers that read their windows range by range (Windows(serial=True), GDAL_HTTP_MULTIRANGE
+# SERIAL: a multi-range request bypasses the cache) find the tiles a neighbouring block read there.
+# GDAL reads it when it first uses /vsicurl/, so it is set here, at import, unless the environment
+# sets it; search.DOWNLOAD_PROCESS_BYTES counts it (docs/performance.md, "Window reads")
+RANGE_CACHE_BYTES = 256 * 2 ** 20
+os.environ.setdefault("CPL_VSIL_CURL_CACHE_SIZE", str(RANGE_CACHE_BYTES))
 HOST_SLOTS_OF: Dict[str, int] = {
     # BEV's terms (AGB section 10) call "massenhafte Abfragen ... sowie das automatisierte
     # Herunterladen von Datenbankinhalten" misuse, without a number: two at once until BEV answers
@@ -347,9 +354,11 @@ def _remote(url: str) -> str:
 GDAL_RETRY_CODES = "0,429,500,502,503,504"
 
 
-def _gdal_http() -> rio.Env:
+def _gdal_http(serial: bool = False) -> rio.Env:
     """GDAL's settings for reading windows of remote files: our User-Agent, no directory
-    listing, retries of failed requests (GDAL_RETRY_CODES), neighbouring blocks in one request.
+    listing, retries of failed requests (GDAL_RETRY_CODES), neighbouring blocks in one request
+    (serial: the ranges of a window one after another, each through GDAL's cache of ranges,
+    RANGE_CACHE_BYTES, so neighbouring blocks read in a row fetch a shared tile once).
     Blocks are read in the calling thread (GDAL_NUM_THREADS=1, whatever the environment says):
     with more, the GTiff driver fetches and decodes them in its own threads, whose errors go to
     GDAL's default handler (printed to stderr) instead of the caller's, so gdal_errors would not
@@ -359,7 +368,7 @@ def _gdal_http() -> rio.Env:
                    GDAL_DISABLE_READDIR_ON_OPEN="EMPTY_DIR", CPL_VSIL_CURL_ALLOWED_EXTENSIONS=".tif,.tiff",
                    GDAL_HTTP_MAX_RETRY=str(RETRIES), GDAL_HTTP_RETRY_DELAY="2", GDAL_HTTP_TIMEOUT="120",
                    GDAL_HTTP_RETRY_CODES=GDAL_RETRY_CODES, GDAL_NUM_THREADS="1",
-                   GDAL_HTTP_MULTIRANGE="YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
+                   GDAL_HTTP_MULTIRANGE="SERIAL" if serial else "YES", GDAL_HTTP_MERGE_CONSECUTIVE_RANGES="YES")
 
 
 # GDAL's errors as rasterio logs them: an error (CE_Failure) that did not make the call fail is

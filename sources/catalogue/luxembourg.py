@@ -33,9 +33,11 @@ LU_CREDIT = Credit("BD-L-Lidar2024 MNT / MNS 0.5 m (ACT, Luxembourg)",
 def _lidar(kind: str, description: str) -> FileBlocks:
     # Blocks of 1 km (2000 x 2000 px, about 17 x 17 of the file's 128 px tiles): about 4.5 s and
     # 11 MB of float64 read per block, 6-7 MB cached as float32 (blocks of 500 m: 2.5 s and 3.3 MB
-    # each, so twice the time per km²). The 1 m working grid averages 2 x 2 pixels.
+    # each, so twice the time per km²). The 1 m working grid averages 2 x 2 pixels. Range by range in squares
+    # (serial): 136 -> 124 MB and 8.1 -> 4.2 s for 12 blocks (2026-11-04, docs/performance.md "Window reads").
     return FileBlocks(description, f"luxembourg/lidar2024-{kind.lower()}/{LU_RELEASE[:8]}", LUREF, 0.5, 1000,
-                      f"{LU_FILES}/{kind}_Lidar2024.tif", extent=LU_EXTENT, year=2024, bytes_per_tile=6.5e6)
+                      f"{LU_FILES}/{kind}_Lidar2024.tif", extent=LU_EXTENT, year=2024, bytes_per_tile=6.5e6,
+                      serial=True)
 
 
 # geoportail.lu's newest orthophoto (open data, CC0) in the map's own tiling, up to zoom 21; above it the

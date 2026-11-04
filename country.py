@@ -85,6 +85,12 @@ TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (
 RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
 DISK_PIXEL_BYTES = 16      # a tile's grids in its work folder (float32 terrain, masks of water and gaps)
 DISK_SPARE = 1 << 30       # free disk kept besides the work folders
+# The prefetch reads the blocks of big remote files (sources/readers/windows.py) in squares of this many metres,
+# each file once per square (sources.download_layers(group_m=)). 10 km (the user, 2026-11-04): the tiles at a
+# square's edges read twice add 11 % to the files' bytes (5 km: 22 %, blocks of 1 km: 128 %), and a square of 1 m
+# data takes about 0.9 GB (its window, the window's mask and the blocks: 9 bytes a pixel), about 10.5 GB with the
+# pool's 8 threads and GDAL's block cache (measured; docs/performance.md, "Window reads")
+PREFETCH_GROUP_M = 10000
 RESPAWNS_PER_WORKER = 2    # workers that stopped abnormally are started again at most this often (on average)
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
@@ -869,7 +875,8 @@ def _ask(question: str) -> bool:
 def _prefetch(plans: Dict, say):
     """The data over the whole country into the cache (sources.download_layers of the terrain, the
     surface when used and the water mask) on the grid of each resolution (a band's grid: its tiles
-    lie within it), before the workers start. Gap filling data stays with the tiles."""
+    lie within it), before the workers start; the blocks of big remote files in squares of PREFETCH_GROUP_M,
+    each file read once per square. Gap filling data stays with the tiles."""
     import search
     import sources as src
     largest = {}
@@ -883,7 +890,7 @@ def _prefetch(plans: Dict, say):
             layers.append((src.WATER_MASK, "water mask"))
         say(f"Prefetch at {res:g} m: {', '.join(label for _, label in layers)}")
         try:
-            src.download_layers(layers, plan.grid, plan.paths.cache, None)
+            src.download_layers(layers, plan.grid, plan.paths.cache, None, group_m=PREFETCH_GROUP_M)
         except RuntimeError as e:
             say(f"WARNING: the prefetch failed ({cache.clean_error(e)}): the tiles download what they need")
 

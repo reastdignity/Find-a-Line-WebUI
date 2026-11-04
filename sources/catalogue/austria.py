@@ -41,11 +41,13 @@ def bev_files(kind: str, block_m: float = 1000):
     return files
 
 
-# Blocks of 1 km read from the 7-12 GB COGs (LZW, 512 px tiles): about 2-2.5 MB each
+# Blocks of 1 km read from the 7-12 GB COGs (LZW, 512 px tiles): about 2-2.5 MB each cached, 5.5 MB read a km²
+# block by block, 2.9 range by range in squares (serial: 199 -> 105 MB and 12.6 -> 7.2 s for 36 blocks at
+# Innsbruck, 2026-11-04, docs/performance.md "Window reads")
 BEV_DTM = FileBlocks("ALS DTM 1 m (terrain)", f"austria/als-dtm/{BEV_EDITION}", "EPSG:3035", 1.0, 1000,
-                     bev_files("DTM"), origin=(0.5, 0.5), bytes_per_tile=2.5e6)
+                     bev_files("DTM"), origin=(0.5, 0.5), bytes_per_tile=2.5e6, serial=True)
 BEV_DSM = FileBlocks("ALS DSM 1 m (trees, buildings)", f"austria/als-dsm/{BEV_EDITION}", "EPSG:3035", 1.0, 1000,
-                     bev_files("DSM"), origin=(0.5, 0.5), bytes_per_tile=2.5e6)
+                     bev_files("DSM"), origin=(0.5, 0.5), bytes_per_tile=2.5e6, serial=True)
 # basemap.at's orthophoto (Länder flights of different years) in the map's own tiling, up to zoom 19;
 # CC BY 4.0, credited "Datenquelle: basemap.at", where its terms ask for "basemap.at" as a link to
 # https://basemap.at (attribution_url); no request limits published

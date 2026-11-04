@@ -230,6 +230,73 @@ For each country, by the finest grid of a strategy and with or without the DSM:
   1.39 + 0.40), 1.9 TB without. Prepared grids (6.4) add about 2 MB per km² at 2 m uncompressed
   (0.7 TB for Poland), less with LERC.
 
+### Every source of the catalogue (2026-11-04)
+
+The data of every main source of `main` (037862e) for the layer's bands (S at 1 m, M at 2 m, L at 5 m: the finest
+data a source gives for 1 m), the gap fillers left out (FABDEM and Copernicus at the borders, RGE ALTI, `canada_2m`,
+`usgs10m`, `nz8m`, IslandsDEM, DEM-H). Rough: ±50 %. The link is 1 Gb/s, the host slots and rates are the app's.
+How it was estimated:
+- **MB/km² cached**: samples of the real cache, bytes over the km² with data (`cache_density.py` in
+  `local/data-volume-2026-11-03/`).
+- **MB/km² downloaded**: the report's measurements (Poland, Switzerland, Slovakia, Utah), the Metalinks' exact
+  sizes (Bavaria, Rhineland-Palatinate), the window measurements of 2026-11-04 (Austria, Canada), else the formats
+  and sizes the catalogue's comments give (ASCII grids, XYZ text, uncompressed WCS answers, windows of COGs at
+  their file's density times the tiles a block touches).
+- **Time per host**: max(requests / rate, bytes / bandwidth). The rate is the one the app reached in the cache's
+  download bursts (`fetch_rates.py`), the report's measurement, or the slots x 0.6 / the seconds a tile takes in the
+  catalogue's comments (0.6: Poland's 8 connections gave 4.9 times one). A country's time is its hosts one after
+  another; a continent's and the total, all hosts at once: the slowest host, unless the link is slower.
+
+| Country | km² with data (thousands) | Download, terrain (TB) | Download, with the surface (TB) | Cache, terrain / with the surface (TB) | Download time, terrain | With the surface | Basis |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Poland | 313 | 3.41 | 6.76 | 0.81 / 1.61 | 6.7 d | 14.4 d | M |
+| Germany (13 Länder; no Hamburg, Bremen) | 343 | 1.62 | 5.59 | 0.77 / 1.55 | 1.4 d | 2.5 d | A, E, F, O |
+| France | 535 | 1.50 | 3.00 | 1.01 / 2.15 | 3.9 d | 7.8 d | O |
+| Norway (with Svalbard, Jan Mayen: ArcticDEM) | 385 | 1.36 | 2.65 | 0.72 / 1.53 | 1.1 d | 2.0 d | A, F |
+| United Kingdom (England, Wales, ~7.5 % of Scotland) | 156 | 0.73 | 1.46 | 0.32 / 0.67 | 7.8 h | 15.5 h | F, O |
+| Switzerland, Liechtenstein | 41 | 0.78 | 1.44 | 0.78 / 1.44 | 1.7 d | 2.5 d | M |
+| Austria | 84 | 0.46 | 0.92 | 0.15 / 0.33 | 11.6 h | 23.3 h | M |
+| Slovenia (no surface model) | 20 | 0.53 | 0.53 | 0.04 | 6.1 h | 6.1 h | F |
+| Italy (South Tyrol at 2.5 m, Trento) | 14 | 0.18 | 0.35 | 0.04 / 0.09 | 2.1 h | 4.1 h | F, O |
+| Denmark | 43 | 0.17 | 0.34 | 0.10 / 0.21 | 1.2 h | 2.5 h | F |
+| Spain (5 m, with the Canary Islands) | 506 | 0.16 | 0.32 | 0.04 / 0.09 | 5.9 h | 11.7 h | A |
+| Finland (no surface model) | 338 | 0.29 | 0.29 | 0.17 | 2.4 d | 2.4 d | O |
+| Czechia (2 m) | 79 | 0.07 | 0.15 | 0.04 / 0.09 | 2.3 h | 4.6 h | F |
+| Slovakia (the local mirror) | 49 | 0.06 | 0.14 | 0.06 / 0.14 | 2 min | 5 min | M |
+| Iceland (ArcticDEM) | 103 | 0.10 | 0.10 | 0.03 | 3.4 h | 3.4 h | A |
+| Luxembourg | 3 | 0.03 | 0.06 | 0.02 / 0.04 | 54 min | 1.8 h | O |
+| Malta | 0.3 | <0.01 | <0.01 | <0.01 | 1 min | 2 min | O |
+| **Europe** | **3,012** | **11.5** | **24.1** | **5.1 / 10.2** | **6.7 d** | **14.4 d** | |
+| Canada (lidar, ~1.6 M km² assumed; Nunavut: ArcticDEM) | 3,693 | 17.0 | 31.9 | 4.3 / 8.4 | 13.6 d | 24.4 d | A |
+| USA (48 states, PR, VI: ~90 % with 1 m; Alaska: IfSAR 5 m) | 8,388 | 21.8 | 21.8 | 13.2 | 35.1 d | 35.1 d | A, M |
+| Greenland (ArcticDEM) | 2,166 | 2.17 | 2.17 | 0.58 | 3.0 d | 3.0 d | A |
+| **North America** | **14,248** | **41.0** | **55.8** | **18.1 / 22.2** | **34.8 d** | **34.8 d** | |
+| New Zealand | 233 | 1.05 | 2.10 | 0.40 / 0.81 | 1.3 d | 2.5 d | A |
+| Australia (Tasmania; Queensland's lidar, ~300 000 km² assumed) | 368 | 1.42 | 1.42 | 0.69 | 14.7 d | 14.7 d | A, F |
+| **Oceania** | **601** | **2.47** | **3.52** | **1.1 / 1.5** | **14.5 d** | **14.5 d** | |
+| **All** | **17,861** | **54.9** | **83.5** | **24.3 / 33.9** | **34.8 d** | **34.8 d** | |
+
+Basis: M measured (this report, or the window measurements of 2026-11-04), E exact (the Metalinks' sizes), O the
+app's rate seen in the cache, F the formats and sizes of the catalogue's comments, A assumed.
+
+- One host after another, the countries take 86 days (terrain) or 115 (with the surface models); all hosts at once,
+  the USA's blocks decide (138 a minute measured, 250 seen in the cache: 19 days); the link alone would carry the
+  bytes in 5.4 or 8.2 days.
+- The largest uncertainties: Canada's lidar area (~1.6 M km², summed from the survey's descriptions of the
+  provinces), the USA's share with a 1 m DEM (Utah's 89 % taken for all), Queensland's lidar area and its seconds a
+  tile.
+- Where the bytes go (downloaded against cached, 49.5 TB): about 37 TB windows of big remote files (Canada 22.8,
+  the USA 8.6, ArcticDEM 3.2, New Zealand 1.3, Austria 0.6), 6.5 TB text formats (Poland's ASCII sheets 5.2), 3 TB
+  Bavaria's DOM20 (0.2 m, 3.12 TB by its Metalinks), 2.5 TB uncompressed WCS answers.
+- The windows: a block of 1000 px reads every tile of 512 px it touches, 2.35 times the file's bytes
+  (docs/performance.md, "Window reads"). The country prefetch now reads them in groups (B); Austria, Luxembourg and
+  British Columbia read range by range in squares everywhere (C). With groups of 10 km
+  (`country.PREFETCH_GROUP_M`) the model of docs/performance.md ("The size of a group") puts the window sources
+  at about 35 of their 59.5 TB: about 39 TB to download for the terrain and 59 TB with the surface models instead
+  of 54.9 and 83.5 (the caches stay as they are). On one thread a group read a km² 1.25 (the USA) to 1.5 (Canada)
+  times as fast as the blocks, a full group of 10 km in Canada 2.2-2.7 times: the USA's 35 days become about 28 at
+  most, and they still decide when all hosts run at once.
+
 ## 3. Download time
 
 Orthophotos left out. Measured with `tools/perf_download.py` on an empty cache (2026-11-02, this PC,

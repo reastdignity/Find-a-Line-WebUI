@@ -145,8 +145,9 @@ SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_li
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
 # download slot): measured 2026-10-31 at 120 MiB after the imports, 240-400 MiB when it downloads
-# (Montserrat at 1 m, 2 WCS tiles of 32 MB per layer; El Capitan, 3DEP blocks)
-DOWNLOAD_PROCESS_BYTES = 512 * 2 ** 20
+# (Montserrat at 1 m, 2 WCS tiles of 32 MB per layer; El Capitan, 3DEP blocks), and GDAL's cache of
+# ranges that the layers reading range by range fill (sources.net.RANGE_CACHE_BYTES)
+DOWNLOAD_PROCESS_BYTES = 512 * 2 ** 20 + 256 * 2 ** 20
 CGROUP_ROOT = "/sys/fs/cgroup"  # cgroup v2 of this process inside a container (its own namespace)
 
 OnEvent = Callable[[str, str], None]
