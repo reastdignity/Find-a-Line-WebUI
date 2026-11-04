@@ -323,8 +323,8 @@
     ],
     "needs_env": "FINDALINE_MIRROR",
     "expected": {
-      "anchors": 2804,
-      "open": 2407,
+      "anchors": 2801,
+      "open": 2405,
       "checked": 8628,
       "lines": 566,
       "spots": 98,
@@ -339,7 +339,7 @@
       "filled_km2": 0.3,
       "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
     },
-    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM",
+    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM; since 2026-11-04 the Slovak side at 5 m comes from the mirror's tiles averaged to 5 m (`dmr5/5m`, `tools/sk_tiles.py average`; without that folder the 1 m tiles, and the anchors of before)",
     "seconds": 3.2
   },
   "R14": {

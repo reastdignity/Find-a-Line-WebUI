@@ -10,6 +10,8 @@ UGKK_CREDIT = Credit("DMR 5.0 / DMP 1.0 (ÚGKK SR, Slovakia)", "© ÚGKK SR", *C
 # Our own copy of ÚGKK SR's national ALS models (tools/sk_tiles.py): only the local mirror
 # (FINDALINE_MIRROR) for now; the Hugging Face base goes here once the tiles are uploaded
 SLOVAK_TILES: List[str] = []
+# The factors of the 1 m tiles the dataset also keeps (tools/sk_tiles.py FACTORS): 2 m and 5 m
+AVERAGED = (2, 5)
 # The orthophotomosaic is made by GKÚ Bratislava and the National Forest Centre (NLC): the WMS's
 # AccessConstraints say CC BY 4.0, its ContactOrganization GKÚ Bratislava, and ÚGKK's terms ask for
 # "GKÚ Bratislava, NLC"
@@ -24,11 +26,15 @@ SOURCES: List[Source] = [
         description="ÚGKK SR (Slovakia): ALS 2017-2023, DMR 5.0 terrain and DMP 1.0 surface, 1 m, "
                     "S-JTSK [JTSK03] / Bpv",
         # Published only as one ZIP of 155-200 GB per model: our own 2 km tiles of them
-        # (tools/sk_tiles.py), on the national grid, pixel edges on whole metres
+        # (tools/sk_tiles.py), on the national grid, pixel edges on whole metres; also kept
+        # averaged to 2 m and 5 m (dmr5/2m, dmr5/5m: tools/sk_tiles.py average), read by a grid
+        # of exactly that resolution (the country layer's bands M and L)
         nmt=GridTiles("DMR 5.0 (terrain)", [f"{base}/dmr5/1m" for base in SLOVAK_TILES], "EPSG:8353",
-                      "slovakia/dmr5/5.0/epsg8353-1m-2km", 2000, 1.0, 4.8e6, mirror="slovakia/dmr5/1m"),
+                      "slovakia/dmr5/5.0/epsg8353-1m-2km", 2000, 1.0, 4.8e6, mirror="slovakia/dmr5/1m",
+                      averaged=AVERAGED),
         nmpt=GridTiles("DMP 1.0 (trees, buildings)", [f"{base}/dmp1/1m" for base in SLOVAK_TILES], "EPSG:8353",
-                       "slovakia/dmp1/1.0/epsg8353-1m-2km", 2000, 1.0, 5.7e6, mirror="slovakia/dmp1/1m"),
+                       "slovakia/dmp1/1.0/epsg8353-1m-2km", 2000, 1.0, 5.7e6, mirror="slovakia/dmp1/1m",
+                       averaged=AVERAGED),
         countries=("sk",), crs="EPSG:8353", ortho=ZBGIS_ORTHO, credits=(UGKK_CREDIT,),
         neighbours=("geoportal", "austria", "czechia"),
         listing=ReadmeRow("Slovakia", "ÚGKK SR DMR 5.0, ALS 1 m (2017–2023)", "ÚGKK SR DMP 1.0, 1 m",

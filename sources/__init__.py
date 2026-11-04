@@ -15,7 +15,8 @@ Kinds of layers (sources/layers/, a module each):
   SheetTiles (map sheets from a WFS sheet index, geoportal.gov.pl) and StacTiles
   (tiles of a STAC collection, swisstopo).
 - GridTiles: our own tiles on a fixed grid (Slovakia, made by tools/sk_tiles.py), from
-  a local mirror (FINDALINE_MIRROR) or, once uploaded, from Hugging Face.
+  a local mirror (FINDALINE_MIRROR) or, once uploaded, from Hugging Face; also kept averaged
+  to coarser resolutions (2 m, 5 m), read by a grid of exactly that resolution.
 - TnmBlocks: blocks of the big files of The National Map (USGS 3DEP, the USA), found
   through its API and read by HTTP range requests, composed newest survey first; and
   DegreeBlocks: blocks of 1° files at a fixed URL (3DEP's 1/3″ DEM); FileBlocks: blocks of

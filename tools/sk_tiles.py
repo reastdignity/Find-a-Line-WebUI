@@ -14,6 +14,7 @@ Licence CC BY 4.0, author ÚGKK SR (the licence PDF in the ZIPs).
     python tools/sk_tiles.py download dmp1 --zips C:\\sk-zips                    # the ZIP (resumable)
     python tools/sk_tiles.py extract dmp1 --zips C:\\sk-zips                     # the TIFF beside it
     python tools/sk_tiles.py cut dmp1 --zips C:\\sk-zips --out C:\\mirror\\slovakia  # tiles + index (resumable)
+    python tools/sk_tiles.py average dmr5 --out C:\\mirror\\slovakia               # 2m and 5m from 1m (resumable)
     python tools/sk_tiles.py upload dmp1 --out C:\\mirror\\slovakia --repo user/name  # needs HF_TOKEN
 
 --work DIR stands for both --zips DIR and --out DIR/tiles.
@@ -28,6 +29,13 @@ ZIP (/vsizip/; the national ZIPs are plain Deflate, forwards only), but at about
 plain file the band takes a fraction of that; cut uses the extracted TIFF when it is there.
 Encoding: LERC_ZSTD with a maximum error of 5 mm (5.5 MB per km² at 0.5 m in the trial
 on lot 04, against 9.4 MB lossless; the surveys are accurate to centimetres).
+
+average writes the same tiles at coarser resolutions, <product>/2m and <product>/5m (FACTORS),
+from the 1 m tiles: each pixel the mean of the valid 1 m pixels of its 2 x 2 or 5 x 5 block
+(sources.readers.download._block_means, the rule of Download(average=)), a float32 deflate
+GeoTIFF without further loss, with its own index.json (null for the tiles without data). A
+search on a grid of exactly that resolution reads them (sources.GridTiles with `averaged`):
+the country layer's bands at 2 m and 5 m stitch a tile from 4 and 25 times fewer pixels.
 """
 
 import argparse
@@ -71,8 +79,11 @@ WRITE_THREADS = os.cpu_count() or 4  # LERC and the COG driver release the GIL
 HEADERS = {"User-Agent": "Find-a-Line/1.0 (highline finder; tiles for a public mirror)"}
 
 
-def tile_folder(product: str) -> str:
-    return f"{product}/1m"
+FACTORS = (2, 5)     # the coarser resolutions kept beside the 1 m tiles (average)
+
+
+def tile_folder(product: str, res: float = 1.0) -> str:
+    return f"{product}/{res:g}m"
 
 
 def tile_name(i: int, j: int) -> str:
@@ -139,6 +150,12 @@ def _write(path: str, band: np.ndarray, crs, transform):
                   blocksize=512, overview_resampling="average") as dst:
         dst.write(band, 1)
     os.replace(tmp, path)
+
+
+def _write_averaged(path: str, band: np.ndarray, crs, transform):
+    """An averaged tile: float32 deflate, as the app's cache writes a tile (sources.layer._write_tile)."""
+    from sources.layer import _write_tile
+    _write_tile(path, band, crs, transform)
 
 
 def _sha256(path: str) -> str:
@@ -221,6 +238,82 @@ def cut(product: str, zips: str, root: str, rows_limit: Optional[int] = None):
     print(f"done: {sum(v is not None for v in index['tiles'].values())} tiles in {(time.time() - start) / 60:.0f} min")
 
 
+def average(product: str, root: str, factors=FACTORS):
+    """The 1 m tiles under root averaged to each factor's resolution into <product>/<factor>m
+    (skips the tiles in that folder's index already; the tiles without data are null there as in
+    the 1 m index; the indexes written every 30 s and at the end)."""
+    from affine import Affine
+    from sources.readers.download import _block_means
+    src_root = os.path.join(root, tile_folder(product))
+    with open(os.path.join(src_root, "index.json"), encoding="utf-8") as f:
+        source = json.load(f)
+    if source.get("resolution", 1.0) != 1.0:
+        sys.exit(f"{src_root}: tiles of {source.get('resolution')} m, 1 m expected")
+    for factor in factors:
+        if not isinstance(factor, int) or factor < 2 or TILE_M % factor:
+            sys.exit(f"factor {factor!r}: a whole number above 1 dividing {TILE_M}")
+    outs, indexes = {}, {}
+    for factor in factors:
+        outs[factor] = os.path.join(root, tile_folder(product, factor))
+        path = os.path.join(outs[factor], "index.json")
+        indexes[factor] = {"tiles": {}}
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                indexes[factor] = json.load(f)
+        indexes[factor].update({k: v for k, v in source.items() if k != "tiles"},
+                               resolution=float(factor), from_resolution=1.0,
+                               encoding="GeoTIFF float32 deflate: the mean of the valid 1 m pixels of each "
+                                        f"{factor} x {factor} block (sources.readers.download._block_means)",
+                               created=datetime.date.today().isoformat())
+    todo = {factor: {k for k in source["tiles"] if k not in indexes[factor]["tiles"]} for factor in factors}
+    keys = sorted({k for ks in todo.values() for k in ks}, key=lambda k: (-int(k.split("_")[1]), int(k.split("_")[0])))
+    print(f"{src_root}: {len(source['tiles'])} tiles, {len(keys)} to average by {', '.join(map(str, factors))}",
+          flush=True)
+
+    def save_index(factor):
+        path = os.path.join(outs[factor], "index.json")
+        os.makedirs(outs[factor], exist_ok=True)
+        with open(path + ".part", "w", encoding="utf-8") as f:
+            json.dump(indexes[factor], f)
+        os.replace(path + ".part", path)
+
+    def work(key):
+        i, j = map(int, key.split("_"))
+        digest = source["tiles"][key]
+        wanted = [f for f in factors if key in todo[f]]
+        if digest is None:
+            return key, {f: None for f in wanted}
+        with rio.open(os.path.join(src_root, tile_name(i, j))) as s:
+            values = s.read(1, masked=True).astype(np.float64).filled(np.nan)
+            crs, transform = s.crs, s.transform
+        found = {}
+        for f in wanted:
+            path = os.path.join(outs[f], tile_name(i, j))
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            _write_averaged(path, _block_means(values, f).astype(np.float32), crs, transform @ Affine.scale(f))
+            found[f] = _sha256(path)
+        return key, found
+
+    start, last = time.time(), time.time()
+    with ThreadPoolExecutor(max_workers=WRITE_THREADS) as pool:
+        for n, (key, found) in enumerate(pool.map(work, keys), 1):
+            for f, digest in found.items():
+                indexes[f]["tiles"][key] = digest
+            if time.time() - last > 30 or n == len(keys):
+                last = time.time()
+                for f in factors:
+                    save_index(f)
+                print(f"  {n}/{len(keys)} tiles, {(time.time() - start) / 60:.1f} min", flush=True)
+    for f in factors:
+        save_index(f)
+        done = sum(v is not None for v in indexes[f]["tiles"].values())
+        size = sum(os.path.getsize(os.path.join(outs[f], tile_name(*map(int, k.split("_")))))
+                   for k, v in indexes[f]["tiles"].items() if v is not None)
+        print(f"{outs[f]}: {done} tiles with data, {size / 1e9:.2f} GB")
+    write_card(root)
+    print(f"done in {(time.time() - start) / 60:.1f} min")
+
+
 CARD = """---
 license: cc-by-4.0
 pretty_name: Slovakia ALS elevation models (ÚGKK SR) as 2 km tiles
@@ -240,7 +333,10 @@ LERC compression with a maximum error of 5 mm. Values are not otherwise changed.
 
 Layout: `<product>/1m/<E//10>_<N//10>/<E>_<N>.tif`, where E = floor(x / 2000) and
 N = floor(y / 2000) of the tile's lower left corner; `<product>/1m/index.json` lists every tile
-with its sha256. Made for Find-a-Line (a highline finder); not endorsed by ÚGKK SR.
+with its sha256. `<product>/2m` and `<product>/5m` hold the same tiles at 2 m and 5 m: each
+pixel the mean of the valid 1 m pixels of its 2 × 2 or 5 × 5 block, stored as float32 GeoTIFF
+(deflate) without further loss, with their own `index.json`. Made for Find-a-Line (a highline
+finder); not endorsed by ÚGKK SR.
 """
 
 
@@ -266,26 +362,29 @@ def upload(product: str, root: str, repo: str):
     # With hf_xet (installed with huggingface_hub 2.x) a large folder goes in several commits,
     # and running the same call again resumes it
     api.upload_folder(repo_id=repo, repo_type="dataset", folder_path=root,
-                      allow_patterns=[f"{tile_folder(product)}/**", "README.md"],
+                      allow_patterns=[f"{tile_folder(product)}/**", "README.md"]
+                      + [f"{tile_folder(product, f)}/**" for f in FACTORS],
                       commit_message=f"{product}: 2 km tiles")
     print(f"uploaded {product} to https://huggingface.co/datasets/{repo}")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("step", choices=["download", "extract", "cut", "upload"])
+    parser.add_argument("step", choices=["download", "extract", "cut", "average", "upload"])
     parser.add_argument("product", choices=list(PRODUCTS))
     parser.add_argument("--zips", help="folder of the ZIPs (download, cut)")
-    parser.add_argument("--out", help="folder of the tiles, laid out as the dataset (cut, upload)")
+    parser.add_argument("--out", help="folder of the tiles, laid out as the dataset (cut, average, upload)")
     parser.add_argument("--work", help="the same as --zips WORK --out WORK/tiles")
     parser.add_argument("--rows", type=int, help="cut: stop after this many rows (a timing trial)")
+    parser.add_argument("--factors", type=int, nargs="+", default=list(FACTORS),
+                        help=f"average: the factors of the 1 m tiles to write (default {' '.join(map(str, FACTORS))})")
     parser.add_argument("--repo", help="Hugging Face dataset, user/name (upload)")
     args = parser.parse_args()
     zips = args.zips or args.work
     out = args.out or (os.path.join(args.work, "tiles") if args.work else None)
     if args.step in ("download", "extract", "cut") and not zips:
         sys.exit("--zips (or --work) is needed")
-    if args.step in ("cut", "upload") and not out:
+    if args.step in ("cut", "average", "upload") and not out:
         sys.exit("--out (or --work) is needed")
     if args.step == "download":
         os.makedirs(zips, exist_ok=True)
@@ -294,6 +393,8 @@ def main():
         extract(args.product, zips)
     elif args.step == "cut":
         cut(args.product, zips, out, args.rows)
+    elif args.step == "average":
+        average(args.product, out, tuple(args.factors))
     else:
         if not args.repo:
             sys.exit("--repo user/name is needed for the upload")

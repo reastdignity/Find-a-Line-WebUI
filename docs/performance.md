@@ -1398,8 +1398,10 @@ the wall of a run from its start to its end, the CPU of its tiles, the memory of
   shore zone 0.4. Such tiles have anchors (a median of 1126 in S, 2513 in M2), so they cannot be
   told apart before the pair search: they can only be made cheaper.
 - Coarse grids read fine data: L stitches 5 m pixels from the 1 m tiles of the mirror (25 times the
-  pixels needed): 22 of its 26 s per tile, 1.0 h of the band's 2.17; M at 2 m 4 times (6.5 s against
-  S's 3.7 at the same pixels).
+  pixels needed), M at 2 m 4 times: step 1 took a median 22.2 s of L's 26 s per tile and 6.5 s of
+  M's against S's 3.7 at the same pixels (corrected after stage 2: these are step 1's medians, not
+  the stitching's, which was about half of L's step 1, 11 s for one tile alone, and 4.6 s of M2's
+  8.9; B2 saved about 0.5 h of L, not the 1.0 h this line said).
 - Memory: 2.2-2.3 GiB private per tile of 38-40 Mpx (about 60 B/px, the peak in step 1's gap
   filling), 2.9 GiB for M2's 53 Mpx; `worker_count` = min(12 physical cores, 26 GiB free / 3.7 GiB)
   = 7: the memory, not the cores, set the workers on this PC. Disk: 266 MB read and 107 MB written
@@ -1501,6 +1503,114 @@ others, the light part on the light workers): 35 and 24 min here; the heavy tile
 about a quarter of that, so a schedule that runs the heaviest tiles before or after the light ones
 is no better (10-20 min of heavy tiles plus 23 of light ones). Lower means a shorter light part
 (stage 2's B2, stage 3's B3) and then a split of the heaviest cores (A4).
+
+### Done, stage 2 (2026-11-04, branches `country-perf-2-strips` and `country-perf-2-coarse`)
+
+- **C1, step 1 of a tile in strips** (`country.TileWork.count`: `search.prepare_data(strips=True)`
+  on the tile's own grid, round 3's wave 4): the grids memory-mapped in the tile's work folder, one
+  int32 array of labels and a strip's temporaries in memory at a time. No copy of the tile's window
+  (`search._tile_data`): the window is the grid, and both paths hand steps 2-3 read-only memmaps,
+  the kernels' argument types of `warmup.SEARCHES`. `coast.sea_mask_rows(extent=)` reads the world
+  file's polygons once per band for a coastal country. The strips' cross-CRS warps (the FABDEM gap
+  filler, the Copernicus water mask) differ from a whole-grid warp within GDAL's approximate
+  transformer (wave 4's caveat: up to 0.66 m, a median of 6 mm, in the filled pixels of a border
+  tile), which the user accepted for the country layer: a tile counted again may differ by a few
+  lines where FABDEM fills a gap inside the outline. Slovakia's M2 band counted again: all 575
+  tiles identical.
+- **OpenBLAS's buffers** (found while measuring C1): numpy's OpenBLAS commits about 32 MB per
+  logical core at import (19 / 244 / 758 MiB of private bytes with 1 / 8 / 24 threads, the working
+  set 30 MiB in every case), and a count calls no BLAS routine on anything large: every worker of
+  the runs before carried 0.8-1.6 GiB it never touched (a part of the analysis' 60 B/px; the
+  timelines' `workers_private_gib` overstate by it). `country._worker_env` gives the workers
+  `OPENBLAS_NUM_THREADS=1` and `MKL_NUM_THREADS=1`.
+- **`COUNT_PIXEL_BYTES` 64 → 32**: in strips and without those buffers a worker stands at 0.17 GiB
+  of private bytes before a tile and rose at most 0.87 GiB during one (the Tatras tile of 474 M
+  lines at 24 threads: 16 B/px, in the pair search); 32 is twice that. A 53 Mpx tile needs 2.2 GiB
+  per worker instead of 3.7. The free-disk check takes `_disk_bytes(plan)` (`search.work_bytes` +
+  `AREA_TEMP_BYTES` of the band's plan) instead of `DISK_PIXEL_BYTES`.
+- **B2, the Slovak tiles averaged to 2 m and 5 m** (`tools/sk_tiles.py average`,
+  `GridTiles(averaged=(2, 5))`): a grid of exactly 2 or 5 m reads the mirror's `dmr5/2m` and
+  `dmr5/5m` (and `dmp1/...`), each pixel the mean of the valid 1 m pixels of its block (the rule of
+  `Download(average=)`); any other grid, and a mirror without those folders, reads the 1 m tiles as
+  before. At 2 m the mosaic is byte for byte the one GDAL averaged from the 1 m tiles; at 5 m 274 of
+  an L tile's 37.5 M pixels lie one float32 ULP from it (GDAL's weights are not exactly 1.0; the
+  averaged tile holds the correctly rounded mean). The averaged folders take 23.6 + 4.4 GB beside the
+  DMR's 64.6 GB of 1 m tiles and 26.7 + 4.9 GB beside the DMP's 77.9 (6.3 and 6.5 min on all cores):
+  1.6-1.8 times the estimate, since they are deflated float32 and the 1 m tiles LERC with 5 mm of
+  error. The cache keeps a copy of what a run reads, as of the 1 m tiles (dmr5's 23.4 + 4.3 GB after
+  the two runs).
+- The user's decisions: the L band of `countries/slovakia` counted again with the averaged tiles
+  (below), and R13 re-baselined (2 804 → 2 801 anchors, 2 407 → 2 405 open, its lines unchanged:
+  docs/regression-tests.md).
+
+Measured on this PC with its other programs closed, under the exclusive lock, the bands on a scratch
+copy of `countries/slovakia`, each branch on its own (C1's runs without B2, B2's without C1;
+`local/country-perf-2026-11-04/stage2/`):
+
+| M2 band | Base (2026-11-03) | Stage 1 | Stage 1 + C1 | Stage 1 + B2 |
+| --- | ---: | ---: | ---: | ---: |
+| Counts against the base | | 575/575 identical | 575/575 identical | 575/575 identical |
+| Wall of the tiles | 46.8 min | 35.0 min | 37.9 min | 31.8 min |
+| Workers (`worker_count`) | 7 | 8 | 11 | 8 |
+| Tile seconds | 4.14 h | 3.38 h | 4.12 h | 2.76 h |
+| CPU seconds of the tiles | 11.85 h | 11.25 h | 11.51 h | 10.01 h |
+| Step 1 (`prepare`) | 1.64 h | | 1.92 h | 1.07 h |
+| "stitching terrain" | 0.67 h (median 4.6 s) | | 0.74 h | 0.21 h (median 1.2 s) |
+| Median tile / an empty tile | 13.8 / 13.6 s | 11.9 / 11.5 s | 13.8 / 14.8 s | 8.9 / 8.3 s |
+| The heaviest tile, E-350000_N-1190000 | 2804 s | 2097 s | 2271 s | 1908 s |
+| Machine CPU, mean | 75 % | 92 % | 90 % | 92 % |
+| The light part done at | +33 min | +24 min | +20 min | +18 min |
+| A worker's private peak per tile, median / max | 2.24 / 3.75 GiB | | 1.89 / 2.46 GiB (OpenBLAS's buffers still in) | |
+
+With OpenBLAS on one thread too, the tile E-360000_N-1190000 (61 M lines) peaked at 714 MiB of
+private bytes (2.81 GiB in the user's run), 173 MiB of them before its step 1.
+
+| L band | Base (2026-11-03, the M + L run) | Stage 1 + B2 |
+| --- | ---: | ---: |
+| Counts against the base | | 162/163 identical (E-360000_N-1200000: 6 of its 402 225 769 lines in other keys, its lines, spots and spot records equal) |
+| Wall of the L tiles | 38.2 min (M's tiles beside, 6 workers) | 18.6 min (12 workers) |
+| Tile seconds | 2.17 h | 1.51 h |
+| Step 1, median per tile / total | 22.2 s / 0.94 h | 8.3 s / 0.38 h |
+| "stitching terrain" | not recorded (one tile alone: 11 s) | 0.08 h (median 1.9 s; one tile alone: 3 s) |
+| Median tile / an empty tile | 25.9 / 20.1 s | 11.0 / 9.7 s |
+| The heaviest tile, E-360000_N-1200000 | 2101 s at 4 threads | 1116 s at 24 threads (A1 and F8c too) |
+| Tile files read, E-460000_N-1240000 | 1435 MB | 91 MB |
+
+One tile alone (exclusive, 3 threads), before and after B2: L E-460000_N-1240000 24 → 12 s
+(stitching 11 → 3 s), M2 E-300000_N-1230000 20 → 12 s (4 → under 2 s), the counts equal. The strips
+of C1 cost step 1 0.7-1.0 s more on a tile whose gaps FABDEM fills (its gap filling and stitching
+in strips) and nothing on a tile without gaps (two interleaved rounds per tile, exclusive).
+
+What it shows:
+- B2 did what it should: M2's tile seconds 3.38 → 2.76 h and its wall 35.0 → 31.8 min with the same
+  8 workers, L's step 1 0.94 → 0.38 h (with stage 1's border gaps: the base L run had neither), an
+  empty tile 11.5 → 8.3 s in M2 and 20.1 → 9.7 s in L.
+- C1 did what it should for the memory (a worker's private peak of 2.2-3.1 GiB per tile is 0.7-0.9
+  GiB with the OpenBLAS fix), but on this PC with its other programs closed the cores, not the
+  memory, bound the run: `worker_count` gave 11 workers on 12 physical cores, which slowed every
+  tile (3.38 → 4.12 h, the strips' extra second on border tiles included) and the run (37.9 min
+  against 35.0 with 8). It pays on a machine whose memory sets fewer workers than cores: this PC
+  with its programs open (26 GiB free give 11 workers instead of 7), the 5650G of
+  docs/country-precompute.md. With 32 B/px, `worker_count` now gives 12 workers here whenever 31
+  GiB are free; how many workers these 12 cores carry best is for stage 3 to measure (a cap below
+  the physical cores would follow from it, not a guess).
+- The floor of a band is still its heaviest tile (M2 1908 s, L 1116 s); with B2 the light part ends
+  earlier (+18 min), so the heavy tile gets the idle cores sooner.
+
+**The L band counted again** in the user's `countries/slovakia` with C1 and B2 together (the user's
+decision; the old tiles, cube and manifest kept in `local/country-perf-2026-11-04/stage2/L-before-recount/`):
+162 of 163 tiles identical to before and the same 6 lines of E-360000_N-1200000 in other keys as in
+B2's run alone, so C1's strips moved no count; 18.3 min with 12 workers (`worker_count` at 32 B/px:
+1.6 GiB each), 1.52 h of tile seconds, step 1 0.40 h (a median of 8.9 s; FABDEM's gap filling in
+strips 0.05 → 0.09 h against B2 alone), the heaviest tile 1094 s; the cube built again with the
+totals of before (1 183 773 337 lines, 3 679 609 spots).
+
+Open: the worker count of this PC (above); the app's phase and quick-lane processes carry the same
+OpenBLAS buffers (about 32 MB per logical core: 256 MB on the VPS's 8 cores), which
+`search.memory_needed` never counted; the tiles' `io` reads barely moved with B2 (M2: a median of 266
+→ 256 MB per tile while the tile files it reads fell to a third), so most of a tile's reads are
+something else (its work grids read back?), for stage 3's B4; the Hugging Face upload of the Slovak
+tiles carries the averaged folders (about 42 % more bytes).
 
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 

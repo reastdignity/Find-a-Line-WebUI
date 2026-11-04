@@ -340,7 +340,7 @@ def test_slovak_tiles_cut_and_downloaded(tmp_path, monkeypatch):
     assert np.array_equal(np.isfinite(mosaic), both)                   # no data stays no data
     assert np.nanmax(np.abs(mosaic[both] - expected[both])) <= 0.005    # LERC: within 5 mm
     # A tile outside the data is recorded as missing, not fetched again
-    outside = (math.floor(left / 2000) - 5, math.floor(top / 2000))
+    outside = (1.0, math.floor(left / 2000) - 5, math.floor(top / 2000))
     assert layer.download_tile(outside, str(tmp_path / "x.tif")).received == 0
 
 
@@ -370,13 +370,13 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
     with open(root / "index.json", encoding="utf-8") as f:
         index = json.load(f)["tiles"]
     # A tile without data (null in the index) is outside the data, recorded as missing
-    empty = tuple(map(int, next(k for k, v in index.items() if v is None).split("_")))
+    empty = (1.0, *map(int, next(k for k, v in index.items() if v is None).split("_")))
     assert layer.download_tile(empty, str(tmp_path / "empty.tif")).received == 0
     assert not (tmp_path / "empty.tif").exists()
 
     # A tile not cut yet is an error, never "missing"; a damaged file is refused
-    later = (math.floor(left / 2000), math.floor(top / 2000) + 3)
-    assert f"{later[0]}_{later[1]}" not in index
+    later = (1.0, math.floor(left / 2000), math.floor(top / 2000) + 3)
+    assert f"{later[1]}_{later[2]}" not in index
     with pytest.raises(RuntimeError, match="not in .* yet"):
         layer.download_tile(later, str(tmp_path / "later.tif"))
     key = next(k for k, v in index.items() if v)
@@ -384,7 +384,118 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
     with open(root / src.grid_tile_name(*tile), "ab") as f:
         f.write(b"x")
     with pytest.raises(RuntimeError, match="sha256"):
-        layer.download_tile(tile, str(tmp_path / "damaged.tif"))
+        layer.download_tile((1.0, *tile), str(tmp_path / "damaged.tif"))
+
+
+def test_slovak_tiles_averaged(tmp_path, monkeypatch):
+    """tools/sk_tiles.py average writes the 1 m tiles at 2 m and 5 m (the block mean of the valid 1 m
+    pixels, Download(average=)'s rule, byte for byte) next to them; GridTiles reads them for a grid of
+    exactly that resolution, giving the mosaic of the 1 m tiles averaged by GDAL (byte for byte at 2 m),
+    the 1 m tiles for any other grid and where the averaged folder is not there."""
+    import grid as gd
+    import sk_tiles
+    from sources.readers.download import Download, _block_means
+    from sources.layers.gridtiles import renamed
+    mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
+    sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
+    with open(root / "index.json", encoding="utf-8") as f:
+        fine = json.load(f)["tiles"]
+    for factor in (2, 5):
+        folder = root.parent / f"{factor}m"
+        with open(folder / "index.json", encoding="utf-8") as f:
+            index = json.load(f)
+        assert index["resolution"] == factor and index["tiles"].keys() == fine.keys()
+        assert {k for k, v in index["tiles"].items() if v is None} == {k for k, v in fine.items() if v is None}
+        for key, sha in index["tiles"].items():
+            if sha is None:
+                continue
+            i, j = map(int, key.split("_"))
+            path = folder / src.grid_tile_name(i, j)
+            assert hashlib.sha256(path.read_bytes()).hexdigest() == sha
+            # Download(average=)'s rewrite of the 1 m tile: the same values, nodata and georeference
+            reference = tmp_path / f"ref_{factor}_{key}.tif"
+            Download("test", lambda t: "", lambda t: "t", average=factor)._rewrite(
+                str(root / src.grid_tile_name(i, j)), str(reference), "test")
+            with rio.open(path) as a, rio.open(reference) as b:
+                assert a.transform == b.transform and a.crs == b.crs and a.shape == b.shape == (2000 // factor,) * 2
+                assert np.array_equal(a.read(1).view(np.uint32), b.read(1).view(np.uint32))
+    # Run again: nothing to do (resumable), the indexes as they were
+    before = (root.parent / "2m" / "index.json").read_bytes()
+    sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
+    assert (root.parent / "2m" / "index.json").read_bytes() == before
+
+    monkeypatch.setattr(src.net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setenv(src.MIRROR_ENV, str(mirror))
+    layer = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m",
+                          averaged=(2, 5))
+    plain = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
+    cache_dir = str(tmp_path / "cache")
+    bounds = (left + 500, top - 2800, left + 4600, top - 100)
+    for res in (2.0, 5.0):
+        grid = gd.make_grid(bounds, res, "EPSG:8353")
+        assert layer.resolution(res) == res
+        tiles = layer.tiles(grid)
+        assert tiles and all(t[0] == res for t in tiles) and [t[1:] for t in tiles] == [t[1:] for t in plain.tiles(grid)]
+        assert f"slovakia/test/{res:g}m/" in layer.tile_path(cache_dir, tiles[0]).replace(os.sep, "/")
+        layer.download(grid, cache_dir, None, "test")
+        coarse = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / f"c{res:g}.npy"), "test")
+        plain.download(grid, cache_dir, None, "test")
+        today = src.build_mosaic(plain.files(grid, cache_dir), grid, str(tmp_path / f"t{res:g}.npy"), "test")
+        assert np.array_equal(np.isnan(coarse), np.isnan(today))
+        if res == 2.0:  # measured on Slovakia's tiles: equal at 2 m, one float32 ULP apart in 7 ppm of the pixels at 5 m
+            assert np.array_equal(np.asarray(coarse).view(np.uint32), np.asarray(today).view(np.uint32))
+        else:
+            assert np.allclose(coarse, today, equal_nan=True, atol=1e-3)
+        # The rule itself: the mean of the valid 1 m pixels (as the 1 m tiles hold them: LERC's 5 mm) of each block
+        fine = src.build_mosaic(plain.files(grid, cache_dir), gd.make_grid(grid.bounds, 1.0, "EPSG:8353"),
+                                str(tmp_path / f"f{res:g}.npy"), "test")
+        expected = _block_means(np.asarray(fine, dtype=np.float64), round(res)).astype(np.float32)
+        assert np.array_equal(np.asarray(coarse).view(np.uint32), expected.view(np.uint32))
+    # Any other resolution reads the 1 m tiles, as does a resolution the mirror lacks
+    assert layer.resolution(3.0) == 1.0 and layer.tiles(gd.make_grid(bounds, 3.0, "EPSG:8353"))[0][0] == 1.0
+    assert layer.resolution(1.0) == 1.0
+    import shutil
+    shutil.rmtree(root.parent / "5m")
+    assert layer.resolution(5.0) == 1.0 and layer.resolution(2.0) == 2.0
+    # The names of the folders: the 1 m name replaced once, between separators
+    assert renamed("slovakia/dmr5/5.0/epsg8353-1m-2km", 1.0, 5.0) == "slovakia/dmr5/5.0/epsg8353-5m-2km"
+    assert renamed("https://hf.example/dmr5/1m", 1.0, 2.0) == "https://hf.example/dmr5/2m"
+    with pytest.raises(ValueError, match="exactly once"):
+        renamed("fake/grid", 1.0, 2.0)
+    with pytest.raises(ValueError, match="exactly once"):
+        renamed("a/1m/b/1m", 1.0, 2.0)
+    with pytest.raises(ValueError, match="integer factors"):
+        src.GridTiles("x", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, averaged=(1.5,))
+
+
+def test_slovak_averaged_tiles_over_http(tmp_path, monkeypatch):
+    """Over HTTP the tiles of a resolution come from the base's folder of that name (.../2m)."""
+    import grid as gd
+    import sk_tiles
+    from sources.readers.download import _block_means
+    mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
+    sk_tiles.average("test", str(mirror / "slovakia"), (2,))
+    asked = []
+
+    def fake_server(url, params=None, **kwargs):
+        asked.append(url)
+        path = mirror / "slovakia" / url.split("https://hf.example/", 1)[1]
+        return FakeResponse(path.read_bytes()) if path.exists() else None
+    monkeypatch.setattr(src.net, "_get", fake_server)
+    monkeypatch.delenv(src.MIRROR_ENV, raising=False)
+    layer = src.GridTiles("Test DSM", ["https://hf.example/test/1m"], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6,
+                          averaged=(2, 5))
+    grid = gd.make_grid((left + 500, top - 2800, left + 4600, top - 100), 2.0, "EPSG:8353")
+    cache_dir = str(tmp_path / "cache")
+    layer.download(grid, cache_dir, None, "test")
+    assert asked and all(url.startswith("https://hf.example/test/2m/") for url in asked)
+    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
+    expected = _expected(band, grid, left, top)  # the synthetic 1 m values: the means within LERC's 5 mm
+    blocks = _expected(band, gd.make_grid(grid.bounds, 1.0, "EPSG:8353"), left, top)
+    expected = _block_means(blocks, 2)
+    both = np.isfinite(expected)
+    assert np.array_equal(np.isfinite(mosaic), both) and np.nanmax(np.abs(mosaic[both] - expected[both])) <= 0.005
+    assert layer.tile_url((5.0, 0, 0)) == "https://hf.example/test/5m"
 
 
 
