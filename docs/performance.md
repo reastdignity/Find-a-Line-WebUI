@@ -455,7 +455,7 @@ Effort as for an agent: low, medium, high.
 | F2 + N1 + N3 | cells skipped by the dedup rule (a `searchsorted` within the cell), the distance and the anchor's own reach; the height difference before `hypot` | 39-68 % of the visits skipped, most of the rest cheaper in the mountains | medium |
 | F8a | the free directions over the alive sectors only (sector masks instead of atan2) | 62-81 % of the ring reads | medium |
 | F6 | `_line_ok` from the higher anchor's end, two pixels at each end, then bit reversal | 0-65 % of the pixel tests (most on coasts) | low |
-| F8c | cells outside the anchor's open sectors, or without a partner open towards it | a further 10-35 % of the visits | high |
+| F8c | cells outside the anchor's open sectors, or without a partner open towards it; per partner the anchor's largest ring in the cell's sectors and the partner's open sectors | a further 10-35 % of the visits; done 2026-11-03 (wave 4 of round 3): 55-73 % of the visits left after F2 + N1, the pair search 17-52 % faster | high |
 | F1′ | one pass with a buffer per anchor | the second pass's pixel tests (95 % of all on swiss-long) | medium |
 | L | the partners' data in cell order | the cost per visit (to be measured) | medium |
 
@@ -622,7 +622,9 @@ first; every run byte for byte the same as the reference runs):
   lines are joined and sorted: 1090-1220 MB over nine runs of both versions; the Gozo coast's, step
   1: 2700-2960 MB).
 - **Still open**: F8c; L (above); the middle of lines over 1024 px in an order kinder to the cache;
-  `_evaluate` ("checking lines", now about a third of swiss-long's line search CPU). Planned next:
+  `_evaluate` ("checking lines", now about a third of swiss-long's line search CPU). (Wave 4 of round
+  3, 2026-11-03: F8c done; L not needed for its mask; the long lines' order and `_evaluate` measured
+  and left: "Done, wave 4" of round 3.) Planned next:
   the memory of steps 3 and 4 (the pairs and lines copied where they are joined and sorted),
   `LINE_BYTES` measured again, and F7 (the evaluation stops as soon as the lines are over
   `lines_max` or the memory).
@@ -1202,6 +1204,154 @@ identical runs on this busy PC; the stages are what counts.
   unchanged. The full offline `pytest` from PowerShell on each branch (784-785 passed).
 - Not done: a measurement on Linux (the process start and the per-line cost of 3b differ there);
   `locales/en.json`'s help of `--threads` does not name the children (the CLI's text does).
+
+### Done, wave 4 (stage 4: the pair search, byte for byte; step 1 once per area, which may change the results of tiled areas)
+
+Two branches from 42adde3, each measured on this PC with `tools/perf_profile.py` under the exclusive
+lock, cached data, the code of 42adde3 exported as the base, base and new interleaved (two rounds),
+numba warm; "7" `--cores 7` (the VPS's worker), "all" 24 threads. The wall of a whole run moves by
+±10 s between identical runs on this busy PC; the stages are what counts.
+
+- **4c, F8c** (agent P, branch `perf-r4-pairs`, one commit in `linesearch.py`; every result byte for
+  byte). `_pairs` skips, before a partner's data is read: the cells none of whose sectors from the
+  anchor is open for the need of the cell's nearest pixel (`_cell_sectors`: the sectors of a cell's
+  corners with one of margin for atan2's rounding, `_arc`; the rings as production holds them,
+  capped at `largest_need`), the cells no anchor of which has a sector open for the shortest line's
+  need (`smallest_need`) towards the anchor (`_cell_open`: a uint64 of open sectors per cell), and
+  per partner those whose need exceeds the anchor's largest ring in the cell's sectors and those
+  with no sector open towards the cell (`_open_masks`: a uint64 per useful anchor, 8 B each; the
+  mask is read by `slot[j]`, which N1 reads already, so L's cell-order layout is not needed for it).
+  All of them fail the rings test, so the written pairs, their order and the checked and found
+  counts are the frozen references' (`analyse`'s self-check on six captures: R13, R9, R4, R22, the
+  Gozo coast's tiles 1-2, swiss-long; `test_f8c_skips_only_rings_failures` on random grids with
+  raised blocks, `test_cell_sectors_hold_every_pixel`), while the candidates counted fall to 20-49 %
+  of before (F19's note in docs/monitoring.md). The per-partner mask went in after it was measured
+  as a variant: never slower, 3-13 points more. `_pairs` gained two array arguments of a shape every
+  search gives, so `warmup.SEARCHES` is unchanged (`test_numba_warm_up` passes).
+- **Measured and left** (P): the middle of lines over 1024 px (`LINE_ORDER_MAX`): 94 % of
+  swiss-long's checked lines over 500 px fail at their first three pixels and 1.6 % between 64 and
+  1023 px from an end, so the best order for them (a full bit reversal, +8 % of time for its cache
+  misses in wave 2) would save 17.7 % of swiss-long's pixel tests, about 7 % of its pair search's
+  CPU and 3 % of the job's, 3.4 % of R4's tests and nothing elsewhere (no other search measured has
+  such lines; "R22-long" is not cached beyond 400 m, R4 stood in): below the noise, the order stays.
+  `_evaluate` ("checking lines"): 19-21 % of swiss-long's CPU on 7 cores but 6 % of its wall (1.7 M
+  found pairs of up to 2 500 px, about 1.4 G pixel visits at 17 ns each with a surface model: two
+  grid reads per pixel of a line that crosses a row per pixel, memory-bound), 2.5 % of the Gozo
+  coast's CPU, under 0.1 s of wall elsewhere; not changed.
+
+| Search (P, `analyse`) | visits | skipped by F2a + F2b + N1 (wave 2) | + F8c (cumulative) | F8c of the visits left after wave 2 | of it the anchor's own cell rule | candidates counted before → after |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| R13 | 5.5 M | 39.0 % | 83.3 % | 72.6 % | 50.0 % | 176 k → 49 k (28 %) |
+| R9 | 399.8 M | 66.5 % | 90.9 % | 72.9 % | 71.6 % | 11.2 M → 2.2 M (20 %) |
+| R4 | 8.6 M | 51.0 % | 77.8 % | 54.8 % | 52.5 % | 1.9 M → 0.42 M (21 %) |
+| R22 | 752.2 M | 49.5 % | 83.3 % | 66.9 % | 59.4 % | 8.3 M → 1.6 M (20 %) |
+| Gozo coast (tiles 1-2) | 436.5 M | 60.3 % | 83.9 % | 59.5 % | 60.8 % | 57.3 M → 16.4 M (29 %) |
+| swiss-long | 9 801.9 M | 45.2 % | 78.0 % | 59.8 % | 47.9 % | 287.5 M → 141.0 M (49 %) |
+
+The per-partner mask skips 5-8 % of all visits but 45-98 % of the candidates F8c removes (each sparing
+two atan2 calls). The pair search alone (`pair_chunk` over a capture's chunks, each version in its own
+process, medians of 3 runs in two rounds; 23 / 7 threads): swiss-long 2.04 / 4.62 → 1.69 / 3.64 s
+(-17 / -21 %), the Gozo coast 0.25 / 0.58 → 0.18 / 0.28 (-30 / -52 %), R9 0.072 / 0.131 → 0.050 /
+0.075, R22 0.070 / 0.118 → 0.047 / 0.074; R4 and R13 within noise. Whole jobs: the "anchor pairs"
+bar's CPU -18 % on swiss-long (24.0 / 21.7 → 20.3 / 17.1 s on 7 cores, 45.9 → 38.7 / 36.6 on all),
+-35 / -24 % on the Gozo coast with 5 km tiles (9.8 / 9.5 → 6.2 on 7 cores), -40 % on R22 and R9 on 7
+cores; the jobs' CPU 0-9 % less, their wall within noise (steps 1, 4 and 5 on one core set it), the
+peak RSS within noise. Byte for byte on all 26 base / new pairs (R13, R9, R4, R22, swiss-long, the
+Gozo coast with 5 km tiles; 7 cores and all threads, both rounds and the warm-ups): `lines.csv`
+whole, `lines.geojson` up to "findaline", `data.js` and `lines.js` from "lines". A pitfall for the
+record: a module copy loaded with `importlib` under another name poisons numba's on-disk cache of
+that file with a `<dynamic>` module name (every later import fails with "No module named
+'<dynamic>'"): time each version in its own process with a normal import.
+
+- **4a, step 1 once per area** (agent S, branch `perf-r4-step1`; the results of tiled areas may
+  change). Step 1 of a tiled search (the mosaics, the sea mask, the shore zone, the gap and water
+  filling, the obstacles, the terrain statistics) ran for every tile on the tile's grid with its
+  overlap, so an area cost 2.5-8 pixels of step 1 per pixel of its area (38 with the VPS's tiles at
+  the default length, "The tiles of an area on the public site" above) and every tile decoded the
+  same cached files again. `search_lines` now runs step 1 once on the whole grid
+  (`prepare_data(strips=True)`: the grid a search of one grid would use, so an area's gap offsets,
+  lake levels and border gaps are the area's) in strips of rows of about 4 Mpx (`filling.STRIP_PX`)
+  with a halo of each operation's reach, the grids memory-mapped in the work folder, one int32
+  array of labels in memory at a time (the lakes, the border gaps, each gap pair in turn), the gap
+  filling's overall offset an exact selection on the float32 bits of the matched differences
+  (`_median_of`, `_select`: np.median's value, the mean of two middle values, without holding
+  them), the ring medians from the ring pixels only, the rasterizations (the polygon area mask,
+  the world water polygons, the coastline's faces, the border gaps' footprint) burned whole into
+  memory-mapped masks (`rasterize_into`: GDAL's all_touched burn is not strip-invariant at a
+  polygon's tangent row), the mosaics warped in destination strips (`_warp`: same-CRS rasters bit
+  for bit; a cross-CRS warp, FABDEM, Copernicus, the water mask, within rasterio's approximate
+  transformer (`tolerance=0.125`), as a tile's extent made it differ from one grid before). Each
+  tile then copies its window into contiguous memmaps of `work/tile<k>/` (`_tile_data`, through a
+  mapping opened for the copy, so the area's pages leave the working set) and runs steps 2-4 as
+  before (the kernels' argument types unchanged, `warmup.py` untouched); the terrain histograms are
+  counted per tile core on the unfilled terrain (`Data.tile_terrain`), so the tiles' files and
+  resuming are as they were (the area's grids are made again on resume, removed after the last
+  tile). `estimate_search` counts the area's grids, `AREA_TEMP_BYTES` (4) of temporaries and the
+  largest tile's copies (`tile_bytes`, about 10 B/px): the Gozo coast at 1 m writes about 3.4 GB
+  for 126 Mpx (1.15 GB for its largest tile before); the CLI's disk question applies. The data
+  lines of a tiled search are the area's now ("Elevation data: X % of the search area", "Filled
+  … km²", "N of M tiles without data": once, not per tile), and `profile_of_line`'s own step 1
+  during "profiles at tile edges" leaves the step and the bars alone (`_silent_progress`: wave 3's
+  measuring artefact, its seconds listed under step 1, is gone; they sit in step 4's bar now). The
+  country layer keeps its step 1 per tile (`country.TileWork`). Tests: `test_near_rows_as_near`,
+  `test_median_of_rows_is_np_median`, `test_fill_rows_as_before` (4 seeds × strip heights 1-500,
+  with and without a neighbour's window), `test_fill_water_rows_as_before`,
+  `test_border_gaps_rows_as_whole`, `test_rasterize_into_as_whole`, `test_mosaic_rows_as_whole`
+  and `test_area_in_tiles_with_water_and_gaps` (the Żabi Koń clip with a sea, a lake, gaps on land
+  and of the surface, an offline water mask and a fallback source: tiles against one grid,
+  `lines.csv` byte for byte, the same terrain); the old `test_area_in_tiles` passes unchanged.
+
+| Job (S) | cores | wall base → new | step 1 | step 2 | step 3 | step 4 | step 5 | peak RSS MB base → new |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Gozo coast, `--tile-size 5000` (126 Mpx, 6 tiles, the largest 50.2 Mpx) | 7 | 48.4 / 48.4 → 36.5 / 39.1 | 34.0 / 33.8 → 20.7 / 21.3 | 3.9 → 3.9 / 4.0 | 2.2 → 2.2 / 2.3 | 2.5 → 3.9 / 4.9 | 4.7 → 4.7 / 5.5 | 1 853 / 1 784 → 2 851 / 2 852 (step 1); step 2 1 028 → 1 287 |
+| Gozo coast, `--tile-size 5000` | all | 50.6 → 42.6 | 35.9 → 25.2 | 4.0 → 4.8 | 1.6 → 1.8 | 2.7 → 4.5 | 5.2 → 5.2 | 1 801 → 2 851 |
+| Gozo coast, the VPS's tiles (`--memory 4886000000`: 9 tiles, the largest 37.4 Mpx) | 7 | 59.4 / 60.2 → 47.8 / 48.0 | 44.5 / 44.9 → 24.3 / 23.8 | 4.7 / 5.0 → 6.0 / 5.7 | 2.2 → 2.5 / 2.4 | 2.7 → 9.8 / 10.9 | 4.8 → 4.7 | 1 492 / 1 477 → 2 869 / 2 855; step 2 884 / 835 → 1 369 |
+| R16 (3 452 × 1 069 px, 11 tiles) | 7 | 13.2 / 13.5 → 9.0 / 9.0 | 8.0 / 8.3 → 1.7 / 1.6 | 0.7 → 0.7 | 2.7 → 2.7 | 0.7 / 0.5 → 2.8 / 2.9 | 0.3 → 0.3 | 319 / 317 → 321 / 299 |
+| R14 (1 301 × 1 300 px, 15 tiles) | 7 | 9.9 → 4.1 | 7.1 → 0.8 | 1.1 → 1.1 | 0.1 → 0.1 | 0.6 → 1.2 | 0.0 | 319 → 299 |
+| Tatras, a 3 km circle as a polygon at 1 m with `--tile-size 2500` (43.5 Mpx, 9 tiles, the largest 26 Mpx; the border filled from ÚGKK SR) | 7 | 102.9 / 101.9 → 73.9 / 75.7 | 58.3 / 57.5 → 21.9 / 23.3 | 16.5 / 16.6 → 17.4 | 16.9 / 16.7 → 17.0 / 17.2 | 3.7 → 10.2 / 10.6 | 6.1 / 6.0 → 6.0 / 5.8 | 1 801 / 1 742 → 2 288 / 2 019 (step 3) |
+| swiss-long (one grid, the control) | 7 / all | 25.2 → 25.4 / 25.2 → 25.2 | 3.5 → 3.5 | 1.6 → 1.7 | 7.1 → 7.3 / 3.7 → 3.7 | 1.4 → 1.4 | 10.3 → 10.2 / 13.7 → 13.9 | 898 → 898 |
+
+- Step 1 by stage on the Gozo coast with 5 km tiles (7 cores, base → new): the stitching of the
+  terrain and surface 1.3 / 1.3 → 0.7 / 0.7 s, the water mask 1.1 → 0.7, the sea mask (world file)
+  1.0 → 0.7, the shore zone 0.9 → 0.4, the gap fill's mosaic 3.3 → 2.1, the gap filling of both pairs
+  12.6 → 8.5 (the strip medians cost about what the whole did; the slopes and rings less), the sea
+  and lakes 4.0 → 2.1, the surface coverage 0.7 → 0.4, between bars 7.0 → 3.7; with the VPS's tiles
+  the world-file sea mask 4.4 → 0.7 s and between bars 9.5 → 4.2; the Tatras' ÚGKK mosaic 16.6 → 9.9
+  s, between bars 13.1 → 2.2. Step 4 grew where there are profiles at tile edges (R16 3, the VPS's
+  tiles about 10, the Tatras): those seconds were listed under step 1 before; the total did not grow.
+- **Memory.** Step 1 no longer peaks per tile but per area: about 23 B per pixel of the area of
+  RSS on Windows (the Gozo coast's 126 Mpx: 2 850 MB at the surface pair's medians, against 1 850
+  MB for its 50 Mpx tile before; the VPS's tiles 22.7 B/px of the area, base 11.2; the Tatras 24.2,
+  base 23.3; R16 32.7, base 45.5), of which 4 B the int32 labels and the rest the resident pages of
+  the memory-mapped grids written and read in strips (file-backed, reclaimable under a cgroup's
+  pressure, counted as RSS on Windows; `--tracemalloc` was not run). Steps 2-3 of a tile stay at the
+  tile's grids (the 50 Mpx tile 1 287 MB in step 2, about 23 B per pixel of the tile, within
+  `PIXEL_BYTES` 50, since a tile's window is read through a mapping of its own). Disk: the area's
+  grids (23 B/px plus 4 of temporaries at the peak) and one tile's copies (about 10 B/px) in the work
+  folder. Whether the tiles may now grow (step 1 costs no more per tile, only steps 2-4's overlap
+  does) is an open decision; `PIXEL_BYTES` and `TILE_MEMORY_SHARE` are unchanged.
+- **The results.** The Gozo coast (both tile sizes) and R14 are byte for byte the base's, both rounds
+  (the new code is deterministic: two Tatras runs equal). R16 keeps its 25 906 lines and 421 spots;
+  12 lines near 36.0795° N 14.2497° E have `height_max` / `height_mean` moved by 1-3 cm (the FABDEM
+  gap offsets are the area's). The Tatras area with the Slovak border fill changed on its Slovak
+  side: the base filled the Slovak part per tile (nine fills of 4-14 km², each tile's piece of the
+  border gap with its own ring median), the new code once (19.51 km²) with one ring median per
+  connected border gap, the FABDEM fill likewise (6.62 km² once against 1.4-3.0 per tile): 898 658 →
+  877 081 lines, 12 606 → 11 982 spots, 46 477 lines only in the base, 24 900 only new, 505 714 with
+  other values (clearances, anchor heights by 0.01-1.2 m, wall angles, 7 232 `over_trees` flips),
+  495 k of the 506 k changed and all of the lost at a lower anchor south of 49.185° (the Slovak
+  side; north of 49.19° 97 k of 112 k lines unchanged). One offset per gap is consistent at tile
+  borders (no steps between tiles any more) but ignores a trend of the height difference along a
+  long border: open (a per-strip or distance-weighted offset would be a new design). Re-baselined
+  (bf0cd6f): R14's `filled_km2` 0.24 → 0.74 (the whole area's FABDEM fill, the first tile's before),
+  its lines still R1's (`same_as`); R16's checksum, coverage 51.53 → 49.48 %, filled 0.98 → 2.58 km²,
+  sea 1.87 → 6.08 km² (counted once over the area), the counts unchanged; R18 is one grid on this PC.
+- Checks: each agent's full offline `pytest` from PowerShell (1022 passed, 56 skipped) and
+  `tests/regression.py` on cached data (P: R1 R4 R5 R9 R13 R14 R16 R22 R40, 9 ok; S: R1 R9 R14 R16
+  R18 R40 R41, R14 = R1), repeated by the session on both branches (1022 passed each; P's set and R1
+  R9 R14 R16 R18 R40 on S, all ok). Not done: a measurement on Linux, `--tracemalloc` of 4a's
+  mapped pages, 4b (the tiles in parallel, next round), the `bytes` plan of the contract (the
+  one-grid path is covered by the checksums and swiss-long's four files byte for byte).
 
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 

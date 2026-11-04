@@ -139,9 +139,10 @@ def test_tolerance_bounds_each_step(tmp_path):
     assert n == 8 * 12
 
 
-@pytest.mark.parametrize("shape", [(50, 70), (7, 300)])
-def test_on_a_band_of_any_shape(tmp_path, shape):
-    """The candidates' indices and their neighbours across rows: the same as a dense pass."""
+@pytest.mark.parametrize("shape, rows", [((50, 70), None), ((7, 300), None), ((50, 70), 16), ((50, 70), 7)])
+def test_on_a_band_of_any_shape(tmp_path, shape, rows):
+    """The candidates' indices and their neighbours across rows, found at once or in strips of rows
+    (step 1 in strips: the mask memory-mapped): the same as a dense pass."""
     rng = np.random.default_rng(shape[0])
     terrain = np.full(shape, np.nan, np.float32)
     terrain[: shape[0] // 3] = 30.0
@@ -152,8 +153,11 @@ def test_on_a_band_of_any_shape(tmp_path, shape):
     s = tmp_path / "s.npy"
     np.save(t, terrain)
     np.save(s, surface)
-    out, n = filling.fill_shore_from_surface(str(t), str(s), _grid(shape), zone, str(tmp_path / "f.npy"))
+    out, n = filling.fill_shore_from_surface(str(t), str(s), _grid(shape), zone, str(tmp_path / "f.npy"), rows=rows)
     face = np.load(out)
+    filled = np.load(t)
+    assert np.array_equal(np.isfinite(filled), np.isfinite(terrain) | face)
+    assert np.array_equal(filled[face], surface[face])
     # The dense reference: grow the accepted set with a 3 x 3 maximum of the accepted heights
     from scipy import ndimage
     cand = np.isnan(terrain) & (surface > filling.SEA_LEVEL_TOLERANCE)

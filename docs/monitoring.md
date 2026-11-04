@@ -391,7 +391,7 @@ PAM script, `tests/test_monitoring.py`, `tests/test_deploy.py`, docs/deployment.
   and after; the other steps of the funnel count as before. It stepped down again with F8c
   (2026-11-03, branch `perf-r4-pairs`: the cells outside an anchor's open sectors, the cells with no
   partner open towards it and the partners beyond the anchor's rings in their cell's sectors are
-  skipped before the count too): 30-71 % of the count of the day before in the searches measured
+  skipped before the count too): 20-49 % of the count of the day before in the searches measured
   (docs/performance.md, "Done, wave 4" of round 3); open, checked and found are unchanged.
 - **The quota.** The daily quota of a user's searches counts Mpx (`mpx_day_max`), not km²: 250 km² is
   250 Mpx at 1 m but 10 Mpx at 5 m, so a quota in km² punished coarse overviews (the cheapest) and

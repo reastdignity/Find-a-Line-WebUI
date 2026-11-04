@@ -28,6 +28,7 @@ asked, the bounding box of the grid, the pixels of the grid or of a tile, and th
 check_estimate the download; _lines the anchors and lines found.
 """
 
+import contextlib
 import dataclasses
 import gc
 import glob
@@ -257,6 +258,9 @@ class Data:
     mask: Optional[np.ndarray] = None
     # The heights of the land with data of the search area (of a tile's core), hypsometry.py
     terrain: Optional[hy.Histogram] = None
+    # The area of a tiled search (prepare_data(strips=True) with plan.tiles): the histogram of
+    # each tile's core, in the order of plan.tiles (terrain is their sum)
+    tile_terrain: Optional[List[hy.Histogram]] = None
     # The filled gaps and the shore faces taken from the surface model (sources.filling.fill_shore_from_surface):
     # what a line's filled_m counts. The faces are no seam (filled): the anchors at a cliff's top edge stand
     # right next to its face, and the surface model is the terrain's own survey there
@@ -710,9 +714,13 @@ def estimate_search(plan: Plan) -> Estimate:
     if p.water == "fill" and p.coastline == "world" and coast.world_file(plan.paths.cache) is None:
         download_mb += coast.WORLD_MB
         emit("info", f"OpenStreetMap water polygons (world): one download of ~{coast.WORLD_MB} MB")
-    # A tile's work folder is removed before the next tile's grids are made: the largest one's
-    largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height) if plan.tiles else plan.grid
-    work_gb = largest.width * largest.height * work_bytes(plan) / 1e9
+    work = plan.grid.width * plan.grid.height * work_bytes(plan)
+    if plan.tiles:
+        # The area's grids with step 1's temporaries, and the copies of one tile at a time (the
+        # largest one's: a tile's folder is removed before the next tile's are made)
+        largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height)
+        work += plan.grid.width * plan.grid.height * AREA_TEMP_BYTES + largest.width * largest.height * tile_bytes(plan)
+    work_gb = work / 1e9
     estimate = Estimate(download_mb, work_gb)
     if isinstance(plan.area, ar.Polygon):  # areas are always confirmed: they can be large
         estimate.reasons.append(
@@ -740,6 +748,22 @@ def work_bytes(plan: Plan) -> int:
     if _fills_gaps(plan):
         floats += len(source.fallbacks) * (1 + surface)
         masks += len(source.fallbacks) + (len(source.neighbours) + 1 if source.neighbours else 0)
+    return 4 * floats + masks
+
+
+# Bytes per pixel of the area that step 1 in strips (prepare_data(strips=True)) holds in temporary
+# boolean grids of the work folder at most at one time, on top of work_bytes: the area mask, the
+# shore zone, and the gaps and the matched pixels of the pair of grids being filled
+AREA_TEMP_BYTES = 4
+
+
+def tile_bytes(plan: Plan) -> int:
+    """The bytes per pixel of a tile's copies of the area's grids (search_lines: _tile_data): float32
+    the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled and the
+    joined masks when the search makes them."""
+    p, source = plan.params, plan.source
+    floats = 1 + bool(plan.nmpt) + bool(p.slope_file)
+    masks = (p.water == "fill") + (_fills_gaps(plan) and (bool(source.fallback) + bool(source.neighbours)))
     return 4 * floats + masks
 
 
@@ -828,57 +852,119 @@ def _core_window(grid, core: tuple) -> Tuple[slice, slice]:
     return (span(np.flatnonzero((bottom <= y) & (y < top))), span(np.flatnonzero((left <= x) & (x < right))))
 
 
-def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True) -> Data:
+def _area_mask_rows(area: ar.Area, grid: gd.Grid, path: str, rows: int) -> np.ndarray:
+    """area.mask(grid) into a boolean grid memory-mapped at path: a circle's pixels by the same
+    test in strips of rows, a polygon burned into the mapping (sources.filling.rasterize_into)."""
+    out = src.filling.new_mask(path, (grid.height, grid.width))
+    if isinstance(area, ar.Polygon):
+        return src.filling.rasterize_into([ar.project(area.geometry, "EPSG:4326", grid.crs)], grid, out)
+    x, y = area._xy(grid.crs)
+    center_row = (grid.top - y) / grid.res - 0.5
+    center_col = (x - grid.left) / grid.res - 0.5
+    for r0, r1, _, _ in src.filling.strips(grid.height, rows):
+        r, c = np.ogrid[r0:r1, :grid.width]
+        out[r0:r1] = (r - center_row) ** 2 + (c - center_col) ** 2 <= (area.radius / grid.res) ** 2
+    return out
+
+
+def _share_rows(numerator: Callable[[int, int], np.ndarray], denominator: Callable[[int, int], np.ndarray],
+                height: int, rows: int) -> float:
+    """numerator's pixels among denominator's, both masks given by rows [r0, r1), summed in strips
+    (the mean of a boolean selection as one grid takes it: the counts' quotient); 0.0 of nothing."""
+    above = below = 0
+    for r0, r1, _, _ in src.filling.strips(height, rows):
+        above += int(numerator(r0, r1).sum())
+        below += int(denominator(r0, r1).sum())
+    return above / below if below else 0.0
+
+
+def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True, strips: bool = False) -> Data:
     """Step 1: download what is missing and build the grids (terrain, surface, water, gaps).
 
     statistics: count the heights of the land with data in the search area (Data.terrain,
-    hypsometry.py), within core (a tile's bounds) when given."""
+    hypsometry.py), within core (a tile's bounds) when given.
+    strips: the grids made in strips of rows of about filling.STRIP_PX pixels (the area of a
+    tiled search, search_lines: its masks memory-mapped in the work folder, one int32 array of
+    labels of the whole grid at a time), the same values as the whole grid at once; with
+    plan.tiles the heights are counted per tile core (Data.tile_terrain)."""
     p, grid, source, emit = plan.params, plan.grid, plan.source, plan.emit
     cache_dir, work = plan.paths.cache, plan.paths.work
+    rows = src.filling.strip_rows(grid.width) if strips else None
+    temporary = lambda name: os.path.join(work, name)  # a mask of step 1 in strips, removed after its use
     _step(plan, 1, f"downloading elevation data ({source.name})")
     try:
         _download_layers(plan)
-        elevation_path = src.prepare_layer(source.nmt, grid, cache_dir,
-                                           os.path.join(work, "nmt.npy"), "terrain", p.update, download=False)
+        elevation_path = src.prepare_layer(source.nmt, grid, cache_dir, os.path.join(work, "nmt.npy"), "terrain",
+                                           p.update, download=False, rows=rows)
         progress.compute.start("area coverage", 1, unit="step")
-        mask = plan.area.mask(grid)
-        with_data = float(np.isfinite(np.load(elevation_path, mmap_mode="r")[mask]).mean()) if mask.any() else 0.0
+        if rows is None:
+            mask = plan.area.mask(grid)
+            with_data = float(np.isfinite(np.load(elevation_path, mmap_mode="r")[mask]).mean()) if mask.any() else 0.0
+        else:
+            mask = _area_mask_rows(plan.area, grid, temporary("mask.npy"), rows)
+            z = np.load(elevation_path, mmap_mode="r")
+            with_data = _share_rows(lambda r0, r1: np.isfinite(z[r0:r1]) & mask[r0:r1], lambda r0, r1: mask[r0:r1],
+                                    grid.height, rows)
+            del z
         progress.compute.update(1)
         progress.compute.finish()
         emit("info", f"Elevation data: {100 * with_data:.2f}% of the search area from {source.name}")
         surface_path = None
         if plan.nmpt:
-            surface_path = src.prepare_layer(source.nmpt, grid, cache_dir,
-                                             os.path.join(work, "nmpt.npy"), "surface", p.update, download=False)
+            surface_path = src.prepare_layer(source.nmpt, grid, cache_dir, os.path.join(work, "nmpt.npy"), "surface",
+                                             p.update, download=False, rows=rows)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
-        water_path = filled_path = covered_path = joined_path = sea_zone = wbm = terrain = None
+        water_path = filled_path = covered_path = joined_path = sea_zone = wbm = terrain = tile_terrain = None
         if p.water == "fill":
-            wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
-            sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update,
-                                                        extent=plan.search_grid)
+            wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False,
+                                      rows=rows)
+            if rows is None:
+                sea, coast_source, warning = coast.sea_mask(grid, cache_dir, p.coastline, wbm == src.OCEAN, p.update,
+                                                            extent=plan.search_grid)
+            else:
+                sea, coast_source, warning = coast.sea_mask_rows(
+                    grid, cache_dir, p.coastline, lambda r0, r1: wbm[r0:r1] == src.OCEAN, p.update,
+                    np.lib.format.open_memmap(temporary("sea.npy"), mode="w+", dtype=bool, shape=wbm.shape), rows)
             emit("info", f"Coastline: {coast_source}")
             if coast_source.startswith("OpenStreetMap"):
                 src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
             if warning:
                 emit("warning", warning)
             progress.compute.start("shore zone", 1, unit="step")
-            sea_zone = src.near(sea, p.shore_buffer, grid.res)
+            if rows is None:
+                sea_zone = src.near(sea, p.shore_buffer, grid.res)
+            else:
+                sea_zone = src.filling.near_rows(lambda r0, r1: sea[r0:r1], p.shore_buffer, grid.res,
+                                                 src.filling.new_mask(temporary("sea_zone.npy"), wbm.shape), rows)
             del sea  # only the zone is used from here on
+            if rows is not None:
+                src.filling.remove_grid(temporary("sea.npy"))
             progress.compute.update(1)
             progress.compute.finish()
         elif _fills_gaps(plan):
             # Without --water fill the sea stays without data; keep the gap filling off it too
-            wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False)
+            wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False,
+                                      rows=rows)
             progress.compute.start("shore zone", 1, unit="step")
-            sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
+            if rows is None:
+                sea_zone = src.near(wbm == src.OCEAN, src.SHORE_BUFFER, grid.res)
+            else:
+                sea_zone = src.filling.near_rows(lambda r0, r1: wbm[r0:r1] == src.OCEAN, src.SHORE_BUFFER, grid.res,
+                                                 src.filling.new_mask(temporary("sea_zone.npy"), wbm.shape), rows)
             progress.compute.update(1)
             progress.compute.finish()
         if statistics:
             # The source's own terrain, before any filling (filled pixels are NaN still)
             progress.compute.start("terrain statistics", 1, unit="step")
-            terrain = hy.land_histogram(np.load(elevation_path, mmap_mode="r"), mask, wbm, sea_zone,
-                                        _core_window(grid, core) if core is not None else None,
-                                        sea_value=source.sea_fill)
+            z = np.load(elevation_path, mmap_mode="r")
+            if strips and plan.tiles:  # each tile's core: the tiles' files and resuming as before
+                tile_terrain = [hy.land_histogram(z, mask, wbm, sea_zone, _core_window(grid, c), sea_value=source.sea_fill)
+                                for c, _ in plan.tiles]
+                terrain = sum(tile_terrain, hy.Histogram.empty())
+            else:
+                terrain = hy.land_histogram(z, mask, wbm, sea_zone, _core_window(grid, core) if core is not None else None,
+                                            sea_value=source.sea_fill)
+            del z
             progress.compute.update(1)
             progress.compute.finish()
         if p.water != "fill":
@@ -887,51 +973,62 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
                 elevation_path, surface_path, grid, [src.SOURCES[n] for n in source.neighbours], cache_dir,
-                os.path.join(work, "joined.npy"), p.update, exclude=sea_zone)
+                os.path.join(work, "joined.npy"), p.update, exclude=sea_zone, rows=rows)
             filled = []
             if source.fallback:
                 filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
                                                           [src.SOURCES[f] for f in source.fallbacks], cache_dir,
-                                                          os.path.join(work, "filled.npy"), p.update, exclude=sea_zone)
+                                                          os.path.join(work, "filled.npy"), p.update, exclude=sea_zone,
+                                                          rows=rows)
             for fallback, filled_px in joined + filled:
                 if filled_px:
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
                                  f"from {fallback.name}")
-        bare = None
+        bare = bare_path = None
         if p.water == "fill":
             if surface_path:
                 # The shore faces the terrain model lacks (no ground returns on a sea cliff's face) from the
                 # surface model, downwards from the terrain's data edge; the rest of the zone is the sea below
                 face_path, face_px = src.fill_shore_from_surface(elevation_path, surface_path, grid, sea_zone,
-                                                                 os.path.join(work, "face.npy"), sea_value=source.sea_fill)
+                                                                 os.path.join(work, "face.npy"), sea_value=source.sea_fill,
+                                                                 rows=rows)
                 if face_px:
                     emit("info", f"Filled {face_px * plan.resolution ** 2:.0f} m² of shore faces without terrain data "
                                  f"from {source.nmpt.description if source.nmpt else 'the surface model'}")
                     # Filled data with the gaps' for filled_m and the map's filter (Data.covered), but no seam:
                     # the anchors at the cliff's top edge stand right next to its face
                     covered_path = os.path.join(work, "covered.npy")
-                    if filled_path is None:
-                        os.replace(face_path, covered_path)
-                    else:
-                        covered = np.load(filled_path) | np.load(face_path)
-                        np.save(covered_path, covered)
-                        del covered
+                    os.replace(face_path, covered_path)
+                    if filled_path is not None:
+                        src.filling._or_rows(covered_path, filled_path, rows or grid.height)
             if surface_path and plan.obstacles:
-                bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
+                if rows is None:
+                    bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
+                else:
+                    bare_path = temporary("bare.npy")  # fill_water writes what it filled there
             water_path = src.fill_water(elevation_path, surface_path, grid, wbm, sea_zone,
-                                        os.path.join(work, "water.npy"), sea_value=source.sea_fill)
+                                        os.path.join(work, "water.npy"), sea_value=source.sea_fill, rows=rows,
+                                        bare_path=bare_path)
             del wbm
             if bare is not None:
                 bare &= np.load(water_path)  # water the terrain model lacked: no obstacles there
+            elif bare_path:
+                bare = np.load(bare_path, mmap_mode="r")
         del sea_zone
+        if rows is not None:
+            src.filling.remove_grid(temporary("sea_zone.npy"))
     except RuntimeError as e:
         raise SearchError.of(e, f"Download failed: {e}", "download_failed", reason=cache.clean_error(e))
     elevation = np.load(elevation_path, mmap_mode="r")
     surface = np.load(surface_path, mmap_mode="r") if surface_path else None
     if surface is not None:
         progress.compute.start("surface coverage", 1, unit="step")
-        land = mask & ~np.isnan(elevation)
-        no_surface = (np.isnan(surface) & land).sum() / max(land.sum(), 1)
+        if rows is None:
+            land = mask & ~np.isnan(elevation)
+            no_surface = (np.isnan(surface) & land).sum() / max(land.sum(), 1)
+        else:
+            land = lambda r0, r1: mask[r0:r1] & ~np.isnan(elevation[r0:r1])
+            no_surface = _share_rows(lambda r0, r1: np.isnan(surface[r0:r1]) & land(r0, r1), land, grid.height, rows)
         progress.compute.update(1)
         progress.compute.finish()
         if no_surface > 0.01:
@@ -946,6 +1043,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
         obstacles.obstacle_surface(elevation, surface, plan.resolution, out, bare=bare, **plan.obstacles)
         out.flush()
         del out, bare
+        if bare_path:
+            src.filling.remove_grid(bare_path)
         surface = np.load(obstacles_path, mmap_mode="r")
     slope = None
     if p.slope_file:
@@ -954,7 +1053,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
-                np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain,
+                np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain, tile_terrain,
                 covered=np.load(covered_path, mmap_mode="r") if covered_path else None)
 
 
@@ -1333,9 +1432,94 @@ def _load_tile(path: str) -> sh.LineTable:
         return pickle.load(f)
 
 
+def _tile_window(grid: gd.Grid, tile: gd.Grid) -> Tuple[slice, slice]:
+    """The rows and columns of the search's grid under a tile's grid (tile_grid: on the same
+    pixel edges, within it)."""
+    r0, c0 = int(round((grid.top - tile.top) / grid.res)), int(round((tile.left - grid.left) / grid.res))
+    if not (0 <= r0 and r0 + tile.height <= grid.height and 0 <= c0 and c0 + tile.width <= grid.width):
+        raise ValueError(f"the tile {tile.bounds} lies outside the grid {grid.bounds}")
+    return slice(r0, r0 + tile.height), slice(c0, c0 + tile.width)
+
+
+def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Optional[hy.Histogram]) -> Data:
+    """The grids of a tile of a tiled search: its window of the area's grids of step 1 (data, on
+    grid) copied, strip by strip, into contiguous memory-mapped grids of its work folder
+    (nmt.npy and the others, as a tile's own step 1 wrote them), so steps 2-4 read what they read
+    before; the area mask's window in memory; terrain the histogram of the tile's core."""
+    rows, cols = _tile_window(grid, tile)
+    step = src.filling.strip_rows(tile.width)
+
+    def window(array: np.ndarray, r0: int, r1: int) -> np.ndarray:
+        """Rows [r0, r1) of the tile's window of an area grid, read through a mapping of its own:
+        the pages read leave the process's working set with it (the area's mappings of `data`
+        would keep them resident through steps 2-4 of every tile)."""
+        source = np.load(array.filename, mmap_mode="r")
+        try:
+            return np.array(source[rows.start + r0:rows.start + r1, cols])
+        finally:
+            del source
+
+    def copy(array: Optional[np.ndarray], name: str) -> Optional[np.ndarray]:
+        if array is None:
+            return None
+        path = os.path.join(work, name)
+        out = np.lib.format.open_memmap(path, mode="w+", dtype=array.dtype, shape=(tile.height, tile.width))
+        for r0 in range(0, tile.height, step):
+            r1 = min(tile.height, r0 + step)
+            out[r0:r1] = window(array, r0, r1)
+        out.flush()
+        del out
+        return np.load(path, mmap_mode="r")
+
+    return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
+                copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
+                window(data.mask, 0, tile.height), terrain)
+
+
+def _remove_grids(work: str):
+    """Remove the grids of step 1 from the work folder (its own files; the subfolders of the
+    tiles, the profiles at tile edges and the saving stay as they are)."""
+    for path in glob.glob(os.path.join(work, "*.npy")):
+        src.filling.remove_grid(path)
+
+
+class _SilentBar:
+    """A progress bar that shows nothing (start, update and finish do nothing)."""
+
+    def start(self, *args, **kwargs):
+        pass
+
+    def update(self, *args, **kwargs):
+        pass
+
+    def finish(self, *args, **kwargs):
+        pass
+
+
+@contextlib.contextmanager
+def _silent_progress():
+    """The bars and the step left as they are while a search runs inside a step of another: a
+    profile at a tile edge (search_lines) runs profile_of_line, whose prepare_data would start
+    its own bars under "Step 1" and move the step, breaking the bar "profiles at tile edges"
+    and listing its seconds under step 1 (tools/perf_profile.py, jobs.StepClock)."""
+    bars = progress.download, progress.compute
+    progress.download = progress.compute = _SilentBar()
+    progress.set_step = lambda text: None  # shadows the class's method on the instance
+    try:
+        yield
+    finally:
+        progress.download, progress.compute = bars
+        del progress.set_step
+
+
 def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     """Steps 1-4 for one grid or, for a large area, tile by tile (resumable).
 
+    A tiled search runs step 1 once, on the whole grid (prepare_data(strips=True): the gap
+    offsets, the lake levels and the border gaps are the area's, in strips of rows); each tile
+    then takes its window of the area's grids (_tile_data) for steps 2-4. The area's grids
+    are made again when a search resumes (the work folder does not outlive a job) and removed
+    once the last tile is done.
     Returns the lines and, for a tiled search, its run (to be completed by save_run).
     """
     if not plan.tiles:
@@ -1347,6 +1531,8 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     os.makedirs(folder, exist_ok=True)
     tables, count = [], 0
     terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
+    todo = [k for k in range(len(plan.tiles)) if not os.path.exists(os.path.join(folder, TILE_FILE.format(k)))]
+    area = prepare_data(plan, strips=True) if todo else None  # step 1 once, on the whole grid
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
@@ -1355,8 +1541,8 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
             work = os.path.join(plan.paths.work, f"tile{k}")
             os.makedirs(work, exist_ok=True)
             tile_plan = dataclasses.replace(plan, grid=tile, paths=Paths(plan.paths.data, work), tiles=None,
-                                            tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ", search_grid=plan.grid)
-            data = prepare_data(tile_plan, core)
+                                            tile_label=f"Tile {k + 1}/{len(plan.tiles)} · ")
+            data = _tile_data(area, plan.grid, tile, work, area.tile_terrain[k] if area.tile_terrain else None)
             found, _ = _lines(tile_plan, data, core, before=count)
             histogram = data.terrain
             del data
@@ -1375,6 +1561,10 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         tables.append(table)
         count += len(tables[-1])
         _check_lines(plan, count)
+    if area is not None:
+        del area
+        gc.collect()  # close the area's memory-mapped grids before deleting them (Windows)
+        _remove_grids(plan.paths.work)
     if not count:
         raise SearchError("No lines found matching elevation requirements.", "no_lines")
     results = sh.LineTable.join(tables)  # column by column, each tile's column released once joined
@@ -1392,8 +1582,9 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         for k in missing:
             paths = Paths(plan.paths.data, os.path.join(plan.paths.work, "edge"))
             os.makedirs(paths.work, exist_ok=True)
-            results.profiles[k] = profile_of_line(meta, paths, tuple(results.columns["anchor1"][k].tolist()),
-                                                  tuple(results.columns["anchor2"][k].tolist()))
+            with _silent_progress():  # its own step 1 (prepare_data) must not move the step or the bar
+                results.profiles[k] = profile_of_line(meta, paths, tuple(results.columns["anchor1"][k].tolist()),
+                                                      tuple(results.columns["anchor2"][k].tolist()))
             shutil.rmtree(paths.work, ignore_errors=True)
             progress.compute.update(1)
         progress.compute.finish()

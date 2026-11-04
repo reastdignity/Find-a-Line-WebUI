@@ -423,28 +423,14 @@ def test_year_of_the_run_in_credits(tmp_path, monkeypatch):
     assert "Note: Data © Someone 2031." in "\n".join(events)
 
 
-def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
-    """estimate_search's working grids (search.work_bytes) are what step 1 writes into the work folder:
-    terrain and surface, the obstacles, the water body mask, the water, a fallback's terrain and surface
-    and its filled pixels, each the size of the grid (a sea and gaps on land that the fallback fills)."""
-    import search
+def _water_and_fallback(tmp_path, monkeypatch, water: np.ndarray, fallback: np.ndarray, left: float, top: float):
+    """Offline: the Copernicus water body mask from the uint8 raster `water` (OCEAN, LAKE) and a
+    fallback source with the terrain `fallback`, both on EPSG:2180 at 1 m from (left, top), for the
+    source of local files (the fallback fills its gaps on land)."""
     import sources as src
-    from params import SearchParams
-    left, top, size = 500000, 300000, 240
-    terrain = np.full((size, size), 240.0)
-    terrain[:, 100:140] = 200.0
-    terrain[:, 200:] = np.nan  # the sea (the water body mask's ocean) without data
-    terrain[30:50, 30:60] = np.nan  # a gap on land: the fallback's
-    surface = terrain + 3.0
-    surface[150:170, 60:80] = np.nan  # a gap of the surface model only
-    write_raster(tmp_path / "nmt.tif", terrain, left, top)
-    write_raster(tmp_path / "nmpt.tif", surface, left, top)
-    write_raster(tmp_path / "fallback.tif", np.full((size, size), 238.0), left, top)
-    water = np.zeros((size, size), np.uint8)
-    water[:, 205:] = src.OCEAN
-    water[100:110, 20:30] = src.LAKE
-    with rio.open(tmp_path / "wbm.tif", "w", driver="GTiff", width=size, height=size, count=1, dtype="uint8",
-                  crs="EPSG:2180", transform=from_origin(left, top, 1, 1)) as dst:
+    write_raster(tmp_path / "fallback.tif", fallback, left, top)
+    with rio.open(tmp_path / "wbm.tif", "w", driver="GTiff", width=water.shape[1], height=water.shape[0], count=1,
+                  dtype="uint8", crs="EPSG:2180", transform=from_origin(left, top, 1, 1)) as dst:
         dst.write(water, 1)
 
     class _WaterFile(src.FileLayer):  # the water body mask from a file: no tiles of the cache
@@ -470,6 +456,40 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     monkeypatch.setattr(src, "choose_source", with_fallback)
     for name, value in OFFLINE_ENV.items():
         monkeypatch.setenv(name, value)
+
+
+def _square(path, left: float, bottom: float, right: float, top: float):
+    """A square of EPSG:2180 bounds as a GeoJSON area file (WGS84)."""
+    from rasterio.warp import transform_bounds
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", left, bottom, right, top)
+    square = {"type": "Polygon", "coordinates": [[[west, south], [east, south], [east, north], [west, north],
+                                                  [west, south]]]}
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+    return str(path)
+
+
+def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
+    """estimate_search's working grids (search.work_bytes) are what step 1 writes into the work folder:
+    terrain and surface, the obstacles, the water body mask, the water, a fallback's terrain and surface
+    and its filled pixels, each the size of the grid (a sea and gaps on land that the fallback fills).
+    A tiled area: the area's grids (and the area mask, among step 1's temporaries: AREA_TEMP_BYTES)
+    plus one tile's copies of them (search.tile_bytes), the largest tile's."""
+    import search
+    import sources as src
+    from params import SearchParams
+    left, top, size = 500000, 300000, 240
+    terrain = np.full((size, size), 240.0)
+    terrain[:, 100:140] = 200.0
+    terrain[:, 200:] = np.nan  # the sea (the water body mask's ocean) without data
+    terrain[30:50, 30:60] = np.nan  # a gap on land: the fallback's
+    surface = terrain + 3.0
+    surface[150:170, 60:80] = np.nan  # a gap of the surface model only
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+    water = np.zeros((size, size), np.uint8)
+    water[:, 205:] = src.OCEAN
+    water[100:110, 20:30] = src.LAKE
+    _water_and_fallback(tmp_path, monkeypatch, water, np.full((size, size), 238.0), left, top)
     paths = search.Paths(str(tmp_path), str(tmp_path / "work"))
     params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
                           water="fill", fill_gaps="on", coastline="copernicus", ortho="never",
@@ -478,18 +498,107 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     assert plan.obstacles and plan.nmpt and plan.source.fallbacks == ["test_fallback"]
     data = search.prepare_data(plan)
     assert data.filled is not None and data.filled.any() and data.water.any()
-    written = {}
-    for path in glob.glob(str(tmp_path / "work" / "**" / "*.npy"), recursive=True):
-        grid = np.load(path, mmap_mode="r")
-        assert grid.shape == (plan.grid.height, plan.grid.width), path
-        written[os.path.basename(path)] = grid.nbytes
-        del grid
+
+    def written_in(folder, shape):
+        found = {}
+        for path in glob.glob(os.path.join(folder, "*.npy")):
+            grid = np.load(path, mmap_mode="r")
+            assert grid.shape == shape, path
+            found[os.path.basename(path)] = grid.nbytes
+            del grid
+        return found
+
+    written = written_in(str(tmp_path / "work"), (plan.grid.height, plan.grid.width))
+    assert not glob.glob(str(tmp_path / "work" / "*" / "*.npy"))
     del data
     assert sorted(written) == ["filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "nmpt.npy", "nmt.npy", "obstacles.npy",
                                "water.npy", "wbm.npy"]
     pixels = plan.grid.height * plan.grid.width
     assert sum(written.values()) == search.work_bytes(plan) * pixels == 23 * pixels
     assert search.estimate_search(plan).work_gb == 23 * pixels / 1e9
+    # A tiled area: step 1 once on the whole grid in strips, then a tile's contiguous copies
+    area = _square(tmp_path / "square.geojson", left + 30, top - size + 30, left + size - 30, top - 30)
+    tiled = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
+                         water="fill", fill_gaps="on", coastline="copernicus", ortho="never", area=area,
+                         tile_size=100, resolution=1)
+    paths = search.Paths(str(tmp_path), str(tmp_path / "work-tiled"))
+    plan = search.plan_search(tiled, paths, lambda kind, text: None)
+    assert plan.tiles and len(plan.tiles) == 4
+    data = search.prepare_data(plan, strips=True)
+    assert data.filled.any() and data.water.any() and len(data.tile_terrain) == 4 and data.mask.any()
+    written = written_in(paths.work, (plan.grid.height, plan.grid.width))
+    assert sorted(written) == ["filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "mask.npy", "nmpt.npy", "nmt.npy",
+                               "obstacles.npy", "water.npy", "wbm.npy"]
+    pixels = plan.grid.height * plan.grid.width
+    assert sum(written.values()) == (search.work_bytes(plan) + 1) * pixels  # the mask among AREA_TEMP_BYTES
+    assert 1 < search.AREA_TEMP_BYTES
+    largest = max((t for _, t in plan.tiles), key=lambda t: t.width * t.height)
+    os.makedirs(os.path.join(paths.work, "tile0"))
+    tile = search._tile_data(data, plan.grid, largest, os.path.join(paths.work, "tile0"), data.tile_terrain[0])
+    copies = written_in(os.path.join(paths.work, "tile0"), (largest.height, largest.width))
+    assert sorted(copies) == ["filled.npy", "nmt.npy", "surface.npy", "water.npy"]
+    tile_pixels = largest.height * largest.width
+    assert sum(copies.values()) == search.tile_bytes(plan) * tile_pixels == 10 * tile_pixels
+    assert tile.mask.shape == (largest.height, largest.width) and tile.terrain is data.tile_terrain[0]
+    assert search.estimate_search(plan).work_gb == (27 * pixels + 10 * tile_pixels) / 1e9  # the area's, a tile's
+    del tile, data
+
+
+def test_area_in_tiles_with_water_and_gaps(tmp_path, monkeypatch):
+    """An area computed in tiles gives exactly the lines of one grid also with the sea and a lake
+    filled and gaps on land filled from a fallback: step 1 runs once on the whole grid (the lake
+    levels, the gap offsets and the border gaps are the area's), each tile takes its window."""
+    import search
+    import sources as src
+    from params import SearchParams
+    with rio.open(os.path.join(DATA, "zabi_kon_nmt.tif")) as s:
+        terrain, left, top = s.read(1), s.bounds.left, s.bounds.top
+    with rio.open(os.path.join(DATA, "zabi_kon_nmpt.tif")) as s:
+        surface = s.read(1)
+    from scipy import ndimage
+    fallback = (ndimage.uniform_filter(terrain, 5) + 1.5).astype(np.float32)
+    size = terrain.shape[0]
+    terrain[:, :80] = surface[:, :80] = np.nan  # the sea in the west, without data
+    terrain[200:260, 300:360] = surface[200:260, 300:360] = np.nan  # a lake
+    terrain[400:430, 150:190] = surface[400:430, 150:190] = np.nan  # gaps on land
+    terrain[290:310, 240:260] = surface[290:310, 240:260] = np.nan
+    surface[100:140, 400:440] = np.nan  # a gap of the surface model only
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "nmpt.tif", surface, left, top)
+    water = np.zeros((size, size), np.uint8)
+    water[:, :85] = src.OCEAN
+    water[195:265, 295:365] = src.LAKE
+    _water_and_fallback(tmp_path, monkeypatch, water, fallback, left, top)
+    area = _square(tmp_path / "square.geojson", left + 40, top - size + 60, left + size - 60, top - 40)
+    runs = {}
+    for name, tile_size in (("one", None), ("tiled", 150)):
+        params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
+                              area=area, max_length=150, water="fill", fill_gaps="on", coastline="copernicus",
+                              ortho="never", tile_size=tile_size)
+        paths = search.Paths(str(tmp_path / name), str(tmp_path / name / "work"))
+        os.makedirs(paths.work)
+        plan = search.plan_search(params, paths, lambda kind, text: None)
+        assert bool(plan.tiles) == (tile_size is not None)
+        lines, run = search.search_lines(plan)
+        assert (lines.results.columns["water_m"] > 0).any() and (lines.results.columns["filled_m"] > 0).any()
+        result = search.save_run(plan, lines, run)
+        runs[name] = result.run["path"]
+        if plan.tiles:
+            assert not glob.glob(os.path.join(paths.work, "*.npy"))  # the area's grids are gone after the tiles
+    read = lambda name, file: open(os.path.join(runs[name], file), "rb").read()  # noqa: E731
+    assert read("one", "lines.csv") == read("tiled", "lines.csv")
+    # The map's rows come in the table's order (the tiles' one after another for a tiled run): the
+    # same rows, and the profiles of the same lines (one of a group joining two tiles computed
+    # again on its own grid may differ a little: not here)
+    for file in ("data.js", "lines.js"):
+        rows = {}
+        for name in ("one", "tiled"):
+            text = read(name, file).decode("utf-8")
+            rows[name] = json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))["lines"]
+        assert sorted(map(json.dumps, rows["one"])) == sorted(map(json.dumps, rows["tiled"])), file
+    one, tiled = (json.loads(read(name, "run.json")) for name in ("one", "tiled"))
+    assert one["terrain"] == tiled["terrain"] and one["summary"]["lines"] == tiled["summary"]["lines"]
+    assert len(glob.glob(os.path.join(runs["tiled"], "tiles", "*.table.pkl.gz"))) > 1
 
 
 def _fake_orthophoto(http_server, monkeypatch, folder: str = "fake/ortho/live"):
