@@ -1475,6 +1475,32 @@ parts over two processes would be the next step for it, not taken in this round.
 machine is at 92 % now, so stage 2's extra workers (C1) pay only where the memory, not the cores,
 set `worker_count` (this PC with other programs open; the 5650G).
 
+**Where the gain comes from** (the user's question: not the eighth worker?). The light part of the
+band (3.38 h less the two heaviest tiles' 1.06 h = 2.32 h) took 23 min on 6 light workers and would
+take about 28 on 5: under the heaviest tile's 35 min either way, so the eighth worker moved the end
+of the light part, not the run's end; and the tile seconds are work per tile, which more workers
+make slower, not faster (the machine at 92 %). To split the heavy tiles' gain between F8c and A1,
+the tile E-360000_N-1190000 (61 M lines, 667 s in the base run at 3 threads beside 6 workers) was
+counted alone with the stage 1 code (`local/country-perf-2026-11-04/stage1/one_tile.log`):
+
+| Threads, alone | Wall | Anchor pairs | CPU seconds | Cores used |
+| ---: | ---: | ---: | ---: | ---: |
+| 3 | 356 s | 340 s | 1033 | 2.9 |
+| 12 | 149 s | 134 s | 1585 | 10.6 |
+| 24 | 129 s | 115 s | 2433 | 18.9 (12 physical) |
+
+Alone, the pair search of a heavy tile scales 2.4 times from 3 to 12 threads and 2.8 to 24; the
+same tile at 3 threads went 667 → 356 s between the base and stage 1 (F8c and no neighbours
+competing), and in the stage 1 run it took 496 s at 12 threads beside 7 workers. So inside a run
+on a full machine the threads of A1 bought the heaviest tiles little (2804 → 2097 s is mostly
+F8c): 8 workers on 12 physical cores leave a heavy tile no idle cores to take; A1 pays where
+cores are idle: the last third of a run, a machine with more cores than workers (the memory sets
+`worker_count`), a run of one heavy band. The run's floor is max(the heaviest tile beside the
+others, the light part on the light workers): 35 and 24 min here; the heavy tile alone would take
+about a quarter of that, so a schedule that runs the heaviest tiles before or after the light ones
+is no better (10-20 min of heavy tiles plus 23 of light ones). Lower means a shorter light part
+(stage 2's B2, stage 3's B3) and then a split of the heaviest cores (A4).
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,
