@@ -63,12 +63,16 @@ PROGRESS_SECONDS = 30      # between the progress lines of a run
 WORKER_PROGRESS_SECONDS = 600  # between the text progress lines of a worker's bars (its log)
 ATTEMPTS = 2               # a tile that fails goes back to pending once, then stays failed
 # The memory of a counting worker: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel of its tile's grid.
-# Measured on Slovakia's runs (2026-11-03): a worker's peak working set was 2.3 GiB at 38-40 Mpx in
-# the bands S, M and L alike (50-53 B/px above 0.5 GiB of imports, an evaluated part of the sink and
-# the counter's pending arrays), the memory-mapped grids included and the tiles of 200-400 M lines
-# too (the sink holds one part at a time); both values with a margin. Not search.memory_needed: a
-# count holds no table of lines, no profiles and no step 4, and that model follows the app's.
-COUNT_PIXEL_BYTES = 64
+# Measured on Slovakia's M2 band (2026-11-04, docs/performance.md "Round 4", stage 2): with step 1
+# in strips (TileWork.count: prepare_data(strips=True)) and OpenBLAS on one thread (_worker_env) a
+# worker's private bytes stand at 0.17 GiB before a tile and rise at most 0.87 GiB during one (the
+# Tatras tile of 474 M lines at 24 threads: 16 B/px of its 53 Mpx, in the pair search; a tile of
+# 61 M lines alone 0.54 GiB, 11 B/px, at the prominence and drop), the memory-mapped grids outside
+# (file-backed, about 20 B/px in the working set); 32 B/px is twice that largest rise. Before the
+# strips a tile's gap filling peaked at 45-94 B/px, and every worker also carried 0.8-1.6 GiB of
+# OpenBLAS's untouched buffers (one per logical core). Not search.memory_needed: a count holds no
+# table of lines, no profiles and no step 4, and that model follows the app's.
+COUNT_PIXEL_BYTES = 32
 WORKER_BASE = 512 << 20
 RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
 # A tile is heavy when its weight (_weights: the lines of the done tiles under its core) reaches
@@ -83,7 +87,8 @@ LIGHT_CORES = 2
 LIGHT_THREADS = 3
 TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (_MemorySampler)
 RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
-DISK_PIXEL_BYTES = 16      # a tile's grids in its work folder (float32 terrain, masks of water and gaps)
+# A tile's grids in its work folder: search.work_bytes of the band's plan (the float32 terrain, surface
+# and gap fillers, the masks) plus search.AREA_TEMP_BYTES of step 1's temporaries in strips (_disk_bytes)
 DISK_SPARE = 1 << 30       # free disk kept besides the work folders
 # The prefetch reads the blocks of big remote files (sources/readers/windows.py) in squares of this many metres,
 # each file once per square (sources.download_layers(group_m=)). 10 km (the user, 2026-11-04): the tiles at a
@@ -722,7 +727,14 @@ class TileWork:
         sampler.start()
         try:
             t0 = time.time()
-            data = search.prepare_data(tile_plan, statistics=False, shore="none")  # no terrain histogram, no shore: the cube holds none
+            # Step 1 in strips of rows on the tile's own grid (round 3's wave 4 for a tiled area): the
+            # grids memory-mapped in the work folder as the plain path writes them, one int32 array of
+            # labels and a strip's temporaries in memory at a time, so the private memory of a worker
+            # is not the whole tile's gap filling any more (COUNT_PIXEL_BYTES); steps 2-3 read the same
+            # files with the same argument types (warmup.SEARCHES), so no copy of a tile's window
+            # (search._tile_data) is needed: the window is the grid. No terrain histogram and no shore:
+            # the cube holds none.
+            data = search.prepare_data(tile_plan, statistics=False, shore="none", strips=True)
             t1 = time.time()
             counter = _TimedSink(countcube.TileCounter(grid, self.origin, core, band.lengths,
                                                        float(band.lengths[1]) >= self.country.last_edge))
@@ -853,6 +865,13 @@ def _duration(seconds: float) -> str:
     return text(seconds)
 
 
+def _disk_bytes(plan) -> int:
+    """The bytes per pixel a tile's work folder holds at most: the grids step 1 writes for the
+    band's plan and its temporaries in strips."""
+    import search
+    return search.work_bytes(plan) + search.AREA_TEMP_BYTES
+
+
 def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
     """The processes of a run (at most the physical cores, each with the memory of the largest
     tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel) and the bytes each needs."""
@@ -962,11 +981,22 @@ def _progress_line(manifest: Manifest, bands: Sequence[str], processes: int, sta
             f"{_duration(time.time() - started)} elapsed, {eta}")
 
 
+def _worker_env() -> Dict[str, str]:
+    """The environment of a `country worker` process: text progress, UTF-8 output, and one BLAS
+    thread. numpy's OpenBLAS commits about 32 MB of buffers per thread when it is imported, one per
+    logical core unless OPENBLAS_NUM_THREADS says otherwise: 0.76 GiB of a worker's private bytes on
+    24 logical cores (1.6 GiB at the end of a tile, never in the working set), which the memory model
+    of worker_count (COUNT_PIXEL_BYTES) would pay for every worker. A count calls no BLAS routine on
+    anything large (helpers.downslope's 3-vector products at the anchors, sag's 3 x 3 solves)."""
+    return {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1",
+            "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+
+
 def _worker_process(country_id: str, data_dir: str, folder: str, slot: int) -> subprocess.Popen:
     """A `country worker` process, logging to logs/worker-<k>.log, in a process group of its own (a
     Ctrl+C of the console reaches the run only, which stops the workers itself)."""
     log = open(os.path.join(folder, "logs", f"worker-{slot}.log"), "ab")
-    env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"}
+    env = _worker_env()
     kwargs = {}
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
@@ -1017,12 +1047,13 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     _finish_state(state, folder, plans)
     manifest = Manifest(folder)
     try:
-        largest = 0
+        largest = disk = 0
         for band in country.bands:
             tiles = search.fixed_tiles(plans[band.name], band.core_m)
             manifest.add_tiles(band.name, tiles)
             if band.name in selected and tiles:
                 largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
+                disk = max(disk, max(t.grid.width * t.grid.height for t in tiles) * _disk_bytes(plans[band.name]))
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
@@ -1040,7 +1071,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         elif max_tiles is not None or todo:
             k = max(1, min(k, todo, max_tiles if max_tiles is not None else todo))
         k_eff = max(1, k)  # the processes counting at once (0: this one)
-        need = k_eff * largest * DISK_PIXEL_BYTES + DISK_SPARE
+        need = k_eff * disk + DISK_SPARE
         free = shutil.disk_usage(data_dir).free
         for band in country.bands:
             c = counts.get(band.name, {})

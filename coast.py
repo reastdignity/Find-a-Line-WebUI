@@ -245,11 +245,12 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
 
 
 def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update: Optional[str],
-                  out: np.ndarray, rows: int) -> Tuple[np.ndarray, str, Optional[str]]:
+                  out: np.ndarray, rows: int, extent: Optional[Grid] = None) -> Tuple[np.ndarray, str, Optional[str]]:
     """sea_mask in strips of `rows` rows into out (a boolean grid of the grid, memory-mapped):
-    copernicus_rows(r0, r1) gives the rows [r0, r1) of the Copernicus mask's sea. Returns (out,
-    description of the source, warning or None): the same pixels and texts (the mask is out in
-    every case)."""
+    copernicus_rows(r0, r1) gives the rows [r0, r1) of the Copernicus mask's sea; extent as
+    sea_mask's (the world file's polygons read once for the whole search's grid, the tiles of
+    the country layer: each burns those whose box reaches it). Returns (out, description of the
+    source, warning or None): the same pixels and texts (the mask is out in every case)."""
     strips = [(r0, min(grid.height, r0 + rows)) for r0 in range(0, grid.height, rows)]
 
     def copernicus() -> np.ndarray:
@@ -265,7 +266,10 @@ def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update
         shapefile = world_polygons(cache_dir, update)
         progress.compute.start("sea mask (world file)", 1, unit="step")
         _clear(out, rows)
-        rasterize_into(_world_water(shapefile, _grid_bbox_wgs84(grid), grid.crs), grid, out)
+        water = _world_water(shapefile, _grid_bbox_wgs84(extent or grid), grid.crs)
+        if extent is not None:
+            water = water.iloc[np.sort(water.sindex.query(box(*grid.bounds)))]
+        rasterize_into(water, grid, out)
         progress.compute.update(1)
         progress.compute.finish()
         return out, "OpenStreetMap water polygons (world file)", None

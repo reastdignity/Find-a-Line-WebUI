@@ -319,9 +319,19 @@ def test_worker_count(monkeypatch):
     import country
     monkeypatch.setattr(country.psutil, "cpu_count", lambda logical=True: 24 if logical else 12)
     per = country.WORKER_BASE + country.COUNT_PIXEL_BYTES * 38_500_000
-    assert country.worker_count(38_500_000, 31 * 2 ** 30) == (11, per)  # Slovakia's S tiles, 31 GiB free
+    assert country.worker_count(38_500_000, 10 * 2 ** 30) == (6, per)  # Slovakia's S tiles, 10 GiB free
     assert country.worker_count(38_500_000, 100 * 2 ** 30)[0] == 12
     assert country.worker_count(38_500_000, 2 ** 30)[0] == 1
+
+
+def test_worker_env_keeps_blas_to_one_thread(monkeypatch):
+    """A worker process runs numpy's BLAS on one thread (OpenBLAS commits buffers per thread at
+    import: 0.76 GiB on 24 logical cores, never used by a count), whatever the caller's setting."""
+    import country
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "24")
+    env = country._worker_env()
+    assert env["OPENBLAS_NUM_THREADS"] == "1" and env["MKL_NUM_THREADS"] == "1"
+    assert env["FINDALINE_PROGRESS"] == "text" and env["PYTHONIOENCODING"] == "utf-8"
 
 
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
@@ -474,3 +484,58 @@ def test_no_neighbours_for_a_tile_inside_the_outline():
     assert not country._at_border(g)
     g.area_shape = box(1500, 0, 5000, 5000)
     assert country._at_border(g)
+
+
+def test_tile_in_strips_as_plain(env, full):
+    """A tile counted with step 1 in strips (country.TileWork.count: prepare_data(strips=True) on
+    the tile's own grid) gives the counts of the plain path and the same grids, both read back
+    memory-mapped and read-only (the kernels' argument types of warmup.SEARCHES); the run's tile
+    file holds those counts."""
+    import country
+    import countcube
+    import dataclasses
+    import search
+    data, state = full["data"], full["state"]
+    folder = os.path.join(data, "countries", ID)
+    c = country.Country.from_config(state["config"])
+    band = c.band("S")
+    plan = country.band_plan(c, band, folder, data)
+    db = sqlite3.connect(os.path.join(folder, "manifest.sqlite"))
+    try:
+        name, core = db.execute("SELECT name, core FROM tiles WHERE band = 'S' AND lines > 0 ORDER BY lines DESC").fetchone()
+    finally:
+        db.close()
+    core = tuple(json.loads(core))
+    res = plan.resolution
+    grid = search.tile_grid(plan.grid, core, search._overlap(plan.params, res), res, plan.source.grid_origin)
+    results, grids = {}, {}
+    for mode in ("plain", "strips"):
+        work = os.path.join(data, "work", f"strips-test-{mode}")
+        os.makedirs(work, exist_ok=True)
+        tile_plan = dataclasses.replace(plan, grid=grid, paths=search.Paths(data, work), tiles=None, funnel={},
+                                        search_grid=plan.grid, border=country._at_border(grid))
+        tile = search.prepare_data(tile_plan, statistics=False, strips=mode == "strips")
+        for field in ("elevation", "surface", "water", "filled", "slope", "joined", "covered"):
+            array = getattr(tile, field)
+            if array is not None:
+                assert isinstance(array, np.memmap) and not array.flags.writeable, (mode, field)
+        grids[mode] = {f: None if getattr(tile, f) is None else np.array(getattr(tile, f))
+                       for f in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "mask")}
+        counter = countcube.TileCounter(grid, tuple(state["origin"]), core, band.lengths, False)
+        search.count_tile(tile_plan, tile, core, counter, country.tension_table(c, band, plan))
+        results[mode] = counter.result()
+        del tile
+    for f, plain in grids["plain"].items():
+        strips = grids["strips"][f]
+        assert (plain is None) == (strips is None), f
+        if plain is not None:
+            assert np.array_equal(plain, strips, equal_nan=plain.dtype.kind == "f"), f
+    plain, strips = results["plain"], results["strips"]
+    assert plain.lines > 0
+    for f in dataclasses.fields(plain):
+        a, b = getattr(plain, f.name), getattr(strips, f.name)
+        assert np.array_equal(a, b) if isinstance(a, np.ndarray) else a == b, f.name
+    saved, meta = countcube.load_tile(os.path.join(folder, "tiles", "S", name + ".npz"))
+    assert saved.lines == plain.lines and np.array_equal(saved.line_keys, plain.line_keys)
+    assert np.array_equal(saved.line_counts, plain.line_counts) and np.array_equal(saved.spot_ids, plain.spot_ids)
+    assert np.array_equal(saved.spot_records, plain.spot_records)

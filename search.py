@@ -946,7 +946,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
             else:
                 sea, coast_source, warning = coast.sea_mask_rows(
                     grid, cache_dir, p.coastline, lambda r0, r1: wbm[r0:r1] == src.OCEAN, p.update,
-                    np.lib.format.open_memmap(temporary("sea.npy"), mode="w+", dtype=bool, shape=wbm.shape), rows)
+                    np.lib.format.open_memmap(temporary("sea.npy"), mode="w+", dtype=bool, shape=wbm.shape), rows,
+                    extent=plan.search_grid)
             emit("info", f"Coastline: {coast_source}")
             if coast_source.startswith("OpenStreetMap"):
                 src.used_data.append({"layer": coast_source, "credit": src.OSM_CREDIT.as_dict()})
