@@ -25,6 +25,10 @@ GAP_MAX_LOCAL_SHIFT = 3  # m; local height offsets differing more from the overa
 SHORE_BUFFER = 45  # m around water in the mask that may still be water (the mask is 30 m)
 SEA_LEVEL_TOLERANCE = 1.0  # m; data at most this high inside the sea counts as water
 SEA_FILL_EPS = 0.005  # m; data this close to a source's sea fill (Source.sea_fill) inside the sea counts as water
+# A shore face the terrain model lacks is taken from the surface model (fill_shore_from_surface) one
+# pixel at a time from the terrain's data edge downwards: each pixel at most this much above the
+# neighbour it is reached from (a ship or a boulder standing up from the water is never reached)
+FACE_TOLERANCE = 1.5  # m
 # A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
@@ -118,6 +122,95 @@ def water_with_data(z: np.ndarray, wbm: Optional[np.ndarray], sea_zone: Optional
                 sea_level |= (z >= sea_value - SEA_FILL_EPS) & (z <= sea_value + SEA_FILL_EPS)
         water |= sea_zone & sea_level
     return water & np.isfinite(z)
+
+
+def fill_shore_from_surface(elevation_path: str, surface_path: str, grid: Grid, sea_zone: np.ndarray,
+                            out_path: str, sea_value: Optional[float] = None, rows: Optional[int] = None) -> Tuple[str, int]:
+    """Give the shore faces the terrain model lacks the heights of the surface model.
+
+    LiDAR terrain models often have no data on the lower part of a sea cliff (no ground
+    returns on the face), while the surface model has it, and on bare rock it is the
+    terrain (Malta 2018: within 1 m on 84% of the coast's pixels). Left to fill_water, the
+    face would be sea at 0 m, a wall from the terrain's last pixel straight down (26 500
+    pixels above 20 m along Malta's and Gozo's coasts, 2026-11-04). In sea_zone (the sea
+    mask grown by --shore-buffer), where the terrain has no data:
+    - the surface model's sea surface (water_with_data on it: at most SEA_LEVEL_TOLERANCE,
+      or sea_value) stays for fill_water: that is the exact shoreline, more exact than the
+      mapped coastline, which runs along the cliff's top edge at times;
+    - the pixels above it are reached from the terrain's data edge one pixel at a time
+      (8 neighbours), each at most FACE_TOLERANCE above the neighbour it is reached from:
+      a face runs down from the edge; a ship at a quay, a mole or a boulder standing up
+      from the water is never reached and stays for fill_water too.
+    Writes the reached pixels' surface heights into the terrain and saves their mask to
+    out_path (they are filled data, not water: search.prepare_data joins the mask with the
+    gaps' for the lines' filled_m, never for the seams without anchors: the anchors at a
+    cliff's top edge stand right next to its face). Returns (out_path, pixels filled).
+    The candidates are found strip by strip (rows: step 1 in strips, the mask memory-mapped;
+    None: the grid at once, the mask saved) and the rest works on their indices: numpy only
+    (the quick lane runs it too). Nothing without a surface model (prepare_data calls it with one).
+    """
+    elevation = np.load(elevation_path, mmap_mode="r+")
+    surface = np.load(surface_path, mmap_mode="r")
+    progress.compute.start("shore from surface", 1, unit="step")
+    height, width = elevation.shape
+    # The candidates' flat indices: no terrain, in the zone, the surface model above its sea surface
+    parts = []
+    for r0, r1, _, _ in strips(height, rows or height):
+        z, s = np.asarray(elevation[r0:r1]), np.asarray(surface[r0:r1])
+        zone = np.asarray(sea_zone[r0:r1], dtype=bool)
+        candidates = np.isnan(z) & zone & np.isfinite(s) & ~water_with_data(s, None, zone, sea_value)
+        parts.append(np.flatnonzero(candidates) + r0 * width)
+        del z, s, zone, candidates
+    idx = np.concatenate(parts) if parts else np.zeros(0, np.int64)
+    del parts
+    count = 0
+    done = None
+    if idx.size:
+        ri, ci = np.divmod(idx, width)
+        h = np.asarray(surface).ravel()[idx].astype(np.float64)
+        z = np.asarray(elevation).ravel()
+        offsets = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1) if dr or dc]
+        # Each candidate's neighbours: their flat index, and their position among the candidates
+        neighbours = []
+        for dr, dc in offsets:
+            ok = (ri + dr >= 0) & (ri + dr < height) & (ci + dc >= 0) & (ci + dc < width)
+            flat = np.where(ok, idx + dr * width + dc, 0)
+            at = np.searchsorted(idx, flat)
+            at[at == idx.size] = 0
+            inside = ok & (idx[at] == flat)
+            neighbours.append((ok, flat, np.where(inside, at, -1)))
+        # The terrain's data edge: the highest terrain next to each candidate
+        reached = np.full(idx.size, -np.inf)
+        for ok, flat, at in neighbours:
+            edge = np.where(ok, z[flat], np.nan)
+            edge = np.where(np.isfinite(edge) & (at < 0), edge, -np.inf)
+            np.maximum(reached, edge, out=reached)
+        del z
+        done = h <= reached + FACE_TOLERANCE
+        while True:
+            # Downwards from the pixels accepted so far
+            best = np.full(idx.size, -np.inf)
+            for ok, flat, at in neighbours:
+                place = np.maximum(at, 0)
+                np.maximum(best, np.where((at >= 0) & done[place], h[place], -np.inf), out=best)
+            new = ~done & (h <= best + FACE_TOLERANCE)
+            if not new.any():
+                break
+            done |= new
+        count = int(done.sum())
+    face = new_mask(out_path, (height, width)) if rows is not None else np.zeros((height, width), bool)
+    if count:
+        elevation[ri[done], ci[done]] = h[done].astype(elevation.dtype)
+        elevation.flush()
+        face[ri[done], ci[done]] = True
+    if rows is not None:
+        face.flush()
+        del face
+    else:
+        np.save(out_path, face)
+    progress.compute.update(1)
+    progress.compute.finish(f"{count} px")
+    return out_path, count
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,

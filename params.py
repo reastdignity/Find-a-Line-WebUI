@@ -80,13 +80,14 @@ class SearchParams(BaseModel):
                                               "--elevation-file", "data", cli_only=True)
     water: Literal["fill", "off"] = field("fill", "'fill' gives the sea (0 m) and lakes (their shore level) "
                                                   "an elevation where the data has none, so lines over water "
-                                                  "and the edges of sea cliffs are found", "data")
+                                                  "and the edges of sea cliffs are found; a cliff's face the terrain model lacks takes the "
+                                                  "surface model's heights", "data")
     coastline: Literal["overpass", "world", "copernicus"] = field(
         "overpass", "where the sea is: OpenStreetMap coastline from the Overpass API (falls back to the "
                     "Copernicus mask with a warning), OpenStreetMap water polygons of the whole world (one "
                     "download of about 900 MB), or the Copernicus water body mask (30 m, less accurate)", "data")
     shore_buffer: float = field(20, "metres around the sea (from --coastline) where pixels without data are "
-                                    "still taken as water", "data")
+                                    "still taken as water, or as the cliff's face where the surface model has data", "data")
     fill_gaps: Literal["on", "off"] = field("on", "fill gaps in the data on land from other sources, in turn "
                                                   "(each source's are in README, Data sources)", "data")
     opentopo_key: Optional[str] = field(settings.opentopography_key,

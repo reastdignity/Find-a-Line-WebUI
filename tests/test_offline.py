@@ -484,6 +484,7 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     terrain[30:50, 30:60] = np.nan  # a gap on land: the fallback's
     surface = terrain + 3.0
     surface[150:170, 60:80] = np.nan  # a gap of the surface model only
+    surface[:, 200:212] = np.linspace(199.0, 188.0, 12)  # the shore face: the surface model only, down from the edge
     write_raster(tmp_path / "nmt.tif", terrain, left, top)
     write_raster(tmp_path / "nmpt.tif", surface, left, top)
     water = np.zeros((size, size), np.uint8)
@@ -511,11 +512,11 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     written = written_in(str(tmp_path / "work"), (plan.grid.height, plan.grid.width))
     assert not glob.glob(str(tmp_path / "work" / "*" / "*.npy"))
     del data
-    assert sorted(written) == ["filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "nmpt.npy", "nmt.npy", "obstacles.npy",
-                               "water.npy", "wbm.npy"]
+    assert sorted(written) == ["covered.npy", "filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "nmpt.npy", "nmt.npy",
+                               "obstacles.npy", "water.npy", "wbm.npy"]
     pixels = plan.grid.height * plan.grid.width
-    assert sum(written.values()) == search.work_bytes(plan) * pixels == 23 * pixels
-    assert search.estimate_search(plan).work_gb == 23 * pixels / 1e9
+    assert sum(written.values()) == search.work_bytes(plan) * pixels == 24 * pixels
+    assert search.estimate_search(plan).work_gb == 24 * pixels / 1e9
     # A tiled area: step 1 once on the whole grid in strips, then a tile's contiguous copies
     area = _square(tmp_path / "square.geojson", left + 30, top - size + 30, left + size - 30, top - 30)
     tiled = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), surface_file=str(tmp_path / "nmpt.tif"),
@@ -527,8 +528,8 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     data = search.prepare_data(plan, strips=True)
     assert data.filled.any() and data.water.any() and len(data.tile_terrain) == 4 and data.mask.any()
     written = written_in(paths.work, (plan.grid.height, plan.grid.width))
-    assert sorted(written) == ["filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "mask.npy", "nmpt.npy", "nmt.npy",
-                               "obstacles.npy", "water.npy", "wbm.npy"]
+    assert sorted(written) == ["covered.npy", "filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "mask.npy", "nmpt.npy",
+                               "nmt.npy", "obstacles.npy", "water.npy", "wbm.npy"]
     pixels = plan.grid.height * plan.grid.width
     assert sum(written.values()) == (search.work_bytes(plan) + 1) * pixels  # the mask among AREA_TEMP_BYTES
     assert 1 < search.AREA_TEMP_BYTES
@@ -536,11 +537,11 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     os.makedirs(os.path.join(paths.work, "tile0"))
     tile = search._tile_data(data, plan.grid, largest, os.path.join(paths.work, "tile0"), data.tile_terrain[0])
     copies = written_in(os.path.join(paths.work, "tile0"), (largest.height, largest.width))
-    assert sorted(copies) == ["filled.npy", "nmt.npy", "surface.npy", "water.npy"]
+    assert sorted(copies) == ["covered.npy", "filled.npy", "nmt.npy", "surface.npy", "water.npy"]
     tile_pixels = largest.height * largest.width
-    assert sum(copies.values()) == search.tile_bytes(plan) * tile_pixels == 10 * tile_pixels
+    assert sum(copies.values()) == search.tile_bytes(plan) * tile_pixels == 11 * tile_pixels
     assert tile.mask.shape == (largest.height, largest.width) and tile.terrain is data.tile_terrain[0]
-    assert search.estimate_search(plan).work_gb == (27 * pixels + 10 * tile_pixels) / 1e9  # the area's, a tile's
+    assert search.estimate_search(plan).work_gb == (28 * pixels + 11 * tile_pixels) / 1e9  # the area's, a tile's
     del tile, data
 
 

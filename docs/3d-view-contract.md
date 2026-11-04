@@ -34,7 +34,7 @@ is asked of the coordinator, not decided alone. The coordinator updates this fil
   `rate_patch`), then the quick lane. One quick task at a time per user (the page sends patch and profile one after
   another).
 - **Grid**: the run's source, resolution, filling and water settings rebuilt from run.json as `profile_of_line`
-  does, surface model off; a square polygon (`SearchParams(geometry=...)`) centred on the line's middle, its corners
+  does, the run's surface model only for the shore faces the terrain lacks (`sources.filling.fill_shore_from_surface`), no obstacle surface; a square polygon (`SearchParams(geometry=...)`) centred on the line's middle, its corners
   on the run's pixel edges (`Source.grid_origin`). Side in samples at step 1: `512·n + 1` with
   `n = ceil(side_m / res / 512)`, `side_m = max(1536, length + 500)`; refused above `MAX_MEASURED_PX`
   (`patch_too_large`, params `km`, `max`); another CRS than the run's: `patch_crs`; no finite height: `patch_no_data`;

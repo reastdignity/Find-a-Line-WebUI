@@ -261,6 +261,14 @@ class Data:
     # The area of a tiled search (prepare_data(strips=True) with plan.tiles): the histogram of
     # each tile's core, in the order of plan.tiles (terrain is their sum)
     tile_terrain: Optional[List[hy.Histogram]] = None
+    # The filled gaps and the shore faces taken from the surface model (sources.filling.fill_shore_from_surface):
+    # what a line's filled_m counts. The faces are no seam (filled): the anchors at a cliff's top edge stand
+    # right next to its face, and the surface model is the terrain's own survey there
+    covered: Optional[np.ndarray] = None
+
+    def filled_pixels(self) -> Optional[np.ndarray]:
+        """The pixels of filled data a line's filled_m counts: the gaps and the shore faces."""
+        return self.covered if self.covered is not None else self.filled
 
 
 @dataclass
@@ -730,13 +738,14 @@ def work_bytes(plan: Plan) -> int:
     the terrain (nmt.npy) and surface models (nmpt.npy), the surface of the obstacles (obstacles.npy),
     a slope file (slope.npy) and each fallback's terrain and surface (gap_nmt.npy, gap_nmpt.npy,
     gap1_nmt.npy ...: made only where there are gaps, counted always); uint8 the water body mask
-    (wbm.npy); bool the water (water.npy) and the pixels filled by each fallback (filled.npy,
-    filled1.npy ...) and by each neighbour (joined0.npy ..., joined.npy). The neighbours' own grids
-    (border0_nmt.npy ...) cover the gaps at the border only and are not counted."""
+    (wbm.npy); bool the water (water.npy), the shore faces from the surface model with the gaps
+    (covered.npy, with a surface model and the water filled) and the pixels filled by each fallback
+    (filled.npy, filled1.npy ...) and by each neighbour (joined0.npy ..., joined.npy). The neighbours'
+    own grids (border0_nmt.npy ...) cover the gaps at the border only and are not counted."""
     p, source = plan.params, plan.source
     surface = bool(plan.nmpt)
     floats = 1 + surface + (surface and bool(plan.obstacles)) + bool(p.slope_file)
-    masks = _water_mask(plan) + (p.water == "fill")
+    masks = _water_mask(plan) + (p.water == "fill") + (p.water == "fill" and surface)
     if _fills_gaps(plan):
         floats += len(source.fallbacks) * (1 + surface)
         masks += len(source.fallbacks) + (len(source.neighbours) + 1 if source.neighbours else 0)
@@ -751,11 +760,12 @@ AREA_TEMP_BYTES = 4
 
 def tile_bytes(plan: Plan) -> int:
     """The bytes per pixel of a tile's copies of the area's grids (search_lines: _tile_data): float32
-    the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled and the
-    joined masks when the search makes them."""
+    the terrain, the surface (or the obstacles) and a slope file; bool the water, the filled, the
+    joined and the covered masks (the gaps with the shore faces) when the search makes them."""
     p, source = plan.params, plan.source
     floats = 1 + bool(plan.nmpt) + bool(p.slope_file)
     masks = (p.water == "fill") + (_fills_gaps(plan) and (bool(source.fallback) + bool(source.neighbours)))
+    masks += p.water == "fill" and bool(plan.nmpt)
     return 4 * floats + masks
 
 
@@ -906,7 +916,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
             surface_path = src.prepare_layer(source.nmpt, grid, cache_dir, os.path.join(work, "nmpt.npy"), "surface",
                                              p.update, download=False, rows=rows)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
-        water_path = filled_path = joined_path = sea_zone = wbm = terrain = tile_terrain = None
+        water_path = filled_path = covered_path = joined_path = sea_zone = wbm = terrain = tile_terrain = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False,
                                       rows=rows)
@@ -978,6 +988,23 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                                  f"from {fallback.name}")
         bare = bare_path = None
         if p.water == "fill":
+            if surface_path:
+                # The shore faces the terrain model lacks (no ground returns on a sea cliff's face) from the
+                # surface model, downwards from the terrain's data edge; the rest of the zone is the sea below
+                face_path, face_px = src.fill_shore_from_surface(elevation_path, surface_path, grid, sea_zone,
+                                                                 os.path.join(work, "face.npy"), sea_value=source.sea_fill,
+                                                                 rows=rows)
+                if face_px:
+                    emit("info", f"Filled {face_px * plan.resolution ** 2:.0f} m² of shore faces without terrain data "
+                                 f"from {source.nmpt.description if source.nmpt else 'the surface model'}")
+                    # Filled data with the gaps' for filled_m and the map's filter (Data.covered), but no seam:
+                    # the anchors at the cliff's top edge stand right next to its face
+                    covered_path = os.path.join(work, "covered.npy")
+                    os.replace(face_path, covered_path)
+                    if filled_path is not None:
+                        src.filling._or_rows(covered_path, filled_path, rows or grid.height)
+                else:
+                    src.filling.remove_grid(face_path)  # an empty mask: nothing to count
             if surface_path and plan.obstacles:
                 if rows is None:
                     bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
@@ -1030,7 +1057,8 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
     return Data(elevation, surface,
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
-                np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain, tile_terrain)
+                np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain, tile_terrain,
+                covered=np.load(covered_path, mmap_mode="r") if covered_path else None)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
@@ -1080,7 +1108,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
 
     # Step 4: coordinates, water and gaps, groups, profiles
     _step(plan, 4, "coordinates, groups and profiles")
-    results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled, core)
+    results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled_pixels(), core)
     del valid_lines  # the same table (in place)
     _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
@@ -1088,7 +1116,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     wanted = np.arange(len(results)) if every_profile else np.unique(groups.rep)
     progress.compute.start("line profiles", len(wanted), unit="line")
     batch = lp.line_profiles(a1[wanted], a2[wanted], data.elevation, plan.resolution, data.surface,
-                             sag_table=sag_table, water=data.water, filled=data.filled,
+                             sag_table=sag_table, water=data.water, filled=data.filled_pixels(),
                              on_part=progress.compute.update)  # helpers.line_profile of each, in parallel
     results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
     progress.compute.finish()
@@ -1449,7 +1477,7 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
 
     return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
                 copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
-                window(data.mask, 0, tile.height), terrain)
+                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"))
 
 
 def _remove_grids(work: str):
@@ -1844,7 +1872,7 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
             spans = (p["min_length"], p["max_length"])
         sag_table = _sag_table(dataclasses.astuple(plan.rigging), *spans)
     profile = sh.line_profile(pixel(x1, y1), pixel(x2, y2), data.elevation, res, data.surface,
-                              sag_table=sag_table, water=data.water, filled=data.filled)
+                              sag_table=sag_table, water=data.water, filled=data.filled_pixels())
     del data
     gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
     return profile
@@ -1867,7 +1895,8 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
                   step: int = 1, side_m: Optional[float] = None) -> Tuple[Dict, bytes]:
     """The terrain of the 3D view around a line of a saved run (docs/3d-view-contract.md, "/api/patch"):
     (meta, the deflated heights). The run's source, resolution, filling and water settings (meta: its
-    run.json), without the surface model, on a square of PATCH_BLOCK·n + 1 samples centred on the
+    run.json), the surface model only for the shore faces the terrain lacks (no obstacle surface: the
+    terrain is drawn), on a square of PATCH_BLOCK·n + 1 samples centred on the
     line's middle, its edges on the run's pixel edges, so the heights are those the search used.
     side_m: the metres it must span (default: PATCH_SIDE_MIN, or the line's length + PATCH_SIDE_MARGIN);
     step 2: every second sample of rows and columns. anchor1, anchor2: (lat, lon) as the run saved them.
@@ -1876,8 +1905,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
     if step not in (1, 2):
         raise ValueError("step: 1 or 2")
     p = meta["params"]
-    values = _run_values(meta)
-    values["nmpt"] = "off"  # the 3D view draws the terrain only
+    values = _run_values(meta)  # the run's surface model too: the shore faces come from it (prepare_data)
     crs, res = meta["center"]["crs"], float(p["resolution"])
     to_xy = ar._to(crs)
     (x1, y1), (x2, y2) = to_xy(anchor1[1], anchor1[0]), to_xy(anchor2[1], anchor2[0])
@@ -1911,6 +1939,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
     if (grid.width, grid.height) != (size, size) or abs(grid.left - left) > res / 100 or abs(grid.top - top) > res / 100:
         raise RuntimeError(f"the patch's grid ({grid.width} x {grid.height} at {grid.left}, {grid.top}) is not "
                            f"the square asked for ({size} x {size} at {left}, {top})")
+    plan.obstacles = None  # the 3D view draws the terrain: no obstacle surface, the surface model fills the shore faces only
     data = prepare_data(plan, statistics=False)  # the heights only, no hypsometry
     anchors = []
     for x, y in ((x1, y1), (x2, y2)):

@@ -170,6 +170,29 @@ def test_patch_without_data_outside_the_clip(clip_data, tmp_path):
         search.patch_of_line(meta, paths, a1, a2, step=3)
 
 
+def test_patch_takes_the_runs_surface_model_for_the_shore(clip_data, tmp_path, monkeypatch):
+    """The patch is built with the run's surface model (the shore faces the terrain lacks come from it,
+    sources.filling.fill_shore_from_surface) and without the obstacle surface: the terrain is drawn."""
+    data, meta = clip_data
+    seen = []
+    real = search.prepare_data
+
+    def spy(plan, **kwargs):
+        seen.append((bool(plan.nmpt), plan.obstacles))
+        return real(plan, **kwargs)
+
+    monkeypatch.setattr(search, "prepare_data", spy)
+    _patch(clip_data, tmp_path, *LINE)
+    assert seen == [(False, None)]  # the run has no surface model
+    with_surface = json.loads(json.dumps(meta))
+    with_surface["params"]["nmpt"] = "mark"
+    with_surface["data"].append({"layer": "Surface file", "file": os.path.join(DATA, "zabi_kon_nmpt.tif")})
+    paths = search.Paths(str(data), str(tmp_path / "work2"))
+    os.makedirs(paths.work)
+    search.patch_of_line(with_surface, paths, _latlon(*LINE[0]), _latlon(*LINE[1]))
+    assert seen[-1] == (True, None)
+
+
 def test_patch_loads_no_numba(clip_data, tmp_path):
     """The quick lane never loads numba (tests/test_units.py::test_search_imports_numba_only_to_compute):
     the patch of a line neither."""
