@@ -7,7 +7,7 @@ in the light theme and optionally the dark one.
 The site is the public one (signed in as an administrator, so Admin and the OSM extracts are there;
 the "-limited" pages as an approved user with the site's limits), run
 from a scratch data folder with a run of the Żabi Koń clip (tests/data, computed offline), the highline
-layer of a sample cube of made-up counts (tests/test_country_web.py's sample_cube), a problem report and
+layer of two sample cubes of made-up counts (tests/test_country_web.py's sample_cube), a problem report and
 a worker of this process (the estimates of a new search need its quick lane). It is served over
 HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Secure cookie (the session's
 `__Host-` cookie) to http://localhost.
@@ -127,6 +127,8 @@ PAGES = {
     "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
     "c-layer": ("c", "#layer", None),
+    "c-layer-world": ("c", "#layer&view=49.42,19.66,8", None),  # both sample cubes in view (Slovakia, Testland)
+    "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
@@ -298,8 +300,9 @@ def serve(data: str):
     jobs = Jobs(data, public=True)
     run = clip_run(data)
     sys.path.insert(0, os.path.join(REPO, "tests"))
-    from test_country_web import sample_cube
-    sample_cube(data)  # the highline layer's pages (#layer)
+    from test_country_web import OUTLINE2, sample_cube
+    sample_cube(data)  # the highline layer's pages (#layer): two cubes, as tests/test_country_web.py's fixture
+    sample_cube(data, "testland", "Testland", seed=3, outline=OUTLINE2)
     jobs.add_run(run, admin.id, 1)
     share = "ui-shots-share-" + "x" * 30
     jobs.set_share(run, ac.digest(share))

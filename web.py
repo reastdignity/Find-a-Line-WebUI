@@ -654,9 +654,13 @@ class Countries:
     def histogram(cube, query) -> Dict:
         """The answer of /api/countries/<id>/histogram for the query of /cells: countcube's Cube.histogram
         of the view (the counts per bin of each dimension, each under every filter but its own) with the
-        level and its cell size as /cells gives them."""
+        level and its cell size as /cells gives them. With a bbox only the cells reaching it, by their
+        corners as /cells rounds them (Cube.reaching): the cells the page counts as in view."""
         mode, level, box, filters = Countries._view(cube, query)
-        return {"level": level, "cell_m": Countries._cell_m(cube, level), **cube.histogram(mode, level, box, filters)}
+        text = query.get("bbox") or ""
+        view = tuple(float(v) for v in text.split(",")) if text else None  # checked by _view
+        return {"level": level, "cell_m": Countries._cell_m(cube, level),
+                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS)}
 
     @staticmethod
     def outline(cube) -> Dict:

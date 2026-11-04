@@ -161,14 +161,15 @@ const KIT_CUBE: CountryCube = {
   dsm: false, water: true, partial: true, totals: {lines: 2.4e9, spots: 4.1e6}, built: "2026-11-03T10:00:00Z",
   credits: [{data: "dem", attribution: "ÚGKK SR", licence: "CC BY 4.0", url: "https://creativecommons.org/licenses/by/4.0/", notice: ""},
             {data: "osm", attribution: "© OpenStreetMap contributors", licence: "ODbL", url: "https://www.openstreetmap.org/copyright", notice: ""}],
-  notes: ["A sample of made-up counts for the demo."],
+  notes: ["A sample of made-up counts for the demo.", "Only lines with both anchors inside Slovakia are counted.",
+          "The surface model (trees, buildings) was not used: every line counts as not over trees or buildings."],
 };
 const KIT_CUBE_2: CountryCube = {
   ...KIT_CUBE, id: "westland", name: "Westland", crs: "EPSG:5514", bounds_wgs84: [12.1, 49.7, 16.8, 51.1], bands: KIT_BANDS(),
   dsm: true, partial: false, totals: {lines: 1.1e9, spots: 2.2e6}, built: "2026-11-04T08:00:00Z",
   credits: [{data: "dem", attribution: "ČÚZK", licence: "CC BY 4.0", url: "https://creativecommons.org/licenses/by/4.0/", notice: ""},
             {data: "osm", attribution: "© OpenStreetMap contributors", licence: "ODbL", url: "https://www.openstreetmap.org/copyright", notice: ""}],
-  notes: ["A second made-up country of the demo."],
+  notes: ["A second made-up country of the demo.", "Only lines with both anchors inside Westland are counted."],
 };
 export const KIT_CUBES = [KIT_CUBE, KIT_CUBE_2];
 

@@ -470,6 +470,45 @@ def test_cube_histogram_against_brute_force(tmp_path):
                      "height": [0] * 6}
 
 
+def test_cube_histogram_of_a_view(tmp_path):
+    """Cube.histogram with a WGS84 view: the histogram of the keys whose cell's corners (rounded as
+    /cells rounds them) have a box intersecting the view, edges included: the cells the page counts in
+    view, fewer than the view's box in the cube's CRS holds; reaching gives that mask."""
+    rng = np.random.default_rng(41)
+    grid = _grid()
+    table = _lines(rng, grid, 6000, lengths=(30, 5000))
+    out, _ = _build(tmp_path, [(grid, table, None)])
+    cube = cc.Cube(str(out))
+    west, south, east, north = cube.info["bounds_wgs84"]
+    fewer = 0
+    for mode in ("lines", "spots"):
+        for level in cc.LEVELS:
+            rows = np.load(out / f"{mode}_{level}.npy")
+            keys, counts = rows[:, 0], rows[:, 1]
+            for _ in range(8):
+                f = _random_filters(rng)
+                lon = sorted(rng.uniform(west, east, 2))
+                lat = sorted(rng.uniform(south, north, 2))
+                view = (lon[0], lat[0], lon[1], lat[1])
+                box = cube.box(*view)
+                corners = np.round(cube.corners(level, keys >> 39, (keys >> 25) & 0x3FFF), 6)
+                la, lo = corners[:, :, 0], corners[:, :, 1]
+                near = ((la.max(1) >= view[1]) & (la.min(1) <= view[3]) & (lo.max(1) >= view[0])
+                        & (lo.min(1) <= view[2]))
+                assert (cube.reaching(level, keys, view, 6) == near).all()
+                got = cube.histogram(mode, level, box, f, view=view, decimals=6)
+                # the brute force: the histogram of the near keys alone, through a cube of those rows
+                part = cc.Cube.__new__(cc.Cube)
+                part.__dict__.update(cube.__dict__)
+                part._arrays = {f"{mode}_{level}": rows[near]}
+                assert got == part.histogram(mode, level, None, f), (mode, level, view, f)
+                if got["total"] < cube.histogram(mode, level, box, f)["total"]:
+                    fewer += 1
+                assert got["total"] == int(counts[near][cc.select(keys[near], f)].sum())
+    assert fewer > 0  # the CRS box holds more than the view somewhere
+    assert cube.reaching(1, np.zeros(0, dtype=np.int64), (0, 0, 1, 1)).shape == (0,)
+
+
 def test_outline_simplified(tmp_path):
     """The outline for a map: valid, fewer coordinates than the original, within the country's bounds (plus
     the tolerance), the original's km², kept per tolerance."""

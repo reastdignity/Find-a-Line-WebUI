@@ -1048,13 +1048,23 @@ The user's idea (2026-11-01): search whole countries offline in fixed tiles, kee
   - The layer lives in the local app (page `#layer`, the local user and administrators).
   - A run resumes per tile. SQLite holds only the manifest; the counts are numpy files.
   - **The pilot runs without the surface model**: C: had 107 GB free, and copying the mirror into `cache/` takes 134 GB (DMR 61, DMP 73). Hard links of the mirror's files were offered and declined. The trees dimension stays in the cube, empty for Slovakia.
+- **The Highline Explorer (done 2026-11-04, branch `layer-explorer`)**: `#layer` browses every country's cube at once (docs/country-precompute/contract.md, section 5, "The page as built"):
+  - the filters on the left;
+  - the histograms of the view on the right: the length bins and four small ones, each counted under the other filters, a click setting the filter (`/api/countries/<id>/histogram`);
+  - every filter and the view in the hash;
+  - the level chosen by the client with hysteresis;
+  - the world view: below 2000 m per pixel the countries' outlines filled by their total per km² (`/outline`).
+- **The layer's look (settled 2026-11-04, the user on mock-ups)**:
+  - sharp 1 km squares, with a colour scale fitted to the view: four log10 breaks between the 2nd and 98th percentile of a padded box's cells, kept while the view stays inside that box, eased over 0.5 s at a refit;
+  - "Fixed classes" as the alternative;
+  - tried on mock-ups and not taken: a blur of the whole layer or of the cells' joins, leaflet.heat, hexagons (H3, d3-hexbin).
 - **Round 4 of the performance work (2026-11-04)**: the pilot's runs profiled and three stages planned (docs/performance.md, "Round 4"): stage 1 the heavy tiles' threads, all bands in one run, the border gaps once and none inside the outline; stage 2 step 1 in strips per tile (the memory per worker) and an averaged mirror for the coarse bands; stage 3 the weights of a first band from the relief, "other" measured, step 1 per group of tiles.
 - **Open**:
   - **T(L) as an option of the app's search** (the user, 2026-11-02): a field of `params.py` (span:kN points), `sag.TensionTable` (done for the country layer), `viewer/src/sag.ts` (the same solver: Python and the browser must match to 1e-6 m), the form, README. The profiles of `/api/profile` and the map's sag line follow it.
   - **Lines across a border**: only lines with both anchors in the country are counted. A layer of several countries needs the cells of both CRSs, or one CRS per region, and the tiles at the border searched over both countries' data.
   - **The surface model in the cube**: count again with `--nmpt mark` once the disk has room for the DMP (the obstacle rule is settled: A2 on the averaged surface, 2026-11-04).
   - **Many countries**: the cube's arrays memory-mapped again (a build into a new folder swapped in, as Windows refuses replacing a mapped file); a query engine (DuckDB) only if the queries grow.
-  - **The layer's look**: the legend's class breaks (fixed guesses from the report's strata) after the first real cube; a lighter base map under the cells.
+  - **The server's cell guard** (`web.COUNTRY_CELLS_MAX`) counts the view clipped to the cube's bounds plus a degree (`Cube.box`), not to the bounds: a view mostly outside the country is refused sooner than its cells need. The page mirrors that rule (`layerState.requestCells`, 16000 with a margin); counting the box clipped to the bounds would let both ask more at once.
 - **The data of every current source** (2026-11-03/04, branch `window-reads`): 54.9 TB to download for the terrain, 83.5 TB with the surface models, 24.3 / 33.9 TB in the cache (docs/country-precompute.md, section 2, "Every source of the catalogue"). The largest part of the difference, about 37 TB, was the blocks read by windows of big remote files: a 1 km block reads every internal tile it touches (2.35 times the file's bytes, measured: Austria 5.5 MB/km² against 2.3, Canada 9.3 against 3.9). Of three remedies (the arguments in docs/performance.md, "Window reads") the user chose:
   - **B, done**: the country prefetch reads in groups of `country.PREFETCH_GROUP_M`, each file once per group through range requests of our own (`sources/readers/ranges.py`), the same cache files byte for byte;
   - **C, done for three sources**: range by range through GDAL's cache of ranges, the blocks in squares, where that was faster too (Austria, Luxembourg, British Columbia); elsewhere it saves bytes but costs time (Canada 1.5x, the USA 3x slower);

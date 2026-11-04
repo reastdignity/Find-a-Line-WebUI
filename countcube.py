@@ -591,14 +591,42 @@ class Cube:
         cell, total = cell[keep], total[keep]
         return cell >> (COL_SHIFT - ROW_SHIFT), cell & CELL_MASK, total.astype(np.int64)
 
-    def histogram(self, mode: str, level: int, box: Optional[Box], filters: Filters) -> Dict:
+    def reaching(self, level: int, keys: np.ndarray, view: Tuple[float, float, float, float],
+                 decimals: Optional[int] = None) -> np.ndarray:
+        """A mask of the keys whose cell reaches a WGS84 view (west, south, east, north): the box of the
+        cell's corners (rounded to `decimals`, as /api/countries/<id>/cells gives them) intersects the
+        view, edges included, as Leaflet's LatLngBounds.intersects: the page's total in view."""
+        west, south, east, north = view
+        cell = np.asarray(keys, dtype=np.int64) >> ROW_SHIFT
+        if not len(cell):
+            return np.zeros(0, dtype=bool)
+        unique, inverse = np.unique(cell, return_inverse=True)
+        corners = self.corners(level, unique >> (COL_SHIFT - ROW_SHIFT), unique & CELL_MASK)
+        if decimals is not None:
+            corners = np.round(corners, decimals)
+        lat, lon = corners[:, :, 0], corners[:, :, 1]
+        ok = (lat.max(1) >= south) & (lat.min(1) <= north) & (lon.max(1) >= west) & (lon.min(1) <= east)
+        return ok[inverse]
+
+    def histogram(self, mode: str, level: int, box: Optional[Box], filters: Filters,
+                  view: Optional[Tuple[float, float, float, float]] = None, decimals: Optional[int] = None) -> Dict:
         """The counts over box (None: all) per bin of each dimension, each dimension counted under every
         filter but its own (select(skip=)): {"total": the sum under all filters, "length": [9 ints, one
         per length bin], "prominence", "wall", "clearance", "height": [6 ints: the bins 0-4 and UNKNOWN]}.
+        With `view` (the WGS84 box that gave box), only the cells reaching it (`reaching`): box, the
+        view's box in the cube's CRS, holds more where the CRS turns against the meridians (Slovakia's
+        Krovak: 13 % more cells in a view of the Tatras, 2026-11-04), so the page's total in view and its
+        histograms would disagree; box is grown by a cell first, so no cell reaching the view is missed.
         A line carries one length bit, so a mode's length bins partition its total (under the other
         filters); a spot's record ORs the length bits of its lines (merge_spots), so a spot counts in
         every bin of its lines: per-bin spot counts are upper bounds and may sum above the total."""
+        if view is not None and box is not None and box[0] <= box[2] and box[1] <= box[3]:
+            size = level * CELL_M
+            box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
         keys, counts = self._slice(mode, level, box)
+        if view is not None and len(keys):
+            near = self.reaching(level, keys, view, decimals)
+            keys, counts = keys[near], counts[near]
         out: Dict = {"total": int(counts[select(keys, filters)].sum()) if len(keys) else 0}
         if not len(keys):
             out["length"] = [0] * LENGTH_BINS

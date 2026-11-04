@@ -535,6 +535,121 @@ Checks of C:
 - A look in headless Edge, from PowerShell, at the demo on a desktop window and a narrow one, light
   and dark, with no CSP violations. Show the screenshots in the report.
 
+### The page as built: the Highline Explorer (2026-11-04, branch `layer-explorer`)
+
+The prototype above was replaced by a browsing page of every country's cube at once (the plan of
+2026-11-04; mock-ups on claude.ai). `#layer` keeps its access rule (the local user and
+administrators) and its place in the account menu of C and D.
+
+**Layout.** `MapPage` with a right `aside` (`.c-mappage-3`: `400px minmax(0,1fr) 320px`): the
+filters, the legend, the total in view, the level, the selected cell, the notes and the credits on
+the left (`LayerPage.tsx`); the map in the middle (`cellsLayer.ts`); the histograms on the right
+(`LayerHistograms.tsx`, a second Preact tree rendered into the aside: never a portal of
+`preact/compat`). On phones the map (34vh) on top, then the panel, then the histograms, in one
+scrolling column.
+
+**The hash** (`layerState.ts`, `parseState`/`stateParams`; `route.ts` `layerHash`):
+```
+#layer[&country=<id>][&view=<lat>,<lon>,<zoom>][&mode=lines|spots][&length=<lo>-<hi>][&prominence=<p>][&wall=<w>]
+      [&clearance=<c>][&height=<h>][&trees=all|no|only][&water=all|land|water][&level=auto|1|2|4|8][&scale=fit|fixed]
+```
+- What is absent is the default (lines, the full length range, no thresholds, auto, fit); an invalid
+  value falls back to it, checked against the first cube's edges.
+- `view` wins over `country`; without either the page fits the first cube's bounds.
+- The page writes the hash in place (never a history entry) on every change and `moveend`.
+  `hashchange` from outside (Back, a pasted link) applies it. `ShellC` treats a change within
+  `#layer` as no navigation, and `AppC` keys the page by a constant, never by the hash.
+
+**Two more endpoints** beside section 4's, with the same query, errors, `require_admin` and thread
+pool (`web.Countries._view`):
+```
+GET /api/countries/{id}/histogram?<the query of /cells>
+  → {"level", "cell_m", "total", "length": [9 ints], "prominence": [6], "wall": [6], "clearance": [6], "height": [6]}
+GET /api/countries/{id}/outline
+  → {"tolerance": 0.005, "area_km2": <the outline's km² in the cube's CRS>, "geometry": <GeoJSON, 4 decimals>}
+```
+- The histogram is `countcube.Cube.histogram`: each dimension is counted under every filter but its
+  own (`select(skip=)`), so the bars show what a threshold cuts.
+- With a bbox, the histogram counts only the cells reaching the view (`Cube.reaching`). Those are
+  the cells whose corners, rounded as `/cells` rounds them, have a box intersecting the bbox, edges
+  included, as Leaflet's `LatLngBounds.intersects`. So its total is the page's total in view.
+  - Without this, the view's box in the cube's CRS holds more cells where the CRS turns against the
+    meridians: 13 % more lines than the cells in view on Slovakia's real cube over the Tatras
+    (809 M against 913 M, 2026-11-04). The 3-bit dimensions give the bins
+  0-4, then UNKNOWN (the page draws it as "?", not pickable).
+- A line has one length bit, so in lines mode the length bins partition the total. A spot's record
+  ORs the length bits of its lines, so in spots mode the per-bin counts are upper bounds and may sum
+  above `total`; the page says so under the length histogram and beside the total.
+- The outline is `Cube.outline_simplified(OUTLINE_TOLERANCE)`: Slovakia's `area.geojson` is 2.08 MB,
+  10 KB simplified. It is no field of the listing.
+- In `api.ts` these are `CountryHistogram`, `CountryOutline`, `api.countryHistogram` and
+  `api.countryOutline`. The page reads them through a `LayerSource` (`countries`, `cells`,
+  `histogram`, `outline`): the server, or the canned data of `?ui=kit-layer` (`ui/Gallery.tsx`
+  `KIT_CUBES`, `kitCells`, `kitHistogram`, `kitOutline`).
+
+**A round** runs 300 ms after the last move or change. It aborts the round before (one
+`AbortController`) and asks every cube whose `bounds_wgs84` reach the view. All rows are drawn, each
+remembering its cube for the card and `#new&cell=`. The histograms are summed, and the credits of
+the cubes in view are deduplicated.
+
+**The level** is chosen by the client for all cubes in view (`autoLevel`) and sent explicitly; the
+server's `auto_level` stays for the API.
+- First view: the finest level with at most 4000 cells (the view clipped to the cubes' bounds,
+  `cellsAt`).
+- Afterwards, with hysteresis: finer only when the finer level stays under 900 cells, coarser only
+  above 2400.
+- Then coarser while one cube's request would exceed `REQUEST_CELLS_MAX` (16000), the server's
+  20000 with a margin (`largestRequest`, `requestCells`). Those count the box clipped to the cube's
+  bounds grown by a degree, as `Cube.box` does.
+- An explicit level is sent as it is; a 400 "too many cells" shows the too-many state.
+
+**The colour scale** is `scale=fixed` (`CLASS_BREAKS`, a colour means the same everywhere) or
+`scale=fit` (the default):
+- Fit takes four breaks evenly in log10 between the 2nd and 98th percentile of the densities per km²
+  of the cells of a **padded box** (`quantileBreaks`). The padded box is the view plus one view's
+  width and height on every side, less where a request would exceed 16000 cells (¾, ½, ¼, none).
+- When the view left the cached box (or the level, a filter or the mode changed), the round asks the
+  cells of the padded box. They are drawn too and cached with their box, level and filters.
+- A pan or zoom that stays inside the box at the same level sends no `/cells` request and keeps the
+  breaks; only the histograms of the view are asked again.
+- Leaving the box refits. At a refit, the breaks shown ease from the old ones to the new over 0.5 s
+  in log10 (cubic in-out; none under `prefers-reduced-motion`; a timer ends it where no frames come),
+  the cells and the legend redrawn each frame.
+- The cells stay sharp squares (no blur, no heat map, no hexagons: roadmap, "Country layer").
+- The total in view (`.c-layer-total`) is the sum of the drawn cells that reach the view. It equals
+  the histograms' total, which are always those of the view's bbox.
+
+**Outline mode** applies below an 8 km cell of 4 px, more than `OUTLINE_MPP` (2000) metres per pixel
+at the view's centre.
+- The round asks each cube in view for its histogram over the whole country (no bbox, level 8) and
+  its outline (cached per id).
+- The outlines are polygons on the same canvas, filled by the class of `total / area_km2` under the
+  fixed breaks, each with a permanent label of its total; a click zooms to the country.
+- The panel says "k countries in view" with the summed total.
+
+**The notes** under the cell card are the page's own: spots are cluster pairs, and spots are an
+upper bound under several filters. Then each cube's bands and its `notes`: `country build` writes
+"Only lines with both anchors inside <name> are counted." and, without the surface model, its note,
+so the page repeats neither.
+
+**The right panel** shows:
+- the total in view;
+- the 9 length bins: a click sets the bin, shift-click extends the range to it;
+- four small histograms (prominence, wall, clearance, height). A click sets the threshold: the bin's
+  lower edge, or for the wall the bin's upper edge, the last bin "any".
+
+Each bar is a button with `aria-pressed` and `data-value`, of class `.c-layer-hist`. Its height is
+log10(1 + n) over log10(1 + max), set through the CSSOM.
+
+**Tests:** `tests/test_country_web.py`:
+- the endpoints against `Cube` over two sample cubes (`slovakia`, and `testland` west of it);
+- `test_layer_page_in_edge` (C and D): the cells, a picked cell, the five histograms against the
+  intercepted `/histogram` answers, a length bar into the hash and the next `/cells` query, both
+  cubes at 2 km adding up, the outlines when zoomed out.
+
+`tools/ui_shots.py` has `c-layer`, `c-layer-world` (both cubes), `c-layer-end` (the phones' column scrolled
+to the histograms), `d-layer` and `d-layer-cell`.
+
 ## Wave 1 as built (2026-11-02; read this before sections 3 and 4)
 
 **`search.py`**

@@ -380,7 +380,8 @@ function Explorer({place, aside, source, cubes, params, pick}:
   const noun = mode === "lines" ? t("ui.layer.lines") : t("ui.layer.spots");
   const Noun = mode === "lines" ? t("ui.layer.Lines") : t("ui.layer.Spots");
   const several = filtersSet(state, cube0) > 1;
-  const labels = classLabels(legend);
+  // the outlines are coloured by the fixed classes (a country's total over its area), whatever the scale
+  const labels = classLabels(outlineMode ? CLASS_BREAKS[mode] : legend);
   const pickedCube = picked ? cubes.find((c) => c.id === picked.country) : null;
   const pickedBands = pickedCube ? pickedCube.bands.filter((b) => b.layer) : [];
   const centre = picked && [0, 2, 4, 6].reduce((s, k) => [s[0] + picked.corners[k] / 4, s[1] + picked.corners[k + 1] / 4], [0, 0]);
@@ -480,7 +481,8 @@ function Explorer({place, aside, source, cubes, params, pick}:
         <Segmented label={t("ui.layer.scale")} value={state.scale} onChange={(scale) => set({scale})}
                    options={[{value: "fit", label: t("ui.layer.scale_fit")}, {value: "fixed", label: t("ui.layer.scale_fixed")}]} />
       </Field>
-      <p class="u-small">{state.scale === "fit" ? t("ui.layer.scale_fit_note") : t("ui.layer.scale_fixed_note")}</p>
+      <p class="u-small">{outlineMode ? t("ui.layer.scale_outline_note")
+        : state.scale === "fit" ? t("ui.layer.scale_fit_note") : t("ui.layer.scale_fixed_note")}</p>
     </section>
 
     <section class="c-layer-view" aria-live="polite">
@@ -521,10 +523,8 @@ function Explorer({place, aside, source, cubes, params, pick}:
       <ul class="u-small">
         <li>{t("ui.layer.note_spot")}</li>
         <li class={mode === "spots" && several ? "c-layer-warn" : undefined}>{t("ui.layer.note_upper")}</li>
-        <li>{t("ui.layer.note_inside")}</li>
         {(inView.length ? inView : [current]).map((c) => <li key={c.id}>{t("ui.layer.note_bands", {name: c.name})}{" "}
           {c.bands.filter((b) => b.layer).map((b) => `${b.name} ${b.resolution} m (${range(b.lengths[0], b.lengths[1])})`).join(", ")}.</li>)}
-        {shownCubes.filter((c) => !c.dsm).map((c) => <li key={`dsm-${c.id}`}>{t("ui.layer.note_no_dsm", {name: c.name})}</li>)}
         {(inView.length ? inView : [current]).flatMap((c) => c.notes).map((n, k) => <li key={k}>{n}</li>)}
       </ul>
     </section>

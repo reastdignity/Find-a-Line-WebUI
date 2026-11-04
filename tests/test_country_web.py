@@ -104,7 +104,9 @@ def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", see
                          "url": "https://creativecommons.org/licenses/by/4.0/", "notice": ""},
                         {"data": "OpenStreetMap", "attribution": "© OpenStreetMap contributors", "licence": "ODbL 1.0",
                          "url": "https://www.openstreetmap.org/copyright", "notice": ""}],
-            "notes": ["A sample of made-up counts."]}
+            "notes": ["A sample of made-up counts.", f"Only lines with both anchors inside {name} are counted.",
+                      "The surface model (trees, buildings) was not used: every line counts as not over trees "
+                      "or buildings."]}  # as country.py's build writes them
     out = os.path.join(folder, "cube")
     cc.build([tile], out, info)
     with open(os.path.join(out, "area.geojson"), "w", encoding="utf-8") as f:
@@ -204,17 +206,34 @@ def test_cells_as_the_cube_gives_them(client, sample):
     assert _cells(client, bbox=VIEW, level="8", trees="only")["cells"] == []
 
 
+VIEW_BOX = tuple(float(v) for v in VIEW.split(","))
+
+
+def _in_view(answer, view) -> int:
+    """The sum of the cells of a /cells answer whose corners' box reaches the view (the page's total)."""
+    west, south, east, north = view
+    total = 0
+    for row in answer["cells"]:
+        lat, lon = row[3::2], row[4::2]
+        if max(lat) >= south and min(lat) <= north and max(lon) >= west and min(lon) <= east:
+            total += row[2]
+    return total
+
+
 def test_histogram_as_the_cube_gives_it(client, sample):
-    """The histogram of a view: Cube.histogram of the level asked (auto: Cube.auto_level) with the level and
-    cell size as /cells gives them; no bbox: the country's bounds; a view far away: zeros."""
+    """The histogram of a view: Cube.histogram of the level asked (auto: Cube.auto_level) over the cells
+    reaching the view (its total the sum of the cells the page counts in view), with the level and cell size
+    as /cells gives them; no bbox: the country's bounds; a view far away: zeros."""
     cube = cc.Cube(os.path.join(sample, "countries", "slovakia", "cube"))
     box = cube.box(*map(float, VIEW.split(",")))
     for query, level, filters in QUERIES:
         level = cube.auto_level(box) if level is None else level
         got = _histogram(client, **query)
-        expected = cube.histogram(query.get("mode", "lines"), level, box, filters)
+        expected = cube.histogram(query.get("mode", "lines"), level, box, filters, view=VIEW_BOX, decimals=6)
         assert got == {"level": level, "cell_m": level * 1000, **expected}, query
-        assert got["total"] > 0 and got["total"] == _cells(client, **query)["total"], query
+        # the cells the page counts in view: their corners' box reaches the view (Leaflet's intersects)
+        assert got["total"] > 0 and got["total"] == _in_view(_cells(client, **query), VIEW_BOX), query
+        assert got["total"] <= _cells(client, **query)["total"], query
         assert len(got["length"]) == 9 and all(len(got[name]) == 6 for name in ("prominence", "wall", "clearance",
                                                                                   "height"))
     assert _histogram(client, bbox=VIEW)["level"] == cube.auto_level(box)  # level=auto by default
@@ -378,13 +397,23 @@ def test_no_numba_in_the_web_process(sample):
 
 
 # The page #layer: wait for the cells, count the painted pixels of the cells' canvas, click the cell under the
-# centre of the first answer's largest cell, read the selected cell's panel
+# centre of Slovakia's largest cell, read the selected cell's panel; the right panel's histograms against the
+# answers of /histogram summed over the cubes asked in the same round; a click on the second length bar (the
+# hash and the next /cells queries); a view over both cubes at 2 km cells (both answered, the total their sum);
+# zoomed out, the countries' outlines
 LAYER_SCRIPT = """
-const answers = [];
+const log = [];  // the layer's requests: {kind, id, round, query, answer, done}
+let round = 0, grouping = false;
 const realFetch2 = window.fetch;
 window.fetch = (url, init) => {
   const p = realFetch2(url, init);
-  if (String(url).includes("/cells?")) p.then((r) => r.clone().json()).then((j) => answers.push(j), () => {});
+  const found = String(url).match(/\\/api\\/countries\\/([^/]+)\\/(cells|histogram|outline)(\\?.*)?$/);
+  if (found) {
+    if (!grouping) { round++; grouping = true; setTimeout(() => { grouping = false; }, 0); }  // one round: one task
+    const e = {kind: found[2], id: found[1], round, query: new URLSearchParams(found[3] || ""), done: false};
+    log.push(e);
+    p.then((r) => r.clone().json()).then((j) => { e.answer = j; e.done = true; }, () => { e.done = true; });
+  }
   return p;
 };
 const painted = (canvas) => {  // the canvas's pixels that are not transparent
@@ -394,21 +423,32 @@ const painted = (canvas) => {  // the canvas's pixels that are not transparent
   for (let k = 3; k < data.length; k += 4) if (data[k]) n++;
   return n;
 };
+const mostPainted = () => Math.max(0, ...$$(".leaflet-container canvas").map(painted));
+const map = () => window.FINDALINE_PLACE.map;
+const of = (kind) => log.filter((e) => e.kind === kind);
+const lastRound = (kind) => { const all = of(kind); const r = all.length ? all[all.length - 1].round : -1;
+                              return all.filter((e) => e.round === r); };
+const lastCells = (id) => of("cells").filter((e) => e.id === id && e.answer).slice(-1)[0];
+// every request answered, the panels drawn from the last answers (not counting, not dimmed)
+const settled = () => log.length && log.every((e) => e.done) && !$(".c-layer-waiting")
+                      && /in view/.test(text(".c-layer-total"));
+const totalNumber = () => Number((($(".c-layer-total b") || {}).textContent || "").replace(/,/g, ""));
+const histBars = () => [...$$(".c-layer-hist")[0].querySelectorAll("button.c-layer-bar")];
+const lengthBars = () => histBars().map((b) => Number(b.dataset.value));
+const summed = (answers) => answers.reduce((s, a) => s.map((v, k) => v + a.length[k]), Array(9).fill(0));
 run({
-  cells: (next) => wait(() => answers.length && /in view/.test(text(".c-layer-total"))  // drawn in an animation frame
-                              && $$(".leaflet-container canvas").some((c) => painted(c) > 0), () => {
-    const a = answers[answers.length - 1];
+  cells: (next) => wait(() => settled() && lastCells("slovakia") && mostPainted() > 0, () => {  // drawn in a frame
+    const a = lastCells("slovakia").answer;
     result.level = a.level; result.cells = a.cells.length; result.total = text(".c-layer-total");
-    result.painted = Math.max(0, ...$$(".leaflet-container canvas").map(painted));
+    result.painted = mostPainted();
     next();
   }),
   click: (next) => {
-    const a = answers[answers.length - 1];
+    const a = lastCells("slovakia").answer;
     const row = a.cells.reduce((best, r) => r[2] > best[2] ? r : best);
-    const map = window.FINDALINE_PLACE.map;
     const lat = (row[3] + row[5] + row[7] + row[9]) / 4, lon = (row[4] + row[6] + row[8] + row[10]) / 4;
-    const point = map.latLngToContainerPoint([lat, lon]);
-    const box = map.getContainer().getBoundingClientRect();
+    const point = map().latLngToContainerPoint([lat, lon]);
+    const box = map().getContainer().getBoundingClientRect();
     const canvas = $$(".leaflet-container canvas").reduce((best, c) => painted(c) > painted(best) ? c : best);
     const init = {bubbles: true, cancelable: true, clientX: box.left + point.x, clientY: box.top + point.y, button: 0};
     canvas.dispatchEvent(new MouseEvent("mousemove", init));
@@ -420,6 +460,47 @@ run({
       next();
     });
   },
+  histograms: (next) => wait(() => settled() && $$(".c-layer-hist").length === 5
+                                   && lastRound("histogram").every((e) => e.answer), () => {
+    const answers = lastRound("histogram");
+    result.histograms = {count: $$(".c-layer-hist").length, ids: answers.map((e) => e.id), bars: lengthBars(),
+                         expected: summed(answers.map((e) => e.answer))};
+    next();
+  }),
+  bar: (next) => {
+    const before = of("cells").length;
+    histBars()[1].click();
+    wait(() => /length=60-100/.test(location.hash) && of("cells").length > before && settled(), () => {
+      result.bar = {hash: location.hash, queries: of("cells").slice(before).map((e) => e.query.get("length")),
+                    pressed: histBars().map((b) => b.getAttribute("aria-pressed"))};
+      next();
+    });
+  },
+  both: (next) => {
+    const before = log.length;
+    button("2 km").click();  // the cells of 2 km, over both cubes' outlines: one round for both changes
+    map().fitBounds([[48.95, 18.7], [49.9, 20.62]], {animate: false});
+    wait(() => /level=2/.test(location.hash) && /view=/.test(location.hash)
+               && log.slice(before).some((e) => e.kind === "histogram") && settled()
+               && lastRound("histogram").every((e) => e.answer), () => {
+      const hists = lastRound("histogram");
+      const cells = ["slovakia", "testland"].map(lastCells).filter(Boolean);
+      result.both = {cells: cells.map((e) => [e.id, e.answer.level, e.answer.total]),
+                     hists: hists.map((e) => [e.id, e.answer.total]), total: totalNumber(), text: text(".c-layer-total"),
+                     hash: location.hash, bars: lengthBars(), expected: summed(hists.map((e) => e.answer)),
+                     bounds: map().getBounds().toBBoxString()};
+      next();
+    });
+  },
+  outline: (next) => {
+    map().setZoom(5, {animate: false});
+    wait(() => settled() && of("outline").filter((e) => e.answer).length >= 2 && mostPainted() > 0
+               && /2 countries in view/.test(text(".c-layer-total")), () => {
+      result.outline = {ids: of("outline").map((e) => e.id).sort(), text: text(".c-layer-total"), painted: mostPainted(),
+                        right: text(".c-layer-inview")};
+      next();
+    });
+  },
 });
 """
 
@@ -428,9 +509,12 @@ run({
                     reason="needs Microsoft Edge")
 @pytest.mark.parametrize("ui", ["c", "d"])
 def test_layer_page_in_edge(sample, tmp_path, ui):
-    """#layer on the real local server with the sample cube (the first listed country, which the page takes;
-    the second, testland, sorts after it): the cells drawn on the map's canvas, a click selects the cell
-    under it (its count, one "Search here" per layer band), no CSP violations."""
+    """#layer on the real local server with the two sample cubes (the page fits the first listed, Slovakia;
+    testland, west of it, may reach the view): the cells drawn on the map's canvas, a click selects the cell
+    under it (its count, one "Search here" per layer band); five histograms on the right, the length bars the
+    /histogram answers summed over the cubes of the round; a length bar clicked sets the range in the hash and
+    the next /cells queries; both cubes in view at 2 km cells answer and their totals add up; zoomed out, both
+    outlines; no CSP violations."""
     from test_shell_c import _edge, stub_page
     from test_web import _server
     page = stub_page(sample, f"layer-{ui}", LAYER_SCRIPT)
@@ -442,4 +526,21 @@ def test_layer_page_in_edge(sample, tmp_path, ui):
     assert r["selected"].startswith("Selected cell") and count in r["selected"], r
     level = r["level"]
     assert r["search"] == [f"#new&cell=slovakia:{b}:{level}:{r['wanted'][0]}:{r['wanted'][1]}" for b in ("S", "M", "L")], r
+    # the right panel: five histograms, the length bars the answers of the round summed over its cubes
+    h = r["histograms"]
+    assert h["count"] == 5 and "slovakia" in h["ids"] and h["bars"] == h["expected"] and sum(h["bars"]) > 0, h
+    # the second length bar: its range in the hash and in every /cells query after it, its bar pressed alone
+    bar = r["bar"]
+    assert "length=60-100" in bar["hash"] and bar["queries"] and set(bar["queries"]) == {"60-100"}, bar
+    assert bar["pressed"] == ["false", "true"] + ["false"] * 7, bar
+    # both cubes in view at 2 km cells: each answered, the total in view the sum of their histograms' (the cells
+    # reaching the view: the cells' answers are of a padded box, at least as much)
+    both = r["both"]
+    assert sorted(c[0] for c in both["cells"]) == ["slovakia", "testland"] and {c[1] for c in both["cells"]} == {2}, both
+    assert sorted(c[0] for c in both["hists"]) == ["slovakia", "testland"] and all(c[1] > 0 for c in both["hists"]), both
+    assert both["total"] == sum(c[1] for c in both["hists"]) <= sum(c[2] for c in both["cells"]), both
+    assert both["bars"] == both["expected"] and "level=2" in both["hash"], both
+    # zoomed out: the outlines of both, painted, and the count of the countries
+    o = r["outline"]
+    assert o["ids"] == ["slovakia", "testland"] and o["painted"] > 100 and "2 countries in view" in o["text"], o
     assert r["csp"] == [], r
