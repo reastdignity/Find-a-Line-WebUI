@@ -1425,6 +1425,56 @@ the wall of a run from its start to its end, the CPU of its tiles, the memory of
 Not taken: skipping empty tiles by the relief at 30 m (it changes the counts: cliffs of 1 m are not
 seen at 30 m), splitting the heaviest cores (A1 should do).
 
+### Done, stage 1 (2026-11-04, branch `country-perf-1`: the counts byte for byte)
+
+- **A1, the threads of the heavy tiles** (`country._threads`, `_heavy_weight`): a tile whose weight
+  reaches `HEAVY_SHARE` (5 %) of the run's largest takes its share of the logical cores left after
+  `LIGHT_CORES` (2) per light tile running; a light tile keeps at most `LIGHT_THREADS` (3) while a
+  heavy one runs; without weights (the first band of a country) the rule of before, `cores // busy`.
+  The heaviness goes with the claim and into `_Rethreading`'s looks.
+- **B1, the border gaps once** (`sources.filling.fill_from_neighbours`): labelled again only after
+  a neighbour wrote pixels into either grid (`fill_gaps` returns `(path, terrain pixels filled,
+  pixels written)`) or failed midway, not after every attempt; and none for a tile whose grid lies
+  inside the country's outline (`country._at_border` → `Plan.border` False: no neighbour has data
+  there). The app's searches keep every value: a neighbour that filled nothing left the grids as
+  they were, and `Plan.border` stays True outside the country layer.
+- **A2**: nothing to code; `country run <id>` without `--bands` counts every band in one manifest,
+  so the weights of every band order one queue and the run has one tail.
+- **C2**: not reproduced. The M2 run of 2026-11-04 sampled the workers' cores (up to 22.7) and
+  private bytes (up to 19.5 GiB) in 399 of its 402 rows with the code as it was; the zeros of
+  2026-11-03 stay unexplained (the same sampler, `_RunSamples`, finds the interpreter under the
+  venv's launcher in `tests/test_country.py` too).
+
+Measured: Slovakia's M2 band counted again on a copy of `countries/slovakia` (its M2 tiles pending,
+the weights from the other bands' tiles), the real cache and mirror, this PC, under the exclusive
+lock; the base is the run of 2026-11-03 (7 workers; this run got 8, since other programs held less
+memory: `worker_count`), and the new run has F8c (bcefaf8) as well. All 575 tiles' counts are
+identical to the base's.
+
+| | Base (2026-11-03) | Stage 1 (2026-11-04) |
+| --- | ---: | ---: |
+| Wall of the run | 46.8 min | 35.0 min (−25 %) |
+| Workers | 7 | 8 |
+| Tile seconds | 4.14 h | 3.38 h (−18 %) |
+| CPU seconds of the tiles | 11.85 h | 11.25 h |
+| Machine CPU, mean | 75 % | 92 % |
+| Workers busy | 76 % | 73 % (fewer than 8 running from +24 min of 35) |
+| The heaviest tile, E-350000_N-1190000 (474 M lines) | 2804 s at 3 threads (12-24 in the tail) | 2097 s at 24 threads from the claim (F8c as well) |
+| E-340000_N-1190000 (318 M lines) | 2418 s | 1736 s |
+| Anchor pairs, all tiles | 1.86 h | 1.41 h |
+| "other" | 0.36 h | 0.20 h |
+| Border gaps, the second and third neighbour | 0.08 + 0.08 h | 0.00 + 0.00 h (the first 0.07 → 0.07: the border tiles) |
+| An empty tile | 13.6 s | 11.5 s |
+| Median tile | 13.8 s | 11.9 s |
+
+The run is its heaviest tile again: 2097 s = 35 min, while the other 574 tiles were done at +24
+min (8 workers) — A1 moved that tile from 47 to 35 min together with F8c, and the rest of the band
+no longer waits for it from +33 but from +24. What is left of the tail is the pair search of one
+tile on the whole machine (its 2.1 billion pairs): splitting such a core (A4) or the count mode's
+parts over two processes would be the next step for it, not taken in this round. The CPU of the
+machine is at 92 % now, so stage 2's extra workers (C1) pay only where the memory, not the cores,
+set `worker_count` (this PC with other programs open; the 5650G).
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,
