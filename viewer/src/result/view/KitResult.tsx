@@ -1,13 +1,15 @@
 // ?ui=kit-result&run=<id>: the results UI (result/view) on its own, to develop and test its pieces
-// without the shells: a full-screen map with the run (loadRun, ResultMap), a panel on the right
-// (summary, filters, the list with the selected line's details under its row, as B3), the profile
-// docked at the bottom and the run's actions on top; below 768 px the panel is a sheet (as B5).
-// #line=<lat1,lon1,lat2,lon2> (or #run=…&line=…) opens that line. ?theme=light|dark picks a theme.
+// without the shells: the run's map (loadRun, ResultMap) beside a panel on the left (summary, filters, the
+// list with the selected line's details under its row, as B3) whose edge is dragged (Splitter; ‹ collapses
+// it to a rail), the profile as a card over the bottom of the map (ProfileCard: its top and side edges
+// dragged, folded) and the run's actions on top; the layout kept as C's (layout.ts). Below 768 px the
+// panel is a sheet (as B5) with the profile inside. #line=<lat1,lon1,lat2,lon2> (or #run=…&line=…) opens
+// that line. ?theme=light|dark picks a theme.
 
 import L from "leaflet";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { DESKTOP, Screen, Sheet, useMedia, type Snap, type Theme } from "../../ui/components";
-import { Logo } from "../../ui/icons";
+import { DESKTOP, Screen, Sheet, Splitter, useMedia, type Snap, type Theme } from "../../ui/components";
+import { Icon, Logo } from "../../ui/icons";
 import { storedTheme, uiHref } from "../../ui/choice";
 import { api, type RunListed } from "../../app/api";
 import { baseLayers } from "../../baselayers";
@@ -15,17 +17,38 @@ import type { Line, RunData } from "../../types";
 import { loadRun, orthoForApp } from "../load";
 import { ResultModel } from "../model";
 import { ResultMap, type Padding } from "../ResultMap";
-import { useCornersAboveSheet } from "./corners";
+import { useCornersAboveCard, useCornersAboveSheet } from "./corners";
 import { FilterBar } from "./FilterBar";
 import { LineDetails } from "./LineDetails";
 import { LinesTable } from "./LinesTable";
 import { ProfileDock } from "./ProfileDock";
+import { ProfileCard } from "./ProfileCard";
+import { DEFAULT_LAYOUT, LIMITS, type Layout } from "./layout";
+import { useLayout } from "./useLayout";
 import { ResultSummary } from "./ResultSummary";
 import { RunActions } from "./RunActions";
 import { useModel } from "./common";
 import { day, when } from "../../time";
 
-const PANEL = 384 + 16;  // the panel's width and its margin (result.css .r-panel)
+/** The panel's greatest width in a window `width` px wide (the map keeps LIMITS.map). */
+const panelMax = (width: number) => Math.min(LIMITS.list[1], width - LIMITS.map);
+
+/** The panel's width in a window `width` px wide; 0: no room for it (collapsed by the window). */
+function panelWidth(layout: Layout, width: number): number {
+  const most = panelMax(width);
+  return most < LIMITS.list[0] ? 0 : Math.max(LIMITS.list[0], Math.min(most, layout.list.w));
+}
+
+/** The window's width, followed. */
+function useWidth(): number {
+  const [width, setWidth] = useState(innerWidth);
+  useEffect(() => {
+    const changed = () => setWidth(innerWidth);
+    addEventListener("resize", changed);
+    return () => removeEventListener("resize", changed);
+  }, []);
+  return width;
+}
 
 /** The `line` of a link: "#line=…" or "#run=…&line=…". */
 function linkedLine(hash: string): string | null {
@@ -55,14 +78,22 @@ function Result({data}: {data: RunData}) {
   const model = useMemo(() => new ResultModel(data), [data]);
   useModel(model);
   const mapRef = useRef<HTMLDivElement>(null);
+  const kitRef = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<ResultMap | null>(null);
   const [measured, setMeasured] = useState<Line | null>(null);
   const [snap, setSnap] = useState<Snap>("half");
   const wideRef = useRef(wide);
   wideRef.current = wide;
 
-  const padding = (): Padding => wideRef.current ? {top: 16, right: PANEL + 16, bottom: 16, left: 16}
-    : {top: 60, right: 0, bottom: Math.round(innerHeight * 0.5), left: 0};
+  const {layout, latest, change: changeLayout, commit} = useLayout();
+  const width = useWidth();
+
+  /** The parts of the map the top pill and the profile card cover. */
+  const padding = (): Padding => {
+    if (!wideRef.current) return {top: 60, right: 0, bottom: Math.round(innerHeight * 0.5), left: 0};
+    const card = kitRef.current?.querySelector<HTMLElement>(".r-card")?.offsetHeight ?? 0;
+    return {top: 64, right: 16, bottom: card ? card + 24 : 16, left: 16};
+  };
 
   useEffect(() => {
     const map = L.map(mapRef.current!, {center: data.center, zoom: 15, maxZoom: data.max_zoom});
@@ -112,8 +143,8 @@ function Result({data}: {data: RunData}) {
   const zoom = (l: Line) => view?.zoomTo(l, padding());
   const measuredNow = (l: Line | null) => { setMeasured(l); if (l && !wide) setSnap("half"); };
   const closeMeasured = () => { setMeasured(null); view?.clearMeasure(); };
-  const kitRef = useRef<HTMLDivElement>(null);
   useCornersAboveSheet(kitRef, mapRef, !wide);  // the attribution and the scale above the sheet
+  useCornersAboveCard(mapRef, kitRef, wide);  // ... and above the profile card where it covers them
   const details = <LineDetails model={model} onZoom={zoom} onStep={reveal} />;
   const title = <div class="r-pill">
     <a class="u-ib u-plain u-round" href={uiHref("kit-result")} aria-label="All runs" title="All runs">‹</a>
@@ -121,16 +152,33 @@ function Result({data}: {data: RunData}) {
     <span class="u-small">{day(data.run.created)}</span>
   </div>;
 
+  const panel = panelWidth(layout, width), open = layout.list.open && panel > 0;
+  const toggle = (on: boolean) => changeLayout({...latest.current, list: {...latest.current.list, open: on}}, true);
+  const list = (part: Partial<Layout["list"]>): Layout => ({...latest.current, list: {...latest.current.list, ...part}});
+  const columns = wide && (open ? <aside class="r-panel" aria-label="Results" style={{width: `${panel}px`}}>
+    <div class="r-panel-head"><ResultSummary model={model} /><FilterBar model={model} /></div>
+    <div class="r-panel-body"><LinesTable model={model} view={view} details={details} onSelect={reveal} /></div>
+    <Splitter orientation="vertical" class="r-kit-split" label="Width of the list" grow={1}
+              value={panel} min={LIMITS.list[0]} max={Math.max(LIMITS.list[0], panelMax(width))}
+              onChange={(w) => changeLayout(list({w}), false)} onCommit={commit}
+              onReset={() => changeLayout(list({w: DEFAULT_LAYOUT.list.w}), true)} onToggle={() => toggle(false)} />
+    {/* beside the edge, not in it: a separator's children are presentational */}
+    <button type="button" class="u-split-tab r-kit-tab" aria-label="Collapse the list" title="Collapse the list"
+            onClick={() => toggle(false)}><Icon name="back" /></button>
+  </aside> : <button type="button" class="r-kit-rail" aria-label="Expand the list" disabled={panel === 0}
+                     onClick={() => toggle(true)}>
+    <Icon name="list" /><span>Lines · {model.shown.lines}</span>
+  </button>);
+
   return <div class="r-kit-main">
+    {columns}
     <div class="r-kit-map" ref={kitRef}>
       <div class="r-kit-leaflet" ref={mapRef} />
       <div class="r-kit-top">{title}
         {!wide && <RunActions model={model} view={view} onMeasured={measuredNow} compact />}</div>
       {wide && <div class="r-kit-actions"><RunActions model={model} view={view} onMeasured={measuredNow} /></div>}
-      {wide ? <aside class="u-panel r-panel" aria-label="Results">
-        <div class="r-panel-head"><ResultSummary model={model} /><FilterBar model={model} /></div>
-        <div class="r-panel-body"><LinesTable model={model} view={view} details={details} onSelect={reveal} /></div>
-      </aside> : <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132}
+      {wide ? <ProfileCard model={model} view={view} measured={measured} onCloseMeasured={closeMeasured}
+                           layout={layout} onLayout={changeLayout} /> : <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132}
                         header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
                           : <ResultSummary model={model} legend={false} />}>
         {model.selected && <LineDetails model={model} part="body" onZoom={zoom} />}
@@ -140,7 +188,6 @@ function Result({data}: {data: RunData}) {
         <LinesTable model={model} view={view} onSelect={reveal} follow={false} />
       </Sheet>}
     </div>
-    {wide && <ProfileDock model={model} view={view} measured={measured} onCloseMeasured={closeMeasured} />}
   </div>;
 }
 

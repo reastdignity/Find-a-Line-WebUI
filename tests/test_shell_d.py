@@ -101,6 +101,9 @@ run({
       result.selected = [text(".b-results .r-eyebrow"), text(".b-dock .fal-profile-title"),
                          decodeURIComponent(location.hash) === `#run=${SMALL}&line=${m.lineLink(m.selected.line)}`,
                          near(dock.bottom, innerHeight - 12)];
+      const shown = (s) => !!$(s) && getComputedStyle($(s)).display !== "none";
+      result.fullHead = [shown(".b-dock .fal-profile-head"), shown(".b-dock .fal-profile-legend"), shown(".b-dock .fal-scale"),
+                         !$(".b-dock .r-facts")];
       button("Next spot").click();
       later(() => {
         result.stepped = [text(".b-results .r-eyebrow"), m.position,
@@ -219,7 +222,9 @@ run({
     });
   },
   link(next) {
-    location.href = COPIED[0];
+    // the copied link has no ?ui=, so it would load the page again (and this script with it): its hash only
+    result.copiedPage = COPIED[0].split("#")[0] === location.origin + location.pathname;
+    location.hash = COPIED[0].slice(COPIED[0].indexOf("#"));
     wait(() => $(".b-results .r-dtitle") && model() && model().selected, () => {
       result.linked = [model().lineLink(model().selected.line), !!$(".u-app-d")];
       next();
@@ -319,8 +324,8 @@ def test_shell_d_desktop(data, tmp_path):
     with the new card, which runs and turns done; its card opens B's result on a full-screen map: the panel on
     the right, the profile docked at the bottom left of it, "‹ Home", Edit & run again and the run's actions,
     sorted by clearance, the map's controls dark in the dark theme (focused and disabled too); a row selects its line (details under the row, the profile in the dock, the hash),
-    ‹ › and a filter chip; Copy link gives D's address; Home returns; Back and Forward; the copied link opens
-    the line; no CSP violations."""
+    ‹ › and a filter chip; Copy link gives the address without ?ui=; Home returns; Back and Forward; the copied
+    link opens the line (in D, the interface remembered); no CSP violations."""
     page = stub_page(data, "dtest", DESKTOP_SCRIPT % {"big": BIG, "small": SMALL})
     with _server(data) as port:
         r = _edge(port, page + "?ui=d", tmp_path / "edge")
@@ -345,10 +350,11 @@ def test_shell_d_desktop(data, tmp_path):
     assert dark["focused"] not in (dark["panel"], "rgb(244, 244, 244)"), r
     assert r["selected"][0].startswith("Spot 1 of ") and r["selected"][1].startswith("Profile"), r
     assert r["selected"][2] and r["selected"][3], r
+    assert r["fullHead"] == [True, True, True, True], r  # D's dock: the profile's full head, not the card's compact one
     assert r["stepped"][0].startswith("Spot 2 of ") and r["stepped"][1] == 1 and r["stepped"][2], r
     before, after, chips = r["filtered"]
     assert after < before and any(c.startswith("Clearance ≥") for c in chips) and r["cleared"] == before, r
-    assert "?ui=d#run=" in r["copied"], r
+    assert "ui=" not in r["copied"] and r["copiedPage"], r  # the reader's interface opens it
     assert r["copied"].endswith(f"#run={SMALL}&line=" + urllib.parse.quote(r["line"], safe="")), r
     assert r["home2"] == "#home", r
     assert r["back"] == [f"#run={SMALL}&line={r['line']}", r["line"]], r

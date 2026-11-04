@@ -7,7 +7,7 @@ until the work on the idea ends. Code references of the research point to that c
 
 **Status (2026-11-02): built** on branch `line-3d-view`, not yet in `main` (B with C, as decided below; the
 contract of its waves and every later decision: [3d-view-contract.md](3d-view-contract.md)). The line's details
-in the app (interface D) have a "3D view" button opening `/view3d`: the run's own elevation model around the line
+in the app (interfaces C and D) have a "3D view" button opening `/view3d`: the run's own elevation model around the line
 (`/api/patch`, a patch of at least 1.5 km), its imagery (the run's orthophoto composed as the 2D map's cache
 composes it, Esri's satellite imagery with a key, the terrain shaded, or "Edges": paper with silhouettes, creases
 and the mesh's feature edges), the webbing sagging under a walker (a slider, dragging and a walk at ×1/×4), the

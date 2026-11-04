@@ -120,6 +120,12 @@ PAGES = {
     "b-osm": ("b", "#osm", None),
     "c-home": ("c", "", None),
     "c-result": ("c", "#run={run}", None),
+    "c-line": ("c", "#run={run}&line={line}", None),  # a line selected: its details, the profile's card over the map
+    "c-result-intro": ("c", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
+    "c-result-more": ("c", "#run={run}", [".r-filters .u-chip.u-add", "js:" + ANCHORS_SHOWN]),  # More filters: Anchors
+    "c-result-rails": ("c", "#run={run}&line={line}", None),  # both panels collapsed to rails (LAYOUTS)
+    "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
+    "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
     "c-layer": ("c", "#layer", None),
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
@@ -161,6 +167,15 @@ PAGES = {
                                           "wait:document.getElementById('view3d')?.dataset.view === 'behind'"]),
     "view3d-motion": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]", ".v3-motion", MOTION_TURN,
                                           "wait:document.getElementById('view3d')?.dataset.motion === 'on'"]),
+}
+
+# The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
+# page starts from none (the defaults)
+LAYOUTS = {
+    "c-result-rails": {"v": 1, "list": {"w": 340, "open": False}, "details": {"w": 380, "open": False},
+                       "profile": {"h": 260, "folded": False, "l": 12, "r": 12}},
+    "c-result-card": {"v": 1, "list": {"w": 340, "open": True}, "details": {"w": 380, "open": True},
+                      "profile": {"h": 300, "folded": False, "l": 200, "r": 12}},
 }
 
 # The "low:" step: the last matching element is scrolled to just above the bottom of the visible part of
@@ -356,6 +371,10 @@ def main():
                                                   "domain": "localhost", "path": "/", "secure": True,
                                                   "httpOnly": True, "sameSite": "Lax"}])
                         page = context.new_page()  # a fresh page each: no menu or route of the one before
+                        kept = LAYOUTS.get(name)
+                        page.add_init_script("try { " + (
+                            f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
+                            else "localStorage.removeItem('findaline.layout'); ") + "} catch (e) {}")
                         start = {"map": f"/runs/{run}/map.html", "shared": f"/s/{share}/map.html"}.get(
                             ui, ui if ui.startswith("/") else f"/?ui={ui}")
                         page.goto(f"{site}{start}{hash_.format(run=run, line=line)}")

@@ -342,3 +342,77 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
     <div class="u-sheet-body" inert={current === "peek" && !drag ? true : undefined}>{children}</div>
   </section>;
 }
+
+// ---- splitter --------------------------------------------------------------------------------
+
+/** The edge between two parts of a page that can be dragged (WAI-ARIA's "window splitter"): a focusable
+ *  separator with its value, minimum and maximum in pixels. `vertical`: a column's edge (moved left and
+ *  right), `horizontal`: a row's (moved up and down); `grow` +1 when moving the pointer right or down
+ *  increases the value. Dragging (pointer events with capture, so touch too) and the keys (arrows ±16 px,
+ *  Shift ±64, Home and End to the minimum and maximum) call `onChange` with the value clamped to
+ *  [min, max], `onCommit` when a drag ends or a key was handled (the caller keeps the value then);
+ *  `onStart` when a pointer goes down on it, `onReset` on a double click, `onToggle` on Enter (collapse or
+ *  expand). Its place and size are the caller's (a class); `children` take their own pointer and keys: a
+ *  press on them starts no drag. A separator's children are presentational to assistive technology, so a
+ *  control such as a collapse tab goes beside it (a sibling), not inside. As Sheet: no CSS scaling, so the
+ *  pointer's clientX/clientY deltas are pixels of the value. */
+export function Splitter({orientation, label, value, min, max, grow, onChange, onCommit, onStart, onReset, onToggle,
+                          class: cls, children}:
+                         {orientation: "vertical" | "horizontal"; label: string; value: number; min: number; max: number;
+                          grow: 1 | -1; onChange(value: number): void; onCommit?(): void; onStart?(): void;
+                          onReset?(): void; onToggle?(): void; class?: string; children?: ComponentChildren}) {
+  const drag = useRef<{start: number; from: number; moved: boolean} | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const vertical = orientation === "vertical";
+  const clamped = (v: number) => Math.round(Math.max(min, Math.min(max, v)));
+  /** A press or a key on one of the children (not on the edge itself). */
+  const fromChild = (e: Event) => e.target !== e.currentTarget &&
+    !!(e.target as Element).closest?.("button, a, input, select, textarea");
+
+  const down = (e: PointerEvent) => {
+    if (e.button !== 0 || fromChild(e)) return;
+    e.preventDefault();  // no text selection while dragging
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* not an active pointer */ }
+    drag.current = {start: vertical ? e.clientX : e.clientY, from: value, moved: false};
+    setDragging(true);
+    onStart?.();
+  };
+  const move = (e: PointerEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    const by = (vertical ? e.clientX : e.clientY) - d.start;
+    if (!d.moved && by === 0) return;
+    d.moved = true;
+    onChange(clamped(d.from + by * grow));
+  };
+  const up = () => {
+    const d = drag.current;
+    if (!d) return;
+    drag.current = null;
+    setDragging(false);
+    if (d.moved) onCommit?.();
+  };
+  const key = (e: KeyboardEvent) => {
+    if (fromChild(e)) return;
+    const step = e.shiftKey ? 64 : 16;
+    const more = vertical ? "ArrowRight" : "ArrowDown", less = vertical ? "ArrowLeft" : "ArrowUp";
+    let next: number | null = null;
+    if (e.key === more) next = value + step * grow;
+    else if (e.key === less) next = value - step * grow;
+    else if (e.key === "Home") next = min;
+    else if (e.key === "End") next = max;
+    else if (e.key === "Enter" && onToggle) { e.preventDefault(); onToggle(); return; }
+    if (next === null) return;
+    e.preventDefault();
+    onChange(clamped(next));
+    onCommit?.();
+  };
+  return <div class={cx("u-split", vertical ? "u-split-v" : "u-split-h", dragging && "u-dragging", cls)}
+              role="separator" tabIndex={0} aria-label={label} aria-orientation={orientation}
+              aria-valuenow={Math.round(value)} aria-valuemin={Math.round(min)} aria-valuemax={Math.round(max)}
+              onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={up}
+              onLostPointerCapture={up} onKeyDown={key}
+              onDblClick={(e) => { if (!fromChild(e)) onReset?.(); }}>
+    {children}
+  </div>;
+}

@@ -1366,7 +1366,7 @@ window.FINDALINE_RUN.ortho = {name: "Ortho test", url: null, layer: "", cache: n
   base: {url: "https://example.invalid/{z}/{x}/{y}.jpg", max_zoom: 18}};
 """
 
-# The steps of a test of a run's map.html (the result view of the app, result/view/RunOnMap): each step
+# The steps of a test of a run's map.html (the result view of the app, result/view/ResultColumns): each step
 # runs when its page shows what it waits for; the result (or where it stopped) goes into <pre id="result">
 MAP_HELPERS = """
 const out = document.createElement("pre");
@@ -1380,7 +1380,7 @@ window.addEventListener("unhandledrejection", (e) => { result.error = String(e.r
 const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
 const text = (s) => ($(s) || {}).textContent || "";
 const button = (label) => $$("button").find((b) => b.textContent.trim() === label || b.getAttribute("aria-label") === label);
-const rows = () => $$(".b-results .r-rows > .r-spot > .r-row");
+const rows = () => $$(".c-col-list .r-rows > .r-spot > .r-row");
 const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
 const later = (then, ms = 300) => setTimeout(then, ms);
 const wait = (ok, then, tries = 150) => ok() ? then() : tries ? setTimeout(() => wait(ok, then, tries - 1), 200)
@@ -1390,6 +1390,7 @@ const run = (steps) => {
   const go = (k) => { if (k >= names.length) { step = "end"; return show(); } step = names[k]; show(); steps[step](() => go(k + 1)); };
   go(0);
 };
+const backs = () => $$(".c-back").map((b) => b.getAttribute("aria-label") || b.textContent.trim());
 const credits = () => {
   const control = $(".leaflet-control-attribution");
   return {text: control.textContent, links: $$(".leaflet-control-attribution a").map((a) => a.getAttribute("href")),
@@ -1405,7 +1406,7 @@ const until = (count, then, tries = 30) => saved().then((body) => body.lines.len
 run({
   linked(next) { wait(() => model() && $(".r-note"), () => {
     // the map was opened with #line= of a line hidden by the filters: the note clears them and opens it
-    result.back = $$(".b-pill .b-back").map((b) => b.getAttribute("aria-label"));
+    result.back = backs();
     result.credits = credits();
     result.creditsFolded = {button: getComputedStyle($(".u-credits-toggle")).display,
                             credits: getComputedStyle($(".u-credits")).display};
@@ -1433,16 +1434,30 @@ run({
   select(next) {
     // the linked line is selected: until the page is drawn again, the details are still its own
     rows()[0].click();
-    wait(() => rows()[0].getAttribute("aria-selected") === "true" && $(".b-results .r-spot-sel .r-dtitle")
-                && $(".b-dock .fal-profile-title"), () => {
-      result.profile = text(".b-dock .fal-profile-title");
+    wait(() => rows()[0].getAttribute("aria-selected") === "true" && $(".c-col-details .r-dtitle")
+                && $(".r-card .fal-profile-title"), () => {
+      result.profile = text(".r-card .fal-profile-title");
       result.hash = decodeURIComponent(location.hash) === "#line=" + model().lineLink(model().selected.line);
-      next();
+      // the profile's card over the bottom of the map, 12 px from its edges, the attribution above it (once the
+      // card's new size was observed)
+      const card = () => $(".r-card").getBoundingClientRect();
+      const above = () => $(".leaflet-bottom.leaflet-right").getBoundingClientRect().bottom <= card().top + 1;
+      const settled = (tries) => above() || !tries ? record() : later(() => settled(tries - 1), 200);
+      const record = () => {
+        const col = $(".c-col-map").getBoundingClientRect(), box = card();
+        result.card = {insets: [box.left - col.left, col.right - box.right, col.bottom - box.bottom].map(Math.round),
+                       inDetails: !!$(".c-col-details .r-dock"), attributionAbove: above()};
+        // while the card is shown the data credits fold behind their button, as on a phone
+        result.creditsWithCard = {button: getComputedStyle($(".u-credits-toggle")).display,
+                                  credits: getComputedStyle($(".u-credits")).display};
+        next();
+      };
+      settled(25);
     });
   },
   favourite(next) {
     result.favouritesOn = model().favouritesOn;
-    $(".b-results .r-details .r-fav").click();
+    $(".c-col-details .r-fav").click();
     wait(() => $(".r-pop .r-folder"), () => { $(".r-pop .r-folder").click(); until(1, (body) => {
       result.favourite = body.lines[0] === model().lineLink(model().selected.line);
       next();
@@ -1478,10 +1493,15 @@ run({
     button("Measure").click();
     map.fire("click", {latlng: {lat: l.lat1, lng: l.lon1}});
     map.fire("click", {latlng: {lat: l.lat2, lng: l.lon2}});
-    wait(() => text(".b-dock .fal-profile-title").startsWith("Measured"), () => {
-      result.measured = text(".b-dock .fal-profile-title");
+    wait(() => text(".r-card .fal-profile-title").startsWith("Measured"), () => {
+      result.measured = text(".r-card .fal-profile-title");
+      result.measuredFacts = text(".r-card .r-facts");  // the card's bar: the verdict first
       result.expectedLength = l.len.toFixed(0);
-      next();
+      model().select(null);  // nothing selected while measuring: the details say what to do
+      later(() => {
+        result.measuringHint = [text(".c-col-details .c-pick"), text(".r-card .fal-profile-title").startsWith("Measured")];
+        next();
+      });
     });
   },
 });
@@ -1512,11 +1532,12 @@ def _result_in(dom: str) -> dict:
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_run_map(tmp_path, monkeypatch):
-    """A run's map.html served by the app shows the app's result view: the way back to the app, the credits of
-    its data as text (no markup, http(s) links only, ATTRIBUTION.txt), #line= of a line hidden by the filters
-    named and opened, a row selects its line (profile, hash), a favourite kept by the server, the downloads
+    """A run's map.html served by the app shows the app's result view (C's columns): the way back to the app, the
+    credits of its data as text (no markup, http(s) links only, ATTRIBUTION.txt), #line= of a line hidden by the
+    filters named and opened, a row selects its line (the details' column, the profile in its card over the bottom
+    of the map with the attribution above it and the data credits folded behind their button, the hash), a favourite kept by the server, the downloads
     beside it, another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
-    data credits are not folded; without ESRI_API_KEY no satellite layer."""
+    data credits are not folded while no card is shown; without ESRI_API_KEY no satellite layer."""
     monkeypatch.delenv("ESRI_API_KEY", raising=False)
     monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
     run_id = _clip_run(tmp_path, monkeypatch)
@@ -1545,11 +1566,16 @@ def test_run_map(tmp_path, monkeypatch):
     assert r["note"].startswith("The line of the link is hidden by the filters"), r
     assert r["linked"] == line and r["hashKept"] == "#line=" + line, r
     assert r["profile"].startswith("Profile: ") and r["hash"], r
+    assert r["card"] == {"insets": [12, 12, 12], "inDetails": False, "attributionAbove": True}, r
+    assert r["creditsWithCard"]["button"] != "none" and r["creditsWithCard"]["credits"] == "none", r
     assert r["favouritesOn"] and r["favourite"], r
     assert sorted(r["downloads"]) == ["lines.csv 200", "lines.geojson 200"], r
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], r
     assert r["otherLines"] > 0 and r["xss"] is None and r["imgs"] == 0, r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
+    import re
+    assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", r["measuredFacts"]), r
+    assert r["measuringHint"] == ["Select a line on the map or in the list.", True], r
     assert _violations(dom) == []
     index = (tmp_path / "runs" / "index.html").read_text(encoding="utf-8")
     assert "<style" not in index and "_viewer/index.css" in index and XSS_NAME not in index
@@ -1632,9 +1658,9 @@ def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
 # A map opened from disk: no server, so no profiles, measuring or favourites; the other runs from ../runs.js
 DISK_SCRIPT = MAP_HELPERS + """
 run({
-  loaded(next) { wait(() => rows().length && model(), () => {
+  loaded(next) { wait(() => rows().length && model() && $(".u-credits"), () => {  // the credits come with the map
     result.spots = model().shown.spots;
-    result.back = $$(".b-pill .b-back").map((b) => b.getAttribute("aria-label"));
+    result.back = backs();
     result.measure = !!button("Measure");
     result.favouritesOn = model().favouritesOn;
     result.canCompute = model().canCompute;
@@ -1643,8 +1669,8 @@ run({
   }); },
   select(next) {
     rows()[0].click();
-    wait(() => $(".b-results .r-dtitle"), () => {
-      result.profile = text(".b-dock .fal-profile-title");
+    wait(() => $(".c-col-details .r-dtitle") && $(".r-card .fal-profile-title"), () => {
+      result.profile = text(".r-card .fal-profile-title");
       result.hash = decodeURIComponent(location.hash) === "#line=" + model().lineLink(model().selected.line);
       next();
     });
@@ -1753,28 +1779,43 @@ UI_SCRIPT = """
     const found = ["fa-tabs", "fa-try", "u-gallery", "u-app-b", "u-app-c", "u-app-d", "u-rail", "u-bnav", "u-sheet"]
       .filter((name) => document.querySelector("." + name));
     const sheet = document.querySelector(".u-sheet");
-    const kept = localStorage.getItem("findaline-ui");
+    const kept = localStorage.getItem("findaline-ui"), marked = localStorage.getItem("findaline-ui-c-default");
     let snaps = "";
     if (sheet) {
       const before = sheet.className;
       sheet.querySelector(".u-sheet-handle").click();  // a keyboard-like click moves it one state
       snaps = before + " -> ";
-      setTimeout(() => { out.textContent = JSON.stringify({found, kept, snaps: snaps + sheet.className}); }, 300);
-    } else out.textContent = JSON.stringify({found, kept, snaps});
+      setTimeout(() => { out.textContent = JSON.stringify({found, kept, marked, snaps: snaps + sheet.className}); }, 300);
+    } else out.textContent = JSON.stringify({found, kept, marked, snaps});
   }, 2000);
+})();
+"""
+
+
+# Before the app (the interface switch): what a browser remembered, by the page's ?seed= (each page has its own
+# profile, so nothing is left from another): "old-d" a "d" from before C was the default, "kept-d" a "d" chosen
+# since, "old-b" a "b" from before
+SEED_STUB = """
+(function () {
+  const seed = new URLSearchParams(location.search).get("seed");
+  if (!seed) return;
+  localStorage.setItem("findaline-ui", seed.slice(-1));
+  if (seed.startsWith("kept-")) localStorage.setItem("findaline-ui-c-default", "1");
 })();
 """
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_interface_switch(tmp_path):
-    """?ui= picks the interface: D without it (and for the old app, which is gone), the gallery of the new components (kit) and the
-    prototypes B and C, each without CSP violations; the choice is remembered (localStorage)."""
+    """?ui= picks the interface: C without it (and for the old app, which is gone), the gallery of the new components (kit) and the
+    prototypes B and D, each without CSP violations; the choice is remembered (localStorage). A "d" remembered from
+    before C was the default is forgotten once (C opens, the marker set), a "b" stays, and a "d" chosen since or an
+    explicit ?ui=d is kept."""
     import html
     import re
     folder = tmp_path / "runs" / "uitest"
     folder.mkdir(parents=True)
-    (folder / "stubs.js").write_text(APP_STUBS, encoding="utf-8")
+    (folder / "stubs.js").write_text(APP_STUBS + SEED_STUB, encoding="utf-8")
     (folder / "test.js").write_text(UI_SCRIPT, encoding="utf-8")
     app = web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False)
     with TestClient(app, base_url=LOCAL) as client:
@@ -1784,26 +1825,37 @@ def test_interface_switch(tmp_path):
         '<script src="stubs.js"></script><script src="/app/app.js"></script><script src="test.js"></script>'),
         encoding="utf-8")
 
+    pages = iter(range(100))
+
     def shown(query):
-        dom = _edge_page(tmp_path, "runs/uitest/index.html" + query)
+        dom = _edge_page(tmp_path, "runs/uitest/index.html" + query, profile=f"edge-{next(pages)}")
         assert _violations(dom) == [], query  # style-src 'self': no inline styles
         return json.loads(html.unescape(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1)))
 
-    assert "u-app-d" in shown("")["found"]  # the default
+    default = shown("")
+    assert "u-app-c" in default["found"] and default["kept"] is None and default["marked"] == "1", default
     old = shown("?ui=old")["found"]  # the old app is gone: the default instead
-    assert "u-app-d" in old and "fa-tabs" not in old, old
+    assert "u-app-c" in old and "fa-tabs" not in old, old
+    forgotten = shown("?seed=old-d")  # D, the default of before, forgotten once
+    assert "u-app-c" in forgotten["found"] and forgotten["kept"] is None and forgotten["marked"] == "1", forgotten
+    chosen = shown("?seed=kept-d")  # a "d" remembered since: D
+    assert "u-app-d" in chosen["found"] and chosen["kept"] == "d", chosen
+    b = shown("?seed=old-b")  # B, chosen before: B
+    assert "u-app-b" in b["found"] and b["kept"] == "b", b
+    asked = shown("?ui=d&seed=old-d")  # an explicit ?ui=d: D, remembered
+    assert "u-app-d" in asked["found"] and asked["kept"] == "d" and asked["marked"] == "1", asked
     kit = shown("?ui=kit")
     assert {"u-gallery", "u-rail", "u-bnav", "u-sheet"} <= set(kit["found"]), kit
     assert "u-half" in kit["snaps"].split(" -> ")[0] and "u-full" in kit["snaps"].split(" -> ")[1], kit
     assert "u-app-b" in shown("?ui=b")["found"]
     assert "u-app-c" in shown("?ui=c")["found"]
-    assert shown("?ui=c")["kept"] == "c"  # every server has its own port: the next page would not see it
+    assert shown("?ui=c")["kept"] == "c"  # every page has its own profile: the next page would not see it
 
 
 
 def test_old_app_is_gone():
     """The old app (its tabs, form and panels, classes fa-*) is not in the bundle any more: B shows C's
-    Admin and OSM pages, and ?ui=old is not a choice (a browser that remembered it gets D)."""
+    Admin and OSM pages, and ?ui=old is not a choice (a browser that remembered it gets C, the default)."""
     root = os.path.join(os.path.dirname(__file__), "..", "viewer")
     with open(os.path.join(root, "dist", "app.js"), encoding="utf-8") as f:
         bundle = f.read()

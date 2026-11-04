@@ -1608,7 +1608,7 @@ SHARE_CHECK = """
   setTimeout(() => {
     out.textContent = JSON.stringify({map: !!window.FINDALINE_MAP, runs: window.FINDALINE_RUNS === undefined,
       app: window.FINDALINE_APP, measure: named("Measure"), compare: named("Compare"), download: named("Download"),
-      back: [...document.querySelectorAll(".b-pill .b-back")].map((b) => b.getAttribute("aria-label")),
+      back: [...document.querySelectorAll(".c-back")].map((b) => b.getAttribute("aria-label") || b.textContent.trim()),
       lines: window.FINDALINE_RESULT ? window.FINDALINE_RESULT.model.shown.lines : 0});
   }, 3000);
 })();

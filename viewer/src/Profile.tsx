@@ -1,7 +1,9 @@
 // Terrain profile of the selected line (ProfileDock, docked at the bottom of the result):
 // terrain, trees/buildings, water, the safety limit of the search, the sag
 // estimator (webbing, envelope, fall zone, athlete under the cursor). The same panel shows
-// two points measured on the map, with their anchors at a height above the ground.
+// two points measured on the map, with their anchors at a height above the ground. Compact (a card that
+// can be made low: ProfileCard): no head row (its title goes to the caller's bar, `onTitle`), the legend
+// and the 1:1 scale with the controls of "Rigging and layers", the readout one line.
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import * as Sag from "./sag";
@@ -21,7 +23,8 @@ const LAYERS: [LayerName, string, string][] = [
   ["athlete", "athlete under cursor", "height:2px;background:" + PROFILE.athlete],
   ["envelope", "sag envelope", "border-top:2px dotted " + PROFILE.envelope + ";height:0"],
   ["fall", "fall zone", "height:8px;background:" + PROFILE.fallFill + ";border:1px solid " + PROFILE.limit]];
-const HEIGHT = 170, M = {l: 58, r: 20, t: 18, b: 24};
+// The chart's height: fixed, or in fill mode its box's (a card the user resizes), at least CHART_MIN
+const HEIGHT = 170, CHART_MIN = 120, M = {l: 58, r: 20, t: 18, b: 24};
 
 function Swatch({style}: {style: string}) {
   return <span class="fal-swatch" style={style}></span>;
@@ -40,12 +43,15 @@ export interface ProfileProps {
   leashFall: number;
   rigging: Rigging;                      // initial values (the run's)
   measured?: boolean;                    // two points measured on the map, not a found line
+  fill?: boolean;                        // the chart takes its box's height (at least 120 px) instead of 170 px
+  compact?: boolean;                     // no head row: the legend and the scale with the controls, one readout line
+  onTitle?(title: string, facts: string): void;  // the title (as the head has it) and its facts after the length
   onClose(): void;
   onHover(at: [number, number] | null): void;   // (lat, lon) under the cursor
 }
 
 export function ProfilePanel(props: ProfileProps) {
-  const {model, measured} = props;
+  const {model, measured, fill, compact} = props;
   const [rigging, setRigging] = useState<Rigging>({...props.rigging});
   const [heights, setHeights] = useState<[number, number]>([0, 0]);  // anchors above the ground (measured)
   const l = useMemo(() => measured ? {...props.line, e1: props.line.e1 + heights[0], e2: props.line.e2 + heights[1]}
@@ -55,11 +61,15 @@ export function ProfilePanel(props: ProfileProps) {
     {webbing: true, athlete: true, envelope: true, fall: true});
   const [equal, setEqual] = useState(false);
   const [width, setWidth] = useState(800);
+  const [boxHeight, setBoxHeight] = useState(HEIGHT);  // the chart's box (fill mode)
   const [hover, setHover] = useState<number | null>(null);  // distance from A1 under the cursor
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const measure = () => setWidth(chartRef.current?.clientWidth || 800);
+    const measure = () => {
+      setWidth(chartRef.current?.clientWidth || 800);
+      setBoxHeight(chartRef.current?.clientHeight || HEIGHT);
+    };
     measure();
     window.addEventListener("resize", measure);
     // A panel of the app can change its width without the window (a sheet, a column)
@@ -75,7 +85,8 @@ export function ProfilePanel(props: ProfileProps) {
   useEffect(() => () => onHoverRef.current(null), []);
 
   const est = useMemo(() => Sag.estimate(l.len, l.e1 - l.e2, rigging), [l, rigging]);
-  const W = width, pw = W - M.l - M.r, ph = HEIGHT - M.t - M.b;
+  const H = fill ? Math.max(CHART_MIN, boxHeight) : HEIGHT;
+  const W = width, pw = W - M.l - M.r, ph = H - M.t - M.b;
   const color = l.over ? COLORS.over : COLORS.clean;
   const chord = (d: number) => l.e1 + (l.e2 - l.e1) * d / l.len;
   const fall = rigging.fall_zone;
@@ -107,7 +118,7 @@ export function ProfilePanel(props: ProfileProps) {
   const Y = (z: number) => M.t + ph / 2 - (z - zmid) * sy;
   const visibleMin = zmid - ph / 2 / sy, visibleMax = zmid + ph / 2 / sy;
   const pt = (d: number, z: number) => X(d).toFixed(1) + "," + Y(z).toFixed(1);
-  const base = (d: number) => X(d).toFixed(1) + "," + (HEIGHT - M.b);
+  const base = (d: number) => X(d).toFixed(1) + "," + (H - M.b);
 
   const grid = [];
   const yStep = niceStep(visibleMax - visibleMin, 4);
@@ -117,7 +128,7 @@ export function ProfilePanel(props: ProfileProps) {
   }
   const xStep = niceStep(l.len, 6);
   for (let d = 0; d <= l.len + 0.01; d += xStep) {
-    grid.push(<text x={X(d)} y={HEIGHT - 6} text-anchor="middle" fill="#777">{d.toFixed(0) + " m"}</text>);
+    grid.push(<text x={X(d)} y={H - 6} text-anchor="middle" fill="#777">{d.toFixed(0) + " m"}</text>);
   }
 
   const ground: string[] = [], top: string[] = [], bottom: string[] = [];
@@ -266,36 +277,49 @@ export function ProfilePanel(props: ProfileProps) {
     if (isFinite(v) && v >= 0) setHeights(k ? [heights[0], v] : [v, heights[1]]);
     else input.value = String(heights[k]);
   };
-  let title = "Profile: " + l.len.toFixed(0) + " m, A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) +
-    " m (Δh " + dh.toFixed(1) + " m), min. clearance " + l.clr.toFixed(1) + " m";
+  // The title: "Profile: <len> m, A1 … → A2 … (Δh …), min. clearance …"; its facts for a bar, the one that
+  // matters first (a narrow bar cuts the end): a measured profile's verdict, the clearance, the anchors, Δh
+  const ends = "A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) + " m", delta = "Δh " + dh.toFixed(1) + " m";
+  let clearance = "min. clearance " + l.clr.toFixed(1) + " m", verdict = "";
   if (measured) {
     const clr = minTerrain ? minTerrain[1] : NaN, clrN = minSurface ? minSurface[1] : null;
-    title = "Measured: " + l.len.toFixed(0) + " m, A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) +
-      " m (Δh " + dh.toFixed(1) + " m), min. clearance " + (isFinite(clr) ? clr.toFixed(1) + " m" : "–") +
-      (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "") +
-      (!isFinite(clr) ? "" : clr < 0 ? " – does not fit" : clrN !== null && clrN < 0 ? " – fits over terrain only"
-        : " – fits");
+    clearance = "min. clearance " + (isFinite(clr) ? clr.toFixed(1) + " m" : "–") +
+      (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "");
+    verdict = !isFinite(clr) ? "" : clr < 0 ? "does not fit" : clrN !== null && clrN < 0 ? "fits over terrain only"
+      : "fits";
   }
+  const title = (measured ? "Measured: " : "Profile: ") + l.len.toFixed(0) + " m, " + ends + " (" + delta + "), " +
+    clearance + (verdict ? " – " + verdict : "");
+  const facts = [verdict, clearance, "A1 " + l.e1.toFixed(1) + " → A2 " + l.e2.toFixed(1) + " m", delta]
+    .filter((f) => f).join(" · ");
+  const onTitle = useRef(props.onTitle);
+  onTitle.current = props.onTitle;
+  useEffect(() => { onTitle.current?.(title, facts); }, [title, facts]);
+  useEffect(() => () => onTitle.current?.("", ""), []);
+  const legend = <span class="fal-profile-legend">
+    <span><Swatch style={"height:8px;background:" + PROFILE.terrainFill + ";border:1px solid " + PROFILE.terrain} /> terrain</span>
+    <span><Swatch style={"height:8px;background:" + PROFILE.treesFill} /> trees/buildings</span>
+    <span><Swatch style={"height:8px;background:" + PROFILE.waterFill} /> water</span>
+    <span><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} /> safety limit
+      ({model === "sag" ? "sag model" : "formula"})</span>
+  </span>;
+  const scale = <button class="fal-scale" onClick={() => setEqual(!equal)}>
+    {equal ? "Auto scale" : "1:1 scale (now vertical ×" + (sy / sx).toFixed(1) + ")"}</button>;
 
-  return <div class="fal-profile" onClick={(e) => e.stopPropagation()}>
-    <div class="fal-profile-head">
+  return <div class={"fal-profile" + (fill ? " fal-fill" : "") + (compact ? " fal-compact" : "")}
+              onClick={(e) => e.stopPropagation()}>
+    {!compact && <div class="fal-profile-head">
       <div>
         <b class="fal-profile-title">{title}</b>
-        <span class="fal-profile-legend">
-          <span><Swatch style={"height:8px;background:" + PROFILE.terrainFill + ";border:1px solid " + PROFILE.terrain} /> terrain</span>
-          <span><Swatch style={"height:8px;background:" + PROFILE.treesFill} /> trees/buildings</span>
-          <span><Swatch style={"height:8px;background:" + PROFILE.waterFill} /> water</span>
-          <span><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} /> safety limit
-            ({model === "sag" ? "sag model" : "formula"})</span>
-        </span>
+        {legend}
       </div>
       <div>
-        <button class="fal-scale" onClick={() => setEqual(!equal)}>
-          {equal ? "Auto scale" : "1:1 scale (now vertical ×" + (sy / sx).toFixed(1) + ")"}</button>{" "}
+        {scale}{" "}
         <button class="fal-close" title="Close" aria-label="Close the profile" onClick={props.onClose}>×</button>
       </div>
-    </div>
+    </div>}
     <div class="fal-profile-controls">
+      {compact && <span class="fal-key">{legend}{scale}</span>}
       {measured && <span class="fal-heights">{(["A1", "A2"] as const).map((name, k) =>
         <label><input type="number" min={0} step={0.5} value={heights[k]}
                       onChange={(e) => setHeight(k as 0 | 1, e.currentTarget)} /> m {name} above ground</label>)}</span>}
@@ -308,7 +332,7 @@ export function ProfilePanel(props: ProfileProps) {
           <Swatch style={style} /> {label}</label>)}</span>
     </div>
     <div class="fal-profile-chart" ref={chartRef}>
-      <svg width={W} height={HEIGHT} font-size="11">
+      <svg width={W} height={H} font-size="11">
         {grid}
         {est && show.fall && <polygon fill={PROFILE.fallFill} stroke="none" points={
           dsamples.map((d) => pt(d, envelopeAt(d))).concat(
@@ -339,7 +363,7 @@ export function ProfilePanel(props: ProfileProps) {
             <text x={X(d) + (anchor === "start" ? 6 : -6)} y={Y(z) - 7} text-anchor={anchor}
                   font-weight="bold">{name + " " + z.toFixed(1) + " m"}</text>
           </g>)}
-        {hover !== null && <line class="fal-cursor" x1={X(hover)} x2={X(hover)} y1={M.t} y2={HEIGHT - M.b}
+        {hover !== null && <line class="fal-cursor" x1={X(hover)} x2={X(hover)} y1={M.t} y2={H - M.b}
                                  stroke="#333" stroke-dasharray="2 2" />}
         <rect class="fal-hover" x={M.l} y={M.t} width={pw} height={ph} fill="transparent" tabIndex={0}
               role="slider" aria-label="Point along the line (← →, Home, End)" aria-valuemin={0}
@@ -349,6 +373,6 @@ export function ProfilePanel(props: ProfileProps) {
               onKeyDown={onKey} onBlur={onLeave} />
       </svg>
     </div>
-    <div class="fal-profile-readout">{readout}</div>
+    <div class="fal-profile-readout" title={compact && readout ? readout : undefined}>{readout}</div>
   </div>;
 }

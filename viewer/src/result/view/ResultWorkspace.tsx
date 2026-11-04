@@ -13,9 +13,8 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RunListed } from "../../app/api";
 import { IconButton, Sheet, type Snap } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import { creditsHtml } from "../../layers";
-import { t } from "../../i18n";
 import { useCornersAboveSheet, useCornersBesidePanel } from "./corners";
+import { useRunCredits } from "./credits";
 import type { Line, RunData } from "../../types";
 import { loadRun } from "../load";
 import { ResultModel } from "../model";
@@ -27,7 +26,7 @@ import { LineDetails } from "./LineDetails";
 import { LinesTable } from "./LinesTable";
 import { ProfileDock } from "./ProfileDock";
 import { ResultSummary } from "./ResultSummary";
-import { RunActions, runFolder, type RunActionsProps } from "./RunActions";
+import { RunActions, type RunActionsProps } from "./RunActions";
 import "./workspace.css";
 import { day } from "../../time";
 
@@ -121,28 +120,8 @@ function Result({map, data, line, nav, wide, back, hashOf, linkOf, view3dOf, run
     return {top: 60, right: PANEL + 12, bottom: dock ? dock + 24 : 12, left: 12};
   };
 
-  // The licences of the run's data, as long as it is shown; on a phone folded behind a button (ui.css), the
-  // state not kept. Leaflet draws the attribution again from its HTML: the button's state is in that HTML,
-  // and a click (caught on the control, which keeps it from the map) adds the other one.
-  const [creditsOpen, setCreditsOpen] = useState(false);
-  const toggled = useRef(false);
-  useEffect(() => {
-    const credits = data.attribution || [], control = map.attributionControl;
-    if (!credits.length || !control) return;
-    const html = creditsHtml(credits, runFolder(data.run.id, base, folder) + "ATTRIBUTION.txt",
-                             {label: t("ui.credits.toggle"), open: creditsOpen});
-    control.addAttribution(html);
-    const box = control.getContainer();
-    if (toggled.current) box?.querySelector<HTMLElement>(".u-credits-toggle")?.focus();  // the new button
-    toggled.current = false;
-    const click = (e: Event) => {
-      if (!(e.target as HTMLElement).closest?.(".u-credits-toggle")) return;
-      toggled.current = true;
-      setCreditsOpen(!creditsOpen);
-    };
-    box?.addEventListener("click", click);
-    return () => { box?.removeEventListener("click", click); control.removeAttribution(html); };
-  }, [data, creditsOpen]);
+  // The licences of the run's data in the map's attribution (credits.ts)
+  useRunCredits(map, data, base, folder);
 
   // The attribution and the scale stay in sight: above the sheet on a phone, beside the panel and above
   // the profile on a desktop
