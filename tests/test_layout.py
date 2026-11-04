@@ -178,7 +178,7 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     map in a box of 1000 × 700 px: the top edge's keys and pointer change the card's height and the chart follows,
     Home/End go to its limits (the chart keeps 120 px), the side edges move one inset each (a double click resets
     it), the corners go above the card only where it covers them, the fold button and Enter, a low box opens it
-    folded (unfolding there is not kept), a narrow box shrinks the insets (not kept), × removes it."""
+    folded (unfolding, resizing and narrowing it there is not kept), a narrow box shrinks the insets (not kept), × removes it."""
     import test_web  # the app on a real server, its CSP stubs
     text, data = clip_data
     run_id = data["run"]["id"]
@@ -211,7 +211,8 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     first = out["initial"]
     assert first["height"] >= 260 and not first["folded"] and first["left"] == 12 and first["width"] == 976, first
     assert first["chart"]["svg"] == first["chart"]["box"] >= 120, first
-    assert (first["min"], first["max"]) == (160, 490), first
+    # its least height is its content's with the chart at 120 px (measured), at least 160
+    assert first["min"] >= 160 and first["max"] == 490, first
     assert out["initialCorners"]["attribution"] not in ("", None), out["initialCorners"]
     # ↑ and Shift+↑: 80 px more, each key kept, the chart grows with it
     keys = out["keys"]
@@ -221,9 +222,9 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     assert out["dragging"]["height"] == keys["height"] + 40 and out["dragging"]["commits"] == 2, out
     assert "u-dragging" in out["dragging"]["cls"], out
     assert out["dragged"]["commits"] == 3 and out["dragged"]["kept"] == keys["height"] + 40, out
-    # Home: the least height (the card's content may need more: the chart keeps 120 px); End: 70 % of the map
+    # Home: the least height, the content's with the chart at 120 px; End: 70 % of the map
     home = out["home"]
-    assert home["kept"] == 160 and home["height"] >= 160 and home["chart"]["box"] >= 120, home
+    assert home["kept"] == home["height"] == home["min"] == first["min"] and home["chart"]["box"] == 120, home
     assert home["chart"]["svg"] == max(120, home["chart"]["box"]), home
     assert out["end"]["height"] == 490 and out["end"]["chart"]["svg"] == out["end"]["chart"]["box"], out["end"]
     # The sides
@@ -243,6 +244,8 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     # A low map: folded though the layout is not; unfolded there without anything kept
     assert out["low"]["folded"] and out["low"]["kept"] is False, out
     assert not out["lowUnfolded"]["folded"] and out["lowUnfolded"]["commits"] == 0, out
+    low = out["lowResized"]
+    assert low["commits"] == 0 and (low["h"], low["l"]) == (low["keptH"], low["keptL"]) and low["left"] == low["keptL"] + 16, low
     assert not out["backHigh"]["folded"], out
     # A narrow map: the card keeps its least width, the kept inset stays
     narrow = out["narrow"]

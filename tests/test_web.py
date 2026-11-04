@@ -1436,18 +1436,21 @@ run({
     // the linked line is selected: until the page is drawn again, the details are still its own
     rows()[0].click();
     wait(() => rows()[0].getAttribute("aria-selected") === "true" && $(".c-col-details .r-dtitle")
-                && $(".c-dock-slot .fal-profile-title"), () => {
-      result.profile = text(".c-dock-slot .fal-profile-title");
+                && $(".r-card .fal-profile-title"), () => {
+      result.profile = text(".r-card .fal-profile-title");
       result.hash = decodeURIComponent(location.hash) === "#line=" + model().lineLink(model().selected.line);
       // the profile's card over the bottom of the map, 12 px from its edges, the attribution above it (once the
       // card's new size was observed)
-      const card = () => $(".c-dock-slot > .r-dock").getBoundingClientRect();
+      const card = () => $(".r-card").getBoundingClientRect();
       const above = () => $(".leaflet-bottom.leaflet-right").getBoundingClientRect().bottom <= card().top + 1;
       const settled = (tries) => above() || !tries ? record() : later(() => settled(tries - 1), 200);
       const record = () => {
         const col = $(".c-col-map").getBoundingClientRect(), box = card();
         result.card = {insets: [box.left - col.left, col.right - box.right, col.bottom - box.bottom].map(Math.round),
                        inDetails: !!$(".c-col-details .r-dock"), attributionAbove: above()};
+        // while the card is shown the data credits fold behind their button, as on a phone
+        result.creditsWithCard = {button: getComputedStyle($(".u-credits-toggle")).display,
+                                  credits: getComputedStyle($(".u-credits")).display};
         next();
       };
       settled(25);
@@ -1491,8 +1494,8 @@ run({
     button("Measure").click();
     map.fire("click", {latlng: {lat: l.lat1, lng: l.lon1}});
     map.fire("click", {latlng: {lat: l.lat2, lng: l.lon2}});
-    wait(() => text(".c-dock-slot .fal-profile-title").startsWith("Measured"), () => {
-      result.measured = text(".c-dock-slot .fal-profile-title");
+    wait(() => text(".r-card .fal-profile-title").startsWith("Measured"), () => {
+      result.measured = text(".r-card .fal-profile-title");
       result.expectedLength = l.len.toFixed(0);
       next();
     });
@@ -1528,9 +1531,9 @@ def test_run_map(tmp_path, monkeypatch):
     """A run's map.html served by the app shows the app's result view (C's columns): the way back to the app, the
     credits of its data as text (no markup, http(s) links only, ATTRIBUTION.txt), #line= of a line hidden by the
     filters named and opened, a row selects its line (the details' column, the profile in its card over the bottom
-    of the map with the attribution above it, the hash), a favourite kept by the server, the downloads
+    of the map with the attribution above it and the data credits folded behind their button, the hash), a favourite kept by the server, the downloads
     beside it, another run (named like an HTML tag) compared, measuring; no CSP violations. On a desktop the
-    data credits are not folded; without ESRI_API_KEY no satellite layer."""
+    data credits are not folded while no card is shown; without ESRI_API_KEY no satellite layer."""
     monkeypatch.delenv("ESRI_API_KEY", raising=False)
     monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
     run_id = _clip_run(tmp_path, monkeypatch)
@@ -1560,6 +1563,7 @@ def test_run_map(tmp_path, monkeypatch):
     assert r["linked"] == line and r["hashKept"] == "#line=" + line, r
     assert r["profile"].startswith("Profile: ") and r["hash"], r
     assert r["card"] == {"insets": [12, 12, 12], "inDetails": False, "attributionAbove": True}, r
+    assert r["creditsWithCard"]["button"] != "none" and r["creditsWithCard"]["credits"] == "none", r
     assert r["favouritesOn"] and r["favourite"], r
     assert sorted(r["downloads"]) == ["lines.csv 200", "lines.geojson 200"], r
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], r
@@ -1647,7 +1651,7 @@ def test_run_map_on_a_phone_with_the_satellite_key(tmp_path, monkeypatch):
 # A map opened from disk: no server, so no profiles, measuring or favourites; the other runs from ../runs.js
 DISK_SCRIPT = MAP_HELPERS + """
 run({
-  loaded(next) { wait(() => rows().length && model(), () => {
+  loaded(next) { wait(() => rows().length && model() && $(".u-credits"), () => {  // the credits come with the map
     result.spots = model().shown.spots;
     result.back = backs();
     result.measure = !!button("Measure");
@@ -1658,8 +1662,8 @@ run({
   }); },
   select(next) {
     rows()[0].click();
-    wait(() => $(".c-col-details .r-dtitle") && $(".c-dock-slot .fal-profile-title"), () => {
-      result.profile = text(".c-dock-slot .fal-profile-title");
+    wait(() => $(".c-col-details .r-dtitle") && $(".r-card .fal-profile-title"), () => {
+      result.profile = text(".r-card .fal-profile-title");
       result.hash = decodeURIComponent(location.hash) === "#line=" + model().lineLink(model().selected.line);
       next();
     });

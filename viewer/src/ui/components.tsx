@@ -352,9 +352,10 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
  *  Shift ±64, Home and End to the minimum and maximum) call `onChange` with the value clamped to
  *  [min, max], `onCommit` when a drag ends or a key was handled (the caller keeps the value then);
  *  `onStart` when a pointer goes down on it, `onReset` on a double click, `onToggle` on Enter (collapse or
- *  expand). Its place and size are the caller's (a class); `children` (e.g. a collapse tab) take their
- *  own pointer and keys: a press on them starts no drag. As Sheet: no CSS scaling, so the pointer's
- *  clientX/clientY deltas are pixels of the value. */
+ *  expand). Its place and size are the caller's (a class); `children` take their own pointer and keys: a
+ *  press on them starts no drag. A separator's children are presentational to assistive technology, so a
+ *  control such as a collapse tab goes beside it (a sibling), not inside. As Sheet: no CSS scaling, so the
+ *  pointer's clientX/clientY deltas are pixels of the value. */
 export function Splitter({orientation, label, value, min, max, grow, onChange, onCommit, onStart, onReset, onToggle,
                           class: cls, children}:
                          {orientation: "vertical" | "horizontal"; label: string; value: number; min: number; max: number;

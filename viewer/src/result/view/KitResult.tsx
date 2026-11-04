@@ -23,7 +23,8 @@ import { LineDetails } from "./LineDetails";
 import { LinesTable } from "./LinesTable";
 import { ProfileDock } from "./ProfileDock";
 import { ProfileCard } from "./ProfileCard";
-import { DEFAULT_LAYOUT, LIMITS, loadLayout, saveLayout, type Layout } from "./layout";
+import { DEFAULT_LAYOUT, LIMITS, type Layout } from "./layout";
+import { useLayout } from "./useLayout";
 import { ResultSummary } from "./ResultSummary";
 import { RunActions } from "./RunActions";
 import { useModel } from "./common";
@@ -84,14 +85,7 @@ function Result({data}: {data: RunData}) {
   const wideRef = useRef(wide);
   wideRef.current = wide;
 
-  const [layout, setLayout] = useState(loadLayout);
-  const latest = useRef(layout);  // the layout of the last change (a key's change and commit come before a render)
-  latest.current = layout;
-  const changeLayout = (next: Layout, commit: boolean) => {
-    latest.current = next;
-    setLayout(next);
-    if (commit) saveLayout(next);
-  };
+  const {layout, latest, change: changeLayout, commit} = useLayout();
   const width = useWidth();
 
   /** The parts of the map the top pill and the profile card cover. */
@@ -166,11 +160,11 @@ function Result({data}: {data: RunData}) {
     <div class="r-panel-body"><LinesTable model={model} view={view} details={details} onSelect={reveal} /></div>
     <Splitter orientation="vertical" class="r-kit-split" label="Width of the list" grow={1}
               value={panel} min={LIMITS.list[0]} max={Math.max(LIMITS.list[0], panelMax(width))}
-              onChange={(w) => changeLayout(list({w}), false)} onCommit={() => changeLayout(latest.current, true)}
-              onReset={() => changeLayout(list({w: DEFAULT_LAYOUT.list.w}), true)} onToggle={() => toggle(false)}>
-      <button type="button" class="u-split-tab" aria-label="Collapse the list" title="Collapse the list"
-              onClick={() => toggle(false)}><Icon name="back" /></button>
-    </Splitter>
+              onChange={(w) => changeLayout(list({w}), false)} onCommit={commit}
+              onReset={() => changeLayout(list({w: DEFAULT_LAYOUT.list.w}), true)} onToggle={() => toggle(false)} />
+    {/* beside the edge, not in it: a separator's children are presentational */}
+    <button type="button" class="u-split-tab r-kit-tab" aria-label="Collapse the list" title="Collapse the list"
+            onClick={() => toggle(false)}><Icon name="back" /></button>
   </aside> : <button type="button" class="r-kit-rail" aria-label="Expand the list" disabled={panel === 0}
                      onClick={() => toggle(true)}>
     <Icon name="list" /><span>Lines · {model.shown.lines}</span>

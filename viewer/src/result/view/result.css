@@ -234,6 +234,7 @@
 .ui.r-kit .r-panel { position: relative; flex: none; min-height: 0; z-index: 1002; display: flex; flex-direction: column;
   background: var(--surface); border-right: 1px solid var(--line); }
 .ui.r-kit .r-kit-split { right: calc(var(--u-split) / -2); }
+.ui.r-kit .r-panel > .r-kit-tab { left: auto; right: -11px; transform: translateY(-50%); z-index: 9; }
 .ui.r-kit .r-kit-rail { flex: none; width: 36px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0;
   border: 0; border-right: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; z-index: 1002; }
 .ui.r-kit .r-kit-rail:hover { background: var(--surface-2); }

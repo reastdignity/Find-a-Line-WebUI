@@ -16,7 +16,8 @@ export const DEFAULT_LAYOUT: Layout = {v: 1, list: {w: 340, open: true}, details
                                        profile: {h: 260, folded: false, l: 12, r: 12}};
 
 /** list, details: the panels' widths; rail: a collapsed panel's width; map: the map's least width beside
- *  the panels; cardMin: the card's least height (its bar and 120 px of chart); cardShare: its greatest
+ *  the panels; cardMin: the card's least height whatever its content (its bar and 120 px of chart; ProfileCard
+ *  measures the real one: the profile's head, legend and readout take more); cardShare: its greatest
  *  height as a share of the map's; low: a map lower than that opens the card folded; cardWidthMin: the
  *  card's least width (or the map's less two insets); inset: the card's default and least inset. */
 export const LIMITS = {list: [260, 560] as [number, number], details: [300, 600] as [number, number], rail: 36,

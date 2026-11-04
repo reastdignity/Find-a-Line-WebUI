@@ -22,6 +22,8 @@ export interface FilterBarProps {
   model: ResultModel;
   /** "More filters" was pressed: the shell shows <MoreFilters> itself; without it they unfold under the chips. */
   onMore?: () => void;
+  /** With `onMore`: the shell shows them now (the chip is marked). */
+  moreOpen?: boolean;
 }
 
 const set = (model: ResultModel, change: Partial<Filters>) => model.setFilters({...model.filters, ...change});
@@ -62,7 +64,7 @@ function MainEditor({model, which}: {model: ResultModel; which: Main}) {
   return null;
 }
 
-export function FilterBar({model, onMore}: FilterBarProps) {
+export function FilterBar({model, onMore, moreOpen}: FilterBarProps) {
   useModel(model);
   const [editing, setEditing] = useState<Main | null>(null);
   const [more, setMore] = useState(false);
@@ -101,7 +103,7 @@ export function FilterBar({model, onMore}: FilterBarProps) {
         {f.heightMin !== null ? `Height ≥ ${num(f.heightMin)} m` : "Height"}</Chip>}
       {model.nOver > 0 && <Chip on={onlyClear} onClick={() => model.setState({...s, showClean: true, showOver: onlyClear})}>
         Only clear</Chip>}
-      <Chip add icon="filter" on={more || extra > 0}
+      <Chip add icon="filter" on={more || moreOpen || extra > 0}
             onClick={() => { if (onMore) onMore(); else setMore(!more); }}>
         More filters{extra > 0 && <span class="u-badge">{extra}</span>}</Chip>
       {anything && <button type="button" class="r-link" onClick={() => {

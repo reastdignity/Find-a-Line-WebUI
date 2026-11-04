@@ -232,9 +232,9 @@ run({
   },
   select(next) {
     $$(".c-col-list .r-rows > .r-spot > .r-row")[0].click();
-    wait(() => $(".c-col-details .r-dtitle") && $(".c-dock-slot .fal-profile-title"), () => {
+    wait(() => $(".c-col-details .r-dtitle") && $(".r-card .fal-profile-title"), () => {
       const model = window.FINDALINE_RESULT.model;
-      result.selected = [text(".c-col-details .r-eyebrow"), text(".c-dock-slot .fal-profile-title"),
+      result.selected = [text(".c-col-details .r-eyebrow"), text(".r-card .fal-profile-title"),
                          decodeURIComponent(location.hash) === `#run=${SMALL}&line=${model.lineLink(model.selected.line)}`];
       button("Next spot").click();
       later(() => {
@@ -498,10 +498,10 @@ run({
   card(next) {
     $$(".c-col-list .r-rows > .r-spot > .r-row")[0].click();
     // once the card's new size was observed, the attribution and the scale above it
-    const above = () => rect(".leaflet-bottom.leaflet-right").bottom <= rect(".c-dock-slot > .r-dock").top + 1;
+    const above = () => rect(".leaflet-bottom.leaflet-right").bottom <= rect(".r-card").top + 1;
     const settled = (then, tries = 25) => above() || !tries ? then() : later(() => settled(then, tries - 1), 200);
-    wait(() => $(".c-dock-slot .fal-profile-title") && $(".c-col-details .r-dtitle"), () => settled(() => {
-      const col = rect(".c-col-map"), card = rect(".c-dock-slot > .r-dock"), m = model();
+    wait(() => $(".r-card .fal-profile-title") && $(".c-col-details .r-dtitle"), () => settled(() => {
+      const col = rect(".c-col-map"), card = rect(".r-card"), m = model();
       result.card = {inDetails: !!$(".c-col-details .r-dock"),
                      insets: [card.left - col.left, col.right - card.right, col.bottom - card.bottom].map(Math.round),
                      attributionAbove: rect(".leaflet-bottom.leaflet-right").bottom <= card.top + 1,
@@ -549,6 +549,321 @@ def test_shell_c_result_from_d(data, tmp_path):
     assert r["crowd"] and r["list"][0] >= 2 and r["list"][1:] == [True, True, True], r
     assert r["chosen"] == [True, True], r
     assert r["csp"] == []
+
+
+# The layout of C's result on a desktop (result/view/ResultColumns, ProfileCard, layout.ts): keys, pointer events and
+# clicks dispatched as a browser sends them, the kept layout read from localStorage
+LAYOUT_JS = MAP_JS + """
+window.addEventListener("unhandledrejection", (e) => { result.error = step + ": " + (e.reason && e.reason.stack || e.reason); done(); });
+const pause = (ms = 300) => new Promise((resolve) => setTimeout(resolve, ms));
+const until = (ok) => new Promise((resolve) => wait(ok, resolve));
+const rect = (s) => $(s).getBoundingClientRect();
+const kept = () => JSON.parse(localStorage.getItem("findaline.layout") || "null");
+const sep = (side) => $(`.c-col-${side} > .c-split`), rail = (side) => $(`.c-col-${side} > .c-rail`);
+const aria = (el) => ["valuenow", "valuemin", "valuemax"].map((a) => Number(el.getAttribute("aria-" + a)));
+const width = (side) => $(`.c-col-${side}`).offsetWidth;
+const key = (el, k, shift = false) => el.dispatchEvent(new KeyboardEvent("keydown", {key: k, shiftKey: shift, bubbles: true, cancelable: true}));
+const pointer = (el, type, x, y) => el.dispatchEvent(new PointerEvent(type, {bubbles: true, cancelable: true, pointerId: 1,
+  pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: x, clientY: y}));
+/** A drag of `el` by dx, dy: the layout kept while the pointer is down, then once released. */
+const drag = async (el, dx, dy) => {
+  const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + Math.min(r.height / 2, 40);
+  pointer(el, "pointerdown", x, y);
+  pointer(el, "pointermove", x + dx / 2, y + dy / 2);
+  pointer(el, "pointermove", x + dx, y + dy);
+  await pause();
+  const during = kept();
+  pointer(el, "pointerup", x + dx, y + dy);
+  await pause();
+  return during;
+};
+const dblclick = (el) => el.dispatchEvent(new MouseEvent("dblclick", {bubbles: true, cancelable: true}));
+const shown = (s) => !!$(s) && getComputedStyle($(s)).display !== "none";
+const credits = () => ({toggle: shown(".u-credits-toggle"), credits: shown(".u-credits")});
+const corners = () => ({attribution: $(".leaflet-bottom.leaflet-right").style.bottom, scale: $(".leaflet-bottom.leaflet-left").style.bottom});
+/** The selected line's anchors in the map's part the card leaves free. */
+const inFree = () => {
+  const l = model().selected.line, size = map().getSize(), card = $(".r-card") ? $(".r-card").offsetHeight + 12 : 0;
+  return [point(l.lat1, l.lon1), point(l.lat2, l.lon2)].every((p) => p.x >= 0 && p.x <= size.x && p.y >= 0 && p.y <= size.y - card);
+};
+"""
+
+LAYOUT_SCRIPT = LAYOUT_JS + """
+const ROWS = () => $$(".c-col-list .r-rows > .r-spot > .r-row");
+const first = sessionStorage.getItem("layout-test");
+run(first ? {
+  // After the reload: the layout kept
+  async reloaded(next) {
+    Object.assign(result, JSON.parse(first));
+    await until(() => model() && map() && $(".r-card") && $(".c-col-list > .c-rail"));
+    await pause(600);
+    const col = rect(".c-col-map"), card = rect(".r-card");
+    result.reloaded = {list: $(".c-col-list").className, details: width("details"), card: Math.round(card.height),
+                       left: Math.round(card.left - col.left), kept: kept()};
+    next();
+  },
+} : {
+  async open(next) {
+    await until(() => model() && map() && ROWS().length && sep("list") && sep("details") && $(".u-credits"));
+    result.start = {cols: $(".c-cols").clientWidth, list: width("list"), details: width("details"), listAria: aria(sep("list")), detailsAria: aria(sep("details")),
+                    kept: kept(), tabInSeparator: !!sep("list").querySelector("button"),
+                    tabs: [$(".c-col-list > .c-col-tab").getAttribute("aria-label"), $(".c-col-details > .c-col-tab").getAttribute("aria-label")],
+                    credits: credits()};
+    next();
+  },
+  async listEdge(next) {
+    key(sep("list"), "ArrowRight");
+    await pause();
+    key(sep("list"), "ArrowRight", true);
+    await pause();
+    result.listKeys = {width: width("list"), aria: aria(sep("list")), kept: kept().list.w};
+    key(sep("list"), "Home");
+    await pause();
+    result.listHome = width("list");
+    key(sep("list"), "End");
+    await pause();
+    result.listEnd = width("list");
+    dblclick(sep("list"));
+    await pause();
+    result.listReset = [width("list"), kept().list.w];
+    const during = await drag(sep("list"), 40, 0);
+    result.listDrag = {width: width("list"), during: during.list.w, kept: kept().list.w};
+    dblclick(sep("list"));
+    await pause();
+    next();
+  },
+  async detailsEdge(next) {
+    key(sep("details"), "ArrowLeft");
+    await pause();
+    result.detailsKey = [width("details"), kept().details.w];
+    const during = await drag(sep("details"), -30, 0);
+    result.detailsDrag = {width: width("details"), during: during.details.w, kept: kept().details.w};
+    dblclick(sep("details"));
+    await pause();
+    result.detailsReset = [width("details"), kept().details.w];
+    next();
+  },
+  async collapse(next) {
+    $(".c-col-list > .c-col-tab").click();  // the tab
+    await pause();
+    result.listRail = {collapsed: $(".c-col-list").className, width: width("list"), focus: document.activeElement === rail("list"),
+                       label: text(".c-col-list > .c-rail .c-rail-text"), auto: !!$(".c-col-list .c-rail-auto"),
+                       kept: kept().list.open, mapWidth: $(".c-col-map").offsetWidth};
+    rail("list").click();  // the rail
+    await pause();
+    result.listOpen = {open: !$(".c-col-list.c-collapsed"), focus: document.activeElement === sep("list"), kept: kept().list.open};
+    key(sep("details"), "Enter");  // Enter on the edge
+    await pause();
+    result.detailsRail = {collapsed: !!$(".c-col-details.c-collapsed"), focus: document.activeElement === rail("details"),
+                          label: text(".c-col-details > .c-rail .c-rail-text"), kept: kept().details.open};
+    next();
+  },
+  async select(next) {
+    // The details collapsed: selecting only changes its rail's label
+    const before = map().getCenter();
+    ROWS()[0].click();
+    await until(() => $(".r-card .fal-profile-title") && $(".r-card .fal-profile-chart"));
+    await pause(1500);
+    result.selected = {label: text(".c-col-details > .c-rail .c-rail-text"), collapsed: !!$(".c-col-details.c-collapsed"),
+                       len: Math.round(model().selected.line.len), free: inFree(), moved: !map().getCenter().equals(before)};
+    rail("details").click();
+    await pause();
+    result.detailsOpen = {open: !$(".c-col-details.c-collapsed"), focus: document.activeElement === sep("details"),
+                          kept: kept().details.open, title: !!$(".c-col-details .r-dtitle")};
+    next();
+  },
+  async card(next) {
+    await pause();
+    const col = rect(".c-col-map"), card = rect(".r-card"), top = $(".r-card .r-card-top");
+    result.card = {insets: [card.left - col.left, col.right - card.right, col.bottom - card.bottom].map(Math.round),
+                   parent: $(".r-card").parentElement.className, height: Math.round(card.height), aria: aria(top),
+                   mapHeight: $(".c-col-map").clientHeight,
+                   attributionAbove: rect(".leaflet-bottom.leaflet-right").bottom <= card.top + 1,
+                   scaleAbove: rect(".leaflet-bottom.leaflet-left").bottom <= card.top + 1, credits: credits()};
+    $(".u-credits-toggle").click();
+    await until(() => $(".u-credits-toggle").getAttribute("aria-expanded") === "true");
+    result.creditsOpen = credits();
+    $(".u-credits-toggle").click();
+    await until(() => $(".u-credits-toggle").getAttribute("aria-expanded") === "false");
+    result.creditsFolded = credits();
+    next();
+  },
+  async cardHeight(next) {
+    const top = () => $(".r-card .r-card-top");
+    key(top(), "Home");
+    await pause();
+    result.cardHome = {height: $(".r-card").offsetHeight, kept: kept().profile.h, aria: aria(top()),
+                       chart: $(".r-card .fal-profile-chart").clientHeight};
+    key(top(), "ArrowUp");
+    await pause();
+    result.cardUp = {height: $(".r-card").offsetHeight, kept: kept().profile.h};
+    const during = await drag(top(), 0, -40);
+    result.cardDrag = {height: $(".r-card").offsetHeight, during: during.profile.h, kept: kept().profile.h};
+    next();
+  },
+  async cardWidth(next) {
+    const left = () => $(".r-card .r-card-l"), mapWidth = $(".c-col-map").clientWidth;
+    key(left(), "ArrowRight");
+    await pause();
+    result.cardKey = {left: Math.round(rect(".r-card").left - rect(".c-col-map").left), kept: [kept().profile.l, kept().profile.r]};
+    key(left(), "Home");  // the narrowest: clear of the scale, still under the attribution
+    await pause();
+    result.cardNarrow = {width: $(".r-card").offsetWidth, left: kept().profile.l, mapWidth, corners: corners()};
+    key(left(), "End");
+    await pause();
+    result.cardWide = {width: $(".r-card").offsetWidth, corners: corners()};
+    next();
+  },
+  async cardFold(next) {
+    $(".r-card .r-fold").click();
+    await pause();
+    result.folded = {folded: $(".r-card").classList.contains("r-card-folded"), kept: kept().profile.folded,
+                     height: $(".r-card").offsetHeight};
+    $(".r-card .r-fold").click();
+    await pause();
+    result.unfolded = [$(".r-card").classList.contains("r-card-folded"), kept().profile.folded];
+    button("Close the profile").click();
+    await pause();
+    result.closed = {card: !!$(".r-card"), again: !!$(".c-col-details .r-reprofile"), credits: credits(), corners: corners()};
+    $(".c-col-details .r-reprofile").click();
+    await until(() => $(".r-card"));
+    result.reopened = {card: !!$(".r-card"), credits: credits()};
+    next();
+  },
+  async keep(next) {
+    // A layout to find again after the reload: the list collapsed, wider details, a taller and narrower card
+    $(".c-col-list > .c-col-tab").click();
+    await pause();
+    key(sep("details"), "ArrowLeft", true);
+    await pause();
+    key($(".r-card .r-card-top"), "ArrowUp", true);
+    await pause();
+    key($(".r-card .r-card-l"), "ArrowRight", true);
+    await pause();
+    result.beforeReload = kept();
+    sessionStorage.setItem("layout-test", JSON.stringify(result));
+    location.reload();
+  },
+});
+"""
+
+NARROW_SCRIPT = LAYOUT_JS + """
+run({
+  async forced(next) {
+    await until(() => model() && map() && $$(".c-col-list .r-rows .r-row").length && rail("details"));
+    result.forced = {details: $(".c-col-details").className, auto: text(".c-col-details .c-rail-auto"),
+                     list: [!$(".c-col-list.c-collapsed"), width("list")], kept: kept()};
+    rail("details").click();  // expanded: the list collapses instead
+    await pause();
+    result.preferred = {details: [!$(".c-col-details.c-collapsed"), width("details")], list: $(".c-col-list").className,
+                        auto: !!$(".c-col-list .c-rail-auto"), focus: document.activeElement === sep("details"), kept: kept()};
+    next();
+  },
+  async low(next) {
+    // A map lower than 420 px: the card opens folded; unfolded, resized and narrowed there for the page only
+    const before = localStorage.getItem("findaline.layout");
+    model().select(model().groups[0]);
+    await until(() => $(".r-card"));
+    await pause();
+    result.low = {folded: $(".r-card").classList.contains("r-card-folded"), mapHeight: $(".c-col-map").clientHeight,
+                  credits: credits()};
+    $(".r-card .r-fold").click();
+    await pause();
+    result.lowUnfolded = !$(".r-card").classList.contains("r-card-folded");
+    key($(".r-card .r-card-top"), "Home");
+    await pause();
+    await drag($(".r-card .r-card-top"), 0, -20);
+    key($(".r-card .r-card-l"), "ArrowRight");
+    await pause();
+    result.lowKept = {same: localStorage.getItem("findaline.layout") === before,
+                      left: Math.round(rect(".r-card").left - rect(".c-col-map").left)};
+    next();
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_layout(data, tmp_path):
+    """The layout of C's result on a desktop: each panel's edge dragged and moved by keys (±16, Shift ±64, Home, End,
+    a double click the default), kept when a drag ends; the tab beside the edge, Enter on it and the rail collapse and
+    expand a panel (the focus to the rail, then the edge), the rails' labels; a selection leaves the collapsed details
+    collapsed; the profile's card in the map's column (12 px from its edges, the selected line in the part it leaves
+    free, the corners above it only where it covers them, the data credits folded behind their button while it is
+    shown), its height (Home: its content's least height) and edges by keys and the pointer, folded, closed by × and
+    back by "Profile"; the layout found again after a reload. A narrow window collapses the details with an "auto"
+    mark, never kept, and expanding them collapses the list; in a low map the card opens folded and nothing changed
+    there is kept. No CSP violations."""
+    add_credits(data, SMALL)
+    page = stub_page(data, "clayout", LAYOUT_SCRIPT)
+    narrow = stub_page(data, "cnarrow", NARROW_SCRIPT)
+    with _server(data) as port:
+        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-layout")
+        n = _edge(port, narrow + f"?ui=c#run={SMALL}", tmp_path / "edge-narrow", size="900,460")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    start = r["start"]
+    assert (start["list"], start["details"]) == (340, 380) and start["kept"] is None, r
+    cols = start["cols"]  # the window less what the shell takes beside the result
+    assert start["listAria"] == [340, 260, cols - 360 - 380] and start["detailsAria"] == [380, 300, cols - 360 - 340], r
+    assert not start["tabInSeparator"] and start["tabs"] == ["Collapse the list", "Collapse the details"], r
+    assert start["credits"] == {"toggle": False, "credits": True}, r  # no card: unfolded
+    # The list's edge: keys, Home and End, a double click, the pointer (kept when released)
+    assert r["listKeys"] == {"width": 420, "aria": [420, 260, cols - 360 - 380], "kept": 420}, r
+    assert (r["listHome"], r["listEnd"], r["listReset"]) == (260, cols - 360 - 380, [340, 340]), r
+    assert r["listDrag"] == {"width": 380, "during": 340, "kept": 380}, r
+    assert r["detailsKey"] == [396, 396] and r["detailsDrag"] == {"width": 426, "during": 396, "kept": 426}, r
+    assert r["detailsReset"] == [380, 380], r
+    # Collapsed and expanded: the tab, the rail, Enter
+    lr = r["listRail"]
+    assert "c-collapsed" in lr["collapsed"] and "c-forced" not in lr["collapsed"] and lr["width"] == 36, r
+    assert lr["focus"] and lr["label"] == f"Lines · {SMALL_LINES}" and not lr["auto"] and lr["kept"] is False, r
+    assert lr["mapWidth"] == cols - 36 - 380, r
+    assert r["listOpen"] == {"open": True, "focus": True, "kept": True}, r
+    assert r["detailsRail"] == {"collapsed": True, "focus": True, "label": "Line details", "kept": False}, r
+    sel = r["selected"]
+    assert sel["collapsed"] and sel["label"] == f"Spot 1 of {sel['label'].split(' of ')[1].split(' ')[0]} · {sel['len']} m", r
+    assert sel["free"], r
+    assert r["detailsOpen"] == {"open": True, "focus": True, "kept": True, "title": True}, r
+    # The card
+    card = r["card"]
+    assert card["insets"] == [12, 12, 12] and "c-col-map" in card["parent"] and "c-card-on" in card["parent"], r
+    assert card["attributionAbove"] and card["scaleAbove"], r
+    assert card["aria"][0] == card["height"] and card["aria"][1] >= 160 and card["aria"][2] == round(0.7 * card["mapHeight"]), r
+    assert card["credits"] == {"toggle": True, "credits": False}, r  # folded while the card is shown
+    assert r["creditsOpen"] == {"toggle": True, "credits": True} and r["creditsFolded"] == card["credits"], r
+    home = r["cardHome"]
+    assert home["height"] == home["kept"] == home["aria"][1] == card["aria"][1] and 119 <= home["chart"] <= 121, r
+    assert r["cardUp"] == {"height": home["height"] + 16, "kept": home["height"] + 16}, r
+    assert r["cardDrag"] == {"height": home["height"] + 56, "during": home["height"] + 16, "kept": home["height"] + 56}, r
+    assert r["cardKey"] == {"left": 28, "kept": [28, 12]}, r
+    narrow = r["cardNarrow"]
+    assert narrow["width"] == 360 and narrow["left"] == narrow["mapWidth"] - 12 - 360, r
+    assert narrow["corners"]["scale"] == "" and narrow["corners"]["attribution"] != "", r  # the scale clear of the card
+    assert r["cardWide"]["width"] == narrow["mapWidth"] - 24 and "" not in r["cardWide"]["corners"].values(), r
+    assert r["folded"]["folded"] and r["folded"]["kept"] is True and r["folded"]["height"] < 80, r
+    assert r["unfolded"] == [False, False], r
+    assert r["closed"] == {"card": False, "again": True, "credits": {"toggle": False, "credits": True},
+                           "corners": {"attribution": "", "scale": ""}}, r
+    assert r["reopened"] == {"card": True, "credits": {"toggle": True, "credits": False}}, r
+    # Found again after the reload
+    kept = r["beforeReload"]
+    assert kept["list"]["open"] is False and kept["details"]["w"] == 444 and kept["profile"]["l"] == 76, r
+    again = r["reloaded"]
+    assert "c-collapsed" in again["list"] and again["details"] == 444 and again["kept"] == kept, r
+    assert again["card"] == kept["profile"]["h"] and again["left"] == 76, r
+    assert r["csp"] == []
+    # A narrow window: the details collapsed by it, not kept; expanding them collapses the list
+    assert "timeout" not in n and "error" not in n, json.dumps(n)
+    forced = n["forced"]
+    assert "c-collapsed" in forced["details"] and "c-forced" in forced["details"] and forced["auto"] == "auto", n
+    assert forced["list"] == [True, 340] and forced["kept"] is None, n
+    preferred = n["preferred"]
+    assert preferred["details"] == [True, 380] and "c-forced" in preferred["list"] and preferred["auto"], n
+    assert preferred["focus"] and preferred["kept"]["list"]["open"] is True, n  # the forced collapse is not kept
+    # A low map: folded at once; nothing done there is kept
+    assert n["low"]["folded"] and n["low"]["mapHeight"] < 420 and n["low"]["credits"] == {"toggle": True, "credits": False}, n
+    assert n["lowUnfolded"] and n["lowKept"]["same"] and n["lowKept"]["left"] == 28, n
+    assert n["csp"] == []
 
 
 PHONE_EXTRAS_SCRIPT = MAP_JS + """

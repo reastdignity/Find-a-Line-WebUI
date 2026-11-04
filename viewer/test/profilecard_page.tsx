@@ -146,6 +146,14 @@ const corners = () => ({attribution: $(".t-map .leaflet-bottom.leaflet-right")?.
     $<HTMLButtonElement>(".r-card .r-fold")!.click();
     await wait(150);
     out.lowUnfolded = {...state(), kept: layoutNow.profile.folded, commits: commits.length - kept};
+    // Its height and an edge moved there: for the page too, nothing reaches the layout
+    const keptH = layoutNow.profile.h, keptL = layoutNow.profile.l;
+    key($(".r-card .r-card-top")!, "Home");
+    await wait(150);
+    key($(".r-card .r-card-l")!, "ArrowRight");
+    await wait(150);
+    out.lowResized = {...state(), commits: commits.length - kept, h: layoutNow.profile.h, keptH,
+                      l: layoutNow.profile.l, keptL};
     resize(1000, 700);
     await wait(300);
     out.backHigh = state();

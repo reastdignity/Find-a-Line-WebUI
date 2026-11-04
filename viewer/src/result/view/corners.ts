@@ -82,6 +82,9 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
         if (card) sizes.unobserve(card);
         card = now;
         if (card) sizes.observe(card);
+        // its size and place set by ProfileCard (style, folded): seen at once, also where no frame is drawn
+        styles.disconnect();
+        if (card) styles.observe(card, {attributes: true, attributeFilter: ["style", "class"]});
       }
       const rect = map.getBoundingClientRect(), box = card?.getBoundingClientRect();
       const up = box && box.height ? Math.max(0, Math.round(rect.bottom - box.top) + GAP) : 0;
@@ -98,13 +101,13 @@ export function useCornersAboveCard(mapBox: Box, cardBox: Box, on: boolean) {
       const stacked = attributionUp && scaleUp && a && s && a.left < s.right;
       if (scale) scale.style.bottom = scaleUp ? `${up + (stacked ? attribution!.offsetHeight : 0)}px` : "";
     };
-    const sizes = new ResizeObserver(update);
+    const sizes = new ResizeObserver(update), styles = new MutationObserver(update);
     sizes.observe(map);
     if (attribution) sizes.observe(attribution);  // its data credits unfold
     // The card is added and removed (a selection, the profile closed): a child of its parent
     const children = holder.matches(".r-card") ? null : new MutationObserver(update);
     children?.observe(holder, {childList: true});
     update();
-    return () => { sizes.disconnect(); children?.disconnect(); place(map, 0); };
+    return () => { sizes.disconnect(); styles.disconnect(); children?.disconnect(); place(map, 0); };
   }, [on]);
 }

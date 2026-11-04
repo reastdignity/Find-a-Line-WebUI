@@ -1,6 +1,7 @@
 /* C's result (ResultColumns.tsx: the app's ResultPage and a run's map.html, whose bundle has no c.css): the
-   header, the columns (list | map | details), the profile's card over the bottom of the map; on phones the
-   map with the top bar and the sheet. Class names are C's (c-*), under the kit's root class .ui. */
+   header, the columns (list | map | details: the panels' edges and rails), the profile's card over the bottom
+   of the map; on phones the map with the top bar and the sheet. Class names are C's (c-*), under the kit's
+   root class .ui. */
 
 .ui .c-result { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .ui .c-result-wait { flex: 1; max-width: 760px; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column;
@@ -16,26 +17,46 @@
 .ui .c-result-top .r-actions { flex-wrap: nowrap; }
 .ui .c-result-top .r-actions .u-btn { box-shadow: none; }
 
-/* The columns */
+/* The columns: the side panels' widths (--c-w) set by ResultColumns from the kept layout fitted to the window
+   (layout.ts); above the map's column (which holds the card and Leaflet's panes in a stacking context of its
+   own), so their edges and tabs reach over the map */
 .ui .c-cols { flex: 1; min-height: 0; display: flex; }
-.ui .c-col-list { width: 340px; flex: none; display: flex; flex-direction: column; background: var(--surface); border-right: 1px solid var(--line); min-height: 0; }
+.ui .c-col-side { position: relative; z-index: 1; width: var(--c-w); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); }
+.ui .c-col-list { border-right: 1px solid var(--line); }
 .ui .c-col-head { padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line); }
 .ui .c-col-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 6px 8px; }
-.ui .c-col-map { flex: 1; min-width: 0; position: relative; }
+.ui .c-col-body > .r-more { margin: 6px 4px 10px; }
+.ui .c-col-map { flex: 1; min-width: 0; position: relative; isolation: isolate; }
 .ui .c-leaflet { position: absolute; inset: 0; background: var(--map-bg); isolation: isolate; min-width: 0; min-height: 0; }
-.ui .c-col-details { width: 380px; flex: none; background: var(--surface); border-left: 1px solid var(--line); padding: 16px; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 12px; }
+.ui .c-col-details { border-left: 1px solid var(--line); }
+.ui .c-col-dbody { flex: 1; min-height: 0; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
 .ui .c-pick { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--muted); }
-@media (max-width: 1100px) {
-  .ui .c-col-list { width: 300px; }
-  .ui .c-col-details { width: 320px; }
-}
+/* A panel's edge (Splitter) over the map's edge, and its collapse tab at the middle of the edge (beside it) */
+.ui .c-col-list > .c-split { right: calc(var(--u-split) / -2); }
+.ui .c-col-details > .c-split { left: calc(var(--u-split) / -2); }
+.ui .c-col-side > .c-col-tab { left: auto; transform: translateY(-50%); z-index: 9; }
+.ui .c-col-list > .c-col-tab { right: -11px; }
+.ui .c-col-details > .c-col-tab { left: -11px; }
+/* Collapsed: a rail, one button (its icon, the vertical label, the arrow tab at its middle, "auto" when the
+   window collapsed it); the content stays drawn, hidden */
+.ui .c-collapsed > :not(.c-rail) { display: none; }
+.ui .c-rail { position: relative; flex: 1; width: 100%; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 14px 0; border: 0; background: var(--surface); color: var(--ink-2); cursor: pointer; overflow: hidden; }
+.ui .c-rail:hover { background: var(--surface-2); }
+.ui .c-rail:hover .c-rail-tab { color: var(--accent); border-color: var(--accent); }
+.ui .c-rail .u-ic { flex: none; }
+.ui .c-rail-text { writing-mode: vertical-rl; font: 500 11.5px var(--mono); letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
+  min-height: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui .c-forced > .c-rail { padding-bottom: 34px; }  /* room for "auto" below the label */
+.ui .c-rail-auto { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font: 600 9.5px var(--mono); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--warn); }
 
-/* The profile's card over the bottom of the map (as D's .b-dock > .r-dock); the slot takes no pointer where
-   the card is not */
-.ui .c-dock-slot { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 2; pointer-events: none; }
-.ui .c-dock-slot > .r-dock { pointer-events: auto; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow);
-  max-height: 46vh; }
+/* The profile's card over the bottom of the map (ProfileCard, result.css .r-card): while it is shown, the run's
+   data credits fold behind their button as on a phone (ui.css .u-credits), the tile credits stay in sight */
+.ui .c-col-map.c-card-on .u-credits-toggle { display: inline; }
+.ui .c-col-map.c-card-on .u-credits-toggle[aria-expanded="true"] { margin-right: 4px; }
+.ui .c-col-map.c-card-on .u-credits:not(.u-open) { display: none; }
 
 /* Phones: the map, the top bar over it and the sheet */
 .ui .c-result-phone { position: relative; overflow: hidden; }
