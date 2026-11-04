@@ -8,6 +8,9 @@ import json
 import re
 import sys
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 md_path, est_path, shell_path, app_path, out_path = sys.argv[1:6]
 md = open(md_path, encoding="utf-8").read()
 est = json.load(open(est_path, encoding="utf-8"))

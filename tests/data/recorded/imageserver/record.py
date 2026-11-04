@@ -8,6 +8,9 @@ from urllib.parse import urlencode
 
 import requests
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 OUT = sys.argv[1]
 BASE = "https://ags.cuzk.gov.cz/arcgis2/rest/services"
 HEADERS = {"User-Agent": "Find-a-Line (test recording)"}

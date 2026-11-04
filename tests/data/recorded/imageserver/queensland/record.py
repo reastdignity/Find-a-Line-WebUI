@@ -14,6 +14,9 @@ import requests
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), *[".."] * 5)))
 from sources.catalogue.australia import QLD_DEMH, QLD_LIDAR  # noqa: E402
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 OUT = sys.argv[1]
 HEADERS = {"User-Agent": "Find-a-Line (test recording)"}
 # 16 x 16 px boxes (left, bottom) on whole metres: Mt Tibrogargan's east face (MGA 56), Mount Isa (MGA 54, the

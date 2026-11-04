@@ -17,7 +17,7 @@ import countcube as cc  # noqa: E402
 
 DATA = os.path.join(REPO, "tests", "data")
 OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-               "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
+               "FINDALINE_PROGRESS": "text"}
 SQUARE = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
                                               [19.7522, 50.1580], [19.7522, 50.1546]]]}
 ID = "studyland"

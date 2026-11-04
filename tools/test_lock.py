@@ -219,7 +219,7 @@ def lock_dir() -> str:
     if not folder:
         here = os.path.dirname(os.path.abspath(__file__))
         common = subprocess.run(["git", "rev-parse", "--git-common-dir"], cwd=here, capture_output=True,
-                                text=True, check=True).stdout.strip()
+                                text=True, encoding="utf-8", check=True).stdout.strip()  # git's paths: UTF-8
         folder = os.path.join(os.path.abspath(os.path.join(here, common)), "findaline-locks")
     os.makedirs(folder, exist_ok=True)
     return folder
@@ -502,4 +502,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+        stream.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main())

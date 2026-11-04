@@ -3,6 +3,9 @@ Usage: python report_tables.py <estimate.json> > tables.md"""
 import json
 import sys
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 est = json.load(open(sys.argv[1], encoding="utf-8"))
 rows = est["rows"]
 NAMES = {"SK": "Slovakia", "PL": "Poland", "CH": "Switzerland", "UT": "Utah"}

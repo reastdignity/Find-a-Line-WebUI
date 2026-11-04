@@ -6,6 +6,9 @@ import sys
 import numpy as np
 from numba import njit
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 
 @njit(cache=False)
 def coords_of(tile):

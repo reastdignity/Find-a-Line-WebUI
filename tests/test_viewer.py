@@ -173,8 +173,7 @@ def clip_data(tmp_path_factory):
     """data.js of a run of the Żabi Koń clip with the surface model (clear lines and lines over trees),
     computed once, offline: (its JSON text, the value)."""
     data = tmp_path_factory.mktemp("clip")
-    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-           "PYTHONIOENCODING": "utf-8"}
+    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
     tests_data = os.path.join(REPO, "tests", "data")
     result = subprocess.run(
         [sys.executable, "findaline.py", "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),

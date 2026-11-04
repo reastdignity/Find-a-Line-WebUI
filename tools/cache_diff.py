@@ -108,4 +108,6 @@ def main():
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+        stream.reconfigure(encoding="utf-8", errors="replace")
     main()

@@ -9,6 +9,9 @@ import sys
 import numpy as np
 import rasterio
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 folder, index = sys.argv[1], sys.argv[2]
 with open(index, encoding="utf-8") as f:
     sums = {feat["properties"]["name"]: feat["properties"].get("sha256sum")

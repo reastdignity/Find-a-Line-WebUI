@@ -11,6 +11,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from http_server import HttpServer  # noqa: E402
 
+# The processes the tests start write their output as they would for a user: in the code page when it is
+# redirected, until the entry point sets UTF-8 itself (progress.utf8_output; tests/test_entry_points.py).
+# A PYTHONIOENCODING of the calling shell hid the quick lane's "km²" from the tests (4901833)
+for _name in ("PYTHONIOENCODING", "PYTHONUTF8"):
+    os.environ.pop(_name, None)
+
 
 @pytest.fixture
 def http_server(monkeypatch):

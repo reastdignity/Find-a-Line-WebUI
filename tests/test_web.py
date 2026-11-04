@@ -230,8 +230,7 @@ def test_schema_has_no_file_fields(client):
 
 
 def _offline(monkeypatch):
-    for key, value in {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-                       "PYTHONIOENCODING": "utf-8"}.items():
+    for key, value in {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}.items():
         monkeypatch.setenv(key, value)
 
 
@@ -705,7 +704,7 @@ def test_worker_process(tmp_path, monkeypatch):
 
     import psutil
     with _black_hole() as proxy:
-        env = dict(os.environ, HTTP_PROXY=proxy, HTTPS_PROXY=proxy, NO_PROXY="", PYTHONIOENCODING="utf-8",
+        env = dict(os.environ, HTTP_PROXY=proxy, HTTPS_PROXY=proxy, NO_PROXY="",
                    FINDALINE_WARM_UP="0")  # its lanes only (the warm-up: test_public.py)
         jobs = Jobs(str(tmp_path))
         hanging = {"params": {"area": "osm:Nowhere at all"}, "geometry": None}  # Nominatim never answers

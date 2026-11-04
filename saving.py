@@ -264,4 +264,6 @@ def main(argv: List[str]):
 
 
 if __name__ == "__main__":
+    from progress import utf8_output
+    utf8_output()  # redirected output in UTF-8, not the Windows code page (no "²" there)
     main(sys.argv[1:])

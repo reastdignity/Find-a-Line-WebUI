@@ -3,6 +3,9 @@ read as data only). Usage: python -I proj_grids.py <files.geojson>"""
 import json
 import sys
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 PREFIXES = ("us_nga_egm", "pl_gugik", "ch_swisstopo", "sk_gku", "us_noaa_g2018", "us_noaa_g2012b",
             "us_noaa_geoid", "es_ign", "mt_", "eur_", "us_noaa_xgeoid", "us_noaa_g2012bu0")
 with open(sys.argv[1], encoding="utf-8") as f:

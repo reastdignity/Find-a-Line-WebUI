@@ -1,5 +1,9 @@
 """Print 'name<TAB>url' lines for the CORS probe: one small tile per service near its source's sample point."""
 import math
+import sys
+
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
 
 
 def tile(lat, lon, z):

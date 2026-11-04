@@ -8,6 +8,7 @@ the sheets).
 
 import glob
 import os
+import sys
 
 import numpy as np
 import rasterio as rio
@@ -35,5 +36,7 @@ def cut(kind: str):
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+        stream.reconfigure(encoding="utf-8", errors="replace")
     cut("nmt")
     cut("nmpt")

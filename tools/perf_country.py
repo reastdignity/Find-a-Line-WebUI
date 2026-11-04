@@ -132,7 +132,8 @@ def machine() -> Dict:
 
 def commit() -> Optional[str]:
     try:
-        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=HERE, capture_output=True, text=True, timeout=30)
+        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=HERE, capture_output=True, text=True, encoding="utf-8",
+                             timeout=30)
     except (OSError, subprocess.SubprocessError):
         return None
     return (out.stdout.strip() or None) if out.returncode == 0 else None
@@ -1416,4 +1417,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from progress import utf8_output
+    utf8_output()  # redirected output in UTF-8, not the Windows code page (no "²" there)
     main()

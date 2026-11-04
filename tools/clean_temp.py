@@ -145,7 +145,7 @@ def project_name() -> str:
     main = REPO
     try:
         common = subprocess.run(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=REPO,
-                                capture_output=True, text=True, check=True).stdout.strip()
+                                capture_output=True, text=True, encoding="utf-8", check=True).stdout.strip()
         main = os.path.dirname(os.path.normpath(common))
     except (OSError, subprocess.CalledProcessError):
         pass
@@ -254,4 +254,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+        stream.reconfigure(encoding="utf-8", errors="replace")
     sys.exit(main())

@@ -18,6 +18,9 @@ from rasterio.merge import merge
 from rasterio.windows import from_bounds
 from PIL import Image
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 folder, x, y, out = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), sys.argv[4]
 size = float(sys.argv[5]) if len(sys.argv) > 5 else 1500.0
 res = float(sys.argv[6]) if len(sys.argv) > 6 else None

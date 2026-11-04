@@ -512,7 +512,8 @@ def _peak_memory() -> Optional[int]:
 
 def _commit() -> Optional[str]:
     try:
-        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, timeout=10)
+        out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+                             timeout=10)
         return out.stdout.strip() or None if out.returncode == 0 else None
     except (OSError, subprocess.SubprocessError):
         return None

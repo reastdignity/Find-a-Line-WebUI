@@ -10,6 +10,9 @@ import sys
 import os
 import threading
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 site, page, csp, profile = sys.argv[1:5]
 flags = sys.argv[5:]

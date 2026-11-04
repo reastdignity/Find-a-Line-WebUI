@@ -21,7 +21,7 @@ from rasterio.transform import from_origin
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA = os.path.join(REPO, "tests", "data")
 OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-               "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
+               "FINDALINE_PROGRESS": "text"}
 
 
 def run_search(tmp_path, *args) -> tuple:

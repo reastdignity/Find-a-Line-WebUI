@@ -680,8 +680,7 @@ def clip_run(tmp_path_factory):
     """The folder of a run of the Żabi Koń clip (computed once, offline), to copy into data folders."""
     import subprocess
     data = tmp_path_factory.mktemp("clip")
-    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-           "PYTHONIOENCODING": "utf-8"}
+    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
     result = subprocess.run(
         [sys.executable, "findaline.py", "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
          "--northing", "254608", "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off",
@@ -2639,6 +2638,15 @@ def test_disk_and_download_quota_in_the_worker(tmp_path, monkeypatch):
     assert jobs.get(broken)["error"] == f"internal error, ref {broken}"
     assert not os.path.exists(jobs.folder(broken))
 
+    def unencodable(*args, **kwargs):  # a ValueError, but of our own texts: never the request's
+        raise UnicodeEncodeError("charmap", "km²", 2, 3, "character maps to <undefined>")
+    monkeypatch.setattr(search, "plan_search", unencodable)
+    encoding = jobs.add(clip, "encoding", user_id=8)
+    jobs.claim("queued", "downloading", "w1")
+    with pytest.raises(UnicodeEncodeError):
+        jb.run_phase(str(tmp_path), encoding, "download", None, True)
+    assert jobs.get(encoding)["error"] == f"internal error, ref {encoding}"
+
 
 def test_request_limits(monkeypatch, tmp_path):
     """The public site's limits on request values (each overridable, `none` for no limit) refuse
@@ -3116,8 +3124,7 @@ def test_no_server_paths_in_public_events(tmp_path, monkeypatch):
     import time
 
     from jobs import Jobs, Scheduler
-    for key, value in {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-                       "PYTHONIOENCODING": "utf-8"}.items():
+    for key, value in {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}.items():
         monkeypatch.setenv(key, value)
     jobs = Jobs(str(tmp_path), public=True)
     params = {**CLIP, "northing": 254608, "easting": 553966, "radius": 150, "name": "Clip"}
@@ -3236,7 +3243,7 @@ def test_numba_warm_up(tmp_path):
     import subprocess
     numba_dir, data = tmp_path / "numba", tmp_path / "data"
     env = {**os.environ, "NUMBA_CACHE_DIR": str(numba_dir), "HTTP_PROXY": "http://127.0.0.1:9",
-           "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "", "PYTHONIOENCODING": "utf-8"}
+           "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
     result = subprocess.run([sys.executable, "-c", f"import sys; sys.path.insert(0, {REPO!r}); import warmup; "
                                                    f"warmup.warm_up({str(data)!r})"],
                             capture_output=True, text=True, encoding="utf-8", timeout=900, env=env)
@@ -3553,7 +3560,7 @@ def test_satellite_key_in_no_saved_file(tmp_path):
     (map.html, data.js, ATTRIBUTION.txt, ...), the runs' list, the cache or the work folders."""
     import subprocess
     env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-           "PYTHONIOENCODING": "utf-8", "ESRI_API_KEY": ESRI_KEY}
+           "ESRI_API_KEY": ESRI_KEY}
     result = subprocess.run(
         [sys.executable, "findaline.py", "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
          "--northing", "254608", "--easting", "553966", "--radius", "100", "--water", "off", "--fill-gaps", "off",

@@ -42,8 +42,7 @@ def _clip() -> np.ndarray:
 
 
 def _offline_env() -> dict:
-    return {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-            "PYTHONIOENCODING": "utf-8"}
+    return {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
 
 
 @pytest.fixture(scope="module")

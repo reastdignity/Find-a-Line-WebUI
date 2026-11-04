@@ -43,8 +43,6 @@ def main():
     parser.add_argument("--name", default="download")
     parser.add_argument("args", nargs=argparse.REMAINDER, help="-- and the search options of findaline.py")
     args = parser.parse_args()
-    for stream in (sys.stdout, sys.stderr):  # "km²" on a Windows console
-        stream.reconfigure(encoding="utf-8", errors="replace")
     search_args = args.args[1:] if args.args[:1] == ["--"] else args.args
     (params,), _ = pm.parse_cli(search_args)
     me = psutil.Process()
@@ -68,4 +66,6 @@ def main():
 
 
 if __name__ == "__main__":
+    from progress import utf8_output
+    utf8_output()  # redirected output in UTF-8, not the Windows code page (no "²" there)
     main()

@@ -496,9 +496,6 @@ def main(argv=None) -> int:
     parser.add_argument("--surface-file", help="with SOURCE files: the surface raster")
     parser.add_argument("--json", help="write the results to this file")
     args = parser.parse_args(argv)
-    for stream in (sys.stdout, sys.stderr):  # names of the data on a Windows console
-        stream.reconfigure(errors="replace")
-
     data = cache.data_dir(args.data_dir)
     work = cache.new_work(data)
     results = []
@@ -530,4 +527,6 @@ def main(argv=None) -> int:
 
 
 if __name__ == "__main__":
+    from progress import utf8_output
+    utf8_output()  # redirected output in UTF-8, not the Windows code page (no "²" there)
     sys.exit(main())

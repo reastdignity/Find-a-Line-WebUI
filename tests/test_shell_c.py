@@ -140,8 +140,7 @@ def big_clip(tmp_path_factory):
     """The folder of a run of the Żabi Koń clip with its surface model (the sag model: about 27,000 lines), computed once, offline."""
     import subprocess
     folder = tmp_path_factory.mktemp("c-clip")
-    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-           "PYTHONIOENCODING": "utf-8"}
+    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
     data = os.path.join(REPO, "tests", "data")
     result = subprocess.run(
         [sys.executable, "findaline.py", "--elevation-file", os.path.join(data, "zabi_kon_nmt.tif"),

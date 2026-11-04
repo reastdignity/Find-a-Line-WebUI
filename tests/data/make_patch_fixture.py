@@ -10,6 +10,7 @@ are the reference of the format: the server's encoder and the page's decoder mus
 import hashlib
 import json
 import os
+import sys
 import zlib
 
 import numpy as np
@@ -51,6 +52,8 @@ def values_sha256(values: np.ndarray) -> str:
 
 
 if __name__ == "__main__":
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+        stream.reconfigure(encoding="utf-8", errors="replace")
     with rio.open(os.path.join(HERE, "zabi_kon_nmt.tif")) as src:
         heights = src.read(1)[:SIZE, :SIZE].astype(np.float64)
     heights[-HOLE:, -HOLE:] = np.nan

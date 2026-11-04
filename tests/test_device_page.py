@@ -19,8 +19,7 @@ sys.path.insert(0, os.path.join(REPO, "tools"))
 import device_page  # noqa: E402
 
 TIF = os.path.join(REPO, "tests", "data", "zabi_kon_nmt.tif")
-OFFLINE = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": "",
-           "PYTHONIOENCODING": "utf-8"}
+OFFLINE = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
 
 
 @pytest.fixture(scope="module")

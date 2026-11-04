@@ -1481,18 +1481,21 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
                 gc.collect()
                 _orthophoto_after(jobs, job_id, plan, spots, limits, on_event, steps)
         failed = False
-    except (search.SearchError, ValueError, RuntimeError, requests.RequestException) as e:  # ValueError: parameters
-        jobs.set(job_id, "failed", when=working, error=e)  # the web text of a coded error (Jobs.set)
-        failed = False
-    except Exception as e:  # anything else: keep the work folder to look at (not on the public site)
-        if public:  # the traceback (raised below) goes to the log, the page gets a reference
-            print(f"internal error, ref {job_id} (its working grids are removed):", file=sys.stderr)
-            jobs.set(job_id, "failed", when=working, error=f"internal error, ref {job_id}")
-            failed = False  # the public site keeps no work folders: its disk is shared
-        else:
-            jobs.set(job_id, "failed", when=working,
-                     error=f"{type(e).__name__}: {cache.clean_error(e)} (working grids kept in {paths.work})")
-        raise
+    except Exception as e:
+        # ValueError: parameters; a UnicodeError is one too, but of our own texts and files, never the request's
+        if isinstance(e, (search.SearchError, ValueError, RuntimeError, requests.RequestException)) \
+                and not isinstance(e, UnicodeError):
+            jobs.set(job_id, "failed", when=working, error=e)  # the web text of a coded error (Jobs.set)
+            failed = False
+        else:  # anything else: keep the work folder to look at (not on the public site)
+            if public:  # the traceback (raised below) goes to the log, the page gets a reference
+                print(f"internal error, ref {job_id} (its working grids are removed):", file=sys.stderr)
+                jobs.set(job_id, "failed", when=working, error=f"internal error, ref {job_id}")
+                failed = False  # the public site keeps no work folders: its disk is shared
+            else:
+                jobs.set(job_id, "failed", when=working,
+                         error=f"{type(e).__name__}: {cache.clean_error(e)} (working grids kept in {paths.work})")
+            raise
     finally:
         servicecounts.flush()
         if not failed:

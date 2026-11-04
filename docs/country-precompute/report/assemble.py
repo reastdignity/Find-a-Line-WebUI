@@ -4,6 +4,9 @@ sample_table.py. Usage: python assemble.py <template> <tables.md> <samples table
 import re
 import sys
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 template, tables_path, samples_path, out_path = sys.argv[1:5]
 blocks, name = {}, None
 for line in open(tables_path, encoding="utf-8").read().splitlines():

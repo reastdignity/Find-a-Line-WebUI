@@ -1,8 +1,12 @@
 """Horizontal and vertical shift between the national frames of our sources and ITRF2020 (≈ WGS 84
 (G2296)) at sample points, epoch 2026.8, with pyproj's own Helmert parameters (no grids, network off)."""
 import math
+import sys
 
 from pyproj import Transformer, network
+
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
 
 network.set_network_enabled(False)
 EPOCH = 2026.8

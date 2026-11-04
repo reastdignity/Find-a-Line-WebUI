@@ -5,6 +5,9 @@ import json
 import shlex
 import sys
 
+for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+    stream.reconfigure(encoding="utf-8", errors="replace")
+
 samples = json.load(open(sys.argv[1], encoding="utf-8"))
 order = {"S": 0, "M": 1, "L": 2}
 
