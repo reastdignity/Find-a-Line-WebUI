@@ -346,7 +346,7 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
         <div class="c-col-dbody">
           {sel ? <LineDetails model={model} onZoom={zoom} onStep={reveal} linkOf={link && ((l) => link(model, l))}
                               view3dOf={view3dOf && ((l) => view3dOf(model, l))} />
-            : !measured && <p class="c-pick"><Icon name="info" />Select a line on the map or in the list.</p>}
+            : <p class="c-pick"><Icon name="info" />Select a line on the map or in the list.</p>}
         </div>
       </SidePanel>
     </div>

@@ -277,19 +277,21 @@ export function ProfilePanel(props: ProfileProps) {
     if (isFinite(v) && v >= 0) setHeights(k ? [heights[0], v] : [v, heights[1]]);
     else input.value = String(heights[k]);
   };
-  // The title: "Profile: <len> m, A1 … → A2 … (Δh …), min. clearance …"; its facts (after the length) for a bar
+  // The title: "Profile: <len> m, A1 … → A2 … (Δh …), min. clearance …"; its facts for a bar, the one that
+  // matters first (a narrow bar cuts the end): a measured profile's verdict, the clearance, the anchors, Δh
   const ends = "A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) + " m", delta = "Δh " + dh.toFixed(1) + " m";
-  let clearance = "min. clearance " + l.clr.toFixed(1) + " m";
+  let clearance = "min. clearance " + l.clr.toFixed(1) + " m", verdict = "";
   if (measured) {
     const clr = minTerrain ? minTerrain[1] : NaN, clrN = minSurface ? minSurface[1] : null;
     clearance = "min. clearance " + (isFinite(clr) ? clr.toFixed(1) + " m" : "–") +
-      (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "") +
-      (!isFinite(clr) ? "" : clr < 0 ? " – does not fit" : clrN !== null && clrN < 0 ? " – fits over terrain only"
-        : " – fits");
+      (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "");
+    verdict = !isFinite(clr) ? "" : clr < 0 ? "does not fit" : clrN !== null && clrN < 0 ? "fits over terrain only"
+      : "fits";
   }
   const title = (measured ? "Measured: " : "Profile: ") + l.len.toFixed(0) + " m, " + ends + " (" + delta + "), " +
-    clearance;
-  const facts = ends + " · " + delta + " · " + clearance;
+    clearance + (verdict ? " – " + verdict : "");
+  const facts = [verdict, clearance, "A1 " + l.e1.toFixed(1) + " → A2 " + l.e2.toFixed(1) + " m", delta]
+    .filter((f) => f).join(" · ");
   const onTitle = useRef(props.onTitle);
   onTitle.current = props.onTitle;
   useEffect(() => { onTitle.current?.(title, facts); }, [title, facts]);

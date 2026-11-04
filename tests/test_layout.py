@@ -214,7 +214,7 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     # its least height is its content's with the chart at 120 px (measured), at least 160; compact: no head row
     assert first["min"] >= 160 and first["max"] == 490, first
     assert not out["compact"]["head"] and out["compact"]["title"].startswith("Profile: "), out["compact"]
-    assert out["compact"]["facts"].startswith("A1 ") and not out["compact"]["legend"], out["compact"]
+    assert out["compact"]["facts"].startswith("min. clearance ") and not out["compact"]["legend"], out["compact"]
     assert out["rigging"] == {"legend": True, "scale": True}, out  # under Rigging and layers
     assert out["initialCorners"]["attribution"] not in ("", None), out["initialCorners"]
     # ↑ and Shift+↑: 80 px more, each key kept, the chart grows with it

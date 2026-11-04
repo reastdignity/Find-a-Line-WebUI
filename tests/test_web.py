@@ -1496,8 +1496,13 @@ run({
     map.fire("click", {latlng: {lat: l.lat2, lng: l.lon2}});
     wait(() => text(".r-card .fal-profile-title").startsWith("Measured"), () => {
       result.measured = text(".r-card .fal-profile-title");
+      result.measuredFacts = text(".r-card .r-facts");  // the card's bar: the verdict first
       result.expectedLength = l.len.toFixed(0);
-      next();
+      model().select(null);  // nothing selected while measuring: the details say what to do
+      later(() => {
+        result.measuringHint = [text(".c-col-details .c-pick"), text(".r-card .fal-profile-title").startsWith("Measured")];
+        next();
+      });
     });
   },
 });
@@ -1569,6 +1574,9 @@ def test_run_map(tmp_path, monkeypatch):
     assert len(r["others"]) == 1 and XSS_NAME in r["others"][0], r
     assert r["otherLines"] > 0 and r["xss"] is None and r["imgs"] == 0, r
     assert r["measured"].startswith(f"Measured: {r['expectedLength']} m"), r
+    import re
+    assert re.match(r"(does not fit|fits over terrain only|fits) · min\. clearance ", r["measuredFacts"]), r
+    assert r["measuringHint"] == ["Select a line on the map or in the list.", True], r
     assert _violations(dom) == []
     index = (tmp_path / "runs" / "index.html").read_text(encoding="utf-8")
     assert "<style" not in index and "_viewer/index.css" in index and XSS_NAME not in index

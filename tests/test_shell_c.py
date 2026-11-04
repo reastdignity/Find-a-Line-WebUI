@@ -849,8 +849,8 @@ def test_shell_c_layout(data, tmp_path):
     assert card["credits"] == {"toggle": True, "credits": False}, r  # folded while the card is shown
     assert r["creditsOpen"] == {"toggle": True, "credits": True} and r["creditsFolded"] == card["credits"], r
     compact = r["compact"]
-    assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("A1 "), r
-    assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[-1]), r
+    assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("min. clearance "), r
+    assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[0]), r
     assert not compact["legend"] and not compact["scale"] and compact["footer"] == "nowrap", r
     rig = r["rigging"]
     assert rig["legend"] and rig["scale"] and rig["inControls"], r
