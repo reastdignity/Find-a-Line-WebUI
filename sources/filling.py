@@ -30,8 +30,8 @@ SEA_FILL_EPS = 0.005  # m; data this close to a source's sea fill (Source.sea_fi
 # neighbour it is reached from (a ship or a boulder standing up from the water is never reached)
 FACE_TOLERANCE = 1.5  # m
 # The uncertain shore (shore_rows, shore_segments): SHORE_SURFACE where the terrain's face came from the surface
-# model, SHORE_SEA where the sea fill stands in for a cliff's foot (a water pixel with a neighbour of terrain
-# data more than SHORE_RIM_MIN higher: the terrain model ends above the water there)
+# model, SHORE_SEA where the sea fill stands in for a cliff's foot (a water pixel with a neighbour of the
+# terrain's own data, not a face, more than SHORE_RIM_MIN higher: the terrain model ends above the water there)
 SHORE_SURFACE, SHORE_SEA = 1, 2
 SHORE_RIM_MIN = 5.0  # m
 SHORE_SIMPLIFY = 2.0  # pixels: the tolerance the segments' outlines are simplified with (shore_segments)
@@ -226,22 +226,26 @@ def shore_rows(elevation: np.ndarray, water: np.ndarray, face: Optional[np.ndarr
     """The kinds of the uncertain shore in rows [r0, r1) of the grids after fill_water (uint8):
     SHORE_SURFACE on the pixels of `face` (the face taken from the surface model by
     fill_shore_from_surface), SHORE_SEA on the water pixels (`water`, the filled sea and lakes
-    and the water with data) whose neighbour (8) with terrain data stands more than rim_min above
-    them: the terrain model ends on a cliff above the water, and the fill stands in for its foot
-    (the sea cliffs of sources without a surface model; what a person sees in the 3D view as a
-    wall straight down to the water), 0 elsewhere. The rows next to the strip are read for the
-    neighbours."""
+    and the water with data) whose neighbour (8) with the terrain's own data (not a face: the
+    foot of a face taken from the surface model is as good as the data get) stands more than
+    rim_min above them: the terrain model ends on a cliff above the water, and the fill stands in
+    for its foot (the sea cliffs of sources without a surface model; what a person sees in the 3D
+    view as a wall straight down to the water), 0 elsewhere. The rows next to the strip are read
+    for the neighbours."""
     from scipy import ndimage
     h0, h1 = max(0, r0 - 1), min(elevation.shape[0], r1 + 1)
     z = np.asarray(elevation[h0:h1], dtype=np.float32)
     wet = np.asarray(water[h0:h1], dtype=bool)
-    land = np.where(np.isfinite(z) & ~wet, z, -np.inf)
-    highest = ndimage.maximum_filter(land, 3, mode="constant", cval=-np.inf)
+    own = np.isfinite(z) & ~wet
+    faces = np.asarray(face[h0:h1], dtype=bool) if face is not None else None
+    if faces is not None:
+        own &= ~faces
+    highest = ndimage.maximum_filter(np.where(own, z, -np.inf), 3, mode="constant", cval=-np.inf)
     kinds = np.zeros(z.shape, np.uint8)
     with np.errstate(invalid="ignore"):
         kinds[wet & np.isfinite(z) & (highest - z > rim_min)] = SHORE_SEA
-    if face is not None:
-        kinds[np.asarray(face[h0:h1], dtype=bool)] = SHORE_SURFACE
+    if faces is not None:
+        kinds[faces] = SHORE_SURFACE
     return kinds[r0 - h0:r1 - h0]
 
 

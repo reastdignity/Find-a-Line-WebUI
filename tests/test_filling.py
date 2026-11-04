@@ -203,10 +203,9 @@ def test_shore_kinds(tmp_path):
     kinds = filling.shore_rows(z, wet, f, 0, z.shape[0])
     assert kinds.dtype == np.uint8 and kinds.shape == z.shape
     assert (kinds[6:14, :6] == filling.SHORE_SURFACE).all()  # the face from the surface model
-    # The sea fill below the terrain's last row (55 m) where the face is missing: the row right under it,
-    # and the column along the face's side (its pixels above SHORE_RIM_MIN stand next to the fill)
-    assert (kinds[6, 6:] == filling.SHORE_SEA).all() and (kinds[7:14, 6] == filling.SHORE_SEA).all()
-    assert (kinds[7:14, 7:] == 0).all()
+    # The sea fill below the terrain's last row (55 m) where the face is missing: the row right under it;
+    # the column along the face's side is none (a face's foot is as good as the data get)
+    assert (kinds[6, 6:] == filling.SHORE_SEA).all() and (kinds[7:14, 6:] == 0).all()
     # Below the face: the face ends at 5 m, not more than SHORE_RIM_MIN: no rim there
     assert (kinds[14:] == 0).all()
     assert (kinds[:6] == 0).all()  # terrain with data is never the shore
@@ -221,7 +220,9 @@ def test_shore_kinds(tmp_path):
     # Strips of rows read their neighbours: the same as the whole grid
     strips = np.concatenate([filling.shore_rows(z, wet, f, r0, r1) for r0, r1, _, _ in filling.strips(z.shape[0], 3)])
     assert np.array_equal(strips, kinds)
-    assert not filling.shore_rows(z, wet, None, 0, z.shape[0])[6:14, :6].any()  # without the face mask
+    # Without the face mask the face's pixels are the terrain's own: its side stands next to the fill
+    bare = filling.shore_rows(z, wet, None, 0, z.shape[0])
+    assert not (bare == filling.SHORE_SURFACE).any() and (bare[7:13, 6] == filling.SHORE_SEA).all()
 
 
 def test_shore_segments(tmp_path, monkeypatch):
@@ -231,8 +232,8 @@ def test_shore_segments(tmp_path, monkeypatch):
     t, water, face = _after_filling(tmp_path, terrain, surface, zone)
     grid = _grid(terrain.shape)
     short = filling.shore_segments(str(t), str(water), str(face), grid)
-    assert [s["kind"] for s in short["segments"]] == ["sea"]  # the face's band of 8 m is under SHORE_MIN_M
-    assert short["totals"]["surface_px"] == 48 and short["totals"]["surface_m"] == 0
+    assert short["segments"] == []  # the bands of 8 and 6 m are under SHORE_MIN_M: listed nowhere, counted in the totals
+    assert short["totals"] == {"surface_m": 0, "sea_m": 0, "surface_px": 48, "sea_px": 6}
     monkeypatch.setattr(filling, "SHORE_MIN_M", 0)
     shore = filling.shore_segments(str(t), str(water), str(face), grid)
     assert shore["rim_min"] == filling.SHORE_RIM_MIN
@@ -243,8 +244,8 @@ def test_shore_segments(tmp_path, monkeypatch):
     # The bands: the 8 x 6 block of the face grown 2 px each way (12 x 10 pixels, the longer side 12 less the
     # growth 4 = 8 m); the L of the sea (a bar of 6 and one of 8 pixels) grown the same way
     assert surface_seg["px"] == 12 * 8 and surface_seg["m"] == 8  # the band clipped at the grid's left edge
-    assert sea_seg["px"] == 5 * 8 + 12 * 5 - 5 * 5 and 8 <= sea_seg["m"] <= 13  # the L's bars grown, clipped at the right
-    assert shore["totals"] == {"surface_m": 8, "sea_m": sea_seg["m"], "surface_px": 48, "sea_px": 13}
+    assert sea_seg["px"] == 5 * 8 and sea_seg["m"] == 4  # the bar of 6 grown to 5 x 8 (clipped at the right): 8 - 4
+    assert shore["totals"] == {"surface_m": 8, "sea_m": 4, "surface_px": 48, "sea_px": 6}
     # The rings are closed, in lon/lat (EPSG:32633 near 0, 0: the false easting's lon/lat)
     ring = surface_seg["ring"]
     assert ring[0] == ring[-1] and len(ring) >= 5

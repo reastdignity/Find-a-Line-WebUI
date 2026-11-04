@@ -501,8 +501,8 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     assert data.filled is not None and data.filled.any() and data.water.any()
     # The uncertain shore: the face from the surface model (columns 200-211 of every row) and the sea fill
     # at its foot, which the face ends 188 m above
-    assert data.shore and sorted(s["kind"] for s in data.shore["segments"]) == ["sea", "surface"]
-    assert data.shore["totals"]["surface_px"] == 240 * 12 and data.shore["totals"]["sea_px"] > 0
+    assert data.shore and {s["kind"] for s in data.shore["segments"]} == {"sea", "surface"}
+    assert data.shore["totals"]["surface_px"] == 240 * 12 and 0 < data.shore["totals"]["sea_px"] < 100
     assert data.shore_kinds is None
 
     def written_in(folder, shape):

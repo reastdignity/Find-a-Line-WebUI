@@ -110,8 +110,9 @@ Rules for every step:
   records (`shore_segments`: bands of the two kinds, the face from the surface model and the sea standing in) for
   the map's layer and note of the metres in view, and what the 3D view hatches from the patch's kinds; a detector
   from the heights alone (`view3d/shore.ts` `detectWalls`, a sample at the sea's level next to one 10 m higher)
-  finds on Ta' Cenc 1 094 samples, every one in the data's 4 206, which also hold the faces from the surface model
-  and the rims between 5 and 10 m: the data's kinds are what is shown, the detector a check.
+  finds on Ta' Cenc 1 094 samples, 371 of them among the data's 3 367 (the rest stand at the foot of faces taken
+  from the surface model, which the data count as explained, and the data also hold the faces themselves and the
+  rims between 5 and 10 m): the data's kinds are what is shown, the detector a check of the "sea" kind.
 
 ## Done: the surface model above the terrain on steep rock (2026-11-02)
 - *What was seen*: on bare rock nearly every line was marked as over trees or buildings (Cwm Silyn all 2854 lines,
