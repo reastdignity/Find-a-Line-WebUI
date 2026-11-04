@@ -16,7 +16,9 @@ code, so a diagram that names a function that no longer exists fails the tests.
 | 2 | [search-vs-country.md](search-vs-country.md) | where the country layer forks off a search, and a country run |
 | 2 | [web-jobs.md](web-jobs.md) | a web job's states, the hand-overs between the browser, the web process and the worker, the quick lane |
 | 2 | [decisions.md](decisions.md) | the decision trees: which source, one grid or tiles, where the sea is, what is filled from where, the thresholds |
-| 3 | step1.md, step3.md, step5.md | the inside of step 1 (the filling), step 3 (the kernels) and step 5 (the saving): to come |
+| 3 | [step1.md](step1.md) | the inside of step 1: the mosaics, the sea and the shore, the gaps filled from neighbours and fallbacks, the water, the obstacle surface, the strips of a tiled search |
+| 3 | [step3.md](step3.md) | the inside of step 3: the limits, the funnel from the free directions to the evaluated lines, the count mode, what keeps the results pinned |
+| 3 | [step5.md](step5.md) | the inside of step 5: the run's files, the map's scripts, the children that write big runs, the orthophoto after the run, who reads what |
 
 ## The parts beside the search
 

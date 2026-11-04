@@ -24,7 +24,7 @@ stateDiagram-v2
     queued --> downloading: Scheduler claim, a download slot
     downloading --> ready: run_phase download, set ready
     ready --> computing: Scheduler claim, a compute slot
-    computing --> done: save_run, add_run, set done
+    computing --> done: save_run, add_run, statistics, set done
     done --> done: the orthophoto after done, no slot
     queued --> cancelled: request_cancel, at once
     ready --> cancelled: request_cancel, at once
@@ -68,7 +68,7 @@ sequenceDiagram
     S->>J: claim (a compute slot with slot_memory)
     S->>P: spawn run_phase("compute")
     P->>D: search_lines → work/jobs/id/, save_run → runs/run/
-    P->>J: add_run, set done, _write_statistics
+    P->>J: add_run, _write_statistics, set done
     P->>D: _orthophoto_after → cache/ (no slot)
     W->>J: EventHub polls the new events of all jobs once per TICK
     W-->>B: the user's events (seen_by)

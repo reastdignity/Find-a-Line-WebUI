@@ -83,10 +83,10 @@ What each step reads and writes:
 
 | Step | Reads | Writes | Progress bars |
 | --- | --- | --- | --- |
-| 1 `prepare_data` | the cached tiles, the OSM coastline or the world water file | the grids of `work/<id>/`, `Data` (mask, terrain histogram) | `stitching ...`, `area coverage`, `sea mask (...)`, `shore zone`, `shore from surface`, `filling sea and lakes`, `border gaps (...)`, `gap filling (...)`, `surface coverage`, `terrain statistics` |
+| 1 `prepare_data` | the cached tiles, the OSM coastline or the world water file | the grids of `work/<id>/`, `Data` (mask, terrain histogram) | `stitching ...`, `area coverage`, `sea mask (...)`, `shore zone`, `shore from surface`, `filling sea and lakes`, `border gaps (...)`, `gap filling (...)`, `uncertain shore`, `surface coverage`, `terrain statistics` |
 | 2 `_anchors` | `nmt`, the slope, the seams of `filled`/`joined` | `Anchors` (anchors, prominence, drop, strong) | `finding anchors`, `anchor prominence and drop` |
-| 3 `_lines` → `find_valid_lines` | the anchors, `nmt`, `obstacles`, `water`, `filled`, the limits (formula or the sag table) | a `LineTable` of the valid lines, the funnel's counts (`Plan.funnel`) | `sag estimator table`, `free directions`, `anchor pairs`, `checking lines` |
-| 4 `_lines` | the `LineTable` | columns of coordinates, metres over water and gaps, `Groups`, `Profiles` | `coordinates`, `over water and filled gaps`, `grouping lines`, `line profiles` |
+| 3 `_lines` → `find_valid_lines` | the anchors, `nmt`, `obstacles`, the limits (formula or the sag table) | a `LineTable` of the valid lines, the funnel's counts (`Plan.funnel`) | `sag estimator table`, `free directions`, `anchor pairs`, `checking lines` |
+| 4 `_lines` | the `LineTable`, `water`, `filled` | columns of coordinates, metres over water and gaps, `Groups`, `Profiles` | `coordinates`, `over water and filled gaps`, `grouping lines`, `line profiles` |
 | 5 `save_run` | the table, the groups, the profiles, the plan's credits | `runs/<run>/` and `runs/runs.js` | `saving results`, `saving the map` |
 
 ## A large area: tiles

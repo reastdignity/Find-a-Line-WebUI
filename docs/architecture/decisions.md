@@ -115,7 +115,7 @@ flowchart TD
     chain --> shore{"a surface model and the sea zone?"}
     shore -- "yes" --> face["fill_shore_from_surface<br/>a cliff's face the terrain lacks takes the DSM,<br/>each pixel at most FACE_TOLERANCE = 1.5 m<br/>above the one it is reached from"]
     shore -- "no" --> fw
-    face --> fw["fill_water<br/>the sea at 0 m where its data are at most SEA_LEVEL_TOLERANCE = 1 m<br/>(or Source.sea_fill), lakes at their shore level;<br/>bare.npy: water the terrain lacked"]
+    face --> fw["fill_water<br/>the sea at 0 m where its data are at most SEA_LEVEL_TOLERANCE = 1 m<br/>(or Source.sea_fill), lakes at their shore level;<br/>bare: water the terrain lacked"]
     fw --> obs
     water -- "off" --> obs{"a surface model and<br/>--nmpt mark or reject?"}
     obs -- "yes" --> rule["obstacle_surface<br/>the surface only where it stands more than MIN_HEIGHT = 1 m<br/>above the terrain's envelope of RADIUS = 2 px;<br/>never on bare pixels"]
