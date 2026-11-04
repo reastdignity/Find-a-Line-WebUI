@@ -99,15 +99,20 @@ Rules for every step:
   the neighbour it is reached from) take the surface model's heights; they are filled data (`filled_m`, `Data.covered`), not water, and no seam
   (the anchors at a cliff's top edge stand next to its face: as a seam they were lost, R15 606 -> 1 lines); the 3D patch takes the run's surface model for this (no obstacle surface). No migration: runs
   from before keep their files, a profile or patch computed again follows the new rule.
-- *Open, the next task (the user, 2026-11-04)*: the uncertain shore shown live for the part of the map in view, not as
+- *Done (2026-11-05)*: the uncertain shore shown live for the part of the map in view, not as
   one warning for the whole run: the run saves the shore segments where the terrain model had no data at the foot
   (the face taken from the surface model, or the sea fill standing in for it), the map draws them as a layer and
   counts the metres in the visible bounds on every move; per line `filled_m` already counts the faces. The user's
   own recognition in the 3D view is the reference: long vertical streaks of the draped orthophoto from the top edge
   straight down to the sea surface (a wall of one pixel's width per colour column), very clear to a person. Whether
-  that can be detected automatically is to be decided: the sea-fill rim (a sea pixel whose terrain neighbour stands
-  more than a threshold above it, counted in step 1) is the same thing in the data; in the 3D view the mesh's faces
-  steeper than about 85 degrees over more than about 10 m that end on the sea fill could be marked.
+  that can be detected automatically: the sea-fill rim (a water pixel whose terrain neighbour stands more than
+  `SHORE_RIM_MIN` 5 m above it, `sources.filling.shore_rows`) is the same thing in the data, and it is what the run
+  records (`shore_segments`: bands of the two kinds, the face from the surface model and the sea standing in) for
+  the map's layer and note of the metres in view, and what the 3D view hatches from the patch's kinds; a detector
+  from the heights alone (`view3d/shore.ts` `detectWalls`, a sample at the sea's level next to one 10 m higher)
+  finds on Ta' Cenc 1 094 samples, 371 of them among the data's 3 367 (the rest stand at the foot of faces taken
+  from the surface model, which the data count as explained, and the data also hold the faces themselves and the
+  rims between 5 and 10 m): the data's kinds are what is shown, the detector a check of the "sea" kind.
 
 ## Done: the surface model above the terrain on steep rock (2026-11-02)
 - *What was seen*: on bare rock nearly every line was marked as over trees or buildings (Cwm Silyn all 2854 lines,

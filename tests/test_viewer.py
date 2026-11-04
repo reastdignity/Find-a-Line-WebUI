@@ -559,6 +559,11 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert out["clicked"] == ["variant"] and out["variantShown"] is True
     assert out["measured"] is True and out["escaped"] is True and out["moves"] == 1
     assert out["after"] == 0
+    # The uncertain shore (shoreLayer.ts): one overlay, the control with the metres while the segment is in view
+    assert out["shore"]["overlays"] == 1 and out["shore"]["shown"] is True
+    assert "90 m: the sea" in out["shore"]["text"] and "0 m: the foot" in out["shore"]["text"]
+    assert out["shore"]["help"] == [True, True, "true"]  # the explanation closed at first, opened by the "?"
+    assert out["shoreAway"] is True
     assert test_web._violations(dom) == []
 
 
@@ -656,12 +661,22 @@ const meta = Buffer.from(JSON.stringify({{width: fx.width, height: fx.height, ba
 const head = Buffer.alloc(4); head.writeUInt32LE(meta.length);
 const answer = Buffer.concat([head, meta, body]);
 const sha = (v) => crypto.createHash("sha256").update(Buffer.from(v.buffer, v.byteOffset, v.byteLength)).digest("hex");
+// The same with the shore's kinds after the heights (search.encode_shore): a few samples of each kind
+const kinds = Buffer.alloc(fx.width * fx.height); kinds[5 * fx.width + 7] = 1; kinds[9 * fx.width + 2] = 2;
+const shoreBlock = zlib.deflateSync(kinds);
+const meta2 = Buffer.from(JSON.stringify({{width: fx.width, height: fx.height, base_dm: fx.base_dm, step: 1,
+                                           shore_bytes: shoreBlock.length}}), "utf-8");
+const head2 = Buffer.alloc(4); head2.writeUInt32LE(meta2.length);
+const answer2 = Buffer.concat([head2, meta2, body, shoreBlock]);
 (async () => {{
   const p = await m.decodePatch(answer.buffer.slice(answer.byteOffset, answer.byteOffset + answer.length));
+  const p2 = await m.decodePatch(answer2.buffer.slice(answer2.byteOffset, answer2.byteOffset + answer2.length));
+  const shore = {{plain: p.shore === undefined, sha: sha(p2.values), kinds: [p2.shore[5 * fx.width + 7], p2.shore[9 * fx.width + 2],
+                 p2.shore.reduce((n, k) => n + (k ? 1 : 0), 0)]}};
   const alone = m.decodeValues(new Uint8Array(zlib.inflateSync(body)), fx.width, fx.height);
   const at = (r, c) => {{ const h = p.heights[r * p.cols + c]; return Number.isNaN(h) ? null : Math.round(h * 10) / 10; }};
   const small = m.toHeights(new Int16Array(257 * 257).fill(5), 257, 257, 100);
-  console.log(JSON.stringify({{sha: sha(p.values), alone: sha(alone), attribution: p.meta.attribution,
+  console.log(JSON.stringify({{sha: sha(p.values), alone: sha(alone), attribution: p.meta.attribution, shore,
     size: [p.cols, p.rows], samples: fx.samples.map(([r, c]) => at(r, c)),
     small: [small.cols, small.rows, small.heights[0], small.heights[256 * 513 + 256], Number.isNaN(small.heights[257]),
             Number.isNaN(small.heights[257 * 513])],
@@ -672,9 +687,62 @@ const sha = (v) => crypto.createHash("sha256").update(Buffer.from(v.buffer, v.by
     assert found["samples"] == [h for _, _, h in fixture["samples"]]
     assert found["small"] == [513, 513, 10.5, 10.5, True, True]
     assert found["padded"] == [513, 513, 1025, 1025, 1537]
+    assert found["shore"] == {"plain": True, "sha": fixture["values_sha256"], "kinds": [1, 2, 2]}
 
 
-def test_webbing_geometry(tmp_path):
+def test_shore_in_view(tmp_path):
+    """shore.ts: a segment's box, the metres of each kind among the segments a view's box reaches."""
+    segments = [{"kind": "surface", "px": 50, "m": 120, "ring": [[14.24, 36.01], [14.25, 36.01], [14.25, 36.02], [14.24, 36.01]]},
+                {"kind": "sea", "px": 10, "m": 30, "ring": [[14.30, 36.05], [14.31, 36.05], [14.31, 36.06], [14.30, 36.05]]},
+                {"kind": "sea", "px": 5, "m": 15, "ring": [[14.245, 36.015], [14.246, 36.015], [14.246, 36.016], [14.245, 36.015]]}]
+    found = run_ts(tmp_path, "shore", f"""
+const shore = {{rim_min: 5, segments: {json.dumps(segments)}, totals: {{}}}};
+console.log(JSON.stringify({{
+  box: m.segmentBox(shore.segments[0]),
+  all: m.metresInView(shore, {{south: 36.0, west: 14.2, north: 36.1, east: 14.4}}),
+  first: m.metresInView(shore, {{south: 36.0, west: 14.2, north: 36.012, east: 14.242}}),
+  touching: m.metresInView(shore, {{south: 36.02, west: 14.25, north: 36.03, east: 14.26}}),
+  none: m.metresInView(shore, {{south: 35.9, west: 14.0, north: 35.95, east: 14.1}}),
+  has: [m.hasShore(shore), m.hasShore(null), m.hasShore({{rim_min: 5, segments: [], totals: {{}}}})]}}));""")
+    assert found["box"] == {"south": 36.01, "west": 14.24, "north": 36.02, "east": 14.25}
+    assert found["all"] == {"surface": 120, "sea": 45}
+    assert found["first"] == {"surface": 120, "sea": 0}
+    assert found["touching"] == {"surface": 120, "sea": 0}  # a box touching at its corner counts
+    assert found["none"] == {"surface": 0, "sea": 0}
+    assert found["has"] == [True, False, False]
+
+
+def test_shore_hatching_and_walls(tmp_path):
+    """view3d/shore.ts: the shore's samples as rectangles of a chunk's texture (within the chunk's bounds only),
+    the detector of walls from the heights (a sample at the sea's level next to one WALL_DROP higher) and its
+    agreement with the data's kinds."""
+    found = run_ts(tmp_path, "view3d/shore", """
+const width = 6, height = 4, kinds = new Uint8Array(width * height);
+kinds[1 * width + 2] = 1; kinds[2 * width + 4] = 2; kinds[3 * width + 0] = 2;
+// A grid of 1 m samples at the equator, lon = x·1e-5 ..., so world pixels are easy to reason about
+const meta = {width, height, left: 100, top: 200, res: 1, affine: [0, 1e-5, 0, 0, 0, 1e-5]};
+const plan = {z: 20, px0: 0, py0: 0, width: 4096, height: 4096};
+const all = m.shoreCells(kinds, meta, plan, {x0: 100, y0: 196, x1: 106, y1: 200});
+const part = m.shoreCells(kinds, meta, plan, {x0: 100, y0: 198, x1: 103, y1: 200});
+const heights = new Float32Array([50, 50, 50, 50, 50, 50,
+                                  50, 45, 50, 9, 50, 50,
+                                  0, 0, 0, 0, 0, 50,
+                                  0, 0, NaN, 0, 0, 0]);
+const walls = m.detectWalls(heights, width, height, 10);
+console.log(JSON.stringify({all: all.map((c) => [c.kind, c.w > 0 && c.h > 0, Math.round(c.x), Math.round(c.y)]),
+  part: part.map((c) => c.kind), within: [m.shoreWithin(kinds, meta, {x0: 100, y0: 198, x1: 103, y1: 200}),
+  m.shoreWithin(kinds, meta, {x0: 103, y0: 199, x1: 106, y1: 200})],
+  walls: Array.from(walls), agreement: m.agreement(walls, kinds), drop: m.WALL_DROP}));""")
+    assert [c[0] for c in found["all"]] == [1, 2, 2] and all(c[1] for c in found["all"])
+    # Row 1 is above row 2 on the canvas (y down); sample 2 of row 1 lies left of sample 5 of row 2
+    assert found["all"][0][3] < found["all"][1][3] and found["all"][0][2] < found["all"][1][2]
+    assert found["part"] == [1] and found["within"] == [True, False]
+    # The detector: the 0 m samples with a neighbour 10 m or more higher are walls (the 9 m one is not enough by
+    # itself, but its row's 50 m samples reach diagonally); a 0 m sample among 0 m samples is not
+    assert found["walls"][12:18] == [2, 2, 2, 2, 2, 0]
+    assert found["walls"][18:] == [0, 0, 0, 0, 2, 2]
+    assert found["agreement"] == {"detected": 7, "data": 3, "both": 1} and found["drop"] == 10
+
     """view3d/geometry.ts: the webbing from sag.ts between the anchors (its ends at the anchors, a level line's
     lowest point in the middle, the walker's start at the envelope's largest sag, as sag.py), the scene's axes,
     the walk's stepping, the affine and Web Mercator."""

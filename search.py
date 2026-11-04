@@ -139,6 +139,9 @@ PATCH_BLOCK = 512
 PATCH_SIDE_MIN = 1536
 PATCH_SIDE_MARGIN = 500
 PATCH_NO_DATA = -32768  # the int16 value of a sample without data
+# The uncertain shore (sources.filling.shore_segments) of a search this long or longer gets a warning
+SHORE_WARN_M = 100
+SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_lines: resuming keeps it)
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
 # download slot): measured 2026-10-31 at 120 MiB after the imports, 240-400 MiB when it downloads
@@ -272,6 +275,11 @@ class Data:
     def filled_pixels(self) -> Optional[np.ndarray]:
         """The pixels of filled data a line's filled_m counts: the gaps and the shore faces."""
         return self.covered if self.covered is not None else self.filled
+    # The uncertain shore (sources.filling.shore_segments): the segments for the run's files
+    # (prepare_data(shore="segments")), or the kinds on the grid for the 3D view's patch
+    # (shore="kinds", uint8 memory-mapped); None without water filling or when not asked
+    shore: Optional[Dict] = None
+    shore_kinds: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -281,6 +289,8 @@ class Lines:
     spot_groups: mp.Groups
     # The terrain of the whole search area (hypsometry.statistics), None when not known
     terrain: Optional[Dict] = None
+    # The uncertain shore of the whole search area (sources.filling.shore_segments), None when not known
+    shore: Optional[Dict] = None
 
 
 @dataclass
@@ -883,7 +893,8 @@ def _share_rows(numerator: Callable[[int, int], np.ndarray], denominator: Callab
     return above / below if below else 0.0
 
 
-def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True, strips: bool = False) -> Data:
+def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True, strips: bool = False,
+                 shore: str = "segments") -> Data:
     """Step 1: download what is missing and build the grids (terrain, surface, water, gaps).
 
     statistics: count the heights of the land with data in the search area (Data.terrain,
@@ -891,7 +902,11 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
     strips: the grids made in strips of rows of about filling.STRIP_PX pixels (the area of a
     tiled search, search_lines: its masks memory-mapped in the work folder, one int32 array of
     labels of the whole grid at a time), the same values as the whole grid at once; with
-    plan.tiles the heights are counted per tile core (Data.tile_terrain)."""
+    plan.tiles the heights are counted per tile core (Data.tile_terrain).
+    shore: the uncertain shore after the water filling (sources.filling.shore_rows): "segments" into
+    Data.shore (the run's files), "kinds" into Data.shore_kinds (the 3D view's patch), "none" (a profile,
+    the country layer's tiles).
+    """
     p, grid, source, emit = plan.params, plan.grid, plan.source, plan.emit
     cache_dir, work = plan.paths.cache, plan.paths.work
     rows = src.filling.strip_rows(grid.width) if strips else None
@@ -920,6 +935,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                                              p.update, download=False, rows=rows)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
         water_path = filled_path = covered_path = joined_path = sea_zone = wbm = terrain = tile_terrain = None
+        face_path = shore_segments = shore_kinds_path = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False,
                                       rows=rows)
@@ -1003,11 +1019,12 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                     # Filled data with the gaps' for filled_m and the map's filter (Data.covered), but no seam:
                     # the anchors at the cliff's top edge stand right next to its face
                     covered_path = os.path.join(work, "covered.npy")
-                    os.replace(face_path, covered_path)
+                    shutil.copyfile(face_path, covered_path)  # the face mask itself stays for the shore below
                     if filled_path is not None:
                         src.filling._or_rows(covered_path, filled_path, rows or grid.height)
                 else:
                     src.filling.remove_grid(face_path)  # an empty mask: nothing to count
+                    face_path = None
             if surface_path and plan.obstacles:
                 if rows is None:
                     bare = np.isnan(np.load(elevation_path, mmap_mode="r"))  # filled as water below
@@ -1021,6 +1038,35 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 bare &= np.load(water_path)  # water the terrain model lacked: no obstacles there
             elif bare_path:
                 bare = np.load(bare_path, mmap_mode="r")
+            if shore != "none":
+                # The uncertain shore: the faces from the surface model and the sea fill standing in for
+                # a cliff's foot (the terrain model ends above the water); segments for the run's files,
+                # or the kinds on the grid for the 3D view's patch
+                progress.compute.start("uncertain shore", 1, unit="step")
+                if shore == "kinds":
+                    shore_path = os.path.join(work, "shore.npy")
+                    kinds = np.lib.format.open_memmap(shore_path, mode="w+", dtype=np.uint8, shape=(grid.height, grid.width))
+                    z, wet = np.load(elevation_path, mmap_mode="r"), np.load(water_path, mmap_mode="r")
+                    face = np.load(face_path, mmap_mode="r") if face_path else None
+                    for r0, r1, _, _ in src.filling.strips(grid.height, rows or grid.height):
+                        kinds[r0:r1] = src.filling.shore_rows(z, wet, face, r0, r1)
+                    kinds.flush()
+                    del kinds, z, wet, face
+                    shore_kinds_path = shore_path
+                    progress.compute.update(1)
+                    progress.compute.finish()
+                else:
+                    shore_segments = src.filling.shore_segments(elevation_path, water_path, face_path, grid, rows=rows)
+                    totals = shore_segments["totals"]
+                    progress.compute.update(1)
+                    progress.compute.finish(f"{totals['surface_m'] + totals['sea_m']} m")
+                    if totals["surface_m"] + totals["sea_m"] >= SHORE_WARN_M:
+                        emit("warning", messages.Note(
+                            f"the terrain model has no data at the foot of about {totals['surface_m'] + totals['sea_m']} m "
+                            "of shore (the map shows where); lines ending or passing there are less certain",
+                            "shore_uncertain", surface=totals["surface_m"], sea=totals["sea_m"]))
+            if face_path:
+                src.filling.remove_grid(face_path)
         del sea_zone
         if rows is not None:
             src.filling.remove_grid(temporary("sea_zone.npy"))
@@ -1061,13 +1107,14 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 np.load(water_path, mmap_mode="r") if water_path else None,
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
                 np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain, tile_terrain,
-                covered=np.load(covered_path, mmap_mode="r") if covered_path else None)
+                covered=np.load(covered_path, mmap_mode="r") if covered_path else None, shore=shore_segments,
+                shore_kinds=np.load(shore_kinds_path, mmap_mode="r") if shore_kinds_path else None)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
     """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
-    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution))
+    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore)
 
 
 def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0) -> Tuple[sh.LineTable, mp.Groups]:
@@ -1540,6 +1587,10 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     terrain: Optional[hy.Histogram] = hy.Histogram.empty()  # of the tiles' cores; None once one is not known
     todo = [k for k in range(len(plan.tiles)) if not os.path.exists(os.path.join(folder, TILE_FILE.format(k)))]
     area = prepare_data(plan, strips=True) if todo else None  # step 1 once, on the whole grid
+    shore_path = os.path.join(run["path"], SHORE_FILE)  # the area's uncertain shore, kept for a resumed search
+    if area is not None and area.shore is not None:
+        with open(shore_path, "w", encoding="utf-8") as f:
+            json.dump(area.shore, f, separators=(",", ":"))
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
@@ -1597,7 +1648,11 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         progress.compute.finish()
         src.used_data[:] = used
     progress.set_step("")
-    return Lines(results, groups, hy.statistics(terrain, plan.resolution)), run
+    shore = None
+    if os.path.isfile(shore_path):
+        with open(shore_path, encoding="utf-8") as f:
+            shore = json.load(f)
+    return Lines(results, groups, hy.statistics(terrain, plan.resolution), shore), run
 
 
 def _merged_data() -> List[Dict]:
@@ -1706,6 +1761,7 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
                     # which lines have a profile in the map (runs before 2026-11: all of a circle's)
                     "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
         "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
+        "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
@@ -1863,7 +1919,7 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
     if plan.crs != meta["center"]["crs"]:
         raise SearchError(f"the run used {meta['center']['crs']}, a search here would use {plan.crs}", "profile_crs")
     plan.obstacles = p.get("obstacles")  # the run's rule; runs before it compared the surface model as it is
-    data = prepare_data(plan, statistics=False)
+    data = prepare_data(plan, statistics=False, shore="none")
     grid, res = plan.grid, plan.resolution
     pixel = lambda x, y: (int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5)))
     sag_table = None
@@ -1943,7 +1999,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         raise RuntimeError(f"the patch's grid ({grid.width} x {grid.height} at {grid.left}, {grid.top}) is not "
                            f"the square asked for ({size} x {size} at {left}, {top})")
     plan.obstacles = None  # the 3D view draws the terrain: no obstacle surface, the surface model fills the shore faces only
-    data = prepare_data(plan, statistics=False)  # the heights only, no hypsometry
+    data = prepare_data(plan, statistics=False, shore="kinds")  # the heights and the uncertain shore, no hypsometry
     anchors = []
     for x, y in ((x1, y1), (x2, y2)):
         row, col = int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5))
@@ -1952,9 +2008,11 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         anchors.append({"x": grid.left + (col + 0.5) * res, "y": grid.top - (row + 0.5) * res,
                         "h": round(h, 2) if math.isfinite(h) else None})
     heights = np.array(data.elevation[::step, ::step])  # a copy: the grids go with the work folder
+    kinds = np.array(data.shore_kinds[::step, ::step]) if data.shore_kinds is not None else None
     del data
     gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
     body, base_dm = encode_heights(heights)
+    shore = encode_shore(kinds) if kinds is not None else b""
     # The sampled grid's outer edges: sample (i, j) has its centre at left + (j + 0.5)·res·step
     sampled = res * step
     s_left, s_top = grid.left + res / 2 - sampled / 2, grid.top - res / 2 + sampled / 2
@@ -1977,7 +2035,20 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "attribution": meta.get("attribution", []),
         "sha256": hashlib.sha256(body).hexdigest(),
     }
-    return patch, body
+    if shore:
+        # The uncertain shore's kinds after the heights (docs/3d-view-contract.md, "Body"): the page splits them off
+        patch["shore_bytes"] = len(shore)
+        patch["shore_sha256"] = hashlib.sha256(shore).hexdigest()
+    return patch, body + shore
+
+
+def encode_shore(kinds: np.ndarray) -> bytes:
+    """The uncertain shore of the 3D view's patch (sources.filling.shore_rows on the patch's samples:
+    0 none, 1 the face from the surface model, 2 the sea fill standing in for a cliff's foot), one
+    byte a sample row-major from the top, deflated (zlib, as the heights); the page draws hatching
+    there (viewer/src/view3d/shore.ts)."""
+    import zlib
+    return zlib.compress(np.ascontiguousarray(kinds, dtype=np.uint8).tobytes(), 6)
 
 
 def encode_heights(heights: np.ndarray) -> Tuple[bytes, int]:

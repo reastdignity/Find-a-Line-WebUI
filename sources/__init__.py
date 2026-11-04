@@ -89,7 +89,8 @@ from .catalogue.world import COPERNICUS_DISCLAIMER, FABDEM_CREDIT, WATER_MASK, W
 from .catalogue import SOURCES
 from .choose import OFFLINE_BOXES, choose_source, source_unavailable
 from .mosaic import build_mosaic, load_slope_file, prepare_layer, used_data
-from .filling import LAKE, OCEAN, SHORE_BUFFER, fill_gaps, fill_gaps_chain, fill_shore_from_surface, fill_water, near, water_body_mask
+from .filling import (LAKE, OCEAN, SHORE_BUFFER, fill_gaps, fill_gaps_chain, fill_shore_from_surface, fill_water, near,
+                      shore_rows, shore_segments, water_body_mask)
 
 __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "Coverage", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
            "Fetched", "download_layers", "HOST_SLOTS_OF", "host_slot", "tile_lock", "WcsTiles", "ImageServerTiles", "GridTiles",
@@ -98,6 +99,7 @@ __all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "Coverage", "OrthoService", "C
            "IfsarBlocks", "FileLayer", "GUGIK_CREDIT", "USGS_1M", "FABDEM_CREDIT", "COPERNICUS_DISCLAIMER", "MALTA_CREDITS",
            "WATER_MASK", "WATER_MASK_CREDIT", "OFFLINE_BOXES", "choose_source", "source_unavailable", "used_data",
            "prepare_layer", "build_mosaic", "load_slope_file", "water_body_mask", "near", "fill_water", "fill_shore_from_surface",
+           "shore_rows", "shore_segments",
            "fill_gaps", "fill_gaps_chain", "OCEAN", "LAKE", "SHORE_BUFFER", "_same_crs", "_utm_zone_of",
            "_survey_year", "MetalinkTiles", "S3Blocks", "EGM2008", "Geoid", "GeoidMissing",
            "ZipMemberTiles"]

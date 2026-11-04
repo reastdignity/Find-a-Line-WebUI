@@ -87,7 +87,7 @@ function chunkOf(m: ChunkMesh, patch: Patch, base: () => Material, invalidate: (
   let own: Material | null = null;
   return {
     ci: m.ci, cj: m.cj, mesh, bounds, hasLine: m.hasLine,
-    setTexture(texture: Texture | null, uv?: (x: number, y: number) => [number, number]) {
+    setTexture(texture: Texture | null, uv?: (x: number, y: number) => [number, number], lit = false) {
       if (own) { own.dispose(); own = null; }
       if (!texture || !uv) {
         mesh.material = base();
@@ -99,7 +99,8 @@ function chunkOf(m: ChunkMesh, patch: Patch, base: () => Material, invalidate: (
           uvs[2 * v] = u; uvs[2 * v + 1] = w;
         }
         geometry.setAttribute("uv", new Float32BufferAttribute(uvs, 2));
-        mesh.material = own = new MeshBasicMaterial({map: texture, side: DoubleSide});
+        mesh.material = own = lit ? new MeshLambertMaterial({map: texture, side: DoubleSide})
+                                  : new MeshBasicMaterial({map: texture, side: DoubleSide});
       }
       invalidate();
     },

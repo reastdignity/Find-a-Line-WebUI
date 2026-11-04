@@ -499,6 +499,11 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     assert plan.obstacles and plan.nmpt and plan.source.fallbacks == ["test_fallback"]
     data = search.prepare_data(plan)
     assert data.filled is not None and data.filled.any() and data.water.any()
+    # The uncertain shore: the face from the surface model (columns 200-211 of every row) and the sea fill
+    # at its foot, which the face ends 188 m above
+    assert data.shore and {s["kind"] for s in data.shore["segments"]} == {"sea", "surface"}
+    assert data.shore["totals"]["surface_px"] == 240 * 12 and 0 < data.shore["totals"]["sea_px"] < 100
+    assert data.shore_kinds is None
 
     def written_in(folder, shape):
         found = {}
@@ -527,6 +532,7 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     assert plan.tiles and len(plan.tiles) == 4
     data = search.prepare_data(plan, strips=True)
     assert data.filled.any() and data.water.any() and len(data.tile_terrain) == 4 and data.mask.any()
+    assert data.shore and data.shore["totals"]["surface_px"] > 0  # the area's, found strip by strip
     written = written_in(paths.work, (plan.grid.height, plan.grid.width))
     assert sorted(written) == ["covered.npy", "filled.npy", "gap_nmpt.npy", "gap_nmt.npy", "mask.npy", "nmpt.npy",
                                "nmt.npy", "obstacles.npy", "water.npy", "wbm.npy"]

@@ -107,6 +107,19 @@ export interface RunInfo {
   bbox?: [number, number, number, number] | null;  // west, south, east, north
 }
 
+export type ShoreKind = "surface" | "sea";
+
+/** A segment of the uncertain shore (sources.filling.shore_segments, shore.ts): where the terrain model had no
+ *  data at the foot of the shore, the face taken from the surface model ("surface") or the sea fill standing
+ *  in for it ("sea"); `m` about its length along the shore, `ring` its outline as lon, lat. */
+export interface ShoreSegment { kind: ShoreKind; px: number; m: number; ring: [number, number][] }
+
+export interface Shore {
+  rim_min: number;  // m: the sea fill next to terrain standing more than this above it is "sea"
+  segments: ShoreSegment[];
+  totals: Record<string, number>;  // surface_m, sea_m, surface_px, sea_px
+}
+
 export interface RunData {
   run: RunInfo;
   center: [number, number];
@@ -123,6 +136,7 @@ export interface RunData {
   high_above: number;             // m: from this height above the terrain a part of a line is high
   max_zoom: number;
   terrain?: Terrain | null;       // runs saved before 2026-11-03 have none
+  shore?: Shore | null;           // the uncertain shore; runs saved before 2026-11-05 have none
   lines: LineRow[];
 }
 

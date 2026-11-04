@@ -11,6 +11,7 @@ import { orthoForApp } from "../result/load";
 import type { Ortho } from "../types";
 import { DATA_CREDITS, DATA_ORDER, dataCredits, IMAGERY_CREDITS, IMAGERY_ORDER, imageryCredits } from "./credits";
 import type { Chunk, Scene3D } from "./scene-api";
+import { drawShore, shoreWithin } from "./shore";
 import {
   cacheBusted, corridorOf, dataBounds, esriDraws, orthoDraws, orthoOf, planTextures, TILE_PX, uvOf, whiteBlocks,
   type Composed, type TexturePlan, type TileDraw, type TileImage,
@@ -125,8 +126,8 @@ async function drawComposed(ctx: CanvasRenderingContext2D, c: Composed, loader: 
 
 /** One chunk's canvas: the shaded terrain's colour under the tiles (a tile that fails leaves it), each tile from
  *  our cache when worth trying, else from the service (composed, or its layers). Null when stopped. */
-async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fill: string):
-    Promise<HTMLCanvasElement | null> {
+async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fill: string,
+                       hatch?: (ctx: CanvasRenderingContext2D) => void): Promise<HTMLCanvasElement | null> {
   const canvas = document.createElement("canvas");
   canvas.width = plan.width;
   canvas.height = plan.height;
@@ -144,12 +145,16 @@ async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fil
     const images = await Promise.all(d.layers.map((part) => loader.service(part.url)));
     images.forEach((img, k) => { if (img) drawImage(ctx, img, d.layers[k], dx, dy); });  // bottom first
   }));
-  return loader.stopped ? null : canvas;
+  if (loader.stopped) return null;
+  hatch?.(ctx);  // the uncertain shore over the imagery
+  return canvas;
 }
 
 /** The imagery of `scene`: its control in `scene.toolbar`, its credits in `scene.credits`. */
-export function createImagery(scene: Scene3D, options: { runId: string; esriKey: string | null }): Imagery {
+export function createImagery(scene: Scene3D, options: { runId: string; esriKey: string | null;
+                                                        shore?: Uint8Array | null }): Imagery {
   const {meta} = scene;
+  const shore = options.shore ?? null;  // the kinds of the uncertain shore (decode.ts), hatched on the textures
   const ortho: Ortho | null = orthoForApp(orthoOf(meta.ortho), options.runId);
   const available: ImageryKind[] = [...(ortho ? ["ortho" as const] : []), ...(options.esriKey ? ["esri" as const] : []),
                                     "shaded", ...(scene.edgesSupported ? ["edges" as const] : [])];
@@ -161,6 +166,12 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   const order = scene.chunks.map((c, k) => k).sort((a, b) => Number(scene.chunks[b].hasLine) - Number(scene.chunks[a].hasLine));
   const plans = planTextures(meta.affine, scene.chunks.map((c) => ({bounds: dataBounds(meta, c.bounds), hasLine: c.hasLine})),
                              scene.level);
+  // The hatching of a chunk: its shore's samples on its plan's canvas, none when the chunk holds none
+  const hatchOf = (k: number): ((ctx: CanvasRenderingContext2D) => void) | undefined => {
+    const bounds = dataBounds(meta, scene.chunks[k].bounds), plan = plans[k];
+    if (!shore || !bounds || !plan || !shoreWithin(shore, meta, bounds)) return undefined;
+    return (ctx) => { drawShore(ctx, shore, meta, plan, bounds); };
+  };
   const corridors = new Map<number, ReturnType<typeof corridorOf>>();
   const corridor = (z: number) => {
     if (!corridors.has(z)) corridors.set(z, corridorOf(meta.affine, meta.anchors, z));
@@ -209,6 +220,12 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     note.textContent = t("ui.view3d.no_imagery");
     box.append(note);
   }
+  if (shore) {  // what the hatching means (the Edges look draws none)
+    const note = document.createElement("span");
+    note.className = "u-small v3-imagery-note v3-shore-note";
+    note.textContent = t("ui.view3d.shore_hatched");
+    box.append(note);
+  }
   const status = document.createElement("span");
   status.className = "u-small v3-imagery-status";
   status.setAttribute("role", "status");
@@ -225,8 +242,9 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     if (select) select.value = kind;
   };
 
-  const retexture = (chunk: Chunk, texture: CanvasTexture | null, uv?: (x: number, y: number) => [number, number]) => {
-    chunk.setTexture(texture, uv);
+  const retexture = (chunk: Chunk, texture: CanvasTexture | null, uv?: (x: number, y: number) => [number, number],
+                     lit = false) => {
+    chunk.setTexture(texture, uv, lit);
     textures.get(chunk)?.dispose();
     if (texture) textures.set(chunk, texture); else textures.delete(chunk);
   };
@@ -249,7 +267,27 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       if (kind === "shaded" || kind === "edges") {
         loader = null;
         status.hidden = true;
-        for (const chunk of scene.chunks) retexture(chunk, null);
+        const fill = fillColour();
+        scene.chunks.forEach((chunk, k) => {
+          // Shaded: the chunks with uncertain shore get the terrain's colour with the hatching as a texture
+          // that multiplies the shading (lit); the others, and the Edges look, stay without one
+          const hatch = kind === "shaded" ? hatchOf(k) : undefined, plan = plans[k];
+          if (!hatch || !plan) { retexture(chunk, null); return; }
+          const canvas = document.createElement("canvas");
+          canvas.width = plan.width;
+          canvas.height = plan.height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) { retexture(chunk, null); return; }
+          ctx.fillStyle = fill;
+          ctx.fillRect(0, 0, plan.width, plan.height);
+          hatch(ctx);
+          const texture = new CanvasTexture(canvas);
+          texture.colorSpace = SRGBColorSpace;
+          texture.minFilter = LinearMipmapLinearFilter;
+          texture.generateMipmaps = true;
+          texture.flipY = true;
+          retexture(chunk, texture, uvOf(meta.affine, plan), true);
+        });
         if (available.includes("edges")) scene.setEdges(kind === "edges");
         if (changed) for (const fn of [...listeners]) fn(kind);
         scene.invalidate();
@@ -265,7 +303,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
         if (!plan) { retexture(chunk, null); return; }
         const draws = kind === "esri" ? esriDraws(options.esriKey!, plan)
           : orthoDraws(ortho!, plan, chunk.hasLine ? corridor(plan.z) : null);
-        const canvas = await compose(plan, draws, mine, fill);
+        const canvas = await compose(plan, draws, mine, fill, hatchOf(k));
         if (!canvas || mine.stopped) return;
         const texture = new CanvasTexture(canvas);
         texture.colorSpace = SRGBColorSpace;

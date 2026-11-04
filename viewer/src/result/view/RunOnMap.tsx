@@ -5,6 +5,7 @@
 import L from "leaflet";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { baseLayers } from "../../baselayers";
+import { addShore } from "../../shoreLayer";
 import type { Ortho, RunData } from "../../types";
 import { ResultWorkspace, type ResultWorkspaceProps } from "./ResultWorkspace";
 
@@ -30,7 +31,9 @@ export function RunOnMap({ortho, onData, ...props}: RunOnMapProps) {
     map.setMaxZoom(data.max_zoom);
     const layers = baseLayers(ortho ? ortho(data) : data.ortho, data.max_zoom);
     Object.values(layers)[0].addTo(map);
-    L.control.layers(layers, undefined, {position: "topright"}).addTo(map);
+    const overlays: Record<string, L.Layer> = {};
+    addShore(map, data.shore, overlays);  // the uncertain shore: its overlay, its metres in view
+    L.control.layers(layers, Object.keys(overlays).length ? overlays : undefined, {position: "topright"}).addTo(map);
     L.control.scale({position: "bottomleft"}).addTo(map);
     onData?.(data);
   };

@@ -93,10 +93,26 @@ async function fetchPatch(page: PageRequest): Promise<Patch> {
     throw new PageError(detailMessage(data.detail, response.statusText || String(response.status)));
   }
   const {meta, body} = splitAnswer(await response.arrayBuffer());
-  const sha = await sha256Hex(body);
+  // The heights, then the kinds of the uncertain shore when the meta names their bytes (decode.ts decodePatch
+  // does the same without the sha256 checks): each block checked against its sha256
+  const n = meta.shore_bytes ?? 0;
+  if (n < 0 || n > body.byteLength) throw new PageError(t("error.patch_damaged"));
+  const heights = n ? body.subarray(0, body.byteLength - n) : body;
+  const shoreBlock = n ? body.subarray(body.byteLength - n) : null;
+  const sha = await sha256Hex(heights);
   if (sha !== null && sha !== meta.sha256) throw new PageError(t("error.patch_damaged"));
-  const values = decodeValues(await inflate(body), meta.width, meta.height);
-  return {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
+  if (shoreBlock) {
+    const shoreSha = await sha256Hex(shoreBlock);
+    if (shoreSha !== null && shoreSha !== meta.shore_sha256) throw new PageError(t("error.patch_damaged"));
+  }
+  const values = decodeValues(await inflate(heights), meta.width, meta.height);
+  const patch: Patch = {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
+  if (shoreBlock) {
+    const kinds = await inflate(shoreBlock);
+    if (kinds.byteLength !== meta.width * meta.height) throw new PageError(t("error.patch_damaged"));
+    if (kinds.some((k) => k !== 0)) patch.shore = kinds;
+  }
+  return patch;
 }
 
 /** A line's profile, `line` "lat1,lon1,lat2,lon2" (as result/model.ts fetchProfile, without the model's module). */
@@ -158,7 +174,7 @@ async function start() {
     if (!terrainDrawn) {
       terrainDrawn = true;
       ui.say(null);
-      imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey()});
+      imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey(), shore: patch.shore ?? null});
       const url = ringUrl();
       if (url) ring = createRing(scene!, imagery, url);
       ready();

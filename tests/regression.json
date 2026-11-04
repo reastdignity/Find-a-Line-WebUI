@@ -834,12 +834,12 @@
       "de"
     ],
     "expected": {
-      "anchors": 29978,
+      "anchors": 29989,
       "open": 1430,
       "checked": 6788,
       "lines": 315,
       "spots": 16,
-      "csv_sha256": "c060590d84b19941dfbe2269d7ac2dc8080b8e8e831c872f382f4d640dcf01a1",
+      "csv_sha256": "400238cd6cdff24b39b3fdafeaf2ac04daf153aa2c967add2f6119d0374a5dd6",
       "length_km": 58.611,
       "clearance_min": 0.0,
       "clearance_mean": 0.713,
@@ -1056,12 +1056,12 @@
       "no"
     ],
     "expected": {
-      "anchors": 379503,
-      "open": 47078,
-      "checked": 546374,
+      "anchors": 379686,
+      "open": 47081,
+      "checked": 546378,
       "lines": 125054,
       "spots": 503,
-      "csv_sha256": "2a7a513139cea675c3e0aaa65d11b3c5649b2b32d67fc8cc72949eaa7afb7900",
+      "csv_sha256": "3be4298df4e5821e1e421915b75e48814fc55a9e5c6be2556dd7d770ae40fa31",
       "length_km": 23091.239,
       "clearance_min": 0.0,
       "clearance_mean": 3.295,

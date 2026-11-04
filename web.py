@@ -1830,15 +1830,20 @@ VIEW3D_HTML = """<!doctype html>
 
 def patch_body(answer: Dict) -> bytes:
     """The answer of /api/patch from the quick lane's {"meta", "heights"} (base64url without padding):
-    uint32 little-endian N | N bytes of UTF-8 JSON meta | the deflated heights, after checking their
-    sha256 against the meta's (500 patch_damaged otherwise)."""
+    uint32 little-endian N | N bytes of UTF-8 JSON meta | the deflated heights | the deflated kinds of
+    the uncertain shore (meta "shore_bytes" of them, when the run fills the water), after checking
+    their sha256 against the meta's (500 patch_damaged otherwise)."""
     import base64
     import hashlib
     import struct
     try:
         meta, text = answer["meta"], answer["heights"]
-        heights = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
-        intact = hashlib.sha256(heights).hexdigest() == meta["sha256"]
+        body = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+        shore_bytes = int(meta.get("shore_bytes", 0))
+        heights, shore = body[:len(body) - shore_bytes], body[len(body) - shore_bytes:]
+        intact = hashlib.sha256(heights).hexdigest() == meta["sha256"] and (
+            not shore_bytes or hashlib.sha256(shore).hexdigest() == meta.get("shore_sha256"))
+        heights = body
     except (KeyError, TypeError, ValueError):
         intact = False
     if not intact:

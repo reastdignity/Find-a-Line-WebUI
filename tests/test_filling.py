@@ -173,3 +173,91 @@ def test_on_a_band_of_any_shape(tmp_path, shape, rows):
         heights = np.where(new, surface, heights)
     assert np.array_equal(face, accepted)
     assert n == int(accepted.sum())
+
+
+def _shore_scene():
+    """_scene after the face fill and fill_water, plus a cliff of a source without a surface model: rows
+    0-5 terrain data, the face of rows 6-13 from the surface model (columns 0-5 only: columns 6-11 of
+    those rows have no surface data, so the sea fill stands in for the face there), the sea below."""
+    terrain, surface, zone = _scene()
+    surface[6:14, 6:] = np.nan  # no surface data on the right half of the face
+    return terrain, surface, zone
+
+
+def _after_filling(tmp_path, terrain, surface, zone):
+    t, s = tmp_path / "nmt.npy", tmp_path / "nmpt.npy"
+    np.save(t, terrain)
+    np.save(s, surface)
+    face, n = filling.fill_shore_from_surface(str(t), str(s), _grid(terrain.shape), zone, str(tmp_path / "face.npy"))
+    water = filling.fill_water(str(t), str(s), _grid(terrain.shape), np.zeros(terrain.shape, np.uint8), zone,
+                               str(tmp_path / "water.npy"))
+    return t, water, face
+
+
+def test_shore_kinds(tmp_path):
+    """SHORE_SURFACE on the face from the surface model, SHORE_SEA on the sea fill next to terrain standing
+    SHORE_RIM_MIN or more above it (the fill stands in for the cliff's foot), nothing on a low shore."""
+    terrain, surface, zone = _shore_scene()
+    t, water, face = _after_filling(tmp_path, terrain, surface, zone)
+    z, wet, f = np.load(t), np.load(water), np.load(face)
+    kinds = filling.shore_rows(z, wet, f, 0, z.shape[0])
+    assert kinds.dtype == np.uint8 and kinds.shape == z.shape
+    assert (kinds[6:14, :6] == filling.SHORE_SURFACE).all()  # the face from the surface model
+    # The sea fill below the terrain's last row (55 m) where the face is missing: the row right under it;
+    # the column along the face's side is none (a face's foot is as good as the data get)
+    assert (kinds[6, 6:] == filling.SHORE_SEA).all() and (kinds[7:14, 6:] == 0).all()
+    # Below the face: the face ends at 5 m, not more than SHORE_RIM_MIN: no rim there
+    assert (kinds[14:] == 0).all()
+    assert (kinds[:6] == 0).all()  # terrain with data is never the shore
+    # A lake with data stands at its level: the rim is the difference, not the height
+    z2 = z.copy()
+    z2[6, 6:] = 300.0  # a lake's level (water with data)
+    z2[5, 6:] = 305.0  # its shore 5 m up: not more than the rim: no rim; 306 m: a rim
+    kinds2 = filling.shore_rows(z2, wet, f, 0, z.shape[0])
+    assert (kinds2[6, 6:] == 0).all()
+    z2[5, 6:] = 306.0
+    assert (filling.shore_rows(z2, wet, f, 0, z.shape[0])[6, 6:] == filling.SHORE_SEA).all()
+    # Strips of rows read their neighbours: the same as the whole grid
+    strips = np.concatenate([filling.shore_rows(z, wet, f, r0, r1) for r0, r1, _, _ in filling.strips(z.shape[0], 3)])
+    assert np.array_equal(strips, kinds)
+    # Without the face mask the face's pixels are the terrain's own: its side stands next to the fill
+    bare = filling.shore_rows(z, wet, None, 0, z.shape[0])
+    assert not (bare == filling.SHORE_SURFACE).any() and (bare[7:13, 6] == filling.SHORE_SEA).all()
+
+
+def test_shore_segments(tmp_path, monkeypatch):
+    """The segments of a run: the bands of each kind, their outlines in WGS84, pixels and metres, the
+    totals; the same found at once or in strips; short bands left out of the list at the default."""
+    terrain, surface, zone = _shore_scene()
+    t, water, face = _after_filling(tmp_path, terrain, surface, zone)
+    grid = _grid(terrain.shape)
+    short = filling.shore_segments(str(t), str(water), str(face), grid)
+    assert short["segments"] == []  # the bands of 8 and 6 m are under SHORE_MIN_M: listed nowhere, counted in the totals
+    assert short["totals"] == {"surface_m": 0, "sea_m": 0, "surface_px": 48, "sea_px": 6}
+    monkeypatch.setattr(filling, "SHORE_MIN_M", 0)
+    shore = filling.shore_segments(str(t), str(water), str(face), grid)
+    assert shore["rim_min"] == filling.SHORE_RIM_MIN
+    kinds = sorted(s["kind"] for s in shore["segments"])
+    assert kinds == ["sea", "surface"]
+    surface_seg = next(s for s in shore["segments"] if s["kind"] == "surface")
+    sea_seg = next(s for s in shore["segments"] if s["kind"] == "sea")
+    # The bands: the 8 x 6 block of the face grown 2 px each way (12 x 10 pixels, the longer side 12 less the
+    # growth 4 = 8 m); the L of the sea (a bar of 6 and one of 8 pixels) grown the same way
+    assert surface_seg["px"] == 12 * 8 and surface_seg["m"] == 8  # the band clipped at the grid's left edge
+    assert sea_seg["px"] == 5 * 8 and sea_seg["m"] == 4  # the bar of 6 grown to 5 x 8 (clipped at the right): 8 - 4
+    assert shore["totals"] == {"surface_m": 8, "sea_m": 4, "surface_px": 48, "sea_px": 6}
+    # The rings are closed, in lon/lat (EPSG:32633 near 0, 0: the false easting's lon/lat)
+    ring = surface_seg["ring"]
+    assert ring[0] == ring[-1] and len(ring) >= 5
+    from pyproj import Transformer
+    lon, lat = Transformer.from_crs("EPSG:32633", "EPSG:4326", always_xy=True).transform(0.0, 16.0)  # the band's corner
+    assert any(abs(p[0] - round(lon, 6)) < 1e-5 and abs(p[1] - round(lat, 6)) < 1e-5 for p in ring)
+    assert shore["segments"][0]["m"] >= shore["segments"][1]["m"]  # the longest first
+    in_strips = filling.shore_segments(str(t), str(water), str(face), grid, rows=3)
+    assert in_strips == shore
+    # No shore at all: empty segments and zero totals
+    flat = np.full(terrain.shape, 10.0, np.float32)
+    np.save(tmp_path / "flat.npy", flat)
+    np.save(tmp_path / "dry.npy", np.zeros(terrain.shape, bool))
+    none = filling.shore_segments(str(tmp_path / "flat.npy"), str(tmp_path / "dry.npy"), None, grid)
+    assert none["segments"] == [] and none["totals"] == {"surface_m": 0, "sea_m": 0, "surface_px": 0, "sea_px": 0}
