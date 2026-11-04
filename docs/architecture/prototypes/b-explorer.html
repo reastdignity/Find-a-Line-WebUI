@@ -1,0 +1,293 @@
+<title>Find-a-Line Explorer</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: a toolbar (breadcrumbs, the plain/technical switch), the diagram in a scroll box, a details panel beside it on wide screens and below it on phones. Tokens of the app's viewer (ui/tokens.css). */
+:root { --bg: #f3f5f2; --surface: #ffffff; --surface-2: #e9eee9; --ink: #17201c; --ink-2: #45524b; --muted: #6c7a73; --line: #d2dad4;
+  --accent: #2350c8; --accent-soft: #e1e8fa; --on-accent: #ffffff; --warn: #995500; --warn-soft: #fbefd9; --ok: #1d7a47; --ok-soft: #e0f1e6;
+  --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", system-ui, sans-serif;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+  --accent: #86a4ff; --accent-soft: #1f2a48; --on-accent: #0a1020; --warn: #e6a94f; --warn-soft: #382a12; --ok: #62c78e; --ok-soft: #163023; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #0e1311; --surface: #161c19; --surface-2: #1f2723; --ink: #e5ebe7; --ink-2: #b1bcb6; --muted: #85928b; --line: #2c3631;
+  --accent: #86a4ff; --accent-soft: #1f2a48; --on-accent: #0a1020; --warn: #e6a94f; --warn-soft: #382a12; --ok: #62c78e; --ok-soft: #163023; color-scheme: dark; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.5 var(--font); padding-block: 16px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1240px; margin: 0 auto; display: grid; gap: 12px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; }
+h1 { font: 600 2rem/1.05 var(--display); margin: 0; }
+.badge { font: 600 .75rem/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--accent); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-family: var(--display); font-size: 1.1rem; }
+.crumbs button { background: none; border: 0; color: var(--accent); font: inherit; cursor: pointer; padding: 2px 4px; border-radius: 4px; }
+.crumbs button:hover, .crumbs button:focus-visible { background: var(--accent-soft); outline: none; }
+.crumbs .here { font-weight: 600; padding: 2px 4px; }
+.crumbs .sep { color: var(--muted); }
+.switch { margin-left: auto; display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+.switch button { border: 0; background: var(--surface); color: var(--ink-2); font: 600 .85rem var(--display); letter-spacing: .04em; text-transform: uppercase; padding: 6px 12px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); }
+.switch button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 12px; }
+@media (max-width: 820px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.canvas { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: auto; min-width: 0; }
+.canvas svg { display: block; font-family: var(--font); }
+.node rect { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.2; rx: 6; }
+.node.decision rect { fill: var(--warn-soft); stroke: var(--warn); }
+.node.file rect, .node.store rect { fill: var(--ok-soft); stroke: var(--ok); }
+.node.actor rect { fill: var(--surface-2); stroke: var(--ink-2); }
+.node text { fill: var(--ink); font-size: 12.5px; }
+.node .sub { fill: var(--ink-2); font-size: 11px; font-family: var(--mono); }
+.node { cursor: pointer; }
+.node.selected rect { stroke-width: 2.5; filter: drop-shadow(0 2px 4px rgb(0 0 0 / .25)); }
+.node .more { fill: var(--accent); font: 600 11px var(--display); letter-spacing: .06em; }
+.edge { fill: none; stroke: var(--ink-2); stroke-width: 1.3; }
+.edge.alt, .edge.dash { stroke-dasharray: 5 4; }
+.elabel { font-size: 11px; fill: var(--ink-2); }
+.elabel-bg { fill: var(--surface); }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; min-width: 0; align-self: start; }
+.panel h2 { font: 600 1.35rem/1.1 var(--display); margin: 0 0 4px; text-wrap: balance; }
+.panel .kind { font: 600 .72rem/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.panel dl { display: grid; grid-template-columns: 5.5em 1fr; gap: 4px 10px; margin: 10px 0 0; font-size: .9rem; }
+.panel dt { color: var(--muted); font-family: var(--display); font-size: 1rem; }
+.panel dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.panel code { font: .85em var(--mono); background: var(--accent-soft); padding: .05em .3em; border-radius: 3px; }
+.panel .open { margin-top: 12px; border: 1px solid var(--accent); background: var(--accent); color: var(--on-accent); font: 600 .95rem var(--display); letter-spacing: .04em; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+.panel .open:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.panel .hint { color: var(--muted); font-size: .85rem; margin: 8px 0 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: .8rem; color: var(--ink-2); }
+.legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; border: 1px solid; }
+.legend .s::before { background: var(--accent-soft); border-color: var(--accent); }
+.legend .d::before { background: var(--warn-soft); border-color: var(--warn); }
+.legend .f::before { background: var(--ok-soft); border-color: var(--ok); }
+.legend .a::before { background: var(--surface-2); border-color: var(--ink-2); }
+.about { font-size: .9rem; color: var(--ink-2); max-width: 70ch; }
+.about ul { margin: 4px 0; padding-left: 1.2em; }
+</style>
+<div class="wrap">
+  <header>
+    <div><span class="badge">Prototype B · 2026-11-04</span><h1>Find-a-Line Explorer</h1></div>
+  </header>
+  <div class="bar">
+    <nav class="crumbs" id="crumbs" aria-label="Levels"></nav>
+    <div class="switch" role="group" aria-label="Wording">
+      <button type="button" id="mode-plain" aria-pressed="false">Plain words</button>
+      <button type="button" id="mode-tech" aria-pressed="true">Technical</button>
+    </div>
+  </div>
+  <div class="main">
+    <div class="canvas" id="canvas"></div>
+    <aside class="panel" id="panel"></aside>
+  </div>
+  <div class="legend"><span class="s">a step or a process</span><span class="d">a decision</span><span class="f">a file or a store</span><span class="a">a person or an outside service</span><span>▸ opens the level below</span></div>
+  <div class="about">
+    <strong>What this form does</strong>: one description of nodes and arrows (JSON) drives every level; a click on a node shows its module, what it reads and writes and what it must stay in sync with; a node marked ▸ opens the level below it. The same JSON can generate the Markdown of prototype A.
+    <ul><li>For: a real zoom from the whole to one kernel; good for showing someone on a screen; the "plain words" switch is the same diagram for a reader without the code.</li>
+    <li>Against: not a README on GitHub (an HTML page in <code>docs/</code> or on GitHub Pages); the layout engine is ours, so it is simpler than Mermaid's.</li></ul>
+  </div>
+</div>
+<script>
+// The model: scopes (one diagram each) of nodes and edges. A node with `open` leads to that scope.
+// label: technical wording; plain: the wording for a reader without the code.
+const MODEL = {
+  start: "context",
+  scopes: {
+    context: { title: "Find-a-Line and the world", plain: "The app and what it talks to", nodes: [
+      { id: "cli", kind: "actor", label: "Command line user", plain: "You, at a terminal", module: "findaline.py", note: "Runs a search, the cache and OSM updates, the source probe, the country layer." },
+      { id: "browser", kind: "actor", label: "Browser, local app", plain: "You, in the browser", module: "web.py (127.0.0.1:8765), viewer/", note: "The local app runs the worker in-process; one user, an administrator." },
+      { id: "public", kind: "actor", label: "Public site: nginx + web --public + worker --public", plain: "The public website", module: "deploy/, compose.yaml", note: "Accounts, quotas, the audit log; the worker is its own container." },
+      { id: "fal", kind: "step", label: "Find-a-Line", plain: "Find-a-Line", open: "processes", module: "the repository", note: "Open it to see the processes." },
+      { id: "providers", kind: "actor", label: "Elevation data providers (54 sources)", plain: "National height maps", module: "sources/catalogue/", note: "WCS, files, STAC, S3, ArcGIS, our own tiles; each with its credit and limits." },
+      { id: "osm", kind: "actor", label: "OpenStreetMap: Overpass, Nominatim, Geofabrik extracts", plain: "Place names, coastlines, cliffs", module: "osm.py, osmextract.py, coast.py", note: "Overpass at most 75 queries a day per data folder; Nominatim one per 1.1 s." },
+      { id: "ortho", kind: "actor", label: "Orthophoto services, Esri imagery", plain: "Aerial photos", module: "orthophoto.py, viewer/src/layers.ts", note: "Tiles cached after a run for the best groups; Esri only with the operator's key." },
+      { id: "oauth", kind: "actor", label: "GitHub / Google / Microsoft sign-in", plain: "Sign-in", module: "accounts.py", note: "Public site only." },
+      { id: "disk", kind: "store", label: "Data folder: cache/, runs/, work/, countries/, jobs.sqlite", plain: "What is kept on disk", module: "cache.py", note: "`--data-dir` or FINDALINE_DATA; the repo folder by default." },
+    ], edges: [
+      ["cli", "fal", "findaline.py …"], ["browser", "fal", "http"], ["public", "fal", "nginx → web"],
+      ["fal", "providers", "tiles of heights"], ["fal", "osm", "outlines, names, coast"], ["fal", "ortho", "tiles after a run"],
+      ["public", "oauth", "sign-in"], ["fal", "disk", "reads and writes"],
+    ] },
+    processes: { title: "Processes and stores", plain: "Who does the work", nodes: [
+      { id: "clis", kind: "step", label: "CLI search: findaline.py --lat --lon", plain: "A search from the terminal", open: "search", module: "findaline.py main → search.run_search", note: "Plan, download and compute in one process, one after the other." },
+      { id: "web", kind: "step", label: "web.py: validates, queues, serves runs and events", plain: "The web page's server", module: "web.py", note: "Never imports search or numba; no heavy work, no network (tests/test_public.py)." },
+      { id: "worker", kind: "step", label: "jobs.Scheduler: one process per job and phase", plain: "The queue and its workers", open: "webjob", module: "jobs.py", note: "In the web process locally; `findaline.py worker` on the public site. Download and compute slots." },
+      { id: "quick", kind: "step", label: "Quick lane: run_quick (estimate, profile, patch, place)", plain: "Quick answers for the form and the 3D view", module: "jobs.run_quick", note: "One long-lived process, one task at a time, from the table quick." },
+      { id: "phase", kind: "step", label: "Phase process: run_phase download | compute", plain: "One search, one phase at a time", open: "search", module: "jobs.run_phase", note: "A spawn process; its stdout becomes info events; Limits passed as an argument." },
+      { id: "saving", kind: "step", label: "saving.py children (step 5 of 100 000+ lines)", plain: "Helpers that write big results", module: "saving.py", note: "subprocess, never multiprocessing: the phase process is daemonic." },
+      { id: "country", kind: "step", label: "country run: driver + K country workers", plain: "Counting a whole country", open: "country", module: "country.py", note: "Its own process group; workers stop when run.lock is free." },
+      { id: "jobsdb", kind: "store", label: "jobs.sqlite", plain: "The list of jobs", module: "jobs.Jobs, MIGRATIONS", note: "Jobs, events, leases, quick tasks, runs' owners, favourites, statistics." },
+      { id: "cache", kind: "store", label: "cache/", plain: "Downloaded height maps", module: "cache.py, index.sqlite per folder", note: "Tiles, indexes, OSM themes, orthophoto; LAYOUT checked." },
+      { id: "runs", kind: "store", label: "runs/<run>/", plain: "Saved searches", module: "runs.py", note: "map.html, data.js, lines.js, lines.csv, lines.geojson, run.json, ATTRIBUTION.txt." },
+      { id: "countries", kind: "store", label: "countries/<id>/", plain: "A country's counts", module: "country.py, countcube.py", note: "country.json, area.geojson, manifest.sqlite, tiles/, cube/, logs/." },
+    ], edges: [
+      ["clis", "cache", "tiles"], ["clis", "runs", "the run"], ["web", "jobsdb", "jobs, quick tasks"], ["worker", "jobsdb", "claims, events"],
+      ["worker", "phase", "spawn"], ["worker", "quick", "starts once"], ["phase", "cache", "tiles"], ["phase", "runs", "the run"],
+      ["phase", "saving", "subprocess"], ["saving", "runs", "line files"], ["web", "runs", "serves (RunFiles)"],
+      ["country", "cache", "prefetch"], ["country", "countries", "tiles, cube"],
+    ] },
+    search: { title: "A search, step by step", plain: "How one search goes", nodes: [
+      { id: "plan", kind: "step", label: "plan_search", sub: "area, source, grid, tiles?", plain: "Choose the data and the grid", module: "search.plan_search; area.py, sources/choose.py, grid.py", reads: "the request (SearchParams)", writes: "Plan", sync: "Limits refuse before any cost: bbox, region, pixels, tiles", note: "`--source auto`: the country by Nominatim (zoom 3), regions (zoom 8), offline boxes." },
+      { id: "estimate", kind: "step", label: "estimate_search", sub: "tiles, Mpx, memory", plain: "How much will it take?", module: "search.estimate_search; sources.layer.estimate_layers", reads: "the layers' indexes", writes: "an estimate (also /api/estimate)", note: "The quick lane answers the form's live estimate with the same function." },
+      { id: "confirm", kind: "decision", label: "over CONFIRM_MINUTES?", plain: "Long? Ask first", module: "search.CONFIRM_MINUTES, confirm()", note: "Without a terminal the answer defaults to no; `--yes` skips it; the worker sets its own rule." },
+      { id: "dl", kind: "step", label: "download_data", sub: "download_layers: terrain, surface, water mask", plain: "Fetch the height maps", module: "search.download_data; sources/layer.py download_layers", reads: "cache.due_many, the layers' indexes", writes: "cache/<source>/ tiles, .part files", sync: "one pool of DOWNLOAD_THREADS; tile_lock, host_slot, rate_turn per host", note: "Also the coastline theme tiles and the run's place name, in threads beside the pool." },
+      { id: "s1", kind: "step", label: "Step 1/5 downloading elevation data", sub: "prepare_data", plain: "Build one clean height map", module: "search.prepare_data; sources/mosaic.py, filling.py, coast.py, obstacles.py, hypsometry.py", reads: "cached tiles", writes: "work/<id>/ nmt.npy, nmpt.npy, water.npy, filled.npy, joined.npy, obstacles.npy, mask.npy", sync: "PIXEL_BYTES is measured on what this step holds per pixel", note: "Mosaics → sea mask → shore faces from the surface → water and gaps filled (neighbours, FABDEM) → obstacle surface → terrain statistics." },
+      { id: "tiles", kind: "decision", label: "one grid or tiles?", sub: "tile_core_size, TILE_PX_MAX", plain: "Too big for the memory? Cut it up", module: "search.tile_core_size, _tiles", note: "A tile's core from TILE_MEMORY_SHARE of the budget at PIXEL_BYTES per pixel, at most TILE_PX_MAX pixels." },
+      { id: "s2", kind: "step", label: "Step 2/5 finding significant slopes", sub: "_anchors", plain: "Mark the steep pixels as anchors", module: "search._anchors; helpers.find_significant_slopes, terrain.py", reads: "nmt, slope", writes: "Anchors (anchors, prominence, drop, strong)", sync: "shared with count_tile", note: "Slope ≥ `--slope-threshold` (60° by default), the elevation band, ANCHORS_MAX, no anchors at seams." },
+      { id: "s3", kind: "step", label: "Step 3/5 evaluating anchor pairs", sub: "find_valid_lines", plain: "Check every pair of anchors", open: "step3", module: "search._lines → linesearch.find_valid_lines (numba)", reads: "anchors, nmt, obstacles, water, filled", writes: "LineTable (the lines without profiles)", sync: "ref_* kernels of tools/line_funnel_kernels.py pin the results; the regression checksums", note: "Open it to see the funnel." },
+      { id: "s4", kind: "step", label: "Step 4/5 coordinates, groups and profiles", sub: "line_coordinates, group_lines, line_profiles", plain: "Map coordinates, groups, profiles", module: "search.line_coordinates; mapping.group_lines (grouping.py); lineprofiles.py", reads: "LineTable", writes: "LineTable with columns, Groups, Profiles", sync: "group_lines = viewer's groupLines; line_profiles = helpers.line_profile", note: "Circles: profiles of every line; areas: of the groups' representatives." },
+      { id: "tiled", kind: "step", label: "per tile: _tile_data → _lines(core) → tiles/k.npz", sub: "then join, groups of all tiles, edge profiles", plain: "The same, piece by piece, then joined", module: "search.search_lines, _tile_data, LineTable.join", reads: "the area's grids (memory-mapped)", writes: "work/<id>/tiles/<k>.npz, <k>.terrain.npz", sync: "tiles give exactly the lines of one grid (test_area_in_tiles)", note: "A line belongs to the tile whose core holds its first anchor; resumes on the next start." },
+      { id: "s5", kind: "file", label: "Step 5/5 saving the run and the map", sub: "save_run → runs/<run>/", plain: "Write the map and the list", module: "search.save_run; runs.save_results, mapping.save_map, saving.py", reads: "LineTable, Groups, Profiles, Plan", writes: "lines.csv, lines.geojson, run.json, ATTRIBUTION.txt, map.html, data.js, lines.js", sync: "text built column by column equals csv.DictWriter/json.dumps of before (test_saved_text_as_before)", note: "100 000 lines or more with 2+ threads: the line files by children of saving.py." },
+      { id: "ortho", kind: "file", label: "download_orthophoto", sub: "the best groups' tiles, after done", plain: "Aerial photos for offline use", module: "search.orthophoto_lines, download_orthophoto; orthophoto.py", writes: "cache/ortho/<service>/ tiles", note: "The web worker runs it after \"done\", holding no compute slot." },
+    ], edges: [
+      ["plan", "estimate"], ["estimate", "confirm"], ["confirm", "dl", "no, or yes"], ["dl", "s1"], ["s1", "tiles"],
+      ["tiles", "s2", "one grid"], ["s2", "s3"], ["s3", "s4"], ["s4", "s5"], ["tiles", "tiled", "tiles: step 1 once, in strips", "dash"], ["tiled", "s5"], ["s5", "ortho"],
+    ] },
+    step3: { title: "Step 3: the line search's funnel", plain: "How pairs are checked without checking them all", nodes: [
+      { id: "free", kind: "step", label: "free_directions", sub: "_free_rings: 64 sectors, rings up to largest_need", plain: "Which way can a line leave each anchor?", module: "linesearch.free_directions, _free_rings, _sector_masks", reads: "anchors, nmt, the weakest limit per anchor", writes: "uint8 rows of open directions (slot per anchor)", sync: "ref_free_rings of 975a1b7, capped at largest_need", note: "Anchors with no open direction are dropped: usually most of them." },
+      { id: "args", kind: "step", label: "pair_arguments", sub: "buckets of cells, _cell_sectors, _cell_open (F8c)", plain: "Sort the anchors into cells", module: "linesearch.pair_arguments, _cell_sectors, _arc", reads: "open directions", writes: "cells, cell sectors, open masks", sync: "test_cell_sectors_hold_every_pixel", note: "Cells outside an anchor's open sectors and cells with no partner open towards it are skipped." },
+      { id: "pairs", kind: "step", label: "pair_chunk: _pairs", sub: "distance, height ≤ 5 % / 50 m, wall angle, rings", plain: "Which pairs could hold a line at all?", module: "linesearch.pair_chunk, _pairs; PAIR_BUFFER", reads: "cells, open masks", writes: "pairs in chunks (PAIR_BUFFER_BYTES)", sync: "ref_pairs: the candidates less the N1 and F8c skips; the order of the found pairs is part of the output", note: "Each pair is looked at once; a tile takes partners after its core's anchors only (first_only)." },
+      { id: "lineok", kind: "step", label: "_line_ok", sub: "pixels from both ends inwards; the middle in bit-reversal order", plain: "Walk the line, stop at the first pixel too high", module: "linesearch._line_ok; LINE_ORDER_SPLIT, LINE_ORDER_MAX", reads: "nmt, the limit (formula or sag table)", writes: "the pairs that pass", sync: "repeats helpers.max_safe_elevation in numba, EPS: too much, never too little", note: "Lines of 130 to 1024 pixels: two pixels at each end, then the spread-out middle." },
+      { id: "eval", kind: "step", label: "evaluation_parts → _evaluate", sub: "the final decision, clearances, surface marks", plain: "Measure the lines that passed", module: "linesearch.evaluation_parts, _evaluate (= helpers.evaluate_line)", reads: "pairs, nmt, obstacle surface, water, filled", writes: "valid lines per part (EVAL_PART pairs)", sync: "test_evaluate_lines_matches_evaluate_line with ==", note: "Here `--nmpt mark|reject` and the wall angles decide." },
+      { id: "early", kind: "decision", label: "early check: over lines_max or Plan.memory?", sub: "F7, _early_check", plain: "Too many lines? Stop now", module: "search._early_check; Plan.early_stop", note: "Refuses only what _check_lines would refuse too; codes too_many_lines_early, too_many_lines_memory_early." },
+      { id: "join", kind: "file", label: "join_tables, LineTable.reorder", sub: "sorted in place: clearance, longest, height", plain: "One sorted table of lines", module: "linesearch.join_tables; helpers.LineTable", writes: "the LineTable of step 4 (or the sink's parts in count mode)", note: "Count mode (the country layer): parts go to the sink, nothing joined." },
+    ], edges: [["free", "args"], ["args", "pairs"], ["pairs", "lineok"], ["lineok", "eval"], ["eval", "early"], ["early", "join", "fits"], ["early", "pairs", "next chunk", "alt"]] },
+    country: { title: "The country layer: country run <id>", plain: "Counting lines over a whole country", nodes: [
+      { id: "cfg", kind: "file", label: "country.json + area.geojson", sub: "config hash, the OSM outline once", plain: "The country and its settings", module: "country.COUNTRIES, config_hash, area.from_spec", writes: "countries/<id>/country.json, area.geojson", sync: "a changed config or outline needs --redo; countcube.VERSION too" },
+      { id: "bands", kind: "step", label: "one plan per band", sub: "S 1 m, M 2 m, L 5 m (+ M2 control)", plain: "Short, medium and long lines on their own grids", module: "country.band_plan → search.plan_search(tiled=False)", note: "Sag with T(L) from 300 m, anchors from 60° (45° at 5 m)." },
+      { id: "manifest", kind: "store", label: "manifest.sqlite", sub: "fixed_tiles as pending rows, heaviest first", plain: "The to-do list of tiles", module: "country.Manifest; search.fixed_tiles", writes: "tiles (band, name): pending / running / done / failed", note: "Interrupted tiles go back to pending; a failure gets one more attempt." },
+      { id: "prefetch", kind: "step", label: "_prefetch + _warm_up", sub: "download_layers per resolution; numba", plain: "Fetch everything first, warm up", module: "country._prefetch, _warm_up", reads: "the layers' indexes", writes: "cache/" },
+      { id: "workers", kind: "step", label: "K country workers", sub: "worker_count from the largest tile's memory", plain: "Several counters at once", module: "country._run_workers, worker_count, _threads", note: "A heavy tile takes its share of the cores; light tiles at most LIGHT_THREADS beside it." },
+      { id: "tile", kind: "step", label: "TileWork: tile_grid → prepare_data → _anchors → count_tile", sub: "steps 1 to 3, a sink instead of a table", plain: "One tile: the same search, but only counted", open: "step3", module: "country.TileWork; search.count_tile; countcube.TileCounter", reads: "cache/", writes: "work/country-<id>/<band>-<name>/ (removed after)", sync: "shares _anchors and _pair_search with _lines (tests/test_count_mode.py)" },
+      { id: "save", kind: "file", label: "save_tile", sub: "tiles/<band>/<name>.npz + meta", plain: "The tile's counts", module: "countcube.save_tile", writes: "countries/<id>/tiles/<band>/<name>.npz", note: "Meta: config, lines, spots, funnel, seconds, memory, stages." },
+      { id: "build", kind: "file", label: "countcube.build", sub: "lines summed, spots merged, levels 1/2/4/8 km", plain: "Add the tiles up into a map layer", module: "countcube.build", writes: "cube/cube.json, lines_<L>.npy, spots_<L>.npy", sync: "cube.json's edges and params = the page's choices (CountryCube in api.ts)" },
+      { id: "api", kind: "step", label: "/api/countries/<id>/cells → #layer", sub: "web.Countries, countcube.Filters", plain: "The layer in the app", module: "web.py Countries; viewer/src/app/c/LayerPage.tsx", reads: "cube/", note: "\"Search here\" opens the form with the cell's search (countcube.cell_request)." },
+    ], edges: [["cfg", "bands"], ["bands", "manifest"], ["manifest", "prefetch"], ["prefetch", "workers"], ["workers", "tile", "claim"], ["tile", "save"], ["save", "workers", "next tile", "alt"], ["save", "build", "every layer band done"], ["build", "api"]] },
+    webjob: { title: "A web job's states", plain: "What happens to a search you start in the browser", nodes: [
+      { id: "queued", kind: "step", label: "queued", plain: "Waiting its turn", module: "Jobs.add(check=admission)", note: "Quotas and the server's safeguards are checked in the insert transaction." },
+      { id: "downloading", kind: "step", label: "downloading", sub: "run_phase download: plan, estimate, download_data", plain: "Fetching the height maps", open: "search", module: "Scheduler claim (a download slot) → run_phase", note: "Limits.download_slots at once." },
+      { id: "ready", kind: "step", label: "ready", plain: "Data in, waiting for a free core", module: "Jobs.set(ready, when=downloading)" },
+      { id: "computing", kind: "step", label: "computing", sub: "run_phase compute: search_lines, save_run", plain: "Searching and saving", open: "search", module: "Scheduler claim (a compute slot, slot_memory) → run_phase" },
+      { id: "done", kind: "file", label: "done", sub: "add_run, statistics; then the orthophoto", plain: "The map is ready", module: "Jobs.set(done), add_run, _write_statistics, _orthophoto_after", note: "The orthophoto process holds no slot; its errors never touch the job." },
+      { id: "failed", kind: "decision", label: "failed", sub: "error, time limit, worker died, lease expired", plain: "Something went wrong", module: "run_phase except; Scheduler._check; Jobs.fail_interrupted", note: "A phase ends a job only if it is still in that phase's status (when=)." },
+      { id: "cancelled", kind: "decision", label: "cancelled", sub: "at once, or after kill_tree", plain: "You stopped it", module: "Jobs.request_cancel, jobs.kill_tree", note: "A tiled area resumes on the next start of the same search." },
+    ], edges: [["queued", "downloading", "claim"], ["downloading", "ready"], ["ready", "computing", "claim"], ["computing", "done"], ["downloading", "failed", "", "alt"], ["computing", "failed", "", "alt"], ["queued", "cancelled", "", "alt"], ["computing", "cancelled", "", "alt"]] },
+  },
+};
+
+const canvas = document.getElementById("canvas");
+const panel = document.getElementById("panel");
+const crumbs = document.getElementById("crumbs");
+let mode = "tech";
+try { mode = localStorage.getItem("fal-explorer-mode") || "tech"; } catch (e) {}
+let path = [MODEL.start];
+let selected = null;
+
+const BOX_W = 210, GAP_X = 70, GAP_Y = 22, PAD = 24, LINE_H = 15;
+
+function wrap(text, max) {
+  const words = String(text).split(" "); const lines = []; let cur = "";
+  for (const w of words) { if ((cur + " " + w).trim().length > max && cur) { lines.push(cur); cur = w; } else cur = (cur + " " + w).trim(); }
+  if (cur) lines.push(cur); return lines;
+}
+
+function layout(scope) {
+  // Columns by the longest path over the edges that are not marked "alt" (a loop back); "dash" is dashed but forward. Nodes of a column stacked.
+  const ids = scope.nodes.map(n => n.id); const depth = {}; ids.forEach(id => depth[id] = 0);
+  const fwd = scope.edges.filter(e => e[3] !== "alt");
+  for (let k = 0; k < ids.length; k++) for (const [a, b] of fwd) if (depth[b] < depth[a] + 1) depth[b] = depth[a] + 1;
+  const cols = {}; ids.forEach(id => (cols[depth[id]] = cols[depth[id]] || []).push(id));
+  const pos = {}; let maxH = 0;
+  for (const d of Object.keys(cols).map(Number).sort((a, b) => a - b)) {
+    let y = PAD;
+    for (const id of cols[d]) {
+      const n = scope.nodes.find(x => x.id === id);
+      const lines = wrap(mode === "plain" ? n.plain : n.label, 30);
+      const sub = (mode === "tech" && n.sub) ? wrap(n.sub, 34) : [];
+      const h = 16 + lines.length * LINE_H + sub.length * 13 + (n.open ? 16 : 0);
+      pos[id] = { x: PAD + d * (BOX_W + GAP_X), y, w: BOX_W, h, lines, sub };
+      y += h + GAP_Y;
+    }
+    maxH = Math.max(maxH, y);
+  }
+  const maxD = Math.max(...Object.values(depth));
+  return { pos, width: PAD * 2 + (maxD + 1) * BOX_W + maxD * GAP_X, height: maxH + PAD };
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function draw() {
+  const scope = MODEL.scopes[path[path.length - 1]];
+  const { pos, width, height } = layout(scope);
+  let s = `<svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${esc(scope.title)}">
+  <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>`;
+  for (const [a, b, label, kind] of scope.edges) {
+    const A = pos[a], B = pos[b]; if (!A || !B) continue;
+    let d, mx, my;
+    if (B.x > A.x) { const x1 = A.x + A.w, y1 = A.y + A.h / 2, x2 = B.x, y2 = B.y + B.h / 2; const c = (x2 - x1) / 2;
+      d = `M${x1} ${y1} C${x1 + c} ${y1} ${x2 - c} ${y2} ${x2} ${y2}`; mx = (x1 + x2) / 2; my = (y1 + y2) / 2; }
+    else if (B.x === A.x) { const x1 = A.x + A.w, y1 = A.y + A.h / 2, y2 = B.y + B.h / 2; d = `M${x1} ${y1} C${x1 + 40} ${y1} ${x1 + 40} ${y2} ${x1} ${y2}`; mx = x1 + 34; my = (y1 + y2) / 2; }
+    else { const x1 = A.x, y1 = A.y + A.h - 6, x2 = B.x + B.w, y2 = B.y + 6; d = `M${x1} ${y1} C${x1 - 40} ${y1 + 30} ${x2 + 40} ${y2 - 30} ${x2} ${y2}`; mx = (x1 + x2) / 2; my = (y1 + y2) / 2 + 8; }
+    s += `<path class="edge ${kind || ""}" d="${d}" marker-end="url(#arr)" style="color: var(--ink-2)"/>`;
+    if (label) { const w = label.length * 6 + 8; s += `<rect class="elabel-bg" x="${mx - w / 2}" y="${my - 8}" width="${w}" height="15" rx="3"/><text class="elabel" x="${mx}" y="${my + 3}" text-anchor="middle">${esc(label)}</text>`; }
+  }
+  for (const n of scope.nodes) {
+    const p = pos[n.id]; const sel = selected === n.id ? " selected" : "";
+    s += `<g class="node ${n.kind}${sel}" data-id="${n.id}" tabindex="0" role="button" aria-label="${esc(mode === "plain" ? n.plain : n.label)}"><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}"/>`;
+    let y = p.y + 20;
+    for (const l of p.lines) { s += `<text x="${p.x + 10}" y="${y}">${esc(l)}</text>`; y += LINE_H; }
+    for (const l of p.sub) { s += `<text class="sub" x="${p.x + 10}" y="${y}">${esc(l)}</text>`; y += 13; }
+    if (n.open) s += `<text class="more" x="${p.x + p.w - 10}" y="${p.y + p.h - 7}" text-anchor="end">OPEN ▸</text>`;
+    s += `</g>`;
+  }
+  canvas.innerHTML = s + "</svg>";
+  canvas.querySelectorAll(".node").forEach(g => {
+    g.addEventListener("click", () => select(g.dataset.id));
+    g.addEventListener("dblclick", () => open(g.dataset.id));
+    g.addEventListener("keydown", e => { if (e.key === "Enter") { const n = scope.nodes.find(x => x.id === g.dataset.id); n.open ? open(n.id) : select(n.id); } });
+  });
+  crumbs.innerHTML = path.map((id, i) => {
+    const sc = MODEL.scopes[id]; const t = esc(mode === "plain" ? sc.plain : sc.title);
+    return i < path.length - 1 ? `<button type="button" data-i="${i}">${t}</button><span class="sep">›</span>` : `<span class="here">${t}</span>`;
+  }).join("");
+  crumbs.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { path = path.slice(0, Number(b.dataset.i) + 1); selected = null; draw(); drawPanel(); }));
+  document.getElementById("mode-plain").setAttribute("aria-pressed", String(mode === "plain"));
+  document.getElementById("mode-tech").setAttribute("aria-pressed", String(mode === "tech"));
+  drawPanel();
+}
+
+function select(id) { selected = id; draw(); }
+function open(id) {
+  const scope = MODEL.scopes[path[path.length - 1]]; const n = scope.nodes.find(x => x.id === id);
+  if (!n || !n.open) { select(id); return; }
+  path.push(n.open); selected = null; draw();
+  try { location.hash = n.open; } catch (e) {}
+}
+
+function drawPanel() {
+  const scope = MODEL.scopes[path[path.length - 1]]; const n = scope.nodes.find(x => x.id === selected);
+  if (!n) { panel.innerHTML = `<span class="kind">${esc(mode === "plain" ? scope.plain : scope.title)}</span><h2>${esc(mode === "plain" ? scope.plain : scope.title)}</h2><p class="hint">Click a box for its details. Boxes marked OPEN ▸ lead to the level below (double-click, or the button here).</p>`; return; }
+  const kinds = { step: "step or process", decision: "decision", file: "file written", store: "store", actor: "person or outside service" };
+  let h = `<span class="kind">${kinds[n.kind] || n.kind}</span><h2>${esc(mode === "plain" ? n.plain : n.label)}</h2>`;
+  if (mode === "plain") h += `<p>${esc(n.label)}${n.sub ? ": " + esc(n.sub) : ""}</p>`;
+  h += `<dl>`;
+  if (n.module) h += `<dt>Code</dt><dd>${inline(n.module)}</dd>`;
+  if (n.reads) h += `<dt>Reads</dt><dd>${inline(n.reads)}</dd>`;
+  if (n.writes) h += `<dt>Writes</dt><dd>${inline(n.writes)}</dd>`;
+  if (n.sync) h += `<dt>In sync with</dt><dd>${inline(n.sync)}</dd>`;
+  if (n.note) h += `<dt>Note</dt><dd>${inline(n.note)}</dd>`;
+  h += `</dl>`;
+  if (n.open) h += `<button type="button" class="open" id="open-btn">Open ${esc(mode === "plain" ? MODEL.scopes[n.open].plain : MODEL.scopes[n.open].title)} ▸</button>`;
+  panel.innerHTML = h;
+  const b = document.getElementById("open-btn"); if (b) b.addEventListener("click", () => open(n.id));
+}
+function inline(t) { return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>"); }
+
+document.getElementById("mode-plain").addEventListener("click", () => { mode = "plain"; try { localStorage.setItem("fal-explorer-mode", mode); } catch (e) {} draw(); });
+document.getElementById("mode-tech").addEventListener("click", () => { mode = "tech"; try { localStorage.setItem("fal-explorer-mode", mode); } catch (e) {} draw(); });
+document.addEventListener("keydown", e => { if (e.key === "Escape" && path.length > 1) { path.pop(); selected = null; draw(); } });
+// A hash names a scope to open directly (#search, #step3, #country, #webjob, #processes).
+const parents = { processes: ["context"], search: ["context", "processes"], step3: ["context", "processes", "search"], country: ["context", "processes"], webjob: ["context", "processes"] };
+function fromHash() { const h = (location.hash || "").slice(1); if (MODEL.scopes[h] && h !== MODEL.start) { path = [...parents[h], h]; selected = null; draw(); } }
+window.addEventListener("hashchange", fromHash);
+fromHash(); draw();
+</script>
