@@ -1245,7 +1245,7 @@ APP_SCRIPT = """
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_app_counts_and_clears_areas(tmp_path):
-    """The new search (D) counts separate drawn areas (overlapping shapes are one), "Clear the place"
+    """The new search counts separate drawn areas (overlapping shapes are one), "Clear the place"
     removes them, and a search starts with all the shapes drawn again."""
     import re
     import urllib.request
@@ -1260,7 +1260,7 @@ def test_app_counts_and_clears_areas(tmp_path):
         '<script src="/app/app.js"></script>',
         '<script src="stubs.js"></script><script src="/app/app.js"></script><script src="test.js"></script>'),
         encoding="utf-8")
-    dom = _edge_page(tmp_path, "runs/apptest/index.html?ui=d#new")
+    dom = _edge_page(tmp_path, "runs/apptest/index.html#new")
     text = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1)
     drawn, cleared, started = text.split(" | ")[:3]
     assert drawn.startswith("2 separate areas (3 shapes"), text
@@ -1338,7 +1338,7 @@ def test_app_reads_area_files(tmp_path):
         '<script src="/app/app.js"></script>',
         '<script src="stubs.js"></script><script src="/app/app.js"></script><script src="test.js"></script>'),
         encoding="utf-8")
-    dom = _edge_page(tmp_path, "runs/apptest/index.html?ui=d#new")
+    dom = _edge_page(tmp_path, "runs/apptest/index.html#new")
     text = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1)
     assert text.count(" | ") >= 3, text
     kml, gpx, started = text.split(" | ")[:3]
@@ -1738,7 +1738,7 @@ FAVOURITES_TAB_SCRIPT = """
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_favourites_page_of_the_app(tmp_path, monkeypatch):
-    """The app's Favourites page (D) lists the favourite lines the server keeps, sorted, with a link to the
+    """The app's Favourites page lists the favourite lines the server keeps, sorted, with a link to the
     line in the app, and removes one."""
     import re
     run_id = _clip_run(tmp_path, monkeypatch)
@@ -1761,7 +1761,7 @@ def test_favourites_page_of_the_app(tmp_path, monkeypatch):
         '<script src="/app/app.js"></script>',
         '<script src="stubs.js"></script><script src="/app/app.js"></script><script src="test.js"></script>'),
         encoding="utf-8")
-    dom = _edge_page(tmp_path, "runs/apptest/index.html?ui=d#favourites")
+    dom = _edge_page(tmp_path, "runs/apptest/index.html#favourites")
     result = json.loads(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1).replace("&quot;", '"'))
     assert result["cards"] == 2, result
     assert result["lengths"][0] == 999 and result["lengths"] == sorted(result["lengths"], reverse=True), result
@@ -1776,41 +1776,37 @@ UI_SCRIPT = """
   out.id = "result";
   document.body.appendChild(out);
   setTimeout(() => {
-    const found = ["fa-tabs", "fa-try", "u-gallery", "u-app-b", "u-app-c", "u-app-d", "u-rail", "u-bnav", "u-sheet"]
+    const found = ["fa-tabs", "fa-try", "u-gallery", "u-app-c", "u-bnav", "u-sheet"]
       .filter((name) => document.querySelector("." + name));
     const sheet = document.querySelector(".u-sheet");
-    const kept = localStorage.getItem("findaline-ui"), marked = localStorage.getItem("findaline-ui-c-default");
+    const kept = localStorage.getItem("findaline-ui");
     let snaps = "";
     if (sheet) {
       const before = sheet.className;
       sheet.querySelector(".u-sheet-handle").click();  // a keyboard-like click moves it one state
       snaps = before + " -> ";
-      setTimeout(() => { out.textContent = JSON.stringify({found, kept, marked, snaps: snaps + sheet.className}); }, 300);
-    } else out.textContent = JSON.stringify({found, kept, marked, snaps});
+      setTimeout(() => { out.textContent = JSON.stringify({found, kept, snaps: snaps + sheet.className}); }, 300);
+    } else out.textContent = JSON.stringify({found, kept, snaps});
   }, 2000);
 })();
 """
 
 
 # Before the app (the interface switch): what a browser remembered, by the page's ?seed= (each page has its own
-# profile, so nothing is left from another): "old-d" a "d" from before C was the default, "kept-d" a "d" chosen
-# since, "old-b" a "b" from before
+# profile, so nothing is left from another), e.g. "b" or "d" of the interfaces that were removed
 SEED_STUB = """
 (function () {
   const seed = new URLSearchParams(location.search).get("seed");
-  if (!seed) return;
-  localStorage.setItem("findaline-ui", seed.slice(-1));
-  if (seed.startsWith("kept-")) localStorage.setItem("findaline-ui-c-default", "1");
+  if (seed) localStorage.setItem("findaline-ui", seed);
 })();
 """
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_interface_switch(tmp_path):
-    """?ui= picks the interface: C without it (and for the old app, which is gone), the gallery of the new components (kit) and the
-    prototypes B and D, each without CSP violations; the choice is remembered (localStorage). A "d" remembered from
-    before C was the default is forgotten once (C opens, the marker set), a "b" stays, and a "d" chosen since or an
-    explicit ?ui=d is kept."""
+    """?ui= picks what the app shows: C without it, the gallery of the components (kit), each without CSP
+    violations; the choice is remembered (localStorage). The removed interfaces (the old app, B and D), asked for
+    or remembered, give C."""
     import html
     import re
     folder = tmp_path / "runs" / "uitest"
@@ -1833,29 +1829,26 @@ def test_interface_switch(tmp_path):
         return json.loads(html.unescape(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1)))
 
     default = shown("")
-    assert "u-app-c" in default["found"] and default["kept"] is None and default["marked"] == "1", default
+    assert "u-app-c" in default["found"] and default["kept"] is None, default
     old = shown("?ui=old")["found"]  # the old app is gone: the default instead
     assert "u-app-c" in old and "fa-tabs" not in old, old
-    forgotten = shown("?seed=old-d")  # D, the default of before, forgotten once
-    assert "u-app-c" in forgotten["found"] and forgotten["kept"] is None and forgotten["marked"] == "1", forgotten
-    chosen = shown("?seed=kept-d")  # a "d" remembered since: D
-    assert "u-app-d" in chosen["found"] and chosen["kept"] == "d", chosen
-    b = shown("?seed=old-b")  # B, chosen before: B
-    assert "u-app-b" in b["found"] and b["kept"] == "b", b
-    asked = shown("?ui=d&seed=old-d")  # an explicit ?ui=d: D, remembered
-    assert "u-app-d" in asked["found"] and asked["kept"] == "d" and asked["marked"] == "1", asked
+    for gone in ("b", "d"):
+        asked = shown(f"?ui={gone}")  # asked for: C, nothing remembered
+        assert "u-app-c" in asked["found"] and asked["kept"] is None, (gone, asked)
+        kept = shown(f"?seed={gone}")  # remembered from before: C
+        assert "u-app-c" in kept["found"] and kept["kept"] == gone, (gone, kept)
     kit = shown("?ui=kit")
-    assert {"u-gallery", "u-rail", "u-bnav", "u-sheet"} <= set(kit["found"]), kit
+    assert {"u-gallery", "u-bnav", "u-sheet"} <= set(kit["found"]), kit
     assert "u-half" in kit["snaps"].split(" -> ")[0] and "u-full" in kit["snaps"].split(" -> ")[1], kit
-    assert "u-app-b" in shown("?ui=b")["found"]
-    assert "u-app-c" in shown("?ui=c")["found"]
-    assert shown("?ui=c")["kept"] == "c"  # every page has its own profile: the next page would not see it
+    assert "u-gallery" in shown("?seed=kit")["found"]  # a remembered kit page
+    chosen = shown("?ui=c")
+    assert "u-app-c" in chosen["found"] and chosen["kept"] == "c", chosen
 
 
 
 def test_old_app_is_gone():
-    """The old app (its tabs, form and panels, classes fa-*) is not in the bundle any more: B shows C's
-    Admin and OSM pages, and ?ui=old is not a choice (a browser that remembered it gets C, the default)."""
+    """The old app (its tabs, form and panels, classes fa-*) is not in the bundle any more, and ?ui=old is not a
+    choice (a browser that remembered it gets C, the default)."""
     root = os.path.join(os.path.dirname(__file__), "..", "viewer")
     with open(os.path.join(root, "dist", "app.js"), encoding="utf-8") as f:
         bundle = f.read()
@@ -2131,8 +2124,9 @@ const $ = (selector) => document.querySelector(selector);
 const text = (selector) => ($(selector) || {}).textContent || "";
 const button = (label) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
 const wait = (ok, then, tries = 150) => ok() ? then() : tries ? setTimeout(() => wait(ok, then, tries - 1), 100)
-                                                  : say("timeout", text(".s-est-line") + " | " + text(".s-panel").slice(0, 200));
-const status = () => text(".s-est-line") || text(".s-bar-line");  // B's box or C's bar
+                                                  : say("timeout", text(".s-bar-line") + " | " + text(".s-panel").slice(0, 200));
+const status = () => text(".s-bar-line");  // the estimate's bar
+const stats = () => [...document.querySelectorAll(".s-bar .s-stat")].map((s) => s.textContent).join(" ");
 const fieldValue = (label) => [...document.querySelectorAll(".u-field-lab")].find((l) => l.textContent.startsWith(label))
   ?.querySelector("b")?.textContent;
 const setRange = (input, value) => { input.value = String(value); input.dispatchEvent(new Event("input", {bubbles: true})); };
@@ -2141,19 +2135,19 @@ const setRange = (input, value) => { input.value = String(value); input.dispatch
 SEARCH_SCRIPT = SEARCH_HELPERS + """
 wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   const map = window.FINDALINE_PLACE.map;
-  say("initial", {estimate: text(".s-est-line"), preset: text(".s-preset.u-on")});
+  say("initial", {estimate: status(), preset: text(".s-card.u-on b")});
   map.fire("click", {latlng: {lat: 50.1559508, lng: 19.7562722}});
   setTimeout(() => setRange($(".s-where input[type=range]"), 150), 100);
-  wait(() => text(".s-est-line").startsWith("Ready"), () => {
+  wait(() => status().startsWith("Ready"), () => {
     say("point", {centre: text(".s-point"), radius: fieldValue("Search radius"), calls: ESTIMATES.length,
-                  stats: text(".s-est-row"), body: ESTIMATES[ESTIMATES.length - 1]});
-    button("Typical highline").click();
+                  stats: stats(), body: ESTIMATES[ESTIMATES.length - 1]});
+    [...document.querySelectorAll(".s-card")].find((c) => c.querySelector("b").textContent === "Typical highline").click();
     setTimeout(() => {
       say("preset", {length: fieldValue("Line length"), diff: fieldValue("Anchor height difference"),
-                     on: text(".s-preset.u-on")});
-      wait(() => ESTIMATES.length === 2 && text(".s-est-line").startsWith("Ready"), () => {
-        say("again", {source: text(".s-est-row"), body: ESTIMATES[1].params});
-        button("Find lines").click();
+                     on: text(".s-card.u-on b")});
+      wait(() => ESTIMATES.length === 2 && status().startsWith("Ready"), () => {
+        say("again", {source: stats(), body: ESTIMATES[1].params});
+        button("Start search").click();
         wait(() => $(".s-started") && $(".s-job"), () => {
           say("started", {id: $(".s-started").dataset.started, job: $(".s-job").dataset.job, card: text(".s-job"),
                           meters: [...document.querySelectorAll(".s-meter")].map((m) => m.dataset.usage),
@@ -2193,11 +2187,11 @@ def _result_of(dom: str) -> dict:
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_search_panel(tmp_path):
     """The search panel (?ui=kit-search): a click on the map sets the centre, the estimate comes by
-    itself once the changes stop (one request for the click and the radius), a preset sets the length
-    fields (and asks again), Find lines queues the job that useJobs lists; the usage meters show; no
-    CSP violations."""
+    itself once the changes stop (one request for the click and the radius), a preset's card sets the
+    length fields (and asks again), Start search queues the job that useJobs lists; the usage meters
+    show; no CSP violations."""
     page = _search_page(tmp_path, SEARCH_SCRIPT)
-    dom = _edge_page(tmp_path, page + "?ui=kit-search&theme=light")
+    dom = _edge_page(tmp_path, page + "?ui=kit-search&theme=light", size="1280,900")
     r = _result_of(dom)
     assert "timeout" not in r, r
     assert r["initial"]["estimate"].startswith("Select the centre of the search") and r["initial"]["preset"] == "Custom", r
@@ -2226,15 +2220,15 @@ wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   // A change while the first estimate is in flight: its (slow) answer is dropped
   wait(() => ESTIMATES.length === 1, () => {
     setRange($(".s-where input[type=range]"), 200);
-    wait(() => ESTIMATES.length === 2 && text(".s-est-line").startsWith("Ready"), () => {
+    wait(() => ESTIMATES.length === 2 && status().startsWith("Ready"), () => {
       setTimeout(() => {
-        say("dropped", {stats: text(".s-est-row"), calls: ESTIMATES.length});
+        say("dropped", {stats: stats(), calls: ESTIMATES.length});
         // Too many estimates: paused, asked again once after RETRY_MS, never more
         window.RATE_LIMITED = 5;
         setRange($(".s-where input[type=range]"), 250);
-        wait(() => text(".s-est-line").startsWith("Estimate paused"), () => {
-          say("paused", {line: text(".s-est-line"), calls: ESTIMATES.length, start: !button("Find lines").disabled});
-          setTimeout(() => say("later", {line: text(".s-est-line"), calls: ESTIMATES.length,
+        wait(() => status().startsWith("Estimate paused"), () => {
+          say("paused", {line: status(), calls: ESTIMATES.length, start: !button("Start search").disabled});
+          setTimeout(() => say("later", {line: status(), calls: ESTIMATES.length,
                                          again: !!button("Try again")}), 26000);
         });
       }, 2000);
@@ -2249,7 +2243,7 @@ def test_search_panel_estimate_rate(tmp_path):
     """The live estimate drops the answer to a request made before the last change; refused by the rate
     (429) it says so, keeps Start enabled, asks again once after RETRY_MS and then waits for the user."""
     page = _search_page(tmp_path, RATE_SCRIPT)
-    r = _result_of(_edge_page(tmp_path, page + "?ui=kit-search"))
+    r = _result_of(_edge_page(tmp_path, page + "?ui=kit-search", size="1280,900"))
     assert "timeout" not in r, r
     assert "test-2" in r["dropped"]["stats"] and r["dropped"]["calls"] == 2, r  # the first answer came later
     assert r["paused"]["calls"] == 3 and r["paused"]["start"], r
@@ -2312,11 +2306,11 @@ wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_search_panel_modes(tmp_path):
-    """C's variant (the estimate in the bottom bar): Area (drawn with Geoman's tools, counted as separate
+    """The modes of the panel: Area (drawn with Geoman's tools, counted as separate
     areas, the buffer shown; or a named OSM area), Along cliffs (the limit from the map view) and File (a
     KML read in the browser, started as a job)."""
     page = _search_page(tmp_path, "const FILES = " + json.dumps(AREA_FILES) + ";\n" + AREA_SCRIPT)
-    dom = _edge_page(tmp_path, page + "?ui=kit-search&variant=c", size="1280,900")
+    dom = _edge_page(tmp_path, page + "?ui=kit-search", size="1280,900")
     r = _result_of(dom)
     assert "timeout" not in r, r
     assert r["draw"] == {"tools": True, "buffer": "100 m"}, r
@@ -2336,10 +2330,11 @@ def test_search_panel_modes(tmp_path):
 PHONE_SEARCH_SCRIPT = SEARCH_HELPERS + """
 wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   window.FINDALINE_PLACE.map.fire("click", {latlng: {lat: 50.1559508, lng: 19.7562722}});
-  wait(() => text(".s-est-line").startsWith("Ready"), () => {
-    const start = button("Find lines").getBoundingClientRect();
+  wait(() => status().startsWith("Ready"), () => {
+    const start = button("Start search").getBoundingClientRect(), map = $(".s-kit-map").getBoundingClientRect();
+    const form = $(".s-c-form").getBoundingClientRect();
     say("phone", {width: innerWidth, scroll: document.documentElement.scrollWidth, sheet: !!$(".u-sheet"),
-                  side: !!$(".u-side"), jobs: !!$(".s-sheet-jobs"),
+                  mapOnTop: map.bottom <= form.top + 1 && form.width === innerWidth, jobs: !!$(".s-c-form .s-form-jobs"),
                   modes: [...document.querySelectorAll(".s-where .u-seg button")].map((b) => b.textContent),
                   start: start.bottom <= innerHeight && start.top >= 0});
   });
@@ -2349,12 +2344,13 @@ wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_search_panel_on_a_phone(tmp_path):
-    """Below 768 px the panel is a bottom sheet with short mode names, the page does not scroll sideways
-    and Find lines stays in view (sticky at the bottom of the sheet)."""
+    """Below 768 px the map is on top and the form, with the user's searches, scrolls under it (no sheet)
+    with short mode names, the page does not scroll sideways and Start search stays in view (in the bar at
+    the bottom)."""
     page = _search_page(tmp_path, PHONE_SEARCH_SCRIPT)
     dom = _edge_page(tmp_path, page + "?ui=kit-search", size="500,900")
     r = _result_of(dom)["phone"]
     assert r["width"] < 768 and r["scroll"] <= r["width"], r
-    assert r["sheet"] and not r["side"] and r["jobs"], r
+    assert not r["sheet"] and r["mapOnTop"] and r["jobs"], r
     assert r["modes"][:2] == ["Point", "Area"] and r["modes"][2:4] == ["Cliffs", "File"] and r["start"], r
     assert _violations(dom) == []

@@ -1,4 +1,4 @@
-// The highline layer (#layer, #layer&country=<id>; the local app and administrators, shells C and D): a
+// The highline layer (#layer, #layer&country=<id>; the local app and administrators, from the account): a
 // country searched offline in fixed tiles (country.py) keeps only counts, in a counter cube of 1, 2, 4 and
 // 8 km cells (countcube.py); /api/countries/<id>/cells sums the cells in view that pass the filters. The
 // panel holds the filters, the legend, the level and the selected cell with one "Search here" per layer

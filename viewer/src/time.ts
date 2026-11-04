@@ -31,14 +31,6 @@ export function day(iso: string | null | undefined, empty = ""): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** "07:17" today, "2026-10-30 07:17" on another day (the viewer's time zone). */
-export function shortWhen(iso: string | null | undefined, now: Date = new Date()): string {
-  const d = instant(iso);
-  if (!d) return iso || "";
-  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  return day(iso) === day(now.toISOString()) ? time : `${day(iso)} ${time}`;
-}
-
 /** "31 Oct" of a moment, in the viewer's time zone. */
 export function dayMonth(d: Date): string {
   return `${d.getDate()} ${MONTHS[d.getMonth()]}`;

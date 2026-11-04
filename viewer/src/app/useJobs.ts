@@ -1,6 +1,6 @@
-// The list of the user's jobs for every interface: listed once (api.jobs), then kept up to date by
+// The list of the user's jobs: listed once (api.jobs), then kept up to date by
 // the event stream (subscribe, applyEvent), with whether a worker runs. jobProgress() reads a job's
-// state as one step, one bar and one label, for the new shells' cards.
+// state as one step, one bar and one label, for the cards of the searches.
 // (Named useJobs.ts, not jobs.ts: on Windows "./Jobs" would resolve to jobs.ts.)
 
 import { useCallback, useEffect, useState } from "preact/hooks";
@@ -29,7 +29,7 @@ export const STATUS: Record<Job["status"], string> = {
   queued: "waiting", downloading: "downloading data", ready: "data ready, waiting to compute",
   computing: "computing", done: "done", failed: "failed", cancelled: "cancelled"};
 
-export { beingSaved, FINISHED };
+export { beingSaved };
 const LOG_KEEP = 500;  // messages kept per job
 
 const fresh = (job: Job): JobView => ({...job, bars: {}, log: [], step: ""});

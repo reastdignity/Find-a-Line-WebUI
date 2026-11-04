@@ -6,9 +6,9 @@
 // from the layout kept in localStorage (layout.ts, useLayout: shared with the card), fitted to the window
 // (fitColumns: a window too narrow collapses a panel, never kept). While the card is shown, the run's data
 // credits fold behind their button as on a phone (columns.css .c-card-on). On phones (< 768 px) the map with a
-// sheet holding the list, the details and the profile. Taken from D (ResultWorkspace): the run's data
-// credits in the map's attribution (credits.ts), the choice of spots a click reached about as near
-// (LineChooser), the line's 3D view, no Compare on phones. The selected line goes into the hash
+// sheet holding the list, the details and the profile. Both show the run's data credits in the map's
+// attribution (credits.ts), the choice of spots a click reached about as near (LineChooser) and the
+// line's 3D view; phones have no Compare. The selected line goes into the hash
 // (the caller's `hashOf`, replaced, so Back leaves the result); a hash with another line (Back,
 // Forward, a copied link) opens that line, and the link of a line hidden by the filters stays while
 // nothing is selected. Styles in columns.css (the class names are C's: c-*).
@@ -36,15 +36,39 @@ import { DEFAULT_LAYOUT, LIMITS, fitColumns, maxColumnWidth, type Column, type L
 import { ProfileCard, cardHeightAhead } from "./ProfileCard";
 import { ProfileDock, profileShown } from "./ProfileDock";
 import { ResultSummary } from "./ResultSummary";
-import { RunActions } from "./RunActions";
-import type { BackAction, ResultWorkspaceProps } from "./ResultWorkspace";
+import { RunActions, type RunActionsProps } from "./RunActions";
 import { useLayout, type LayoutState } from "./useLayout";
 import "./columns.css";
 
-export type ResultColumnsProps = Omit<ResultWorkspaceProps, "map"> & {
+/** The header's way back: its label. */
+export interface BackAction { label: string; onClick(): void }
+
+export interface ResultColumnsProps {
+  runId: string;
+  /** The line of the route (#…&line=), opened in its group; `nav` changes with every navigation. */
+  line: string | null;
+  nav: number;
+  wide: boolean;
+  /** None: the header has no way back (a shared map). */
+  back?: BackAction;
+  /** The route's hash of the run with a selected line (its ResultModel.lineLink) or none. */
+  hashOf(runId: string, line: string | null): string;
+  /** The link "Copy link" gives (default: this page's address with the hash, LineDetails' appLink). */
+  linkOf?(model: ResultModel, line: Line): string;
+  /** The address of a line's 3D view (LineDetails' button; none without it: map.html). */
+  view3dOf?(model: ResultModel, line: Line): string;
+  /** Buttons before the run's actions (e.g. "Edit & run again"); `compact` on phones (icons only). */
+  actions?(compact: boolean): ComponentChildren;
+  /** The run's data when the caller has it (a run's map.html: its data.js); else loaded from `base`. */
+  data?: RunData;
+  /** The folder of the runs' folders (default "/runs/") and of this run's files (RunActionsProps). */
+  base?: string;
+  folder?: string;
+  /** The run's actions that can work here (default all). */
+  show?: RunActionsProps["show"];
   /** The run's orthophoto for this page (its cache folder is relative to the page; default as it is). */
   ortho?(data: RunData): Ortho | null;
-};
+}
 
 const CARD_GAP = 12;  // px between the profile's card and the map's bottom (ProfileCard)
 
@@ -358,7 +382,7 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
   </div>;
 }
 
-function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, actions, menu, ortho, base, folder, show}: ViewProps) {
+function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, actions, ortho, base, folder, show}: ViewProps) {
   useModel(model);
   const [measured, setMeasured] = useState<Line | null>(null);
   const [snap, setSnap] = useState<Snap>("half");
@@ -385,13 +409,12 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
   const zoom = (l: Line) => view?.zoomTo(l, padding());
   const measuredNow = (l: Line | null) => { setMeasured(l); if (l) setSnap("half"); };
   const closeMeasured = () => { setMeasured(null); view?.clearMeasure(); };
-  // Compare needs room the phone's top bar does not have (as D)
+  // Compare needs room the phone's top bar does not have
   const phoneShow = (["measure", "share", "download"] as const).filter((a) => !show || show.includes(a));
 
   return <div class="c-result c-result-phone" ref={phoneRef}>
     <div class="c-col-map"><div class="c-leaflet" ref={ref} /></div>
     <div class="c-phone-top">
-      {menu}
       <div class={back ? "c-pill" : "c-pill c-pill-alone"}>
         {back && <IconButton icon="back" label={back.label} plain round class="c-back" onClick={back.onClick} />}
         <span class="u-grow c-pill-name">{data.run.name}</span>
@@ -399,7 +422,7 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
       </div>
       <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} base={base} folder={folder} />
     </div>
-    <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132} top={64}
+    <Sheet label="Results" snap={snap} onSnap={setSnap} peek={132} top={64}
            header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
              : <ResultSummary model={model} legend={false} />}>
       {model.selected && <LineDetails model={model} part="body" onZoom={zoom} linkOf={link && ((l) => link(model, l))}
@@ -419,12 +442,11 @@ export function ResultColumns(props: ResultColumnsProps) {
   const [data, setData] = useState<RunData | null>(props.data || null);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (props.data) { props.onData?.(props.data); return; }
+    if (props.data) return;
     let live = true;
     setData(null);
     setError("");
-    loadRun(props.runId, props.base).then((d) => { if (!live) return; props.onData?.(d); setData(d); },
-                                          (e) => { if (live) setError(e.message); });
+    loadRun(props.runId, props.base).then((d) => { if (live) setData(d); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [props.runId]);
   const model = useMemo(() => data && new ResultModel(data, {list: {sort: "clr", desc: true}}), [data]);

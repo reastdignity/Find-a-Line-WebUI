@@ -13,7 +13,7 @@ is asked of the coordinator, not decided alone. The coordinator updates this fil
 | Wave 1 agent | Owns |
 | --- | --- |
 | S1 server | `search.py` (`patch_of_line`), `jobs.py` (`quick_patch`, `QUICK`, the exemption in `Redact`), `web.py` (`/api/patch`, `/view3d`, `VIEW3D_HTML`, the per-path CSP and Cache-Control in `guard`, `RATE_NAMES`), `settings.py` (`patch_rate`), `README.md` (the limits row), `deploy/nginx/*` (the group), new `tests/test_patch.py`, and the needed rows in `tests/test_public.py`, `tests/test_web.py`, `tests/test_units.py`, `tests/test_deploy.py`, `tests/test_metrics.py`, `tests/test_monitoring.py`, `deploy/monitoring/*` where groups are listed |
-| V1 viewer | `viewer/package.json` and its lock, `viewer/build.mjs`, new `viewer/licences/`, new `viewer/src/view3d/`, the button in `viewer/src/result/view/ResultWorkspace.tsx`, `LineDetails.tsx` and `viewer/src/app/d/AppD.tsx`, `viewer/dist` (rebuilt), the Node tests in `tests/test_viewer.py` |
+| V1 viewer | `viewer/package.json` and its lock, `viewer/build.mjs`, new `viewer/licences/`, new `viewer/src/view3d/`, the button in `viewer/src/result/view/ResultWorkspace.tsx`, `LineDetails.tsx` and `viewer/src/app/d/AppD.tsx` (the first and the last removed with interface D on 2026-11-04: C's `ResultPage` gives `LineDetails` the button), `viewer/dist` (rebuilt), the Node tests in `tests/test_viewer.py` |
 
 ## Names
 | What | Name |

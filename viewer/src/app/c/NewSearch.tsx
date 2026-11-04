@@ -1,4 +1,4 @@
-// C's focused new search (c2): the form (SearchPanel, variant "c") in a column, the map on the right
+// C's focused new search (c2): the form (SearchPanel) in a column, the map on the right
 // and the live estimate with "Start search" in a bar at the bottom. A new search starts with the
 // "Typical highline" preset; "Edit & run again" (#new&edit=<job>) starts with the job's request, "Search a
 // cell" (#new&cell=<id>:<band>:<level>:<i>:<j>, from the highline layer) with the cell's (api.countryRequest). On
@@ -19,10 +19,9 @@ function Form({place, schema, initial, usage, wide, onStarted}:
   (window as any).FINDALINE_SEARCH = search;  // for tests and the browser console
   return <>
     <aside class="c-form" aria-label="New search">
-      <SearchPanel place={place} schema={schema} onStarted={onStarted} search={search} variant="c" estimate={false}
-                   usage={usage.usage} phone={!wide} />
+      <SearchPanel search={search} usage={usage.usage} phone={!wide} />
     </aside>
-    <footer class="c-bar"><EstimateBar search={search} usage={usage.usage} layout="bar" /></footer>
+    <footer class="c-bar"><EstimateBar search={search} usage={usage.usage} /></footer>
   </>;
 }
 

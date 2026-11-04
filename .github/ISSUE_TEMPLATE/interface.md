@@ -10,4 +10,4 @@ labels: interface
 
 **What happened:** a screenshot helps
 
-**Where:** the page (its address), the interface (the default, or `?ui=...`), the browser and the device (desktop or phone)
+**Where:** the page (its address), the browser and the device (desktop or phone)

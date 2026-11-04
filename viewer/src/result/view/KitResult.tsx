@@ -1,9 +1,9 @@
 // ?ui=kit-result&run=<id>: the results UI (result/view) on its own, to develop and test its pieces
-// without the shells: the run's map (loadRun, ResultMap) beside a panel on the left (summary, filters, the
-// list with the selected line's details under its row, as B3) whose edge is dragged (Splitter; ‹ collapses
+// without the interface: the run's map (loadRun, ResultMap) beside a panel on the left (summary, filters, the
+// list with the selected line's details under its row) whose edge is dragged (Splitter; ‹ collapses
 // it to a rail), the profile as a card over the bottom of the map (ProfileCard: its top and side edges
 // dragged, folded) and the run's actions on top; the layout kept as C's (layout.ts). Below 768 px the
-// panel is a sheet (as B5) with the profile inside. #line=<lat1,lon1,lat2,lon2> (or #run=…&line=…) opens
+// panel is a sheet with the profile inside. #line=<lat1,lon1,lat2,lon2> (or #run=…&line=…) opens
 // that line. ?theme=light|dark picks a theme.
 
 import L from "leaflet";
@@ -178,7 +178,7 @@ function Result({data}: {data: RunData}) {
         {!wide && <RunActions model={model} view={view} onMeasured={measuredNow} compact />}</div>
       {wide && <div class="r-kit-actions"><RunActions model={model} view={view} onMeasured={measuredNow} /></div>}
       {wide ? <ProfileCard model={model} view={view} measured={measured} onCloseMeasured={closeMeasured}
-                           layout={layout} onLayout={changeLayout} /> : <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132}
+                           layout={layout} onLayout={changeLayout} /> : <Sheet label="Results" snap={snap} onSnap={setSnap} peek={132}
                         header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
                           : <ResultSummary model={model} legend={false} />}>
         {model.selected && <LineDetails model={model} part="body" onZoom={zoom} />}

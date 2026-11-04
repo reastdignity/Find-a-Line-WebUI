@@ -3,7 +3,7 @@
 // moves the map there (the centre of a search is still set by a click); the list closes when the box
 // loses the focus (a click elsewhere), on Esc or by typing. An own component rather than
 // leaflet-control-geocoder: that one would need an adapter to /api/place all the same, brings its own
-// light styles and sits on the map, not in the panel (docs/roadmap.md, UI prototypes).
+// light styles and sits on the map, not in the panel (docs/roadmap.md, the place-name box).
 
 import { useRef, useState } from "preact/hooks";
 import { api, type Place } from "../app/api";

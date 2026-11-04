@@ -576,7 +576,7 @@ def test_messages_match_python(tmp_path):
                "plain": "Spot {{n}}"}
     cases = [("lines", {"count": 1, "place": "Gozo"}), ("lines", {"count": 3, "place": "Gozo"}),
              ("lines", {"count": 0}), ("lines", {"count": 1.5, "place": "x"}), ("area", {"km2": 51.25, "max": 50.0}),
-             ("plain", {}), ("plain", {"n": "<b>"}), ("unknown.key", {"n": 1}), ("ui.try", {"ui": "D"})]
+             ("plain", {}), ("plain", {"n": "<b>"}), ("unknown.key", {"n": 1}), ("ui.view3d.length", {"m": "12.5"})]
     found = run_ts(tmp_path, "i18n", f"""
 const own = m.translator({json.dumps(samples)});
 console.log(JSON.stringify({json.dumps(cases)}.map(([key, params]) =>
@@ -597,12 +597,10 @@ process.env.TZ = "Europe/Warsaw";
 console.log(JSON.stringify([
   m.when("2026-10-31T06:17:52+00:00"), m.when("2026-07-01T23:30:00+00:00"), m.day("2026-07-01T23:30:00+00:00"),
   m.when("2026-10-31T06:17:52"), m.when("2026-10-31 06:17:52"), m.when(null, "never"), m.when("soon"),
-  m.shortWhen("2026-10-31T06:17:52+00:00", new Date("2026-10-31T12:00:00+00:00")),
-  m.shortWhen("2026-10-30T06:17:52+00:00", new Date("2026-10-31T12:00:00+00:00")),
   m.timeOf("2026-10-31T07:17:52+01:00") === m.timeOf("2026-10-31T06:17:52+00:00"), m.timeOf(undefined)]));""")
     assert found == ["31 Oct 2026, 07:17", "2 Jul 2026, 01:30", "2026-07-02",
                      "31 Oct 2026, 06:17", "31 Oct 2026, 06:17", "never", "soon",
-                     "07:17", "2026-10-30 07:17", True, 0]
+                     True, 0]
 
 
 def test_error_texts_match_python(tmp_path):

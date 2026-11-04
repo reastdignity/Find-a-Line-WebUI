@@ -345,15 +345,14 @@ run({
 
 @pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
                     reason="needs Microsoft Edge")
-@pytest.mark.parametrize("ui", ["c", "d"])
-def test_layer_page_in_edge(sample, tmp_path, ui):
+def test_layer_page_in_edge(sample, tmp_path):
     """#layer on the real local server with the sample cube: the cells drawn on the map's canvas, a click
     selects the cell under it (its count, one "Search here" per layer band), no CSP violations."""
     from test_shell_c import _edge, stub_page
     from test_web import _server
-    page = stub_page(sample, f"layer-{ui}", LAYER_SCRIPT)
+    page = stub_page(sample, "layer", LAYER_SCRIPT)
     with _server(sample) as port:
-        r = _edge(port, f"{page}?ui={ui}#layer", tmp_path / "edge")
+        r = _edge(port, f"{page}?ui=c#layer", tmp_path / "edge")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
     assert r["cells"] > 10 and r["painted"] > 1000 and "lines in view" in r["total"], r
     count = f"{r['wanted'][2]:,}"

@@ -1,26 +1,13 @@
-// Which interface the app shows: ?ui=b|c|d|kit|kit-result|kit-search|kit-layer, remembered in localStorage (per browser) until
-// another is chosen. C is the default (the old interface, ?ui=old, was removed: a browser that remembered it gets C).
-// D was the default before C: a browser that remembered "d" from those days (often from a link that carried
-// ?ui=d, as D's copied links did) forgets it once and lands on C; one that chose B keeps B, and an explicit
-// ?ui=d is remembered again as before. The marker MIGRATED_KEY says that the forgetting was done.
+// What the app shows: ?ui=c (the interface, the default) or a demo of the kit (?ui=kit|kit-result|kit-search|
+// kit-layer), remembered in localStorage (per browser) until another is chosen. Interfaces that were removed
+// (?ui=old, b, d), asked for or remembered, are not choices: the page shows C.
 
-export type UiChoice = "b" | "c" | "d" | "kit" | "kit-result" | "kit-search" | "kit-layer";
-const CHOICES: UiChoice[] = ["b", "c", "d", "kit", "kit-result", "kit-search", "kit-layer"];
+export type UiChoice = "c" | "kit" | "kit-result" | "kit-search" | "kit-layer";
+const CHOICES: UiChoice[] = ["c", "kit", "kit-result", "kit-search", "kit-layer"];
 const STORAGE_KEY = "findaline-ui";
-const MIGRATED_KEY = "findaline-ui-c-default";
 
-/** Forgets a "d" remembered from before C was the default, once per browser (MIGRATED_KEY set afterwards). */
-function forgetOldDefault() {
-  try {
-    if (localStorage.getItem(MIGRATED_KEY)) return;
-    if (localStorage.getItem(STORAGE_KEY) === "d") localStorage.removeItem(STORAGE_KEY);
-    localStorage.setItem(MIGRATED_KEY, "1");
-  } catch { /* private window, blocked storage: nothing remembered anyway */ }
-}
-
-/** The interface of this page: the parameter (remembered), else the remembered one, else "c". */
+/** What this page shows: the parameter (remembered), else the remembered choice, else "c". */
 export function chooseUi(search: string = location.search): UiChoice {
-  forgetOldDefault();
   const asked = new URLSearchParams(search).get("ui") as UiChoice | null;
   if (asked && CHOICES.includes(asked)) {
     try { localStorage.setItem(STORAGE_KEY, asked); } catch { /* private window, blocked storage */ }
@@ -33,8 +20,8 @@ export function chooseUi(search: string = location.search): UiChoice {
   return "c";
 }
 
-/** This page's address (path and query) without ?ui=: a copied link opens whichever interface its reader
- *  uses (by default C), not the one it was copied from. */
+/** This page's address (path and query) without ?ui=: a copied link opens the interface, not a demo of the
+ *  kit it may have been copied from. */
 export function hrefWithoutUi(): string {
   const params = new URLSearchParams(location.search);
   params.delete("ui");
@@ -42,7 +29,7 @@ export function hrefWithoutUi(): string {
   return location.pathname + (query ? `?${query}` : "");
 }
 
-/** The address of this page in another interface (the hash, a route of the new shells, is dropped). */
+/** The address of this page with another choice (the hash, a route of the interface, is dropped). */
 export function uiHref(choice: UiChoice): string {
   const params = new URLSearchParams(location.search);
   params.set("ui", choice);
@@ -51,7 +38,7 @@ export function uiHref(choice: UiChoice): string {
 
 const THEME_KEY = "findaline-theme";
 
-/** The remembered theme of the new interfaces ("auto" follows the system). */
+/** The remembered theme of the interface and the kit ("auto" follows the system). */
 export function storedTheme(): "auto" | "light" | "dark" {
   try {
     const kept = localStorage.getItem(THEME_KEY);

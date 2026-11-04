@@ -364,7 +364,7 @@ def checked_folder_name(value) -> str:
 
 
 REPORT_AGENT_MAX = 300  # characters of a report's User-Agent
-REPORT_UIS = ("b", "c", "d")
+REPORT_UIS = ("c",)  # the interface a report may name (an old page's "b" or "d" is left out)
 VIEWPORT = re.compile(r"\d{1,5}x\d{1,5}")
 
 
@@ -1468,8 +1468,9 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     @app.post("/api/reports")
     def add_report(body: Dict, request: Request, user: ac.User = Depends(current_user)):
         """A problem report of the user (the app's "Report a problem"): {"category", "text", "context":
-        {"page", "ui", "run", "line", "viewport"}}; the browser's User-Agent is added. A run the user may
-        not open is left out."""
+        {"page", "ui", "run", "line", "viewport"}} (ui: "c", the interface; the removed "b" or "d" of a page
+        cached from before is left out); the browser's User-Agent is added. A run the user may not open is
+        left out."""
         within_rate("report", user)
         try:
             category, text, context = checked_report(body)

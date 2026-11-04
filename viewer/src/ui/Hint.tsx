@@ -6,9 +6,8 @@
 // no scrolling panel cuts it off; it never covers its own field (the label's .u-field, whose control
 // is under the label): it sits over the button, or under the whole field when there is no room above
 // and the field's bottom leaves room in the visible part below (`visibleBottom`: the visual viewport,
-// the scrolling panels around the button, a bar that stays at their bottom, data-hint-floor); it
-// stays inside the window (positioned through the CSSOM, which the CSP allows). Styles in ui.css
-// (u-hint*).
+// the scrolling panels around the button); it stays inside the window (positioned through the CSSOM,
+// which the CSP allows). Styles in ui.css (u-hint*).
 
 import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
@@ -20,20 +19,13 @@ const MARGIN = 16; // between the bubble and the window's edges
 const CLOSE_MS = 150;  // from leaving the button or the bubble to closing
 
 /** Where the visible room under `button` ends (px from the top of the layout viewport): the bottom
- *  of the visual viewport (a phone's keyboard, a pinch zoom), of every scrolling panel around the
- *  button (C's form above its bottom bar, B's sheet) and the top of a bar that stays at the bottom
- *  over the content (data-hint-floor while it is sticky or fixed: the estimate in B's sheet). */
-function visibleBottom(button: HTMLElement, at: DOMRect): number {
+ *  of the visual viewport (a phone's keyboard, a pinch zoom) and of every scrolling panel around the
+ *  button (the search form above its bottom bar, a sheet). */
+function visibleBottom(button: HTMLElement): number {
   const view = window.visualViewport;
   let bottom = view ? view.offsetTop + view.height : document.documentElement.clientHeight;
   for (let el = button.parentElement; el && el !== document.body; el = el.parentElement) {
     if (/auto|scroll/.test(getComputedStyle(el).overflowY)) bottom = Math.min(bottom, el.getBoundingClientRect().bottom);
-  }
-  for (const floor of document.querySelectorAll<HTMLElement>("[data-hint-floor]")) {
-    const r = floor.getBoundingClientRect();
-    const position = getComputedStyle(floor).position;
-    if (r.height > 0 && r.top >= at.bottom && r.left < at.right && r.right > at.left
-        && (position === "sticky" || position === "fixed")) bottom = Math.min(bottom, r.top);
   }
   return bottom;
 }
@@ -79,7 +71,7 @@ export function Hint({label, children}: {label: string; children: ComponentChild
       const field = (root.current?.closest(".u-field") ?? button.current!).getBoundingClientRect();
       const below = Math.max(at.bottom, field.bottom) + GAP, above = at.top - GAP - h;
       const ceiling = (window.visualViewport?.offsetTop ?? 0) + GAP;
-      const floor = visibleBottom(button.current!, at) - GAP;
+      const floor = visibleBottom(button.current!) - GAP;
       // above the label; under the field when it does not fit above, or where there is more room
       const top = above >= ceiling || (below + h > floor && above - ceiling > floor - below - h) ? above : below;
       tip.style.left = `${Math.round(left)}px`;

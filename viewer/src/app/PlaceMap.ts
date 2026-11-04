@@ -1,16 +1,14 @@
 // The map of the app: a click sets the centre of a circle, or areas are drawn
 // (Leaflet-Geoman: polygons and rectangles), or an uploaded area is shown.
-// The interfaces reuse its Leaflet map (`map`) for the results too: setSearchVisible(false)
-// takes the search's layers, tools and clicks off it; `controls` places its controls. The button "Data
-// coverage" (coverageLayer.ts) shows where the elevation data is detailed.
+// Pages that only need a map (the OSM extracts, MapPage) take the search's layers, tools and clicks off
+// it with setSearchVisible(false); `controls` places its controls. The button "Data coverage"
+// (coverageLayer.ts) shows where the elevation data is detailed.
 
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { FeatureCollection, GeoJSON } from "geojson";
 import L from "leaflet";
 import { baseLayers } from "../baselayers";
-import { COLORS } from "../style";
-import type { Line, Ortho } from "../types";
 import { CoverageLayer } from "./coverageLayer";
 
 export type Mode = "point" | "draw" | "file" | "preset";
@@ -26,13 +24,9 @@ export class PlaceMap {
   private shown = L.geoJSON(undefined, {style: {color: COLOR, weight: 2}});
   private preview = L.geoJSON(undefined, {interactive: false,
                                           style: {color: "#d95f02", weight: 2, dashArray: "6 4", fillOpacity: 0.08}});
-  private favourites = L.featureGroup();  // the tab "Favourites"
   private mode: Mode = "point";
   private hidden = false;    // setSearchVisible(false)
   private controls: L.ControlPosition;  // of the zoom buttons, the layers and the drawing tools
-  private layers: L.Control.Layers;
-  private first: L.Layer;    // the default base layer
-  private ortho: L.Layer | null = null;  // the orthophoto of the run shown (setRunOrtho)
   coverage: CoverageLayer;   // where the elevation data is detailed (its own button)
   onPoint: (lat: number, lon: number) => void = () => {};
   onDrawn: () => void = () => {};
@@ -44,8 +38,8 @@ export class PlaceMap {
     L.control.zoom({position: options.controls}).addTo(this.map);
     L.control.scale().addTo(this.map);
     const layers = baseLayers(null, MAX_ZOOM);
-    this.first = Object.values(layers)[0].addTo(this.map);
-    this.layers = L.control.layers(layers, {}, {position: options.controls}).addTo(this.map);
+    Object.values(layers)[0].addTo(this.map);
+    L.control.layers(layers, {}, {position: options.controls}).addTo(this.map);
     this.coverage = new CoverageLayer(this.map, options.controls);
     this.drawn.addTo(this.map);
     this.shown.addTo(this.map);
@@ -75,7 +69,7 @@ export class PlaceMap {
   }
 
   /** Shows or hides the search on the map: the point and circle, the drawn and uploaded areas, the
-   *  preview, the drawing tools and the clicks that set the centre (the results use the map then). */
+   *  preview, the drawing tools and the clicks that set the centre. */
   setSearchVisible(visible: boolean) {
     if (visible === !this.hidden) return;
     this.hidden = !visible;
@@ -87,10 +81,6 @@ export class PlaceMap {
     this.stopTools();
     for (const layer of [this.marker, this.circle, this.drawn, this.shown, this.preview]) layer?.remove();
     this.map.getContainer().style.cursor = "";
-  }
-
-  get searchVisible(): boolean {
-    return !this.hidden;
   }
 
   setMode(mode: Mode) {
@@ -108,22 +98,6 @@ export class PlaceMap {
     if (mode === "draw") this.drawn.addTo(this.map); else this.drawn.remove();
     if (mode === "file") this.shown.addTo(this.map); else this.shown.remove();
     this.map.getContainer().style.cursor = point ? "crosshair" : "";
-  }
-
-  /** The orthophoto of a run among the base layers while its result is shown (null: none, as when
-   *  the result is left); a layer it replaces is taken off the map too, the default layer shown then. */
-  setRunOrtho(ortho: Ortho | null, maxZoom = MAX_ZOOM) {
-    if (this.ortho) {
-      this.layers.removeLayer(this.ortho);
-      if (this.map.hasLayer(this.ortho)) {
-        this.ortho.remove();
-        this.first.addTo(this.map);
-      }
-      this.ortho = null;
-    }
-    if (!ortho) return;
-    this.ortho = baseLayers(ortho, maxZoom)[ortho.name] ?? null;
-    if (this.ortho) this.layers.addBaseLayer(this.ortho, ortho.name);
   }
 
   /** The centre of the circle and its radius in metres. */
@@ -180,25 +154,6 @@ export class PlaceMap {
   showPreview(area: GeoJSON | null) {
     this.preview.clearLayers();
     if (area) this.preview.addData(area as any);
-  }
-
-  /** The user's favourite lines (the tab "Favourites"; null: none), the map fitted to them. */
-  showFavourites(lines: {line: Line; label: string}[] | null) {
-    this.favourites.clearLayers();
-    if (!lines) {
-      this.favourites.remove();
-      return;
-    }
-    for (const {line, label} of lines) {
-      L.polyline([[line.lat1, line.lon1], [line.lat2, line.lon2]], {color: COLORS.favourite, weight: 5, opacity: 0.9})
-        .bindTooltip(label + ": " + line.len.toFixed(0) + " m").addTo(this.favourites);
-    }
-    this.favourites.addTo(this.map);
-    if (lines.length) this.map.fitBounds(this.favourites.getBounds(), {maxZoom: 17, padding: [30, 30]});
-  }
-
-  zoomToLine(line: Line) {
-    this.map.fitBounds([[line.lat1, line.lon1], [line.lat2, line.lon2]], {maxZoom: 19, padding: [60, 60]});
   }
 
   /** The visible part of the map as S,W,N,E (for --within). */

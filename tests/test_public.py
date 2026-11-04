@@ -1342,7 +1342,7 @@ def test_problem_reports(run_people, tmp_path, monkeypatch):
     a, b, admin = run_people["a"], run_people["b"], run_people["admin"]
     ids = run_people["ids"]
     body = {"category": "water", "text": "  The lake is 3 m too high.\nSee the second line.  ",
-            "context": {"page": "#run=x&line=1", "ui": "d", "run": RUN_A, "line": LINE, "viewport": "1280x800"}}
+            "context": {"page": "#run=x&line=1", "ui": "c", "run": RUN_A, "line": LINE, "viewport": "1280x800"}}
     sent = a.post("/api/reports", json=body, headers={"user-agent": "TestBrowser/1.0"})
     assert sent.status_code == 200, sent.text
     assert run_people["anonymous"].post("/api/reports", json=body).status_code == 401
@@ -1350,14 +1350,14 @@ def test_problem_reports(run_people, tmp_path, monkeypatch):
     for wrong in ({**body, "category": "bugs"}, {**body, "text": " "}, {**body, "text": "x" * (jb.REPORT_TEXT_MAX + 1)},
                   {**body, "text": "a\x00b"}, {**body, "text": 5}, {"text": "no category"}):
         assert admin.post("/api/reports", json=wrong).status_code == 400, wrong  # (no rate for administrators)
-    odd = b.post("/api/reports", json={**body, "context": {"run": RUN_A, "line": LINE, "ui": "x", "viewport": "big",
-                                                             "page": "p\x01"}})  # not b's run, odd values
+    odd = b.post("/api/reports", json={**body, "context": {"run": RUN_A, "line": LINE, "ui": "d", "viewport": "big",
+                                                             "page": "p\x01"}})  # not b's run, odd values ("d": a removed interface)
     assert odd.status_code == 200
     listed = admin.get("/api/admin/reports").json()["reports"]
     assert [r["user_id"] for r in listed] == [ids["b"], ids["a"]]
     first = listed[1]
     assert first["text"] == "The lake is 3 m too high.\nSee the second line." and first["status"] == "open"
-    assert first["context"] == {"page": "#run=x&line=1", "ui": "d", "run": RUN_A, "line": LINE, "viewport": "1280x800",
+    assert first["context"] == {"page": "#run=x&line=1", "ui": "c", "run": RUN_A, "line": LINE, "viewport": "1280x800",
                                 "user_agent": "TestBrowser/1.0"}
     assert first["user_name"] == "a" and first["run_name"] == "A's run"
     assert set(listed[0]["context"]) == {"user_agent"} and listed[0]["run_name"] is None
@@ -1679,7 +1679,7 @@ def test_signed_in_app_and_shared_map_in_edge(tmp_path, clip_run, account_settin
     try:
         while not server.started:
             time.sleep(0.1)
-        dom = _edge(f"{site}/login/github?next=/", tmp_path / "edge")  # D, the default
+        dom = _edge(f"{site}/login/github?next=/", tmp_path / "edge")  # C, the default
         result = json.loads(re.search(r'<pre id="result">(.*?)</pre>', dom, re.S).group(1).replace("&quot;", '"'))
         assert result["user"] and result["user"].startswith("a") and result["signout"], result
         assert "Admin" not in result["links"] and "OpenStreetMap extracts" not in result["links"], result

@@ -1,5 +1,5 @@
-// The licences of a run's data in the map's attribution, as long as the run is shown (ResultWorkspace of B
-// and D, ResultColumns of C and a run's map.html): the credits with the link to the run's ATTRIBUTION.txt
+// The licences of a run's data in the map's attribution, as long as the run is shown (ResultColumns, in the
+// app and a run's map.html): the credits with the link to the run's ATTRIBUTION.txt
 // (layers.ts creditsHtml), on a phone folded behind a "Data credits" button (ui.css .u-credits), the
 // state not kept. Leaflet draws the attribution again from its HTML: the button's state is in that HTML,
 // and a click (caught on the control, which keeps it from the map) adds the other one.

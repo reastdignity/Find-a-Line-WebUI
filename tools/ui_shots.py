@@ -14,11 +14,11 @@ HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Sec
 
     uv sync --group ui
     uv run playwright install chromium webkit
-    uv run tools/ui_shots.py --out <folder> [--only d-] [--dark]
+    uv run tools/ui_shots.py --out <folder> [--only c-] [--dark]
 
 The "map" pages are a run's own map.html (from the server and by its share link). The files are
 <page>-<device>-<theme>.png; a page whose click finds nothing on a device is left out.
-Phone screenshots of the viewport only (the shells scroll inside, not the page).
+Phone screenshots of the viewport only (the app scrolls inside, not the page).
 
 With ESRI_API_KEY set, the pages showing Esri's imagery ("map-esri", the "view3d" pages but "view3d-shaded" and
 "view3d-edges") are for the review only: Esri's terms forbid storing or passing its imagery on, so delete them after
@@ -88,37 +88,23 @@ VIEW3D = "#run={run}&line={line}"
 MOTION_TURN = ("js:for (const [alpha, beta] of [[0, 90], [-40, 100]]) "
                "dispatchEvent(Object.assign(new Event('deviceorientation'), {alpha, beta, gamma: 0}))")
 PAGES = {
-    "d-home": ("d", "", None),
-    "d-home-limited": ("d", "", None, "walker"),  # the usage meters of a user with the site's limits
-    "d-menu": ("d", "", ".c-account-btn"),        # the account menu (desktop: a popover)
-    "d-account": ("d", "#account", None),         # the account page (phones)
-    "d-account-end": ("d", "#account", "scroll:.c-main"),
-    "d-new": ("d", "#new", None),
-    "d-new-hint": ("d", "#new", ".u-hint"),       # the first "?" of the search panel, its bubble open
-    "d-new-intro": ("d", "#new", ".s-intro .n-intro-link"),  # "How a search works" (ui/Intro.tsx)
-    "d-new-more": ("d", "#new", MORE),
-    "d-new-more-hint": ("d", "#new", MORE + [".s-topics details[open] .u-hint"]),  # a setting's "?" (no bounds: admin)
-    "d-new-low-hint": ("d", "#new", MORE + ["low:.s-topics details[open] .u-hint"]),  # the last "?" at the bottom: its bubble above it
-    "d-new-limited": ("d", "#new", ".s-intro .n-intro-link", "walker"),  # the intro with the limits
-    "d-new-limited-hint": ("d", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
-    "d-result": ("d", "#run={run}", None),
-    "d-result-intro": ("d", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
-    "d-result-more": ("d", "#run={run}", [".r-filters .u-chip.u-add", "js:" + ANCHORS_SHOWN]),  # More filters: Anchors
-    "d-result-credits": ("d", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones)
-    "d-line": ("d", "#run={run}&line={line}", None),  # a line selected: its details, the "3D view" button
-    "d-favourites": ("d", "#favourites", None),
-    "d-admin": ("d", "#admin", None),
-    "d-layer": ("d", "#layer", None),             # the highline layer of the sample cube (tests/test_country_web.py)
-    "d-layer-cell": ("d", "#layer", "js:" + CELL_AT_CENTRE),  # its cell under the map's centre selected
-    "d-osm": ("d", "#osm", None),
-    "b-search": ("b", "#search", None),
-    "b-search-hint": ("b", "#search", ".u-hint"),
-    "b-search-low-hint": ("b", "#search", "low:.u-hint"),  # the last "?" at the bottom: its bubble above it
-    "b-searches": ("b", "#searches", None),
-    "b-result": ("b", "#run={run}", None),
-    "b-admin": ("b", "#admin", None),
-    "b-osm": ("b", "#osm", None),
     "c-home": ("c", "", None),
+    "c-home-limited": ("c", "", None, "walker"),  # the usage meters of a user with the site's limits
+    "c-menu": ("c", "", ".c-account-btn"),        # the account menu (desktop: a popover)
+    "c-account": ("c", "#account", None),         # the account page (phones)
+    "c-account-end": ("c", "#account", "scroll:.c-main"),
+    "c-new": ("c", "#new", None),
+    "c-new-hint": ("c", "#new", ".u-hint"),       # the first "?" of the search panel, its bubble open
+    "c-new-intro": ("c", "#new", ".s-intro .n-intro-link"),  # "How a search works" (ui/Intro.tsx)
+    "c-new-more": ("c", "#new", MORE),
+    "c-new-more-hint": ("c", "#new", MORE + [".s-topics details[open] .u-hint"]),  # a setting's "?" (no bounds: admin)
+    "c-new-low-hint": ("c", "#new", MORE + ["low:.s-topics details[open] .u-hint"]),  # the last "?" at the bottom: its bubble above it
+    "c-new-limited": ("c", "#new", ".s-intro .n-intro-link", "walker"),  # the intro with the limits
+    "c-new-limited-hint": ("c", "#new", MORE + [".s-topics details[open] .u-hint"], "walker"),  # a "?" with the bounds
+    "c-favourites": ("c", "#favourites", None),
+    "c-admin": ("c", "#admin", None),
+    "c-layer-cell": ("c", "#layer", "js:" + CELL_AT_CENTRE),  # the highline layer's cell under the map's centre selected
+    "c-osm": ("c", "#osm", None),
     "c-result": ("c", "#run={run}", None),
     "c-line": ("c", "#run={run}&line={line}", None),  # a line selected: its details, the profile's card over the map
     "c-result-intro": ("c", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
@@ -126,7 +112,7 @@ PAGES = {
     "c-result-rails": ("c", "#run={run}&line={line}", None),  # both panels collapsed to rails (LAYOUTS)
     "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
-    "c-layer": ("c", "#layer", None),
+    "c-layer": ("c", "#layer", None),             # the highline layer of the sample cube (tests/test_country_web.py)
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
@@ -134,7 +120,7 @@ PAGES = {
     "map-layers": ("map", "", "js:" + LAYERS_OPEN),  # the base layers (Esri with ESRI_API_KEY set)
     "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
     "map-shared-credits": ("shared", "", ".u-credits-toggle"),
-    "d-new-coverage": ("d", "#new", [".n-coverage-btn", "js:" + ZOOM_OUT]),  # the data coverage on the place map
+    "c-new-coverage": ("c", "#new", [".n-coverage-btn", "js:" + ZOOM_OUT]),  # the data coverage on the place map
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
@@ -304,7 +290,7 @@ def serve(data: str):
     share = "ui-shots-share-" + "x" * 30
     jobs.set_share(run, ac.digest(share))
     jobs.add_report(climber.id, "water", "The lake in the profile is 3 m too high near the second anchor.",
-                    {"run": run, "page": f"#run={run}", "ui": "d", "viewport": "390x844",
+                    {"run": run, "page": f"#run={run}", "ui": "c", "viewport": "390x844",
                      "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)"})
     scheduler = Scheduler(jobs, public=True)
     scheduler.start()

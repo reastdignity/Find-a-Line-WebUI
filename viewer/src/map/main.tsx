@@ -10,8 +10,7 @@ import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
 import type { ResultModel } from "../result/model";
-import { ResultColumns } from "../result/view/ResultColumns";
-import type { BackAction } from "../result/view/ResultWorkspace";
+import { ResultColumns, type BackAction } from "../result/view/ResultColumns";
 import { DESKTOP, Screen, useMedia } from "../ui/components";
 import { storedTheme } from "../ui/choice";
 import type { Line, RunData } from "../types";
@@ -27,9 +26,9 @@ function linkOf(model: ResultModel, l: Line): string {
 
 /** The way back: the list of runs beside the map on disk, the app on its server, none on a share link. */
 function backOf(runId: string): BackAction | undefined {
-  if (location.protocol === "file:") return {label: "All runs", text: true, onClick: () => { location.href = "../index.html"; }};
+  if (location.protocol === "file:") return {label: "All runs", onClick: () => { location.href = "../index.html"; }};
   if (location.pathname.startsWith("/s/")) return undefined;
-  return {label: "Find-a-Line", text: true, onClick: () => { location.href = "/#run=" + encodeURIComponent(runId); }};
+  return {label: "Find-a-Line", onClick: () => { location.href = "/#run=" + encodeURIComponent(runId); }};
 }
 
 function RunMap({data}: {data: RunData}) {

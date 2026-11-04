@@ -228,7 +228,7 @@
 .ui .r-tip.r-error { background: var(--bad); color: #fff; }
 
 /* The demo page (?ui=kit-result): on desktops the panel as a column on the left (its edge a Splitter, a rail
-   when collapsed) beside the map with the profile card; B5 on phones */
+   when collapsed) beside the map with the profile card; a sheet on phones */
 .ui.r-kit .r-kit-main { flex: 1; min-width: 0; display: flex; }
 .ui.r-kit .r-kit-map { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .ui.r-kit .r-kit-leaflet { position: absolute; inset: 0; background: var(--map-bg); }
