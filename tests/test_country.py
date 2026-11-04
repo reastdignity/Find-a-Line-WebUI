@@ -319,9 +319,19 @@ def test_worker_count(monkeypatch):
     import country
     monkeypatch.setattr(country.psutil, "cpu_count", lambda logical=True: 24 if logical else 12)
     per = country.WORKER_BASE + country.COUNT_PIXEL_BYTES * 38_500_000
-    assert country.worker_count(38_500_000, 20 * 2 ** 30) == (10, per)  # Slovakia's S tiles, 20 GiB free
+    assert country.worker_count(38_500_000, 10 * 2 ** 30) == (6, per)  # Slovakia's S tiles, 10 GiB free
     assert country.worker_count(38_500_000, 100 * 2 ** 30)[0] == 12
     assert country.worker_count(38_500_000, 2 ** 30)[0] == 1
+
+
+def test_worker_env_keeps_blas_to_one_thread(monkeypatch):
+    """A worker process runs numpy's BLAS on one thread (OpenBLAS commits buffers per thread at
+    import: 0.76 GiB on 24 logical cores, never used by a count), whatever the caller's setting."""
+    import country
+    monkeypatch.setenv("OPENBLAS_NUM_THREADS", "24")
+    env = country._worker_env()
+    assert env["OPENBLAS_NUM_THREADS"] == "1" and env["MKL_NUM_THREADS"] == "1"
+    assert env["FINDALINE_PROGRESS"] == "text" and env["PYTHONIOENCODING"] == "utf-8"
 
 
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
