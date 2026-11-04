@@ -29,6 +29,14 @@ SEA_FILL_EPS = 0.005  # m; data this close to a source's sea fill (Source.sea_fi
 # pixel at a time from the terrain's data edge downwards: each pixel at most this much above the
 # neighbour it is reached from (a ship or a boulder standing up from the water is never reached)
 FACE_TOLERANCE = 1.5  # m
+# The uncertain shore (shore_rows, shore_segments): SHORE_SURFACE where the terrain's face came from the surface
+# model, SHORE_SEA where the sea fill stands in for a cliff's foot (a water pixel with a neighbour of terrain
+# data more than SHORE_RIM_MIN higher: the terrain model ends above the water there)
+SHORE_SURFACE, SHORE_SEA = 1, 2
+SHORE_RIM_MIN = 5.0  # m
+SHORE_SIMPLIFY = 2.0  # pixels: the tolerance the segments' outlines are simplified with (shore_segments)
+SHORE_BAND = 2  # pixels: the shore's pixels grown by this much each way before they are outlined (shore_segments)
+SHORE_MIN_M = 10  # m: a segment shorter than this is left out of the run's list (counted in its totals)
 # A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
@@ -211,6 +219,95 @@ def fill_shore_from_surface(elevation_path: str, surface_path: str, grid: Grid, 
     progress.compute.update(1)
     progress.compute.finish(f"{count} px")
     return out_path, count
+
+
+def shore_rows(elevation: np.ndarray, water: np.ndarray, face: Optional[np.ndarray], r0: int, r1: int,
+               rim_min: float = SHORE_RIM_MIN) -> np.ndarray:
+    """The kinds of the uncertain shore in rows [r0, r1) of the grids after fill_water (uint8):
+    SHORE_SURFACE on the pixels of `face` (the face taken from the surface model by
+    fill_shore_from_surface), SHORE_SEA on the water pixels (`water`, the filled sea and lakes
+    and the water with data) whose neighbour (8) with terrain data stands more than rim_min above
+    them: the terrain model ends on a cliff above the water, and the fill stands in for its foot
+    (the sea cliffs of sources without a surface model; what a person sees in the 3D view as a
+    wall straight down to the water), 0 elsewhere. The rows next to the strip are read for the
+    neighbours."""
+    from scipy import ndimage
+    h0, h1 = max(0, r0 - 1), min(elevation.shape[0], r1 + 1)
+    z = np.asarray(elevation[h0:h1], dtype=np.float32)
+    wet = np.asarray(water[h0:h1], dtype=bool)
+    land = np.where(np.isfinite(z) & ~wet, z, -np.inf)
+    highest = ndimage.maximum_filter(land, 3, mode="constant", cval=-np.inf)
+    kinds = np.zeros(z.shape, np.uint8)
+    with np.errstate(invalid="ignore"):
+        kinds[wet & np.isfinite(z) & (highest - z > rim_min)] = SHORE_SEA
+    if face is not None:
+        kinds[np.asarray(face[h0:h1], dtype=bool)] = SHORE_SURFACE
+    return kinds[r0 - h0:r1 - h0]
+
+
+def shore_segments(elevation_path: str, water_path: str, face_path: Optional[str], grid: Grid,
+                   rows: Optional[int] = None, rim_min: float = SHORE_RIM_MIN) -> dict:
+    """The uncertain shore of a search as segments for its run (run.json and data.js "shore"):
+    the regions of each kind of shore_rows grown by SHORE_BAND pixels each way (so a shore's
+    scattered pixels join into one band and draw as a stroke), 8-connected, found strip by strip
+    and joined, their outlines simplified by SHORE_SIMPLIFY pixels in WGS84, with the band's
+    pixels and its length in metres: the band taken as a rectangle of its area and outline, the
+    longer side less the growth (about the length along the shore). Segments shorter than
+    SHORE_MIN_M are left out (the totals count every pixel of a kind, and the segments listed).
+    {"rim_min": rim_min, "segments": [{"kind": "surface"|"sea", "px", "m", "ring": [[lon, lat], ...]}, ...]
+    (the longest first), "totals": {"surface_m", "sea_m", "surface_px", "sea_px"}}."""
+    from pyproj import Transformer
+    from rasterio.features import shapes
+    from rasterio.transform import Affine
+    from shapely import normalize
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+
+    elevation = np.load(elevation_path, mmap_mode="r")
+    water = np.load(water_path, mmap_mode="r")
+    face = np.load(face_path, mmap_mode="r") if face_path else None
+    height, width = elevation.shape
+    names = {SHORE_SURFACE: "surface", SHORE_SEA: "sea"}
+    polygons = {kind: [] for kind in names}
+    pixels = {kind: 0 for kind in names}
+    from scipy import ndimage
+    size = 2 * SHORE_BAND + 1
+    for r0, r1, _, _ in strips(height, rows or height):
+        h0, h1 = max(0, r0 - SHORE_BAND), min(height, r1 + SHORE_BAND)
+        kinds = shore_rows(elevation, water, face, h0, h1, rim_min)
+        if not kinds.any():
+            continue
+        for kind in names:
+            pixels[kind] += int((kinds[r0 - h0:r1 - h0] == kind).sum())
+        transform = grid.transform @ Affine.translation(0, r0)
+        for kind in names:  # each kind's band: its pixels grown SHORE_BAND each way
+            band = ndimage.maximum_filter(kinds == kind, size, mode="constant", cval=0)[r0 - h0:r1 - h0]
+            if band.any():
+                for geometry, _ in shapes(band.astype(np.uint8), mask=band, transform=transform, connectivity=8):
+                    polygons[kind].append(shape(geometry))
+    to_wgs = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform
+    segments = []
+    grown = 2 * SHORE_BAND * grid.res
+    for kind, name in names.items():
+        if not polygons[kind]:
+            continue
+        joined = normalize(unary_union(polygons[kind]))  # the strips' pieces of one band joined, canonical
+        for polygon in (joined.geoms if hasattr(joined, "geoms") else [joined]):
+            # The band as a rectangle of its area A and outline P: the longer side is P/4 + sqrt(P^2/16 - A)
+            quarter = polygon.length / 4
+            longer = quarter + math.sqrt(max(quarter * quarter - polygon.area, 0.0))
+            metres = max(0, int(round(longer - grown)))
+            if metres < SHORE_MIN_M:
+                continue
+            simple = polygon.simplify(SHORE_SIMPLIFY * grid.res, preserve_topology=True)
+            if simple.is_empty or simple.geom_type != "Polygon":
+                simple = polygon
+            ring = [[round(lon, 6), round(lat, 6)] for lon, lat in (to_wgs(x, y) for x, y in simple.exterior.coords)]
+            segments.append({"kind": name, "px": int(round(polygon.area / grid.res ** 2)), "m": metres, "ring": ring})
+    segments.sort(key=lambda s: -s["m"])
+    totals = {f"{name}_m": sum(s["m"] for s in segments if s["kind"] == name) for name in names.values()}
+    totals.update({f"{name}_px": pixels[kind] for kind, name in names.items()})
+    return {"rim_min": rim_min, "segments": segments, "totals": totals}
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,

@@ -685,7 +685,7 @@ class TileWork:
         sampler.start()
         try:
             t0 = time.time()
-            data = search.prepare_data(tile_plan, statistics=False)  # no terrain histogram: the cube holds none
+            data = search.prepare_data(tile_plan, statistics=False, shore="none")  # no terrain histogram, no shore: the cube holds none
             t1 = time.time()
             counter = _TimedSink(countcube.TileCounter(grid, self.origin, core, band.lengths,
                                                        float(band.lengths[1]) >= self.country.last_edge))

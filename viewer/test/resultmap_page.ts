@@ -7,7 +7,8 @@ import "leaflet/dist/leaflet.css";
 import { loadRun } from "../src/result/load";
 import { ResultModel } from "../src/result/model";
 import { ResultMap } from "../src/result/ResultMap";
-import type { Line } from "../src/types";
+import { addShore } from "../src/shoreLayer";
+import type { Line, Shore } from "../src/types";
 
 const out: Record<string, unknown> = {};
 const finish = () => {
@@ -42,6 +43,23 @@ const runId = decodeURIComponent(location.pathname.split("/")[2]);
     view.fitArea();
     const count = () => Object.keys((map as any)._layers).length;
     out.drawn = count() - before;
+    // The uncertain shore (shoreLayer.ts): its overlay for the layer control, its control shown with the metres
+    // while the view holds a segment and hidden away from it
+    const [lat, lon] = data.center;
+    const ring: [number, number][] = [[lon - 0.0004, lat - 0.0002], [lon + 0.0004, lat - 0.0002], [lon + 0.0004, lat + 0.0002],
+                                      [lon - 0.0004, lat + 0.0002], [lon - 0.0004, lat - 0.0002]];
+    const shore: Shore = {rim_min: 5, segments: [{kind: "sea", px: 40, m: 90, ring}],
+                          totals: {surface_m: 0, sea_m: 90, surface_px: 0, sea_px: 40}};
+    const overlays: Record<string, L.Layer> = {};
+    const shoreBox = addShore(map, shore, overlays);
+    map.setView([lat, lon], 17, {animate: false});
+    const shoreEl = div.querySelector<HTMLElement>(".u-shore");
+    out.shore = {overlays: Object.keys(overlays).length, shown: !!shoreEl && !shoreEl.hidden, text: shoreEl?.textContent ?? ""};
+    map.setView([lat + 0.05, lon], 17, {animate: false});
+    out.shoreAway = !!shoreEl && shoreEl.hidden;
+    shoreBox?.remove();
+    Object.values(overlays).forEach((layer) => map.removeLayer(layer));
+    view.fitArea();
     // Selecting a group: its line, halo, anchors and variants drawn on top
     const group = model.groups.find((g) => g.members.length > 2)!;
     model.select(group);

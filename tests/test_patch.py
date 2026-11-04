@@ -272,3 +272,29 @@ def test_patch_and_view3d_of_the_local_app(clip_data, tmp_path, monkeypatch):
         assert '<meta name="findaline-3d-ring" content="off">' in page.text and TOKEN not in page.text
         assert '<div id="view3d" class="ui"></div>' in page.text and "/app/view3d.js" in page.text
         assert client.get("/").headers["content-security-policy"] == web.SECURITY_HEADERS["Content-Security-Policy"]
+
+
+def test_patch_shore_block(clip_data, tmp_path):
+    """A run without water filling has no shore block (the body is the heights alone); encode_shore gives
+    the kinds back deflated, and web.patch_body frames the two blocks and checks both sha256."""
+    import base64
+    import hashlib
+    import zlib
+    import web
+    patch, body = _patch(clip_data, tmp_path, *LINE, side_m=500)
+    assert "shore_bytes" not in patch and "shore_sha256" not in patch
+    kinds = np.zeros((5, 7), np.uint8)
+    kinds[2, 1:4] = 1
+    kinds[3, 5] = 2
+    block = search.encode_shore(kinds)
+    assert np.array_equal(np.frombuffer(zlib.decompress(block), np.uint8).reshape(5, 7), kinds)
+    meta = {**patch, "shore_bytes": len(block), "shore_sha256": hashlib.sha256(block).hexdigest()}
+    text = base64.urlsafe_b64encode(body + block).rstrip(b"=").decode("ascii")
+    framed = web.patch_body({"meta": meta, "heights": text})
+    n = int.from_bytes(framed[:4], "little")
+    assert json.loads(framed[4:4 + n]) == meta and framed[4 + n:] == body + block
+    for damaged in (body + block[:-1] + bytes([block[-1] ^ 1]), body[:-1] + bytes([body[-1] ^ 1]) + block):
+        bad = base64.urlsafe_b64encode(damaged).rstrip(b"=").decode("ascii")
+        with pytest.raises(Exception) as error:
+            web.patch_body({"meta": meta, "heights": bad})
+        assert "patch_damaged" in str(error.value.detail)

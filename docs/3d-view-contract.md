@@ -72,6 +72,12 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
   little-endian; zlib format (RFC 1950: Python `zlib.compress`, the browser's `DecompressionStream("deflate")`).
 - Decoder in JS: `acc = 0; for each j: acc = ((acc + d[j]) << 16) >> 16; v[j] = acc` per row.
 - Equal means equal decoded values (`values_sha256`), not equal deflated bytes.
+- **The uncertain shore** (since 2026-11-05, runs with water filling): after the heights the body carries the kinds of the
+  patch's samples (`sources.filling.shore_rows`: 0 none, 1 the face from the surface model, 2 the sea fill standing in
+  for a cliff's foot), one byte a sample row-major from the top, deflated (zlib) by `search.encode_shore`; the meta's
+  `shore_bytes` is their length (the heights are the body less them) and `shore_sha256` their sha256; the meta's
+  `sha256` stays that of the heights alone. Without water filling neither field is set and the body is the heights.
+  The page (`decode.ts` `decodePatch`) keeps them as `Patch.shore` when any is set and hatches them (`view3d/shore.ts`).
 
 ## Geometry in the page
 - **Scene axes**: the local origin is the patch centre `(cx, cy)` in grid metres and the height `h0 = base_dm / 10`;

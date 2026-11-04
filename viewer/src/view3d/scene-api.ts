@@ -22,7 +22,9 @@ export interface Chunk {
   /** The found line crosses it: imagery takes a finer zoom here. */
   hasLine: boolean;
   /** An image on the chunk (null: shaded); `uv` maps grid metres to the texture's (u, v) in [0, 1]. */
-  setTexture(texture: Texture | null, uv?: (x: number, y: number) => [number, number]): void;
+  /** `lit`: the texture multiplies the shaded terrain (MeshLambertMaterial: the hatching of the uncertain
+   *  shore on the Shaded look) instead of replacing it as imagery does (MeshBasicMaterial). */
+  setTexture(texture: Texture | null, uv?: (x: number, y: number) => [number, number], lit?: boolean): void;
 }
 
 /** The credits box of the page: entries in `order`, low first. Trusted HTML only (built from our strings). */

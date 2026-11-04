@@ -158,7 +158,7 @@ async function start() {
     if (!terrainDrawn) {
       terrainDrawn = true;
       ui.say(null);
-      imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey()});
+      imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey(), shore: patch.shore ?? null});
       const url = ringUrl();
       if (url) ring = createRing(scene!, imagery, url);
       ready();

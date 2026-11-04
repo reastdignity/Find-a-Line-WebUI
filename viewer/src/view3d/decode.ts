@@ -30,12 +30,19 @@ export interface PatchMeta {
   ortho: unknown;
   attribution: unknown;
   sha256: string;
+  /** The deflated kinds of the uncertain shore after the heights (search.encode_shore), when the run fills the
+   *  water: their length and sha256. */
+  shore_bytes?: number;
+  shore_sha256?: string;
 }
 
 export interface Patch {
   meta: PatchMeta;
   /** The decoded values, meta.width × meta.height (decimetres above base_dm, NO_DATA for no data). */
   values: Int16Array;
+  /** The kinds of the uncertain shore, meta.width × meta.height (0 none, 1 the face from the surface model, 2 the
+   *  sea fill standing in for a cliff's foot: view3d/shore.ts); absent without any. */
+  shore?: Uint8Array;
   /** Heights in metres padded with NaN to cols × rows (each 512·k + 1), row-major from the top. */
   heights: Float32Array;
   cols: number;
@@ -91,9 +98,19 @@ export function toHeights(values: Int16Array, width: number, height: number, bas
   return {heights, cols, rows};
 }
 
-/** Decode a whole answer of /api/patch. */
+/** Decode a whole answer of /api/patch: the heights, then the shore's kinds when the meta names their bytes. */
 export async function decodePatch(answer: ArrayBuffer): Promise<Patch> {
   const {meta, body} = splitAnswer(answer);
-  const values = decodeValues(await inflate(body), meta.width, meta.height);
-  return {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
+  const n = meta.shore_bytes ?? 0;
+  if (n < 0 || n > body.byteLength) throw new Error("The answer's shore block is cut short.");
+  const values = decodeValues(await inflate(n ? body.subarray(0, body.byteLength - n) : body), meta.width, meta.height);
+  const patch: Patch = {meta, values, ...toHeights(values, meta.width, meta.height, meta.base_dm)};
+  if (n) {
+    const kinds = await inflate(body.subarray(body.byteLength - n));
+    if (kinds.byteLength !== meta.width * meta.height) {
+      throw new Error(`Expected ${meta.width * meta.height} bytes of the shore, got ${kinds.byteLength}.`);
+    }
+    if (kinds.some((k) => k !== 0)) patch.shore = kinds;
+  }
+  return patch;
 }
