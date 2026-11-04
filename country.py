@@ -71,6 +71,16 @@ ATTEMPTS = 2               # a tile that fails goes back to pending once, then s
 COUNT_PIXEL_BYTES = 64
 WORKER_BASE = 512 << 20
 RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
+# A tile is heavy when its weight (_weights: the lines of the done tiles under its core) reaches
+# HEAVY_SHARE of the largest weight of the run's tiles: its count is a long pair search, which takes
+# every thread it gets, while a light tile spends its seconds in steps 1-2 on one core and in a short
+# pair search. The heavy tiles share the logical cores left after LIGHT_CORES per light tile running,
+# and a light tile keeps at most LIGHT_THREADS while a heavy one runs (_threads). Measured on
+# Slovakia's M2 band (2026-11-04): 7 workers at 3 threads each left 7-9 of 24 logical cores idle
+# through the run, and its heaviest tile (47 min) was the run's length.
+HEAVY_SHARE = 0.05
+LIGHT_CORES = 2
+LIGHT_THREADS = 3
 TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (_MemorySampler)
 RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
 DISK_PIXEL_BYTES = 16      # a tile's grids in its work folder (float32 terrain, masks of water and gaps)
@@ -376,28 +386,32 @@ class Manifest:
     def claim(self, worker: str, cores: int) -> Optional[Tuple[str, str, Tuple[float, ...], int]]:
         """The next pending tile of the run's bands (the heaviest first, by weight; then in the
         order they were added: bands as configured, rows from the north), marked running; with the
-        threads its count may use (_threads). None when nothing is left to claim."""
+        threads its count may use (_threads) and whether it is heavy (_heavy_weight). None when
+        nothing is left to claim."""
         def work(db):
             row = db.execute("SELECT bands, tiles_left, processes FROM run WHERE id = 1").fetchone()
             if row is None or (row[1] is not None and row[1] <= 0):
                 return None
             bands = json.loads(row[0])
             marks = ",".join("?" * len(bands))
-            tile = db.execute(f"SELECT band, name, core FROM tiles WHERE status = 'pending' AND band IN ({marks}) "
-                              f"ORDER BY weight IS NULL, weight DESC, rowid LIMIT 1", bands).fetchone()
+            tile = db.execute(f"SELECT band, name, core, weight FROM tiles WHERE status = 'pending' "
+                              f"AND band IN ({marks}) ORDER BY weight IS NULL, weight DESC, rowid LIMIT 1",
+                              bands).fetchone()
             if tile is None:
                 return None
             db.execute("UPDATE tiles SET status = 'running', attempts = attempts + 1, worker = ?, started_at = ?, "
                        "error = NULL WHERE band = ? AND name = ?", (worker, _now(), tile[0], tile[1]))
             if row[1] is not None:
                 db.execute("UPDATE run SET tiles_left = tiles_left - 1 WHERE id = 1")
-            return tile[0], tile[1], tuple(json.loads(tile[2])), _threads(db, bands, row[2], cores)
+            heavy = tile[3] is not None and tile[3] >= _heavy_weight(db, bands)
+            return tile[0], tile[1], tuple(json.loads(tile[2])), _threads(db, bands, row[2], cores, heavy), heavy
         return self._write(work)
 
-    def threads(self, cores: int) -> int:
-        """The threads a counting tile may use now (_threads; one when no run is set)."""
+    def threads(self, cores: int, heavy: bool = False) -> int:
+        """The threads a counting tile (heavy: _heavy_weight) may use now (_threads; one when no
+        run is set)."""
         row = self.db.execute("SELECT bands, processes FROM run WHERE id = 1").fetchone()
-        return 1 if row is None else _threads(self.db, json.loads(row[0]), row[1], cores)
+        return 1 if row is None else _threads(self.db, json.loads(row[0]), row[1], cores, heavy)
 
     def set_weights(self, weights: Dict[Tuple[str, str], float]) -> None:
         """The weights of pending tiles by (band, name) (_weights)."""
@@ -436,15 +450,31 @@ class Manifest:
         return out
 
 
-def _threads(db, bands: Sequence[str], processes: int, cores: int) -> int:
-    """The threads of a counting tile: the logical cores shared by the workers still busy (the
-    running and pending tiles of the run's bands, at most its processes)."""
+def _heavy_weight(db, bands: Sequence[str]) -> float:
+    """The weight from which a tile of these bands is heavy: HEAVY_SHARE of the largest weight;
+    infinite without weights (the first band of a country: nothing done yet)."""
     marks = ",".join("?" * len(bands))
-    running, pending = db.execute(
-        f"SELECT SUM(status = 'running'), SUM(status = 'pending') FROM tiles WHERE band IN ({marks})",
-        list(bands)).fetchone()
-    busy = max(1, min(processes, (running or 0) + (pending or 0)))
-    return max(1, cores // busy)
+    most = db.execute(f"SELECT MAX(weight) FROM tiles WHERE band IN ({marks})", list(bands)).fetchone()[0]
+    return math.inf if not most else HEAVY_SHARE * most
+
+
+def _threads(db, bands: Sequence[str], processes: int, cores: int, heavy: bool = False) -> int:
+    """The threads of a counting tile: the logical cores shared by the workers still busy (the
+    running and pending tiles of the run's bands, at most its processes). A heavy tile (the
+    one asking is counted among the running) takes instead its share of the cores left after
+    LIGHT_CORES per light tile running, when that is more; a light tile keeps at most
+    LIGHT_THREADS while a heavy one runs."""
+    marks = ",".join("?" * len(bands))
+    running, pending, heavy_running = db.execute(
+        f"SELECT SUM(status = 'running'), SUM(status = 'pending'), SUM(status = 'running' AND weight >= ?) "
+        f"FROM tiles WHERE band IN ({marks})", [_heavy_weight(db, bands), *bands]).fetchone()
+    running, pending, heavy_running = running or 0, pending or 0, heavy_running or 0
+    busy = max(1, min(processes, running + pending))
+    share = max(1, cores // busy)
+    if not heavy:
+        return share if heavy_running == 0 else min(share, LIGHT_THREADS)
+    light = max(0, min(busy, running) - heavy_running)
+    return max(share, (cores - LIGHT_CORES * light) // max(1, heavy_running))
 
 
 def _weights(manifest: Manifest, bands: Sequence[str]) -> Dict[Tuple[str, str], float]:
@@ -672,7 +702,7 @@ class TileWork:
         tile_plan = dataclasses.replace(plan, params=plan.params.model_copy(update={"threads": threads}), grid=grid,
                                         paths=search.Paths(self.data_dir, work), tiles=None, funnel={},
                                         tile_label=f"{band.name} {name} · ", emit=_print_event,
-                                        search_grid=plan.grid)
+                                        search_grid=plan.grid, border=_at_border(grid))
         print(f"\n--- Band {band.name}, tile {name} ({grid.width} x {grid.height} px, {threads} threads) ---",
               flush=True)
         src.used_data.clear()
@@ -734,9 +764,10 @@ class TileWork:
             claimed = manifest.claim(self.worker, self.cores)
             if claimed is None:
                 break
-            band, name, core, threads = claimed
+            band, name, core, threads, heavy = claimed
             try:
-                meta = self.count(band, name, core, threads, threads_now=lambda: manifest.threads(self.cores))
+                meta = self.count(band, name, core, threads,
+                                  threads_now=lambda: manifest.threads(self.cores, heavy))
             except Exception as e:  # the tile fails (pending again once, then failed); the others go on
                 traceback.print_exc()
                 sys.stdout.flush()
@@ -748,6 +779,15 @@ class TileWork:
             self.cleanup(band, name)
             done += 1
         return done
+
+
+def _at_border(grid) -> bool:
+    """Whether a tile's grid may hold a border of the country's data: False when it lies inside
+    the outline (grid.area_shape, in the grid's CRS), where no neighbour has data to fill a gap
+    with (the border gaps and the neighbours' attempts cost about 1.7 s per tile otherwise)."""
+    from shapely.geometry import box
+    outline = getattr(grid, "area_shape", None)
+    return outline is None or not box(*grid.bounds).within(outline)
 
 
 def _print_event(kind: str, text: str):
