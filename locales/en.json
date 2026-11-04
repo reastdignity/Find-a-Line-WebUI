@@ -422,7 +422,7 @@
   "ui.shore.surface_m": "{{m}} m: the foot of the cliff comes from the surface model",
   "ui.shore.sea_m": "{{m}} m: the sea stands in for the foot of the cliff",
   "ui.shore.help_button": "About the uncertain shore",
-  "ui.shore.help": "Along these stretches the terrain model has no measurements at the foot of the cliff: laser scanning gets no ground returns on a steep face. Orange, dashed: the face was taken from the surface model, the heights of whatever the laser did hit there (on a bare cliff, the rock itself). Red, solid: nothing could fill the gap, so the level of the sea stands in for the foot, and the cliff looks as if it dropped straight into the water. In both cases the heights are less certain than elsewhere: a line that ends or passes there needs a look on the spot. Lines over such pixels count them as filled metres (the Filled filter).",
+  "ui.shore.help": "The height data stop above the water here: a laser scan from the air cannot see the bottom of a steep cliff. Orange, dashed: the bottom was taken from the second height model, the one that also shows trees and buildings; on bare rock that is the cliff itself. Red, solid: nothing could fill the gap, so the water's level stands in for the bottom, and the cliff looks as if it fell straight into the sea. In both cases the heights here are less sure than elsewhere. A line that starts, ends or passes here is worth checking on the spot. Such parts of a line count as filled (the Filled filter).",
   "ui.view3d.no_imagery": "No imagery for this result: the terrain is shaded.",
   "ui.view3d.walker": "Walker",
   "ui.view3d.walker_position": "Walker's position along the line",
