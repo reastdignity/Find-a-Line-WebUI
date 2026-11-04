@@ -149,6 +149,9 @@ INTERACT_SCRIPT = """
     out.settled = still;
     out.handles = document.querySelectorAll(".v3-handle").length;
     out.walkButton = document.querySelectorAll(".v3-walk").length;
+    out.reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    out.walkHidden = document.querySelector(".v3-walk").classList.contains("v3-hidden");
+    out.reducedNote = !document.querySelector(".v3-reduced").classList.contains("v3-hidden");
     out.speed = (document.querySelector(".v3-speed") || {}).textContent;
     out.hint = document.querySelectorAll(".v3-hint").length;
     out.pin = root.dataset.pin;
@@ -203,21 +206,26 @@ def _interact_page(data) -> str:
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
-@pytest.mark.parametrize("level", ["full", "phone"])
-def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level):
+@pytest.mark.parametrize("level, reduced", [pytest.param("full", False, id="full"),
+                                            pytest.param("phone", False, id="phone"),
+                                            pytest.param("phone", True, id="phone-reduced")])
+def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
     """Level full: the anchors' handles, the hint, an anchor dragged (edited, its profile asked for after the
     release and shown), back to the found line; both levels: the walk's buttons (Walk / Stop, the speed), the pin shows
-    over the walker at the first framing (it is a few pixels high); phone: no handle, no hint."""
+    over the walker at the first framing (it is a few pixels high); phone: no handle, no hint. Edge is told the
+    user's motion preference: CI's Windows runner reports reduced motion (its animations are off), under which the
+    walk does not start; with it, the walk's buttons hidden, its note shown and Walk starting nothing."""
     data, meta = clip_data
     for key, value in _offline_env().items():
         monkeypatch.setenv(key, value)
     row = _lines_of(data, meta["id"])[0]
     line = ",".join(f"{v:.7f}" for v in row[:4])
     page = _interact_page(data)
+    motion = "--force-prefers-reduced-motion" if reduced else "--force-prefers-no-reduced-motion"
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=1200,800", "--virtual-time-budget=90000", motion, "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
             capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
@@ -227,7 +235,10 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level):
     assert result["ready"] and result["settled"], result
     assert result["pin"] == "1" and result["edit"] == ""
     assert result["walkButton"] == 1 and result["speed"] == "×1"
-    assert result["walking"] == ["1", "Stop"] and result["stopped"] == ["0", "Walk"] and result["speed4"] == "×4"
+    assert result["reduced"] is reduced, result
+    assert result["walkHidden"] is reduced and result["reducedNote"] is reduced, result
+    walking = ["0", "Walk"] if reduced else ["1", "Stop"]
+    assert result["walking"] == walking and result["stopped"] == ["0", "Walk"] and result["speed4"] == "×4"
     if level == "phone":
         assert result["handles"] == 0 and result["hint"] == 0
     else:

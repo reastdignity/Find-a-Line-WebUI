@@ -23,9 +23,27 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # Windows ran 89 % of the tests in 29.5 min on 2026-11-04 (Linux takes about half of that)
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # The public limits refuse searches with less than 20 GB free (settings.PUBLIC's free_disk_gb_min), and
+      # tests/test_public.py submits them into tmp_path on this disk: on the image ubuntu24/20261101 they failed
+      # with disk_full. The runner's SDKs this repository never uses are removed first (a plain step: no
+      # third-party action running with sudo); with too little left the job stops here, saying why
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/swift
+          df -h /
+          free=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          if [ "$free" -lt 21 ]; then
+            echo "::error::only ${free} GB free on /: tests/test_public.py needs 20 GB (settings.PUBLIC)"
+            exit 1
+          fi
 
       # Actions are pinned to the commit of a release (a tag can be moved); the comment names it
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e  # v10.3.2
@@ -48,9 +66,10 @@ jobs:
           npm ci
           npm run check
 
-      # Headless Edge tests run where Edge is installed (windows-latest) and are skipped elsewhere
+      # Headless Edge tests run where Edge is installed (windows-latest) and are skipped elsewhere; the slowest
+      # tests are listed at the end (where the job's time goes)
       - name: Tests
-        run: uv run --frozen pytest -q
+        run: uv run --frozen pytest -q --durations=25
 
   audit:
     runs-on: ubuntu-latest
