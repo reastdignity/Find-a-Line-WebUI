@@ -443,16 +443,25 @@ class Filters:
         return sum(1 << k for k in range(LENGTH_BINS) if LENGTH_EDGES[k] >= lo and LENGTH_EDGES[k + 1] <= hi)
 
 
-def select(keys: np.ndarray, filters: Filters) -> np.ndarray:
-    """A boolean mask of the keys (of lines or spots) passing the filters."""
+DIMENSIONS = ("length", "prominence", "wall", "clearance", "height")  # the dimensions a histogram counts
+
+
+def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np.ndarray:
+    """A boolean mask of the keys (of lines or spots) passing the filters; `skip`, one of DIMENSIONS,
+    leaves that dimension's condition out (for "length" the length mask's)."""
+    if skip is not None and skip not in DIMENSIONS:
+        raise ValueError(f"skip must be one of {', '.join(DIMENSIONS)}")
     keys = np.asarray(keys, dtype=np.int64)
-    mask = ((keys >> LENGTH_SHIFT) & filters.length_mask()) != 0
+    if skip == "length":
+        mask = np.ones(len(keys), dtype=bool)
+    else:
+        mask = ((keys >> LENGTH_SHIFT) & filters.length_mask()) != 0
     for name in ("prominence", "clearance", "height"):
         value = getattr(filters, name)
-        if value != EDGES[name][0]:
+        if value != EDGES[name][0] and name != skip:
             b = (keys >> SHIFT[name]) & 7
             mask &= (b != UNKNOWN) & (b >= EDGES[name].index(value))
-    if filters.wall is not None:
+    if filters.wall is not None and skip != "wall":
         b = (keys >> SHIFT["wall"]) & 7
         mask &= (b != UNKNOWN) & (b < EDGES["wall"].index(filters.wall))
     if filters.trees != "all":
@@ -463,6 +472,8 @@ def select(keys: np.ndarray, filters: Filters) -> np.ndarray:
 
 
 Box = Tuple[float, float, float, float]
+OUTLINE_TOLERANCE = 0.005  # degrees: the simplification of the outline a map draws (Slovakia: 43k points to about 600)
+OUTLINE_DECIMALS = 4       # of its coordinates (about 10 m)
 
 
 class Cube:
@@ -480,6 +491,7 @@ class Cube:
         self.crs = self.info["crs"]
         self.levels = tuple(self.info.get("levels", LEVELS))
         self._arrays: Dict[str, np.ndarray] = {}
+        self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
         self._to_crs = Transformer.from_crs("EPSG:4326", self.crs, always_xy=True)
         self._to_wgs84 = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
 
@@ -534,31 +546,40 @@ class Cube:
         i0, i1, j0, j1 = self._range(level, box)
         return max(i1 - i0 + 1, 0) * max(j1 - j0 + 1, 0)
 
-    def cells(self, mode: str, level: int, box: Optional[Box], filters: Filters
-              ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """i, j and count of the level's cells inside box (None: all) passing filters, count > 0."""
+    def _slice(self, mode: str, level: int, box: Optional[Box]) -> Tuple[np.ndarray, np.ndarray]:
+        """The keys (sorted) and counts of the level's rows in the cells touching box (None: all):
+        the columns' range by searchsorted, the rows' by a mask."""
         rows = self.array(mode, level)
         empty = np.zeros(0, dtype=np.int64)
         if box is None:
             part = np.asarray(rows)
-            j0, j1 = 0, CELL_MASK
-        else:
-            i0, i1, j0, j1 = self._range(level, box)
-            i0, j0 = max(i0, 0), max(j0, 0)
-            i1, j1 = min(i1, CELL_MASK), min(j1, CELL_MASK)
-            if i0 > i1 or j0 > j1:
-                return empty, empty, empty
-            keys = rows[:, 0]
-            lo = int(np.searchsorted(keys, i0 << COL_SHIFT, side="left"))
-            hi = int(np.searchsorted(keys, (i1 + 1) << COL_SHIFT, side="left"))
-            part = np.asarray(rows[lo:hi])
+            if not len(part):
+                return empty, empty
+            return part[:, 0], part[:, 1]
+        i0, i1, j0, j1 = self._range(level, box)
+        i0, j0 = max(i0, 0), max(j0, 0)
+        i1, j1 = min(i1, CELL_MASK), min(j1, CELL_MASK)
+        if i0 > i1 or j0 > j1:
+            return empty, empty
+        keys = rows[:, 0]
+        lo = int(np.searchsorted(keys, i0 << COL_SHIFT, side="left"))
+        hi = int(np.searchsorted(keys, (i1 + 1) << COL_SHIFT, side="left"))
+        part = np.asarray(rows[lo:hi])
         if not len(part):
-            return empty, empty, empty
+            return empty, empty
         keys, counts = part[:, 0], part[:, 1]
         j = (keys >> ROW_SHIFT) & CELL_MASK
+        mask = (j >= j0) & (j <= j1)
+        return keys[mask], counts[mask]
+
+    def cells(self, mode: str, level: int, box: Optional[Box], filters: Filters
+              ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """i, j and count of the level's cells inside box (None: all) passing filters, count > 0."""
+        empty = np.zeros(0, dtype=np.int64)
+        keys, counts = self._slice(mode, level, box)
+        if not len(keys):
+            return empty, empty, empty
         mask = select(keys, filters)
-        if box is not None:
-            mask &= (j >= j0) & (j <= j1)
         cell = (keys >> ROW_SHIFT)[mask]  # sorted, as the keys are
         counts = counts[mask]
         if not len(cell):
@@ -569,6 +590,30 @@ class Cube:
         keep = total > 0
         cell, total = cell[keep], total[keep]
         return cell >> (COL_SHIFT - ROW_SHIFT), cell & CELL_MASK, total.astype(np.int64)
+
+    def histogram(self, mode: str, level: int, box: Optional[Box], filters: Filters) -> Dict:
+        """The counts over box (None: all) per bin of each dimension, each dimension counted under every
+        filter but its own (select(skip=)): {"total": the sum under all filters, "length": [9 ints, one
+        per length bin], "prominence", "wall", "clearance", "height": [6 ints: the bins 0-4 and UNKNOWN]}.
+        A line carries one length bit, so a mode's length bins partition its total (under the other
+        filters); a spot's record ORs the length bits of its lines (merge_spots), so a spot counts in
+        every bin of its lines: per-bin spot counts are upper bounds and may sum above the total."""
+        keys, counts = self._slice(mode, level, box)
+        out: Dict = {"total": int(counts[select(keys, filters)].sum()) if len(keys) else 0}
+        if not len(keys):
+            out["length"] = [0] * LENGTH_BINS
+            for name in SHIFT:
+                out[name] = [0] * 6
+            return out
+        weights = counts.astype(np.float64)  # exact below 2^53
+        mask = select(keys, filters, skip="length")
+        bits = (keys >> LENGTH_SHIFT)[mask]
+        out["length"] = [int(round(weights[mask][(bits & (1 << k)) != 0].sum())) for k in range(LENGTH_BINS)]
+        for name in ("prominence", "wall", "clearance", "height"):
+            mask = select(keys, filters, skip=name)
+            h = np.bincount(((keys >> SHIFT[name]) & 7)[mask], weights=weights[mask], minlength=8)
+            out[name] = [int(round(v)) for v in (*h[:5], h[UNKNOWN])]
+        return out
 
     def corners(self, level: int, i: np.ndarray, j: np.ndarray) -> np.ndarray:
         """(n, 4, 2) [lat, lon] of the cells' corners: SW, SE, NE, NW."""
@@ -594,6 +639,27 @@ class Cube:
         else:
             geometries = [value]
         return shapely.union_all([shape(g) for g in geometries if g is not None])
+
+    def outline_simplified(self, tolerance: float = OUTLINE_TOLERANCE) -> Dict:
+        """The outline for a map: {"tolerance": degrees, "area_km2": of the original outline in the cube's
+        CRS, "geometry": the outline simplified by `tolerance` (topology preserved, made valid when
+        needed), its coordinates rounded to OUTLINE_DECIMALS, as a GeoJSON mapping}; kept per tolerance."""
+        tolerance = float(tolerance)
+        found = self._outlines.get(tolerance)
+        if found is not None:
+            return found
+        outline = self.outline()
+        area = _project(outline, self._to_crs).area / 1e6
+        simple = outline.simplify(tolerance, preserve_topology=True)
+        simple = shapely.transform(simple, lambda xy: np.round(xy, OUTLINE_DECIMALS))
+        if not simple.is_valid:
+            simple = shapely.make_valid(simple)
+            if simple.geom_type == "GeometryCollection":  # the polygons only, not a rounding's slivers of lines
+                simple = shapely.union_all([g for g in simple.geoms if g.geom_type in ("Polygon", "MultiPolygon")])
+        found = {"tolerance": tolerance, "area_km2": round(float(area), 1),
+                 "geometry": json.loads(shapely.to_geojson(simple))}
+        self._outlines[tolerance] = found
+        return found
 
 
 def _project(geometry, transformer: Transformer):

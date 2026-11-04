@@ -1,6 +1,7 @@
-"""The highline layer's endpoints (web.py: /api/countries, its cells and the request of a cell) over a small
-cube built by countcube from synthetic tile counts: the answers against Cube, the errors, who may ask, a cube
-built again, no numba in the web process, and the page #layer in headless Edge on the real server."""
+"""The highline layer's endpoints (web.py: /api/countries, its cells, histogram, outline and the request of a
+cell) over a small cube built by countcube from synthetic tile counts (and a second, disjoint one): the answers
+against Cube, the errors, who may ask, a cube built again, no numba in the web process, and the page #layer in
+headless Edge on the real server."""
 
 import json
 import os
@@ -24,19 +25,22 @@ from fastapi.testclient import TestClient  # noqa: E402
 CRS = "EPSG:8353"  # S-JTSK [JTSK03] / Krovak East North: negative coordinates
 # The sample's outline (lon, lat): a part of northern Slovakia around the Tatras
 OUTLINE = [(19.55, 49.05), (20.05, 48.95), (20.6, 49.02), (20.62, 49.32), (20.1, 49.28), (19.6, 49.3)]
+# A second country's outline, disjoint from the first (west of it, in the same CRS)
+OUTLINE2 = [(18.7, 49.4), (19.4, 49.42), (19.38, 49.9), (18.75, 49.88)]
 # Where the sample's lines are: (lon, lat, lines per km² at the centre, radius in km)
 HOT = [(20.08, 49.18, 6e5, 4.0), (19.95, 49.23, 4e4, 3.0), (20.42, 49.12, 2e3, 5.0), (19.75, 49.15, 300, 6.0)]
 BANDS = [("S", 30, 300, 1.0, "formula", 60, 5000, True), ("M", 300, 1000, 2.0, "sag", 60, 10000, True),
          ("L", 1000, 5000, 5.0, "sag", 45, 20000, True), ("M2", 1000, 2000, 2.0, "sag", 60, 10000, False)]
 
 
-def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", seed: int = 1) -> str:
+def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", seed: int = 1, outline=OUTLINE) -> str:
     """A small cube of made-up counts in <data_dir>/countries/<country>/cube (countcube.build of one tile
-    of synthetic TileCounts) with its area.geojson; the cube folder. Also tools/ui_shots.py's sample."""
+    of synthetic TileCounts) with its area.geojson of `outline` (lon, lat); the cube folder. Also
+    tools/ui_shots.py's sample."""
     rng = np.random.default_rng(seed)
     to_crs = Transformer.from_crs("EPSG:4326", CRS, always_xy=True)
     to_wgs84 = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
-    outline = shapely.Polygon(OUTLINE)
+    outline = shapely.Polygon(outline)
     local = shapely.transform(shapely.segmentize(outline, 0.01),
                               lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
     origin = cc.origin_of(local.bounds)
@@ -115,9 +119,10 @@ VIEW = "19.9,49.1,20.3,49.3"  # a part of the sample (west,south,east,north)
 
 @pytest.fixture(scope="module")
 def sample(tmp_path_factory):
-    """A data folder with the sample cube (made once)."""
+    """A data folder with the sample cube and a second country's (made once)."""
     data = tmp_path_factory.mktemp("country")
     sample_cube(data)
+    sample_cube(data, "testland", "Testland", seed=3, outline=OUTLINE2)  # listed after Slovakia
     return data
 
 
@@ -133,12 +138,13 @@ def test_countries_listed(client, sample, tmp_path):
     found = client.get("/api/countries")
     assert found.status_code == 200, found.text
     countries = found.json()["countries"]
-    assert [c["id"] for c in countries] == ["slovakia"]
+    assert [c["id"] for c in countries] == ["slovakia", "testland"]  # by id
+    slovakia = next(c for c in countries if c["id"] == "slovakia")
     with open(os.path.join(sample, "countries", "slovakia", "cube", "cube.json"), encoding="utf-8") as f:
         info = json.load(f)
-    assert countries[0] == {k: v for k, v in info.items() if k not in ("config", "origin")}
-    assert "config" not in countries[0] and "origin" not in countries[0]
-    assert {"bands", "edges", "levels", "cell_m", "totals", "built", "credits", "dsm"} <= set(countries[0])
+    assert slovakia == {k: v for k, v in info.items() if k not in ("config", "origin")}
+    assert "config" not in slovakia and "origin" not in slovakia
+    assert {"bands", "edges", "levels", "cell_m", "totals", "built", "credits", "dsm"} <= set(slovakia)
 
     with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as empty:
         assert empty.get("/api/countries").json() == {"countries": []}
@@ -156,18 +162,28 @@ def _cells(client, **query):
     return answer.json()
 
 
+def _histogram(client, country="slovakia", **query):
+    answer = client.get(f"/api/countries/{country}/histogram", params=query)
+    assert answer.status_code == 200, answer.text
+    return answer.json()
+
+
+# The queries of the cells and histogram tests: (query, level, filters) over VIEW
+QUERIES = (({"bbox": VIEW, "level": "auto"}, None, cc.Filters()),
+           ({"bbox": VIEW, "level": "1", "mode": "spots"}, 1, cc.Filters()),
+           ({"bbox": VIEW, "level": "2", "length": "60-1000", "prominence": "10", "clearance": "0", "height": "0",
+             "trees": "all", "water": "land", "wall": "60"}, 2,
+            cc.Filters(length=(60, 1000), prominence=10, wall=60, water="land")),
+           ({"bbox": VIEW, "level": "8", "height": "50", "clearance": "5"}, 8, cc.Filters(height=50, clearance=5)))
+
+
 def test_cells_as_the_cube_gives_them(client, sample):
     """The cells of a view: Cube.cells of the level asked (auto: Cube.auto_level), with their corners
     rounded to 6 decimals, the total and the largest count; the filters as Filters.parse reads them."""
     cube = cc.Cube(os.path.join(sample, "countries", "slovakia", "cube"))
     box = cube.box(*map(float, VIEW.split(",")))
-    for query, level, filters in (
-            ({"bbox": VIEW, "level": "auto"}, cube.auto_level(box), cc.Filters()),
-            ({"bbox": VIEW, "level": "1", "mode": "spots"}, 1, cc.Filters()),
-            ({"bbox": VIEW, "level": "2", "length": "60-1000", "prominence": "10", "clearance": "0", "height": "0",
-              "trees": "all", "water": "land", "wall": "60"}, 2,
-             cc.Filters(length=(60, 1000), prominence=10, wall=60, water="land")),
-            ({"bbox": VIEW, "level": "8", "height": "50", "clearance": "5"}, 8, cc.Filters(height=50, clearance=5))):
+    for query, level, filters in QUERIES:
+        level = cube.auto_level(box) if level is None else level
         got = _cells(client, **query)
         i, j, n = cube.cells(query.get("mode", "lines"), level, box, filters)
         assert got["level"] == level and got["cell_m"] == level * 1000, query
@@ -188,12 +204,73 @@ def test_cells_as_the_cube_gives_them(client, sample):
     assert _cells(client, bbox=VIEW, level="8", trees="only")["cells"] == []
 
 
-def test_cells_refused(client):
-    """400 with a plain message for a value the cube cannot take; 404 for an unknown country."""
+def test_histogram_as_the_cube_gives_it(client, sample):
+    """The histogram of a view: Cube.histogram of the level asked (auto: Cube.auto_level) with the level and
+    cell size as /cells gives them; no bbox: the country's bounds; a view far away: zeros."""
+    cube = cc.Cube(os.path.join(sample, "countries", "slovakia", "cube"))
+    box = cube.box(*map(float, VIEW.split(",")))
+    for query, level, filters in QUERIES:
+        level = cube.auto_level(box) if level is None else level
+        got = _histogram(client, **query)
+        expected = cube.histogram(query.get("mode", "lines"), level, box, filters)
+        assert got == {"level": level, "cell_m": level * 1000, **expected}, query
+        assert got["total"] > 0 and got["total"] == _cells(client, **query)["total"], query
+        assert len(got["length"]) == 9 and all(len(got[name]) == 6 for name in ("prominence", "wall", "clearance",
+                                                                                  "height"))
+    assert _histogram(client, bbox=VIEW)["level"] == cube.auto_level(box)  # level=auto by default
+    whole = _histogram(client, level="8")
+    assert whole == {"level": 8, "cell_m": 8000, **cube.histogram("lines", 8, None, cc.Filters())}
+    assert whole["total"] == cube.info["totals"]["lines"]
+    zeros = {"length": [0] * 9, **{name: [0] * 6 for name in ("prominence", "wall", "clearance", "height")}}
+    assert _histogram(client, bbox="100,10,101,11", level="1") == {"level": 1, "cell_m": 1000, "total": 0, **zeros}
+    # the second country answers for itself
+    other = cc.Cube(os.path.join(sample, "countries", "testland", "cube"))
+    assert _histogram(client, "testland", level="8") == {"level": 8, "cell_m": 8000,
+                                                         **other.histogram("lines", 8, None, cc.Filters())}
+    assert _histogram(client, "testland", level="8")["total"] != whole["total"]
+
+
+def _refused_by(client, path: str):
     def refused(**query):
-        answer = client.get("/api/countries/slovakia/cells", params={"bbox": VIEW, **query})
+        answer = client.get(path, params={"bbox": VIEW, **query})
         assert answer.status_code == 400, (query, answer.text)
         return answer.json()["detail"]
+    return refused
+
+
+def test_histogram_refused(client):
+    """400 with the same messages as /cells; 404 for an unknown country."""
+    refused = _refused_by(client, "/api/countries/slovakia/histogram")
+    assert "too many cells" in refused(bbox="16,47,23,50", level="1")
+    assert "level" in refused(level="3") and "mode" in refused(mode="groups")
+    assert "bbox" in refused(bbox="1,2,3") and "box" in refused(bbox="20,49,19,50")
+    assert "length" in refused(length="40-300") and "prominence" in refused(prominence="7")
+    assert "wall" in refused(wall="50") and "trees" in refused(trees="some") and "water" in refused(water="sea")
+    assert client.get("/api/countries/nowhere/histogram").status_code == 404
+
+
+def test_outline(client, sample):
+    """The outline for the map: a valid Polygon or MultiPolygon of few coordinates within the country's
+    bounds, the tolerance and the original's km²; 404 for an unknown country."""
+    for country in ("slovakia", "testland"):
+        answer = client.get(f"/api/countries/{country}/outline")
+        assert answer.status_code == 200, answer.text
+        found = answer.json()
+        cube = cc.Cube(os.path.join(sample, "countries", country, "cube"))
+        assert found == cube.outline_simplified()
+        assert found["tolerance"] == cc.OUTLINE_TOLERANCE and found["area_km2"] > 0
+        geometry = shapely.from_geojson(json.dumps(found["geometry"]))
+        assert geometry.is_valid and geometry.geom_type in ("Polygon", "MultiPolygon")
+        assert 4 <= shapely.get_num_coordinates(geometry) < 2000
+        lon0, lat0, lon1, lat1 = cube.info["bounds_wgs84"]
+        assert geometry.bounds[0] >= lon0 - 0.01 and geometry.bounds[1] >= lat0 - 0.01
+        assert geometry.bounds[2] <= lon1 + 0.01 and geometry.bounds[3] <= lat1 + 0.01
+    assert client.get("/api/countries/nowhere/outline").status_code == 404
+
+
+def test_cells_refused(client):
+    """400 with a plain message for a value the cube cannot take; 404 for an unknown country."""
+    refused = _refused_by(client, "/api/countries/slovakia/cells")
     assert "too many cells" in refused(bbox="16,47,23,50", level="1")
     assert "zoom in" in refused(bbox="16,47,23,50", level="1")
     assert "level" in refused(level="3") and "level" in refused(level="x")
@@ -258,6 +335,7 @@ def test_administrators_only(tmp_path, monkeypatch):
     settings, accounts = PublicSettings.load(), AccountSettings.load()
     sample_cube(tmp_path)
     paths = ["/api/countries", f"/api/countries/slovakia/cells?bbox={VIEW}&level=2",
+             f"/api/countries/slovakia/histogram?bbox={VIEW}&level=2", "/api/countries/slovakia/outline",
              "/api/countries/slovakia/request?band=S&level=8&i=0&j=0"]
     with TestClient(_public_app(tmp_path, settings, accounts, FakeProviders()), base_url=URL) as public:
         for path in paths:
@@ -267,15 +345,16 @@ def test_administrators_only(tmp_path, monkeypatch):
             _, cookie, csrf = session_of(tmp_path, accounts, who)
             client.cookies.set(ac.SESSION_COOKIE, cookie, domain="lines.example.org")
             client.headers["x-findaline-token"] = csrf
-            for path in paths[:2]:
+            for path in paths[:4]:
                 assert client.get(path).status_code == status, (who, path)
             if who == "admin":
-                assert client.get(paths[2]).status_code in (200, 400)  # cell (0, 0): may lie outside
+                assert client.get(paths[4]).status_code in (200, 400)  # cell (0, 0): may lie outside
                 assert [c["id"] for c in client.get(paths[0]).json()["countries"]] == ["slovakia"]
             client.close()
         from fastapi.routing import APIRoute
         routes = {r.path: r for r in public.app.routes if isinstance(r, APIRoute)}
-        for path in ("/api/countries", "/api/countries/{country}/cells", "/api/countries/{country}/request"):
+        for path in ("/api/countries", "/api/countries/{country}/cells", "/api/countries/{country}/histogram",
+                     "/api/countries/{country}/outline", "/api/countries/{country}/request"):
             assert "require_admin" in {getattr(d.call, "__name__", "") for d in routes[path].dependant.dependencies}
 
 
@@ -287,6 +366,8 @@ def test_no_numba_in_the_web_process(sample):
             "base_url='http://127.0.0.1:8765')\n"
             "assert c.get('/api/countries').status_code == 200\n"
             f"assert c.get('/api/countries/slovakia/cells?bbox={VIEW}&level=2').status_code == 200\n"
+            f"assert c.get('/api/countries/slovakia/histogram?bbox={VIEW}&level=2').status_code == 200\n"
+            "assert c.get('/api/countries/slovakia/outline').status_code == 200\n"
             "c.get('/api/countries/slovakia/request?band=S&level=8&i=1&j=1')\n"
             "assert 'countcube' in sys.modules\n"
             "print(json.dumps(sorted(m for m in sys.modules if m.split('.')[0] in "
@@ -347,8 +428,9 @@ run({
                     reason="needs Microsoft Edge")
 @pytest.mark.parametrize("ui", ["c", "d"])
 def test_layer_page_in_edge(sample, tmp_path, ui):
-    """#layer on the real local server with the sample cube: the cells drawn on the map's canvas, a click
-    selects the cell under it (its count, one "Search here" per layer band), no CSP violations."""
+    """#layer on the real local server with the sample cube (the first listed country, which the page takes;
+    the second, testland, sorts after it): the cells drawn on the map's canvas, a click selects the cell
+    under it (its count, one "Search here" per layer band), no CSP violations."""
     from test_shell_c import _edge, stub_page
     from test_web import _server
     page = stub_page(sample, f"layer-{ui}", LAYER_SCRIPT)

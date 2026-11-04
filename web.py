@@ -600,11 +600,10 @@ class Countries:
         return out
 
     @staticmethod
-    def cells(cube, query) -> Dict:
-        """The answer of /api/countries/<id>/cells for its query (mode, bbox, level and the filters of
-        countcube.Filters.parse); ValueError with a plain message for a value it cannot take."""
-        import numpy as np
-
+    def _view(cube, query) -> Tuple[str, int, Optional[tuple], object]:
+        """What a query of the layer asks: (mode, level, box, filters) from its mode, bbox, level (auto:
+        countcube's Cube.auto_level; an explicit level over COUNTRY_CELLS_MAX cells in view refused) and
+        the filters of countcube.Filters.parse; ValueError with a plain message for a value it cannot take."""
         import countcube as cc
         filters = cc.Filters.parse(query)
         mode = query.get("mode") or "lines"
@@ -631,12 +630,39 @@ class Countries:
                 raise ValueError(f"level must be auto or one of {', '.join(map(str, cube.levels))}")
             if cube.cell_count(level, box) > COUNTRY_CELLS_MAX:
                 raise ValueError("too many cells: zoom in or choose a coarser level")
+        return mode, level, box, filters
+
+    @staticmethod
+    def _cell_m(cube, level: int):
+        import countcube as cc
+        size = level * cube.info.get("cell_m", cc.CELL_M)
+        return int(size) if float(size).is_integer() else size
+
+    @staticmethod
+    def cells(cube, query) -> Dict:
+        """The answer of /api/countries/<id>/cells for its query (_view): the level and its cell size, the
+        cells passing the filters with their corners, the total and the largest count."""
+        import numpy as np
+        mode, level, box, filters = Countries._view(cube, query)
         i, j, count = cube.cells(mode, level, box, filters)
         corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
-        size = level * cube.info.get("cell_m", cc.CELL_M)
-        return {"level": level, "cell_m": int(size) if float(size).is_integer() else size,
+        return {"level": level, "cell_m": Countries._cell_m(cube, level),
                 "total": int(count.sum()), "max": int(count.max()) if len(count) else 0,
                 "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)]}
+
+    @staticmethod
+    def histogram(cube, query) -> Dict:
+        """The answer of /api/countries/<id>/histogram for the query of /cells: countcube's Cube.histogram
+        of the view (the counts per bin of each dimension, each under every filter but its own) with the
+        level and its cell size as /cells gives them."""
+        mode, level, box, filters = Countries._view(cube, query)
+        return {"level": level, "cell_m": Countries._cell_m(cube, level), **cube.histogram(mode, level, box, filters)}
+
+    @staticmethod
+    def outline(cube) -> Dict:
+        """The answer of /api/countries/<id>/outline: the country's outline simplified for a map
+        (countcube's Cube.outline_simplified), with its tolerance and the original's km²."""
+        return cube.outline_simplified()
 
     @staticmethod
     def request(cube, query) -> Dict:
@@ -1649,6 +1675,26 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         cube = await country_cube(country)
         try:
             return await run_in_threadpool(Countries.cells, cube, request.query_params)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/countries/{country}/histogram")
+    async def country_histogram(country: str, request: Request, user: ac.User = Depends(require_admin)):
+        """The counts of the layer in view per bin of each filter dimension (Countries.histogram)."""
+        cube = await country_cube(country)
+        try:
+            return await run_in_threadpool(Countries.histogram, cube, request.query_params)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+
+    @app.get("/api/countries/{country}/outline")
+    async def country_outline(country: str, user: ac.User = Depends(require_admin)):
+        """The country's outline simplified for the map (Countries.outline)."""
+        cube = await country_cube(country)
+        try:
+            return await run_in_threadpool(Countries.outline, cube)
+        except OSError:  # a cube folder without its area.geojson
+            raise HTTPException(404, "no outline")
         except ValueError as e:
             raise HTTPException(400, str(e))
 

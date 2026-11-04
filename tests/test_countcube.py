@@ -386,6 +386,132 @@ def test_cube_cells_against_brute_force(tmp_path):
     assert len(i) == 0
 
 
+def test_select_skip():
+    """select(skip=<dimension>) leaves that dimension's condition out: the mask of the same filters with
+    that dimension off; another name is refused."""
+    rng = np.random.default_rng(31)
+    grid = _grid()
+    table = _lines(rng, grid, 3000, lengths=(30, 5000))
+    keys = cc.pack_keys(np.zeros(len(table), dtype=np.int64), np.zeros(len(table), dtype=np.int64),
+                        cc.line_records(table.columns))
+    off = {"length": {"length": (30, 5000)}, "prominence": {"prominence": 0}, "wall": {"wall": None},
+           "clearance": {"clearance": 0}, "height": {"height": 0}}
+    for _ in range(100):
+        f = _random_filters(rng)
+        assert (cc.select(keys, f, skip=None) == cc.select(keys, f)).all()
+        for name, args in off.items():
+            relaxed = cc.Filters(**{**f.__dict__, **args})
+            assert (cc.select(keys, f, skip=name) == cc.select(keys, relaxed)).all(), (f, name)
+            assert (cc.select(keys, f, skip=name) | ~cc.select(keys, f)).all()  # never stricter
+    with pytest.raises(ValueError, match="skip"):
+        cc.select(keys, cc.Filters(), skip="trees")
+
+
+def test_cube_histogram_against_brute_force(tmp_path):
+    """Cube.histogram: per row the bins read from the key and the counts summed with the row's own
+    dimension dropped from the filters; the total is the cells' sum; the lines' length bins partition
+    the total, the spots' sum to at least it."""
+    rng = np.random.default_rng(37)
+    grid = _grid()
+    table = _lines(rng, grid, 8000, lengths=(30, 5000))
+    out, _ = _build(tmp_path, [(grid, table, None)])
+    cube = cc.Cube(str(out))
+    off = {"length": {"length": (30, 5000)}, "prominence": {"prominence": 0}, "wall": {"wall": None},
+           "clearance": {"clearance": 0}, "height": {"height": 0}}
+    for mode in ("lines", "spots"):
+        for level in cc.LEVELS:
+            rows = np.load(out / f"{mode}_{level}.npy")
+            for _ in range(15):
+                f = _random_filters(rng)
+                x = sorted(rng.uniform(-561000, -549000, 2))
+                y = sorted(rng.uniform(-1240000, -1228000, 2))
+                box = None if rng.random() < 0.2 else (x[0], y[0], x[1], y[1])
+                size = level * 1000
+                expected = {"total": 0, "length": [0] * cc.LENGTH_BINS,
+                            **{name: [0] * 6 for name in ("prominence", "wall", "clearance", "height")}}
+                relaxed = {name: cc.Filters(**{**f.__dict__, **args}) for name, args in off.items()}
+                for key, n in rows.tolist():
+                    i, j = key >> 39, (key >> 25) & 0x3FFF
+                    inside = box is None or (ORIGIN[0] + (i + 1) * size > box[0] and ORIGIN[0] + i * size <= box[2]
+                                             and ORIGIN[1] + (j + 1) * size > box[1]
+                                             and ORIGIN[1] + j * size <= box[3])
+                    if not inside:
+                        continue
+                    one = np.array([key])
+                    if cc.select(one, f)[0]:
+                        expected["total"] += n
+                    if cc.select(one, relaxed["length"])[0]:
+                        for k in range(cc.LENGTH_BINS):
+                            if key & (1 << (16 + k)):
+                                expected["length"][k] += n
+                    for name, shift in (("prominence", 13), ("wall", 10), ("clearance", 7), ("height", 4)):
+                        if cc.select(one, relaxed[name])[0]:
+                            b = (key >> shift) & 7
+                            expected[name][5 if b == cc.UNKNOWN else b] += n
+                got = cube.histogram(mode, level, box, f)
+                assert got == expected, (mode, level, f, box)
+                assert isinstance(got["total"], int)
+                assert all(isinstance(v, int) for name in off for v in got[name])
+                assert got["total"] == int(cube.cells(mode, level, box, f)[2].sum())
+                # the length bins are counted with the length filter off: a line's one bit partitions that
+                # total (the view's total when the filter is off), a spot's ORed bits sum to at least it
+                relaxed_total = cube.histogram(mode, level, box, relaxed["length"])["total"]
+                assert relaxed_total >= got["total"]
+                if mode == "lines":
+                    assert sum(got["length"]) == relaxed_total
+                    if f.length == (30, 5000):
+                        assert sum(got["length"]) == got["total"]
+                else:
+                    assert sum(got["length"]) >= relaxed_total
+    with pytest.raises(ValueError):
+        cube.histogram("groups", 1, None, cc.Filters())
+    empty = cube.histogram("lines", 1, (0.0, 0.0, 1000.0, 1000.0), cc.Filters())
+    assert empty == {"total": 0, "length": [0] * 9, "prominence": [0] * 6, "wall": [0] * 6, "clearance": [0] * 6,
+                     "height": [0] * 6}
+
+
+def test_outline_simplified(tmp_path):
+    """The outline for a map: valid, fewer coordinates than the original, within the country's bounds (plus
+    the tolerance), the original's km², kept per tolerance."""
+    rng = np.random.default_rng(41)
+    grid = _grid()
+    out, _ = _build(tmp_path, [(grid, _lines(rng, grid, 10, lengths=(30, 300)), None)])
+    # a wiggly outline: the plain one's edges every 20 m with noise of 1 m, about 1600 points
+    cube = cc.Cube(str(out))
+    to_crs = Transformer.from_crs("EPSG:4326", CRS, always_xy=True)
+    to_wgs84 = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+    local = shapely.transform(cube.outline(), lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
+    dense = shapely.segmentize(local, 20.0)
+    xy = shapely.get_coordinates(dense) + rng.uniform(-1, 1, (shapely.get_num_coordinates(dense), 2))
+    xy[-1] = xy[0]  # the ring closed
+    dense = shapely.Polygon(xy)
+    back = shapely.transform(dense, lambda xy: np.column_stack(to_wgs84.transform(xy[:, 0], xy[:, 1])))
+    (out / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {},
+                                                 "geometry": json.loads(shapely.to_geojson(back))}))
+    cube = cc.Cube(str(out))
+    original = cube.outline()
+    assert shapely.get_num_coordinates(original) > 1000
+    found = cube.outline_simplified()
+    assert found["tolerance"] == cc.OUTLINE_TOLERANCE
+    assert cube.outline_simplified() is found  # kept
+    assert cube.outline_simplified(0.001) is not found and cube.outline_simplified(0.001)["tolerance"] == 0.001
+    geometry = shape(found["geometry"])
+    assert geometry.is_valid and geometry.geom_type in ("Polygon", "MultiPolygon")
+    assert 4 <= shapely.get_num_coordinates(geometry) < shapely.get_num_coordinates(original) / 10
+    json.dumps(found)
+    rings = [geometry.exterior] if geometry.geom_type == "Polygon" else [p.exterior for p in geometry.geoms]
+    for ring in rings:
+        for x, y in ring.coords:
+            assert round(x, 4) == x and round(y, 4) == y
+    lon0, lat0, lon1, lat1 = cube.info["bounds_wgs84"]
+    t = cc.OUTLINE_TOLERANCE + 1e-4
+    assert geometry.bounds[0] >= lon0 - t and geometry.bounds[1] >= lat0 - t
+    assert geometry.bounds[2] <= lon1 + t and geometry.bounds[3] <= lat1 + t
+    assert found["area_km2"] > 0
+    assert found["area_km2"] == pytest.approx(dense.area / 1e6, rel=0.01) == pytest.approx(56, rel=0.05)
+    assert found["area_km2"] == round(found["area_km2"], 1)
+
+
 def test_box_auto_level_and_corners(tmp_path):
     rng = np.random.default_rng(19)
     grid = _grid()
