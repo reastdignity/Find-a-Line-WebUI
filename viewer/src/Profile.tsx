@@ -21,7 +21,8 @@ const LAYERS: [LayerName, string, string][] = [
   ["athlete", "athlete under cursor", "height:2px;background:" + PROFILE.athlete],
   ["envelope", "sag envelope", "border-top:2px dotted " + PROFILE.envelope + ";height:0"],
   ["fall", "fall zone", "height:8px;background:" + PROFILE.fallFill + ";border:1px solid " + PROFILE.limit]];
-const HEIGHT = 170, M = {l: 58, r: 20, t: 18, b: 24};
+// The chart's height: fixed, or in fill mode its box's (a card the user resizes), at least CHART_MIN
+const HEIGHT = 170, CHART_MIN = 120, M = {l: 58, r: 20, t: 18, b: 24};
 
 function Swatch({style}: {style: string}) {
   return <span class="fal-swatch" style={style}></span>;
@@ -40,12 +41,13 @@ export interface ProfileProps {
   leashFall: number;
   rigging: Rigging;                      // initial values (the run's)
   measured?: boolean;                    // two points measured on the map, not a found line
+  fill?: boolean;                        // the chart takes its box's height (at least 120 px) instead of 170 px
   onClose(): void;
   onHover(at: [number, number] | null): void;   // (lat, lon) under the cursor
 }
 
 export function ProfilePanel(props: ProfileProps) {
-  const {model, measured} = props;
+  const {model, measured, fill} = props;
   const [rigging, setRigging] = useState<Rigging>({...props.rigging});
   const [heights, setHeights] = useState<[number, number]>([0, 0]);  // anchors above the ground (measured)
   const l = useMemo(() => measured ? {...props.line, e1: props.line.e1 + heights[0], e2: props.line.e2 + heights[1]}
@@ -55,11 +57,15 @@ export function ProfilePanel(props: ProfileProps) {
     {webbing: true, athlete: true, envelope: true, fall: true});
   const [equal, setEqual] = useState(false);
   const [width, setWidth] = useState(800);
+  const [boxHeight, setBoxHeight] = useState(HEIGHT);  // the chart's box (fill mode)
   const [hover, setHover] = useState<number | null>(null);  // distance from A1 under the cursor
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const measure = () => setWidth(chartRef.current?.clientWidth || 800);
+    const measure = () => {
+      setWidth(chartRef.current?.clientWidth || 800);
+      setBoxHeight(chartRef.current?.clientHeight || HEIGHT);
+    };
     measure();
     window.addEventListener("resize", measure);
     // A panel of the app can change its width without the window (a sheet, a column)
@@ -75,7 +81,8 @@ export function ProfilePanel(props: ProfileProps) {
   useEffect(() => () => onHoverRef.current(null), []);
 
   const est = useMemo(() => Sag.estimate(l.len, l.e1 - l.e2, rigging), [l, rigging]);
-  const W = width, pw = W - M.l - M.r, ph = HEIGHT - M.t - M.b;
+  const H = fill ? Math.max(CHART_MIN, boxHeight) : HEIGHT;
+  const W = width, pw = W - M.l - M.r, ph = H - M.t - M.b;
   const color = l.over ? COLORS.over : COLORS.clean;
   const chord = (d: number) => l.e1 + (l.e2 - l.e1) * d / l.len;
   const fall = rigging.fall_zone;
@@ -107,7 +114,7 @@ export function ProfilePanel(props: ProfileProps) {
   const Y = (z: number) => M.t + ph / 2 - (z - zmid) * sy;
   const visibleMin = zmid - ph / 2 / sy, visibleMax = zmid + ph / 2 / sy;
   const pt = (d: number, z: number) => X(d).toFixed(1) + "," + Y(z).toFixed(1);
-  const base = (d: number) => X(d).toFixed(1) + "," + (HEIGHT - M.b);
+  const base = (d: number) => X(d).toFixed(1) + "," + (H - M.b);
 
   const grid = [];
   const yStep = niceStep(visibleMax - visibleMin, 4);
@@ -117,7 +124,7 @@ export function ProfilePanel(props: ProfileProps) {
   }
   const xStep = niceStep(l.len, 6);
   for (let d = 0; d <= l.len + 0.01; d += xStep) {
-    grid.push(<text x={X(d)} y={HEIGHT - 6} text-anchor="middle" fill="#777">{d.toFixed(0) + " m"}</text>);
+    grid.push(<text x={X(d)} y={H - 6} text-anchor="middle" fill="#777">{d.toFixed(0) + " m"}</text>);
   }
 
   const ground: string[] = [], top: string[] = [], bottom: string[] = [];
@@ -277,7 +284,7 @@ export function ProfilePanel(props: ProfileProps) {
         : " – fits");
   }
 
-  return <div class="fal-profile" onClick={(e) => e.stopPropagation()}>
+  return <div class={fill ? "fal-profile fal-fill" : "fal-profile"} onClick={(e) => e.stopPropagation()}>
     <div class="fal-profile-head">
       <div>
         <b class="fal-profile-title">{title}</b>
@@ -308,7 +315,7 @@ export function ProfilePanel(props: ProfileProps) {
           <Swatch style={style} /> {label}</label>)}</span>
     </div>
     <div class="fal-profile-chart" ref={chartRef}>
-      <svg width={W} height={HEIGHT} font-size="11">
+      <svg width={W} height={H} font-size="11">
         {grid}
         {est && show.fall && <polygon fill={PROFILE.fallFill} stroke="none" points={
           dsamples.map((d) => pt(d, envelopeAt(d))).concat(
@@ -339,7 +346,7 @@ export function ProfilePanel(props: ProfileProps) {
             <text x={X(d) + (anchor === "start" ? 6 : -6)} y={Y(z) - 7} text-anchor={anchor}
                   font-weight="bold">{name + " " + z.toFixed(1) + " m"}</text>
           </g>)}
-        {hover !== null && <line class="fal-cursor" x1={X(hover)} x2={X(hover)} y1={M.t} y2={HEIGHT - M.b}
+        {hover !== null && <line class="fal-cursor" x1={X(hover)} x2={X(hover)} y1={M.t} y2={H - M.b}
                                  stroke="#333" stroke-dasharray="2 2" />}
         <rect class="fal-hover" x={M.l} y={M.t} width={pw} height={ph} fill="transparent" tabIndex={0}
               role="slider" aria-label="Point along the line (← →, Home, End)" aria-valuemin={0}

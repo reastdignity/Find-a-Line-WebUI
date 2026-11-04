@@ -170,6 +170,44 @@
 .ui .r-profile svg line.fal-cursor { stroke: var(--ink); }
 @media (max-width: 767px) { .ui .r-profile .fal-profile-legend { display: none; } }
 
+/* The profile in a card (ProfileDock's fill mode and fold button: ProfileCard) */
+.ui .r-fold .u-ic { transition: transform .15s; }
+.ui .r-fold.r-on .u-ic { transform: rotate(180deg); }  /* folded: ▴ unfolds */
+.ui .r-foldable .fal-close { display: none; }  /* the × stays in the bar */
+.ui .r-dock.r-folded .r-profile, .ui .r-dock.r-folded .r-dock-msg, .ui .r-dock.r-folded .r-hint { display: none; }
+/* Fill: the chart takes what the bar, the profile's head, the controls and the readout leave, at least 120 px
+   (Profile.tsx CHART_MIN): its box grows, the SVG is drawn at the box's height */
+.ui .r-dock-fill { max-height: none; overflow: hidden; }
+.ui .r-dock-fill .r-profile { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ui .r-profile .fal-profile.fal-fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ui .r-profile .fal-fill .fal-profile-chart { flex: 1 1 0; min-height: 120px; position: relative; }
+.ui .r-profile .fal-fill .fal-profile-chart svg { position: absolute; top: 0; left: 0; }
+/* The card: absolute over the bottom of its positioned parent (the map's column), its left, right and
+   height set by ProfileCard (CSSOM). Its least height is its content's with the chart at 120 px, so it
+   grows over the kept height when the controls need it. Above Leaflet's panes, below its controls. */
+.ui .r-card { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 900; display: flex; flex-direction: column;
+  min-height: min-content; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+.ui .r-card > .r-dock { flex: 1 1 auto; min-height: 0; background: none; border: 0; box-shadow: none; border-radius: inherit;
+  padding: 8px 14px 8px; }
+.ui .r-card-folded > .r-dock { padding-bottom: 6px; }
+/* A narrow card keeps its bar on one line: the hint goes first */
+.ui .r-card { container-type: inline-size; }
+@container (max-width: 520px) { .ui .r-card .r-hint { display: none; } }
+/* Its edges: the top one (height) with a centred grip, as the sheet's; the sides (width) with a grip each */
+.ui .r-card .r-card-top { top: calc(var(--u-split) / -2); left: 16px; right: 16px; border-radius: 8px; }
+.ui .r-card .r-card-side { top: 12px; bottom: 12px; cursor: ew-resize; border-radius: 8px; }
+.ui .r-card .r-card-l { left: calc(var(--u-split) / -2); }
+.ui .r-card .r-card-r { right: calc(var(--u-split) / -2); }
+.ui .r-card-folded .r-card-side { top: 6px; bottom: 6px; }
+.ui .r-card .r-card-top::after, .ui .r-card .r-card-side::after { display: none; }
+.ui .r-card .r-card-top::before, .ui .r-card .r-card-side::before { content: ""; position: absolute; border-radius: 2px;
+  background: var(--line); transition: background .12s; pointer-events: none; }
+.ui .r-card .r-card-top::before { left: calc(50% - 20px); top: calc(50% - 2px); width: 40px; height: 4px; }
+.ui .r-card .r-card-side::before { top: calc(50% - 18px); left: calc(50% - 2px); width: 4px; height: 36px; }
+.ui .r-card-folded .r-card-side::before { top: calc(50% - 10px); height: 20px; }
+.ui .r-card .u-split:hover::before, .ui .r-card .u-split.u-dragging::before, .ui .r-card .u-split:focus-visible::before {
+  background: var(--accent); }
+
 /* The actions of a run */
 .ui .r-actions { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
 .ui .r-actions > .r-popwrap .u-btn, .ui .r-act .u-btn { box-shadow: var(--shadow); }
@@ -179,21 +217,28 @@
   background: var(--ink); color: var(--bg); z-index: 1100; }
 .ui .r-tip.r-error { background: var(--bad); color: #fff; }
 
-/* The demo page (?ui=kit-result): B3 on desktops, B5 on phones */
-.ui.r-kit .r-kit-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+/* The demo page (?ui=kit-result): on desktops the panel as a column on the left (its edge a Splitter, a rail
+   when collapsed) beside the map with the profile card; B5 on phones */
+.ui.r-kit .r-kit-main { flex: 1; min-width: 0; display: flex; }
 .ui.r-kit .r-kit-map { flex: 1; min-height: 0; position: relative; overflow: hidden; }
 .ui.r-kit .r-kit-leaflet { position: absolute; inset: 0; background: var(--map-bg); }
 .ui.r-kit .r-kit-top { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1001; display: flex; gap: 8px; align-items: flex-start;
   pointer-events: none; }
 .ui.r-kit .r-kit-top > * { pointer-events: auto; }
-.ui.r-kit .r-kit-actions { position: absolute; top: 12px; right: calc(384px + 28px); z-index: 1001; }
+.ui.r-kit .r-kit-actions { position: absolute; top: 12px; right: 12px; z-index: 1001; }
 .ui.r-kit .r-pill { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px 0 4px; border-radius: 999px;
   background: var(--surface); box-shadow: var(--shadow); border: 1px solid var(--line); font-weight: 500; max-width: 340px; min-width: 0; }
 .ui.r-kit .r-pill a { text-decoration: none; font-size: 22px; color: var(--ink-2); }
 .ui.r-kit .r-pill-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ui.r-kit .leaflet-top.leaflet-left { top: 56px; }
-.ui.r-kit .r-panel { position: absolute; top: 12px; right: 12px; bottom: 12px; width: 384px; z-index: 1001; display: flex; flex-direction: column;
-  overflow: hidden; }
+.ui.r-kit .r-panel { position: relative; flex: none; min-height: 0; z-index: 1002; display: flex; flex-direction: column;
+  background: var(--surface); border-right: 1px solid var(--line); }
+.ui.r-kit .r-kit-split { right: calc(var(--u-split) / -2); }
+.ui.r-kit .r-kit-rail { flex: none; width: 36px; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0;
+  border: 0; border-right: 1px solid var(--line); background: var(--surface); color: var(--ink-2); cursor: pointer; z-index: 1002; }
+.ui.r-kit .r-kit-rail:hover { background: var(--surface-2); }
+.ui.r-kit .r-kit-rail span { writing-mode: vertical-rl; font: 500 11.5px var(--mono); letter-spacing: .07em; text-transform: uppercase;
+  white-space: nowrap; }
 .ui.r-kit .r-panel-head { padding: 14px 16px 12px; display: flex; flex-direction: column; gap: 10px; border-bottom: 1px solid var(--line);
   max-height: 55%; overflow-y: auto; flex: none; }
 .ui.r-kit .r-panel-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px 8px; }

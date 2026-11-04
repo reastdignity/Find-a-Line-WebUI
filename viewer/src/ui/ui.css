@@ -206,6 +206,26 @@
 .ui .u-side .u-sheet-head { padding: 14px 16px 8px; }
 .ui .u-side .u-sheet-body { padding: 0 16px 16px; }
 
+/* Splitter: a draggable edge (components.tsx Splitter). Its place is the caller's (absolute in a positioned
+   parent, e.g. right: calc(var(--u-split) / -2)); its hit strip is --u-split wide (24px on coarse pointers),
+   the accent line in its middle shows on hover, while dragging and with the keyboard's focus */
+.ui { --u-split: 12px; }
+@media (pointer: coarse) { .ui { --u-split: 24px; } }
+.ui .u-split { position: absolute; z-index: 8; touch-action: none; user-select: none; -webkit-user-select: none; }
+.ui .u-split-v { top: 0; bottom: 0; width: var(--u-split); cursor: col-resize; }
+.ui .u-split-h { left: 0; right: 0; height: var(--u-split); cursor: row-resize; }
+.ui .u-split::after { content: ""; position: absolute; background: transparent; transition: background .12s; pointer-events: none; }
+.ui .u-split-v::after { top: 0; bottom: 0; left: calc(50% - 1px); width: 2px; }
+.ui .u-split-h::after { left: 0; right: 0; top: calc(50% - 1px); height: 2px; }
+.ui .u-split:hover::after, .ui .u-split.u-dragging::after, .ui .u-split:focus-visible::after { background: var(--accent); }
+.ui .u-split:focus-visible { box-shadow: none; }
+/* The round tab at the middle of a column's edge (collapse ‹ ›; a rail's own tab looks the same) */
+.ui .u-split-tab { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 22px; height: 44px; border-radius: 11px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); display: flex; align-items: center; justify-content: center;
+  padding: 0; cursor: pointer; box-shadow: 0 1px 3px rgb(0 0 0 / .14); z-index: 1; }
+.ui .u-split-tab .u-ic { width: 14px; height: 14px; stroke-width: 2.2; }
+.ui .u-split-tab:hover { color: var(--accent); border-color: var(--accent); }
+
 /* Touch targets on coarse pointers */
 @media (pointer: coarse) {
   .ui .u-tabs button, .ui .u-rail-item { min-height: 44px; }
