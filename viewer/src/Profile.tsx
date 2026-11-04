@@ -1,7 +1,9 @@
 // Terrain profile of the selected line (ProfileDock, docked at the bottom of the result):
 // terrain, trees/buildings, water, the safety limit of the search, the sag
 // estimator (webbing, envelope, fall zone, athlete under the cursor). The same panel shows
-// two points measured on the map, with their anchors at a height above the ground.
+// two points measured on the map, with their anchors at a height above the ground. Compact (a card that
+// can be made low: ProfileCard): no head row (its title goes to the caller's bar, `onTitle`), the legend
+// and the 1:1 scale with the controls of "Rigging and layers", the readout one line.
 
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import * as Sag from "./sag";
@@ -42,12 +44,14 @@ export interface ProfileProps {
   rigging: Rigging;                      // initial values (the run's)
   measured?: boolean;                    // two points measured on the map, not a found line
   fill?: boolean;                        // the chart takes its box's height (at least 120 px) instead of 170 px
+  compact?: boolean;                     // no head row: the legend and the scale with the controls, one readout line
+  onTitle?(title: string, facts: string): void;  // the title (as the head has it) and its facts after the length
   onClose(): void;
   onHover(at: [number, number] | null): void;   // (lat, lon) under the cursor
 }
 
 export function ProfilePanel(props: ProfileProps) {
-  const {model, measured, fill} = props;
+  const {model, measured, fill, compact} = props;
   const [rigging, setRigging] = useState<Rigging>({...props.rigging});
   const [heights, setHeights] = useState<[number, number]>([0, 0]);  // anchors above the ground (measured)
   const l = useMemo(() => measured ? {...props.line, e1: props.line.e1 + heights[0], e2: props.line.e2 + heights[1]}
@@ -273,36 +277,47 @@ export function ProfilePanel(props: ProfileProps) {
     if (isFinite(v) && v >= 0) setHeights(k ? [heights[0], v] : [v, heights[1]]);
     else input.value = String(heights[k]);
   };
-  let title = "Profile: " + l.len.toFixed(0) + " m, A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) +
-    " m (Δh " + dh.toFixed(1) + " m), min. clearance " + l.clr.toFixed(1) + " m";
+  // The title: "Profile: <len> m, A1 … → A2 … (Δh …), min. clearance …"; its facts (after the length) for a bar
+  const ends = "A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) + " m", delta = "Δh " + dh.toFixed(1) + " m";
+  let clearance = "min. clearance " + l.clr.toFixed(1) + " m";
   if (measured) {
     const clr = minTerrain ? minTerrain[1] : NaN, clrN = minSurface ? minSurface[1] : null;
-    title = "Measured: " + l.len.toFixed(0) + " m, A1 " + l.e1.toFixed(1) + " m → A2 " + l.e2.toFixed(1) +
-      " m (Δh " + dh.toFixed(1) + " m), min. clearance " + (isFinite(clr) ? clr.toFixed(1) + " m" : "–") +
+    clearance = "min. clearance " + (isFinite(clr) ? clr.toFixed(1) + " m" : "–") +
       (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "") +
       (!isFinite(clr) ? "" : clr < 0 ? " – does not fit" : clrN !== null && clrN < 0 ? " – fits over terrain only"
         : " – fits");
   }
+  const title = (measured ? "Measured: " : "Profile: ") + l.len.toFixed(0) + " m, " + ends + " (" + delta + "), " +
+    clearance;
+  const facts = ends + " · " + delta + " · " + clearance;
+  const onTitle = useRef(props.onTitle);
+  onTitle.current = props.onTitle;
+  useEffect(() => { onTitle.current?.(title, facts); }, [title, facts]);
+  useEffect(() => () => onTitle.current?.("", ""), []);
+  const legend = <span class="fal-profile-legend">
+    <span><Swatch style={"height:8px;background:" + PROFILE.terrainFill + ";border:1px solid " + PROFILE.terrain} /> terrain</span>
+    <span><Swatch style={"height:8px;background:" + PROFILE.treesFill} /> trees/buildings</span>
+    <span><Swatch style={"height:8px;background:" + PROFILE.waterFill} /> water</span>
+    <span><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} /> safety limit
+      ({model === "sag" ? "sag model" : "formula"})</span>
+  </span>;
+  const scale = <button class="fal-scale" onClick={() => setEqual(!equal)}>
+    {equal ? "Auto scale" : "1:1 scale (now vertical ×" + (sy / sx).toFixed(1) + ")"}</button>;
 
-  return <div class={fill ? "fal-profile fal-fill" : "fal-profile"} onClick={(e) => e.stopPropagation()}>
-    <div class="fal-profile-head">
+  return <div class={"fal-profile" + (fill ? " fal-fill" : "") + (compact ? " fal-compact" : "")}
+              onClick={(e) => e.stopPropagation()}>
+    {!compact && <div class="fal-profile-head">
       <div>
         <b class="fal-profile-title">{title}</b>
-        <span class="fal-profile-legend">
-          <span><Swatch style={"height:8px;background:" + PROFILE.terrainFill + ";border:1px solid " + PROFILE.terrain} /> terrain</span>
-          <span><Swatch style={"height:8px;background:" + PROFILE.treesFill} /> trees/buildings</span>
-          <span><Swatch style={"height:8px;background:" + PROFILE.waterFill} /> water</span>
-          <span><Swatch style={"border-top:2px dashed " + PROFILE.limit + ";height:0"} /> safety limit
-            ({model === "sag" ? "sag model" : "formula"})</span>
-        </span>
+        {legend}
       </div>
       <div>
-        <button class="fal-scale" onClick={() => setEqual(!equal)}>
-          {equal ? "Auto scale" : "1:1 scale (now vertical ×" + (sy / sx).toFixed(1) + ")"}</button>{" "}
+        {scale}{" "}
         <button class="fal-close" title="Close" aria-label="Close the profile" onClick={props.onClose}>×</button>
       </div>
-    </div>
+    </div>}
     <div class="fal-profile-controls">
+      {compact && <span class="fal-key">{legend}{scale}</span>}
       {measured && <span class="fal-heights">{(["A1", "A2"] as const).map((name, k) =>
         <label><input type="number" min={0} step={0.5} value={heights[k]}
                       onChange={(e) => setHeight(k as 0 | 1, e.currentTarget)} /> m {name} above ground</label>)}</span>}
@@ -356,6 +371,6 @@ export function ProfilePanel(props: ProfileProps) {
               onKeyDown={onKey} onBlur={onLeave} />
       </svg>
     </div>
-    <div class="fal-profile-readout">{readout}</div>
+    <div class="fal-profile-readout" title={compact && readout ? readout : undefined}>{readout}</div>
   </div>;
 }

@@ -211,8 +211,11 @@ def test_profile_card_in_edge(tmp_path, clip_data):
     first = out["initial"]
     assert first["height"] >= 260 and not first["folded"] and first["left"] == 12 and first["width"] == 976, first
     assert first["chart"]["svg"] == first["chart"]["box"] >= 120, first
-    # its least height is its content's with the chart at 120 px (measured), at least 160
+    # its least height is its content's with the chart at 120 px (measured), at least 160; compact: no head row
     assert first["min"] >= 160 and first["max"] == 490, first
+    assert not out["compact"]["head"] and out["compact"]["title"].startswith("Profile: "), out["compact"]
+    assert out["compact"]["facts"].startswith("A1 ") and not out["compact"]["legend"], out["compact"]
+    assert out["rigging"] == {"legend": True, "scale": True}, out  # under Rigging and layers
     assert out["initialCorners"]["attribution"] not in ("", None), out["initialCorners"]
     # ↑ and Shift+↑: 80 px more, each key kept, the chart grows with it
     keys = out["keys"]

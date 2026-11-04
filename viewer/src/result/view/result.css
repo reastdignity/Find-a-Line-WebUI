@@ -145,7 +145,7 @@
 .ui .r-profile .fal-profile-title { font-weight: 600; color: var(--ink); }
 .ui .r-profile .fal-profile-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 12px; margin-left: 10px; }
 .ui .r-profile .fal-profile-legend span { white-space: nowrap; }
-.ui .r-profile .fal-profile-head button { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 26px;
+.ui .r-profile .fal-profile-head button, .ui .r-profile .fal-key .fal-scale { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 26px;
   padding: 0 8px; cursor: pointer; font-size: 12px; }
 .ui .r-profile .fal-profile-controls { display: none; flex-wrap: wrap; gap: 4px 14px; padding: 4px 0; }
 .ui .r-rigging .r-profile .fal-profile-controls, .ui .r-profile .fal-profile-controls:has(.fal-heights) { display: flex; }
@@ -190,9 +190,19 @@
 .ui .r-card > .r-dock { flex: 1 1 auto; min-height: 0; background: none; border: 0; box-shadow: none; border-radius: inherit;
   padding: 8px 14px 8px; }
 .ui .r-card-folded > .r-dock { padding-bottom: 6px; }
-/* A narrow card keeps its bar on one line: the hint goes first */
+/* The card's profile is compact (Profile.tsx compact): its bar on one line with the line's facts after the
+   title (cut with an ellipsis, the whole in their title; the hint only where there is room), no head row, the
+   legend and the 1:1 scale under "Rigging and layers", one readout line under the chart */
 .ui .r-card { container-type: inline-size; }
-@container (max-width: 520px) { .ui .r-card .r-hint { display: none; } }
+.ui .r-card .r-dock-bar { flex-wrap: nowrap; min-width: 0; }
+.ui .r-card .r-dock-bar > b, .ui .r-card .r-dock-bar > button { flex: none; white-space: nowrap; }
+.ui .r-card .r-facts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui .r-card .r-hint { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@container (max-width: 960px) { .ui .r-card .r-hint { display: none; } }
+.ui .r-profile .fal-compact .fal-key { display: none; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.ui .r-rigging .r-profile .fal-compact .fal-key { display: flex; }
+.ui .r-profile .fal-key .fal-profile-legend { margin-left: 0; }
+.ui .r-profile .fal-compact .fal-profile-readout { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* Its edges: the top one (height) with a centred grip, as the sheet's; the sides (width) with a grip each */
 .ui .r-card .r-card-top { top: calc(var(--u-split) / -2); left: 16px; right: 16px; border-radius: 8px; }
 .ui .r-card .r-card-side { top: 12px; bottom: 12px; cursor: ew-resize; border-radius: 8px; }

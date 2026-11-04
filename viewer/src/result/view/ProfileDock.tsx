@@ -2,7 +2,9 @@
 // ProfilePanel (Profile.tsx) with the profile from model.profile (saved, computed before or
 // asked from the server), a loading and an error state; the point under the cursor or the finger is
 // shown on the map (ResultMap.hoverAt). In a card (ProfileCard) it fills the card's height (`fill`: the
-// chart takes what the bar and the controls leave) and has a fold button beside its × (`onFold`).
+// chart takes what the bar and the controls leave) and has a fold button beside its × (`onFold`); the card's
+// profile is compact: the line's facts in the bar (the full title for screen readers and tests in
+// .fal-profile-title, visually hidden), the legend and the 1:1 scale under "Rigging and layers".
 
 import { useEffect, useState } from "preact/hooks";
 import { useMedia } from "../../ui/components";
@@ -50,6 +52,7 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
   const target = line === undefined ? model.selected?.line || null : line;
   const [state, setState] = useState<State | null>(null);
   const [rigging, setRigging] = useState(false);
+  const [title, setTitle] = useState({title: "", facts: ""});  // the compact profile's (fill)
   const touch = useMedia("(pointer: coarse)");
 
   useEffect(() => {
@@ -85,6 +88,9 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
                             onFold && folded && "r-folded", cls)} aria-label="Profile">
     <div class="r-dock-bar">
       <b>{measured ? "Measured profile" : `Profile · ${num(shown.len)} m`}</b>
+      {fill && ready && title.title && <>
+        <span class="u-small r-facts" title={title.title} aria-hidden="true">{title.facts}</span>
+        <span class="u-sr fal-profile-title">{title.title}</span></>}
       <span class="u-small r-hint">{touch ? "tap or drag along the chart" : "move the mouse along the chart"}</span>
       <span class="u-grow" />
       {ready && <button type="button" class={cx("u-chip", rigging && "u-on")} aria-expanded={rigging}
@@ -96,7 +102,9 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
     {ready ? <div class="r-profile">
       <ProfilePanel line={shown} measured={!!measured} model={model.data.model} slope={model.data.slope}
                     leashFall={model.data.leash_fall} rigging={model.data.rigging} onHover={hover} onClose={close}
-                    fill={fill} />
+                    fill={fill} compact={fill}
+                    onTitle={fill ? (t, facts) => setTitle((o) => o.title === t && o.facts === facts ? o
+                      : {title: t, facts}) : undefined} />
     </div> : state && state.status === "error"
       ? <p class="r-dock-msg r-error"><Icon name="warn" />No profile: {state.error}</p>
       : <p class="r-dock-msg" aria-busy="true"><span class="r-spin" />Computing the terrain profile…</p>}

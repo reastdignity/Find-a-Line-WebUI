@@ -79,6 +79,14 @@ const corners = () => ({attribution: $(".t-map .leaflet-bottom.leaflet-right")?.
     render(<Harness model={model} />, root);
     await wait(300);
     out.initial = state();
+    const shown = (s: string) => { const e = $(s); return !!e && e.getClientRects().length > 0; };
+    out.compact = {head: !!$(".r-card .fal-profile-head"), title: $(".r-card .fal-profile-title")?.textContent ?? "",
+                   facts: $(".r-card .r-facts")?.textContent ?? "", legend: shown(".r-card .fal-profile-legend")};
+    $<HTMLButtonElement>(".r-card .r-dock-bar .u-chip")!.click();
+    await wait(150);
+    out.rigging = {legend: shown(".r-card .fal-profile-legend"), scale: shown(".r-card .fal-key .fal-scale")};
+    $<HTMLButtonElement>(".r-card .r-dock-bar .u-chip")!.click();
+    await wait(150);
     out.initialCorners = corners();
     const top = $(".r-card .r-card-top")!;
     // The keys: ↑ 16, Shift+↑ 64; each kept

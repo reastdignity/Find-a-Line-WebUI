@@ -101,6 +101,9 @@ run({
       result.selected = [text(".b-results .r-eyebrow"), text(".b-dock .fal-profile-title"),
                          decodeURIComponent(location.hash) === `#run=${SMALL}&line=${m.lineLink(m.selected.line)}`,
                          near(dock.bottom, innerHeight - 12)];
+      const shown = (s) => !!$(s) && getComputedStyle($(s)).display !== "none";
+      result.fullHead = [shown(".b-dock .fal-profile-head"), shown(".b-dock .fal-profile-legend"), shown(".b-dock .fal-scale"),
+                         !$(".b-dock .r-facts")];
       button("Next spot").click();
       later(() => {
         result.stepped = [text(".b-results .r-eyebrow"), m.position,
@@ -347,6 +350,7 @@ def test_shell_d_desktop(data, tmp_path):
     assert dark["focused"] not in (dark["panel"], "rgb(244, 244, 244)"), r
     assert r["selected"][0].startswith("Spot 1 of ") and r["selected"][1].startswith("Profile"), r
     assert r["selected"][2] and r["selected"][3], r
+    assert r["fullHead"] == [True, True, True, True], r  # D's dock: the profile's full head, not the card's compact one
     assert r["stepped"][0].startswith("Spot 2 of ") and r["stepped"][1] == 1 and r["stepped"][2], r
     before, after, chips = r["filtered"]
     assert after < before and any(c.startswith("Clearance ≥") for c in chips) and r["cleared"] == before, r

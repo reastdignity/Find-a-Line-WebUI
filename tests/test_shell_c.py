@@ -578,7 +578,7 @@ const drag = async (el, dx, dy) => {
   return during;
 };
 const dblclick = (el) => el.dispatchEvent(new MouseEvent("dblclick", {bubbles: true, cancelable: true}));
-const shown = (s) => !!$(s) && getComputedStyle($(s)).display !== "none";
+const shown = (s) => !!$(s) && $(s).getClientRects().length > 0;  // drawn: neither it nor a parent hidden
 const credits = () => ({toggle: shown(".u-credits-toggle"), credits: shown(".u-credits")});
 const corners = () => ({attribution: $(".leaflet-bottom.leaflet-right").style.bottom, scale: $(".leaflet-bottom.leaflet-left").style.bottom});
 /** The selected line's anchors in the map's part the card leaves free. */
@@ -675,6 +675,21 @@ run(first ? {
   async card(next) {
     await pause();
     const col = rect(".c-col-map"), card = rect(".r-card"), top = $(".r-card .r-card-top");
+    // compact: no head row, the facts in the bar, the legend and the 1:1 scale under "Rigging and layers"
+    result.compact = {head: !!$(".r-card .fal-profile-head"), title: text(".r-card .fal-profile-title"),
+                      facts: text(".r-card .r-facts"), factsTitle: $(".r-card .r-facts").getAttribute("title"),
+                      legend: shown(".r-card .fal-profile-legend"), scale: shown(".r-card .fal-scale"),
+                      footer: getComputedStyle($(".r-card .fal-profile-readout")).whiteSpace};
+    $(".r-card .r-dock-bar .u-chip").click();
+    await pause();
+    const scaleBefore = text(".r-card .fal-scale");
+    $(".r-card .fal-scale").click();
+    await pause();
+    result.rigging = {legend: shown(".r-card .fal-profile-legend"), scale: shown(".r-card .fal-scale"),
+                      toggled: [scaleBefore, text(".r-card .fal-scale")], inControls: !!$(".r-card .fal-profile-controls .fal-key .fal-scale")};
+    $(".r-card .fal-scale").click();
+    $(".r-card .r-dock-bar .u-chip").click();
+    await pause();
     result.card = {insets: [card.left - col.left, col.right - card.right, col.bottom - card.bottom].map(Math.round),
                    parent: $(".r-card").parentElement.className, height: Math.round(card.height), aria: aria(top),
                    mapHeight: $(".c-col-map").clientHeight,
@@ -790,7 +805,8 @@ def test_shell_c_layout(data, tmp_path):
     expand a panel (the focus to the rail, then the edge), the rails' labels; a selection leaves the collapsed details
     collapsed; the profile's card in the map's column (12 px from its edges, the selected line in the part it leaves
     free, the corners above it only where it covers them, the data credits folded behind their button while it is
-    shown), its height (Home: its content's least height) and edges by keys and the pointer, folded, closed by × and
+    shown; compact: no head row, the line's facts in its bar, the legend and the 1:1 scale under "Rigging and
+    layers"), its height (Home: its content's least height, below 200 px) and edges by keys and the pointer, folded, closed by × and
     back by "Profile"; the layout found again after a reload. A narrow window collapses the details with an "auto"
     mark, never kept, and expanding them collapses the list; in a low map the card opens folded and nothing changed
     there is kept. No CSP violations."""
@@ -798,18 +814,19 @@ def test_shell_c_layout(data, tmp_path):
     page = stub_page(data, "clayout", LAYOUT_SCRIPT)
     narrow = stub_page(data, "cnarrow", NARROW_SCRIPT)
     with _server(data) as port:
-        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-layout")
+        r = _edge(port, page + f"?ui=c#run={SMALL}", tmp_path / "edge-layout", size="1400,900")
         n = _edge(port, narrow + f"?ui=c#run={SMALL}", tmp_path / "edge-narrow", size="900,460")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
     start = r["start"]
     assert (start["list"], start["details"]) == (340, 380) and start["kept"] is None, r
     cols = start["cols"]  # the window less what the shell takes beside the result
-    assert start["listAria"] == [340, 260, cols - 360 - 380] and start["detailsAria"] == [380, 300, cols - 360 - 340], r
+    list_max, details_max = min(560, cols - 360 - 380), min(600, cols - 360 - 340)
+    assert start["listAria"] == [340, 260, list_max] and start["detailsAria"] == [380, 300, details_max], r
     assert not start["tabInSeparator"] and start["tabs"] == ["Collapse the list", "Collapse the details"], r
     assert start["credits"] == {"toggle": False, "credits": True}, r  # no card: unfolded
     # The list's edge: keys, Home and End, a double click, the pointer (kept when released)
-    assert r["listKeys"] == {"width": 420, "aria": [420, 260, cols - 360 - 380], "kept": 420}, r
-    assert (r["listHome"], r["listEnd"], r["listReset"]) == (260, cols - 360 - 380, [340, 340]), r
+    assert r["listKeys"] == {"width": 420, "aria": [420, 260, list_max], "kept": 420}, r
+    assert (r["listHome"], r["listEnd"], r["listReset"]) == (260, list_max, [340, 340]), r
     assert r["listDrag"] == {"width": 380, "during": 340, "kept": 380}, r
     assert r["detailsKey"] == [396, 396] and r["detailsDrag"] == {"width": 426, "during": 396, "kept": 426}, r
     assert r["detailsReset"] == [380, 380], r
@@ -831,8 +848,16 @@ def test_shell_c_layout(data, tmp_path):
     assert card["aria"][0] == card["height"] and card["aria"][1] >= 160 and card["aria"][2] == round(0.7 * card["mapHeight"]), r
     assert card["credits"] == {"toggle": True, "credits": False}, r  # folded while the card is shown
     assert r["creditsOpen"] == {"toggle": True, "credits": True} and r["creditsFolded"] == card["credits"], r
+    compact = r["compact"]
+    assert not compact["head"] and compact["title"].startswith("Profile: ") and compact["facts"].startswith("A1 "), r
+    assert compact["factsTitle"] == compact["title"] and compact["title"].endswith(compact["facts"].split(" · ")[-1]), r
+    assert not compact["legend"] and not compact["scale"] and compact["footer"] == "nowrap", r
+    rig = r["rigging"]
+    assert rig["legend"] and rig["scale"] and rig["inControls"], r
+    assert rig["toggled"][0].startswith("1:1 scale") and rig["toggled"][1] == "Auto scale", r
     home = r["cardHome"]
     assert home["height"] == home["kept"] == home["aria"][1] == card["aria"][1] and 119 <= home["chart"] <= 121, r
+    assert home["height"] < 200, r  # the compact card's least height at 1400 × 900
     assert r["cardUp"] == {"height": home["height"] + 16, "kept": home["height"] + 16}, r
     assert r["cardDrag"] == {"height": home["height"] + 56, "during": home["height"] + 16, "kept": home["height"] + 56}, r
     assert r["cardKey"] == {"left": 28, "kept": [28, 12]}, r
