@@ -1401,6 +1401,7 @@ def run_phase(data_dir: str, job_id: str, phase: str, limits: Optional[Limits] =
     nominatim_quota(jobs, job["user_id"], limits)
     servicecounts.enable(jobs.add_service_requests, tile_writer=jobs.add_layer_downloads)  # flushed every minute
     # and at the end of the phase
+    pg.utf8_output()  # stderr (tracebacks) in UTF-8 as the main process's
     sys.stdout = _EventWriter(jobs, job_id)
     pg.TEXT_INTERVAL = float("inf")  # the progress goes to the page as events, not as text
     last = [0.0]
@@ -1585,10 +1586,20 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
     import psutil
     import requests
 
+    import progress as pg
     import search
     global SLOT_MEMORY
     SLOT_MEMORY = memory  # an estimate's tiles as its job's (search.slot_memory)
+    pg.utf8_output()  # the bars' text lines ("sea 0.31 km²") on a redirected stdout
     jobs = Jobs(data_dir, public)
+
+    def internal(task_id: int, error: Exception):
+        ref = f"quick-{task_id}"
+        print(f"internal error, ref {ref}:", file=sys.stderr)
+        traceback.print_exc()
+        jobs.quick_answer(task_id, 500, f"internal error, ref {ref}" if public else
+                          f"internal error: {type(error).__name__}: {cache.clean_error(error)}")
+
     servicecounts.enable(jobs.add_service_requests, tile_writer=jobs.add_layer_downloads)  # flushed every
     # minute and after each task
     reader = jobs._db()  # one connection for the idle looks (reads, so no write lock 1/QUICK_POLL times a second)
@@ -1608,15 +1619,13 @@ def run_quick(data_dir: str, worker_id: str, parent: int, limits: Optional[Limit
             jobs.quick_answer(task["id"], 200, QUICK[task["kind"]](data_dir, json.loads(task["request"]), task_limits))
         except QuotaExceeded as e:
             jobs.quick_answer(task["id"], e.status, e.detail())
+        except UnicodeError as e:  # a ValueError, but of our own texts and files, never of the request
+            internal(task["id"], e)
         except (ValueError, search.SearchError, requests.RequestException) as e:  # ValueError: parameters
             coded = messages.user_error(e)  # {"message", "code", "params"} (web.error_detail)
             jobs.quick_answer(task["id"], 400, coded.detail() if coded is not None else cache.clean_error(e))
         except Exception as e:
-            ref = f"quick-{task['id']}"
-            print(f"internal error, ref {ref}:", file=sys.stderr)
-            traceback.print_exc()
-            jobs.quick_answer(task["id"], 500, f"internal error, ref {ref}" if public else
-                              f"internal error: {type(e).__name__}: {cache.clean_error(e)}")
+            internal(task["id"], e)
         finally:
             servicecounts.flush()
 

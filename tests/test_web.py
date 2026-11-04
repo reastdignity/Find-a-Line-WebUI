@@ -837,6 +837,41 @@ def test_quick_lane_idle_and_prompt(tmp_path, monkeypatch):
     assert not lane.is_alive()
 
 
+def test_quick_lane_output_in_utf8(tmp_path):
+    """The quick lane writes its stdout in UTF-8 whatever a redirected stdout's code page (a "spawn"
+    process makes its own streams: fill_water's "sea 0.31 km²" broke every 3D view and profile of a
+    run with water filling in a local app started with its output in a pipe, 2026-11-04), and an
+    encoding error is an internal error (500), never the request's (400). PYTHONIOENCODING=cp1250:
+    Windows' stdout in a pipe, on every OS."""
+    import subprocess
+    code = f"""
+import json, subprocess, sys
+sys.path.insert(0, {REPO!r})
+import jobs as jb
+jobs = jb.Jobs({str(tmp_path)!r})
+jb.QUICK["bar"] = lambda data_dir, request, limits: print(
+    "[Compute] filling sea and lakes: 3/3 (100%), part levels - done in 0s, sea 0.31 km², lakes 0.00 km²") or {{"ok": 1}}
+def failing(data_dir, request, limits):
+    raise UnicodeEncodeError("charmap", "km²", 2, 3, "character maps to <undefined>")
+jb.QUICK["failing"] = failing
+tasks = [jobs.quick_add("bar", {{}}), jobs.quick_add("failing", {{}})]
+gone = subprocess.Popen([sys.executable, "-c", "pass"])  # the lane's worker: the lane ends after the tasks
+gone.wait()
+jb.run_quick({str(tmp_path)!r}, "w1", gone.pid)
+print(json.dumps([jobs.quick_take(task) for task in tasks]))
+"""
+    env = {**os.environ, "PYTHONIOENCODING": "cp1250"}
+    env.pop("PYTHONUTF8", None)
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, timeout=120, env=env)
+    out, err = result.stdout.decode("utf-8"), result.stderr.decode("utf-8", "replace")
+    assert result.returncode == 0, out + err
+    assert "sea 0.31 km², lakes 0.00 km²" in out, out + err
+    bar, failing = json.loads(out.strip().splitlines()[-1])
+    assert bar == {"code": 200, "body": {"ok": 1}}, bar
+    assert failing["code"] == 500 and failing["body"].startswith("internal error: UnicodeEncodeError"), failing
+    assert "internal error, ref quick-" in err, err
+
+
 def test_quick_wait_ends(tmp_path, monkeypatch):
     """The server waits for the quick lane at most the lane's time limit per task ahead and its own
     (plus QUICK_SLACK), and not after the client went away; either way it deletes its waiting task.

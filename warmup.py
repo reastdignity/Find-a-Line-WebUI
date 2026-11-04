@@ -145,7 +145,7 @@ def warm_up(data_dir: str):
         with contextlib.suppress(OSError):
             os.nice(10)  # the jobs claimed meanwhile come first
     try:
-        with open(os.devnull, "w") as quiet, contextlib.redirect_stdout(quiet):
+        with open(os.devnull, "w", encoding="utf-8") as quiet, contextlib.redirect_stdout(quiet):
             run(folder)
     except Exception:
         print("numba warm-up failed (the first search compiles instead):", file=sys.stderr)

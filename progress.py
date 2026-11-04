@@ -31,6 +31,17 @@ _listeners: List[Callable[[Dict], None]] = []
 _step = {"text": ""}  # the step of the search, e.g. "Step 3/5: evaluating anchor pairs"
 
 
+def utf8_output():
+    """stdout and stderr in UTF-8, characters replaced where they cannot be written. Output redirected
+    to a file or a pipe gets the Windows code page, which has no "²" and the like (a UnicodeEncodeError,
+    a ValueError, in the middle of a search); a process started by multiprocessing ("spawn") makes its
+    own streams, so the worker's processes call this too (jobs.run_quick, jobs.run_phase). A stream
+    without reconfigure (None under pythonw, a replacement such as jobs._EventWriter) is left alone."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def _duration(seconds: float) -> str:
     seconds = int(seconds)
     if seconds < 60:
