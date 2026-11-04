@@ -1,5 +1,5 @@
 // The uncertain shore on a Leaflet map (shore.ts): the segments as an overlay of the layer control, and a
-// small control (top left) naming the metres of it in view, shown only while the view holds some.
+// small control (bottom left, above the scale) naming the metres of it in view, shown only while the view holds some.
 
 import L from "leaflet";
 import { t } from "./i18n";
@@ -23,8 +23,9 @@ export function shoreLayer(shore: Shore, renderer: L.Renderer = L.svg({padding: 
 }
 
 /** The control naming the metres of uncertain shore in the map's view, updated on every move; hidden when the
- *  view holds none. `shoreControl(map, shore).remove()` takes it off. */
-export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPosition = "topleft"): L.Control {
+ *  view holds none; at the bottom left with the scale, which corners.ts keeps clear of the sheet and the profile.
+ *  `shoreControl(map, shore).remove()` takes it off. */
+export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPosition = "bottomleft"): L.Control {
   const boxes = shore.segments.map(segmentBox);
   const box = L.DomUtil.create("div", "u-shore");
   box.setAttribute("role", "status");
