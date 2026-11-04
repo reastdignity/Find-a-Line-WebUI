@@ -12,7 +12,7 @@ import { UsageMeters, type UsageState } from "../../search";
 import { api, jobError, user, type RunListed } from "../api";
 import { errorText } from "../../i18n";
 import { beingSaved, jobProgress, type JobsState, type JobView } from "../useJobs";
-import { editHash, go, runHash } from "./route";
+import { editHash, runHash } from "./route";
 import { Thumb, ThumbCredit, type ThumbSource } from "./Thumb";
 import { Trip } from "./Trip";
 import { SearchedCard } from "./Searched";

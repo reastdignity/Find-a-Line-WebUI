@@ -91,7 +91,7 @@ function Column({theme}: {theme: Theme}) {
 
     <section class="u-gal-sec"><h3>Sheet and bottom navigation</h3>
       <div class="u-gal-stage">
-        <Sheet label="Lines" desktop="sheet" snap={snap} onSnap={setSnap} peek={90}
+        <Sheet label="Lines" snap={snap} onSnap={setSnap} peek={90}
                header={<div class="u-row"><b class="u-grow">42 lines</b><span class="u-small">{snap}</span></div>}>
           <p>Drag the handle, click it, or use the arrow keys on it.</p>
           {Array.from({length: 12}, (_, i) => <p key={i} class="u-small">Line {i + 1}</p>)}

@@ -422,7 +422,7 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
       </div>
       <RunActions model={model} view={view} onMeasured={measuredNow} compact show={phoneShow} base={base} folder={folder} />
     </div>
-    <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132} top={64}
+    <Sheet label="Results" snap={snap} onSnap={setSnap} peek={132} top={64}
            header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
              : <ResultSummary model={model} legend={false} />}>
       {model.selected && <LineDetails model={model} part="body" onZoom={zoom} linkOf={link && ((l) => link(model, l))}

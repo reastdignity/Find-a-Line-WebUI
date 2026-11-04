@@ -220,19 +220,14 @@ function snapHeight(snap: Snap, height: number, peek: number, top: number): numb
   return Math.max(Math.min(peek, height), height - top);
 }
 
-/** A bottom sheet on phones: peek, half or full height, dragged by its handle (pointer events, so
- *  touch too), or moved one state with a click or the arrow keys. Wider screens (`DESKTOP`) get
- *  `desktop`: a panel at the left or right side (full height), docked (in the page's flow, e.g. a flex
- *  column) or the sheet as on phones. Its position is absolute in
- *  the nearest positioned ancestor (the map's container), whose height the states divide; at full it
+/** A bottom sheet (the phones' result, the kit's demos): peek, half or full height, dragged by its handle
+ *  (pointer events, so touch too), or moved one state with a click or the arrow keys. Its position is
+ *  absolute in the nearest positioned ancestor (the map's container), whose height the states divide; at full it
  *  leaves `top` pixels above it (a top bar). `snap`/`onSnap` control it, or it keeps its own state
  *  from `initial`. */
-export function Sheet({label, header, children, snap, onSnap, initial = "half", peek = 120, top = 16,
-                       desktop = "left"}:
+export function Sheet({label, header, children, snap, onSnap, initial = "half", peek = 120, top = 16}:
                       {label: string; header?: ComponentChildren; children?: ComponentChildren; snap?: Snap;
-                       onSnap?: (snap: Snap) => void; initial?: Snap; peek?: number; top?: number;
-                       desktop?: "left" | "right" | "docked" | "sheet"}) {
-  const wide = useMedia(DESKTOP);
+                       onSnap?: (snap: Snap) => void; initial?: Snap; peek?: number; top?: number}) {
   const [own, setOwn] = useState<Snap>(initial);
   const current = snap ?? own;
   const set = (s: Snap) => { setOwn(s); onSnap?.(s); };
@@ -251,15 +246,7 @@ export function Sheet({label, header, children, snap, onSnap, initial = "half", 
     const observer = new ResizeObserver(measure);
     observer.observe(parent);
     return () => observer.disconnect();
-  }, [wide, desktop]);
-
-  if (wide && desktop !== "sheet") {
-    const side = desktop === "docked" ? "u-docked" : `u-${desktop}`;
-    return <section ref={ref} class={`u-panel u-side ${side}`} aria-label={label}>
-      {header && <div class="u-sheet-head">{header}</div>}
-      <div class="u-sheet-body">{children}</div>
-    </section>;
-  }
+  }, []);
 
   const height = dragHeight ?? snapHeight(current, box, peek, top);
   const step = (by: number) => set(SNAPS[Math.max(0, Math.min(2, SNAPS.indexOf(current) + by))]);

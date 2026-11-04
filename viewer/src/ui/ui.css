@@ -176,12 +176,6 @@
 .ui .u-sheet-head { flex: none; padding: 0 16px 8px; }
 .ui .u-sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 16px calc(16px + env(safe-area-inset-bottom, 0px)); }
 .ui .u-sheet.u-peek .u-sheet-body { overflow: hidden; }
-.ui .u-side { position: absolute; top: 12px; bottom: 12px; width: min(400px, calc(100% - 24px)); display: flex; flex-direction: column; z-index: 5; }
-.ui .u-side.u-left { left: 12px; }
-.ui .u-side.u-right { right: 12px; }
-.ui .u-side.u-docked { position: relative; top: 0; bottom: 0; left: 0; right: 0; width: 400px; border-radius: 0; box-shadow: none; border-width: 0 1px; }
-.ui .u-side .u-sheet-head { padding: 14px 16px 8px; }
-.ui .u-side .u-sheet-body { padding: 0 16px 16px; }
 
 /* Splitter: a draggable edge (components.tsx Splitter). Its place is the caller's (absolute in a positioned
    parent, e.g. right: calc(var(--u-split) / -2)); its hit strip is --u-split wide (24px on coarse pointers),

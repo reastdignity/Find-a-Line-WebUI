@@ -178,7 +178,7 @@ function Result({data}: {data: RunData}) {
         {!wide && <RunActions model={model} view={view} onMeasured={measuredNow} compact />}</div>
       {wide && <div class="r-kit-actions"><RunActions model={model} view={view} onMeasured={measuredNow} /></div>}
       {wide ? <ProfileCard model={model} view={view} measured={measured} onCloseMeasured={closeMeasured}
-                           layout={layout} onLayout={changeLayout} /> : <Sheet label="Results" desktop="sheet" snap={snap} onSnap={setSnap} peek={132}
+                           layout={layout} onLayout={changeLayout} /> : <Sheet label="Results" snap={snap} onSnap={setSnap} peek={132}
                         header={model.selected ? <LineDetails model={model} part="head" onStep={reveal} />
                           : <ResultSummary model={model} legend={false} />}>
         {model.selected && <LineDetails model={model} part="body" onZoom={zoom} />}
