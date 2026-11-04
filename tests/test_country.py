@@ -372,7 +372,8 @@ def _tile(name, core):
 def test_heaviest_tiles_first(tmp_path):
     """A manifest of schema v1 gets the column of the weights; a run claims the tiles under the
     most lines of the tiles done already first (_weights: the cores that overlap, not those that
-    only touch), the others after them in their order."""
+    only touch), the others after them in their order; _weights counts the tiles under no done
+    tile (whose work is unknown)."""
     import cache
     import country
     db = sqlite3.connect(tmp_path / "manifest.sqlite")
@@ -384,15 +385,111 @@ def test_heaviest_tiles_first(tmp_path):
     try:
         assert "weight" in [r[1] for r in m.db.execute("PRAGMA table_info(tiles)")]
         m.add_tiles("B", [_tile("b2", (20, 0, 40, 20)), _tile("b1", (0, 0, 20, 20)), _tile("b3", (0, 20, 20, 40))])
-        assert country._weights(m, ["B"]) == {}  # nothing done yet: the order they were added
+        # nothing done yet: every tile unknown
+        assert country._weights(m, ["B"]) == ({("B", "b2"): 0.0, ("B", "b1"): 0.0, ("B", "b3"): 0.0}, 3)
         m.add_tiles("A", [_tile("a2", (10, 0, 20, 10)), _tile("a3", (0, 10, 10, 20))])
         m.db.execute("UPDATE tiles SET status = 'done', lines = CASE name WHEN 'a1' THEN 5 WHEN 'a2' THEN 100 "
                      "ELSE 0 END WHERE band = 'A'")
-        weights = country._weights(m, ["B"])
+        weights, unknown = country._weights(m, ["B"])
         assert weights == {("B", "b2"): 0.0, ("B", "b1"): 105.0, ("B", "b3"): 0.0}
+        assert unknown == 2  # b2 and b3 only touch a2 and a3; b1 lies under a1 and a2 (and a3 of 0 lines)
         m.set_weights(weights)
         m.set_run(["B"], None, 2)
         assert [m.claim("w", 24)[1] for _ in range(3)] == ["b1", "b2", "b3"] and m.claim("w", 24) is None
+    finally:
+        m.close()
+
+
+def _relief_country(tmp_path):
+    """A manifest of two bands in UTM 34N over a synthetic GLO-30 tile (N48E019, a 50° slope in its
+    eastern quarter, from 19.75°), the outline the tile's middle (19.2-19.9°, 48.2-48.8°), and the
+    plans _set_weights reads (one band's: the outline, the CRS, the cache)."""
+    import math
+    import types
+    from pyproj import Transformer
+    from shapely.geometry import box
+    import country
+    from test_relief import cached_tile
+    cache_dir = str(tmp_path / "cache")
+    cached_tile(cache_dir, 48, 19, slope_from=0.75)
+    xs, ys = Transformer.from_crs("EPSG:4326", "EPSG:32634", always_xy=True).transform(19.75, 48.5)
+    x0, y0 = math.floor((xs - 1500) / 20000) * 20000, math.floor(ys / 20000) * 20000 + 10000
+    # B: 20 km cores, the eastern one holding the slope (from about x0 + 8 km); C: 10 km cores, the
+    # eastern two on it (c-east 2 km of it, c-far 9 km)
+    m = country.Manifest(str(tmp_path))
+    m.add_tiles("B", [_tile("west", (x0 - 40000, y0 - 10000, x0 - 20000, y0 + 10000)),
+                      _tile("middle", (x0 - 20000, y0 - 10000, x0, y0 + 10000)),
+                      _tile("east", (x0, y0 - 10000, x0 + 20000, y0 + 10000))])
+    m.add_tiles("C", [_tile("c-w2", (x0 - 30000, y0, x0 - 20000, y0 + 10000)),
+                      _tile("c-west", (x0 - 10000, y0, x0, y0 + 10000)),
+                      _tile("c-east", (x0, y0, x0 + 10000, y0 + 10000)),
+                      _tile("c-far", (x0 + 10000, y0, x0 + 20000, y0 + 10000))])
+    plan = types.SimpleNamespace(area=types.SimpleNamespace(geometry=box(19.2, 48.2, 19.9, 48.8)), crs="EPSG:32634",
+                                 paths=types.SimpleNamespace(cache=cache_dir))
+    return m, {"B": plan, "C": plan}
+
+
+def test_relief_weights_of_a_first_run(tmp_path):
+    """With no tile done, every pending tile of the run's bands is weighed by the km² of slopes of
+    45° or more at 30 m in its core (RELIEF_LINES times its power RELIEF_EXPONENT): the core holding
+    the slope first, the flat ones 0 (in their order after it); the heavy tiles follow (HEAVY_SHARE
+    of the largest weight)."""
+    import country
+    m, plans = _relief_country(tmp_path)
+    said = []
+    try:
+        weights, tiles = country._relief_weights(m, ["B", "C"], plans["B"].area.geometry, "EPSG:32634",
+                                                 plans["B"].paths.cache)
+        assert tiles == 1  # N48E019
+        assert weights[("B", "west")] == weights[("B", "middle")] == weights[("C", "c-west")] == 0
+        assert weights[("B", "east")] > weights[("C", "c-far")] > weights[("C", "c-east")] > 0
+        # the slope from 19.75° to the outline's 19.9°: about 11 km wide, 20 km of it in B's core
+        km2 = (weights[("B", "east")] / country.RELIEF_LINES) ** (1 / country.RELIEF_EXPONENT)
+        assert 150 < km2 < 300
+        country._set_weights(m, ["B", "C"], plans, said.append)
+        assert "by the relief" in said[-1] and "no tile is done yet" in said[-1]
+        m.set_run(["B", "C"], None, 7)
+        claims = [m.claim("w", 24) for _ in range(7)]
+        assert [c[1] for c in claims] == ["east", "c-far", "c-east", "west", "middle", "c-w2", "c-west"]
+        # c-far's km² about 0.4 of east's: 0.22 of its weight; c-east's about 0.1: 0.02, light
+        assert [c[4] for c in claims] == [True, True, False, False, False, False, False]
+    finally:
+        m.close()
+
+
+def test_relief_weights_only_for_unknown_tiles(tmp_path, monkeypatch):
+    """The relief stands in when a pending tile lies under no done tile (then for every pending
+    tile: one scale); when every pending tile lies under done tiles, their lines (a real 0 too), and
+    the relief is not read. A failure of the relief leaves the tiles in their order."""
+    import country
+    import relief
+    m, plans = _relief_country(tmp_path)
+    said = []
+    try:
+        m.db.execute("UPDATE tiles SET status = 'done', lines = 7 WHERE name = 'c-east'")
+        country._set_weights(m, ["B"], plans, said.append)  # B's west and middle under no done tile
+        assert "by the relief" in said[-1] and "2 lie under no done tile" in said[-1]
+        relief_east = m.db.execute("SELECT weight FROM tiles WHERE name = 'east'").fetchone()[0]
+        assert relief_east > 1e6
+        m.db.execute("UPDATE tiles SET status = 'done', lines = 0 WHERE name IN ('c-w2', 'c-west', 'c-far')")
+
+        def no_relief(*args, **kwargs):
+            raise AssertionError("the relief was read")
+
+        monkeypatch.setattr(relief, "steep_blocks", no_relief)
+        country._set_weights(m, ["B"], plans, said.append)  # every B tile under a done C tile
+        assert said[-1].startswith("The heaviest tiles first: 1 of 3")
+        assert dict(m.db.execute("SELECT name, weight FROM tiles WHERE band = 'B'").fetchall()) == {
+            "west": 0.0, "middle": 0.0, "east": 7.0}  # west and middle under C tiles of 0 lines: a real 0
+        m.db.execute("UPDATE tiles SET status = 'pending', weight = NULL")
+
+        def failing(*args, **kwargs):
+            raise RuntimeError("no network")
+
+        monkeypatch.setattr(relief, "steep_blocks", failing)
+        country._set_weights(m, ["B", "C"], plans, said.append)
+        assert said[-1].startswith("WARNING: the tiles' weights from the relief failed (no network)")
+        assert {w for (w,) in m.db.execute("SELECT weight FROM tiles")} == {None}
     finally:
         m.close()
 

@@ -1,6 +1,6 @@
 """tools/perf_country.py: the mirrored mosaic, the T(L) patch of the sag estimator (equal to the
-plain search at a constant tension), compare and cube on synthetic lines.csv, the relief blocks and
-sample cells, the strata of estimate (offline)."""
+plain search at a constant tension), compare and cube on synthetic lines.csv, the sample cells, the
+strata of estimate (offline). The relief blocks are relief.py's: tests/test_relief.py."""
 
 import csv
 import glob
@@ -306,31 +306,6 @@ def test_strata_helpers():
     filled = pc._filled(np.array([np.nan, 2.0, np.nan, np.nan, 8.0, np.nan]))
     assert filled.tolist() == [2, 2, 2, 8, 8, 8]  # a gap as near to both takes the lower one
     assert pc.band_of("ch-alps-area-L-10m") == ("ch-alps-area", "L", 10.0) and pc.band_of("bench") is None
-
-
-def test_tile_blocks(tmp_path):
-    """A 0.1° GeoTIFF at 1″, flat in its west half and a 50° slope in its east half: blocks of
-    about 1 km, relief and steep shares per block and over windows."""
-    import rasterio as rio
-    from rasterio.transform import from_origin
-    lat0, lon0, n = 46.0, 7.0, 360
-    dy = 1 / 3600 * pc.EARTH_M_PER_DEG
-    dx = dy * np.cos(np.radians(lat0 + 0.05))
-    z = np.zeros((n, n))
-    z[:, n // 2:] = np.tan(np.radians(50)) * dx * np.arange(n - n // 2)[None, :]
-    path = str(tmp_path / "t.tif")
-    with rio.open(path, "w", driver="GTiff", width=n, height=n, count=1, dtype="float32", crs="EPSG:4326",
-                  transform=from_origin(lon0, lat0 + 0.1, 1 / 3600, 1 / 3600)) as out:
-        out.write(z.astype(np.float32), 1)
-    b = pc.tile_blocks(path)
-    rows, cols = b["km2"].shape
-    assert rows == round(n * dy / 1000) and cols == round(n * dx / 1000)
-    assert b["km2"].sum() == pytest.approx(n * dy * n * dx / 1e6, rel=1e-3)
-    assert b["relief1"][:, 0].max() == 0 and b["steep30_1"][:, 0].max() == 0  # the flat west
-    assert b["steep45_1"][:, -1].min() > 0.95 and b["relief1"][:, -1].min() > 900  # 50°, about 0.8 km a block
-    assert (b["relief3"] >= b["relief1"] - 1e-9).all() and (b["relief5"] >= b["relief3"] - 1e-9).all()
-    found = pc.proxies_at({(46, 7): b}, np.array([7.01, 7.09, 8.5]), np.array([46.05, 46.05, 46.05]))
-    assert found["steep45_1"][0] == 0 and found["steep45_1"][1] > 0.95 and np.isnan(found["steep45_1"][2])
 
 
 def test_sample_cells(tmp_path):
