@@ -387,7 +387,7 @@ def test_osm_data_step():
         steps = steps[:steps.index("\n}")]
         assert steps.index("start\n") < steps.index("osm_data\n"), function
     skipped = re.search(r"^OSM_EXTRACTS_SKIP=\((.*)\)$", vps, re.M).group(1).split()
-    assert skipped == ["us", "canada", "nunavut"]
+    assert skipped == ["us", "canada", "nunavut", "british-columbia"]
 
 
 def _bash():

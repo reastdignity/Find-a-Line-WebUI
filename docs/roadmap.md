@@ -694,7 +694,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   DOP20, white beyond the Land). Data checks: 12 PASS at the quarry and at R63. The first place tried, the
   Felsenwege at Saarbrücken (Buntsandstein walls of 18-25 m), gives no lines: its walls face the Saar, not each
   other. At Kleinblittersdorf LVGL's tiles reach some 300 m into France. Before `rhineland_palatinate` in SOURCES
-  (its offline box holds the Land); neighbours RP, France, Luxembourg; Geofabrik's `saarland` extract. Open: a patch
+  (its offline box holds the Land); neighbours RP, France, Luxembourg; Geofabrik's `saarland` extract (0.05 GB). Open: a patch
   at a tile's edge leaves its rim in the next tile (rare: apply the rule on the mosaic if one shows up); LVGL's
   answer on limits and the stable link (mail 21).
 - **British Columbia, done 2026-11-03** (source `british_columbia`, region CA-BC, R64 McIntyre Bluff at Oliver):
@@ -711,7 +711,8 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
   places HRDEM lacks (Kinnaird Bluffs, Castlegar). At the Chief it holds the same surveys as HRDEM (72 % of a 500 m
   window from LidarBC, no raster DSM there): R41 is pinned to `--source canada` (unchanged), and `canada` is not
   British Columbia's neighbour (R41 would fill its border pixels from LidarBC). R64 narrowed to r 300 m and 50-200 m
-  (108 228 lines in 522 spots; r 600 m gave 210 425). Offline Victoria and Vancouver stay with the USA's boxes (as for
+  (108 228 lines in 522 spots; r 600 m gave 210 425). Geofabrik's `british-columbia` extract (1.2 GB, the fjords' coastline) is left out on the VPS as Canada's
+  (`OSM_EXTRACTS_SKIP`, 2026-11-04). Offline Victoria and Vancouver stay with the USA's boxes (as for
   `canada`). No orthophoto (BC's imagery WMS is "Access Only"). Open: the "PixelIsPoint" files of 2015-2018 and
   2021-2022 lie half a pixel off the "Area" ones (Chief 2016 against 2019 (-0.5, +0.5) px, Skaha 2017 against 2024
   (+0.5, -0.5) px) and `GTIFF_POINT_GEO_IGNORE` does not fix it: which is right needs an independent reference (and

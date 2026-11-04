@@ -570,11 +570,13 @@ niedersachsen, nord-est, luxembourg, denmark and finland, and since batch 2 of t
 (5.1 GB, kept: the user, 2026-11-02), bayern (0.86 GB), rheinland-pfalz (0.27 GB), scotland (0.33 GB),
 nordrhein-westfalen (0.92 GB) and tasmania (0.05 GB), and since batch 3 (2026-11-03) slovenia (0.31 GB), brandenburg
 (0.30 GB, Berlin's too), schleswig-holstein (0.16 GB), queensland (0.20 GB), greenland (0.03 GB) and iceland
-(0.06 GB; Svalbard and Jan Mayen are in norway's): about 22.8 GB of extracts (France 5.1 GB, Poland 2.1 GB, England
+(0.06 GB; Svalbard and Jan Mayen are in norway's), and since batch 4 (2026-11-03) saarland (0.05 GB): about 22.9 GB
+of extracts (France 5.1 GB, Poland 2.1 GB, England
 1.7 GB, Spain 1.5 GB, Norway 1.4 GB, the rest below 1 GB each) and the world file's 1.2 GB unpacked; at Geofabrik's usual speed the downloads take
 some minutes each and reading the themes from an extract about 10 s per 2 GB. Left out
-(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB), Canada (6.5 GB) and Nunavut (1.5 GB): the features of
-their themes, Alaska's and the Arctic's long coastlines, would be read by every search process
+(`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`): the US (12.2 GB), Canada (6.5 GB), Nunavut (1.4 GB) and British Columbia
+(1.2 GB, 2026-11-04): the features of their themes, Alaska's, the Arctic's and the fjords' long coastlines, would be
+read by every search process
 building a theme tile there, and their sea comes from the world file anyway; a coast or cliffs
 area there still asks Overpass. `deploy/vps.sh` does all of this after the start
 (`osm_data`, in `setup` and `update`): it downloads only what is not there yet, so it costs

@@ -127,7 +127,8 @@ Rules of thumb:
 - A shift search against GLO-30 on walls of 1000 m is noise (Tasermiut and Uummannaq disagree, each fits badly at its
   best shift): judge it where GLO-30 fits (median |d| of a few metres), or against lidar.
 - Check the size of a new region's Geofabrik extract before it reaches the VPS (`osm.catalogue_extracts`): Nunavut's
-  is 1.5 GB, mostly coastline, and is left out like Canada's (`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`).
+  is 1.5 GB, mostly coastline, and is left out like Canada's (`OSM_EXTRACTS_SKIP` of `deploy/vps.sh`), as is British
+  Columbia's (1.2 GB, its fjords' coastline).
 - A file name computed from the position (ArcticDEM's subtiles) is checked against the provider's own listing (its
   STAC items) at a few places, and a place without a file must answer 404 (a missing block, not an error).
 - A WMS may serve Web Mercator only (a MapCache: its WMTS matrix set named "EPSG:3857" need not be Google's tiling):
