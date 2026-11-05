@@ -664,6 +664,50 @@ def test_tiles_with_their_grids_held(env, full, tmp_path, monkeypatch):
             assert np.array_equal(a, b), name
 
 
+def test_surface_model_with_its_grids_held(env, tmp_path, monkeypatch):
+    """Tiles with a surface model, which Slovakia's bands have not: its mosaic and the obstacle surface
+    of search.prepare_data held as `country worker` holds them, the counts of the run that flushes
+    them."""
+    import countcube
+    import rasterio as rio
+    import country
+    import sources.mosaic
+    with rio.open(env["config"]["options"]["elevation_file"]) as src:
+        profile, z = src.profile, src.read(1)
+    height, width = z.shape
+    z[height // 3:height // 2, width // 3:width // 2] += 15.0  # a wood
+    surface = str(tmp_path / "surface.tif")
+    with rio.open(surface, "w", **profile) as dst:
+        dst.write(z, 1)
+    config = {**env["config"], "options": {**env["config"]["options"], "nmpt": "mark", "surface_file": surface}}
+    held_names = set()
+    clear = country.TileWork._remove_grids
+
+    def remove_grids(work, path):
+        held_names.update(os.path.basename(view.filename) for view in sources.mosaic.HELD_GRIDS or [])
+        clear(work, path)
+
+    monkeypatch.setattr(country.TileWork, "_remove_grids", remove_grids)
+
+    def tiles(name, held):
+        monkeypatch.setattr(sources.mosaic, "HELD_GRIDS", held)
+        folder = tmp_path / name / "countries" / ID
+        folder.mkdir(parents=True)
+        (folder / "country.json").write_text(json.dumps({"config": config}))
+        assert _country("run", ID, "--data-dir", str(tmp_path / name), "--processes", "0", "--bands", "S", "--yes") == 0
+        return {n: countcube.load_tile(str(folder / "tiles" / "S" / n))[0] for n in os.listdir(folder / "tiles" / "S")}
+
+    flushed, held = tiles("flushed", None), tiles("held", [])
+    assert {"nmt.npy", "nmpt.npy", "obstacles.npy"} <= held_names
+    assert sorted(flushed) == sorted(held) and sum(t.lines for t in held.values()) > 0
+    for name, counted in held.items():
+        saved = flushed[name]
+        assert counted.lines == saved.lines
+        for a, b in ((saved.line_keys, counted.line_keys), (saved.line_counts, counted.line_counts),
+                     (saved.spot_ids, counted.spot_ids), (saved.spot_records, counted.spot_records)):
+            assert np.array_equal(a, b), name
+
+
 def test_worker_keeps_the_grids_from_the_disk(monkeypatch, tmp_path):
     """`country worker`: the grids held, and what the first tile left alive frozen, once, after its
     cleanup (TileWork.loop(freeze=True)); not without freeze."""
