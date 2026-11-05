@@ -362,6 +362,7 @@ class Windows(Reader):
     download_layers hands the layer's blocks to its pool in squares, so a tile shared by neighbours is fetched
     once: fewer bytes, more requests; chosen per source where that was faster too (docs/performance.md,
     "Window reads": Austria, Luxembourg, British Columbia)."""
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, geoid: Optional[Geoid] = None, serial: bool = False):
         self.description, self.geoid, self.serial = description, geoid, serial

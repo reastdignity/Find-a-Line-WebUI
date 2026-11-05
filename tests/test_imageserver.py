@@ -16,6 +16,7 @@ from rasterio.transform import from_origin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
 from http_server import Answer  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 from sources import net, probe  # noqa: E402
 from sources.layers.imageserver import ImageServerTiles  # noqa: E402
 from sources.readers.imageserver import ImageServerReader, number, service_error  # noqa: E402
@@ -114,15 +115,15 @@ def test_tile_exact_in_its_crs(server, tmp_path):
     with rio.open(path) as tile:
         values = tile.read(1)
         assert tile.crs.to_epsg() == 5514 and tile.transform == from_origin(FULL[0], FULL[1] + 32, 2, 2)
-    assert np.array_equal(values, _values(_body("002-full.tif")))
+    assert same_tile(values, _values(_body("002-full.tif")))
     assert np.isfinite(values).all()
     _, shifted = _fetch(_reader(server, SHIFT), tmp_path / "shift")
     with rio.open(shifted) as tile:
-        assert np.array_equal(values[:, 1:], tile.read(1)[:, :-1])
+        assert same_tile(values[:, 1:], tile.read(1)[:, :-1], 2 * TILE_EPS)  # two tiles, each within the bound
     # The halves through the reader's request
     reader = _reader(server, FULL)
     halves = [reader.export(FULL[0] + k * 16, FULL[1], FULL[0] + (k + 1) * 16, FULL[1] + 32, 2.0) for k in (0, 1)]
-    assert np.array_equal(values, np.hstack([_values(h.content) for h in halves]))
+    assert same_tile(values, np.hstack([_values(h.content) for h in halves]))
     assert not server.stray()
 
 
@@ -130,7 +131,7 @@ def test_surface_model_on_its_own_grid(server, tmp_path):
     _, path = _fetch(_reader(server, DMP, "dmp1g"), tmp_path)
     with rio.open(path) as tile:
         assert tile.transform.c == pytest.approx(DMP[0]) and tile.transform.f == pytest.approx(DMP[1] + 32)
-        assert np.array_equal(tile.read(1), _values(_body("006-dmp.tif")))
+        assert same_tile(tile.read(1), _values(_body("006-dmp.tif")))
 
 
 @pytest.mark.parametrize("origin", [POLAND, BEYOND])
@@ -197,7 +198,7 @@ def test_partial_tile_and_wrong_pixels(server, tmp_path):
     _, path = _fetch(_reader(server, FULL, "good"), tmp_path)
     with rio.open(path) as tile:
         kept = tile.read(1)
-    assert np.isnan(kept[:, :5]).all() and np.array_equal(kept[:, 5:], values[:, 5:])
+    assert np.isnan(kept[:, :5]).all() and same_tile(kept[:, 5:], values[:, 5:])
     for name in ("off", "small"):
         with pytest.raises(RuntimeError, match="not the tile's 16 x 16 px"):
             _fetch(_reader(server, FULL, name), tmp_path / name)

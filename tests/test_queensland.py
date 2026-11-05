@@ -15,6 +15,7 @@ from rasterio.transform import from_origin
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 from grid import make_grid  # noqa: E402
 from sources import net, probe  # noqa: E402
 from sources.catalogue import australia  # noqa: E402
@@ -164,7 +165,7 @@ def test_tile_in_the_zone_of_the_grid(server, tmp_path, crs, box, name):
     with rio.open(path) as raster:
         assert raster.crs.to_string() == crs
         assert raster.transform == from_origin(box[0], box[1] + 16, 1.0, 1.0)
-        assert np.array_equal(raster.read(1), _values(_body(name)))
+        assert same_tile(raster.read(1), _values(_body(name)))
     asked = server.requests(f"{SERVICE}/exportImage")
     assert len(asked) == 1 and dict(asked[0].query)["bboxSR"] == crs.split(":")[1]
     assert not server.stray()
@@ -176,7 +177,7 @@ def test_demh_tile(server, tmp_path):
     path = layer.tile_path(str(tmp_path), tile)
     layer.download_tile(tile, path)
     with rio.open(path) as raster:
-        assert raster.res == (30.0, 30.0) and np.array_equal(raster.read(1), _values(_body("006-demh.tif")))
+        assert raster.res == (30.0, 30.0) and same_tile(raster.read(1), _values(_body("006-demh.tif")))
 
 
 def test_sea_is_missing(server, tmp_path):

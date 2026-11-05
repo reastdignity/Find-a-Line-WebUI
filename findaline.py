@@ -14,7 +14,7 @@ Example:
     python findaline.py --lat 50.1559508 --lon 19.7562722
 
 Run `python findaline.py --help` for all options. The cache commands
-(`python findaline.py cache status|update`, `osm download|update`) and the source probe
+(`python findaline.py cache status|update|migrate`, `osm download|update`) and the source probe
 (`python findaline.py sources check`) are update.py,
 the web application (`python findaline.py web`) is web.py, its worker as a process of
 its own (`python findaline.py worker`, with `web --no-worker`) jobs.py, the country layer

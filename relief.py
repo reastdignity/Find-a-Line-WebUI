@@ -44,7 +44,10 @@ def fetch_relief_tiles(tiles: List[Tuple[int, int]], cache_dir: str) -> Dict[Tup
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda tile: layer._download_and_record(tile, cache_dir, None, True), tiles))
     paths = {tile: layer.tile_path(cache_dir, tile) for tile in tiles}
-    return {tile: path if os.path.exists(path) else None for tile, path in paths.items()}
+    found = {tile: path if os.path.exists(path) else None for tile, path in paths.items()}
+    from sources.layer import reencode_paths  # tiles cached in the old encoding, as a search's download step does
+    reencode_paths(cache_dir, [path for path in found.values() if path], quiet=True)
+    return found
 
 
 def _block_edges(n: int, metres: float) -> np.ndarray:

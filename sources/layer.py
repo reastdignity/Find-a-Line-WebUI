@@ -23,17 +23,134 @@ SERIAL_SQUARE = 4  # blocks a side of the squares of a serial layer, one task of
 VALID_MIN = -500  # metres; anything lower is treated as "no data"
 
 
-def _write_tile(path: str, band: np.ndarray, crs: str, transform, tags: Optional[Dict[str, str]] = None):
-    """Save a float32 tile as a compressed GeoTIFF (atomically)."""
+MAX_Z_ERROR = 0.005  # metres: the error bound of the tiles we write (LERC); None writes them lossless (deflate)
+REPLACE_SECONDS = 30  # how long reencode retries replacing a tile that another process has open (Windows)
+
+
+def _write_part(path: str, band: np.ndarray, crs, transform, tags: Optional[Dict[str, str]] = None,
+                max_z_error: Optional[float] = MAX_Z_ERROR) -> str:
+    """Write a float32 tile to a temporary file next to path (its .part) and return that file's name.
+    The profile: GTiff, NaN for no data, tiles of 256 x 256 px, LERC_ZSTD within max_z_error metres (about 40 %
+    smaller than deflate, measured on the cache); with max_z_error None deflate with predictor 3, lossless."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = _part(path)
+    options = (dict(compress="deflate", predictor=3, tiled=True) if max_z_error is None else
+               dict(compress="lerc_zstd", max_z_error=max_z_error, tiled=True, blockxsize=256, blockysize=256))
     with rio.open(tmp, "w", driver="GTiff", height=band.shape[0], width=band.shape[1], count=1,
-                  dtype="float32", crs=crs, transform=transform, nodata=np.nan,
-                  compress="deflate", predictor=3, tiled=True) as dst:
+                  dtype="float32", crs=crs, transform=transform, nodata=np.nan, **options) as dst:
         dst.write(band.astype(np.float32), 1)
         if tags:
             dst.update_tags(**tags)
-    os.replace(tmp, path)
+    return tmp
+
+
+def _write_tile(path: str, band: np.ndarray, crs: str, transform, tags: Optional[Dict[str, str]] = None,
+                max_z_error: Optional[float] = MAX_Z_ERROR):
+    """Save a float32 tile as a compressed GeoTIFF (atomically; see _write_part for the profile)."""
+    os.replace(_write_part(path, band, crs, transform, tags, max_z_error), path)
+
+
+def old_encoding(path: str) -> bool:
+    """Whether a cached file is a GeoTIFF of one float band that is not LERC-compressed: the encoding our
+    tiles had before _write_tile wrote LERC, and that of the providers' files kept as they came. Only the
+    header is read; False for a file that is anything else, unreadable, an integer raster or a LERC one (the Slovak
+    mirror's tiles). Whether the file is ours to rewrite is the layer's to say (Layer.rewrites)."""
+    try:
+        with rio.open(path) as src:
+            if src.driver != "GTiff" or src.count != 1 or not np.issubdtype(np.dtype(src.dtypes[0]), np.floating):
+                return False
+            return not (src.tags(ns="IMAGE_STRUCTURE").get("COMPRESSION") or "").upper().startswith("LERC")
+    except Exception:  # not a raster, or one rasterio cannot read: left as it is
+        return False
+
+
+def copied_tags(src) -> Dict[str, str]:
+    """The tags of a raster to keep when it is written again (not AREA_OR_POINT: GDAL moves a PixelIsPoint
+    file's transform by half a pixel when it reads it, so the transform it gives is for pixel areas already)."""
+    return {k: v for k, v in src.tags().items() if k != "AREA_OR_POINT"}
+
+
+def float_band(src) -> np.ndarray:
+    """Band 1 of a raster as the mosaic reads it (sources.mosaic._read_band, then _clean): float32, NaN where it is
+    masked (its nodata) or below VALID_MIN."""
+    band = src.read(1, masked=True)
+    values = band.data.astype(np.float32, copy=False)
+    mask = np.ma.getmask(band)
+    if mask is not np.ma.nomask:
+        np.copyto(values, np.nan, where=mask)
+    return _clean(values, copy=False)
+
+
+_NEW: Dict[str, Tuple[int, int]] = {}  # per process: cached files seen not to be in the old encoding, (mtime, size)
+
+
+def _signature(path: str) -> Optional[Tuple[int, int]]:
+    try:
+        st = os.stat(path)
+        return st.st_mtime_ns, st.st_size
+    except OSError:
+        return None
+
+
+def reencode(cache_dir: str, path: str) -> bool:
+    """Write a cached tile of ours again in the current encoding (_write_tile's profile) if it is in the old one
+    (old_encoding): under the tile's lock, so another process converting or downloading it waits and then finds
+    it done; checked again under the lock. The values: the mosaic's own reading of the file (float_band), the CRS
+    exactly as stored (a compound one too), the transform and the tags. The new file replaces the old one
+    atomically; where another process has the old one open (Windows refuses) it is tried for REPLACE_SECONDS
+    and then given up quietly: the old tile stays, as it was, and the next call converts it. The index row keeps
+    its times and gets the file's new sha256 (cache.reencoded). True: converted now."""
+    with tile_lock(cache_dir, path):
+        if not old_encoding(path):
+            return False
+        try:
+            with rio.open(path) as src:
+                band, crs, transform, tags = float_band(src), src.crs, src.transform, copied_tags(src)
+        except Exception:  # unreadable now: left as it is
+            return False
+        tmp = _write_part(path, band, crs, transform, tags)
+        deadline = time.monotonic() + REPLACE_SECONDS
+        while True:
+            try:
+                os.replace(tmp, path)
+                break
+            except PermissionError:
+                if time.monotonic() > deadline:
+                    os.remove(tmp)
+                    return False
+                time.sleep(0.2)
+        cache.reencoded(cache_dir, path)
+        _NEW[path] = _signature(path)
+        return True
+
+
+def reencode_paths(cache_dir: str, paths: Sequence[str], threads: int = 0, quiet: bool = False) -> Tuple[int, int]:
+    """Reencode the cached tiles among paths that are in the old encoding, in a pool (results do not depend on
+    the number of threads: a tile is converted on its own), a Download bar "re-encoding cached tiles" only when
+    there are some. A file seen not to need it is not looked at again by this process while it stays as it was
+    (_NEW). Returns (converted, left): left are tiles still in the old encoding, held open by another process."""
+    todo = [p for p in paths if _NEW.get(p) is None or _NEW[p] != _signature(p)]
+    if not todo:
+        return 0, 0
+    workers = max(1, threads or DOWNLOAD_THREADS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        old = [p for p, is_old in zip(todo, pool.map(old_encoding, todo)) if is_old]
+        for p in todo:
+            if p not in old:
+                _NEW[p] = _signature(p)
+        if not old:
+            return 0, 0
+        if not quiet:
+            progress.download.start("re-encoding cached tiles", len(old), unit="tile")
+        converted = 0
+        for done in pool.map(lambda p: reencode(cache_dir, p), old):
+            converted += done
+            if not quiet:
+                progress.download.update(1)
+        if not quiet:
+            progress.download.finish(f"{converted} converted")
+        left = sum(_NEW.get(p) != _signature(p) for p in old)
+    return converted, left
 
 
 class Fetched(NamedTuple):
@@ -86,6 +203,9 @@ class Layer:
     # The secrets the layer's service needs (field names of settings.ServiceKeys, read when used):
     # without them the layer is unavailable (unavailable), as a source without its mirror
     keys: Tuple[str, ...] = ()
+    # Whether the cached files are ours to write again in the current encoding: they come from _write_tile (or
+    # Download's float files); reencode / cache migrate convert those still in the old one
+    rewrites = False
 
     @property
     def ttl_days(self) -> Optional[int]:
@@ -221,7 +341,8 @@ def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
 
 def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: str,
                     update: Optional[str] = None, group_m: Optional[float] = None,
-                    on_error: Optional[Callable[[Layer, Sequence, Exception], None]] = None):
+                    on_error: Optional[Callable[[Layer, Sequence, Exception], None]] = None,
+                    reencode_cached: bool = True):
     """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
     so a slow tile of one layer does not hold the others: one progress bar for all their tiles,
     a line per layer of how many it has. Each tile under its lock and a slot of its host
@@ -235,7 +356,13 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
     bytes and requests.
 
     The first task to fail stops the others. With on_error it gets (the layer, the task's tiles, the error) instead
-    and the others go on (tools/area_download.py: weeks of tiles); what it raises stops them."""
+    and the others go on (tools/area_download.py: weeks of tiles); what it raises stops them.
+
+    Last, the tiles of the layers over the grid that are cached in the old encoding (Layer.rewrites,
+    old_encoding) are written again in the current one (reencode_paths), so nothing that reads the cache after
+    this call sees a tile of ours in the old encoding. Every search, the web worker's download phase, the quick
+    lane and the country prefetch come through here; reencode_cached False (tools/area_download.py, which reads no tile)
+    leaves it to whatever reads them."""
     # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
     # seconds), each layer once; the lines in the order of the layers
     distinct = list({id(layer): layer for layer, _ in layers}.values())
@@ -276,6 +403,10 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
         progress.download.finish(f"{received / 1e6:.0f} MB")
     for layer, _ in layers:
         layer.downloaded(grid, cache_dir)
+    if reencode_cached:
+        fetched = {layer.tile_path(cache_dir, tile) for layer, tile in todo}  # written in the current encoding
+        paths = [p for layer in distinct if layer.rewrites for p in layer.files(grid, cache_dir) if p not in fetched]
+        reencode_paths(cache_dir, list(dict.fromkeys(paths)))
 
 
 def _tasks(todo: Sequence[Tuple[Layer, Any]], group_m: Optional[float]) -> List[Tuple[Layer, list, str]]:

@@ -14,6 +14,7 @@ from rasterio.transform import from_origin
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import sources as src  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 from grid import Grid  # noqa: E402
 from sources import net  # noqa: E402
 from sources.indexes.tilings import MetricTiling  # noqa: E402
@@ -128,7 +129,7 @@ def test_xyz_members_merged(http_server, tmp_path):
     assert fetched.received > 0
     band, transform, crs = _read(path)
     assert transform == from_origin(1000, 20, 1.0, 1.0) and crs.to_epsg() == 25832
-    assert np.array_equal(band, whole)
+    assert same_tile(band, whole)
 
 
 def test_halves_give_the_same_pixels(http_server, tmp_path):
@@ -145,7 +146,7 @@ def test_halves_give_the_same_pixels(http_server, tmp_path):
         layer.download_tile(tile, layer.tile_path(str(tmp_path), tile))
     a, ta, _ = _read(one.tile_path(str(tmp_path), (0, 0)))
     b, tb, _ = _read(two.tile_path(str(tmp_path), (1, 0)))
-    assert np.array_equal(a, z) and np.array_equal(b, z)
+    assert same_tile(a, z) and same_tile(b, z)
     assert (ta.c, tb.c) == (1000, 1020) and ta.f == tb.f == 20
 
 
@@ -165,7 +166,7 @@ def test_geotiff_member_crs_forced_and_nodata(http_server, tmp_path):
     layer.download_tile((1, 0), path)
     band, transform, crs = _read(path)
     assert crs.to_epsg() == 25832 and transform == from_origin(20, 20, 1.0, 1.0)
-    assert np.isnan(band[:, :5]).all() and np.array_equal(band[:, 5:], z[:, 5:])
+    assert np.isnan(band[:, :5]).all() and same_tile(band[:, 5:], z[:, 5:])
 
 
 def test_missing_and_errors(http_server, tmp_path, monkeypatch):

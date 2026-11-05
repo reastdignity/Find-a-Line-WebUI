@@ -3,6 +3,7 @@ Cache commands of findaline.py: what is cached, and updating it; the probe of th
 
     python findaline.py cache status [FOLDER]
     python findaline.py cache update [FOLDER] [--all] [--bbox S,W,N,E | --point LAT,LON]
+    python findaline.py cache migrate [FOLDER] [--dry-run]
     python findaline.py osm download REGION
     python findaline.py osm update [REGION]
     python findaline.py sources check [ID ...] [--deep]   (sources/probe.py)
@@ -19,6 +20,11 @@ search checks the data of its area). How each kind of data is checked:
     newer file   OSM water polygons of the world (regenerated daily: checked after a year,
                  downloaded again when the server's file is newer than the folder's date)
     diffs        Geofabrik OSM extracts (osmextract.py); theme tiles built from them follow
+
+`migrate` writes the cached elevation tiles that are still in the older encoding (deflate, or a provider's
+file as it came) again as LERC_ZSTD, the cache's encoding now (sources.layer.reencode); a search does it for
+the tiles it reads, this does the rest at once, to free the disk space. It is safe to repeat; tiles another
+process has open (Windows) are left and make the exit code 1.
 
 The intervals are cache.TTL_DAYS; "missing" tiles of data that can change are checked
 again after cache.MISSING_TTL_DAYS. `update` without --all checks only what is older
@@ -45,8 +51,10 @@ import osmextract
 import settings
 import sources as src
 from progress import progress
+from sources.layer import old_encoding, reencode
 
 THREADS = 4
+MIGRATE_THREADS = 8  # tiles converted at a time (LERC encoding is CPU work done outside the GIL)
 
 
 @dataclass
@@ -141,6 +149,77 @@ def _sheets(layer: src.IndexedTiles, cache_dir: str, lat: float, lon: float) -> 
     if new:
         print(f"  {osm.tile_name(lat, lon)}: {new} newer sheets ({mb:.0f} MB), {deleted} older deleted")
     return new > 0
+
+
+@lru_cache(maxsize=None)
+def _layers_with_folders() -> List[src.Layer]:
+    layers = {id(layer): layer for s in src.SOURCES.values() for layer in (s.nmt, s.nmpt) if layer is not None}
+    layers[id(src.WATER_MASK)] = src.WATER_MASK
+    return [layer for layer in layers.values() if getattr(layer, "folder", "")]
+
+
+def rewriting_layer(path: str) -> Optional[src.Layer]:
+    """The layer with `rewrites` that caches the file at path (relative to the cache, with /), or None: a file of
+    another layer, of a layer whose files are not ours to rewrite (the Slovak mirror's copies) or of no layer. The
+    layers whose folder holds the path; of several the one whose tile_of knows the path, then the deepest folder."""
+    inside = [layer for layer in _layers_with_folders() if path.startswith(layer.folder.rstrip("/") + "/")]
+    if len(inside) > 1:
+        known = [layer for layer in inside if layer.tile_of(path) is not None]
+        inside = known or inside
+    layer = max(inside, key=lambda layer: len(layer.folder), default=None)
+    return layer if layer is not None and layer.rewrites else None
+
+
+def old_tiles(cache_dir: str, folder: Optional[str] = None) -> Dict[str, List[str]]:
+    """The cached files still in the old encoding (sources.layer.old_encoding) of the layers that rewrite their
+    tiles, by top-level folder, full paths (only the folders that have some)."""
+    candidates: Dict[str, List[str]] = {}
+    for top in _tops(cache_dir, folder):
+        paths = [os.path.join(cache_dir, row["path"]) for row in cache.rows(cache_dir, top)
+                 if row["status"] == "ok" and rewriting_layer(row["path"]) is not None]
+        if paths:
+            candidates[top] = paths
+    found = {}
+    with ThreadPoolExecutor(max_workers=MIGRATE_THREADS) as pool:
+        for top, paths in candidates.items():
+            old = [p for p, is_old in zip(paths, pool.map(old_encoding, paths)) if is_old]
+            if old:
+                found[top] = old
+    return found
+
+
+def migrate(cache_dir: str, folder: Optional[str] = None, dry_run: bool = False) -> int:
+    """Write the old-encoded tiles of the cache again (sources.layer.reencode), each top-level folder with its tiles
+    and GB before and after. Returns the number of tiles left because another process has them open (dry_run:
+    only counts what would be converted, returns 0)."""
+    found = old_tiles(cache_dir, folder)
+    if not found:
+        print("Nothing to migrate: every cached tile of ours is in the current encoding")
+        return 0
+    left = 0
+    for top, paths in found.items():
+        was = {p: os.path.getsize(p) for p in paths}
+        if dry_run:
+            print(f"{top}: {len(paths)} tiles, {sum(was.values()) / 1e9:.2f} GB to convert")
+            continue
+        now: Dict[str, int] = {}
+
+        def convert(path):
+            done = reencode(cache_dir, path)
+            if done:
+                now[path] = os.path.getsize(path)
+            progress.download.update(1)
+            return done
+        progress.download.start(f"re-encoding {top}", len(paths), unit="tile")
+        with ThreadPoolExecutor(max_workers=MIGRATE_THREADS) as pool:
+            list(pool.map(convert, paths))
+        progress.download.finish(f"{len(now)} converted")
+        skipped = len(paths) - len(now)  # still old: held open by another process, or gone meanwhile
+        left += skipped
+        print(f"{top}: {len(now)} of {len(paths)} tiles converted, {sum(was.values()) / 1e9:.2f} GB -> "
+              f"{(sum(was.values()) - sum(was[p] - n for p, n in now.items())) / 1e9:.2f} GB"
+              + (f", {skipped} left (open elsewhere)" if skipped else ""))
+    return left
 
 
 def _tops(cache_dir: str, folder: Optional[str]) -> List[str]:
@@ -280,6 +359,12 @@ def status(cache_dir: str, runs_dir: str, folder: Optional[str] = None):
             row = cache.info(cache_dir, pbf) or {}
             print(f"  {rid}: {os.path.getsize(pbf) / 1e9:.2f} GB, data of {(row.get('source_date') or '?')[:16]}, "
                   f"checked {_date(row.get('checked_at'))}")
+    old = old_tiles(cache_dir, folder)
+    if old:
+        count = sum(len(paths) for paths in old.values())
+        gigabytes = sum(os.path.getsize(p) for paths in old.values() for p in paths) / 1e9
+        print(f"\nTiles in the older encoding: {count} ({gigabytes:.2f} GB; {', '.join(old)}). A search writes the "
+              f"ones it reads again; `findaline.py cache migrate` does all of them.")
     runs = changed_runs(cache_dir, runs_dir)
     if runs:
         print("\nRuns computed on data that has changed since (run them again to use the new data):")
@@ -312,6 +397,10 @@ def main(argv: List[str]) -> int:
     place = up.add_mutually_exclusive_group()
     place.add_argument("--bbox", help="only data over S,W,N,E (WGS84)")
     place.add_argument("--point", help="only data at LAT,LON (WGS84)")
+    mg = cache_sub.add_parser("migrate", help="write the cached tiles in the older encoding again as LERC_ZSTD "
+                                              "(saves disk space; a search does it for the tiles it reads)")
+    mg.add_argument("folder", nargs="?", help="one top-level folder (e.g. poland, switzerland)")
+    mg.add_argument("--dry-run", action="store_true", help="only count what would be converted")
     osm_cmd = commands.add_parser("osm", help="OpenStreetMap extracts from Geofabrik")
     osm_sub = osm_cmd.add_subparsers(dest="command", required=True)
     dl = osm_sub.add_parser("download", help="download the extract of a country or region (e.g. poland, malta); "
@@ -325,7 +414,7 @@ def main(argv: List[str]) -> int:
                                               "requests each; nothing is written to the cache)")
     sc.add_argument("ids", nargs="*", metavar="ID", help="only these sources (nasadem only when named)")
     sc.add_argument("--deep", action="store_true", help="also download the first tile of every layer")
-    for sub in (st, up, dl, ou, sc):
+    for sub in (st, up, mg, dl, ou, sc):
         sub.add_argument("--data-dir", default=argparse.SUPPRESS, help="data folder")
     args = parser.parse_args(argv)
 
@@ -336,6 +425,8 @@ def main(argv: List[str]) -> int:
         with progress.bars():
             if args.group == "cache" and args.command == "status":
                 status(cache_dir, os.path.join(data, "runs"), args.folder)
+            elif args.group == "cache" and args.command == "migrate":
+                return 1 if migrate(cache_dir, args.folder, args.dry_run) else 0
             elif args.group == "cache":
                 where = args.bbox or args.point
                 return 1 if run_update(cache_dir, args.folder, "all" if args.all else "stale",

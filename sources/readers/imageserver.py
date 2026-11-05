@@ -48,6 +48,7 @@ class ImageServerReader(Reader):
     lock_raster_ids: the rasters to use, newest first (mosaicMethod esriMosaicLockRaster; merged into
     mosaic_rule). params: more parameters of every request.
     """
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, url: str, crs: str, native_res: float, tile_px: int,
                  origin: Tuple[float, float] = (0.0, 0.0), sr: Optional[str] = None, nodata: float = -9999.0,

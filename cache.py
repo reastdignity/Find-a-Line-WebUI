@@ -33,6 +33,11 @@ can change is checked again after its interval (TTL_DAYS); versioned releases
 (Copernicus 2021, FABDEM v1-2, Malta 2018...) never change and are never checked.
 A file downloaded again with the same content keeps its fetch time (only the check
 time changes), so the fetch time says when the data last changed.
+
+Float tiles are cached as LERC_ZSTD with a bound of 5 mm (sources.layer._write_tile; the providers' float
+files are written so too). A tile in the older encoding (deflate, or the provider's file as it came) is
+written again before a search reads it, and `findaline.py cache migrate` does it for all of them; only the
+file and its sha256 in the index change (reencoded), the layout and the schema stay.
 """
 
 import contextlib
@@ -338,6 +343,16 @@ def record_many(cache_dir: str, paths: Iterable[str], status: str = "ok", url: O
                              last_modified, sha, source_date, processing))
             db.executemany("INSERT OR REPLACE INTO files VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
         db.close()
+
+
+def reencoded(cache_dir: str, path: str):
+    """Note that a cached file was written again with the same data in another encoding (sources.layer.reencode):
+    its sha256 is the new file's; fetched_at, checked_at, the ETag and the rest of the row stay as they are, so
+    nothing is fetched or checked again because of it. A file with no row gets none."""
+    top, inner = _split(cache_dir, path)
+    with _connect(cache_dir, top) as db:
+        db.execute("UPDATE files SET sha256 = ? WHERE path = ? AND status = 'ok'", (_sha256(path), inner))
+    db.close()
 
 
 def checked(cache_dir: str, paths: Iterable[str]):

@@ -17,6 +17,7 @@ import sources as src  # noqa: E402
 from sources import probe  # noqa: E402
 from sources.catalogue import denmark  # noqa: E402
 from http_server import Answer  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 from test_keys import EXTENT, TOKEN, height, no_keys, wcs10  # noqa: E402,F401  (no_keys: autouse here too)
 
 
@@ -80,7 +81,7 @@ def test_tiles_from_the_wcs(http_server, monkeypatch, tmp_path):
         assert f.transform == from_origin(500000, 6002000, 1, 1) and f.crs.to_epsg() == 25832
         band = f.read(1)
     ys, xs = np.mgrid[0:2000:500, 0:2000:500]
-    assert np.array_equal(band[::500, ::500], height(500000 + xs + 0.5, 6002000 - ys - 0.5))
+    assert same_tile(band[::500, ::500], height(500000 + xs + 0.5, 6002000 - ys - 0.5))
     query = dict(http_server.requests("/dhm")[-1].query)
     assert query["apikey"] == TOKEN and query["COVERAGE"] == "dhm_terraen" and query["WIDTH"] == "2000"
     with sqlite3.connect(os.path.join(cache_dir, "denmark", "index.sqlite")) as db:
@@ -120,4 +121,4 @@ def test_zero_is_no_data(http_server, monkeypatch, tmp_path):
     with rio.open(layer.tile_path(cache_dir, tile)) as f:
         band = f.read(1)
     assert np.isfinite(band[:, :1000]).all() and np.isnan(band[:, 1000:]).all()
-    assert band[0, 0] == height(np.float32(500000.5), np.float32(6001999.5))
+    assert abs(band[0, 0] - height(np.float32(500000.5), np.float32(6001999.5))) <= TILE_EPS

@@ -12,7 +12,7 @@ from rasterio.windows import Window
 
 from .. import net
 from ..net import RETRIES, _part
-from ..layer import Fetched, VALID_MIN, _write_tile
+from ..layer import Fetched, VALID_MIN, _write_tile, copied_tags, float_band
 from ..composed import Reader
 
 # The rows of the coarser pixels averaged at a time (average): a band of factor * AVERAGE_ROWS rows of the
@@ -37,7 +37,16 @@ class Download(Reader):
     data). The checksum is that of the file downloaded; the file is read again from a temporary
     file next to the tile (its .part), not from memory.
 
+    A file that is a float raster of one band is written again as the cache's other tiles are (the
+    _write_tile profile; its overviews dropped, its nodata and values below VALID_MIN as NaN, its CRS,
+    transform and tags kept), after the checksum was checked on the bytes downloaded.
+
     url_of gives a tile's URL; label names it in messages ("tile 50,19")."""
+    # A float raster of one band is written again by _write_tile whatever its file was (the cached file is no
+    # longer the provider's byte for byte); an integer raster (NASADEM, the water mask), a raster of several bands
+    # and anything that is not a raster are kept as they came. So reencode / cache migrate may convert a file of
+    # this layer, and old_encoding tells which.
+    rewrites = True
 
     def __init__(self, description: str, url_of: Callable[[object], str], label: Callable[[object], str],
                  binary_types: Optional[Sequence[str]] = None,
@@ -70,18 +79,17 @@ class Download(Reader):
             raise RuntimeError(f"{self.description} {self.label(tile)}: wrong checksum")
         fetched = Fetched.of(response, url)
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        rewrite = self.average > 1 or self.crs
-        tmp = _part(path + ".raw" if rewrite else path)  # _write_tile writes the tile through _part(path)
+        tmp = _part(path + ".raw")  # _write_tile writes the tile through _part(path)
         with open(tmp, "wb") as f:
             f.write(response.content)
-        if rewrite:
+        if self.average > 1 or self.crs or _is_float_raster(tmp):
             del response  # the answer (49 MB of a DOM20 file) is not held while it is read again
             try:
                 self._rewrite(tmp, path, f"{self.description} {self.label(tile)}")
             finally:
                 os.remove(tmp)
             return fetched
-        os.replace(tmp, path)
+        os.replace(tmp, path)  # an integer raster or anything else: as it came
         return fetched
 
     def _rewrite(self, raw: str, path: str, where: str):
@@ -94,9 +102,7 @@ class Download(Reader):
                 raise RuntimeError(f"{where}: {src.width} x {src.height} px cannot be averaged {f} x {f}")
             crs = self.crs or src.crs
             if f == 1:
-                band = src.read(1, masked=True).astype(np.float32).filled(np.nan)
-                band[band < VALID_MIN] = np.nan
-                _write_tile(path, band, crs, src.transform)
+                _write_tile(path, float_band(src), crs, src.transform, tags=copied_tags(src))
                 return
             band = np.empty((src.height // f, src.width // f), dtype=np.float32)
             for row in range(0, band.shape[0], AVERAGE_ROWS):
@@ -106,6 +112,16 @@ class Download(Reader):
                 values[values < VALID_MIN] = np.nan
                 band[row:row + rows] = _block_means(values, f)
             _write_tile(path, band, crs, src.transform @ Affine.scale(f))
+
+
+def _is_float_raster(path: str) -> bool:
+    """Whether a downloaded file is a raster of one band of floats (not an integer raster, a raster of several
+    bands or something else: Download keeps those as they came)."""
+    try:
+        with rio.open(path) as src:
+            return src.count == 1 and bool(np.issubdtype(np.dtype(src.dtypes[0]), np.floating))
+    except Exception:
+        return False
 
 
 def _block_means(values: np.ndarray, f: int) -> np.ndarray:

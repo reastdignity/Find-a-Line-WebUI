@@ -1,5 +1,6 @@
 """Download code against fake services (no network)."""
 
+import functools
 import hashlib
 import io
 import json
@@ -21,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
 import sources as src  # noqa: E402
 from http_server import Answer  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 
 EXTENT = (-1000.0, -1000.0, 1000.0, 63.4)  # the coverage ends 63.4 m above the bottom of tile 0_0
 
@@ -184,7 +186,7 @@ def test_edge_pixels_dropped(monkeypatch, tmp_path):
             assert tile.transform == from_origin(0, 0, 1, 1)
             band = tile.read(1)
         if not edge_px:
-            assert np.array_equal(band, truth, equal_nan=True)  # the blended pixels as served
+            assert same_tile(band, truth)  # the blended pixels as served
             assert layer.tile_path("c", (1.0, 0, -1)).replace(os.sep, "/") == \
                 "c/fake/dtm/1/epsg32633-1m-200px-tif/0_-1.tif"
             continue
@@ -194,7 +196,7 @@ def test_edge_pixels_dropped(monkeypatch, tmp_path):
         assert np.nanmin(band) >= 2000 - 1
         far = ndimage_far(np.isfinite(truth), 3)
         assert np.array_equal(np.isfinite(band), far)
-        assert np.array_equal(band[far], truth[far])
+        assert same_tile(band[far], truth[far])
 
 
 def ndimage_far(valid, n):
@@ -217,7 +219,7 @@ def test_edge_pixels_not_at_tile_borders(monkeypatch, tmp_path):
         with rio.open(path) as tile:
             r0, c0 = (-1 - j) * 100, i * 100
             assert tile.transform == from_origin(c0, -r0, 1, 1)
-            assert np.array_equal(tile.read(1), whole[r0:r0 + 100, c0:c0 + 100], equal_nan=True)
+            assert same_tile(tile.read(1), whole[r0:r0 + 100, c0:c0 + 100], 2 * TILE_EPS)  # tiles written apart
 
 
 def test_tiles_from_an_origin(monkeypatch, tmp_path):
@@ -395,6 +397,8 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
     import grid as gd
     import sk_tiles
     from sources.readers.download import Download, _block_means
+    from sources.layer import _write_tile
+    from sources.readers import download as download_module
     from sources.layers.gridtiles import renamed
     mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
     sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
@@ -414,8 +418,10 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
             assert hashlib.sha256(path.read_bytes()).hexdigest() == sha
             # Download(average=)'s rewrite of the 1 m tile: the same values, nodata and georeference
             reference = tmp_path / f"ref_{factor}_{key}.tif"
-            Download("test", lambda t: "", lambda t: "t", average=factor)._rewrite(
-                str(root / src.grid_tile_name(i, j)), str(reference), "test")
+            with monkeypatch.context() as lossless:  # the cache's writer is LERC now: the lossless profile of the mirror
+                lossless.setattr(download_module, "_write_tile", functools.partial(_write_tile, max_z_error=None))
+                Download("test", lambda t: "", lambda t: "t", average=factor)._rewrite(
+                    str(root / src.grid_tile_name(i, j)), str(reference), "test")
             with rio.open(path) as a, rio.open(reference) as b:
                 assert a.transform == b.transform and a.crs == b.crs and a.shape == b.shape == (2000 // factor,) * 2
                 assert np.array_equal(a.read(1).view(np.uint32), b.read(1).view(np.uint32))

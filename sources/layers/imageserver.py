@@ -47,6 +47,7 @@ class ZonedTiling(Index):
 
 class ZonedReader(Reader):
     """The readers of a ZonedTiling's CRSs: a tile (crs, tile) is fetched by the reader of its CRS."""
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, readers: Dict[str, Reader]):
         self.readers = readers

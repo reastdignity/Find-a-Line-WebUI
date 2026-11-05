@@ -22,6 +22,7 @@ import settings  # noqa: E402
 import sources as src  # noqa: E402
 from sources import probe  # noqa: E402
 from http_server import Answer  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TOKEN = "key-3f9a1c7e5b2d+/="  # an API key with characters a URL encodes: the encoded form is masked too
@@ -157,7 +158,7 @@ def test_wcs10_with_its_key(http_server, monkeypatch, tmp_path):
     with rio.open(path) as f:
         assert f.transform == from_origin(500000, 6000100, 1, 1)
         ys, xs = np.mgrid[0:100, 0:100]
-        assert np.array_equal(f.read(1), height(500000 + xs + 0.5, 6000100 - ys - 0.5))
+        assert same_tile(f.read(1), height(500000 + xs + 0.5, 6000100 - ys - 0.5))
     asked = http_server.requests("/dhm")
     query = dict(asked[-1].query)
     assert query["apikey"] == TOKEN and query["BBOX"] == "500000.000,6000000.000,500100.000,6000100.000"
