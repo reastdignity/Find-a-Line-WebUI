@@ -153,6 +153,26 @@ def test_nominatim_large_answers_are_simplified(tmp_path, monkeypatch):
     assert osm.search("Big", cache_dir) == first and asked == ["Big"]
 
 
+def test_nominatim_whole_outline_is_kept(tmp_path, monkeypatch):
+    """search(whole=True), a country of the highline layer: the outline as it came whatever its size, on a row of its
+    own, so a simplified row is never taken for it, and the plain search stays simplified."""
+    import math
+
+    import osm
+    cache_dir = str(tmp_path)
+    ring = [[10 + 0.1 * math.cos(i / 5000 * 2 * math.pi), 50 + 0.1 * math.sin(i / 5000 * 2 * math.pi)]
+            for i in range(5000)]
+    big = {"name": "Big", "geojson": {"type": "Polygon", "coordinates": [ring + [ring[0]]]}}
+    monkeypatch.setattr(osm, "MAX_ANSWER_BYTES", len(json.dumps(big)) // 4)
+    asked = _fake_nominatim(monkeypatch, {"Big": [big]})
+    plain = osm.search("Big", cache_dir)
+    assert len(plain["geojson"]["coordinates"][0]) < 5000
+    whole = osm.search("Big", cache_dir, whole=True)
+    assert whole == big and asked == ["Big", "Big"]
+    assert osm.search("Big", cache_dir, whole=True) == big and osm.search("Big", cache_dir) == plain
+    assert asked == ["Big", "Big"]
+
+
 def test_places_of_a_name(tmp_path, monkeypatch):
     """osm.places: the matches of a name with their boxes as [S, W, N, E], at most PLACES_MAX, cached per
     name stripped and case folded, apart from search()'s areas; none is [] (stored, asked again later)."""

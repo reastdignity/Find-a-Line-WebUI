@@ -133,15 +133,20 @@ export interface OsmState { regions: OsmRegion[]; extracts: OsmExtract[] }
 export interface CountryBand { name: string; lengths: [number, number]; resolution: number; model: string;
                                slope_threshold: number; core_m: number; layer: boolean; tiles: number; done: number;
                                seconds: number; params: Record<string, unknown> }
-/** /api/countries: a country's counter cube (cube.json without "config" and "origin"). */
-export interface CountryCube { id: string; name: string; crs: string; cell_m: number; levels: number[];
+/** /api/countries: a country's counter cube (cube.json without "config" and "origin"); `study`: a study area, a box
+ *  of a country (cubes built before 2026-11-05 have no such field: none was one). */
+export interface CountryCube { id: string; name: string; crs: string; study?: boolean; cell_m: number; levels: number[];
                                cluster_m: number; bounds_wgs84: [number, number, number, number];
                                edges: Record<"length" | "prominence" | "wall" | "clearance" | "height", number[]>;
                                bands: CountryBand[]; dsm: boolean; water: boolean; partial: boolean;
                                totals: {lines: number; spots: number}; built: string;
                                credits: Credit[]; notes: string[] }
-/** /api/countries/<id>/cells: the cells with a count, each [i, j, count, lat, lon of SW, SE, NE, NW]. */
-export interface CountryCells { level: number; cell_m: number; total: number; max: number; cells: number[][] }
+/** A cell cut by its country's outline: the km² inside it and that part, polygons of rings of [lat, lon]. */
+export interface CutCell { km2: number; shape: number[][][][] }
+/** /api/countries/<id>/cells: the cells with a count, each [i, j, count, lat, lon of SW, SE, NE, NW]; `cut` those of
+ *  them the country's outline cuts, by "i,j". */
+export interface CountryCells { level: number; cell_m: number; total: number; max: number; cells: number[][];
+                                cut: Record<string, CutCell> }
 /** /api/countries/<id>/histogram: the counts in view per bin of each dimension, each dimension under every other
  *  filter but its own (length: the 9 bins of edges.length; the others: bins 0..4 of their edges, then unknown). */
 export interface CountryHistogram { level: number; cell_m: number; total: number; length: number[]; prominence: number[];

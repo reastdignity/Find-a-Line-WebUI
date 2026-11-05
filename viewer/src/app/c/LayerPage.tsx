@@ -1,7 +1,8 @@
 // The highline layer (#layer; the local app and administrators): the countries searched offline in fixed tiles
 // (country.py) keep only counts, in counter cubes of 1, 2, 4 and 8 km cells (countcube.py). The page browses
-// every cube at once: the cells of the cubes in view (/api/countries/<id>/cells) on the map, coloured by their
-// density per km² (cellsLayer.ts: the fixed classes, or classes fitted to the view), the histograms of the
+// every country's cube at once (a study area, a box of a country, only alone: layerState.ts activeCubes): the cells
+// of the cubes in view (/api/countries/<id>/cells) on the map, coloured by their density per km² over their part
+// inside the country (cellsLayer.ts: the fixed classes, or classes fitted to the view), the histograms of the
 // counts in view per bin of each dimension (/histogram, LayerHistograms.tsx) on the right, the filters, the
 // legend, the level and the selected cell with one "Search here" per layer band (#new&cell=…, NewSearch) on the
 // left; at low zoom the countries' outlines (/outline) instead of cells. Every filter and the view are in the
@@ -21,11 +22,11 @@ import { day } from "../../time";
 import { copy, LinkField } from "../../result/view/LineDetails";
 import { MapPage } from "./Account";
 import { cellHash, go, layerHash } from "./route";
-import { CLASS_BREAKS, CellsLayer, rowBounds, short, type DrawnCells, type LayerMode, type OutlineShape,
+import { CLASS_BREAKS, CellsLayer, cellKm2, cellShape, rowBounds, short, type DrawnCells, type LayerMode, type OutlineShape,
          type PickedCell } from "./cellsLayer";
 import { LayerHistograms, addHistogram, emptyHistogram, type Dimension, type SummedHistogram } from "./LayerHistograms";
-import { OUTLINE_MPP, REQUEST_CELLS_MAX, autoLevel, cellsAt, cubesIn, largestRequest, easedBreaks, filtersQuery, filtersSet, metresPerPixel, parseState,
-         quantileBreaks, stateParams, type Box, type LayerLevel, type LayerState } from "./layerState";
+import { OUTLINE_MPP, REQUEST_CELLS_MAX, activeCubes, autoLevel, cellsAt, countriesFirst, cubesIn, largestRequest, easedBreaks, filtersQuery, filtersSet,
+         metresPerPixel, parseState, quantileBreaks, stateParams, type Box, type LayerLevel, type LayerState } from "./layerState";
 import "./c.css";
 
 export type { LayerMode } from "./cellsLayer";
@@ -81,10 +82,7 @@ function totalIn(cells: DrawnCells[], view: L.LatLngBounds): number {
 /** The densities per km² of every cell. */
 function densities(cells: DrawnCells[]): number[] {
   const out: number[] = [];
-  for (const {data} of cells) {
-    const km2 = (data.cell_m / 1000) ** 2;
-    for (const row of data.cells) out.push(row[2] / km2);
-  }
+  for (const {data} of cells) for (const row of data.cells) out.push(row[2] / cellKm2(data, row));
   return out;
 }
 
@@ -98,7 +96,7 @@ export function LayerPanel({place, aside, source, params, pick}:
   const [cubes, setCubes] = useState<CountryCube[] | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    source.countries().then((r) => setCubes(r.countries), (e) => setError(e.message));
+    source.countries().then((r) => setCubes(countriesFirst(r.countries)), (e) => setError(e.message));
   }, [source]);
   if (error) return <p class="c-error" role="alert">{error}</p>;
   if (!cubes) return <p class="u-small">{t("ui.layer.loading")}</p>;
@@ -149,7 +147,8 @@ function Explorer({place, aside, source, cubes, params, pick}:
 
   const choose = (country: string, row: number[]) => {
     const answer = cellsRef.current.find((c) => c.country === country)?.data;
-    if (answer) setPicked({country, level: answer.level, cell_m: answer.cell_m, i: row[0], j: row[1], count: row[2], corners: row.slice(3)});
+    if (answer) setPicked({country, level: answer.level, cell_m: answer.cell_m, i: row[0], j: row[1], count: row[2], corners: row.slice(3),
+                           km2: cellKm2(answer, row), shape: cellShape(answer, row)});
   };
   const fitCountry = (id: string) => {
     const cube = cubes.find((c) => c.id === id);
@@ -217,12 +216,13 @@ function Explorer({place, aside, source, cubes, params, pick}:
   // when the view left the one cached (or the level or the filters changed), the histograms of the view, at
   // low zoom the outlines with their totals instead
   const filters = filtersQuery(state);
-  const key = JSON.stringify(filters);
+  const active = activeCubes(cubes, state.country);
+  const key = JSON.stringify({...filters, cubes: active.map((c) => c.id)});
   useEffect(() => {
     const map = place.map;
     const bounds = map.getBounds();
     const view = boxOf(bounds);
-    const visible = cubesIn(cubes, view);
+    const visible = cubesIn(active, view);
     setInView(visible);
     const low = metresPerPixel(map.getCenter().lat, map.getZoom()) > OUTLINE_MPP;
     setOutlineMode(low);
@@ -264,9 +264,9 @@ function Explorer({place, aside, source, cubes, params, pick}:
       if (needCells) {
         setStatus("loading");
         // the view and one view's width and height on every side, less where the server would refuse it
-        const p = [1, 0.75, 0.5, 0.25].find((q) => largestRequest(cubes, padded(view, q), chosen) <= REQUEST_CELLS_MAX) ?? 0;
+        const p = [1, 0.75, 0.5, 0.25].find((q) => largestRequest(active, padded(view, q), chosen) <= REQUEST_CELLS_MAX) ?? 0;
         const box = padded(view, p);
-        const asked = cubesIn(cubes, box);
+        const asked = cubesIn(active, box);
         const bbox = boundsOf(box).toBBoxString();
         Promise.all(asked.map((c) => source.cells(c.id, {...query, bbox}, signal).then((data) => ({country: c.id, data}))))
           .then((answers) => {
@@ -417,11 +417,13 @@ function Explorer({place, aside, source, cubes, params, pick}:
     <div class="c-layer-head">
       {cubes.length > 1
         ? <Field label={t("ui.layer.country")} htmlFor="layer-country">
-            <NumberSelect id="layer-country" value={current.id} options={cubes.map((c) => [c.id, c.name])}
+            <NumberSelect id="layer-country" value={current.id}
+                          options={cubes.map((c) => [c.id, c.study ? t("ui.layer.study_name", {name: c.name}) : c.name])}
                           onChange={(id) => { set({country: id}); fitCountry(id); }} />
           </Field>
         : <b class="c-layer-name">{current.name}</b>}
       <span class="u-small">{builtOf(current)}</span>
+      {current.study && <p class="u-small c-layer-note">{t("ui.layer.study_note")}</p>}
     </div>
 
     <Segmented label={t("ui.layer.count")} value={mode} onChange={(m) => { set({mode: m}); setPicked(null); }}
@@ -508,8 +510,10 @@ function Explorer({place, aside, source, cubes, params, pick}:
     {picked && pickedCube ? <section class="c-layer-cell" aria-label={t("ui.layer.selected")}>
       <h2 class="u-h4">{t("ui.layer.selected")}</h2>
       <div class="u-small">{pickedCube.name}</div>
-      <div><b>{picked.count.toLocaleString("en")}</b> {noun} · {short(picked.count / (picked.cell_m / 1000) ** 2)} {t("ui.layer.per_km2")} ·{" "}
+      <div><b>{picked.count.toLocaleString("en")}</b> {noun} · {short(picked.count / picked.km2)} {t("ui.layer.per_km2")} ·{" "}
         {t("ui.layer.cell_km", {km: picked.cell_m / 1000})}</div>
+      {picked.km2 < (picked.cell_m / 1000) ** 2 &&
+        <div class="u-small">{t("ui.layer.cell_cut", {km2: short(picked.km2), name: pickedCube.name})}</div>}
       {centre && <div class="u-small u-mono">{centre[0].toFixed(4)}, {centre[1].toFixed(4)}</div>}
       <div class="c-layer-search">
         {pickedBands.map((b) => <Button key={b.name} icon="search" href={cellHash(pickedCube.id, b.name, picked.level, picked.i, picked.j)}>
@@ -522,6 +526,7 @@ function Explorer({place, aside, source, cubes, params, pick}:
       <h2 class="u-h4">{t("ui.layer.about")}</h2>
       <ul class="u-small">
         <li>{t("ui.layer.note_spot")}</li>
+        <li>{t("ui.layer.note_cut")}</li>
         <li class={mode === "spots" && several ? "c-layer-warn" : undefined}>{t("ui.layer.note_upper")}</li>
         {(inView.length ? inView : [current]).map((c) => <li key={c.id}>{t("ui.layer.note_bands", {name: c.name})}{" "}
           {c.bands.filter((b) => b.layer).map((b) => `${b.name} ${b.resolution} m (${range(b.lengths[0], b.lengths[1])})`).join(", ")}.</li>)}

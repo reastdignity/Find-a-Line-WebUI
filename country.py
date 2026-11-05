@@ -126,6 +126,7 @@ DISK_SPARE = 1 << 30       # free disk kept besides the work folders
 PREFETCH_GROUP_M = 10000
 RESPAWNS_PER_WORKER = 2    # workers that stopped abnormally are started again at most this often (on average)
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+OVERLAP_KM2 = 0.01         # two outlines overlapping by less only share a border (_say_overlaps)
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,11 @@ class Country:
     @property
     def last_edge(self) -> float:
         return float(countcube.LENGTH_EDGES[-1])
+
+    @property
+    def study(self) -> bool:
+        """A study area: a box of a country (the option "within"), not a country of the layer."""
+        return bool(self.options.get("within"))
 
 
 COUNTRIES = {
@@ -239,15 +245,81 @@ def _write_json(path: str, value: Dict):
         json.dump(value, f, indent=1, ensure_ascii=False)
 
 
-def _write_outline(country: Country, folder: str, data_dir: str):
+def _read_outline(folder: str):
+    """The outline of an area.geojson (WGS84)."""
+    from shapely.geometry import shape
+    from shapely.validation import make_valid
+    with open(os.path.join(folder, "area.geojson"), encoding="utf-8") as f:
+        outline = shape(json.load(f)["geometry"])
+    return outline if outline.is_valid else make_valid(outline)
+
+
+def _other_areas(data_dir: str, country_id: str) -> List[Tuple[str, bool, object]]:
+    """The other areas set up in the data folder: (id, a study area (Country.study), its outline)."""
+    root = os.path.join(data_dir, "countries")
+    found = []
+    for name in sorted(os.listdir(root)) if os.path.isdir(root) else ():
+        folder = os.path.join(root, name)
+        if name != country_id and os.path.exists(os.path.join(folder, "area.geojson")) \
+                and os.path.exists(os.path.join(folder, "country.json")):
+            options = read_state(folder).get("config", {}).get("options") or {}
+            found.append((name, bool(options.get("within")), _read_outline(folder)))
+    return found
+
+
+def _partition(country: Country, outline, data_dir: str, say) -> Tuple[object, List[str]]:
+    """The outline less the countries set up before it, and their ids: a point of the map is one
+    country's, the first to hold it. Outlines of one OSM share their borders exactly, so nothing is
+    cut between them; an outline of another date or a hand-made one loses what it lays over a
+    neighbour. Gaps between outlines stay, and a study area keeps its outline (Country.study)."""
+    import area as ar
+    less = []
+    for other, study, taken in _other_areas(data_dir, country.id):
+        if study or not outline.intersects(taken):
+            continue
+        overlap = outline.intersection(taken)
+        if overlap.area <= 0:  # a shared border
+            continue
+        say(f"Outline of {country.name}: {ar.size_km2(overlap):,.2f} km² belong to {other}, set up before it")
+        outline = outline.difference(taken)
+        less.append(other)
+    if outline.is_empty:
+        raise CountryError(f"{country.id} lies inside {', '.join(less)}: an area of a country counted already is a "
+                           f"study area (the option \"within\")")
+    return outline, less
+
+
+def _write_outline(country: Country, folder: str, data_dir: str, say=print):
     """area.geojson: the outline of the country's area spec (clipped to the box of its option
-    "within", if any), as it is (WGS84)."""
+    "within", if any), never simplified and less the countries set up before it (_partition),
+    in WGS84."""
     import area as ar
     from shapely.geometry import mapping
-    shape = ar.from_spec(country.area, 0.0, country.options.get("within"), os.path.join(data_dir, "cache")).geometry
-    feature = {"type": "Feature", "properties": {"id": country.id, "name": country.name, "area": country.area},
-               "geometry": mapping(shape)}
+    from shapely.validation import make_valid
+    outline = ar.from_spec(country.area, 0.0, country.options.get("within"), os.path.join(data_dir, "cache"),
+                           whole=True).geometry
+    properties = {"id": country.id, "name": country.name, "area": country.area}
+    if not country.study:
+        outline, less = _partition(country, outline if outline.is_valid else make_valid(outline), data_dir, say)
+        if less:
+            properties["less"] = less
+    feature = {"type": "Feature", "properties": properties, "geometry": mapping(outline)}
     _write_json(os.path.join(folder, "area.geojson"), feature)
+
+
+def _say_overlaps(country: Country, folder: str, data_dir: str, say):
+    """`country run`: the other areas this outline overlaps by OVERLAP_KM2 or more. A study area lies
+    in its country by design and the layer shows it alone; two countries would count the part twice
+    (only outlines set up before _partition can)."""
+    import area as ar
+    outline = _read_outline(folder)
+    for other, study, taken in _other_areas(data_dir, country.id):
+        km2 = ar.size_km2(outline.intersection(taken)) if outline.intersects(taken) else 0.0
+        if km2 >= OVERLAP_KM2 and (study or country.study):
+            say(f"{country.id} and {other} overlap by {km2:,.1f} km²: the layer shows a study area alone, never "
+                f"added to a country")
+        elif km2 >= OVERLAP_KM2:
+            say(f"WARNING: {country.id} and {other} overlap by {km2:,.1f} km²: the layer counts that part twice")
 
 
 def _remove_results(folder: str):
@@ -287,7 +359,7 @@ def setup(country_id: str, folder: str, data_dir: str, redo: bool, say) -> Tuple
     if not os.path.exists(outline) or (stored is not None and (stored.get("area") != config["area"]
                                                                or within(stored) != within(config))):
         say(f"Outline of {country.name}: {country.area}")
-        _write_outline(country, folder, data_dir)
+        _write_outline(country, folder, data_dir, say)
     area_sha = _sha256_file(outline)
     digest = config_hash(config, area_sha)
     if state.get("hash") not in (None, digest):
@@ -1137,6 +1209,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     from progress import progress
     say(f"=== country run {country_id} ({_now()}) ===")
     state, country = setup(country_id, folder, data_dir, redo, say)
+    _say_overlaps(country, folder, data_dir, say)
     names = [b.name for b in country.bands]
     selected = list(bands) if bands else names
     for name in selected:
@@ -1555,7 +1628,7 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
                      "or buildings.")
     if missing:
         notes.append(f"Partial: {total - missing} of {total} tiles of the layer bands.")
-    info = {"id": country.id, "name": country.name, "crs": state["crs"], "origin": origin,
+    info = {"id": country.id, "name": country.name, "crs": state["crs"], "origin": origin, "study": country.study,
             "bounds_wgs84": state["bounds_wgs84"], "bands": bands_info, "dsm": dsm,
             "water": country.options.get("water") == "fill", "partial": bool(missing), "config": state["hash"],
             "credits": _credits(metas, country.area, year), "notes": notes}

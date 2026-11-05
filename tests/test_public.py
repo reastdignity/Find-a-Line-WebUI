@@ -2810,7 +2810,7 @@ def test_search_limits_before_requests(tmp_path, monkeypatch):
     from shapely.geometry import box, mapping
     calls = {"search": 0, "theme": 0}
 
-    def fake_search(name, cache_dir):
+    def fake_search(name, cache_dir, whole=False):
         calls["search"] += 1
         return {"geojson": mapping(box(14.0, 35.7, 15.0, 36.5))}  # about 8000 km²
 

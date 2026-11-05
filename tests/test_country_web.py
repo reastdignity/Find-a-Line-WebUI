@@ -1,7 +1,7 @@
 """The highline layer's endpoints (web.py: /api/countries, its cells, histogram, outline and the request of a
 cell) over a small cube built by countcube from synthetic tile counts (and a second, disjoint one): the answers
-against Cube, the errors, who may ask, a cube built again, no numba in the web process, and the page #layer in
-headless Edge on the real server."""
+against Cube, the cells the outline cuts, the errors, who may ask, a cube built again, no numba in the web process,
+and the page #layer in headless Edge on the real server, with a study area too."""
 
 import json
 import os
@@ -27,16 +27,19 @@ CRS = "EPSG:8353"  # S-JTSK [JTSK03] / Krovak East North: negative coordinates
 OUTLINE = [(19.55, 49.05), (20.05, 48.95), (20.6, 49.02), (20.62, 49.32), (20.1, 49.28), (19.6, 49.3)]
 # A second country's outline, disjoint from the first (west of it, in the same CRS)
 OUTLINE2 = [(18.7, 49.4), (19.4, 49.42), (19.38, 49.9), (18.75, 49.88)]
+# A study area: a box inside the first
+OUTLINE_STUDY = [(19.9, 49.1), (20.25, 49.1), (20.25, 49.25), (19.9, 49.25)]
 # Where the sample's lines are: (lon, lat, lines per km² at the centre, radius in km)
 HOT = [(20.08, 49.18, 6e5, 4.0), (19.95, 49.23, 4e4, 3.0), (20.42, 49.12, 2e3, 5.0), (19.75, 49.15, 300, 6.0)]
 BANDS = [("S", 30, 300, 1.0, "formula", 60, 5000, True), ("M", 300, 1000, 2.0, "sag", 60, 10000, True),
          ("L", 1000, 5000, 5.0, "sag", 45, 20000, True), ("M2", 1000, 2000, 2.0, "sag", 60, 10000, False)]
 
 
-def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", seed: int = 1, outline=OUTLINE) -> str:
+def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", seed: int = 1, outline=OUTLINE,
+                study: bool = False) -> str:
     """A small cube of made-up counts in <data_dir>/countries/<country>/cube (countcube.build of one tile
-    of synthetic TileCounts) with its area.geojson of `outline` (lon, lat); the cube folder. Also
-    tools/ui_shots.py's sample."""
+    of synthetic TileCounts) with its area.geojson of `outline` (lon, lat), a study area if `study`; the
+    cube folder. Also tools/ui_shots.py's sample."""
     rng = np.random.default_rng(seed)
     to_crs = Transformer.from_crs("EPSG:4326", CRS, always_xy=True)
     to_wgs84 = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
@@ -97,7 +100,7 @@ def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", see
                          "slope_threshold": slope, "nmpt": "off", "water": "fill", "coastline": "copernicus",
                          "fill_gaps": "on", "pretension": 2.5, "stretch": 2.1, "webbing_weight": 41.0}}
              for b, lo, hi, res, model, slope, core, layer in BANDS]
-    info = {"id": country, "name": name, "crs": CRS, "origin": list(origin),
+    info = {"id": country, "name": name, "crs": CRS, "origin": list(origin), "study": study,
             "bounds_wgs84": [round(v, 6) for v in (lon0, lat0, lon1, lat1)], "bands": bands, "dsm": False,
             "water": True, "partial": False, "config": "0" * 64,
             "credits": [{"data": "DMR 5.0 (ÚGKK SR, Slovakia)", "attribution": "© ÚGKK SR", "licence": "CC BY 4.0",
@@ -164,6 +167,23 @@ def _cells(client, **query):
     return answer.json()
 
 
+def test_cells_cut_by_the_outline(client, sample):
+    """`cut`: the cells of the answer the outline cuts, as Cube.cut gives them, by "i,j"; the rows stay as they were,
+    so a cut cell is known by its key alone. The sample's edge cuts some cells with lines at every level."""
+    cube = cc.Cube(os.path.join(sample, "countries", "slovakia", "cube"))
+    for level in cube.levels:
+        answer = _cells(client, level=str(level))
+        cut = cube.cut(level)
+        rows = {(r[0], r[1]) for r in answer["cells"]}
+        assert answer["cut"] == {f"{i},{j}": json.loads(json.dumps(v)) for (i, j), v in cut.items() if (i, j) in rows}
+        assert answer["cut"] and all(len(r) == 11 for r in answer["cells"])
+        full = (answer["cell_m"] / 1000) ** 2
+        assert all(0 < v["km2"] < full and v["shape"] for v in answer["cut"].values())
+    assert _cells(client, level="1", length="30-60", prominence="50", height="100", clearance="20")["cut"] is not None
+    away = client.get("/api/countries/slovakia/cells", params={"bbox": "0,0,1,1", "level": "1"})
+    assert away.json()["cells"] == [] and away.json()["cut"] == {}
+
+
 def _histogram(client, country="slovakia", **query):
     answer = client.get(f"/api/countries/{country}/histogram", params=query)
     assert answer.status_code == 200, answer.text
@@ -201,7 +221,7 @@ def test_cells_as_the_cube_gives_them(client, sample):
     assert whole["total"] == int(cube.cells("lines", 8, None, cc.Filters())[2].sum())
     # far from the country: no cells
     assert _cells(client, bbox="100,10,101,11", level="1") == {"level": 1, "cell_m": 1000, "total": 0, "max": 0,
-                                                               "cells": []}
+                                                               "cells": [], "cut": {}}
     # filters that leave nothing
     assert _cells(client, bbox=VIEW, level="8", trees="only")["cells"] == []
 
@@ -396,12 +416,8 @@ def test_no_numba_in_the_web_process(sample):
     assert json.loads(result.stdout.strip().splitlines()[-1]) == []
 
 
-# The page #layer: wait for the cells, count the painted pixels of the cells' canvas, click the cell under the
-# centre of Slovakia's largest cell, read the selected cell's panel; the right panel's histograms against the
-# answers of /histogram summed over the cubes asked in the same round; a click on the second length bar (the
-# hash and the next /cells queries); a view over both cubes at 2 km cells (both answered, the total their sum);
-# zoomed out, the countries' outlines
-LAYER_SCRIPT = """
+# What the scripts of the page #layer share: the layer's requests logged, the painted pixels, the settled page
+LAYER_HELPERS = """
 const log = [];  // the layer's requests: {kind, id, round, query, answer, done}
 let round = 0, grouping = false;
 const realFetch2 = window.fetch;
@@ -436,6 +452,31 @@ const totalNumber = () => Number((($(".c-layer-total b") || {}).textContent || "
 const histBars = () => [...$$(".c-layer-hist")[0].querySelectorAll("button.c-layer-bar")];
 const lengthBars = () => histBars().map((b) => Number(b.dataset.value));
 const summed = (answers) => answers.reduce((s, a) => s.map((v, k) => v + a.length[k]), Array(9).fill(0));
+"""
+
+# The page #layer: wait for the cells, count the painted pixels of the cells' canvas, click the cell under the
+# centre of Slovakia's largest cell, read the selected cell's panel; a cell the outline cuts, clicked inside and
+# outside the country; the right panel's histograms against the answers of /histogram summed over the cubes asked
+# in the same round; a click on the second length bar (the hash and the next /cells queries); a view over both
+# cubes at 2 km cells (both answered, the total their sum); zoomed out, the countries' outlines
+LAYER_SCRIPT = LAYER_HELPERS + """
+const inRing = (ring, lat, lon) => {  // ray casting over [lat, lon]
+  let inside = false;
+  for (let k = 0, m = ring.length - 1; k < ring.length; m = k++) {
+    if ((ring[k][1] > lon) !== (ring[m][1] > lon)
+        && lat < (ring[m][0] - ring[k][0]) * (lon - ring[k][1]) / (ring[m][1] - ring[k][1]) + ring[k][0]) inside = !inside;
+  }
+  return inside;
+};
+const insideCut = (cut, lat, lon) => cut.shape.some((rings) => inRing(rings[0], lat, lon) && !rings.slice(1).some((r) => inRing(r, lat, lon)));
+const clickAt = (lat, lon) => {
+  const point = map().latLngToContainerPoint([lat, lon]);
+  const box = map().getContainer().getBoundingClientRect();
+  const canvas = $$(".leaflet-container canvas").reduce((best, c) => painted(c) > painted(best) ? c : best);
+  const init = {bubbles: true, cancelable: true, clientX: box.left + point.x, clientY: box.top + point.y, button: 0};
+  canvas.dispatchEvent(new MouseEvent("mousemove", init));
+  canvas.dispatchEvent(new MouseEvent("click", init));
+};
 run({
   cells: (next) => wait(() => settled() && lastCells("slovakia") && mostPainted() > 0, () => {  // drawn in a frame
     const a = lastCells("slovakia").answer;
@@ -458,6 +499,35 @@ run({
       result.selected = text(".c-layer-cell");
       result.search = $$(".c-layer-search a").map((b) => b.getAttribute("href"));
       next();
+    });
+  },
+  cut: (next) => {  // a point of a cut cell's part inside the country, and one of its part outside (an inner lattice)
+    const a = lastCells("slovakia").answer;
+    const full = (a.cell_m / 1000) ** 2;
+    const lattice = (row) => {
+      const out = [];
+      for (let u = 1; u < 12; u++) for (let v = 1; v < 12; v++) {
+        const west = (1 - u / 12) * (1 - v / 12), east = (u / 12) * (1 - v / 12), far = (u / 12) * (v / 12), near = (1 - u / 12) * (v / 12);
+        out.push([west * row[3] + east * row[5] + far * row[7] + near * row[9], west * row[4] + east * row[6] + far * row[8] + near * row[10]]);
+      }
+      return out;
+    };
+    let row = null, inner = null, outer = null;
+    for (const r of a.cells) {
+      const cut = a.cut[r[0] + "," + r[1]];
+      if (!cut || cut.km2 < 0.2 * full || cut.km2 > 0.8 * full) continue;
+      const points = lattice(r);
+      inner = points.find((p) => insideCut(cut, p[0], p[1]));
+      outer = points.find((p) => !insideCut(cut, p[0], p[1]));
+      if (inner && outer) { row = r; break; }
+    }
+    const cut = a.cut[row[0] + "," + row[1]];
+    result.cut = {wanted: row.slice(0, 3), km2: cut.km2, cells: Object.keys(a.cut).length};
+    clickAt(inner[0], inner[1]);
+    wait(() => /of it lie in Slovakia/.test(text(".c-layer-cell")) && text(".c-layer-cell").includes(row[2].toLocaleString("en")), () => {
+      result.cut.selected = text(".c-layer-cell");
+      clickAt(outer[0], outer[1]);  // no cell of this country there: the map's click, nothing selected
+      wait(() => !$(".c-layer-cell"), next);
     });
   },
   histograms: (next) => wait(() => settled() && $$(".c-layer-hist").length === 5
@@ -525,6 +595,11 @@ def test_layer_page_in_edge(sample, tmp_path):
     assert r["selected"].startswith("Selected cell") and count in r["selected"], r
     level = r["level"]
     assert r["search"] == [f"#new&cell=slovakia:{b}:{level}:{r['wanted'][0]}:{r['wanted'][1]}" for b in ("S", "M", "L")], r
+    # a cell the outline cuts: picked by a click on its part inside the country, its density over that part, not
+    # picked by a click on the part outside
+    cut = r["cut"]
+    assert cut["cells"] > 0 and cut["selected"].startswith("Selected cell"), cut
+    assert "of it lie in Slovakia" in cut["selected"], cut
     # the right panel: five histograms, the length bars the answers of the round summed over its cubes
     h = r["histograms"]
     assert h["count"] == 5 and "slovakia" in h["ids"] and h["bars"] == h["expected"] and sum(h["bars"]) > 0, h
@@ -542,4 +617,66 @@ def test_layer_page_in_edge(sample, tmp_path):
     # zoomed out: the outlines of both, painted, and the count of the countries
     o = r["outline"]
     assert o["ids"] == ["slovakia", "testland"] and o["painted"] > 100 and "2 countries in view" in o["text"], o
+    assert r["csp"] == [], r
+
+
+# A country and a study area inside it (its id sorts first): the page opens on the country, asks nothing of the
+# study area, then only the study area once chosen, then only the country again
+STUDY_SCRIPT = LAYER_HELPERS + """
+const choose = (id) => {
+  const select = $("#layer-country");
+  select.value = id;
+  select.dispatchEvent(new Event("change", {bubbles: true}));
+};
+const asked = () => [...new Set(log.filter((e) => e.kind !== "outline").map((e) => e.id))].sort();
+run({
+  country: (next) => wait(() => settled() && lastCells("slovakia") && mostPainted() > 0, () => {
+    result.country = {asked: asked(), options: $$("#layer-country option").map((o) => o.textContent), value: $("#layer-country").value,
+                      total: totalNumber(), histogram: lastRound("histogram").map((e) => [e.id, e.answer && e.answer.total]),
+                      note: !!$(".c-layer-head .c-layer-note")};
+    next();
+  }),
+  study: (next) => {
+    log.length = 0;
+    choose("sk-part");
+    wait(() => /country=sk-part/.test(location.hash) && settled() && lastCells("sk-part"), () => {
+      result.study = {asked: asked(), hash: location.hash, total: totalNumber(), histogram: lastRound("histogram").map((e) => [e.id, e.answer && e.answer.total]),
+                      note: text(".c-layer-head .c-layer-note")};
+      next();
+    });
+  },
+  back: (next) => {
+    log.length = 0;
+    choose("slovakia");
+    wait(() => /country=slovakia/.test(location.hash) && settled() && lastCells("slovakia"), () => {
+      result.back = {asked: asked(), note: !!$(".c-layer-head .c-layer-note")};
+      next();
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+                    reason="needs Microsoft Edge")
+def test_study_area_in_edge(tmp_path):
+    """A study area is never added to the country it lies in: #layer opens on the country and asks only it, though the
+    study area's box is in view and its id sorts first; chosen, the study area is asked alone, its own total shown, and
+    the page says what it is; the country chosen again, only the country is asked. No CSP violations."""
+    from test_shell_c import _edge, stub_page
+    from test_web import _server
+    data = tmp_path / "data"
+    sample_cube(data)
+    sample_cube(data, "sk-part", "Part of it", seed=5, outline=OUTLINE_STUDY, study=True)
+    page = stub_page(data, "study", STUDY_SCRIPT)
+    with _server(data) as port:
+        r = _edge(port, f"{page}?ui=c#layer", tmp_path / "edge")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    country, study, back = r["country"], r["study"], r["back"]
+    assert country["asked"] == ["slovakia"] and country["value"] == "slovakia", country
+    assert country["options"] == ["Slovakia", "Part of it (study area)"] and not country["note"], country
+    assert [h[0] for h in country["histogram"]] == ["slovakia"], country
+    assert study["asked"] == ["sk-part"] and [h[0] for h in study["histogram"]] == ["sk-part"], study
+    assert "study area" in study["note"].lower() and study["total"] != country["total"], study
+    assert back["asked"] == ["slovakia"] and not back["note"], back
     assert r["csp"] == [], r

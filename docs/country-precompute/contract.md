@@ -310,7 +310,7 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict   # 
                        "model": "formula", "slope_threshold": 60, "nmpt": "off", "water": "fill",
                        "coastline": "copernicus", "fill_gaps": "on", "pretension": 2.5, "stretch": 2.1,
                        "webbing_weight": 41.0}}],
- "dsm": false, "water": true, "partial": false, "config": "<sha256 of the country's config>",
+ "dsm": false, "water": true, "partial": false, "study": false, "config": "<sha256 of the country's config>",
  "totals": {"lines": 0, "spots": 0, "keys": {"lines_1": 0, "spots_1": 0}}, "built": "2026-11-03T10:00:00Z",
  "credits": [{"...": "as run.json's credits, years filled"}], "notes": ["..."]}
 ```
@@ -318,6 +318,8 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict   # 
   band, `pretension` is T at the band's `max_length`: the most tension and the least sag, so the
   search finds a superset of the lines T(L) gives.
 - The cube folder also holds `area.geojson`: the outline, WGS84.
+- `study`: a study area (`Country.study`). The page shows it alone, never added to a country. Cubes
+  built before 2026-11-05 have no such field and none of them is one, so they need no migration.
 
 ### Tests of B (`tests/test_countcube.py`)
 - Keys pack and unpack back.
@@ -356,9 +358,21 @@ findaline.py country worker <id> --slot K [--data-dir D]      # started by run, 
     refused unless `--redo`, which deletes `tiles/`, `cube/` and the manifest.
   - Workers and the other commands read only `country.json`. Tests write a `country.json` of their
     own country, whose id is not in `COUNTRIES`.
-- **The outline** comes once from `area.from_spec(country.area, ...)` and is saved as
+- **The outline** comes once from `area.from_spec(country.area, ..., whole=True)` and is saved as
   `area.geojson`. Every band's `plan_search` then uses that file (`area=<path>`), so a resumed run
   gets the same tiles. The config hash covers the file's sha256.
+  - It is never simplified: `osm.search(whole=True)` keeps an outline above `MAX_ANSWER_BYTES` as it
+    came, on a row of its own. Two neighbours simplified apart would no longer share their border.
+  - Countries are a partition (`_partition`, 2026-11-05): a point of the map is one country's, the
+    first to hold it. A new outline loses what the countries set up before it hold, and the file's
+    `properties.less` names them. Outlines of one OSM share their borders exactly (Slovakia and its
+    five neighbours: no overlap), so this cuts only an outline of another date or a hand-made one.
+    Gaps between outlines stay. It happens only when `area.geojson` is written, so a country set up
+    earlier keeps its outline.
+  - A study area (`Country.study`: the option `within`, a box of a country, `tools/band_study.py`)
+    lies in its country by design: it is neither cut nor cuts another.
+  - `run` names the other areas an outline overlaps by `OVERLAP_KM2` (0.01 km²) or more
+    (`_say_overlaps`): a plain line for a study area, a warning for two countries.
 - **Manifest** `manifest.sqlite` (WAL, `cache.migrate`, `MIGRATIONS` of schema v1):
   - table `tiles`: `band`, `name`, `core` (JSON), `status`
     (`pending`/`running`/`done`/`failed`), `attempts`, `worker`, `started_at`, `finished_at`,
@@ -438,7 +452,8 @@ GET /api/countries
 GET /api/countries/{id}/cells?mode=lines|spots&bbox=<west>,<south>,<east>,<north>&level=auto|1|2|4|8
                              &length=<lo>-<hi>&prominence=<p>&wall=<w>&clearance=<c>&height=<h>&trees=all|no|only&water=all|land|water
   → {"level": 2, "cell_m": 2000, "total": 12345, "max": 678, "cells": [[i, j, count, lat_sw, lon_sw, lat_se, lon_se,
-     lat_ne, lon_ne, lat_nw, lon_nw], ...]}          (coordinates rounded to 6 decimals; only cells with count > 0)
+     lat_ne, lon_ne, lat_nw, lon_nw], ...],          (coordinates rounded to 6 decimals; only cells with count > 0)
+     "cut": {"<i>,<j>": {"km2": 0.62, "shape": [[[[lat, lon], ...], ...], ...]}, ...}}   (those the outline cuts: Cube.cut)
 GET /api/countries/{id}/request?band=S|M|L&level=<L>&i=<i>&j=<j>
   → {"params": {...}, "geometry": {GeoJSON}}       (a SearchRequest for the app's form)
 ```
@@ -588,7 +603,7 @@ GET /api/countries/{id}/outline
   `KIT_CUBES`, `kitCells`, `kitHistogram`, `kitOutline`).
 
 **A round** runs 300 ms after the last move or change. It aborts the round before (one
-`AbortController`) and asks every cube whose `bounds_wgs84` reach the view. All rows are drawn, each
+`AbortController`) and asks every active cube whose `bounds_wgs84` reach the view. All rows are drawn, each
 remembering its cube for the card and `#new&cell=`. The histograms are summed, and the credits of
 the cubes in view are deduplicated.
 
@@ -627,10 +642,34 @@ at the view's centre.
   fixed breaks, each with a permanent label of its total; a click zooms to the country.
 - The panel says "k countries in view" with the summed total.
 
-**The notes** under the cell card are the page's own: spots are cluster pairs, and spots are an
-upper bound under several filters. Then each cube's bands and its `notes`: `country build` writes
-"Only lines with both anchors inside <name> are counted." and, without the surface model, its note,
-so the page repeats neither.
+**Cells on a border** (2026-11-05). A cell the country's outline cuts is drawn over its part inside
+the country, and its density is the count over that part's km² (`cut` of `/cells`, `cellsLayer.ts`
+`cellKm2`, `cellShape`): the anchors of a country lie inside its outline, so a full km² would
+understate it. The cells of two countries meet at their border, and a click beside the country
+picks nothing.
+- `Cube.cut` works out all levels at the first request, a quadtree from a cell holding the whole
+  outline: a cell's piece is cut out of its parent's, and a branch ends at a cell wholly inside or
+  outside. It keeps them. Nothing is added to the cube: old cubes get it, no recount.
+- Measured on Slovakia's cube (43 k points): 0.3 s for 1860, 894, 418 and 205 cut cells at 1, 2, 4
+  and 8 km. Cells with lines: 88 at 1 km, with 4.8 % of the lines, a median of 65 % inside; 43 at
+  8 km, with 40 % of the lines, 78 % inside. The density of those at 1 km rises by a median factor
+  of 1.5.
+- The km² come from the exact outline, the shape drawn is simplified by the cell's side over
+  `CUT_SIMPLIFY` (250: 4 m at 1 km, a median of 11 points a cell, about 300 B of an answer).
+- No floor under the km²: the smallest parts with lines hold about 1 % of a cell and their densities
+  stay within those of whole cells (1 km: at most 41.6 M per km² against 32.1 M).
+
+**Study areas** (2026-11-05). A cube with `study` is a part of a country, so adding it to that
+country would count its lines twice (measured on a copy of the real cube: 1491 M lines in a view of
+the Tatras instead of 746 M). `layerState.ts` `activeCubes` gives the cubes a round asks: every
+country, or a study area alone when it is the one chosen in the select (`#layer&country=<id>`,
+"<name> (study area)"), which then says what it is. `countriesFirst` puts the countries first, so
+the page opens on a country whatever the ids sort like.
+
+**The notes** under the cell card are the page's own: spots are cluster pairs, spots are an upper
+bound under several filters, and a cell on a border counts over its part inside the country. Then
+each cube's bands and its `notes`: `country build` writes "Only lines with both anchors inside
+<name> are counted." and, without the surface model, its note, so the page repeats neither.
 
 **The right panel** shows:
 - the total in view;
@@ -643,12 +682,16 @@ log10(1 + n) over log10(1 + max), set through the CSSOM.
 
 **Tests:** `tests/test_country_web.py`:
 - the endpoints against `Cube` over two sample cubes (`slovakia`, and `testland` west of it);
-- `test_layer_page_in_edge` (shell C; B and D were removed on 2026-11-04): the cells, a picked cell, the five histograms against the
+- `test_layer_page_in_edge` (shell C; B and D were removed on 2026-11-04): the cells, a picked cell, a
+  cell the outline cuts clicked inside and outside the country, the five histograms against the
   intercepted `/histogram` answers, a length bar into the hash and the next `/cells` query, both
-  cubes at 2 km adding up, the outlines when zoomed out.
+  cubes at 2 km adding up, the outlines when zoomed out;
+- `test_cells_cut_by_the_outline` (`cut` against `Cube.cut`, which `tests/test_countcube.py::test_cut_cells`
+  compares with each cell cut alone) and `test_study_area_in_edge` (a country and a study area
+  inside it: only the one in force is asked).
 
-`tools/ui_shots.py` has `c-layer`, `c-layer-world` (both cubes), `c-layer-end` (the phones' column scrolled
-to the histograms) and `c-layer-cell` (a cell selected).
+`tools/ui_shots.py` has `c-layer`, `c-layer-world` (both cubes), `c-layer-study` (the study area alone),
+`c-layer-end` (the phones' column scrolled to the histograms) and `c-layer-cell` (a cell selected).
 
 ## Wave 1 as built (2026-11-02; read this before sections 3 and 4)
 

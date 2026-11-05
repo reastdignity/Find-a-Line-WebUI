@@ -649,14 +649,17 @@ class Countries:
     @staticmethod
     def cells(cube, query) -> Dict:
         """The answer of /api/countries/<id>/cells for its query (_view): the level and its cell size, the
-        cells passing the filters with their corners, the total and the largest count."""
+        cells passing the filters with their corners, the total and the largest count; `cut` those of them
+        the country's outline cuts, by "i,j" (countcube's Cube.cut: the km² inside and the shape to draw)."""
         import numpy as np
         mode, level, box, filters = Countries._view(cube, query)
         i, j, count = cube.cells(mode, level, box, filters)
         corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
+        cut = cube.cut(level)
         return {"level": level, "cell_m": Countries._cell_m(cube, level),
                 "total": int(count.sum()), "max": int(count.max()) if len(count) else 0,
-                "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)]}
+                "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)],
+                "cut": {f"{a},{b}": cut[a, b] for a, b in zip(i.tolist(), j.tolist()) if (a, b) in cut}}
 
     @staticmethod
     def histogram(cube, query) -> Dict:

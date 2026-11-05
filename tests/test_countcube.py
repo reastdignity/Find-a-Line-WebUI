@@ -551,6 +551,74 @@ def test_outline_simplified(tmp_path):
     assert found["area_km2"] == round(found["area_km2"], 1)
 
 
+def _lattice(cube, level):
+    """The columns and rows of a level's cells over the outline's box."""
+    size = level * cc.CELL_M
+    left, bottom, right, top = cc._project(cube.outline(), cube._to_crs).bounds
+    return (range(int((left - cube.origin[0]) // size), int((right - cube.origin[0]) // size) + 1),
+            range(int((bottom - cube.origin[1]) // size), int((top - cube.origin[1]) // size) + 1))
+
+
+def test_cut_cells(tmp_path):
+    """Cube.cut against each cell cut alone, on an outline of a wiggly edge, a hole and an island: the same cells at
+    every level, each with its km²; the km² of a level's whole and cut cells add up to the outline's; the shape to
+    draw is the part inside within its simplification (a hole stays a hole), in [lat, lon]; kept; none without an
+    outline."""
+    rng = np.random.default_rng(42)
+    grid = _grid()
+    out, _ = _build(tmp_path, [(grid, _lines(rng, grid, 10, lengths=(30, 300)), None)])
+    to_wgs84 = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
+    land = shapely.segmentize(shapely.Polygon([(-559000, -1238000), (-543000, -1238000), (-543000, -1226000),
+                                               (-559000, -1226000)]), 50.0)
+    xy = shapely.get_coordinates(land) + rng.uniform(-20, 20, (shapely.get_num_coordinates(land), 2))
+    xy[-1] = xy[0]
+    hole = shapely.Polygon([(-552300, -1233300), (-550700, -1233300), (-550700, -1231700), (-552300, -1231700)])
+    island = shapely.Polygon([(-540500, -1236500), (-539300, -1236500), (-539300, -1235300), (-540500, -1235300)])
+    local = shapely.MultiPolygon([shapely.Polygon(xy, [hole.exterior.coords]), island])
+    assert local.is_valid
+    back = shapely.transform(local, lambda xy: np.column_stack(to_wgs84.transform(xy[:, 0], xy[:, 1])))
+    (out / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {},
+                                                 "geometry": json.loads(shapely.to_geojson(back))}))
+    cube = cc.Cube(str(out))
+    assert cube.cut(1) is cube.cut(1)  # kept
+    outline = cc._project(cube.outline(), cube._to_crs)
+    to_crs = cube._to_crs
+    for level in cube.levels:
+        size = level * cc.CELL_M
+        columns, rows = _lattice(cube, level)
+        expected, whole = {}, 0
+        for i in columns:
+            for j in rows:
+                x, y = cube.origin[0] + i * size, cube.origin[1] + j * size
+                part = shapely.box(x, y, x + size, y + size).intersection(outline)
+                if part.area >= size * size * cc.CUT_FULL:
+                    whole += 1
+                elif part.area > 0:
+                    expected[i, j] = part
+        found = cube.cut(level)
+        assert set(found) == set(expected) and len(found) > 5
+        for key, part in expected.items():
+            assert found[key]["km2"] == pytest.approx(part.area / 1e6, abs=1.1e-6)
+            polygons = [shapely.Polygon(rings[0], rings[1:])
+                        for rings in ([[(lon, lat) for lat, lon in ring] for ring in polygon]
+                                      for polygon in found[key]["shape"])]
+            drawn = shapely.transform(shapely.MultiPolygon(polygons), lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
+            assert drawn.area == pytest.approx(part.area, abs=part.length * size / cc.CUT_SIMPLIFY + 1)
+        total = whole * size * size / 1e6 + sum(v["km2"] for v in found.values())
+        assert total == pytest.approx(outline.area / 1e6, abs=1e-3)
+    assert any(len(polygon) == 2 for v in cube.cut(8).values() for polygon in v["shape"]) \
+        or any(len(v["shape"]) > 1 for v in cube.cut(8).values())  # the hole or the island within one cell
+    json.dumps(list(cube.cut(1).values()))
+    # an outline on the cells' edges cuts none at the coarse levels (an empty level), a corner at the finest
+    square = shapely.Polygon([(-552000, -1232000), (-544000, -1232000), (-544000, -1224000), (-552000, -1224000.5)])
+    back = shapely.transform(square, lambda xy: np.column_stack(to_wgs84.transform(xy[:, 0], xy[:, 1])))
+    (out / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {},
+                                                 "geometry": json.loads(shapely.to_geojson(back))}))
+    assert isinstance(cc.Cube(str(out)).cut(8), dict)
+    (out / "area.geojson").unlink()
+    assert cc.Cube(str(out)).cut(1) == {}
+
+
 def test_box_auto_level_and_corners(tmp_path):
     rng = np.random.default_rng(19)
     grid = _grid()

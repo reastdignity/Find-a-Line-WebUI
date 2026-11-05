@@ -377,6 +377,8 @@ SEARCH_URL = "https://nominatim.openstreetmap.org/search"
 FAILED_DAYS = 30  # a search without a match (or a reverse lookup without an answer) is asked again after it
 # Answers larger than this (an outline of a country) are stored with their outline simplified
 MAX_ANSWER_BYTES = 5_000_000
+WHOLE_KEY = "whole:"  # the rows of search(whole=True), never simplified
+WHOLE_TIMEOUT = 120   # seconds of such a request (the largest countries' outlines are tens of MB)
 # Nominatim's usage policy allows one request per second; the limiter admits one per 1.1 s,
 # a margin for the way from the permit to the server
 NOMINATIM_INTERVAL_MS = 1100
@@ -443,10 +445,10 @@ def _fit(answer: Dict) -> Optional[str]:
     return text
 
 
-def _store(cache_dir: str, table: str, key: str, answer: Dict) -> Dict:
-    """Store an answer; returns it as stored (a simplified outline, see _fit), so that the
-    first search and the later ones from the cache see the same."""
-    text = _fit(answer)
+def _store(cache_dir: str, table: str, key: str, answer: Dict, whole: bool = False) -> Dict:
+    """Store an answer; returns it as stored (a simplified outline, see _fit, unless whole), so
+    that the first search and the later ones from the cache see the same."""
+    text = json.dumps(answer) if whole else _fit(answer)
     if text is None:
         return answer
     db = _nominatim_db(cache_dir)
@@ -496,15 +498,19 @@ def _ask(url: str, params: Dict, timeout: int, cache_dir: str):
     return response.json()
 
 
-def search(name: str, cache_dir: str) -> Dict:
-    """The best Nominatim match for a name, with its outline ("geojson"); {} if none. Cached."""
-    answer = _cached(cache_dir, "search", name)
+def search(name: str, cache_dir: str, whole: bool = False) -> Dict:
+    """The best Nominatim match for a name, with its outline ("geojson"); {} if none. Cached.
+    whole: an outline above MAX_ANSWER_BYTES as it is, on a row of its own (a country of the highline
+    layer: two neighbours simplified apart would no longer share their border)."""
+    key = f"{WHOLE_KEY}{name}" if whole else name
+    answer = _cached(cache_dir, "search", key)
     if answer is not None:
         return answer
-    found = _ask(SEARCH_URL, {"q": name, "format": "jsonv2", "polygon_geojson": 1, "limit": 5}, 30, cache_dir)
+    found = _ask(SEARCH_URL, {"q": name, "format": "jsonv2", "polygon_geojson": 1, "limit": 5},
+                 WHOLE_TIMEOUT if whole else 30, cache_dir)
     # The first match with an area (a peak or a bus stop is a point)
     answer = next((r for r in found if r.get("geojson", {}).get("type") in ("Polygon", "MultiPolygon")), {})
-    return _store(cache_dir, "search", name, answer)
+    return _store(cache_dir, "search", key, answer, whole)
 
 
 def places(name: str, cache_dir: str) -> List[Dict]:
