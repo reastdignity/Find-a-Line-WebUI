@@ -190,6 +190,74 @@ function featureLines(colour: string, opacity = 1): LineBasicMaterial {
   return material;
 }
 
+/** The overlay's polygon offset (toward the camera, so that it wins the depth test against the surface it lies on). */
+export const OVERLAY_OFFSET = -2;
+
+/** The overlay of round 2 (`Scene3D.setOverlay`): one half-transparent picture over the whole terrain, drawn by a
+ *  second mesh on each chunk that shares the chunk's positions and index (the surface's triangles only: the draw
+ *  range stops before the skirts) and has a UV attribute of its own. The meshes are children of the chunks on the
+ *  default layer alone: the edges' pass (terrain layer only) never draws them, and they are not in `pickTargets`.
+ *  The meshes and their UVs are made at the first picture and kept (the chunks' buffers they share must not be
+ *  released with a geometry of theirs); a picture taken away frees the texture and hides them. */
+export function createOverlay(terrain: Terrain, chunks: Chunk[], invalidate: () => void) {
+  let parts: {mesh: Mesh; uv: BufferAttribute; grid: Float64Array; count: number}[] | null = null;
+  let material: MeshBasicMaterial | null = null, held: Texture | null = null;
+  const release = () => { held?.dispose(); held = null; };
+  return {
+    set(texture: Texture | null, uv?: (x: number, y: number) => [number, number]) {
+      release();
+      if (!texture || !uv) {
+        if (parts) for (const p of parts) p.mesh.visible = false;
+        if (material) material.map = null;
+        invalidate();
+        return;
+      }
+      held = texture;
+      if (!material) {
+        material = new MeshBasicMaterial({map: texture, transparent: true, depthWrite: false, side: DoubleSide,
+                                          polygonOffset: true, polygonOffsetFactor: OVERLAY_OFFSET,
+                                          polygonOffsetUnits: OVERLAY_OFFSET});
+      }
+      material.map = texture;
+      material.needsUpdate = true;
+      if (!parts) {
+        parts = terrain.chunks.map((m, k) => {
+          const source = chunks[k].mesh.geometry, geometry = new BufferGeometry();
+          const attribute = new Float32BufferAttribute(new Float32Array(2 * m.surfaceVertices), 2);
+          geometry.setAttribute("position", source.getAttribute("position"));
+          geometry.setAttribute("uv", attribute);
+          geometry.setIndex(source.getIndex());
+          geometry.setDrawRange(0, m.surfaceIndices);
+          geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
+          const mesh = new Mesh(geometry, material!);
+          mesh.name = `reach-${m.ci}-${m.cj}`;
+          mesh.raycast = () => {};  // never a pick target
+          chunks[k].mesh.add(mesh);
+          return {mesh, uv: attribute, grid: m.grid, count: m.surfaceVertices};
+        });
+      }
+      for (const p of parts) {
+        const array = p.uv.array as Float32Array;
+        for (let v = 0; v < p.count; v++) {
+          const [u, w] = uv(p.grid[2 * v], p.grid[2 * v + 1]);
+          array[2 * v] = u;
+          array[2 * v + 1] = w;
+        }
+        p.uv.needsUpdate = true;
+        p.mesh.visible = true;
+      }
+      invalidate();
+    },
+    dispose() {
+      release();
+      if (parts) for (const p of parts) { p.mesh.removeFromParent(); p.mesh.geometry.dispose(); }
+      parts = null;
+      material?.dispose();
+      material = null;
+    },
+  };
+}
+
 /** The scene of a decoded patch in `parts.stage`; throws when the browser has no WebGL 2. */
 export function createScene(patch: Patch, level: Level, parts: SceneParts, onLost: () => void): SceneCore {
   const root = parts.stage.closest(".ui") || document.documentElement;
@@ -241,6 +309,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     if (page) { if (on) page.dataset.edges = "on"; else delete page.dataset.edges; }
   };
 
+  const overlay = createOverlay(terrain, chunks, view.invalidate);
   const scene: SceneCore = {
     level, patch, meta: patch.meta, origin, chunks, view, terrain, token, stage: parts.stage,
     pickTargets: chunks.map((c) => c.mesh),
@@ -249,7 +318,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     activity: createActivity(parts.activity),
     tools: createTools(parts.tools),
     card: parts.card,
-    setOverlay() { /* round 2, wave 2: the reach's overlay (agent R) */ },
+    setOverlay(texture, uv) { if (!disposed) overlay.set(texture, uv); },
     invalidate: view.invalidate,
     onFrame: view.onFrame,
     beforeDraw: view.beforeDraw,
@@ -274,6 +343,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
       for (const fn of disposers.splice(0).reverse()) {
         try { fn(); } catch (e) { console.error(e); }
       }
+      overlay.dispose();
       for (const c of chunks) {
         c.setTexture(null);
         c.mesh.geometry.dispose();
