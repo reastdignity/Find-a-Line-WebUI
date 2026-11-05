@@ -2031,6 +2031,8 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "width": int(heights.shape[1]), "height": int(heights.shape[0]), "step": step, "res": sampled, "crs": plan.crs,
         "left": s_left, "top": s_top, "base_dm": base_dm, "anchors": anchors, "affine": [float(v) for v in affine],
         "rigging": dataclasses.asdict(plan.rigging), "model": p["model"],
+        # the formula model's constants as data.js writes them (mapping.map_heads), for the page's profile chart
+        "slope": sh.SLOPE, "leash_fall": sh.LEASH_FALL,
         # as the run's data.js (mapping.save_map), its cache seen from the run's map.html
         "ortho": mp.ortho_entry(_dated_ortho(source, created.year), ortho_cache,
                                 os.path.join(paths.runs, meta["id"], "map.html")),

@@ -16,9 +16,11 @@ import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, t
 import { colorOf, inLocalPlane } from "../others";
 import { nextPaint } from "../paint";
 import { timed } from "../perf";
-import { percentileRank, toLine, type Line, type Profile, type RunData, type RunInfo, type RunLines,
-         type Terrain } from "../types";
+import { toLine, type Line, type Profile, type RunData, type RunInfo, type RunLines } from "../types";
 import type { OnProgress } from "./load";
+import { measuredLine } from "./measured";
+
+export { measuredLine };
 
 export type { Filters, Group, LinesState, ListState, FilterRanges };
 export { NO_FILTERS };
@@ -103,17 +105,12 @@ function lineRanges(all: Line[], highAbove: number, largestGroup: number, favour
           water: all.some((l) => l.water > 0), filled: all.some((l) => l.filled > 0), favourites};
 }
 
-/** A line measured between two points from its profile; its ends' percentiles from the run's terrain when known. */
-export function measuredLine(a: [number, number], b: [number, number], p: Profile, terrain?: Terrain | null): Line {
-  const n = p.d.length - 1;
-  if (p.z[0] === null || p.z[n] === null) throw new Error("no terrain data at a point");
-  return {lat1: a[0], lon1: a[1], lat2: b[0], lon2: b[1], x1: 0, y1: 0, x2: 0, y2: 0,
-          len: p.d[n], clr: p.min[1], clrN: p.min_nmpt ? p.min_nmpt[1] : null,
-          e1: p.z[0]!, e2: p.z[n]!, over: false, water: p.water_m, filled: p.filled_m,
-          hmax: p.max_height ? p.max_height[1] : NaN, hmean: NaN, highPct: NaN,
-          angle1: NaN, angle2: NaN, prom1: null, prom2: null, drop1: null, drop2: null,
-          pct1: terrain ? percentileRank(p.z[0]!, terrain.quantiles) : null,
-          pct2: terrain ? percentileRank(p.z[n]!, terrain.quantiles) : null, prof: p};
+/** The two points ([lat, lon]) of a link's line "lat1,lon1,lat2,lon2"; null when it is not four finite numbers. */
+function linkPoints(key: string): [[number, number], [number, number]] | null {
+  const parts = key.split(",");
+  if (parts.length !== 4 || parts.some((v) => v.trim() === "")) return null;
+  const [lat1, lon1, lat2, lon2] = parts.map(Number);
+  return [lat1, lon1, lat2, lon2].every(isFinite) ? [[lat1, lon1], [lat2, lon2]] : null;
 }
 
 export class ResultModel {
@@ -139,6 +136,8 @@ export class ResultModel {
   note: Note | null = null;
   /** The selected group and the line shown for it; null: none. */
   selected: {group: Group<Line>; line: Line} | null = null;
+  /** The key of a link's line outside this run being measured or shown as measured (`openLinked`), else null. */
+  measuredLink: string | null = null;
   /** The profile of the selected line was closed (ProfileDock); selecting again, or another line, shows it. */
   profileClosed = false;
 
@@ -537,18 +536,43 @@ export class ResultModel {
 
   // --- links ---
 
+  /** A link's line that `openLinked` would measure: four numbers, this page can ask profiles, and the line is not
+   *  among the run's. */
+  measurableLink(link: string): boolean {
+    return this.canCompute && linkPoints(link) !== null && !this.lines.some((l) => lineCoords(l) === link);
+  }
+
   /** Show and select the line of a link ("#line=lat1,lon1,lat2,lon2" or the value alone) in its group;
    * returns it, or null with a note (not in this run; hidden by the filters, with an action that
-   * clears them and tries again). */
-  openLinked(hash: string): Line | null {
+   * clears them and tries again). A line that is not among this run's (the 3D view's moved anchors, a favourite
+   * saved there) is measured where the page may ask profiles, as `measure` does for two points: with
+   * `onMeasured`, which gets the measured line (the shell shows it), the link's key in `measuredLink` meanwhile,
+   * and a note when the measurement fails; without it, or where profiles cannot be asked, today's note. */
+  openLinked(hash: string, onMeasured?: (line: Line) => void): Line | null {
     const value = hash.startsWith("#line=") ? hash.slice("#line=".length) : hash.replace(/^#/, "");
     const wanted = decodeURIComponent(value);
     const line = this.lines.find((l) => lineCoords(l) === wanted);
     if (!line) {
+      const points = onMeasured && this.canCompute ? linkPoints(wanted) : null;
+      if (points) {
+        this.note = null;
+        this.measuredLink = wanted;
+        this.notify();
+        this.measure(points[0], points[1]).then((measured) => {
+          if (this.measuredLink === wanted) onMeasured!(measured);
+        }, (e) => {
+          if (this.measuredLink !== wanted) return;
+          this.measuredLink = null;
+          this.note = {text: "The line of the link could not be measured: " + (e as Error).message};
+          this.notify();
+        });
+        return null;
+      }
       this.note = {text: "The line of the link is not in this run."};
       this.notify();
       return null;
     }
+    this.measuredLink = null;
     this.note = null;
     this.chosen.add(line);
     this.refreshRows();

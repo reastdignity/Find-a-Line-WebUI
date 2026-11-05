@@ -34,7 +34,17 @@ export function patchUrl(p: PageRequest): string {
          `&step=${p.level === "phone" ? 2 : 1}`;
 }
 
-/** The app's page of the run with the line selected (app/c/route.ts runHash). */
-export function backUrl(p: PageRequest): string {
-  return `/#run=${encodeURIComponent(p.run)}` + (p.line ? `&line=${encodeURIComponent(p.line)}` : "");
+/** The app's page of the run with the line selected (app/c/route.ts runHash); `line`: the line now shown (a moved
+ *  line's key) instead of the page's own. */
+export function backUrl(p: PageRequest, line: string | null = p.line): string {
+  return `/#run=${encodeURIComponent(p.run)}` + (line ? `&line=${encodeURIComponent(line)}` : "");
+}
+
+/** The 3D view's address for the line now shown (the "Copy link" button): this page's path and the hash of the
+ *  request, the level kept only when the address asked for one (`search`), so a link opened on a phone chooses its
+ *  own. Relative to the origin. */
+export function viewUrl(p: PageRequest, line: string | null, search: string): string {
+  const asked = new URLSearchParams(search).get("level");
+  const level = asked === "phone" || asked === "full" ? `?level=${asked}` : "";
+  return `/view3d${level}#run=${encodeURIComponent(p.run)}` + (line ? `&line=${encodeURIComponent(line)}` : "");
 }
