@@ -43,18 +43,29 @@ const LABELS: Record<ImageryKind, string> = {
   edges: "ui.view3d.imagery_edges",
 };
 
+/** A service's images failing this many times in a row mean it refuses us (a block, an outage): its other images
+ *  are not asked for, since asking on would only hammer it. */
+export const REFUSED_AFTER = 8;
+
 /** Loads images a few at a time; `stop` drops what waits and cancels what loads. */
 class Loader {
   private waiting: (() => void)[] = [];
   private active = new Set<HTMLImageElement>();
   private running = 0;
+  private failures = 0;
   stopped = false;
+  /** The service failed REFUSED_AFTER times in a row: its images still waiting and any asked later come back
+   *  null without a request (our own cache's are still loaded). */
+  refused = false;
 
-  /** An image with CORS (`crossOrigin` before `src`, so the canvas stays clean), null when it fails. */
-  load(url: string): Promise<HTMLImageElement | null> {
+  /** An image with CORS (`crossOrigin` before `src`, so the canvas stays clean), null when it fails; `service`:
+   *  one of a service, not asked for once the service refuses; `first`: it waits ahead of the others (a second
+   *  try: a tile is settled before more tiles are begun, so a refusing service is known after a few tiles). */
+  load(url: string, service = false, first = false): Promise<HTMLImageElement | null> {
     return new Promise((resolve) => {
       const run = () => {
-        if (this.stopped) { resolve(null); return; }
+        if (this.stopped || (service && this.refused)) { resolve(null); return; }
+        if (this.running >= PARALLEL) { if (first) this.waiting.unshift(run); else this.waiting.push(run); return; }
         this.running++;
         const img = new Image();
         this.active.add(img);
@@ -71,14 +82,24 @@ class Loader {
         img.decoding = "async";
         img.src = url;
       };
-      if (this.running < PARALLEL) run(); else this.waiting.push(run);
+      run();
     });
   }
 
   /** A service's image: asked once more past the browser's cache when it fails (a CORS failure of a response
-   *  the 2D map cached without `Vary: Origin` looks like any error). */
+   *  the 2D map cached without `Vary: Origin` looks like any error). REFUSED_AFTER of them failing in a row (a
+   *  success between starts the count again) stop the service's requests of this loader. */
   async service(url: string): Promise<HTMLImageElement | null> {
-    return await this.load(url) ?? (this.stopped ? null : await this.load(cacheBusted(url)));
+    if (this.refused) return null;
+    const img = await this.load(url, true) ?? (this.stopped ? null : await this.load(cacheBusted(url), true, true));
+    if (this.stopped || this.refused) return img;
+    if (img) this.failures = 0;
+    else if (++this.failures >= REFUSED_AFTER) {
+      this.refused = true;
+      // what waits: the service's come back null at once, our cache's start or wait again
+      for (const run of this.waiting.splice(0)) run();
+    }
+    return img;
   }
 
   stop() {
@@ -119,20 +140,22 @@ function whiteOf(probe: HTMLCanvasElement, img: HTMLImageElement): [boolean, boo
  *  alone where it has imagery throughout; the base where it is all white; the base with the transparent PNG over
  *  it where a white block shows the coverage's edge, or where the JPEG fails or its pixels cannot be read. */
 async function drawComposed(ctx: CanvasRenderingContext2D, c: Composed, loader: Loader, probe: HTMLCanvasElement,
-                            dx: number, dy: number) {
+                            dx: number, dy: number): Promise<boolean> {
   const jpeg = await loader.service(c.jpeg.url);
   const white = jpeg ? whiteOf(probe, jpeg) : null;
-  if (jpeg && white && !white[0] && !white[1]) { drawImage(ctx, jpeg, c.jpeg, dx, dy); return; }
+  if (jpeg && white && !white[0] && !white[1]) { drawImage(ctx, jpeg, c.jpeg, dx, dy); return true; }
   const parts = white && white[0] ? [c.base] : [c.base, c.png];
   const images = await Promise.all(parts.map((part) => loader.service(part.url)));
   images.forEach((img, k) => { if (img) drawImage(ctx, img, parts[k], dx, dy); });  // bottom first
+  return images.some((img) => img !== null);
 }
 
 /** One chunk's canvas: the shaded terrain's colour under the tiles (a tile that fails leaves it), each tile from
- *  our cache when worth trying, else from the service (composed, or its layers). Null when stopped. */
+ *  our cache when worth trying, else from the service (composed, or its layers); `failed`: the tiles nothing was
+ *  drawn of. Null when stopped. */
 async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fill: string,
                        hatch?: (ctx: CanvasRenderingContext2D) => void,
-                       onTile?: () => void): Promise<HTMLCanvasElement | null> {
+                       onTile?: () => void): Promise<{canvas: HTMLCanvasElement; failed: number} | null> {
   const canvas = document.createElement("canvas");
   canvas.width = plan.width;
   canvas.height = plan.height;
@@ -142,18 +165,20 @@ async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fil
   ctx.fillRect(0, 0, plan.width, plan.height);
   const probe = document.createElement("canvas");  // a WMS's JPEG drawn alone, for its white test
   probe.width = probe.height = TILE_PX;
-  const draw = async (d: TileDraw) => {
+  const draw = async (d: TileDraw): Promise<boolean> => {
     const dx = d.x * TILE_PX - plan.px0, dy = d.y * TILE_PX - plan.py0;
     const cached = d.cache ? await loader.load(d.cache) : null;  // ours: same origin, no CORS retry
-    if (cached) { ctx.drawImage(cached, dx, dy, TILE_PX, TILE_PX); return; }
-    if (d.composed) { await drawComposed(ctx, d.composed, loader, probe, dx, dy); return; }
+    if (cached) { ctx.drawImage(cached, dx, dy, TILE_PX, TILE_PX); return true; }
+    if (d.composed) return drawComposed(ctx, d.composed, loader, probe, dx, dy);
     const images = await Promise.all(d.layers.map((part) => loader.service(part.url)));
     images.forEach((img, k) => { if (img) drawImage(ctx, img, d.layers[k], dx, dy); });  // bottom first
+    return images.some((img) => img !== null);
   };
-  await Promise.all(draws.map(async (d) => { await draw(d); onTile?.(); }));
+  let failed = 0;
+  await Promise.all(draws.map(async (d) => { if (!await draw(d)) failed++; onTile?.(); }));
   if (loader.stopped) return null;
   hatch?.(ctx);  // the uncertain shore over the imagery
-  return canvas;
+  return {canvas, failed};
 }
 
 /** The activity entry of the tiles being loaded (round 2: the pill of the stage's top, chrome.ts). */
@@ -236,6 +261,30 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     note.textContent = t("ui.view3d.shore_hatched");
     box.append(note);
   }
+  // Tiles that could not be loaded: how many, or that the service refuses us, with a way to ask again (hidden
+  // while all is well; the root's data-imagery-failed is their number)
+  let failure: {note: HTMLElement; text: HTMLElement} | null = null;  // made at the first failure
+  const failed = (count: number, total: number, refused: boolean) => {
+    if (!failure && count) {
+      const note = document.createElement("span"), text = document.createElement("span");
+      note.className = "u-small v3-imagery-note v3-imagery-failed";
+      note.setAttribute("role", "status");
+      const retry = document.createElement("button");
+      retry.type = "button";
+      retry.className = "u-btn v3-imagery-retry";
+      retry.textContent = t("ui.view3d.imagery_retry");
+      retry.onclick = () => { void imagery.set(imagery.current); };
+      note.append(text, retry);
+      box.append(note);
+      failure = {note, text};
+    }
+    if (failure) {
+      failure.note.hidden = count === 0;
+      failure.text.textContent = count === 0 ? "" : refused ? t("ui.view3d.imagery_refused")
+        : t("ui.view3d.imagery_failed", {failed: count, total});
+    }
+    if (root) { if (count) root.dataset.imageryFailed = String(count); else delete root.dataset.imageryFailed; }
+  };
   scene.toolbar.append(box);
 
   const mark = (kind: ImageryKind) => {
@@ -256,6 +305,27 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   // The 2D map's terrain colour (tokens.css, under the page's .ui root) where a tile is missing
   const fillColour = () => getComputedStyle(scene.toolbar).getPropertyValue("--terrain").trim() || "#bba680";
 
+  // A chunk shaded: with uncertain shore (`hatched`) the terrain's colour with the hatching as a texture that
+  // multiplies the shading (lit); else no texture
+  const shade = (chunk: Chunk, k: number, hatched: boolean, fill: string) => {
+    const hatch = hatched ? hatchOf(k) : undefined, plan = plans[k];
+    if (!hatch || !plan) { retexture(chunk, null); return; }
+    const canvas = document.createElement("canvas");
+    canvas.width = plan.width;
+    canvas.height = plan.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) { retexture(chunk, null); return; }
+    ctx.fillStyle = fill;
+    ctx.fillRect(0, 0, plan.width, plan.height);
+    hatch(ctx);
+    const texture = new CanvasTexture(canvas);
+    texture.colorSpace = SRGBColorSpace;
+    texture.minFilter = LinearMipmapLinearFilter;
+    texture.generateMipmaps = true;
+    texture.flipY = true;
+    retexture(chunk, texture, uvOf(meta.affine, plan), true);
+  };
+
   const imagery: Imagery = {
     available,
     current: available[0],
@@ -268,30 +338,13 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       if (root) root.dataset.imagery = kind;
       const credit = kind === "edges" ? null : imageryCredits(kind, ortho);
       if (credit) scene.credits.set(IMAGERY_CREDITS, credit, IMAGERY_ORDER); else scene.credits.remove(IMAGERY_CREDITS);
+      failed(0, 0, false);
       if (kind === "shaded" || kind === "edges") {
         loader = null;
         scene.activity.clear(ACTIVITY);
         const fill = fillColour();
-        scene.chunks.forEach((chunk, k) => {
-          // Shaded: the chunks with uncertain shore get the terrain's colour with the hatching as a texture
-          // that multiplies the shading (lit); the others, and the Edges look, stay without one
-          const hatch = kind === "shaded" ? hatchOf(k) : undefined, plan = plans[k];
-          if (!hatch || !plan) { retexture(chunk, null); return; }
-          const canvas = document.createElement("canvas");
-          canvas.width = plan.width;
-          canvas.height = plan.height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) { retexture(chunk, null); return; }
-          ctx.fillStyle = fill;
-          ctx.fillRect(0, 0, plan.width, plan.height);
-          hatch(ctx);
-          const texture = new CanvasTexture(canvas);
-          texture.colorSpace = SRGBColorSpace;
-          texture.minFilter = LinearMipmapLinearFilter;
-          texture.generateMipmaps = true;
-          texture.flipY = true;
-          retexture(chunk, texture, uvOf(meta.affine, plan), true);
-        });
+        // Shaded: the chunks with uncertain shore hatched; the others, and the Edges look, without a texture
+        scene.chunks.forEach((chunk, k) => shade(chunk, k, kind === "shaded", fill));
         if (available.includes("edges")) scene.setEdges(kind === "edges");
         if (changed) for (const fn of [...listeners]) fn(kind);
         scene.invalidate();
@@ -321,11 +374,16 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
         if (loaded === tiles || performance.now() - counted >= COUNT_MS) count();
       };
       count();
+      let missing = 0;
       // Chunk by chunk, the line's first; each keeps its last texture until its new one is ready
       await Promise.all(work.map(async ({k, plan, chunk, draws}) => {
         if (!plan) { retexture(chunk, null); return; }
-        const canvas = await compose(plan, draws, mine, fill, hatchOf(k), onTile);
-        if (!canvas || mine.stopped) return;
+        const composed = await compose(plan, draws, mine, fill, hatchOf(k), onTile);
+        if (!composed || mine.stopped) return;
+        missing += composed.failed;
+        // none of its tiles came: shaded as the Shaded look draws it, not a flat picture of the terrain's colour
+        if (draws.length && composed.failed === draws.length) { shade(chunk, k, true, fill); scene.invalidate(); return; }
+        const canvas = composed.canvas;
         const texture = new CanvasTexture(canvas);
         texture.colorSpace = SRGBColorSpace;
         texture.minFilter = LinearMipmapLinearFilter;
@@ -337,7 +395,8 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       if (loader === mine) {
         scene.activity.clear(ACTIVITY);
         loader = null;
-        measure("fal:3d:imagery", start, {kind, tiles});
+        failed(missing, tiles, mine.refused);
+        measure("fal:3d:imagery", start, {kind, tiles, failed: missing});
       }
     },
     onChange(fn) {

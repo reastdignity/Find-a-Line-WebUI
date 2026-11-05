@@ -1175,6 +1175,75 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     assert "u-small v3-imagery-status" not in found["toolbar"]
 
 
+def test_view3d_imagery_says_what_failed(tmp_path):
+    """view3d/imagery.ts: tiles that could not be loaded are named in a note with "Try again" (their number, or
+    that the service does not answer); a service failing REFUSED_AFTER times in a row is not asked for its other
+    tiles; a chunk none of whose tiles came is shaded, not a flat picture; the note goes when a loading succeeds
+    and when Shaded is chosen."""
+    from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM
+    ax, ay = CX - 100, CY + 50
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}], "ortho": None,
+            "attribution": None}
+    bounds = [{"x0": ax - 300, "y0": ay - 300, "x1": ax + 300, "y1": ay + 300},
+              {"x0": CX + 300, "y0": CY + 300, "x1": CX + 760, "y1": CY + 760}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+// Esri's tiles (one image a tile): all refused, one tile failing, or all answered
+let mode = "refuse", bad = null;
+const base = (v) => v.replace(/[?&]_fal3d=[^&]*/, "");
+global.Image = class {{
+  set src(v) {{
+    this._src = v; if (!v) return;
+    loads.push(v);
+    if (mode === "one" && bad === null) bad = base(v);
+    const fails = mode === "refuse" || (mode === "one" && base(v) === bad);
+    setTimeout(() => (fails ? this.onerror : this.onload)?.(), 1);
+  }}
+  get src() {{ return this._src; }}
+}};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const note = () => toolbar.children[0].children.find((c) => c.className.includes("v3-imagery-failed"));
+const state = () => ({{hidden: note().hidden, text: note().children[0].textContent, button: note().children[1].textContent,
+  loads: loads.splice(0).length, total: Number((activity.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
+  last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1]), activity: activity.splice(0).length}});
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: "key"}});
+  await im.set("esri");
+  const out = {{refusedAfter: m.REFUSED_AFTER, refused: state()}};
+  mode = "one";
+  await im.set("esri");
+  out.one = state();
+  mode = "refuse";
+  await im.set("esri");
+  state();
+  mode = "ok";
+  note().children[1].onclick();  // Try again
+  await wait(300);
+  out.again = state();
+  mode = "one"; bad = null;
+  await im.set("esri");
+  await im.set("shaded");
+  out.shaded = state();
+  console.log(JSON.stringify(out));
+}})();""")
+    refused, total = found["refused"], found["refused"]["total"]
+    assert total > 2 * found["refusedAfter"], found  # enough tiles for the refusal to save requests
+    assert refused["hidden"] is False and refused["button"] == "Try again"
+    assert refused["text"] == "The imagery service does not answer: the terrain is shaded where its tiles are missing."
+    # the failures in a row and what was in flight beside them (six at a time), each asked twice, and the six of
+    # the loading the page began by itself: fewer requests than one a tile
+    assert refused["loads"] <= 2 * (found["refusedAfter"] + 2 * 6) + 6 < total, found
+    assert refused["last"] == [None, None]  # shaded chunks, no flat picture of the terrain's colour
+    one = found["one"]
+    assert one["hidden"] is False and one["text"] == f"1 of {total} imagery tiles could not be loaded."
+    assert one["loads"] == total + 1 and any(t for t in one["last"])  # the one tile asked twice; its chunk keeps its picture
+    again = found["again"]
+    assert again["hidden"] is True and again["text"] == "" and again["loads"] == total and all(again["last"])
+    assert found["shaded"]["hidden"] is True  # Shaded shows no failed tiles of the kind before
+
+
 def test_view3d_verdict(tmp_path):
     """view3d/webbing.ts: a line's verdict from its profile (fits; over the terrain only when the surface model's
     clearance is ≤ 0; does not fit when the terrain's is below 0, whatever the surface's), its colour token and
