@@ -6,6 +6,7 @@ conftest.py empties HOST_RATES_OF for every other test module; here each test se
 and moves the bucket into tmp_path (net.RATES_DB)."""
 
 import contextlib
+import inspect
 import os
 import re
 import subprocess
@@ -24,7 +25,8 @@ from sources import net, probe  # noqa: E402
 HOST = "rate.example"
 PER_MINUTE = 600  # one turn every 100 ms
 GAP = 60 / PER_MINUTE
-SLACK = 0.02  # the clocks of SQLite (ms) and of the test, the way from the permit to the stamp
+GAP_MS = 1000 * GAP
+SLACK = 0.02  # the bucket's clock (whole ms of time_ns) against the test's monotonic one
 
 
 @pytest.fixture
@@ -40,37 +42,70 @@ def _gaps(stamps):
     return [b - a for a, b in zip(stamps, stamps[1:])]
 
 
-def test_turns_spread_over_threads(rates):
+# The turns are measured as the bucket grants them: the time (ms) each granted permit carries, which
+# the bucket compares under its file lock. A clock read by the caller after rate_turn returned measured
+# the way from the permit to the read too: a thread or process descheduled there for 50 ms (a busy
+# machine) put two reads 52 ms apart, with turns 100 ms apart. The permit carries the time it was asked
+# at only because rate_turn polls with timeout 0: pyrate-limiter's own wait stamps the time it planned
+# to wake at (the comment in net.rate_turn), so the tests also check that nothing waits inside it.
+def permit_recorders(permits, waits):
+    """SQLiteBucket.put and Limiter.try_acquire that note each granted permit's time (ms) in permits
+    and each try_acquire's timeout in waits (also run by the child processes below)."""
+    from pyrate_limiter import Limiter, SQLiteBucket
+    put, acquire = SQLiteBucket.put, Limiter.try_acquire
+
+    def recorded(self, item):
+        granted = put(self, item)
+        if granted:
+            permits.append(item.timestamp)
+        return granted
+
+    def asked(self, *args, **kwargs):
+        waits.add(kwargs.get("timeout", args[3] if len(args) > 3 else -1))  # name, weight, blocking, timeout
+        return acquire(self, *args, **kwargs)
+    return recorded, asked
+
+
+def _record_permits(monkeypatch):
+    from pyrate_limiter import Limiter, SQLiteBucket
+    permits, waits = [], set()
+    recorded, asked = permit_recorders(permits, waits)
+    monkeypatch.setattr(SQLiteBucket, "put", recorded)
+    monkeypatch.setattr(Limiter, "try_acquire", asked)
+    return permits, waits
+
+
+def test_turns_spread_over_threads(rates, monkeypatch):
     """Four threads, five requests each: one turn every 60/n s, never two closer."""
-    stamps, lock = [], threading.Lock()
+    permits, waits = _record_permits(monkeypatch)
 
     def ask():
         for _ in range(5):
             net.rate_turn(f"https://{HOST}/file.tif")
-            with lock:
-                stamps.append(time.monotonic())
     threads = [threading.Thread(target=ask) for _ in range(4)]
     for t in threads:
         t.start()
     for t in threads:
         t.join()
-    assert len(stamps) == 20
-    assert min(_gaps(stamps)) >= GAP - SLACK
-    assert max(stamps) - min(stamps) >= 19 * GAP - SLACK
+    assert len(permits) == 20 and waits == {0}
+    assert min(_gaps(permits)) >= GAP_MS
+    assert max(permits) - min(permits) >= 19 * GAP_MS
 
 
-_CHILD = r'''
-import sys, time
+_CHILD = inspect.getsource(permit_recorders) + r'''
+import sys
+from pyrate_limiter import Limiter, SQLiteBucket
 sys.path.insert(0, sys.argv[1])
 from sources import net
 net.RATES_DB = sys.argv[2]
 net.HOST_RATES_OF = {sys.argv[3]: int(sys.argv[4])}
-stamps = []
+permits, waits = [], set()
+SQLiteBucket.put, Limiter.try_acquire = permit_recorders(permits, waits)
 for _ in range(6):
     net.rate_turn(f"https://{sys.argv[3]}/x")
-    stamps.append(time.time())
+assert len(permits) == 6 and waits == {0}, (permits, waits)
 with open(sys.argv[5], "w") as f:
-    f.write("\n".join(repr(s) for s in stamps))
+    f.write("\n".join(repr(s) for s in permits))
 '''
 
 
@@ -82,9 +117,9 @@ def test_turns_spread_over_processes(rates):
     children = [subprocess.Popen([sys.executable, str(script), REPO, net.RATES_DB, HOST, str(PER_MINUTE), str(out)])
                 for out in outs]
     assert [c.wait(timeout=120) for c in children] == [0, 0]
-    stamps = [float(line) for out in outs for line in out.read_text().split()]
+    stamps = [int(line) for out in outs for line in out.read_text().split()]
     assert len(stamps) == 12
-    assert min(_gaps(stamps)) >= GAP - SLACK
+    assert min(_gaps(stamps)) >= GAP_MS
 
 
 def test_other_hosts_and_paths_pay_nothing(rates):
