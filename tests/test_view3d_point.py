@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_view3d_reach import (  # noqa: E402,F401
     LANE_PREAMBLE, STUB, encode, reach_literal, run_entry, small_mask)
 from test_viewer import VIEWER, pytestmark, run_ts  # noqa: E402,F401 (the skip without Node)
+from test_view3d import EDGE_SECONDS, VIRTUAL_BUDGET, _with_until  # noqa: E402 (the shared frame-counted waits)
 
 ENTRY = "export * from './options'; export * from './reach'; export * from './optionlist'; export * from './fan'; " \
         "export {groupLines} from '../grouping';"
@@ -259,7 +260,7 @@ def _point_page(data, name: str, script: str) -> str:
     return f"runs/{name}/index.html"
 
 
-HELPERS = """
+HELPERS = _with_until("""
 (function () {
   const R = window.REACH, root = () => document.getElementById("view3d");
   const H = window.H = {out: {errors: [], trace: []}};
@@ -269,6 +270,8 @@ HELPERS = """
   addEventListener("unhandledrejection", (e) => H.out.errors.push("rejected: " + String(e.reason).slice(0, 300)));
   // synthetic pointers have no capture to take: the orbit controls would stop at setPointerCapture
   for (const name of ["setPointerCapture", "releasePointerCapture"]) Element.prototype[name] = function () {};
+  // the waits count the browser's frames (test_view3d.UNTIL_JS), its own requestAnimationFrame taken here
+  /* until */
   H.t0 = Date.now();
   H.raf = 0;
   const raf = window.requestAnimationFrame.bind(window);
@@ -282,18 +285,6 @@ HELPERS = """
     pre.textContent = JSON.stringify(H.out);
     document.body.appendChild(pre);
   };
-  // under a virtual time budget headless Edge draws animation frames only while something loads: each poll loads a
-  // small file, so a frame the page asked for comes
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
   H.waitFor = (test, ms) => new Promise((resolve) => until(test, ms, resolve));
   H.sleep = (ms) => new Promise((resolve) => until(() => false, ms, resolve));
   // at least one frame drawn after this call (true), or none within ms (false)
@@ -302,15 +293,10 @@ HELPERS = """
     return H.waitFor(() => r.dataset.frames !== frames, ms);
   };
   // the frame a change asked for comes late here (the last state of the canvas is one change behind): wait for the
-  // next frame, then for a second without one
+  // next frame, then for ten polls (each over one of the browser's frames) without one
   H.settle = async (ms) => {
     await H.next(6000);
-    const r = root();
-    let frames = r.dataset.frames, since = Date.now();
-    return H.waitFor(() => {
-      if (r.dataset.frames !== frames) { frames = r.dataset.frames; since = Date.now(); }
-      return Date.now() - since >= 1000;
-    }, ms);
+    return new Promise((resolve) => settledOn(() => root().dataset.frames, ms, resolve));  // ten polls, none drawn
   };
   H.pointer = (type, target, x, y, id = 7) => target.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
     pointerId: id, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true}));
@@ -359,7 +345,7 @@ HELPERS = """
   H.reachState = () => ({data: root().dataset.reach, point: root().dataset.point, fan: root().dataset.fan,
                          triangles: Number(root().dataset.triangles)});
 })();
-"""
+""")
 
 POINT_SCRIPT = """
 (async function () {
@@ -521,7 +507,7 @@ POINT_SCRIPT = """
 """
 
 
-def _run_edge(data, tmp_path, meta, page, level, window="1280,800", budget=300000):
+def _run_edge(data, tmp_path, meta, page, level, window="1280,800", budget=VIRTUAL_BUDGET):
     row = _lines_of(data, meta["id"])[0]
     line = ",".join(f"{v:.7f}" for v in row[:4])
     with _server(data, start_scheduler=True) as port:
@@ -529,7 +515,7 @@ def _run_edge(data, tmp_path, meta, page, level, window="1280,800", budget=30000
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              f"--window-size={window}", f"--virtual-time-budget={budget}", "--force-prefers-no-reduced-motion", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=600).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">"))

@@ -21,6 +21,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_viewer import VIEWER, pytestmark, run_ts  # noqa: E402,F401 (the skip without Node)
+from test_view3d import EDGE_SECONDS, UNTIL_JS, VIRTUAL_BUDGET  # noqa: E402 (the frame-counted waits)
 from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _server, _violations, web  # noqa: E402
 
 QUANTUM, MIN_HEIGHT = 0.5, 1.0
@@ -366,17 +367,9 @@ new MutationObserver(() => {
   if (!activity.classList.contains("v3-hidden") && text && pill[pill.length - 1] !== text) pill.push(text);
 }).observe(activity, {subtree: true, childList: true, characterData: true, attributes: true});
 
-// Under a virtual time budget headless Edge draws frames only while something loads: each poll loads a small file
-let n = 0;
-const until = (test: () => boolean, ms: number) => new Promise<boolean>((resolve) => {
-  const started = Date.now();
-  const poll = () => {
-    if (test()) resolve(true);
-    else if (Date.now() - started > ms) resolve(false);
-    else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 50), () => setTimeout(poll, 50));
-  };
-  poll();
-});
+// The waits count the browser's frames: test_view3d.UNTIL_JS in place of the next line, waitFor its until as a promise
+/* until */
+const waitFor = (test: () => boolean, ms: number) => new Promise<boolean>((resolve) => until(test, ms, resolve));
 const trees = () => document.querySelector<HTMLButtonElement>('[data-tool="trees"]');
 const state = () => ({trees: root.dataset.trees || null, frames: Number(root.dataset.frames), triangles: Number(root.dataset.triangles),
                       pressed: trees()?.getAttribute("aria-pressed") ?? null});
@@ -387,8 +380,8 @@ const finish = () => {
   document.body.appendChild(pre);
 };
 (async () => {
-  await until(() => frames > 0, 20000);
-  await until(() => false, 800);
+  await waitFor(() => frames > 0, 20000);
+  await waitFor(() => false, 800);
   out.drawn = frames > 0;
   const canopy = createCanopy(scene as any, {page: {run: "r", line: "1,2,3,4", level}, url: params.get("url") || "canopy.bin"});
   out.created = canopy !== null;
@@ -402,7 +395,7 @@ const finish = () => {
   click();
   out.waitingState = state();
   out.pillOn = !activity.classList.contains("v3-hidden");
-  out.arrived = await until(() => root.dataset.trees === "on" || root.dataset.trees === "failed", 20000);
+  out.arrived = await waitFor(() => root.dataset.trees === "on" || root.dataset.trees === "failed", 20000);
   out.fresh = state();
   if (root.dataset.trees === "failed") {
     const note = document.querySelector(".v3-toolbar + .v3-note");
@@ -413,8 +406,8 @@ const finish = () => {
     finish();
     return;
   }
-  await until(() => state().frames > out.off.frames, 15000);
-  await until(() => false, 800);
+  await waitFor(() => state().frames > out.off.frames, 15000);
+  await waitFor(() => false, 800);
   out.on = state();
   out.meshTriangles = Number(root.dataset.treesTriangles);
   out.meshVertices = Number(root.dataset.treesVertices);
@@ -428,15 +421,15 @@ const finish = () => {
   out.pillAfter = activity.classList.contains("v3-hidden");
   out.pillTexts = pill;
   click();
-  await until(() => root.dataset.trees === "off", 5000);
-  await until(() => state().frames > out.on.frames, 15000);
-  await until(() => false, 800);
+  await waitFor(() => root.dataset.trees === "off", 5000);
+  await waitFor(() => state().frames > out.on.frames, 15000);
+  await waitFor(() => false, 800);
   out.hidden = state();
   out.groupVisible = group.visible;
   click();
-  await until(() => root.dataset.trees === "on", 5000);
-  await until(() => state().frames > out.hidden.frames, 15000);
-  await until(() => false, 800);
+  await waitFor(() => root.dataset.trees === "on", 5000);
+  await waitFor(() => state().frames > out.hidden.frames, 15000);
+  await waitFor(() => false, 800);
   out.again = state();
   out.requests = asked.filter((u) => u.includes(".bin"));
   out.header = headers.filter((h) => h.startsWith("X-Findaline"));
@@ -464,7 +457,8 @@ def _canopy_page(data, tmp_path) -> str:
     (folder / "stubs.js").write_text(CSP_STUB, encoding="utf-8")
     (folder / "canopy.bin").write_bytes(canopy_answer())
     entry = tmp_path / "entry.ts"
-    entry.write_text(ENTRY.replace("SRC", (VIEWER + "/src/view3d").replace("\\", "/")), encoding="utf-8")
+    entry.write_text(ENTRY.replace("SRC", (VIEWER + "/src/view3d").replace("\\", "/"))
+                     .replace("/* until */\n", UNTIL_JS.lstrip("\n")), encoding="utf-8")
     subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: [%s], bundle: true, format: 'iife', "
                                   "platform: 'browser', outfile: %s})" % (json.dumps(str(entry)),
                                                                           json.dumps(str(folder / "bundle.js")))],
@@ -486,9 +480,9 @@ def _in_edge(tmp_path, query: str, hash_: str) -> tuple:
     with _server(data) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=60000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}{query}#{hash_}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=240).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
