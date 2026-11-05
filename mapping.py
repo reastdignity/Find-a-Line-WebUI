@@ -272,14 +272,19 @@ def ortho_entry(ortho_service, ortho_cache: Optional[str], html_path: str) -> Op
 
 
 def install_viewer(runs_dir: str):
-    """Copy the viewer bundle (viewer/dist, built from viewer/src) into runs/_viewer when it changed."""
+    """Copy the viewer bundle (viewer/dist, built from viewer/src) into runs/_viewer when it changed;
+    one process at a time (cache.runs_lock: compute slots saving their runs at once)."""
     target = os.path.join(runs_dir, VIEWER_FOLDER)
     os.makedirs(target, exist_ok=True)
-    for name in os.listdir(VIEWER_DIST):
-        source, copy = os.path.join(VIEWER_DIST, name), os.path.join(target, name)
-        with open(source, "rb") as f:
-            content = f.read()
-        if not os.path.exists(copy) or open(copy, "rb").read() != content:
+    with cache.runs_lock(runs_dir):
+        for name in os.listdir(VIEWER_DIST):
+            source, copy = os.path.join(VIEWER_DIST, name), os.path.join(target, name)
+            with open(source, "rb") as f:
+                content = f.read()
+            if os.path.exists(copy):
+                with open(copy, "rb") as f:
+                    if f.read() == content:
+                        continue
             with cache.replacing(copy) as f:
                 f.write(content)
 
