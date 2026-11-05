@@ -2076,6 +2076,35 @@ def test_replacing(tmp_path):
     assert path.read_text(encoding="utf-8") == "first" and os.listdir(tmp_path) == ["runs.js"]
 
 
+def test_shared_run_files_one_process_at_a_time(tmp_path):
+    """The viewer and the index of the runs folder are written by one process at a time
+    (cache.runs_lock): a run saved while another process holds the lock waits for it, then writes
+    them. Two compute slots installing the viewer at once failed on Windows (PermissionError of
+    os.replace while the other process had the file open), seen in test_two_jobs_computing_at_once."""
+    import subprocess
+    import time
+    runs_dir = tmp_path / "runs"
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    code = ("import sys; sys.path.insert(0, sys.argv[1]); import mapping, runs\n"
+            "open(sys.argv[3], 'w').close()\n"
+            "runs.write_index(sys.argv[2])\n")
+    started = tmp_path / "started"
+    with cache.runs_lock(str(runs_dir)):
+        child = subprocess.Popen([sys.executable, "-c", code, repo, str(runs_dir), str(started)])
+        deadline = time.monotonic() + 120
+        while not started.exists():
+            assert time.monotonic() < deadline and child.poll() is None, "the child never started"
+            time.sleep(0.05)
+        # Its imports done, a second to reach the lock (later on a busy machine: then the checks below
+        # pass without having seen it wait, never wrongly fail)
+        time.sleep(1.0)
+        assert child.poll() is None
+        assert not (runs_dir / "runs.js").exists() and not (runs_dir / "_viewer" / "viewer.js").exists()
+    assert child.wait(timeout=120) == 0
+    assert (runs_dir / "runs.js").read_text(encoding="utf-8") == "window.FINDALINE_RUNS = [];\n"
+    assert (runs_dir / "index.html").exists() and (runs_dir / "_viewer" / "viewer.js").exists()
+
+
 def test_labels_topics_and_presets():
     """Every field the web may set has a label, a unit and a hint in the message catalogue
     (locales/en.json), and every choice of a choice field a label; every such field belongs to one

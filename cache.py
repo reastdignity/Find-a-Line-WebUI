@@ -99,6 +99,23 @@ def replacing(path: str, mode: str = "wb", **kwargs):
         raise
 
 
+RUNS_LOCK = "_runs.lock"  # in the runs folder (runs_lock); "_": no run (Jobs.adopt_runs, runs.list_runs)
+RUNS_LOCK_SECONDS = 300   # how long a process waits for it (it holds it for a listing and a few small files)
+
+
+def runs_lock(runs_dir: str):
+    """The lock of the files all runs share in the runs folder (runs/_viewer by mapping.install_viewer,
+    runs.js and index.html by runs.write_index): one process at a time. Two compute slots saving their
+    runs at once both found the viewer's files missing or unread and moved their copies over them
+    together, which Windows refuses while the other process has the file open (PermissionError: the
+    job failed); and each wrote runs.js from its own listing, so the later could leave out the run of
+    the other. An OS lock (filelock): a killed process releases it; filelock.Timeout after
+    RUNS_LOCK_SECONDS."""
+    from filelock import FileLock
+    os.makedirs(runs_dir, exist_ok=True)
+    return FileLock(os.path.join(runs_dir, RUNS_LOCK), timeout=RUNS_LOCK_SECONDS)
+
+
 def _statements(script: str) -> Iterable[str]:
     """The SQL statements of a script, one by one (executescript would commit before it runs)."""
     current = ""
