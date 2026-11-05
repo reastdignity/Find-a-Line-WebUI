@@ -229,7 +229,9 @@ class Plan:
     # None: the surface model as it is (no surface model, a source without the rule, runs before it)
     obstacles: Optional[Dict] = None
     # Whether the grid may hold a border of the source's data (Source.neighbours fill the gaps
-    # there): the country layer sets False for a tile whose grid lies inside the country's outline
+    # there): the country layer sets False for a tile whose grid lies inside the country's outline,
+    # whose area mask is then full without burning the outline and whose coverage is not counted
+    # (prepare_data in strips)
     border: bool = True
 
 
@@ -868,10 +870,15 @@ def _core_window(grid, core: tuple) -> Tuple[slice, slice]:
     return (span(np.flatnonzero((bottom <= y) & (y < top))), span(np.flatnonzero((left <= x) & (x < right))))
 
 
-def _area_mask_rows(area: ar.Area, grid: gd.Grid, path: str, rows: int) -> np.ndarray:
+def _area_mask_rows(area: ar.Area, grid: gd.Grid, path: str, rows: int, full: bool = False) -> np.ndarray:
     """area.mask(grid) into a boolean grid memory-mapped at path: a circle's pixels by the same
-    test in strips of rows, a polygon burned into the mapping (sources.filling.rasterize_into)."""
+    test in strips of rows, a polygon burned into the mapping (sources.filling.rasterize_into).
+    full: the grid lies inside the area (Plan.border False), so every pixel is set without a burn."""
     out = src.filling.new_mask(path, (grid.height, grid.width))
+    if full:
+        for r0, r1, _, _ in src.filling.strips(grid.height, rows):
+            out[r0:r1] = True
+        return out
     if isinstance(area, ar.Polygon):
         return src.filling.rasterize_into([ar.project(area.geometry, "EPSG:4326", grid.crs)], grid, out)
     x, y = area._xy(grid.crs)
@@ -922,14 +929,17 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
             mask = plan.area.mask(grid)
             with_data = float(np.isfinite(np.load(elevation_path, mmap_mode="r")[mask]).mean()) if mask.any() else 0.0
         else:
-            mask = _area_mask_rows(plan.area, grid, temporary("mask.npy"), rows)
-            z = np.load(elevation_path, mmap_mode="r")
-            with_data = _share_rows(lambda r0, r1: np.isfinite(z[r0:r1]) & mask[r0:r1], lambda r0, r1: mask[r0:r1],
-                                    grid.height, rows)
-            del z
+            mask = _area_mask_rows(plan.area, grid, temporary("mask.npy"), rows, full=not plan.border)
+            with_data = None  # its line alone needs it, and a tile inside the country has no reader for that
+            if plan.border:
+                z = np.load(elevation_path, mmap_mode="r")
+                with_data = _share_rows(lambda r0, r1: np.isfinite(z[r0:r1]) & mask[r0:r1],
+                                        lambda r0, r1: mask[r0:r1], grid.height, rows)
+                del z
         progress.compute.update(1)
         progress.compute.finish()
-        emit("info", f"Elevation data: {100 * with_data:.2f}% of the search area from {source.name}")
+        if with_data is not None:
+            emit("info", f"Elevation data: {100 * with_data:.2f}% of the search area from {source.name}")
         surface_path = None
         if plan.nmpt:
             surface_path = src.prepare_layer(source.nmpt, grid, cache_dir, os.path.join(work, "nmpt.npy"), "surface",
@@ -1202,21 +1212,33 @@ def at_seams(gaps: np.ndarray, anchors: np.ndarray) -> np.ndarray:
 
 @dataclass
 class Anchors:
-    """Step 2's results: the anchors ([row, col]), their prominence and drop (terrain.py), and
-    the mask of the strong ones (--min-prominence; None: every anchor)."""
+    """Step 2's results: the anchors ([row, col]), their prominence and drop (terrain.py; None: not
+    computed, _pair_search leaves them to the first line), and the mask of the strong ones
+    (--min-prominence; None: every anchor)."""
     anchors: np.ndarray
-    prominence: np.ndarray
-    drop: np.ndarray
+    prominence: Optional[np.ndarray]
+    drop: Optional[np.ndarray]
     strong: Optional[np.ndarray]
 
 
-def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
+def _anchor_values(plan: Plan, data: Data, anchors: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """How far each anchor stands out (terrain.py): its prominence and its drop."""
+    import terrain  # numba: only when computing (test_search_imports_numba_only_to_compute)
+
+    progress.compute.start("anchor prominence and drop", 2, unit="step")
+    prom = terrain.prominence(data.elevation, anchors, plan.resolution, plan.params.prominence_span)
+    progress.compute.update(1)
+    drop = terrain.drop(data.elevation, anchors, plan.resolution, plan.params.drop_radius)
+    progress.compute.finish()
+    return prom, drop
+
+
+def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False) -> Optional[Anchors]:
     """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
     data) within the elevation band (--min/--max-elevation), with their prominence and drop and
     the limits on them. Too few anchors: None when quiet (a tile, a count), else SearchError.
-    limits.anchors_max refuses too many either way."""
-    import terrain  # numba: only when computing (test_search_imports_numba_only_to_compute)
-
+    limits.anchors_max refuses too many either way. deferred: prominence and drop left to the
+    first line when no limit needs them (a count: most tiles of a country have no line)."""
     p, grid, emit = plan.params, plan.grid, plan.emit
     _step(plan, 2, "finding significant slopes")
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
@@ -1255,12 +1277,10 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False) -> Optional[Anchors]:
         raise SearchError("Not enough steep terrain. Try a lower --slope-threshold or a larger --radius.",
                           "no_steep_terrain")
 
+    if deferred and p.min_prominence is None and p.min_prominence_both is None and p.min_drop is None:
+        return Anchors(anchors, None, None, None)
     # How far each anchor stands out (terrain.py); the limits for both anchors leave anchors out
-    progress.compute.start("anchor prominence and drop", 2, unit="step")
-    prom = terrain.prominence(data.elevation, anchors, plan.resolution, p.prominence_span)
-    progress.compute.update(1)
-    drop = terrain.drop(data.elevation, anchors, plan.resolution, p.drop_radius)
-    progress.compute.finish()
+    prom, drop = _anchor_values(plan, data, anchors)
     keep = np.ones(len(anchors), dtype=bool)
     if p.min_prominence_both is not None:
         keep &= prom >= p.min_prominence_both
@@ -1295,13 +1315,14 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
         first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
     _count(plan, "grids", 1)
     _count(plan, "anchors_kept", len(anchors))  # what the line search gets
+    values = ((lambda: np.column_stack(_anchor_values(plan, data, anchors))) if found.prominence is None
+              else np.column_stack([found.prominence, found.drop]))
     return ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
                                p.min_length, p.max_length, plan.nmpt, line_threads(p),
                                sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
                                p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
                                                            p.min_high_share, p.max_wall_angle),
-                               np.column_stack([found.prominence, found.drop]), found.strong, stats=plan.funnel,
-                               check=check, sink=sink)
+                               values, found.strong, stats=plan.funnel, check=check, sink=sink)
 
 
 def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh.LineTable], None],
@@ -1317,7 +1338,7 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
     import linesearch as ls
 
     p, emit = plan.params, plan.emit
-    found = _anchors(plan, data, quiet=True)
+    found = _anchors(plan, data, quiet=True, deferred=True)
     if found is None:
         return plan.funnel
     _step(plan, 3, "evaluating anchor pairs")

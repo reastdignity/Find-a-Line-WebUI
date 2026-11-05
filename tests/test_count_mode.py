@@ -306,6 +306,96 @@ def test_count_tile_over_fixed_tiles(tmp_path, offline, model):
     assert sorted(tiled, key=lambda r: (r[0], r[1])) == one
 
 
+def _timed_values(monkeypatch):
+    """The calls of terrain.prominence and terrain.drop, and the bars seen, as a list of their names
+    (the bars of search's own progress: other tests load the module again)."""
+    import search
+    import terrain
+    seen = []
+    for name in ("prominence", "drop"):
+        kernel = getattr(terrain, name)
+        monkeypatch.setattr(terrain, name, lambda *args, k=kernel, n=name: (seen.append(n), k(*args))[1])
+    listener = lambda state: seen.append(("bar", state["stage"], state["done"])) if state.get("bar") else None
+    search.progress.subscribe(listener)
+    return seen, lambda: search.progress.unsubscribe(listener)
+
+
+def test_count_tile_leaves_the_anchor_values_to_the_first_line(tmp_path, offline, monkeypatch):
+    """count_tile computes prominence and drop when the first line needs them, once, and hands the
+    sink what a search computing them first does; the bar of the pairs goes on afterwards."""
+    import search
+    plan = _krovak_plan(tmp_path)
+    data = search.prepare_data(plan)
+    first = []
+    search._pair_search(plan, data, search._anchors(plan, data), None, None, sink=first.append)
+    seen, stop = _timed_values(monkeypatch)
+    try:
+        plan.funnel = {}
+        later = []
+        search.count_tile(plan, data, None, later.append)
+    finally:
+        stop()
+    assert sum(len(p) for p in later) > 100
+    assert seen.count("prominence") == 1 and seen.count("drop") == 1
+    a, b = _sorted(_joined(first)), _sorted(_joined(later))
+    del b["water_px"]
+    _assert_same(a, b)
+    bars = [s for s in seen if isinstance(s, tuple)]
+    start = bars.index(("bar", "anchor prominence and drop", False))
+    assert bars[0:start] and any(s[1] == "anchor pairs" for s in bars[:start])  # the pairs had started
+    after = bars[bars.index(("bar", "anchor prominence and drop", True)):]
+    assert ("bar", "anchor pairs", False) in after and after[-1] == ("bar", "anchor pairs", True)
+
+
+def test_count_tile_without_a_line_computes_no_anchor_values(tmp_path, offline, monkeypatch):
+    """Pairs evaluated, no line passing: neither prominence nor drop is computed, the sink's parts
+    are empty."""
+    import search
+    plan = _krovak_plan(tmp_path, min_height=5000.0)
+    data = search.prepare_data(plan)
+    seen, stop = _timed_values(monkeypatch)
+    try:
+        parts = []
+        funnel = search.count_tile(plan, data, None, parts.append)
+    finally:
+        stop()
+    assert funnel["found"] > 0 and funnel["valid"] == 0 and funnel["left_out"] > 0
+    assert sum(len(p) for p in parts) == 0
+    assert "prominence" not in seen and "drop" not in seen
+
+
+@pytest.mark.parametrize("limit", [{"min_prominence": 1.0}, {"min_prominence_both": 1.0}, {"min_drop": 1.0}])
+def test_count_tile_computes_anchor_values_first_under_a_limit(tmp_path, offline, monkeypatch, limit):
+    """A limit on the anchors needs their values before the pair search."""
+    import search
+    plan = _krovak_plan(tmp_path, **limit)
+    data = search.prepare_data(plan)
+    seen, stop = _timed_values(monkeypatch)
+    try:
+        search.count_tile(plan, data, None, [].append)
+    finally:
+        stop()
+    stages = [s[1] for s in seen if isinstance(s, tuple)]
+    assert seen.count("prominence") == 1
+    assert stages.index("anchor prominence and drop") < stages.index("free directions")
+
+
+def test_tile_inside_the_country_skips_its_coverage(tmp_path, offline):
+    """Plan.border False (a tile inside the outline), step 1 in strips: the mask full without a burn, no
+    line about the coverage; the rest of step 1 goes on. With a border the line is there."""
+    import search
+    plan = _krovak_plan(tmp_path)
+    said = []
+    plan.emit = lambda kind, text: said.append(text)
+    search.prepare_data(plan, strips=True)
+    assert any(text.startswith("Elevation data:") for text in said)
+    said.clear()
+    inside = dataclasses.replace(plan, border=False, paths=search.Paths(plan.paths.data, str(tmp_path / "inside")))
+    data = search.prepare_data(inside, strips=True)
+    assert data.mask.all() and data.mask.shape == data.elevation.shape
+    assert not any(text.startswith("Elevation data:") for text in said)
+
+
 def test_count_tile_without_anchors(tmp_path, offline):
     """A grid without steep terrain hands the sink nothing and raises nothing."""
     import search

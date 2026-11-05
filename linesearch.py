@@ -22,7 +22,7 @@ clearances, so the results are exactly those of the plain pixel-by-pixel search.
 
 import math
 import time
-from typing import Callable, Dict, Iterator, List, Optional
+from typing import Callable, Dict, Iterator, List, Optional, Union
 
 import numba
 import numpy as np
@@ -673,18 +673,16 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
 def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray, res: float,
                    surface: Optional[np.ndarray], sag_table, nmpt_mode: Optional[str],
                    high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
-                   down: Optional[np.ndarray] = None, anchor_values: Optional[np.ndarray] = None
-                   ) -> sh.LineTable:
+                   down: Optional[np.ndarray] = None,
+                   anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None) -> sh.LineTable:
     """The lines among the pairs found (indices into anchors) that pass helpers.evaluate_line
     and helpers.is_valid: the same decision and values, computed in parallel. With limits,
     only the lines that reach them (sh.LineLimits.passes). down: helpers.downslope of the
     anchors (computed here when not given); anchor_values: [prominence, drop] of every
-    anchor (terrain.py; NaN when not given)."""
+    anchor (terrain.py; NaN when not given), or a callable giving them, asked only when some
+    line passes."""
     if down is None:
         down = sh.downslope(elevation, anchors, res)
-    if anchor_values is None:
-        anchor_values = np.full((len(anchors), 2), np.nan)
-    anchor_values = np.asarray(anchor_values, dtype=np.float64)
     found = np.asarray(found, dtype=np.int64).reshape(-1, 2)
     angles = sh.wall_angles(anchors[found[:, 0]], anchors[found[:, 1]], down[found[:, 0]], down[found[:, 1]])
     out = np.zeros((len(found), 9))
@@ -712,6 +710,11 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
     if limits is not None:
         keep = limits.passes(out[:, 6], out[:, 7], out[:, 8], angles[0], angles[1], keep)
     found, out = found[keep], out[keep]
+    if anchor_values is None:
+        anchor_values = np.full((len(anchors), 2), np.nan)
+    elif callable(anchor_values):
+        anchor_values = anchor_values() if len(found) else np.zeros((0, 2))
+    anchor_values = np.asarray(anchor_values, dtype=np.float64)
     first, second = anchor_values[found[:, 0]], anchor_values[found[:, 1]]
     columns = {"a1": np.asarray(anchors, dtype=np.int64)[found[:, 0]],
                "a2": np.asarray(anchors, dtype=np.int64)[found[:, 1]]}
@@ -822,8 +825,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      sag_table=None, max_dh_ratio: float = np.inf,
                      max_dh: float = np.inf, first: Optional[np.ndarray] = None,
                      high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
-                     anchor_values: Optional[np.ndarray] = None, strong: Optional[np.ndarray] = None,
-                     stats: Optional[Dict[str, int]] = None,
+                     anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None,
+                     strong: Optional[np.ndarray] = None, stats: Optional[Dict[str, int]] = None,
                      check: Optional[Callable[[int], None]] = None,
                      sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
     """Finds valid lines between anchors.
@@ -844,7 +847,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         high_above: Height above the terrain from which a pixel of a line counts as high
         limits: Optional limits of the heights above the terrain and the wall angle; lines
             that do not reach them are left out (counted in limits.left_out)
-        anchor_values: [prominence, drop] of every anchor (terrain.py), saved with the lines
+        anchor_values: [prominence, drop] of every anchor (terrain.py), saved with the lines; with
+            a sink also a callable giving them, asked once, by the first part with a valid line
         strong: Optional mask of the anchors one of which every line must have (--min-prominence)
         stats: Optional dict the counts of this call are added to (the funnel of the line search,
             jobs.FUNNEL_STEPS): anchors with an open direction, those pairs start from, candidate
@@ -967,12 +971,23 @@ def _summary(start_time: float, candidates: int, checked: int, limits: Optional[
 def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, todo_all: np.ndarray,
                 anchors: np.ndarray, elevation: np.ndarray, res: float, surface: Optional[np.ndarray], sag_table,
                 nmpt_mode: Optional[str], high_above: float, limits: Optional[sh.LineLimits], down: np.ndarray,
-                anchor_values: Optional[np.ndarray], useful: int, stats: Optional[Dict[str, int]],
-                start_time: float):
+                anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None], useful: int,
+                stats: Optional[Dict[str, int]], start_time: float):
     """Steps 2 and 3 of find_valid_lines with a sink: the pairs of SINK_CHUNK anchors at a time,
     evaluated whenever EVAL_PART of them are pending (and after the last anchors), each evaluated
-    part handed to the sink at once. One bar, "anchor pairs", with the valid lines as a postfix."""
+    part handed to the sink at once. One bar, "anchor pairs", with the valid lines as a postfix.
+    A callable anchor_values is asked once, by the first part with a valid line; it runs a bar of
+    its own, so the bar of the pairs is put back where it stood."""
     pending, held, candidates, checked, found, valid = [], 0, 0, 0, 0, 0
+    at, known, values = 0, None, anchor_values
+    if callable(anchor_values):
+        def values() -> np.ndarray:
+            nonlocal known
+            if known is None:
+                known = anchor_values()
+                progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
+                progress.compute.update(at, pairs=f"{checked:,}", lines=found, valid=valid)
+            return known
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
     for at in range(0, len(todo_all), SINK_CHUNK):
         todo = todo_all[at:at + SINK_CHUNK]
@@ -987,7 +1002,7 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
         if pending and (held >= EVAL_PART or at + SINK_CHUNK >= len(todo_all)):
             for part in evaluation_parts(pending, SINK_PART):
                 table = evaluate_lines(part, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
-                                       limits, down, anchor_values)
+                                       limits, down, values)
                 del part
                 valid += len(table)
                 sink(table)

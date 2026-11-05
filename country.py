@@ -70,7 +70,9 @@ ATTEMPTS = 2               # a tile that fails goes back to pending once, then s
 # Tatras tile of 474 M lines at 24 threads: 16 B/px of its 53 Mpx, in the pair search; a tile of
 # 61 M lines alone 0.54 GiB, 11 B/px, at the prominence and drop), the memory-mapped grids outside
 # (file-backed, about 20 B/px in the working set, about 40 since a worker keeps their views, which
-# count the same pages twice: TileWork._remove_grids); 32 B/px is twice that largest rise. Before the
+# count the same pages twice: TileWork._remove_grids); 32 B/px is twice that largest rise, and the
+# prominence and drop inside the pair search (search._anchors(deferred=True)) keep a tile's private
+# bytes under the budget (at most 1.15 GiB in M2, 1.23 in S, 2026-11-05). Before the
 # strips a tile's gap filling peaked at 45-94 B/px, and every worker's private bytes also held about
 # 1.5 GiB that OpenBLAS reserved and never touched (_worker_env). Not search.memory_needed: a count
 # holds no table of lines, no profiles and no step 4, and that model follows the app's.

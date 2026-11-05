@@ -805,6 +805,27 @@ def test_surface_model_with_its_grids_held(env, tmp_path, monkeypatch):
             assert np.array_equal(a, b), name
 
 
+def test_tile_inside_the_outline_has_a_full_mask(tmp_path):
+    """A tile whose grid lies inside the country's outline (country._at_border False, Plan.border)
+    gets the mask the burn gives, without burning it: every pixel set."""
+    import area as ar
+    import country
+    import search
+    from grid import Grid
+    from shapely.geometry import box
+    crs = "EPSG:32634"
+    grid = Grid(crs=crs, left=500_000.0, top=5_000_200.0, width=300, height=200, res=1.0)
+    inside = box(20.9, 45.1, 21.1, 45.25)
+    outline = ar.project(inside, "EPSG:4326", crs)
+    assert outline.contains(box(*grid.bounds))
+    grid.area_shape = outline
+    assert not country._at_border(grid)
+    burned = search._area_mask_rows(ar.Polygon(inside), grid, str(tmp_path / "burned.npy"), 64)
+    full = search._area_mask_rows(ar.Polygon(inside), grid, str(tmp_path / "full.npy"), 64, full=True)
+    assert full.dtype == burned.dtype and full.shape == burned.shape and type(full) is type(burned)
+    assert full.all() and np.array_equal(full, burned)
+
+
 def test_worker_keeps_the_grids_from_the_disk(monkeypatch, tmp_path):
     """`country worker`: the grids held, and what the first tile left alive frozen, once, after its
     cleanup (TileWork.loop(freeze=True)); not without freeze."""
