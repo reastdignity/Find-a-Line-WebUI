@@ -36,6 +36,47 @@ export function pinShown(px: number): boolean {
   return px < PIN_BELOW_PX;
 }
 
+/** A point on the screen, CSS pixels of the stage (y down). */
+export interface Pt { x: number; y: number }
+
+/** How far above the unloaded webbing the pin's tip stands (CSS pixels), and its least gap above the head. */
+export const PIN_LIFT_PX = 14;
+export const PIN_HEAD_GAP_PX = 3;
+
+export interface PinPlacement {
+  /** Where the pin's tip stands. */
+  tip: Pt;
+  /** The leader joining the walker's head to the tip. */
+  leader: {from: Pt; to: Pt};
+}
+
+/** The pin's tip over a small walker (round 2, point 1): `lift` pixels above the unloaded webbing where it passes
+ *  the walker (`webbing`: its screen point, null when it cannot be had), or `gap` pixels above the head when the
+ *  head is higher than that; "above" is along the walker's own up on the screen (feet → head), so under perspective
+ *  the pin stands over the walker and not over a plumb line. The leader runs from the head to the tip. */
+export function pinPlacement(feet: Pt, head: Pt, webbing: Pt | null, lift = PIN_LIFT_PX, gap = PIN_HEAD_GAP_PX):
+    PinPlacement {
+  let ux = head.x - feet.x, uy = head.y - feet.y;
+  const n = Math.hypot(ux, uy);
+  if (n > 1e-6) { ux /= n; uy /= n; } else { ux = 0; uy = -1; }
+  if (uy > 0) { ux = -ux; uy = -uy; }  // up is towards the top of the screen even if the head projects below the feet
+  const along = (p: Pt) => (p.x - feet.x) * ux + (p.y - feet.y) * uy;
+  const over = (p: Pt, d: number): Pt => ({x: p.x + ux * d, y: p.y + uy * d});
+  let tip = over(head, gap);
+  if (webbing) {
+    const high = over(webbing, lift);
+    if (along(high) > along(tip)) tip = high;
+  }
+  return {tip, leader: {from: head, to: tip}};
+}
+
+/** A line from `from` to `to` as an element standing at `to` that extends down its own y by `length` and is
+ *  rotated by `angle` (radians, CSS's clockwise) so that its far end lies on `from`. */
+export function segmentBox(from: Pt, to: Pt): {length: number; angle: number} {
+  const dx = from.x - to.x, dy = from.y - to.y;
+  return {length: Math.hypot(dx, dy), angle: Math.atan2(-dx, dy)};
+}
+
 /** /api/profile's `line` of two points given as [lon, lat]: "lat1,lon1,lat2,lon2", 7 decimals. */
 export function lineParam(a: [number, number], b: [number, number]): string {
   return [a[1], a[0], b[1], b[0]].map((v) => v.toFixed(7)).join(",");

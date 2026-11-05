@@ -1,8 +1,9 @@
 // The imagery of the 3D view (docs/3d-view-contract.md, "Wave 2", V2b): the run's national orthophoto (our cache
 // first where it may have the tiles, else its service), Esri's satellite imagery (with the operator's key), or
 // the terrain shaded, or its "Edges" look (wave E: scene-api.ts setEdges, where the browser can draw it). Each chunk gets one canvas of its tiles (tiles.ts: the zoom, the URLs, the UVs) as its
-// texture; the control is a segmented one in the scene's toolbar (a select on narrow screens), the credits go to the scene's credits box
-// (credits.ts). Plain DOM, no style attributes (the CSP's style-src 'self'): classes of ui.css. The page's
+// texture; the control is a segmented one in the scene's toolbar (a select on narrow screens), the tiles loaded
+// are counted in the activity pill of the stage (`scene.activity`, entry "imagery"), the credits go to the scene's
+// credits box (credits.ts). Plain DOM, no style attributes (the CSP's style-src 'self'): classes of ui.css. The page's
 // root gets data-imagery="<kind>" (for tests).
 
 import { CanvasTexture, LinearMipmapLinearFilter, SRGBColorSpace } from "three";
@@ -32,7 +33,7 @@ export interface Imagery {
 
 /** Images loaded at once (the browser's limit per host is about six). */
 const PARALLEL = 6;
-/** The status's count of the tiles loaded changes at most this often (ms). */
+/** The activity pill's count of the tiles loaded changes at most this often (ms). */
 const COUNT_MS = 250;
 /** What a WMS's tile is laid on (orthophoto._on_white): its parts without imagery in a PNG answer. */
 const WHITE = "#ffffff";
@@ -155,7 +156,11 @@ async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fil
   return canvas;
 }
 
-/** The imagery of `scene`: its control in `scene.toolbar`, its credits in `scene.credits`. */
+/** The activity entry of the tiles being loaded (round 2: the pill of the stage's top, chrome.ts). */
+const ACTIVITY = "imagery";
+
+/** The imagery of `scene`: its control in `scene.toolbar`, its tiles counted in `scene.activity`, its credits in
+ *  `scene.credits`. */
 export function createImagery(scene: Scene3D, options: { runId: string; esriKey: string | null;
                                                         shore?: Uint8Array | null }): Imagery {
   const {meta} = scene;
@@ -231,11 +236,6 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     note.textContent = t("ui.view3d.shore_hatched");
     box.append(note);
   }
-  const status = document.createElement("span");
-  status.className = "u-small v3-imagery-status";
-  status.setAttribute("role", "status");
-  status.hidden = true;
-  box.append(status);
   scene.toolbar.append(box);
 
   const mark = (kind: ImageryKind) => {
@@ -270,7 +270,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       if (credit) scene.credits.set(IMAGERY_CREDITS, credit, IMAGERY_ORDER); else scene.credits.remove(IMAGERY_CREDITS);
       if (kind === "shaded" || kind === "edges") {
         loader = null;
-        status.hidden = true;
+        scene.activity.clear(ACTIVITY);
         const fill = fillColour();
         scene.chunks.forEach((chunk, k) => {
           // Shaded: the chunks with uncertain shore get the terrain's colour with the hatching as a texture
@@ -300,8 +300,8 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       if (available.includes("edges")) scene.setEdges(false);
       if (changed) for (const fn of [...listeners]) fn(kind);
       const mine = loader = new Loader(), fill = fillColour(), start = performance.now();
-      // Every chunk's tiles first, so the status counts them all from the start (at most every COUNT_MS:
-      // it is a live region)
+      // Every chunk's tiles first, so the pill counts them all from the start (at most every COUNT_MS: it is a
+      // live region)
       const work = order.map((k) => {
         const plan = plans[k], chunk = scene.chunks[k];
         const draws = !plan ? [] : kind === "esri" ? esriDraws(options.esriKey!, plan)
@@ -312,7 +312,8 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       let loaded = 0, counted = 0;
       const count = () => {
         counted = performance.now();
-        status.textContent = t("ui.view3d.loading_imagery", {done: loaded, total: tiles});
+        if (tiles) scene.activity.set(ACTIVITY, t("ui.view3d.activity_imagery", {done: loaded, total: tiles}), loaded / tiles);
+        else scene.activity.clear(ACTIVITY);
       };
       const onTile = () => {
         if (loader !== mine) return;
@@ -320,7 +321,6 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
         if (loaded === tiles || performance.now() - counted >= COUNT_MS) count();
       };
       count();
-      status.hidden = false;
       // Chunk by chunk, the line's first; each keeps its last texture until its new one is ready
       await Promise.all(work.map(async ({k, plan, chunk, draws}) => {
         if (!plan) { retexture(chunk, null); return; }
@@ -335,7 +335,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
         scene.invalidate();
       }));
       if (loader === mine) {
-        status.hidden = true;
+        scene.activity.clear(ACTIVITY);
         loader = null;
         measure("fal:3d:imagery", start, {kind, tiles});
       }
@@ -348,6 +348,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       listeners.clear();
       loader?.stop();
       loader = null;
+      scene.activity.clear(ACTIVITY);
       for (const chunk of [...textures.keys()]) retexture(chunk, null);
       scene.credits.remove(IMAGERY_CREDITS);
       scene.credits.remove(DATA_CREDITS);

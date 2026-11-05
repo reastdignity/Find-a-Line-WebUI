@@ -14,7 +14,7 @@ import type { Point3d, Webbing } from "./geometry";
 import type { SceneCore } from "./scene";
 import { createWalker, type Walker } from "./walker";
 import {
-  metres, readoutOf, resample, VERDICT_COLOUR, walkerPose, webbing, writeSegments, type Readout,
+  metres, readoutOf, resample, unloadedAt, VERDICT_COLOUR, walkerPose, webbing, writeSegments, type Readout,
 } from "./webbing";
 
 export type Anchors = [Anchor3d, Anchor3d];
@@ -47,6 +47,9 @@ export interface LineView {
   /** The walker's distance along the span, the span, the walker's sag there. */
   s: number;
   span: number;
+  /** The unloaded webbing's point above the walker's place at distance `s` along the span (grid metres and height);
+   *  the pin's tip stands over it (pin.ts). */
+  unloadedAt(s: number): Point3d | null;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
@@ -91,7 +94,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   const neutral = scene.token("--muted");
   const width = scene.level === "phone" ? 3 : 4;
   const loadedMaterial = new LineMaterial({color: neutral, linewidth: width});
-  const faintMaterial = new LineMaterial({color: neutral, linewidth: 2, transparent: true, opacity: 0.4});
+  const faintMaterial = new LineMaterial({color: neutral, linewidth: 2, transparent: true, opacity: 0.25});
   // The loaded webbing once more through the terrain, faint: where a slope hides it (near an anchor seen from
   // the side) it still reaches the anchor's handle; where it is seen, the same colour drawn over it changes nothing
   const xrayMaterial = new LineMaterial({color: neutral, linewidth: width, transparent: true, opacity: 0.35,
@@ -143,6 +146,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
 
   const self: LineView = {
     readout: null, s: w.start.s, span: w.span, anchors, field, slider, walker, edited: false, profile: null,
+    unloadedAt(s: number) { return unloadedAt(w!, anchors, s); },
     onAnchors(fn) { anchorFns.push(fn); },
     onProfile(fn) { profileFns.push(fn); },
     setWalker(s: number) {
