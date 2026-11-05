@@ -361,7 +361,18 @@ def near_border(keys: np.ndarray, counts: np.ndarray, origin: Tuple[float, float
         entry = {"lengths": [lo, hi], "reach": round(reach), "all": int(counts[in_bin].sum()),
                  "near": {name: int(counts[close & (nearest[inverse] == n)].sum()) for n, name in enumerate(names)}}
         out.append(entry)
-    return {"bins": out}
+    # Each key once, within the reach of its longest length bin (a spot may have lines of several)
+    longest = np.frexp(np.maximum(lengths, 1).astype(np.float64))[1] - 1
+    reach = np.array([hi for _, hi in _bins()], dtype=np.float64)[longest] + CELL_HALF_DIAGONAL
+    close = lowest[inverse] <= reach
+    return {"bins": out, "total": int(counts.sum()),
+            "near_total": {name: int(counts[close & (nearest[inverse] == n)].sum()) for n, name in enumerate(names)}}
+
+
+def spot_keys(ids: np.ndarray, records: np.ndarray) -> np.ndarray:
+    """Spots as keys of their cell (that of the first cluster) and record, as the cube counts them."""
+    i, j = cc.spot_cells(ids)
+    return cc.pack_keys(i, j, records)
 
 
 def exposure(cube_dir: str, neighbours: Dict[str, str], cache_dir: str) -> Dict:
@@ -469,7 +480,7 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
     border_km = whole.intersection(region).length / 1000
     result = {"run": os.path.basename(folder), "place": place.id, "name": place.name, "primary": d["primary"],
               "a": place.a.name, "b": place.b.name, "a_source": place.a.source, "a_area": place.a.area,
-              "b_area": place.b.area, "border": place.border, "crs": crs,
+              "b_area": place.b.area, "border": place.border, "crs": crs, "counted": list(counted),
               "km2": round(region.area / 1e6, 1), "border_km": round(border_km, 1),
               "km2_a": round(outlines["a"].intersection(region).area / 1e6, 1),
               "km2_b": round(outlines["b"].intersection(region).area / 1e6, 1), "bands": {}, "spots": {}}
@@ -497,10 +508,54 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
                              "near": [b["near"]["b"] for b in near] if near else [0] * cc.LENGTH_BINS}
         entry["classes"] = classes
         result["bands"][band] = entry
+    result["spots_near"] = {}
     for name in CLASSES:
-        _, _, ids, _ = _merged(every[name])
+        _, _, ids, records = _merged(every[name])
         result["spots"][name] = int(len(ids))
+        result["spots_near"][name] = (near_border(spot_keys(ids, records), np.ones(len(ids), dtype=np.int64), origin,
+                                                  {"b": piece})["near_total"]["b"] if len(ids) else 0)
     return result
+
+
+def check_against_cube(folder: str, cube_dir: str) -> Optional[Dict]:
+    """A run's lines of A against the cube of A (counted with the same bands and data) in the cells
+    whose whole square lies deeper in the counted box than each bin's longest line (nearer its edge
+    the box misses partners the cube has): the lines per length bin of both; None in another CRS or
+    on cells of another lattice."""
+    state = _read_json(os.path.join(folder, "study.json"))
+    d = state["definition"]
+    cube = cc.Cube(cube_dir)
+    offset = ((d["origin"][0] - cube.origin[0]) / cc.CELL_M, (d["origin"][1] - cube.origin[1]) / cc.CELL_M)
+    if cube.crs != d["crs"] or any(abs(v - round(v)) > 1e-9 for v in offset):
+        return None
+    di, dj = int(round(offset[0])), int(round(offset[1]))
+    rows = cube.array("lines", 1)
+    cube_keys, cube_counts = rows[:, 0], rows[:, 1]
+    left, bottom, right, top = d["counted"]
+    out = []
+    for band in state.get("bands", {}):
+        keys, counts, _, _ = _merged(_class_tiles(folder, band, "aa"))
+        for k, (lo, hi) in enumerate(_bins()):
+            lengths = state["bands"][band]["lengths"]
+            if not (lengths[0] <= lo and hi <= lengths[1]):
+                continue
+            # the cells (of the run's origin) at least hi metres inside the box on every side
+            i0 = math.ceil((left + hi - d["origin"][0]) / cc.CELL_M)
+            i1 = math.floor((right - hi - d["origin"][0]) / cc.CELL_M)  # exclusive
+            j0 = math.ceil((bottom + hi - d["origin"][1]) / cc.CELL_M)
+            j1 = math.floor((top - hi - d["origin"][1]) / cc.CELL_M)
+            if i0 >= i1 or j0 >= j1:
+                continue
+
+            def inside(ks, shift_i, shift_j):
+                i, j = (ks >> cc.COL_SHIFT) - shift_i, ((ks >> cc.ROW_SHIFT) & cc.CELL_MASK) - shift_j
+                bit = ((ks >> cc.LENGTH_SHIFT) & (1 << k)) != 0
+                return bit & (i >= i0) & (i < i1) & (j >= j0) & (j < j1)
+
+            ours = int(counts[inside(keys, 0, 0)].sum())
+            theirs = int(cube_counts[inside(cube_keys, di, dj)].sum())
+            out.append({"band": band, "lengths": [lo, hi], "cells": (i1 - i0) * (j1 - j0), "run": ours, "cube": theirs})
+    return {"cube": cube.info.get("id"), "bins": out}
 
 
 def agreement(run_a: str, run_b: str, band: str) -> Optional[Dict]:
@@ -523,25 +578,66 @@ def agreement(run_a: str, run_b: str, band: str) -> Optional[Dict]:
             "primaries": [states[0]["primary"], states[1]["primary"]]}
 
 
-def estimate(run: Dict, exposed: Dict) -> Optional[Dict]:
-    """The cube's lines across the border to the run's B: per length bin, the run's lines across the
-    border per line of A within reach of the border, times the cube's lines within reach of B's border;
-    None when the run is no border of that cube."""
+MIN_NEAR = 1000  # a place's ratio is carried over only from a bin with at least this many lines of A near the border
+
+
+def _outside_near(keys: np.ndarray, counts: np.ndarray, origin: Tuple[float, float], piece,
+                  boxes: List[Sequence[float]]) -> np.ndarray:
+    """The counts of keys within reach of a border piece (their longest bin's) whose cell's centre
+    lies in none of boxes, per length bin (a key in each bin of its mask)."""
+    import shapely
+    unique, inverse = np.unique(keys >> cc.ROW_SHIFT, return_inverse=True)
+    inverse = inverse.ravel()
+    centres = _cell_centres(unique << cc.ROW_SHIFT, origin)
+    distance = shapely.distance(piece, shapely.points(centres))[inverse]
+    lengths = (keys >> cc.LENGTH_SHIFT) & ((1 << cc.LENGTH_BINS) - 1)
+    longest = np.frexp(np.maximum(lengths, 1).astype(np.float64))[1] - 1
+    reach = np.array([hi for _, hi in _bins()], dtype=np.float64)[longest] + CELL_HALF_DIAGONAL
+    keep = distance <= reach
+    x, y = centres[inverse, 0], centres[inverse, 1]
+    for left, bottom, right, top in boxes:
+        keep &= ~((x >= left) & (x < right) & (y >= bottom) & (y < top))
+    return np.array([int(counts[keep & ((lengths & (1 << k)) != 0)].sum()) for k in range(cc.LENGTH_BINS)] +
+                    [int(counts[keep].sum())])
+
+
+def estimate(run: Dict, measured: List[Dict], exposed: Dict, cube_dir: str, cache_dir: str) -> Optional[Dict]:
+    """The cube's lines (and spots) across the border to the run's B: those measured in the boxes of
+    the runs of that border on the cube's data (measured), plus the cube's lines within reach of B's
+    border outside those boxes times the run's lines across the border per line of A within reach of
+    it, per length bin (only from bins with MIN_NEAR such lines: the ratio carries over only to a
+    border of the run's kind, a ridge or a gorge). None when the run is no border of that cube."""
+    import area as ar
     neighbour = next((n for n, spec in exposed["neighbours"].items() if spec == run["b_area"]), None)
     if neighbour is None or exposed.get("area") != run["a_area"]:
         return None
+    cube = cc.Cube(cube_dir)
+    own = _project(cube.outline(), "EPSG:4326", cube.crs)
+    other = _project(ar.from_spec(run["b_area"], 0.0, None, cache_dir).geometry, "EPSG:4326", cube.crs)
+    piece = border_pieces(own, {"b": other})["b"]
+    boxes = [m["counted"] for m in measured if m["crs"] == cube.crs]
+    rows = cube.array("lines", 1)
+    rest = _outside_near(rows[:, 0], rows[:, 1], cube.origin, piece, boxes)
     bins = []
     for k, (lo, hi) in enumerate(_bins()):
         ab = sum(e["classes"]["ab"]["bins"][k] for e in run["bands"].values())
         aa_near = sum(e["classes"]["aa"]["near"][k] for e in run["bands"].values())
-        near = exposed["lines"]["bins"][k]["near"].get(neighbour, 0)
-        ratio = ab / aa_near if aa_near else None
-        bins.append({"lengths": [lo, hi], "ab": ab, "aa_near": aa_near, "ratio": ratio, "cube_near": near,
-                     "estimate": round(ratio * near) if ratio is not None else None})
-    total = sum(b["estimate"] or 0 for b in bins)
-    return {"neighbour": neighbour, "bins": bins, "estimate": total,
-            "cube_lines": sum(b["all"] for b in exposed["lines"]["bins"]),
-            "cube_near": sum(b["cube_near"] for b in bins)}
+        known = sum(e["classes"]["ab"]["bins"][k] for m in measured for e in m["bands"].values())
+        ratio = ab / aa_near if aa_near and aa_near >= MIN_NEAR else None
+        bins.append({"lengths": [lo, hi], "ab": ab, "aa_near": aa_near, "ratio": ratio, "measured": known,
+                     "rest": int(rest[k]), "estimate": known + (round(ratio * rest[k]) if ratio is not None else 0),
+                     "carried": ratio is not None})
+    srows = cube.array("spots", 1)
+    spots_rest = int(_outside_near(srows[:, 0], srows[:, 1], cube.origin, piece, boxes)[-1])
+    aa_spots_near = run["spots_near"]["aa"]
+    spots_ratio = run["spots"]["ab"] / aa_spots_near if aa_spots_near and aa_spots_near >= MIN_NEAR else None
+    spots_known = sum(m["spots"]["ab"] for m in measured)
+    spots = {"ab": run["spots"]["ab"], "aa_near": aa_spots_near, "ratio": spots_ratio, "measured": spots_known,
+             "rest": spots_rest, "cube": int(srows[:, 1].sum()),
+             "estimate": spots_known + (round(spots_ratio * spots_rest) if spots_ratio is not None else 0)}
+    return {"neighbour": neighbour, "bins": bins, "estimate": sum(b["estimate"] for b in bins),
+            "measured": sum(b["measured"] for b in bins), "rest": int(rest[-1]),
+            "cube_lines": int(rows[:, 1].sum()), "boxes": [m["run"] for m in measured], "spots": spots}
 
 
 def _pct(part: float, whole: float) -> str:
@@ -615,16 +711,36 @@ def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], es
         out += ["", f"All: {lines_near:,} of {lines_all:,} lines ({_pct(lines_near, lines_all)}) within reach of a "
                     f"border.", ""]
     for est in estimates:
-        out += [f"## Estimate from {est['run']}: {exposed['name']}'s lines across the border to {est['neighbour']}", "",
-                "| Lengths | A-B in the box | A-A near in the box | Ratio | Cube's lines near | Estimate |",
-                "| --- | ---: | ---: | ---: | ---: | ---: |"]
+        out += [f"## Estimate with the ratio of {est['run']}: {exposed['name']}'s lines across the border to "
+                f"{est['neighbour']}", "",
+                f"Measured: the lines across the border in the boxes of {', '.join(est['boxes'])}. The rest: the cube's "
+                f"lines within reach of that border outside those boxes, times this run's lines across the border per "
+                f"line of A within reach of it (only from bins with {MIN_NEAR:,} such lines). The ratio carries over only "
+                f"to a border of the same kind as this run's ({est['border']}).", "",
+                "| Lengths | A-B in the box | A-A near in the box | Ratio | Measured | Cube's rest near | Estimate |",
+                "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
         for b in est["bins"]:
-            ratio = "-" if b["ratio"] is None else f"{b['ratio']:.2f}"
-            value = "-" if b["estimate"] is None else f"{b['estimate']:,}"
+            ratio = "-" if b["ratio"] is None else f"{b['ratio']:.3f}"
             out.append(f"| {b['lengths'][0]}-{b['lengths'][1]} m | {b['ab']:,} | {b['aa_near']:,} | {ratio} | "
-                       f"{b['cube_near']:,} | {value} |")
-        out += ["", f"Estimate {est['estimate']:,} lines across the border, {_pct(est['estimate'], est['cube_lines'])} "
-                    f"of the cube's {est['cube_lines']:,}.", ""]
+                       f"{b['measured']:,} | {b['rest']:,} | {b['estimate']:,}{'' if b['carried'] else ' (measured only)'} |")
+        out += ["", f"Estimate {est['estimate']:,} lines across the border ({est['measured']:,} measured), "
+                    f"{_pct(est['estimate'], est['cube_lines'])} of the cube's {est['cube_lines']:,}."]
+        s = est.get("spots") or {}
+        if s:
+            ratio = "-" if s["ratio"] is None else f"{s['ratio']:.3f}"
+            out += ["", f"Spots: {s['measured']:,} measured across the border; the cube's {s['rest']:,} within reach of "
+                        f"it outside the boxes times {ratio} ({s['ab']:,} across per {s['aa_near']:,} of A near it): "
+                        f"{s['estimate']:,} spots, {_pct(s['estimate'], s['cube'])} of the cube's {s['cube']:,}."]
+        check = est.get("check")
+        if check and check["bins"]:
+            out += ["", f"Check: the run's lines of A against the cube {check['cube']} in the cells deeper in the box "
+                        "than each bin's longest line (the same bands and data):", "",
+                    "| Band | Lengths | Cells | Run | Cube | Run / cube |", "| --- | --- | ---: | ---: | ---: | ---: |"]
+            for b in check["bins"]:
+                ratio = f"{b['run'] / b['cube']:.4f}" if b["cube"] else "-"
+                out.append(f"| {b['band']} | {b['lengths'][0]}-{b['lengths'][1]} m | {b['cells']} | {b['run']:,} | "
+                           f"{b['cube']:,} | {ratio} |")
+        out.append("")
     return "\n".join(out)
 
 
@@ -652,10 +768,16 @@ def analyse(out: str, data_dir: str, say=print) -> int:
     exposed_path = os.path.join(out, "exposure.json")
     exposed = _read_json(exposed_path) if os.path.exists(exposed_path) else None
     estimates = []
-    for run in runs if exposed else []:
-        found = estimate(run, exposed) if run["primary"] == run["a_source"] else None  # the cube's data and grid
-        if found:
-            estimates.append({"run": run["run"], **found})
+    cube_dir = os.path.join(country.folder_of(data_dir, exposed["cube"]), "cube") if exposed else None
+    if cube_dir and os.path.exists(os.path.join(cube_dir, "cube.json")):
+        # the runs on the cube's data and grid (the primary is A's source) of each border
+        own = [r for r in runs if r["primary"] == r["a_source"]]
+        for run in own:
+            measured = [r for r in own if (r["a_area"], r["b_area"]) == (run["a_area"], run["b_area"])]
+            found = estimate(run, measured, exposed, cube_dir, cache_dir)
+            if found:
+                found["check"] = check_against_cube(os.path.join(out, run["run"]), cube_dir)
+                estimates.append({"run": run["run"], "border": run["border"], **found})
     _write_json(os.path.join(out, "study.json"), {"runs": runs, "agreements": agreements, "exposure": exposed,
                                                   "estimates": estimates})
     with cache.replacing(os.path.join(out, "study.md"), "w", encoding="utf-8") as f:
@@ -707,8 +829,9 @@ def picture(folder: str, run: Dict, cache_dir: str, path: str) -> Optional[str]:
     a = _project(outline_of(Side(**d["place"]["a"]), cache_dir), "EPSG:4326", crs)
     b = _project(outline_of(Side(**d["place"]["b"]), cache_dir), "EPSG:4326", crs)
     piece = border_pieces(a, {"b": b})["b"].intersection(box(*counted).buffer(cc.CELL_M))
-    width = 7.5 * (i1 - i0) / max(1, j1 - j0)
-    fig, axes = plt.subplots(1, 2, figsize=(min(14, 2 * width + 1), 6.2), dpi=120)
+    panel = 6.5  # inches of a panel's width; the height follows the box's shape
+    fig, axes = plt.subplots(1, 2, figsize=(2 * panel, panel * (j1 - j0) / max(1, i1 - i0) + 1.4), dpi=120,
+                             layout="constrained")
     titles = {"today": f"Counted today (A-A, B-B): {run_total(run, groups['today']):,} lines",
               "across": f"Across the border (A-B): {run_total(run, groups['across']):,} lines"}
     shown = None
@@ -731,7 +854,7 @@ def picture(folder: str, run: Dict, cache_dir: str, path: str) -> Optional[str]:
         ax.set_aspect("equal")
         for spine in ax.spines.values():
             spine.set_visible(False)
-    bar = fig.colorbar(shown, ax=axes, orientation="horizontal", fraction=0.05, pad=0.04)
+    bar = fig.colorbar(shown, ax=axes, orientation="horizontal", fraction=0.06, shrink=0.5, aspect=40)
     bar.set_label("lines per 1 km cell (log scale); the black line is the border, the grey box the counted area",
                   fontsize=8, color=INK)
     bar.outline.set_visible(False)

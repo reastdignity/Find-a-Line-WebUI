@@ -169,13 +169,13 @@ def test_reframed_spots():
     assert band_study.matched(ids, np.unique(there), 0).mean() < 0.5  # another frame: other ids
 
 
-def test_exposure_and_report(study, tmp_path):
+def test_exposure_and_report(study, monkeypatch):
     """A cube of the lines of A has every line within reach of B's border (the clip is small); the
-    report's estimate from the run is then the run's lines across the border; study.md and the
-    picture are written."""
+    report's estimate holds the run's lines and spots across the border as measured, and carries the
+    ratio over to the cube's lines outside the box; study.md and the picture are written."""
     folder, data, out = study["folder"], study["data"], study["out"]
     d = json.load(open(os.path.join(folder, "study.json"), encoding="utf-8"))["definition"]
-    cube_dir = str(tmp_path / "cube")
+    cube_dir = os.path.join(data, "countries", "west", "cube")  # where the report finds the exposure's cube
     aa = [p for band in ("S", "M") for p in bs._class_tiles(folder, band, "aa")]
     cc.build(aa, cube_dir, {"id": "west", "name": "West", "crs": d["crs"], "origin": d["origin"]})
     with open(os.path.join(cube_dir, "area.geojson"), "w", encoding="utf-8") as f:
@@ -188,18 +188,28 @@ def test_exposure_and_report(study, tmp_path):
     assert sum(b["all"] for b in lines) == int(bs._merged(aa)[1].sum()) > 0
     assert all(b["near"]["East"] == b["all"] for b in lines)
     bs._write_json(os.path.join(out, "exposure.json"), exposed)
+    monkeypatch.setattr(bs, "MIN_NEAR", 0)  # the clip has few lines: carry every bin's ratio over
     assert bs.analyse(out, data, say=lambda t: None) == 0
     result = json.load(open(os.path.join(out, "study.json"), encoding="utf-8"))
     run = result["runs"][0]
     assert run["border_km"] > 0.3 and run["km2_a"] > 0 and run["km2_b"] > 0
-    # every cell of the small box lies within reach of the border, so the cube's lines near it are the
-    # run's lines of A near it: the estimate is the run's lines across the border (in the bins with A's)
-    expected = 0
-    for k in range(cc.LENGTH_BINS):
-        ab = sum(e["classes"]["ab"]["bins"][k] for e in run["bands"].values())
-        aa = sum(e["classes"]["aa"]["bins"][k] for e in run["bands"].values())
-        expected += ab if aa else 0
-    assert result["estimates"][0]["estimate"] == expected > 0
+    found = result["estimates"][0]
+    ab = sum(e["classes"]["ab"]["lines"] for e in run["bands"].values())
+    assert found["boxes"] == ["clip-files"] and found["measured"] == ab > 0
+    # the cube's lines (the run's of A, all near the border) whose cell's centre lies outside the box: the
+    # rest, carried over with the run's ratio in every bin with lines of A near the border
+    keys, counts = cc.Cube(cube_dir).array("lines", 1).T
+    x, y = bs._cell_centres(keys, tuple(d["origin"])).T
+    left, bottom, right, top = d["counted"]
+    in_box = (x >= left) & (x < right) & (y >= bottom) & (y < top)
+    assert found["rest"] == int(counts[~in_box].sum())
+    for b in found["bins"]:
+        assert b["estimate"] == b["measured"] + (round(b["ratio"] * b["rest"]) if b["carried"] else 0)
+        assert b["carried"] == (b["aa_near"] > 0)
+    assert found["estimate"] >= found["measured"]
+    assert found["spots"]["measured"] == run["spots"]["ab"] > 0 and found["spots"]["estimate"] >= run["spots"]["ab"]
+    assert found["check"] == {"cube": "west", "bins": []}  # no 1 km cell lies wholly inside the small box
+    assert exposed["lines"]["near_total"]["East"] == exposed["lines"]["total"]
     text = open(os.path.join(out, "study.md"), encoding="utf-8").read()
-    assert "Żabi Koń split" in text and "| S | 30-60 m |" in text and "Estimate from clip-files" in text
+    assert "Żabi Koń split" in text and "| S | 30-60 m |" in text and "Estimate with the ratio of clip-files" in text
     assert os.path.exists(os.path.join(out, "pictures", "clip-files.png"))
