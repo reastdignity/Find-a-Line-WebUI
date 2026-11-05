@@ -335,7 +335,12 @@ const chunks = [0, 1].map((k) => ({ci: 0, cj: k, hasLine: k === 0, bounds: BOUND
   setTexture(tex, uv) { textures.push([k, tex ? [tex.image.width, tex.image.height, tex.image.draws.length] : null,
                                        uv ? uv(BOUNDS[k].x0, Math.min(BOUNDS[k].y1, META.top)).map((v) => Math.round(v * 1e6) / 1e6) : null]); }}));
 const toolbar = new El("div");
+// the activity pill's entries as imagery.ts sets and clears them: ["set", id, text, fraction] / ["clear", id]
+const activity = [];
 const scene = {level: "full", meta: META, chunks, toolbar, invalidate() { scene.frames = (scene.frames || 0) + 1; },
+  activity: {set(id, text, fraction) { activity.push(["set", id, text, fraction]); }, clear(id) { activity.push(["clear", id]); },
+             // a notice in the pill's place: ["notice", id, text, its action's label]; its action kept for a test's click
+             notice(id, text, action) { activity.push(["notice", id, text, action ? action.label : null]); scene.noticeAction = action; }},
   credits: {set(id, html, order) { credits[id] = [html, order]; }, remove(id) { delete credits[id]; }}};
 """
 
@@ -488,6 +493,6 @@ const row = toolbar.children[0];
 console.log(JSON.stringify({{available: im.available, texts: row.children.map((c) => [c.className, c.textContent, c.hidden]),
                             credits: Object.keys(credits)}}));""")
     assert found["available"] == ["shaded"]
-    assert found["texts"] == [["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded.", False],
-                              ["u-small v3-imagery-status", "", True]]  # its count written when imagery loads
+    assert found["texts"] == [["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded.", False]]
+    # no status element of the toolbar any more: the tiles are counted in the activity pill
     assert found["credits"] == []

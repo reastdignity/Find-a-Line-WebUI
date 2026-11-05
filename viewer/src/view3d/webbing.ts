@@ -4,7 +4,7 @@
 
 import type { Profile } from "../types";
 import type { Anchor3d } from "./decode";
-import { loadedAt, toScene, type Origin, type Point3d, type Webbing } from "./geometry";
+import { along, loadedAt, toScene, type Origin, type Point3d, type Webbing } from "./geometry";
 
 export { webbing } from "./geometry";  // the webbing these draw, with them for line.ts and the tests
 
@@ -52,6 +52,20 @@ export function walkerPose(w: Webbing, anchors: [Anchor3d, Anchor3d], s: number)
   // Scene direction of the line: X = x, Z = −y; the yaw turns +Z onto it (rotation.y = atan2(dX, dZ))
   const yaw = Math.atan2(b.x - a.x, -(b.y - a.y));
   return {at: loaded.walker, points: resample(loaded.points), sag: loaded.sag, yaw};
+}
+
+/** The unloaded webbing above the walker: its point at distance `s` along the span (the walker's x and y, the
+ *  height of the unloaded curve there, interpolated between the curve's points); null for an empty curve. The
+ *  pin's tip stands above it (pin.ts). */
+export function unloadedAt(w: Webbing, anchors: [Anchor3d, Anchor3d], s: number): Point3d | null {
+  const pts = w.estimate.unloaded;
+  if (!pts.length) return null;
+  const x = Math.min(w.span, Math.max(0, s));
+  let k = 1;
+  while (k < pts.length - 1 && pts[k][0] < x) k++;
+  const [x0, d0] = pts[k - 1] ?? pts[0], [x1, d1] = pts[k] ?? pts[0];
+  const a = x1 > x0 ? Math.min(1, Math.max(0, (x - x0) / (x1 - x0))) : 0;
+  return along(anchors[0], anchors[1], w.span, x, d0 + (d1 - d0) * a);
 }
 
 /** Whether a line fits: over the terrain and the trees ("fits"), over the terrain only ("terrain_only": the

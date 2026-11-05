@@ -1,0 +1,3 @@
+/* "Only valid lines" (overlay.ts): its notes under the toolbar. Like the editing hint, they belong to the orbit view. */
+#view3d:not([data-view="orbit"]) .v3-valid-note { display: none; }
+.v3-reach-failed { color: var(--bad); }

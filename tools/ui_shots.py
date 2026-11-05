@@ -74,7 +74,22 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
 VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
-                "![...document.querySelectorAll('.v3-toolbar [role=status]')].some((e) => !e.hidden)")
+                "(document.querySelector('.v3-activity')?.classList.contains('v3-hidden') !== false || "
+                "document.querySelector('.v3-activity').classList.contains('v3-activity-notice'))")
+# Round 2's tools of the strip (view3d/chrome.ts): a click on one, then what it shows
+TOOL = ".v3-tool[data-tool={}]".format
+REACH_SHOWN = "wait:document.getElementById('view3d')?.dataset.reach === '1'"
+TREES_SHOWN = "wait:document.getElementById('view3d')?.dataset.trees === 'on'"
+PROFILE_SHOWN = "wait:!!document.querySelector('.v3-card svg')"
+# A click on the terrain where the first anchor's handle stands (view3d/point.ts: a press and release in place)
+POINT_CLICK = ("(() => { const r = document.querySelector('.v3-handle').getBoundingClientRect(), "
+               "c = document.querySelector('.v3-canvas'), at = {clientX: r.left + r.width / 2, "
+               "clientY: r.top + r.height / 2, pointerId: 7, button: 0, bubbles: true, isPrimary: true}; "
+               "c.dispatchEvent(new PointerEvent('pointerdown', at)); c.dispatchEvent(new PointerEvent('pointerup', at)); })()")
+POINT_SHOWN = "wait:Number(document.getElementById('view3d')?.dataset.point) > 0"
+OTHERS_SHOWN = "wait:Number(document.getElementById('view3d')?.dataset.others) > 0"
+# The profile's card folded again (its state is kept in the browser, and the page before may have opened it)
+CARD_FOLDED = "js:document.querySelector('.v3-tool[data-tool=profile][aria-pressed=true]')?.click()"
 SHADED_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
              "b.textContent.trim() === 'Shaded')?.click()")
 # The "Edges" look chosen and drawn (view3d/scene.ts sets data-edges)
@@ -156,6 +171,15 @@ PAGES = {
                                           "wait:document.getElementById('view3d')?.dataset.view === 'behind'"]),
     "view3d-motion": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]", ".v3-motion", MOTION_TURN,
                                           "wait:document.getElementById('view3d')?.dataset.motion === 'on'"]),
+    # round 2: the profile's card (both levels), and at the full level the reach of "Only valid lines" and the
+    # canopy of "Trees and buildings" (the run is given the clip's surface model: clip_run)
+    "view3d-profile": ("/view3d", VIEW3D, [VIEW3D_READY, TOOL("profile"), PROFILE_SHOWN]),
+    "view3d-valid": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("valid"), REACH_SHOWN]),
+    "view3d-trees": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("trees"), TREES_SHOWN]),
+    # the lines from a point (a click on the terrain at anchor 1) and the address's other lines
+    "view3d-point": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("point"), "js:" + POINT_CLICK,
+                                                    POINT_SHOWN]),
+    "view3d-others": ("/view3d", VIEW3D + "&also={also}", [VIEW3D_READY, CARD_FOLDED, OTHERS_SHOWN]),
 }
 
 # The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
@@ -205,14 +229,30 @@ def clip_run(data: str) -> str:
     runs = os.path.join(data, "runs")
     run = next(d for d in os.listdir(runs) if os.path.isfile(os.path.join(runs, d, "run.json")))
     with_credits(os.path.join(runs, run, "data.js"))
+    with_surface(os.path.join(runs, run, "run.json"))
     return run
 
 
-def first_line(data: str, run: str) -> str:
-    """The first line of a run as its links name it (keys.lineCoords: the anchors of its data.js row)."""
+def with_surface(path: str):
+    """The run's run.json as if it had been searched with the clip's surface model (as tests/test_reach.py's
+    with_surface): the 3D view then offers "Trees and buildings" and its reach marks lines over trees. The lines
+    of the run stay those found without it."""
+    import obstacles
+    with open(path, encoding="utf-8") as f:
+        meta = json.load(f)
+    meta["params"]["nmpt"] = "mark"
+    meta["params"]["obstacles"] = dict(obstacles.RULE)
+    meta["data"].append({"layer": "Surface file", "file": os.path.join(REPO, "tests", "data", "zabi_kon_nmpt.tif")})
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f)
+
+
+def first_line(data: str, run: str, k: int = 0) -> str:
+    """The first line of a run (or its line `k`, the last one beyond the end) as its links name it (keys.lineCoords:
+    the anchors of its data.js row)."""
     with open(os.path.join(data, "runs", run, "data.js"), encoding="utf-8") as f:
-        row = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"][0]
-    return ",".join(str(v) for v in row[:4])
+        rows = json.loads(f.read().partition(" = ")[2].rstrip().rstrip(";"))["lines"]
+    return ",".join(str(v) for v in rows[min(k, len(rows) - 1)][:4])
 
 
 def with_credits(path: str):
@@ -331,6 +371,7 @@ def main():
     data = args.data_dir or tempfile.mkdtemp(prefix="ui-shots-")
     site, cookies, run, share, stop = serve(data)
     line = first_line(data, run)
+    also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines of the run ("view3d-others")
     wanted = [w for w in args.only.split(",") if w]
     pages = {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}
     themes = ["light", "dark"] if args.dark else ["light"]
@@ -368,7 +409,7 @@ def main():
                             else "localStorage.removeItem('findaline.layout'); ") + "} catch (e) {}")
                         start = {"map": f"/runs/{run}/map.html", "shared": f"/s/{share}/map.html"}.get(
                             ui, ui if ui.startswith("/") else f"/?ui={ui}")
-                        page.goto(f"{site}{start}{hash_.format(run=run, line=line)}")
+                        page.goto(f"{site}{start}{hash_.format(run=run, line=line, also=also)}")
                         page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
                         try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
                             page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",

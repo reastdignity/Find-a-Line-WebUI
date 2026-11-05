@@ -55,6 +55,9 @@ is asked of the coordinator, not decided alone. The coordinator updates this fil
   | `anchors` | `[{"x", "y", "h"}, {…}]`: the line's anchor pixels in grid metres (pixel centres, as data.js `x1…y2`) and the DEM's height there in metres (2 decimals, as `e1`/`e2`) |
   | `affine` | `[a0, a1, a2, b0, b1, b2]`: `lon = a0 + a1·x + a2·y`, `lat = b0 + b1·x + b2·y` (x, y grid metres), least squares over a 5 × 5 lattice of the patch |
   | `rigging`, `model` | the run's, as data.js |
+  | `slope`, `leash_fall` | the formula model's constants as data.js has them (round 2: the page's profile chart) |
+  | `surface` | true when the run has a surface model (round 2: the page may ask `part=canopy`) |
+  | `group_distance` | the run's grouping distance in metres (round 2: the lines from a point grouped as the result's spots) |
   | `ortho` | the run's `ortho` entry exactly as `mapping.save_map` writes it into data.js (`null` without one) |
   | `attribution` | the run's data credits as data.js `attribution` |
   | `sha256` | hex sha256 of the deflated heights |
@@ -608,6 +611,287 @@ The user opened the device page (`tools/device_page.py serve`, at 1428dfe) on th
 home network: 15 lines recorded from five runs (Dolina Bolechowicka, Gryffenbach, Mürren's rim, Kozie Czuby,
 Serra de Bernia), each at the levels phone and full, with the checklist of wave P (the walker's views, Phone
 motion, the zoom, the phone turned, five minutes open). The user's verdict: "Looks good. Everything works."
+
+## Round 2 (2026-11-05, the user's nine points)
+After using the view the user listed nine points. Branch `view3d-round2` from `main` 94f1777, the agents'
+branches `v3r2-<name>` from it, each in its own worktree `.claude/worktrees/v3r2-<name>`. The coordinator owns this
+contract, `docs/`, `CLAUDE.md`, `README.md`, `viewer/src/view3d/scene-api.ts` and `chrome.ts`, `package.json` and its
+lock (no new dependency is expected: report a need), and merges. The mock-up the decisions were taken on:
+https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
+
+**Decisions (the user's, 2026-11-05: the recommendations of the mock-up)**
+1. *The walker's marker*: the pin's tip stands above the straight (unloaded) webbing at the walker's place, about
+   14 px over it (over the walker's head where that is higher), with a thin half-transparent leader from the head
+   to the tip; shown as before (while the walker is under 20 px high, never in the walker's eyes); the unloaded
+   webbing's opacity 0.4 → 0.25.
+2. *The imagery's counter*: in the activity pill at the top's middle of the stage (a spinner, "Imagery 12 / 84", a
+   small bar), no longer a text of the toolbar. The same pill shows the other waits of round 2.
+3. *"Only valid lines"*: a switch; with it on, the reach of the fixed anchor (where the other anchor may stand) is
+   an overlay on the terrain and the dragged handle rests on valid samples only. Valid: the clearance as
+   `/api/profile`'s verdict gives it (over the terrain; "over trees" a class of its own) and the run's limits of
+   length and height difference; none of the search's anchor rules (slope, prominence, drop, wall angle). Computed
+   by the server (`/api/reach`); its engine is chosen after agent M's measurement.
+4. *The profile*: the 2D result's chart (`viewer/src/Profile.tsx`) in a card over the stage's bottom, folded by
+   default, its state kept in the browser; the chart's cursor and the walker follow each other.
+5. *Saving a line*: into the favourites at once, no folder asked; the found line is the 2D result's own
+   favourite, a moved line a favourite of its new anchors; the 2D result opens a favourite that is not among the
+   run's lines as a measured line; "Back to the map" and "Copy link" carry the moved anchors.
+6. *The credits*: a clearly readable box whose data credits fold behind "Data credits" at every width, the state
+   kept in the browser; the imagery's and the ring's credits never fold (the providers' terms).
+7. *Several lines*: the user's favourites of the run inside the patch (a switch "Saved lines") and the lines of the
+   same spot handed over by the 2D result in the address (`&also=`), at most 20, as thin unloaded webbings in their
+   stored verdict's colour with a label; a click makes one the active line. The patch stays as it is.
+8. *Trees and buildings*: the run's obstacle surface less the terrain as a block of its own, asked for only when
+   the switch goes on, drawn as a half-transparent canopy mesh; no switch for a run without a surface model.
+9. *Lines from a point*: a tool; a click on the terrain asks `/api/reach` for that point and shows the overlay, a
+   fan of webbings to the representatives and their list (length, clearance, height difference, over trees); the
+   representatives are the 2D result's spots (`grouping.ts`); level `full` only.
+0. *Where the new controls stand*: a tool strip at the stage's top left (`Scene3D.tools`), icons alone at the phone
+   level and under 600 px; the bar below keeps the walker, the walk, the imagery and the views.
+
+**In the base already (the coordinator, before wave 1)**
+- `scene-api.ts`: `Scene3D.activity` (`set(id, text, fraction?)`, `clear(id)`: the entry set last shows),
+  `Scene3D.tools` (`add({id, label, icon, order, toggle?, onClick})` → `ToolButton` with `setPressed`, `setLabel`,
+  `setIcon`, `remove`; `icon` is the `d` of a path in a 16 × 16 box), `Scene3D.card` (the slot of the card, in the
+  column `.v3-bottom` under the credits, so the credits stand above an open card); `chrome.ts` implements the first
+  two, `main.ts` `frame` makes the elements (`.v3-activity`, `.v3-tools`, `.v3-bottom` > `.v3-credits`, `.v3-card`).
+- `line.ts` `LineView`: `onAnchors(fn(anchors, edited))` after every `setAnchors`, `onProfile(fn(profile | null))`
+  after every `setProfile`, the fields `edited` and `profile`.
+- The tools' ids and order: `valid` 1, `point` 2, `trees` 3, `others` 4, `profile` 5, `save` 6.
+- Activity ids: `imagery`, `profile`, `reach`, `trees`.
+- Texts in `locales/en.json`: `ui.view3d.tools`, `.activity_imagery` (`{{done}}`, `{{total}}`),
+  `.activity_profile`, `.profile`, `.profile_hide`, `.profile_waiting`, `.save`, `.save_moved`, `.saved`,
+  `.saved_moved`, `.saved_moved_short`, `.save_failed` (`{{message}}`), `.copy_link`, `.link_copied`. A text that
+  is missing: add it under `ui.view3d.*` and name it in the report.
+
+**Wave 1** (in parallel)
+
+| Agent | Branch | Points | Owns |
+| --- | --- | --- | --- |
+| U1 | `v3r2-ui` | 1, 2, 6 | `viewer/src/view3d/` `pin.ts`, `line.ts`, `interact.ts`, `webbing.ts`, `imagery.ts`, `scene.ts` (`creditsBox` only), `view3d.css`; its Node tests in `tests/test_viewer.py`; `tests/test_view3d.py` |
+| U2 | `v3r2-profile` | 4, 5 | new `viewer/src/view3d/profilecard.tsx`, `save.ts` and a stylesheet of their own imported by them (not `view3d.css`); `viewer/src/view3d/main.ts`, `page.ts`, `decode.ts` (`PatchMeta`); `viewer/src/Profile.tsx`; `viewer/src/result/model.ts` and a new module for `measuredLine`; the profile's rules of `viewer/src/result/view/result.css` moved to a stylesheet both bundles import; `viewer/src/app/c/` where the 2D result opens a favourite; `search.py` (`patch_of_line`'s meta only); `tests/test_patch.py`, a new `tests/test_view3d_profile.py`, `tests/test_shell_c.py` |
+| M | `v3r2-reach-measure` | 3, 9 | new `tools/perf_reach.py`, `tests/test_perf_reach.py` (a measurement, nothing of the product) |
+
+- *U1, the marker*: a pure function of `interact.ts` gives the pin's tip from the screen points of the walker's
+  head and of the unloaded webbing above the walker (Node-tested); the leader is an element of the overlay placed
+  through the CSSOM; `data-pin` as before.
+- *U1, the pill*: `imagery.ts` reports its tiles through `scene.activity.set("imagery", t("ui.view3d.activity_imagery",
+  …), done / total)` (at most every `COUNT_MS`) and clears it when done or stopped; `.v3-imagery-status` goes.
+  The loading stages before the terrain is drawn (`main.ts` `Stage`) stay as they are.
+- *U1, the credits*: `creditsBox` folds the data credits at every width behind the existing "Data credits" button
+  (`ui.credits.toggle`), open by default on screens of 768 px and wider and folded under it, the user's choice kept in
+  `localStorage` (`findaline.view3d.credits`, try/catch, the page right without it); 12.5 px type on the surface's
+  full colour with a border and the shadow, inside the stage's corner; the imagery's and the ring's entries always
+  in sight.
+- *U2, the patch's meta*: two more keys, `slope` and `leash_fall`, the run's as data.js writes them (what
+  `Profile.tsx`'s formula model needs); `decode.ts` `PatchMeta` and `tests/test_patch.py` with them. The body is
+  not touched.
+- *U2, the card*: `ProfilePanel` rendered into `scene.card` with `render` of `preact` (never `preact/compat`),
+  `compact`, behind the tool `profile`; a `Line` for it from the profile and the anchors through the moved
+  `measuredLine`; its hover sets the walker (`line.setWalker`) and the walker's moves set its cursor (a new optional
+  prop of `ProfilePanel`; the 2D result's chart unchanged without it); a new profile (`line.onProfile`) redraws it,
+  between a move and its profile it shows `ui.view3d.profile_waiting`. Folded by default, kept in `localStorage`
+  (`findaline.view3d.profile`). The 2D result must look as before: its chart's rules only move files.
+- *U2, saving*: the tool `save`; the token from `GET /api/runs/<run>/favourites` (`favourites.ts`
+  `loadRunFavourites`), the POST through `saveFavourite`; the found line's key is the page's `line` exactly as the
+  address gives it (the 2D result's key), a moved line's `lineParam` of its anchors; the values from the profile
+  (`favouriteData` of the measured `Line`). Pressed while the current line is saved, pressed again it removes it.
+  The readout's "edited" text becomes `ui.view3d.saved_moved` while a moved line is saved (`line.ts` is U1's: do it
+  from `save.ts` through the readout's element, or ask the coordinator for a hook). A failure shows
+  `ui.view3d.save_failed` in the readout's place for errors. `page.ts` `backUrl(page, line?)` and a "Copy link"
+  button in the top bar (`navigator.clipboard.writeText` inside the click, its rejection caught) carry the current
+  line. In the 2D result `model.openLinked` measures a line that is not among the run's (where the map may ask
+  profiles) instead of only saying so. Stored data: a favourite's row as today, no new field, no migration.
+- Checks for both: `node node_modules/typescript/bin/tsc --noEmit`, `node build.mjs`, `tests/test_viewer.py`,
+  `tests/test_view3d.py`, `tests/test_view3d_tiles.py`, `tests/test_view3d_ring.py`, `tests/test_patch.py`; U2 also
+  `tests/test_shell_c.py` (alone: it times out now and then on `main` too) and `tests/test_units.py -k "catalogue
+  or labels"`; no CSP violation on the 3D page; the size of `view3d.js` gzip in the report.
+
+**After M (2026-11-05)**: `tools/perf_reach.py` (23ab1ae) measured the reach of one anchor on the Żabi Koń clip and
+three real runs (the machine shared, medians of three): a batched numpy evaluation and `linesearch.evaluate_lines`
+both give exactly `helpers.evaluate_line`'s validity and clearance; on a patch of 1537² at 1 m numpy takes 26 s
+(formula) to 122 s (sag, 1.65 M targets) for every sample, the kernel on two threads 2.3 s and 17 s, on every second
+sample 0.8 s and 4.4 s; step 1 for the patch 0.5 to 1 s more, the sag table 2.4 to 3.7 s once a process; numba costs
+the lane about 5.5 s of compiling once (cold cache) and 41 MB; an answer deflates to 2 to 3 KB. The spots rule gives 1
+to 27 representatives a point. The full tables: the user's `local/view3d-round2-2026-11-05/reach-measure/`.
+**The user's choice: the numba kernel, the lattice by the number of targets** (every sample up to about 300 000
+targets, every second one above).
+
+**Wave 2**
+
+| Agent | Branch | Points | Owns |
+| --- | --- | --- | --- |
+| S | `v3r2-server` | 3, 8, 9 (server) | `search.py` (new functions; not `patch_of_line`'s meta, which U2 and the coordinator change), `jobs.py`, `web.py`, `settings.py`, `warmup.py`, `README.md`'s rows of the limits, `error.*` texts of `locales/en.json`; new `tests/test_reach.py`, `tests/test_canopy.py`; the rows of the new route in `tests/test_public.py`, `tests/test_units.py` (the `rate_` kinds) |
+| R | `v3r2-reach` | 3 (page) | `viewer/src/view3d/` `edit.ts`, `scene.ts`, new `reach.ts` (pure) and `overlay.ts`, a stylesheet of its own; new `tests/test_view3d_reach.py` |
+| V | `v3r2-canopy` | 8 (page) | new `viewer/src/view3d/canopy.ts` (and a pure part of its own), a stylesheet of its own if needed; new `tests/test_view3d_canopy.py` |
+| P | `v3r2-point` | 9 (page), after R | new `options.ts` (pure), `fan.ts`, `optionlist.ts` |
+| K | `v3r2-others` | 7, after U2 | new `others.ts` (pure), `otherlines.ts`; `page.ts`; `viewer/src/app/c/ResultPage.tsx` |
+
+`main.ts` stays the coordinator's in wave 2: a module exports `create…(scene, line, …)` and the coordinator calls
+it at the merge; a module reads the run and the line of the page from `page.ts` `currentPage()`.
+
+*`GET /api/reach`* (S; the page: R and P)
+- Query: `run`, `line` and `step` exactly as the page asked `/api/patch` (they name the patch), `anchor`
+  (`<lat>,<lon>`, 7 decimals: the fixed point) and `as` (1 or 2: which end of the line the fixed point is). Header
+  `X-Findaline-Reach: 1`. Checks in `/api/patch`'s order, the anchor's too (`reach_anchor`: outside the patch or over
+  no data); its own rate (`reach_rate`, `"12/minute;200/hour"` on the public site, 429 `rate_reach`); the quick lane's
+  kind `reach`.
+- Grid: the patch's square at step 1 rebuilt as `patch_of_line` builds it, but with the run's obstacle rule
+  (`plan.obstacles` as `profile_of_line` sets it). The fixed anchor is the pixel holding the point. Targets: the
+  samples of a lattice (every `lattice`-th row and column from the first) within the run's limits of length and
+  height difference as `linesearch._pairs` tests them; `lattice` 1 while they number at most `REACH_FULL_TARGETS`
+  (300 000), else 2.
+- A target's value: the line between the two pixels evaluated as `helpers.evaluate_line` decides it, **in the
+  order the page will ask `/api/profile`** (`as` 1: the fixed point first; 2: the target first), so the mask and the
+  verdict after a release agree (the two directions differ: up to 1.7 m of clearance under the sag model). The
+  run's surface mode holds: where it rejects, a line over trees is not valid; where it marks, it is valid with the
+  flag. None of the search's anchor rules.
+- Engine: `linesearch.evaluate_lines`, imported inside the function: the quick lane loads numba at its first reach
+  task only (`tests/test_patch.py::test_patch_loads_no_numba` stays as it is), on `REACH_THREADS` (2) threads.
+- Answer: as the patch's, `uint32 LE N | N bytes of JSON meta | the deflated values`. Meta: `width`, `height` (the
+  lattice's samples), `lattice`, `res`, `left`, `top` (the patch's at step 1: value (i, j) belongs to the patch's
+  sample (i·lattice, j·lattice), whose centre is at `left + (j·lattice + 0.5)·res`, `top − (i·lattice + 0.5)·res`),
+  `anchor` (`{x, y, h}`: the fixed pixel's centre and height), `as`, `min_length`, `max_length` (the run's), `valid`
+  and `trees` (counts), `quantum` (0.5), `sha256` (of the deflated values). Values: one uint8 a sample, row-major
+  from the top: 0 not valid; else the low 7 bits `min(127, ceil(clearance / quantum))` (at least 1) and the high
+  bit set when the line passes over trees or buildings; zlib. In the quick table `{"meta": …, "mask": "<base64url>"}`
+  (`Redact.RAW`).
+- Tests: the mask against `search.profile_of_line` for a sample of targets in both orders (valid exactly where the
+  profile's `min[1] > 0`, the flag where `min_nmpt` says so, the clearance within the quantum); the limits; the
+  lattice's switch; the route's access rule, rate and error codes; a reach after `warmup.warm_up` compiles nothing
+  (or, if that cannot be had, the report says what the first reach costs).
+
+*The block of trees and buildings* (S; the page: V)
+- `GET /api/patch` with `part=canopy` (the same checks, rate and quick kind as the patch; `run`, `line`, `step` as
+  the page's patch): the answer is framed as the patch's with the meta `part` ("canopy"), `width`, `height`,
+  `step`, `res`, `left`, `top` (the patch's own for that request), `quantum` (0.5), `min_height` (1), `rule` (the
+  run's obstacle rule, null without one), `cells` (samples above 0), `sha256`. Values: one uint8 a sample,
+  row-major from the top: the run's obstacle surface (`obstacles.obstacle_surface` of its rule; without a rule the
+  surface model as it is) less the terrain, in units of `quantum` rounded, 0 below `min_height`, over no data and
+  on bare pixels, capped at 255; zlib. A run without a surface model: 400 `patch_no_surface`.
+- The patch's meta gets `surface` (true when the run has a surface model): the coordinator adds it after U2's merge;
+  until then the page reads it as an optional field.
+
+*R, the switch and the overlay*: the tool `valid` (order 1, a switch). On: the reach of each anchor as the fixed
+one is asked (one request at a time and never while a profile is in flight: the public site allows one waiting
+quick task a user), the activity `reach` meanwhile; the overlay (`Scene3D.setOverlay`: a picture over the whole
+terrain, `--ok` at about 45 % where the line fits, `--trees` where it passes over trees; implemented in `scene.ts`
+by R, not drawn in the edges' pass) shows the reach of the anchor that stays while a handle is dragged, and of
+anchor 1 before any drag. A dragged handle goes to the centre of the nearest valid sample near the pointer's hit
+(a pure function of `reach.ts`), else it stays where it was; after a release the profile is asked as before and
+then the moved anchor's reach again. Off: everything as today. A failure shows `ui.view3d.reach_failed` and the
+handles move freely. `edit.ts` also exports what P and K need: setting a line's anchors from outside (the found
+anchors kept for "Back to the found line") and reading the current one.
+
+*V, the canopy*: the tool `trees` (order 3, a switch) only when the patch's meta has `surface`; on: the block is
+asked once (`download.ts`, the activity `trees`), checked against its sha256 and kept; drawn as a half-transparent
+lit mesh in `--tree-fill` on a regular lattice of about 2 m (4 m at the phone level, coarser until it fits the
+triangle budget it reports), a cell drawn where the canopy is at least `min_height`, its top at the terrain's
+height plus the cell's largest value; never a pick target, not in the edges' pass. A failure shows
+`ui.view3d.trees_failed` and the switch goes off.
+
+**After U1, U2, V and R (2026-11-05)**: merged in that order (fce8f5f, 12817bf, 960cbe0 and R's ac7d030). The
+coordinator added the patch's `surface`, `LineView.key` (the key of a line taken from outside, `setAnchors`' third
+argument: `save.ts`' current key and `edit.ts`' profile request use it) and `Edit.setAnchors(anchors, key?)`.
+R's overlay is one more mesh a chunk on the chunk's own buffers (kept once made: freeing a geometry that shares
+buffers would free the chunk's); its snap radius is 28 px at the hit's distance, at least 1.5 cells, at most 80 m;
+`data-reach` names the fixed anchor whose reach shows. V's canopy: cells of 2 m (4 m at the phone level), coarser
+until 100 000 vertices (43 000) hold it (a wood over a whole patch of 1537²: 6 m cells, 134 000 triangles); a
+depth-only pass before the colour pass at 70 %. U2 added `ui.view3d.profile_rigging` and, in the 2D result,
+`ResultColumns.tsx`'s part of opening a link to a line outside the run. Under the machine's load
+`test_view3d_draws_the_line` and the ring tests fail now and then with no first frame drawn, on an untouched `main`
+as well (1 of 3 runs): not this round's.
+
+**Wave 2b** (K and P in parallel; each owns the files of its row, `main.ts` stays the coordinator's)
+
+| Agent | Branch | Point | Owns |
+| --- | --- | --- | --- |
+| K | `v3r2-others` | 7 | new `viewer/src/view3d/others.ts` (pure), `otherlines.ts`, a stylesheet of their own; `save.ts`, `page.ts`; `viewer/src/app/c/ResultPage.tsx` (and the model's method it needs in `viewer/src/result/model.ts`); new `tests/test_view3d_others.py` |
+| P | `v3r2-point` | 9 | new `viewer/src/view3d/options.ts` (pure), `fan.ts`, `optionlist.ts`, a stylesheet of their own; `edit.ts`, `overlay.ts`, `reach.ts` (what the tool needs added to them); new `tests/test_view3d_point.py` |
+
+*K, several lines* (`createOthers(scene, line, edit, …)`, both levels):
+- The lines: (A) the user's other favourites of the run, from the one favourites request `save.ts` already makes
+  (expose its answer; never a second request); (B) the lines of the address, `&also=<line>;<line>…` after `line`
+  (each `lat1,lon1,lat2,lon2`; `page.ts` `PageRequest.also`, at most `OTHERS_MAX` = 20 kept; "Copy link" carries
+  them, "Back to the map" does not). The 2D result's "3D view" link adds the other lines of the opened line's spot
+  in the model's order of the group, at most 20.
+- Drawn: a line whose two anchors lie in the patch over terrain data (lon/lat to grid metres by the inverse of the
+  meta's affine, a pure function; the heights from `scene.heightAt`), not the active line, at most 20: the
+  address's first in their order, then the favourites nearest the active line's middle. Each as its unloaded
+  webbing only, 2 px at about 60 %: a favourite in its stored verdict's colour where the favourites request gives
+  its values (`--clear`, `--trees`, `--bad`), else and for the address's lines `--muted`; a label in the overlay
+  at about 70 % of the line with its length (a favourite's with a star), placed after every frame drawn, hidden
+  outside the orbit view.
+- The address's lines show from the start. The tool `others` (order 4, a switch, `ui.view3d.others`) shows and
+  hides the favourites; offered when the run has another favourite; on with none of them in the patch: the note
+  `ui.view3d.others_none`. Its state is not kept.
+- A click on a label makes that line the active one: `edit.setAnchors(anchors, key)` (the walker, the handles, the
+  profile of that key; saving shows it saved when it is a favourite). The line that was active, when it has a key
+  (the found line's is the page's `line`, else `line.key`), is drawn among the others from then on; "Back to the
+  found line" works as before.
+- The root's `data-others`: the number of other lines drawn.
+
+*P, lines from a point* (`createPoint(scene, line, edit)`, level `full` only):
+- The tool `point` (order 2, a switch, `ui.view3d.point`). On: the note `ui.view3d.point_hint`; a click on the
+  terrain (the primary button pressed and released within a few pixels: a drag still turns the camera) picks the
+  point by a raycast on `pickTargets` and asks its reach, `anchor` the point and `as` 1, through the same lane as
+  the switch "Only valid lines" (never two quick requests at once, never beside a profile request), the activity
+  `reach` meanwhile. While the tool is on its overlay replaces the switch's.
+- With the answer: the overlay of that reach; a marker at the point; the representatives; a fan of their unloaded
+  webbings from the point (thin, about 55 %, `--clear` or `--trees` by the class, the one under the pointer or the
+  list's pointer full and thicker); and their list in a panel at the stage's right (scrolling inside itself, never
+  wider than the stage): the title `ui.view3d.point_title` with their number, columns `ui.view3d.point_length`,
+  `.point_clear` (the mask's clearance, an upper bound within its quantum: shown with "≤" or "about", say which),
+  `.point_dh` (the target's height less the point's, signed) and `.point_trees`; a click on a column's head
+  sorts by it; rows and webbings highlight each other.
+- The representatives (`options.ts`, pure): the candidates are the valid samples of the mask as lines from the
+  point (at most the 20 000 of the largest clearance); the representatives are the groups' first lines of
+  `viewer/src/grouping.ts` `groupLines` over those candidates with the run's grouping distance (if the patch's
+  meta does not carry it: read it as an optional field of the meta with the parameter's default, and say so; the
+  coordinator adds it), lines clear of trees before lines over them, at most `FAN_MAX` = 40.
+- A click on a row or on a webbing's end makes it the line: `edit.setAnchors([point, target])` (no key: a moved
+  line), the tool goes off, its overlay, fan and list go, the profile is asked as for any moved line. Off without
+  a choice: everything of the tool goes and the switch's overlay returns if it is on. A failed request:
+  `ui.view3d.reach_failed`.
+- The root's `data-point`: the number of representatives shown ("" while the tool is off).
+
+**After S, K and P (2026-11-05)**
+- **S** (efeea3d): `search.reach_of_anchor`, `canopy_of_line` and `_patch_plan` (the patch's square, repeated
+  beside `patch_of_line` so as not to touch it: to be folded into one), the quick kind `reach`, `GET /api/reach`,
+  `/api/patch?part=canopy`, `Limits.reach_rate`. The reach calls `linesearch.evaluate_lines` with the fixed anchor
+  and the targets as `[0, k]` (`as` 1) or `[k, 0]` (`as` 2), on two threads set for the call and restored after it;
+  a reach compiles nothing after `warmup.warm_up`; numba loads at the lane's first reach (4.1 s for it on the clip
+  with the sag table, 0.6 s afterwards; the canopy 0.3 s; answers about 2 KB and 190 KB at step 1); the reserve of
+  `search.slot_memory` covers it (about 90 MB at the first reach, 40 MB a call). `step` of `/api/reach` is checked
+  and unused (the grid is step 1); a damaged answer is `patch_damaged`; the route counts in nginx's group `api`.
+- **K** (7876c7e): the per-run favourites request gives keys and folders, no values, so other saved lines are
+  `--muted` until one was the active line (its profile's verdict is kept for its colour). Of the 20 lines the ones
+  that were active come first (at most 5), then the address's, then the favourites nearest the active line: a
+  line visited is not crowded out (K's choice against the contract's "the address's first"). New texts
+  `ui.view3d.other_label`, `.other_make`.
+- **P** (842a4e7): the tool's hint, failure and list stand in its own panel at the stage's right, under the pill;
+  a pick is a press and release within 5 px with the primary button and no modifier in the orbit view; Escape
+  switches the tool off; the list's clearance reads "≤ 2.0 m" (the mask's upper bound within its quantum); `group_by`
+  is "clearance". The lane got a third slot for the point's reach; `data-reach` is "point" while its overlay shows,
+  `data-fan` the webbings drawn. New texts `ui.view3d.point_m`, `.point_clear_value`, `.point_clear_title`.
+- **The coordinator**: `main.ts` creates every module; the patch's meta carries `group_distance`;
+  `Credits.fold()`: opening the profile's card folds the data credits, which open covered the line beside the
+  card; the chart's athlete line follows `--ink` (it was near black on the dark surface, in the 2D result too); a
+  lower chart at the phone level; `ui.view3d.loading_imagery` removed (the pill's `activity_imagery` took its
+  place); `tests/test_view3d_flow.py` runs the page against the app's own routes (the reach of anchor 1 and the
+  canopy arrive and show); `tools/ui_shots.py` has the pages `view3d-profile`, `-valid`, `-trees`, `-point`,
+  `-others`, its sample run given the clip's surface model.
+- **Checked**: on the clip the found line's second anchor is a valid sample of the reach of its first (clearance
+  within 4 m; with the surface model marked over trees); of 245 valid samples 15 lie within 10 m of it: the reach
+  of real terrain is sparse, small spots on rims and towers, not areas.
+- **Tests on the merged branch**: every test of the 3D view with the server's of the round 147 of 150 (the three:
+  the several-lines tests' handle on the wired module, fixed; `test_view3d_edges[full]` once, passing alone);
+  `tests/test_public.py`, `test_web.py`, `test_units.py`, `test_entry_points.py`, `test_keys.py` 339 passed, 1
+  skipped; `tests/test_shell_c.py` 7 passed. `view3d.js` 310 KB gzip (283 KB before the round).
+- **Open**: `tools/device_page.py` records the patch and the profile only: on its phone page the favourites, the
+  canopy and the reach have no answers (the tools hide or fail with their note); `_patch_plan` beside
+  `patch_of_line`; a favourite's values for the other lines' colours would need the favourites request to give
+  them; the other lines of the run's spots inside the patch (docs/3d-view.md, "Several lines in one view", C).
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run

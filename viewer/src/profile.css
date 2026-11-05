@@ -1,0 +1,43 @@
+/* The profile chart's rules (Profile.tsx, classes fal-*), inside .r-profile, shared by the result's dock
+   (result/view/ProfileDock.tsx) and the 3D view's card (view3d/profilecard.tsx). The root is .ui. */
+.ui .r-profile, .ui .r-profile .fal-profile { min-width: 0; }
+.ui .r-profile { font-size: 12px; color: var(--ink-2); overflow: hidden; }
+.ui .r-profile .fal-swatch { display: inline-block; width: 14px; height: 3px; vertical-align: middle; }
+.ui .r-profile .fal-profile-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ui .r-profile .fal-profile-title { font-weight: 600; color: var(--ink); }
+.ui .r-profile .fal-profile-legend { display: inline-flex; flex-wrap: wrap; gap: 2px 12px; margin-left: 10px; }
+.ui .r-profile .fal-profile-legend span { white-space: nowrap; }
+.ui .r-profile .fal-profile-head button, .ui .r-profile .fal-key .fal-scale { border: 1px solid var(--line); border-radius: 6px; background: var(--surface); min-height: 26px;
+  padding: 0 8px; cursor: pointer; font-size: 12px; }
+.ui .r-profile .fal-profile-controls { display: none; flex-wrap: wrap; gap: 4px 14px; padding: 4px 0; }
+.ui .r-rigging .r-profile .fal-profile-controls, .ui .r-profile .fal-profile-controls:has(.fal-heights) { display: flex; }
+.ui .r-profile .fal-profile-controls:has(.fal-heights) .fal-rigging,
+.ui .r-profile .fal-profile-controls:has(.fal-heights) .fal-layers { display: none; }
+.ui .r-rigging .r-profile .fal-profile-controls .fal-rigging, .ui .r-rigging .r-profile .fal-profile-controls .fal-layers { display: inline; }
+.ui .r-profile .fal-profile-controls label { margin-right: 10px; white-space: nowrap; }
+.ui .r-profile .fal-profile-controls input[type=number] { width: 56px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--surface); padding: 2px 4px; }
+.ui .r-profile .fal-profile-chart { overflow: hidden; width: 100%; }
+.ui .r-profile .fal-profile-chart svg { display: block; }
+.ui .r-profile .fal-hover { touch-action: pan-y; }
+.ui .r-profile .fal-profile-readout { min-height: 18px; color: var(--ink); font-variant-numeric: tabular-nums; }
+/* The chart's fixed light colours, for both themes */
+.ui { --r-terrain-fill: #e3d8c3; }
+@media (prefers-color-scheme: dark) { .ui:not([data-theme="light"]) { --r-terrain-fill: #4d4433; } }
+.ui[data-theme="dark"] { --r-terrain-fill: #4d4433; }
+.ui .r-profile svg polygon[fill="#e3d8c3"] { fill: var(--r-terrain-fill); }
+.ui .r-profile svg line[stroke="#eee"] { stroke: var(--line); }
+.ui .r-profile svg text[fill="#777"] { fill: var(--muted); }
+.ui .r-profile svg text:not([fill]) { fill: var(--ink); }
+.ui .r-profile svg line.fal-cursor { stroke: var(--ink); }
+/* the webbing loaded by the athlete under the cursor: near black on a dark surface otherwise */
+.ui .r-profile svg .fal-loaded { stroke: var(--ink); }
+.ui .r-profile svg circle.fal-athlete { fill: var(--ink); }
+@media (max-width: 767px) { .ui .r-profile .fal-profile-legend { display: none; } }
+.ui .r-profile .fal-profile.fal-fill { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ui .r-profile .fal-fill .fal-profile-chart { flex: 1 1 0; min-height: 120px; position: relative; }
+.ui .r-profile .fal-fill .fal-profile-chart svg { position: absolute; top: 0; left: 0; }
+.ui .r-profile .fal-compact .fal-key { display: none; flex-basis: 100%; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.ui .r-rigging .r-profile .fal-compact .fal-key { display: flex; }
+.ui .r-profile .fal-key .fal-profile-legend { margin-left: 0; }
+.ui .r-profile .fal-compact .fal-profile-readout { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

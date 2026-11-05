@@ -163,6 +163,14 @@ INTERACT_SCRIPT = """
     out.hint = document.querySelectorAll(".v3-hint").length;
     out.pin = root.dataset.pin;
     out.edit = root.dataset.edit;
+    // the pin's tip and its leader (round 2, point 1): the leader from the walker's head up to the tip, the pin's
+    // rotated box ending in the tip
+    const leader = document.querySelector(".v3-leader"), tipBox = document.querySelector(".v3-pin-tip"), pinEl = document.querySelector(".v3-pin");
+    if (leader && tipBox && pinEl) {
+      const lr = leader.getBoundingClientRect(), tr = tipBox.getBoundingClientRect(), pr = pinEl.getBoundingClientRect();
+      out.leader = {height: leader.style.height, transform: leader.style.transform, width: lr.width, top: lr.top, bottom: lr.bottom,
+                    tipY: tr.top, pinBottom: pr.bottom, pinTop: pr.top, opacity: getComputedStyle(leader).backgroundColor};
+    }
     if (!ready || !out.handles) { if (ready) walk(); else done(); return; }
     const [h1, h2] = [...document.querySelectorAll(".v3-handle")].map((h) => h.getBoundingClientRect());
     const handle = document.querySelectorAll(".v3-handle")[1];
@@ -241,6 +249,11 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
     print(level, result)
     assert result["ready"] and result["settled"], result
     assert result["pin"] == "1" and result["edit"] == ""
+    leader = result["leader"]
+    assert leader["height"].endswith("px") and float(leader["height"][:-2]) >= 2.5 and "rotate(" in leader["transform"], leader
+    assert abs(leader["top"] - leader["tipY"]) <= 2 and leader["tipY"] < leader["bottom"], leader  # from the tip down to the head
+    assert abs(leader["pinBottom"] - leader["tipY"]) <= 1.5 and leader["pinTop"] < leader["tipY"], leader  # the pin ends in its tip
+    assert leader["opacity"].startswith("rgba(255, 255, 255, 0.65"), leader
     assert result["walkButton"] == 1 and result["speed"] == "×1"
     assert result["reduced"] is reduced, result
     assert result["walkHidden"] is reduced and result["reducedNote"] is reduced, result
@@ -785,4 +798,108 @@ def test_view3d_walker_zoom(clip_data, tmp_path, monkeypatch):
     assert result["farther"]["value"].endswith(" m") and result["nearer"]["value"] == "7.1 m"  # 9.1 m, onto the grid
     assert cam["eyesAgain"][7] == cam["minus"][7] and result["eyesAgain"]["value"] == result["minus"]["value"]
     assert cam["back"] == cam["orbit"] and len(cam["orbit"]) == 8
+    assert _violations(dom) == []
+
+
+# On the page after the bundle, in a desktop window (round 2, points 2 and 6): once ready, the activity pill (an
+# element of the stage with role "status", hidden: the clip's run has no orthophoto, so no tiles are counted here;
+# the count is tested on a fake scene in test_viewer.py), no status element of the imagery in the toolbar, and the
+# credits box: its data credits open behind their button at this width, the box's type and surface, a click folding
+# them (the choice kept in localStorage, the focus on the new button) and another unfolding them
+CREDITS_SCRIPT = """
+(function () {
+  const root = document.getElementById("view3d");
+  const out = {};
+  const done = () => {
+    const pre = document.createElement("pre");
+    pre.id = "result";
+    pre.textContent = JSON.stringify(out);
+    document.body.appendChild(pre);
+  };
+  const shown = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const store = () => { try { return localStorage.getItem("findaline.view3d.credits"); } catch (e) { return "error"; } };
+  const state = () => {
+    const toggle = document.querySelector(".v3-credits .u-credits-toggle"), body = document.querySelector(".v3-credits .u-credits");
+    return {toggle: shown(toggle), expanded: toggle && toggle.getAttribute("aria-expanded"), body: shown(body),
+            focused: !!toggle && document.activeElement === toggle, stored: store(), text: body ? body.textContent.slice(0, 40) : null};
+  };
+  let n = 0;
+  const until = (test, ms, then) => {
+    const started = Date.now();
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
+  };
+  try { localStorage.removeItem("findaline.view3d.credits"); } catch (e) { /* none */ }
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    out.ready = ready;
+    if (!ready) { done(); return; }
+    const pill = document.querySelector(".v3-stage > .v3-activity");
+    out.pill = {role: pill && pill.getAttribute("role"), hidden: !shown(pill)};
+    out.statusInToolbar = document.querySelectorAll(".v3-toolbar .v3-imagery-status").length;
+    out.width = innerWidth;
+    out.start = state();
+    const box = document.querySelector(".v3-credits"), css = getComputedStyle(box), page = getComputedStyle(root);
+    out.box = {fontSize: css.fontSize, border: css.borderTopWidth, background: css.backgroundColor,
+               surface: page.getPropertyValue("--surface").trim(), shadow: css.boxShadow !== "none",
+               first: box === box.parentElement.firstElementChild, parent: box.parentElement.className,
+               inStage: box.getBoundingClientRect().right <= innerWidth && box.getBoundingClientRect().bottom <= innerHeight};
+    document.querySelector(".v3-credits .u-credits-toggle").click();
+    out.folded = state();
+    document.querySelector(".v3-credits .u-credits-toggle").click();
+    out.unfolded = state();
+    done();
+  });
+})();
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+@pytest.mark.parametrize("level", ["full", "phone"])
+def test_view3d_credits_and_pill(clip_data, tmp_path, monkeypatch, level):
+    """Round 2, points 2 and 6, in a desktop window: the imagery's count is no longer an element of the toolbar and
+    the activity pill is there (role status, hidden while nothing loads); the data credits (given to the clip's run
+    here) behind their button at this width too, open at the start, folded and unfolded by clicks with the choice
+    kept in the browser and the focus on the button; the box at 12.5 px on the surface with a border and a shadow,
+    the first child of the stage's bottom column, inside the window."""
+    data, meta = clip_data
+    run_json = data / "runs" / meta["id"] / "run.json"
+    saved = run_json.read_text("utf-8")
+    run_json.write_text(json.dumps({**json.loads(saved), "attribution": [
+        {"data": "Test model", "attribution": "Test survey", "licence": "CC BY 4.0", "url": "https://example.org/"}]}),
+        encoding="utf-8")
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    row = _lines_of(data, meta["id"])[0]
+    line = ",".join(f"{v:.7f}" for v in row[:4])
+    page = _script_page(data, "view3dcredits", CREDITS_SCRIPT)
+    with _server(data, start_scheduler=True) as port:
+        dom = subprocess.run(
+            [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
+             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
+            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+    run_json.write_text(saved, encoding="utf-8")
+    found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+    assert found, dom[-3000:]
+    result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+    print(level, result)
+    assert result["ready"], result
+    assert result["pill"] == {"role": "status", "hidden": True} and result["statusInToolbar"] == 0, result
+    assert result["width"] >= 768
+    start = result["start"]
+    assert start["toggle"] and start["expanded"] == "true" and start["body"] and start["stored"] is None, result
+    assert start["text"].startswith("Data: Test survey"), result
+    box = result["box"]
+    assert box["fontSize"] == "12.5px" and box["border"] == "1px" and box["shadow"] and box["first"], result
+    assert box["parent"] == "v3-bottom" and box["inStage"], result
+    assert box["background"].startswith("rgb("), result  # the surface's full colour, not a translucent one
+    folded = result["folded"]
+    assert folded["toggle"] and folded["expanded"] == "false" and not folded["body"], result
+    assert folded["stored"] == "folded" and folded["focused"], result
+    unfolded = result["unfolded"]
+    assert unfolded["expanded"] == "true" and unfolded["body"] and unfolded["stored"] == "open" and unfolded["focused"]
     assert _violations(dom) == []
