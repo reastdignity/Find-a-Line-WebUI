@@ -748,6 +748,58 @@ Filters as floors of the search (a minimum prominence of 5 m and a webbing heigh
 Lauterbrunnen's M band) are queued to be measured; at Montserrat a minimum prominence of 10 m cut
 the lines 40-fold (roadmap, "Prominent lines").
 
+**The recommendation for new parameters (the user's decision of 2026-11-05): a parameter of the
+search goes into the cube when the count needs no extra computing for it**, that is when step 3
+already hands its value to the counter (`countcube.TileCounter` receives every `LINE_VALUES` column
+and `water_px`). Bits and size are then a matter of the cube's format, not a reason to leave it out.
+A parameter that needs more computing is decided on its own cost.
+
+By that rule the cube takes eight more parameters with the next count of every tile, and the
+clearance over trees as a value where a surface model is used (Slovakia's pilot has none, so its
+growth is not measured). Measured on 58 tiles of Slovakia's layer bands on 2026-11-05, 11 % of the
+cube's keys, the largest of 132 million lines, the code of main unchanged
+(`local/country-perf-2026-11-04/cube-params/`). The bins were chosen for that measurement only, and
+the sizes are that growth applied to today's 12.9 MB of arrays, so they are estimates:
+
+| Parameter | Its value | Keys of lines × | Keys of spots × | Cube, MB (est.) |
+| --- | --- | ---: | ---: | ---: |
+| Today's cube | | 1 | 1 | 12.9 |
+| Metres over water | `water_px` × the resolution | 1.08 | 1.06 | 13.9 |
+| Height of the lower anchor | `elev_a1`, `elev_a2` | 1.17 | 1.14 | 15.0 |
+| Height of the upper anchor | `elev_a1`, `elev_a2` | 1.17 | 1.15 | 15.1 |
+| Mean height of the webbing | `height_mean` | 1.51 | 1.34 | 18.6 |
+| Prominence of the stronger anchor | `prom1`, `prom2` | 1.55 | 1.39 | 19.3 |
+| Drop below both anchors | `drop1`, `drop2` | 1.59 | 1.41 | 19.7 |
+| Share of the line high above the terrain | `high_pct` | 1.85 | 1.39 | 21.6 |
+| Height difference of the anchors | `elev_a1`, `elev_a2` | 2.68 | 2.09 | 31.7 |
+| All eight | | 15.82 | 5.69 | 152, about 229 with the wider key |
+
+What it takes, none of it done yet:
+
+- **The key.** Eight fields of 3 bits are 24 bits, and the int64 key has 10 free (53 of 63 used), so
+  the key needs a second int64: 24 B a row of the cube instead of 16.
+- **One count of every tile.** The layout changes, so `countcube.VERSION` changes. It belongs in the
+  same count as the band study's bands and, if taken, step 1 per group of tiles: about 1-1.5 h of this
+  PC for Slovakia (est.).
+- **The bins,** chosen by measuring (a guess would fix them for every country), since other edges change the sizes.
+- **The spots.** `merge_spots` takes each new field as a filter passes: the largest bin of a floor
+  (drop, heights, the stronger prominence), the smallest of a ceiling (the height difference, the
+  upper anchor).
+- **The page.** `Filters`, the layer's filters and `LayerHistograms.tsx`.
+
+Cost for all of Slovakia's 1.18 billion lines: 8-13 s of CPU per parameter for its bins, no more RAM
+in a tile, since a line's columns are in memory anyway and a spot's fields stay in its record. The
+web process holds the cube in memory, so about 13 → 229 MB (est.), and a request grows with the
+keys: at 1 km 2.3 ms for cells and 14.6 ms for a histogram today, about 36 and 230 ms (est., the
+lines' 15.8 times). A country with more steep cells holds more keys: measure the growth on a second
+country before the bins are fixed.
+
+Outside the rule, each with its own cost: the metres over filled gaps (a second pass along each line,
+at most 9.4 min of CPU for Slovakia), the percentiles of the anchors (0.32 h of tile seconds for the
+terrain statistics, and the distribution is known only after the last tile: the heights of the
+anchors stand in for them), and the coordinates, groups and profiles of each line (1.18 billion lines
+at 140 B of `lines.csv` are 166 GB, at the app's 450 B of memory 533 GB, against the cube's 13 MB).
+
 ### 6.4 A partial product: re-parametrising without the full cost
 
 | Change | What it costs |
