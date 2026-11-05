@@ -657,7 +657,7 @@ All read on 2026-11-01; quotes are short excerpts of the deciding sentences.
 - Stadia: satellite from the $80 Standard plan — <https://stadiamaps.com/pricing/>
 
 **Open data**
-- Mapterhorn: terrarium WebP tiles to z17; coverage by country; code BSD-3, data under each source's licence —
+- Mapterhorn: terrarium WebP tiles, 512 px, top zoom by source (z16 for 1 m data such as Poland's, up to z18 in the download list; corrected 2026-11-05, this said z17); coverage by country; code BSD-3, data under each source's licence —
   <https://mapterhorn.com/>, <https://mapterhorn.com/data-access>
 - AWS Terrain Tiles: EU-DEM 30 m in most of Europe; "Regular updates are not planned." —
   <https://github.com/tilezen/joerd/blob/master/docs/data-sources.md>

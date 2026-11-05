@@ -316,7 +316,8 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
 
 **V3b, the ring (viewer)**
 - `createRing(scene, imagery, url)`: a `TilesRenderer` of `3d-tiles-renderer` 0.5.3 over the Terrarium tiles at
-  `url` (Mapterhorn: Terrarium-encoded WebP of 512 px in Web Mercator, z0–17) through the package's plugin for such
+  `url` (Mapterhorn: Terrarium-encoded WebP of 512 px in Web Mercator; the top zoom depends on the source: z16 for 1 m data, about 0.77 m
+  ground pixel at our latitudes, up to z18 in Mapterhorn's download list; corrected 2026-11-05) through the package's plugin for such
   elevation tiles (look in the installed package's exports and docs; report which), updated only when the camera
   changes (`UpdateOnChangePlugin` or the like) with `tiles.update()` in `scene.beforeDraw`, `keepDrawing("ring",
   true)` while tiles load, `invalidate()` per tile loaded.
@@ -326,7 +327,8 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
 - Placement: from the tiles' frame into the scene's (`toScene`: origin at the patch's centre, X east, Y up, Z
   south) through `meta.affine` and `geometry.ts` (`mercator`, `lonLat`); heights as the tiles give them (report the
   offset to the patch's heights along its edge, median and p90, on the test tiles and from the code's reasoning for
-  Mapterhorn's datums).
+  Mapterhorn's datums). Measured 2026-11-05, Poland only (Tatras, Żabi Koń, Mazovia, z16): the median difference
+  to GUGiK's NMT is within 5 mm at all three; other countries' datums are not measured.
 - Cut out under the patch: no ring triangle over the patch's rectangle (clipping planes with `clipIntersection` and
   `renderer.localClippingEnabled`, or a discard in the shader); the patch's skirts hide the seam.
 - Imagery: the ring's overlay follows `imagery.current` and `onChange`: Esri through the package's XYZ overlay
@@ -370,7 +372,7 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
   `Imagery.onChange`; the root's `data-ring`, `data-ring-tiles`, `data-ring-offset`. **Depends on 0.5.3's
   internals:** `RingTerrain` clamps the plugin's private `_maxSourceLevel`; check it on an upgrade. On the test
   tiles (from the clip): 8 terrain tiles 132 KB and 36 imagery tiles 27 KB on the desktop, the edge's offset
-  0.21 m median, 0.95 m p90 (phones 1.2 / 5.5 m). Mapterhorn's own sizes are unknown: at more than ~165 KB a WebP
+  0.21 m median, 0.95 m p90 (phones 1.2 / 5.5 m). Mapterhorn's own sizes, measured 2026-11-05 in Poland at z16 (not at the ring's zooms 10-12): 17-27 KB (flat farmland), 73-125 KB (Żabi Koń), 125-196 KB (Tatras), one z15 tile 121.5 KB; at more than ~165 KB a WebP
   tile the desktop's 9 tiles pass 1.5 MB (the knob: `RING`); about 100k vertices more on the desktop.
 - **V3c**: `settings.ViewSettings` (`ring_origin`), `create_app(view=)`, `web.page_csp`, `web.ortho_origins`
   (13 origins today, pinned in `tests/test_public.py::RING_ORIGINS`), `ESRI_TILES_ORIGIN`,
@@ -468,7 +470,8 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   below ui.css's 767 px (the imagery's and the ring's never fold); `tools/ui_shots.py` writes the clip's credits
   into its run.json too.
 - **Open after wave 4**: the user's iPhone test (`tools/device_page.py serve` and its checklist: the walk's
-  smoothness with `preserveDrawingBuffer`, Edges on a phone's GPU); Mapterhorn's answer and then the ring's bytes;
+  smoothness with `preserveDrawingBuffer`, Edges on a phone's GPU); Mapterhorn's answer and then the ring's bytes (tile sizes at the ring's zooms 10-12 and other countries' datums
+  still unmeasured);
   the 2D map's Edges (roadmap). When the user ends the idea: the tag `history/line-3d-view` and one squash commit
   into `main` (CLAUDE.md, conventions).
 
