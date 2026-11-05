@@ -4,7 +4,7 @@
 // navigation leads to Home, Favourites and the account; the result is a map with a sheet.
 // Styles in c.css (classes c-*, under the kit's .ui).
 
-import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { BottomNav, DESKTOP, Panel, Screen, useMedia, type NavItem, type Theme } from "../../ui/components";
 import { Icon, Logo } from "../../ui/icons";
 import { storedTheme } from "../../ui/choice";
@@ -79,7 +79,10 @@ export function AppC() {
   const usage = useUsage();
   const runs = useRuns();
 
-  useEffect(() => {
+  // Listening from the first render on, not after its paint (useEffect): the page can be used as soon as it is
+  // rendered, and a link followed before the first frame (Home's "New search") changed the hash unseen, the
+  // page staying where it was
+  useLayoutEffect(() => {
     // The highline layer writes its view and filters into the hash in place, and reads Back and pasted links
     // itself: a change within #layer is no navigation (the page stays, nothing re-renders)
     const changed = () => {
@@ -88,9 +91,9 @@ export function AppC() {
       if (next.page !== "layer") setNavs((n) => n + 1);
     };
     window.addEventListener("hashchange", changed);
-    api.schema().then(setSchema, (e) => setError(e.message));
     return () => window.removeEventListener("hashchange", changed);
   }, []);
+  useEffect(() => { api.schema().then(setSchema, (e) => setError(e.message)); }, []);
   useEffect(() => { if (route.page !== "home") setHighlight(""); }, [route.page]);
 
   // A search that ends saves a run: list the runs again, the quotas too
