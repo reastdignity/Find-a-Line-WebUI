@@ -81,9 +81,18 @@ RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers
 # pair search. The heavy tiles share the logical cores left after LIGHT_CORES per light tile running,
 # and a light tile keeps at most LIGHT_THREADS while a heavy one runs (_threads). Measured on
 # Slovakia's M2 band (2026-11-04): 7 workers at 3 threads each left 7-9 of 24 logical cores idle
-# through the run, and its heaviest tile (47 min) was the run's length.
+# through the run, and its heaviest tile (47 min) was the run's length. One core per light tile, not
+# the two (a physical core) of before (2026-11-05, docs/performance.md "Round 4", W1): a light tile's
+# worker used 1.2-1.4 logical cores on average, and with 12 workers on 12 physical cores two per
+# light tile left the three heavy M2 tiles 2 threads each (1.8 cores, the heaviest at 16 M pairs a
+# minute) until the light part ended at +15 min; with one they get 5-7 threads (3.4-6.6 cores, 29-69
+# M pairs a minute) and the band took 32.5 and 32.7 min instead of 34.4 and 34.3, the L band 17.8
+# instead of 18.3. None (the heavy tiles share every core, the light ones run on top): M2 32.8, the
+# light tiles slower. The machine stood at 92-99 % in every run: the split moves the heavy tiles'
+# work from the run's tail, where a tile's pair search on 24 threads checks 6 M pairs per core and
+# minute, into the light part, where it checks 9-11.
 HEAVY_SHARE = 0.05
-LIGHT_CORES = 2
+LIGHT_CORES = 1
 LIGHT_THREADS = 3
 TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (_MemorySampler)
 RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
@@ -874,7 +883,14 @@ def _disk_bytes(plan) -> int:
 
 def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
     """The processes of a run (at most the physical cores, each with the memory of the largest
-    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel) and the bytes each needs."""
+    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel) and the bytes each needs. No cap below the
+    physical cores: on this PC (12 physical, 24 logical cores) Slovakia's M2 band took 31.7, 32.1
+    and 32.5-32.7 min at 8, 10 and 12 workers (LIGHT_CORES 1; 33.5, 33.7 and 34.3-34.4 with 2), its
+    L band 17.8, 18.2 and 18.3 at 8, 10 and 12 (2026-11-05, docs/performance.md "Round 4", W1): the
+    machine stood at 91-99 % of its logical cores in those runs, and fewer workers only moved cores
+    from the light tiles to the heaviest ones, the band's end (_threads). A band of light tiles takes
+    every worker it gets: the S band (every tile under 40 s) 29.3 min at 12 workers, 32.6 at 8 (the
+    machine at 80 and 62 %)."""
     import search
     per = WORKER_BASE + COUNT_PIXEL_BYTES * largest_px
     available = search.available_memory() if available is None else available
