@@ -560,15 +560,20 @@ REACH_SCRIPT = _with_until("""
     out.free = {profiles: R.profiles.slice(p0), requests: R.requests.map((r) => [r.as, r.anchor]), reach: root.dataset.reach, edit: root.dataset.edit};
     out.freeFrac = frac(anchorsOf(R.profiles[p0].line)[1]);
 
-    // 2. with the reach of anchor 1 in, a dragged anchor 2 rests on a valid sample's centre
+    // 2. with the reach of anchor 1 in, a dragged anchor 2 rests on a valid sample's centre. Each drag starts from
+    // the handles where the last frame placed them (settled): the frame of the line just taken may still be coming,
+    // and a drag from the handle's place before it went elsewhere (step 3 then left the ring only while it lagged)
+    await settle(15000);
     drag(1, 0.2);
     await waitFor(() => R.profiles.length >= p0 + 2, 10000);
     await waitFor(() => edited() && R.active === 0 && R.requests.length >= 3, 25000);
     const snapped = anchorsOf(R.profiles[p0 + 1].line);
     out.snapped = {frac: frac(snapped[1]), d: Math.hypot(snapped[1][0] - snapped[0][0], snapped[1][1] - snapped[0][1]),
                    moved: R.profiles[p0 + 1].line !== R.profiles[p0].line};
-    // 3. dragged away, outside the valid ring: it stays where it was
-    drag(1, -0.7);
+    // 3. dragged away, outside the valid ring: it stays where it was (from the drawn handles 0.7 and 1.0 of the way
+    // away still end on valid samples, 1.2 and 1.5 beyond them: measured on the clip's run)
+    await settle(15000);
+    drag(1, -1.5);
     await waitFor(() => R.profiles.length >= p0 + 3, 10000);
     await waitFor(() => edited() && R.active === 0, 25000);
     out.stays = R.profiles[p0 + 2].line === R.profiles[p0 + 1].line;
