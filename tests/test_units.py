@@ -74,6 +74,22 @@ def test_progress_listener():
     assert events[-1]["done"] and events[0]["stage"] == "test stage"
 
 
+def test_bars_put_back_the_bars_they_found(monkeypatch):
+    """progress.bars() leaves the bars that were there, with their labels: bars without a label stayed for
+    the rest of the process, and a test that followed the bars by their label saw none
+    (tests/test_count_mode.py after a test that had run the country layer in its process)."""
+    monkeypatch.setenv("FINDALINE_PROGRESS", "text")
+    outer = progress.download, progress.compute
+    with progress.bars():
+        inner = progress.download, progress.compute
+        assert [b.label for b in inner] == ["Download", "Compute"] and all(a is not b for a, b in zip(inner, outer))
+        with progress.bars():
+            assert all(a is not b for a, b in zip((progress.download, progress.compute), inner))
+        assert (progress.download, progress.compute) == inner
+    assert (progress.download, progress.compute) == outer
+    assert [outer[0].label, outer[1].label] == ["Download", "Compute"]
+
+
 def _age(cache_dir, path, days):
     """Pretend a file was checked (and fetched) `days` ago."""
     import sqlite3

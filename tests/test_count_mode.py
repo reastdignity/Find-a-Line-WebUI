@@ -308,7 +308,7 @@ def test_count_tile_over_fixed_tiles(tmp_path, offline, model):
 
 def _timed_values(monkeypatch):
     """The calls of terrain.prominence and terrain.drop, and the bars seen, as a list of their names
-    (the bars of search's own progress: other tests load the module again)."""
+    (the bars of search's own progress, by their label: progress.bars() leaves the bars it found, with theirs)."""
     import search
     import terrain
     seen = []
