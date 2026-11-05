@@ -363,6 +363,9 @@ def _main_with_others(tmp_path) -> str:
         old = "viewUrl(page, current.key(), location.search)"
         assert old in text
         text = text.replace(old, "viewUrl(page, current.key(), location.search, others.also())")
+    else:  # main.ts wires them itself: only the test's handle on the module
+        text, n = re.subn(r"(const others = createOthers\([^;]*;)", r"\1\n    (window as any).__others = others;", text)
+        assert n == 1, "main.ts changed: give this test's copy its handle on createOthers' result"
     text = re.sub(r'(from |import )"\./', r'\1"%s/view3d/' % src, text)
     text = re.sub(r'(from |import )"\.\./', r'\1"%s/' % src, text)
     return text
