@@ -74,6 +74,9 @@ export interface Scene3D {
   tools: Tools;
   /** The slot of the card over the stage's bottom (the profile's): it lies on the canvas, which keeps its size. */
   card: HTMLElement;
+  /** A half-transparent picture over the whole terrain (round 2: the reach of an anchor); `uv` maps grid metres
+   *  to its (u, v) in [0, 1]; null takes it away. Never drawn in the edges' pass, never a pick target. */
+  setOverlay(texture: Texture | null, uv?: (x: number, y: number) => [number, number]): void;
   patch: Patch;
   meta: PatchMeta;
   origin: Origin;

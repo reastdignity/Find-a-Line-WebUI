@@ -249,6 +249,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     activity: createActivity(parts.activity),
     tools: createTools(parts.tools),
     card: parts.card,
+    setOverlay() { /* round 2, wave 2: the reach's overlay (agent R) */ },
     invalidate: view.invalidate,
     onFrame: view.onFrame,
     beforeDraw: view.beforeDraw,

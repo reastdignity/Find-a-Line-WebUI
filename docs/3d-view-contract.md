@@ -704,9 +704,90 @@ https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
   `tests/test_shell_c.py` (alone: it times out now and then on `main` too) and `tests/test_units.py -k "catalogue
   or labels"`; no CSP violation on the 3D page; the size of `view3d.js` gzip in the report.
 
-**Wave 2** (after the checkpoint: the user chooses `/api/reach`'s engine from M's table; its formats are written
-here then): S the server (the block of trees and buildings, `/api/reach`), R the overlay and the switch, V the
-canopy, P the lines from a point (after R), K several lines (after U2).
+**After M (2026-11-05)**: `tools/perf_reach.py` (23ab1ae) measured the reach of one anchor on the Żabi Koń clip and
+three real runs (the machine shared, medians of three): a batched numpy evaluation and `linesearch.evaluate_lines`
+both give exactly `helpers.evaluate_line`'s validity and clearance; on a patch of 1537² at 1 m numpy takes 26 s
+(formula) to 122 s (sag, 1.65 M targets) for every sample, the kernel on two threads 2.3 s and 17 s, on every second
+sample 0.8 s and 4.4 s; step 1 for the patch 0.5 to 1 s more, the sag table 2.4 to 3.7 s once a process; numba costs
+the lane about 5.5 s of compiling once (cold cache) and 41 MB; an answer deflates to 2 to 3 KB. The spots rule gives 1
+to 27 representatives a point. The full tables: the user's `local/view3d-round2-2026-11-05/reach-measure/`.
+**The user's choice: the numba kernel, the lattice by the number of targets** (every sample up to about 300 000
+targets, every second one above).
+
+**Wave 2**
+
+| Agent | Branch | Points | Owns |
+| --- | --- | --- | --- |
+| S | `v3r2-server` | 3, 8, 9 (server) | `search.py` (new functions; not `patch_of_line`'s meta, which U2 and the coordinator change), `jobs.py`, `web.py`, `settings.py`, `warmup.py`, `README.md`'s rows of the limits, `error.*` texts of `locales/en.json`; new `tests/test_reach.py`, `tests/test_canopy.py`; the rows of the new route in `tests/test_public.py`, `tests/test_units.py` (the `rate_` kinds) |
+| R | `v3r2-reach` | 3 (page) | `viewer/src/view3d/` `edit.ts`, `scene.ts`, new `reach.ts` (pure) and `overlay.ts`, a stylesheet of its own; new `tests/test_view3d_reach.py` |
+| V | `v3r2-canopy` | 8 (page) | new `viewer/src/view3d/canopy.ts` (and a pure part of its own), a stylesheet of its own if needed; new `tests/test_view3d_canopy.py` |
+| P | `v3r2-point` | 9 (page), after R | new `options.ts` (pure), `fan.ts`, `optionlist.ts` |
+| K | `v3r2-others` | 7, after U2 | new `others.ts` (pure), `otherlines.ts`; `page.ts`; `viewer/src/app/c/ResultPage.tsx` |
+
+`main.ts` stays the coordinator's in wave 2: a module exports `create…(scene, line, …)` and the coordinator calls
+it at the merge; a module reads the run and the line of the page from `page.ts` `currentPage()`.
+
+*`GET /api/reach`* (S; the page: R and P)
+- Query: `run`, `line` and `step` exactly as the page asked `/api/patch` (they name the patch), `anchor`
+  (`<lat>,<lon>`, 7 decimals: the fixed point) and `as` (1 or 2: which end of the line the fixed point is). Header
+  `X-Findaline-Reach: 1`. Checks in `/api/patch`'s order, the anchor's too (`reach_anchor`: outside the patch or over
+  no data); its own rate (`reach_rate`, `"12/minute;200/hour"` on the public site, 429 `rate_reach`); the quick lane's
+  kind `reach`.
+- Grid: the patch's square at step 1 rebuilt as `patch_of_line` builds it, but with the run's obstacle rule
+  (`plan.obstacles` as `profile_of_line` sets it). The fixed anchor is the pixel holding the point. Targets: the
+  samples of a lattice (every `lattice`-th row and column from the first) within the run's limits of length and
+  height difference as `linesearch._pairs` tests them; `lattice` 1 while they number at most `REACH_FULL_TARGETS`
+  (300 000), else 2.
+- A target's value: the line between the two pixels evaluated as `helpers.evaluate_line` decides it, **in the
+  order the page will ask `/api/profile`** (`as` 1: the fixed point first; 2: the target first), so the mask and the
+  verdict after a release agree (the two directions differ: up to 1.7 m of clearance under the sag model). The
+  run's surface mode holds: where it rejects, a line over trees is not valid; where it marks, it is valid with the
+  flag. None of the search's anchor rules.
+- Engine: `linesearch.evaluate_lines`, imported inside the function: the quick lane loads numba at its first reach
+  task only (`tests/test_patch.py::test_patch_loads_no_numba` stays as it is), on `REACH_THREADS` (2) threads.
+- Answer: as the patch's, `uint32 LE N | N bytes of JSON meta | the deflated values`. Meta: `width`, `height` (the
+  lattice's samples), `lattice`, `res`, `left`, `top` (the patch's at step 1: value (i, j) belongs to the patch's
+  sample (i·lattice, j·lattice), whose centre is at `left + (j·lattice + 0.5)·res`, `top − (i·lattice + 0.5)·res`),
+  `anchor` (`{x, y, h}`: the fixed pixel's centre and height), `as`, `min_length`, `max_length` (the run's), `valid`
+  and `trees` (counts), `quantum` (0.5), `sha256` (of the deflated values). Values: one uint8 a sample, row-major
+  from the top: 0 not valid; else the low 7 bits `min(127, ceil(clearance / quantum))` (at least 1) and the high
+  bit set when the line passes over trees or buildings; zlib. In the quick table `{"meta": …, "mask": "<base64url>"}`
+  (`Redact.RAW`).
+- Tests: the mask against `search.profile_of_line` for a sample of targets in both orders (valid exactly where the
+  profile's `min[1] > 0`, the flag where `min_nmpt` says so, the clearance within the quantum); the limits; the
+  lattice's switch; the route's access rule, rate and error codes; a reach after `warmup.warm_up` compiles nothing
+  (or, if that cannot be had, the report says what the first reach costs).
+
+*The block of trees and buildings* (S; the page: V)
+- `GET /api/patch` with `part=canopy` (the same checks, rate and quick kind as the patch; `run`, `line`, `step` as
+  the page's patch): the answer is framed as the patch's with the meta `part` ("canopy"), `width`, `height`,
+  `step`, `res`, `left`, `top` (the patch's own for that request), `quantum` (0.5), `min_height` (1), `rule` (the
+  run's obstacle rule, null without one), `cells` (samples above 0), `sha256`. Values: one uint8 a sample,
+  row-major from the top: the run's obstacle surface (`obstacles.obstacle_surface` of its rule; without a rule the
+  surface model as it is) less the terrain, in units of `quantum` rounded, 0 below `min_height`, over no data and
+  on bare pixels, capped at 255; zlib. A run without a surface model: 400 `patch_no_surface`.
+- The patch's meta gets `surface` (true when the run has a surface model): the coordinator adds it after U2's merge;
+  until then the page reads it as an optional field.
+
+*R, the switch and the overlay*: the tool `valid` (order 1, a switch). On: the reach of each anchor as the fixed
+one is asked (one request at a time and never while a profile is in flight: the public site allows one waiting
+quick task a user), the activity `reach` meanwhile; the overlay (`Scene3D.setOverlay`: a picture over the whole
+terrain, `--ok` at about 45 % where the line fits, `--trees` where it passes over trees; implemented in `scene.ts`
+by R, not drawn in the edges' pass) shows the reach of the anchor that stays while a handle is dragged, and of
+anchor 1 before any drag. A dragged handle goes to the centre of the nearest valid sample near the pointer's hit
+(a pure function of `reach.ts`), else it stays where it was; after a release the profile is asked as before and
+then the moved anchor's reach again. Off: everything as today. A failure shows `ui.view3d.reach_failed` and the
+handles move freely. `edit.ts` also exports what P and K need: setting a line's anchors from outside (the found
+anchors kept for "Back to the found line") and reading the current one.
+
+*V, the canopy*: the tool `trees` (order 3, a switch) only when the patch's meta has `surface`; on: the block is
+asked once (`download.ts`, the activity `trees`), checked against its sha256 and kept; drawn as a half-transparent
+lit mesh in `--tree-fill` on a regular lattice of about 2 m (4 m at the phone level, coarser until it fits the
+triangle budget it reports), a cell drawn where the canopy is at least `min_height`, its top at the terrain's
+height plus the cell's largest value; never a pick target, not in the edges' pass. A failure shows
+`ui.view3d.trees_failed` and the switch goes off.
+
+P and K get their paragraphs when R and U2 have reported.
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
