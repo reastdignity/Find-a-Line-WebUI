@@ -74,7 +74,12 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
 VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
-                "![...document.querySelectorAll('.v3-toolbar [role=status]')].some((e) => !e.hidden)")
+                "document.querySelector('.v3-activity')?.classList.contains('v3-hidden') !== false")
+# Round 2's tools of the strip (view3d/chrome.ts): a click on one, then what it shows
+TOOL = ".v3-tool[data-tool={}]".format
+REACH_SHOWN = "wait:document.getElementById('view3d')?.dataset.reach === '1'"
+TREES_SHOWN = "wait:document.getElementById('view3d')?.dataset.trees === 'on'"
+PROFILE_SHOWN = "wait:!!document.querySelector('.v3-card svg')"
 SHADED_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
              "b.textContent.trim() === 'Shaded')?.click()")
 # The "Edges" look chosen and drawn (view3d/scene.ts sets data-edges)
@@ -156,6 +161,11 @@ PAGES = {
                                           "wait:document.getElementById('view3d')?.dataset.view === 'behind'"]),
     "view3d-motion": ("/view3d", VIEW3D, [VIEW3D_READY, ".v3-views [data-view=eyes]", ".v3-motion", MOTION_TURN,
                                           "wait:document.getElementById('view3d')?.dataset.motion === 'on'"]),
+    # round 2: the profile's card (both levels), and at the full level the reach of "Only valid lines" and the
+    # canopy of "Trees and buildings" (the run is given the clip's surface model: clip_run)
+    "view3d-profile": ("/view3d", VIEW3D, [VIEW3D_READY, TOOL("profile"), PROFILE_SHOWN]),
+    "view3d-valid": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, TOOL("valid"), REACH_SHOWN]),
+    "view3d-trees": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, TOOL("trees"), TREES_SHOWN]),
 }
 
 # The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
@@ -205,7 +215,22 @@ def clip_run(data: str) -> str:
     runs = os.path.join(data, "runs")
     run = next(d for d in os.listdir(runs) if os.path.isfile(os.path.join(runs, d, "run.json")))
     with_credits(os.path.join(runs, run, "data.js"))
+    with_surface(os.path.join(runs, run, "run.json"))
     return run
+
+
+def with_surface(path: str):
+    """The run's run.json as if it had been searched with the clip's surface model (as tests/test_reach.py's
+    with_surface): the 3D view then offers "Trees and buildings" and its reach marks lines over trees. The lines
+    of the run stay those found without it."""
+    import obstacles
+    with open(path, encoding="utf-8") as f:
+        meta = json.load(f)
+    meta["params"]["nmpt"] = "mark"
+    meta["params"]["obstacles"] = dict(obstacles.RULE)
+    meta["data"].append({"layer": "Surface file", "file": os.path.join(REPO, "tests", "data", "zabi_kon_nmpt.tif")})
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(meta, f)
 
 
 def first_line(data: str, run: str) -> str:
