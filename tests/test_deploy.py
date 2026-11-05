@@ -457,3 +457,32 @@ def test_secret_files(tmp_path):
         assert f"chown {uid}:{uid} {repo.as_posix()}/secrets/{name}" in log, name
         assert f"chmod 400 {repo.as_posix()}/secrets/{name}" in log, name
     assert len(log) == 2 * len(examples)
+
+
+def test_push_cube_script(tmp_path):
+    """deploy/push-cube.sh holds no ssh details (address, user, key, port: they come from the
+    caller's ssh configuration), and refuses an id that could break out of the remote command or
+    a missing cube before any connection is made."""
+    script = os.path.join(DEPLOY, "push-cube.sh")
+    with open(script, encoding="utf-8", newline="") as f:
+        text = f.read()
+    assert "\r" not in text
+    assert not re.search(r"\b\d{1,3}(\.\d{1,3}){3}\b|root@|\w@\w|lukawski|id_(rsa|ed25519)|\.pem|BEGIN [A-Z ]*KEY"
+                         r"|\bssh\b[^\n#]* -[ip] |\bssh\b[^\n#]* -p ", text)
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash")
+    fake = tmp_path / "ssh"
+    fake.write_text("#!/bin/sh\necho ssh was called >&2\nexit 99\n")
+    fake.chmod(0o755)
+    env = {**os.environ, "SSH": str(fake)}
+
+    def run(*args):
+        return subprocess.run([bash, script, *args], env=env, capture_output=True, text=True)
+
+    assert run().returncode == 2
+    bad = run("host", "../etc", str(tmp_path))
+    assert bad.returncode == 2 and "not a country id" in bad.stderr
+    missing = run("host", "nowhere", str(tmp_path))
+    assert missing.returncode == 1 and "no cube" in missing.stderr
+    assert "ssh was called" not in bad.stderr + missing.stderr

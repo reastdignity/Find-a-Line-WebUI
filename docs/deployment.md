@@ -590,7 +590,8 @@ The containers' logs are rotated by Docker (10 MB, 5 files each: compose.yaml, `
 What the site keeps is in two named volumes (under `/var/lib/docker/volumes/` on the host):
 - `findaline_data`, both services, at `/data`: `cache/` (downloaded data, re-downloadable),
   `runs/` (the users' runs), `work/` (temporary), `jobs.sqlite` (the queue, through which the
-  two services talk), `audit.sqlite`;
+  two services talk), `audit.sqlite`, `countries/<id>/cube/` (the highline explorer's cubes,
+  copied from a PC by `deploy/push-cube.sh`, below);
 - `findaline_accounts`, the web service only, at `/accounts`: `accounts.sqlite` (the users and
   their sessions).
 
@@ -621,6 +622,21 @@ The Slovak tiles (`tools/sk_tiles.py`) are not downloaded by the site: copy the 
 (`sudo chmod -R a+rX /srv/findaline-mirror`), set `FINDALINE_MIRROR_DIR=/srv/findaline-mirror`
 in `.env` and `docker compose up -d`. The worker sees it read-only at `/mirror`; without it
 `--source auto` takes `europe` for Slovakia.
+
+**Country cubes (the highline explorer).** The page `#layer` (administrators only on the public
+site) reads `/data/countries/<id>/cube/` of the data volume. The server never counts countries
+(`findaline.py country run` is a job for a strong PC), so copy a built cube from the machine that
+counted it, a few MB to tens of MB, after each build:
+
+    deploy/push-cube.sh <ssh-target> slovakia [<data folder>]
+
+The script holds no address, user or key: `<ssh-target>` is whatever your `ssh` takes (a `Host`
+of `~/.ssh/config`), with your agent; on Windows with Git Bash `SSH=/c/Windows/System32/OpenSSH/ssh.exe`
+uses the OpenSSH that has the agent. It copies only `cube/` into the worker's container (uid
+10001, `FINDALINE_CONTAINER`), swaps it in next to the old one and compares every file's sha256
+(exit 1 with a diff otherwise). The web service loads a cube when its `cube.json` changes: no
+restart. `backup.sh` does not include `countries/` (the PC that counted it is the original): a
+lost cube is copied again.
 
 ## 11. Backups
 `deploy/backup.sh` (run as root):
