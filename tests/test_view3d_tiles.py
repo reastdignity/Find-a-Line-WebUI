@@ -338,7 +338,9 @@ const toolbar = new El("div");
 // the activity pill's entries as imagery.ts sets and clears them: ["set", id, text, fraction] / ["clear", id]
 const activity = [];
 const scene = {level: "full", meta: META, chunks, toolbar, invalidate() { scene.frames = (scene.frames || 0) + 1; },
-  activity: {set(id, text, fraction) { activity.push(["set", id, text, fraction]); }, clear(id) { activity.push(["clear", id]); }},
+  activity: {set(id, text, fraction) { activity.push(["set", id, text, fraction]); }, clear(id) { activity.push(["clear", id]); },
+             // a notice in the pill's place: ["notice", id, text, its action's label]; its action kept for a test's click
+             notice(id, text, action) { activity.push(["notice", id, text, action ? action.label : null]); scene.noticeAction = action; }},
   credits: {set(id, html, order) { credits[id] = [html, order]; }, remove(id) { delete credits[id]; }}};
 """
 

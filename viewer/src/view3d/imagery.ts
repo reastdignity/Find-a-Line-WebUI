@@ -183,6 +183,8 @@ async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fil
 
 /** The activity entry of the tiles being loaded (round 2: the pill of the stage's top, chrome.ts). */
 const ACTIVITY = "imagery";
+/** The pill's notice of tiles that could not be loaded, with "Try again". */
+const FAILED = "imagery-failed";
 
 /** The imagery of `scene`: its control in `scene.toolbar`, its tiles counted in `scene.activity`, its credits in
  *  `scene.credits`. */
@@ -261,28 +263,16 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
     note.textContent = t("ui.view3d.shore_hatched");
     box.append(note);
   }
-  // Tiles that could not be loaded: how many, or that the service refuses us, with a way to ask again (hidden
-  // while all is well; the root's data-imagery-failed is their number)
-  let failure: {note: HTMLElement; text: HTMLElement} | null = null;  // made at the first failure
+  // Tiles that could not be loaded: how many, or that the service refuses us, with a way to ask again, as a notice
+  // of the activity pill (none while all is well; the root's data-imagery-failed is their number)
+  let noticed = false;  // the notice is in the pill's place (FAILED), where the loading's count stood
   const failed = (count: number, total: number, refused: boolean) => {
-    if (!failure && count) {
-      const note = document.createElement("span"), text = document.createElement("span");
-      note.className = "u-small v3-imagery-note v3-imagery-failed";
-      note.setAttribute("role", "status");
-      const retry = document.createElement("button");
-      retry.type = "button";
-      retry.className = "u-btn v3-imagery-retry";
-      retry.textContent = t("ui.view3d.imagery_retry");
-      retry.onclick = () => { void imagery.set(imagery.current); };
-      note.append(text, retry);
-      box.append(note);
-      failure = {note, text};
-    }
-    if (failure) {
-      failure.note.hidden = count === 0;
-      failure.text.textContent = count === 0 ? "" : refused ? t("ui.view3d.imagery_refused")
-        : t("ui.view3d.imagery_failed", {failed: count, total});
-    }
+    if (count) {
+      scene.activity.notice(FAILED, refused ? t("ui.view3d.imagery_refused")
+        : t("ui.view3d.imagery_failed", {failed: count, total}),
+                            {label: t("ui.view3d.imagery_retry"), onClick: () => { void imagery.set(imagery.current); }});
+    } else if (noticed) scene.activity.clear(FAILED);
+    noticed = count > 0;
     if (root) { if (count) root.dataset.imageryFailed = String(count); else delete root.dataset.imageryFailed; }
   };
   scene.toolbar.append(box);
@@ -408,6 +398,7 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       loader?.stop();
       loader = null;
       scene.activity.clear(ACTIVITY);
+      failed(0, 0, false);
       for (const chunk of [...textures.keys()]) retexture(chunk, null);
       scene.credits.remove(IMAGERY_CREDITS);
       scene.credits.remove(DATA_CREDITS);

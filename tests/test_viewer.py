@@ -1176,10 +1176,10 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 
 def test_view3d_imagery_says_what_failed(tmp_path):
-    """view3d/imagery.ts: tiles that could not be loaded are named in a note with "Try again" (their number, or
-    that the service does not answer); a service failing REFUSED_AFTER times in a row is not asked for its other
-    tiles; a chunk none of whose tiles came is shaded, not a flat picture; the note goes when a loading succeeds
-    and when Shaded is chosen."""
+    """view3d/imagery.ts: tiles that could not be loaded are named in a notice of the activity pill with "Try
+    again" (their number, or that the service does not answer); a service failing REFUSED_AFTER times in a row is
+    not asked for its other tiles; a chunk none of whose tiles came is shaded, not a flat picture; the notice goes
+    when a loading succeeds and when Shaded is chosen."""
     from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM
     ax, ay = CX - 100, CY + 50
     meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
@@ -1204,10 +1204,13 @@ global.Image = class {{
   get src() {{ return this._src; }}
 }};
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const note = () => toolbar.children[0].children.find((c) => c.className.includes("v3-imagery-failed"));
-const state = () => ({{hidden: note().hidden, text: note().children[0].textContent, button: note().children[1].textContent,
-  loads: loads.splice(0).length, total: Number((activity.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
-  last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1]), activity: activity.splice(0).length}});
+// the pill's notice of the failed tiles (the activity's entry "imagery-failed"): what it says last, or "cleared"
+const state = () => {{
+  const log = activity.splice(0), mine = log.filter((e) => e[1] === "imagery-failed").at(-1) || null;
+  return {{notice: mine && mine[0] === "notice" ? mine.slice(2) : mine && "cleared", loads: loads.splice(0).length,
+          total: Number((log.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
+          last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1])}};
+}};
 (async () => {{
   const im = m.createImagery(scene, {{runId: "r1", esriKey: "key"}});
   await im.set("esri");
@@ -1219,7 +1222,7 @@ const state = () => ({{hidden: note().hidden, text: note().children[0].textConte
   await im.set("esri");
   state();
   mode = "ok";
-  note().children[1].onclick();  // Try again
+  scene.noticeAction.onClick();  // Try again
   await wait(300);
   out.again = state();
   mode = "one"; bad = null;
@@ -1230,18 +1233,18 @@ const state = () => ({{hidden: note().hidden, text: note().children[0].textConte
 }})();""")
     refused, total = found["refused"], found["refused"]["total"]
     assert total > 2 * found["refusedAfter"], found  # enough tiles for the refusal to save requests
-    assert refused["hidden"] is False and refused["button"] == "Try again"
-    assert refused["text"] == "The imagery service does not answer: the terrain is shaded where its tiles are missing."
+    assert refused["notice"] == ["The imagery service does not answer: the terrain is shaded where its tiles are missing.",
+                                 "Try again"]
     # the failures in a row and what was in flight beside them (six at a time), each asked twice, and the six of
     # the loading the page began by itself: fewer requests than one a tile
     assert refused["loads"] <= 2 * (found["refusedAfter"] + 2 * 6) + 6 < total, found
     assert refused["last"] == [None, None]  # shaded chunks, no flat picture of the terrain's colour
     one = found["one"]
-    assert one["hidden"] is False and one["text"] == f"1 of {total} imagery tiles could not be loaded."
+    assert one["notice"] == [f"1 of {total} imagery tiles could not be loaded.", "Try again"]
     assert one["loads"] == total + 1 and any(t for t in one["last"])  # the one tile asked twice; its chunk keeps its picture
     again = found["again"]
-    assert again["hidden"] is True and again["text"] == "" and again["loads"] == total and all(again["last"])
-    assert found["shaded"]["hidden"] is True  # Shaded shows no failed tiles of the kind before
+    assert again["notice"] == "cleared" and again["loads"] == total and all(again["last"])
+    assert found["shaded"]["notice"] == "cleared"  # Shaded shows no failed tiles of the kind before
 
 
 def test_view3d_verdict(tmp_path):

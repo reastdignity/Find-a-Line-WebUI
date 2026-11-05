@@ -437,6 +437,7 @@
   "ui.view3d.imagery_failed": "{{failed}} of {{total}} imagery tiles could not be loaded.",
   "ui.view3d.imagery_refused": "The imagery service does not answer: the terrain is shaded where its tiles are missing.",
   "ui.view3d.imagery_retry": "Try again",
+  "ui.view3d.dismiss": "Dismiss",
   "ui.view3d.no_imagery":"No imagery for this result: the terrain is shaded.",
   "ui.view3d.walker": "Walker",
   "ui.view3d.walker_position": "Walker's position along the line",

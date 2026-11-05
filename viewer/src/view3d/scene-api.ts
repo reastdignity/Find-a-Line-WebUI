@@ -41,8 +41,13 @@ export interface Credits {
  *  wait that began after it); `fraction` (0 to 1) adds a small bar, null none. Hidden without an entry. */
 export interface Activity {
   set(id: string, text: string, fraction?: number | null): void;
+  /** A notice in the pill's place (something went wrong: imagery tiles that could not be loaded): no spinner,
+   *  the warning's colour, `action`'s button and one to dismiss it; it shows while no wait does, until cleared. */
+  notice(id: string, text: string, action?: ActivityAction | null): void;
   clear(id: string): void;
 }
+
+export interface ActivityAction { label: string; onClick(): void }
 
 /** A button of the tool strip over the stage (round 2). */
 export interface ToolSpec {

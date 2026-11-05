@@ -74,7 +74,8 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
 VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
-                "document.querySelector('.v3-activity')?.classList.contains('v3-hidden') !== false")
+                "(document.querySelector('.v3-activity')?.classList.contains('v3-hidden') !== false || "
+                "document.querySelector('.v3-activity').classList.contains('v3-activity-notice'))")
 # Round 2's tools of the strip (view3d/chrome.ts): a click on one, then what it shows
 TOOL = ".v3-tool[data-tool={}]".format
 REACH_SHOWN = "wait:document.getElementById('view3d')?.dataset.reach === '1'"
