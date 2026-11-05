@@ -120,6 +120,20 @@ export function cubesIn(cubes: CountryCube[], box: Box): CountryCube[] {
   return cubes.filter((c) => intersects(c.bounds_wgs84, box));
 }
 
+/** The countries first: the first of the list is the one a page opens on, and an id may sort a study area first. */
+export function countriesFirst(cubes: CountryCube[]): CountryCube[] {
+  return [...cubes.filter((c) => !c.study), ...cubes.filter((c) => c.study)];
+}
+
+/** The cubes the page counts: every country, or a study area alone when it is the one chosen (cubes of study areas
+ *  only: the first). A study area is a part of a country: added to it, its lines would count twice. */
+export function activeCubes(cubes: CountryCube[], country: string | null): CountryCube[] {
+  const chosen = cubes.find((c) => c.id === country);
+  if (chosen?.study) return [chosen];
+  const countries = cubes.filter((c) => !c.study);
+  return countries.length ? countries : cubes.slice(0, 1);
+}
+
 /** How many cells of level L (its cells of cell_m each) a box holds over the cubes in it. */
 export function cellsAt(cubes: CountryCube[], box: Box, level: number): number {
   return cubes.reduce((s, c) => s + overlapKm2(c.bounds_wgs84, box) / (level * c.cell_m / 1000) ** 2, 0);

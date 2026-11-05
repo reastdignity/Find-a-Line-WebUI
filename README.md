@@ -422,6 +422,8 @@ python findaline.py country compare slovakia [--control M2] [--against L]
 
 `run` downloads what the country needs into the cache first (Slovakia: about 60 GB of DMR 5.0 tiles copied from the local mirror, `FINDALINE_MIRROR`, and the Copernicus water mask), then counts the tiles in as many processes as the memory and the physical cores allow (the tiles under the most lines found already first; a tile counted while the others end takes their cores), with a progress line every 30 s and the processes' logs in `countries/<id>/logs/`. It resumes where it stopped: Ctrl+C is safe, and the tiles that were being counted are counted again at the next run. `--redo` counts everything again; it is needed after a change of the country's configuration or outline. Everything goes into `countries/<id>/` of the data folder (its tiles' grids into `work/country-<id>/`, removed after each tile); `compare` writes `compare.json` there.
 
+Countries in one data folder share the map without overlapping: a country's outline is never simplified and loses what the countries set up before it hold, and `run` warns of any overlap left. A cell on a border is drawn, and its density counted, over its part inside the country. A study area, a box of a country (`within`, `tools/band_study.py`), is shown alone in the layer and never added to its country.
+
 ## Examples
 ### Żabi Koń, Dolina Kobylańska
 Żabi Koń is a limestone rock in Dolina Kobylańska near Kraków. Searching within 1 km of it with a 2 m grid (`--resolution 2`; the default is 1 m) and the other settings at their defaults (slope ≥45°, lines 30–1000 m, anchors at most 5% / 50 m apart in height, NMPT marking, maximum elevation formula):

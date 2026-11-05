@@ -234,7 +234,7 @@ function kitCells(cube: CountryCube, query: Record<string, string>, factor = kit
       max = Math.max(max, count);
     }
   }
-  return {level, cell_m: level * 1000, total, max, cells};
+  return {level, cell_m: level * 1000, total, max, cells, cut: {}};
 }
 
 /** The histogram of a cube under the query (as /histogram): each dimension under every other filter but its own,

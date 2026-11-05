@@ -1,6 +1,8 @@
 // The cells of the highline layer on the map (LayerPage.tsx): the cells of every cube in view as polygons on one
 // canvas (SafeCanvas: safe on removal), coloured by their density per km² in five log classes, the picked one
-// outlined; at low zoom the countries' outlines instead, coloured by their total over their area. The classes:
+// outlined; a cell the country's outline cuts is drawn and divided by its part inside the country (the server's
+// `cut`), so neighbours' cells meet at their border; at low zoom the countries' outlines instead, coloured by
+// their total over their area. The classes:
 // the fixed breaks (CLASS_BREAKS, a colour means the same everywhere) or breaks fitted to the view
 // (layerState.ts quantileBreaks), eased from the old to the new ones by `recolour` frame by frame.
 
@@ -49,10 +51,25 @@ export function rowBounds(row: number[]): L.LatLngBounds {
   return L.latLngBounds(corners(row.slice(3)));
 }
 
+/** The latlngs of a polygon on the map: a cell's corners, or the polygons of a cut cell's part. */
+export type CellShape = L.LatLngExpression[] | L.LatLngExpression[][][];
+
+/** The km² of a row's cell inside its country: the divisor of its density. */
+export function cellKm2(data: CountryCells, row: number[]): number {
+  return data.cut[`${row[0]},${row[1]}`]?.km2 ?? (data.cell_m / 1000) ** 2;
+}
+
+/** What is drawn of a row's cell: its part inside the country. */
+export function cellShape(data: CountryCells, row: number[]): CellShape {
+  const cut = data.cut[`${row[0]},${row[1]}`];
+  return cut ? cut.shape as L.LatLngExpression[][][] : corners(row.slice(3));
+}
+
 /** The cells of one cube, as the server answered them. */
 export interface DrawnCells { country: string; data: CountryCells }
-/** A cell the user picked: its cube, level and position, its count and corners. */
-export interface PickedCell { country: string; level: number; cell_m: number; i: number; j: number; count: number; corners: number[] }
+/** A cell the user picked: its cube, level and position, its count and corners, its km² and shape inside the country. */
+export interface PickedCell { country: string; level: number; cell_m: number; i: number; j: number; count: number; corners: number[];
+                              km2: number; shape: CellShape }
 /** A country's outline at low zoom with its total under the filters. */
 export interface OutlineShape { country: string; name: string; total: number; area_km2: number; geometry: GeoJSON }
 
@@ -83,13 +100,12 @@ export class CellsLayer {
     this.drawn = [];
     this.colours = classColours(this.map.getContainer());
     for (const {country, data} of cells) {
-      const km2 = (data.cell_m / 1000) ** 2;
       for (const row of data.cells) {
-        const density = row[2] / km2;
+        const density = row[2] / cellKm2(data, row);
         const cls = densityClass(density, breaks);
         const colour = this.colours[cls];
-        const polygon = L.polygon(corners(row.slice(3)), {renderer: this.renderer, color: colour, weight: 0.6, opacity: 0.9,
-                                                           fillColor: colour, fillOpacity: 0.62});
+        const polygon = L.polygon(cellShape(data, row), {renderer: this.renderer, color: colour, weight: 0.6, opacity: 0.9,
+                                                         fillColor: colour, fillOpacity: 0.62});
         polygon.bindTooltip(this.tooltip(row[2], density), {sticky: true});
         polygon.on("click", (e: L.LeafletMouseEvent) => { L.DomEvent.stopPropagation(e as any); this.onPick(country, row); });
         this.group.addLayer(polygon);
@@ -117,11 +133,10 @@ export class CellsLayer {
     this.top.clearLayers();
     if (!picked) return;
     const style = getComputedStyle(this.map.getContainer());
-    const ring = corners(picked.corners);
     const halo = style.getPropertyValue("--halo").trim() || "#ffffff";
     const ink = style.getPropertyValue("--ink").trim() || "#17201c";
-    this.top.addLayer(L.polygon(ring, {renderer: this.renderer, interactive: false, color: halo, weight: 5, fill: false}));
-    this.top.addLayer(L.polygon(ring, {renderer: this.renderer, interactive: false, color: ink, weight: 2.5, fill: false}));
+    this.top.addLayer(L.polygon(picked.shape, {renderer: this.renderer, interactive: false, color: halo, weight: 5, fill: false}));
+    this.top.addLayer(L.polygon(picked.shape, {renderer: this.renderer, interactive: false, color: ink, weight: 2.5, fill: false}));
   }
 
   /** The cells' colours under other breaks (an eased refit): only the cells whose class changed are restyled. */

@@ -1307,7 +1307,7 @@ def test_coast_within_osm_keeps_islets_and_the_sea_side(monkeypatch):
     island = box(0, 0, 1000 * m, 1000 * m)
     rings = {"island": island.exterior, "islet": Point(1300 * m, 500 * m).buffer(50 * m).exterior,
              "far": Point(2600 * m, 500 * m).buffer(50 * m).exterior, "away": Point(5000 * m, 500 * m).buffer(50 * m).exterior}
-    monkeypatch.setattr(osm, "search", lambda name, cache_dir: {"geojson": island.__geo_interface__})
+    monkeypatch.setattr(osm, "search", lambda name, cache_dir, whole=False: {"geojson": island.__geo_interface__})
     monkeypatch.setattr(osm, "theme", lambda theme, *bounds_and_cache: [
         {"id": k, "geometry": g} for k, g in rings.items()])
     area = ar.from_spec("coast", 100, "osm:Island", "unused", reach=1000)

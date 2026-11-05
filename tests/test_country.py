@@ -150,7 +150,7 @@ def test_cube_equals_one_grid(env, full):
     with open(os.path.join(folder, "cube", "cube.json"), encoding="utf-8") as f:
         info = json.load(f)
     assert info["totals"]["lines"] > 100 and info["totals"]["spots"] > 10
-    assert info["partial"] is False and info["dsm"] is False and info["water"] is False
+    assert info["partial"] is False and info["dsm"] is False and info["water"] is False and info["study"] is False
     assert info["config"] == state["hash"] and info["origin"] == state["origin"]
     assert [b["name"] for b in info["bands"]] == ["S", "M", "C"] and [b["layer"] for b in info["bands"]] == \
         [True, True, False]
@@ -362,6 +362,103 @@ def test_outline_within_a_box(tmp_path):
     with open(tmp_path / "area.geojson", encoding="utf-8") as f:
         bounds = shape(json.load(f)["geometry"]).bounds
     assert bounds == pytest.approx((19.7522, 50.1546, 19.7556, 50.1580))
+
+
+def _box(west, south, east, north):
+    return {"type": "Polygon", "coordinates": [[[west, south], [east, south], [east, north], [west, north], [west, south]]]}
+
+
+def _area(tmp_path, name, geometry, within=None):
+    """An area set up in the data folder tmp_path: its country.json and area.geojson."""
+    folder = tmp_path / "countries" / name
+    folder.mkdir(parents=True)
+    options = {"within": within} if within else {}
+    (folder / "country.json").write_text(json.dumps({"config": {"id": name, "options": options}}))
+    (folder / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": geometry}))
+    return folder
+
+
+def _named(tmp_path, name, geometry, **options):
+    import country
+    path = tmp_path / f"{name}.geojson"
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": geometry}))
+    return country.Country(id=name, name=name.title(), source="files", area=str(path), bands=(), tension=(), options=options)
+
+
+def _outline(folder):
+    with open(folder / "area.geojson", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_outline_less_the_countries_before(tmp_path):
+    """A point of the map is one country's: an outline loses what the countries set up before it hold, and names them.
+    A shared border cuts nothing (the file's geometry as the area spec's), a study area neither cuts nor is cut, and an
+    area wholly inside a country is refused."""
+    import country
+    from shapely.geometry import shape
+    _area(tmp_path, "first", _box(19.0, 49.0, 19.1, 49.1))
+    _area(tmp_path, "part", _box(19.3, 49.0, 19.4, 49.1), within="49.0,19.3,49.1,19.4")  # a study area of "next"
+    said = []
+
+    def write(c):
+        folder = tmp_path / "countries" / c.id
+        folder.mkdir(exist_ok=True)
+        country._write_outline(c, str(folder), str(tmp_path), said.append)
+        return _outline(folder)
+
+    over = write(_named(tmp_path, "next", _box(19.05, 49.0, 19.5, 49.1)))
+    assert shape(over["geometry"]).equals(shape(_box(19.1, 49.0, 19.5, 49.1)))  # the study area left alone
+    assert over["properties"]["less"] == ["first"] and len(said) == 1 and "belong to first" in said[0]
+    said.clear()
+    beside = _box(19.1, 49.1, 19.2, 49.2)  # touches "first" at a corner and "next" along a side
+    alone = write(_named(tmp_path, "beside", beside))
+    assert alone["geometry"]["coordinates"] == [[list(p) for p in beside["coordinates"][0]]] or \
+        shape(alone["geometry"]).equals(shape(beside))
+    assert "less" not in alone["properties"] and not said
+    study = _named(tmp_path, "study", _box(19.0, 49.0, 19.1, 49.1), within="49.02,19.02,49.08,19.08")
+    assert study.study and shape(write(study)["geometry"]).equals(shape(_box(19.02, 49.02, 19.08, 49.08)))
+    with pytest.raises(country.CountryError, match="lies inside first"):
+        write(_named(tmp_path, "inner", _box(19.01, 49.01, 19.02, 49.02)))
+
+
+def test_outline_asked_whole(tmp_path, monkeypatch):
+    """The layer's outline of an osm: area is never simplified (osm.search(whole=True)); a search's is, as before."""
+    import country
+    import osm
+    asked = []
+
+    def search(name, cache_dir, whole=False):
+        asked.append((name, whole))
+        return {"name": name, "geojson": _box(19.0, 49.0, 19.1, 49.1)}
+    monkeypatch.setattr(osm, "search", search)
+    folder = tmp_path / "countries" / "named"
+    folder.mkdir(parents=True)
+    c = country.Country(id="named", name="Named", source="files", area="osm:Named", bands=(), tension=())
+    country._write_outline(c, str(folder), str(tmp_path))
+    assert asked == [("Named", True)]
+    import area as ar
+    ar.from_spec("osm:Named", 0.0, None, str(tmp_path))
+    assert asked[-1] == ("Named", False)
+
+
+def test_overlaps_said(tmp_path):
+    """`country run` says which other areas an outline overlaps: a warning for two countries (only outlines set up
+    before the partition can), a plain line for a study area, nothing for a shared border or an area without
+    country.json."""
+    import country
+    first = _area(tmp_path, "first", _box(19.0, 49.0, 19.1, 49.1))
+    _area(tmp_path, "over", _box(19.05, 49.0, 19.2, 49.1))
+    _area(tmp_path, "part", _box(19.02, 49.02, 19.04, 49.04), within="49.02,19.02,49.04,19.04")
+    _area(tmp_path, "beside", _box(19.2, 49.0, 19.3, 49.1))
+    stray = tmp_path / "countries" / "stray"
+    stray.mkdir()
+    (stray / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": _box(19.0, 49.0, 19.1, 49.1)}))
+    said = []
+    c = country.Country(id="first", name="First", source="files", area="x", bands=(), tension=())
+    country._say_overlaps(c, str(first), str(tmp_path), said.append)
+    assert len(said) == 2, said
+    assert said[0].startswith("WARNING: first and over overlap by") and "twice" in said[0]
+    assert said[1].startswith("first and part overlap by") and "study area" in said[1]
 
 
 def _tile(name, core):

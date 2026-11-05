@@ -474,6 +474,9 @@ def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np
 Box = Tuple[float, float, float, float]
 OUTLINE_TOLERANCE = 0.005  # degrees: the simplification of the outline a map draws (Slovakia: 43k points to about 600)
 OUTLINE_DECIMALS = 4       # of its coordinates (about 10 m)
+CUT_SIMPLIFY = 250         # a cut cell's shape on a map, simplified by its side over this (Slovakia: 4 m, 11 points a cell)
+CUT_DECIMALS = 6           # of its coordinates (about 0.1 m): the corners of /api/countries/<id>/cells
+CUT_FULL = 1 - 1e-9        # a cell with this share of it inside the outline is whole
 
 
 class Cube:
@@ -492,6 +495,7 @@ class Cube:
         self.levels = tuple(self.info.get("levels", LEVELS))
         self._arrays: Dict[str, np.ndarray] = {}
         self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
+        self._cuts: Optional[Dict[int, Dict[Tuple[int, int], Dict]]] = None  # cut's cells per level
         self._to_crs = Transformer.from_crs("EPSG:4326", self.crs, always_xy=True)
         self._to_wgs84 = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
 
@@ -689,9 +693,69 @@ class Cube:
         self._outlines[tolerance] = found
         return found
 
+    def cut(self, level: int) -> Dict[Tuple[int, int], Dict]:
+        """The level's cells the country's outline cuts, by (i, j): {"km2": the cell's part inside the
+        outline (the exact outline, in the cube's CRS: the true divisor of its density), "shape": that
+        part for a map: polygons of rings of [lat, lon], simplified by the cell's side over CUT_SIMPLIFY}.
+        A cell not listed lies wholly inside or wholly outside. All levels are worked out at the first
+        call and kept (Slovakia: 0.3 s for 3400 cells); without an outline no cell is cut."""
+        if self._cuts is None:
+            self._cuts = self._cut_cells()
+        return self._cuts[level]
+
+    def _cut_cells(self) -> Dict[int, Dict[Tuple[int, int], Dict]]:
+        """cut's cells of every level: a quadtree from a cell holding the whole outline down to the finest
+        level. A cell's piece is cut out of its parent's, so an intersection sees the few points of the
+        outline near it, and a branch ends at a cell wholly inside or outside."""
+        out: Dict[int, Dict[Tuple[int, int], Dict]] = {level: {} for level in self.levels}
+        try:
+            outline = _project(self.outline(), self._to_crs)
+        except (OSError, ValueError, KeyError):  # a cube without its area.geojson
+            return out
+        if not outline.is_valid:
+            outline = shapely.make_valid(outline)
+        x0, y0 = self.origin
+        level = max(self.levels)
+        while level * CELL_M < max(outline.bounds[2] - x0, outline.bounds[3] - y0):
+            level *= 2
+        i, j = np.zeros(1, dtype=np.int64), np.zeros(1, dtype=np.int64)
+        pieces = np.array([outline], dtype=object)
+
+        def lat_lon(xy):
+            return np.round(np.column_stack(self._to_wgs84.transform(xy[:, 0], xy[:, 1]))[:, ::-1], CUT_DECIMALS)
+
+        while True:
+            size = level * CELL_M
+            area = shapely.area(pieces)
+            keep = (area > 0) & (area < size * size * CUT_FULL)
+            i, j, pieces, area = i[keep], j[keep], pieces[keep], area[keep]
+            if level in out and len(pieces):
+                shapes = shapely.transform(shapely.simplify(pieces, size / CUT_SIMPLIFY, preserve_topology=True), lat_lon)
+                out[level] = {(a, b): {"km2": max(round(float(km2) / 1e6, 6), 1e-6), "shape": _polygon_rings(shape)}
+                              for a, b, km2, shape in zip(i.tolist(), j.tolist(), area, shapes)}
+            if level <= min(self.levels):
+                return out
+            level //= 2
+            size = level * CELL_M
+            i, j = np.repeat(2 * i, 4) + np.tile((0, 1, 0, 1), len(i)), np.repeat(2 * j, 4) + np.tile((0, 0, 1, 1), len(j))
+            boxes = shapely.box(x0 + i * size, y0 + j * size, x0 + (i + 1) * size, y0 + (j + 1) * size)
+            pieces = shapely.intersection(np.repeat(pieces, 4), boxes)
+
 
 def _project(geometry, transformer: Transformer):
     return shapely.transform(geometry, lambda xy: np.column_stack(transformer.transform(xy[:, 0], xy[:, 1])))
+
+
+def _polygon_rings(geometry) -> List:
+    """The polygons of a geometry, each a list of rings of coordinates (an intersection may hold lines too)."""
+    polygons, rest = [], [geometry]
+    while rest:
+        part = rest.pop()
+        if part.geom_type == "Polygon" and not part.is_empty:
+            polygons.append([shapely.get_coordinates(ring).tolist() for ring in (part.exterior, *part.interiors)])
+        elif hasattr(part, "geoms"):
+            rest.extend(part.geoms)
+    return polygons
 
 
 REQUEST_DECIMALS = 6   # degrees of a cell request's geometry (about 0.1 m)

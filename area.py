@@ -136,13 +136,14 @@ def box_bounds(text: str) -> Bounds:
     return south, west, north, east
 
 
-def region(text: str, cache_dir: str, max_km2: Optional[float] = None):
+def region(text: str, cache_dir: str, max_km2: Optional[float] = None, whole: bool = False):
     """A WGS84 polygon from "osm:<name>" (Nominatim) or "S,W,N,E" (a box in degrees); with
-    max_km2, refused when its bounding box is larger (a box before any request)."""
+    max_km2, refused when its bounding box is larger (a box before any request); whole: a
+    large outline as it is (osm.search)."""
     from shapely.geometry import box, shape
     import osm
     if text.startswith("osm:"):
-        found = osm.search(text[4:].strip(), cache_dir)
+        found = osm.search(text[4:].strip(), cache_dir, whole)
         geometry = found and shape(found["geojson"])
         if not geometry or geometry.geom_type not in ("Polygon", "MultiPolygon"):
             raise UserError(f"{text}: no area of that name in OpenStreetMap", "osm_not_found", name=text[4:].strip())
@@ -324,7 +325,7 @@ def from_geometry(value, buffer: float, within: str, cache_dir: str,
 
 
 def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: float = 0.0,
-              max_region_km2: Optional[float] = None) -> "Polygon":
+              max_region_km2: Optional[float] = None, whole: bool = False) -> "Polygon":
     """The search area of --area (with --buffer and --within):
     coast    land and sea within `buffer` of the OSM coastline
     cliffs   within `buffer` of OSM cliffs (natural=cliff) and crags (climbing=crag)
@@ -334,7 +335,8 @@ def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: floa
     metres of that area (the longest line: islets off its coast, its sea side and cliff
     edges stay in); a box S,W,N,E clips the band. Notes for the user are in area.notes.
     With max_region_km2, a `within` or osm:<name> larger than that (its bounding box) is
-    refused before the OSM themes in it are fetched.
+    refused before the OSM themes in it are fetched. whole: the outline of an osm:<name> never
+    simplified (osm.search), for the country layer.
     """
     import os
     import osm
@@ -350,7 +352,7 @@ def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: floa
             features = osm.theme(theme, *limit.bounds, cache_dir)
             geometry = _buffered([f["geometry"] for f in features], buffer, limit)
     elif spec.startswith("osm:"):
-        geometry = region(spec, cache_dir, max_region_km2)
+        geometry = region(spec, cache_dir, max_region_km2, whole)
         if limit is not None:
             geometry = geometry.intersection(limit)
     elif os.path.exists(spec):

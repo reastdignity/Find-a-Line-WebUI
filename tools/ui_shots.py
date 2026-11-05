@@ -114,6 +114,7 @@ PAGES = {
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
     "c-layer": ("c", "#layer", None),             # the highline layer of the sample cube (tests/test_country_web.py)
     "c-layer-world": ("c", "#layer&view=49.42,19.66,8", None),  # both sample cubes in view (Slovakia, Testland)
+    "c-layer-study": ("c", "#layer&country=sk-part", None),  # the study area, alone
     "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
@@ -286,9 +287,10 @@ def serve(data: str):
     jobs = Jobs(data, public=True)
     run = clip_run(data)
     sys.path.insert(0, os.path.join(REPO, "tests"))
-    from test_country_web import OUTLINE2, sample_cube
+    from test_country_web import OUTLINE2, OUTLINE_STUDY, sample_cube
     sample_cube(data)  # the highline layer's pages (#layer): two cubes, as tests/test_country_web.py's fixture
     sample_cube(data, "testland", "Testland", seed=3, outline=OUTLINE2)
+    sample_cube(data, "sk-part", "High Tatras", seed=5, outline=OUTLINE_STUDY, study=True)
     jobs.add_run(run, admin.id, 1)
     share = "ui-shots-share-" + "x" * 30
     jobs.set_share(run, ac.digest(share))
