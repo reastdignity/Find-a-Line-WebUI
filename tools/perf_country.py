@@ -73,6 +73,9 @@ HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "tools"))
 
+from relief import (BLOCK_M, EARTH_M_PER_DEG, PROXIES, STEEP_DEG, WINDOWS, degree_tiles,  # noqa: E402,F401
+                    fetch_relief_tiles, proxies_at, relief_layer, tile_blocks)
+
 CLIP_NMT = os.path.join(HERE, "tests", "data", "zabi_kon_nmt.tif")
 CLIP_NMPT = os.path.join(HERE, "tests", "data", "zabi_kon_nmpt.tif")
 # Length bands of compare and cube (m): [low, high)
@@ -619,17 +622,12 @@ def cube(samples: Dict, names: List[str], cell: float, dims: Sequence[str]) -> D
 
 # ---------------------------------------------------------------- relief
 
-# The relief of a country and of the samples' cells, from Copernicus DEM GLO-30 (the catalogue's
-# surface layer of "europe", cached like a search's tiles): per block of about BLOCK_M its highest
-# and lowest point and its share of steep pixels (slope at 30 m of STEEP_DEG or more); per window of
-# 1, 3 or 5 blocks (about the reach of the bands' lines) the relief (highest minus lowest) and the
-# steep share. estimate stratifies a country by the steep share of a window and, where hardly a pixel
+# The relief of a country and of the samples' cells, from Copernicus DEM GLO-30: the blocks of about
+# BLOCK_M and their proxies are relief.py's (tile_blocks; country.py weighs a first band's tiles by
+# them too). estimate stratifies a country by the steep share of a window and, where hardly a pixel
 # is steep, by its relief (strata_of), and takes each stratum's lines and spots per km² from the
 # samples' cells in it.
-BLOCK_M = 1000
-STEEP_DEG = (30, 45)
-WINDOWS = (1, 3, 5)
-PROXIES = tuple(f"relief{w}" for w in WINDOWS) + tuple(f"steep{d}_{w}" for d in STEEP_DEG for w in WINDOWS)
+
 # The fine bins a country's area is kept in (strata edges must be among them): relief in metres,
 # steep shares (an own bin for none at all)
 HIST_EDGES = {
@@ -637,97 +635,8 @@ HIST_EDGES = {
     "steep": [0.0, 1e-6] + [0.0005 * k for k in range(1, 41)] + [0.02 + 0.005 * k for k in range(1, 17)]
              + [0.1 + 0.02 * k for k in range(1, 46)] + [INF]}
 JOINT = "steep45"  # the joint histograms of steep45_<w> and relief<w>
-EARTH_M_PER_DEG = 6371000 * math.pi / 180
 CELL_M = 1000  # the samples' cells
 EDGE_POINTS, EDGE_PARTNERS = 160, 8  # Monte Carlo of a cell's edge fraction
-
-
-def relief_layer():
-    import sources
-    return sources.SOURCES["europe"].nmpt
-
-
-def degree_tiles(geometry) -> List[Tuple[int, int]]:
-    """The 1° tiles (lat, lon of the south-west corner) a WGS84 geometry touches."""
-    from shapely.geometry import box
-    west, south, east, north = geometry.bounds
-    return [(lat, lon) for lat in range(math.floor(south), math.floor(north) + 1)
-            for lon in range(math.floor(west), math.floor(east) + 1)
-            if geometry.intersects(box(lon, lat, lon + 1, lat + 1))]
-
-
-def fetch_relief_tiles(tiles: List[Tuple[int, int]], cache_dir: str) -> Dict[Tuple[int, int], Optional[str]]:
-    """The cached GLO-30 file of each tile, downloaded where missing (None: no data there, sea)."""
-    from concurrent.futures import ThreadPoolExecutor
-    layer = relief_layer()
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        list(pool.map(lambda tile: layer._download_and_record(tile, cache_dir, None, True), tiles))
-    paths = {tile: layer.tile_path(cache_dir, tile) for tile in tiles}
-    return {tile: path if os.path.exists(path) else None for tile, path in paths.items()}
-
-
-def _block_edges(n: int, metres: float) -> np.ndarray:
-    count = max(1, round(n * metres / BLOCK_M))
-    return np.linspace(0, n, count + 1).round().astype(np.int64)
-
-
-def tile_blocks(path: str) -> Dict[str, np.ndarray]:
-    """A GLO-30 tile in blocks of about BLOCK_M: their edges in degrees (lat from the north, lon from
-    the west), centres, km² and the proxies (2-D arrays, block rows from the north)."""
-    import rasterio
-    from scipy.ndimage import maximum_filter, minimum_filter, uniform_filter
-    with rasterio.open(path) as src:
-        z = src.read(1).astype(np.float64)
-        if src.nodata is not None:
-            z[z == src.nodata] = np.nan
-        west, south, east, north = src.bounds
-    h, w = z.shape
-    lat = north - (np.arange(h) + 0.5) * (north - south) / h
-    dy = (north - south) / h * EARTH_M_PER_DEG
-    dx = (east - west) / w * EARTH_M_PER_DEG * np.cos(np.radians(lat))
-    gy, gx = np.gradient(z, axis=0) / dy, np.gradient(z, axis=1) / dx[:, None]
-    slope = np.degrees(np.arctan(np.hypot(gx, gy)))
-    rows, cols = _block_edges(h, dy), _block_edges(w, float(np.mean(dx)))
-    valid = ~np.isnan(z)
-
-    def reduce(a, ufunc):
-        return ufunc.reduceat(ufunc.reduceat(a, rows[:-1], axis=0), cols[:-1], axis=1)
-
-    zmax, zmin = reduce(np.where(valid, z, -np.inf), np.maximum), reduce(np.where(valid, z, np.inf), np.minimum)
-    n = reduce(valid.astype(np.float64), np.add)
-    lat_edges = north - rows * (north - south) / h
-    lon_edges = west + cols * (east - west) / w
-    lat_c = (lat_edges[:-1] + lat_edges[1:]) / 2
-    lon_c = (lon_edges[:-1] + lon_edges[1:]) / 2
-    km2 = (np.diff(rows) * dy)[:, None] * (np.diff(cols)[None, :] * (east - west) / w * EARTH_M_PER_DEG
-                                          * np.cos(np.radians(lat_c))[:, None]) / 1e6
-    out = {"lat_edges": lat_edges, "lon_edges": lon_edges, "lat": np.repeat(lat_c[:, None], len(lon_c), axis=1),
-           "lon": np.repeat(lon_c[None, :], len(lat_c), axis=0), "km2": km2, "valid": n > 0}
-    for window in WINDOWS:
-        high = maximum_filter(zmax, size=window, mode="nearest")
-        low = minimum_filter(zmin, size=window, mode="nearest")
-        out[f"relief{window}"] = np.where(np.isfinite(high) & np.isfinite(low), high - low, np.nan)
-        pixels = uniform_filter(n, size=window, mode="nearest")
-        for degrees in STEEP_DEG:
-            steep = uniform_filter(reduce((slope >= degrees).astype(np.float64), np.add), size=window, mode="nearest")
-            out[f"steep{degrees}_{window}"] = np.where(pixels > 0, steep / np.maximum(pixels, 1e-9), np.nan)
-    return out
-
-
-def proxies_at(blocks: Dict[Tuple[int, int], Dict], lon: np.ndarray, lat: np.ndarray) -> Dict[str, np.ndarray]:
-    """The proxies of the blocks holding the points (NaN where no tile)."""
-    out = {p: np.full(len(lon), np.nan) for p in PROXIES}
-    tiles = np.column_stack([np.floor(lat), np.floor(lon)]).astype(np.int64)
-    for key in {tuple(t) for t in tiles.tolist()}:
-        b = blocks.get(key)
-        if b is None:
-            continue
-        at = np.flatnonzero((tiles[:, 0] == key[0]) & (tiles[:, 1] == key[1]))
-        row = np.clip(np.searchsorted(-b["lat_edges"], -lat[at], side="right") - 1, 0, len(b["lat_edges"]) - 2)
-        col = np.clip(np.searchsorted(b["lon_edges"], lon[at], side="right") - 1, 0, len(b["lon_edges"]) - 2)
-        for p in PROXIES:
-            out[p][at] = b[p][row, col]
-    return out
 
 
 def _edges_json(edges: Sequence[float]) -> List:

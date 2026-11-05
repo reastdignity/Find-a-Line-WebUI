@@ -1693,6 +1693,63 @@ written), and with B2 the reads barely moved in M2 (a median of 266 → 256 MB p
 tile files read fell to a third, so a tile's disk is to be measured another way (stage 3's B4); the
 Hugging Face upload of the Slovak tiles carries the averaged folders (about 42 % more bytes).
 
+### Done, stage 3 (2026-11-05, wave 1: branches `country-perf-3-relief` and `country-perf-3-workers`)
+
+- **A3, the weights of a first band from the relief** (`country._set_weights`, `_relief_weights`; the
+  module `relief.py`, moved from `tools/perf_country.py`, which calls it now): when a pending tile of
+  a run's bands lies under no done tile (a new country's first run, or a first run stopped and run
+  again), every pending tile of the run weighs `RELIEF_LINES` (7e6) × (the km² of slopes of
+  `RELIEF_DEGREES` (45°) or more at 30 m in its core) ^ `RELIEF_EXPONENT` (1.65), from Copernicus
+  GLO-30 (the catalogue's `europe` layer) in blocks of about 1 km whose centre lies inside the
+  outline and the core; otherwise the line weights of before, a tile under done tiles of 0 lines
+  keeping its real 0. Set after the run's question and before the prefetch, since the relief may
+  download GLO-30 tiles: 9-13 s for Slovakia (15 cached tiles, 653 MB). A failure leaves the order
+  of before, with a warning; no schema change (manifest v2's `weight`).
+
+Choosing the proxy on the user's done tiles; each cell: Spearman of the proxy against the tiles'
+lines, the 5 tiles of most lines among the proxy's first 5, the 10 among its first 10:
+
+| Band (tiles) | Line weights of before | km² of 45° slopes (chosen) | relief × that km² | pairs at 40° | relief, max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| S (2122) | 0.511 | 0.546, 4/5, 6/10 | 0.545, 4/5, 6/10 | 0.539, 4/5, 6/10 | 0.487, 2/5, 5/10 |
+| M (575) | 0.760 | 0.749, 4/5, 8/10 | 0.747, 4/5, 8/10 | 0.764, 4/5, 9/10 | 0.709, 4/5, 5/10 |
+| L (163) | 0.899 | 0.896, 5/5, 8/10 | 0.897, 5/5, 9/10 | 0.889, 4/5, 9/10 | 0.875, 4/5, 7/10 |
+| M2 (575) | 0.731 | 0.741, 4/5, 7/10 | 0.744, 4/5, 7/10 | 0.740, 4/5, 7/10 | 0.718, 4/5, 5/10 |
+
+The relief ranks a band's tiles as well as the lines of the other three bands did, and better at
+the top (M2's second heaviest tile, 318 M lines, is 5th by the line weights and 2nd by the relief);
+60°, the anchors' angle of S, M and M2, hardly occurs at 30 m. The exponent is a fit of log lines on
+log km² over M's, L's and M2's tiles with lines (1.64), the factor the median at that exponent over
+their tiles of a million lines or more; the km² alone decides the claims' order and the exponent
+alone which tiles are heavy (`HEAVY_SHARE` of the largest weight: a km² of at least 0.16 of the
+largest). Heavy, each band as its own run: S 9 (8 of the 41 heavy by their own lines; by the line
+weights 32, 8 of the 41), M 4 (4 of 5; 8, 3 of 5), L 4 (3 of 3; 2, 2 of 3), M2 4 (3 of 3; 9, 3 of 3).
+
+Measured: the L band of a scratch copy with every band pending and no weights (a new country), 12
+workers, the exclusive lock:
+
+| L band, a first run | Rowid order (main b39841b) | Relief weights (A3) |
+| --- | ---: | ---: |
+| Counts identical to the user's | 163/163 | 163/163 |
+| Weights at the start | none | 112 of 163 tiles above 0, in 13 s |
+| Wall of the tiles | 19.6 min | 18.8 min |
+| The heaviest tile, E-360000_N-1200000 | claimed 37th: +0.9 → +19.6 min, 1121 s | claimed first: +0.0 → +18.8 min, 1127 s |
+| E-340000_N-1200000 | 38th: +1.1 → +10.1 min | first: +0.0 → +9.9 min |
+| Tile seconds / CPU seconds | 1.56 / 5.42 h | 1.61 / 5.45 h |
+| The light part done at | +6 min | +7 min |
+| Free RAM: at the start / the least | 31.9 / 23.3 GiB | 31.2 / 21.4 GiB |
+| All workers, private / working set: peak | 7.4 / 9.7 GiB | 9.4 / 11.2 GiB |
+
+On L alone the rowid order reaches the heaviest tile early (37th of 163), so the gain is 0.8 min.
+Replaying each claim order with the user's tile seconds (the threads not modelled; simulated, not
+measured): a first run of M + L at 12 workers 29.5 → 18.6 min, at 6 workers (2026-11-03's M + L
+run) 42.5 → 37.1; all four bands at 12 workers 92.7 → 65.1 min, at 8 workers 116.5 → 97.6. Open:
+one factor for every band over-predicts S (in a run of all bands four S tiles of the Tatras are
+heavy for their 25 s each: harmless); the fit is Slovakia's (the claims follow the km² anywhere, the
+heavy set depends on the exponent); `_heavy_weight` takes the largest weight of the run's bands over
+their done tiles too, so after a first run stopped midway a later run's line weights are compared
+with the done tiles' relief weights (both about lines, within a factor of 2 at the top).
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,

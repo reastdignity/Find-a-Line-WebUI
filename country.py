@@ -24,7 +24,8 @@ the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
                    (the config hash every tile file records), the CRS and the cube's origin
     area.geojson   the outline (WGS84), fetched once (osm:<name> through Nominatim)
     manifest.sqlite  the tiles (schema v2, cache.migrate; WAL, claims in BEGIN IMMEDIATE, the
-                   heaviest first: their weight from the lines of the tiles done already)
+                   heaviest first: their weight from the lines of the tiles done already, or from
+                   the relief of Copernicus GLO-30 while a tile lies under none)
     run.lock       held by `run` (one run at a time; workers stop when it is free)
     logs/          run.log, worker-<k>.log, samples-<start>.csv (a run's timeline)
     tiles/<band>/<name>.npz   the counts of a tile (countcube.VERSION)
@@ -85,6 +86,20 @@ RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers
 HEAVY_SHARE = 0.05
 LIGHT_CORES = 2
 LIGHT_THREADS = 3
+# The weights of a run whose tiles lie under no done tile (a new country's first run: _weights knows
+# nothing yet) come from the relief (_relief_weights): RELIEF_LINES times the km² of slopes of
+# RELIEF_DEGREES or more at 30 m in a tile's core (Copernicus GLO-30 in blocks of about 1 km,
+# relief.steep_blocks) to the power RELIEF_EXPONENT, about the tile's lines. Measured on Slovakia's
+# done tiles (2026-11-04, docs/performance.md "Round 4", stage 3's A3): that km² ranks each band's
+# tiles by their lines as well as the lines of the other three bands do (Spearman 0.55, 0.75, 0.90,
+# 0.74 in S, M, L, M2; the 5 tiles of most lines among its first 5: 4, 4, 5, 4), the exponent a fit
+# of log lines on log km² over M's, L's and M2's tiles with lines (1.64), the factor the median at
+# that exponent over their tiles of at least a million lines (6.8e6). The exponent alone decides which
+# tiles are heavy (HEAVY_SHARE of the largest weight: a km² at least 0.16 of the largest), the km²
+# alone the order of the claims.
+RELIEF_DEGREES = 45
+RELIEF_LINES = 7e6
+RELIEF_EXPONENT = 1.65
 TILE_SAMPLE_SECONDS = 0.5  # between the samples of a counting worker's memory (_MemorySampler)
 RUN_SAMPLE_SECONDS = 5     # between the rows of a run's timeline (_RunSamples: logs/samples-<start>.csv)
 # A tile's grids in its work folder: search.work_bytes of the band's plan (the float32 terrain, surface
@@ -488,24 +503,41 @@ def _threads(db, bands: Sequence[str], processes: int, cores: int, heavy: bool =
     return max(share, (cores - LIGHT_CORES * light) // max(1, heavy_running))
 
 
-def _weights(manifest: Manifest, bands: Sequence[str]) -> Dict[Tuple[str, str], float]:
+def _weights(manifest: Manifest, bands: Sequence[str]) -> Tuple[Dict[Tuple[str, str], float], int]:
     """The expected work of the pending tiles of these bands: the lines of the tiles done already
-    (of any band) whose core overlaps theirs; empty when no tile is done yet. Beyond its grid, a
-    tile's time goes to the pair search of its lines, and the lines of every band lie where the
-    terrain is steep (Slovakia: the Tatras' tiles took 14 and 35 min, most others seconds)."""
+    (of any band) whose core overlaps theirs (0 under done tiles without lines: a real 0, those tiles
+    are light), and how many of them lie under no done tile (their work unknown: the run weighs every
+    tile by the relief instead, _relief_weights). Beyond its grid, a tile's time goes to the pair
+    search of its lines, and the lines of every band lie where the terrain is steep (Slovakia: the
+    Tatras' tiles took 14 and 35 min, most others seconds)."""
     rows = manifest.db.execute("SELECT band, name, core, status, lines FROM tiles").fetchall()
     done = [(json.loads(core), lines or 0) for _, _, core, status, lines in rows if status == "done"]
-    if not done:
-        return {}
-    cores = np.array([c for c, _ in done], dtype=np.float64)
+    cores = np.array([c for c, _ in done], dtype=np.float64).reshape(-1, 4)
     lines = np.array([n for _, n in done], dtype=np.float64)
-    out = {}
+    out, unknown = {}, 0
     for band, name, core, status, _ in rows:
         if status == "pending" and band in bands:
             left, bottom, right, top = json.loads(core)
             over = (cores[:, 0] < right) & (left < cores[:, 2]) & (cores[:, 1] < top) & (bottom < cores[:, 3])
             out[(band, name)] = float(lines[over].sum())
-    return out
+            unknown += not over.any()
+    return out, unknown
+
+
+def _relief_weights(manifest: Manifest, bands: Sequence[str], outline, crs: str,
+                    cache_dir: str) -> Tuple[Dict[Tuple[str, str], float], int]:
+    """The weights of the pending tiles of these bands from the relief: RELIEF_LINES times the km² of
+    slopes of RELIEF_DEGREES or more at 30 m whose block's centre lies inside the outline (WGS84) and
+    the tile's core (crs), to the power RELIEF_EXPONENT; and the GLO-30 tiles read."""
+    import relief
+    blocks = relief.steep_blocks(outline, crs, cache_dir, RELIEF_DEGREES)
+    out = {}
+    for band in bands:
+        rows = manifest.db.execute("SELECT name, core FROM tiles WHERE band = ? AND status = 'pending' "
+                                   "ORDER BY rowid", (band,)).fetchall()
+        steep = relief.per_core(blocks.x, blocks.y, blocks.steep, [json.loads(core) for _, core in rows])
+        out.update({(band, name): float(RELIEF_LINES * km2 ** RELIEF_EXPONENT) for (name, _), km2 in zip(rows, steep)})
+    return out, blocks.tiles
 
 
 class _Rethreading:
@@ -1036,6 +1068,33 @@ def run(country_id: str, data_dir: str, processes: Optional[int] = None, bands: 
         lock.release()
 
 
+def _set_weights(manifest: Manifest, bands: Sequence[str], plans: Dict, say):
+    """The weights of the pending tiles of the run's bands (claimed heaviest first): the lines of the
+    tiles done already over them (_weights), or, when one of them lies under no done tile, every one
+    by the relief (_relief_weights; a failure leaves them in their order)."""
+    weights, unknown = _weights(manifest, bands)
+    if not weights:
+        return
+    if not unknown:
+        manifest.set_weights(weights)
+        say(f"The heaviest tiles first: {sum(w > 0 for w in weights.values())} of {len(weights)} pending tiles "
+            f"lie under the lines of the tiles done already")
+        return
+    plan = next(iter(plans.values()))
+    started = time.monotonic()
+    try:
+        weights, tiles = _relief_weights(manifest, bands, plan.area.geometry, plan.crs, plan.paths.cache)
+    except Exception as e:  # no network for a missing tile, an unreadable file: the order of before
+        say(f"WARNING: the tiles' weights from the relief failed ({cache.clean_error(e)}): they keep the weights "
+            f"they had (none in a first run: claimed in their order)")
+        return
+    manifest.set_weights(weights)
+    say(f"The heaviest tiles first, by the relief: {sum(w > 0 for w in weights.values())} of {len(weights)} pending "
+        f"tiles hold slopes of {RELIEF_DEGREES}° or more at 30 m (Copernicus GLO-30, {tiles} tiles, "
+        f"{time.monotonic() - started:.0f} s); " + ("no tile is done yet" if unknown == len(weights) else
+                                                     f"{unknown} lie under no done tile"))
+
+
 def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say) -> int:
     import search
     from progress import progress
@@ -1059,11 +1118,6 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
-        weights = _weights(manifest, selected)
-        if weights:
-            manifest.set_weights(weights)
-            say(f"The heaviest tiles first: {sum(w > 0 for w in weights.values())} of {len(weights)} pending tiles "
-                f"lie under the lines of the tiles done already")
         shutil.rmtree(os.path.join(data_dir, "work", f"country-{country.id}"), ignore_errors=True)
         counts = manifest.counts()
         todo = sum(counts.get(b, {}).get("pending", 0) for b in selected)
@@ -1094,6 +1148,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
             return 1
         started = time.time()
         if todo:
+            _set_weights(manifest, selected, plans, say)
             with progress.bars():
                 _prefetch({n: plans[n] for n in selected}, say)
                 if k:
