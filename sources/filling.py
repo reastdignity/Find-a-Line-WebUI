@@ -47,7 +47,8 @@ NEIGHBOUR_PAD = GAP_RING + 3  # pixels of the neighbour's data around its gaps (
 # neighbour's side of the Tatras and the Wetterstein it lost 25-42 % of the lines the neighbour's own
 # grid finds, nearest 0-4 % (measured 2026-11-05 with tools/border_study.py: docs/performance.md, "The
 # resampling of a neighbour's data"; the user's decision). Finer data are averaged and coarser data
-# reprojected bilinearly, as every mosaic. NEIGHBOUR_RESAMPLING, when set, is the method for all of a
+# reprojected bilinearly, as every mosaic (nearest would copy a coarse pixel onto several of ours, a
+# staircase of false walls: measured on the Zillertal ridge). NEIGHBOUR_RESAMPLING, when set, is the method for all of a
 # neighbour's rasters instead (one of mosaic.RESAMPLINGS: tools/border_study.py's --resampling)
 NEIGHBOUR_SAME_RESOLUTION: Optional[str] = "nearest"
 NEIGHBOUR_RESAMPLING: Optional[str] = None

@@ -44,8 +44,11 @@ HELD_GRIDS: Optional[List[np.memmap]] = None
 RESAMPLINGS = {"nearest": Resampling.nearest, "bilinear": Resampling.bilinear, "cubic": Resampling.cubic,
                "average": Resampling.average}
 # A raster reprojected onto the grid is "finer" below FINER of the grid's resolution (averaged) and "at the
-# grid's resolution" up to SAME of it (bilinear, or build_mosaic's `same_resolution`); coarser: bilinear
-FINER, SAME = 0.75, 1.5
+# grid's resolution" up to SAME of it (bilinear, or build_mosaic's `same_resolution`); coarser: bilinear.
+# SAME lies between the two measured cases of nearest for a neighbour's data (docs/performance.md, "The
+# resampling of a neighbour's data"): right at 1.0 of the grid's resolution, wrong at 1.25 (2.5 m data on a
+# 2 m grid: every step between two coarse pixels a wall, 1.7 times the lines and 2.5 times the spots)
+FINER, SAME = 0.75, 1.1
 
 
 def flush_grid(grid: np.memmap):

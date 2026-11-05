@@ -1794,6 +1794,11 @@ def test_mosaic_resampling_methods(tmp_path):
                           mosaic("same", same, 499979, 300321, 2, "cubic"))
     assert np.array_equal(mosaic("coarse", coarse, 499987, 300321, 5, None, same_resolution="nearest"),
                           mosaic("coarse", coarse, 499987, 300321, 5, "bilinear"))
+    # ... also a little coarser (2.5 m data on the 2 m grid, measured: nearest makes walls of their steps)
+    wider = (200 + rng.normal(0, 30, (140, 180))).astype(np.float32)
+    assert src.mosaic.FINER < 1.0 < src.mosaic.SAME < 1.25
+    assert np.array_equal(mosaic("wider", wider, 499979, 300321, 2.5, None, same_resolution="nearest"),
+                          mosaic("wider", wider, 499979, 300321, 2.5, "bilinear"))
     assert np.array_equal(mosaic("fine", fine, 499979.75, 300320.25, 0.5, None, same_resolution="nearest"),
                           got["average"])
     assert np.array_equal(mosaic("on_grid", on_grid, 500000, 300300, 2, None, same_resolution="nearest"), on_grid)

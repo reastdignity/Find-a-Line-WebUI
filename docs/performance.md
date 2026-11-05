@@ -2336,14 +2336,16 @@ method gives what the neighbour's own grid gives.
 `tools/border_study.py run <place> --primary <source> --resampling <method>` counts the layer's S band
 (1 m) and M band (2 m) over a box across a border on one source's grid, the other side's data from the
 neighbour fill reprojected by the method (`filling.NEIGHBOUR_RESAMPLING`, `mosaic.RESAMPLINGS`; "own"
-is the run without a method, the code of `main`). The reference of a run is the run on the other
+is the run without a method, the code of `main` 5c8261e, before the decisions at the end of this
+section). The reference of a run is the run on the other
 source's grid. The measure is the class **side**: the lines with both anchors on the neighbour's
 side, which the run finds on the reprojected data and the reference on the data themselves. A spot
 (a pair of 50 m anchor clusters) is found when the other run has one within 1 cluster at both ends
 after reprojection, both ends in the box less 100 m (`band_study.matched`); many spots may match
 one, so the number of spots is given beside the shares. The places: the Tatras (Poland and
 Slovakia, both 1 m, the grids turned by 4.4 degrees), the Wetterstein (Bavaria and Austria, both
-1 m, hardly turned, shifted) and the Elbe Sandstone (Saxony's 1 m data on Czechia's 2 m grid).
+1 m, hardly turned, shifted), the Elbe Sandstone (Saxony's 1 m data on Czechia's 2 m grid) and, for
+a neighbour coarser than the grid, the Zillertal ridge (South Tyrol's 2.5 m data on Austria's grid).
 
 What limits the reading:
 - **A part of the neighbour's side lies on the run's own data**, which reach beyond the border: 14.4 %
@@ -2482,6 +2484,49 @@ measured before (2-11 % of the spots across) does not come from the method. No m
 the CPU seconds stay within about 10 % (they follow the number of lines), step 1 within the noise of the
 shared PC, the memory within 0.2 GiB.
 
+### Step by step: a neighbour coarser than the grid (the Zillertal ridge)
+
+South Tyrol's 2.5 m data on Austria's grid (the user's order of 2026-11-05: "we have such cases in the
+data"), the box 46.95-47.04 N, 11.70-11.92 E across the main ridge. The reference is South Tyrol's
+own grid, which holds its 2.5 m data reprojected bilinearly onto the band's resolution: what a layer
+of South Tyrol would count. 1.3 % of the South Tyrol side lies on Austria's own data. The mosaic's
+own choice is bilinear in both bands (the data are not finer than 0.75 of the grid).
+
+| Zillertal, M band: South Tyrol's 2.5 m data on Austria's 2 m grid | Reference (its own grid) | own (bilinear) | average | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 37 708 860 | 37 369 244 (99.1 %) | 38 625 467 (102.4 %) | 39 045 005 (103.5 %) | 63 191 086 (167.6 %) |
+| Their spots | 20 097 | 20 999 (104.5 %) | 25 472 (126.7 %) | 22 905 (114.0 %) | 49 898 (248.3 %) |
+| Reference's spots the run has |  | 99.7 % | 99.7 % | 99.9 % | 99.9 % |
+| Run's spots the reference has |  | 98.6 % | 96.4 % | 97.8 % | 86.6 % |
+| Lines across the border | 33 437 | 97 790 | 98 699 | 99 616 | 117 877 |
+| Their spots | 105 | 652 | 687 | 666 | 823 |
+| Across: reference's the run has / run's the reference has |  | 100.0 % / 36.7 % | 100.0 % / 35.2 % | 100.0 % / 36.0 % | 100.0 % / 35.8 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 234 / 27 | 266 / 35 | 237 / 24 | 266 / 48 | 294 / 25 |
+| CPU seconds / of them step 1 | 1378 / 35 | 1530 / 40 | 1421 / 30 | 1455 / 33 | 1808 / 35 |
+| Peak private / working set, GiB | 1.77 / 1.57 | 1.66 / 1.51 | 1.65 / 1.50 | 1.65 / 1.50 | 1.69 / 1.53 |
+
+| Zillertal, S band: South Tyrol's 2.5 m data on Austria's 1 m grid | Reference (its own grid) | own (bilinear) | average | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 28 | 33 | 15 044 | 64 | 73 867 |
+| Their spots | 2 | 4 | 314 | 4 | 846 |
+| Lines across the border | 0 | 1 | 3 | 1 | 7 |
+| Seconds of the tiles (shared lock) / of them step 1 | 172 / 116 | 116 / 70 | 99 / 54 | 99 / 56 | 105 / 57 |
+| CPU seconds / of them step 1 | 188 / 92 | 170 / 75 | 160 / 62 | 156 / 65 | 173 / 60 |
+| Peak private / working set, GiB | 1.89 / 1.75 | 1.57 / 1.42 | 1.57 / 1.42 | 1.57 / 1.42 | 1.57 / 1.42 |
+
+For coarser data **nearest is wrong and bilinear right**. A coarse pixel copied onto several fine ones
+is a staircase: every step between two coarse pixels becomes a wall one fine pixel wide. On the 1 m
+grid, where 2.5 m data hold next to no line of 30-300 m (28 on their own grid), nearest makes 73 867
+and the average 15 044 (for coarser data the average too copies the pixels it touches); on the 2 m
+grid nearest gives 1.7 times the lines and 2.5 times the spots, 13 % of them without a match.
+Bilinear follows the reference in both bands (99.1 % of the lines, 99.7 % of its spots found, 98.6 %
+of the run's present in it), cubic a little less closely. The lines across the border are three
+times those of South Tyrol's grid under every method (97 790 to 99 616 against 33 437; nearest
+117 877): Austria's side of the ridge is 1 m data on Austria's grid, while 16 % of it is South
+Tyrol's 2.5 m data on South Tyrol's grid, another case of the two grids' data, not of the method.
+So nearest applies only at the grid's own resolution: `mosaic.SAME` is 1.1, between the measured
+1.0 (nearest right) and 1.25 (nearest wrong).
+
 ### Slovakia's averaged tiles on a grid of another CRS
 
 Slovakia's side on Poland's 2 m grid lost more than any other M case (87.7 % of the spots). The
@@ -2507,17 +2552,19 @@ the mosaic averages them onto the grid as it does every other 1 m source:
 The spots return to 95.7 % of the reference's and the found share to 99.7 %; the lines stay at 88-90 %
 (probably the two grids' pixels: the reference's 2 m pixels are the aligned block means, the run's the
 average over a turned pixel; the number of lines of a band with 300 M of them over 200 k spots
-follows the anchors per wall, not the spots). Open: `GridResolutions.resolution` should give the
-averaged tiles only to a grid in the tiles' CRS (the country layer's own bands); the user decides
-with the method.
+follows the anchors per wall, not the spots). Done on the user's word (2026-11-05):
+`GridResolutions.resolution` gives the averaged tiles only to a grid of the tiles' CRS (the country
+layer's own bands); R13 of the regression set, a 5 m search in Poland with its Slovak side filled, is
+back at its anchors of before the averaged tiles (2 804).
 
-### What it means for cube v2 (the user decides: contract, section 6, step 0)
+### What was decided and built (the user, 2026-11-05; contract, section 6, step 0)
 
 - Finer data (the M and L bands against 1 m sources): the average stays.
-- The same resolution (the S band against a 1 m neighbour): nearest instead of bilinear is the
-  recommendation; it changes every search at such a border (the regression tests with a neighbour at
-  the grid's resolution get new numbers), so it is not coded yet.
-- A neighbour coarser than the grid (Czechia's or South Tyrol's 2 to 2.5 m on a 1 m grid) was not
-  measured: bilinear stays until it is (the Zillertal ridge of the roadmap's list).
+- The grid's own resolution (the S band against a 1 m neighbour; `mosaic.FINER` 0.75 to `mosaic.SAME`
+  1.1 of it): nearest instead of bilinear, `filling.NEIGHBOUR_SAME_RESOLUTION`, for a neighbour's
+  rasters in every search. R34 of the regression set (Mięguszowieckie Szczyty at 1 m, its Slovak side
+  from the neighbour) gained 162 anchors and 3 spots; no other test of the set changed.
+- A neighbour coarser than the grid: bilinear stays (the Zillertal ridge above).
 - Native anchors for the partner's side (the contract's next step) are not needed: with nearest at
-  the same resolution and the average for finer data the reference's spots are found to 98.3-99.7 %.
+  the grid's resolution, the average for finer data and bilinear for coarser data the reference's
+  spots are found to 98.3-99.7 %.

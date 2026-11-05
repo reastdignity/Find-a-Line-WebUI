@@ -718,8 +718,9 @@ grid 1 310; 97.9 % of the PL grid's have a match on the SK grid, 89.2 % the othe
 choice, the default, unchanged), `sources.filling.NEIGHBOUR_RESAMPLING` for the neighbours' rasters
 only, `tools/border_study.py run --resampling` and its report's comparison (`resampling_rows`: each
 run against the run on the other source's grid, the lines and spots with both anchors on that
-reference's side). **Measured** at the Tatras (PL-SK), the Wetterstein (DE-AT) and the Elbe
-Sandstone (DE-CZ), the S and M bands; every table, the conditions and the costs are in
+reference's side). **Measured** at the Tatras (PL-SK), the Wetterstein (DE-AT), the Elbe
+Sandstone (DE-CZ) and, for a neighbour coarser than the grid, the Zillertal ridge (AT-IT), the S and
+M bands; every table, the conditions and the costs are in
 docs/performance.md, "The resampling of a neighbour's data". In short, for the neighbour's side
 against its own grid:
 
@@ -741,7 +742,7 @@ anchor on the ridge falls to, not the reprojection. No method costs CPU or memor
 
 **Decided by the user (2026-11-05) and built** (branch `partner-resampling`):
 - finer data (M, L against a 1 m neighbour): the average stays;
-- about the grid's resolution (`mosaic.FINER` 0.75 to `mosaic.SAME` 1.5 of it; S against a 1 m
+- the grid's own resolution (`mosaic.FINER` 0.75 to `mosaic.SAME` 1.1 of it; S against a 1 m
   neighbour): **nearest** instead of bilinear, `filling.NEIGHBOUR_SAME_RESOLUTION`, for a
   neighbour's rasters only (`build_mosaic(same_resolution=)`). It holds for every search at a
   border, not for the layer alone: the regression tests whose neighbour lies at the grid's
@@ -749,6 +750,12 @@ anchor on the ridge falls to, not the reprojection. No method costs CPU or memor
   lines; a profile computed again for one of its lines over the neighbour's pixels
   (`search.profile_of_line`) reads the new reprojection (no migration: the difference is that of
   the two methods at a cliff's edge);
+- a neighbour coarser than the grid: bilinear stays. Measured on the user's order at the Zillertal
+  ridge (South Tyrol's 2.5 m data on Austria's grid): nearest turns every step between two coarse
+  pixels into a wall (on the 1 m grid 73 867 lines where South Tyrol's own grid finds 28; on the 2 m
+  grid, at 1.25 of its resolution, 1.7 times the lines and 2.5 times the spots), bilinear follows
+  the reference (99.7 % of its spots found, 98.6 % of the run's present in it). Hence `SAME` 1.1:
+  between the measured 1.0 (nearest right) and 1.25 (nearest wrong);
 - native anchors for the partner's side: not needed (98.3-99.7 % of the reference's spots found).
 
 **Found on the way** (the user's word on each, 2026-11-05):
