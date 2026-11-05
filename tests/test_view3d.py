@@ -33,21 +33,54 @@ READY_SCRIPT = """
     const stage = root.dataset.stage;
     if (stage && stages[stages.length - 1] !== stage) stages.push(stage);
   }).observe(root, {attributes: true, attributeFilter: ["data-stage"]});
-  const started = Date.now();
-  const wait = () => {
-    if (root.dataset.ready === "1") {
+  // Under a virtual time budget headless Edge runs animation frames in real time but timers in virtual time, which
+  // jumps ahead while nothing loads: behind plain timers 25 virtual seconds passed before the page's first frame
+  // (data-ready) in a passing run, and none came at all in the failing ones; the ring's tiles too are asked for
+  // from animation frames (3d-tiles-renderer's queue). Each poll loads a small file, which holds the virtual time.
+  let n = 0;
+  const until = (test, ms, then) => {
+    const started = Date.now();
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > ms) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
+  };
+  // The animation frames asked for and not run yet: a frame asked for may come only after a virtual second of
+  // polling (each is drawn in real time, by software GL here), so "no frame for a second" alone does not say that
+  // none is coming. The page asks for them after this script (the patch comes first).
+  const waiting = new Set(), raf = window.requestAnimationFrame.bind(window), caf = window.cancelAnimationFrame.bind(window);
+  window.requestAnimationFrame = (fn) => {
+    const id = raf((time) => { waiting.delete(id); fn(time); });
+    waiting.add(id);
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => { waiting.delete(id); caf(id); };
+  // settled: no frame drawn and none asked for during a second, at most `ms`
+  const settled = (ms, then) => {
+    let frames = root.dataset.frames, since = Date.now();
+    until(() => {
+      if (root.dataset.frames !== frames || waiting.size) { frames = root.dataset.frames; since = Date.now(); }
+      return Date.now() - since >= 1000;
+    }, ms, then);
+  };
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    if (!ready) {
+      done({ready: false, status: (document.querySelector(".v3-status") || {}).textContent, data: {...root.dataset}});
+      return;
+    }
+    settled(15000, (still) => {
       const frames = Number(root.dataset.frames);
-      setTimeout(() => done({ready: true, stages, frames: [frames, Number(root.dataset.frames)], triangles: Number(root.dataset.triangles), vertices: Number(root.dataset.vertices),
+      // two seconds of loading: a frame would come if the page asked for one
+      until(() => false, 2000, () => done({ready: true, settled: still, stages, frames: [frames, Number(root.dataset.frames)], triangles: Number(root.dataset.triangles), vertices: Number(root.dataset.vertices),
         maxError: Number(root.dataset.maxError), readout: (document.querySelector(".v3-readout") || {}).textContent,
         filled: (document.querySelector(".v3-readout") || {dataset: {}}).dataset.filled || null,
         profileError: root.dataset.profileError || null, toolbar: document.querySelectorAll(".v3-toolbar input[type=range]").length,
         note: (document.querySelector(".v3-note") || {}).textContent, status: (document.querySelector(".v3-status") || {}).className,
-        canvas: document.querySelectorAll("canvas.v3-canvas").length}), 2000);
-    } else if (Date.now() - started > 25000) {
-      done({ready: false, status: (document.querySelector(".v3-status") || {}).textContent, data: {...root.dataset}});
-    } else setTimeout(wait, 100);
-  };
-  wait();
+        canvas: document.querySelectorAll("canvas.v3-canvas").length}));
+    });
+  });
 })();
 """
 
@@ -89,7 +122,7 @@ def test_view3d_draws_the_line(clip_data, tmp_path, monkeypatch, level):
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, result)
-    assert result["ready"], result
+    assert result["ready"] and result["settled"], result
     assert result["stages"] == ["server", "download", "unpacking", "building", "done"], result
     assert result["triangles"] > 0 and result["canvas"] == 1
     assert result["frames"][0] == result["frames"][1] < 10  # drawn on demand: nothing while nothing changes

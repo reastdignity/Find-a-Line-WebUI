@@ -239,27 +239,40 @@ RING_SCRIPT = """
     out.textContent = JSON.stringify(what);
     document.body.appendChild(out);
   };
-  const wait = () => {
-    if (root.dataset.ring === "loaded" && root.dataset.ready === "1" && window.FINDALINE_RING_EDGES && !look) {
-      const edges = [...document.querySelectorAll(".v3-toolbar [role=radio]")].find((b) => b.textContent.trim() === "Edges");
-      look = {before: images(), found: !!edges};
-      if (edges) edges.click();
-      setTimeout(wait, 2500);
-    } else if (root.dataset.ring === "loaded" && root.dataset.ready === "1") {
-      setTimeout(() => {
-        if (look) Object.assign(look, {after: images(), imagery: root.dataset.imagery || null, edges: root.dataset.edges || null});
-        const entries = performance.getEntriesByType("resource")
-          .filter((e) => /\\/runs\\/view3dtest\\/(ring|img)\\//.test(e.name))
-          .map((e) => ({url: e.name.replace(/^.*\\/view3dtest\\//, ""), bytes: e.encodedBodySize, transfer: e.transferSize}));
-        done({ring: root.dataset.ring, offset: root.dataset.ringOffset ? JSON.parse(root.dataset.ringOffset) : null,
-              errors: Number(root.dataset.ringErrors || 0), visible: Number(root.dataset.ringTiles || 0), entries, triangles: Number(root.dataset.triangles),
-              credits: (document.querySelector(".v3-credits") || document.body).innerHTML, look});
-      }, 2000);
-    } else if (Date.now() - started > 50000) {
-      done({ring: root.dataset.ring || null, timeout: true, data: {...root.dataset}});
-    } else setTimeout(wait, 100);
+  // Under a virtual time budget headless Edge runs animation frames in real time but timers in virtual time, and
+  // the ring's tiles are asked for from animation frames (3d-tiles-renderer's queue): behind plain timers no tile
+  // was asked for in most runs (test_view3d.READY_SCRIPT). Each poll loads a small file, which holds the virtual
+  // time (not under ring/ or img/, so not among the entries counted). `then(true)` once `test()` holds,
+  // `then(false)` past `limit` ms from the script's start.
+  let n = 0;
+  const until = (test, limit, then) => {
+    const poll = () => {
+      if (test()) then(true);
+      else if (Date.now() - started > limit) then(false);
+      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
+    };
+    poll();
   };
-  wait();
+  const loaded = () => root.dataset.ring === "loaded" && root.dataset.ready === "1";
+  const pause = (ms, then) => { const end = Date.now() + ms; until(() => Date.now() >= end, Infinity, then); };
+  const record = () => {
+    if (look) Object.assign(look, {after: images(), imagery: root.dataset.imagery || null, edges: root.dataset.edges || null});
+    const entries = performance.getEntriesByType("resource")
+      .filter((e) => /\\/runs\\/view3dtest\\/(ring|img)\\//.test(e.name))
+      .map((e) => ({url: e.name.replace(/^.*\\/view3dtest\\//, ""), bytes: e.encodedBodySize, transfer: e.transferSize}));
+    done({ring: root.dataset.ring, offset: root.dataset.ringOffset ? JSON.parse(root.dataset.ringOffset) : null,
+          errors: Number(root.dataset.ringErrors || 0), visible: Number(root.dataset.ringTiles || 0), entries, triangles: Number(root.dataset.triangles),
+          credits: (document.querySelector(".v3-credits") || document.body).innerHTML, look});
+  };
+  const timeout = () => done({ring: root.dataset.ring || null, timeout: true, data: {...root.dataset}});
+  until(loaded, 50000, (ok) => {
+    if (!ok) { timeout(); return; }
+    if (!window.FINDALINE_RING_EDGES) { pause(2000, record); return; }
+    const edges = [...document.querySelectorAll(".v3-toolbar [role=radio]")].find((b) => b.textContent.trim() === "Edges");
+    look = {before: images(), found: !!edges};
+    if (edges) edges.click();
+    pause(2500, () => until(loaded, 50000, (again) => again ? pause(2000, record) : timeout()));
+  });
 })();
 """
 
