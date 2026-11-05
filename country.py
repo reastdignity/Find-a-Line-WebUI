@@ -611,8 +611,9 @@ def _private(memory) -> int:
 
 
 def _io_counters() -> Tuple[int, int]:
-    """Bytes read and written by this process so far (its file reads and writes; the pages of the
-    memory-mapped grids the system writes are not among them)."""
+    """Bytes read and written by this process so far (its file reads and writes, most served by the
+    system's cache; the pages of the memory-mapped grids are not among them: a tile's disk is the
+    machine's counters of the run's timeline, _RunSamples)."""
     try:
         io = psutil.Process().io_counters()
         return int(io.read_bytes), int(io.write_bytes)
@@ -789,7 +790,7 @@ class TileWork:
             progress.unsubscribe(clock)
         read1, written1 = _io_counters()
         del data
-        gc.collect()  # close the memory-mapped grids before their folder is removed (Windows)
+        self._remove_grids(work)
         meta = {"version": countcube.VERSION, "config": self.state["hash"], "origin": list(self.origin),
                 "country": self.country.id, "band": band.name, "tile": name, "core": list(core),
                 "grid": {"width": grid.width, "height": grid.height, "res": res, "left": grid.left, "top": grid.top},
@@ -808,15 +809,27 @@ class TileWork:
               f"{t2 - t0:.1f} s", flush=True)
         return meta
 
+    def _remove_grids(self, work: str):
+        """A tile's work folder removed: its memory-mapped grids closed first (Windows), the views a
+        worker kept (sources.mosaic.HELD_GRIDS) too, and the files deleted right after them, before
+        the system writes their pages."""
+        import sources.mosaic
+        if sources.mosaic.HELD_GRIDS:
+            sources.mosaic.HELD_GRIDS.clear()
+        gc.collect()
+        shutil.rmtree(work, ignore_errors=True)
+
     def cleanup(self, band: str, name: str):
         import sources as src
-        gc.collect()
-        shutil.rmtree(os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band}-{name}"),
-                      ignore_errors=True)
+        self._remove_grids(os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band}-{name}"))
         src.used_data.clear()
 
-    def loop(self, manifest: Manifest, run_gone=None) -> int:
-        """Claim and count tiles until none is left (or the run is gone); returns the tiles done."""
+    def loop(self, manifest: Manifest, run_gone=None, freeze: bool = False) -> int:
+        """Claim and count tiles until none is left (or the run is gone); returns the tiles done.
+        freeze: what is alive after the first tile (the modules, numba's kernels, the band's plan)
+        kept out of the collections of the next tiles (gc.freeze): count and cleanup each collect
+        to close the memory-mapped grids, about 45 ms alone and 120 ms beside eleven workers over
+        everything a worker has loaded."""
         done = 0
         while True:
             if run_gone is not None and run_gone():
@@ -839,6 +852,8 @@ class TileWork:
             manifest.done(band, name, seconds, meta["lines"], meta["spots"])
             self.cleanup(band, name)
             done += 1
+            if freeze and done == 1:
+                gc.freeze()
         return done
 
 
@@ -859,10 +874,12 @@ def worker(country_id: str, data_dir: str, slot: int) -> int:
     """`country worker`: a process of a run, claiming tiles until none is left. It reads only
     country.json and the manifest, and stops when the run's lock is free (the run is gone)."""
     import progress as pg
+    import sources.mosaic
     from filelock import FileLock, Timeout
     from progress import progress
     folder = folder_of(data_dir, country_id)
     pg.TEXT_INTERVAL = WORKER_PROGRESS_SECONDS
+    sources.mosaic.HELD_GRIDS = []  # a tile's grids never reach the disk (TileWork._remove_grids)
     lock_path = os.path.join(folder, "run.lock")
 
     def run_gone() -> bool:
@@ -879,7 +896,7 @@ def worker(country_id: str, data_dir: str, slot: int) -> int:
     manifest = Manifest(folder)
     try:
         with progress.bars():
-            done = work.loop(manifest, run_gone)
+            done = work.loop(manifest, run_gone, freeze=True)
     finally:
         manifest.close()
     print(f"Worker {slot} done: {done} tiles ({_now()})", flush=True)
@@ -1412,8 +1429,9 @@ def profile(country_id: str, data_dir: str) -> int:
               f"{dict(sorted(claimed.items()))}, at most {dict(sorted(most.items()))}")
         print(f"  memory of a tile (GiB): private {_quantiles([m['memory']['private'] / gib for m in profiled])}; "
               f"working set {_quantiles([m['memory']['rss'] / gib for m in profiled])}")
-        print(f"  file reads of a tile (MB) {_quantiles([m['io']['read'] / 1e6 for m in profiled])}; "
-              f"writes {_quantiles([m['io']['write'] / 1e6 for m in profiled])}")
+        print(f"  file reads of a tile (MB, through the system's cache) {_quantiles([m['io']['read'] / 1e6 for m in profiled])}; "
+              f"writes {_quantiles([m['io']['write'] / 1e6 for m in profiled])}; what reaches the disks: the "
+              "last run's timeline below (these see no memory-mapped grid)")
     timelines = sorted(glob.glob(os.path.join(folder, "logs", "samples-*.csv")))
     if timelines:
         _profile_timeline(timelines[-1])
@@ -1433,13 +1451,15 @@ def _profile_timeline(path: str):
 
     workers, running, cores = column("workers"), column("running_tiles"), column("workers_cores")
     busy = workers.max()
+    steps = np.diff(column("seconds"), prepend=0.0)
     print(f"The last run's timeline ({os.path.basename(path)}): {column('seconds')[-1] / 60:.1f} min, "
           f"{busy:.0f} workers; machine CPU {column('machine_cpu_pct').mean():.0f} % on average; the workers' cores "
           f"{cores.mean():.1f} on average, {cores.max():.1f} at most; memory used up to "
           f"{column('ram_used_gib').max():.1f} GiB (the workers' private bytes up to "
           f"{column('workers_private_gib').max():.1f} GiB); fewer tiles than workers {np.mean(running < busy):.0%} "
-          f"of the time; disks {column('disk_read_mbs').mean():.0f} MB/s read and "
-          f"{column('disk_write_mbs').mean():.0f} MB/s written on average (at most {column('disk_read_mbs').max():.0f} "
+          f"of the time; the machine's disks {np.sum(column('disk_read_mbs') * steps) / 1e3:.1f} GB read and "
+          f"{np.sum(column('disk_write_mbs') * steps) / 1e3:.1f} GB written, {column('disk_read_mbs').mean():.0f} and "
+          f"{column('disk_write_mbs').mean():.0f} MB/s on average (at most {column('disk_read_mbs').max():.0f} "
           f"and {column('disk_write_mbs').max():.0f})")
 
 

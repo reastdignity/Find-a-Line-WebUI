@@ -246,7 +246,7 @@ def sea_mask(grid: Grid, cache_dir: str, mode: str, copernicus_sea: np.ndarray,
 
 def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update: Optional[str],
                   out: np.ndarray, rows: int, extent: Optional[Grid] = None) -> Tuple[np.ndarray, str, Optional[str]]:
-    """sea_mask in strips of `rows` rows into out (a boolean grid of the grid, memory-mapped):
+    """sea_mask in strips of `rows` rows into out (a new boolean grid of the grid, memory-mapped, all False):
     copernicus_rows(r0, r1) gives the rows [r0, r1) of the Copernicus mask's sea; extent as
     sea_mask's (the world file's polygons read once for the whole search's grid, the tiles of
     the country layer: each burns those whose box reaches it). Returns (out, description of the
@@ -259,7 +259,7 @@ def sea_mask_rows(grid: Grid, cache_dir: str, mode: str, copernicus_rows, update
         return out
 
     if not any(np.asarray(copernicus_rows(r0, r1)).any() for r0, r1 in strips):
-        return copernicus(), "no sea in the area", None  # inland (sea_mask)
+        return out, "no sea in the area", None  # inland (sea_mask)
     downloaded = mode == "overpass" and world_file(cache_dir) is not None
     if mode == "world" or downloaded:
         from sources.filling import rasterize_into

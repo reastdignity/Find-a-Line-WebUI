@@ -30,6 +30,21 @@ used_data: List[Dict] = []
 # where no raster has a value (NaN in the float32 mosaics)
 NODATA = 255
 
+# The memory-mapped grids of step 1 when they are done (flush_grid): written to disk at once, or,
+# as a list (a worker of the country layer), each view kept in it until the grids are deleted.
+# Nothing reads a grid but through the system's cache, so its values do not depend on this. On
+# Windows a grid's pages go to the disk when the last view that wrote them closes, even if the
+# file is deleted seconds later, and never while it stays open and the view closes just before the
+# delete (4 grids of 150 MB: 600 MB written against 2): a tile's 300-500 MB that nobody reads back
+HELD_GRIDS: Optional[List[np.memmap]] = None
+
+
+def flush_grid(grid: np.memmap):
+    if HELD_GRIDS is None:
+        grid.flush()
+    else:
+        HELD_GRIDS.append(grid)
+
 
 def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label: str,
                   update: Optional[str] = None, download: bool = True, quiet: bool = False,
@@ -77,7 +92,7 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
         # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http)
         with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS)), rio.open(path) as src:
             _place(src, grid, mosaic, categorical, shift, rows)
-    mosaic.flush()
+    flush_grid(mosaic)
     progress.compute.finish()
     return mosaic
 

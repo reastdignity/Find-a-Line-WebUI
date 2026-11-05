@@ -1703,7 +1703,7 @@ def test_border_gaps_rows_as_whole(tmp_path):
                     del got, out
     # no gaps at all: an empty mask either way
     np.save(str(tmp_path / "full.npy"), np.ones((H, W), np.float32))
-    out = _memmap(tmp_path, "border2.npy", np.ones((H, W), bool))
+    out = _memmap(tmp_path, "border2.npy", np.zeros((H, W), bool))
     assert not src.filling.border_gaps(str(tmp_path / "full.npy"), None, circle, None, rows=10, out=out).any()
     assert src.filling.neighbour_window(neighbour, circle, out, rows=10) is None
 

@@ -619,6 +619,109 @@ def test_no_neighbours_for_a_tile_inside_the_outline():
     assert country._at_border(g)
 
 
+def test_tiles_with_their_grids_held(env, full, tmp_path, monkeypatch):
+    """Tiles whose grids stay open until they are deleted (sources.mosaic.HELD_GRIDS, as `country worker`
+    sets it): no grid flushed, none left held and no work folder after a tile, and the counts of the run
+    that flushed them, step 1's values read back through other mappings of the same files; flush_grid
+    does flush by default (the app)."""
+    import countcube
+    import sources.mosaic
+    flushed = []
+    real = np.memmap.flush
+    monkeypatch.setattr(np.memmap, "flush", lambda self: (flushed.append(self.filename), real(self))[1])
+    grid = np.lib.format.open_memmap(str(tmp_path / "a.npy"), mode="w+", dtype=np.uint8, shape=(2, 2))
+    sources.mosaic.flush_grid(grid)
+    assert flushed
+    flushed.clear()
+    held = []
+    monkeypatch.setattr(sources.mosaic, "HELD_GRIDS", held)
+    sources.mosaic.flush_grid(grid)
+    assert not flushed and held == [grid]
+    held.clear()
+    del grid
+    seen = []
+    import country
+    clear = country.TileWork._remove_grids
+
+    def remove_grids(work, path):
+        seen.append(len(held))
+        clear(work, path)
+        assert not held and not os.path.exists(path)
+
+    monkeypatch.setattr(country.TileWork, "_remove_grids", remove_grids)
+    data = _data_dir(env, "unflushed")
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--bands", "S", "--yes") == 0
+    assert not flushed and any(seen)
+    tiles = os.path.join(data, "countries", ID, "tiles", "S")
+    names = os.listdir(tiles)
+    assert len(names) >= 4 and sorted(names) == sorted(os.listdir(os.path.join(full["data"], "countries", ID, "tiles", "S")))
+    for name in names:
+        counted, _ = countcube.load_tile(os.path.join(tiles, name))
+        saved, _ = countcube.load_tile(os.path.join(full["data"], "countries", ID, "tiles", "S", name))
+        assert counted.lines == saved.lines
+        for a, b in ((saved.line_keys, counted.line_keys), (saved.line_counts, counted.line_counts),
+                     (saved.spot_ids, counted.spot_ids), (saved.spot_records, counted.spot_records)):
+            assert np.array_equal(a, b), name
+
+
+def test_worker_keeps_the_grids_from_the_disk(monkeypatch, tmp_path):
+    """`country worker`: the grids held, and what the first tile left alive frozen, once, after its
+    cleanup (TileWork.loop(freeze=True)); not without freeze."""
+    import country
+    import sources.mosaic
+    monkeypatch.setattr(sources.mosaic, "HELD_GRIDS", None)
+    events = []
+
+    class Work(country.TileWork):
+        def __init__(self):
+            self.cores, self.worker = 1, "slot-0"
+
+        def count(self, band, name, core, threads, threads_now=None):
+            return {"seconds": {"prepare": 0.0, "count": 0.0}, "lines": 0, "spots": 0}
+
+        def cleanup(self, band, name):
+            events.append(name)
+
+    class Claims:
+        def __init__(self, names):
+            self.names = iter(names)
+
+        def claim(self, worker, cores):
+            name = next(self.names, None)
+            return None if name is None else ("S", name, (0, 0, 1, 1), 1, False)
+
+        def done(self, *args):
+            pass
+
+    monkeypatch.setattr(country.gc, "freeze", lambda: events.append("freeze"))
+    assert Work().loop(Claims(["a", "b", "c"]), freeze=True) == 3
+    assert events == ["a", "freeze", "b", "c"]
+    events.clear()
+    assert Work().loop(Claims(["a", "b"])) == 2
+    assert events == ["a", "b"]
+    seen = {}
+
+    class Stop:
+        def __init__(self, *args):
+            pass
+
+        def loop(self, manifest, run_gone=None, freeze=False):
+            seen.update(held=sources.mosaic.HELD_GRIDS, freeze=freeze)
+            return 0
+
+    class NoManifest:
+        def __init__(self, folder):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(country, "TileWork", Stop)
+    monkeypatch.setattr(country, "Manifest", NoManifest)
+    assert country.worker(ID, str(tmp_path), 0) == 0
+    assert seen == {"held": [], "freeze": True}
+
+
 def test_tile_in_strips_as_plain(env, full):
     """A tile counted with step 1 in strips (country.TileWork.count: prepare_data(strips=True) on
     the tile's own grid) gives the counts of the plain path and the same grids, both read back
