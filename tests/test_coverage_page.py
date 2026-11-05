@@ -97,6 +97,19 @@ COVERAGE_SCRIPT = """
                                                     : (seen.timeout = true, done());
   const done = () => { out.textContent = JSON.stringify(seen); };
   const radio = (box, n) => document.querySelectorAll(box + " button")[n].click();
+  // The globe turns by itself in animation frames that draw the whole world. On a busy machine each frame
+  // takes longer than a frame, so headless Edge's page is never idle while it turns, and the page's time,
+  // which moves on only when the page is idle, stands still with every setTimeout of `wait` (the test hung
+  // until its 180 s were up). Its canvas is therefore awaited without a timer, by a MutationObserver, and
+  // left at once.
+  const appears = (selector, then) => {
+    if (document.querySelector(selector)) return then();
+    const observer = new MutationObserver(() => {
+      if (document.querySelector(selector)) { observer.disconnect(); clearTimeout(late); then(); }
+    });
+    const late = setTimeout(() => { observer.disconnect(); seen.timeout = true; done(); }, 15000);
+    observer.observe(document.body, {childList: true, subtree: true});
+  };
   wait(() => document.querySelector(".cov-shape[data-key='pl']"), () => {
     seen.shapes = document.querySelectorAll(".cov-svg .cov-shape").length;
     document.querySelector(".cov-shape[data-key='pl']").dispatchEvent(new MouseEvent("click", {bubbles: true}));
@@ -104,7 +117,7 @@ COVERAGE_SCRIPT = """
       seen.card = document.querySelector(".cov-card").textContent;
       seen.rows = document.querySelectorAll(".cov-table tbody tr").length;
       radio(".cov-bar .u-seg", 2);
-      wait(() => document.querySelector(".cov-canvas"), () => {
+      appears(".cov-canvas", () => {
         seen.globe = true;
         radio(".cov-bar .u-seg", 1);
         wait(() => document.querySelector(".cov-leaflet .leaflet-interactive"), () => {
