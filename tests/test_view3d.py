@@ -27,11 +27,17 @@ READY_SCRIPT = """
     out.textContent = JSON.stringify(what);
     document.body.appendChild(out);
   };
+  // The loading's stages as the status named them (main.ts Stage): the first is set before this script runs
+  const stages = root.dataset.stage ? [root.dataset.stage] : [];
+  new MutationObserver(() => {
+    const stage = root.dataset.stage;
+    if (stage && stages[stages.length - 1] !== stage) stages.push(stage);
+  }).observe(root, {attributes: true, attributeFilter: ["data-stage"]});
   const started = Date.now();
   const wait = () => {
     if (root.dataset.ready === "1") {
       const frames = Number(root.dataset.frames);
-      setTimeout(() => done({ready: true, frames: [frames, Number(root.dataset.frames)], triangles: Number(root.dataset.triangles), vertices: Number(root.dataset.vertices),
+      setTimeout(() => done({ready: true, stages, frames: [frames, Number(root.dataset.frames)], triangles: Number(root.dataset.triangles), vertices: Number(root.dataset.vertices),
         maxError: Number(root.dataset.maxError), readout: (document.querySelector(".v3-readout") || {}).textContent,
         filled: (document.querySelector(".v3-readout") || {dataset: {}}).dataset.filled || null,
         profileError: root.dataset.profileError || null, toolbar: document.querySelectorAll(".v3-toolbar input[type=range]").length,
@@ -84,6 +90,7 @@ def test_view3d_draws_the_line(clip_data, tmp_path, monkeypatch, level):
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, result)
     assert result["ready"], result
+    assert result["stages"] == ["server", "download", "unpacking", "building", "done"], result
     assert result["triangles"] > 0 and result["canvas"] == 1
     assert result["frames"][0] == result["frames"][1] < 10  # drawn on demand: nothing while nothing changes
     assert 0 < result["vertices"] <= (300_000 if level == "full" else 130_000)

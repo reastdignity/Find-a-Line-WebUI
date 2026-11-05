@@ -2468,6 +2468,17 @@ def test_odd_input_is_no_server_error(tmp_path, settings, account_settings, prov
     assert anonymous.get(f"/s//{token}/data.js").status_code == 404
 
 
+def test_run_scripts_carry_their_size(run_people):
+    """A run's data.js, also by its share link, carries its size before compression (web.SIZE_HEADER: nginx
+    gzips it on the fly and drops Content-Length, the page's progress bar counts against it); map.html none."""
+    a, anonymous = run_people["a"], run_people["anonymous"]
+    token = a.post(f"/api/runs/{RUN_A}/share").json()["url"].split("/s/")[1].split("/")[0]
+    for client, path in ((a, f"/runs/{RUN_A}/data.js"), (anonymous, f"/s/{token}/data.js")):
+        answer = client.get(path)
+        assert answer.status_code == 200 and answer.headers[web.SIZE_HEADER] == str(len(answer.content)), path
+    assert web.SIZE_HEADER not in a.get(f"/runs/{RUN_A}/map.html").headers
+
+
 def test_referrer_is_the_origin_only(run_people):
     """Every answer, a share page's too, asks for the origin only as the Referer: the browser's own
     requests from /s/<token>/map.html (favicon, cached tiles) do not carry the token."""

@@ -7,6 +7,7 @@
 
 import { CanvasTexture, LinearMipmapLinearFilter, SRGBColorSpace } from "three";
 import { t } from "../i18n";
+import { measure } from "../perf";
 import { orthoForApp } from "../result/load";
 import type { Ortho } from "../types";
 import { DATA_CREDITS, DATA_ORDER, dataCredits, IMAGERY_CREDITS, IMAGERY_ORDER, imageryCredits } from "./credits";
@@ -31,6 +32,8 @@ export interface Imagery {
 
 /** Images loaded at once (the browser's limit per host is about six). */
 const PARALLEL = 6;
+/** The status's count of the tiles loaded changes at most this often (ms). */
+const COUNT_MS = 250;
 /** What a WMS's tile is laid on (orthophoto._on_white): its parts without imagery in a PNG answer. */
 const WHITE = "#ffffff";
 
@@ -127,7 +130,8 @@ async function drawComposed(ctx: CanvasRenderingContext2D, c: Composed, loader: 
 /** One chunk's canvas: the shaded terrain's colour under the tiles (a tile that fails leaves it), each tile from
  *  our cache when worth trying, else from the service (composed, or its layers). Null when stopped. */
 async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fill: string,
-                       hatch?: (ctx: CanvasRenderingContext2D) => void): Promise<HTMLCanvasElement | null> {
+                       hatch?: (ctx: CanvasRenderingContext2D) => void,
+                       onTile?: () => void): Promise<HTMLCanvasElement | null> {
   const canvas = document.createElement("canvas");
   canvas.width = plan.width;
   canvas.height = plan.height;
@@ -137,14 +141,15 @@ async function compose(plan: TexturePlan, draws: TileDraw[], loader: Loader, fil
   ctx.fillRect(0, 0, plan.width, plan.height);
   const probe = document.createElement("canvas");  // a WMS's JPEG drawn alone, for its white test
   probe.width = probe.height = TILE_PX;
-  await Promise.all(draws.map(async (d) => {
+  const draw = async (d: TileDraw) => {
     const dx = d.x * TILE_PX - plan.px0, dy = d.y * TILE_PX - plan.py0;
     const cached = d.cache ? await loader.load(d.cache) : null;  // ours: same origin, no CORS retry
     if (cached) { ctx.drawImage(cached, dx, dy, TILE_PX, TILE_PX); return; }
     if (d.composed) { await drawComposed(ctx, d.composed, loader, probe, dx, dy); return; }
     const images = await Promise.all(d.layers.map((part) => loader.service(part.url)));
     images.forEach((img, k) => { if (img) drawImage(ctx, img, d.layers[k], dx, dy); });  // bottom first
-  }));
+  };
+  await Promise.all(draws.map(async (d) => { await draw(d); onTile?.(); }));
   if (loader.stopped) return null;
   hatch?.(ctx);  // the uncertain shore over the imagery
   return canvas;
@@ -230,7 +235,6 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
   status.className = "u-small v3-imagery-status";
   status.setAttribute("role", "status");
   status.hidden = true;
-  status.textContent = t("ui.view3d.loading_imagery");
   box.append(status);
   scene.toolbar.append(box);
 
@@ -295,15 +299,32 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
       }
       if (available.includes("edges")) scene.setEdges(false);
       if (changed) for (const fn of [...listeners]) fn(kind);
-      const mine = loader = new Loader(), fill = fillColour();
+      const mine = loader = new Loader(), fill = fillColour(), start = performance.now();
+      // Every chunk's tiles first, so the status counts them all from the start (at most every COUNT_MS:
+      // it is a live region)
+      const work = order.map((k) => {
+        const plan = plans[k], chunk = scene.chunks[k];
+        const draws = !plan ? [] : kind === "esri" ? esriDraws(options.esriKey!, plan)
+          : orthoDraws(ortho!, plan, chunk.hasLine ? corridor(plan.z) : null);
+        return {k, plan, chunk, draws};
+      });
+      const tiles = work.reduce((n, w) => n + w.draws.length, 0);
+      let loaded = 0, counted = 0;
+      const count = () => {
+        counted = performance.now();
+        status.textContent = t("ui.view3d.loading_imagery", {done: loaded, total: tiles});
+      };
+      const onTile = () => {
+        if (loader !== mine) return;
+        loaded++;
+        if (loaded === tiles || performance.now() - counted >= COUNT_MS) count();
+      };
+      count();
       status.hidden = false;
       // Chunk by chunk, the line's first; each keeps its last texture until its new one is ready
-      await Promise.all(order.map(async (k) => {
-        const plan = plans[k], chunk = scene.chunks[k];
+      await Promise.all(work.map(async ({k, plan, chunk, draws}) => {
         if (!plan) { retexture(chunk, null); return; }
-        const draws = kind === "esri" ? esriDraws(options.esriKey!, plan)
-          : orthoDraws(ortho!, plan, chunk.hasLine ? corridor(plan.z) : null);
-        const canvas = await compose(plan, draws, mine, fill, hatchOf(k));
+        const canvas = await compose(plan, draws, mine, fill, hatchOf(k), onTile);
         if (!canvas || mine.stopped) return;
         const texture = new CanvasTexture(canvas);
         texture.colorSpace = SRGBColorSpace;
@@ -313,7 +334,11 @@ export function createImagery(scene: Scene3D, options: { runId: string; esriKey:
         retexture(chunk, texture, uvOf(meta.affine, plan));
         scene.invalidate();
       }));
-      if (loader === mine) { status.hidden = true; loader = null; }
+      if (loader === mine) {
+        status.hidden = true;
+        loader = null;
+        measure("fal:3d:imagery", start, {kind, tiles});
+      }
     },
     onChange(fn) {
       listeners.add(fn);

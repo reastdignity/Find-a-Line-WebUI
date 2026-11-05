@@ -182,10 +182,14 @@ def check_browser(run_dir: str, work: str, found: dict) -> list:
         return ["no headless browser found (Edge or Chrome)"]
     folder = os.path.dirname(glob.glob(os.path.join(run_dir, "*", "map.html"))[0])
     with open(os.path.join(folder, "zz_check.js"), "w", encoding="utf-8") as f:
-        f.write('window.addEventListener("load", function() { setTimeout(function() {'
+        # The viewer loads data.js after the page's load event and builds the model after that: asked until shown
+        f.write('var zzTries = 0, zzShow = function() {'
+                'var count = document.querySelector(".r-summary-count");'
+                'if (!count && ++zzTries < 150) return setTimeout(zzShow, 100);'
                 'var p = document.createElement("pre"); p.id = "result";'
-                'p.textContent = document.querySelector(".r-summary-count").textContent;'
-                'document.body.appendChild(p); }, 2000); });')
+                'p.textContent = count ? count.textContent : "";'
+                'document.body.appendChild(p); };'
+                'window.addEventListener("load", zzShow);')
     with open(os.path.join(folder, "map.html"), encoding="utf-8") as f:
         page = f.read().replace("</body>", '<script src="zz_check.js"></script></body>')
     with open(os.path.join(folder, "zz_check.html"), "w", encoding="utf-8") as f:

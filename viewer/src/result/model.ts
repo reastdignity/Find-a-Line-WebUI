@@ -14,8 +14,11 @@ import { FolderTree } from "../folders";
 import { lineCoords, lineKey, runLineKey } from "../keys";
 import { hasSavedList, saveList, savedList, sortKey, sortRows, type ListState, type Row } from "../list";
 import { colorOf, inLocalPlane } from "../others";
+import { nextPaint } from "../paint";
+import { timed } from "../perf";
 import { percentileRank, toLine, type Line, type Profile, type RunData, type RunInfo, type RunLines,
          type Terrain } from "../types";
+import type { OnProgress } from "./load";
 
 export type { Filters, Group, LinesState, ListState, FilterRanges };
 export { NO_FILTERS };
@@ -162,7 +165,8 @@ export class ResultModel {
   constructor(data: RunData, options: ResultOptions = {}) {
     this.data = data;
     this.runId = data.run.id;
-    this.lines = data.lines.map((row) => toLine(row, undefined, data.terrain));
+    this.lines = timed("fal:run:lines", () => data.lines.map((row) => toLine(row, undefined, data.terrain)),
+                       {count: data.lines.length});
     this.gather();
     this.api = options.api || SERVER_API;
     const app = appFlags();
@@ -238,17 +242,17 @@ export class ResultModel {
     // Runs in another coordinate system are grouped in a local plane around this run;
     // the groups hold the lines themselves, not their copies in the plane
     const framed = Array.from(this.others.values()).some((r) => r.crs !== this.data.crs);
-    const visible = all.filter((l) => (l.over ? s.showOver : s.showClean) && passes(l, f)
-      && (!f.favOnly || !this.favouritesOn || this.favouriteSet.has(l)));
+    const visible = timed("fal:run:filter", () => all.filter((l) => (l.over ? s.showOver : s.showClean) && passes(l, f)
+      && (!f.favOnly || !this.favouritesOn || this.favouriteSet.has(l))));
     const planar = framed ? inLocalPlane(visible, this.data.center[0], this.data.center[1]) : visible;
     const original = framed ? new Map<Line, Line>(planar.map((p, k) => [p, visible[k]])) : null;
-    this.grouped = s.group
+    this.grouped = timed("fal:run:group", () => s.group
       ? groupLines(planar, s.distance, s.by).map((g) => original ? {rep: original.get(g.rep)!,
                                                                     members: g.members.map((m) => original.get(m)!)} : g)
-      : visible.map((l) => ({rep: l, members: [l]}));
+      : visible.map((l) => ({rep: l, members: [l]})), {count: visible.length});
     this.largestGroup = this.grouped.reduce((m, g) => Math.max(m, g.members.length), 1);
-    this.ranges = this.rangesNow();
-    this.showGroups();
+    this.ranges = timed("fal:run:ranges", () => this.rangesNow());
+    timed("fal:run:rows", () => this.showGroups(), {count: this.grouped.length});
   }
 
   /** The filters' ranges: of the values only when the lines changed. */
@@ -606,4 +610,13 @@ export class ResultModel {
     const key = [a[0], a[1], b[0], b[1]].map((v) => v.toFixed(7)).join(",");
     return measuredLine(a, b, await this.api.profile(this.runId, key), this.data.terrain);
   }
+}
+
+/** A run's model for a page showing its loading (result/view/RunLoading): "groups" reported, the page painted,
+ *  then the model built (its lines, filters and groups at once: 0.7 s for 695 000 lines on a desktop,
+ *  tools/perf_run_load.py, so not in slices). */
+export async function buildModel(data: RunData, options: ResultOptions = {}, onProgress?: OnProgress): Promise<ResultModel> {
+  onProgress?.({phase: "groups", fraction: null});
+  await nextPaint();
+  return new ResultModel(data, options);
 }

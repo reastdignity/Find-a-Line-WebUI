@@ -1,16 +1,19 @@
 // A run's own map (map.html, from disk, from the app's server or a share link): the result as the app
 // shows it by default (result/view/ResultColumns: C's columns, on phones a map with a sheet). map.html
-// loads this bundle after its data (data.js: window.FINDALINE_RUN) and the list of runs (../runs.js:
-// window.FINDALINE_RUNS, none on a share link); the lines of other runs come from their lines.js
-// (Compare). The selected line is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied
-// link opens it.
+// loads this bundle after the list of runs (../runs.js: window.FINDALINE_RUNS, none on a share link); the
+// bundle loads the run's data.js beside it (result/load.ts: fetched with a progress bar from a server, a
+// script from disk), or takes window.FINDALINE_RUN of a map.html written before 2026-11-04, which loaded
+// data.js by a tag before it. The lines of other runs come from their lines.js (Compare). The selected line
+// is the hash, #line=lat1,lon1,lat2,lon2 (keys.ts lineCoords), so a copied link opens it.
 
 import "../leaflet";
 import { render } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import "../app/base.css";
+import { loadRunFrom, type LoadProgress } from "../result/load";
 import type { ResultModel } from "../result/model";
 import { ResultColumns, type BackAction } from "../result/view/ResultColumns";
+import { RunLoading } from "../result/view/RunLoading";
 import { DESKTOP, Screen, useMedia } from "../ui/components";
 import { storedTheme } from "../ui/choice";
 import type { Line, RunData } from "../types";
@@ -48,6 +51,18 @@ function RunMap({data}: {data: RunData}) {
   </Screen>;
 }
 
-const data = window.FINDALINE_RUN, root = document.getElementById("map")!;
-if (data) render(<RunMap data={data} />, root);
-else root.textContent = "The run's data (data.js) could not be loaded.";
+/** The map once its data is in; meanwhile the load's progress (RunLoading), or its error. */
+function LoadedMap() {
+  const [data, setData] = useState<RunData | null>(window.FINDALINE_RUN ?? null);
+  const [progress, setProgress] = useState<LoadProgress | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (data) return;
+    loadRunFrom("data.js", "map", setProgress)
+      .then(setData, () => setError("The run's data (data.js) could not be loaded."));
+  }, []);
+  if (data) return <RunMap data={data} />;
+  return <Screen theme={storedTheme()}><RunLoading progress={progress} error={error} /></Screen>;
+}
+
+render(<LoadedMap />, document.getElementById("map")!);

@@ -2083,3 +2083,83 @@ cache for the process, at most `GDAL_CACHEMAX`, 5 % of the memory: 3.1 GB on thi
 by one (`_group_values` yields them): 1.50 GB, the same 1311 MB in 192 requests. Eight threads at 10 km: 8 times
 about 0.9 GB and GDAL's cache, about 10.5 GB, well within the 45-50 GB of either machine (docs/country-precompute.md,
 4.1); the prefetch runs before the country's workers start.
+
+## Loading a run in the browser (2026-11-04, branch `run-loading-progress`)
+
+A large run opened with no feedback: the result page said "Loading the run…" while data.js came in as a
+`<script>` (no progress events), then froze while the model was built; the 3D view showed one spinner from the
+request to the mesh. `tools/perf_run_load.py` measured where the time goes, before any change, on the five runs
+below (the local app on a scratch data folder, headless Chromium 156, three rounds per run in fresh profiles,
+medians; the downloads over loopback, so the gzipped size of each data.js, as nginx sends it at level 5, gives the
+time on a real line). The page's phases are User Timing measures (`viewer/src/perf.ts`, "fal:run:*", "fal:3d:*").
+
+| Run | Lines | data.js / gzip MB | gzip at 10 / 50 Mbit/s (s) | script: download and parse (s) | toLine | group | result shown | longest task | JS heap MB |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| gozo-brzeg-2 (2026-10-25) | 695 142 | 115 / 28.6 | 24.0 / 4.8 | 1.03 | 0.05 | 0.60 | 2.16 | 0.90 | 595 |
+| coast-100-m within Gozo (2026-10-28) | 403 026 | 90.5 / 24.7 | 20.7 / 4.1 | 0.84 | 0.03 | 0.26 | 1.49 | 0.51 | 441 |
+| Bełchatów | 338 694 | 51.8 / 11.2 | 9.4 / 1.9 | 0.46 | 0.02 | 0.19 | 1.00 | 0.34 | 242 |
+| Schneewigi | 187 987 | 40.3 / 10.4 | 8.7 / 1.8 | 0.35 | 0.02 | 0.13 | 0.92 | 0.28 | 202 |
+| Ta' Għammar | 3 241 | 5.6 / 0.5 | 0.5 / 0.1 | 0.09 | 0.00 | 0.00 | 0.32 | 0.06 | 30 |
+
+- The download is the cost on a real line: 24 s for the largest run at 10 Mbit/s with nothing on the screen. The
+  work after it is short on a desktop (0.7 s, most of it the grouping; the longest task 0.9 s): no Web Worker now.
+- fetch + JSON.parse of data.js from the HTTP cache took 0.68 s where the script took 0.98 s (0.53 / 0.76 s,
+  0.28 / 0.41 s for the next two runs), and JSON.parse read all five files (no NaN or Infinity in them).
+
+The 3D view of each run's first line (seconds; the server's part is the patch's request until its first byte):
+
+| Run | Level | Server | Patch MB | Mesh | Profile | Imagery (tiles) | Terrain and profile ready |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Bełchatów | full | 0.89 | 1.50 | 0.38 | 2.25 | 10.29 (260) | 3.78 |
+| Schneewigi | full | 2.43 | 3.85 | 1.63 | 1.02 | 4.97 (310) | 5.38 |
+| Ta' Għammar | full | 1.10 | 0.18 | 0.40 | 4.14 | 1.36 (111) | 5.86 |
+| Gozo, two runs | full | 0.78-1.43 | 0.16 | 0.35 | 0.72-1.06 | 1.66-2.37 (129) | 2.3-2.7 |
+| all five | phone | 0.77-1.54 | 0.06-1.24 | 0.09-0.26 | 0.34-0.90 | 0.6-4.3 (64-96) | 1.4-2.9 |
+
+The imagery is the longest stage, then the server's patch (the profile waits for it: the quick lane takes one task
+at a time); the mesh blocks the page up to 1.6 s. Not measured: phones.
+
+The VPS, read from the monitoring on 2026-11-05 (VictoriaMetrics, nginx's metrics log; a 30 s window holds about one
+request at this traffic, so the windows' medians are about the requests): 6 patches, all answered, all within the last
+day, of 242 kB on average.
+
+| `/api/patch` on the VPS (s) | Median | 90 % | Largest | Mean |
+| --- | ---: | ---: | ---: | ---: |
+| The app's answer (`upstream_time`: the quick lane's queue and step 1) | 1.69 | 7.71 | 11.45 | |
+| The whole request (`request_time`) | 1.69 | 7.74 | 11.45 | 3.62 |
+
+Nearly all of it is the server's: the stage "server" can last 11 s there, and sending the answer about 0.03 s. Six
+requests say little, so the moving bar stays and no estimate of the time was added. data.js cannot be told apart: it
+falls in the group "app" with the bundles, whose windows reached 21 s at their 99th percentile (of 392 requests); that
+fits a large run's download but does not show it.
+
+### What was done
+
+- The result: data.js is downloaded over http(s) by XMLHttpRequest (`viewer/src/download.ts`: a fetch's streamed
+  body left headless Edge's tests without the run) and its bytes counted against `X-Findaline-Bytes` (`web.SIZE_HEADER`,
+  set by `web.RunFiles`: nginx's gzip drops Content-Length), then read by JSON.parse; a file JSON.parse refuses is
+  loaded as a script from the HTTP cache (`viewer/src/result/load.ts`). The page names the phase with a bar
+  (`result/view/RunLoading.tsx`: downloading x of y MB, reading the lines, grouping them), the model built after a
+  paint (`model.ts buildModel`, `paint.ts nextPaint`). A run's map.html loads data.js through the viewer
+  (`map/main.tsx`), so served maps and share links get the bar; from disk the script, with the phases only.
+- The 3D view: the status names the stage with a bar (the server, the download x of y MB, unpacking, building the
+  mesh: `view3d/main.ts`, the root's `data-stage`), and the imagery counts its tiles.
+- Not done (the user's choice): storing the data in the browser; the HTTP cache keeps data.js (ETag, 304).
+
+### After the change (the same five runs, `tools/perf_run_load.py`)
+
+Measured from the request of data.js to the result shown (the medians of "shown" moved with the app's own start in
+a fresh profile, up to 0.7 s from round to round), and the main thread's long tasks from that request on:
+
+| Run | Request to result shown (s) | Main thread blocked (s) | Longest task (s) |
+| --- | ---: | ---: | ---: |
+| gozo-brzeg-2 | 2.02 -> 1.76 | 0.90 -> 1.25 | 0.90 -> 0.91 |
+| coast-100-m within Gozo | 1.39 -> 1.23 | 0.51 -> 0.81 | 0.51 -> 0.52 |
+| Bełchatów | 0.89 -> 0.89 | 0.34 -> 0.52 | 0.34 -> 0.38 |
+| Schneewigi | 0.82 -> 0.65 | 0.28 -> 0.39 | 0.28 -> 0.24 |
+| Ta' Għammar | 0.21 -> 0.17 | 0.06 -> 0.00 | 0.06 -> 0.00 |
+
+The result shows as soon or up to 0.26 s sooner. The main thread is blocked up to 0.35 s longer in all: Chromium
+parsed the script on a background thread, while JSON.parse runs on the main thread (0.35 s for 115 MB). That time is
+a task of its own with "Reading the lines…" painted before it, and the longest task (the grouping) stayed as it was.
+The 3D view's stages took the same time as before (the server 0.7-2.0 s, the mesh up to 1.3 s).

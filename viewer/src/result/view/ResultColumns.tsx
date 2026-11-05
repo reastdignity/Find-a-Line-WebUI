@@ -22,8 +22,8 @@ import { baseLayers } from "../../baselayers";
 import { addShore } from "../../shoreLayer";
 import type { Line, Ortho, RunData } from "../../types";
 import { when } from "../../time";
-import { loadRun } from "../load";
-import { ResultModel } from "../model";
+import { loadRun, type LoadProgress } from "../load";
+import { buildModel, type ResultModel } from "../model";
 import { ResultMap, type Choice, type Padding } from "../ResultMap";
 import { cx, num, useModel } from "./common";
 import { useCornersAboveCard, useCornersAboveSheet } from "./corners";
@@ -37,6 +37,7 @@ import { ProfileCard, cardHeightAhead } from "./ProfileCard";
 import { ProfileDock, profileShown } from "./ProfileDock";
 import { ResultSummary } from "./ResultSummary";
 import { RunActions, type RunActionsProps } from "./RunActions";
+import { RunLoading } from "./RunLoading";
 import { useLayout, type LayoutState } from "./useLayout";
 import "./columns.css";
 
@@ -437,23 +438,27 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
   </div>;
 }
 
-/** A run's result in columns (on a phone a map with a sheet): loaded first unless the caller has its data. */
+/** A run's result in columns (on a phone a map with a sheet): loaded first unless the caller has its data, its
+ *  model built after the page painted the phase (RunLoading shows the load's progress). */
 export function ResultColumns(props: ResultColumnsProps) {
-  const [data, setData] = useState<RunData | null>(props.data || null);
+  const [model, setModel] = useState<ResultModel | null>(null);
+  const [progress, setProgress] = useState<LoadProgress | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
-    if (props.data) return;
     let live = true;
-    setData(null);
+    const report = (p: LoadProgress) => { if (live) setProgress(p); };
+    setModel(null);
+    setProgress(null);
     setError("");
-    loadRun(props.runId, props.base).then((d) => { if (live) setData(d); }, (e) => { if (live) setError(e.message); });
+    (props.data ? Promise.resolve(props.data) : loadRun(props.runId, props.base, report))
+      .then((d) => live ? buildModel(d, {list: {sort: "clr", desc: true}}, report) : null)
+      .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [props.runId]);
-  const model = useMemo(() => data && new ResultModel(data, {list: {sort: "clr", desc: true}}), [data]);
-  if (!data || !model || data.run.id !== props.runId) {
-    return <div class="c-result-wait"><Back back={props.back} />
-      {error ? <p class="c-error">{error}</p> : <p class="u-small">Loading the run…</p>}</div>;
+  if (!model || model.runId !== props.runId) {
+    return <RunLoading progress={progress} error={error}><Back back={props.back} /></RunLoading>;
   }
+  const data = model.data;
   const view = {...props, model, data};
   return props.wide ? <Desktop key="wide" {...view} /> : <Phone key="phone" {...view} />;
 }

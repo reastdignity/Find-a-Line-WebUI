@@ -512,6 +512,10 @@ WELCOME_SECONDS = 600
 # run.json: its parameters and data files are the owner's); never progress.json, tiles or other files
 RUN_FILES = ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt")
 VIEWER = "_viewer"  # mapping.VIEWER_FOLDER: the viewer bundle, the same for everyone
+# A run's scripts carry their size before compression: nginx gzips them on the fly and drops Content-Length,
+# and the page's progress bar counts the bytes it reads (viewer/src/download.ts SIZE_HEADER)
+SIZE_HEADER = "X-Findaline-Bytes"
+SIZED_FILES = ("data.js", "lines.js")
 # A run id, a share token (token_urlsafe: may start with - or _), a file name: no leading dot (no ".."), no "/"
 SAFE_PART = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
 
@@ -545,7 +549,11 @@ class RunFiles(StaticFiles):
         first = await run_in_threadpool(self.resolve, Request(scope), first)
         if first is None:
             raise StarletteHTTPException(404)
-        return await super().get_response(os.path.join(first, name), scope)
+        response = await super().get_response(os.path.join(first, name), scope)
+        stat = getattr(response, "stat_result", None)  # a FileResponse's (not a 304's)
+        if name in SIZED_FILES and stat is not None:
+            response.headers[SIZE_HEADER] = str(stat.st_size)
+        return response
 
 
 COUNTRY_CELLS_MAX = 20000  # cells of an explicit level over a view of the highline layer (auto: countcube's 4000)

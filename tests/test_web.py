@@ -1510,14 +1510,17 @@ run({
 
 def _map_page(folder, name: str, script: str, before_data: str = "", after_data: str = "") -> str:
     """A copy of the run's map.html with test scripts (`before_data` first in its head, `after_data` between
-    data.js and the viewer, `script` at the end); its file name."""
+    data.js and the viewer, `script` at the end); its file name. data.js is loaded by a tag before the viewer,
+    as a map.html written before 2026-11-04 does (the viewer takes its window.FINDALINE_RUN), so `after_data`
+    can change the data; test_run_map_loads_its_data has the viewer load it."""
     page = (folder / "map.html").read_text(encoding="utf-8")
-    assert "<style" not in page and " style=" not in page
+    assert "<style" not in page and " style=" not in page and 'src="data.js"' not in page
     for suffix, content in (("before", before_data), ("after", after_data), ("test", script)):
         (folder / f"{name}_{suffix}.js").write_text(content, encoding="utf-8")
     (folder / f"{name}.html").write_text(
         page.replace("<head>", f'<head><script src="{name}_before.js"></script>')
-            .replace('<script src="data.js"></script>', f'<script src="data.js"></script><script src="{name}_after.js"></script>')
+            .replace('<script src="../runs.js"></script>',
+                     f'<script src="data.js"></script><script src="{name}_after.js"></script><script src="../runs.js"></script>')
             .replace("</body>", f'<script src="{name}_test.js"></script></body>'), encoding="utf-8")
     return f"{name}.html"
 
@@ -1707,6 +1710,87 @@ def test_run_map_from_disk(tmp_path, monkeypatch):
     assert r["profile"].startswith("Profile: ") and r["hash"], r
     assert r["otherLines"] > 0, r
 
+
+# On a map.html as written (the viewer loads data.js itself): the loading's texts the page showed, then the run's
+# lines and how data.js was read (the User Timing measures of result/load.ts)
+LOAD_SCRIPT = MAP_HELPERS + """
+const seen = [];
+const note = () => {
+  const label = text(".c-loading .u-progress");
+  if (label && seen[seen.length - 1] !== label) seen.push(label);
+  result.seen = seen;  // also in a timeout's result
+  result.errors = [text(".c-result-wait .c-error")].filter(Boolean);
+};
+new MutationObserver(note).observe(document.body, {childList: true, subtree: true, characterData: true});
+note();
+step = "loading";
+wait(() => model() && rows().length > 0, () => {
+  step = "end";
+  result.seen = seen;
+  result.lines = model().lines.length;
+  result.measures = performance.getEntriesByType("measure").filter((m) => m.name.startsWith("fal:run:"))
+    .map((m) => [m.name, m.detail]);
+  show();
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_run_map_loads_its_data(tmp_path, monkeypatch):
+    """A run's map.html as written loads its data.js itself: from the app fetched with its bytes counted and read
+    by JSON.parse, the loading's phases shown; a data.js with NaN (which JSON.parse refuses) loaded as a script
+    instead; from disk as a script; a missing data.js named. Each shows every line; no CSP violations."""
+    import shutil
+    import subprocess
+    run_id = _clip_run(tmp_path, monkeypatch)
+    folder = tmp_path / "runs" / run_id
+    rows = len(_lines_of(tmp_path, run_id))
+    nan, missing = tmp_path / "runs" / (run_id + "-nan"), tmp_path / "runs" / (run_id + "-missing")
+    shutil.copytree(folder, nan)
+    shutil.copytree(folder, missing)
+    text = (nan / "data.js").read_text(encoding="utf-8")
+    (nan / "data.js").write_text(text.replace("window.FINDALINE_RUN = {", 'window.FINDALINE_RUN = {"probe":NaN,', 1),
+                                 encoding="utf-8")
+    (missing / "data.js").unlink()
+    for where in (folder, nan, missing):
+        page = (where / "map.html").read_text(encoding="utf-8")
+        assert 'src="data.js"' not in page
+        (where / "load_stub.js").write_text(CSP_STUB, encoding="utf-8")
+        (where / "load_test.js").write_text(LOAD_SCRIPT, encoding="utf-8")
+        (where / "load.html").write_text(page.replace("<head>", '<head><script src="load_stub.js"></script>')
+                                         .replace("</body>", '<script src="load_test.js"></script></body>'), encoding="utf-8")
+
+    def measures(r):
+        return {name: detail for name, detail in r["measures"]}
+
+    dom = _edge_page(tmp_path, f"runs/{run_id}/load.html", size="1280,800")
+    r = _result_in(dom)
+    assert r.get("at") == "end" and r["lines"] == rows, r
+    assert any(label.startswith("Downloading the run… ") and " of " in label for label in r["seen"]), r
+    assert "Reading the lines…" in r["seen"] and "Grouping the lines…" in r["seen"], r
+    found = measures(r)
+    assert found["fal:run:parse"] == {"json": True} and "fal:run:script" not in found, r
+    assert found["fal:run:download"]["bytes"] == (folder / "data.js").stat().st_size, r
+    assert _violations(dom) == []
+
+    dom = _edge_page(tmp_path, f"runs/{nan.name}/load.html", size="1280,800", profile="edge-nan")
+    r = _result_in(dom)
+    assert r.get("at") == "end" and r["lines"] == rows, r
+    found = measures(r)
+    assert found["fal:run:parse"] == {"json": False} and "fal:run:script" in found, r
+    assert _violations(dom) == []
+
+    r = _result_in(_edge_page(tmp_path, f"runs/{missing.name}/load.html", size="1280,800", profile="edge-missing"))
+    assert r.get("timeout") and r["errors"] == ["The run's data (data.js) could not be loaded."], r
+
+    dom = subprocess.run(
+        [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge-disk'}", "--no-first-run",
+         "--window-size=1280,800", "--allow-file-access-from-files", "--virtual-time-budget=60000", "--dump-dom",
+         (folder / "load.html").as_uri()], capture_output=True, text=True, encoding="utf-8", timeout=180).stdout
+    r = _result_in(dom)
+    assert r.get("at") == "end" and r["lines"] == rows, r
+    found = measures(r)
+    assert "fal:run:script" in found and "fal:run:download" not in found, r
 
 FAVOURITES_TAB_SCRIPT = """
 (function () {

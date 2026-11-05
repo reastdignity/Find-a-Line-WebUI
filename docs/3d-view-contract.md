@@ -93,7 +93,7 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
 - **Lat/lon**: grid metres → lon/lat with the meta's affine; lon/lat → Web Mercator for texture UVs.
 
 ## Texts (already in `locales/en.json`)
-`ui.view3d.open`, `.title`, `.back`, `.loading_terrain`, `.loading_imagery`, `.loading_profile`, `.error_title`,
+`ui.view3d.open`, `.title`, `.back`, `.loading_server`, `.loading_download` (`{{done}}`, `{{total}}`), `.loading_download_unknown`, `.unpacking`, `.building`, `.loading_imagery` (`{{done}}`, `{{total}}` tiles), `.loading_profile`, `.error_title`,
 `.no_webgl`, `.context_lost`, `.reload`, `.imagery`, `.imagery_ortho`, `.imagery_esri`, `.imagery_shaded`,
 `.no_imagery`, `.walker`, `.walker_position`, `.walk`, `.stop`, `.speed`, `.speed_value` (`{{times}}`),
 `.reduced_motion`, `.length` (`{{m}}`), `.sag` (`{{m}}`), `.clearance` (`{{m}}`), `.over_trees`, `.edit_hint`,
@@ -101,6 +101,9 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
 `patch_admin_only` (`{{source}}`), `patch_outside`, `patch_too_large` (`{{km}}`, `{{max}}`), `patch_crs`,
 `patch_no_data`, `patch_relief`, `patch_damaged`, `rate_patch`. The page renders them with `viewer/src/i18n.ts`
 `t`; server errors come as `{message, code, params}` (`api.ts` `ApiError`).
+
+## Loading stages (2026-11-04)
+Until the terrain is drawn the status over the stage names the stage with a bar (`main.ts` `Stage`, the root's `data-stage`): `server` (the patch's request until its headers: the quick lane's queue and step 1, a moving bar), `download` (the body by XMLHttpRequest, `download.ts`, x of y MB from Content-Length: nginx does not gzip application/octet-stream), `unpacking` (the sha256 checks and the inflation), `building` (the mesh, after a paint), then `done`. The imagery's status counts the tiles loaded of all the chunks' tiles. Measured in docs/performance.md, "Loading a run in the browser".
 
 ## Budgets
 - Per open: about 1–1.5 MB of heights at 1.5 km and 1 m (desktop), a quarter at step 2; all data ≤ ~4 MB desktop,

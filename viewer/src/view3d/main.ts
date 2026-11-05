@@ -3,15 +3,20 @@
 // into the scene (scene.ts, terrain.ts); then the imagery (imagery.ts) and the found line's profile from
 // /api/profile (one request after the other) for the webbing's colour and the readout (line.ts); the walker's
 // pin (pin.ts), the walk (walk.ts), at level full the anchors' editing (edit.ts), and the walker's views
-// (views.ts: orbit, the walker's eyes, behind the walker).
+// (views.ts: orbit, the walker's eyes, behind the walker). Until the terrain is drawn the status over the stage
+// names the loading's stage (Stage: the server, the download with its bytes, unpacking, building the mesh) with
+// a bar; the imagery counts its tiles in the toolbar (imagery.ts).
 // Plain DOM, no Preact: the page is the canvas and a few controls. No style attributes (the CSP's
 // style-src 'self'): classes of view3d.css. When the terrain is drawn and the profile is in, the root gets
 // data-ready="1" (data-triangles: the last frame's; data-vertices: the meshes'; data-frames: the frames drawn),
 // for tests.
 
 import "./view3d.css";
+import { download } from "../download";
 import { detailMessage, t } from "../i18n";
 import { esriKey } from "../layers";
+import { nextPaint } from "../paint";
+import { measure, timed } from "../perf";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
 import { createEdit, type Edit } from "./edit";
@@ -51,10 +56,36 @@ function frame(root: HTMLElement, page: PageRequest) {
   if (page.level === "phone") bar.append(el("p", "v3-note v3-phone-note", t("ui.view3d.phone_level")));
   root.append(top, stage, bar);
   root.classList.toggle("v3-phone", page.level === "phone");
+  // The loading's message and bar while the status shows a stage (progress), made once and changed in place
+  let staged: {message: HTMLElement; meter: HTMLElement; fill: HTMLElement} | null = null;
   return {
     stage, toolbar, credits, readout, bar, note,
+    /** A stage of the loading over the stage: its message and a bar of `fraction` (null: moving, the amount
+     *  unknown; its width set through the CSSOM, which the CSP allows). The root's data-stage names it (tests). */
+    progress(name: Stage, text: string, fraction: number | null) {
+      root.dataset.stage = name;
+      if (!staged) {
+        status.replaceChildren();
+        status.className = "v3-status";
+        status.setAttribute("role", "status");
+        const message = el("p", "v3-message"), meter = el("div", "u-prog v3-prog"), fill = el("i", "");
+        meter.setAttribute("role", "progressbar");
+        meter.setAttribute("aria-valuemin", "0");
+        meter.setAttribute("aria-valuemax", "100");
+        meter.append(fill);
+        status.append(message, meter);
+        staged = {message, meter, fill};
+      }
+      staged.message.textContent = text;
+      staged.meter.classList.toggle("u-busy", fraction === null);
+      staged.fill.style.width = fraction === null ? "" : `${Math.round(Math.min(1, Math.max(0, fraction)) * 100)}%`;
+      if (fraction === null) staged.meter.removeAttribute("aria-valuenow");
+      else staged.meter.setAttribute("aria-valuenow", String(Math.round(fraction * 100)));
+    },
     /** A message over the stage (none: hidden); `error`: with the error's title and a Reload button. */
     say(text: string | null, error = false) {
+      staged = null;
+      if (text === null) root.dataset.stage = "done";
       status.replaceChildren();
       status.className = "v3-status" + (text === null ? " v3-hidden" : "") + (error ? " v3-error" : "");
       if (text === null) return;
@@ -81,18 +112,46 @@ async function sha256Hex(body: Uint8Array): Promise<string | null> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function fetchPatch(page: PageRequest): Promise<Patch> {
-  let response: Response;
+/** The stages of the loading (data-stage): the server computing the patch (its request until the answer's
+ *  headers: the quick lane's queue and step 1), its body downloaded, checked and unpacked, the mesh built;
+ *  "done" once the terrain is drawn. */
+type Stage = "server" | "download" | "unpacking" | "building" | "done";
+type OnStage = (name: Stage, text: string, fraction: number | null) => void;
+
+const mb = (bytes: number) => (bytes / 2 ** 20).toFixed(1);
+
+async function fetchPatch(page: PageRequest, onStage: OnStage): Promise<Patch> {
+  const asked = performance.now();
+  let answered = asked;
+  const say = (done: number, total: number | null) => onStage("download", total
+    ? t("ui.view3d.loading_download", {done: mb(done), total: mb(total)})
+    : t("ui.view3d.loading_download_unknown", {done: mb(done)}), total ? Math.min(1, done / total) : null);
+  onStage("server", t("ui.view3d.loading_server"), null);
+  let answer;
   try {
-    response = await fetch(patchUrl(page), {headers: {"X-Findaline-Patch": "1"}});
+    answer = await download(patchUrl(page), "arraybuffer", {
+      headers: {"X-Findaline-Patch": "1"},
+      onHeaders: (total) => { answered = performance.now(); measure("fal:3d:request", asked); say(0, total); },
+      onBytes: say,
+    });
   } catch (e) {
     throw new PageError((e as Error).message);  // offline, or the server is gone
   }
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new PageError(detailMessage(data.detail, response.statusText || String(response.status)));
+  if (answer.status !== 200) {
+    let data: {detail?: unknown} = {};
+    try { data = JSON.parse(new TextDecoder().decode(answer.body)); } catch { /* not JSON */ }
+    throw new PageError(detailMessage(data.detail, String(answer.status)));
   }
-  const {meta, body} = splitAnswer(await response.arrayBuffer());
+  measure("fal:3d:body", answered, {bytes: answer.bytes});
+  onStage("unpacking", t("ui.view3d.unpacking"), null);
+  const start = performance.now();
+  const patch = await decodeAnswer(answer.body);
+  measure("fal:3d:decode", start, {width: patch.meta.width, height: patch.meta.height});
+  return patch;
+}
+
+async function decodeAnswer(answer: ArrayBuffer): Promise<Patch> {
+  const {meta, body} = splitAnswer(answer);
   // The heights, then the kinds of the uncertain shore when the meta names their bytes (decode.ts decodePatch
   // does the same without the sha256 checks): each block checked against its sha256
   const n = meta.shore_bytes ?? 0;
@@ -129,7 +188,6 @@ async function start() {
   if (!root) return;
   const page = currentPage(), ui = frame(root, page);
   if (!page.run || !page.line) { ui.say(t("error.patch_line"), true); return; }
-  ui.say(t("ui.view3d.loading_terrain"));
   let scene: SceneCore | null = null, imagery: Imagery | null = null, ring: Ring | null = null;
   const lost = () => ui.say(t("ui.view3d.context_lost"), true);
   addEventListener("pagehide", () => {
@@ -142,14 +200,16 @@ async function start() {
   addEventListener("pageshow", (e) => { if (e.persisted) location.reload(); });  // back from the cache: disposed
   let patch: Patch;
   try {
-    patch = await fetchPatch(page);
+    patch = await fetchPatch(page, ui.progress);
   } catch (e) {
     ui.say(e instanceof PageError ? e.message : t("error.patch_damaged"), true);
     console.error(e);
     return;
   }
+  ui.progress("building", t("ui.view3d.building"), null);
+  await nextPaint();  // the stage shown while the mesh is built (up to 1.6 s on a desktop, tools/perf_run_load.py)
   try {
-    scene = createScene(patch, page.level, ui, lost);
+    scene = timed("fal:3d:mesh", () => createScene(patch, page.level, ui, lost));
   } catch (e) {
     ui.say(t("ui.view3d.no_webgl"), true);
     console.error(e);
@@ -173,6 +233,7 @@ async function start() {
     root.dataset.frames = String(++frames);
     if (!terrainDrawn) {
       terrainDrawn = true;
+      measure("fal:3d:first-frame", drawStart);
       ui.say(null);
       imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey(), shore: patch.shore ?? null});
       const url = ringUrl();
@@ -180,9 +241,12 @@ async function start() {
       ready();
     }
   });
+  const drawStart = performance.now();
   scene.invalidate();
   try {
+    const profileStart = performance.now();
     const profile = await fetchProfile(page.run, page.line);
+    measure("fal:3d:profile", profileStart);
     edit?.found(profile);
   } catch (e) {
     edit?.found(null);

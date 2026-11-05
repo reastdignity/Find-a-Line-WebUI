@@ -284,12 +284,14 @@ def install_viewer(runs_dir: str):
                 f.write(content)
 
 
+# A run's map: the viewer loads the run's data.js itself (viewer/src/map/main.tsx: fetched with a progress bar
+# from a server, a script from disk); maps written before 2026-11-04 load it by a tag before the viewer, which
+# the viewer still takes
 MAP_HTML = """<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} - Find-a-Line</title>
 <link rel="stylesheet" href="../{viewer}/viewer.css">
 </head><body><div id="map"></div>
-<script src="data.js"></script>
 <script src="../runs.js"></script>
 <script src="../{viewer}/viewer.js"></script>
 </body></html>

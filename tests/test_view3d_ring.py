@@ -191,15 +191,19 @@ def _imagery_tiles(folder, lon, lat, radius, zooms):
                 (path / f"{y}.png").write_bytes(data)
 
 
-# Before the bundle: the patch's answer with an orthophoto of plain base tiles of the test (same origin), so the
-# ring's overlay is drawn too; its body (and so its sha256) stays as it came
+# Before the bundle: the patch's answer (an XMLHttpRequest's response: viewer/src/download.ts) with an orthophoto of
+# plain base tiles of the test (same origin), so the ring's overlay is drawn too; its body (and so its sha256) stays
+# as it came
 ORTHO_STUB = """
 (function () {
-  const realFetch = window.fetch;
-  window.fetch = async (url, init) => {
-    const answer = await realFetch(url, init);
-    if (!String(url).startsWith("/api/patch") || !answer.ok) return answer;
-    const buf = await answer.arrayBuffer(), n = new DataView(buf).getUint32(0, true);
+  const open = XMLHttpRequest.prototype.open;
+  const response = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, "response");
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    this.falUrl = String(url);
+    return open.call(this, method, url, ...rest);
+  };
+  const withOrtho = (buf) => {
+    const n = new DataView(buf).getUint32(0, true);
     const meta = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, 4, n)));
     meta.ortho = {name: "Test", url: null, layer: "", attribution: "Test imagery", cache: null,
                   base: {url: "/runs/view3dtest/img/{z}/{x}/{y}.png", max_zoom: 15}};
@@ -208,8 +212,15 @@ ORTHO_STUB = """
     new DataView(out.buffer).setUint32(0, head.length, true);
     out.set(head, 4);
     out.set(body, 4 + head.length);
-    return new Response(out, {status: answer.status, headers: answer.headers});
+    return out.buffer;
   };
+  Object.defineProperty(XMLHttpRequest.prototype, "response", {configurable: true, get() {
+    const buf = response.get.call(this);
+    if (!this.falUrl?.startsWith("/api/patch") || this.readyState !== 4 || this.status !== 200 ||
+        !(buf instanceof ArrayBuffer)) return buf;
+    if (!this.falPatched) this.falPatched = withOrtho(buf);
+    return this.falPatched;
+  }});
 })();
 """
 

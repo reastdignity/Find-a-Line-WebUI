@@ -20,6 +20,7 @@ sys.path.insert(0, REPO)
 import helpers  # noqa: E402
 import mapping  # noqa: E402
 import sag  # noqa: E402
+import web  # noqa: E402
 
 pytestmark = pytest.mark.skipif(
     shutil.which("node") is None or not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
@@ -532,7 +533,7 @@ EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_result_map_in_edge(tmp_path, clip_data):
     """result/ResultMap and loadRun in headless Edge, on a test page of a run served by the app (its CSP):
-    the run loaded as a script, lines drawn, a selection with its variants, a click on a variant shows it,
+    the run downloaded and parsed, lines drawn, a selection with its variants, a click on a variant shows it,
     measuring (two clicks, Esc cancels), onMove, and destroy() leaves the map without a layer of it."""
     import re
     import test_web  # the app on a real server, its CSP stubs
@@ -1262,5 +1263,30 @@ console.log(JSON.stringify({{available: im.available, texts: row.children.map((c
     assert found["available"] == ["shaded", "edges"]
     assert found["texts"] == [["u-seg", None], ["u-input v3-select", None],
                               ["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded."],
-                              ["u-small v3-imagery-status", "Loading the imagery…"]]
+                              ["u-small v3-imagery-status", None]]  # its count written when imagery loads
     assert found["buttons"] == ["Shaded", "Edges"]
+
+
+def test_run_script_parsed_and_body_sized(tmp_path):
+    """result/load.ts: a data.js's text read by JSON.parse (null for NaN, for another script, for a file cut
+    short: those are loaded as a script); download.ts: the bytes a body will read, web.SIZE_HEADER first,
+    Content-Length only when nothing compressed the body."""
+    found = run_ts(tmp_path, "result/load", r"""
+const ok = m.parseRunScript('window.FINDALINE_RUN = {"run":{"id":"r"},"lines":[[1,2],[3,4]]};\n');
+console.log(JSON.stringify({
+  lines: ok && ok.lines.length,
+  nan: m.parseRunScript('window.FINDALINE_RUN = {"a":NaN,"lines":[]};\n'),
+  other: m.parseRunScript('(window.FINDALINE_LINES = window.FINDALINE_LINES || {})["r"] = {"lines":[]};\n'),
+  cut: m.parseRunScript('window.FINDALINE_RUN = {"lines":[[1,2'),
+}));""")
+    assert found == {"lines": 2, "nan": None, "other": None, "cut": None}
+    sizes = run_ts(tmp_path, "download", r"""
+const size = (h) => m.bodySize((name) => new Headers(h).get(name));
+console.log(JSON.stringify({
+  header: size({"x-findaline-bytes": "1000", "content-length": "300", "content-encoding": "gzip"}),
+  length: size({"content-length": "300"}),
+  gzip: size({"content-length": "300", "content-encoding": "gzip"}),
+  none: size({}),
+  name: m.SIZE_HEADER,
+}));""")
+    assert sizes == {"header": 1000, "length": 300, "gzip": None, "none": None, "name": web.SIZE_HEADER}
