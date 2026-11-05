@@ -15,7 +15,7 @@ from progress import progress
 
 from .source import Source
 from .catalogue.world import WATER_MASK
-from .mosaic import NODATA, build_mosaic, prepare_layer, used_data
+from .mosaic import NODATA, build_mosaic, flush_grid, prepare_layer, used_data
 
 # Copernicus water body mask, 1°×1° tiles next to the DEM tiles: 1 ocean, 2 lake, 3 river
 OCEAN, LAKE = 1, 2
@@ -70,8 +70,9 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
         WATER_MASK.download(grid, cache_dir, update, "water mask")
     wbm = build_mosaic(WATER_MASK.files(grid, cache_dir), grid, out_path, "water mask", categorical=True, rows=rows)
     used_data.append(WATER_MASK.used(grid, cache_dir))
-    for tile in WATER_MASK.tiles(grid):
-        if cache.state(cache_dir, WATER_MASK.tile_path(cache_dir, tile)) == "missing":
+    tiles = WATER_MASK.tiles(grid)
+    for tile, state in zip(tiles, cache.states(cache_dir, [WATER_MASK.tile_path(cache_dir, t) for t in tiles])):
+        if state == "missing":
             lat, lon = tile
             left, bottom, right, top = transform_bounds("EPSG:4326", grid.crs, lon, lat, lon + 1, lat + 1)
             c0, c1 = max(0, int((left - grid.left) // grid.res)), min(grid.width, int((right - grid.left) // grid.res) + 1)
@@ -98,14 +99,17 @@ def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
 
 def near_rows(mask_rows: Callable[[int, int], np.ndarray], metres: float, res: float, out: np.ndarray,
               rows: int) -> np.ndarray:
-    """near() in strips of `rows` rows into out (a boolean grid, memory-mapped), returned: mask_rows(r0, r1)
-    gives the rows [r0, r1) of the mask; each strip is computed from the rows within n of it, so every
-    pixel gets what near() gives on the whole grid (tests/test_units.py::test_near_rows_as_near)."""
+    """near() in strips of `rows` rows into out (a new boolean grid, memory-mapped, all False: a strip
+    with nothing near it is left as it is), returned: mask_rows(r0, r1) gives the rows [r0, r1) of the
+    mask; each strip is computed from the rows within n of it, so every pixel gets what near() gives on
+    the whole grid (tests/test_units.py::test_near_rows_as_near)."""
     from scipy import ndimage
     n = max(1, math.ceil(metres / res)) if metres > 0 else 0
     size = 2 * n + 1
     for r0, r1, h0, h1 in strips(out.shape[0], rows, n):
         block = np.asarray(mask_rows(h0, h1), dtype=bool)
+        if not block.any():
+            continue
         if n:
             block = ndimage.maximum_filter1d(block, size, axis=0, mode="constant", cval=0)[r0 - h0:r1 - h0]
             block = ndimage.maximum_filter1d(block, size, axis=1, mode="constant", cval=0)
@@ -209,10 +213,10 @@ def fill_shore_from_surface(elevation_path: str, surface_path: str, grid: Grid, 
     face = new_mask(out_path, (height, width)) if rows is not None else np.zeros((height, width), bool)
     if count:
         elevation[ri[done], ci[done]] = h[done].astype(elevation.dtype)
-        elevation.flush()
+        flush_grid(elevation)
         face[ri[done], ci[done]] = True
     if rows is not None:
-        face.flush()
+        flush_grid(face)
         del face
     else:
         np.save(out_path, face)
@@ -377,9 +381,9 @@ def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm
     # Water that the elevation data covers: lakes measured by LiDAR, and sea given as
     # about 0 m by the data itself (e.g. IGN Spain) or as the provider's constant (sea_value, Source.sea_fill)
     water |= water_with_data(np.asarray(elevation), wbm, sea_zone, sea_value) & ~empty
-    elevation.flush()
+    flush_grid(elevation)
     if surface is not None:
-        surface.flush()
+        flush_grid(surface)
     np.save(out_path, water)
     progress.compute.update(1)
     km2 = lambda px: px * grid.res ** 2 / 1e6
@@ -417,8 +421,9 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
                      sea_zone: np.ndarray, out_path: str, sea_value: Optional[float], rows: int,
                      bare_path: Optional[str]) -> str:
     """fill_water in strips of rows (its values): the sea and the lake mask strip by strip, the
-    lakes' labels over the whole grid, each lake's level from its own box as before, the water
-    with data strip by strip."""
+    lakes' labels over the whole grid (none without a lake to fill), each lake's level from its own
+    box as before, the water with data strip by strip. Masks start all False: a strip with nothing
+    to mark is not written (a tile of the country layer without water writes neither)."""
     from scipy import ndimage
 
     elevation = np.load(elevation_path, mmap_mode="r+")
@@ -432,30 +437,37 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     n = max(1, math.ceil(SHORE_BUFFER / grid.res))
     size = 2 * n + 1
     sea_px = 0
+    any_lake = False
     for r0, r1, h0, h1 in strips(shape[0], rows, n):
         empty = np.isnan(elevation[r0:r1])
         sea_fill = empty & np.asarray(sea_zone[r0:r1], dtype=bool)
         # near(wbm == LAKE, SHORE_BUFFER) of the strip from the rows within n of it (near_rows)
-        shore = ndimage.maximum_filter1d(np.asarray(wbm[h0:h1]) == LAKE, size, axis=0, mode="constant",
-                                         cval=0)[r0 - h0:r1 - h0]
-        shore = ndimage.maximum_filter1d(shore, size, axis=1, mode="constant", cval=0)
-        lake[r0:r1] = empty & shore & ~sea_fill
+        shore = np.asarray(wbm[h0:h1]) == LAKE
+        if shore.any():
+            shore = ndimage.maximum_filter1d(shore, size, axis=0, mode="constant", cval=0)[r0 - h0:r1 - h0]
+            shore = ndimage.maximum_filter1d(shore, size, axis=1, mode="constant", cval=0)
+            here = empty & shore & ~sea_fill
+            if here.any():
+                lake[r0:r1] = here
+                any_lake = True
         del empty, shore
-        block = elevation[r0:r1]
-        block[sea_fill] = 0.0
-        if surface is not None:
-            sblock = surface[r0:r1]
-            sblock[sea_fill & np.isnan(sblock)] = 0.0
-        water[r0:r1] = sea_fill
-        sea_px += int(sea_fill.sum())
+        if sea_fill.any():
+            block = elevation[r0:r1]
+            block[sea_fill] = 0.0
+            if surface is not None:
+                sblock = surface[r0:r1]
+                sblock[sea_fill & np.isnan(sblock)] = 0.0
+            water[r0:r1] = sea_fill
+            sea_px += int(sea_fill.sum())
     progress.compute.update(1, part="lakes")
-    labels = np.zeros(shape, np.int32)  # the one array of the whole grid
-    ndimage.label(lake, structure=np.ones((3, 3)), output=labels)
+    if any_lake:
+        labels = np.zeros(shape, np.int32)  # the one array of the whole grid
+        ndimage.label(lake, structure=np.ones((3, 3)), output=labels)
     del lake
     remove_grid(lake_path)
     progress.compute.update(1, part="levels")
     lake_px = 0
-    for index, region in enumerate(ndimage.find_objects(labels), 1):
+    for index, region in enumerate(ndimage.find_objects(labels) if any_lake else (), 1):
         if region is None:
             continue
         box_rows = slice(max(region[0].start - 1, 0), region[0].stop + 1)
@@ -477,19 +489,21 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
             sblock[area & np.isnan(sblock)] = level
         water[box_rows, cols] |= area
         lake_px += int(area.sum())
-    del labels
+    labels = None
     bare = new_mask(bare_path, shape) if bare_path else None
     for r0, r1, _, _ in strips(shape[0], rows):
         if bare is not None:
             bare[r0:r1] = water[r0:r1]  # what was filled: the sea and the lakes without data
         # Water that the elevation data covers (as fill_water: the pixels filled are in water already)
-        water[r0:r1] |= water_with_data(np.asarray(elevation[r0:r1]), wbm[r0:r1], sea_zone[r0:r1], sea_value)
-    elevation.flush()
+        with_data = water_with_data(np.asarray(elevation[r0:r1]), wbm[r0:r1], sea_zone[r0:r1], sea_value)
+        if with_data.any():
+            water[r0:r1] |= with_data
+    flush_grid(elevation)
     if surface is not None:
-        surface.flush()
-    water.flush()
+        flush_grid(surface)
+    flush_grid(water)
     if bare is not None:
-        bare.flush()
+        flush_grid(bare)
     del water, bare
     progress.compute.update(1)
     km2 = lambda px: px * grid.res ** 2 / 1e6
@@ -565,14 +579,16 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
 
 
 def _gaps_rows(target: np.ndarray, exclude: Optional[np.ndarray], out: np.ndarray, rows: int) -> bool:
-    """The gaps of target (NaN, outside exclude) into out, strip by strip; whether there is any."""
+    """The gaps of target (NaN, outside exclude) into out (a new mask: a strip without gaps stays
+    pages nothing ever wrote), strip by strip; whether there is any."""
     found = False
     for r0, r1, _, _ in strips(target.shape[0], rows):
         gaps = np.isnan(target[r0:r1])
         if exclude is not None:
             gaps &= ~np.asarray(exclude[r0:r1], dtype=bool)
-        out[r0:r1] = gaps
-        found |= bool(gaps.any())
+        if gaps.any():
+            out[r0:r1] = gaps
+            found = True
     return found
 
 
@@ -585,7 +601,7 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
     elevation = np.load(elevation_path, mmap_mode="r+")
     filled = new_mask(out_path, elevation.shape)
     if not _gaps_rows(elevation, exclude, filled, rows):
-        filled.flush()
+        flush_grid(filled)
         return out_path, 0, 0
     written = 0
     pairs = [(elevation, fallback.nmt, f"{name}_nmt.npy", "terrain", filled)]  # the terrain's gaps: filled so far
@@ -622,7 +638,7 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
         block = filled[r0:r1]
         block &= np.isfinite(elevation[r0:r1])
         count += int(block.sum())
-    filled.flush()
+    flush_grid(filled)
     del filled
     return out_path, count, written
 
@@ -695,7 +711,7 @@ def _fill(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: float, l
         offsets[1:] = np.where(usable, local, overall)
     count = int((gaps & np.isfinite(other)).sum())
     target[gaps] = other[gaps] + offsets[labels[gaps]]
-    target.flush()
+    flush_grid(target)
     progress.compute.update(1)
     progress.compute.finish(f"{count} px")
     return count
@@ -788,7 +804,7 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
         filled += int((g & np.isfinite(o)).sum())
         block = target[r0:r1]
         block[g] = o[g] + offsets[labels[r0:r1][g]]
-    target.flush()
+    flush_grid(target)
     progress.compute.update(1)
     progress.compute.finish(f"{filled} px")
     return filled
@@ -865,7 +881,7 @@ def _or_rows(out_path: str, more_path: str, rows: int):
     out, more = np.load(out_path, mmap_mode="r+"), np.load(more_path, mmap_mode="r")
     for r0, r1, _, _ in strips(out.shape[0], rows):
         out[r0:r1] |= more[r0:r1]
-    out.flush()
+    flush_grid(out)
 
 
 def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid, fallbacks: List["Source"],
@@ -894,8 +910,8 @@ def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid
 
 def _border_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid, exclude: Optional[np.ndarray],
                       out: np.ndarray, rows: int) -> np.ndarray:
-    """border_gaps in strips of rows into out (a boolean grid, memory-mapped, returned): the
-    footprint burned into a mapping, its edge strip by strip (a row of halo for the erosion; both
+    """border_gaps in strips of rows into out (a new boolean grid, memory-mapped, all False, returned):
+    the footprint burned into a mapping, its edge strip by strip (a row of halo for the erosion; both
     kept memory-mapped next to out meanwhile), the labels of the gaps the one array of the whole grid."""
     from scipy import ndimage
 
@@ -909,8 +925,9 @@ def _border_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Gr
             gaps |= np.isnan(surface[r0:r1])
         if exclude is not None:
             gaps &= ~np.asarray(exclude[r0:r1], dtype=bool)
-        out[r0:r1] = gaps
-        found |= bool(gaps.any())
+        if gaps.any():
+            out[r0:r1] = gaps
+            found = True
     if not found:
         return out
     # The footprint burned whole into a mapping (geometry_mask's pixels: GDAL's all_touched burn is
@@ -925,7 +942,7 @@ def _border_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Gr
         inner = ndimage.binary_erosion(block, border_value=0)
         edge[r0:r1] = (block & ~inner)[r0 - h0:r1 - h0]
         out[r0:r1] &= block[r0 - h0:r1 - h0]
-    del footprint
+    del footprint, block  # the view closed before the delete, which would fail, and the grid go to the disk
     remove_grid(footprint_path)
     labels = np.zeros((height, width), np.int32)  # the one array of the whole grid
     count = ndimage.label(out, structure=np.ones((3, 3)), output=labels)

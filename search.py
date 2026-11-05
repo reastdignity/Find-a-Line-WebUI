@@ -1096,7 +1096,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
         obstacles_path = os.path.join(work, "obstacles.npy")
         out = np.lib.format.open_memmap(obstacles_path, mode="w+", dtype=np.float32, shape=surface.shape)
         obstacles.obstacle_surface(elevation, surface, plan.resolution, out, bare=bare, **plan.obstacles)
-        out.flush()
+        src.mosaic.flush_grid(out)
         del out, bare
         if bare_path:
             src.filling.remove_grid(bare_path)

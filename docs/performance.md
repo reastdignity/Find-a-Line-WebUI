@@ -1449,47 +1449,49 @@ run's timeline (`logs/samples-*.csv`). An empty cell was not measured: the scrat
 and of B2's runs were removed after their comparison, the base M2 run's timeline sampled no worker
 and the base L run had no timeline.
 
-| M2 band (2 m, cores of 10 km, 575 tiles) | Base (2026-11-03) | Stage 1 | Stage 1 + C1 | Stage 1 + B2 | C1 + B2, 8 workers | C1 + B2, 12 workers | + W1 (`LIGHT_CORES` 1), 12 workers |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Counts identical to the base | | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 |
-| Wall of the tiles | 46.8 min | 35.0 min | 37.9 min | 31.8 min | 33.5 min | 34.4 min | 32.5 min |
-| Workers × budget of each (`worker_count`) | 7 × 3.7 GiB | 8 × 3.7 GiB | 11 × 2.5 GiB | 8 × 3.7 GiB | 8 × 2.1 GiB | 12 × 2.1 GiB | 12 × 2.1 GiB |
-| Tile seconds | 4.14 h | 3.38 h | 4.12 h | 2.76 h | 3.02 h | 3.50 h | 3.73 h |
-| CPU seconds of the tiles | 11.85 h | 11.25 h | 11.51 h | 10.01 h | 10.15 h | 10.44 h | 10.43 h |
-| Step 1 / "stitching terrain" | 1.64 / 0.67 h | | 1.92 / 0.74 h | 1.07 / 0.21 h | 1.24 / 0.21 h | 1.41 / 0.24 h | 1.67 / 0.24 h |
-| Median tile / an empty tile | 13.8 / 13.6 s | 11.9 / 11.5 s | 13.8 / 14.8 s | 8.9 / 8.3 s | 9.3 / 9.9 s | 10.5 / 11.4 s | 12.3 / 13.5 s |
-| The heaviest tile, E-350000_N-1190000 | 2804 s | 2097 s | 2271 s | 1908 s | 2009 s | 2063 s | 1951 s |
-| The light part done at | +33 min | +24 min | +20 min | +18 min | +21 min | +15 min | +17 min |
-| Machine CPU, mean | 75 % | 92 % | 90 % | 92 % | 93 % | 92 % | 95 % |
-| Free RAM: at the start / the least | 26.0 / 19.5 GiB | 32.6 / 24.7 GiB | 27.2 / 13.2 GiB | 30.6 / 23.3 GiB | 29.5 / 21.4 GiB | 31.7 / 17.5 GiB | 33.2 / 21.2 GiB |
-| Private per tile: median / max | 2.24 / 3.75 GiB | | 1.89 / 2.46 GiB | | 0.45 / 1.03 GiB | 0.45 / 0.97 GiB | 0.45 / 1.02 GiB |
-| Working set per tile: median / max | 1.21 / 2.80 GiB | | 0.89 / 1.36 GiB | | 0.88 / 1.36 GiB | 0.88 / 1.31 GiB | 0.91 / 1.36 GiB |
-| All workers, private: peak / mean | | 19.5 / 11.6 GiB | 28.3 / 12.1 GiB | 20.0 / 10.5 GiB | 6.9 / 2.5 GiB | 13.5 / 2.7 GiB | 10.9 / 3.0 GiB |
-| All workers, working set: peak / mean | | 8.7 / 4.5 GiB | 14.6 / 4.7 GiB | 9.7 / 4.1 GiB | 8.7 / 4.2 GiB | 15.4 / 4.5 GiB | 13.0 / 5.0 GiB |
+| M2 band (2 m, cores of 10 km, 575 tiles) | Base (2026-11-03) | Stage 1 | Stage 1 + C1 | Stage 1 + B2 | C1 + B2, 8 workers | C1 + B2, 12 workers | + W1 (`LIGHT_CORES` 1), 12 workers | + B4, 12 workers |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Counts identical to the base | | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 |
+| Wall of the tiles | 46.8 min | 35.0 min | 37.9 min | 31.8 min | 33.5 min | 34.4 min | 32.5 min | 31.9 min |
+| Workers × budget of each (`worker_count`) | 7 × 3.7 GiB | 8 × 3.7 GiB | 11 × 2.5 GiB | 8 × 3.7 GiB | 8 × 2.1 GiB | 12 × 2.1 GiB | 12 × 2.1 GiB | 12 × 2.1 GiB |
+| Tile seconds | 4.14 h | 3.38 h | 4.12 h | 2.76 h | 3.02 h | 3.50 h | 3.73 h | 3.40 h |
+| CPU seconds of the tiles | 11.85 h | 11.25 h | 11.51 h | 10.01 h | 10.15 h | 10.44 h | 10.43 h | 10.24 h |
+| Step 1 / "stitching terrain" | 1.64 / 0.67 h | | 1.92 / 0.74 h | 1.07 / 0.21 h | 1.24 / 0.21 h | 1.41 / 0.24 h | 1.67 / 0.24 h | 1.33 / 0.23 h |
+| Median tile / an empty tile | 13.8 / 13.6 s | 11.9 / 11.5 s | 13.8 / 14.8 s | 8.9 / 8.3 s | 9.3 / 9.9 s | 10.5 / 11.4 s | 12.3 / 13.5 s | 10.5 / 11.3 s |
+| The heaviest tile, E-350000_N-1190000 | 2804 s | 2097 s | 2271 s | 1908 s | 2009 s | 2063 s | 1951 s | 1913 s |
+| The light part done at | +33 min | +24 min | +20 min | +18 min | +21 min | +15 min | +17 min | +15 min |
+| Machine CPU, mean | 75 % | 92 % | 90 % | 92 % | 93 % | 92 % | 95 % | 95 % |
+| Free RAM: at the start / the least | 26.0 / 19.5 GiB | 32.6 / 24.7 GiB | 27.2 / 13.2 GiB | 30.6 / 23.3 GiB | 29.5 / 21.4 GiB | 31.7 / 17.5 GiB | 33.2 / 21.2 GiB | 33.5 / 18.7 GiB |
+| Private per tile: median / max | 2.24 / 3.75 GiB | | 1.89 / 2.46 GiB | | 0.45 / 1.03 GiB | 0.45 / 0.97 GiB | 0.45 / 1.02 GiB | 0.45 / 0.99 GiB |
+| Working set per tile: median / max | 1.21 / 2.80 GiB | | 0.89 / 1.36 GiB | | 0.88 / 1.36 GiB | 0.88 / 1.31 GiB | 0.91 / 1.36 GiB | 1.22 / 2.28 GiB |
+| All workers, private: peak / mean | | 19.5 / 11.6 GiB | 28.3 / 12.1 GiB | 20.0 / 10.5 GiB | 6.9 / 2.5 GiB | 13.5 / 2.7 GiB | 10.9 / 3.0 GiB | 12.2 / 2.8 GiB |
+| All workers, working set: peak / mean | | 8.7 / 4.5 GiB | 14.6 / 4.7 GiB | 9.7 / 4.1 GiB | 8.7 / 4.2 GiB | 15.4 / 4.5 GiB | 13.0 / 5.0 GiB | 20.6 / 7.8 GiB |
+| Written to the disks | 346 GB | 254 GB | 290 GB | 258 GB | 290 GB | 288 GB | 290 GB | 6 GB |
 
 Stage 1 + C1 ran 105fff2, with OpenBLAS's reservations still in. C1 and B2 together, main of
 2026-11-04 (`LIGHT_CORES` 2), measured by stage 3's W1: against B2 alone at the same 8 workers C1's
 strips cost step 1 0.17 h (an empty tile 8.3 → 9.9 s, the band 31.8 → 33.5 min) on this PC with its
 memory free; at 12 workers again 34.3 min, with W1's rule again 32.7.
 
-| L band (5 m, cores of 20 km, 163 tiles) | Base (2026-11-03, the M + L run) | Stage 1 + B2 | C1 + B2 (the recount) | + W1 (`LIGHT_CORES` 1), 12 workers |
-| --- | ---: | ---: | ---: | ---: |
-| Counts identical to the base | | 162/163 | 162/163 | 162/163 |
-| Wall of the L tiles | 38.2 min (M's tiles beside) | 18.6 min | 18.3 min | 17.8 min |
-| Workers × budget of each (`worker_count`) | 6 × 4.7 GiB | 12 × 2.7 GiB | 12 × 1.6 GiB | 12 × 1.6 GiB |
-| Tile seconds | 2.17 h | 1.51 h | 1.52 h | 1.74 h |
-| CPU seconds of the tiles | | 5.41 h | 5.44 h | 5.40 h |
-| Step 1 / "stitching terrain" | 0.94 h / not recorded | 0.38 / 0.08 h | 0.40 / 0.08 h | 0.50 / 0.09 h |
-| Median tile / an empty tile | 25.9 / 20.1 s | 11.0 / 9.7 s | 12.5 / 10.9 s | 14.9 / 12.8 s |
-| The heaviest tile, E-360000_N-1200000 | 2101 s | 1116 s | 1094 s | 1069 s |
-| The light part done at | +19 min | +6 min | +6 min | +8 min |
-| Machine CPU, mean | | 86 % | 86 % | 88 % |
-| Free RAM: at the start / the least | | 34.1 / 25.6 GiB | 33.0 / 23.2 GiB | 33.3 / 23.7 GiB |
-| Private per tile: median / max | | | 0.40 / 0.91 GiB | 0.40 / 0.87 GiB |
-| Working set per tile: median / max | | | 0.78 / 1.16 GiB | 0.76 / 1.12 GiB |
-| A worker's working set, its peak over the run | 2.35 GiB | | 1.68 GiB |  |
-| All workers, private: peak / mean | | 25.7 / 9.0 GiB | 8.5 / 2.0 GiB | 8.8 / 2.2 GiB |
-| All workers, working set: peak / mean | | 10.0 / 3.1 GiB | 10.5 / 3.2 GiB | 10.9 / 3.4 GiB |
+| L band (5 m, cores of 20 km, 163 tiles) | Base (2026-11-03, the M + L run) | Stage 1 + B2 | C1 + B2 (the recount) | + W1 (`LIGHT_CORES` 1), 12 workers | + B4, 12 workers |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Counts identical to the base | | 162/163 | 162/163 | 162/163 | 162/163 |
+| Wall of the L tiles | 38.2 min (M's tiles beside) | 18.6 min | 18.3 min | 17.8 min | 16.6 min |
+| Workers × budget of each (`worker_count`) | 6 × 4.7 GiB | 12 × 2.7 GiB | 12 × 1.6 GiB | 12 × 1.6 GiB | 12 × 1.6 GiB |
+| Tile seconds | 2.17 h | 1.51 h | 1.52 h | 1.74 h | 1.56 h |
+| CPU seconds of the tiles | | 5.41 h | 5.44 h | 5.40 h | 5.40 h |
+| Step 1 / "stitching terrain" | 0.94 h / not recorded | 0.38 / 0.08 h | 0.40 / 0.08 h | 0.50 / 0.09 h | 0.38 / 0.10 h |
+| Median tile / an empty tile | 25.9 / 20.1 s | 11.0 / 9.7 s | 12.5 / 10.9 s | 14.9 / 12.8 s | 12.1 / 10.2 s |
+| The heaviest tile, E-360000_N-1200000 | 2101 s | 1116 s | 1094 s | 1069 s | 996 s |
+| The light part done at | +19 min | +6 min | +6 min | +8 min | +7 min |
+| Machine CPU, mean | | 86 % | 86 % | 88 % | 87 % |
+| Free RAM: at the start / the least | | 34.1 / 25.6 GiB | 33.0 / 23.2 GiB | 33.3 / 23.7 GiB | 34.2 / 24.9 GiB |
+| Private per tile: median / max | | | 0.40 / 0.91 GiB | 0.40 / 0.87 GiB | 0.40 / 0.87 GiB |
+| Working set per tile: median / max | | | 0.78 / 1.16 GiB | 0.76 / 1.12 GiB | 1.08 / 1.77 GiB |
+| A worker's working set, its peak over the run | 2.35 GiB | | 1.68 GiB |  |  |
+| All workers, private: peak / mean | | 25.7 / 9.0 GiB | 8.5 / 2.0 GiB | 8.8 / 2.2 GiB | 6.6 / 2.1 GiB |
+| All workers, working set: peak / mean | | 10.0 / 3.1 GiB | 10.5 / 3.2 GiB | 10.9 / 3.4 GiB | 14.8 / 5.8 GiB |
+| Written to the disks | | 60 GB | 66 GB | 65 GB | 1 GB |
 
 The L tile that differs, E-360000_N-1200000, has 6 of its 402 225 769 lines in other keys of the
 cube, its lines, spots and spot records equal (B2's 5 m mosaic lies one float32 ULP from GDAL's in
@@ -1497,6 +1499,35 @@ cube, its lines, spots and spot records equal (B2's 5 m mosaic lies one float32 
 strips moved no count of L. The recount's 12 workers held 8.5 GiB of private bytes at most against
 25.7 with B2 alone: most of that is OpenBLAS's reservations, while the workers' working set, the RAM
 they held, stayed at about 10 GiB.
+
+S, the band of light tiles, which the plan left out: its wall is their seconds over the workers, so
+what ends M2 and L does not end it. The base is the user's run of 2026-11-03.
+
+| S band (1 m, cores of 5 km, 2122 tiles) | Base (2026-11-03) | + W1 (`LIGHT_CORES` 1), 8 workers | + W1, 12 workers | + B4, 12 workers |
+| --- | ---: | ---: | ---: | ---: |
+| Counts identical to the base | | 2122/2122 | 2122/2122 | 2122/2122 |
+| Wall of the tiles | 45.6 min | 32.6 min | 29.3 min | 24.5 min |
+| Workers × budget of each (`worker_count`) | 7 workers | 8 × 1.6 GiB | 12 × 1.6 GiB | 12 × 1.6 GiB |
+| Tile seconds | 5.17 h | 4.17 h | 5.63 h | 4.86 h |
+| CPU seconds of the tiles | | 5.27 h | 6.49 h | 6.13 h |
+| Step 1 / "stitching terrain" | 2.66 h / not recorded | 2.37 / 0.39 h | 3.02 / 0.48 h | 2.18 / 0.35 h |
+| Prominence and drop | | | 2.32 h | 2.37 h |
+| "other" | | | 0.56 h | 0.29 h |
+| Median tile / an empty tile | 8.6 / 8.3 s | 6.7 / 6.7 s | 9.1 / 9.0 s | 7.8 / 7.7 s |
+| The light part done at | +45 min | +32 min | +29 min | +24 min |
+| Machine CPU, mean | | 62 % | 80 % | 83 % |
+| Free RAM: at the start / the least | | 34.0 / 23.3 GiB | 33.7 / 16.2 GiB | 33.2 / 16.2 GiB |
+| Private per tile: median / max | | 0.46 / 1.02 GiB | 0.46 / 0.98 GiB | 0.46 / 1.07 GiB |
+| Working set per tile: median / max | | 0.76 / 1.26 GiB | 0.76 / 1.23 GiB | 1.08 / 1.86 GiB |
+| All workers, private: peak / mean | | 11.7 / 4.4 GiB | 17.9 / 6.9 GiB | 17.1 / 7.7 GiB |
+| All workers, working set: peak / mean | | 11.2 / 5.7 GiB | 18.5 / 8.8 GiB | 22.1 / 12.5 GiB |
+| Written to the disks | | 679 GB | 685 GB | 4 GB |
+
+"Written to the disks" is the machine's counters over the run (the timeline, `logs/samples-*.csv`):
+in every step but B4 mostly the tiles' grids, deleted seconds later. What the runs read follows the
+system's cache: 50 GB in S, 19-25 GB in M2, 0.4-5 GB in L, with W1 and with B4. With B4 the working
+set counts pages twice (stage 3's part below): the workers' went 8.8 → 12.5 GiB on average in S, the
+machine's memory in use 35.4 → 36.6 GiB, at the same peak of 45.4 GiB.
 
 A first run of a new country, M + L together on the code of main 6cf9dd7 (C1, B2, `LIGHT_CORES` 1):
 a scratch copy with every band pending and no weights, 12 workers, the exclusive lock, one run after
@@ -1892,8 +1923,10 @@ the order is worth little in any case: 4-8 % of the wall in Slovakia, measured.
 | A slow disk for `work/` (the Unraid array: `bench` on the 5650G) | The disk | Step 1 waits on I/O, the machine stays well below full, and more workers do not help | The data and `work/` on an SSD |
 
 `COUNT_PIXEL_BYTES` is measured on bands without a surface model; a country with one holds about
-twice the grids in its work folders (`_disk_bytes` counts them): compare the tiles' `memory` with the
-budget after its first band.
+twice the grids in its work folders (`_disk_bytes` counts them): compare the tiles' private bytes with
+the budget after its first band, and the machine's free RAM in the timeline. A tile's working set may
+pass the budget harmlessly since a worker keeps its grids' views (M2's largest: 2.28 against 2.1 GiB),
+which count the same pages twice.
 
 To check a country or a computer before a long run: count one band that holds a heavy tile, the
 smallest that does (L in Slovakia: 18 min), on a scratch copy of the country's folder, at the default
@@ -1907,6 +1940,92 @@ within a few % is bound by its cores: leave the defaults. Well below that, look 
 the free RAM before adding workers. A band that ends on one tile long after the light part
 (`running_tiles` at 1-3 for most of the run) gains from the split, not from more workers:
 `LIGHT_CORES` is a constant of `country.py`, and each value is one more run of that band.
+
+### Done, stage 3 (2026-11-05, wave 2: branch `country-perf-3-other`)
+
+- **B4, what "other" holds and what a tile writes** (on `LIGHT_CORES` 1; the counts of S, M2 and L
+  identical to the user's tiles; R13, R14 and R16 unchanged). S 29.3 → 24.5 min, M2 32.5 → 31.9, L
+  17.8 → 16.6 min, and what a band writes to the disks 685 → 4 GB, 290 → 6, 65 → 1 GB. S
+  gains most since its wall is its light tiles' seconds over the workers; M2's and L's end is their
+  heaviest tile, which gains only the cores the light tiles free sooner.
+
+"other" is the time of a tile between the progress bars: in W1's runs a median of 0.88 s in S, 1.61 in
+M2 and 2.77 in L, about twice what a tile takes alone. Its parts, from cProfile while no bar runs, 12
+processes at once on this PC, seconds per tile before → after:
+
+| Part of "other" | S | M2 | L |
+| --- | ---: | ---: | ---: |
+| The cache index: SQLite, a connection per data tile in `cache.state` | 0.116 → 0.029 | 0.458 → 0.038 | 1.279 → 0.047 |
+| The outline's test of each data tile, 0.7 ms each | 0.021 → 0.026 | 0.114 → 0.036 | 0.372 → 0.047 |
+| `gc.collect` before the folder goes | 0.118 → 0.001 | 0.126 → 0.003 | 0.107 → 0.001 |
+| The gaps' scan (`_gaps_rows`) | 0.124 → 0.088 | 0.163 → 0.134 | 0.103 → 0.087 |
+| The flush of the filled mask | 0.051 → 0 | 0.107 → 0 | 0.061 → 0 |
+| The mosaics' NaN or NODATA fill before the bar | 0.097 → 0.092 | 0.106 → 0.155 | 0.091 → 0.106 |
+| Memmaps created, `np.load` | 0.051 → 0.049 | 0.073 → 0.052 | 0.077 → 0.050 |
+| Paths, `exists` | 0.020 → 0.015 | 0.064 → 0.040 | 0.163 → 0.085 |
+| Thread pools (`each_layer`) | 0.025 → 0.017 | 0.110 → 0.032 | 0.062 → 0.011 |
+| The sea's check | 0.022 → 0.002 | 0.034 → 0.002 | 0.019 → 0.002 |
+| The CRS, `transform_bounds` | 0.015 → 0.015 | 0.016 → 0.016 | 0.015 → 0.016 |
+| The rest (after: closing the views kept and deleting, moved in from the cleanup) | 0.064 → 0.091 | 0.087 → 0.122 | 0.109 → 0.132 |
+| Sum in cProfile | 0.72 → 0.43 | 1.46 → 0.63 | 2.46 → 0.58 |
+
+Without cProfile, the same tiles under the same load: "other" a median of 0.78 → 0.39 s in S, 1.37 →
+0.61 in M2, 2.80 → 0.52 in L, whole tiles 127 → 108 s, 99 → 84 and 98 → 84. Around the clock a tile
+takes 0.002 s before it and 0.005 s after it, the cleanup 0.16 s → 0; a worker's first tile of a band
+costs 1-3 s once more for its plan. What is left is inherent or small.
+
+What changed: `cache.states` (the tiles' answers on one connection per top-level folder, for
+`prepare_layer` and `water_body_mask`); `tilings._outline` (`shapely.prepare` on the copy `project`
+makes); a new mask is all False, so strips with nothing to mark are not written (`_gaps_rows`,
+`near_rows`, `_fill_water_rows`, `_border_gaps_rows`, `coast.sea_mask_rows` inland), and no lake to
+fill labels nothing; `TileWork.loop(freeze=True)` (what a worker's first tile left alive is frozen,
+so a collection walks that tile's objects only); and the disk:
+
+| A tile alone (the machine's disk counters, the idle rate taken off, 30 s of settling included) | S | M2 | L |
+| --- | ---: | ---: | ---: |
+| The process's own writes (the meta's `io`) | 0.1 MB | 0.2 MB | 0.3 MB |
+| Written, before | 270-282 MB | 376 MB | 509-570 MB |
+| Written, with the flushes off and nothing else | 231-319 MB | 320-335 MB | 269-589 MB |
+| Written, with the views held | 0-0.5 MB | 0.2-0.8 MB | 2-6 MB |
+| Read: from the disks / by `io` | 50 / 62-73 MB | 71 / 195 MB | 37-42 / 63-128 MB |
+| The work folder | 308 MB | 427 MB | 488 MB |
+
+On Windows a mapped file's written pages go to the disk within seconds of the last view that wrote
+them closing, also for a file deleted soon after: four grids of 150 MB wrote 600 MB with their views
+closed 3 s before the delete, and 2 MB with the views open until just before it. So a worker keeps
+each grid's view (`mosaic.flush_grid`, `HELD_GRIDS`, set by `country worker` only) until
+`TileWork._remove_grids` closes them and deletes the folder at the end of `count`; the app and
+`--processes 0` flush as before. `file.truncate` is no way out: extending a file with it zero-fills on
+Windows and is slower. The meta's `io` stays as it is: it counts what GDAL reads through the system's
+cache and never saw a mapped grid; `country profile` says so and gives the run's disks in GB. A Linux
+worker was not measured.
+
+The cost is in the working set: a tile's at most 1.36 → 2.28 GiB in M2, 1.23 → 1.86 in S, 1.12 → 1.77
+in L, the workers' peak 13.0 → 20.6, 18.5 → 22.1 and 10.9 → 14.8 GiB. A process's working set counts a
+page once per view: a grid of 400 MB written through a view kept open and read through a second took
+the working set 0.40 → 0.78 GiB and the machine's memory in use 31.05 → 31.06 GiB. So the machine
+moved far less: memory in use 35.4 → 36.6 GiB on average in S with the same peak of 45.4 GiB, the
+least free RAM unchanged at 16.2 GiB; M2's fell to 18.7 from 19.8-21.2 GiB. A tile's working set now
+passes its budget (S 1.86 against 1.6 GiB, M2 2.28 against 2.1) while its private bytes stay at half of
+it, so `COUNT_PIXEL_BYTES` stays. Under memory pressure the system should write those pages out as it
+did before; that case was not measured.
+
+The surface model, which Slovakia's bands have not, went through real `country worker` processes on a
+scratch copy of the band study's `sk-fatra` (surface model, water and gaps filled), with the views held
+against main's flushed ones: the bands L1-5m55, S1m60 and M2m60, 39 tiles and 3 735 026 lines, every
+tile's counts identical and no tile failed. Its largest tiles, 38.5 Mpx at 1 m with a budget of 1.65
+GiB, held 0.82 GiB of private bytes and a working set of 2.16 GiB (1.05 with the views flushed).
+
+Open, both outside B4's brief:
+
+| The time of a stage that a tile may not need | S | M2 | L |
+| --- | ---: | ---: | ---: |
+| Prominence and drop, of the band's tile seconds | 2.37 h, 49 % | 0.40 h, 12 % | 0.10 h, 6 % |
+| Of it in tiles with no line (S 1700 of 2122, M2 385 of 575, L 75 of 163) | 1.55 h | 0.13 h | 0.02 h |
+| Area coverage (a tile inside the outline has a mask all True) | 0.38 h | 0.15 h | 0.03 h |
+
+`search._anchors` computes prominence and drop for every anchor before the pair search, and
+Slovakia's bands set no limit on them, so a tile with no line never uses them.
 
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 

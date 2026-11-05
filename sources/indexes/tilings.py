@@ -16,6 +16,20 @@ from ..readers.tilebases import grid_tile_name
 from ..readers.windows import BlockRequest
 
 
+def _outline(grid: Grid, crs: str):
+    """grid.area_shape in crs (None without one), prepared for the test of every tile against it: a
+    country's outline takes about 0.7 ms a test otherwise (the 1280 tests of a coarse tile of the
+    country layer: 0.9 s). Prepared here on its own copy, never on grid.area_shape, which threads
+    share (sources.layer.each_layer); the same answers."""
+    if grid.area_shape is None:
+        return None
+    import shapely
+    from area import project
+    shape = project(grid.area_shape, grid.crs, crs)
+    shapely.prepare(shape)
+    return shape
+
+
 class MetricTiling(Index):
     """Square tiles of tile_m on a fixed grid in a metric CRS, cached as
     <folder>/<grid_tile_name>: tile (i, j) covers [i, i + 1) x [j, j + 1) tile sizes from origin
@@ -34,10 +48,7 @@ class MetricTiling(Index):
     def tiles(self, grid: Grid):
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
         ox, oy = self.origin
-        shape = None
-        if grid.area_shape is not None:
-            from area import project
-            shape = project(grid.area_shape, grid.crs, self.crs)
+        shape = _outline(grid, self.crs)
         found = []
         for j in range(math.floor((bottom - oy) / self.tile_m), math.floor((top - oy) / self.tile_m) + 1):
             for i in range(math.floor((left - ox) / self.tile_m), math.floor((right - ox) / self.tile_m) + 1):
@@ -87,10 +98,7 @@ class TenthDegreeTiling(Index):
 
     def tiles(self, grid: Grid) -> list:
         west, south, east, north = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        shape = None
-        if grid.area_shape is not None:
-            from area import project
-            shape = project(grid.area_shape, grid.crs, self.crs)
+        shape = _outline(grid, self.crs)
         found = []
         for j in range(math.floor(south * 10), math.floor(north * 10) + 1):
             for i in range(math.floor(west * 10), math.floor(east * 10) + 1):
@@ -172,10 +180,7 @@ class FileBlockTiling(Index):
     def tiles(self, grid: Grid) -> list:
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
         ox, oy = self.origin
-        shape = None
-        if grid.area_shape is not None:
-            from area import project
-            shape = project(grid.area_shape, grid.crs, self.crs)
+        shape = _outline(grid, self.crs)
         found = []
         for j in range(math.floor((bottom - oy) / self.block_m), math.floor((top - oy) / self.block_m) + 1):
             for i in range(math.floor((left - ox) / self.block_m), math.floor((right - ox) / self.block_m) + 1):
