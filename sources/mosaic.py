@@ -40,7 +40,7 @@ def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label
     if download:
         layer.download(grid, cache_dir, update, label)
     tiles = (layer.tiles(grid) or []) if layer.folder and not quiet else []  # local files are not in the cache
-    empty = sum(cache.state(cache_dir, layer.tile_path(cache_dir, t)) == "missing" for t in tiles)
+    empty = cache.states(cache_dir, [layer.tile_path(cache_dir, t) for t in tiles]).count("missing")
     if empty:  # normal over the sea; on land a sign of a lost tile (see the regression tests)
         print(f"{layer.description}: {empty} of {len(tiles)} tiles without data (the service has none there)")
     build_mosaic(layer.files(grid, cache_dir), grid, out_path, label, shift=layer.shift, rows=rows)

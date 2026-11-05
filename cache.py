@@ -466,6 +466,24 @@ def state(cache_dir: str, path: str, processing: int = 1) -> Optional[str]:
         db.close()
 
 
+def states(cache_dir: str, paths: Iterable[str], processing: int = 1) -> List[Optional[str]]:
+    """state() of each of many files (the tiles of a layer), in their order: the same answers on
+    one connection per top-level folder instead of one per file."""
+    paths = list(paths)
+    answers: List[Optional[str]] = [None] * len(paths)
+    by_top: Dict[str, List[int]] = {}
+    for k, path in enumerate(paths):
+        by_top.setdefault(_split(cache_dir, path)[0], []).append(k)
+    for top, ks in by_top.items():
+        db = _connect(cache_dir, top)
+        try:
+            for k in ks:
+                answers[k] = _state(db, paths[k], _split(cache_dir, paths[k])[1], processing)
+        finally:
+            db.close()
+    return answers
+
+
 def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:
     """Mark files as used now; return the range of their fetch times (oldest, newest)."""
     by_top: Dict[str, List[str]] = {}

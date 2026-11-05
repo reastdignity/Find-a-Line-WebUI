@@ -70,8 +70,9 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
         WATER_MASK.download(grid, cache_dir, update, "water mask")
     wbm = build_mosaic(WATER_MASK.files(grid, cache_dir), grid, out_path, "water mask", categorical=True, rows=rows)
     used_data.append(WATER_MASK.used(grid, cache_dir))
-    for tile in WATER_MASK.tiles(grid):
-        if cache.state(cache_dir, WATER_MASK.tile_path(cache_dir, tile)) == "missing":
+    tiles = WATER_MASK.tiles(grid)
+    for tile, state in zip(tiles, cache.states(cache_dir, [WATER_MASK.tile_path(cache_dir, t) for t in tiles])):
+        if state == "missing":
             lat, lon = tile
             left, bottom, right, top = transform_bounds("EPSG:4326", grid.crs, lon, lat, lon + 1, lat + 1)
             c0, c1 = max(0, int((left - grid.left) // grid.res)), min(grid.width, int((right - grid.left) // grid.res) + 1)

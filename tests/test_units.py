@@ -156,6 +156,72 @@ def test_cache_due_many_answers_as_due(tmp_path):
     assert [kinds[p] for p, due in zip(paths, cache.due_many(str(first), paths)) if due] ==         ["lost", "new"] * 2
 
 
+def test_cache_states_answers_as_state(tmp_path):
+    """cache.states (one connection per top-level folder) answers as state() of each file, in the order
+    of the paths: not recorded, adopted (a file without a row, which it records), missing, another
+    processing, in two top-level folders."""
+    import shutil
+    first = tmp_path / "first"
+    paths = []
+    for top in ("spain", "poland"):
+        for name in ("new", "adopted", "ok", "missing", "lost"):
+            path = first / top / "live" / f"{name}.tif"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if name != "new":
+                path.write_bytes(b"a")
+            if name in ("ok", "missing", "lost"):
+                cache.record(str(first), str(path), "missing" if name == "missing" else "ok",
+                             processing=2 if name == "lost" else 1)
+                if name != "ok":
+                    path.unlink()
+            paths.append(str(path))
+    second = tmp_path / "second"
+    shutil.copytree(first, second)
+    paths = paths[::-1]  # not grouped by folder
+    moved = [p.replace(str(first), str(second)) for p in paths]
+    for processing in (1, 2):
+        assert cache.states(str(second), moved, processing) == [cache.state(str(first), p, processing) for p in paths]
+    assert cache.states(str(second), []) == []
+    assert cache.info(str(second), str(second / "spain" / "live" / "adopted.tif"))["status"] == "ok"
+    assert cache.states(str(second), moved)[::-1] == [None, "ok", "ok", "missing", None] * 2
+
+
+def test_prepared_outline_keeps_the_tiles():
+    """A tiling's test of every tile against the outline, prepared (tilings._outline), keeps exactly the
+    tiles of the plain test, of a jagged outline with a hole and an island, also in another CRS, and
+    leaves grid.area_shape, which threads share, as it was."""
+    import math
+    import shapely
+    from shapely.geometry import MultiPolygon, Polygon, box
+
+    from area import project
+    from grid import Grid
+    from sources.indexes.tilings import FileBlockTiling, MetricTiling, TenthDegreeTiling, _outline
+    rng = np.random.default_rng(3)
+    angles = np.linspace(0, 2 * np.pi, 400, endpoint=False)
+    radius = 40_000 + 15_000 * rng.random(400)
+    x, y = 500_000.0, 5_000_000.0
+    hole = Polygon([(x + 9000 * math.cos(a), y + 9000 * math.sin(a)) for a in angles[::10]])
+    land = Polygon(np.column_stack([x + radius * np.cos(angles), y + radius * np.sin(angles)])).difference(hole)
+    outline = MultiPolygon([land, box(x - 2000, y - 2000, x + 2000, y + 2000)])
+    crs = "EPSG:32634"
+    grid = Grid(crs=crs, left=x - 60_000, top=y + 60_000, width=1200, height=1200, res=100.0)
+    grid.area_shape = outline
+    assert _outline(Grid(crs=crs, left=0, top=0, width=1, height=1, res=1.0), crs) is None
+    tenth = lambda t, i: (t[0] / 10, t[1] / 10, (t[0] + 1) / 10, (t[1] + 1) / 10)  # noqa: E731
+    for index, edges in ((MetricTiling(crs, "f", 4000), lambda t, i: i.edges(t)),
+                         (MetricTiling("EPSG:3035", "f", 5000, origin=(1000.0, 0.0)), lambda t, i: i.edges(t)),
+                         (FileBlockTiling(crs, "f", 1.0, 3000, lambda i, j: []), lambda t, i: i._edges(*t)),
+                         (TenthDegreeTiling("EPSG:4326", "f", 3600, lambda name: name), tenth)):
+        kept = index.tiles(grid)
+        shape = project(outline, crs, index.crs)
+        every = index.tiles(Grid(crs=grid.crs, left=grid.left, top=grid.top, width=grid.width, height=grid.height,
+                                 res=grid.res))
+        assert kept and len(every) > len(kept) and not shapely.is_prepared(shape)
+        assert kept == [t for t in every if shape.intersects(box(*edges(t, index)))]
+    assert not shapely.is_prepared(outline)
+
+
 def test_update_checks(tmp_path):
     """Live tiles are checked after their interval, releases never; --bbox limits the checks."""
     spain = src.SOURCES["spain"].nmt
