@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_patch import CLIP_LEFT, CLIP_TOP, TIF, _offline_env, clip_data  # noqa: E402,F401 (the fixture)
-from test_view3d import READY_SCRIPT, VIRTUAL_BUDGET, _page, _with_until  # noqa: E402,F401
+from test_view3d import EDGE_SECONDS, READY_SCRIPT, VIRTUAL_BUDGET, _page, _with_until  # noqa: E402,F401
 from test_viewer import pytestmark, run_ts  # noqa: E402,F401 (the skip without Node)
 from test_web import EDGE, _lines_of, _server, _violations  # noqa: E402
 
@@ -307,7 +307,7 @@ def test_ring_drawn_within_its_budget(clip_data, tmp_path, monkeypatch, level, l
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="ring">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&").replace("&lt;", "<")

@@ -24,24 +24,23 @@ from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _lines_of, _server, _violatio
 # it while one frame was drawn (6 copies of a test and 14 CPU burners). So the waits count frames, never virtual
 # time: a pause of t ms spans t / 100 real frames, and a frame the page asked for before a poll has come by the
 # poll's end (the browser runs every frame callback asked for before the frame: a probe saw the page's and a poll's
-# run together). Two loads at a time hold the virtual time while a poll waits for its frame (one is loading while
-# the other is asked again), and each poll ends with 100 virtual ms for the page's own timers, so the virtual time
-# such waits take stays far within the tests' --virtual-time-budget (VIRTUAL_BUDGET).
-# `frameTick` is the browser's own requestAnimationFrame, taken before any wrapper of a script, so the polls'
-# frames are not counted as the page's.
+# run together, never more than one poll's frame between the page's asking and its frame). While a poll waits for
+# its frame a small file is loading, again and again (which holds the virtual time), and a timer 1 virtual ms ahead
+# is armed: what leaks between two loads then stops at that timer, never jumping to the page's next timer or to the
+# budget's end. Each poll ends with 100 virtual ms for the page's own timers (e.g. a debounce). So the virtual
+# time the waits take stays far within the tests' --virtual-time-budget (VIRTUAL_BUDGET); in real time a wait
+# takes as long as the frames (EDGE_SECONDS). `frameTick` is the browser's own requestAnimationFrame, taken before
+# any wrapper of a script, so the polls' frames are not counted as the page's.
 UNTIL_JS = """
   let n = 0;
   const frameTick = window.requestAnimationFrame.bind(window), pollId = Math.random().toString(36).slice(2);
   const tick = (then) => {
-    let framed = false, loading = 0, ended = false;
+    let framed = false, ended = false;
     frameTick(() => { framed = true; });
-    const load = () => { loading++; fetch("stubs.js?poll=" + pollId + "-" + (++n)).then(next, next); };  // not cached
-    const next = () => {
-      loading--;
-      if (!framed) load();
-      else if (!loading && !ended) { ended = true; then(); }
-    };
-    load();
+    const guard = () => { if (!ended) setTimeout(guard, 1); };
+    const load = () => fetch("stubs.js?poll=" + pollId + "-" + (++n)).then(next, next);  // never from the cache
+    const next = () => { if (!framed) load(); else { ended = true; then(); } };
+    guard();
     load();
   };
   const until = (test, ms, then) => {
@@ -57,6 +56,9 @@ UNTIL_JS = """
 # The virtual time budget of the page tests: a ceiling only (once the page idles, Edge runs its virtual time to the
 # end at once), far above what leaks while the waits above hold it
 VIRTUAL_BUDGET = 900_000
+# The real seconds an Edge run of these tests may take: the waits count frames, which a starved machine draws
+# slowly (the ring's at level full took up to 331 s at 6 copies of the tests and 14 CPU burners)
+EDGE_SECONDS = 900
 
 
 def _with_until(script: str) -> str:
@@ -152,7 +154,7 @@ def test_view3d_draws_the_line(clip_data, tmp_path, monkeypatch, level):
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=240).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -292,7 +294,7 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", motion, "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -400,7 +402,7 @@ def test_view3d_edges(clip_data, tmp_path, monkeypatch, level):
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -529,7 +531,7 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=500,900", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     run_json.write_text(saved, encoding="utf-8")
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
@@ -653,7 +655,7 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -779,7 +781,7 @@ def test_view3d_walker_zoom(clip_data, tmp_path, monkeypatch):
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
              "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level=full#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
