@@ -2235,6 +2235,20 @@ def test_refusals_in_the_audit_log_once_per_window(tmp_path, settings, account_s
 def test_rate_limiters_forget(tmp_path, settings, account_settings, providers, monkeypatch):
     """The sign-in limiter keys a client by its address, an IPv6 one by its /64, and forgets the keys
     after their window (the moving window of limits' MemoryStorage kept every key; review A, 6)."""
+    import limits.storage.memory
+    import limits.strategies
+
+    class Clock:
+        """The time of limits' MemoryStorage, in the test's hands: the 300 sign-ins of a real clock
+        took over the keys' 2 s on a busy machine (keys of the first expired before the last was
+        counted: 106 of 300) and the six of one /64 could spread over more than a window."""
+        now = time.time()
+
+        def time(self):
+            return self.now
+    clock = Clock()
+    monkeypatch.setattr(limits.storage.memory, "time", clock)
+    monkeypatch.setattr(limits.strategies, "time", clock)
     monkeypatch.setattr(ac, "LOGIN_RATE", "4/second")
     app = _public_app(tmp_path, settings, account_settings, providers)
 
@@ -2253,9 +2267,12 @@ def test_rate_limiters_forget(tmp_path, settings, account_settings, providers, m
         login(f"2001:db8:{i:x}::1")
     limiter = app.state.limiters["login"]
     assert len(limiter.storage.storage) > 300
-    time.sleep(2.5)  # two windows: the sliding counter's keys expire
+    # The storage expires keys in a timer thread it starts on a count (10 ms later) unless one is
+    # pending: the last one has run before the clock moves, the next one is joined
+    limiter.storage.timer.join(10)
+    clock.now += 2.5  # two windows: the sliding counter's keys expire
     login("192.0.2.2")  # runs the expiry
-    time.sleep(0.5)
+    limiter.storage.timer.join(10)
     assert len(limiter.storage.storage) <= 2 and not limiter.storage.events
     assert web.client_key("2001:db8:1:2:aaaa::1") == "2001:db8:1:2::/64"
     assert web.client_key("::ffff:192.0.2.7") == "192.0.2.7" and web.client_key("?") == "?"
