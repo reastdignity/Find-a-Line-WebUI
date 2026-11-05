@@ -19,6 +19,8 @@ const rows = () => $$(".c-col-list .r-rows > .r-spot > .r-row");
 const cardShown = () => !!$(".r-card .fal-profile-title");
 run({
   newSearch(next) {
+    // "New search" clicked as soon as the first render shows it, before any frame: AppC listens for the hash
+    // from that render on (it once listened after the first paint, and this click went unseen now and then)
     wait(() => $(".c-new"), () => { $(".c-new").click(); wait(() => window.FINDALINE_PLACE && $(".s-panel") && $(".c-bar .s-start"), () => {
       // The place box: Enter looks the name up, ↓ and Enter pick the second match, the map goes there
       const box = $(".s-placebox input"), key = (k) => box.dispatchEvent(new KeyboardEvent("keydown", {key: k, bubbles: true}));
