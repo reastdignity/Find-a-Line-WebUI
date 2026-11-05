@@ -374,7 +374,9 @@ def test_view3d_profile_card_and_saving(clip_data, tmp_path, monkeypatch, level)
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, r)
     assert r["ready"] and r["settled"] and "error" not in r, r
-    assert r["tools"] == ["profile", "save"] and r["order"] == [["profile", "5"], ["save", "6"]], r
+    # the two tools of this file among the strip's (the others of round 2 have tests of their own)
+    assert [t for t in r["tools"] if t in ("profile", "save")] == ["profile", "save"], r
+    assert [o for o in r["order"] if o[0] in ("profile", "save")] == [["profile", "5"], ["save", "6"]], r
     assert r["cardEmpty"], r  # folded by default
     # the chart
     assert r["chart"] and r["stored"] == "open" and r["pressed"] == "true", r
