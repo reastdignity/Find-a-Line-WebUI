@@ -2422,8 +2422,10 @@ def test_event_stream_resumes_after_last_event_id(tmp_path, settings, account_se
         for i in range(5, 8):
             jobs.event(mine, "info", {"i": i})
             jobs.event(other, "info", {"i": i})
+        # Until the six and the worker's line: written after the events the stream catches up with (all
+        # six when it subscribed after the last), it came in a later read than they did on a busy machine
         data, deadline = b"", time.time() + 15
-        while time.time() < deadline and data.count(b"\"info\"") < 6:
+        while time.time() < deadline and (data.count(b"\"info\"") < 6 or b"\"worker\"" not in data):
             try:
                 data += sock.recv(65536)
             except socket.timeout:
