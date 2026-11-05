@@ -257,7 +257,8 @@ RING_SCRIPT = _with_until("""
       .map((e) => ({url: e.name.replace(/^.*\\/view3dtest\\//, ""), bytes: e.encodedBodySize, transfer: e.transferSize}));
     done({ring: root.dataset.ring, offset: root.dataset.ringOffset ? JSON.parse(root.dataset.ringOffset) : null,
           errors: Number(root.dataset.ringErrors || 0), visible: Number(root.dataset.ringTiles || 0), entries, triangles: Number(root.dataset.triangles),
-          credits: (document.querySelector(".v3-credits") || document.body).innerHTML, look});
+          credits: (document.querySelector(".v3-credits") || document.body).innerHTML, look,
+          virtualMs: Math.round(performance.now())});  // printed only: what the waits took of VIRTUAL_BUDGET
   };
   const timeout = () => done({ring: root.dataset.ring || null, timeout: true, data: {...root.dataset}});
   until(loaded, 50000, (ok) => {

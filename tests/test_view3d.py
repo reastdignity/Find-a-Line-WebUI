@@ -54,8 +54,9 @@ UNTIL_JS = """
   };
 """
 # The virtual time budget of the page tests: a ceiling only (once the page idles, Edge runs its virtual time to the
-# end at once), far above what leaks while the waits above hold it
-VIRTUAL_BUDGET = 900_000
+# end at once), far above what leaks while the waits above hold it (74 virtual seconds at most in the test of the
+# first frame at 6 copies and 14 CPU burners, about 2 s for each frame drawn; the ring's draws many more)
+VIRTUAL_BUDGET = 3_600_000
 # The real seconds an Edge run of these tests may take: the waits count frames, which a starved machine draws
 # slowly (the ring's at level full took up to 331 s at 6 copies of the tests and 14 CPU burners)
 EDGE_SECONDS = 900
