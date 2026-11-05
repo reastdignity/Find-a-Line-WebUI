@@ -247,7 +247,11 @@ def test_status_events_in_the_order_of_the_changes(tmp_path):
 
     def claim():
         while True:
-            if not jobs.claim("ready", "computing", "w") and readied.is_set():
+            # Done when a claim finds nothing although every job was set "ready" before it began: with
+            # readied looked at after the claim, a job set "ready" while that claim ran (the thread
+            # descheduled between the two) was left unclaimed
+            readied_before = readied.is_set()
+            if not jobs.claim("ready", "computing", "w") and readied_before:
                 return
 
     claimer = threading.Thread(target=claim)
@@ -341,7 +345,14 @@ def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
         seen.append(memory)
         raise ValueError("planned")
     monkeypatch.setattr(search, "plan_search", plan_search)
-    monkeypatch.setattr(sys, "stdout", sys.stdout)  # run_phase sends it to the job's events
+    # run_phase in this process: what it changes here is put back after the test (its stdout goes to the
+    # job's events, its progress listener writes events into this test's jobs.sqlite)
+    import osm
+    import progress
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
+    monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
     job = jobs.add({"params": params, "geometry": None}, "budget")
     jobs.set(job, "downloading")
     import jobs as jb
