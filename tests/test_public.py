@@ -1162,6 +1162,28 @@ def test_patches_of_the_public_site(run_people, tmp_path):
     assert code(patch(a, lat, lon, lat + 0.0003, lon)) == (429, "rate_patch")
     assert patch(b, lat, lon, lat + 0.0003, lon, run=RUN_B).status_code == 503  # each user their own
 
+    # /api/reach: the patch's checks and codes, the anchor's, and its own rate (12 a minute by default)
+    reach_header = {"x-findaline-reach": "1"}
+    reach = lambda client, *p, anchor=f"{lat},{lon}", which=1, run=RUN_A: client.get(  # noqa: E731
+        f"/api/reach?run={run}&line={','.join(map(str, p))}&anchor={anchor}&as={which}", headers=reach_header)
+    near = (lat, lon, lat + 0.0003, lon)
+    assert reach(a, *near, run=RUN_B).status_code == 404
+    assert reach(b, *near).status_code == 404
+    assert a.get(f"/api/reach?run={RUN_A}&line={lat},{lon},{lat + 0.0003},{lon}&anchor={lat},{lon}&as=1",
+                 headers=headers).status_code == 403  # the patch's header is not the reach's
+    assert reach(pending, *near).status_code == 403
+    assert code(reach(a, lat, lon, lat)) == (400, "patch_line")
+    assert code(reach(a, lat, lon, lat + 0.5, lon)) == (400, "patch_outside")
+    assert code(reach(a, *near, anchor=f"{lat + 0.5},{lon}")) == (400, "patch_outside")
+    assert code(reach(admin, *near, anchor=f"{lat + 0.5},{lon}")) == (400, "patch_outside")
+    assert code(reach(a, *near, anchor="x,y")) == (400, "reach_anchor")
+    assert reach(a, *near, which=3).status_code == 400
+    statuses = [reach(a, *near).status_code for _ in range(13)]
+    assert statuses == [503] * 12 + [429]  # on to the (missing) worker, then the rate
+    assert code(reach(a, *near)) == (429, "rate_reach")
+    assert code(patch(a, *near)) == (429, "rate_patch")  # each kind its own
+    assert reach(b, *near, run=RUN_B).status_code == 503  # each user their own
+
     page = a.get("/view3d")
     assert page.status_code == 200 and page.headers["cache-control"] == "no-store"
     assert page.headers["content-security-policy"] == web.PAGE_CSP["/view3d"]

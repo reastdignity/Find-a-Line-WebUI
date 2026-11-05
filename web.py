@@ -448,7 +448,8 @@ SESSION_CHECK = 30  # seconds between checks of the session inside an open event
 # the others are counted, and the next row says how many there were ("repeated")
 REFUSAL_WINDOW = 600
 PLACE_CHARS_MAX = 200  # of a name the place box looks up
-RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "place": "place lookups",
+RATE_NAMES = {"estimate": "estimates", "profile": "profiles", "patch": "3D views", "reach": "reach calculations",
+              "place": "place lookups",
               # Limits.<kind>_rate
               "report": "problem reports", "time_zone": "time zones sent", "job": "searches started"}
 TIME_ZONE_CHARS_MAX = 100  # of an IANA time zone's name (the longest are about 30)
@@ -699,7 +700,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     `oauth_transport`: an httpx2 transport to the providers, for tests). `limits` of the request
     values: by default from FINDALINE_LIMIT_* (and the public site's defaults in the public mode);
     `view`, the 3D view's settings: by default from FINDALINE_3D_* (settings.ViewSettings)."""
-    from fastapi import Depends, FastAPI, HTTPException, Request
+    from fastapi import Depends, FastAPI, HTTPException, Query, Request
     from fastapi.concurrency import run_in_threadpool
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
     from sse_starlette import EventSourceResponse
@@ -1748,30 +1749,68 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         await run_in_threadpool(within_rate, "profile", user)
         return await quick("profile", {"run": run, "line": points}, user, request)  # one at a time in the quick lane
 
-    @app.get("/api/patch")
-    async def line_patch(request: Request, line: str, step: int = 1, run: str = Depends(run_access),
-                         user: ac.User = Depends(current_user)):
-        """The terrain of the 3D view around a line of a saved run (search.patch_of_line, in the worker's
-        quick lane; docs/3d-view-contract.md): uint32 little-endian N, N bytes of the meta as UTF-8
-        JSON, the deflated heights. The checks of /api/profile with the patch's codes; the header
-        X-Findaline-Patch as its X-Findaline-Profile."""
-        if not request.headers.get("x-findaline-patch"):
-            raise HTTPException(403, "header X-Findaline-Patch missing")
+    def line_points(line: str) -> List[float]:
+        """The four numbers of a 3D view request's `line` (400 patch_line otherwise)."""
         try:
             points = [float(v) for v in line.split(",")]
         except ValueError:
             points = []
         if len(points) != 4 or not all(math.isfinite(v) for v in points):
             raise HTTPException(400, messages.UserError("line: lat1,lon1,lat2,lon2", "patch_line").detail())
+        return points
+
+    @app.get("/api/patch")
+    async def line_patch(request: Request, line: str, step: int = 1, part: Optional[str] = None,
+                         run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+        """The terrain of the 3D view around a line of a saved run (search.patch_of_line, in the worker's
+        quick lane; docs/3d-view-contract.md): uint32 little-endian N, N bytes of the meta as UTF-8
+        JSON, the deflated heights. The checks of /api/profile with the patch's codes; the header
+        X-Findaline-Patch as its X-Findaline-Profile. part=canopy: the trees and buildings of the same
+        patch (search.canopy_of_line) in the same framing, with the same checks and rate."""
+        if not request.headers.get("x-findaline-patch"):
+            raise HTTPException(403, "header X-Findaline-Patch missing")
+        points = line_points(line)
         if step not in (1, 2):
             raise HTTPException(400, "step: 1 or 2")
+        if part not in (None, "canopy"):
+            raise HTTPException(400, "part: canopy")
         if public:
             problem = await run_in_threadpool(profile_problem, os.path.join(runs_dir, run), points, user.admin, True)
             if problem:
                 raise HTTPException(400, problem.detail())
         await run_in_threadpool(within_rate, "patch", user)
-        answer = await quick("patch", {"run": run, "line": points, "step": step}, user, request)
+        task = {"run": run, "line": points, "step": step}
+        answer = await quick("patch", {**task, "part": part} if part else task, user, request)
         return Response(patch_body(answer), media_type="application/octet-stream")
+
+    @app.get("/api/reach")
+    async def line_reach(request: Request, line: str, anchor: str, which: Optional[int] = Query(None, alias="as"),
+                         step: int = 1, run: str = Depends(run_access), user: ac.User = Depends(current_user)):
+        """Where the other anchor of a line of a saved run may stand when the point `anchor` (lat,lon) is
+        fixed as its end `as` (1 or 2): search.reach_of_anchor in the worker's quick lane, framed as
+        /api/patch (docs/3d-view-contract.md, "/api/reach"). `line` and `step` name the patch as the
+        page asked it. The checks of /api/patch, the anchor's too; the header X-Findaline-Reach."""
+        if not request.headers.get("x-findaline-reach"):
+            raise HTTPException(403, "header X-Findaline-Reach missing")
+        points = line_points(line)
+        if step not in (1, 2):
+            raise HTTPException(400, "step: 1 or 2")
+        if which not in (1, 2):
+            raise HTTPException(400, "as: 1 or 2")
+        try:
+            fixed = [float(v) for v in anchor.split(",")]
+        except ValueError:
+            fixed = []
+        if len(fixed) != 2 or not all(math.isfinite(v) for v in fixed):
+            raise HTTPException(400, messages.UserError("anchor: lat,lon", "reach_anchor").detail())
+        if public:
+            for ends in (points, fixed * 2):  # the line, then the point as a line of no length
+                problem = await run_in_threadpool(profile_problem, os.path.join(runs_dir, run), ends, user.admin, True)
+                if problem:
+                    raise HTTPException(400, problem.detail())
+        await run_in_threadpool(within_rate, "reach", user)
+        answer = await quick("reach", {"run": run, "line": points, "anchor": fixed, "as": which}, user, request)
+        return Response(patch_body(answer, "mask"), media_type="application/octet-stream")
 
     if public:
         @app.get("/runs/runs.js")
@@ -1890,16 +1929,17 @@ VIEW3D_HTML = """<!doctype html>
 """
 
 
-def patch_body(answer: Dict) -> bytes:
+def patch_body(answer: Dict, key: str = "heights") -> bytes:
     """The answer of /api/patch from the quick lane's {"meta", "heights"} (base64url without padding):
     uint32 little-endian N | N bytes of UTF-8 JSON meta | the deflated heights | the deflated kinds of
     the uncertain shore (meta "shore_bytes" of them, when the run fills the water), after checking
-    their sha256 against the meta's (500 patch_damaged otherwise)."""
+    their sha256 against the meta's (500 patch_damaged otherwise). The same for the trees of its
+    canopy part and, with key "mask", for /api/reach's values (no shore)."""
     import base64
     import hashlib
     import struct
     try:
-        meta, text = answer["meta"], answer["heights"]
+        meta, text = answer["meta"], answer[key]
         body = base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
         shore_bytes = int(meta.get("shore_bytes", 0))
         heights, shore = body[:len(body) - shore_bytes], body[len(body) - shore_bytes:]

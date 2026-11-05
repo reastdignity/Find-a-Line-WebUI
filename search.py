@@ -143,6 +143,21 @@ PATCH_NO_DATA = -32768  # the int16 value of a sample without data
 SHORE_WARN_M = 100
 SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_lines: resuming keeps it)
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
+# The reach of a fixed anchor (reach_of_anchor, docs/3d-view-contract.md, "/api/reach"): every sample of the
+# patch is a target while at most REACH_FULL_TARGETS lie within the run's limits, else every second one;
+# the numba kernel on REACH_THREADS threads, REACH_PART targets at a time; clearances in steps of
+# REACH_QUANTUM metres in the low 7 bits of a byte, the high bit set for a line over trees or buildings
+REACH_FULL_TARGETS = 300_000
+REACH_THREADS = 2
+REACH_PART = 1 << 18
+REACH_QUANTUM = 0.5
+REACH_STEPS_MAX = 127
+REACH_TREES = 0x80
+REACH_ROWS = 256  # lattice rows whose limits are tested at a time
+# The trees and buildings of the 3D view (canopy_of_line): the obstacle surface less the terrain, in steps of
+# CANOPY_QUANTUM metres (a byte), nothing below CANOPY_MIN_HEIGHT
+CANOPY_QUANTUM = 0.5
+CANOPY_MIN_HEIGHT = 1.0
 # The memory a download phase's process takes at its peak (slot_memory keeps it free for each
 # download slot): measured 2026-10-31 at 120 MiB after the imports, 240-400 MiB when it downloads
 # (Montserrat at 1 m, 2 WCS tiles of 32 MB per layer; El Capitan, 3DEP blocks), and GDAL's cache of
@@ -2078,6 +2093,214 @@ def encode_heights(heights: np.ndarray) -> Tuple[bytes, int]:
         parts.append(compressor.compress(deltas.astype("<i2").tobytes()))
     parts.append(compressor.flush())
     return b"".join(parts), base_dm
+
+
+def _patch_plan(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor2: Tuple[float, float],
+                side_m: Optional[float] = None):
+    """The plan of the 3D view's patch of a line at step 1 (patch_of_line's square: PATCH_BLOCK·n + 1 samples
+    centred on the line's middle, its edges on the run's pixel edges, the run's source, resolution, filling and
+    water settings), for the other requests that name a patch (reach_of_anchor, canopy_of_line): (plan, source,
+    the run's lon/lat -> x/y). Its obstacles are the plan's own (the caller sets the run's rule). SearchError
+    patch_too_large, patch_crs."""
+    from pyproj import Transformer
+    values = _run_values(meta)
+    crs, res = meta["center"]["crs"], float(meta["params"]["resolution"])
+    to_xy = ar._to(crs)
+    (x1, y1), (x2, y2) = to_xy(anchor1[1], anchor1[0]), to_xy(anchor2[1], anchor2[0])
+    length = math.hypot(x2 - x1, y2 - y1)
+    if side_m is None:
+        side_m = max(PATCH_SIDE_MIN, length + PATCH_SIDE_MARGIN)
+    size = PATCH_BLOCK * max(1, math.ceil(side_m / res / PATCH_BLOCK)) + 1
+    if size > MAX_MEASURED_PX:
+        raise SearchError(f"the 3D view of this line needs {side_m / 1000:.1f} km on a side; at the {res:g} m "
+                          f"resolution of this run it shows at most {MAX_MEASURED_PX * res / 1000:g} km",
+                          "patch_too_large", km=round(side_m / 1000, 1), max=MAX_MEASURED_PX * res / 1000)
+    source, _ = src.choose_source(values["source"], anchor1[0], anchor1[1], paths.cache,
+                                  values.get("elevation_file"), values.get("surface_file"))
+    ox, oy = source.grid_origin
+    half = size // 2
+    left = ox + (math.floor(((x1 + x2) / 2 - ox) / res) - half) * res
+    bottom = oy + (math.floor(((y1 + y2) / 2 - oy) / res) - half) * res
+    right, top = left + size * res, bottom + size * res
+    to_lonlat = Transformer.from_crs(crs, "EPSG:4326", always_xy=True).transform
+    inset = res / 4  # the polygon a quarter of a pixel inside these edges: make_grid snaps it out onto them
+    corners = [(left + inset, bottom + inset), (right - inset, bottom + inset), (right - inset, top - inset),
+               (left + inset, top - inset)]
+    ring = [list(to_lonlat(x, y)) for x, y in corners]
+    values["geometry"] = {"type": "Polygon", "coordinates": [ring + [ring[0]]]}
+    plan = plan_search(SearchParams(**values), paths, lambda kind, text: None, with_margin=False)
+    if plan.crs != crs:
+        raise SearchError(f"the run used {crs}, a search here would use {plan.crs}", "patch_crs")
+    grid = plan.grid
+    if (grid.width, grid.height) != (size, size) or abs(grid.left - left) > res / 100 or abs(grid.top - top) > res / 100:
+        raise RuntimeError(f"the patch's grid ({grid.width} x {grid.height} at {grid.left}, {grid.top}) is not "
+                           f"the square asked for ({size} x {size} at {left}, {top})")
+    return plan, source, to_xy
+
+
+def _reach_candidates(z: np.ndarray, res: float, fixed: Tuple[int, int], lattice: int, min_length: float,
+                      max_length: float, max_dh_ratio: float, max_dh: float):
+    """The samples of the lattice (every `lattice`-th row and column from the first) a line from the fixed
+    pixel may reach, REACH_ROWS lattice rows at a time, as (rows, columns) in the grid, row-major: the length
+    and height tests of linesearch._pairs (min_length <= length <= max_length with length = hypot(dr, dc) · res;
+    the float32 heights differ by at most min(max_dh_ratio · length, max_dh); a sample without data never
+    passes)."""
+    height, width = z.shape
+    fixed_z = z[fixed[0], fixed[1]]
+    reach = int(max_length / res) + 2
+    end = min(height, fixed[0] + reach + 1)
+    first = max(0, fixed[0] - reach)
+    first -= first % lattice
+    columns = np.arange(0, width, lattice)
+    for r0 in range(first, end, lattice * REACH_ROWS):
+        r1 = min(end, r0 + lattice * REACH_ROWS)
+        rows = np.arange(r0, r1, lattice)
+        length = np.hypot(rows[:, None] - fixed[0], columns[None, :] - fixed[1]) * res
+        near = (length <= max_length) & (length >= min_length)
+        with np.errstate(invalid="ignore"):  # NaN compares False
+            difference = np.abs(np.asarray(z[r0:r1:lattice, ::lattice]) - fixed_z)
+            near &= difference <= np.minimum(max_dh_ratio * length, max_dh)
+        i, j = np.nonzero(near)
+        yield rows[i], columns[j]
+
+
+def _reach_lattice(z: np.ndarray, res: float, fixed: Tuple[int, int], limits: Dict) -> int:
+    """1 while at most REACH_FULL_TARGETS samples of the grid are targets of the fixed pixel, else 2."""
+    total = 0
+    for rows, _ in _reach_candidates(z, res, fixed, 1, **limits):
+        total += len(rows)
+        if total > REACH_FULL_TARGETS:
+            return 2
+    return 1
+
+
+def reach_of_anchor(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor2: Tuple[float, float],
+                    fixed: Tuple[float, float], which: int, side_m: Optional[float] = None) -> Tuple[Dict, bytes]:
+    """Where the other anchor of a line of a saved run may stand, with one end fixed (the 3D view's "only valid
+    lines", docs/3d-view-contract.md, "/api/reach"): (meta, the deflated values). The patch of the line
+    (anchor1, anchor2: (lat, lon) as the run saved them) at step 1 with the run's obstacle rule (as
+    profile_of_line), the fixed point (lat, lon) in its pixel, and each sample of a lattice within the run's
+    limits of length and height difference evaluated as linesearch.evaluate_lines decides a line (helpers.
+    evaluate_line, the run's sag model and surface mode, none of the search's anchor rules), in the order the
+    page asks the profile: which = 1 the fixed point first, 2 the target first. One uint8 a sample of the
+    lattice, row-major from the top: 0 not valid; else the low 7 bits min(127, ceil(clearance /
+    REACH_QUANTUM)) (at least 1) and REACH_TREES when the line passes over trees or buildings. The meta's
+    `res` is the run's resolution; value (i, j) is the patch's sample (i · lattice, j · lattice). Imports numba
+    (the quick lane loads it at its first reach). SearchError reach_anchor for a point outside the patch or
+    over no data."""
+    if which not in (1, 2):
+        raise ValueError("as: 1 or 2")
+    p = meta["params"]
+    plan, _, to_xy = _patch_plan(meta, paths, anchor1, anchor2, side_m)
+    plan.obstacles = p.get("obstacles")  # the run's rule, as profile_of_line
+    data = prepare_data(plan, statistics=False, shore="none")
+    grid, res = plan.grid, plan.resolution
+    limits = {"min_length": float(p["min_length"]), "max_length": float(p["max_length"]),
+              "max_dh_ratio": float(p["max_anchor_diff"]) / 100, "max_dh": float(p["max_anchor_diff_m"])}
+    try:
+        z = np.asarray(data.elevation)
+        s = np.asarray(data.surface) if data.surface is not None else None
+        x, y = to_xy(fixed[1], fixed[0])
+        row, col = int(round((grid.top - y) / res - 0.5)), int(round((x - grid.left) / res - 0.5))
+        if not (0 <= row < z.shape[0] and 0 <= col < z.shape[1]) or not math.isfinite(float(z[row, col])):
+            raise SearchError("the point is outside the terrain of the 3D view or has no elevation data",
+                              "reach_anchor")
+        sag_table = None
+        if p["model"] == "sag":
+            sag_table = _sag_table(dataclasses.astuple(plan.rigging), p["min_length"], p["max_length"])
+        mask, lattice = _reach_mask(z, s, res, (row, col), which, limits, sag_table, plan.nmpt)
+        height_here = float(z[row, col])
+    finally:
+        z = s = data = None
+        gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
+    body = zlib.compress(np.ascontiguousarray(mask).tobytes(), 6)
+    reach = {
+        "width": int(mask.shape[1]), "height": int(mask.shape[0]), "lattice": lattice, "res": res,
+        "left": grid.left, "top": grid.top,
+        "anchor": {"x": grid.left + (col + 0.5) * res, "y": grid.top - (row + 0.5) * res, "h": round(height_here, 2)},
+        "as": which, "min_length": limits["min_length"], "max_length": limits["max_length"],
+        "valid": int(np.count_nonzero(mask)), "trees": int(np.count_nonzero(mask & REACH_TREES)),
+        "quantum": REACH_QUANTUM, "sha256": hashlib.sha256(body).hexdigest(),
+    }
+    return reach, body
+
+
+def _reach_mask(z: np.ndarray, s: Optional[np.ndarray], res: float, fixed: Tuple[int, int], which: int,
+                limits: Dict, sag_table, nmpt_mode: Optional[str]) -> Tuple[np.ndarray, int]:
+    """(the lattice of reach_of_anchor's values, the lattice step) for a fixed pixel of the grids z (terrain)
+    and s (the obstacle surface or None)."""
+    import numba
+
+    import linesearch as ls
+    lattice = _reach_lattice(z, res, fixed, limits)
+    columns = -(-z.shape[1] // lattice)
+    mask = np.zeros((-(-z.shape[0] // lattice), columns), dtype=np.uint8)
+    flat = mask.reshape(-1)  # a view
+    threads = numba.get_num_threads()
+    numba.set_num_threads(max(1, min(REACH_THREADS, numba.config.NUMBA_NUM_THREADS)))  # the quick lane's one process
+    try:
+        for block_rows, block_cols in _reach_candidates(z, res, fixed, lattice, **limits):
+            for lo in range(0, len(block_rows), REACH_PART):
+                rows, cols = block_rows[lo:lo + REACH_PART], block_cols[lo:lo + REACH_PART]
+                n = len(rows)
+                anchors = np.empty((n + 1, 2), dtype=np.int64)
+                anchors[0] = fixed
+                anchors[1:, 0], anchors[1:, 1] = rows, cols
+                target, fixed_index = np.arange(1, n + 1), np.zeros(n, dtype=np.int64)
+                found = np.column_stack([fixed_index, target] if which == 1 else [target, fixed_index])
+                lines = ls.evaluate_lines(found, anchors, z, res, s, sag_table, nmpt_mode, down=np.zeros((n + 1, 2)))
+                other = lines.columns["a2" if which == 1 else "a1"]  # the target's pixel
+                with np.errstate(invalid="ignore"):
+                    over = lines.columns["clearance_nmpt"] <= 0  # NaN: no surface there
+                steps = np.clip(np.ceil(lines.columns["clearance"] / REACH_QUANTUM), 1, REACH_STEPS_MAX).astype(np.uint8)
+                flat[(other[:, 0] // lattice) * columns + other[:, 1] // lattice] = steps | np.where(
+                    over, REACH_TREES, 0).astype(np.uint8)
+    finally:
+        numba.set_num_threads(threads)
+    return mask, lattice
+
+
+def canopy_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor2: Tuple[float, float],
+                   step: int = 1, side_m: Optional[float] = None) -> Tuple[Dict, bytes]:
+    """The trees and buildings of the 3D view around a line of a saved run (docs/3d-view-contract.md, "The
+    block of trees and buildings"): (meta, the deflated values) on the grid of patch_of_line for that step.
+    One uint8 a sample, row-major from the top: the run's obstacle surface (obstacles.obstacle_surface of its
+    rule; the surface model as it is without one) less the terrain in steps of CANOPY_QUANTUM metres, 0 below
+    CANOPY_MIN_HEIGHT, over no data and on bare pixels, at most 255. SearchError patch_no_surface for a run
+    without a surface model."""
+    if step not in (1, 2):
+        raise ValueError("step: 1 or 2")
+    plan, _, _ = _patch_plan(meta, paths, anchor1, anchor2, side_m)
+    if not plan.nmpt:
+        raise SearchError("this result has no surface model, so there are no trees or buildings to show",
+                          "patch_no_surface")
+    plan.obstacles = meta["params"].get("obstacles")  # the run's rule (None: the surface model as it is)
+    data = prepare_data(plan, statistics=False, shore="none")
+    try:
+        if data.surface is None:
+            raise SearchError("this result has no surface model, so there are no trees or buildings to show",
+                              "patch_no_surface")
+        terrain, surface = data.elevation[::step, ::step], data.surface[::step, ::step]
+        values = np.zeros(terrain.shape, dtype=np.uint8)
+        for r0 in range(0, values.shape[0], PATCH_ROWS):
+            height = np.asarray(surface[r0:r0 + PATCH_ROWS], dtype=np.float64) \
+                - np.asarray(terrain[r0:r0 + PATCH_ROWS], dtype=np.float64)
+            with np.errstate(invalid="ignore"):  # NaN: no data, 0
+                tall = height >= CANOPY_MIN_HEIGHT
+            values[r0:r0 + PATCH_ROWS] = np.where(tall, np.minimum(np.rint(height / CANOPY_QUANTUM), 255), 0)
+        terrain = surface = None
+    finally:
+        data = None
+        gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
+    grid, res = plan.grid, plan.resolution
+    body = zlib.compress(np.ascontiguousarray(values).tobytes(), 6)
+    sampled = res * step
+    return {
+        "part": "canopy", "width": int(values.shape[1]), "height": int(values.shape[0]), "step": step, "res": sampled,
+        "left": grid.left + res / 2 - sampled / 2, "top": grid.top - res / 2 + sampled / 2,
+        "quantum": CANOPY_QUANTUM, "min_height": CANOPY_MIN_HEIGHT, "rule": plan.obstacles,
+        "cells": int(np.count_nonzero(values)), "sha256": hashlib.sha256(body).hexdigest(),
+    }, body
 
 
 def run_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] = None,
