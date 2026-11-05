@@ -855,6 +855,44 @@ as well (1 of 3 runs): not this round's.
   `ui.view3d.reach_failed`.
 - The root's `data-point`: the number of representatives shown ("" while the tool is off).
 
+**After S, K and P (2026-11-05)**
+- **S** (efeea3d): `search.reach_of_anchor`, `canopy_of_line` and `_patch_plan` (the patch's square, repeated
+  beside `patch_of_line` so as not to touch it: to be folded into one), the quick kind `reach`, `GET /api/reach`,
+  `/api/patch?part=canopy`, `Limits.reach_rate`. The reach calls `linesearch.evaluate_lines` with the fixed anchor
+  and the targets as `[0, k]` (`as` 1) or `[k, 0]` (`as` 2), on two threads set for the call and restored after it;
+  a reach compiles nothing after `warmup.warm_up`; numba loads at the lane's first reach (4.1 s for it on the clip
+  with the sag table, 0.6 s afterwards; the canopy 0.3 s; answers about 2 KB and 190 KB at step 1); the reserve of
+  `search.slot_memory` covers it (about 90 MB at the first reach, 40 MB a call). `step` of `/api/reach` is checked
+  and unused (the grid is step 1); a damaged answer is `patch_damaged`; the route counts in nginx's group `api`.
+- **K** (7876c7e): the per-run favourites request gives keys and folders, no values, so other saved lines are
+  `--muted` until one was the active line (its profile's verdict is kept for its colour). Of the 20 lines the ones
+  that were active come first (at most 5), then the address's, then the favourites nearest the active line: a
+  line visited is not crowded out (K's choice against the contract's "the address's first"). New texts
+  `ui.view3d.other_label`, `.other_make`.
+- **P** (842a4e7): the tool's hint, failure and list stand in its own panel at the stage's right, under the pill;
+  a pick is a press and release within 5 px with the primary button and no modifier in the orbit view; Escape
+  switches the tool off; the list's clearance reads "≤ 2.0 m" (the mask's upper bound within its quantum); `group_by`
+  is "clearance". The lane got a third slot for the point's reach; `data-reach` is "point" while its overlay shows,
+  `data-fan` the webbings drawn. New texts `ui.view3d.point_m`, `.point_clear_value`, `.point_clear_title`.
+- **The coordinator**: `main.ts` creates every module; the patch's meta carries `group_distance`;
+  `Credits.fold()`: opening the profile's card folds the data credits, which open covered the line beside the
+  card; the chart's athlete line follows `--ink` (it was near black on the dark surface, in the 2D result too); a
+  lower chart at the phone level; `ui.view3d.loading_imagery` removed (the pill's `activity_imagery` took its
+  place); `tests/test_view3d_flow.py` runs the page against the app's own routes (the reach of anchor 1 and the
+  canopy arrive and show); `tools/ui_shots.py` has the pages `view3d-profile`, `-valid`, `-trees`, `-point`,
+  `-others`, its sample run given the clip's surface model.
+- **Checked**: on the clip the found line's second anchor is a valid sample of the reach of its first (clearance
+  within 4 m; with the surface model marked over trees); of 245 valid samples 15 lie within 10 m of it: the reach
+  of real terrain is sparse, small spots on rims and towers, not areas.
+- **Tests on the merged branch**: every test of the 3D view with the server's of the round 147 of 150 (the three:
+  the several-lines tests' handle on the wired module, fixed; `test_view3d_edges[full]` once, passing alone);
+  `tests/test_public.py`, `test_web.py`, `test_units.py`, `test_entry_points.py`, `test_keys.py` 339 passed, 1
+  skipped; `tests/test_shell_c.py` 7 passed. `view3d.js` 310 KB gzip (283 KB before the round).
+- **Open**: `tools/device_page.py` records the patch and the profile only: on its phone page the favourites, the
+  canopy and the reach have no answers (the tools hide or fail with their note); `_patch_plan` beside
+  `patch_of_line`; a favourite's values for the other lines' colours would need the favourites request to give
+  them; the other lines of the run's spots inside the patch (docs/3d-view.md, "Several lines in one view", C).
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then

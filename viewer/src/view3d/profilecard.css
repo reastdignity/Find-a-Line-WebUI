@@ -12,5 +12,10 @@
 /* The chart fills the profile's box (Profile.tsx fill: at least 120 px); with the controls open the box grows */
 #view3d .v3-pcard .r-profile { display: flex; flex-direction: column; min-height: 0; height: clamp(150px, 26vh, 210px); }
 #view3d .v3-pcard.r-rigging .r-profile { height: auto; }
+/* On a phone the card must leave the line in sight above it: a lower chart */
+#view3d.v3-phone .v3-pcard .r-profile { height: clamp(120px, 18vh, 150px); }
+@media (max-width: 600px) { #view3d .v3-pcard .r-profile { height: clamp(120px, 18vh, 150px); } }
+#view3d.v3-phone .v3-pcard.r-rigging .r-profile { height: auto; }
+@media (max-width: 600px) { #view3d .v3-pcard.r-rigging .r-profile { height: auto; } }
 /* Copy link in the top bar, after the title */
 #view3d .v3-copy { flex: none; margin-left: auto; white-space: nowrap; }

@@ -417,7 +417,6 @@
   "ui.view3d.loading_download_unknown": "Downloading the terrain… {{done}} MB",
   "ui.view3d.unpacking": "Unpacking the terrain…",
   "ui.view3d.building": "Building the 3D terrain…",
-  "ui.view3d.loading_imagery": "Loading the imagery… {{done}} of {{total}} tiles",
   "ui.view3d.loading_profile": "Checking the clearance…",
   "ui.view3d.error_title": "The 3D view could not open",
   "ui.view3d.no_webgl": "This browser cannot draw the 3D view (it needs WebGL 2).",
