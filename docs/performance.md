@@ -1498,6 +1498,34 @@ strips moved no count of L. The recount's 12 workers held 8.5 GiB of private byt
 25.7 with B2 alone: most of that is OpenBLAS's reservations, while the workers' working set, the RAM
 they held, stayed at about 10 GiB.
 
+A first run of a new country, M + L together on the code of main 6cf9dd7 (C1, B2, `LIGHT_CORES` 1):
+a scratch copy with every band pending and no weights, 12 workers, the exclusive lock, one run after
+another. The order of the claims is all that differs: the rowid order of before, and the relief's
+weights (A3) from slopes of 45° (main) and of 30°. Stage 3's part below says why.
+
+| M + L, a first run (738 tiles) | Rowid order | Relief 45° (main) | Relief 30° |
+| --- | ---: | ---: | ---: |
+| Counts identical to the user's, M | 575/575 | 575/575 | 575/575 |
+| Counts identical to the user's, L | 163/163 | 163/163 | 163/163 |
+| Wall of the tiles | 31.9 min | 29.2 min | 29.2 min |
+| The run from its start, relief and prefetch included | 32.7 min | 30.3 min | 30.3 min |
+| Workers × budget of each (`worker_count`) | 12 × 1.7 GiB | 12 × 1.7 GiB | 12 × 1.7 GiB |
+| Tile seconds | 3.86 h | 4.40 h | 4.34 h |
+| CPU seconds of the tiles | 8.87 h | 8.71 h | 8.65 h |
+| Step 1 / "stitching terrain" | 1.46 / 0.28 h | 1.70 / 0.33 h | 1.72 / 0.34 h |
+| Median tile / an empty tile | 8.9 / 8.8 s | 10.3 / 10.5 s | 10.3 / 10.7 s |
+| The heaviest tile, L's E-360000_N-1200000 | +10.9 → +31.9 min, 1259 s | +0.0 → +29.2 min, 1751 s | +0.0 → +29.2 min, 1753 s |
+| M's heaviest tile, E-350000_N-1190000 | +1.7 → +21.7 min, 1197 s | +0.0 → +19.6 min, 1177 s | +1.0 → +20.3 min, 1156 s |
+| The light part done at | +17.6 min | +21.7 min | +21.5 min |
+| One tile alone at the end | 9.7 min | 7.4 min | 7.7 min |
+| Tiles heavy by their weight | 0 | 8 | 60 |
+| Machine CPU, mean | 90 % | 94 % | 94 % |
+| Free RAM: at the start / the least | 32.0 / 22.9 GiB | 33.3 / 24.6 GiB | 33.7 / 21.7 GiB |
+| Private per tile: median / max | 0.40 / 0.92 GiB | 0.41 / 0.90 GiB | 0.41 / 0.89 GiB |
+| Working set per tile: median / max | 0.73 / 1.19 GiB | 0.74 / 1.17 GiB | 0.74 / 1.15 GiB |
+| All workers, private: peak / mean | 9.7 / 2.9 GiB | 8.0 / 3.6 GiB | 11.8 / 3.6 GiB |
+| All workers, working set: peak / mean | 11.6 / 4.6 GiB | 10.3 / 5.7 GiB | 13.1 / 5.6 GiB |
+
 ### Done, stage 1 (2026-11-04, branch `country-perf-1`: the counts byte for byte)
 
 - **A1, the threads of the heavy tiles** (`country._threads`, `_heavy_weight`): a tile whose weight
@@ -1742,10 +1770,42 @@ workers, the exclusive lock:
 | All workers, private / working set: peak | 7.4 / 9.7 GiB | 9.4 / 11.2 GiB |
 
 On L alone the rowid order reaches the heaviest tile early (37th of 163), so the gain is 0.8 min.
-Replaying each claim order with the user's tile seconds (the threads not modelled; simulated, not
-measured): a first run of M + L at 12 workers 29.5 → 18.6 min, at 6 workers (2026-11-03's M + L
-run) 42.5 → 37.1; all four bands at 12 workers 92.7 → 65.1 min, at 8 workers 116.5 → 97.6. Open:
-one factor for every band over-predicts S (in a run of all bands four S tiles of the Tatras are
+On M + L, where the rowid order claims every M tile first, it is 2.7 min: 31.9 → 29.2 min, L's
+heaviest tile starting at once instead of at +10.9 min (the table in "Step by step").
+
+That is the relief's whole gain, and a replay had promised far more. Replaying each claim order with
+the user's tile seconds gave M + L at 12 workers 29.5 → 18.6 min and all four bands 92.7 → 65.1 min.
+A replay keeps each tile's seconds, and they are not fixed: L's heaviest tile took 1094 s in L's own
+run, 1259 s in the rowid M + L run, its last 9.7 min alone, and 1751 s with the relief, beside 10-11
+other tiles for its first 22 min. The tiles' CPU stays 8.7-8.9 h in any order, so a better order only
+fills the machine sooner (90 → 94 %, the median tile 8.9 → 10.3 s) and shortens the tail of one tile
+(9.7 → 7.4 min). A first run of all four bands was not measured; the replay is no estimate of it.
+
+45° or 30° (the user's request, 2026-11-05: on the done tiles, then by those M + L runs, with the
+constants fitted again for 30°: `RELIEF_LINES` 1.2e4, `RELIEF_EXPONENT` 1.85). **45° stays.** The two
+angles tie on the wall, and 30° is worse on everything else:
+
+| | km² of 45° slopes | km² of 30° slopes |
+| --- | ---: | ---: |
+| Wall of the tiles, M + L | 29.2 min | 29.2 min |
+| Spearman against the lines: S, M, L, M2 | 0.546, 0.749, 0.896, 0.741 | 0.503, 0.723, 0.869, 0.715 |
+| The 5 tiles of most lines among the first 5: S, M, L, M2 | 4, 4, 5, 4 | 2, 2, 1, 2 |
+| The 10 tiles of most lines among the first 10: S, M, L, M2 | 6, 8, 8, 7 | 3, 6, 6, 5 |
+| The 20 tiles of most lines among M + L's first 12 claims | 12 | 6 |
+| The exponent: pooled (M, L, M2 each) | 1.64 (1.47, 1.84, 1.78) | 1.83 (1.48, 2.58, 2.13) |
+| The factor: pooled (M, L, M2 each) | 6.8e6 (6.7e6, 7.6e6, 6.5e6) | 1.2e4 (1.9e4, 5.9e3, 1.5e4) |
+| The largest tile as predicted, M lines: L (402 counted), M (202) | 452, 298 | 34, 10 |
+| Heavy tiles of M + L | 8 | 60 |
+| Heavy tiles of all four bands in one run (9 by their own lines, all among them) | 16 | 86 |
+
+Slopes of 30° at 30 m lie over every mountain range, so most of the hills reach a fifth of the
+largest km², where the heavy line falls at exponent 1.85; the Tatras' walls stand out only at 45°.
+The tie is L's heaviest tile: it ends the run at both angles, and both claim it in the first second,
+30° as the 6th by chance, since the L tiles' four times the area put them first on M + L. In a run
+of all four bands the replay's order puts M2's two heaviest tiles 19th and 80th at 30°, 3rd and 6th
+at 45°.
+
+Open: one factor for every band over-predicts S (in a run of all bands four S tiles of the Tatras are
 heavy for their 25 s each: harmless); the fit is Slovakia's (the claims follow the km² anywhere, the
 heavy set depends on the exponent); `_heavy_weight` takes the largest weight of the run's bands over
 their done tiles too, so after a first run stopped midway a later run's line weights are compared
@@ -1819,7 +1879,9 @@ Which row a country is shows at the start of its first run: `manifest.sqlite` ho
 (Slovakia: 4 of M2's 575). A handful is the first row, none the second, more than the workers the
 third. The relief's constants are fitted on Slovakia: in another country the order of the claims
 holds (it follows the km² of steep slopes), while which tiles are heavy depends on `RELIEF_EXPONENT`.
-Later bands weigh by the lines counted, so a poor fit costs one band's order at most.
+A tile without slopes of 45° at 30 m weighs 0, so in a gentle country most tiles keep the rowid order
+among them. Later bands weigh by the lines counted, so a poor fit costs one band's order at most, and
+the order is worth little in any case: 4-8 % of the wall in Slovakia, measured.
 
 | A computer | What sets the workers | What to expect | What to do |
 | --- | --- | --- | --- |

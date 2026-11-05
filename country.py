@@ -106,7 +106,9 @@ LIGHT_THREADS = 3
 # of log lines on log km² over M's, L's and M2's tiles with lines (1.64), the factor the median at
 # that exponent over their tiles of at least a million lines (6.8e6). The exponent alone decides which
 # tiles are heavy (HEAVY_SHARE of the largest weight: a km² at least 0.16 of the largest), the km²
-# alone the order of the claims.
+# alone the order of the claims. Slopes of 30° instead, the constants fitted again (2026-11-05): the
+# same wall on a first run of M + L (29.2 min, 31.9 without weights), a worse ranking and 60 of its
+# tiles heavy instead of 8.
 RELIEF_DEGREES = 45
 RELIEF_LINES = 7e6
 RELIEF_EXPONENT = 1.65
