@@ -2322,3 +2322,202 @@ The result shows as soon or up to 0.26 s sooner. The main thread is blocked up t
 parsed the script on a background thread, while JSON.parse runs on the main thread (0.35 s for 115 MB). That time is
 a task of its own with "Reading the lines…" painted before it, and the longest task (the grouping) stayed as it was.
 The 3D view's stages took the same time as before (the server 0.7-2.0 s, the mesh up to 1.3 s).
+
+## The resampling of a neighbour's data (2026-11-05, branch `partner-resampling`)
+
+Step 0 of the cube v2 contract (docs/country-precompute/contract.md, section 6). At a border a grid
+holds the neighbour's data reprojected onto it (`sources.filling.fill_from_neighbours`), and a line
+across the border is tested on them. `sources.mosaic._place` reprojects by the **average** where the
+data are finer than 0.75 of the grid's resolution and **bilinearly** otherwise. The question: which
+method gives what the neighbour's own grid gives.
+
+### How it was measured
+
+`tools/border_study.py run <place> --primary <source> --resampling <method>` counts the layer's S band
+(1 m) and M band (2 m) over a box across a border on one source's grid, the other side's data from the
+neighbour fill reprojected by the method (`filling.NEIGHBOUR_RESAMPLING`, `mosaic.RESAMPLINGS`; "own"
+is the run without a method, the code of `main`). The reference of a run is the run on the other
+source's grid. The measure is the class **side**: the lines with both anchors on the neighbour's
+side, which the run finds on the reprojected data and the reference on the data themselves. A spot
+(a pair of 50 m anchor clusters) is found when the other run has one within 1 cluster at both ends
+after reprojection, both ends in the box less 100 m (`band_study.matched`); many spots may match
+one, so the number of spots is given beside the shares. The places: the Tatras (Poland and
+Slovakia, both 1 m, the grids turned by 4.4 degrees), the Wetterstein (Bavaria and Austria, both
+1 m, hardly turned, shifted) and the Elbe Sandstone (Saxony's 1 m data on Czechia's 2 m grid).
+
+What limits the reading:
+- **A part of the neighbour's side lies on the run's own data**, which reach beyond the border: 14.4 %
+  of the Polish side on Slovakia's grid, 3.9 % of the Slovak side on Poland's, 6.0 % of the Austrian
+  side on Bavaria's, 1.9 % of the Bavarian side on Austria's, 3.1 % of the Saxon side on Czechia's
+  (the tiles' `fill`). Those pixels are the same for every method and lie along the border, on a
+  ridge the richest strip: the methods' differences are understated there, never reversed, and where
+  the two sources differ the run may find more than the reference (Bavaria's data find 1.4 times the
+  lines of Austria's across the Wetterstein's border in the S band).
+- **The runs shared the PC** (the shared test lock: 8 threads, below the normal priority, other
+  sessions' tests beside them), so the seconds are not comparable between the columns: two runs of
+  about the same CPU seconds (6 766 and 6 311) took 1 096 s and 2 323 s. The CPU seconds measure the work (they too rise by some percent
+  when the cores are shared). The first run of a place holds its downloads (the Elbe's "own").
+- Memory as in "Round 4": "private" is what the process reserved (Windows' commit), "working set"
+  what it holds in RAM with the pages of the memory-mapped grids; the peak over a band's tiles,
+  counted one after another in one process.
+- The Elbe the other way gave nothing: Czechia's rough boxes (`CZ_OFFLINE`) end south of Hřensko, so
+  the neighbour fill never asked Czechia and the Saxon grid's Czech side is the 30 m fallback (93.7 %
+  of its pixels). Its "across" rows have no reference for the same reason.
+
+### Step by step: the same resolution (the S band, 1 m data on a 1 m grid)
+
+The mosaic's own choice is bilinear here.
+
+| Tatras, S band: Poland's 1 m data on Slovakia's 1 m grid | Reference (its own grid) | own (bilinear) | average | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 128 660 | 90 798 (70.6 %) | 93 702 (72.8 %) | 111 030 (86.3 %) | 138 922 (108.0 %) |
+| Their spots | 2 482 | 1 716 (69.1 %) | 1 775 (71.5 %) | 2 068 (83.3 %) | 2 690 (108.4 %) |
+| Reference's spots the run has |  | 92.5 % | 93.7 % | 96.1 % | 98.8 % |
+| Run's spots the reference has |  | 97.9 % | 98.0 % | 98.0 % | 97.3 % |
+| Lines across the border | 599 | 637 | 637 | 637 | 637 |
+| Their spots | 25 | 38 | 38 | 38 | 38 |
+| Across: reference's the run has / run's the reference has |  | 92.0 % / 76.3 % | 92.0 % / 76.3 % | 92.0 % / 76.3 % | 92.0 % / 76.3 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 242 / 128 | 147 / 66 | 124 / 57 | 309 / 131 | 127 / 58 |
+| CPU seconds / of them step 1 | 326 / 137 | 272 / 76 | 253 / 70 | 333 / 88 | 254 / 69 |
+| Peak private / working set, GiB | 1.81 / 1.67 | 1.78 / 1.62 | 1.77 / 1.62 | 1.77 / 1.62 | 1.78 / 1.62 |
+
+| Tatras, S band: Slovakia's 1 m data on Poland's 1 m grid | Reference (its own grid) | own (bilinear) | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 530 215 | 306 397 (57.8 %) | 393 951 (74.3 %) | 530 468 (100.0 %) |
+| Their spots | 8 759 | 4 966 (56.7 %) | 6 549 (74.8 %) | 9 803 (111.9 %) |
+| Reference's spots the run has |  | 88.8 % | 94.1 % | 98.3 % |
+| Run's spots the reference has |  | 99.6 % | 99.3 % | 97.9 % |
+| Lines across the border | 637 | 599 | 599 | 599 |
+| Their spots | 38 | 25 | 25 | 25 |
+| Across: reference's the run has / run's the reference has |  | 76.3 % / 92.0 % | 76.3 % / 92.0 % | 76.3 % / 92.0 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 147 / 66 | 242 / 128 | 155 / 91 | 144 / 85 |
+| CPU seconds / of them step 1 | 272 / 76 | 326 / 137 | 285 / 114 | 260 / 93 |
+| Peak private / working set, GiB | 1.78 / 1.62 | 1.81 / 1.67 | 1.82 / 1.67 | 1.84 / 1.68 |
+
+| Wetterstein, S band: Bavaria's 1 m data on Austria's 1 m grid | Reference (its own grid) | own (bilinear) | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 1 603 003 | 1 194 327 (74.5 %) | 1 399 201 (87.3 %) | 1 543 037 (96.3 %) |
+| Their spots | 12 962 | 8 700 (67.1 %) | 10 682 (82.4 %) | 12 772 (98.5 %) |
+| Reference's spots the run has |  | 96.1 % | 98.2 % | 99.4 % |
+| Run's spots the reference has |  | 100.0 % | 99.9 % | 99.8 % |
+| Lines across the border | 9 682 | 6 993 | 7 351 | 7 776 |
+| Their spots | 182 | 82 | 84 | 86 |
+| Across: reference's the run has / run's the reference has |  | 69.2 % / 100.0 % | 69.2 % / 100.0 % | 69.2 % / 100.0 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 118 / 55 | 217 / 122 | 100 / 45 | 111 / 52 |
+| CPU seconds / of them step 1 | 268 / 70 | 332 / 116 | 231 / 59 | 249 / 65 |
+| Peak private / working set, GiB | 1.83 / 1.68 | 1.87 / 1.69 | 1.60 / 1.42 | 1.60 / 1.42 |
+
+| Wetterstein, S band: Austria's 1 m data on Bavaria's 1 m grid | Reference (its own grid) | own (bilinear) | average | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 158 838 | 177 160 (111.5 %) | 177 184 (111.6 %) | 189 237 (119.1 %) | 195 468 (123.1 %) |
+| Their spots | 2 003 | 2 655 (132.6 %) | 2 656 (132.6 %) | 2 827 (141.1 %) | 3 016 (150.6 %) |
+| Reference's spots the run has |  | 97.2 % | 97.2 % | 98.9 % | 99.5 % |
+| Run's spots the reference has |  | 90.5 % | 90.5 % | 90.9 % | 90.6 % |
+| Lines across the border | 6 993 | 9 682 | 9 682 | 9 683 | 9 682 |
+| Their spots | 82 | 182 | 182 | 183 | 182 |
+| Across: reference's the run has / run's the reference has |  | 100.0 % / 69.2 % | 100.0 % / 69.2 % | 100.0 % / 69.4 % | 100.0 % / 69.2 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 217 / 122 | 118 / 55 | 312 / 108 | 138 / 59 | 133 / 59 |
+| CPU seconds / of them step 1 | 332 / 116 | 268 / 70 | 329 / 82 | 279 / 76 | 280 / 70 |
+| Peak private / working set, GiB | 1.87 / 1.69 | 1.83 / 1.68 | 1.83 / 1.68 | 1.83 / 1.68 | 1.83 / 1.68 |
+
+Where the run's own data do not hide it, bilinear loses 25-42 % of the neighbour's lines and 31-43 %
+of its spots, and 4-11 % of the reference's spots have no match; cubic recovers about half;
+**nearest finds 96-108 % of the lines and 98.3-99.5 % of the reference's spots**, with at most 1.7
+points fewer of its own spots present in the reference than bilinear's. It is the half-pixel pitfall of CLAUDE.md again: at the same resolution a bilinear
+reprojection is a smoothing of every cliff edge. The lines across the border are the same for every
+method, but for one line, in three of the four directions (the run's own data reach farther beyond the border than the
+band's longest line, 300 m); on Austria's grid, whose data stop sooner, they rise from 6 993 to
+7 776 with nearest, towards the 9 682 of Bavaria's grid.
+
+### Step by step: finer data (the M band, 1 m data on a 2 m grid)
+
+The mosaic's own choice is the average here.
+
+| Tatras, M band: Poland's 1 m data on Slovakia's 2 m grid | Reference (its own grid) | own (average) | bilinear | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 74 004 281 | 73 543 167 (99.4 %) | 74 185 082 (100.2 %) | 74 371 453 (100.5 %) | 71 023 975 (96.0 %) |
+| Their spots | 63 480 | 62 520 (98.5 %) | 60 509 (95.3 %) | 64 686 (101.9 %) | 70 097 (110.4 %) |
+| Reference's spots the run has |  | 99.7 % | 99.6 % | 99.8 % | 99.9 % |
+| Run's spots the reference has |  | 99.9 % | 99.9 % | 99.8 % | 99.5 % |
+| Lines across the border | 251 392 | 251 900 | 251 829 | 251 985 | 252 048 |
+| Their spots | 1 309 | 1 561 | 1 554 | 1 572 | 1 586 |
+| Across: reference's the run has / run's the reference has |  | 97.9 % / 89.3 % | 97.9 % / 89.4 % | 97.9 % / 89.2 % | 97.9 % / 88.9 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 1383 / 60 | 1096 / 25 | 2323 / 39 | 2178 / 40 | 1534 / 22 |
+| CPU seconds / of them step 1 | 6280 / 60 | 6766 / 34 | 6311 / 37 | 6527 / 38 | 6774 / 30 |
+| Peak private / working set, GiB | 1.46 / 1.21 | 1.62 / 1.40 | 1.61 / 1.39 | 1.62 / 1.40 | 1.58 / 1.36 |
+
+| Wetterstein, M band: Austria's 1 m data on Bavaria's 2 m grid | Reference (its own grid) | own (average) | bilinear | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 43 764 512 | 43 551 595 (99.5 %) | 44 074 390 (100.7 %) | 43 349 198 (99.1 %) | 42 401 207 (96.9 %) |
+| Their spots | 24 809 | 24 986 (100.7 %) | 24 089 (97.1 %) | 25 817 (104.1 %) | 27 221 (109.7 %) |
+| Reference's spots the run has |  | 99.6 % | 99.3 % | 99.7 % | 99.8 % |
+| Run's spots the reference has |  | 99.8 % | 99.9 % | 99.6 % | 99.0 % |
+| Lines across the border | 890 616 | 883 518 | 885 228 | 886 231 | 889 104 |
+| Their spots | 2 114 | 2 240 | 2 233 | 2 248 | 2 272 |
+| Across: reference's the run has / run's the reference has |  | 99.1 % / 97.0 % | 99.1 % / 97.0 % | 99.1 % / 97.0 % | 99.2 % / 97.1 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 945 / 48 | 871 / 29 | 1984 / 80 | 1836 / 57 | 1489 / 46 |
+| CPU seconds / of them step 1 | 5448 / 62 | 5188 / 50 | 4802 / 56 | 5038 / 60 | 5247 / 50 |
+| Peak private / working set, GiB | 1.73 / 1.48 | 1.62 / 1.41 | 1.61 / 1.39 | 1.63 / 1.40 | 1.64 / 1.41 |
+
+| Elbe, M band: Saxony's 1 m data on Czechia's 2 m grid | Reference (its own grid) | own (average) | bilinear | cubic | nearest |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 13 525 515 | 14 039 352 (103.8 %) | 14 537 229 (107.5 %) | 14 102 367 (104.3 %) | 12 608 663 (93.2 %) |
+| Their spots | 29 315 | 27 495 (93.8 %) | 26 499 (90.4 %) | 28 716 (98.0 %) | 32 155 (109.7 %) |
+| Reference's spots the run has |  | 99.2 % | 98.6 % | 99.3 % | 99.7 % |
+| Run's spots the reference has |  | 99.7 % | 99.8 % | 99.5 % | 98.4 % |
+| Lines across the border | 1 817 323 | 2 520 291 | 2 554 296 | 2 518 302 | 2 330 837 |
+| Their spots | 5 293 | 5 567 | 5 481 | 5 653 | 5 842 |
+| Across: reference's the run has / run's the reference has |  | 97.7 % / 87.0 % | 97.7 % / 86.8 % | 97.8 % / 86.8 % | 98.0 % / 86.6 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 81 / 17 | 290 / 133 | 196 / 57 | 191 / 46 | 145 / 46 |
+| CPU seconds / of them step 1 | 321 / 19 | 616 / 95 | 588 / 55 | 583 / 55 | 556 / 49 |
+| Peak private / working set, GiB | 1.02 / 0.75 | 1.33 / 1.15 | 1.33 / 1.13 | 1.16 / 0.96 | 1.15 / 0.94 |
+
+Every method keeps 98.6-99.9 % of the reference's spots and 98.4-99.9 % the other way; the own
+choice (the average) is within 0.5 points of the best in both columns at the three places. Nearest
+gives 10 % more spots than the reference with the lowest share present in it (a point sample of
+finer data aliases), bilinear the fewest spots. The lines across the border differ by under 1 %
+between the methods in the Tatras and the Wetterstein (9 % on the Elbe, where they have no
+reference), and their spots' shares by at most 0.5 points: the difference between the two grids
+measured before (2-11 % of the spots across) does not come from the method. No method costs more:
+the CPU seconds stay within about 10 % (they follow the number of lines), step 1 within the noise of the
+shared PC, the memory within 0.2 GiB.
+
+### Slovakia's averaged tiles on a grid of another CRS
+
+Slovakia's side on Poland's 2 m grid lost more than any other M case (87.7 % of the spots). The
+reason is not the method: `GridResolutions.resolution` gives a grid of exactly 2 m (or 5 m) the tiles
+averaged to that resolution whatever the grid's CRS, so Poland's grid got the 2 m tiles reprojected
+bilinearly (the same resolution): averaged, then smoothed. With the 1 m tiles forced (a run of
+`local/partner-resampling-2026-11-05/scripts/run_native_neighbour.py`, which patches that method)
+the mosaic averages them onto the grid as it does every other 1 m source:
+
+| Tatras, M band: Slovakia's data on Poland's 2 m grid | Reference (its own grid) | own (bilinear of the 2 m tiles) | average of the 1 m tiles |
+| --- | ---: | ---: | ---: |
+| Lines, both anchors on the neighbour's side | 343 179 313 | 308 265 987 (89.8 %) | 302 836 611 (88.2 %) |
+| Their spots | 206 074 | 180 663 (87.7 %) | 197 183 (95.7 %) |
+| Reference's spots the run has |  | 99.3 % | 99.7 % |
+| Run's spots the reference has |  | 100.0 % | 99.9 % |
+| Lines across the border | 251 900 | 251 392 | 250 946 |
+| Their spots | 1 561 | 1 310 | 1 318 |
+| Across: reference's the run has / run's the reference has |  | 89.2 % / 97.9 % | 89.2 % / 98.0 % |
+| Seconds of the tiles (shared lock) / of them step 1 | 1096 / 25 | 1383 / 60 | 1559 / 49 |
+| CPU seconds / of them step 1 | 6766 / 34 | 6280 / 60 | 5876 / 56 |
+| Peak private / working set, GiB | 1.62 / 1.40 | 1.46 / 1.21 | 1.44 / 1.19 |
+
+The spots return to 95.7 % of the reference's and the found share to 99.7 %; the lines stay at 88-90 %
+(probably the two grids' pixels: the reference's 2 m pixels are the aligned block means, the run's the
+average over a turned pixel; the number of lines of a band with 300 M of them over 200 k spots
+follows the anchors per wall, not the spots). Open: `GridResolutions.resolution` should give the
+averaged tiles only to a grid in the tiles' CRS (the country layer's own bands); the user decides
+with the method.
+
+### What it means for cube v2 (the user decides: contract, section 6, step 0)
+
+- Finer data (the M and L bands against 1 m sources): the average stays.
+- The same resolution (the S band against a 1 m neighbour): nearest instead of bilinear is the
+  recommendation; it changes every search at such a border (the regression tests with a neighbour at
+  the grid's resolution get new numbers), so it is not coded yet.
+- A neighbour coarser than the grid (Czechia's or South Tyrol's 2 to 2.5 m on a 1 m grid) was not
+  measured: bilinear stays until it is (the Zillertal ridge of the roadmap's list).
+- Native anchors for the partner's side (the contract's next step) are not needed: with nearest at
+  the same resolution and the average for finer data the reference's spots are found to 98.3-99.7 %.

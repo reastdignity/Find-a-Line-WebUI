@@ -705,23 +705,70 @@ recount**, after the band study has landed in `main` (its bands become the profi
 the contract of that work; nothing of it is coded yet. The waves start from the `main` that holds the
 band study, in their own worktrees, as section "Ownership" says.
 
-### Step 0, before the code of R3: the resampling of the partner's data, measured
+### Step 0, before the code of R3: the resampling of the partner's data, measured (2026-11-05)
 
-A line across a border is tested on the owner's grid with the neighbour's pixels resampled onto it
-(`sources.mosaic`: bilinear at the same resolution). The two grids disagree: in the Tatras the SK
-grid found 1 561 cross-border spots of the M band, the PL grid 1 310; 97.9 % of the PL grid's have
-a match on the SK grid, 89.2 % the other way. That is a difference, not a loss, and it touches the
-partner anchor of 2-11 % of about 3 % of a country's lines (0.1-0.3 % of all). Before R3 is coded:
-- an option of the resampling method (bilinear, nearest, cubic) in `sources.mosaic.build_mosaic`
-  (never changing the default) and in `tools/border_study.py run`;
-- each method run with the primary on one side against the run with the primary on the other side
-  as the reference (the tool's `matched`), per band, at the places the user picks from the list in
-  docs/roadmap.md "Lines across a border" (only pairs declared in `Source.neighbours`; about
-  10 min of the PC per method and band for a box like the Tatras', exclusive);
-- the method with the most matched spots becomes the one `fill_from_neighbours` uses for the
-  partner strip, recorded here with the numbers. Native anchors for the partner side (step 2 on a
-  small grid of the strip in the partner's CRS, the anchors carried onto our pixels) is the next
-  step only if the best method leaves a difference clearly above the one between the runs.
+A line across a border is tested on the owner's grid with the neighbour's pixels reprojected onto it
+(`sources.mosaic._place`: the average where the data are finer than 0.75 of the grid's resolution,
+bilinear otherwise; a correction of this section's first version, which named bilinear alone). The
+two grids disagree: in the Tatras the SK grid found 1 561 cross-border spots of the M band, the PL
+grid 1 310; 97.9 % of the PL grid's have a match on the SK grid, 89.2 % the other way.
+
+**Built** (branch `partner-resampling`): `sources.mosaic.build_mosaic(resampling=)` and
+`prepare_layer(resampling=)` with `RESAMPLINGS` (nearest, bilinear, cubic, average; None is the own
+choice, the default, unchanged), `sources.filling.NEIGHBOUR_RESAMPLING` for the neighbours' rasters
+only, `tools/border_study.py run --resampling` and its report's comparison (`resampling_rows`: each
+run against the run on the other source's grid, the lines and spots with both anchors on that
+reference's side). **Measured** at the Tatras (PL-SK), the Wetterstein (DE-AT) and the Elbe
+Sandstone (DE-CZ), the S and M bands; every table, the conditions and the costs are in
+docs/performance.md, "The resampling of a neighbour's data". In short, for the neighbour's side
+against its own grid:
+
+| Case | bilinear | cubic | nearest | average |
+| --- | ---: | ---: | ---: | ---: |
+| S band (1 m on 1 m; own choice bilinear), four directions: lines | 58-112 % | 74-119 % | 96-123 % | 73-112 % (two) |
+| ... the reference's spots the run has | 88.8-97.2 % | 94.1-98.9 % | 98.3-99.5 % | 93.7-97.2 % (two) |
+| ... the run's spots the reference has | 90.5-100.0 % | 90.9-99.9 % | 90.6-99.8 % | 90.5-98.0 % (two) |
+| M band (1 m on 2 m; own choice the average), three places: spots | 90-97 % | 98-104 % | 110 % | 94-101 % |
+| ... the reference's spots the run has | 98.6-99.6 % | 99.3-99.8 % | 99.7-99.9 % | 99.2-99.7 % |
+| ... the run's spots the reference has | 99.8-99.9 % | 99.5-99.8 % | 98.4-99.5 % | 99.7-99.9 % |
+
+(The values above 100 % and the 90.5 % are the Wetterstein on Bavaria's grid, where 6 % of the
+Austrian side lies on Bavaria's own data, which find more than Austria's.) The lines across the
+border hardly depend on the method (M: under 1 % of the lines, 0.5 points of the spots' shares;
+S: the same but for one line in three of four directions, since the owner's data reach beyond the
+border farther than the band's longest line): the 2-11 % between the two grids is their data and the side an
+anchor on the ridge falls to, not the reprojection. No method costs CPU or memory beyond the noise.
+
+**Recommended, the user decides** (nothing of it is coded: the default changes the searches at a
+border too, so the regression tests with a neighbour at the grid's resolution get new numbers):
+- finer data (M, L against a 1 m neighbour): the average stays;
+- the same resolution (S against a 1 m neighbour): nearest instead of bilinear;
+- a neighbour coarser than the grid (2 to 2.5 m data on a 1 m grid): not measured, bilinear stays
+  until the Zillertal ridge (AT-IT) is run;
+- native anchors for the partner's side: not needed (98.3-99.7 % of the reference's spots found).
+
+**Found on the way, each a condition of wave B:**
+- *The owner's pixels beyond the outline are partners too.* "The borders" below let a partner
+  anchor stand only on pixels the neighbour's source filled. The S lines across the border in the
+  Tatras (637) and on Bavaria's grid in the Wetterstein (9 682) are the same under every method, so
+  no reprojected pixel decides them: their far anchors stand on the owner's own data, which reach
+  beyond the border (14.4 % of the Polish side of the Tatras box is Slovak data), and that rule
+  would drop them all. Proposed: a partner anchor stands on a pixel of the
+  neighbour's source **or of the owner's source** beyond the outline (never on the fallback's); the
+  partner index of an owner's pixel is the first neighbour of `Source.neighbours` whose rough boxes
+  hold it, else "unknown" (a border with a country without a source, where such lines are then
+  counted and always shown).
+- *A neighbour's rough boxes must reach the border.* `neighbour_window` asks a neighbour only inside
+  its `offline`/`bbox` boxes; Czechia's (`CZ_OFFLINE`) are kept inside the country and end south of
+  Hřensko, so Saxony's grid got the 30 m fallback there (93.7 % of the Czech side), and they leave
+  most of the other border strips out as well. Before wave B: a check of every declared pair along
+  its border (the share of the border within reach of the neighbour's boxes), and for a neighbour
+  whose boxes cannot be widened (they decide `--source auto` offline) a second set of boxes used by
+  `neighbour_window` only.
+- *Slovakia's averaged tiles on a grid of another CRS.* `GridResolutions.resolution` gives a grid
+  of exactly 2 m or 5 m the averaged tiles whatever its CRS; Poland's 2 m grid then reprojects them
+  bilinearly (averaged, then smoothed): 87.7 % of the Slovak side's spots against 95.7 % with the
+  1 m tiles averaged by the mosaic. Proposed: the averaged tiles only for a grid in the tiles' CRS.
 
 ### The key v2: two int64 a row
 
@@ -836,7 +883,8 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   `own`: interior + owned). The page asks `all` and says under the notes which neighbours are
   counted from this country's data ("Lines across the border with Poland: from Slovakia's data until
   Poland has a layer"). When the partner's cube exists, the partner's own set replaces it (the two
-  differ by the measured 2-11 % of the spots: step 0 decides the method).
+  differ by the measured 2-11 % of the spots, which step 0 showed to be the two grids' data, not
+  the reprojection).
 - **"Search here."** `cell_request` buffers the cell by `max_length` and no longer intersects the
   outline, so the app's search (which fills the neighbour's data at the border already) finds the
   same lines the layer counted.
@@ -882,7 +930,7 @@ classes AA/BB/AB on the same code (its sink keeps its own `TileCounter`s).
 
 | Wave | Agent | Files |
 | --- | --- | --- |
-| 0 | one agent, before the others | `sources/mosaic.py` (the resampling option), `tools/border_study.py` (`--resampling`), the runs at the chosen places, the numbers into this section |
+| 0 | done 2026-11-05 but for the user's decision (branch `partner-resampling`) | `sources/mosaic.py` and `sources/filling.py` (the resampling option), `tools/border_study.py` (`--resampling`), the runs at three places, the numbers in step 0 above and docs/performance.md |
 | A | key, lattice, spots | `countcube.py`, `tests/test_countcube.py` |
 | B | anchors, kernel, counter, driver | `linesearch.py` (`partner`), `search.py` (`_anchors`, `Data.partner`, `count_tile`), `sources/filling.py` (the source mask), `country.py` (`PROFILE`, `NEIGHBOUR_CUBES`, the origin, cube.json's fields), `tests/test_count_mode.py`, `tests/test_country.py`, `tests/test_border_study.py` |
 | C | web and page | `web.py`, `viewer/src/app/api.ts`, `viewer/src/app/c/*`, `viewer/src/ui/Gallery.tsx`, `locales/en.json`, `tests/test_country_web.py`, `tools/ui_shots.py` |
