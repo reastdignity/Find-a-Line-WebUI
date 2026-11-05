@@ -1,0 +1,16 @@
+/* The 3D view's profile card (profilecard.tsx) and the save and copy controls (save.ts, main.ts), under the page's
+   root #view3d.ui: the chart's own rules are ../profile.css, shared with the result view. The card lies over the
+   canvas in the slot .v3-card (view3d.css): the canvas keeps its size whether it is open or folded. */
+#view3d .v3-pcard { display: flex; flex-direction: column; gap: 2px; box-sizing: border-box; padding: 6px 12px 8px;
+  max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow); }
+#view3d .v3-pcard-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+#view3d .v3-pcard-head > b { flex: none; }
+#view3d .v3-pcard-facts { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#view3d .v3-pcard-head .u-chip, #view3d .v3-pcard-head .u-btn { flex: none; white-space: nowrap; }
+#view3d .v3-pcard-wait { margin: 6px 0 4px; color: var(--ink-2); font-size: 13px; }
+/* The chart fills the profile's box (Profile.tsx fill: at least 120 px); with the controls open the box grows */
+#view3d .v3-pcard .r-profile { display: flex; flex-direction: column; min-height: 0; height: clamp(150px, 26vh, 210px); }
+#view3d .v3-pcard.r-rigging .r-profile { height: auto; }
+/* Copy link in the top bar, after the title */
+#view3d .v3-copy { flex: none; margin-left: auto; white-space: nowrap; }

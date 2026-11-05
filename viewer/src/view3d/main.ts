@@ -23,8 +23,10 @@ import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
 import { createPin } from "./pin";
-import { backUrl, currentPage, patchUrl, type PageRequest } from "./page";
+import { backUrl, currentPage, patchUrl, viewUrl, type PageRequest } from "./page";
+import { createProfileCard } from "./profilecard";
 import { createRing, ringUrl, type Ring } from "./ring";
+import { createSave, currentOf } from "./save";
 import { createScene, type SceneCore } from "./scene";
 import { createViews } from "./views";
 import { createWalk } from "./walk";
@@ -43,7 +45,9 @@ function frame(root: HTMLElement, page: PageRequest) {
   const top = el("header", "v3-top");
   const back = el("a", "u-btn v3-back", t("ui.view3d.back"));
   back.href = backUrl(page);
-  top.append(back, el("h1", "v3-title", t("ui.view3d.title")));
+  const copy = el("button", "u-btn v3-copy", t("ui.view3d.copy_link"));
+  copy.type = "button";
+  top.append(back, el("h1", "v3-title", t("ui.view3d.title")), copy);
   const stage = el("div", "v3-stage"), status = el("div", "v3-status");
   status.setAttribute("role", "status");
   const credits = el("div", "v3-credits v3-hidden");
@@ -67,7 +71,7 @@ function frame(root: HTMLElement, page: PageRequest) {
   // The loading's message and bar while the status shows a stage (progress), made once and changed in place
   let staged: {message: HTMLElement; meter: HTMLElement; fill: HTMLElement} | null = null;
   return {
-    stage, toolbar, credits, readout, bar, note, activity, tools, card, top,
+    stage, toolbar, credits, readout, bar, note, activity, tools, card, top, back, copy,
     /** A stage of the loading over the stage: its message and a bar of `fraction` (null: moving, the amount
      *  unknown; its width set through the CSSOM, which the CSP allows). The root's data-stage names it (tests). */
     progress(name: Stage, text: string, fraction: number | null) {
@@ -113,6 +117,16 @@ function frame(root: HTMLElement, page: PageRequest) {
 }
 
 class PageError extends Error {}
+
+/** The link on the clipboard (inside the click: the browser asks for a gesture), the button saying so for a moment;
+ *  a refusal (no permission, an insecure page) leaves it as it was. */
+function copyLink(button: HTMLButtonElement, url: string) {
+  navigator.clipboard?.writeText(url).then(() => {
+    button.textContent = t("ui.view3d.link_copied");
+    button.dataset.copied = "1";
+    setTimeout(() => { button.textContent = t("ui.view3d.copy_link"); button.dataset.copied = ""; }, 2000);
+  }, () => { /* refused */ });
+}
 
 async function sha256Hex(body: Uint8Array): Promise<string | null> {
   if (!globalThis.crypto?.subtle) return null;  // not a secure context: left unchecked
@@ -231,7 +245,17 @@ async function start() {
     edit = createEdit(scene, line, root, (l) => fetchProfile(page.run, l), () => walk.stop(),
                       {parent: ui.bar, before: ui.note.nextElementSibling});
     createViews(scene, line, root, {parent: ui.bar, before: ui.note.nextElementSibling});
-  }
+    // Round 2: the profile card and saving the line shown (the found line's key is the address's; a moved line's
+    // the anchors'), and the links back to the map and to this view follow it
+    const current = currentOf(scene.lonLat, line, page.line);
+    if (typeof patch.meta.slope === "number" && typeof patch.meta.leash_fall === "number") {
+      createProfileCard(scene, line, current, patch.meta);
+    }
+    createSave(scene, line, page.run, current, ui.readout);
+    line.onAnchors(() => { ui.back.href = backUrl(page, current.key()); });
+    ui.copy.addEventListener("click", () => copyLink(ui.copy, new URL(viewUrl(page, current.key(), location.search),
+                                                                        location.origin).href));
+  } else ui.copy.classList.add("v3-hidden");
   root.dataset.vertices = String(scene.terrain.vertices);
   root.dataset.maxError = String(scene.terrain.maxError);
   let terrainDrawn = false, profileIn = false, frames = 0;

@@ -476,6 +476,7 @@
   "ui.view3d.activity_profile": "Checking the clearance…",
   "ui.view3d.profile": "Profile",
   "ui.view3d.profile_hide": "Hide",
+  "ui.view3d.profile_rigging": "Rigging and layers",
   "ui.view3d.profile_waiting": "The profile shows once the clearance is checked.",
   "ui.view3d.save": "Save line",
   "ui.view3d.save_moved": "Save moved line",

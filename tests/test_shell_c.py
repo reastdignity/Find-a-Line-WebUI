@@ -494,6 +494,56 @@ run({
 """
 
 
+# The 3D view's moved anchors (or a favourite saved there) as a link into the run: a line outside its lines is
+# measured by the server (stubbed here: a profile of 80 m) and shown as a measured profile, the link kept in the hash
+OUTSIDE = "49.5,19.1,49.5004,19.1005"
+OUTSIDE_STUBS = C_STUBS + """
+window.PROFILE_ASKS = [];
+const beforeProfile = window.fetch;
+window.fetch = (url, init) => {
+  if (!String(url).startsWith("/api/profile")) return beforeProfile(url, init);
+  PROFILE_ASKS.push(decodeURIComponent(String(url).split("line=")[1]));
+  return Promise.resolve(new Response(JSON.stringify({d: [0, 20, 40, 60, 80], z: [300, 296, 292, 296, 301], min: [40, 7.5],
+    water_m: 0, filled_m: 0}), {headers: {"content-type": "application/json"}}));
+};
+"""
+OUTSIDE_SCRIPT = """
+run({
+  measured(next) {
+    wait(() => $(".r-dock .fal-profile-chart svg"), () => {
+      const model = window.FINDALINE_RESULT.model;
+      result.bar = text(".r-dock-bar > b");
+      result.title = text(".fal-profile-title");
+      result.asked = PROFILE_ASKS;
+      result.link = model.measuredLink;
+      result.note = model.note;
+      result.selected = !!model.selected;
+      result.hash = decodeURIComponent(location.hash);
+      next();
+    });
+  },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shell_c_link_outside_the_run(data, tmp_path):
+    """A link to a line that is not among the run's (#run=…&line=…, as the 3D view's moved anchors give it) is
+    measured as two clicked points are: the profile asked for, the dock showing it as measured, no note, and the
+    link kept in the address."""
+    import urllib.parse
+    page = stub_page(data, "coutside", OUTSIDE_SCRIPT, OUTSIDE_STUBS)
+    link = f"#run={urllib.parse.quote(SMALL, safe='')}&line={urllib.parse.quote(OUTSIDE, safe='')}"
+    with _server(data) as port:
+        r = _edge(port, page + "?ui=c" + link, tmp_path / "edge-outside")
+    assert "timeout" not in r and "error" not in r, json.dumps(r)
+    assert r["bar"] == "Measured profile" and r["title"].startswith("Measured: 80 m, A1 300.0 m → A2 301.0 m"), r
+    assert r["asked"] == ["49.5000000,19.1000000,49.5004000,19.1005000"], r
+    assert r["link"] == OUTSIDE and r["note"] is None and r["selected"] is False, r
+    assert r["hash"] == f"#run={SMALL}&line={OUTSIDE}", r
+    assert r["csp"] == []
+
+
 def add_credits(data_dir, run_id: str):
     """The run's data.js with the credits of a source (a run of an elevation file has none)."""
     path = os.path.join(str(data_dir), "runs", run_id, "data.js")
