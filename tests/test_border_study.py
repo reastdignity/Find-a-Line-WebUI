@@ -266,3 +266,35 @@ def test_resampling_runs_and_report(study, tmp_path, monkeypatch):
     assert "## The resampling of the neighbour's data" in text
     assert "| clip | M | clip-files-nearest | nearest | side |" in text and "| clip | S | clip-east | own | across |" in text
     assert "the neighbour's data resampled nearest" in text
+
+
+def test_neighbour_boxes_along_the_borders():
+    """strip_share: of the neighbour's land within reach of the source's, the share inside its rough
+    boxes; box_reach: every declared pair of the catalogue with an outline, from the coverage map's
+    shapes (offline)."""
+    from shapely.geometry import box
+    a, b = box(10.0, 50.0, 11.0, 51.0), box(11.0, 50.0, 12.0, 51.0)  # b east of a
+    whole = bs.strip_share(a, b, [(49.0, 52.0, 9.0, 13.0)])
+    assert whole["share"] == pytest.approx(1.0) and whole["km2"] == pytest.approx(5.0 * 111.2, rel=0.03)
+    half = bs.strip_share(a, b, [(49.0, 50.5, 9.0, 13.0)])  # (south, north, west, east): the southern half
+    assert half["share"] == pytest.approx(0.5, abs=0.01) and half["km2"] == whole["km2"]
+    assert bs.strip_share(a, b, [(49.0, 52.0, 11.5, 13.0)])["share"] == 0.0  # the box starts 35 km east of the border
+    assert bs.strip_share(a, b, [])["share"] == 0.0
+    assert bs.strip_share(a, box(11.2, 50.0, 12.0, 51.0), [(49.0, 52.0, 9.0, 13.0)]) is None  # 14 km apart
+    # a region inside the other shape (a country holding it) is taken out of it first
+    inside = bs.strip_share(box(10.0, 50.0, 12.0, 51.0), b, [(49.0, 52.0, 9.0, 13.0)])
+    assert inside["km2"] == pytest.approx(whole["km2"], rel=0.02) and inside["share"] == pytest.approx(1.0)
+
+    rows = bs.box_reach()
+    import sources as src
+    by_id = {s.id: s for s in (src.SOURCES.values() if isinstance(src.SOURCES, dict) else src.SOURCES)}
+    declared = {(s.id, n) for s in by_id.values() for n in s.neighbours or () if s.coverage and by_id[n].coverage}
+    assert {(r["source"], r["neighbour"]) for r in rows} == declared
+    assert all(r["km2"] > 1 and (r["share"] is None or 0.0 <= r["share"] <= 1.0) for r in rows)
+    share = {(r["source"], r["neighbour"]): r["share"] for r in rows}
+    # measured on 2026-11-05: Czechia's boxes keep inside the country (the Saxon grid got 30 m data at Hrensko),
+    # South Tyrol's hold its whole border with Austria
+    assert share[("saxony", "czechia")] < 0.5 and share[("austria", "south_tyrol")] > 0.95
+    report = bs.box_reach_report(rows)
+    assert any(line.startswith("| saxony | czechia |") for line in report)
+    assert sum(line.startswith("| ") for line in report) == len(rows) + 2  # the head and its rule

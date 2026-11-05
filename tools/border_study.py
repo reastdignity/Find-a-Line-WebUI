@@ -18,6 +18,7 @@ both lose today), any other (an anchor in neither outline or in both).
                                                   --out <folder> [--data-dir D]
     uv run python tools/border_study.py exposure slovakia --neighbours Polska=osm:Polska,... --out <folder> [--data-dir D]
     uv run python tools/border_study.py report --out <folder>
+    uv run python tools/border_study.py boxes [--reach 5000] [--write <file.md>]
 
 run counts a place into <out>/<place>-<primary>/, tile by tile (a tile whose meta exists is done, so a
 run resumes; a changed definition is refused unless --reset). --resampling: the neighbour's data
@@ -35,6 +36,9 @@ reprojection), the resampling methods of a place (the spots of the resampled sid
 the border against the other primary's, with each run's seconds, CPU seconds and memory), and with
 exposure.json the estimate for its cube (the place's lines across the
 border per line of A within reach of the border, times the cube's lines within reach of B's border).
+boxes lists every declared pair of the catalogue (Source.neighbours) with the share of the neighbour's
+land along the border that lies inside the neighbour's rough boxes: outside them a border gap never
+asks the neighbour and gets the fallback's data (offline: the coverage map's outlines).
 """
 import argparse
 import dataclasses
@@ -1034,6 +1038,88 @@ def run_total(run: Dict, names: Sequence[str]) -> int:
     return sum(e["classes"][name]["lines"] for e in run["bands"].values() for name in names)
 
 
+# --- The neighbours' rough boxes along the borders (docs/country-precompute/contract.md, section 6) ---------
+SHAPES = os.path.join(REPO, "viewer", "src", "coverage", "shapes.json")
+BOX_REACH = 5000.0  # metres beyond a border: the layer's longest line
+
+
+def strip_share(a, b, boxes: Sequence[Tuple[float, float, float, float]], reach: float = BOX_REACH) -> Optional[Dict]:
+    """Of b's land within reach of a (two WGS84 shapes), the km² and the share inside boxes
+    ((south, north, west, east) each, as Source.offline's and bbox): where a grid of a's source
+    with a border gap asks b's source (sources.filling.neighbour_window). None when b has no land
+    within reach of a. A shape lying inside the other (a region of a country) is taken out of it
+    first."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    common = a.intersection(b).area
+    if common > 0.5 * b.area:
+        a = a.difference(b)
+    elif common > 0.5 * a.area:
+        b = b.difference(a)
+    west, south, east, north = b.bounds
+    near = box(west - 1, south - 1, east + 1, north + 1)
+    a = a.intersection(near)
+    if a.is_empty or b.is_empty:
+        return None
+    west, south, east, north = a.bounds
+    b = b.intersection(box(west - 1, south - 1, east + 1, north + 1))
+    if b.is_empty:
+        return None
+    centre = a.union(b).centroid
+    local = f"+proj=laea +lat_0={centre.y} +lon_0={centre.x} +datum=WGS84 +units=m"
+    strip = _project(b, "EPSG:4326", local).buffer(0).intersection(_project(a, "EPSG:4326", local).buffer(0).buffer(reach))
+    if strip.area < 1e6:
+        return None
+    covered = unary_union([_project(box(w, s, e, n).segmentize(0.05), "EPSG:4326", local) for s, n, w, e in boxes])
+    return {"km2": round(strip.area / 1e6, 1), "share": min(1.0, strip.intersection(covered).area / strip.area)}
+
+
+def box_reach(reach: float = BOX_REACH, shapes_path: str = SHAPES) -> List[Dict]:
+    """Every declared pair of the catalogue (Source.neighbours, each direction): of the
+    neighbour's land within reach of the source's, the share inside the neighbour's rough boxes
+    (strip_share; the outlines of the coverage map, Natural Earth). share None: a neighbour without
+    boxes, which may fill any border gap; a direction without an outline or without land within
+    reach is left out."""
+    import sources as src
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+    with open(shapes_path, encoding="utf-8") as f:
+        # A country split at its source's box keeps its id twice: the covered part, and the `rest`
+        features = {x["properties"]["id"]: x for x in json.load(f)["features"] if not x["properties"].get("rest")}
+    by_id = {s.id: s for s in (src.SOURCES.values() if isinstance(src.SOURCES, dict) else src.SOURCES)}
+
+    def outline(source):
+        ids = list((source.coverage.areas if source.coverage else ()) or source.regions or source.countries or ())
+        parts = [shape(features[i]["geometry"]).buffer(0) for i in ids if i in features]
+        return unary_union(parts) if source.coverage and parts else None
+
+    rows = []
+    for source in by_id.values():
+        for name in source.neighbours or ():
+            neighbour = by_id[name]
+            a, b = outline(source), outline(neighbour)
+            if a is None or b is None:
+                continue
+            boxes = [b_ for _, b_ in neighbour.offline or ()] + ([neighbour.bbox] if neighbour.bbox else [])
+            found = strip_share(a, b, boxes, reach)
+            if found is not None:
+                rows.append({"source": source.id, "neighbour": name, "km2": found["km2"], "boxes": len(boxes),
+                             "share": found["share"] if boxes else None})
+    return sorted(rows, key=lambda r: (1.0 if r["share"] is None else r["share"], r["source"], r["neighbour"]))
+
+
+def box_reach_report(rows: List[Dict], reach: float = BOX_REACH) -> List[str]:
+    lines = [f"Of the neighbour's land within {reach / 1000:g} km of the source's, the share inside the neighbour's "
+             "rough boxes (`Source.offline`, `bbox`): only there a border gap of the source's grid asks the neighbour "
+             "(`sources.filling.neighbour_window`; a window spans the gaps it reaches, so the real share is a little "
+             "higher).", "",
+             "| Grid of | Neighbour | Its land within reach, km² | In its boxes |", "| --- | --- | ---: | ---: |"]
+    for r in rows:
+        share = "any gap (no boxes)" if r["share"] is None else f"{100 * r['share']:.0f} %"
+        lines.append(f"| {r['source']} | {r['neighbour']} | {r['km2']:,.0f} | {share} |")
+    return lines
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Lines of the country layer across a border (docs/roadmap.md)")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1053,7 +1139,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     for sub in (r, e, a):
         sub.add_argument("--out", required=True, help="the folder of the runs and the report")
         sub.add_argument("--data-dir", help="data folder (default: FINDALINE_DATA or the folder of the scripts)")
+    b = commands.add_parser("boxes", help="how far each declared neighbour's rough boxes reach along the borders")
+    b.add_argument("--reach", type=float, default=BOX_REACH, help="metres beyond the border (default: 5000)")
+    b.add_argument("--write", help="write the table to this Markdown file as well")
     args = parser.parse_args(argv)
+    if args.command == "boxes":
+        text = box_reach_report(box_reach(args.reach), args.reach)
+        print("\n".join(text))
+        if args.write:
+            with open(args.write, "w", encoding="utf-8") as f:
+                f.write("\n".join(text) + "\n")
+        return 0
     data_dir = cache.data_dir(args.data_dir)
     if args.command == "run":
         place = PLACES[args.place]

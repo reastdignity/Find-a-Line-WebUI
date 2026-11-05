@@ -739,36 +739,45 @@ S: the same but for one line in three of four directions, since the owner's data
 border farther than the band's longest line): the 2-11 % between the two grids is their data and the side an
 anchor on the ridge falls to, not the reprojection. No method costs CPU or memory beyond the noise.
 
-**Recommended, the user decides** (nothing of it is coded: the default changes the searches at a
-border too, so the regression tests with a neighbour at the grid's resolution get new numbers):
+**Decided by the user (2026-11-05) and built** (branch `partner-resampling`):
 - finer data (M, L against a 1 m neighbour): the average stays;
-- the same resolution (S against a 1 m neighbour): nearest instead of bilinear;
-- a neighbour coarser than the grid (2 to 2.5 m data on a 1 m grid): not measured, bilinear stays
-  until the Zillertal ridge (AT-IT) is run;
+- about the grid's resolution (`mosaic.FINER` 0.75 to `mosaic.SAME` 1.5 of it; S against a 1 m
+  neighbour): **nearest** instead of bilinear, `filling.NEIGHBOUR_SAME_RESOLUTION`, for a
+  neighbour's rasters only (`build_mosaic(same_resolution=)`). It holds for every search at a
+  border, not for the layer alone: the regression tests whose neighbour lies at the grid's
+  resolution were re-baselined with it (docs/regression-tests.md). A run saved before keeps its
+  lines; a profile computed again for one of its lines over the neighbour's pixels
+  (`search.profile_of_line`) reads the new reprojection (no migration: the difference is that of
+  the two methods at a cliff's edge);
 - native anchors for the partner's side: not needed (98.3-99.7 % of the reference's spots found).
 
-**Found on the way, each a condition of wave B:**
-- *The owner's pixels beyond the outline are partners too.* "The borders" below let a partner
-  anchor stand only on pixels the neighbour's source filled. The S lines across the border in the
-  Tatras (637) and on Bavaria's grid in the Wetterstein (9 682) are the same under every method, so
-  no reprojected pixel decides them: their far anchors stand on the owner's own data, which reach
-  beyond the border (14.4 % of the Polish side of the Tatras box is Slovak data), and that rule
-  would drop them all. Proposed: a partner anchor stands on a pixel of the
-  neighbour's source **or of the owner's source** beyond the outline (never on the fallback's); the
-  partner index of an owner's pixel is the first neighbour of `Source.neighbours` whose rough boxes
-  hold it, else "unknown" (a border with a country without a source, where such lines are then
-  counted and always shown).
-- *A neighbour's rough boxes must reach the border.* `neighbour_window` asks a neighbour only inside
-  its `offline`/`bbox` boxes; Czechia's (`CZ_OFFLINE`) are kept inside the country and end south of
-  Hřensko, so Saxony's grid got the 30 m fallback there (93.7 % of the Czech side), and they leave
-  most of the other border strips out as well. Before wave B: a check of every declared pair along
-  its border (the share of the border within reach of the neighbour's boxes), and for a neighbour
-  whose boxes cannot be widened (they decide `--source auto` offline) a second set of boxes used by
-  `neighbour_window` only.
-- *Slovakia's averaged tiles on a grid of another CRS.* `GridResolutions.resolution` gives a grid
-  of exactly 2 m or 5 m the averaged tiles whatever its CRS; Poland's 2 m grid then reprojects them
-  bilinearly (averaged, then smoothed): 87.7 % of the Slovak side's spots against 95.7 % with the
-  1 m tiles averaged by the mosaic. Proposed: the averaged tiles only for a grid in the tiles' CRS.
+**Found on the way** (the user's word on each, 2026-11-05):
+- *The owner's pixels beyond the outline are partners too* (accepted: "The borders" below says
+  so now). The first version let a partner anchor stand only on pixels the neighbour's source
+  filled. The S lines across the border in the Tatras (637) and on Bavaria's grid in the
+  Wetterstein (9 682) are the same under every method, so no reprojected pixel decides them: their
+  far anchors stand on the owner's own data, which reach beyond the border (14.4 % of the Polish
+  side of the Tatras box is Slovak data), and that rule would have dropped them all.
+- *A neighbour's rough boxes must reach the border* (the check is built, the boxes are wave B's
+  first task). `neighbour_window` asks a neighbour only inside its `offline`/`bbox` boxes.
+  `tools/border_study.py boxes` lists, for every declared pair, the share of the neighbour's land
+  within 5 km of the border that lies inside them (the coverage map's outlines; 108 of the 112
+  declared directions, `alaska_ifsar` has no outline). 91 directions reach 97 % or more; the
+  others: Scotland for England 1 %, Rhineland-Palatinate for Luxembourg 3 %, Czechia for Slovakia
+  20 %, for Saxony 22 %, for Poland 31 %, for Bavaria 35 %, for Austria 42 % (its boxes are kept
+  inside the country: Saxony's grid got the 30 m fallback at Hřensko, 93.7 % of the Czech side),
+  Denmark for Schleswig-Holstein 31 % and back 60 %, the USA for British Columbia 39 % and for
+  Canada 72 %, Norway for Finland 68 %, Saarland for Luxembourg 70 %, Slovenia for Austria 77 %,
+  British Columbia for the USA 89 %, Rhineland-Palatinate for Saarland 90 %, Nunavut for Canada
+  93 %. Wave B starts by giving those neighbours boxes that hold their border strips: where the
+  `offline` boxes cannot be widened (they decide `--source auto` offline), a second set read by
+  `neighbour_window` only; the tool's table is the test.
+- *Slovakia's averaged tiles on a grid of another CRS* (accepted and built).
+  `GridResolutions.resolution` gave a grid of exactly 2 m or 5 m the averaged tiles whatever its
+  CRS; Poland's 2 m grid then reprojected them bilinearly (averaged, then smoothed): 87.7 % of the
+  Slovak side's spots against 95.7 % with the 1 m tiles averaged by the mosaic. Now only a grid of
+  the tiles' CRS reads the averaged tiles (`resolution(grid_res, grid_crs)`); the country layer's
+  own bands are unchanged.
 
 ### The key v2: two int64 a row
 
@@ -780,7 +789,7 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 | A 0-15 | as the key of section 2: water (0-1), trees (2-3), height (4-6), clearance (7-9), wall (10-12), prominence of the weaker anchor (13-15) |
 | A 16-24 | length mask, as section 2 |
 | A 25-26 | border: 0 interior (both anchors in the country), 1 across the border and owned, 2 across the border and the partner's (see "The borders") |
-| A 27-29 | partner: 0 none, 1-7 the index into cube.json's `neighbours` (the partner's cube id) |
+| A 27-29 | partner: 0 none, 1-6 the index into cube.json's `neighbours` (the partner's cube id), 7 unknown (the owner's data beyond the outline where no declared neighbour's boxes reach) |
 | A 30-45 | cell row `j` (16 bits, from the origin) |
 | A 46-61 | cell column `i` (16 bits) |
 | B 0-2 | metres over water: `water_px × res`, edges (0, 5, 20, 50, 100) |
@@ -857,10 +866,14 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   (the prominence beside the pair search's memory; the budgets of 1.6 and 2.1 GiB unchanged): the
   partner strip's anchors add to the same peak, so wave B measures it again on the border tiles.
 - **Anchors.** `search._anchors` keeps the anchors outside the outline that lie within the L band's
-  `max_length` of it and on pixels the neighbour's source filled (`fill_from_neighbours` writes a
-  uint8 mask of the source of each filled pixel into the work folder, `Data.partner`; the fallback's
-  pixels and the own source's pixels beyond the outline are not partners). The first-anchor mask of
-  the kernel (`find_valid_lines(first=)`) is (core ∩ outline) ∪ partner anchors.
+  `max_length` of it and on pixels of a neighbour's source or of the owner's own source (step 0:
+  the owner's data reach beyond the border, and every S line across it ends on them); never on
+  the fallback's pixels. `Data.partner` is a uint8 grid in the work folder, 0 inside the outline
+  and on the fallback's pixels, else the partner index of the pixel: for a pixel a neighbour
+  filled, that neighbour's (`fill_from_neighbours` writes it), for a pixel of the owner's source
+  the first neighbour of `Source.neighbours` whose rough boxes hold it, else 7, "unknown" (a border
+  with a country without a source in the catalogue). The first-anchor mask of the kernel
+  (`find_valid_lines(first=)`) is (core ∩ outline) ∪ partner anchors.
 - **Kernel.** `linesearch._pairs` takes one more optional uint8 array, `partner`: when the first
   anchor is a partner, a partner as the other end is skipped before the rings and the pixel test
   (partner-partner pairs are the neighbour's own lines: in the Tatras 194 M against 836 M of SK's).
@@ -868,10 +881,12 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 - **Counter.** A line is kept when exactly one anchor lies in the outline and that anchor lies in
   the tile's core (the owner tile is unique), or both lie in the outline and the first (pixel order)
   in the core, as today. A cross-border line is `border = 1` when its first anchor by (lon, lat) is
-  the one in the country, else 2; `partner` is the source of the other anchor's pixel, mapped to the
-  index of cube.json's `neighbours` (the neighbour sources' cube ids, in the order of
-  `Source.neighbours`, by `country.NEIGHBOUR_CUBES`: source id → cube id). A neighbour without a
-  source in the catalogue gives no partners; cube.json's `notes` say which borders stay hard.
+  the one in the country, else 2; `partner` is `Data.partner` at the other anchor's pixel, its
+  indices 1-6 those of cube.json's `neighbours` (the neighbour sources' cube ids, in the order of
+  `Source.neighbours`, by `country.NEIGHBOUR_CUBES`: source id → cube id; no source of the
+  catalogue declares more than six). A neighbour without a source in the catalogue gives partners
+  only where the owner's data reach beyond the border (partner 7); cube.json's `notes` say which
+  borders stay hard beyond that.
 - **Tiles.** `fixed_tiles` and the grids are unchanged: a tile's grid reaches `_overlap` beyond its
   core, which holds every partner within `max_length`; the border tiles ask the neighbour today
   already (`Plan.border`). Cost: the partner strip's anchors in step 2 and the cross-border pairs in
@@ -879,7 +894,8 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 - **cube.json.** `neighbours: [cube ids]`, `totals.border: {owned, partner}` for lines and spots,
   `notes` for the hard borders. `countcube.build` sums as today; the border field is part of the key.
 - **The web.** `/api/countries` lists every cube; `/cells` and `/histogram` take `border=own|all`
-  (default `all`: interior + owned + partner lines whose partner has no cube in this data folder;
+  (default `all`: interior + owned + partner lines whose partner is unknown (7) or has no cube in
+  this data folder;
   `own`: interior + owned). The page asks `all` and says under the notes which neighbours are
   counted from this country's data ("Lines across the border with Poland: from Slovakia's data until
   Poland has a layer"). When the partner's cube exists, the partner's own set replaces it (the two

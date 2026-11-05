@@ -233,9 +233,10 @@ def test_border_gaps_once_unless_a_neighbour_wrote(scene, monkeypatch):
 
 @pytest.mark.parametrize("rows", [None, 30])
 def test_neighbours_resampled_as_set(scene, monkeypatch, rows):
-    """NEIGHBOUR_RESAMPLING chooses how a neighbour's data are reprojected (half a pixel off our
-    grid here): None is the mosaic's own choice, bilinear at one resolution; nearest keeps the
-    neighbour's own values; the fallbacks keep the mosaic's choice."""
+    """How a neighbour's data are reprojected (half a pixel off our grid here, at its resolution):
+    by NEIGHBOUR_SAME_RESOLUTION, nearest, which keeps the neighbour's own values (None: bilinear,
+    the mosaic's own choice); NEIGHBOUR_RESAMPLING chooses a method for every raster instead; the
+    fallbacks keep the mosaic's choice."""
     grid, path, tmp = scene
     start = np.load(path)
     ramp = (500 + np.random.default_rng(4).normal(0, 40, (grid.height, grid.width + 1))).astype(np.float32)
@@ -254,9 +255,18 @@ def test_neighbours_resampled_as_set(scene, monkeypatch, rows):
                                                      str(tmp / f"joined-{method}.npy"), rows=rows)
         assert counts[0][1] > 0
         results[method] = np.load(path)[30:70, 5:35]
-    assert np.array_equal(results[None], results["bilinear"])
+    assert src.filling.NEIGHBOUR_SAME_RESOLUTION == "nearest"
+    assert np.array_equal(results[None], results["nearest"])  # the default at the grid's resolution
     assert np.isin(results["nearest"], ramp).all() and np.isin(results["bilinear"], ramp).mean() < 0.01
     assert not np.array_equal(results["cubic"], results["bilinear"])
+    # without the rule for the grid's resolution: the mosaic's own choice, bilinear
+    np.save(path, start)
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_RESAMPLING", None)
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_SAME_RESOLUTION", None)
+    src.filling.fill_from_neighbours(path, None, grid, [neighbour], str(tmp / "cache"), str(tmp / "joined-own.npy"),
+                                     rows=rows)
+    assert np.array_equal(np.load(path)[30:70, 5:35], results["bilinear"])
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_SAME_RESOLUTION", "nearest")
     # a fallback is reprojected by the mosaic's own choice whatever the neighbours' method
     np.save(path, start)
     monkeypatch.setattr(src.filling, "NEIGHBOUR_RESAMPLING", "nearest")

@@ -43,6 +43,9 @@ HELD_GRIDS: Optional[List[np.memmap]] = None
 # measured with tools/border_study.py: docs/country-precompute/contract.md, section 6, step 0)
 RESAMPLINGS = {"nearest": Resampling.nearest, "bilinear": Resampling.bilinear, "cubic": Resampling.cubic,
                "average": Resampling.average}
+# A raster reprojected onto the grid is "finer" below FINER of the grid's resolution (averaged) and "at the
+# grid's resolution" up to SAME of it (bilinear, or build_mosaic's `same_resolution`); coarser: bilinear
+FINER, SAME = 0.75, 1.5
 
 
 def flush_grid(grid: np.memmap):
@@ -54,11 +57,12 @@ def flush_grid(grid: np.memmap):
 
 def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label: str,
                   update: Optional[str] = None, download: bool = True, quiet: bool = False,
-                  rows: Optional[int] = None, resampling: Optional[str] = None) -> str:
+                  rows: Optional[int] = None, resampling: Optional[str] = None,
+                  same_resolution: Optional[str] = None) -> str:
     """Download what is missing (unless done already: download False) and bring the layer
     onto the working grid (.npy). quiet: no line about its tiles without data (a neighbour
     filling the gaps at a border has none beyond it). rows: the mosaic in strips (build_mosaic).
-    resampling: build_mosaic's."""
+    resampling, same_resolution: build_mosaic's."""
     if download:
         layer.download(grid, cache_dir, update, label)
     tiles = (layer.tiles(grid) or []) if layer.folder and not quiet else []  # local files are not in the cache
@@ -66,14 +70,15 @@ def prepare_layer(layer: Layer, grid: Grid, cache_dir: str, out_path: str, label
     if empty:  # normal over the sea; on land a sign of a lost tile (see the regression tests)
         print(f"{layer.description}: {empty} of {len(tiles)} tiles without data (the service has none there)")
     build_mosaic(layer.files(grid, cache_dir), grid, out_path, label, shift=layer.shift, rows=rows,
-                 resampling=resampling)
+                 resampling=resampling, same_resolution=same_resolution)
     used_data.append(layer.used(grid, cache_dir))
     return out_path
 
 
 def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
                  categorical: bool = False, shift: Tuple[float, float] = (0.0, 0.0),
-                 rows: Optional[int] = None, resampling: Optional[str] = None) -> np.ndarray:
+                 rows: Optional[int] = None, resampling: Optional[str] = None,
+                 same_resolution: Optional[str] = None) -> np.ndarray:
     """Stitch rasters into a memory-mapped array covering the grid.
 
     Tiles already on the grid are copied; others are reprojected, averaging when
@@ -86,9 +91,13 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
     at a strip's edge (GDAL warps a large part in chunks of its own anyway).
     resampling: one of RESAMPLINGS for the rasters of heights that are reprojected, instead of
     that choice (None: the choice above; a raster on the grid is copied either way).
+    same_resolution: one of RESAMPLINGS instead of bilinear for the reprojected rasters at about
+    the grid's resolution only (FINER to SAME of it): a neighbour's data, whose cliff edges a
+    bilinear reprojection at one resolution smooths (filling.NEIGHBOUR_SAME_RESOLUTION).
     """
-    if resampling is not None and (categorical or resampling not in RESAMPLINGS):
-        raise ValueError(f"resampling must be one of {', '.join(RESAMPLINGS)} for a mosaic of heights")
+    for method in (resampling, same_resolution):
+        if method is not None and (categorical or method not in RESAMPLINGS):
+            raise ValueError(f"resampling must be one of {', '.join(RESAMPLINGS)} for a mosaic of heights")
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8 if categorical else np.float32,
                                        shape=(grid.height, grid.width))
@@ -103,7 +112,7 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
         # The cached files' blocks decoded on WARP_THREADS (GDAL reads it when the file is opened;
         # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http)
         with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS)), rio.open(path) as src:
-            _place(src, grid, mosaic, categorical, shift, rows, resampling)
+            _place(src, grid, mosaic, categorical, shift, rows, resampling, same_resolution)
     flush_grid(mosaic)
     progress.compute.finish()
     return mosaic
@@ -131,7 +140,8 @@ def _put(target: np.ndarray, values: np.ndarray, categorical: bool):
 
 
 def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
-           shift: Tuple[float, float] = (0.0, 0.0), rows: Optional[int] = None, method: Optional[str] = None):
+           shift: Tuple[float, float] = (0.0, 0.0), rows: Optional[int] = None, method: Optional[str] = None,
+           same: Optional[str] = None):
     clean = (lambda band: band) if categorical else (lambda band: _clean(band, copy=False))
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src.crs or grid_crs
@@ -164,8 +174,12 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
         resampling = Resampling.nearest
     elif method is not None:
         resampling = RESAMPLINGS[method]
+    elif src_res < grid.res * FINER:
+        resampling = Resampling.average
+    elif same is not None and src_res <= grid.res * SAME:
+        resampling = RESAMPLINGS[same]
     else:
-        resampling = Resampling.average if src_res < grid.res * 0.75 else Resampling.bilinear
+        resampling = Resampling.bilinear
     if rows is None or r1 - r0 <= rows:
         # Read only the part of the raster under the grid (plus a margin for resampling)
         values = _warp(src, src_crs, grid, moved, shift, clean, (r0, r1, c0, c1), grid.bounds, resampling)
