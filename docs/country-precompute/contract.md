@@ -693,6 +693,206 @@ log10(1 + n) over log10(1 + max), set through the CSSOM.
 `tools/ui_shots.py` has `c-layer`, `c-layer-world` (both cubes), `c-layer-study` (the study area alone),
 `c-layer-end` (the phones' column scrolled to the histograms) and `c-layer-cell` (a cell selected).
 
+## 6. Cube v2: the parameters, the borders, the global lattice, the profile (contract of 2026-11-05)
+
+The user's decisions of 2026-11-05 after the border analysis (`tools/border_study.py`, docs/roadmap.md
+"Lines across a border"): lines across a border are counted on both sides (R3), every cube's cells lie
+on one global lattice (R4), the countries share one layer profile (R7), and a common computing CRS of
+a region is rejected (R6: resampling every pixel; the measured difference of 2-11 % of the spots and
+the half-pixel pitfall). These, and the eight new parameters of docs/country-precompute.md section
+6.3, change the key and the origin of the cube, so they go into **one `countcube.VERSION` and one
+recount**, after the band study has landed in `main` (its bands become the profile). This section is
+the contract of that work; nothing of it is coded yet. The waves start from the `main` that holds the
+band study, in their own worktrees, as section "Ownership" says.
+
+### Step 0, before the code of R3: the resampling of the partner's data, measured
+
+A line across a border is tested on the owner's grid with the neighbour's pixels resampled onto it
+(`sources.mosaic`: bilinear at the same resolution). The two grids disagree: in the Tatras the SK
+grid found 1 561 cross-border spots of the M band, the PL grid 1 310; 97.9 % of the PL grid's have
+a match on the SK grid, 89.2 % the other way. That is a difference, not a loss, and it touches the
+partner anchor of 2-11 % of about 3 % of a country's lines (0.1-0.3 % of all). Before R3 is coded:
+- an option of the resampling method (bilinear, nearest, cubic) in `sources.mosaic.build_mosaic`
+  (never changing the default) and in `tools/border_study.py run`;
+- each method run with the primary on one side against the run with the primary on the other side
+  as the reference (the tool's `matched`), per band, at the places the user picks from the list in
+  docs/roadmap.md "Lines across a border" (only pairs declared in `Source.neighbours`; about
+  10 min of the PC per method and band for a box like the Tatras', exclusive);
+- the method with the most matched spots becomes the one `fill_from_neighbours` uses for the
+  partner strip, recorded here with the numbers. Native anchors for the partner side (step 2 on a
+  small grid of the strip in the partner's CRS, the anchors carried onto our pixels) is the next
+  step only if the best method leaves a difference clearly above the one between the runs.
+
+### The key v2: two int64 a row
+
+A row of the cube is `[key_a, key_b, count]`; the tiles' `.npz` carry both words. `RECORD_BITS`
+covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select` read both words.
+
+| Word, bits | Field |
+| --- | --- |
+| A 0-15 | as the key of section 2: water (0-1), trees (2-3), height (4-6), clearance (7-9), wall (10-12), prominence of the weaker anchor (13-15) |
+| A 16-24 | length mask, as section 2 |
+| A 25-26 | border: 0 interior (both anchors in the country), 1 across the border and owned, 2 across the border and the partner's (see "The borders") |
+| A 27-29 | partner: 0 none, 1-7 the index into cube.json's `neighbours` (the partner's cube id) |
+| A 30-45 | cell row `j` (16 bits, from the origin) |
+| A 46-61 | cell column `i` (16 bits) |
+| B 0-2 | metres over water: `water_px × res`, edges (0, 5, 20, 50, 100) |
+| B 3-5 | height of the lower anchor: `min(elev_a1, elev_a2)`, edges (0, 500, 1000, 1500, 2000) |
+| B 6-8 | height of the upper anchor: `max(elev_a1, elev_a2)`, the same edges |
+| B 9-11 | mean height of the webbing: `height_mean`, edges (0, 10, 20, 50, 100) |
+| B 12-14 | prominence of the stronger anchor: `max(prom1, prom2)`, edges (0, 5, 10, 20, 50) |
+| B 15-17 | drop below both anchors: `min(drop1, drop2)`, edges (0, 20, 50, 100, 200) |
+| B 18-20 | share of the line high above the terrain: `high_pct`, edges (0, 25, 50, 75, 90) |
+| B 21-23 | height difference of the anchors: `|elev_a1 - elev_a2|`, edges (0, 5, 10, 20, 50) |
+| B 24-26 | clearance over trees and buildings: `clearance_nmpt`, edges as the clearance's; UNKNOWN without a surface model |
+| B 27-62 | reserved (0) |
+
+- The edges of word B are **working values**: those the measurement of 2026-11-05 used to count the
+  keys' growth (`local/country-perf-2026-11-04/cube-params/`, section 6.3's table: the cube about
+  152 MB of arrays with all eight, 229 MB with the wider key, est.), not chosen ones. Section 6.3
+  asks for edges from a measurement and the growth checked on a second country: wave A measures the
+  edges on Slovakia's tiles (the keys per edge set, the bins' shares) and proposes them to the user
+  before the recount; a change of an edge is a change of this table.
+- `merge_spots` on word B, as section 6.3's rule (a filter passes when some line of the spot does):
+  a floor's field (metres over water, the lower anchor's height, the mean height, the stronger
+  prominence, the drop, the high share, the clearance over trees) takes the largest bin, a ceiling's
+  field (the upper anchor's height, the height difference) the smallest;
+  UNKNOWN as in section 2. Word A's border and partner fields of a spot: the border field of its
+  lines ORed as a 2-bit mask would lose the owner, so a spot's border is that of its first line and
+  a spot with lines of two border values is split into two spots by the border value (an id of a
+  spot is then `(id, border, partner)`); the counts of spots per cell add them.
+- `Filters` gains one field per new dimension with the semantics of the existing ones (a floor
+  passes at or above its edge, a ceiling below it, the first edge off, UNKNOWN fails every limit);
+  `DIMENSIONS` lists them; `Cube.histogram` counts each (6 bins) under every filter but its own.
+- The levels 2, 4 and 8 keep `i // L`, `j // L` on word A's cell bits.
+
+### The global lattice (R4)
+
+- The cell of a line is that of its first anchor **by (lon, lat)** (the smaller lon, then lat; the
+  same rule as the owner of a line across a border): `i = floor(lon × 120) - I0`,
+  `j = floor(lat × 120) - J0`. A cell is 30″ × 30″ (0.93 km north-south everywhere, 0.61 km
+  east-west at 49°). The country's origin `(I0, J0)` is the south-west corner of its outline's box
+  less the L band's `max_length`, floored to a multiple of 8 cells (1/15°); cube.json's `origin`
+  becomes `[I0, J0]` in cells and `cell_m` becomes `cell_deg: 1/120`.
+- The clusters of a spot: `cx = floor(lon × 2400) - 20 I0`, `cy = floor(lat × 2400) - 20 J0`
+  (20 clusters a cell: 46 m north-south, 30 m east-west at 49°). The id: `p.cx << 42 | p.cy << 22 |
+  dx << 11 | (dy + 1024)` with `cx`, `cy` of 20 bits and `dx`, `dy` of 11 bits (a 5 km line at 78°
+  spans 520 clusters east-west; at 85° 1 100: the Arctic sources keep L bands under that, or the
+  tile refuses with a plain error). Spots merge across cubes by the lattice alone.
+- `TileCounter` transforms the anchors once per tile (`pyproj`, the unique pixels of a part's
+  `a1`/`a2`, not every line): below 1 % of a tile's time (est.; measured in wave A on one tile of
+  each band).
+- `Cube`: `box`, `_range`, `corners`, `reaching` and `cell_request` on lon/lat rectangles without
+  pyproj; `corners` gives the rectangle; the km² of a whole cell from its latitude (the page gets it
+  as `km2` per row, or computes it from the corners); `cut` keeps the exact outline projected to the
+  cube's CRS for the km² of a cut cell, its pieces cut on the lattice's rectangles.
+- The page: `L.rectangle` for whole cells, the texts "30″ cells (about 0.9 × 0.6 km)" and the
+  levels "1′, 2′, 4′"; `cellsAt`, `requestCells` and `autoLevel` in cells of 1/120°; the kit demo
+  (`ui/Gallery.tsx`) on the same lattice.
+- A cube of another `version` is refused as today (`Cube.__init__`); no migration of v1 cubes, they
+  are counted again.
+
+### The borders (R3)
+
+- **What `main` f8aaff5 (round 4, stage 3's B5, 2026-11-05) changed before the counter, and wave B
+  builds on:** `search._anchors(deferred=True)` in `count_tile`
+  computes the prominence and the drop at a tile's first line (with a limit `min_prominence`,
+  `min_prominence_both` or `min_drop` as before, before the pairs); `linesearch.evaluate_lines` and
+  `_sink_lines` take `anchor_values` as a function called once; the columns `prom1`, `prom2`,
+  `drop1`, `drop2` reach the counter unchanged. `Plan.border` False means more than "no neighbour":
+  the full mask without burning the outline and no coverage counted, on the assumption that the
+  tile's grid lies wholly inside the outline (`country._at_border`). R3 keeps that assumption: a grid
+  inside the outline has no partner strip, so nothing changes for it; a border tile keeps
+  `Plan.border` True, the burned mask and the neighbour fill (and its "Elevation data" line in the
+  tile's log, which a tile with `Plan.border` False no longer prints). The partner anchors need the
+  prominence and the drop as the others do: the deferred computation covers them (they are anchors
+  of the grid). A tile's private memory stands at 1.23 GiB in S and 1.15 GiB in M2 since that commit
+  (the prominence beside the pair search's memory; the budgets of 1.6 and 2.1 GiB unchanged): the
+  partner strip's anchors add to the same peak, so wave B measures it again on the border tiles.
+- **Anchors.** `search._anchors` keeps the anchors outside the outline that lie within the L band's
+  `max_length` of it and on pixels the neighbour's source filled (`fill_from_neighbours` writes a
+  uint8 mask of the source of each filled pixel into the work folder, `Data.partner`; the fallback's
+  pixels and the own source's pixels beyond the outline are not partners). The first-anchor mask of
+  the kernel (`find_valid_lines(first=)`) is (core ∩ outline) ∪ partner anchors.
+- **Kernel.** `linesearch._pairs` takes one more optional uint8 array, `partner`: when the first
+  anchor is a partner, a partner as the other end is skipped before the rings and the pixel test
+  (partner-partner pairs are the neighbour's own lines: in the Tatras 194 M against 836 M of SK's).
+  Without the array the kernel is byte for byte what it is (the regression set, `test_pairs_match_reference`).
+- **Counter.** A line is kept when exactly one anchor lies in the outline and that anchor lies in
+  the tile's core (the owner tile is unique), or both lie in the outline and the first (pixel order)
+  in the core, as today. A cross-border line is `border = 1` when its first anchor by (lon, lat) is
+  the one in the country, else 2; `partner` is the source of the other anchor's pixel, mapped to the
+  index of cube.json's `neighbours` (the neighbour sources' cube ids, in the order of
+  `Source.neighbours`, by `country.NEIGHBOUR_CUBES`: source id → cube id). A neighbour without a
+  source in the catalogue gives no partners; cube.json's `notes` say which borders stay hard.
+- **Tiles.** `fixed_tiles` and the grids are unchanged: a tile's grid reaches `_overlap` beyond its
+  core, which holds every partner within `max_length`; the border tiles ask the neighbour today
+  already (`Plan.border`). Cost: the partner strip's anchors in step 2 and the cross-border pairs in
+  step 3: +3-6 % of the tiles' time (est.); RAM, downloads unchanged; the tiles' files +3 % (est.).
+- **cube.json.** `neighbours: [cube ids]`, `totals.border: {owned, partner}` for lines and spots,
+  `notes` for the hard borders. `countcube.build` sums as today; the border field is part of the key.
+- **The web.** `/api/countries` lists every cube; `/cells` and `/histogram` take `border=own|all`
+  (default `all`: interior + owned + partner lines whose partner has no cube in this data folder;
+  `own`: interior + owned). The page asks `all` and says under the notes which neighbours are
+  counted from this country's data ("Lines across the border with Poland: from Slovakia's data until
+  Poland has a layer"). When the partner's cube exists, the partner's own set replaces it (the two
+  differ by the measured 2-11 % of the spots: step 0 decides the method).
+- **"Search here."** `cell_request` buffers the cell by `max_length` and no longer intersects the
+  outline, so the app's search (which fills the neighbour's data at the border already) finds the
+  same lines the layer counted.
+
+### The profile (R7)
+
+- `country.PROFILE`: the bands (name, lengths, resolution, model, slope threshold, core_m, layer),
+  `tension` T(L) and `rig`, one for every country, fixed from the band study's result. `Country` keeps
+  `id`, `name`, `source`, `area`, `options` (`nmpt`, `water`, `coastline`, `fill_gaps`, `within`);
+  `COUNTRIES` lists countries only. A study area (`within`) may override the bands (tools/band_study.py's
+  areas): `Country.bands` falls back to `PROFILE.bands`.
+- cube.json: `profile`: the sha256 of the profile's JSON; `config_hash` covers it. `/api/countries`
+  passes it; the page sums only the cubes of the profile of the first country listed and shows the
+  others apart with a note (`layerState.ts activeCubes`); the surface model may differ (today's note).
+
+### What stays byte for byte
+
+The search without a sink, the kernels without the partner array, every saved file of a search
+(`tests/regression.py` R13, R14, R16 and the set of docs/regression-tests.md), `tools/border_study.py`'s
+classes AA/BB/AB on the same code (its sink keeps its own `TileCounter`s).
+
+### Tests
+
+- `tests/test_count_mode.py`: with the partner array and without, the same lines and funnel inside
+  a country; a grid split by an outline with partners: owned + partner = the lines of one grid
+  across the split, interior = the lines of the clipped grid.
+- `tests/test_border_study.py`: AA + BB + AB of the Żabi Koń clip split by `BORDER_LON` equal the
+  one-grid count, as today; AB = the new counter's owned + partner.
+- `tests/test_countcube.py`: the key v2 packed and unpacked, the lattice (cells of known lon/lat,
+  the origin's floor, the levels), the spot ids (dx of 11 bits), `merge_spots` on word B and the
+  split by border, `select`/`histogram` of every new dimension against brute force, `cut` on the
+  lattice, a v1 cube refused.
+- `tests/test_country.py`: `NEIGHBOUR_CUBES`, the profile's hash in cube.json and the refusal of a
+  tile of another profile, a study area overriding the bands.
+- `tests/test_country_web.py`: `border=own|all` with and without the partner's cube in the data
+  folder, the histogram of a new dimension, the page in Edge (a cell on the border, the note).
+- On the real data: the Tatras box through `tools/border_study.py` equals the new counter's owned +
+  partner within a few per cent (29.1 M AB lines of `local/border-study-2026-11-05/study.json`);
+  Slovakia counted again, its interior cells compared with the v1 cube per cell (the lattice differs,
+  so by sums over 8 km boxes).
+
+### Waves (after the band study is in `main`)
+
+| Wave | Agent | Files |
+| --- | --- | --- |
+| 0 | one agent, before the others | `sources/mosaic.py` (the resampling option), `tools/border_study.py` (`--resampling`), the runs at the chosen places, the numbers into this section |
+| A | key, lattice, spots | `countcube.py`, `tests/test_countcube.py` |
+| B | anchors, kernel, counter, driver | `linesearch.py` (`partner`), `search.py` (`_anchors`, `Data.partner`, `count_tile`), `sources/filling.py` (the source mask), `country.py` (`PROFILE`, `NEIGHBOUR_CUBES`, the origin, cube.json's fields), `tests/test_count_mode.py`, `tests/test_country.py`, `tests/test_border_study.py` |
+| C | web and page | `web.py`, `viewer/src/app/api.ts`, `viewer/src/app/c/*`, `viewer/src/ui/Gallery.tsx`, `locales/en.json`, `tests/test_country_web.py`, `tools/ui_shots.py` |
+| lead | docs, the recount | this file, docs/country-precompute.md, docs/roadmap.md, CLAUDE.md, README; Slovakia counted again (1-1.5 h plus the band study's bands, est.), the comparison with the v1 cube |
+
+A and B share `countcube.TileCounter`'s input (the parts' columns): A owns the counter, B hands it the
+columns `elev_a1`, `elev_a2`, `drop1`, `drop2`, `height_mean`, `high_pct`, `partner` (per line, the
+partner index of the non-owner anchor, 0 inside) and `border`. The waves' reports name every number
+measured (the key's growth, the transforms' time, the border tiles' time).
+
 ## Wave 1 as built (2026-11-02; read this before sections 3 and 4)
 
 **`search.py`**
