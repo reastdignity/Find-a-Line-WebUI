@@ -789,7 +789,70 @@ triangle budget it reports), a cell drawn where the canopy is at least `min_heig
 height plus the cell's largest value; never a pick target, not in the edges' pass. A failure shows
 `ui.view3d.trees_failed` and the switch goes off.
 
-P and K get their paragraphs when R and U2 have reported.
+**After U1, U2, V and R (2026-11-05)**: merged in that order (fce8f5f, 12817bf, 960cbe0 and R's ac7d030). The
+coordinator added the patch's `surface`, `LineView.key` (the key of a line taken from outside, `setAnchors`' third
+argument: `save.ts`' current key and `edit.ts`' profile request use it) and `Edit.setAnchors(anchors, key?)`.
+R's overlay is one more mesh a chunk on the chunk's own buffers (kept once made: freeing a geometry that shares
+buffers would free the chunk's); its snap radius is 28 px at the hit's distance, at least 1.5 cells, at most 80 m;
+`data-reach` names the fixed anchor whose reach shows. V's canopy: cells of 2 m (4 m at the phone level), coarser
+until 100 000 vertices (43 000) hold it (a wood over a whole patch of 1537²: 6 m cells, 134 000 triangles); a
+depth-only pass before the colour pass at 70 %. U2 added `ui.view3d.profile_rigging` and, in the 2D result,
+`ResultColumns.tsx`'s part of opening a link to a line outside the run. Under the machine's load
+`test_view3d_draws_the_line` and the ring tests fail now and then with no first frame drawn, on an untouched `main`
+as well (1 of 3 runs): not this round's.
+
+**Wave 2b** (K and P in parallel; each owns the files of its row, `main.ts` stays the coordinator's)
+
+| Agent | Branch | Point | Owns |
+| --- | --- | --- | --- |
+| K | `v3r2-others` | 7 | new `viewer/src/view3d/others.ts` (pure), `otherlines.ts`, a stylesheet of their own; `save.ts`, `page.ts`; `viewer/src/app/c/ResultPage.tsx` (and the model's method it needs in `viewer/src/result/model.ts`); new `tests/test_view3d_others.py` |
+| P | `v3r2-point` | 9 | new `viewer/src/view3d/options.ts` (pure), `fan.ts`, `optionlist.ts`, a stylesheet of their own; `edit.ts`, `overlay.ts`, `reach.ts` (what the tool needs added to them); new `tests/test_view3d_point.py` |
+
+*K, several lines* (`createOthers(scene, line, edit, …)`, both levels):
+- The lines: (A) the user's other favourites of the run, from the one favourites request `save.ts` already makes
+  (expose its answer; never a second request); (B) the lines of the address, `&also=<line>;<line>…` after `line`
+  (each `lat1,lon1,lat2,lon2`; `page.ts` `PageRequest.also`, at most `OTHERS_MAX` = 20 kept; "Copy link" carries
+  them, "Back to the map" does not). The 2D result's "3D view" link adds the other lines of the opened line's spot
+  in the model's order of the group, at most 20.
+- Drawn: a line whose two anchors lie in the patch over terrain data (lon/lat to grid metres by the inverse of the
+  meta's affine, a pure function; the heights from `scene.heightAt`), not the active line, at most 20: the
+  address's first in their order, then the favourites nearest the active line's middle. Each as its unloaded
+  webbing only, 2 px at about 60 %: a favourite in its stored verdict's colour where the favourites request gives
+  its values (`--clear`, `--trees`, `--bad`), else and for the address's lines `--muted`; a label in the overlay
+  at about 70 % of the line with its length (a favourite's with a star), placed after every frame drawn, hidden
+  outside the orbit view.
+- The address's lines show from the start. The tool `others` (order 4, a switch, `ui.view3d.others`) shows and
+  hides the favourites; offered when the run has another favourite; on with none of them in the patch: the note
+  `ui.view3d.others_none`. Its state is not kept.
+- A click on a label makes that line the active one: `edit.setAnchors(anchors, key)` (the walker, the handles, the
+  profile of that key; saving shows it saved when it is a favourite). The line that was active, when it has a key
+  (the found line's is the page's `line`, else `line.key`), is drawn among the others from then on; "Back to the
+  found line" works as before.
+- The root's `data-others`: the number of other lines drawn.
+
+*P, lines from a point* (`createPoint(scene, line, edit)`, level `full` only):
+- The tool `point` (order 2, a switch, `ui.view3d.point`). On: the note `ui.view3d.point_hint`; a click on the
+  terrain (the primary button pressed and released within a few pixels: a drag still turns the camera) picks the
+  point by a raycast on `pickTargets` and asks its reach, `anchor` the point and `as` 1, through the same lane as
+  the switch "Only valid lines" (never two quick requests at once, never beside a profile request), the activity
+  `reach` meanwhile. While the tool is on its overlay replaces the switch's.
+- With the answer: the overlay of that reach; a marker at the point; the representatives; a fan of their unloaded
+  webbings from the point (thin, about 55 %, `--clear` or `--trees` by the class, the one under the pointer or the
+  list's pointer full and thicker); and their list in a panel at the stage's right (scrolling inside itself, never
+  wider than the stage): the title `ui.view3d.point_title` with their number, columns `ui.view3d.point_length`,
+  `.point_clear` (the mask's clearance, an upper bound within its quantum: shown with "≤" or "about", say which),
+  `.point_dh` (the target's height less the point's, signed) and `.point_trees`; a click on a column's head
+  sorts by it; rows and webbings highlight each other.
+- The representatives (`options.ts`, pure): the candidates are the valid samples of the mask as lines from the
+  point (at most the 20 000 of the largest clearance); the representatives are the groups' first lines of
+  `viewer/src/grouping.ts` `groupLines` over those candidates with the run's grouping distance (if the patch's
+  meta does not carry it: read it as an optional field of the meta with the parameter's default, and say so; the
+  coordinator adds it), lines clear of trees before lines over them, at most `FAN_MAX` = 40.
+- A click on a row or on a webbing's end makes it the line: `edit.setAnchors([point, target])` (no key: a moved
+  line), the tool goes off, its overlay, fan and list go, the profile is asked as for any moved line. Off without
+  a choice: everything of the tool goes and the switch's overlay returns if it is on. A failed request:
+  `ui.view3d.reach_failed`.
+- The root's `data-point`: the number of representatives shown ("" while the tool is off).
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
