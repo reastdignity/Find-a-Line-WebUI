@@ -322,6 +322,8 @@ last column of the table in section 2.
   2,160 an hour, so two layers of 41,445 tiles take 38 hours whatever their resolution.
 - **Utah** at 8 connections takes about a day, at uGet's three connections (USGS's own batch tool)
   about three. The COGs' overviews would cut the bytes of coarse bands (section 2).
+- `tools/area_download.py` downloads a whole area ahead of a run, for weeks if need be: passes that resume, tiles
+  that fail set aside, a page and a table of the progress, a cap on a host's connections.
 - Downloading and computing overlap: a country driver computes the tiles whose data is in while the
   next ones download, so a run takes about the longer of the two, not their sum.
 

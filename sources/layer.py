@@ -220,7 +220,8 @@ def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
 
 
 def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: str,
-                    update: Optional[str] = None, group_m: Optional[float] = None):
+                    update: Optional[str] = None, group_m: Optional[float] = None,
+                    on_error: Optional[Callable[[Layer, Sequence, Exception], None]] = None):
     """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
     so a slow tile of one layer does not hold the others: one progress bar for all their tiles,
     a line per layer of how many it has. Each tile under its lock and a slot of its host
@@ -231,7 +232,10 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
     GDAL's cache of ranges. With group_m (the country prefetch), the tiles of the layers read by windows of big
     files (a layer whose `groups` is true) are downloaded in squares of group_m, each a task that reads every
     file once over its tiles (ComposedLayer._download_group): the same cached files with a fraction of the
-    bytes and requests."""
+    bytes and requests.
+
+    The first task to fail stops the others. With on_error it gets (the layer, the task's tiles, the error) instead
+    and the others go on (tools/area_download.py: weeks of tiles); what it raises stops them."""
     # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
     # seconds), each layer once; the lines in the order of the layers
     distinct = list({id(layer): layer for layer, _ in layers}.values())
@@ -256,10 +260,17 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
                     future = pool.submit(layer._download_group, tiles, cache_dir, update, roles[id(layer)])
                 else:  # a tile, or a square of a serial layer's: one after another
                     future = pool.submit(_download_each, layer, tiles, cache_dir, update, roles[id(layer)])
-                futures[future] = len(tiles)
+                futures[future] = (layer, tiles)
             for future in as_completed(futures):
-                received += future.result()
-                progress.download.update(futures[future], MB=f"{received / 1e6:.0f}")
+                layer, tiles = futures[future]
+                try:
+                    received += future.result()
+                except Exception as e:
+                    if on_error is None:
+                        raise
+                    on_error(layer, tiles, e)
+                    continue
+                progress.download.update(len(tiles), MB=f"{received / 1e6:.0f}")
         finally:
             pool.shutdown(cancel_futures=True)  # after an error: the tiles not started yet are not
         progress.download.finish(f"{received / 1e6:.0f} MB")

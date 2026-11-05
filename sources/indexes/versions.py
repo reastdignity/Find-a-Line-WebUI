@@ -98,10 +98,12 @@ class NewestPerSheet(Versions):
         g_left, g_bottom, g_right, g_top = transform_bounds(grid.crs, self.index_crs, *grid.bounds)
         shape = None
         if grid.area_shape is not None:
+            import shapely
             from area import project
             from shapely.geometry import box
             shape = project(grid.area_shape, grid.crs, self.index_crs).intersection(
                 box(g_left, g_bottom, g_right, g_top))
+            shapely.prepare(shape)  # tested against every sheet listed, a country's outline has many vertices
         newest: Dict[str, Sheet] = {}
         for items in _answers(index, cache_dir, osm.tiles(west, south, east, north), update):
             for item in items:
