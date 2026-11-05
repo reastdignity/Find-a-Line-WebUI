@@ -642,9 +642,13 @@ def test_event_stream_per_user(tmp_path, settings, account_settings, providers, 
         return connection, connection.getresponse()
 
     def jobs_seen(response):
+        # Up to the worker's line, which a stream writes after the events it catches up with; up to the
+        # first keep-alive was too short on a busy machine (the ping, written on its own timer, came first)
         lines = []
-        while not any(line.startswith(":") for line in lines):
-            lines.append(response.fp.readline().decode("utf-8").rstrip("\r\n"))
+        while not any(line.startswith("data:") and json.loads(line[5:]).get("kind") == "worker" for line in lines):
+            raw = response.fp.readline()  # the connection's timeout (20 s) bounds each read
+            assert raw, f"the stream ended: {lines}"
+            lines.append(raw.decode("utf-8").rstrip("\r\n"))
         return {json.loads(line[5:]).get("job") for line in lines if line.startswith("data:")} - {None}
 
     with _public_server(tmp_path, settings, account_settings, providers) as port:
