@@ -18,7 +18,7 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_patch import CLIP_LEFT, CLIP_TOP, TIF, _offline_env, clip_data  # noqa: E402,F401 (the fixture)
-from test_view3d import READY_SCRIPT, _page  # noqa: E402,F401
+from test_view3d import READY_SCRIPT, VIRTUAL_BUDGET, _page, _with_until  # noqa: E402,F401
 from test_viewer import pytestmark, run_ts  # noqa: E402,F401 (the skip without Node)
 from test_web import EDGE, _lines_of, _server, _violations  # noqa: E402
 
@@ -227,38 +227,33 @@ ORTHO_STUB = """
 # After the bundle: waits for the ring (data-ring="loaded"), then writes what it found into <pre id="ring">; with
 # window.FINDALINE_RING_EDGES (edges.js) it first chooses the "Edges" look and counts the imagery's requests
 # before and after it
-RING_SCRIPT = """
+RING_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
-  const started = Date.now();
   let look = null;
-  const images = () => performance.getEntriesByType("resource").filter((e) => /\\/runs\\/view3dtest\\/img\\//.test(e.name)).length;
+  // The ring's and the imagery's requests, by an observer: the page's buffer of resource entries holds 250, which
+  // the polls of UNTIL_JS may fill before the ring loads (takeRecords: those not yet handed to the observer)
+  const seen = [];
+  const take = (entries) => { for (const e of entries) if (/\\/runs\\/view3dtest\\/(ring|img)\\//.test(e.name)) seen.push(e); };
+  const observer = new PerformanceObserver((list) => take(list.getEntries()));
+  observer.observe({type: "resource", buffered: true});
+  const requests = () => { take(observer.takeRecords()); return seen; };
+  const images = () => requests().filter((e) => /\\/runs\\/view3dtest\\/img\\//.test(e.name)).length;
   const done = (what) => {
     const out = document.createElement("pre");
     out.id = "ring";
     out.textContent = JSON.stringify(what);
     document.body.appendChild(out);
   };
-  // Under a virtual time budget headless Edge runs animation frames in real time but timers in virtual time, and
-  // the ring's tiles are asked for from animation frames (3d-tiles-renderer's queue): behind plain timers no tile
-  // was asked for in most runs (test_view3d.READY_SCRIPT). Each poll loads a small file, which holds the virtual
-  // time (not under ring/ or img/, so not among the entries counted). `then(true)` once `test()` holds,
-  // `then(false)` past `limit` ms from the script's start.
-  let n = 0;
-  const until = (test, limit, then) => {
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > limit) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  // The ring's tiles are asked for from animation frames (3d-tiles-renderer's queue): behind plain timers no tile
+  // was asked for in most runs. The polls over the browser's frames of test_view3d.UNTIL_JS (their small file is
+  // not under ring/ or img/, so not among the entries counted).
+  /* until */
   const loaded = () => root.dataset.ring === "loaded" && root.dataset.ready === "1";
-  const pause = (ms, then) => { const end = Date.now() + ms; until(() => Date.now() >= end, Infinity, then); };
+  const pause = (ms, then) => until(() => false, ms, () => then());
   const record = () => {
     if (look) Object.assign(look, {after: images(), imagery: root.dataset.imagery || null, edges: root.dataset.edges || null});
-    const entries = performance.getEntriesByType("resource")
-      .filter((e) => /\\/runs\\/view3dtest\\/(ring|img)\\//.test(e.name))
+    const entries = requests()
       .map((e) => ({url: e.name.replace(/^.*\\/view3dtest\\//, ""), bytes: e.encodedBodySize, transfer: e.transferSize}));
     done({ring: root.dataset.ring, offset: root.dataset.ringOffset ? JSON.parse(root.dataset.ringOffset) : null,
           errors: Number(root.dataset.ringErrors || 0), visible: Number(root.dataset.ringTiles || 0), entries, triangles: Number(root.dataset.triangles),
@@ -274,7 +269,7 @@ RING_SCRIPT = """
     pause(2500, () => until(loaded, 50000, (again) => again ? pause(2000, record) : timeout()));
   });
 })();
-"""
+""")
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
@@ -310,7 +305,7 @@ def test_ring_drawn_within_its_budget(clip_data, tmp_path, monkeypatch, level, l
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
             capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
     found = re.search(r'<pre id="ring">(.*?)</pre>', dom, re.S)
