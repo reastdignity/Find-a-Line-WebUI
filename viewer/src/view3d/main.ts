@@ -48,7 +48,15 @@ function frame(root: HTMLElement, page: PageRequest) {
   status.setAttribute("role", "status");
   const credits = el("div", "v3-credits v3-hidden");
   credits.setAttribute("aria-label", t("ui.view3d.credits"));
-  stage.append(status, credits);
+  // Round 2's chrome over the stage (chrome.ts): the activity pill, the tool strip, and at the bottom the
+  // credits with the card's slot under them (the card lies on the canvas: the canvas keeps its size)
+  const activity = el("div", "v3-activity v3-hidden"), tools = el("div", "v3-tools");
+  activity.setAttribute("role", "status");
+  tools.setAttribute("role", "toolbar");
+  tools.setAttribute("aria-label", t("ui.view3d.tools"));
+  const bottom = el("div", "v3-bottom"), card = el("div", "v3-card");
+  bottom.append(credits, card);
+  stage.append(status, activity, tools, bottom);
   const bar = el("div", "v3-bar"), toolbar = el("div", "v3-toolbar"), readout = el("div", "v3-readout");
   readout.setAttribute("aria-live", "polite");
   const note = el("p", "v3-note", t("ui.view3d.preview_note"));
@@ -59,7 +67,7 @@ function frame(root: HTMLElement, page: PageRequest) {
   // The loading's message and bar while the status shows a stage (progress), made once and changed in place
   let staged: {message: HTMLElement; meter: HTMLElement; fill: HTMLElement} | null = null;
   return {
-    stage, toolbar, credits, readout, bar, note,
+    stage, toolbar, credits, readout, bar, note, activity, tools, card, top,
     /** A stage of the loading over the stage: its message and a bar of `fraction` (null: moving, the amount
      *  unknown; its width set through the CSSOM, which the CSP allows). The root's data-stage names it (tests). */
     progress(name: Stage, text: string, fraction: number | null) {

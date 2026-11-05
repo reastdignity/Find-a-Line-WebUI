@@ -27,7 +27,30 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 @keyframes v3-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .v3-spin { animation: none; } }
 
-.v3-credits { position: absolute; right: 0; bottom: 0; z-index: 1; max-width: min(70%, 560px); padding: 2px 8px;
+/* Round 2's chrome over the stage (chrome.ts): the activity pill at the top's middle, the tool strip at the top
+   left (icons alone at the phone level and under 600 px), and at the bottom a column of the credits with the
+   card's slot under them, so the credits stand above an open card */
+.v3-activity { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 2; display: flex;
+               align-items: center; gap: 8px; max-width: calc(100% - 16px); box-sizing: border-box; padding: 6px 12px;
+               border-radius: 999px; background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
+               font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.v3-activity .v3-spin { width: 14px; height: 14px; flex: none; }
+.v3-activity-meter { display: block; flex: none; width: 70px; height: 4px; }
+.v3-tools { position: absolute; left: 8px; top: 8px; z-index: 2; display: flex; flex-direction: column; align-items: flex-start;
+            gap: 4px; }
+.v3-tools:empty { display: none; }
+#view3d .v3-tool { justify-content: flex-start; gap: 7px; padding: 0 10px 0 8px; box-shadow: var(--shadow); }
+#view3d .v3-tool.u-on { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.v3-tool-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8;
+                stroke-linecap: round; stroke-linejoin: round; }
+.v3-phone .v3-tool-label { display: none; }
+#view3d.v3-phone .v3-tool { padding: 0 8px; }
+.v3-bottom { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; display: flex; flex-direction: column;
+             align-items: flex-end; pointer-events: none; }
+.v3-bottom > * { pointer-events: auto; }
+.v3-card { align-self: stretch; margin: 0 8px 8px; }
+.v3-card:empty { display: none; }
+.v3-credits { max-width: min(70%, 560px); padding: 2px 8px;
               font-size: 11px; line-height: 1.4; color: var(--ink-2); background: color-mix(in srgb, var(--surface) 80%, transparent);
               border-top-left-radius: 6px; }
 .v3-credits a { color: inherit; }
@@ -108,7 +131,8 @@ html, body { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden;
 @media (max-width: 600px) {
   #view3d .v3-bar { padding: 4px 8px; gap: 2px 8px; }
   #view3d .v3-readout { flex: 1 1 100%; gap: 0 10px; font-size: 12.5px; }
-  #view3d .v3-long { display: none; }
+  #view3d .v3-long, #view3d .v3-tool-label { display: none; }
+  #view3d .v3-tool { padding: 0 8px; }
   #view3d .v3-short { display: inline; }
   #view3d .v3-toolbar { flex: 1 1 100%; flex-wrap: wrap; gap: 4px 8px; min-width: 0; }
   #view3d .v3-toolbar .u-row, #view3d .v3-walkbox, #view3d .v3-viewbox { display: contents; }

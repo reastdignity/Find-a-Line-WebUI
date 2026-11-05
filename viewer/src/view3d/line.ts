@@ -30,6 +30,14 @@ export interface LineView {
   setWalker(s: number): void;
   /** Called after the walker moved (by anyone), with its distance along the span. */
   onWalker(fn: (s: number) => void): void;
+  /** Called after `setAnchors` changed the line, with its anchors and whether they are moved ones (`edited`). */
+  onAnchors(fn: (anchors: Anchors, edited: boolean) => void): void;
+  /** Called after `setProfile` showed a profile's answer (null: it failed). */
+  onProfile(fn: (p: Profile | null) => void): void;
+  /** The anchors are moved ones, not the found line's. */
+  edited: boolean;
+  /** The profile shown (null: not in yet, or it failed). */
+  profile: Profile | null;
   /** The slider's label: the walk's controls go in it (walk.ts). */
   field: HTMLElement;
   slider: HTMLInputElement;
@@ -124,6 +132,8 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   field.append(el("span", "v3-field-label", t("ui.view3d.walker")), slider);
   scene.toolbar.append(field);
   const walkerFns: ((s: number) => void)[] = [];
+  const anchorFns: ((anchors: Anchors, edited: boolean) => void)[] = [];
+  const profileFns: ((p: Profile | null) => void)[] = [];
 
   const colour = (name: string | null) => {
     const c = name ? scene.token(name) : neutral;
@@ -132,7 +142,9 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   };
 
   const self: LineView = {
-    readout: null, s: w.start.s, span: w.span, anchors, field, slider, walker,
+    readout: null, s: w.start.s, span: w.span, anchors, field, slider, walker, edited: false, profile: null,
+    onAnchors(fn) { anchorFns.push(fn); },
+    onProfile(fn) { profileFns.push(fn); },
     setWalker(s: number) {
       const pose = walkerPose(w!, anchors, s);
       if (!pose) return;
@@ -168,13 +180,17 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       delete readoutBox.dataset.verdict;
       clearance.classList.remove("v3-nofit");
       self.setWalker(fraction * solved.span);
+      self.edited = isEdited;
+      self.profile = null;
+      for (const fn of anchorFns) fn(self.anchors, isEdited);
       return true;
     },
     setProfile(p: Profile | null, error?: string) {
       waiting.remove();
       failed.textContent = error || "";
       failed.classList.toggle("v3-hidden", !error);
-      if (!p) { colour(null); scene.invalidate(); return; }
+      self.profile = p;
+      if (!p) { colour(null); scene.invalidate(); for (const fn of profileFns) fn(null); return; }
       const r = self.readout = readoutOf(p);
       colour(VERDICT_COLOUR[r.verdict]);
       length.textContent = t("ui.view3d.length", {m: metres(r.length)});
@@ -186,6 +202,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       trees.classList.toggle("v3-hidden", !r.overTrees);
       readoutBox.dataset.filled = "1";
       scene.invalidate();
+      for (const fn of profileFns) fn(p);
     },
   };
   slider.addEventListener("input", () => self.setWalker(Number(slider.value)));

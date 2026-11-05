@@ -33,8 +33,46 @@ export interface Credits {
   remove(id: string): void;
 }
 
+/** The activity pill over the stage (round 2): what the page is loading or computing right now, with a spinner.
+ *  The entry set last shows; `fraction` (0 to 1) adds a small bar, null none. Hidden without an entry. */
+export interface Activity {
+  set(id: string, text: string, fraction?: number | null): void;
+  clear(id: string): void;
+}
+
+/** A button of the tool strip over the stage (round 2). */
+export interface ToolSpec {
+  /** The button's `data-tool` (for tests). */
+  id: string;
+  label: string;
+  /** The `d` of a path in a 16 × 16 box, drawn as a line in the text's colour. */
+  icon: string;
+  /** Its place in the strip, low first (docs/3d-view-contract.md, "Round 2": the tools' order). */
+  order: number;
+  /** A switch (`aria-pressed`, `setPressed`) and not an action. */
+  toggle?: boolean;
+  onClick(): void;
+}
+
+export interface ToolButton {
+  element: HTMLButtonElement;
+  setPressed(on: boolean): void;
+  setLabel(text: string): void;
+  setIcon(d: string): void;
+  remove(): void;
+}
+
+/** The tool strip over the stage: the controls of round 2 (the bar below keeps the walker, the imagery, the views). */
+export interface Tools {
+  add(spec: ToolSpec): ToolButton;
+}
+
 export interface Scene3D {
   level: Level;
+  activity: Activity;
+  tools: Tools;
+  /** The slot of the card over the stage's bottom (the profile's): it lies on the canvas, which keeps its size. */
+  card: HTMLElement;
   patch: Patch;
   meta: PatchMeta;
   origin: Origin;

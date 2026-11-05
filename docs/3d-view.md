@@ -505,10 +505,11 @@ the providers' terms (Google's EEA terms, Esri's agreement, Earth Pro's end).
 - Fathom (fabdem@fathom.global): do donations make our FABDEM use commercial?
 - GUGiK: the legal basis for reusing NMPT (and the 3D mesh) free of charge.
 
-## Several lines in one view (explored 2026-11-05, nothing built)
+## Several lines in one view (explored 2026-11-05)
 
-The user's question of round 2: could the 3D view show several highlines at once? This section is the exploration
-only: what the data allow, what each way costs, and which step would come first. No code was written for it.
+The user's question of round 2: could the 3D view show several highlines at once? This section is the exploration:
+what the data allow, what each way costs, and which step comes first. After it the user decided (the same day) to
+build A and B below in round 2 (docs/3d-view-contract.md, "Round 2", point 7); C waits.
 
 **What one patch holds.** The patch is a square of at least 1536 m around the line (`search.patch_of_line`:
 `max(1536, length + 500)` m, rounded up to 512 samples). Counted on the saved runs of the development data folder

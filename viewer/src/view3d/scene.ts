@@ -11,6 +11,7 @@ import {
   MeshBasicMaterial, MeshLambertMaterial, Vector3, type Material, type Object3D, type Texture,
 } from "three";
 import { t } from "../i18n";
+import { createActivity, createTools } from "./chrome";
 import { DATA_CREDITS } from "./credits";
 import type { Patch } from "./decode";
 import { featureEdges, TERRAIN_LAYER, WALL_OPACITY } from "./edges";
@@ -29,6 +30,10 @@ export interface SceneParts {
   stage: HTMLElement;
   toolbar: HTMLElement;
   credits: HTMLElement;
+  /** The elements of the activity pill, the tool strip and the card's slot (chrome.ts; round 2). */
+  activity: HTMLElement;
+  tools: HTMLElement;
+  card: HTMLElement;
 }
 
 export interface SceneCore extends Scene3D {
@@ -213,6 +218,9 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     pickTargets: chunks.map((c) => c.mesh),
     credits: creditsBox(parts.credits),
     toolbar: parts.toolbar,
+    activity: createActivity(parts.activity),
+    tools: createTools(parts.tools),
+    card: parts.card,
     invalidate: view.invalidate,
     onFrame: view.onFrame,
     beforeDraw: view.beforeDraw,

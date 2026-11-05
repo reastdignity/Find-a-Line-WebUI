@@ -609,6 +609,105 @@ home network: 15 lines recorded from five runs (Dolina Bolechowicka, Gryffenbach
 Serra de Bernia), each at the levels phone and full, with the checklist of wave P (the walker's views, Phone
 motion, the zoom, the phone turned, five minutes open). The user's verdict: "Looks good. Everything works."
 
+## Round 2 (2026-11-05, the user's nine points)
+After using the view the user listed nine points. Branch `view3d-round2` from `main` 94f1777, the agents'
+branches `v3r2-<name>` from it, each in its own worktree `.claude/worktrees/v3r2-<name>`. The coordinator owns this
+contract, `docs/`, `CLAUDE.md`, `README.md`, `viewer/src/view3d/scene-api.ts` and `chrome.ts`, `package.json` and its
+lock (no new dependency is expected: report a need), and merges. The mock-up the decisions were taken on:
+https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
+
+**Decisions (the user's, 2026-11-05: the recommendations of the mock-up)**
+1. *The walker's marker*: the pin's tip stands above the straight (unloaded) webbing at the walker's place, about
+   14 px over it (over the walker's head where that is higher), with a thin half-transparent leader from the head
+   to the tip; shown as before (while the walker is under 20 px high, never in the walker's eyes); the unloaded
+   webbing's opacity 0.4 → 0.25.
+2. *The imagery's counter*: in the activity pill at the top's middle of the stage (a spinner, "Imagery 12 / 84", a
+   small bar), no longer a text of the toolbar. The same pill shows the other waits of round 2.
+3. *"Only valid lines"*: a switch; with it on, the reach of the fixed anchor (where the other anchor may stand) is
+   an overlay on the terrain and the dragged handle rests on valid samples only. Valid: the clearance as
+   `/api/profile`'s verdict gives it (over the terrain; "over trees" a class of its own) and the run's limits of
+   length and height difference; none of the search's anchor rules (slope, prominence, drop, wall angle). Computed
+   by the server (`/api/reach`); its engine is chosen after agent M's measurement.
+4. *The profile*: the 2D result's chart (`viewer/src/Profile.tsx`) in a card over the stage's bottom, folded by
+   default, its state kept in the browser; the chart's cursor and the walker follow each other.
+5. *Saving a line*: into the favourites at once, no folder asked; the found line is the 2D result's own
+   favourite, a moved line a favourite of its new anchors; the 2D result opens a favourite that is not among the
+   run's lines as a measured line; "Back to the map" and "Copy link" carry the moved anchors.
+6. *The credits*: a clearly readable box whose data credits fold behind "Data credits" at every width, the state
+   kept in the browser; the imagery's and the ring's credits never fold (the providers' terms).
+7. *Several lines*: the user's favourites of the run inside the patch (a switch "Saved lines") and the lines of the
+   same spot handed over by the 2D result in the address (`&also=`), at most 20, as thin unloaded webbings in their
+   stored verdict's colour with a label; a click makes one the active line. The patch stays as it is.
+8. *Trees and buildings*: the run's obstacle surface less the terrain as a block of its own, asked for only when
+   the switch goes on, drawn as a half-transparent canopy mesh; no switch for a run without a surface model.
+9. *Lines from a point*: a tool; a click on the terrain asks `/api/reach` for that point and shows the overlay, a
+   fan of webbings to the representatives and their list (length, clearance, height difference, over trees); the
+   representatives are the 2D result's spots (`grouping.ts`); level `full` only.
+0. *Where the new controls stand*: a tool strip at the stage's top left (`Scene3D.tools`), icons alone at the phone
+   level and under 600 px; the bar below keeps the walker, the walk, the imagery and the views.
+
+**In the base already (the coordinator, before wave 1)**
+- `scene-api.ts`: `Scene3D.activity` (`set(id, text, fraction?)`, `clear(id)`: the entry set last shows),
+  `Scene3D.tools` (`add({id, label, icon, order, toggle?, onClick})` → `ToolButton` with `setPressed`, `setLabel`,
+  `setIcon`, `remove`; `icon` is the `d` of a path in a 16 × 16 box), `Scene3D.card` (the slot of the card, in the
+  column `.v3-bottom` under the credits, so the credits stand above an open card); `chrome.ts` implements the first
+  two, `main.ts` `frame` makes the elements (`.v3-activity`, `.v3-tools`, `.v3-bottom` > `.v3-credits`, `.v3-card`).
+- `line.ts` `LineView`: `onAnchors(fn(anchors, edited))` after every `setAnchors`, `onProfile(fn(profile | null))`
+  after every `setProfile`, the fields `edited` and `profile`.
+- The tools' ids and order: `valid` 1, `point` 2, `trees` 3, `others` 4, `profile` 5, `save` 6.
+- Activity ids: `imagery`, `profile`, `reach`, `trees`.
+- Texts in `locales/en.json`: `ui.view3d.tools`, `.activity_imagery` (`{{done}}`, `{{total}}`),
+  `.activity_profile`, `.profile`, `.profile_hide`, `.profile_waiting`, `.save`, `.save_moved`, `.saved`,
+  `.saved_moved`, `.saved_moved_short`, `.save_failed` (`{{message}}`), `.copy_link`, `.link_copied`. A text that
+  is missing: add it under `ui.view3d.*` and name it in the report.
+
+**Wave 1** (in parallel)
+
+| Agent | Branch | Points | Owns |
+| --- | --- | --- | --- |
+| U1 | `v3r2-ui` | 1, 2, 6 | `viewer/src/view3d/` `pin.ts`, `line.ts`, `interact.ts`, `webbing.ts`, `imagery.ts`, `scene.ts` (`creditsBox` only), `view3d.css`; its Node tests in `tests/test_viewer.py`; `tests/test_view3d.py` |
+| U2 | `v3r2-profile` | 4, 5 | new `viewer/src/view3d/profilecard.tsx`, `save.ts` and a stylesheet of their own imported by them (not `view3d.css`); `viewer/src/view3d/main.ts`, `page.ts`, `decode.ts` (`PatchMeta`); `viewer/src/Profile.tsx`; `viewer/src/result/model.ts` and a new module for `measuredLine`; the profile's rules of `viewer/src/result/view/result.css` moved to a stylesheet both bundles import; `viewer/src/app/c/` where the 2D result opens a favourite; `search.py` (`patch_of_line`'s meta only); `tests/test_patch.py`, a new `tests/test_view3d_profile.py`, `tests/test_shell_c.py` |
+| M | `v3r2-reach-measure` | 3, 9 | new `tools/perf_reach.py`, `tests/test_perf_reach.py` (a measurement, nothing of the product) |
+
+- *U1, the marker*: a pure function of `interact.ts` gives the pin's tip from the screen points of the walker's
+  head and of the unloaded webbing above the walker (Node-tested); the leader is an element of the overlay placed
+  through the CSSOM; `data-pin` as before.
+- *U1, the pill*: `imagery.ts` reports its tiles through `scene.activity.set("imagery", t("ui.view3d.activity_imagery",
+  …), done / total)` (at most every `COUNT_MS`) and clears it when done or stopped; `.v3-imagery-status` goes.
+  The loading stages before the terrain is drawn (`main.ts` `Stage`) stay as they are.
+- *U1, the credits*: `creditsBox` folds the data credits at every width behind the existing "Data credits" button
+  (`ui.credits.toggle`), open by default on screens of 768 px and wider and folded under it, the user's choice kept in
+  `localStorage` (`findaline.view3d.credits`, try/catch, the page right without it); 12.5 px type on the surface's
+  full colour with a border and the shadow, inside the stage's corner; the imagery's and the ring's entries always
+  in sight.
+- *U2, the patch's meta*: two more keys, `slope` and `leash_fall`, the run's as data.js writes them (what
+  `Profile.tsx`'s formula model needs); `decode.ts` `PatchMeta` and `tests/test_patch.py` with them. The body is
+  not touched.
+- *U2, the card*: `ProfilePanel` rendered into `scene.card` with `render` of `preact` (never `preact/compat`),
+  `compact`, behind the tool `profile`; a `Line` for it from the profile and the anchors through the moved
+  `measuredLine`; its hover sets the walker (`line.setWalker`) and the walker's moves set its cursor (a new optional
+  prop of `ProfilePanel`; the 2D result's chart unchanged without it); a new profile (`line.onProfile`) redraws it,
+  between a move and its profile it shows `ui.view3d.profile_waiting`. Folded by default, kept in `localStorage`
+  (`findaline.view3d.profile`). The 2D result must look as before: its chart's rules only move files.
+- *U2, saving*: the tool `save`; the token from `GET /api/runs/<run>/favourites` (`favourites.ts`
+  `loadRunFavourites`), the POST through `saveFavourite`; the found line's key is the page's `line` exactly as the
+  address gives it (the 2D result's key), a moved line's `lineParam` of its anchors; the values from the profile
+  (`favouriteData` of the measured `Line`). Pressed while the current line is saved, pressed again it removes it.
+  The readout's "edited" text becomes `ui.view3d.saved_moved` while a moved line is saved (`line.ts` is U1's: do it
+  from `save.ts` through the readout's element, or ask the coordinator for a hook). A failure shows
+  `ui.view3d.save_failed` in the readout's place for errors. `page.ts` `backUrl(page, line?)` and a "Copy link"
+  button in the top bar (`navigator.clipboard.writeText` inside the click, its rejection caught) carry the current
+  line. In the 2D result `model.openLinked` measures a line that is not among the run's (where the map may ask
+  profiles) instead of only saying so. Stored data: a favourite's row as today, no new field, no migration.
+- Checks for both: `node node_modules/typescript/bin/tsc --noEmit`, `node build.mjs`, `tests/test_viewer.py`,
+  `tests/test_view3d.py`, `tests/test_view3d_tiles.py`, `tests/test_view3d_ring.py`, `tests/test_patch.py`; U2 also
+  `tests/test_shell_c.py` (alone: it times out now and then on `main` too) and `tests/test_units.py -k "catalogue
+  or labels"`; no CSP violation on the 3D page; the size of `view3d.js` gzip in the report.
+
+**Wave 2** (after the checkpoint: the user chooses `/api/reach`'s engine from M's table; its formats are written
+here then): S the server (the block of trees and buildings, `/api/reach`), R the overlay and the switch, V the
+canopy, P the lines from a point (after R), K several lines (after U2).
+
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
   from your worktree (no editable install; `uv.lock` unchanged). Node: `npm ci` in your worktree's `viewer`, then
