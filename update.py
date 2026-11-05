@@ -213,8 +213,9 @@ def migrate(cache_dir: str, folder: Optional[str] = None, dry_run: bool = False)
         progress.download.start(f"re-encoding {top}", len(paths), unit="tile")
         with ThreadPoolExecutor(max_workers=MIGRATE_THREADS) as pool:
             list(pool.map(convert, paths))
+            # still old: held open by another process (not those another process converted meanwhile)
+            skipped = sum(pool.map(old_encoding, [p for p in paths if p not in now]))
         progress.download.finish(f"{len(now)} converted")
-        skipped = len(paths) - len(now)  # still old: held open by another process, or gone meanwhile
         left += skipped
         print(f"{top}: {len(now)} of {len(paths)} tiles converted, {sum(was.values()) / 1e9:.2f} GB -> "
               f"{(sum(was.values()) - sum(was[p] - n for p, n in now.items())) / 1e9:.2f} GB"

@@ -101,7 +101,8 @@ def reencode(cache_dir: str, path: str) -> bool:
     and then given up quietly: the old tile stays, as it was, and the next call converts it. The index row keeps
     its times and gets the file's new sha256 (cache.reencoded). True: converted now."""
     with tile_lock(cache_dir, path):
-        if not old_encoding(path):
+        if not old_encoding(path):  # converted by another process meanwhile, or gone
+            _NEW[path] = _signature(path)
             return False
         try:
             with rio.open(path) as src:
@@ -134,9 +135,11 @@ def reencode_paths(cache_dir: str, paths: Sequence[str], threads: int = 0, quiet
         return 0, 0
     workers = max(1, threads or DOWNLOAD_THREADS)
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        old = [p for p, is_old in zip(todo, pool.map(old_encoding, todo)) if is_old]
-        for p in todo:
-            if p not in old:
+        old = []
+        for p, is_old in zip(todo, pool.map(old_encoding, todo)):
+            if is_old:
+                old.append(p)
+            else:
                 _NEW[p] = _signature(p)
         if not old:
             return 0, 0
@@ -149,7 +152,7 @@ def reencode_paths(cache_dir: str, paths: Sequence[str], threads: int = 0, quiet
                 progress.download.update(1)
         if not quiet:
             progress.download.finish(f"{converted} converted")
-        left = sum(_NEW.get(p) != _signature(p) for p in old)
+        left = sum(pool.map(old_encoding, [p for p in old if _NEW.get(p) != _signature(p)]))
     return converted, left
 
 
