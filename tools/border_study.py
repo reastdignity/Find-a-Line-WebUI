@@ -93,6 +93,7 @@ SAXONY = Side("saxony", "osm:Sachsen", "Saxony")
 CZECHIA = Side("czechia", "osm:Česko", "Czechia")
 BAVARIA = Side("bavaria", "osm:Bayern", "Bavaria")
 AUSTRIA = Side("austria", "osm:Österreich", "Austria")
+SOUTH_TYROL = Side("south_tyrol", "osm:Südtirol", "South Tyrol")
 PLACES = {p.id: p for p in (
     Place("tatry", "Tatras: Kasprowy Wierch, Rysy, Gerlach", "49.16,19.98,49.25,20.20", SLOVAKIA, POLAND,
           "the main ridge"),
@@ -103,6 +104,9 @@ PLACES = {p.id: p for p in (
           "the Elbe in its canyon, then the sandstone plateau"),
     Place("wetterstein", "Wetterstein: Zugspitze, Hochwanner, Dreitorspitze", "47.37,10.94,47.44,11.18", BAVARIA,
           AUSTRIA, "the main ridge"),
+    # A neighbour coarser than the grid: South Tyrol's 2.5 m data on Austria's grid
+    Place("zillertal", "Zillertal Alps: Hochfeiler, Schwarzenstein, Großer Löffler", "46.95,11.70,47.04,11.92", AUSTRIA,
+          SOUTH_TYROL, "the main ridge"),
 )}
 
 
