@@ -10,6 +10,9 @@
 // and the profile requests go through its lane (a reach request never runs beside one). `Edit.anchors` and
 // `Edit.setAnchors` let other modules (the lines from a point, the several lines) read the line's anchors and set
 // them as an edit; at the phone level they work too (a reset button appears at the first edit), the handles do not.
+// Round 2, point 9 (point.ts, "Lines from a point"): `Edit.reach` (the lane's third slot: the reach of a picked point,
+// overlay.ts `PointReach`) and `Edit.pick` (the terrain under a screen point, with the bounds trees made at the first
+// call); both exist at level full only.
 
 import { Vector3, type BufferGeometry, type Mesh } from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
@@ -17,7 +20,7 @@ import { t } from "../i18n";
 import type { Profile } from "../types";
 import { lineParam, profileQueue } from "./interact";
 import type { Anchors, LineView } from "./line";
-import { createValid, type Valid } from "./overlay";
+import { createValid, type PointReach, type Valid } from "./overlay";
 import { currentPage, type PageRequest } from "./page";
 import type { ReachGet } from "./reach";
 import type { SceneCore } from "./scene";
@@ -34,6 +37,12 @@ export interface Edit {
    *  line (a saved one, one handed over by the 2D result): the profile is asked for that key and `line.key`
    *  keeps it for saving and the links. */
   setAnchors(anchors: Anchors, key?: string | null): boolean;
+  /** The reach of a picked point through the lane of "Only valid lines" (the tool "Lines from a point"); null at
+   *  the phone level. */
+  reach: PointReach | null;
+  /** The terrain under a point of the screen (CSS pixels of the page) as grid metres and the distance from the
+   *  camera; null where there is none. Makes the terrain's bounds trees at the first call. Null at the phone level. */
+  pick(clientX: number, clientY: number): {x: number; y: number; distance: number} | null;
 }
 
 export interface EditOptions {
@@ -112,6 +121,8 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
       for (const k of [0, 1] as const) if (!same(before[k], next[k])) valid?.moved(k);
       return true;
     },
+    reach: null,
+    pick: () => null,
   };
   if (!full) return edit;
 
@@ -132,7 +143,7 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
     get: options.getReach,
   }, notes);
 
-  // The terrain's bounds trees, made at the first drag (a few hundred ms for the largest meshes)
+  // The terrain's bounds trees, made at the first drag or pick (a few hundred ms for the largest meshes)
   let picking = false;
   const pickable = () => {
     if (picking) return;
@@ -146,6 +157,15 @@ export function createEdit(scene: SceneCore, line: LineView, root: HTMLElement,
   scene.onDispose(() => {
     if (picking) for (const target of scene.pickTargets) disposeBoundsTree.call((target as Mesh).geometry);
   });
+
+  edit.reach = valid.point;
+  edit.pick = (clientX, clientY) => {
+    pickable();
+    const hit = pointerRay(scene, clientX, clientY).raycaster.intersectObjects(scene.pickTargets, false)[0];
+    if (!hit) return null;
+    const g = scene.fromScene(hit.point);
+    return {x: g.x, y: g.y, distance: hit.distance};
+  };
 
   const handles = [0, 1].map((n) => {
     const k = n as 0 | 1;
