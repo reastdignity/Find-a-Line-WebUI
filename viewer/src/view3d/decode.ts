@@ -32,6 +32,8 @@ export interface PatchMeta {
   leash_fall: number;
   /** The run has a surface model: the block of trees and buildings can be asked (canopy.ts). */
   surface?: boolean;
+  /** The run's grouping distance in metres (options.ts: the lines from a point as the result's spots). */
+  group_distance?: number;
   ortho: unknown;
   attribution: unknown;
   sha256: string;

@@ -249,13 +249,17 @@ export function pictureUv(p: Picture): (x: number, y: number) => [number, number
 }
 
 export type Slot = 0 | 1;
+/** The lane serves the reaches of the two anchors (`Slot`) and, as a third, the reach of a point picked by the
+ *  tool "Lines from a point" (point.ts). */
+export const POINT_SLOT = 2;
+export type LaneSlot = Slot | typeof POINT_SLOT;
 
 /** What the lane reports. */
 export interface LaneHandlers {
   /** The reach of anchor `slot` (the answer of a request still wanted). */
-  got(slot: Slot, reach: Reach): void;
+  got(slot: LaneSlot, reach: Reach): void;
   /** The request for `slot` failed. */
-  failed(slot: Slot, error: unknown): void;
+  failed(slot: LaneSlot, error: unknown): void;
   /** A request is in flight (true) or the lane is idle (false). */
   busy(on: boolean): void;
 }
@@ -263,11 +267,11 @@ export interface LaneHandlers {
 /** The reach requests: one at a time, never while a profile request is in flight or waiting (the lane's profile
  *  side: `hold` and `guard`), only while `on`. `want(slot)` asks for the reach of anchor `slot` anew (an answer
  *  to an earlier ask of that slot is ignored); `drop(slot)` forgets the ask and any answer on its way. The slot
- *  `first` names goes first when both are wanted. */
+ *  `first` names goes first when several are wanted (then the others in the order of their numbers). */
 export interface Lane {
   on: boolean;
-  want(slot: Slot): void;
-  drop(slot: Slot): void;
+  want(slot: LaneSlot): void;
+  drop(slot: LaneSlot): void;
   /** Drop everything wanted and ignore the answer in flight (the switch went off). */
   stop(): void;
   /** A profile request is waiting to be sent (its debounce) or not: while it is, no reach request starts. */
@@ -278,18 +282,20 @@ export interface Lane {
   /** A request is in flight. */
   readonly running: boolean;
   /** Requests sent so far, in order, as the `want`s that were served (for tests). */
-  readonly log: readonly Slot[];
+  readonly log: readonly LaneSlot[];
 }
 
-export function reachLane(send: (slot: Slot) => Promise<Reach>, handlers: LaneHandlers,
-                          first: () => Slot = () => 0): Lane {
-  const wanted: [boolean, boolean] = [false, false], epoch = [0, 0];
-  let held = false, profiles = 0, on = false, current: {slot: Slot; epoch: number} | null = null;
-  const log: Slot[] = [], idle: (() => void)[] = [];
+const SLOTS: readonly LaneSlot[] = [0, 1, POINT_SLOT];
+
+export function reachLane(send: (slot: LaneSlot) => Promise<Reach>, handlers: LaneHandlers,
+                          first: () => LaneSlot = () => 0): Lane {
+  const wanted = [false, false, false], epoch = [0, 0, 0];
+  let held = false, profiles = 0, on = false, current: {slot: LaneSlot; epoch: number} | null = null;
+  const log: LaneSlot[] = [], idle: (() => void)[] = [];
   const kick = () => {
     if (!on || current || held || profiles > 0) return;
-    const a = first(), b: Slot = a === 0 ? 1 : 0, slot = wanted[a] ? a : wanted[b] ? b : null;
-    if (slot === null) return;
+    const a = first(), slot = [a, ...SLOTS.filter((s) => s !== a)].find((s) => wanted[s]);
+    if (slot === undefined) return;
     wanted[slot] = false;
     const mine = current = {slot, epoch: epoch[slot]};
     log.push(slot);
@@ -309,7 +315,7 @@ export function reachLane(send: (slot: Slot) => Promise<Reach>, handlers: LaneHa
     set on(value: boolean) { on = value; if (on) kick(); },
     want(slot) { epoch[slot]++; wanted[slot] = true; kick(); },
     drop(slot) { epoch[slot]++; wanted[slot] = false; },
-    stop() { on = false; for (const s of [0, 1] as const) { epoch[s]++; wanted[s] = false; } },
+    stop() { on = false; for (const s of SLOTS) { epoch[s]++; wanted[s] = false; } },
     hold(value) { held = value; if (!value) kick(); },
     guard<T>(fetch: () => Promise<T>): Promise<T> {
       profiles++;

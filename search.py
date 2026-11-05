@@ -2050,6 +2050,8 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "slope": sh.SLOPE, "leash_fall": sh.LEASH_FALL,
         # the run has a surface model: the page may ask the block of trees and buildings (part "canopy")
         "surface": bool(plan.nmpt),
+        # the run's grouping distance: the page groups the lines from a clicked point into spots as the result does
+        "group_distance": p.get("group_distance") or plan.group_distance,
         # as the run's data.js (mapping.save_map), its cache seen from the run's map.html
         "ortho": mp.ortho_entry(_dated_ortho(source, created.year), ortho_cache,
                                 os.path.join(paths.runs, meta["id"], "map.html")),

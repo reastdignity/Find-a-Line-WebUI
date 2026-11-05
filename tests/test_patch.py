@@ -131,6 +131,7 @@ def test_patch_heights_are_the_clips(clip_data, tmp_path):
     import helpers
     assert (patch["slope"], patch["leash_fall"]) == (helpers.SLOPE, helpers.LEASH_FALL)
     assert patch["surface"] is bool(meta["params"]["nmpt"])  # the page offers trees and buildings only then
+    assert patch["group_distance"] == meta["params"]["group_distance"] > 0  # the spots of the lines from a point
     assert patch["ortho"] is None and patch["attribution"] == meta["attribution"]  # local files: no orthophoto
     json.dumps(patch, allow_nan=False)  # plain JSON
 

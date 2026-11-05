@@ -57,6 +57,7 @@ is asked of the coordinator, not decided alone. The coordinator updates this fil
   | `rigging`, `model` | the run's, as data.js |
   | `slope`, `leash_fall` | the formula model's constants as data.js has them (round 2: the page's profile chart) |
   | `surface` | true when the run has a surface model (round 2: the page may ask `part=canopy`) |
+  | `group_distance` | the run's grouping distance in metres (round 2: the lines from a point grouped as the result's spots) |
   | `ortho` | the run's `ortho` entry exactly as `mapping.save_map` writes it into data.js (`null` without one) |
   | `attribution` | the run's data credits as data.js `attribution` |
   | `sha256` | hex sha256 of the deflated heights |

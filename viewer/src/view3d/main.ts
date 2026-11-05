@@ -25,6 +25,7 @@ import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
 import { createOthers } from "./otherlines";
 import { createPin } from "./pin";
+import { createPoint } from "./point";
 import { backUrl, currentPage, patchUrl, viewUrl, type PageRequest } from "./page";
 import { createProfileCard } from "./profilecard";
 import { createRing, ringUrl, type Ring } from "./ring";
@@ -247,6 +248,7 @@ async function start() {
     edit = createEdit(scene, line, root, (l) => fetchProfile(page.run, l), () => walk.stop(),
                       {parent: ui.bar, before: ui.note.nextElementSibling});
     createViews(scene, line, root, {parent: ui.bar, before: ui.note.nextElementSibling});
+    createPoint(scene, line, edit);  // round 2, point 9: the lines from a clicked point (level full only)
     // Round 2: the profile card and saving the line shown (the found line's key is the address's; a moved line's
     // the anchors'), and the links back to the map and to this view follow it
     const current = currentOf(scene.lonLat, line, page.line);
