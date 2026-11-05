@@ -2083,7 +2083,11 @@ PHONE_SCRIPT = """
   const out = document.createElement("pre");
   out.id = "result";
   const wait = (ok, then, tries = 150) => ok() ? then() : tries ? setTimeout(() => wait(ok, then, tries - 1), 200) : then();
-  wait(() => document.querySelector(".r-details .r-dtitle"), () => {
+  // Measured once the sheet's profile is done (its chart, or an error), not when the line's details first
+  // show: ProfileDock takes even a saved profile in an effect, which Preact runs after the next frame (or
+  // 35 ms of the page's time without one), so for that while the dock still says "Computing..."
+  const dock = () => document.querySelector(".u-sheet .r-dock");
+  wait(() => document.querySelector(".r-details .r-dtitle") && dock() && !dock().querySelector("[aria-busy]"), () => {
     out.textContent = JSON.stringify({width: innerWidth, sheet: !!document.querySelector(".u-sheet"),
       panel: !!document.querySelector(".r-panel"),
       head: (document.querySelector(".u-sheet-head .r-eyebrow") || {}).textContent || "",
