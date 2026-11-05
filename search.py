@@ -2033,6 +2033,8 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "rigging": dataclasses.asdict(plan.rigging), "model": p["model"],
         # the formula model's constants as data.js writes them (mapping.map_heads), for the page's profile chart
         "slope": sh.SLOPE, "leash_fall": sh.LEASH_FALL,
+        # the run has a surface model: the page may ask the block of trees and buildings (part "canopy")
+        "surface": bool(plan.nmpt),
         # as the run's data.js (mapping.save_map), its cache seen from the run's map.html
         "ortho": mp.ortho_entry(_dated_ortho(source, created.year), ortho_cache,
                                 os.path.join(paths.runs, meta["id"], "map.html")),

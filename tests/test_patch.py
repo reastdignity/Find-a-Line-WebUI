@@ -130,6 +130,7 @@ def test_patch_heights_are_the_clips(clip_data, tmp_path):
     # The formula model's constants, as the run's data.js has them (the page's profile chart needs them)
     import helpers
     assert (patch["slope"], patch["leash_fall"]) == (helpers.SLOPE, helpers.LEASH_FALL)
+    assert patch["surface"] is bool(meta["params"]["nmpt"])  # the page offers trees and buildings only then
     assert patch["ortho"] is None and patch["attribution"] == meta["attribution"]  # local files: no orthophoto
     json.dumps(patch, allow_nan=False)  # plain JSON
 

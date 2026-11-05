@@ -19,6 +19,7 @@ import { nextPaint } from "../paint";
 import { measure, timed } from "../perf";
 import type { Profile } from "../types";
 import { decodeValues, inflate, splitAnswer, toHeights, type Patch } from "./decode";
+import { createCanopy } from "./canopy";
 import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
@@ -270,6 +271,7 @@ async function start() {
       imagery = createImagery(scene!, {runId: page.run, esriKey: esriKey(), shore: patch.shore ?? null});
       const url = ringUrl();
       if (url) ring = createRing(scene!, imagery, url);
+      createCanopy(scene!);  // round 2: trees and buildings, a tool only for a run with a surface model
       ready();
     }
   });

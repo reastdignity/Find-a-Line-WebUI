@@ -42,12 +42,14 @@ export interface Current {
 }
 
 /** The line of `view` (line.ts): the found line's `foundKey` as it is, or while moved the anchors' `lineParam`. */
-export function currentOf(lonLat: (x: number, y: number) => [number, number], view: Pick<LineView, "anchors" | "edited" | "profile">,
+export function currentOf(lonLat: (x: number, y: number) => [number, number],
+                          view: Pick<LineView, "anchors" | "edited" | "profile"> & {key?: string | null},
                           foundKey: string): Current {
   const found = canonicalKey(foundKey);
   let cache: {key: string; profile: Profile; line: Line | null} | null = null;
   const key = () => {
     if (!view.edited) return found;
+    if (view.key) return canonicalKey(view.key);  // a line taken from outside under its own key (line.ts)
     const [a, b] = view.anchors;
     return canonicalKey(lineParam(lonLat(a.x, a.y), lonLat(b.x, b.y)));
   };

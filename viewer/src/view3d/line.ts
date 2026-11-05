@@ -25,7 +25,11 @@ export interface LineView {
   setProfile(p: Profile | null, error?: string): void;
   /** New anchors: the webbing solved again, neutral and marked edited (`edited`) until `setProfile`; false when
    *  the sag solver fails for them (nothing changed). */
-  setAnchors(anchors: Anchors, edited: boolean): boolean;
+  setAnchors(anchors: Anchors, edited: boolean, key?: string | null): boolean;
+  /** The key ("lat1,lon1,lat2,lon2") of a line taken from outside whose key is known (a saved line's, one handed
+   *  over by the 2D result: round 2, points 7 and 9), so saving and the links name that line and not the rounded
+   *  place of its anchors; null for the found line and for dragged anchors. */
+  key: string | null;
   /** The walker at distance `s` along the span. */
   setWalker(s: number): void;
   /** Called after the walker moved (by anyone), with its distance along the span. */
@@ -145,7 +149,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   };
 
   const self: LineView = {
-    readout: null, s: w.start.s, span: w.span, anchors, field, slider, walker, edited: false, profile: null,
+    readout: null, s: w.start.s, span: w.span, anchors, field, slider, walker, edited: false, profile: null, key: null,
     unloadedAt(s: number) { return unloadedAt(w!, anchors, s); },
     onAnchors(fn) { anchorFns.push(fn); },
     onProfile(fn) { profileFns.push(fn); },
@@ -163,7 +167,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       scene.invalidate();
     },
     onWalker(fn) { walkerFns.push(fn); },
-    setAnchors(next: Anchors, isEdited: boolean) {
+    setAnchors(next: Anchors, isEdited: boolean, key: string | null = null) {
       const solved = webbing(next, scene.meta.rigging);
       if (!solved) return false;
       const fraction = w!.span > 0 ? self.s / w!.span : 0;
@@ -185,6 +189,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
       clearance.classList.remove("v3-nofit");
       self.setWalker(fraction * solved.span);
       self.edited = isEdited;
+      self.key = isEdited ? key : null;
       self.profile = null;
       for (const fn of anchorFns) fn(self.anchors, isEdited);
       return true;
