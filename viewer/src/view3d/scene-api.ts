@@ -34,7 +34,8 @@ export interface Credits {
 }
 
 /** The activity pill over the stage (round 2): what the page is loading or computing right now, with a spinner.
- *  The entry set last shows; `fraction` (0 to 1) adds a small bar, null none. Hidden without an entry. */
+ *  The entry added last shows (setting an entry again changes it in place: the imagery's count never hides a
+ *  wait that began after it); `fraction` (0 to 1) adds a small bar, null none. Hidden without an entry. */
 export interface Activity {
   set(id: string, text: string, fraction?: number | null): void;
   clear(id: string): void;

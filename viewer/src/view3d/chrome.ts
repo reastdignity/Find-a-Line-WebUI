@@ -12,7 +12,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string): HTMLEle
   return e;
 }
 
-/** The activity pill in `box` (a `role="status"` element of the stage): the entry set last shows. */
+/** The activity pill in `box` (a `role="status"` element of the stage): the entry added last shows. */
 export function createActivity(box: HTMLElement): Activity {
   const entries = new Map<string, {text: string; fraction: number | null}>();
   const text = el("span", "v3-activity-text"), meter = el("span", "u-prog v3-activity-meter"), fill = el("i", "");
@@ -29,8 +29,7 @@ export function createActivity(box: HTMLElement): Activity {
   render();
   return {
     set(id, t, fraction = null) {
-      entries.delete(id);  // set again: it becomes the last one
-      entries.set(id, {text: t, fraction});
+      entries.set(id, {text: t, fraction});  // an entry set again keeps its place: a count's updates hide no later entry
       render();
     },
     clear(id) { if (entries.delete(id)) render(); },
