@@ -802,7 +802,7 @@ const pages = [m.parsePage("", hash, false), m.parsePage("", hash, true), m.pars
 console.log(JSON.stringify({pages, urls: pages.slice(0, 2).map(m.patchUrl), back: m.backUrl(pages[0])}));""")
     pages = found["pages"]
     assert pages[0] == {"run": "2026-11-01_12-00_Żabi Koń_ab12", "line": "50.1559508,19.7562722,50.1561234,19.7571234",
-                        "level": "full"}
+                        "level": "full", "also": []}
     assert [p["level"] for p in pages[:4]] == ["full", "phone", "full", "phone"]
     assert pages[4]["line"] is None and pages[5]["line"] is None
     run = "2026-11-01_12-00_%C5%BBabi%20Ko%C5%84_ab12"

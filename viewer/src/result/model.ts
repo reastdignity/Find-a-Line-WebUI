@@ -305,6 +305,17 @@ export class ResultModel {
     return this.groups.find((g) => g.members.includes(l));
   }
 
+  /** The other lines of the spot of `l` (its group among the groups shown) that belong to its run, in the group's
+   *  order, at most `max`: what the 3D view's link hands over besides the line itself (`&also=`). A line alone in its
+   *  spot, or not among the groups shown, has none. */
+  alsoOf(l: Line, max = 20): Line[] {
+    const sel = this.selected?.group;
+    const group = sel && sel.members.includes(l) ? sel : this.groupOf(l);
+    if (!group) return [];
+    const run = this.runOf(l);
+    return group.members.filter((m) => m !== l && this.runOf(m) === run).slice(0, max);
+  }
+
   // --- changes ---
 
   setState(next: LinesState) {

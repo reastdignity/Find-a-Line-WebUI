@@ -12,14 +12,14 @@ import { measuredLine } from "../result/measured";
 import type { Line, Profile } from "../types";
 import { lineParam } from "./interact";
 import type { LineView } from "./line";
+import { canonicalKey } from "./page";
 import type { SceneCore } from "./scene";
 import { readoutOf } from "./webbing";
 
-/** A line's key as the 2D result writes it (JavaScript's numbers, keys.ts lineCoords): "50.1234500,19.5" is
- *  "50.12345,19.5". Both the found line's key and a moved line's go through it. */
-export function canonicalKey(key: string): string {
-  return key.split(",").map(Number).join(",");
-}
+// A line's key as the 2D result writes it (JavaScript's numbers, keys.ts lineCoords): "50.1234500,19.5" is
+// "50.12345,19.5". Both the found line's key and a moved line's go through it (page.ts, which the address's lines use
+// as well).
+export { canonicalKey };
 
 /** The line of a key ("lat1,lon1,lat2,lon2") and its profile, as the measured line of the 2D result, `over` from the
  *  profile's verdict (clear over the terrain, not over trees and buildings); null when an anchor has no terrain data
@@ -65,16 +65,28 @@ export function currentOf(lonLat: (x: number, y: number) => [number, number],
   };
 }
 
+/** The user's favourites of the run as `createSave` knows them (never a second request): the keys in their canonical
+ *  form (`saved`, kept up to date as lines are saved and removed), whether the request answered (`known()`), and a call
+ *  after the answer and after every change (`onChange`). The request gives keys and folders, not the lines' values. */
+export interface Favourites {
+  saved: Set<string>;
+  known(): boolean;
+  onChange(fn: () => void): void;
+}
+
 const ICON = "M8 1.8l1.9 4 4.3.5-3.2 3 .9 4.3L8 11.4 4.1 13.6 5 9.3 1.8 6.3l4.3-.5z";
 
 /** The tool `save` (order 6): a toggle for the current line. Hidden until the run's favourites are known, and for
  *  good if that request fails (signed out, a page without favourites). */
-export function createSave(scene: SceneCore, view: LineView, runId: string, current: Current, readout: HTMLElement) {
+export function createSave(scene: SceneCore, view: LineView, runId: string, current: Current, readout: HTMLElement):
+    Favourites & {refresh(): void} {
   const button = scene.tools.add({id: "save", label: t("ui.view3d.save"), icon: ICON, order: 6, toggle: true,
                                   onClick: () => { void click(); }});
   button.element.classList.add("v3-hidden");
   const saved = new Set<string>();
   let busy = false, known = false;
+  const changed: (() => void)[] = [];
+  const notify = () => { for (const fn of changed) fn(); };
   // A failure over the readout, apart from the profile's own (line.ts keeps that one)
   const failure = document.createElement("span");
   failure.className = "v3-read v3-failed v3-save-failed v3-hidden";
@@ -115,6 +127,7 @@ export function createSave(scene: SceneCore, view: LineView, runId: string, curr
       const [lat1, lon1, lat2, lon2] = key.split(",").map(Number);
       await saveFavourite(runId, line ?? {lat1, lon1, lat2, lon2} as Line, on);  // the token of loadRunFavourites
       if (on) saved.add(key); else saved.delete(key);
+      notify();
     } catch (e) {
       failure.textContent = t("ui.view3d.save_failed", {message: (e as Error).message});
       failure.classList.remove("v3-hidden");
@@ -130,6 +143,7 @@ export function createSave(scene: SceneCore, view: LineView, runId: string, curr
     known = true;
     button.element.classList.remove("v3-hidden");
     refresh();
+    notify();
   }, () => button.remove());
-  return {saved, refresh};
+  return {saved, refresh, known: () => known, onChange(fn) { changed.push(fn); }};
 }

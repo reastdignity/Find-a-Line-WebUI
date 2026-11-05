@@ -466,6 +466,9 @@ def first_line(data_dir, run_id: str) -> str:
 PHONE_LINK_SCRIPT = """
 const LINE = "%(line)s";
 const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
+// the other lines of the selected line's spot, as the 3D view's link hands them over (&also=, at most 20)
+const alsoOf = (m) => { const keys = m.alsoOf(m.selected.line, 20).map((l) => m.lineLink(l));
+                        return keys.length ? "&also=" + encodeURIComponent(keys.join(";")) : ""; };
 run({
   linked(next) { wait(() => model() && model().selected && $(".u-sheet-head .r-eyebrow"), () => {
     result.linked = model().lineLink(model().selected.line) === LINE;
@@ -559,6 +562,9 @@ def add_credits(data_dir, run_id: str):
 # The map of a result: the points of its lines, what lies at a point, a click there as a browser sends it
 MAP_JS = """
 const model = () => window.FINDALINE_RESULT && window.FINDALINE_RESULT.model;
+// the other lines of the selected line's spot, as the 3D view's link hands them over (&also=, at most 20)
+const alsoOf = (m) => { const keys = m.alsoOf(m.selected.line, 20).map((l) => m.lineLink(l));
+                        return keys.length ? "&also=" + encodeURIComponent(keys.join(";")) : ""; };
 const map = () => window.FINDALINE_MAP, view = () => window.FINDALINE_RESULT.view;
 const box = () => map().getContainer().getBoundingClientRect();
 const point = (lat, lon) => map().layerPointToContainerPoint(map().project([lat, lon]).subtract(map().getPixelOrigin()));
@@ -612,7 +618,8 @@ run({
                      attributionAbove: rect(".leaflet-bottom.leaflet-right").bottom <= card.top + 1,
                      scaleAbove: rect(".leaflet-bottom.leaflet-left").bottom <= card.top + 1};
       result.view3d = [($(".c-col-details .r-view3d") || {getAttribute: () => ""}).getAttribute("href"),
-                       "/view3d#run=" + encodeURIComponent(SMALL) + "&line=" + encodeURIComponent(m.lineLink(m.selected.line))];
+                       "/view3d#run=" + encodeURIComponent(SMALL) + "&line=" + encodeURIComponent(m.lineLink(m.selected.line)) +
+                         alsoOf(m)];
       next();
     }));
   },
@@ -1021,7 +1028,8 @@ run({
     wait(() => $(".u-sheet .r-view3d"), () => {
       const m = model();
       result.view3d = [$(".u-sheet .r-view3d").getAttribute("href"),
-                       "/view3d#run=" + encodeURIComponent(SMALL) + "&line=" + encodeURIComponent(m.lineLink(m.selected.line))];
+                       "/view3d#run=" + encodeURIComponent(SMALL) + "&line=" + encodeURIComponent(m.lineLink(m.selected.line)) +
+                         alsoOf(m)];
       next();
     });
   },
