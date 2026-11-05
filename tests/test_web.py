@@ -2072,8 +2072,16 @@ RESULTS_SCRIPT = """
       });
     },
   };
+  // Where the steps got to is written at each step, and an error or a rejected promise of a step is recorded:
+  // a chain of steps that broke off would otherwise leave no result at all (CI on Windows, 2026-11-02)
+  window.addEventListener("error", (e) => { result.error = step + ": " + e.message; done(); });
+  window.addEventListener("unhandledrejection", (e) => { result.error = step + ": " + e.reason; done(); });
   const names = Object.keys(steps);
-  const go = (k) => { if (k >= names.length) return done(); step = names[k]; steps[step](() => go(k + 1)); };
+  const go = (k) => {
+    step = result.at = k >= names.length ? "end" : names[k];
+    done();
+    if (k < names.length) steps[step](() => go(k + 1));
+  };
   go(0);
 })();
 """
@@ -2133,7 +2141,7 @@ def test_results_ui(tmp_path, monkeypatch):
     page_with(RESULTS_SCRIPT, "desk")
     dom = _edge_page(tmp_path, f"runs/kittest/desk.html{query}", start_scheduler=True, size="1280,800")
     r = result_of(dom)
-    assert "timeout" not in r, json.dumps(r)
+    assert "timeout" not in r and r["at"] == "end", json.dumps(r)
     assert r["wide"] and r["rows"] == min(100, r["spots"]) and r["more"] == (r["spots"] > 100), r
     assert r["summary"].startswith(f"{r['spots']} spots"), r
     assert r["legend"][0] == "Clear", r
