@@ -49,12 +49,39 @@ export interface SceneCore extends Scene3D {
   onDispose(fn: () => void): void;
 }
 
+/** Where the user's last choice of the data credits (open or folded) is kept in the browser, and the width from
+ *  which they start open (ui.css folds them under it on the 2D result). */
+export const CREDITS_KEY = "findaline.view3d.credits";
+export const CREDITS_WIDE_PX = 768;
+
+/** Whether the data credits start open: the stored choice ("open" or "folded") if there is one, else open on a
+ *  wide screen and folded on a narrow one. */
+export function creditsStartOpen(stored: string | null, wide: boolean): boolean {
+  return stored === "open" ? true : stored === "folded" ? false : wide;
+}
+
+type Store = Pick<Storage, "getItem" | "setItem">;
+
+/** The browser's local storage, null where it is not there (the page is right without it). */
+function browserStore(): Store | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+function wideScreen(): boolean {
+  try { return matchMedia(`(min-width: ${CREDITS_WIDE_PX}px)`).matches; } catch { return false; }
+}
+
 /** The credits box: entries sorted by their order, hidden while empty. The run's data credits (DATA_CREDITS) fold
- *  behind a "Data credits" button on phones, as the 2D map's (layers.ts creditsHtml, ui.css .u-credits: under
- *  768 px; unfolded it stays so when the entries change); the imagery's and the ring's credits never fold. */
-function creditsBox(box: HTMLElement): Credits {
+ *  behind a "Data credits" button at every width (the 2D map's button, layers.ts creditsHtml, ui.css .u-credits;
+ *  view3d.css shows it above 768 px too), open at the start from 768 px up and folded under it, then as the user
+ *  last left them (`store`, try/catch: the page is right without it; unfolded it stays so when the entries
+ *  change); the imagery's and the ring's credits never fold. */
+export function creditsBox(box: HTMLElement, store: Store | null = browserStore(), wide: () => boolean = wideScreen):
+    Credits {
   const entries = new Map<string, {html: string; order: number}>();
-  let open = false;
+  let stored: string | null = null;
+  try { stored = store?.getItem(CREDITS_KEY) ?? null; } catch { /* storage refused: the default */ }
+  let open = creditsStartOpen(stored, wide());
   const label = t("ui.credits.toggle").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const render = () => {
     const list = [...entries.entries()].sort((a, b) => a[1].order - b[1].order);
@@ -66,6 +93,7 @@ function creditsBox(box: HTMLElement): Credits {
   box.addEventListener("click", (e) => {
     if (!(e.target as HTMLElement).closest?.(".u-credits-toggle")) return;
     open = !open;
+    try { store?.setItem(CREDITS_KEY, open ? "open" : "folded"); } catch { /* not kept */ }
     render();
     box.querySelector<HTMLElement>(".u-credits-toggle")?.focus();  // the new button
   });
