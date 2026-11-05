@@ -559,12 +559,48 @@ def test_heavy_tiles_take_the_spare_cores(tmp_path):
         assert m.claim("w1", 24)[1:] == ("b1", (1, 0, 2, 1), 12, True)  # (24 - 0) // 2 heavy running
         assert m.claim("w2", 24)[1:] == ("b2", (2, 0, 3, 1), 3, False)  # 40 < 5 % of 1000: light, 3 at most
         assert m.claim("w3", 24)[1:] == ("b3", (3, 0, 4, 1), 3, False)
-        assert m.threads(24, heavy=True) == 10  # (24 - 2 * 2 light) // 2 heavy
+        assert m.threads(24, heavy=True) == 11  # (24 - 1 * 2 light) // 2 heavy
         assert m.threads(24, heavy=False) == 3
         m.db.execute("UPDATE tiles SET status = 'done' WHERE name IN ('b1', 'b2')")
-        assert m.threads(24, heavy=True) == 22  # one heavy and one light left running
+        assert m.threads(24, heavy=True) == 23  # one heavy and one light left running
         m.db.execute("UPDATE tiles SET status = 'done' WHERE name != 'b0'")
         assert m.threads(24, heavy=True) == 24
+    finally:
+        m.close()
+
+
+def test_light_tiles_leave_the_heavy_ones_their_cores(tmp_path):
+    """A light tile counts as one logical core (LIGHT_CORES; its worker used 1.2-1.4 on average):
+    Slovakia's M2 band at 12 workers on 12 physical / 24 logical cores, its three heavy tiles beside
+    nine light ones, gives them 5 threads each (2 when a light tile counted two), 7 each for two
+    beside ten, while a light tile keeps 2 (24 // 12 workers); at 8 workers 6 and 9; on 6 workers
+    of 12 logical cores (the 5650G) one heavy tile beside five light ones takes 7."""
+    import country
+    m = country.Manifest(str(tmp_path))
+    try:
+        m.add_tiles("B", [_tile(f"b{k:03d}", (k, 0, k + 1, 1)) for k in range(100)])
+        m.set_weights({("B", "b000"): 600.0, ("B", "b001"): 440.0, ("B", "b002"): 290.0})
+
+        def running(heavy: int, light: int, processes: int):
+            m.db.execute("UPDATE tiles SET status = 'pending', worker = NULL")
+            m.db.execute("UPDATE tiles SET status = 'running' WHERE name IN "
+                         f"(SELECT name FROM tiles ORDER BY name LIMIT {heavy})")
+            m.db.execute(f"UPDATE tiles SET status = 'running' WHERE name IN "
+                         f"(SELECT name FROM tiles ORDER BY name LIMIT {light} OFFSET 3)")
+            m.set_run(["B"], None, processes)
+
+        running(3, 9, 12)
+        assert (m.threads(24, heavy=True), m.threads(24)) == (5, 2)  # (24 - 9) // 3
+        running(2, 10, 12)
+        assert (m.threads(24, heavy=True), m.threads(24)) == (7, 2)  # (24 - 10) // 2
+        running(3, 5, 8)
+        assert (m.threads(24, heavy=True), m.threads(24)) == (6, 3)
+        running(2, 6, 8)
+        assert m.threads(24, heavy=True) == 9
+        running(1, 5, 6)
+        assert (m.threads(12, heavy=True), m.threads(12)) == (7, 2)
+        running(1, 11, 12)  # the light part's last tiles beside the heaviest one
+        assert m.threads(24, heavy=True) == 13
     finally:
         m.close()
 

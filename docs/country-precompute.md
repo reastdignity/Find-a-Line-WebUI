@@ -101,8 +101,8 @@ what is missing from it.
 
 The pilot's runs were profiled on 2026-11-04 (docs/performance.md, "Round 4": the wall of a run is
 its heaviest tile at 3 threads, step 1 is 40-56 % of the tile seconds and all of an empty tile's, the
-border gaps of inland tiles, 60 B/px per worker); its stages 1-3 address bottleneck 4 and the memory
-per worker. The line search of `line-order` (in `main` since 5026838: its CPU −51-78 %) is in every
+border gaps of inland tiles; the 60 B/px per worker of that analysis was mostly reserved memory,
+corrected there); its stages 1-3 address bottleneck 4 and the memory per worker. The line search of `line-order` (in `main` since 5026838: its CPU −51-78 %) is in every
 number of this report. Its order of tests was measured to be close to the best, so more speed has to come from
 doing less (bands, grids, counting), not from the kernels.
 
@@ -339,7 +339,9 @@ last column of the table in section 2.
 | Pair search: wall time | 1 | 2.6 times as long |
 
 Both from `bench` (the same offline searches on each machine). On the 5650G the data and the work
-folder belong on its SSD: the first bench, on the Unraid array (FUSE), waited on I/O.
+folder belong on its SSD: the first bench, on the Unraid array (FUSE), waited on I/O. How many workers
+a run takes, how they share the cores, and what a country's relief and a computer change in that:
+docs/performance.md, "The recommendation: one core per light tile and no cap, and how to fit it to a country and a computer".
 
 ### 4.2 What a country run computes
 

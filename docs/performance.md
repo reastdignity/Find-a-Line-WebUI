@@ -1449,45 +1449,47 @@ run's timeline (`logs/samples-*.csv`). An empty cell was not measured: the scrat
 and of B2's runs were removed after their comparison, the base M2 run's timeline sampled no worker
 and the base L run had no timeline.
 
-| M2 band (2 m, cores of 10 km, 575 tiles) | Base (2026-11-03) | Stage 1 | Stage 1 + C1 | Stage 1 + B2 |
+| M2 band (2 m, cores of 10 km, 575 tiles) | Base (2026-11-03) | Stage 1 | Stage 1 + C1 | Stage 1 + B2 | C1 + B2, 8 workers | C1 + B2, 12 workers | + W1 (`LIGHT_CORES` 1), 12 workers |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Counts identical to the base | | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 | 575/575 |
+| Wall of the tiles | 46.8 min | 35.0 min | 37.9 min | 31.8 min | 33.5 min | 34.4 min | 32.5 min |
+| Workers × budget of each (`worker_count`) | 7 × 3.7 GiB | 8 × 3.7 GiB | 11 × 2.5 GiB | 8 × 3.7 GiB | 8 × 2.1 GiB | 12 × 2.1 GiB | 12 × 2.1 GiB |
+| Tile seconds | 4.14 h | 3.38 h | 4.12 h | 2.76 h | 3.02 h | 3.50 h | 3.73 h |
+| CPU seconds of the tiles | 11.85 h | 11.25 h | 11.51 h | 10.01 h | 10.15 h | 10.44 h | 10.43 h |
+| Step 1 / "stitching terrain" | 1.64 / 0.67 h | | 1.92 / 0.74 h | 1.07 / 0.21 h | 1.24 / 0.21 h | 1.41 / 0.24 h | 1.67 / 0.24 h |
+| Median tile / an empty tile | 13.8 / 13.6 s | 11.9 / 11.5 s | 13.8 / 14.8 s | 8.9 / 8.3 s | 9.3 / 9.9 s | 10.5 / 11.4 s | 12.3 / 13.5 s |
+| The heaviest tile, E-350000_N-1190000 | 2804 s | 2097 s | 2271 s | 1908 s | 2009 s | 2063 s | 1951 s |
+| The light part done at | +33 min | +24 min | +20 min | +18 min | +21 min | +15 min | +17 min |
+| Machine CPU, mean | 75 % | 92 % | 90 % | 92 % | 93 % | 92 % | 95 % |
+| Free RAM: at the start / the least | 26.0 / 19.5 GiB | 32.6 / 24.7 GiB | 27.2 / 13.2 GiB | 30.6 / 23.3 GiB | 29.5 / 21.4 GiB | 31.7 / 17.5 GiB | 33.2 / 21.2 GiB |
+| Private per tile: median / max | 2.24 / 3.75 GiB | | 1.89 / 2.46 GiB | | 0.45 / 1.03 GiB | 0.45 / 0.97 GiB | 0.45 / 1.02 GiB |
+| Working set per tile: median / max | 1.21 / 2.80 GiB | | 0.89 / 1.36 GiB | | 0.88 / 1.36 GiB | 0.88 / 1.31 GiB | 0.91 / 1.36 GiB |
+| All workers, private: peak / mean | | 19.5 / 11.6 GiB | 28.3 / 12.1 GiB | 20.0 / 10.5 GiB | 6.9 / 2.5 GiB | 13.5 / 2.7 GiB | 10.9 / 3.0 GiB |
+| All workers, working set: peak / mean | | 8.7 / 4.5 GiB | 14.6 / 4.7 GiB | 9.7 / 4.1 GiB | 8.7 / 4.2 GiB | 15.4 / 4.5 GiB | 13.0 / 5.0 GiB |
+
+Stage 1 + C1 ran 105fff2, with OpenBLAS's reservations still in. C1 and B2 together, main of
+2026-11-04 (`LIGHT_CORES` 2), measured by stage 3's W1: against B2 alone at the same 8 workers C1's
+strips cost step 1 0.17 h (an empty tile 8.3 → 9.9 s, the band 31.8 → 33.5 min) on this PC with its
+memory free; at 12 workers again 34.3 min, with W1's rule again 32.7.
+
+| L band (5 m, cores of 20 km, 163 tiles) | Base (2026-11-03, the M + L run) | Stage 1 + B2 | C1 + B2 (the recount) | + W1 (`LIGHT_CORES` 1), 12 workers |
 | --- | ---: | ---: | ---: | ---: |
-| Counts identical to the base | | 575/575 | 575/575 | 575/575 |
-| Wall of the tiles | 46.8 min | 35.0 min | 37.9 min | 31.8 min |
-| Workers × budget of each (`worker_count`) | 7 × 3.7 GiB | 8 × 3.7 GiB | 11 × 2.5 GiB | 8 × 3.7 GiB |
-| Tile seconds | 4.14 h | 3.38 h | 4.12 h | 2.76 h |
-| CPU seconds of the tiles | 11.85 h | 11.25 h | 11.51 h | 10.01 h |
-| Step 1 / "stitching terrain" | 1.64 / 0.67 h | | 1.92 / 0.74 h | 1.07 / 0.21 h |
-| Median tile / an empty tile | 13.8 / 13.6 s | 11.9 / 11.5 s | 13.8 / 14.8 s | 8.9 / 8.3 s |
-| The heaviest tile, E-350000_N-1190000 | 2804 s | 2097 s | 2271 s | 1908 s |
-| The light part done at | +33 min | +24 min | +20 min | +18 min |
-| Machine CPU, mean | 75 % | 92 % | 90 % | 92 % |
-| Free RAM: at the start / the least | 26.0 / 19.5 GiB | 32.6 / 24.7 GiB | 27.2 / 13.2 GiB | 30.6 / 23.3 GiB |
-| Private per tile: median / max | 2.24 / 3.75 GiB | | 1.89 / 2.46 GiB | |
-| Working set per tile: median / max | 1.21 / 2.80 GiB | | 0.89 / 1.36 GiB | |
-| All workers, private: peak / mean | | 19.5 / 11.6 GiB | 28.3 / 12.1 GiB | 20.0 / 10.5 GiB |
-| All workers, working set: peak / mean | | 8.7 / 4.5 GiB | 14.6 / 4.7 GiB | 9.7 / 4.1 GiB |
-
-Stage 1 + C1 ran 105fff2, with OpenBLAS's reservations still in; C1 and B2 together on M2 is stage
-3's W1.
-
-| L band (5 m, cores of 20 km, 163 tiles) | Base (2026-11-03, the M + L run) | Stage 1 + B2 | C1 + B2 (the recount) |
-| --- | ---: | ---: | ---: |
-| Counts identical to the base | | 162/163 | 162/163 |
-| Wall of the L tiles | 38.2 min (M's tiles beside) | 18.6 min | 18.3 min |
-| Workers × budget of each (`worker_count`) | 6 × 4.7 GiB | 12 × 2.7 GiB | 12 × 1.6 GiB |
-| Tile seconds | 2.17 h | 1.51 h | 1.52 h |
-| CPU seconds of the tiles | | 5.41 h | 5.44 h |
-| Step 1 / "stitching terrain" | 0.94 h / not recorded | 0.38 / 0.08 h | 0.40 / 0.08 h |
-| Median tile / an empty tile | 25.9 / 20.1 s | 11.0 / 9.7 s | 12.5 / 10.9 s |
-| The heaviest tile, E-360000_N-1200000 | 2101 s | 1116 s | 1094 s |
-| The light part done at | +19 min | +6 min | +6 min |
-| Machine CPU, mean | | 86 % | 86 % |
-| Free RAM: at the start / the least | | 34.1 / 25.6 GiB | 33.0 / 23.2 GiB |
-| Private per tile: median / max | | | 0.40 / 0.91 GiB |
-| Working set per tile: median / max | | | 0.78 / 1.16 GiB |
-| A worker's working set, its peak over the run | 2.35 GiB | | 1.68 GiB |
-| All workers, private: peak / mean | | 25.7 / 9.0 GiB | 8.5 / 2.0 GiB |
-| All workers, working set: peak / mean | | 10.0 / 3.1 GiB | 10.5 / 3.2 GiB |
+| Counts identical to the base | | 162/163 | 162/163 | 162/163 |
+| Wall of the L tiles | 38.2 min (M's tiles beside) | 18.6 min | 18.3 min | 17.8 min |
+| Workers × budget of each (`worker_count`) | 6 × 4.7 GiB | 12 × 2.7 GiB | 12 × 1.6 GiB | 12 × 1.6 GiB |
+| Tile seconds | 2.17 h | 1.51 h | 1.52 h | 1.74 h |
+| CPU seconds of the tiles | | 5.41 h | 5.44 h | 5.40 h |
+| Step 1 / "stitching terrain" | 0.94 h / not recorded | 0.38 / 0.08 h | 0.40 / 0.08 h | 0.50 / 0.09 h |
+| Median tile / an empty tile | 25.9 / 20.1 s | 11.0 / 9.7 s | 12.5 / 10.9 s | 14.9 / 12.8 s |
+| The heaviest tile, E-360000_N-1200000 | 2101 s | 1116 s | 1094 s | 1069 s |
+| The light part done at | +19 min | +6 min | +6 min | +8 min |
+| Machine CPU, mean | | 86 % | 86 % | 88 % |
+| Free RAM: at the start / the least | | 34.1 / 25.6 GiB | 33.0 / 23.2 GiB | 33.3 / 23.7 GiB |
+| Private per tile: median / max | | | 0.40 / 0.91 GiB | 0.40 / 0.87 GiB |
+| Working set per tile: median / max | | | 0.78 / 1.16 GiB | 0.76 / 1.12 GiB |
+| A worker's working set, its peak over the run | 2.35 GiB | | 1.68 GiB |  |
+| All workers, private: peak / mean | | 25.7 / 9.0 GiB | 8.5 / 2.0 GiB | 8.8 / 2.2 GiB |
+| All workers, working set: peak / mean | | 10.0 / 3.1 GiB | 10.5 / 3.2 GiB | 10.9 / 3.4 GiB |
 
 The L tile that differs, E-360000_N-1200000, has 6 of its 402 225 769 lines in other keys of the
 cube, its lines, spots and spot records equal (B2's 5 m mosaic lies one float32 ULP from GDAL's in
@@ -1544,7 +1546,7 @@ no longer waits for it from +33 but from +24. What is left of the tail is the pa
 tile on the whole machine (its 2.1 billion pairs): splitting such a core (A4) or the count mode's
 parts over two processes would be the next step for it, not taken in this round. The CPU of the
 machine is at 92 % now, so stage 2's extra workers (C1) pay only where the memory, not the cores,
-set `worker_count` (this PC with other programs open; the 5650G).
+set `worker_count` (this PC with other programs open).
 
 **Where the gain comes from** (the user's question: not the eighth worker?). The light part of the
 band (3.38 h less the two heaviest tiles' 1.06 h = 2.32 h) took 23 min on 6 light workers and would
@@ -1601,7 +1603,7 @@ is no better (10-20 min of heavy tiles plus 23 of light ones). Lower means a sho
   in a process's RSS nor in a container's memory limit.
 - **`COUNT_PIXEL_BYTES` 64 → 32**: in strips and without those buffers a worker stands at 0.17 GiB
   of private bytes before a tile and rose at most 0.87 GiB during one (the Tatras tile of 474 M
-  lines at 24 threads: 16 B/px, in the pair search); 32 is twice that. A 53 Mpx tile needs 2.2 GiB
+  lines at 24 threads: 16 B/px, in the pair search); 32 is twice that. A 53 Mpx tile needs 2.1 GiB
   per worker instead of 3.7. In the L band's recount a worker's working set peaked at 1.68 GiB
   against its budget of 1.6: the memory-mapped grids' pages, which Windows can drop, while its
   private bytes stayed under 0.91 GiB. The free-disk check takes `_disk_bytes(plan)`
@@ -1670,10 +1672,9 @@ What it shows:
   memory, bound the run: `worker_count` gave 11 workers on 12 physical cores, which slowed every
   tile (3.38 → 4.12 h, the strips' extra second on border tiles included) and the run (37.9 min
   against 35.0 with 8). It pays on a machine whose memory sets fewer workers than cores: this PC
-  with its programs open (26 GiB free give 11 workers instead of 7), the 5650G of
-  docs/country-precompute.md. With 32 B/px, `worker_count` now gives 12 workers here whenever 31
-  GiB are free; how many workers these 12 cores carry best is for stage 3 to measure (a cap below
-  the physical cores would follow from it, not a guess).
+  with its programs open (26 GiB free give 12 workers instead of 7). With 32 B/px, `worker_count`
+  gives 12 workers here whenever 25 GiB are free; how many workers these 12 cores carry best is for
+  stage 3 to measure (a cap below the physical cores would follow from it, not a guess).
 - The floor of a band is still its heaviest tile (M2 1908 s, L 1116 s); with B2 the light part ends
   earlier (+18 min), so the heavy tile gets the idle cores sooner.
 
@@ -1749,6 +1750,101 @@ heavy for their 25 s each: harmless); the fit is Slovakia's (the claims follow t
 heavy set depends on the exponent); `_heavy_weight` takes the largest weight of the run's bands over
 their done tiles too, so after a first run stopped midway a later run's line weights are compared
 with the done tiles' relief weights (both about lines, within a factor of 2 at the top).
+
+- **W1, the light tiles' cores** (`LIGHT_CORES` 2 → 1 in `_threads`; `worker_count` unchanged: no
+  cap below the physical cores). 19 band runs on scratch copies (2026-11-04 20:17 to 11-05 06:37,
+  the exclusive lock, repeats within 0.2 min), every tile's counts identical to the user's: M2
+  575/575 in 9 runs (the first check of C1 and B2 together on M2), L 163/163 in 3, S 2122/2122 in 2
+  (C1 on S). The machine stood at 91-99 % of its 24 logical cores in every M2 and L run, so the
+  worker count moved the wall by 3 % at most (M2 33.5 / 33.7 / 34.4 min at 8 / 10 / 12 workers, L
+  17.8 / 18.2 / 18.3): fewer workers only move cores from the light tiles to the heaviest ones, which
+  end the band. A light tile's worker used 1.2-1.4 logical cores on average (about 2 in step 1's
+  bursts), while A1 reserved 2 per light tile: at 12 workers M2's three heavy tiles got 2 threads
+  each (the heaviest at 1.8 cores, 16 M pairs a minute) until the light part ended at +15 min. Their
+  tail alone checks 6-7 M pairs per core and minute against 9-11 beside light tiles, so the wall
+  follows the heavy tiles' pairs done when the light part ends; with one core per light tile they
+  get 5-7 threads.
+
+| Choice (this PC, scratch copies) | M2 | L | S |
+| --- | ---: | ---: | ---: |
+| Main of 2026-11-04: 12 workers, `LIGHT_CORES` 2 | 34.4 / 34.3 min | 18.3 min | |
+| A cap at 8 workers, `LIGHT_CORES` 2 | 33.5 min | 17.8 min | |
+| **`LIGHT_CORES` 1, no cap (taken)** | **32.5 / 32.7 min** | **17.8 min** | **29.3 min** |
+| `LIGHT_CORES` 1 and a cap at 8 workers | 31.7 min | | 32.6 min |
+| `LIGHT_CORES` 0 (the heavy tiles share every core), 12 workers | 32.8 min, the light tiles slower | | |
+
+| M2's heaviest tile, per 10 min of its pair search: threads / cores used / M pairs a minute | Main, 12 workers | `LIGHT_CORES` 1, 12 workers |
+| --- | ---: | ---: |
+| 1st 10 min | 2.0 / 1.8 / 16 | 5.2 / 3.5 / 30 |
+| 2nd 10 min | 8.1 / 6.7 / 66 | 9.2 / 6.6 / 69 |
+| 3rd 10 min | 14.9 / 11.7 / 84 | 17.0 / 13.5 / 90 |
+| The rest, alone | 24 / 19.2 / 119 | 24 / 19.4 / 117 |
+| Its pairs checked when the light part ended (of 2101 M) | 446 M at +15 min | 725 M at +17 min |
+
+A cap is not taken: on top of the new split it saves M2 another 0.8-1.0 min but costs the S band 3.3
+min (a band of light tiles takes every worker it gets: 29.3 min at 12 workers, 32.6 at 8, the
+machine at 80 and 62 %), and a run of the whole country is mostly light tiles (S is 2122 of its 3435).
+Open: more workers than physical cores for a band of light tiles (S at 12 workers left the machine at
+80 %); holding light claims back while heavy tiles run (by the measured rates at most about 3 min of
+M2); the heaviest tile stays the floor (M2 1901-2063 s, L 1069-1094 s), so splitting it (A4) is the
+next lever.
+
+### The recommendation: one core per light tile and no cap, and how to fit it to a country and a computer
+
+**The recommendation, the user's choice of 2026-11-05 among the options above: `LIGHT_CORES` 1 and the
+workers `worker_count` gives, with no cap.** The reasons:
+
+- A country is mostly light tiles (S is 2122 of Slovakia's 3435), and a band of light tiles takes
+  every worker it gets: a cap at 8 wins 0.8-1.0 min of M2 and loses 3.3 min of S.
+- The split costs a band without heavy tiles nothing (`_threads` reads it only for a heavy tile), and
+  in a band with heavy tiles it moves their pairs out of the tail, where a core checks 6-7 M pairs a
+  minute, into the light part, where it checks 9-11.
+- Beyond it nothing is left to win: with `LIGHT_CORES` 0 the heavy tiles got more threads but no more
+  cores, since the system shares a full machine thread by thread, and the light tiles ran slower.
+- It is scheduling only: no count depends on it, so a wrong value costs minutes, never results.
+
+These values come from one country and one computer: Slovakia, whose lines gather in the Tatras, on
+12 physical and 24 logical cores with 25 GiB or more free. The tables say what is measured; the rest
+is read from how `_threads` and `worker_count` work, to be checked with one band (below) before a
+long run.
+
+| A country's relief | What ends a band | What to expect | What to do |
+| --- | --- | --- | --- |
+| Lines gathered in a few massifs: a few heavy tiles among many light ones (Slovakia: measured) | The heaviest tile | The split pays a few %, the worker count hardly matters | The defaults |
+| Gentle everywhere, no tile heavy (measured on a band like that, S) | The light tiles: their seconds over the workers | The split plays no part, every worker counts, the machine stays below full (S at 12 workers: 80 %) | Every worker the memory and the cores allow, no cap; more workers than physical cores are untested |
+| High relief in most tiles: more heavy tiles than workers, the Alps or Norway (not measured) | The heavy tiles together: their CPU seconds over the cores | No light tile holds cores back, so the split plays little part; each tile runs on few threads, where a core checks the most pairs | No cap; check one band |
+
+Which row a country is shows at the start of its first run: `manifest.sqlite` holds each tile's
+`weight`, from the relief, and the tiles of at least `HEAVY_SHARE` of the largest are the heavy ones
+(Slovakia: 4 of M2's 575). A handful is the first row, none the second, more than the workers the
+third. The relief's constants are fitted on Slovakia: in another country the order of the claims
+holds (it follows the km² of steep slopes), while which tiles are heavy depends on `RELIEF_EXPONENT`.
+Later bands weigh by the lines counted, so a poor fit costs one band's order at most.
+
+| A computer | What sets the workers | What to expect | What to do |
+| --- | --- | --- | --- |
+| Memory for a worker on every physical core (this PC with 25 GiB free for M2, 12 × 2.1 GiB: measured) | The physical cores | A full machine: the split matters, and 8 to 12 workers lie within 3 % | The defaults |
+| Less memory: `worker_count` below the physical cores (7-8 workers before 32 B/px: measured) | The memory free when the run starts | The idle cores go to the heavy tiles under either split (6 threads instead of 5 at 7 workers of M2); a band of light tiles gains from every worker added | Close other programs before a run |
+| Fewer cores, two logical per physical (the 5650G: 6 workers, 12 logical; not measured) | The physical cores | A heavy tile beside five light ones takes 7 threads instead of 2 | The defaults; check one band |
+| One logical core per physical one (not measured) | The physical cores | Every tile gets 1 thread, a heavy one too: `LIGHT_CORES` 1 leaves it nothing, so here a cap below the cores may pay | Measure a cap on one band |
+| A slow disk for `work/` (the Unraid array: `bench` on the 5650G) | The disk | Step 1 waits on I/O, the machine stays well below full, and more workers do not help | The data and `work/` on an SSD |
+
+`COUNT_PIXEL_BYTES` is measured on bands without a surface model; a country with one holds about
+twice the grids in its work folders (`_disk_bytes` counts them): compare the tiles' `memory` with the
+budget after its first band.
+
+To check a country or a computer before a long run: count one band that holds a heavy tile, the
+smallest that does (L in Slovakia: 18 min), on a scratch copy of the country's folder, at the default
+workers and at about two thirds of them:
+
+    python findaline.py country run <id> --bands L --processes <N> --yes --data-dir <scratch>
+
+Compare the walls, not the tile seconds, which grow with the workers as the tiles slow each other
+down. The timeline `logs/samples-*.csv` tells the rest. A machine at 90 % or more with both walls
+within a few % is bound by its cores: leave the defaults. Well below that, look at the disks' MB/s and
+the free RAM before adding workers. A band that ends on one tile long after the light part
+(`running_tiles` at 1-3 for most of the run) gains from the split, not from more workers:
+`LIGHT_CORES` is a constant of `country.py`, and each value is one more run of that band.
 
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
