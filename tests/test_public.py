@@ -642,9 +642,13 @@ def test_event_stream_per_user(tmp_path, settings, account_settings, providers, 
         return connection, connection.getresponse()
 
     def jobs_seen(response):
+        # Up to the worker's line, which a stream writes after the events it catches up with; up to the
+        # first keep-alive was too short on a busy machine (the ping, written on its own timer, came first)
         lines = []
-        while not any(line.startswith(":") for line in lines):
-            lines.append(response.fp.readline().decode("utf-8").rstrip("\r\n"))
+        while not any(line.startswith("data:") and json.loads(line[5:]).get("kind") == "worker" for line in lines):
+            raw = response.fp.readline()  # the connection's timeout (20 s) bounds each read
+            assert raw, f"the stream ended: {lines}"
+            lines.append(raw.decode("utf-8").rstrip("\r\n"))
         return {json.loads(line[5:]).get("job") for line in lines if line.startswith("data:")} - {None}
 
     with _public_server(tmp_path, settings, account_settings, providers) as port:
@@ -2235,6 +2239,20 @@ def test_refusals_in_the_audit_log_once_per_window(tmp_path, settings, account_s
 def test_rate_limiters_forget(tmp_path, settings, account_settings, providers, monkeypatch):
     """The sign-in limiter keys a client by its address, an IPv6 one by its /64, and forgets the keys
     after their window (the moving window of limits' MemoryStorage kept every key; review A, 6)."""
+    import limits.storage.memory
+    import limits.strategies
+
+    class Clock:
+        """The time of limits' MemoryStorage, in the test's hands: the 300 sign-ins of a real clock
+        took over the keys' 2 s on a busy machine (keys of the first expired before the last was
+        counted: 106 of 300) and the six of one /64 could spread over more than a window."""
+        now = time.time()
+
+        def time(self):
+            return self.now
+    clock = Clock()
+    monkeypatch.setattr(limits.storage.memory, "time", clock)
+    monkeypatch.setattr(limits.strategies, "time", clock)
     monkeypatch.setattr(ac, "LOGIN_RATE", "4/second")
     app = _public_app(tmp_path, settings, account_settings, providers)
 
@@ -2253,9 +2271,12 @@ def test_rate_limiters_forget(tmp_path, settings, account_settings, providers, m
         login(f"2001:db8:{i:x}::1")
     limiter = app.state.limiters["login"]
     assert len(limiter.storage.storage) > 300
-    time.sleep(2.5)  # two windows: the sliding counter's keys expire
+    # The storage expires keys in a timer thread it starts on a count (10 ms later) unless one is
+    # pending: the last one has run before the clock moves, the next one is joined
+    limiter.storage.timer.join(10)
+    clock.now += 2.5  # two windows: the sliding counter's keys expire
     login("192.0.2.2")  # runs the expiry
-    time.sleep(0.5)
+    limiter.storage.timer.join(10)
     assert len(limiter.storage.storage) <= 2 and not limiter.storage.events
     assert web.client_key("2001:db8:1:2:aaaa::1") == "2001:db8:1:2::/64"
     assert web.client_key("::ffff:192.0.2.7") == "192.0.2.7" and web.client_key("?") == "?"
@@ -2405,8 +2426,10 @@ def test_event_stream_resumes_after_last_event_id(tmp_path, settings, account_se
         for i in range(5, 8):
             jobs.event(mine, "info", {"i": i})
             jobs.event(other, "info", {"i": i})
+        # Until the six and the worker's line: written after the events the stream catches up with (all
+        # six when it subscribed after the last), it came in a later read than they did on a busy machine
         data, deadline = b"", time.time() + 15
-        while time.time() < deadline and data.count(b"\"info\"") < 6:
+        while time.time() < deadline and (data.count(b"\"info\"") < 6 or b"\"worker\"" not in data):
             try:
                 data += sock.recv(65536)
             except socket.timeout:

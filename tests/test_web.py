@@ -247,7 +247,11 @@ def test_status_events_in_the_order_of_the_changes(tmp_path):
 
     def claim():
         while True:
-            if not jobs.claim("ready", "computing", "w") and readied.is_set():
+            # Done when a claim finds nothing although every job was set "ready" before it began: with
+            # readied looked at after the claim, a job set "ready" while that claim ran (the thread
+            # descheduled between the two) was left unclaimed
+            readied_before = readied.is_set()
+            if not jobs.claim("ready", "computing", "w") and readied_before:
                 return
 
     claimer = threading.Thread(target=claim)
@@ -341,7 +345,14 @@ def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
         seen.append(memory)
         raise ValueError("planned")
     monkeypatch.setattr(search, "plan_search", plan_search)
-    monkeypatch.setattr(sys, "stdout", sys.stdout)  # run_phase sends it to the job's events
+    # run_phase in this process: what it changes here is put back after the test (its stdout goes to the
+    # job's events, its progress listener writes events into this test's jobs.sqlite)
+    import osm
+    import progress
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
+    monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
     job = jobs.add({"params": params, "geometry": None}, "budget")
     jobs.set(job, "downloading")
     import jobs as jb
@@ -1144,8 +1155,12 @@ def test_event_stream(tmp_path, monkeypatch):
             connection.request("GET", url, headers=headers)
             response = connection.getresponse()
             assert response.status == 200 and response.getheader("content-type").startswith("text/event-stream")
+            # Up to a keep-alive and the worker's line, which follows the events the stream catches up with;
+            # up to the first keep-alive alone was too short on a busy machine (written on its own timer, a
+            # ping came before the events: test_public.py's test_event_stream_per_user)
             lines, started = [], time.time()
-            while not any(line.startswith(":") for line in lines) and time.time() - started < 15:
+            while not (any(line.startswith(":") for line in lines) and any('"kind": "worker"' in line for line in lines)) \
+                    and time.time() - started < 15:
                 lines.append(response.fp.readline().decode("utf-8").rstrip("\r\n"))
             connection.close()
             data = [json.loads(line[5:]) for line in lines if line.startswith("data:")]

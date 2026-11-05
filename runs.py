@@ -452,7 +452,17 @@ def _listed(run: Dict) -> Dict:
 
 def write_index(runs_dir: str, viewer: bool = True):
     """Rewrite runs.js (used by the maps) and index.html from the saved runs; viewer: install the
-    viewer (mapping.install_viewer) too, whose index.css the page needs (save_run's map did)."""
+    viewer (mapping.install_viewer) too, whose index.css the page needs (save_run's map did). One
+    process at a time (cache.runs_lock), so of two runs saved at once the later lists both."""
+    import mapping
+    if viewer:
+        mapping.install_viewer(runs_dir)  # its index.css styles the page (no inline styles: the CSP)
+    with cache.runs_lock(runs_dir):
+        _write_index(runs_dir)
+
+
+def _write_index(runs_dir: str):
+    import mapping
     runs = list_runs(runs_dir)
     # Written whole, then moved over the old files: a map or the app never reads half a list
     with cache.replacing(os.path.join(runs_dir, "runs.js"), "w", encoding="utf-8") as f:
@@ -476,9 +486,6 @@ def write_index(runs_dir: str, viewer: bool = True):
             f"<td class='n'>{r['summary']['lines']}</td><td class='n'>{r['summary']['spots']}</td>"
             f"<td>{' · '.join(links)}</td></tr>")
 
-    import mapping
-    if viewer:
-        mapping.install_viewer(runs_dir)  # its index.css styles the page (no inline styles: the CSP)
     with cache.replacing(os.path.join(runs_dir, "index.html"), "w", encoding="utf-8") as f:
         f.write(f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>Find-a-Line runs</title>
