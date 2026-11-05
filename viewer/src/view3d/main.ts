@@ -23,6 +23,7 @@ import { createCanopy } from "./canopy";
 import { createEdit, type Edit } from "./edit";
 import { createImagery, type Imagery } from "./imagery";
 import { createLine } from "./line";
+import { createOthers } from "./otherlines";
 import { createPin } from "./pin";
 import { backUrl, currentPage, patchUrl, viewUrl, type PageRequest } from "./page";
 import { createProfileCard } from "./profilecard";
@@ -252,10 +253,13 @@ async function start() {
     if (typeof patch.meta.slope === "number" && typeof patch.meta.leash_fall === "number") {
       createProfileCard(scene, line, current, patch.meta);
     }
-    createSave(scene, line, page.run, current, ui.readout);
+    const save = createSave(scene, line, page.run, current, ui.readout);
+    // The other lines of the view (round 2, point 7): the address's and the user's other saved lines of the run
+    const others = createOthers(scene, line, edit, root, {page, current, favourites: save,
+                                                          notes: {parent: ui.bar, before: ui.note.nextElementSibling}});
     line.onAnchors(() => { ui.back.href = backUrl(page, current.key()); });
-    ui.copy.addEventListener("click", () => copyLink(ui.copy, new URL(viewUrl(page, current.key(), location.search),
-                                                                        location.origin).href));
+    ui.copy.addEventListener("click", () => copyLink(ui.copy, new URL(
+      viewUrl(page, current.key(), location.search, others.also()), location.origin).href));
   } else ui.copy.classList.add("v3-hidden");
   root.dataset.vertices = String(scene.terrain.vertices);
   root.dataset.maxError = String(scene.terrain.maxError);

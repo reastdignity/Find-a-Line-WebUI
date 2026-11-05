@@ -101,6 +101,7 @@ export function creditsBox(box: HTMLElement, store: Store | null = browserStore(
   return {
     set(id, html, order = 0) { entries.set(id, {html, order}); render(); },
     remove(id) { entries.delete(id); render(); },
+    fold() { if (open) { open = false; render(); } },
   };
 }
 

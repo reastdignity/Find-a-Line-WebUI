@@ -87,6 +87,7 @@ export function createProfileCard(scene: SceneCore, view: LineView, current: Cur
     button.setPressed(open);
     scene.card.dataset.open = open ? "1" : "";
     if (open) {
+      scene.credits.fold();  // open beside the card the data credits would cover the line
       cursor = cursorOf();
       render(<Card shown={store} meta={meta} onHide={() => set(false)}
                    onCursor={(d, len) => { if (d !== null && len > 0) view.setWalker(d / len * view.span); }} />, scene.card);

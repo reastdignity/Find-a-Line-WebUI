@@ -505,6 +505,8 @@
   "ui.view3d.point_trees": "over trees",
   "ui.view3d.others": "Saved lines",
   "ui.view3d.others_none": "No other saved line of this result lies in this view.",
+  "ui.view3d.other_label": "{{m}} m",
+  "ui.view3d.other_make": "Show this line of {{m}} m",
   "ui.view3d.copy_link": "Copy link",
   "ui.view3d.link_copied": "Link copied",
 

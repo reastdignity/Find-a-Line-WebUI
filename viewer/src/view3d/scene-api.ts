@@ -31,6 +31,9 @@ export interface Chunk {
 export interface Credits {
   set(id: string, html: string, order?: number): void;
   remove(id: string): void;
+  /** Fold the run's data credits behind their button, for now (the choice kept in the browser stays): a card
+   *  opened under them, and open they would cover the line. */
+  fold(): void;
 }
 
 /** The activity pill over the stage (round 2): what the page is loading or computing right now, with a spinner.

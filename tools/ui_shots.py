@@ -80,6 +80,8 @@ TOOL = ".v3-tool[data-tool={}]".format
 REACH_SHOWN = "wait:document.getElementById('view3d')?.dataset.reach === '1'"
 TREES_SHOWN = "wait:document.getElementById('view3d')?.dataset.trees === 'on'"
 PROFILE_SHOWN = "wait:!!document.querySelector('.v3-card svg')"
+# The profile's card folded again (its state is kept in the browser, and the page before may have opened it)
+CARD_FOLDED = "js:document.querySelector('.v3-tool[data-tool=profile][aria-pressed=true]')?.click()"
 SHADED_ON = ("js:[...document.querySelectorAll('.v3-toolbar [role=radio]')].find((b) => "
              "b.textContent.trim() === 'Shaded')?.click()")
 # The "Edges" look chosen and drawn (view3d/scene.ts sets data-edges)
@@ -164,8 +166,8 @@ PAGES = {
     # round 2: the profile's card (both levels), and at the full level the reach of "Only valid lines" and the
     # canopy of "Trees and buildings" (the run is given the clip's surface model: clip_run)
     "view3d-profile": ("/view3d", VIEW3D, [VIEW3D_READY, TOOL("profile"), PROFILE_SHOWN]),
-    "view3d-valid": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, TOOL("valid"), REACH_SHOWN]),
-    "view3d-trees": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, TOOL("trees"), TREES_SHOWN]),
+    "view3d-valid": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("valid"), REACH_SHOWN]),
+    "view3d-trees": ("/view3d?level=full", VIEW3D, [VIEW3D_READY, CARD_FOLDED, TOOL("trees"), TREES_SHOWN]),
 }
 
 # The layout of C's result kept in localStorage ("findaline.layout", result/view/layout.ts) for a page; every other
