@@ -102,6 +102,9 @@ SV_BOXES = (("no-21", (74.3, 80.9, 10.0, 34.0)), ("no-22", (70.8, 71.2, -9.1, -7
 # Greenland's boxes come before them
 NU_BOXES = (("ca-nu", (64.0, 83.2, -110.0, -61.0)), ("ca-nu", (60.0, 64.0, -102.0, -79.5)),
             ("ca-nu", (62.6, 64.0, -79.5, -61.0)))
+# Kitikmeot west of 110 W (Kugluktuk) and the islands of Hudson Strait and Ungava Bay north of 60 N; Nunavut's
+# islands of Hudson Bay and James Bay further south have no ArcticDEM (it starts at 60 N)
+NU_BORDER = ((66.0, 70.0, -121.0, -110.0), (60.0, 62.6, -71.0, -64.0))
 
 SOURCES: List[Source] = [
     Source(
@@ -135,7 +138,7 @@ SOURCES: List[Source] = [
         neighbours=("canada",),
         listing=ReadmeRow("Nunavut (CA)", "ArcticDEM v4.1 mosaic, 2 m (a surface model)", "–",
                           "– (no national orthophoto service)"),
-        offline=NU_BOXES, sample=(70.7175, -71.4268),  # Sam Ford fjord (R60)
+        offline=NU_BOXES, border_boxes=NU_BORDER, sample=(70.7175, -71.4268),  # Sam Ford fjord (R60)
         note=ARCTIC_NOTE + " NRCan's lidar around the communities is not used (the source canada, NRCan's "
                            "HRDEM mosaic, has it); the map shows its own base layers.",
         coverage=Coverage(provider="Polar Geospatial Center", added="2026-11-03", trees="surface")),

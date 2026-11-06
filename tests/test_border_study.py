@@ -268,6 +268,15 @@ def test_resampling_runs_and_report(study, tmp_path, monkeypatch):
     assert "the neighbour's data resampled nearest" in text
 
 
+def _outline(area):
+    """An area of the coverage map's shapes (its covered part)."""
+    import json
+    from shapely.geometry import shape
+    with open(bs.SHAPES, encoding="utf-8") as f:
+        return next(shape(x["geometry"]).buffer(0) for x in json.load(f)["features"]
+                    if x["properties"]["id"] == area and not x["properties"].get("rest"))
+
+
 def test_neighbour_boxes_along_the_borders():
     """strip_share: of the neighbour's land within reach of the source's, the share inside its rough
     boxes; box_reach: every declared pair of the catalogue with an outline, from the coverage map's
@@ -292,9 +301,16 @@ def test_neighbour_boxes_along_the_borders():
     assert {(r["source"], r["neighbour"]) for r in rows} == declared
     assert all(r["km2"] > 1 and (r["share"] is None or 0.0 <= r["share"] <= 1.0) for r in rows)
     share = {(r["source"], r["neighbour"]): r["share"] for r in rows}
-    # measured on 2026-11-05: Czechia's boxes keep inside the country (the Saxon grid got 30 m data at Hrensko),
-    # South Tyrol's hold its whole border with Austria
-    assert share[("saxony", "czechia")] < 0.5 and share[("austria", "south_tyrol")] > 0.95
+    # Measured on 2026-11-05: Czechia's offline boxes keep inside the country, 20-42 % of its border strips
+    # (the Saxon grid got 30 m data at Hrensko); since 2026-11-06 the border boxes (Source.border_boxes) hold
+    # the rest, and every declared neighbour reaches its borders
+    short = {pair: round(value, 3) for pair, value in share.items() if value is not None and value < 0.97}
+    assert not short, short
+    offline_only = bs.strip_share(*[_outline(i) for i in ("de-sn", "cz")],
+                                  [b for _, b in src.SOURCES["czechia"].offline])
+    assert offline_only["share"] < 0.5 and share[("saxony", "czechia")] > 0.97
+    # the USA's outline is taken without Alaska, whose border is the source alaska's
+    assert share[("british_columbia", "usa")] > 0.97 and share[("british_columbia", "alaska")] > 0.97
     report = bs.box_reach_report(rows)
     assert any(line.startswith("| saxony | czechia |") for line in report)
     assert sum(line.startswith("| ") for line in report) == len(rows) + 2  # the head and its rule

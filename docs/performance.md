@@ -2364,7 +2364,9 @@ What limits the reading:
   counted one after another in one process.
 - The Elbe the other way gave nothing: Czechia's rough boxes (`CZ_OFFLINE`) end south of Hřensko, so
   the neighbour fill never asked Czechia and the Saxon grid's Czech side is the 30 m fallback (93.7 %
-  of its pixels). Its "across" rows have no reference for the same reason.
+  of its pixels). Its "across" rows have no reference for the same reason. (Since 2026-11-06 Czechia
+  has border boxes, `Source.border_boxes`, and the Saxon grid gets its data there; these runs are of
+  before.)
 
 ### Step by step: the same resolution (the S band, 1 m data on a 1 m grid)
 

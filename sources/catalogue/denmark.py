@@ -58,6 +58,7 @@ SOURCES: List[Source] = [
         # the southern tip of Lolland and Falster)
         offline=(("dk", (54.90, 57.76, 8.07, 12.70)), ("dk", (54.56, 54.90, 10.15, 12.70)),
                  ("dk", (54.98, 55.32, 14.68, 15.21))),
+        border_boxes=((54.78, 54.90, 8.6, 10.15),),  # South Jutland and Als below 54.90 N, down to the border
         sample=(54.9700, 12.5500),  # on the cliff of Mons Klint (R38)
         note="Data: Klimadatastyrelsen, Danmarks Hojdemodel, CC BY 4.0 (processed: mosaicked onto the "
              "working grid).",

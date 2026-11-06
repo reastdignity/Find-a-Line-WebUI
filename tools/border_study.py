@@ -1045,7 +1045,7 @@ BOX_REACH = 5000.0  # metres beyond a border: the layer's longest line
 
 def strip_share(a, b, boxes: Sequence[Tuple[float, float, float, float]], reach: float = BOX_REACH) -> Optional[Dict]:
     """Of b's land within reach of a (two WGS84 shapes), the km² and the share inside boxes
-    ((south, north, west, east) each, as Source.offline's and bbox): where a grid of a's source
+    ((south, north, west, east) each, as Source.rough_boxes gives them): where a grid of a's source
     with a border gap asks b's source (sources.filling.neighbour_window). None when b has no land
     within reach of a. A shape lying inside the other (a region of a country) is taken out of it
     first."""
@@ -1088,10 +1088,21 @@ def box_reach(reach: float = BOX_REACH, shapes_path: str = SHAPES) -> List[Dict]
         features = {x["properties"]["id"]: x for x in json.load(f)["features"] if not x["properties"].get("rest")}
     by_id = {s.id: s for s in (src.SOURCES.values() if isinstance(src.SOURCES, dict) else src.SOURCES)}
 
+    def areas(source):
+        return list((source.coverage.areas if source.coverage else ()) or source.regions or source.countries or ())
+
     def outline(source):
-        ids = list((source.coverage.areas if source.coverage else ()) or source.regions or source.countries or ())
+        # A country's outline less the regions other sources of the catalogue cover (the USA's
+        # without Alaska, whose border with Canada is the source alaska's)
+        ids = areas(source)
         parts = [shape(features[i]["geometry"]).buffer(0) for i in ids if i in features]
-        return unary_union(parts) if source.coverage and parts else None
+        if not (source.coverage and parts):
+            return None
+        others = [shape(features[i]["geometry"]).buffer(0) for other in by_id.values() if other is not source
+                  for i in areas(other) if i in features and any(i.startswith(own + "-") for own in ids)]
+        whole = unary_union(parts)
+        # 0.02 degrees more: a region's outline is another dataset's than its country's and leaves slivers
+        return whole.difference(unary_union(others).buffer(0.02)) if others else whole
 
     rows = []
     for source in by_id.values():
@@ -1100,7 +1111,7 @@ def box_reach(reach: float = BOX_REACH, shapes_path: str = SHAPES) -> List[Dict]
             a, b = outline(source), outline(neighbour)
             if a is None or b is None:
                 continue
-            boxes = [b_ for _, b_ in neighbour.offline or ()] + ([neighbour.bbox] if neighbour.bbox else [])
+            boxes = neighbour.rough_boxes()
             found = strip_share(a, b, boxes, reach)
             if found is not None:
                 rows.append({"source": source.id, "neighbour": name, "km2": found["km2"], "boxes": len(boxes),
@@ -1110,7 +1121,8 @@ def box_reach(reach: float = BOX_REACH, shapes_path: str = SHAPES) -> List[Dict]
 
 def box_reach_report(rows: List[Dict], reach: float = BOX_REACH) -> List[str]:
     lines = [f"Of the neighbour's land within {reach / 1000:g} km of the source's, the share inside the neighbour's "
-             "rough boxes (`Source.offline`, `bbox`): only there a border gap of the source's grid asks the neighbour "
+             "rough boxes (`Source.rough_boxes`: `offline`, `bbox`, `border_boxes`): only there a border gap of the "
+             "source's grid asks the neighbour "
              "(`sources.filling.neighbour_window`; a window spans the gaps it reaches, so the real share is a little "
              "higher).", "",
              "| Grid of | Neighbour | Its land within reach, km² | In its boxes |", "| --- | --- | ---: | ---: |"]

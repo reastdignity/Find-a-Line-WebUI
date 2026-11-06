@@ -1699,8 +1699,8 @@ def test_border_gaps_rows_as_whole(tmp_path):
     circle = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
     outline = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
     outline.area_shape = Polygon([(500010, 299790), (500190, 299800), (500180, 299990), (500030, 299960)])
-    neighbour = SimpleNamespace(offline=[("x", (0.0, 90.0, 0.0, 180.0))], bbox=None)  # boxes: the world's east
-    anywhere = SimpleNamespace(offline=[], bbox=None)
+    neighbour = SimpleNamespace(rough_boxes=lambda: [(0.0, 90.0, 0.0, 180.0)])  # boxes: the world's east
+    anywhere = SimpleNamespace(rough_boxes=lambda: [])
     exclude_mm = _memmap(tmp_path, "exclude.npy", exclude)
     for grid in (circle, outline):
         for surface in (None, str(tmp_path / "nmpt.npy")):

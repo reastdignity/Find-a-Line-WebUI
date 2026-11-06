@@ -136,6 +136,8 @@ def _lidarbc(kind: str, layers: Tuple[int, int], description: str) -> LidarBcBlo
 BC_BOXES = (("ca-bc", (49.0, 60.0, -139.1, -120.0)), ("ca-bc", (48.2, 49.0, -125.0, -123.2)),
             ("ca-bc", (49.0, 51.0, -120.0, -116.0)), ("ca-bc", (49.0, 50.3, -116.0, -114.6)),
             ("ca-bc", (51.0, 51.8, -118.5, -116.6)), ("ca-bc", (51.0, 53.8, -120.0, -118.5)))
+# The 49th parallel itself (an outline may draw it a kilometre south) and the Flathead east of 114.6 W
+BC_BORDER = ((48.95, 49.1, -123.35, -114.0),)
 
 CA_SCALE_NOTE = ("Lengths are measured on NRCan's grid, Canada Atlas Lambert (EPSG:3979), whose scale makes them "
                  "about 0.3 % short at Squamish, 0.7 % short at Canmore, 1.7 % long on the Niagara Escarpment and "
@@ -159,7 +161,7 @@ SOURCES: List[Source] = [
         neighbours=("usa", "alaska", "alaska_ifsar"),
         listing=ReadmeRow("British Columbia (CA), where it has lidar", "GeoBC LidarBC DEM 2011-2026, 1 m",
                           "GeoBC LidarBC DSM, 1 m", CA_NO_ORTHO),
-        offline=BC_BOXES, sample=(49.432, -119.557),  # Skaha Bluffs, Penticton
+        offline=BC_BOXES, border_boxes=BC_BORDER, sample=(49.432, -119.557),  # Skaha Bluffs, Penticton
         note="Data: GeoBC, Open Government Licence - British Columbia. LidarBC covers the provincial programme's "
              "surveys (much of the province since 2023, published monthly) and older ones; gaps are filled from "
              "NRCan's HRDEM mosaic (1 m, then 2 m), then from MRDEM-30 (30 m). Its surface model equals the terrain "

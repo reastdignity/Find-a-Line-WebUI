@@ -464,6 +464,7 @@ SOURCES: List[Source] = [
         # The Land, then Perl east of the Moselle (Luxembourg's box, later in SOURCES, reaches 6.54° E); the first box
         # also holds a strip of Lorraine, as RP's does
         offline=(("de-sl", (49.11, 49.64, 6.54, 7.41)), ("de-sl", (49.38, 49.52, 6.36, 6.54))),
+        border_boxes=((49.38, 49.64, 6.33, 6.54),),  # Perl and Mettlach up to the Moselle and the Saar
         sample=(49.4611, 6.8573),  # the Michelbach quarry at Schmelz
         note=f"Data {SL_ATTRIBUTION}, dl-de/by-2.0 (changed: mosaicked onto the working grid, heights below "
              f"{SL_FLOOR:.0f} m and {SL_RING} pixels around them taken out: patches at 0 m in the survey, filled "
@@ -481,6 +482,7 @@ SOURCES: List[Source] = [
                           "LVermGeo RP DOM1, 1 m", "LVermGeo RP DOP20"),
         # Two boxes: Luxembourg's (to 6.54° E) comes later in SOURCES and would lose its points to one box
         offline=(("de-rp", (48.96, 50.95, 6.54, 8.51)), ("de-rp", (50.19, 50.95, 6.11, 6.54))), sample=(49.1500, 7.7800),
+        border_boxes=((49.44, 50.19, 6.08, 6.54),),  # the Eifel down to the Our, the Sauer and the Moselle
         note=f"Data {RP_ATTRIBUTION} [Daten bearbeitet] (changed: mosaicked onto the working grid). Survey years "
              f"2022-2025, the newest per 1 km tile.",
         coverage=Coverage(provider="LVermGeo RP", added="2026-11-02", survey="2022–2025")),
@@ -533,6 +535,7 @@ SOURCES: List[Source] = [
         # box would hold Als, Aero and Langeland, which come later in SOURCES)
         offline=(("de-sh", (53.36, 54.56, 7.85, 11.32)), ("de-sh", (54.56, 54.84, 7.85, 10.15)),
                  ("de-sh", (54.84, 55.06, 8.27, 8.60))),
+        border_boxes=((54.84, 54.93, 8.55, 9.5),),  # North Frisia and Flensburg's north up to the Danish border
         sample=(54.1840, 7.8820),  # Helgoland's cliffs (R56)
         note=f"Data {SH_ATTRIBUTION} (Quelle verändert; changed: mosaicked onto the working grid). Terrain model "
              f"only: the surface model is published only as uncompressed 0.2 m files. Survey years 2005-2025, the "

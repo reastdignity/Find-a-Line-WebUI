@@ -765,8 +765,8 @@ anchor on the ridge falls to, not the reprojection. No method costs CPU or memor
   Wetterstein (9 682) are the same under every method, so no reprojected pixel decides them: their
   far anchors stand on the owner's own data, which reach beyond the border (14.4 % of the Polish
   side of the Tatras box is Slovak data), and that rule would have dropped them all.
-- *A neighbour's rough boxes must reach the border* (the check is built, the boxes are wave B's
-  first task). `neighbour_window` asks a neighbour only inside its `offline`/`bbox` boxes.
+- *A neighbour's rough boxes must reach the border* (done 2026-11-06: `Source.border_boxes`, see
+  the end of this point). `neighbour_window` asked a neighbour only inside its `offline`/`bbox` boxes.
   `tools/border_study.py boxes` lists, for every declared pair, the share of the neighbour's land
   within 5 km of the border that lies inside them (the coverage map's outlines; 108 of the 112
   declared directions, `alaska_ifsar` has no outline). 91 directions reach 97 % or more; the
@@ -776,9 +776,17 @@ anchor on the ridge falls to, not the reprojection. No method costs CPU or memor
   Denmark for Schleswig-Holstein 31 % and back 60 %, the USA for British Columbia 39 % and for
   Canada 72 %, Norway for Finland 68 %, Saarland for Luxembourg 70 %, Slovenia for Austria 77 %,
   British Columbia for the USA 89 %, Rhineland-Palatinate for Saarland 90 %, Nunavut for Canada
-  93 %. Wave B starts by giving those neighbours boxes that hold their border strips: where the
-  `offline` boxes cannot be widened (they decide `--source auto` offline), a second set read by
-  `neighbour_window` only; the tool's table is the test.
+  93 %. Built on 2026-11-06, ahead of wave B, since it holds for every search: the `offline` boxes
+  cannot be widened (they decide `--source auto` offline and keep off a neighbour's land on
+  purpose), so a source has a second set, `Source.border_boxes`, read by `neighbour_window` only
+  (`Source.rough_boxes`): Czechia (13 strips around the country), Scotland, Rhineland-Palatinate,
+  Saarland, Schleswig-Holstein, Denmark, Norway, Slovenia, British Columbia and Nunavut. Two of the
+  17 were the measure's own: the USA's outline held Alaska, whose border is the source `alaska`'s
+  (the tool now takes a country's outline less the regions other sources cover). Every declared
+  direction is at 98 % or more, and a test keeps them at 97 %. At Hřensko the Saxon grid's Czech
+  side (1.93 km² of a 900 m circle) now comes from ČÚZK's 2 m model: 100 570 anchors at 1 m where
+  the fallback gave 76 343, 25 055 against 18 065 at 2 m; the lines stay (1 314 at 1 m, 6 122
+  against 6 121 at 2 m), so there the gain is the heights, not the count.
 - *Slovakia's averaged tiles on a grid of another CRS* (accepted and built).
   `GridResolutions.resolution` gave a grid of exactly 2 m or 5 m the averaged tiles whatever its
   CRS; Poland's 2 m grid then reprojected them bilinearly (averaged, then smoothed): 87.7 % of the

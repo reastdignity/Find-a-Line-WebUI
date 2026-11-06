@@ -61,6 +61,7 @@ SOURCES: List[Source] = [
                  ("no", (63.50, 64.50, 7.00, 13.00)), ("no", (64.50, 65.50, 9.00, 14.00)),
                  ("no", (65.50, 66.50, 11.50, 14.50)), ("no", (66.50, 68.00, 11.50, 15.60)),
                  ("no", (68.00, 69.00, 11.50, 17.50))),
+        border_boxes=((68.5, 69.0, 21.0, 26.0),),  # Finnmark's south (Kautokeino) down to the Finnish border
         neighbours=("finland",),
         sample=(58.9864, 6.1904),  # Preikestolen (R40)
         note="Data: Kartverket, CC BY 4.0 (processed: mosaicked onto the working grid). The working grid is "

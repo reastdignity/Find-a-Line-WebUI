@@ -84,6 +84,8 @@ SOURCES: List[Source] = [
         # Croatia falls into them
         offline=(("si", (45.42, 46.48, 13.37, 15.00)), ("si", (45.42, 46.62, 15.00, 15.65)),
                  ("si", (45.85, 46.88, 15.65, 16.61))),
+        # The Karawanks' crest, Koroška (Ravne, Dravograd) and the hills north of Maribor up to the Austrian border
+        border_boxes=((46.48, 46.53, 13.65, 14.0), (46.48, 46.66, 14.55, 15.0), (46.62, 46.73, 15.0, 15.65)),
         sample=(45.5690, 13.8630),
         note="Slovenia's model comes from ARSO's lidar of 2011-2015: rockfall and changes since then are not in "
              "the data, and there is no surface model (trees, buildings). Data: Agencija Republike Slovenije za "

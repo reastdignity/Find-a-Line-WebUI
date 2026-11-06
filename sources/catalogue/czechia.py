@@ -70,6 +70,21 @@ CZ_OFFLINE = (("cz", (48.95, 49.95, 15.5, 17.2)),  # Vysočina and the middle of
               ("cz", (50.1, 50.25, 16.8, 17.6)),    # Jeseník
               ("cz", (49.45, 49.95, 17.2, 18.6)),   # Ostrava
               ("cz", (49.0, 49.45, 17.2, 18.1)))    # Zlín
+# The border strips those boxes leave out, for the filling of a neighbour's border gaps only
+# (Source.border_boxes): they hold the neighbours' land along the border too
+CZ_BORDER = ((48.53, 49.0, 13.7, 18.0),     # the south: the Austrian border, Slovakia's along the Morava
+             (48.75, 49.45, 12.6, 13.85),   # Šumava
+             (49.3, 50.0, 12.35, 12.65),    # Český les
+             (50.0, 50.35, 12.05, 12.3),    # Aš
+             (50.3, 50.55, 12.3, 12.95),    # Kraslice
+             (50.55, 50.85, 12.95, 14.1),   # the Ore Mountains
+             (50.8, 51.06, 14.1, 15.35),    # the salients of Šluknov and Frýdlant
+             (50.64, 50.85, 15.3, 16.2),    # the Jizera and the Giant Mountains
+             (50.25, 50.68, 16.2, 16.47),   # Broumov, Náchod
+             (50.05, 50.45, 16.45, 17.75),  # the Eagle Mountains' east, Javorník, Jeseník, Osoblaha
+             (49.9, 50.1, 17.6, 18.3),      # Opava, Hlučín
+             (49.4, 50.0, 18.2, 18.87),     # Karviná, Těšín, Jablunkov
+             (49.0, 49.5, 18.1, 18.6))      # the Javorníky and the Beskids
 
 SOURCES: List[Source] = [
     Source(
@@ -82,7 +97,7 @@ SOURCES: List[Source] = [
         credits=(CZ_CREDIT,), neighbours=("geoportal", "slovakia", "austria", "saxony", "bavaria"),
         listing=ReadmeRow("Czechia", "ČÚZK DMR 5G, 2 m (ImageServer)", "ČÚZK DMP 1G, 2 m (ImageServer)",
                           "ČÚZK Ortofoto"),
-        offline=CZ_OFFLINE, sample=(50.6115, 16.1170),  # Adršpach (R44)
+        offline=CZ_OFFLINE, border_boxes=CZ_BORDER, sample=(50.6115, 16.1170),  # Adršpach (R44)
         note=f"Data: ČÚZK, {YEAR}, CC BY 4.0 (processed: mosaicked onto the working grid). DMR 5G comes mostly from "
              "the airborne laser scanning of 2009-2013, thinned: narrow rock towers may be smoothed. The surface "
              "model DMP 1G lies on other pixels and is interpolated onto the terrain model's.",

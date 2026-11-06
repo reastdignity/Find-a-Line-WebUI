@@ -113,6 +113,8 @@ SOURCES: List[Source] = [
         # (Cumbria's coast, the Isle of Man and Northern Ireland outside)
         offline=(("gb-sct", (55.82, 60.86, -8.65, -0.73)), ("gb-sct", (55.35, 55.82, -8.65, -5.85)),
                  ("gb-sct", (54.63, 55.82, -5.85, -3.6))),
+        # Dumfriesshire's east and the Borders up to the English border (they hold Northumberland's north)
+        border_boxes=((54.95, 55.2, -3.6, -2.65), (55.2, 55.5, -3.6, -2.15), (55.5, 55.82, -3.6, -2.0)),
         sample=(55.636, -5.206),
         note="Scotland's 0.5 m LiDAR covers about a tenth of Scotland so far (Galloway, Kintyre, Arran, Islay, the "
              "coasts of Fife, Angus and Aberdeenshire, the Small Isles, Coll, Tiree, Orkney, parts of the north "

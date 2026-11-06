@@ -101,8 +101,8 @@ class Source:
     # Sources that fill, in turn, what the fallback left (Alaska: its IfSAR, then 1/3″)
     more_fallbacks: Tuple[str, ...] = ()
     # Sources of the neighbouring countries or regions that fill, in turn, the gaps on land at the
-    # border before the fallback (filling.fill_from_neighbours: only where their offline boxes or
-    # bbox reach such a gap, and only when available)
+    # border before the fallback (filling.fill_from_neighbours: only where their rough boxes,
+    # rough_boxes, reach such a gap, and only when available)
     neighbours: Tuple[str, ...] = ()
     bbox: Optional[Tuple[float, float, float, float]] = None  # (south, north, west, east) for --source auto
     grid_origin: Tuple[float, float] = (0.0, 0.0)  # pixel edges of the data in the working CRS (grid.make_grid)
@@ -124,6 +124,14 @@ class Source:
     # cannot be looked up (offline): choose.OFFLINE_BOXES, in the order of SOURCES. A region's
     # code (gb-wls) gives its country and that region; a source with regions has region boxes only
     offline: Tuple[Tuple[str, Tuple[float, float, float, float]], ...] = ()
+    # More rough boxes (south, north, west, east) of the source's land along its borders, for the
+    # filling of a neighbour's border gaps only (rough_boxes): the offline boxes keep off the
+    # neighbours' land where they can (the first box holding a point wins), so they stop short of
+    # the border, and a gap beyond them never asked this source (Czechia's held 20-42 % of its land
+    # within 5 km of its neighbours: the Saxon grid got 30 m data at Hrensko). These may hold a
+    # neighbour's land: a gap there asks this source and finds nothing. Never used to choose a
+    # source. tools/border_study.py boxes measures every declared pair
+    border_boxes: Tuple[Tuple[float, float, float, float], ...] = ()
     # (lat, lon) of a point with data in every layer, for the source probe (sources/probe.py) and
     # tools/check_source.py; None: no such point (Alaska's 1 m DEM has no data yet)
     sample: Optional[Tuple[float, float]] = None
@@ -157,6 +165,13 @@ class Source:
             return True
         south, north, west, east = self.bbox
         return south <= lat <= north and west <= lon <= east
+
+    def rough_boxes(self) -> List[Tuple[float, float, float, float]]:
+        """Where the source may have data, roughly, as (south, north, west, east) boxes: its offline
+        boxes, its bbox and its border boxes. A border gap of a neighbour's grid asks this source
+        only inside them (filling.neighbour_window); [] for a source without any, which may fill
+        any border gap."""
+        return [box for _, box in self.offline] + ([self.bbox] if self.bbox else []) + list(self.border_boxes)
 
     def working_crs(self, lat: float, lon: float) -> str:
         return self.crs or self.local_crs(lat, lon)

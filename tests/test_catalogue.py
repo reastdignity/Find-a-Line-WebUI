@@ -1974,6 +1974,12 @@ def test_listing_offline_and_sample():
             assert region == region.lower() and region.split("-")[0] in s.countries, (sid, region)
         for code, _ in s.offline:  # a region's box (gb-wls) for a source with regions
             assert code in (s.regions or s.countries), (sid, code)
+        # border boxes: for a neighbour's border gaps only, of a source that has neighbours and offline
+        # boxes, never among the boxes a point's country is guessed from
+        for box in s.border_boxes:
+            south, north, west, east = box
+            assert -90 <= south < north <= 90 and -180 <= west < east <= 180, (sid, box)
+            assert s.neighbours and s.offline and box not in [b for _, b in src.OFFLINE_BOXES], (sid, box)
         if s.sample is None:
             assert sid == "alaska"  # no 1 m DEM in Alaska yet
             continue

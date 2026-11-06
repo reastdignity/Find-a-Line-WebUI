@@ -118,6 +118,25 @@ def test_far_neighbour_not_asked(scene):
     assert joined_path is None and counts == []
 
 
+def test_border_boxes_reach_where_the_offline_boxes_stop(scene):
+    """A neighbour whose offline boxes keep off the border (they must not take a neighbour's points)
+    fills a border gap through its border boxes; they change nothing for the choice of a source."""
+    grid, path, tmp = scene
+    short = _neighbour(tmp, grid, "short", slice(0, 40), 120.0, offline=(("es", FAR),))
+    assert short.rough_boxes() == [FAR]
+    assert src.filling.neighbour_window(short, grid, src.filling.border_gaps(path, None, grid)) is None
+    reaching = _neighbour(tmp, grid, "reaching", slice(0, 40), 120.0, offline=(("es", FAR),), border_boxes=(BOX,))
+    assert reaching.rough_boxes() == [FAR, BOX]
+    assert src.filling.neighbour_window(reaching, grid, src.filling.border_gaps(path, None, grid)) is not None
+    _, counts = src.filling.fill_from_neighbours(path, None, grid, [short, reaching], str(tmp / "cache"),
+                                                 str(tmp / "joined.npy"))
+    assert [(s.id, n > 0) for s, n in counts] == [("reaching", True)]
+    assert np.isfinite(np.load(path)[50, 5:40]).all()
+    # a bbox counts as before, and a source without any box may fill any border gap
+    assert _source("b", _Untouchable(), offline=(), bbox=BOX, border_boxes=(FAR,)).rough_boxes() == [BOX, FAR]
+    assert _source("n", _Untouchable(), offline=()).rough_boxes() == []
+
+
 def test_unavailable_neighbour_skipped(scene, capsys):
     """A neighbour that cannot be used here (no copy of our own tiles) is skipped with a line."""
     grid, path, tmp = scene

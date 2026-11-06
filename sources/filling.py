@@ -1015,8 +1015,9 @@ def border_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid,
 
 def _box_ranges(neighbour: Source, grid: Grid) -> Optional[List[Tuple[int, int, int, int]]]:
     """The rows and columns (r0, r1, c0, c1) of the grid under each rough box of a neighbour
-    (Source.offline, bbox); None for a neighbour without boxes (it may fill any border gap)."""
-    boxes = [box for _, box in neighbour.offline] + ([neighbour.bbox] if neighbour.bbox else [])
+    (Source.rough_boxes: offline, bbox and the border boxes); None for a neighbour without boxes
+    (it may fill any border gap)."""
+    boxes = neighbour.rough_boxes()
     if not boxes:
         return None
     ranges = []
@@ -1032,7 +1033,7 @@ def _box_ranges(neighbour: Source, grid: Grid) -> Optional[List[Tuple[int, int, 
 def neighbour_window(neighbour: Source, grid: Grid, gaps: np.ndarray,
                      rows: Optional[int] = None) -> Optional[Tuple[slice, slice]]:
     """The part of the grid (rows, columns) a neighbour fills: the border gaps (border_gaps)
-    inside its rough boxes (Source.offline, bbox), with NEIGHBOUR_PAD pixels around them for
+    inside its rough boxes (Source.rough_boxes), with NEIGHBOUR_PAD pixels around them for
     the heights the offsets are matched with; None when no such gap lies inside them. Asks
     nothing of the neighbour's services: a neighbour far away is never queried. A neighbour
     without boxes may fill any border gap. rows: gaps read in strips of that many rows."""
