@@ -41,6 +41,17 @@ SHORE_MIN_M = 10  # m: a segment shorter than this is left out of the run's list
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
 NEIGHBOUR_PAD = GAP_RING + 3  # pixels of the neighbour's data around its gaps (offsets, slopes)
+# How a neighbour's data are reprojected onto the grid (fill_from_neighbours). At about the grid's
+# resolution (mosaic.FINER to mosaic.SAME of it) by NEIGHBOUR_SAME_RESOLUTION, not bilinearly: at one
+# resolution a bilinear reprojection smooths every cliff edge (the half-pixel pitfall), and on the
+# neighbour's side of the Tatras and the Wetterstein it lost 25-42 % of the lines the neighbour's own
+# grid finds, nearest 0-4 % (measured 2026-11-05 with tools/border_study.py: docs/performance.md, "The
+# resampling of a neighbour's data"; the user's decision). Finer data are averaged and coarser data
+# reprojected bilinearly, as every mosaic (nearest would copy a coarse pixel onto several of ours, a
+# staircase of false walls: measured on the Zillertal ridge). NEIGHBOUR_RESAMPLING, when set, is the method for all of a
+# neighbour's rasters instead (one of mosaic.RESAMPLINGS: tools/border_study.py's --resampling)
+NEIGHBOUR_SAME_RESOLUTION: Optional[str] = "nearest"
+NEIGHBOUR_RESAMPLING: Optional[str] = None
 # Step 1 of a tiled search (search.search_lines) runs once on the whole area: its operations then
 # work on strips of rows of about this many pixels (each with a halo of its reach), never on a
 # temporary of the whole grid; the functions take `rows` (None: the whole grid at once, as a
@@ -515,7 +526,8 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
               cache_dir: str, out_path: str, update: Optional[str] = None,
               exclude: Optional[np.ndarray] = None, name: str = "gap",
               window: Optional[Tuple[slice, slice]] = None, surface_from_terrain: bool = True,
-              rows: Optional[int] = None) -> Tuple[str, int, int]:
+              rows: Optional[int] = None, resampling: Optional[str] = None,
+              same_resolution: Optional[str] = None) -> Tuple[str, int, int]:
     """Fill the remaining gaps in the data on land from another source.
 
     Each gap gets the other source shifted by the median height difference in a
@@ -534,11 +546,12 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
     that filled no pixel is left out of the record of the data used (used_data).
     rows: in strips of that many rows (exclude a memory-mapped grid; the gap masks memory-mapped
     next to out_path while a pair is filled, the labels of its gaps the one array of the whole
-    grid: _fill), the same values.
+    grid: _fill), the same values. resampling, same_resolution: how the fallback's rasters are
+    reprojected (mosaic.build_mosaic's; None: its own choice).
     """
     if rows is not None:
         return _fill_gaps_rows(elevation_path, surface_path, grid, fallback, cache_dir, out_path, update, exclude,
-                               name, window, surface_from_terrain, rows)
+                               name, window, surface_from_terrain, rows, resampling, same_resolution)
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
     filled = np.isnan(elevation)
@@ -561,7 +574,7 @@ def fill_gaps(elevation_path: str, surface_path: Optional[str], grid: Grid, fall
             continue
         # A neighbour has no data beyond its border: no line about its tiles without data
         path = prepare_layer(layer, sub, cache_dir, os.path.join(work, name), f"gap fill ({fallback.name})", update,
-                             quiet=window is not None)
+                             quiet=window is not None, resampling=resampling, same_resolution=same_resolution)
         record = used_data[-1]  # prepare_layer's
         if window is None:
             other = np.asarray(np.load(path, mmap_mode="r"))
@@ -595,7 +608,8 @@ def _gaps_rows(target: np.ndarray, exclude: Optional[np.ndarray], out: np.ndarra
 def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid, fallback: "Source",
                     cache_dir: str, out_path: str, update: Optional[str], exclude: Optional[np.ndarray],
                     name: str, window: Optional[Tuple[slice, slice]], surface_from_terrain: bool,
-                    rows: int) -> Tuple[str, int, int]:
+                    rows: int, resampling: Optional[str] = None,
+                    same_resolution: Optional[str] = None) -> Tuple[str, int, int]:
     """fill_gaps in strips of rows (its values)."""
     work = os.path.dirname(out_path)
     elevation = np.load(elevation_path, mmap_mode="r+")
@@ -622,7 +636,8 @@ def _fill_gaps_rows(elevation_path: str, surface_path: Optional[str], grid: Grid
                 continue
         # A neighbour has no data beyond its border: no line about its tiles without data
         path = prepare_layer(layer, sub, cache_dir, os.path.join(work, file), f"gap fill ({fallback.name})", update,
-                             quiet=window is not None, rows=rows)
+                             quiet=window is not None, rows=rows, resampling=resampling,
+                             same_resolution=same_resolution)
         record = used_data[-1]  # prepare_layer's
         other = np.load(path, mmap_mode="r")
         count = _fill(target, other, gaps, grid.res, f"gap filling ({fallback.name}): {which}", rows=rows,
@@ -1068,7 +1083,8 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     rows: in strips of that many rows (the border gaps memory-mapped next to out_path
     meanwhile, the masks joined strip by strip). The border gaps are found once, and again only
     after a neighbour wrote pixels into either grid or failed midway (an attempt that found no
-    data of its own under the gaps leaves them as they were)."""
+    data of its own under the gaps leaves them as they were). The neighbours' rasters are
+    reprojected as NEIGHBOUR_SAME_RESOLUTION and NEIGHBOUR_RESAMPLING say."""
     from .choose import source_unavailable
 
     if not neighbours:
@@ -1098,7 +1114,8 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
         try:
             _, pixels, written = fill_gaps(elevation_path, surface_path, grid, neighbour, cache_dir, step, update,
                                            exclude=exclude, name=f"border{n}", window=window,
-                                           surface_from_terrain=False, rows=rows)
+                                           surface_from_terrain=False, rows=rows, resampling=NEIGHBOUR_RESAMPLING,
+                                           same_resolution=NEIGHBOUR_SAME_RESOLUTION)
         except (RuntimeError, requests.RequestException) as e:
             gaps = None  # some of its pixels may have been filled before the failure
             print(f"Gaps at the border not filled from {neighbour.name}: {cache.clean_error(e)}")

@@ -14,20 +14,31 @@ the outlines holding its anchors into one of CLASSES, each class into a countcub
 own: both anchors in A (what A's layer counts), both in B (what B's would count), one in each (what
 both lose today), any other (an anchor in neither outline or in both).
 
-    uv run python tools/border_study.py run tatry [--primary geoportal] [--bands S,M,L] --out <folder> [--data-dir D]
+    uv run python tools/border_study.py run tatry [--primary geoportal] [--bands S,M,L] [--resampling cubic]
+                                                  --out <folder> [--data-dir D]
     uv run python tools/border_study.py exposure slovakia --neighbours Polska=osm:Polska,... --out <folder> [--data-dir D]
     uv run python tools/border_study.py report --out <folder>
+    uv run python tools/border_study.py boxes [--reach 5000] [--write <file.md>]
 
 run counts a place into <out>/<place>-<primary>/, tile by tile (a tile whose meta exists is done, so a
-run resumes; a changed definition is refused unless --reset). exposure reads a built cube
+run resumes; a changed definition is refused unless --reset). --resampling: the neighbour's data
+reprojected onto the primary's grid with that method instead of the mosaic's own choice
+(sources.filling.NEIGHBOUR_RESAMPLING), into <out>/<place>-<primary>-<method>/: the report compares
+each run with the run of the other primary, whose grid holds that side's data as they are
+(docs/country-precompute/contract.md, section 6, step 0). exposure reads a built cube
 (countries/<id>/cube) and counts its lines and spots whose first anchor's 1 km cell lies within reach
 of each neighbour's border (a bin's longest line plus half a cell's diagonal): the most a layer
 across borders could add there. report writes study.json, study.md and pictures/<run>.png: per band
 and length bin the lines of each class, the share across the border, the same within reach of the
 border and per km of it, the spots of each class, where each side's data came from, the agreement of
 a place's two primaries (spots across the border matched within TOLERANCE clusters after
-reprojection), and with exposure.json the estimate for its cube (the place's lines across the
+reprojection), the resampling methods of a place (the spots of the resampled side and those across
+the border against the other primary's, with each run's seconds, CPU seconds and memory), and with
+exposure.json the estimate for its cube (the place's lines across the
 border per line of A within reach of the border, times the cube's lines within reach of B's border).
+boxes lists every declared pair of the catalogue (Source.neighbours) with the share of the neighbour's
+land along the border that lies inside the neighbour's rough boxes: outside them a border gap never
+asks the neighbour and gets the fallback's data (offline: the coverage map's outlines).
 """
 import argparse
 import dataclasses
@@ -37,12 +48,14 @@ import math
 import os
 import shutil
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
+import psutil
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -80,11 +93,24 @@ class Place:
 
 SLOVAKIA = Side("slovakia", "osm:Slovensko", "Slovakia")
 POLAND = Side("geoportal", "osm:Polska", "Poland")
+SAXONY = Side("saxony", "osm:Sachsen", "Saxony")
+CZECHIA = Side("czechia", "osm:Česko", "Czechia")
+BAVARIA = Side("bavaria", "osm:Bayern", "Bavaria")
+AUSTRIA = Side("austria", "osm:Österreich", "Austria")
+SOUTH_TYROL = Side("south_tyrol", "osm:Südtirol", "South Tyrol")
 PLACES = {p.id: p for p in (
     Place("tatry", "Tatras: Kasprowy Wierch, Rysy, Gerlach", "49.16,19.98,49.25,20.20", SLOVAKIA, POLAND,
           "the main ridge"),
     Place("pieniny", "Pieniny: the Dunajec gorge", "49.39,20.36,49.44,20.48", SLOVAKIA, POLAND,
           "the river in the gorge"),
+    # The places of step 0 (the resampling of the neighbour's data): other pairs of grids
+    Place("elbe", "Elbe Sandstone: Schmilka, Hřensko, Großer Winterberg", "50.84,14.19,50.92,14.34", SAXONY, CZECHIA,
+          "the Elbe in its canyon, then the sandstone plateau"),
+    Place("wetterstein", "Wetterstein: Zugspitze, Hochwanner, Dreitorspitze", "47.37,10.94,47.44,11.18", BAVARIA,
+          AUSTRIA, "the main ridge"),
+    # A neighbour coarser than the grid: South Tyrol's 2.5 m data on Austria's grid
+    Place("zillertal", "Zillertal Alps: Hochfeiler, Schwarzenstein, Großer Löffler", "46.95,11.70,47.04,11.92", AUSTRIA,
+          SOUTH_TYROL, "the main ridge"),
 )}
 
 
@@ -209,12 +235,60 @@ def outline_of(side: Side, cache_dir: str):
     return ar.from_spec(side.area, 0.0, None, cache_dir).geometry
 
 
+def run_folder(out: str, place_id: str, primary: str, resampling: Optional[str] = None) -> str:
+    """The folder of a run: <out>/<place>-<primary>, with -<method> for a resampling method."""
+    return os.path.join(out, f"{place_id}-{primary}" + (f"-{resampling}" if resampling else ""))
+
+
+class _Peak(threading.Thread):
+    """This process's largest working set and private bytes while a tile is counted (as
+    country._MemorySampler samples a worker's)."""
+
+    def __init__(self):
+        super().__init__(daemon=True)
+        self.process, self.halt, self.rss, self.private = psutil.Process(), threading.Event(), 0, 0
+
+    def sample(self):
+        try:
+            memory = self.process.memory_info()
+        except psutil.Error:
+            return
+        self.rss, self.private = max(self.rss, int(memory.rss)), max(self.private, country._private(memory))
+
+    def run(self):
+        while not self.halt.is_set():
+            self.sample()
+            self.halt.wait(country.TILE_SAMPLE_SECONDS)
+
+    def stop(self) -> Dict[str, int]:
+        self.halt.set()
+        self.join()
+        self.sample()
+        return {"rss": self.rss, "private": self.private}
+
+
 def run_place(place: Place, primary: str, out: str, data_dir: str, bands: Optional[Sequence[str]] = None,
               config: Optional[country.Country] = None, threads: Optional[int] = None, reset: bool = False,
-              say=print) -> str:
-    """Count a place's bands with the primary's data into <out>/<place>-<primary>/; returns the
+              say=print, resampling: Optional[str] = None) -> str:
+    """Count a place's bands with the primary's data into its folder (run_folder); returns the
     folder. A tile whose meta exists is skipped; a run of another definition is refused unless
-    reset."""
+    reset. resampling: the neighbour's data reprojected with that method of
+    sources.mosaic.RESAMPLINGS (None: the mosaic's own choice)."""
+    import sources.filling as filling
+    import sources.mosaic as mosaic
+    if resampling is not None and resampling not in mosaic.RESAMPLINGS:
+        raise ValueError(f"the resampling must be one of {', '.join(mosaic.RESAMPLINGS)}")
+    before = filling.NEIGHBOUR_RESAMPLING
+    filling.NEIGHBOUR_RESAMPLING = resampling
+    try:
+        return _run_place(place, primary, out, data_dir, bands, config, threads, reset, say, resampling)
+    finally:
+        filling.NEIGHBOUR_RESAMPLING = before
+
+
+def _run_place(place: Place, primary: str, out: str, data_dir: str, bands: Optional[Sequence[str]],
+               config: Optional[country.Country], threads: Optional[int], reset: bool, say,
+               resampling: Optional[str]) -> str:
     import area as ar
     import search
     import sources as src
@@ -224,7 +298,7 @@ def run_place(place: Place, primary: str, out: str, data_dir: str, bands: Option
     if primary not in (place.a.source, place.b.source):
         raise ValueError(f"the primary must be {place.a.source} or {place.b.source}")
     names = list(bands) if bands else [b.name for b in config.bands if b.layer]
-    folder = os.path.join(out, f"{place.id}-{primary}")
+    folder = run_folder(out, place.id, primary, resampling)
     cache_dir = os.path.join(data_dir, "cache")
     south, west, north, east = map(float, place.box.split(","))
     lat, lon = (south + north) / 2, (west + east) / 2
@@ -235,6 +309,8 @@ def run_place(place: Place, primary: str, out: str, data_dir: str, bands: Option
     counted = counted_box(place, crs)
     definition = {"place": dataclasses.asdict(place), "primary": primary, "crs": crs, "counted": list(counted),
                   "origin": list(study_origin(counted, config)), "config": config.config()}
+    if resampling:  # a run without one keeps the definition of the runs before the option
+        definition["resampling"] = resampling
     path = os.path.join(folder, "study.json")
     if os.path.exists(path) and _read_json(path)["definition"] != definition:
         if not reset:
@@ -256,7 +332,7 @@ def run_place(place: Place, primary: str, out: str, data_dir: str, bands: Option
         area_path = os.path.join(folder, f"area-{band.name}.geojson")
         _write_json(area_path, {"type": "Feature", "properties": {"band": band.name},
                                 "geometry": mapping(_project(grown, crs, "EPSG:4326"))})
-        work = os.path.join(data_dir, "work", f"border-{place.id}-{primary}")
+        work = os.path.join(data_dir, "work", "border-" + os.path.basename(folder))
         plan = _band_plan(config, band, primary, area_path, data_dir, work, events)
         clipped = {k: g.intersection(_project(grown.buffer(10 * band.resolution), crs, "EPSG:4326"))
                    for k, g in outlines.items()}
@@ -282,18 +358,21 @@ def run_place(place: Place, primary: str, out: str, data_dir: str, bands: Option
             tile_plan = dataclasses.replace(plan, params=params, grid=grid, paths=search.Paths(data_dir, tile_work),
                                             tiles=None, funnel={}, tile_label=f"{band.name} {tile.name} · ",
                                             search_grid=plan.grid, border=True)
-            say(f"\n--- {place.id} ({primary}), band {band.name}, tile {k + 1}/{len(tiles)} {tile.name} "
+            say(f"\n--- {os.path.basename(folder)}, band {band.name}, tile {k + 1}/{len(tiles)} {tile.name} "
                 f"({grid.width} x {grid.height} px) ---")
             src.used_data.clear()
             events.filled = []
-            t0 = time.time()
+            peak = _Peak()
+            peak.start()
+            t0, c0 = time.time(), time.process_time()
             data = search.prepare_data(tile_plan, statistics=False, shore="none", strips=True)
-            t1 = time.time()
+            t1, c1 = time.time(), time.process_time()
             inside = {k2: ar.Polygon(g).mask(grid) if not g.is_empty else np.zeros((grid.height, grid.width), bool)
                       for k2, g in clipped.items()}
             sink = BorderSink(grid, origin, core, band.lengths, last, inside["a"], inside["b"])
             funnel = search.count_tile(tile_plan, data, core, sink, table)
-            t2 = time.time()
+            t2, c2 = time.time(), time.process_time()
+            memory = peak.stop()
             fill = fill_check(data, inside, search._core_window(grid, core))
             del data
             gc.collect()  # close the memory-mapped grids before their folder is removed (Windows)
@@ -309,6 +388,7 @@ def run_place(place: Place, primary: str, out: str, data_dir: str, bands: Option
                     "spots": {n2: int(len(r.spot_ids)) for n2, r in results.items()},
                     "dropped": results["aa"].dropped, "fill": fill, "filled": events.filled, "funnel": dict(funnel),
                     "seconds": {"prepare": round(t1 - t0, 2), "count": round(t2 - t1, 2)},
+                    "cpu_seconds": {"prepare": round(c1 - c0, 2), "count": round(c2 - c1, 2)}, "memory": memory,
                     "data": json.loads(json.dumps(src.used_data))}
             _write_json(meta_path, meta)
             lines = meta["lines"]
@@ -479,7 +559,7 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
     piece = whole.intersection(region.buffer(cc.LENGTH_EDGES[-1] + CELL_HALF_DIAGONAL))
     border_km = whole.intersection(region).length / 1000
     result = {"run": os.path.basename(folder), "place": place.id, "name": place.name, "primary": d["primary"],
-              "a": place.a.name, "b": place.b.name, "a_source": place.a.source, "a_area": place.a.area,
+              "resampling": d.get("resampling"), "a": place.a.name, "b": place.b.name, "a_source": place.a.source, "a_area": place.a.area,
               "b_area": place.b.area, "border": place.border, "crs": crs, "counted": list(counted),
               "km2": round(region.area / 1e6, 1), "border_km": round(border_km, 1),
               "km2_a": round(outlines["a"].intersection(region).area / 1e6, 1),
@@ -494,6 +574,12 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
         entry = {"lengths": info["lengths"], "resolution": info["resolution"], "tiles": info["tiles"],
                  "done": len(metas), "seconds": round(sum(m["seconds"]["prepare"] + m["seconds"]["count"]
                                                           for m in metas), 1)}
+        timed = [m for m in metas if "cpu_seconds" in m]  # the tiles counted since the option of the resampling
+        if timed and len(timed) == len(metas):
+            entry["prepare_seconds"] = round(sum(m["seconds"]["prepare"] for m in metas), 1)
+            entry["cpu_seconds"] = round(sum(m["cpu_seconds"]["prepare"] + m["cpu_seconds"]["count"] for m in metas), 1)
+            entry["prepare_cpu_seconds"] = round(sum(m["cpu_seconds"]["prepare"] for m in metas), 1)
+            entry["memory"] = {k: max(m["memory"][k] for m in metas) for k in ("rss", "private")}
         fill = {side: {k: sum(m["fill"][side][k] for m in metas) for k in ("pixels", "own", "neighbour", "fallback", "none")}
                 for side in ("a", "b")}
         entry["fill"] = fill
@@ -558,15 +644,16 @@ def check_against_cube(folder: str, cube_dir: str) -> Optional[Dict]:
     return {"cube": cube.info.get("id"), "bins": out}
 
 
-def agreement(run_a: str, run_b: str, band: str) -> Optional[Dict]:
-    """Two runs of one place with different primaries: the spots across the border of each with both
-    ends inside the box (less 100 m) that the other has within TOLERANCE clusters (in run_a's frame)."""
+def agreement(run_a: str, run_b: str, band: str, name: str = "ab") -> Optional[Dict]:
+    """Two runs of one place with different primaries: the spots of a class (across the border,
+    unless named) of each with both ends inside the box (less 100 m) that the other has within
+    TOLERANCE clusters (in run_a's frame)."""
     import band_study as bs
     states = [_read_json(os.path.join(r, "study.json"))["definition"] for r in (run_a, run_b)]
     within = _shrunk_box(states[0]["place"], 100.0)
     spots = []
     for r, d in zip((run_a, run_b), states):
-        _, _, ids, _ = _merged(_class_tiles(r, band, "ab"))
+        _, _, ids, _ = _merged(_class_tiles(r, band, name))
         if not len(ids):
             return None
         spots.append(reframed_spots(ids, tuple(d["origin"]), d["crs"], tuple(states[0]["origin"]), states[0]["crs"],
@@ -576,6 +663,37 @@ def agreement(run_a: str, run_b: str, band: str) -> Optional[Dict]:
             "matched_a": float(bs.matched(a, b, TOLERANCE).mean()) if len(a) else None,
             "matched_b": float(bs.matched(b, a, TOLERANCE).mean()) if len(b) else None,
             "primaries": [states[0]["primary"], states[1]["primary"]]}
+
+
+def resampling_rows(runs: List[Dict], folders: Dict[str, str]) -> List[Dict]:
+    """Every run of a place against each run of its other primary that has no resampling method
+    (the reference: its grid holds that primary's side as the data are), per common band and for
+    two classes: the lines with both anchors on the reference's side, found by the run on that
+    side's data resampled and by the reference on the data themselves, and the lines across the
+    border, for which each run has one side resampled. A row: the spots of each (both ends in the
+    box less 100 m), the share of the reference's that the run has and of the run's that the
+    reference has, the lines of the class, and the run's seconds, CPU seconds and memory."""
+    rows = []
+    for run in runs:
+        for ref in runs:
+            if ref["place"] != run["place"] or ref["primary"] == run["primary"] or ref["resampling"]:
+                continue
+            side = "aa" if ref["primary"] == ref["a_source"] else "bb"
+            for band in sorted(set(run["bands"]) & set(ref["bands"])):
+                for name in (side, "ab"):
+                    found = agreement(folders[run["run"]], folders[ref["run"]], band, name)
+                    entry = run["bands"][band]
+                    rows.append({"place": run["place"], "band": band, "run": run["run"], "primary": run["primary"],
+                                 "resampling": run["resampling"], "reference": ref["run"], "class": name,
+                                 "lines": [entry["classes"][name]["lines"], ref["bands"][band]["classes"][name]["lines"]],
+                                 "spots": found["spots"] if found else None,
+                                 "reference_found": found["matched_b"] if found else None,
+                                 "run_found": found["matched_a"] if found else None,
+                                 "seconds": entry["seconds"], "prepare_seconds": entry.get("prepare_seconds"),
+                                 "cpu_seconds": entry.get("cpu_seconds"),
+                                 "prepare_cpu_seconds": entry.get("prepare_cpu_seconds"),
+                                 "memory": entry.get("memory")})
+    return rows
 
 
 MIN_NEAR = 1000  # a place's ratio is carried over only from a bin with at least this many lines of A near the border
@@ -644,7 +762,49 @@ def _pct(part: float, whole: float) -> str:
     return f"{100 * part / whole:.1f} %" if whole else "-"
 
 
-def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], estimates: List[Dict]) -> str:
+def _gib(value: Optional[int]) -> str:
+    return f"{value / 2 ** 30:.2f}" if value else "-"
+
+
+def _resampling_report(rows: List[Dict]) -> List[str]:
+    """The report's section of the resampling methods (resampling_rows)."""
+    out = ["## The resampling of the neighbour's data", "",
+           "Each run against the run of the place's other primary without a method (the reference). *Side*: the "
+           "lines with both anchors on the reference's side, which the run finds on that side's data resampled onto "
+           "its grid and the reference on the data themselves. *Across*: the lines across the border (each run has "
+           "one side resampled). Spots with both ends in the box (less 100 m); found: within "
+           f"{TOLERANCE} cluster ({cc.CLUSTER_M:g} m) at both ends after reprojection. Method *own*: the mosaic's "
+           "choice (the average of finer data, bilinear otherwise).", "",
+           "| Place | Band | Run | Method | Class | Lines: run / reference | Spots: run / reference | "
+           "Reference's spots the run has | Run's spots the reference has |",
+           "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: |"]
+    for r in rows:
+        spots = f"{r['spots'][0]:,} / {r['spots'][1]:,}" if r["spots"] else "-"
+        shares = [_pct(r[k], 1) if r[k] is not None else "-" for k in ("reference_found", "run_found")]
+        out.append(f"| {r['place']} | {r['band']} | {r['run']} | {r['resampling'] or 'own'} | "
+                   f"{'across' if r['class'] == 'ab' else 'side'} | {r['lines'][0]:,} / {r['lines'][1]:,} | {spots} | "
+                   f"{shares[0]} | {shares[1]} |")
+    out += ["", "The runs' cost (a band's tiles one after another in one process; step 1 holds the resampling; the "
+                "private bytes are Windows' commit, the working set the RAM with the memory-mapped grids):", "",
+            "| Place | Band | Run | Method | Seconds | of them step 1 | CPU seconds | of them step 1 | "
+            "Peak private GiB | Peak working set GiB |",
+            "| --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
+    seen = set()
+    for r in rows:
+        if (r["run"], r["band"]) in seen:
+            continue
+        seen.add((r["run"], r["band"]))
+        number = lambda v: f"{v:,.0f}" if v is not None else "-"
+        memory = r["memory"] or {}
+        out.append(f"| {r['place']} | {r['band']} | {r['run']} | {r['resampling'] or 'own'} | {number(r['seconds'])} | "
+                   f"{number(r['prepare_seconds'])} | {number(r['cpu_seconds'])} | {number(r['prepare_cpu_seconds'])} | "
+                   f"{_gib(memory.get('private'))} | {_gib(memory.get('rss'))} |")
+    out.append("")
+    return out
+
+
+def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], estimates: List[Dict],
+           resampling: Sequence[Dict] = ()) -> str:
     """study.md."""
     out = ["# The border study", "",
            "Each line whose first anchor lies in a place's box, by the countries holding its anchors: A-A (what "
@@ -654,7 +814,9 @@ def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], es
            "come from its national source, as a neighbour fills a border gap.", ""]
     for run in runs:
         out += [f"## {run['name']} ({run['run']})", "",
-                f"Primary {run['primary']}, {run['crs']}; box {run['km2']} km² ({run['a']} {run['km2_a']}, "
+                f"Primary {run['primary']}, {run['crs']}" +
+                (f", the neighbour's data resampled {run['resampling']}" if run.get("resampling") else "") +
+                f"; box {run['km2']} km² ({run['a']} {run['km2_a']}, "
                 f"{run['b']} {run['km2_b']}); border in it {run['border_km']} km, along {run['border']}.", "",
                 "| Band | Lengths | A-A | B-B | A-B | Other | A-B of all | A-B per A-A near | A-B per km of border |",
                 "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"]
@@ -695,6 +857,8 @@ def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], es
             out.append(f"| {a['place']} | {a['band']} | {a['primaries'][0]} {a['spots'][0]:,}, {a['primaries'][1]} "
                        f"{a['spots'][1]:,} | {_pct(a['matched_a'] or 0, 1)} | {_pct(a['matched_b'] or 0, 1)} |")
         out.append("")
+    if resampling:
+        out += _resampling_report(list(resampling))
     if exposed:
         names = list(exposed["neighbours"])
         out += [f"## What {exposed['name']}'s cube could gain", "",
@@ -747,7 +911,7 @@ def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], es
 def analyse(out: str, data_dir: str, say=print) -> int:
     """study.json, study.md and the pictures of every run in out."""
     cache_dir = os.path.join(data_dir, "cache")
-    runs, folders = [], {}
+    runs, folders, paths = [], {}, {}
     for name in sorted(os.listdir(out)):
         folder = os.path.join(out, name)
         if os.path.exists(os.path.join(folder, "study.json")):
@@ -755,7 +919,10 @@ def analyse(out: str, data_dir: str, say=print) -> int:
             run = analyse_run(folder, cache_dir)
             run["picture"] = picture(folder, run, cache_dir, os.path.join(out, "pictures", f"{name}.png"))
             runs.append(run)
-            folders.setdefault(run["place"], []).append((run["primary"], folder))
+            if not run["resampling"]:
+                folders.setdefault(run["place"], []).append((run["primary"], folder))
+            paths[run["run"]] = folder
+    methods = resampling_rows(runs, paths) if any(r["resampling"] for r in runs) else []
     agreements = []
     for place, pair in folders.items():
         if len(pair) == 2:
@@ -771,7 +938,7 @@ def analyse(out: str, data_dir: str, say=print) -> int:
     cube_dir = os.path.join(country.folder_of(data_dir, exposed["cube"]), "cube") if exposed else None
     if cube_dir and os.path.exists(os.path.join(cube_dir, "cube.json")):
         # the runs on the cube's data and grid (the primary is A's source) of each border
-        own = [r for r in runs if r["primary"] == r["a_source"]]
+        own = [r for r in runs if r["primary"] == r["a_source"] and not r["resampling"]]
         for run in own:
             measured = [r for r in own if (r["a_area"], r["b_area"]) == (run["a_area"], run["b_area"])]
             found = estimate(run, measured, exposed, cube_dir, cache_dir)
@@ -779,9 +946,9 @@ def analyse(out: str, data_dir: str, say=print) -> int:
                 found["check"] = check_against_cube(os.path.join(out, run["run"]), cube_dir)
                 estimates.append({"run": run["run"], "border": run["border"], **found})
     _write_json(os.path.join(out, "study.json"), {"runs": runs, "agreements": agreements, "exposure": exposed,
-                                                  "estimates": estimates})
+                                                  "estimates": estimates, "resampling": methods})
     with cache.replacing(os.path.join(out, "study.md"), "w", encoding="utf-8") as f:
-        f.write(report(runs, agreements, exposed, estimates))
+        f.write(report(runs, agreements, exposed, estimates, methods))
     say(f"Written {os.path.join(out, 'study.md')}")
     return 0
 
@@ -871,6 +1038,88 @@ def run_total(run: Dict, names: Sequence[str]) -> int:
     return sum(e["classes"][name]["lines"] for e in run["bands"].values() for name in names)
 
 
+# --- The neighbours' rough boxes along the borders (docs/country-precompute/contract.md, section 6) ---------
+SHAPES = os.path.join(REPO, "viewer", "src", "coverage", "shapes.json")
+BOX_REACH = 5000.0  # metres beyond a border: the layer's longest line
+
+
+def strip_share(a, b, boxes: Sequence[Tuple[float, float, float, float]], reach: float = BOX_REACH) -> Optional[Dict]:
+    """Of b's land within reach of a (two WGS84 shapes), the km² and the share inside boxes
+    ((south, north, west, east) each, as Source.offline's and bbox): where a grid of a's source
+    with a border gap asks b's source (sources.filling.neighbour_window). None when b has no land
+    within reach of a. A shape lying inside the other (a region of a country) is taken out of it
+    first."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    common = a.intersection(b).area
+    if common > 0.5 * b.area:
+        a = a.difference(b)
+    elif common > 0.5 * a.area:
+        b = b.difference(a)
+    west, south, east, north = b.bounds
+    near = box(west - 1, south - 1, east + 1, north + 1)
+    a = a.intersection(near)
+    if a.is_empty or b.is_empty:
+        return None
+    west, south, east, north = a.bounds
+    b = b.intersection(box(west - 1, south - 1, east + 1, north + 1))
+    if b.is_empty:
+        return None
+    centre = a.union(b).centroid
+    local = f"+proj=laea +lat_0={centre.y} +lon_0={centre.x} +datum=WGS84 +units=m"
+    strip = _project(b, "EPSG:4326", local).buffer(0).intersection(_project(a, "EPSG:4326", local).buffer(0).buffer(reach))
+    if strip.area < 1e6:
+        return None
+    covered = unary_union([_project(box(w, s, e, n).segmentize(0.05), "EPSG:4326", local) for s, n, w, e in boxes])
+    return {"km2": round(strip.area / 1e6, 1), "share": min(1.0, strip.intersection(covered).area / strip.area)}
+
+
+def box_reach(reach: float = BOX_REACH, shapes_path: str = SHAPES) -> List[Dict]:
+    """Every declared pair of the catalogue (Source.neighbours, each direction): of the
+    neighbour's land within reach of the source's, the share inside the neighbour's rough boxes
+    (strip_share; the outlines of the coverage map, Natural Earth). share None: a neighbour without
+    boxes, which may fill any border gap; a direction without an outline or without land within
+    reach is left out."""
+    import sources as src
+    from shapely.geometry import shape
+    from shapely.ops import unary_union
+    with open(shapes_path, encoding="utf-8") as f:
+        # A country split at its source's box keeps its id twice: the covered part, and the `rest`
+        features = {x["properties"]["id"]: x for x in json.load(f)["features"] if not x["properties"].get("rest")}
+    by_id = {s.id: s for s in (src.SOURCES.values() if isinstance(src.SOURCES, dict) else src.SOURCES)}
+
+    def outline(source):
+        ids = list((source.coverage.areas if source.coverage else ()) or source.regions or source.countries or ())
+        parts = [shape(features[i]["geometry"]).buffer(0) for i in ids if i in features]
+        return unary_union(parts) if source.coverage and parts else None
+
+    rows = []
+    for source in by_id.values():
+        for name in source.neighbours or ():
+            neighbour = by_id[name]
+            a, b = outline(source), outline(neighbour)
+            if a is None or b is None:
+                continue
+            boxes = [b_ for _, b_ in neighbour.offline or ()] + ([neighbour.bbox] if neighbour.bbox else [])
+            found = strip_share(a, b, boxes, reach)
+            if found is not None:
+                rows.append({"source": source.id, "neighbour": name, "km2": found["km2"], "boxes": len(boxes),
+                             "share": found["share"] if boxes else None})
+    return sorted(rows, key=lambda r: (1.0 if r["share"] is None else r["share"], r["source"], r["neighbour"]))
+
+
+def box_reach_report(rows: List[Dict], reach: float = BOX_REACH) -> List[str]:
+    lines = [f"Of the neighbour's land within {reach / 1000:g} km of the source's, the share inside the neighbour's "
+             "rough boxes (`Source.offline`, `bbox`): only there a border gap of the source's grid asks the neighbour "
+             "(`sources.filling.neighbour_window`; a window spans the gaps it reaches, so the real share is a little "
+             "higher).", "",
+             "| Grid of | Neighbour | Its land within reach, km² | In its boxes |", "| --- | --- | ---: | ---: |"]
+    for r in rows:
+        share = "any gap (no boxes)" if r["share"] is None else f"{100 * r['share']:.0f} %"
+        lines.append(f"| {r['source']} | {r['neighbour']} | {r['km2']:,.0f} | {share} |")
+    return lines
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description="Lines of the country layer across a border (docs/roadmap.md)")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -880,6 +1129,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     r.add_argument("--bands", help="bands of the layer, comma-separated (default: its layer bands)")
     r.add_argument("--threads", type=int, help="threads of the line search (default: the search's)")
     r.add_argument("--reset", action="store_true", help="remove a run of another definition first")
+    r.add_argument("--resampling", choices=("nearest", "bilinear", "cubic", "average"),
+                   help="how the neighbour's data are reprojected onto the primary's grid (default: the mosaic's "
+                        "own choice, the average of finer data and bilinear otherwise)")
     e = commands.add_parser("exposure", help="a cube's lines within reach of its neighbours' borders")
     e.add_argument("cube", help="a country id with a built cube (countries/<id>/cube)")
     e.add_argument("--neighbours", required=True, help="NAME=SPEC,... (area specs: osm:<name> or a file)")
@@ -887,12 +1139,23 @@ def main(argv: Optional[List[str]] = None) -> int:
     for sub in (r, e, a):
         sub.add_argument("--out", required=True, help="the folder of the runs and the report")
         sub.add_argument("--data-dir", help="data folder (default: FINDALINE_DATA or the folder of the scripts)")
+    b = commands.add_parser("boxes", help="how far each declared neighbour's rough boxes reach along the borders")
+    b.add_argument("--reach", type=float, default=BOX_REACH, help="metres beyond the border (default: 5000)")
+    b.add_argument("--write", help="write the table to this Markdown file as well")
     args = parser.parse_args(argv)
+    if args.command == "boxes":
+        text = box_reach_report(box_reach(args.reach), args.reach)
+        print("\n".join(text))
+        if args.write:
+            with open(args.write, "w", encoding="utf-8") as f:
+                f.write("\n".join(text) + "\n")
+        return 0
     data_dir = cache.data_dir(args.data_dir)
     if args.command == "run":
         place = PLACES[args.place]
         run_place(place, args.primary or place.a.source, args.out, data_dir,
-                  args.bands.split(",") if args.bands else None, threads=args.threads, reset=args.reset)
+                  args.bands.split(",") if args.bands else None, threads=args.threads, reset=args.reset,
+                  resampling=args.resampling)
         return 0
     if args.command == "exposure":
         neighbours = dict(item.split("=", 1) for item in args.neighbours.split(","))

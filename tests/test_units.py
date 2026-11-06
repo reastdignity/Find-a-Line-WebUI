@@ -1769,6 +1769,63 @@ def test_rasterize_into_as_whole(tmp_path):
         del out, got
 
 
+def test_mosaic_resampling_methods(tmp_path):
+    """build_mosaic(resampling=): the method of the reprojected rasters of heights instead of the
+    mosaic's own choice (bilinear for data of the grid's resolution or coarser, the average of finer
+    data); a raster on the grid is copied whatever it says; not for a categorical mosaic."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    rng = np.random.default_rng(11)
+    grid = gd.make_grid((500000, 300000, 500400, 300300), 2, "EPSG:2180")
+
+    def mosaic(name, band, left, top, res, method, **kwargs):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1,
+                      dtype=band.dtype, crs="EPSG:2180", transform=from_origin(left, top, res, res)) as dst:
+            dst.write(band, 1)
+        return np.array(src.build_mosaic([path], grid, str(tmp_path / "m.npy"), "test", resampling=method, **kwargs))
+
+    coarse = (200 + rng.normal(0, 30, (70, 90))).astype(np.float32)
+    fine = (200 + rng.normal(0, 30, (700, 900))).astype(np.float32)
+    on_grid = (200 + rng.normal(0, 30, (150, 200))).astype(np.float32)
+    got = {m: mosaic("coarse", coarse, 499987, 300321, 5, m) for m in (None, "bilinear", "nearest", "cubic", "average")}
+    assert np.array_equal(got[None], got["bilinear"], equal_nan=True) and np.isfinite(got[None]).all()
+    assert np.isin(got["nearest"], coarse).all() and np.isin(got["bilinear"], coarse).mean() < 0.01
+    assert not np.array_equal(got["cubic"], got["bilinear"])
+    got = {m: mosaic("fine", fine, 499979.75, 300320.25, 0.5, m) for m in (None, "bilinear", "nearest", "average")}
+    assert np.array_equal(got[None], got["average"], equal_nan=True) and np.isfinite(got[None]).all()
+    assert np.isin(got["nearest"], fine).all() and not np.array_equal(got["bilinear"], got["average"])
+    # GDAL widens the bilinear kernel to the grid's pixel for finer data: smoother than the blocks' means,
+    # which are smoother than single pixels of the fine data
+    assert got["bilinear"].std() < got["average"].std() < 0.5 * got["nearest"].std()
+    for method in (None, "nearest", "cubic"):
+        assert np.array_equal(mosaic("on_grid", on_grid, 500000, 300300, 2, method), on_grid)
+    # same_resolution: a method for the rasters at about the grid's resolution only (a neighbour's data,
+    # half a pixel off the grid here); finer rasters stay averaged, coarser ones bilinear, a method for all wins
+    same = (200 + rng.normal(0, 30, (170, 220))).astype(np.float32)
+    off = {m: mosaic("same", same, 499979, 300321, 2, None, same_resolution=m) for m in (None, "nearest")}
+    assert np.array_equal(off[None], mosaic("same", same, 499979, 300321, 2, "bilinear"))
+    assert np.isin(off["nearest"], same).all() and np.isin(off[None], same).mean() < 0.01
+    assert np.array_equal(mosaic("same", same, 499979, 300321, 2, "cubic", same_resolution="nearest"),
+                          mosaic("same", same, 499979, 300321, 2, "cubic"))
+    assert np.array_equal(mosaic("coarse", coarse, 499987, 300321, 5, None, same_resolution="nearest"),
+                          mosaic("coarse", coarse, 499987, 300321, 5, "bilinear"))
+    # ... also a little coarser (2.5 m data on the 2 m grid, measured: nearest makes walls of their steps)
+    wider = (200 + rng.normal(0, 30, (140, 180))).astype(np.float32)
+    assert src.mosaic.FINER < 1.0 < src.mosaic.SAME < 1.25
+    assert np.array_equal(mosaic("wider", wider, 499979, 300321, 2.5, None, same_resolution="nearest"),
+                          mosaic("wider", wider, 499979, 300321, 2.5, "bilinear"))
+    assert np.array_equal(mosaic("fine", fine, 499979.75, 300320.25, 0.5, None, same_resolution="nearest"),
+                          got["average"])
+    assert np.array_equal(mosaic("on_grid", on_grid, 500000, 300300, 2, None, same_resolution="nearest"), on_grid)
+    with pytest.raises(ValueError, match="resampling"):
+        mosaic("same", same, 499979, 300321, 2, None, same_resolution="lanczos")
+    with pytest.raises(ValueError, match="resampling"):
+        mosaic("coarse", coarse, 499987, 300321, 5, "lanczos")
+    with pytest.raises(ValueError, match="resampling"):
+        mosaic("coarse", coarse.astype(np.uint8), 499987, 300321, 5, "nearest", categorical=True)
+
+
 def test_mosaic_rows_as_whole(tmp_path):
     """build_mosaic in strips of rows: a raster on the grid (copied) and rasters of the grid's CRS
     resampled (bilinear from a coarser one, averaged from a finer one: an exact transformation)

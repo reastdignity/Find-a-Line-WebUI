@@ -229,3 +229,46 @@ def test_border_gaps_once_unless_a_neighbour_wrote(scene, monkeypatch):
     assert len(calls) == 2  # once at the start, once after the useful one filled the border
     assert src.filling.fill_from_neighbours(path, None, grid, [], str(tmp / "cache"), str(tmp / "none.npy")) == (None, [])
     assert src.filling.fill_gaps(path, None, grid, useless, str(tmp / "cache"), str(tmp / "again.npy"))[1:] == (100, 100)  # the hole: terrain pixels, pixels written
+
+
+@pytest.mark.parametrize("rows", [None, 30])
+def test_neighbours_resampled_as_set(scene, monkeypatch, rows):
+    """How a neighbour's data are reprojected (half a pixel off our grid here, at its resolution):
+    by NEIGHBOUR_SAME_RESOLUTION, nearest, which keeps the neighbour's own values (None: bilinear,
+    the mosaic's own choice); NEIGHBOUR_RESAMPLING chooses a method for every raster instead; the
+    fallbacks keep the mosaic's choice."""
+    grid, path, tmp = scene
+    start = np.load(path)
+    ramp = (500 + np.random.default_rng(4).normal(0, 40, (grid.height, grid.width + 1))).astype(np.float32)
+    ramp[:, 39:] = np.nan  # no pixel over our data: no offset to match, its heights as they are
+    file = str(tmp / "ramp.tif")
+    with rio.open(file, "w", driver="GTiff", width=ramp.shape[1], height=ramp.shape[0], count=1, dtype="float32",
+                  crs=grid.crs, nodata=-9999.0,
+                  transform=from_origin(grid.left - grid.res / 2, grid.top + grid.res / 2, grid.res, grid.res)) as dst:
+        dst.write(np.where(np.isnan(ramp), -9999.0, ramp), 1)
+    neighbour = _source("ramp", _File("ramp terrain", file))
+    results = {}
+    for method in (None, "bilinear", "nearest", "cubic"):
+        np.save(path, start)
+        monkeypatch.setattr(src.filling, "NEIGHBOUR_RESAMPLING", method)
+        _, counts = src.filling.fill_from_neighbours(path, None, grid, [neighbour], str(tmp / "cache"),
+                                                     str(tmp / f"joined-{method}.npy"), rows=rows)
+        assert counts[0][1] > 0
+        results[method] = np.load(path)[30:70, 5:35]
+    assert src.filling.NEIGHBOUR_SAME_RESOLUTION == "nearest"
+    assert np.array_equal(results[None], results["nearest"])  # the default at the grid's resolution
+    assert np.isin(results["nearest"], ramp).all() and np.isin(results["bilinear"], ramp).mean() < 0.01
+    assert not np.array_equal(results["cubic"], results["bilinear"])
+    # without the rule for the grid's resolution: the mosaic's own choice, bilinear
+    np.save(path, start)
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_RESAMPLING", None)
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_SAME_RESOLUTION", None)
+    src.filling.fill_from_neighbours(path, None, grid, [neighbour], str(tmp / "cache"), str(tmp / "joined-own.npy"),
+                                     rows=rows)
+    assert np.array_equal(np.load(path)[30:70, 5:35], results["bilinear"])
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_SAME_RESOLUTION", "nearest")
+    # a fallback is reprojected by the mosaic's own choice whatever the neighbours' method
+    np.save(path, start)
+    monkeypatch.setattr(src.filling, "NEIGHBOUR_RESAMPLING", "nearest")
+    src.fill_gaps_chain(path, None, grid, [neighbour], str(tmp / "cache"), str(tmp / "filled.npy"), rows=rows)
+    assert np.array_equal(np.load(path)[30:70, 5:35], results["bilinear"])
