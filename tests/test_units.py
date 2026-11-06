@@ -867,7 +867,7 @@ def test_line_ok_matches_reference(model):
         if rng.random() < 0.5:  # one pixel too high somewhere
             k = int(rng.integers(1, steps))
             z[r1 + int(np.rint((r2 - r1) * k / steps)), c1 + int(np.rint((c2 - c1) * k / steps))] = 200
-        ok = ls._line_ok(z, r1, c1, r2, c2, 1.0, *args)
+        ok = ls._line_ok(z, r1, c1, r2, c2, 1.0, *args, 0.0, 0.0, 0.0, 0.25)  # end zone 0, lift 0
         assert ok == K.ref_line_ok(z, r1, c1, r2, c2, 1.0, *args)
         decided[bool(ok)] += 1
     assert min(decided.values()) > 100

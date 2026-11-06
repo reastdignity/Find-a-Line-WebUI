@@ -18,6 +18,14 @@ Three steps, none of which loses a valid line:
 The kernels keep pairs within EPS of the limit; the pairs found are evaluated
 once more by helpers.evaluate_line, which makes the final decision and gives the
 clearances, so the results are exactly those of the plain pixel-by-pixel search.
+
+The end zone and the lift (helpers.end_zone_rule; off by default) enter every step
+only in the comparison with the limit, never in its arithmetic: a pixel passes when
+its strict margin exceeds -lift - delta in the end zone and -lift outside it. The rings
+take an offset per ring (ring_offsets: the zone uncapped, the sound side), _line_ok
+tests the first strict step at each end first when a zone is set, and the evaluation
+gives the rule's decision values as the clearances (and, with a ladder of zones, the
+bucket minima of the strict margins: helpers.valid_at).
 """
 
 import math
@@ -70,7 +78,36 @@ def _index(x, xs):
 
 
 @njit(cache=True)
-def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zone):
+def _zone_steps(steps, length, end_zone, zone_cap):
+    """helpers.zone_steps in numba, operation for operation (tests/test_end_zone.py compares them)."""
+    d = min(end_zone, zone_cap * length)
+    if not d > 0.0:
+        return 0
+    return int(math.ceil(d * steps / length))
+
+
+@njit(cache=True)
+def _margin_at(z, r1, c1, dr, dc, k, steps, length, e1, e2, emin, use_sag, i0, j0, a, b, table, points, fall_zone):
+    """The margin limit - z of step k of a line as _line_ok computes it (the same float operations)."""
+    t = k / steps
+    r = r1 + int(np.rint(dr * t))
+    c = c1 + int(np.rint(dc * t))
+    if use_sag:
+        x = t * (points - 1)
+        f = min(int(x), points - 2)
+        w = x - f
+        s0 = ((1 - a) * (1 - b) * table[i0, j0, f] + a * (1 - b) * table[i0 + 1, j0, f]
+              + (1 - a) * b * table[i0, j0 + 1, f] + a * b * table[i0 + 1, j0 + 1, f])
+        s1 = ((1 - a) * (1 - b) * table[i0, j0, f + 1] + a * (1 - b) * table[i0 + 1, j0, f + 1]
+              + (1 - a) * b * table[i0, j0 + 1, f + 1] + a * b * table[i0 + 1, j0 + 1, f + 1])
+        limit = e1 + (e2 - e1) * t - (s0 * (1 - w) + s1 * w) - fall_zone
+    else:
+        limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
+    return limit - np.float64(z[r, c])
+
+
+@njit(cache=True)
+def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zone, end_zone, lift, delta, zone_cap):
     """Whether the terrain stays below the maximum safe elevation along the line.
 
     The same limit as helpers.max_safe_elevation (formula or sag table), within EPS. The
@@ -79,6 +116,11 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
     end first, then the others in bit-reversal order (a long line over a valley or a bay
     fails in its middle often). Every pixel is tested (the middle one of the ends-inward
     order twice), so the order changes only how soon a failing line is noticed.
+
+    With an end zone or a lift (helpers.end_zone_rule) a pixel passes when its margin exceeds
+    -EPS - lift - delta in the zone (_zone_steps), -EPS - lift outside it; with a zone the
+    first step beyond it at each end is tested first (in the zone most lines pass, beyond it
+    many fail). At end_zone 0 and lift 0 every comparison is the one of before (-EPS).
     """
     dr, dc = r2 - r1, c2 - c1
     steps = max(abs(dr), abs(dc))
@@ -93,6 +135,16 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
         ri = _index((e1 - e2) / length, ratios)
         i0, j0 = min(int(si), log_spans.size - 2), min(int(ri), ratios.size - 2)
         a, b = si - i0, ri - j0
+    kz = _zone_steps(steps, length, end_zone, zone_cap)
+    strict, lenient = -EPS - lift - 0.0, -EPS - lift - delta
+    if 0 < kz < steps:  # the first strict step at each end first
+        for k in (kz, steps - kz):
+            if k < kz or steps - k < kz:
+                continue  # in the zone from the other end (a short line)
+            m = _margin_at(z, r1, c1, dr, dc, k, steps, length, e1, e2, emin, use_sag, i0, j0, a, b, table, points,
+                           fall_zone)
+            if not (m > strict):
+                return False
     rounds = 2 if LINE_ORDER_SPLIT < steps <= LINE_ORDER_MAX else steps
     lo, hi = 1, steps - 1
     while lo <= hi and lo <= rounds:
@@ -111,7 +163,8 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
                 limit = e1 + (e2 - e1) * t - (s0 * (1 - w) + s1 * w) - fall_zone
             else:
                 limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
-            if not (limit - np.float64(z[r, c]) > -EPS):  # NaN (no data) fails too
+            bound = lenient if (k < kz or steps - k < kz) else strict
+            if not (limit - np.float64(z[r, c]) > bound):  # NaN (no data) fails too
                 return False
         lo += 1
         hi -= 1
@@ -145,7 +198,8 @@ def _line_ok(z, r1, c1, r2, c2, res, use_sag, log_spans, ratios, table, fall_zon
                 limit = e1 + (e2 - e1) * t - (s0 * (1 - w) + s1 * w) - fall_zone
             else:
                 limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
-            if not (limit - np.float64(z[r, c]) > -EPS):  # NaN (no data) fails too
+            bound = lenient if (k < kz or steps - k < kz) else strict
+            if not (limit - np.float64(z[r, c]) > bound):  # NaN (no data) fails too
                 return False
     return True
 
@@ -200,18 +254,30 @@ def largest_need(min_length: float, max_length: float, res: float) -> int:
     return min(RINGS, max(smallest_need(min_length, res), (int(max_length / res) + 1) // 2))
 
 
+def ring_offsets(offset: float, res: float, kmax: int, end_zone: float = 0.0, lift: float = 0.0,
+                 delta: float = 0.0) -> np.ndarray:
+    """The offset of each ring of _free_rings (index k = 1 .. kmax; offsets[0] = offset, unused):
+    offset - lift - delta * [(k - 1) * res < end_zone]. The rings do not know a line's length, so
+    the zone is end_zone uncapped (the sound side: step k of a line lies at least k * res from its
+    anchor, so a step in the zone from the nearer anchor has k * res < end_zone; the rings a pair
+    needs, up to half its steps, are never in the zone from the other anchor only). At lift 0 and
+    end_zone 0 every value is offset itself."""
+    return np.array([offset] + [offset - lift - (delta if (k - 1) * res < end_zone else 0.0)
+                                for k in range(1, kmax + 1)], dtype=np.float64)
+
+
 @njit(parallel=True, cache=True)
-def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
+def _free_rings(z, anchors, res, gain, cap, offsets, kmax, masks):
     """For every anchor and sector: the number of rings a line can cross from the anchor, up
     to kmax (the largest need of a pair: larger values would change no decision; uint8).
 
     The k-th pixel of a line (DDA) lies on ring k (Chebyshev distance k) and at most
     half a pixel from the exact line, so its direction differs from the line's by at
     most asin(0.71 / k). A sector stays open at ring k if some pixel that may belong
-    to a line in it is below e + min(gain * k * res, cap) - offset, where e is the
-    elevation of the anchor: no limit for any partner is weaker than that. The sectors a
-    pixel may belong to are its bits in masks (_sector_masks); a pixel none of whose
-    sectors is open any more is not read.
+    to a line in it is below e + min(gain * k * res, cap) - offsets[k], where e is the
+    elevation of the anchor: no limit for any partner is weaker than that (ring_offsets).
+    The sectors a pixel may belong to are its bits in masks (_sector_masks); a pixel none of
+    whose sectors is open any more is not read.
     """
     n = anchors.shape[0]
     h, w = z.shape
@@ -224,7 +290,7 @@ def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
         alive = ~zero
         for k in range(1, kmax + 1):
             below = zero
-            limit = e + min(gain * k * res, cap) - offset + EPS
+            limit = e + min(gain * k * res, cap) - offsets[k] + EPS
             for i in range(-k, k + 1):
                 rr = r0 + i
                 if rr < 0 or rr >= h:
@@ -250,17 +316,19 @@ def _free_rings(z, anchors, res, gain, cap, offset, kmax, masks):
 
 
 def free_directions(z: np.ndarray, anchors: np.ndarray, res: float, gain: float, cap: float, offset: float,
-                    min_length: float, max_length: float):
+                    min_length: float, max_length: float, end_zone: float = 0.0, lift: float = 0.0,
+                    delta: float = 0.0):
     """Step 1: the anchors with an open direction (useful: those with a sector open up to the
     need of the shortest line), their rings (_free_rings, one uint8 row each, in the order of
     useful) and the row of every anchor (slot, int32; -1 for the others). _free_rings runs on
     RING_CHUNK anchors at a time, so the rings of the anchors without an open direction (most
-    of them) are never held all at once."""
+    of them) are never held all at once. end_zone, lift, delta: the rule (ring_offsets)."""
     kmax, masks = largest_need(min_length, max_length, res), sector_masks()
     need_min = smallest_need(min_length, res)
+    offsets = ring_offsets(float(offset), float(res), kmax, float(end_zone), float(lift), float(delta))
     useful, rows = [], []
     for start in range(0, len(anchors), RING_CHUNK):
-        rings = _free_rings(z, anchors[start:start + RING_CHUNK], res, gain, cap, offset, kmax, masks)
+        rings = _free_rings(z, anchors[start:start + RING_CHUNK], res, gain, cap, offsets, kmax, masks)
         keep = np.flatnonzero(rings.max(axis=1) >= need_min)
         useful.append(keep + start)
         rows.append(rings[keep])
@@ -351,7 +419,8 @@ def _cell_open(rows, need, order, starts, slot):
 @njit(parallel=True, cache=True)
 def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, open_mask, cell, cells_x, res,
            min_length, max_length, max_dh_ratio, max_dh, d0, far2, kmax, down, cos_limit, strong,
-           use_sag, log_spans, ratios, table, fall_zone, first_only, offsets, out, buf, counts):
+           use_sag, log_spans, ratios, table, fall_zone, first_only, end_zone, lift, delta, zone_cap,
+           offsets, out, buf, counts):
     """Partners of the anchors in todo that pass all tests: only partners with a higher index,
     or with first_only those for which the anchor is the first (smaller x, then y; a tile
     keeps the lines whose first anchor lies in its core). A pair is always checked and
@@ -375,6 +444,8 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, 
     of their cell, and partners none of whose sectors towards their cell's sectors is open for
     the need of the shortest line (open_mask, _open_masks). Those fail the rings' test, which
     comes after the candidates are counted, so they are not counted as candidates.
+
+    end_zone, lift, delta, zone_cap: the rule of _line_ok (helpers.end_zone_rule).
 
     counts[q] = [candidate pairs, pairs checked, lines] for todo[q]. With offsets None, the
     first buf.shape[1] pairs of todo[q] are written to buf[q] (the count goes on past them);
@@ -476,7 +547,7 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, 
                         continue
                     checked += 1
                     if _line_ok(z, anchors[a, 0], anchors[a, 1], anchors[b, 0], anchors[b, 1], res,
-                                use_sag, log_spans, ratios, table, fall_zone):
+                                use_sag, log_spans, ratios, table, fall_zone, end_zone, lift, delta, zone_cap):
                         if offsets is not None:
                             out[offsets[q] + found, 0] = a
                             out[offsets[q] + found, 1] = b
@@ -490,12 +561,13 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, 
 def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful: np.ndarray, rings: np.ndarray,
                    slot: np.ndarray, first: Optional[np.ndarray], res: float, min_length: float, max_length: float,
                    max_dh_ratio: float, max_dh: float, down: np.ndarray, cos_limit: float,
-                   strong: Optional[np.ndarray], use_sag: bool, log_spans, ratios, table, fall_zone: float):
+                   strong: Optional[np.ndarray], use_sag: bool, log_spans, ratios, table, fall_zone: float,
+                   end_zone: float = 0.0, lift: float = 0.0, delta: float = 0.0, zone_cap: float = sh.ZONE_CAP):
     """The anchors pairs are searched from (the useful ones; with first, those of a tile's
     core) and _pairs' arguments before and after todo, with the useful anchors (the only
     partners) bucketed into cells of a quarter of max_length and the open sectors of every
     cell and of every useful anchor (_cell_open, _open_masks: for F8c). useful, rings, slot:
-    those of free_directions."""
+    those of free_directions; end_zone, lift, delta, zone_cap: the rule (at the tail's end)."""
     todo_all = useful if first is None else useful[np.asarray(first)[useful]]
     cell = max(1, int(max_length / res) // 4)
     cells_x = z.shape[1] // cell + 1
@@ -513,7 +585,8 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful:
     tail = (order, starts, cell_open, open_mask, cell, cells_x, res, float(min_length), float(max_length),
             float(max_dh_ratio), float(max_dh), d0, far2, kmax, down, cos_limit,
             np.ones(len(anchors), dtype=np.bool_) if strong is None else np.asarray(strong, dtype=np.bool_),
-            use_sag, log_spans, ratios, table, float(fall_zone), first is not None)
+            use_sag, log_spans, ratios, table, float(fall_zone), first is not None,
+            float(end_zone), float(lift), float(delta), float(zone_cap))
     return todo_all, head, tail
 
 
@@ -603,21 +676,33 @@ def _interp_forward(x, xp, fp, j):
 
 @njit(parallel=True, cache=True)
 def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, ratios, ratio_index,
-              sag, fractions, fall_zone, high_above, out):
+              sag, fractions, fall_zone, high_above, end_zone, lift, delta, zone_cap, zones, out, zone_kz,
+              margins, margins_s):
     """helpers.evaluate_line for many lines, with the same arithmetic (identical results).
 
     out[k]: elev_a1, elev_a2, length, clearance, clearance over the surface (NaN: none),
     1 when the line has pixels between its anchors, then the largest and mean height of
-    the webbing above the terrain and the % of pixels at least high_above.
+    the webbing above the terrain and the % of pixels at least high_above. The clearances
+    are the decision values of the end zone and the lift (helpers.decision_values; the
+    margins at 0 / 0). With zones (the ladder, ascending from 0; empty: none) margins[k, j]
+    (margins_s[k, j] with a surface) is the smallest strict margin of the steps of bucket j
+    (helpers.zone_columns; np.min, np.nanmin for the surface; +inf when empty); zone_kz
+    (lines x zones) is scratch for the zones' kz.
     """
     blend = np.empty(fractions.size)
     fall = fall_zone if use_sag else sh.LEASH_FALL  # helpers.fall_allowance
+    nz = zones.size
+    c_zone = lift + delta
     for k in prange(found.shape[0]):
         r1, c1 = anchors[found[k, 0], 0], anchors[found[k, 0], 1]
         r2, c2 = anchors[found[k, 1], 0], anchors[found[k, 1], 1]
         dr, dc = r2 - r1, c2 - c1
         steps = max(abs(dr), abs(dc))
         out[k, 5] = 0.0
+        for j in range(nz):
+            margins[k, j] = np.inf
+            if has_s:
+                margins_s[k, j] = np.inf
         if steps < 2:
             continue
         length = np.hypot(np.float64(dr), np.float64(dc)) * res
@@ -637,6 +722,9 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
             for f in range(fractions.size):
                 row[f] = ((1 - a) * (1 - b) * sag[i0, j0, f] + a * (1 - b) * sag[i0 + 1, j0, f]
                           + (1 - a) * b * sag[i0, j0 + 1, f] + a * b * sag[i0 + 1, j0 + 1, f])
+        kz = _zone_steps(steps, length, end_zone, zone_cap)  # helpers.zone_offsets
+        for j in range(nz):
+            zone_kz[k, j] = _zone_steps(steps, length, zones[j], zone_cap)
         for i in range(1, steps):
             t = i / steps
             r = r1 + int(np.rint(dr * t))
@@ -647,22 +735,38 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
             else:
                 limit = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
             margin = limit - np.float64(z[r, c])
-            if margin != margin or clearance != clearance:
+            e = min(i, steps - i)
+            offset = c_zone if e < kz else lift
+            value = margin if offset == 0.0 else margin + offset  # helpers.decision_values
+            if value != value or clearance != clearance:
                 clearance = np.nan  # np.min: no data anywhere makes the line fail
-            elif margin < clearance:
-                clearance = margin
+            elif value < clearance:
+                clearance = value
             height = margin + fall  # helpers.webbing_height
             if height != height or height > height_max:  # np.max: NaN stays
                 height_max = height
             height_sum += height
             if height >= high_above:
                 high += 1
+            column = nz - 1  # helpers.zone_columns
+            for j in range(1, nz):
+                if e < zone_kz[k, j]:
+                    column = j - 1
+                    break
+            if nz > 0:
+                if margin != margin:  # np.min of the bucket
+                    margins[k, column] = np.nan
+                elif margin < margins[k, column]:
+                    margins[k, column] = margin
             if has_s:
                 over = limit - np.float64(s[r, c])
                 if over == over:  # np.nanmin
                     seen = True
-                    if over < nmpt:
-                        nmpt = over
+                    value = over if offset == 0.0 else over + offset
+                    if value < nmpt:
+                        nmpt = value
+                    if nz > 0 and over < margins_s[k, column]:
+                        margins_s[k, column] = over
         out[k, 0], out[k, 1], out[k, 2], out[k, 3] = e1, e2, length, clearance
         out[k, 4] = nmpt if seen else np.nan
         out[k, 5] = 1.0
@@ -674,18 +778,27 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
                    surface: Optional[np.ndarray], sag_table, nmpt_mode: Optional[str],
                    high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
                    down: Optional[np.ndarray] = None,
-                   anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None) -> sh.LineTable:
+                   anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None,
+                   end_zone: float = 0.0, lift: float = 0.0, end_clearance: float = 0.0,
+                   zone_cap: float = sh.ZONE_CAP, zones=()) -> sh.LineTable:
     """The lines among the pairs found (indices into anchors) that pass helpers.evaluate_line
     and helpers.is_valid: the same decision and values, computed in parallel. With limits,
     only the lines that reach them (sh.LineLimits.passes). down: helpers.downslope of the
     anchors (computed here when not given); anchor_values: [prominence, drop] of every
     anchor (terrain.py; NaN when not given), or a callable giving them, asked only when some
-    line passes."""
+    line passes. end_zone, lift, end_clearance, zone_cap: the end zone and the lift
+    (helpers.end_zone_rule); zones: a ladder of end zones, whose bucket minima become the
+    columns "zone_margins" (lines x zones) and, with a surface, "zone_margins_nmpt"
+    (helpers.valid_at); without zones the table has the columns of before."""
+    delta, ladder = sh.end_zone_rule(sag_table, end_zone, lift, end_clearance, zone_cap, zones)
     if down is None:
         down = sh.downslope(elevation, anchors, res)
     found = np.asarray(found, dtype=np.int64).reshape(-1, 2)
     angles = sh.wall_angles(anchors[found[:, 0]], anchors[found[:, 1]], down[found[:, 0]], down[found[:, 1]])
     out = np.zeros((len(found), 9))
+    nz = len(ladder)
+    margins = np.zeros((len(found), nz))
+    margins_s = np.zeros((len(found), nz if surface is not None else 0))
     if len(found):
         if sag_table is None:
             log_spans = span_index = ratios = ratio_index = fractions = np.zeros(2)
@@ -701,7 +814,9 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
         s = np.asarray(surface) if surface is not None else np.zeros((1, 1), dtype=z.dtype)
         _evaluate(z, s, surface is not None, np.ascontiguousarray(anchors, dtype=np.int64),
                   np.ascontiguousarray(found, dtype=np.int64), float(res), sag_table is not None, log_spans,
-                  span_index, ratios, ratio_index, sag, fractions, fall_zone, float(high_above), out)
+                  span_index, ratios, ratio_index, sag, fractions, fall_zone, float(high_above), float(end_zone),
+                  float(lift), delta, float(zone_cap), ladder, out, np.zeros((len(found), nz), dtype=np.int64),
+                  margins, margins_s)
     # helpers.is_valid of every result, then the limits
     clearance, nmpt = out[:, 3], out[:, 4]
     keep = (out[:, 5] != 0) & (clearance > 0)
@@ -722,6 +837,10 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
                                             out[:, 7], out[:, 8], angles[0][keep], angles[1][keep], first[:, 0],
                                             second[:, 0], first[:, 1], second[:, 1])):
         columns[name] = np.ascontiguousarray(value, dtype=np.float64)
+    if nz:
+        columns["zone_margins"] = margins[keep]
+        if surface is not None:
+            columns["zone_margins_nmpt"] = margins_s[keep]
     return sh.LineTable(columns)
 
 
@@ -828,7 +947,9 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None,
                      strong: Optional[np.ndarray] = None, stats: Optional[Dict[str, int]] = None,
                      check: Optional[Callable[[int], None]] = None,
-                     sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
+                     sink: Optional[Callable[[sh.LineTable], None]] = None,
+                     end_zone: float = 0.0, lift: float = 0.0, end_clearance: float = 0.0,
+                     zone_cap: float = sh.ZONE_CAP, zones=()) -> Optional[sh.LineTable]:
     """Finds valid lines between anchors.
 
     Args:
@@ -861,12 +982,22 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
             the pairs found are evaluated once EVAL_PART of them are pending, and each evaluated
             part (at most SINK_PART pairs; "a1", "a2" and the LINE_VALUES, in no particular order)
             goes to the sink at once; nothing is joined, sorted or kept. Not with check
+        end_zone, lift, end_clearance, zone_cap: the end zone (metres at both ends, at most
+            zone_cap of the length, where only the webbing less end_clearance must stay above the
+            terrain) and the lift (A-frames of that height at both ends): helpers.end_zone_rule;
+            0 / 0 is the search of before, bit for bit. The clearances are the rule's decision
+            values; the heights stay those of the strict margin
+        zones: Optional ladder of end zones (ascending from 0): the lines get their bucket minima
+            ("zone_margins", "zone_margins_nmpt"), from which helpers.valid_at decides at any
+            ladder zone and lift up to the call's
 
     Returns:
         Valid lines, longest first; None with a sink
     """
     if sink is not None and check is not None:
         raise ValueError("find_valid_lines: sink and check cannot be used together")
+    delta, ladder = sh.end_zone_rule(sag_table, end_zone, lift, end_clearance, zone_cap, zones)
+    rule = dict(end_zone=end_zone, lift=lift, end_clearance=end_clearance, zone_cap=zone_cap, zones=ladder)
     numba.set_num_threads(max(1, min(threads or numba.config.NUMBA_NUM_THREADS - 1,
                                      numba.config.NUMBA_NUM_THREADS)))
     start_time = time.time()
@@ -887,7 +1018,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
 
     # Step 1: open directions of every anchor
     progress.compute.start("free directions", 1, unit="step")
-    useful, rings, slot = free_directions(z, anchors, res, gain, cap, offset, min_length, max_length)
+    useful, rings, slot = free_directions(z, anchors, res, gain, cap, offset, min_length, max_length, end_zone,
+                                          lift, delta)
     progress.compute.finish()
     print(f"Anchors with an open direction: {len(useful)} of {len(anchors)}")
 
@@ -897,10 +1029,10 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     cos_limit = -2.0 if max_angle >= 180 else math.cos(math.radians(max_angle))
     todo_all, args, tail = pair_arguments(z, anchors, elev, useful, rings, slot, first, res, min_length, max_length,
                                           max_dh_ratio, max_dh, down, cos_limit, strong, use_sag, log_spans,
-                                          ratios, table, fall_zone)
+                                          ratios, table, fall_zone, end_zone, lift, delta, zone_cap)
     if sink is not None:
         _sink_lines(sink, args, tail, todo_all, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
-                    limits, down, anchor_values, len(useful), stats, start_time)
+                    limits, down, anchor_values, len(useful), stats, start_time, rule)
         return None
     pairs, candidates, checked, found = [], 0, 0, 0
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
@@ -925,7 +1057,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         progress.compute.update(0, valid=0)  # as the one empty part did
     for part in evaluation_parts(pairs, max(EVAL_PART, -(-found // CHUNKS))):
         parts.append(evaluate_lines(part, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
-                                    limits, down, anchor_values))
+                                    limits, down, anchor_values, **rule))
         valid += len(parts[-1])
         progress.compute.update(len(part), valid=valid)
         del part
@@ -972,12 +1104,14 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
                 anchors: np.ndarray, elevation: np.ndarray, res: float, surface: Optional[np.ndarray], sag_table,
                 nmpt_mode: Optional[str], high_above: float, limits: Optional[sh.LineLimits], down: np.ndarray,
                 anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None], useful: int,
-                stats: Optional[Dict[str, int]], start_time: float):
+                stats: Optional[Dict[str, int]], start_time: float, rule: Optional[Dict] = None):
     """Steps 2 and 3 of find_valid_lines with a sink: the pairs of SINK_CHUNK anchors at a time,
     evaluated whenever EVAL_PART of them are pending (and after the last anchors), each evaluated
     part handed to the sink at once. One bar, "anchor pairs", with the valid lines as a postfix.
     A callable anchor_values is asked once, by the first part with a valid line; it runs a bar of
-    its own, so the bar of the pairs is put back where it stood."""
+    its own, so the bar of the pairs is put back where it stood. rule: evaluate_lines' end zone,
+    lift, end clearance, zone cap and zones."""
+    rule = rule or {}
     pending, held, candidates, checked, found, valid = [], 0, 0, 0, 0, 0
     at, known, values = 0, None, anchor_values
     if callable(anchor_values):
@@ -1002,7 +1136,7 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
         if pending and (held >= EVAL_PART or at + SINK_CHUNK >= len(todo_all)):
             for part in evaluation_parts(pending, SINK_PART):
                 table = evaluate_lines(part, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
-                                       limits, down, values)
+                                       limits, down, values, **rule)
                 del part
                 valid += len(table)
                 sink(table)

@@ -6,11 +6,12 @@ All rasters share one working grid (see geoportal.Grid). Pixel coordinates are
 [row, col]; distances and elevations are in metres.
 """
 
+import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -20,6 +21,8 @@ from progress import progress
 LEASH_FALL = 6.0  # metres below the anchors for a 0 m line
 SLOPE = 0.15      # metres of extra clearance per metre of distance from the nearest anchor
 HIGH_ABOVE = 20.0  # metres above the terrain from which a pixel of a line counts as high (--high-above)
+# The end zone (no-fall zone at both ends of a line) is at most this share of the line's length
+ZONE_CAP = 0.25
 
 
 class Line(NamedTuple):
@@ -54,7 +57,9 @@ class Profiles:
     surface model), w and g (uint8; None without that mask). small[i]: the distance and value of
     "min", "min_nmpt" (NaN: none) and "max_height", then "water_m" and "filled_m", rounded;
     flags[i]: 1 when line i has a point over water ("w" set), 2 over a filled gap ("g" set), 4
-    when a point lacks data (None in "z" or "s"). profile(i) is line i's dict of line_profile."""
+    when a point lacks data (None in "z" or "s"). profile(i) is line i's dict of line_profile.
+    zone, lift: with an end zone or a lift (line_profile's "zone", "lift"), the metres of each
+    line's capped zone (rounded) and the lift; None otherwise (also in batches of before)."""
     offsets: np.ndarray
     d: np.ndarray
     z: np.ndarray
@@ -63,6 +68,8 @@ class Profiles:
     g: Optional[np.ndarray]
     small: np.ndarray
     flags: np.ndarray
+    zone: Optional[np.ndarray] = None
+    lift: Optional[float] = None
 
     def __len__(self) -> int:
         return len(self.flags)
@@ -78,11 +85,14 @@ class Profiles:
             values = lambda a: [None if v != v else v for v in a[lo:hi].tolist()]  # v != v: NaN
         else:
             values = lambda a: a[lo:hi].tolist()
-        return {"min": small[0:2], "min_nmpt": None if small[2] != small[2] else small[2:4],
-                "max_height": small[4:6], "d": self.d[lo:hi].tolist(), "z": values(self.z),
-                "s": None if self.s is None else values(self.s),
-                "w": self.w[lo:hi].tolist() if flags & 1 else None, "water_m": small[6],
-                "g": self.g[lo:hi].tolist() if flags & 2 else None, "filled_m": small[7]}
+        profile = {"min": small[0:2], "min_nmpt": None if small[2] != small[2] else small[2:4],
+                   "max_height": small[4:6], "d": self.d[lo:hi].tolist(), "z": values(self.z),
+                   "s": None if self.s is None else values(self.s),
+                   "w": self.w[lo:hi].tolist() if flags & 1 else None, "water_m": small[6],
+                   "g": self.g[lo:hi].tolist() if flags & 2 else None, "filled_m": small[7]}
+        if self.zone is not None:
+            profile.update(zone=self.zone[i].tolist(), lift=self.lift)
+        return profile
 
 
 class Profile:
@@ -309,6 +319,93 @@ def webbing_height(margin, sag_table=None):
     return margin + fall_allowance(sag_table)
 
 
+# The end zone and the lift. A pixel of a line passes when its strict margin s (limit minus terrain,
+# max_safe_elevation's limit, unchanged) satisfies s > -lift - delta * [the pixel lies in the end zone],
+# computed as s + c > 0 with c = lift + delta in the zone, lift outside it (the same decision to the last
+# bit: a sum of two floats is positive exactly when the first exceeds minus the second), and s itself
+# where c is 0.0 (so a margin of -0.0 stays -0.0: today's values bit for bit). lift: an A-frame of that
+# height at both ends; delta = fall_allowance - end_clearance (end_delta): in the zone only the webbing
+# itself, less end_clearance, must stay above the terrain; the zone: the steps k (1 .. steps - 1, as
+# evaluate_line numbers them) with min(k, steps - k) < zone_steps(...). With end_zone 0 and lift 0
+# every value is today's.
+
+def zone_steps(steps: int, length: float, end_zone: float, zone_cap: float = ZONE_CAP) -> int:
+    """kz of a line of `steps` DDA steps and `length` metres: the number of steps k >= 0 (the anchor
+    itself counted) whose distance k * length / steps from the nearer anchor is below
+    min(end_zone, zone_cap * length). Step k lies in the zone iff min(k, steps - k) < kz. The one
+    definition: linesearch._zone_steps repeats it in numba, operation for operation."""
+    d = min(end_zone, zone_cap * length)
+    if not d > 0.0:
+        return 0
+    return int(math.ceil(d * steps / length))
+
+
+def end_delta(sag_table=None, end_clearance: float = 0.0) -> float:
+    """delta of the end zone: what the zone gives up below the webbing, fall_allowance less
+    end_clearance (refused below 0 or above the fall allowance: validity would not grow with the
+    zone)."""
+    fall = fall_allowance(sag_table)
+    if not 0.0 <= end_clearance <= fall:
+        raise ValueError(f"end clearance {end_clearance} must lie between 0 and the fall allowance ({fall:g} m)")
+    return fall - end_clearance
+
+
+def end_zone_rule(sag_table=None, end_zone: float = 0.0, lift: float = 0.0, end_clearance: float = 0.0,
+                  zone_cap: float = ZONE_CAP, zones: Sequence[float] = ()) -> Tuple[float, np.ndarray]:
+    """The rule's arguments checked (ValueError for a negative end zone or lift, an end clearance
+    outside 0 .. fall allowance, a zone cap outside 0 .. 0.5, a ladder of zones not ascending from
+    0): delta (end_delta) and the ladder as a float64 array (empty: no buckets)."""
+    if not end_zone >= 0.0:
+        raise ValueError(f"end zone {end_zone} must not be negative")
+    if not lift >= 0.0:
+        raise ValueError(f"lift {lift} must not be negative")
+    if not 0.0 <= zone_cap <= 0.5:
+        raise ValueError(f"zone cap {zone_cap} must lie between 0 and 0.5")
+    delta = end_delta(sag_table, end_clearance)
+    ladder = np.ascontiguousarray(np.asarray(zones, dtype=np.float64).reshape(-1))
+    if len(ladder) and not (ladder[0] == 0.0 and np.all(np.diff(ladder) > 0) and np.all(np.isfinite(ladder))):
+        raise ValueError(f"the zones {list(zones)} must ascend from 0")
+    return float(delta), ladder
+
+
+def zone_offsets(steps: int, length: float, end_zone: float, lift: float, delta: float,
+                 zone_cap: float = ZONE_CAP) -> np.ndarray:
+    """c of each step 1 .. steps - 1 of a line: lift + delta in the end zone, lift outside it."""
+    kz = zone_steps(steps, length, end_zone, zone_cap)
+    k = np.arange(1, steps)
+    return np.where(np.minimum(k, steps - k) < kz, lift + delta, lift)
+
+
+def decision_values(margin: np.ndarray, offsets: np.ndarray) -> np.ndarray:
+    """The values the rule compares with 0: margin + c, the margin itself where c is 0.0."""
+    return np.where(offsets == 0.0, margin, margin + offsets)
+
+
+def zone_columns(steps: int, length: float, zones: np.ndarray, zone_cap: float = ZONE_CAP) -> np.ndarray:
+    """The bucket of each step 1 .. steps - 1 for a ladder of zones (ascending from 0): column
+    j - 1 for the steps first in the zone of zones[j] (zone_steps of zones[j - 1] <= min(k, steps -
+    k) < zone_steps of zones[j]), the last column (len(zones) - 1) for the rest, the core."""
+    k = np.arange(1, steps)
+    e = np.minimum(k, steps - k)
+    column = np.full(len(k), len(zones) - 1)
+    for j in reversed(range(1, len(zones))):
+        column[e < zone_steps(steps, length, float(zones[j]), zone_cap)] = j - 1
+    return column
+
+
+def valid_at(zone_margins: np.ndarray, j: int, lift: float, delta: float) -> np.ndarray:
+    """The decision at ladder zone j (zones[j]) and lift from the lines' bucket minima (the columns
+    zone_margins or zone_margins_nmpt of a search with zones; for the surface's, those not valid
+    are the lines it rejects): the columns before j (the zone) above -(lift + delta), the others
+    above -lift. Exactly the decision of a search at that zone and lift (np.min of NaN is NaN and
+    fails, an empty bucket is +inf)."""
+    m = np.asarray(zone_margins, dtype=np.float64)
+    inf = np.full(len(m), np.inf)
+    zone = m[:, :j].min(axis=1) if j > 0 and len(m) else inf
+    core = m[:, j:].min(axis=1) if m.shape[1] > j and len(m) else inf
+    return (zone > -(lift + delta)) & (core > -lift)
+
+
 def find_significant_slopes(elevation: np.ndarray, res: float, slope_threshold: float,
                             area_mask: np.ndarray, slope: Optional[np.ndarray] = None,
                             block_rows: int = 256, threads: Optional[int] = None) -> np.ndarray:
@@ -381,8 +478,9 @@ def max_safe_elevation(t: np.ndarray, length: float, elev_a1: float, elev_a2: fl
 
 
 def evaluate_line(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: float,
-                  surface: Optional[np.ndarray] = None, sag_table=None, high_above: float = HIGH_ABOVE
-                  ) -> Optional[Tuple[float, float, float, float, Optional[float], float, float, float]]:
+                  surface: Optional[np.ndarray] = None, sag_table=None, high_above: float = HIGH_ABOVE,
+                  end_zone: float = 0.0, lift: float = 0.0, end_clearance: float = 0.0,
+                  zone_cap: float = ZONE_CAP, zones: Sequence[float] = ()) -> Optional[tuple]:
     """Evaluates clearance along a line between two anchor points.
 
     Draws a line between the anchors using a DDA algorithm and, for every pixel
@@ -395,13 +493,22 @@ def evaluate_line(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
         surface: Optional NMPT grid (trees, buildings)
         sag_table: sag.EnvelopeTable to use the sag estimator instead of the formula
         high_above: Height above the terrain from which a pixel counts as high
+        end_zone, lift, end_clearance, zone_cap: the end zone and the lift (end_zone_rule;
+            the clearances are the rule's decision values, the heights stay those of the strict
+            margin)
+        zones: Optional ladder of end zones (ascending from 0): the bucket minima of the strict
+            margins are returned too (valid_at)
 
     Returns:
         (elev_a1, elev_a2, length, min clearance over NMT, min clearance over NMPT or None,
         largest and mean height of the webbing above NMT, % of the pixels at least
-        high_above), or None if the line has no pixels between the anchors.
-        Positive clearance means the terrain is below the maximum safe elevation.
+        high_above), or None if the line has no pixels between the anchors; with zones
+        two more: the terrain's bucket minima (float64, one per zone, np.min of the bucket,
+        +inf when empty) and the surface's (np.nanmin; None without a surface).
+        Positive clearance means the terrain is below the maximum safe elevation (with an end
+        zone or a lift: that the line passes the rule).
     """
+    delta, ladder = end_zone_rule(sag_table, end_zone, lift, end_clearance, zone_cap, zones)
     r1, c1 = int(a1[0]), int(a1[1])
     r2, c2 = int(a2[0]), int(a2[1])
     dr, dc = r2 - r1, c2 - c1
@@ -423,7 +530,8 @@ def evaluate_line(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
 
     # NaN (no data) makes the clearance NaN, so such lines never pass
     margin = max_elev - elevation[rows, cols]
-    clearance = float(np.min(margin))
+    offsets = zone_offsets(steps, length, end_zone, lift, delta, zone_cap)
+    clearance = float(np.min(decision_values(margin, offsets)))
     # Summed one pixel after another, as linesearch._evaluate: np.cumsum, not np.mean (pairwise)
     # or sum() (compensated since Python 3.12)
     heights = webbing_height(margin, sag_table)
@@ -431,24 +539,43 @@ def evaluate_line(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
     height_mean = float(np.cumsum(heights)[-1]) / len(heights)
     high_pct = 100.0 * int(np.count_nonzero(heights >= high_above)) / len(heights)
 
-    clearance_nmpt = None
+    clearance_nmpt, over = None, None
     if surface is not None:
         obstacles = surface[rows, cols]
+        over = max_elev - obstacles
         if not np.all(np.isnan(obstacles)):
-            clearance_nmpt = float(np.nanmin(max_elev - obstacles))
+            clearance_nmpt = float(np.nanmin(decision_values(over, offsets)))
 
-    return elev_a1, elev_a2, length, clearance, clearance_nmpt, height_max, height_mean, high_pct
+    result = elev_a1, elev_a2, length, clearance, clearance_nmpt, height_max, height_mean, high_pct
+    if not len(ladder):
+        return result
+    column = zone_columns(steps, length, ladder, zone_cap)
+    buckets = np.full(len(ladder), np.inf)
+    buckets_nmpt = None if over is None else np.full(len(ladder), np.inf)
+    for j in range(len(ladder)):
+        at = column == j
+        if at.any():
+            buckets[j] = np.min(margin[at])
+            if over is not None and not np.all(np.isnan(over[at])):
+                buckets_nmpt[j] = np.nanmin(over[at])
+    return result + (buckets, buckets_nmpt)
 
 
 def line_profile(a1: Tuple[int, int], a2: Tuple[int, int], elevation: np.ndarray, res: float,
                  surface: Optional[np.ndarray] = None, max_points: int = 200,
                  sag_table=None, water: Optional[np.ndarray] = None,
-                 filled: Optional[np.ndarray] = None) -> dict:
+                 filled: Optional[np.ndarray] = None, end_zone: float = 0.0, lift: float = 0.0,
+                 end_clearance: float = 0.0, zone_cap: float = ZONE_CAP) -> dict:
     """Terrain (and NMPT) profile along a line, for the profile chart of the map.
 
     Every pixel between the anchors is sampled (as in evaluate_line), then the
     profile is thinned to at most max_points, always keeping both anchors and the
     points of the smallest clearance.
+
+    With an end zone or a lift (end_zone_rule), "min" and "min_nmpt" are the smallest
+    decision values of the rule (evaluate_line's clearances) and the dict ends with "zone"
+    (metres of the capped zone, min(end_zone, zone_cap * length), to 0.1 m) and "lift";
+    "max_height" stays the strict margin's highest webbing.
 
     Returns:
         {"d": distances from anchor 1 [m], "z": NMT [m], "s": NMPT [m] or None,
@@ -457,6 +584,7 @@ def line_profile(a1: Tuple[int, int], a2: Tuple[int, int], elevation: np.ndarray
          "w": 1 where the point is water, or None, "water_m": length over water [m],
          "g": 1 where the data was filled from another source, or None, "filled_m": that length [m]}
     """
+    delta, _ = end_zone_rule(sag_table, end_zone, lift, end_clearance, zone_cap)
     r1, c1 = a1
     r2, c2 = a2
     dr, dc = r2 - r1, c2 - c1
@@ -473,18 +601,20 @@ def line_profile(a1: Tuple[int, int], a2: Tuple[int, int], elevation: np.ndarray
     # Same limit as evaluate_line, anchors excluded from the minimum
     max_elev = max_safe_elevation(t, length, terrain[0], terrain[-1], sag_table)
     inner = slice(1, steps)
-    i_min = 1 + int(np.nanargmin((max_elev - terrain)[inner]))
+    offsets = zone_offsets(steps, length, end_zone, lift, delta, zone_cap)
+    value = decision_values((max_elev - terrain)[inner], offsets)  # the rule's (the margin at 0 / 0)
+    i_min = 1 + int(np.nanargmin(value))
     i_max = 1 + int(np.nanargmax((max_elev - terrain)[inner]))
     keep = {0, steps, i_min, i_max}
-    profile = {"min": [round(distance[i_min], 1), round(float(max_elev[i_min] - terrain[i_min]), 2)],
+    profile = {"min": [round(distance[i_min], 1), round(float(value[i_min - 1]), 2)],
                "min_nmpt": None,
                "max_height": [round(distance[i_max], 1),
                               round(float(webbing_height(max_elev[i_max] - terrain[i_max], sag_table)), 2)]}
     if obstacles is not None and not np.all(np.isnan(obstacles[inner])):
-        j_min = 1 + int(np.nanargmin((max_elev - obstacles)[inner]))
+        over = decision_values((max_elev - obstacles)[inner], offsets)
+        j_min = 1 + int(np.nanargmin(over))
         keep.add(j_min)
-        profile["min_nmpt"] = [round(distance[j_min], 1),
-                               round(float(max_elev[j_min] - obstacles[j_min]), 2)]
+        profile["min_nmpt"] = [round(distance[j_min], 1), round(float(over[j_min - 1]), 2)]
 
     keep |= set(np.linspace(0, steps, min(max_points, steps + 1)).round().astype(int).tolist())
     idx = sorted(keep)
@@ -501,6 +631,8 @@ def line_profile(a1: Tuple[int, int], a2: Tuple[int, int], elevation: np.ndarray
             if over.any():
                 profile[flags] = over[idx].astype(int).tolist()
                 profile[metres] = round(float(over[1:steps].sum()) * length / steps, 1)
+    if end_zone or lift:
+        profile.update(zone=round(min(float(end_zone), zone_cap * length), 1), lift=float(lift))
     return profile
 
 
