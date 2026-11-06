@@ -1199,6 +1199,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 4, "coordinates, groups and profiles")
     results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled_pixels(), core)
     del valid_lines  # the same table (in place)
+    _fixed_order(plan, results)
     _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
     groups = mp.group_lines(results, plan.group_distance, p.group_by)
@@ -1345,13 +1346,24 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
     _count(plan, "anchors_kept", len(anchors))  # what the line search gets
     values = ((lambda: np.column_stack(_anchor_values(plan, data, anchors))) if found.prominence is None
               else np.column_stack([found.prominence, found.drop]))
-    return ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
-                               p.min_length, p.max_length, plan.nmpt, line_threads(p),
-                               sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
-                               p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
-                                                           p.min_high_share, p.max_wall_angle),
-                               values, found.strong, stats=plan.funnel, check=check, sink=sink,
-                               end_zone=plan.end_zone, lift=plan.lift)
+    # With an end zone or A-frames (not in count mode) the buckets of the zone and the core, from which
+    # the A-frame heights each line needs follow (helpers.lift_values); the margins are dropped then
+    ends = sink is None and bool(plan.end_zone or plan.lift)
+    zones = ((0.0, plan.end_zone) if plan.end_zone else (0.0,)) if ends else ()
+    lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
+                                p.min_length, p.max_length, plan.nmpt, line_threads(p),
+                                sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
+                                p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
+                                                            p.min_high_share, p.max_wall_angle),
+                                values, found.strong, stats=plan.funnel, check=check, sink=sink,
+                                end_zone=plan.end_zone, lift=plan.lift, zones=zones)
+    if ends:
+        margins = lines.columns.pop("zone_margins", np.zeros((len(lines), len(zones))))  # none: an empty table
+        lines.columns.pop("zone_margins_nmpt", None)  # the surface's: reject and mark decided already
+        needed, no_zone = sh.lift_values(margins, sh.end_delta(sag_table), plan.lift)
+        del margins
+        lines.columns.update(zip(sh.END_VALUES, (needed, no_zone)))
+    return lines
 
 
 def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh.LineTable], None],
@@ -1407,6 +1419,21 @@ def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float,
     results.columns["filled_m"] = ls.covered_metres(a1, a2, res, filled)
     progress.compute.finish()
     return results
+
+
+def _fixed_order(plan: Plan, lines: sh.LineTable) -> sh.LineTable:
+    """With an end zone or A-frames, the lines (with coordinates, in place) in one fixed order: best
+    clearance first, then longest, then by the first anchor's pixel (row, col) and the second's, as
+    northing descending and easting ascending, which tiles share with one grid. The rule sets the
+    clearance of many lines at the first step from an anchor, so parallel lines tie exactly on
+    clearance and length, and lines tied so would keep the order they were found in, which tiles
+    change: the groups (mapping.group_lines and the browser's groupLines read the lines in this
+    order) and every file then differ. Without the options the order of before (the checksums)."""
+    if not (plan.end_zone or plan.lift) or not len(lines):
+        return lines
+    c = lines.columns
+    return lines.reorder(np.lexsort((c["a2_xy"][:, 0], -c["a2_xy"][:, 1], c["a1_xy"][:, 0], -c["a1_xy"][:, 1],
+                                     -c["length"], -c["clearance"])))
 
 
 def _count(plan: Plan, key: str, n: int):
@@ -1682,6 +1709,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         raise SearchError("No lines found matching elevation requirements.", "no_lines")
     results = sh.LineTable.join(tables)  # column by column, each tile's column released once joined
     del tables
+    _fixed_order(plan, results)  # with an end zone or A-frames: the order of one grid
     progress.set_step(f"Step 4/{STEPS}: groups of all tiles")
     groups = mp.group_lines(results, plan.group_distance, plan.params.group_by)
     # A line shown for a group is the best of its tile's group too, except near the edge of a

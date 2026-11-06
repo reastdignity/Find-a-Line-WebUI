@@ -248,6 +248,43 @@ def test_ladder_equals_reruns(case):
 
 
 @pytest.mark.parametrize("case", [CASES[0], CASES[2]], ids=["formula", "sag"])
+def test_lift_values_against_brute_force(case):
+    """helpers.lift_values from the buckets (0, X) of a search at zone X and A-frames H, as search._pair_search
+    takes them: "lift_needed" is the smallest A-frame height at which helpers.evaluate_line passes the line on
+    the terrain with the zone X (just above it the line passes, just below it fails), at most H for every line
+    found; "lift_no_zone" the same without a zone, which may exceed H; both 0 for the lines valid at 0 / 0."""
+    model = case[0]
+    z, surface, anchors, *_ = canyon_of()
+    table = table_of(model)
+    delta = sh.end_delta(table)
+    eps = 1e-6
+
+    def passes(a1, a2, end_zone, lift):
+        return sh.evaluate_line(a1, a2, z, 1.0, None, table, end_zone=end_zone, lift=lift)[3] > 0
+
+    plain = set(pairs(search(case, (0.0, 0.0, 0.0))))
+    above = 0
+    for end_zone, lift in ((10.0, 2.0), (5.0, 1.0), (0.0, 2.0), (20.0, 0.0)):
+        zones = (0.0, end_zone) if end_zone else (0.0,)
+        found = search(case, (end_zone, lift, 0.0), zones=zones)
+        needed, no_zone = sh.lift_values(found.columns["zone_margins"], delta, lift)
+        assert len(found) > 50 and np.all(needed <= lift) and np.all(needed >= 0) and np.all(no_zone >= needed)
+        assert not np.any(np.signbit(needed)) and not np.any(np.signbit(no_zone))  # 0.0, never -0.0
+        above += int(np.sum(no_zone > lift))
+        for k, (a1, a2) in enumerate(pairs(found)):
+            if (a1, a2) in plain:
+                assert needed[k] == no_zone[k] == 0.0, (a1, a2)
+            if k % 3:  # a third of the lines against the brute force (seconds)
+                continue
+            a1, a2 = np.array(a1), np.array(a2)
+            for value, zone in ((needed[k], end_zone), (no_zone[k], 0.0)):
+                assert passes(a1, a2, zone, value + eps), (a1, a2, zone, value)
+                if value > eps:
+                    assert not passes(a1, a2, zone, value - eps), (a1, a2, zone, value)
+    assert above  # some lines need the zone: without it they would need more than the A-frames
+
+
+@pytest.mark.parametrize("case", [CASES[0], CASES[2]], ids=["formula", "sag"])
 def test_count_mode_with_a_zone(case):
     """The sink (count) mode gives the lines of the table mode at a zone and a lift, every column."""
     rule = (10.0, 1.0, 0.0)

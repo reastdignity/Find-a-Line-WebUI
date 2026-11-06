@@ -126,7 +126,8 @@ class LineTable:
     step 4: without_pixels), the LINE_VALUES (float64; clearance_nmpt NaN when the surface was
     not measured there), and after mapping.coordify "anchor1", "anchor2" ([lat, lon]), "a1_xy",
     "a2_xy" ([easting, northing] in the grid CRS), "over_obstacles" (bool), "water_m",
-    "filled_m". profiles: the profile of a row, only for the rows that have one: a Profile of a
+    "filled_m"; with an end zone or A-frames also the END_VALUES (float64: lift_values, filled by
+    search._pair_search). profiles: the profile of a row, only for the rows that have one: a Profile of a
     batch (lineprofiles.line_profiles) or the dict of line_profile (profile_dict gives either as
     that dict). row(k) gives a line as the dict the rest of the code knew.
     """
@@ -404,6 +405,30 @@ def valid_at(zone_margins: np.ndarray, j: int, lift: float, delta: float) -> np.
     zone = m[:, :j].min(axis=1) if j > 0 and len(m) else inf
     core = m[:, j:].min(axis=1) if m.shape[1] > j and len(m) else inf
     return (zone > -(lift + delta)) & (core > -lift)
+
+
+# The A-frame heights a line needs (search._lines, only with --end-zone or --anchor-lift): columns of a
+# LineTable and of the run's files ("ends" of data.js and lines.js names them in this order)
+END_VALUES = ("lift_needed", "lift_no_zone")
+
+
+def lift_values(zone_margins: np.ndarray, delta: float, lift: float) -> Tuple[np.ndarray, np.ndarray]:
+    """The smallest A-frame heights (both ends) that make each line valid, from the bucket minima of
+    a search with zones (0, end_zone) (or (0,) without a zone: the core alone; zone_margins, the
+    terrain's): "lift_needed" with the zone, max(0, -min(core), -min(zone) - delta), never above
+    `lift` (the search's: a valid line needs at most that, the cap only takes off a last ulp of the
+    sum), and "lift_no_zone" without one, max(0, -min(core), -min(zone)), not capped. 0.0 (never
+    -0.0) for a line valid without A-frames. A line is valid at a height h above these (the rule
+    is strict: at the value itself the smallest margin is just 0)."""
+    m = np.asarray(zone_margins, dtype=np.float64)
+    inf = np.full(len(m), np.inf)
+    zone = m[:, :-1].min(axis=1) if m.shape[1] > 1 and len(m) else inf
+    core = m[:, -1] if m.shape[1] and len(m) else inf
+    needed = np.maximum(-core, -zone - delta)
+    no_zone = np.maximum(-core, -zone)
+    needed[~(needed > 0)] = 0.0
+    no_zone[~(no_zone > 0)] = 0.0
+    return np.minimum(needed, lift), no_zone
 
 
 def find_significant_slopes(elevation: np.ndarray, res: float, slope_threshold: float,
