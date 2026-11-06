@@ -92,6 +92,8 @@ THRESHOLDS = (45.0, 40.0, 35.0, 30.0)  # degrees: diagnose's slope thresholds
 RADIUS = 5.0                    # metres around each end diagnose searches
 WARM_ANCHORS = 300              # anchors of the numba warm-up before the timed runs
 MAP_LINES = 20000               # lines a panel of the map draws at most (a sample beyond)
+LONG = 250.0                    # metres: the long lines counted apart (the quarry's lines across the lake)
+EXAMPLES = 6                    # long new lines the report details per place (distinct spots)
 
 
 class StudyError(RuntimeError):
@@ -137,8 +139,9 @@ def capture(place: str, out: str, search_args: List[str], cache_dir: Optional[st
         json.dump({"place": place, "args": search_args, "seconds": time.time() - started,
                    "returncode": result.returncode, "cache_linked": bool(cache_dir)}, f, indent=1)
     calls = sorted(glob.glob(os.path.join(folder, "capture", "call-*")))
-    print(f"{place}: exit {result.returncode}, {len(calls)} call(s) captured in {folder}")
-    return 0 if result.returncode == 0 and calls else 1
+    print(f"{place}: findaline.py exit {result.returncode} (1 also when it found no line), {len(calls)} call(s) "
+          f"captured in {folder}")
+    return 0 if calls else 1
 
 
 def capture_child(out: str, search_args: List[str]) -> int:
@@ -379,8 +382,9 @@ def evaluate_part(a: SimpleNamespace, found: np.ndarray, rule: tuple, zones: np.
         angles = sh.wall_angles(a.anchors[found[:, 0]], a.anchors[found[:, 1]], a.down[found[:, 0]],
                                 a.down[found[:, 1]])
         keep = limits.passes(out[:, 6], out[:, 7], out[:, 8], angles[0], angles[1], keep)
+    surface = surface[keep] if a.nmpt_mode == "reject" else np.zeros((int(keep.sum()), 0))  # read by "reject" only
     return {"pairs": found[keep], "length": out[keep, 2], "clearance": out[keep, 3], "clearance_nmpt": out[keep, 4],
-            "height_max": out[keep, 6], "terrain": terrain[keep], "surface": surface[keep]}
+            "height_max": out[keep, 6], "terrain": terrain[keep], "surface": surface}
 
 
 def valid_at(lines: Dict[str, np.ndarray], zones: np.ndarray, j: int, lift: float, delta: float,
@@ -448,7 +452,7 @@ def spots(a: SimpleNamespace, lines: Dict[str, np.ndarray], rows: np.ndarray, di
 
 def variants_call(a: SimpleNamespace, zones: Sequence[float], lifts: Sequence[float], cap: float,
                   end_clearance: float, threads: Optional[int], with_spots: bool, distance: float,
-                  by: str) -> Dict:
+                  by: str, long: float = LONG) -> Dict:
     """variants of one captured call (see the module docstring)."""
     zones = sorted(set([0.0] + [float(x) for x in zones]))
     lifts = sorted(set([0.0] + [float(h) for h in lifts]))
@@ -485,13 +489,17 @@ def variants_call(a: SimpleNamespace, zones: Sequence[float], lifts: Sequence[fl
         for k, lift in enumerate(lifts):
             mask = valid[:, j, k]
             entry = {"zone": x, "lift": lift, "lines": int(mask.sum()), "new": int((mask & ~valid[:, 0, 0]).sum())}
+            if long:
+                longer = top.lines["length"] >= long
+                entry["long"] = int((mask & longer).sum())
+                entry["long_new"] = int((mask & longer & ~valid[:, 0, 0]).sum())
             if with_spots:
                 entry["spots"] = spots(a, top.lines, ordered(top.lines, mask), distance, by)
             table[f"{x:g},{lift:g}"] = entry
     return {"call": os.path.basename(os.path.normpath(a.folder)), "anchors": len(a.anchors), "res": a.res,
             "min_length": a.min_length, "max_length": a.max_length, "model": "sag" if a.use_sag else "formula",
             "nmpt_mode": a.nmpt_mode, "fall": a.fall, "delta": delta, "zones": zones, "lifts": lifts, "cap": cap,
-            "end_clearance": end_clearance, "threads": numba.get_num_threads(), "table": table,
+            "end_clearance": end_clearance, "threads": numba.get_num_threads(), "long": long, "table": table,
             "funnel": {"baseline": base.funnel, "superset": top.funnel, "production": prod_funnel},
             "seconds": {"baseline": base.seconds, "superset": top.seconds, "production": prod_seconds},
             "checks": {"baseline_equals_production": True, "superset_00_equals_production": True},
@@ -507,7 +515,7 @@ def summed_calls(results: List[Dict]) -> Dict:
     for r in results[1:]:
         total["anchors"] += r["anchors"]
         for key, e in r["table"].items():
-            for name in ("lines", "new", "spots"):
+            for name in ("lines", "new", "spots", "long", "long_new"):
                 if name in e:
                     total["table"][key][name] += e[name]
         for run in total["funnel"]:
@@ -524,7 +532,7 @@ def summed_calls(results: List[Dict]) -> Dict:
 
 
 def variants(folder: str, zones, lifts, cap: float, end_clearance: float, threads: Optional[int],
-             with_spots: bool = True) -> Dict:
+             with_spots: bool = True, long: float = LONG) -> Dict:
     calls = call_folders(folder)
     out = folder
     distance_opt = search_option(folder, "--group-distance")
@@ -533,11 +541,13 @@ def variants(folder: str, zones, lifts, cap: float, end_clearance: float, thread
     for call in calls:
         a = setup(call)
         distance = float(distance_opt) if distance_opt else max(20.0, 2 * a.res)
-        r = variants_call(a, zones, lifts, cap, end_clearance, threads, with_spots, distance, by)
+        r = variants_call(a, zones, lifts, cap, end_clearance, threads, with_spots, distance, by, long)
         name = r["call"]
         arrays[f"{name}_a1"] = a.anchors[r["_lines"]["pairs"][:, 0]].astype(np.int32)
         arrays[f"{name}_a2"] = a.anchors[r["_lines"]["pairs"][:, 1]].astype(np.int32)
         arrays[f"{name}_valid"] = r["_valid"]
+        arrays[f"{name}_length"] = r["_lines"]["length"]
+        arrays[f"{name}_clearance"] = r["_lines"]["clearance"]
         results.append(r)
     data = summed_calls(results)
     data["place"] = os.path.basename(os.path.normpath(folder))
@@ -673,6 +683,28 @@ def needed_lift(buckets: np.ndarray, j: int, delta: float) -> float:
     return max(0.0, -core, -zone - delta)
 
 
+def line_detail(a: SimpleNamespace, lo, hi, zones: Sequence[float], cap: float, delta: float) -> Dict:
+    """One line between two pixels (lo the lower index: row-major) by today's rule and the ladder:
+    length, clearance, accepted, the height difference, the first failing step from each end
+    (distance and deficit) and the staircase (the lift each ladder zone needs at least)."""
+    lo, hi = [int(v) for v in lo], [int(v) for v in hi]
+    m = margins(a.z, lo, hi, a.res, a.sag_table)
+    terrain, steps, length = m[0], m[2], m[3]
+    clearance = float(np.min(terrain))
+    detail = {"a1": lo, "a2": hi, "length": length, "clearance": clearance, "accepted": bool(clearance > 0),
+              "dh": float(a.z[tuple(hi)] - a.z[tuple(lo)])}
+    if not clearance > 0:
+        fails = np.flatnonzero(~(terrain > 0))
+        first, last = int(fails[0]) + 1, int(fails[-1]) + 1
+        detail["first_fail"] = {
+            "from_a1": {"step": first, "m": first * length / steps, "deficit": float(terrain[first - 1])},
+            "from_a2": {"step": steps - last, "m": (steps - last) * length / steps,
+                        "deficit": float(terrain[last - 1])}}
+    b = buckets_of(m, steps, length, zones, cap)
+    detail["staircase"] = [{"zone": float(x), "lift": needed_lift(b, j, delta)} for j, x in enumerate(zones)]
+    return detail
+
+
 def diagnose_line(a: SimpleNamespace, slope: np.ndarray, anchors: set, line: Dict, radius: float,
                   zones: Sequence[float], cap: float, end_clearance: float, thresholds: Sequence[float]) -> Dict:
     """One known line on a call's grid (see the module docstring)."""
@@ -711,16 +743,7 @@ def diagnose_line(a: SimpleNamespace, slope: np.ndarray, anchors: set, line: Dic
         result["error"] = "no pair of pixels with a step between them"
         return result
     clearance, lo, hi, m = best
-    terrain, steps, length = m[0], m[2], m[3]
-    result["best"] = {"a1": [int(v) for v in lo], "a2": [int(v) for v in hi], "length": length,
-                      "clearance": clearance, "accepted": bool(clearance > 0),
-                      "dh": float(a.z[tuple(hi)] - a.z[tuple(lo)])}
-    if not clearance > 0:
-        fails = np.flatnonzero(~(terrain > 0))
-        first, last = int(fails[0]) + 1, int(fails[-1]) + 1
-        result["best"]["first_fail"] = {
-            "from_a1": {"step": first, "m": first * length / steps, "deficit": float(terrain[first - 1])},
-            "from_a2": {"step": steps - last, "m": (steps - last) * length / steps, "deficit": float(terrain[last - 1])}}
+    result["best"] = {k: v for k, v in line_detail(a, lo, hi, zones, cap, delta).items() if k != "staircase"}
     result["staircase"] = [{"zone": float(x), "lift": s[0] if s else None, "a1": s[1] if s else None,
                             "a2": s[2] if s else None} for x, s in zip(zones, stairs)]
     return result
@@ -800,8 +823,15 @@ def place_markdown(v: Dict, d: Optional[Dict]) -> List[str]:
             cell = f"{e['lines']} (+{e['new']})"
             if "spots" in e:
                 cell += f", {e['spots']} spots"
+            if "long" in e:
+                cell += f"; {e['long']} of {v['long']:g} m+ (+{e['long_new']})"
             cells.append(cell)
         md.append(f"| {x:g} m | " + " | ".join(cells) + " |")
+    if v.get("long"):
+        first = first_appearance(v)
+        md += ["", f"Lines of {v['long']:g} m or more first appear at (zone, lift): "
+               + (", ".join(f"({x:g} m, {h:g} m)" for x, h in first) if first else "none up to the ladder's end")
+               + " (the smallest entries with one: no smaller zone at that lift and no smaller lift at that zone)."]
     md += ["", "Funnel:", "", "| run | anchors | open | open share | todo | candidates | checked | found | valid |",
            "| --- | " + " | ".join(["---:"] * 8) + " |"]
     for run in ("baseline", "superset"):
@@ -835,7 +865,110 @@ def place_markdown(v: Dict, d: Optional[Dict]) -> List[str]:
     return md
 
 
-def pictures(folder: str, v: Dict, d: Optional[Dict], out: str) -> List[str]:
+def first_appearance(v: Dict) -> List[tuple]:
+    """The (zone, lift) entries with long lines that no entry of a smaller zone and lift dominates."""
+    have = [(e["zone"], e["lift"]) for e in v["table"].values() if e.get("long")]
+    return sorted((x, h) for x, h in have if not any((y, g) != (x, h) and y <= x and g <= h for y, g in have))
+
+
+def examples(folder: str, v: Dict, count: int = EXAMPLES) -> List[Dict]:
+    """A few long lines new against zone 0, lift 0 (length >= v["long"]): those valid at the
+    smallest ladder entry first (zone, then lift), then by today's clearance, each at least the
+    group distance (20 m) from the anchors of those taken before (distinct spots), with
+    line_detail."""
+    if not v.get("long"):
+        return []
+    call = call_folders(folder)[0]
+    name = os.path.basename(os.path.normpath(call))
+    arrays = np.load(os.path.join(folder, "variants.npz"))
+    a1, a2, valid = arrays[f"{name}_a1"], arrays[f"{name}_a2"], arrays[f"{name}_valid"]
+    length, clearance = arrays[f"{name}_length"], arrays[f"{name}_clearance"]
+    rows = np.flatnonzero((length >= v["long"]) & valid[:, -1, -1] & ~valid[:, 0, 0])
+    if not len(rows):
+        return []
+    flat = valid[rows].reshape(len(rows), -1)  # zone-major, then lift
+    first = np.argmax(flat, axis=1)
+    rows = rows[np.lexsort((-clearance[rows], first))]
+    a = setup(call)
+    spacing = max(20.0, 2 * a.res) / a.res
+    taken, out = [], []
+    for r in rows.tolist():
+        p, q = a1[r].astype(float), a2[r].astype(float)
+        if any(min(max(np.hypot(*(p - u)), np.hypot(*(q - w))), max(np.hypot(*(p - w)), np.hypot(*(q - u))))
+               <= spacing for u, w in taken):
+            continue
+        taken.append((p, q))
+        j, k = divmod(int(np.argmax(valid[r].reshape(-1))), valid.shape[2])
+        detail = line_detail(a, a1[r], a2[r], v["zones"], v["cap"], v["delta"])
+        detail["first_valid"] = [v["zones"][j], v["lifts"][k]]
+        detail["wgs84"] = pixels_wgs84(a.grid, [a1[r], a2[r]]) if a.grid else None
+        out.append(detail)
+        if len(out) >= count:
+            break
+    return out
+
+
+def pixels_wgs84(grid: Dict, pixels) -> List[List[float]]:
+    """[lat, lon] of pixel centres of a capture's grid."""
+    from pyproj import Transformer
+    t = Transformer.from_crs(grid["crs"], "EPSG:4326", always_xy=True)
+    out = []
+    for r, c in pixels:
+        lon, lat = t.transform(grid["left"] + (int(c) + 0.5) * grid["res"], grid["top"] - (int(r) + 0.5) * grid["res"])
+        out.append([round(lat, 7), round(lon, 7)])
+    return out
+
+
+def examples_markdown(v: Dict, chosen: List[Dict]) -> List[str]:
+    if not v.get("long"):
+        return []
+    md = [f"### Lines of {v['long']:g} m or more new against zone 0, lift 0 (a few, distinct spots)", ""]
+    if not chosen:
+        return md + ["None up to the ladder's end.", ""]
+    md += ["| # | ends (lat, lon) | length | today's clearance | first valid (zone, lift) | first strict failure "
+           "from a1 / a2 (m, deficit) | lift needed at zone " + " / ".join(f"{x:g}" for x in v["zones"]) + " m |",
+           "| ---: | --- | ---: | ---: | --- | --- | --- |"]
+    for n, e in enumerate(chosen, 1):
+        ff = e.get("first_fail")
+        fail = (f"{ff['from_a1']['m']:.1f} m, {ff['from_a1']['deficit']:.2f} / {ff['from_a2']['m']:.1f} m, "
+                f"{ff['from_a2']['deficit']:.2f}") if ff else "-"
+        ends = " - ".join(f"{p[0]:.6f}, {p[1]:.6f}" for p in e["wgs84"]) if e.get("wgs84") else f"{e['a1']} - {e['a2']}"
+        md.append(f"| {n} | {ends} | {e['length']:.1f} m | {e['clearance']:.2f} m | ({e['first_valid'][0]:g} m, "
+                  f"{e['first_valid'][1]:g} m) | {fail} | " + " / ".join(fmt(s["lift"]) for s in e["staircase"]) + " |")
+    return md + [""]
+
+
+def profile_chip(a: SimpleNamespace, lo, hi, delta: float, title: str, path: str, zone: float = 0.0,
+                 cap: float = CAP):
+    """The terrain along a line with today's limit and the limit moved up by delta, the zone of
+    `zone` metres shaded."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    m = margins(a.z, lo, hi, a.res, a.sag_table)
+    steps, length = m[2], m[3]
+    t = np.arange(steps + 1) / steps
+    r1, c1 = int(lo[0]), int(lo[1])
+    dr, dc = int(hi[0]) - r1, int(hi[1]) - c1
+    ground = a.z[r1 + np.rint(dr * t).astype(int), c1 + np.rint(dc * t).astype(int)]
+    limit = sh.max_safe_elevation(t, length, float(ground[0]), float(ground[-1]), a.sag_table)
+    fig, ax = plt.subplots(figsize=(8, 3.2))
+    if zone > 0:
+        kz = K.zone_steps(steps, length, zone, cap)
+        for x0, x1 in ((0, kz * length / steps), (length - kz * length / steps, length)):
+            ax.axvspan(x0, x1, color="#fde68a", alpha=0.5, lw=0)
+    ax.plot(t * length, ground, color="#555", label="terrain")
+    ax.plot(t * length, limit, color="#2b6cb0", label="limit (today)")
+    ax.plot(t * length, limit + delta, color="#2b6cb0", ls=":", label="limit + delta (in a zone)")
+    ax.set_title(title, fontsize=8)
+    ax.set_xlabel("m from a1")
+    ax.legend(fontsize=7)
+    fig.tight_layout()
+    fig.savefig(path, dpi=110)
+    plt.close(fig)
+
+
+def pictures(folder: str, v: Dict, d: Optional[Dict], out: str, chosen: Sequence[Dict] = ()) -> List[str]:
     """The map of the baseline and a few variants over a hillshade, and the profile chips."""
     import matplotlib
     matplotlib.use("Agg")
@@ -853,7 +986,7 @@ def pictures(folder: str, v: Dict, d: Optional[Dict], out: str) -> List[str]:
     a1, a2, valid = arrays[f"{name}_a1"], arrays[f"{name}_a2"], arrays[f"{name}_valid"]
     zones, lifts = v["zones"], v["lifts"]
     shade = LightSource(315, 45).hillshade(np.nan_to_num(z, nan=np.nanmin(z)), vert_exag=1, dx=v["res"], dy=v["res"])
-    picks = [(len(zones) - 1, 0), (0, len(lifts) - 1), (len(zones) - 1, len(lifts) - 1)]
+    picks = [(min(1, len(zones) - 1), 0), (len(zones) // 2, len(lifts) // 2), (len(zones) - 1, len(lifts) - 1)]
     fig, axes = plt.subplots(1, 3, figsize=(18, 6.4))
     rng = np.random.default_rng(0)
 
@@ -864,11 +997,19 @@ def pictures(folder: str, v: Dict, d: Optional[Dict], out: str) -> List[str]:
         return np.stack([a1[rows][:, ::-1], a2[rows][:, ::-1]], axis=1), len(np.flatnonzero(mask))
 
     base = valid[:, 0, 0]
+    long = v.get("long") or 0.0
+    longer = arrays[f"{name}_length"] >= long if long and f"{name}_length" in arrays.files else \
+        np.ones(len(base), dtype=bool)
     rows, cols = np.nonzero(np.isfinite(z))  # the grid's data only (a circle's corners are NaN)
     box = (cols.min() - 0.5, cols.max() + 0.5, rows.max() + 0.5, rows.min() - 0.5) if len(rows) else None
+    if box and len(a1):  # around the superset's lines, with a margin
+        ends = np.vstack([a1, a2])
+        pad = 0.25 * max(np.ptp(ends[:, 0]), np.ptp(ends[:, 1]), 200)
+        box = (max(box[0], ends[:, 1].min() - pad), min(box[1], ends[:, 1].max() + pad),
+               min(box[2], ends[:, 0].max() + pad), max(box[3], ends[:, 0].min() - pad))
     for ax, (j, k) in zip(axes, picks):
         ax.imshow(shade, cmap="gray", interpolation="nearest")
-        new = valid[:, j, k] & ~base
+        new = valid[:, j, k] & ~base & longer
         segs, n_new = segments(new)  # the new lines below, the baseline's above them
         ax.add_collection(LineCollection(segs, colors="#e53e3e", linewidths=0.3, alpha=0.35))
         segs, n_base = segments(base)
@@ -876,46 +1017,42 @@ def pictures(folder: str, v: Dict, d: Optional[Dict], out: str) -> List[str]:
         if box:
             ax.set_xlim(box[0], box[1])
             ax.set_ylim(box[2], box[3])
-        ax.set_title(f"zone {zones[j]:g} m, lift {lifts[k]:g} m: {n_base} lines (blue) + {n_new} new (red)",
-                     fontsize=9)
+        ax.set_title(f"zone {zones[j]:g} m, lift {lifts[k]:g} m: {n_base} lines (blue) + {n_new} new"
+                     + (f" of {long:g} m+" if long else "") + " (red)", fontsize=9)
         ax.set_xticks([])
         ax.set_yticks([])
     fig.suptitle(f"{v['place']}: baseline and new lines (at most {MAP_LINES} drawn per colour)")
+    for n, e in enumerate(chosen, 1):  # the detailed long lines, numbered
+        for ax in axes:
+            ax.plot([e["a1"][1], e["a2"][1]], [e["a1"][0], e["a2"][0]], color="#facc15", lw=1.2)
+            ax.annotate(str(n), (e["a1"][1], e["a1"][0]), color="#facc15", fontsize=8, fontweight="bold")
     fig.tight_layout()
     path = os.path.join(out, f"{v['place']}-map.png")
     fig.savefig(path, dpi=110)
     plt.close(fig)
     made.append(path)
+    a = setup(call) if d or chosen else None
     if d:
-        a = setup(call)
         for n, ln in enumerate(d["lines"]):
             b = ln.get("best")
             if not b:
                 continue
-            m = margins(a.z, b["a1"], b["a2"], a.res, a.sag_table)
-            terrain, steps, length = m[0], m[2], m[3]
-            t = np.arange(steps + 1) / steps
-            r1, c1 = b["a1"]
-            dr, dc = b["a2"][0] - r1, b["a2"][1] - c1
-            ground = a.z[r1 + np.rint(dr * t).astype(int), c1 + np.rint(dc * t).astype(int)]
-            limit = sh.max_safe_elevation(t, length, float(ground[0]), float(ground[-1]), a.sag_table)
-            fig, ax = plt.subplots(figsize=(8, 3.2))
-            ax.plot(t * length, ground, color="#555", label="terrain")
-            ax.plot(t * length, limit, color="#2b6cb0", label="limit (today)")
-            ax.plot(t * length, limit + d["delta"], color="#2b6cb0", ls=":", label="limit + delta (in a zone)")
-            ax.set_title(f"{ln['name']}: {length:.0f} m, clearance {b['clearance']:.2f} m; lift needed "
-                         + ", ".join(f"{s['zone']:g} m: {fmt(s['lift'], 1)}" for s in ln["staircase"]), fontsize=8)
-            ax.set_xlabel("m from a1")
-            ax.legend(fontsize=7)
-            fig.tight_layout()
             path = os.path.join(out, f"{v['place']}-line-{n + 1}.png")
-            fig.savefig(path, dpi=110)
-            plt.close(fig)
+            profile_chip(a, b["a1"], b["a2"], d["delta"], f"{ln['name']}: {b['length']:.0f} m, clearance "
+                         f"{b['clearance']:.2f} m; lift needed " + ", ".join(f"{s['zone']:g} m: {fmt(s['lift'], 1)}"
+                                                                         for s in ln["staircase"]), path)
             made.append(path)
+    for n, e in enumerate(chosen, 1):
+        path = os.path.join(out, f"{v['place']}-long-{n}.png")
+        profile_chip(a, e["a1"], e["a2"], v["delta"], f"#{n}: {e['length']:.0f} m, clearance {e['clearance']:.2f} m, "
+                     f"first valid at zone {e['first_valid'][0]:g} m / lift {e['first_valid'][1]:g} m (shaded); "
+                     "lift needed " + ", ".join(f"{s['zone']:g} m: {fmt(s['lift'], 1)}" for s in e["staircase"]),
+                     path, zone=e["first_valid"][0], cap=v["cap"])
+        made.append(path)
     return made
 
 
-def report(out: str, folders: List[str], with_pictures: bool = True) -> str:
+def report(out: str, folders: List[str], with_pictures: bool = True, count: int = EXAMPLES) -> str:
     os.makedirs(out, exist_ok=True)
     places, md = [], ["# End-zone study", "",
                       "The rule: a pixel passes when limit - terrain > -lift - delta * [in the zone]; delta = fall - "
@@ -926,12 +1063,14 @@ def report(out: str, folders: List[str], with_pictures: bool = True) -> str:
             v = json.load(f)
         dpath = os.path.join(folder, "diagnose.json")
         d = json.load(open(dpath)) if os.path.exists(dpath) else None
-        md += place_markdown(v, d)
+        chosen = examples(folder, v, count)
+        md += place_markdown(v, d) + examples_markdown(v, chosen)
         made = []
         if with_pictures:
-            made = pictures(folder, v, d, os.path.join(out, "pictures"))
+            made = pictures(folder, v, d, os.path.join(out, "pictures"), chosen)
             md += [f"![{os.path.basename(p)}](pictures/{os.path.basename(p)})" for p in made] + [""]
-        places.append({"variants": v, "diagnose": d, "pictures": [os.path.relpath(p, out) for p in made]})
+        places.append({"variants": v, "diagnose": d, "examples": chosen,
+                       "pictures": [os.path.relpath(p, out) for p in made]})
     with open(os.path.join(out, "study.json"), "w") as f:
         json.dump({"places": places}, f, indent=1)
     text = "\n".join(md)
@@ -966,6 +1105,8 @@ def main(argv=None) -> int:
             p.add_argument("--lifts", type=numbers, default=list(LIFTS), help="the lifts, metres")
             p.add_argument("--threads", type=int, help="numba threads (default: numba's)")
             p.add_argument("--no-spots", action="store_true", help="without mapping.group_lines")
+            p.add_argument("--long", type=float, default=LONG, help="long lines counted apart from this length, m "
+                                                                   "(0: none)")
         else:
             p.add_argument("--lines", required=True, help="JSON: [{name, a: [lat, lon], b: [lat, lon]}, ...]")
             p.add_argument("--radius", type=float, default=RADIUS, help="metres around each end")
@@ -974,6 +1115,7 @@ def main(argv=None) -> int:
     p.add_argument("out")
     p.add_argument("folders", nargs="+")
     p.add_argument("--no-pictures", action="store_true")
+    p.add_argument("--examples", type=int, default=EXAMPLES, help="long new lines detailed per place")
     argv = list(sys.argv[1:] if argv is None else argv)
     search_args = argv[argv.index("--") + 1:] if "--" in argv else []  # findaline.py's options after "--"
     argv = argv[:argv.index("--")] if "--" in argv else argv
@@ -986,10 +1128,11 @@ def main(argv=None) -> int:
         return capture(args.place, args.out, search_args, cache_dir)
     if args.command == "variants":
         data = variants(args.folder, args.zones, args.lifts, args.cap, args.end_clearance, args.threads,
-                        not args.no_spots)
+                        not args.no_spots, args.long)
         for key, e in data["table"].items():
             print(f"zone,lift {key}: {e['lines']} lines (+{e['new']})" + (f", {e['spots']} spots" if "spots" in e
-                                                                           else ""))
+                                                                           else "")
+                  + (f", {e['long']} of {args.long:g} m+ (+{e['long_new']})" if "long" in e else ""))
         return 0
     if args.command == "diagnose":
         data = diagnose(args.folder, args.lines, args.radius, args.zones, args.cap, args.end_clearance,
@@ -999,7 +1142,7 @@ def main(argv=None) -> int:
             print(f"{ln['name']}: " + (f"clearance {b['clearance']:.2f} m, "
                                        f"{'accepted' if b['accepted'] else 'rejected'}" if b else ln.get("error", "")))
         return 0
-    report(args.out, args.folders, not args.no_pictures)
+    report(args.out, args.folders, not args.no_pictures, args.examples)
     print(os.path.join(args.out, "study.md"))
     return 0
 
