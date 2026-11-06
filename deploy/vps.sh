@@ -686,6 +686,15 @@ osm_data() {
     done
 }
 
+# The cached elevation tiles still in the encoding of before (docs/deployment.md, section 13): a
+# search converts those it reads, this converts the rest at once, so the disk is freed now. With
+# nothing left it only reads the tiles' headers
+cache_migrate() {
+    step "Cached tiles in the current encoding (section 13)"
+    compose exec -T worker python findaline.py cache migrate \
+        || todo "some cached tiles were not converted: sudo $DEPLOY/vps.sh update, later (a search converts those it reads)"
+}
+
 backups() {
     step "Backups (section 11)"
     local env=/etc/findaline-backup.env
@@ -1185,6 +1194,7 @@ update() {
     start
     compose logs --tail 20
     osm_data
+    cache_migrate
     monitoring
     local item
     for item in "${TODO[@]}"; do note "- $item"; done

@@ -56,6 +56,7 @@ class WmsrReader(Reader):
     answers 502: after net._get's retries such an answer gets TRANSIENT_ROUNDS more rounds of them, the
     first after net._sleep(3) (4-12 s), so a short burst never fails a search.
     """
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, url: str, layer: str, crs: str,
                  params: Tuple[Tuple[str, str], ...] = (("FORMAT_OPTIONS", "compression:deflate"),),

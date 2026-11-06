@@ -55,6 +55,7 @@ class WcsReader(Reader):
     edges, WIDTH and HEIGHT; DescribeCoverage's gml:Envelope in the coverage's CRS; axes and
     interpolation of 2.0.1 do not apply: 1.0.0's axes are always x, y).
     """
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, url: str, coverage: str, crs: str, native_res: float, tile_px: int,
                  fmt: str, axes: Tuple[str, str], interpolation: Optional[str], zero_is_nodata: bool,

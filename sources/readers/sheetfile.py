@@ -28,6 +28,7 @@ class SheetFile(Reader):
     no index of its members): at most max_bytes downloaded, at most member_bytes unpacked per
     member, so a broken or hostile ZIP cannot fill the memory. Requests need url, godlo (the
     name in messages), crs and res."""
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, members: Optional[str] = None, max_bytes: int = 200_000_000,
                  member_bytes: int = 100_000_000):

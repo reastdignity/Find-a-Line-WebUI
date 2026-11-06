@@ -66,7 +66,8 @@ SHIFT_WARN_M = 30          # a best shift further than this from (0, 0) is a war
 VALID_RADIUS_MAX = 500     # the circle of the valid shares at 1 and 5 m
 VALID_DROP_PP = 1.0        # 5 m may lose this many percentage points against 1 m
 WHOLE_METRES_WARN = 0.9    # share of whole-metre heights above which the precision is a warning
-EQUAL_M = 0.01             # a cached tile and its source file differ by at most this
+EQUAL_M = 0.01             # a cached tile and its source file differ by at most this (the tiles are LERC within
+                           # 5 mm of what was read: the share of equal values is no longer 100 %)
 ALIGN_TILES = 20           # cached tiles looked at for the alignment and the precision
 LAYER_NAMES = {"nmt": "terrain", "nmpt": "surface"}
 

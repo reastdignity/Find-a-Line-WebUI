@@ -137,6 +137,7 @@ class ZipMember(Reader):
     A 404 or a local header that is not the member's (ArchiveChanged) calls renew(request): a newer request of
     the same member (the share's address resolved again, the directory read again) is tried once; without one
     the tile fails."""
+    rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, crs: Optional[str] = None, floor: Optional[float] = None, ring: int = 0,
                  renew: Optional[Callable[[object], Optional[object]]] = None):

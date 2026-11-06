@@ -225,7 +225,11 @@ For each country, by the finest grid of a strategy and with or without the DSM:
   1 m, the 4 m level 16 times, the 8 m level 44 times (one Zion file, a window of 2 × 2 km).
 - **Disk savings**: the Polish sheets re-encoded as LERC (5 mm) take 48 % less (NMT) and 40 % less
   (NMPT) than the cache's DEFLATE GeoTIFFs (12 sheets each); lossless DEFLATE with the floating-point
-  predictor gains nothing over them.
+  predictor gains nothing over them. **Built 2026-11-06**: the cache writes every float tile as
+  LERC_ZSTD within 5 mm (`sources.layer.MAX_Z_ERROR`), the providers' float files too, and converts
+  the tiles of before (`findaline.py cache migrate`). Measured on a copy of this PC's cache
+  (28.2 → 12.0 GB): Switzerland 11.83 → 3.21 GB, Poland 5.53 → 3.37 GB, Copernicus 4.45 → 2.02 GB,
+  FABDEM 1.14 → 0.61 GB, the USA 1.27 → 0.78 GB; ArcticDEM's tiles do not shrink.
 - **Keeping everything**, as decided: 3.5 TB of caches for the three countries with the DSM (1.75 +
   1.39 + 0.40), 1.9 TB without. Prepared grids (6.4) add about 2 MB per km² at 2 m uncompressed
   (0.7 TB for Poland), less with LERC.
@@ -235,6 +239,9 @@ For each country, by the finest grid of a strategy and with or without the DSM:
 The data of every main source of `main` (037862e) for the layer's bands (S at 1 m, M at 2 m, L at 5 m: the finest
 data a source gives for 1 m), the gap fillers left out (FABDEM and Copernicus at the borders, RGE ALTI, `canada_2m`,
 `usgs10m`, `nz8m`, IslandsDEM, DEM-H). Rough: ±50 %. The link is 1 Gb/s, the host slots and rates are the app's.
+The cache columns are those of the deflate tiles of before 2026-11-06: as LERC_ZSTD within 5 mm the cache is about
+40 % smaller (an estimate from the per-source ratios of a sample study: 33.9 → about 20 TB with the surface models,
+Switzerland 1.44 → about 0.42 TB); the downloads are as they were.
 How it was estimated:
 - **MB/km² cached**: samples of the real cache, bytes over the km² with data (`cache_density.py` in
   `local/data-volume-2026-11-03/`).

@@ -22,6 +22,7 @@ from rasterio.transform import from_origin
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 import sources as src  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 from sources import net  # noqa: E402
 from sources.readers.wmsr import MapRequest, WmsrReader  # noqa: E402
 from sources.layers.wmsr import WmsrTiles  # noqa: E402
@@ -104,7 +105,7 @@ def test_tile_kept_exactly_with_its_crs(service, tmp_path):
     values, crs, transform, nodata = _read(path)
     assert crs == rio.crs.CRS.from_epsg(2154)
     assert transform == from_origin(BOX[0], BOX[3], 0.5, 0.5)
-    np.testing.assert_array_equal(values, _answer("verdon", 1))
+    assert same_tile(values, _answer("verdon", 1))
     assert np.isfinite(values).all() and 1130 < np.nanmin(values) < np.nanmax(values) < 1145
 
 
@@ -116,7 +117,7 @@ def test_a_box_and_its_halves(service, tmp_path):
     reader.fetch(_box(BOX[0], BOX[1], middle, BOX[3], 0.5), str(tmp_path / "left.tif"))
     reader.fetch(_box(middle, BOX[1], BOX[2], BOX[3], 0.5), str(tmp_path / "right.tif"))
     box, left, right = (_read(str(tmp_path / f"{n}.tif"))[0] for n in ("box", "left", "right"))
-    np.testing.assert_array_equal(np.hstack([left, right]), box)
+    assert same_tile(np.hstack([left, right]), box, 2 * TILE_EPS)  # tiles written apart
     assert _read(str(tmp_path / "right.tif"))[2] == from_origin(middle, BOX[3], 0.5, 0.5)
 
 
@@ -126,7 +127,7 @@ def test_one_pixel_shift(service, tmp_path):
     reader.fetch(_box(*BOX, 0.5), str(tmp_path / "box.tif"))
     reader.fetch(_box(BOX[0] + 0.5, BOX[1], BOX[2] + 0.5, BOX[3], 0.5), str(tmp_path / "east.tif"))
     box, east = _read(str(tmp_path / "box.tif"))[0], _read(str(tmp_path / "east.tif"))[0]
-    np.testing.assert_array_equal(east[:, :-1], box[:, 1:])
+    assert same_tile(east[:, :-1], box[:, 1:], 2 * TILE_EPS)
 
 
 def test_one_metre_is_the_mean_of_four(service, tmp_path):
@@ -137,7 +138,7 @@ def test_one_metre_is_the_mean_of_four(service, tmp_path):
     half, (one, _, transform, _) = _read(str(tmp_path / "half.tif"))[0], _read(str(tmp_path / "one.tif"))
     assert transform == from_origin(BOX[0], BOX[3], 1.0, 1.0)
     mean = half.reshape(32, 2, 32, 2).astype(np.float64).mean(axis=(1, 3))
-    assert np.abs(one - mean).max() < 2e-4
+    assert np.abs(one - mean).max() < 2e-4 + 2 * TILE_EPS  # the service's rounding and the tiles' bound
 
 
 def test_deflate_keeps_the_values(service, tmp_path):
@@ -151,7 +152,7 @@ def test_deflate_keeps_the_values(service, tmp_path):
 def test_surface_model(service, tmp_path):
     _reader(service, MNS).fetch(_box(*BOX, 0.5), str(tmp_path / "mns.tif"))
     surface = _read(str(tmp_path / "mns.tif"))[0]
-    np.testing.assert_array_equal(surface, _answer("verdon", 6))
+    assert same_tile(surface, _answer("verdon", 6))
     assert np.nanmax(surface - _answer("verdon", 1)) > 1  # trees or bushes on the plateau
 
 
@@ -233,7 +234,7 @@ def test_a_layer_the_server_forgets_now_and_then(http_server, tmp_path, monkeypa
     http_server.route("/flaky", lambda request: answers.pop(0))
     path = str(tmp_path / "x.tif")
     WmsrReader("test", http_server.url("/flaky/wms"), MNT, L93).fetch(_box(*BOX, 0.5), path)
-    np.testing.assert_array_equal(_read(path)[0], _answer("verdon", 1))
+    assert same_tile(_read(path)[0], _answer("verdon", 1))
     assert len(http_server.requests("/flaky")) == 3
 
 
@@ -249,7 +250,7 @@ def test_a_longer_burst_and_a_layer_that_is_gone(http_server, tmp_path, monkeypa
     http_server.route("/burst", lambda request: answers.pop(0))
     path = str(tmp_path / "x.tif")
     WmsrReader("test", http_server.url("/burst/wms"), MNT, L93).fetch(_box(*BOX, 0.5), path)
-    np.testing.assert_array_equal(_read(path)[0], _answer("verdon", 1))
+    assert same_tile(_read(path)[0], _answer("verdon", 1))
     assert [a for a in slept if a >= 3] == [3, 4]  # the rounds' pauses, between net._get's own
     http_server.route("/gone", lambda request: Answer(400, report, {"Content-Type": "text/xml; charset=UTF-8"}))
     with pytest.raises(RuntimeError, match="LayerNotDefined"):
@@ -334,7 +335,7 @@ def test_layer_downloads_a_tile(service, tmp_path):
     i, j = round((BOX[0] - BOX[0] % 32) / 32), round((BOX[1] - BOX[1] % 32) / 32)
     path = layer.tile_path(str(tmp_path), (0.5, i, j))
     assert layer.download_tile((0.5, i, j), path).received > 0
-    np.testing.assert_array_equal(_read(path)[0], _answer("verdon", 1))
+    assert same_tile(_read(path)[0], _answer("verdon", 1))
     assert layer.tile_url((0.5, i, j)) == service.url("/wms-r/wms")
 
 

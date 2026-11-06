@@ -153,9 +153,11 @@ def _write(path: str, band: np.ndarray, crs, transform):
 
 
 def _write_averaged(path: str, band: np.ndarray, crs, transform):
-    """An averaged tile: float32 deflate, as the app's cache writes a tile (sources.layer._write_tile)."""
+    """An averaged tile: float32 deflate, lossless (sources.layer._write_tile with max_z_error None, the cache's
+    profile before it wrote LERC): a 2 m or 5 m tile stays GDAL's average of the 1 m tiles byte for byte, and the
+    mirror's hashes in index.json stay those of the files on disk."""
     from sources.layer import _write_tile
-    _write_tile(path, band, crs, transform)
+    _write_tile(path, band, crs, transform, max_z_error=None)
 
 
 def _sha256(path: str) -> str:

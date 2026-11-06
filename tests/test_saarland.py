@@ -22,6 +22,7 @@ import sources as src
 from grid import make_grid
 from http_server import Answer
 from sources import net
+from tile_values import TILE_EPS, same_tile
 from sources.catalogue import germany
 from sources.indexes.cached import IndexUnavailable
 from sources.indexes import zipdir
@@ -176,7 +177,7 @@ def test_member_read_as_zipfile_reads_it(http_server, tmp_path, monkeypatch, met
     assert fetched.received >= tile.size and fetched.url == tile.url
     with rio.open(path) as written, rio.io.MemoryFile(first) as memfile, memfile.open() as original:
         assert written.dtypes[0] == "float32" and written.transform == original.transform
-        assert np.array_equal(written.read(1), original.read(1))
+        assert same_tile(written.read(1), original.read(1))
     ranges = len(http_server.requests("/m.zip"))
     assert ranges == (4 if force and not slack else 2)  # two fetches, one Range each (or two with a short first)
 

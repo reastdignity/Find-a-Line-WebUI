@@ -52,6 +52,9 @@ class Reader:
     """How one tile is fetched into the cache."""
     # The secrets its requests need (field names of settings.ServiceKeys; the layer's keys)
     keys: Tuple[str, ...] = ()
+    # Whether the tiles it fetches are written by sources.layer._write_tile (so they may be converted to the
+    # current encoding: Layer.rewrites); a reader that copies files (TileBases: the Slovak mirror's) does not
+    rewrites = False
 
     def fetch(self, request, path: str) -> Fetched:
         """Fetch a tile (its index's request) to path; received 0 and no file where the service
@@ -104,6 +107,11 @@ class ComposedLayer(Layer):
         """Whether its reader reads range by range through GDAL's cache (Windows(serial=True)): download_layers
         hands its tiles to the pool in squares."""
         return getattr(self.reader, "serial", False)
+
+    @property
+    def rewrites(self) -> bool:
+        """Whether its reader writes the cached tiles through _write_tile (see Reader.rewrites)."""
+        return getattr(self.reader, "rewrites", False)
 
     @property
     def groups(self) -> bool:

@@ -324,7 +324,8 @@ def run_pass(area: Area, number: int) -> int:
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
-            src.download_layers(layers, grid, cache_dir, None, group_m=country.PREFETCH_GROUP_M, on_error=failures)
+            src.download_layers(layers, grid, cache_dir, None, group_m=country.PREFETCH_GROUP_M, on_error=failures,
+                               reencode_cached=False)  # reads no tile: the tiles still in the old encoding wait for what does
             if failures.tiles:
                 code = EXIT_FAILED
             else:

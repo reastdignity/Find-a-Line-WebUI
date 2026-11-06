@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import cache  # noqa: E402
 import grid as gd  # noqa: E402
 import sources as src  # noqa: E402
+from tile_values import TILE_EPS, same_tile  # noqa: E402
 from sources import vertical  # noqa: E402
 from sources.layers.fileblocks import FileBlocks  # noqa: E402
 
@@ -165,8 +166,8 @@ def test_blocks_cached_above_the_geoid(http_server, tmp_path, monkeypatch):
         assert np.abs(n).min() > 1
         values, raw = moved.read(1), kept.read(1)
         assert np.isnan(values[0, 0]) and np.isnan(raw[0, 0])
-        assert np.array_equal(values[1:, 1:], (raw - n)[1:, 1:])
-        assert (raw[1:, 1:] == band[:20, :20][1:, 1:]).all()
+        assert same_tile(values[1:, 1:], (raw - n)[1:, 1:], 2 * TILE_EPS)  # two tiles, each within the bound
+        assert same_tile(raw[1:, 1:], band[:20, :20][1:, 1:])
 
 
 def test_check_source_compares_after_the_geoid(http_server, tmp_path, monkeypatch):
@@ -184,4 +185,4 @@ def test_check_source_compares_after_the_geoid(http_server, tmp_path, monkeypatc
     cache_dir = str(tmp_path / "cache")
     layer.download(grid, cache_dir, None, "test")
     check = cs.check_files(layer, grid, cache_dir, 4)
-    assert check["status"] == cs.PASS and "max |d| 0.0000 m" in check["text"], check["text"]
+    assert check["status"] == cs.PASS and all(r["max_abs_m"] <= TILE_EPS for r in check["tiles"]), check["text"]
