@@ -444,6 +444,18 @@ def test_free_space_and_contact_in_the_header(settings):
     _drive(app, body)
 
 
+def test_a_target_called_like_its_drive(settings):
+    settings.targets["Z:"] = ar.Target("Z:", settings.targets["NAS"].data_dir)
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        await app.workers.wait_for_complete()
+        await pilot.pause()
+        text = str(app.query_one("#top-free").render())
+        assert "Z: ?" in text and "::" not in text
+    _drive(app, body)
+
+
 def test_settings_that_cannot_be_used_end_with_their_text(tmp_path, capsys):
     assert tui.run(str(tmp_path / "none.json")) == 2
     assert "none.json" in capsys.readouterr().err

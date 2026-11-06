@@ -154,6 +154,11 @@ def areas_word(count: int) -> str:
     return f"{count} area" + ("" if count == 1 else "s")
 
 
+def named(label: str) -> str:
+    """A target's name before what is said of it: a target may be called like its drive, "Z:"."""
+    return label.rstrip(":") + ":"
+
+
 class Downloads(App):
     TITLE = "Find-a-Line: area download"
     AUTO_FOCUS = "Box"
@@ -276,7 +281,7 @@ class Downloads(App):
         self.show_free()
 
     def show_free(self):
-        parts = [f"{label}: " + ("?" if self.free.get(label) is None else f"{self.free[label]:.0f} GB")
+        parts = [f"{named(label)} " + ("?" if self.free.get(label) is None else f"{self.free[label]:.0f} GB")
                  for label in self.settings.targets]
         contact = "set" if self.settings.contact or os.environ.get("FINDALINE_CONTACT") else "none"
         self.query_one("#top-free", Static).update("free  " + "   ".join(parts) + f"   contact: {contact}")
@@ -363,7 +368,7 @@ class Downloads(App):
         for label in labels:
             free = self.free.get(label)
             text = "? free" if free is None else f"{free:.0f} GB free"
-            lines.append(f"{label}: {text}, stops below {self.settings.targets[label].min_free_gb:g} GB")
+            lines.append(f"{named(label)} {text}, stops below {self.settings.targets[label].min_free_gb:g} GB")
         return lines
 
     def action_start(self):
