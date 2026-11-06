@@ -892,6 +892,11 @@ as well (1 of 3 runs): not this round's.
   canopy and the reach have no answers (the tools hide or fail with their note); `_patch_plan` beside
   `patch_of_line`; a favourite's values for the other lines' colours would need the favourites request to give
   them; the other lines of the run's spots inside the patch (docs/3d-view.md, "Several lines in one view", C).
+- **After the user's try of the branch (2026-11-05)**: imagery tiles that fail are named in the pill
+  (`Activity.notice` with "Try again", `data-imagery-failed` on the root), a chunk without any tile is shaded, and a
+  service failing `REFUSED_AFTER` (8) times in a row is not asked on (`imagery.ts`). The cause seen: Slovakia's
+  orthophoto WMS dropped 148 of 260 requests asked six at once; what is left to measure and decide is in
+  docs/roadmap.md, "To check" ("Slovakia's orthophoto WMS drops requests asked six at once").
 
 ## How to work
 - Python: the main checkout's venv, `C:\Users\Krzysiek\Documents\Prywata\Find-a-Line\.venv\Scripts\python.exe`, run
