@@ -16,7 +16,7 @@ from pyproj import Transformer
 
 import cache
 from grid import Grid
-from helpers import HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
+from helpers import END_VALUES, HIGH_ABOVE, LEASH_FALL, SLOPE, LineTable, profile_dict
 from progress import progress
 from runs import column_texts
 from sag import Rigging
@@ -316,7 +316,8 @@ def _script_head(target: str, value: Dict) -> str:
 
 def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
     """The JSON texts of the rows of lines.js of lines start..stop (viewer/src/types.ts, toLine),
-    without the profile that data.js adds as its last value. The same text as json.dumps of the
+    without the profile that data.js adds as its last value (with the END_VALUES before it when the
+    lines have them: map_heads' "ends"). The same text as json.dumps of the
     row as a list of Python values (round() of each, rounded() for those that may be missing),
     built column by column. Values used for grouping are not rounded, so the browser groups
     exactly like group_lines()."""
@@ -329,6 +330,8 @@ def map_rows(lines: LineTable, start: int, stop: int) -> List[str]:
                text(c["filled_m"], 1), text(c["height_max"]), text(c["height_mean"], 2), text(c["high_pct"], 1),
                text(c["angle1"], 1), text(c["angle2"], 1), text(c["prom1"], 1, True), text(c["prom2"], 1, True),
                text(c["drop1"], 1, True), text(c["drop2"], 1, True)]
+    if END_VALUES[0] in c:  # with an end zone or A-frames: the heads' "ends", before the profile
+        columns += [text(c[name], 2) for name in END_VALUES]
     return list(map(",".join, zip(*columns))) if stop > start else []
 
 
@@ -374,10 +377,14 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
     """The heads of data.js and lines.js of a run (save_map's arguments; `path` its map.html,
     which the orthophoto cache's URL is relative to): everything before the lines. The run's end
     zone and A-frames (run.json's params "end_zone", "anchor_lift") go into both heads as
-    "end_zone" and "lift", each only when set (a run without them: the heads of before)."""
+    "end_zone" and "lift", each only when set (a run without them: the heads of before), and then
+    "ends": the names of the values its rows hold after the drop below anchor 2 and before the
+    profile (helpers.END_VALUES: the A-frame heights each line needs, map_rows)."""
     params = run.get("params") or {}
     ends = {key: params[name] for key, name in (("end_zone", "end_zone"), ("lift", "anchor_lift"))
             if params.get(name)}
+    if ends:
+        ends["ends"] = list(END_VALUES)
     data = {
         "run": {"id": run["id"], "name": run["name"], "created": run["created"],
                 "description": run.get("description", "")},

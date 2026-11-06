@@ -5,6 +5,7 @@
 - A 600 x 600 m clip of Żabi Koń (tests/data, see make_fixture.py) with known results.
 """
 
+import collections
 import csv
 import glob
 import json
@@ -323,10 +324,45 @@ def test_end_zone_and_lift(tmp_path):
     assert (metas["ends"]["params"]["end_zone"], metas["ends"]["params"]["anchor_lift"]) == (5, 2)
     assert "end_zone" not in metas["plain"]["params"] and "anchor_lift" not in metas["plain"]["params"]
     assert metas["ends"]["description"].endswith(", no-fall zone 5 m at the ends, A-frames 2 m")
-    for name, keys in (("plain", {}), ("ends", {"end_zone": 5, "lift": 2})):
+    ends_keys = {"end_zone": 5, "lift": 2, "ends": ["lift_needed", "lift_no_zone"]}
+    for name, keys in (("plain", {}), ("ends", ends_keys)):
         for script in ("data.js", "lines.js"):
             head = _script(os.path.join(folders[name], script))
-            assert {k: head[k] for k in ("end_zone", "lift") if k in head} == keys, (name, script)
+            assert {k: head[k] for k in ("end_zone", "lift", "ends") if k in head} == keys, (name, script)
+            assert {len(line) for line in head["lines"]} == {25 + len(keys.get("ends", [])) + (script == "data.js")}
+    # The A-frame heights each line needs, with the run's zone and without one: in all four files of the run
+    # with the options (after clearance_nmpt_m; before the profile in the scripts), in none of the other's
+    assert "lift_needed_m" not in plain[0] and "lift_no_zone_m" not in plain[0]
+    header = open(os.path.join(folders["ends"], "lines.csv"), encoding="utf-8-sig").readline().strip().split(",")
+    at = header.index("clearance_nmpt_m")
+    assert header[at + 1:at + 3] == ["lift_needed_m", "lift_no_zone_m"]
+    features = json.load(open(os.path.join(folders["ends"], "lines.geojson"), encoding="utf-8"))["features"]
+    plain_features = json.load(open(os.path.join(folders["plain"], "lines.geojson"), encoding="utf-8"))["features"]
+    assert "lift_needed_m" not in plain_features[0]["properties"]
+    key = lambda values: tuple(round(float(v), 7) for v in values)  # noqa: E731
+    lifts = {key(r[k] for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon")):
+             (float(r["lift_needed_m"]), float(r["lift_no_zone_m"])) for r in ends}
+    assert len(lifts) == len(ends) == len(features)
+    assert lifts == {key((f["properties"]["anchor1_lat"], f["properties"]["anchor1_lon"], f["properties"]["anchor2_lat"],
+                          f["properties"]["anchor2_lon"])): (f["properties"]["lift_needed_m"],
+                                                             f["properties"]["lift_no_zone_m"]) for f in features}
+    for script in ("data.js", "lines.js"):
+        assert lifts == {key(line[:4]): (line[25], line[26]) for line in _script(os.path.join(folders["ends"], script))["lines"]}
+    # with A-frames of 2 m the rule's clearance is 2 less the height needed (exactly so before rounding), and
+    # the lines of the search without the options need none; some lines need the zone (more than 2 m without it)
+    anchors_of = lambda r: key(r[k] for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))  # noqa: E731
+    standing = set(map(anchors_of, plain))
+    consistent = lambda needed, value: (abs(value - (2 - needed)) <= 0.011 if needed > 0  # noqa: E731
+                                        else value >= 2 - 0.006)
+    for r in ends:
+        needed, no_zone, clearance = float(r["lift_needed_m"]), float(r["lift_no_zone_m"]), float(r["clearance_m"])
+        assert 0 <= needed <= 2 and no_zone >= needed and consistent(needed, clearance), r
+        if anchors_of(r) in standing:
+            assert needed == no_zone == 0, r
+    assert any(no_zone > 2 for _, no_zone in lifts.values()) and any(needed > 0 for needed, _ in lifts.values())
+    for line in _script(os.path.join(folders["ends"], "data.js"))["lines"]:  # and the profiles' smallest value
+        if line[-1]:
+            assert consistent(line[25], line[-1]["min"][1]), line[:4]
     # the profiles the map keeps (of the spots' lines here: those of every line would be too many)
     lines = [line for line in _script(os.path.join(folders["ends"], "data.js"))["lines"] if line[-1]]
     assert lines
@@ -362,13 +398,18 @@ def test_end_zone_in_tiles(tmp_path):
     one_out, one = run_search(tmp_path / "one", *common)
     tiled_out, tiled = run_search(tmp_path / "tiled", *common, "--tile-size", "150")
     assert "one grid" in one_out and "tiles)" in tiled_out
-    # Every column of every line, its group and representative too; with the rule the clearance of many lines
-    # is set at the first step from an anchor, so parallel lines tie exactly (clearance and length), and lines
-    # tied so keep the order they were found in, which tiles change (the order of before for lines that differ)
-    key = lambda r: (r["anchor1_easting"], r["anchor1_northing"], r["anchor2_easting"], r["anchor2_northing"])  # noqa: E731
-    assert one and sorted(one, key=key) == sorted(tiled, key=key)
-    rank = lambda rows: [(r["group"], r["clearance_m"], r["length_m"]) for r in rows]  # noqa: E731
-    assert rank(one) == rank(tiled)
+    # Every column of every line in the same order, its group and representative too: with the rule the clearance
+    # of many lines is set at the first step from an anchor, so parallel lines tie exactly (clearance and length),
+    # and search._fixed_order breaks such ties by the anchors' pixels, as tiles and one grid share them
+    assert one and one == tiled and "lift_needed_m" in one[0]
+    ties = collections.Counter((r["clearance_m"], r["length_m"]) for r in one)
+    assert max(ties.values()) > 1  # the case the order is fixed for
+    for name in ("data.js", "lines.js", "lines.geojson"):  # the files too, from their lines on
+        texts = []
+        for run in ("one", "tiled"):
+            text = open(glob.glob(str(tmp_path / run / "runs" / "*" / name))[0], encoding="utf-8").read()
+            texts.append(text[text.index('"lines":['):] if name.endswith(".js") else text[:text.index('"findaline"')])
+        assert texts[0] == texts[1], name
     assert len(glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))) > 1
     # the profiles of the groups' lines in the map, those at tile edges too (profile_of_line), carry the rule
     profiles = {}
