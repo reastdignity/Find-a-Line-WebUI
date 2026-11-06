@@ -425,6 +425,10 @@ def params_summary(meta: Dict) -> str:
         r = p["rigging"]
         text += (f", sag model ({r['pretension']:g} kN, {r['stretch']:g}%, {r['webbing_weight']:g} g/m, "
                  f"{r['athlete_mass']:g} kg, fall {r['fall_zone']:g} m)")
+    if p.get("end_zone"):
+        text += f", no-fall zone {p['end_zone']:g} m at the ends"
+    if p.get("anchor_lift"):
+        text += f", A-frames {p['anchor_lift']:g} m"
     return text
 
 

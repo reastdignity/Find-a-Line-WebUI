@@ -372,7 +372,12 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
               ortho_cache: Optional[str] = None, ortho_service=None, model: str = "formula",
               rigging: Optional[Rigging] = None, high_above: float = HIGH_ABOVE) -> Tuple[str, str]:
     """The heads of data.js and lines.js of a run (save_map's arguments; `path` its map.html,
-    which the orthophoto cache's URL is relative to): everything before the lines."""
+    which the orthophoto cache's URL is relative to): everything before the lines. The run's end
+    zone and A-frames (run.json's params "end_zone", "anchor_lift") go into both heads as
+    "end_zone" and "lift", each only when set (a run without them: the heads of before)."""
+    params = run.get("params") or {}
+    ends = {key: params[name] for key, name in (("end_zone", "end_zone"), ("lift", "anchor_lift"))
+            if params.get(name)}
     data = {
         "run": {"id": run["id"], "name": run["name"], "created": run["created"],
                 "description": run.get("description", "")},
@@ -383,14 +388,15 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
         "attribution": run.get("attribution", []),  # credits of the data used (sources.Credit)
         "distance": group_distance, "by": group_by, "model": model,
         "rigging": dataclasses.asdict(rigging or Rigging()),
-        "slope": SLOPE, "leash_fall": LEASH_FALL, "high_above": high_above, "max_zoom": MAX_ZOOM,
+        "slope": SLOPE, "leash_fall": LEASH_FALL, **ends, "high_above": high_above, "max_zoom": MAX_ZOOM,
         "terrain": run.get("terrain"),  # the search area's (hypsometry.statistics), None when not known
         "shore": run.get("shore"),  # the uncertain shore (sources.filling.shore_segments), None when not known
         "lines": None,
     }
     target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
     return (_script_head("window.FINDALINE_RUN", data),
-            _script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], "lines": None}))
+            _script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], **ends,
+                                  "lines": None}))
 
 
 def write_map_scripts(lines: LineTable, run_path: str, heads: Tuple[str, str], on_lines=lambda n, file: None,

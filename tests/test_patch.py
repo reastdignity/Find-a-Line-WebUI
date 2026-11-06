@@ -143,6 +143,22 @@ def test_patch_heights_are_the_clips(clip_data, tmp_path):
     assert half["anchors"] == patch["anchors"]
 
 
+def test_patch_meta_names_the_runs_ends(clip_data, tmp_path):
+    """The run's end zone and A-frames (run.json's params end_zone, anchor_lift) are the meta's "end_zone"
+    and "lift", each only when set: a run without them (and every run from before) gives the meta of before."""
+    import copy
+    data, meta = clip_data
+    plain, body = _patch(clip_data, tmp_path / "plain", *LINE, side_m=500)
+    assert "end_zone" not in plain and "lift" not in plain
+    for ends, keys in (({"end_zone": 5.0, "anchor_lift": 2.0}, {"end_zone": 5.0, "lift": 2.0}),
+                       ({"anchor_lift": 1.5}, {"lift": 1.5})):
+        run = copy.deepcopy(meta)
+        run["params"].update(ends)
+        patch, same = _patch((data, run), tmp_path / str(len(ends)), *LINE, side_m=500)
+        assert {k: patch[k] for k in ("end_zone", "lift") if k in patch} == keys
+        assert same == body and {k: v for k, v in patch.items() if k not in keys} == plain  # nothing else changes
+
+
 def test_patch_without_data_outside_the_clip(clip_data, tmp_path):
     """Samples outside the clip have no data; inside they are the clip's. The default side and its refusals."""
     near = (CLIP_LEFT + 100.5, CLIP_TOP - 100.5)

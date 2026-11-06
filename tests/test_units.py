@@ -2745,8 +2745,9 @@ def _batch_profiles(n: int, rng) -> "sh.Profiles":
 def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     """saving.py: the line files of a run written by child processes (one per file, or the
     results' apart from the map's) are byte for byte those save_results and save_map write in
-    one process, for 50 000 lines with the profiles of a batch, profiles that are dicts, lines
-    without one and values hard to round; the children's progress reaches the Compute bars
+    one process, for 50 000 lines with the profiles of a batch, of a batch with an end zone and
+    a lift ("zone", "lift"), profiles that are dicts, lines without one and values hard to
+    round; the children's progress reaches the Compute bars
     "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
     removed; a failing child raises RuntimeError naming its file."""
     import os
@@ -2771,7 +2772,10 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
         lines.columns[name][:len(hard)] = np.roll(hard, shift)
     lines.columns["anchor1"][:len(hard)] = np.column_stack([np.roll(hard, 1), np.roll(hard, -2)])
     batch = _batch_profiles(n, rng)
-    lines.profiles = {k: batch[k] for k in range(n) if k % 7}
+    zoned = _batch_profiles(n, rng)  # a search with --end-zone and --anchor-lift: the zone of each line, the lift
+    zoned.zone, zoned.lift = np.round(np.minimum(5.0, rng.random(n) * 30), 1), 2.0
+    lines.profiles = {k: (zoned if k % 3 == 0 else batch)[k] for k in range(n) if k % 7}
+    assert "zone" in lines.profiles[3].as_dict() and "zone" not in lines.profiles[1].as_dict()
     lines.profiles[7] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
     members = rng.permutation(n).astype(np.int64)
     start = np.concatenate([[0], np.sort(rng.integers(0, n + 1, 3000)), [n]]).astype(np.int64)
