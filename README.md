@@ -292,6 +292,7 @@ Each is an environment variable `FINDALINE_LIMIT_<NAME>`; nothing is limited by 
 | `ORTHO_DETAIL_MAX` | 50 | Largest `--ortho-detail` |
 | `RADIUS_MAX` | 3500 | Largest `--radius`, m |
 | `RESOLUTION_MAX` | 30 | Largest `--resolution` (also the data's own when none is given), m |
+| `END_ZONE_MAX` / `ANCHOR_LIFT_MAX` | 5 / 2 | Largest `--end-zone` / `--anchor-lift`, m |
 | `REGION_KM2_MAX` | 2500 | Largest bounding box of a `--within` box or of a named OpenStreetMap area, km² (checked before OpenStreetMap is asked for the coastline or cliffs in it) |
 | `AREA_KM2_MAX` | 50 | Largest search area (a circle's too: π × radius²), km² |
 | `BBOX_KM_MAX` | 75 | Longest side of the bounding box of a search (its area, then its grid with the margin), km; checked before any service is asked for data in it |
@@ -366,6 +367,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--pretension` / `--stretch` | 2.5 / 5 | Pretension in kN / webbing stretch at 10 kN in % |
 | `--webbing-weight` / `--athlete-mass` | 70 / 80 | Webbing weight in g/m / athlete mass in kg |
 | `--fall-zone` | 3 | Height below the sagged webbing that must stay free, in metres |
+| `--end-zone` / `--anchor-lift` | 0 / 0 | No-fall zone at both ends: within this many metres of each anchor (at most a quarter of the line's length) the terrain need only stay below the loaded webbing, not the fall zone or leash fall below it, 0 to 20 m / height of an A-frame at both anchors, the webbing that much above each anchor, 0 to 3 m; 0: off. Either finds many more lines and takes longer |
 | `--data-dir` | `FINDALINE_DATA`, else the folder of the script | Folder holding `cache/` (downloaded data), `runs/` (saved runs) and `work/` (working grids of a search, deleted when it ends) |
 | `--update` | | `stale` or `all`: check the cached data of the search area before the search (see *Keeping the cache up to date*) |
 | `--group-distance` | 20 (2 × resolution if more) | Group similar lines: both anchors within this many metres |

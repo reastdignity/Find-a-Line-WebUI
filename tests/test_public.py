@@ -2726,14 +2726,22 @@ def test_request_limits(monkeypatch, tmp_path):
                {**point, "prominence_span": 1500}, {**point, "drop_radius": 1001}, {**point, "slope_threshold": 20},
                {**point, "ortho_detail": 51}, {**point, "ortho": "always"}, {**point, "update": "stale"},
                {**point, "coastline": "world"}, {**point, "threads": 2}, {**point, "tile_size": 500},
-               {**point, "resolution": 5, "group_distance": 9}, {**point, "group_distance": 1}]
+               {**point, "resolution": 5, "group_distance": 9}, {**point, "group_distance": 1},
+               {**point, "end_zone": 5.5}, {**point, "anchor_lift": 2.1}]
     for params in refused:
         with pytest.raises(ValueError):
             web.check_request({"params": params}, limits)
         web.check_request({"params": params}, None)  # no limits
     for params in ({**point, "max_length": 2000, "slope_threshold": 30},
-                   {**point, "resolution": 5, "group_distance": 10}, {**point, "max_length": "1500"}):
+                   {**point, "resolution": 5, "group_distance": 10}, {**point, "max_length": "1500"},
+                   {**point, "end_zone": 5, "anchor_lift": 2}):
         web.check_request({"params": params}, limits)
+    with pytest.raises(ValueError, match="end_zone: at most 5"):
+        web.check_request({"params": {**point, "end_zone": 6}}, limits)
+    # Beyond what the search allows anywhere (params.END_ZONE_MAX, ANCHOR_LIFT_MAX): refused without limits too
+    for params in ({**point, "end_zone": 21}, {**point, "anchor_lift": 3.5}, {**point, "end_zone": -1}):
+        with pytest.raises(ValueError):
+            web.check_request({"params": params}, None)
     # The download fields are not allowed at all; a site that allows them again still has their bounds
     reopened = limits.model_copy(update={"not_allowed": []})
     with pytest.raises(ValueError, match="ortho_detail: at most 50"):
@@ -2750,6 +2758,8 @@ def test_request_limits(monkeypatch, tmp_path):
     assert not {"threads", "tile_size", "update", "source", "water", "shore_buffer", "fill_gaps", "coastline",
                 "ortho", "ortho_detail"} & set(fields)
     assert (fields["max_length"]["max"], fields["slope_threshold"]["min"], fields["group_distance"]["min"]) == (2000, 30, 2)
+    assert (fields["end_zone"]["max"], fields["anchor_lift"]["max"]) == (5, 2)
+    assert fields["end_zone"]["topic"] == fields["anchor_lift"]["topic"] == "rigging"
     # The page says the bounds in the hint (hint.bounds.*), the help is the catalogue's text alone
     assert fields["max_length"]["help"] == messages.text("field.max_length.help")
     assert fields["group_distance"]["min_factor"] == 2 and fields["max_length"]["min_factor"] is None
