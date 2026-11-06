@@ -236,3 +236,9 @@
 .ui .r-folder span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ui .r-newfolder { display: flex; gap: 6px; }
 .ui .r-newfolder .u-input { flex: 1; min-width: 0; }
+/* the filter "A-frame needed at most" (a run with a no-fall zone or A-frames): the run's lines in bars of 0.5 m,
+   those the choice shows in the accent */
+.ui .r-lift-bars { display: flex; align-items: flex-end; gap: 2px; height: 34px; }
+.ui .r-lift-bars i { flex: 1; background: var(--line); border-radius: 2px 2px 0 0; min-height: 1px; }
+.ui .r-lift-bars i.r-on { background: var(--accent); }
+.ui .r-lift-axis { display: flex; justify-content: space-between; color: var(--muted); }

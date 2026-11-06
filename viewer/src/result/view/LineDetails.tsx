@@ -15,6 +15,7 @@ import { ResultNote } from "./ResultSummary";
 import { cx, num, Swatch, useModel } from "./common";
 import { day } from "../../time";
 import { t } from "../../i18n";
+import { shortMetres } from "../../endzone";
 
 const BY_LABEL: Record<string, string> = {clearance: "the most clearance", longest: "the longest",
                                           height: "the highest above the ground"};
@@ -68,8 +69,26 @@ export function ordinal(n: number): string {
   return `${n}${suffix}`;
 }
 
-/** The facts of a line beyond its four numbers, as label and value. */
-export function lineFacts(l: Line, highAbove: number): [string, string][] {
+/** The row "Rigging" of a line of a run with a no-fall zone or A-frames: the run's options (`run`: its "end_zone"
+ *  and "lift"; none for another run's line) and what the line needs; null for a line without the values. */
+export function riggingText(l: Line, run?: {end_zone?: number; lift?: number}): string | null {
+  if (typeof l.lift_needed !== "number") return null;
+  const parts: string[] = [];
+  if (run) {
+    parts.push(run.end_zone ? t("ui.details.zone", {m: shortMetres(run.end_zone)}) : t("ui.details.no_zone"));
+    parts.push(run.lift ? t("ui.details.lift", {m: shortMetres(run.lift)}) : t("ui.details.no_lift"));
+  }
+  let needs = l.lift_needed < 0.05 ? t("ui.details.needs_none") : t("ui.details.needs", {m: l.lift_needed.toFixed(1)});
+  if ((!run || run.end_zone) && typeof l.lift_no_zone === "number") {
+    needs += " " + (l.lift_no_zone < 0.05 ? t("ui.details.without_none") : t("ui.details.without", {m: l.lift_no_zone.toFixed(1)}));
+  }
+  parts.push(needs);
+  return parts.join(" · ");
+}
+
+/** The facts of a line beyond its four numbers, as label and value; `run`: the options of the line's run (this
+ *  run's data.js "end_zone" and "lift") for the row "Rigging". */
+export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; lift?: number}): [string, string][] {
   const facts: [string, string][] = [];
   if (l.run) facts.push(["Run", `${day(l.run.info.created)} ${l.run.info.name}`]);
   const pct = (p: number | null) => p === null ? " (percentile not known)" : ` (${ordinal(p)} percentile)`;
@@ -87,6 +106,8 @@ export function lineFacts(l: Line, highAbove: number): [string, string][] {
   }
   if (l.water > 0) facts.push(["Over water", `${num(l.water)} m of ${num(l.len)} m`]);
   if (l.filled > 0) facts.push(["Over filled gaps", `${num(l.filled)} m (less precise data)`]);
+  const rigging = riggingText(l, run);
+  if (rigging) facts.push([t("ui.details.rigging"), rigging]);
   return facts;
 }
 
@@ -175,7 +196,7 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
     </div>
     {shownCopy && !shownCopy.ok && <LinkField text={shownCopy.text} />}
     {shownCopy?.ok && <input type="hidden" class="r-copied" value={shownCopy.text} />}
-    <dl class="r-kv">{lineFacts(l, model.data.high_above).map(([label, value]) =>
+    <dl class="r-kv">{lineFacts(l, model.data.high_above, l.run ? undefined : model.data).map(([label, value]) =>
       <Fragment key={label}><dt>{label}</dt><dd>{value}</dd></Fragment>)}</dl>
   </div>;
 }
