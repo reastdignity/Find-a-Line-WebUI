@@ -387,6 +387,7 @@ def test_reach_and_profile_requests_never_overlap(tmp_path):
 
 # ---- headless Edge (from PowerShell) -------------------------------------------------------------------------
 from test_patch import _offline_env, clip_data  # noqa: E402,F401 (the fixture)
+from test_view3d import EDGE_SECONDS, VIRTUAL_BUDGET, _with_until  # noqa: E402 (the shared frame-counted waits)
 from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _lines_of, _server, _violations, web  # noqa: E402
 
 # Loaded before the bundle: /api/reach is not in the app of this branch (the server's side is built apart from the
@@ -475,7 +476,7 @@ window.REACH = {gate: null, open: null, requests: [], profiles: [], meta: null, 
 })();
 """
 
-REACH_SCRIPT = """
+REACH_SCRIPT = _with_until("""
 (async function () {
   const root = document.getElementById("view3d"), R = window.REACH, out = {errors: []};
   const error = console.error.bind(console);
@@ -486,27 +487,11 @@ REACH_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  // under a virtual time budget headless Edge draws animation frames only while something loads: each poll loads a
-  // small file, so a frame the page asked for comes
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  // the waits count the browser's frames (test_view3d.UNTIL_JS)
+  /* until */
   const waitFor = (test, ms) => new Promise((resolve) => until(test, ms, resolve));
   const sleep = (ms) => new Promise((resolve) => until(() => false, ms, resolve));
-  const settle = async (ms) => {  // no frame drawn for a second
-    let frames = root.dataset.frames, since = Date.now();
-    return waitFor(() => {
-      if (root.dataset.frames !== frames) { frames = root.dataset.frames; since = Date.now(); }
-      return Date.now() - since >= 1000;
-    }, ms);
-  };
+  const settle = (ms) => new Promise((resolve) => settledOn(() => root.dataset.frames, ms, resolve));  // ten polls, none drawn
   const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
     pointerId: 7, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true}));
   const snapshot = () => {
@@ -575,15 +560,20 @@ REACH_SCRIPT = """
     out.free = {profiles: R.profiles.slice(p0), requests: R.requests.map((r) => [r.as, r.anchor]), reach: root.dataset.reach, edit: root.dataset.edit};
     out.freeFrac = frac(anchorsOf(R.profiles[p0].line)[1]);
 
-    // 2. with the reach of anchor 1 in, a dragged anchor 2 rests on a valid sample's centre
+    // 2. with the reach of anchor 1 in, a dragged anchor 2 rests on a valid sample's centre. Each drag starts from
+    // the handles where the last frame placed them (settled): the frame of the line just taken may still be coming,
+    // and a drag from the handle's place before it went elsewhere (step 3 then left the ring only while it lagged)
+    await settle(15000);
     drag(1, 0.2);
     await waitFor(() => R.profiles.length >= p0 + 2, 10000);
     await waitFor(() => edited() && R.active === 0 && R.requests.length >= 3, 25000);
     const snapped = anchorsOf(R.profiles[p0 + 1].line);
     out.snapped = {frac: frac(snapped[1]), d: Math.hypot(snapped[1][0] - snapped[0][0], snapped[1][1] - snapped[0][1]),
                    moved: R.profiles[p0 + 1].line !== R.profiles[p0].line};
-    // 3. dragged away, outside the valid ring: it stays where it was
-    drag(1, -0.7);
+    // 3. dragged away, outside the valid ring: it stays where it was (from the drawn handles 0.7 and 1.0 of the way
+    // away still end on valid samples, 1.2 and 1.5 beyond them: measured on the clip's run)
+    await settle(15000);
+    drag(1, -1.5);
     await waitFor(() => R.profiles.length >= p0 + 3, 10000);
     await waitFor(() => edited() && R.active === 0, 25000);
     out.stays = R.profiles[p0 + 2].line === R.profiles[p0 + 1].line;
@@ -620,7 +610,7 @@ REACH_SCRIPT = """
   }
   done();
 })();
-"""
+""")
 
 
 def _reach_page(data, name: str) -> str:
@@ -659,9 +649,9 @@ def test_view3d_only_valid_lines(clip_data, tmp_path, monkeypatch, level):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=240000", "--force-prefers-no-reduced-motion", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--force-prefers-no-reduced-motion", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=420).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))

@@ -23,6 +23,7 @@ from test_patch import _offline_env, clip_data  # noqa: E402,F401 (the fixture o
 from test_viewer import VIEWER, clip_data as run_data, run_ts  # noqa: E402,F401 (the run's data.js: the model)
 from test_view3d_profile import _clear_favourites  # noqa: E402
 from test_view3d_reach import run_entry  # noqa: E402
+from test_view3d import EDGE_SECONDS, VIRTUAL_BUDGET, _with_until  # noqa: E402 (the shared frame-counted waits)
 from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _lines_of, _server, _violations, web  # noqa: E402
 
 node = pytest.mark.skipif(not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
@@ -228,7 +229,7 @@ console.log(JSON.stringify(out));""".replace("PATH", json.dumps(str(path))))
 # In headless Edge: the real page (main.ts with the module wired in as the coordinator wires it) over the local app,
 # with the clip's run, a few of its lines handed over in the address and two saved through the app's API.
 
-OTHERS_SCRIPT = """
+OTHERS_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {steps: []};
@@ -238,25 +239,9 @@ OTHERS_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      let ok = false;
-      try { ok = test(); } catch (e) { out.pollError = String(e); }
-      if (ok) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
-  const settled = (ms, then) => {
-    let frames = root.dataset.frames, since = Date.now();
-    until(() => {
-      if (root.dataset.frames !== frames) { frames = root.dataset.frames; since = Date.now(); }
-      return Date.now() - since >= 1000;
-    }, ms, then);
-  };
+  const onPollError = (e) => { out.pollError = String(e); };  // UNTIL_JS's until polls on after it
+  /* until */
+  const settled = (ms, then) => settledOn(() => root.dataset.frames, ms, then);  // ten polls over frames, none drawn
   const tool = (id) => document.querySelector('.v3-tool[data-tool="' + id + '"]');
   const labels = () => [...document.querySelectorAll(".v3-others .v3-other")];
   const keys = () => labels().map((b) => b.dataset.other).sort();
@@ -342,7 +327,7 @@ OTHERS_SCRIPT = """
     });
   }));
 })();
-"""
+""")
 
 
 def _main_with_others(tmp_path) -> str:
@@ -443,8 +428,8 @@ def test_view3d_several_lines(clip_data, tmp_path, monkeypatch, level):
                f"&also={quote(';'.join(address), safe='')}")
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             f"--window-size={window}", "--virtual-time-budget=150000", "--force-prefers-no-reduced-motion", "--dump-dom", url],
-            capture_output=True, text=True, encoding="utf-8", timeout=420).stdout
+             f"--window-size={window}", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--force-prefers-no-reduced-motion", "--dump-dom", url],
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
         if os.environ.get("FAL_SHOT"):  # by hand: a picture of the page as the test leaves it, for a visual review
             subprocess.run([EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge-shot'}", "--no-first-run",
                             f"--window-size={window}", "--virtual-time-budget=40000", "--hide-scrollbars",

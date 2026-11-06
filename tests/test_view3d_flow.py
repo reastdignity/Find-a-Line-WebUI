@@ -15,12 +15,13 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_patch import _offline_env, clip_data  # noqa: E402,F401 (a run of the clip, computed once)
 from test_reach import with_surface  # noqa: E402
+from test_view3d import EDGE_SECONDS, VIRTUAL_BUDGET, _with_until  # noqa: E402 (the frame-counted waits)
 from test_web import EDGE, _lines_of, _server, _violations  # noqa: E402
 
 # After the page is ready: the tool "valid" on and the reach of anchor 1 awaited (the first reach of a quick lane
-# loads numba and builds the sag table), then the tool "trees" on and the canopy awaited. Polls with a small fetch,
-# under which headless Edge keeps drawing frames (as tests/test_view3d_profile.py).
-FLOW_SCRIPT = r"""
+# loads numba and builds the sag table), then the tool "trees" on and the canopy awaited. The waits count the
+# browser's frames (test_view3d.UNTIL_JS).
+FLOW_SCRIPT = _with_until(r"""
 (() => {
   const root = document.getElementById("view3d"), out = {};
   const done = () => {
@@ -29,16 +30,7 @@ FLOW_SCRIPT = r"""
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  /* until */
   const tool = (id) => document.querySelector('.v3-tool[data-tool="' + id + '"]');
   const trees = () => {
     const button = tool("trees");
@@ -71,7 +63,7 @@ FLOW_SCRIPT = r"""
     });
   });
 })();
-"""
+""")
 
 
 def _flow_page(data) -> str:
@@ -105,9 +97,9 @@ def test_valid_lines_and_trees_against_the_app(clip_data, tmp_path, monkeypatch)
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=240000", "--force-prefers-no-reduced-motion", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--force-prefers-no-reduced-motion", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level=full#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=600).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))

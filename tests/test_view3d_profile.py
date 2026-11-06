@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_patch import _offline_env, clip_data  # noqa: E402,F401 (the fixture of the 3D page's tests)
 from test_viewer import VIEWER, clip_data as run_data, run_ts  # noqa: E402,F401 (the run's data.js: the model)
-from test_view3d import _page  # noqa: E402
+from test_view3d import EDGE_SECONDS, VIRTUAL_BUDGET, _page, _with_until  # noqa: E402
 from test_web import EDGE, _lines_of, _server, _violations  # noqa: E402
 
 node = pytest.mark.skipif(not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
@@ -153,7 +153,7 @@ def test_link_outside_the_run_is_measured(tmp_path, run_data):
 # On the page after the bundle: once ready, the tools, the card opened and its chart, the chart's cursor and the walker
 # following each other, the line saved and removed (the favourites the server keeps), and at level full a moved line
 # saved with the readout's sentence, the links following it; the findings go into <pre id="result">
-PROFILE_SCRIPT = """
+PROFILE_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {};
@@ -163,23 +163,8 @@ PROFILE_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
-  const settled = (ms, then) => {
-    let frames = root.dataset.frames, since = Date.now();
-    until(() => {
-      if (root.dataset.frames !== frames) { frames = root.dataset.frames; since = Date.now(); }
-      return Date.now() - since >= 1000;
-    }, ms, then);
-  };
+  /* until */
+  const settled = (ms, then) => settledOn(() => root.dataset.frames, ms, then);  // ten polls over frames, none drawn
   const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
     pointerId: 7, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true}));
   const run = decodeURIComponent(location.hash.match(/run=([^&]*)/)[1]);
@@ -311,7 +296,7 @@ PROFILE_SCRIPT = """
     chart();
   }));
 })();
-"""
+""")
 
 
 def _clear_favourites(port: int, run: str) -> list:
@@ -366,9 +351,9 @@ def test_view3d_profile_card_and_saving(clip_data, tmp_path, monkeypatch, level)
         _clear_favourites(port, meta["id"])
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=120000", "--force-prefers-no-reduced-motion", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--force-prefers-no-reduced-motion", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=360).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     r = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))

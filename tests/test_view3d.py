@@ -30,7 +30,10 @@ from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _lines_of, _server, _violatio
 # budget's end. Each poll ends with 100 virtual ms for the page's own timers (e.g. a debounce). So the virtual
 # time the waits take stays far within the tests' --virtual-time-budget (VIRTUAL_BUDGET); in real time a wait
 # takes as long as the frames (EDGE_SECONDS). `frameTick` is the browser's own requestAnimationFrame, taken before
-# any wrapper of a script, so the polls' frames are not counted as the page's.
+# any wrapper of a script, so the polls' frames are not counted as the page's. A script that defines
+# `onPollError(e)` has an error of its test() handed to it and polls on (else the error stops the wait).
+# settledOn(frames, ms, then): then(true) once `frames()` (the page's frame count) did not change during ten
+# polls, each over a frame, so no frame the page asked for is still coming; then(false) after ms / 100 polls.
 UNTIL_JS = """
   let n = 0;
   const frameTick = window.requestAnimationFrame.bind(window), pollId = Math.random().toString(36).slice(2);
@@ -46,11 +49,21 @@ UNTIL_JS = """
   const until = (test, ms, then) => {
     let left = Math.ceil(ms / 100);
     const poll = () => {
-      if (test()) then(true);
+      let ok = false;
+      try { ok = test(); } catch (e) { if (typeof onPollError !== "function") throw e; onPollError(e); }
+      if (ok) then(true);
       else if (left-- <= 0) then(false);
       else tick(() => setTimeout(poll, 100));  // and 100 virtual ms for the page's own timers (e.g. a debounce)
     };
     poll();
+  };
+  const settledOn = (frames, ms, then) => {
+    let last = frames(), still = 0;
+    until(() => {
+      const now = frames();
+      if (now !== last) { last = now; still = 0; return false; }
+      return ++still > 10;
+    }, ms, then);
   };
 """
 # The virtual time budget of the page tests: a ceiling only (once the page idles, Edge runs its virtual time to the
@@ -829,7 +842,7 @@ def test_view3d_walker_zoom(clip_data, tmp_path, monkeypatch):
 # the count is tested on a fake scene in test_viewer.py), no status element of the imagery in the toolbar, and the
 # credits box: its data credits open behind their button at this width, the box's type and surface, a click folding
 # them (the choice kept in localStorage, the focus on the new button) and another unfolding them
-CREDITS_SCRIPT = """
+CREDITS_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {};
@@ -846,16 +859,7 @@ CREDITS_SCRIPT = """
     return {toggle: shown(toggle), expanded: toggle && toggle.getAttribute("aria-expanded"), body: shown(body),
             focused: !!toggle && document.activeElement === toggle, stored: store(), text: body ? body.textContent.slice(0, 40) : null};
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  /* until */
   try { localStorage.removeItem("findaline.view3d.credits"); } catch (e) { /* none */ }
   until(() => root.dataset.ready === "1", 25000, (ready) => {
     out.ready = ready;
@@ -877,7 +881,7 @@ CREDITS_SCRIPT = """
     done();
   });
 })();
-"""
+""")
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
@@ -902,9 +906,9 @@ def test_view3d_credits_and_pill(clip_data, tmp_path, monkeypatch, level):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     run_json.write_text(saved, encoding="utf-8")
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
