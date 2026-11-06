@@ -2,7 +2,9 @@
 Run by hand: how many lines a "no-fall zone" at the ends of a line and A-frames lifting its
 anchors would add, and what they cost (the end-zone study, 2026-11-06).
 
-The rule measured (tools/end_zone_kernels.py): a pixel of a line passes when its strict margin
+The rule measured (production's line search since wave 1: helpers.end_zone_rule,
+linesearch.find_valid_lines(end_zone=, lift=, end_clearance=, zone_cap=, zones=)): a pixel of a
+line passes when its strict margin
 s = limit - terrain (helpers.max_safe_elevation; the surface model likewise) satisfies
 
     s > -lift - delta * [the pixel lies in the end zone]
@@ -10,8 +12,8 @@ s = limit - terrain (helpers.max_safe_elevation; the surface model likewise) sat
 lift: an A-frame of that height at both ends; delta = fall - end_clearance (fall:
 helpers.fall_allowance, the 6 m of the formula or the sag model's fall zone; end_clearance
 >= 0 and at most fall); the zone: the steps closer to the nearer anchor than min(end_zone,
-cap * length) (end_zone_kernels.zone_steps). The limit itself is never changed: at zone 0 and
-lift 0 every operation is production's.
+cap * length) (helpers.zone_steps). The limit itself is never changed: at zone 0 and lift 0
+every operation is today's.
 
 capture runs a search in a child process with a data folder of its own whose cache/ links to
 the real cache (a junction on Windows, removed as a link afterwards, never followed), with
@@ -23,19 +25,18 @@ and its options in <out>/<place>/capture.json. One capture per place and slope t
     uv run tools/end_zone_study.py capture zabi-kon-45 --out <scratch>/study -- \
         --lat 50.1559508 --lon 19.7562722 --slope-threshold 45
 
-variants runs the variant kernels on a capture: once at the superset (the largest zone and
-lift) and once at zone 0 and lift 0 (the baseline, through the same harness, so the ratio of
-their seconds is fair), each timed per stage (free directions, anchor pairs, checking lines:
-wall and CPU seconds) after a warm-up of numba, with the funnel of each. In its one evaluation
-pass every line keeps the smallest strict margin per bucket of the ladder of --zones (the steps
-first in the zone of each ladder value, and the rest), so the valid lines at every (zone, lift)
-of the grid come from the superset's lines without another search (valid iff the buckets
-beyond the zone are above -lift and those within it above -lift - delta). It stops unless the
-(0, 0) entry, and the baseline run, equal production's find_valid_lines on the capture (the
-same lines in the same order) and the baseline's funnel equals production's. The spots of each
-entry by mapping.group_lines (group distance and rule from the capture's options, defaults
-otherwise; over the lines of find_valid_lines, so not always the run's spot count). Writes
-<place>/variants.json and variants.npz (the superset's lines and where each is valid).
+variants runs find_valid_lines on a capture: once at the superset (the largest zone and lift,
+with the ladder of --zones) and once at zone 0 and lift 0 (the baseline: today's search), each
+timed per stage (free directions, anchor pairs, checking lines: wall and CPU seconds of its bars)
+after a warm-up of numba, with the funnel of each. Every line of the superset carries the
+smallest strict margin per bucket of the ladder (the columns zone_margins, zone_margins_nmpt),
+so the valid lines at every (zone, lift) of the grid come from the superset's lines without
+another search (helpers.valid_at). It stops unless the (0, 0) entry equals the baseline (the same
+lines in the same order, and their clearances). The spots of each entry by mapping.group_lines
+(group distance and rule from the capture's options, defaults otherwise; by the clearances and
+marks over obstacles a search at that entry gives; over the lines of find_valid_lines, so not
+always the run's spot count). Writes <place>/variants.json and variants.npz (the superset's
+lines, today's clearance of each and where each is valid).
 
     uv run tools/end_zone_study.py variants <scratch>/study/zabi-kon-45 [--zones 0,5,10,20] \
         [--lifts 0,1,2] [--cap 0.25] [--end-clearance 0] [--threads N]
@@ -45,7 +46,7 @@ on a capture's grid: the nearest pixels of slope 45/40/35/30 degrees or more wit
 metres of each end, the best pair of pixels within that radius of the two ends by today's rule
 (the largest clearance), whether today's rule accepts it, else its first failing step from
 each end (distance and deficit), and the staircase: the lift each ladder zone needs at least
-(the best pair for each). Brute force with helpers.max_safe_elevation. Writes
+(the best pair for each; the buckets by helpers.evaluate_line with the ladder). Writes
 <place>/diagnose.json.
 
     uv run tools/end_zone_study.py diagnose <scratch>/study/zabi-kon-45 --lines lines.json
@@ -79,7 +80,6 @@ sys.path.insert(0, os.path.join(HERE, "tests"))
 import numba  # noqa: E402
 import numpy as np  # noqa: E402
 
-import end_zone_kernels as K  # noqa: E402
 import helpers as sh  # noqa: E402
 import linesearch as ls  # noqa: E402
 import perf_line_funnel as plf  # noqa: E402
@@ -97,7 +97,7 @@ EXAMPLES = 6                    # long new lines the report details per place (d
 
 
 class StudyError(RuntimeError):
-    """The variant kernels at zone 0, lift 0 do not give production's lines."""
+    """The superset's lines at zone 0, lift 0 are not today's."""
 
 
 # ---------------------------------------------------------------------------------------------
@@ -209,16 +209,11 @@ def search_option(folder: str, name: str, default=None):
 
 
 # ---------------------------------------------------------------------------------------------
-# the variant kernels' harness
-
-def no_rings(z, anchors, *rest):
-    """A stand-in for perf_line_funnel.rebuild's rings: the harness computes its own."""
-    return np.zeros((len(anchors), ls.SECTORS), dtype=np.uint8)
-
+# the harness: production's line search on a captured call
 
 def setup(folder: str) -> SimpleNamespace:
-    """A captured call's inputs and the kernels' arguments (perf_line_funnel.rebuild: the set-up
-    of linesearch.find_valid_lines), with what the evaluation needs besides."""
+    """A captured call's inputs (perf_line_funnel.rebuild: the set-up of linesearch.find_valid_lines,
+    without its rings), with what the evaluation needs besides."""
     inputs, params, timings = plf.load_call(folder)
     a = plf.rebuild(inputs, params, free_rings=no_rings)
     a.folder, a.params, a.timings = folder, params, timings
@@ -233,12 +228,18 @@ def setup(folder: str) -> SimpleNamespace:
     return a
 
 
+def no_rings(z, anchors, *rest):
+    """A stand-in for perf_line_funnel.rebuild's rings: production computes its own."""
+    return np.zeros((len(anchors), ls.SECTORS), dtype=np.uint8)
+
+
 def subset(a: SimpleNamespace, n: int) -> SimpleNamespace:
     """The call with its first n anchors only (the warm-up: the same argument types)."""
     b = SimpleNamespace(**vars(a))
     b.anchors = np.ascontiguousarray(a.anchors[:n])
-    b.elev, b.down, b.strong = a.elev[:n], a.down[:n], a.strong[:n]
     b.first = None if a.first is None else np.asarray(a.first)[:n]
+    b.strong_given = None if a.strong_given is None else np.asarray(a.strong_given)[:n]
+    b.anchor_values = None if a.anchor_values is None else np.asarray(a.anchor_values)[:n]
     return b
 
 
@@ -248,206 +249,82 @@ def limits_of(a: SimpleNamespace) -> Optional[sh.LineLimits]:
     return None if q is None else sh.LineLimits(**{k: v for k, v in q.items() if k != "left_out"})
 
 
-def pair_chunk_v(args: tuple, todo: np.ndarray, tail: tuple, rule: tuple, buffer: Optional[int] = None):
-    """linesearch.pair_chunk with end_zone_kernels.pairs_v (rule: lift, delta, end_zone, cap)."""
-    n = len(todo)
-    index = np.int32 if len(args[1]) <= np.iinfo(np.int32).max else np.int64
-    keep = buffer or max(1, min(ls.PAIR_BUFFER, ls.PAIR_BUFFER_BYTES // (2 * np.dtype(index).itemsize * max(1, n))))
-    buf = np.empty((n, keep, 2), dtype=index)
-    counts = np.zeros((n, 3), dtype=np.int64)
-    K.pairs_v(*args, todo, *tail, *rule, None, np.zeros((0, 2), dtype=np.int64), buf, counts)
-    found = counts[:, 2]
-    offsets = (np.cumsum(found) - found).astype(np.int64)
-    out = np.empty((int(found.sum()), 2), dtype=np.int64)
-    if len(out):
-        K._copy_buffered(buf, found, offsets, out)
-    more = np.flatnonzero(found > keep)
-    if len(more):
-        K.pairs_v(*args, np.ascontiguousarray(todo[more]), *tail, *rule, np.ascontiguousarray(offsets[more]), out,
-                  np.zeros((0, 0, 2), dtype=index), np.zeros((len(more), 3), dtype=np.int64))
-    return counts, out
-
-
-def directions_v(a: SimpleNamespace, offsets: np.ndarray):
-    """linesearch.free_directions with end_zone_kernels.free_rings_v."""
-    kmax, masks = ls.largest_need(a.min_length, a.max_length, a.res), ls.sector_masks()
-    need_min = ls.smallest_need(a.min_length, a.res)
-    useful, rows = [], []
-    for start in range(0, len(a.anchors), ls.RING_CHUNK):
-        rings = K.free_rings_v(a.z, a.anchors[start:start + ls.RING_CHUNK], a.res, a.gain, a.cap, offsets, kmax,
-                               masks)
-        keep = np.flatnonzero(rings.max(axis=1) >= need_min)
-        useful.append(keep + start)
-        rows.append(rings[keep])
-    useful = np.concatenate(useful).astype(np.int64) if useful else np.zeros(0, dtype=np.int64)
-    rows = np.concatenate(rows) if rows else np.zeros((0, ls.SECTORS), dtype=np.uint8)
-    slot = np.full(len(a.anchors), -1, dtype=np.int32)
-    slot[useful] = np.arange(len(useful), dtype=np.int32)
-    return useful, rows, slot
-
-
 def check_rule(a: SimpleNamespace, lift: float, end_zone: float, end_clearance: float, cap: float) -> float:
-    """delta of the rule; refuses what the study's monotony needs (lift, end_zone >= 0, delta >= 0)."""
-    delta = a.fall - end_clearance
-    if lift < 0 or end_zone < 0 or not 0 <= cap <= 0.5 or end_clearance < 0 or delta < 0:
-        raise ValueError(f"lift {lift}, end zone {end_zone}, cap {cap} and end clearance {end_clearance} "
-                         f"(at most the fall, {a.fall:g} m) must not be negative")
-    return delta
-
-
-class Stages:
-    """Wall and CPU seconds (time.process_time: every thread) of the stages of a run."""
-
-    def __init__(self):
-        self.seconds = {}
-
-    @contextlib.contextmanager
-    def __call__(self, stage: str):
-        wall, cpu = time.perf_counter(), time.process_time()
-        yield
-        w, c = self.seconds.get(stage, (0.0, 0.0))
-        self.seconds[stage] = (w + time.perf_counter() - wall, c + time.process_time() - cpu)
+    """delta of the rule (helpers.end_zone_rule: lift, end zone and delta not negative, the cap
+    within 0 .. 0.5; ValueError otherwise)."""
+    return sh.end_zone_rule(a.sag_table, end_zone, lift, end_clearance, cap)[0]
 
 
 def run_rule(a: SimpleNamespace, lift: float = 0.0, end_zone: float = 0.0, cap: float = CAP,
-             end_clearance: float = 0.0, zones: Sequence[float] = ZONES) -> SimpleNamespace:
-    """The line search of a call with the variant kernels at one rule: the funnel, the seconds
-    per stage, and the lines valid under the rule (with limits and nmpt_mode as the call's) with
-    their bucket minima of the ladder zones (in the order of the pairs found)."""
+             end_clearance: float = 0.0, zones: Sequence[float] = (), threads: Optional[int] = None
+             ) -> SimpleNamespace:
+    """linesearch.find_valid_lines on the call at one rule (with the call's limits, nmpt mode and
+    the ladder of zones when given): the lines (a LineTable, longest first), the funnel and the
+    seconds of its bars."""
     delta = check_rule(a, lift, end_zone, end_clearance, cap)
     zones = np.asarray(sorted(set(float(x) for x in zones)), dtype=np.float64)
-    clock = Stages()
-    with clock("free directions"):
-        kmax = ls.largest_need(a.min_length, a.max_length, a.res)
-        offsets = K.ring_offsets(a.offset, kmax, a.res, lift, delta, end_zone)
-        useful, rows, slot = directions_v(a, offsets)
-    with clock("anchor pairs"):
-        todo_all, head, tail = ls.pair_arguments(a.z, a.anchors, a.elev, useful, rows, slot, a.first, a.res,
-                                                 a.min_length, a.max_length, a.max_dh_ratio, a.max_dh, a.down,
-                                                 a.cos_limit, a.strong, a.use_sag, a.log_spans, a.ratios,
-                                                 a.table, a.fall_zone)
-        rule = (float(lift), float(delta), float(end_zone), float(cap))
-        pairs, candidates, checked, found = [], 0, 0, 0
-        for todo in np.array_split(todo_all, min(ls.CHUNKS, max(1, len(todo_all)))):
-            counts, out = pair_chunk_v(head, todo, tail, rule)
-            pairs.append(out)
-            found += len(out)
-            candidates += int(counts[:, 0].sum())
-            checked += int(counts[:, 1].sum())
-    with clock("checking lines"):
-        limits = limits_of(a)
-        kept = [evaluate_part(a, part, rule, zones, limits)
-                for part in ls.evaluation_parts(pairs, max(ls.EVAL_PART, -(-found // ls.CHUNKS)))]
-        lines = {k: np.concatenate([p[k] for p in kept]) for k in kept[0]} if kept else empty_lines(len(zones))
-    funnel = {"anchors": len(a.anchors), "open": len(useful), "todo": len(todo_all), "candidates": candidates,
-              "checked": checked, "found": found, "valid": len(lines["pairs"])}
-    return SimpleNamespace(funnel=funnel, seconds=clock.seconds, lines=lines, zones=zones, lift=lift,
-                           end_zone=end_zone, delta=delta, cap=cap)
-
-
-def empty_lines(nz: int) -> Dict[str, np.ndarray]:
-    return {"pairs": np.zeros((0, 2), dtype=np.int64), "length": np.zeros(0), "clearance": np.zeros(0),
-            "clearance_nmpt": np.zeros(0), "height_max": np.zeros(0), "terrain": np.zeros((0, nz + 1)),
-            "surface": np.zeros((0, nz + 1))}
-
-
-def evaluate_part(a: SimpleNamespace, found: np.ndarray, rule: tuple, zones: np.ndarray,
-                  limits: Optional[sh.LineLimits]) -> Dict[str, np.ndarray]:
-    """linesearch.evaluate_lines of a part with end_zone_kernels.evaluate_v: the lines valid under
-    the rule that reach the limits, with their bucket minima."""
-    found = np.asarray(found, dtype=np.int64).reshape(-1, 2)
-    nz = len(zones)
-    out, terrain, surface = np.zeros((len(found), 11)), np.zeros((len(found), nz + 1)), np.zeros((len(found), nz + 1))
-    if len(found):
-        t = a.sag_table
-        if t is None:
-            log_spans = span_index = ratios = ratio_index = fractions = np.zeros(2)
-            sag, fall_zone = np.zeros((2, 2, 2)), 0.0
-        else:
-            log_spans = np.log(t.spans)
-            span_index = np.arange(len(t.spans)).astype(np.float64)
-            ratios = t.RATIOS.astype(np.float64)
-            ratio_index = np.arange(len(ratios)).astype(np.float64)
-            sag, fractions = np.ascontiguousarray(t.sag), t.fractions.astype(np.float64)
-            fall_zone = float(t.rig.fall_zone)
-        z = np.asarray(a.z)
-        s = np.asarray(a.surface) if a.surface is not None else np.zeros((1, 1), dtype=z.dtype)
-        K.evaluate_v(z, s, a.surface is not None, a.anchors, np.ascontiguousarray(found), float(a.res),
-                     t is not None, log_spans, span_index, ratios, ratio_index, sag, fractions, fall_zone,
-                     float(a.high_above), *rule, zones, out, terrain, surface)
-    keep = (out[:, 5] != 0) & (out[:, 9] != 0)
-    if a.nmpt_mode == "reject":
-        keep &= out[:, 10] == 0
-    if limits is not None:
-        angles = sh.wall_angles(a.anchors[found[:, 0]], a.anchors[found[:, 1]], a.down[found[:, 0]],
-                                a.down[found[:, 1]])
-        keep = limits.passes(out[:, 6], out[:, 7], out[:, 8], angles[0], angles[1], keep)
-    surface = surface[keep] if a.nmpt_mode == "reject" else np.zeros((int(keep.sum()), 0))  # read by "reject" only
-    return {"pairs": found[keep], "length": out[keep, 2], "clearance": out[keep, 3], "clearance_nmpt": out[keep, 4],
-            "height_max": out[keep, 6], "terrain": terrain[keep], "surface": surface}
-
-
-def valid_at(lines: Dict[str, np.ndarray], zones: np.ndarray, j: int, lift: float, delta: float,
-             nmpt_mode: Optional[str]) -> np.ndarray:
-    """Which of a run's lines are valid at ladder zone zones[j] and lift (both at most the run's):
-    the buckets 0..j above -lift - delta, the rest above -lift; with "reject" the surface's
-    buckets not at or below them. The same float comparisons as evaluate_v's rule."""
-    strict, lenient = -lift - 0.0, -lift - delta
-    t, s = lines["terrain"], lines["surface"]
-    inf = np.full(len(t), np.inf)
-    zone = t[:, :j + 1].min(axis=1) if len(t) else inf
-    core = t[:, j + 1:].min(axis=1) if t.shape[1] > j + 1 and len(t) else inf
-    ok = (zone > lenient) & (core > strict)
-    if nmpt_mode == "reject":
-        szone = s[:, :j + 1].min(axis=1) if len(s) else inf
-        score = s[:, j + 1:].min(axis=1) if s.shape[1] > j + 1 and len(s) else inf
-        ok &= ~((szone <= lenient) | (score <= strict))
-    return ok
-
-
-def ordered(lines: Dict[str, np.ndarray], mask: Optional[np.ndarray] = None) -> np.ndarray:
-    """The rows (of mask) in find_valid_lines' order: longest first, ties in the order found."""
-    rows = np.arange(len(lines["length"])) if mask is None else np.flatnonzero(mask)
-    return rows[np.argsort(-lines["length"][rows], kind="stable")]
-
-
-def production(a: SimpleNamespace, threads: Optional[int]):
-    """linesearch.find_valid_lines on the call, with its funnel and the seconds of its bars."""
     stats, clock = {}, plf.BarClock()
     plf.progress.subscribe(clock)
     try:
         with contextlib.redirect_stdout(io.StringIO()):
-            result = ls.find_valid_lines(a.z, a.surface, a.anchors, a.res, a.min_length, a.max_length,
-                                         a.nmpt_mode, threads, a.sag_table, a.max_dh_ratio, a.max_dh, a.first,
-                                         a.high_above, limits_of(a), a.anchor_values,
-                                         a.strong_given, stats)
+            table = ls.find_valid_lines(a.z, a.surface, a.anchors, a.res, a.min_length, a.max_length, a.nmpt_mode,
+                                        threads, a.sag_table, a.max_dh_ratio, a.max_dh, a.first, a.high_above,
+                                        limits_of(a), a.anchor_values, a.strong_given, stats, end_zone=end_zone,
+                                        lift=lift, end_clearance=end_clearance, zone_cap=cap, zones=zones)
     finally:
         plf.progress.unsubscribe(clock)
-    return result, stats, clock.seconds
+    funnel = {"anchors": len(a.anchors), **{k: stats.get(k, 0) for k in ("open", "todo", "candidates", "checked",
+                                                                        "found", "valid")}}
+    return SimpleNamespace(table=table, funnel=funnel, seconds=clock.seconds, zones=zones, lift=lift,
+                           end_zone=end_zone, delta=delta, cap=cap)
 
 
-def same_lines(table, pairs: np.ndarray, anchors: np.ndarray) -> bool:
-    """Production's lines (a LineTable) and pairs of anchor indices: the same lines in the same order."""
-    return (len(table) == len(pairs) and np.array_equal(table.columns["a1"], anchors[pairs[:, 0]])
-            and np.array_equal(table.columns["a2"], anchors[pairs[:, 1]]))
+def valid_grid(run: SimpleNamespace, lifts: Sequence[float], nmpt_mode: Optional[str]) -> np.ndarray:
+    """Which of a run's lines are valid at every ladder zone and lift (both at most the run's):
+    helpers.valid_at on the terrain's buckets, and the surface's with "reject"."""
+    t = run.table.columns
+    valid = np.zeros((len(run.table), len(run.zones), len(lifts)), dtype=bool)
+    for j in range(len(run.zones)):
+        for k, lift in enumerate(lifts):
+            ok = sh.valid_at(t["zone_margins"], j, lift, run.delta)
+            if nmpt_mode == "reject" and "zone_margins_nmpt" in t:
+                ok &= sh.valid_at(t["zone_margins_nmpt"], j, lift, run.delta)
+            valid[:, j, k] = ok
+    return valid
 
 
-def spots(a: SimpleNamespace, lines: Dict[str, np.ndarray], rows: np.ndarray, distance: float, by: str) -> int:
-    """The groups mapping.group_lines makes of the lines at rows (anchor pixels to the grid's metres)."""
+def decision_at(margins: np.ndarray, j: int, lift: float, delta: float) -> np.ndarray:
+    """The clearance (the rule's decision value) of lines at ladder zone j and lift from their
+    buckets: what a search at that zone and lift gives them (helpers.decision_values)."""
+    inf = np.full(len(margins), np.inf)
+    zone = margins[:, :j].min(axis=1) if j and len(margins) else inf
+    core = margins[:, j:].min(axis=1) if len(margins) else inf
+    c = lift + delta
+    return np.minimum(zone if c == 0.0 else zone + c, core if lift == 0.0 else core + lift)
+
+
+def same_lines(table, other) -> bool:
+    """Two LineTables: the same lines in the same order."""
+    return (len(table) == len(other) and np.array_equal(table.columns["a1"], other.columns["a1"])
+            and np.array_equal(table.columns["a2"], other.columns["a2"]))
+
+
+def spots(a: SimpleNamespace, table, rows: np.ndarray, clearance: np.ndarray, over: np.ndarray, distance: float,
+          by: str) -> int:
+    """The groups mapping.group_lines makes of the lines at rows (anchor pixels to the grid's metres),
+    by the given clearances and marks over obstacles (those of a search at the entry's zone and lift)."""
     import mapping as mp
 
     if not len(rows):
         return 0
-    pairs = lines["pairs"][rows]
+    t = table.columns
     left, top = (a.grid["left"], a.grid["top"]) if a.grid else (0.0, 0.0)
-    xy = lambda p: np.column_stack([left + (a.anchors[p, 1] + 0.5) * a.res,  # noqa: E731
-                                    top - (a.anchors[p, 0] + 0.5) * a.res])
-    over = lines["clearance_nmpt"][rows] <= 0 if a.nmpt_mode == "mark" else np.zeros(len(rows), dtype=bool)
-    table = sh.LineTable({"length": lines["length"][rows], "clearance": lines["clearance"][rows],
-                          "height_max": lines["height_max"][rows], "over_obstacles": over,
-                          "a1_xy": xy(pairs[:, 0]), "a2_xy": xy(pairs[:, 1])})
+    xy = lambda p: np.column_stack([left + (p[:, 1] + 0.5) * a.res, top - (p[:, 0] + 0.5) * a.res])  # noqa: E731
+    lines = sh.LineTable({"length": t["length"][rows], "clearance": clearance,
+                          "height_max": t["height_max"][rows], "over_obstacles": over,
+                          "a1_xy": xy(t["a1"][rows]), "a2_xy": xy(t["a2"][rows])})
     with contextlib.redirect_stdout(io.StringIO()):
-        return len(mp.group_lines(table, distance, by))
+        return len(mp.group_lines(lines, distance, by))
 
 
 def variants_call(a: SimpleNamespace, zones: Sequence[float], lifts: Sequence[float], cap: float,
@@ -460,28 +337,18 @@ def variants_call(a: SimpleNamespace, zones: Sequence[float], lifts: Sequence[fl
     numba.set_num_threads(threads)
     delta = check_rule(a, lifts[-1], zones[-1], end_clearance, cap)
     warm = subset(a, min(WARM_ANCHORS, len(a.anchors)))  # numba compiles here, not in the timed runs
-    run_rule(warm, 0.0, 0.0, cap, end_clearance, zones)
-    run_rule(warm, lifts[-1], zones[-1], cap, end_clearance, zones)
-    with contextlib.redirect_stdout(io.StringIO()):
-        ls.find_valid_lines(warm.z, warm.surface, warm.anchors, warm.res, warm.min_length, warm.max_length,
-                            warm.nmpt_mode, threads, warm.sag_table, warm.max_dh_ratio, warm.max_dh, warm.first)
-    base = run_rule(a, 0.0, 0.0, cap, end_clearance, zones)
-    top = run_rule(a, lifts[-1], zones[-1], cap, end_clearance, zones)
-    prod, prod_funnel, prod_seconds = production(a, threads)
-    # the referee: production's lines at (0, 0), by the baseline run and by the superset's buckets
-    if not same_lines(prod, base.lines["pairs"][ordered(base.lines)], a.anchors):
-        raise StudyError(f"{a.folder}: the variant kernels at zone 0, lift 0 differ from find_valid_lines")
-    funnel_keys = {"open": "open", "todo": "todo", "candidates": "candidates", "checked": "checked",
-                   "found": "found", "valid": "valid"}
-    if any(base.funnel[k] != prod_funnel.get(p) for k, p in funnel_keys.items()):
-        raise StudyError(f"{a.folder}: the baseline's funnel {base.funnel} is not production's {prod_funnel}")
+    run_rule(warm, 0.0, 0.0, cap, end_clearance, threads=threads)
+    run_rule(warm, lifts[-1], zones[-1], cap, end_clearance, zones, threads)
+    base = run_rule(a, 0.0, 0.0, cap, end_clearance, threads=threads)  # today's search: the baseline
+    top = run_rule(a, lifts[-1], zones[-1], cap, end_clearance, zones, threads)
     nz = len(zones)
-    valid = np.zeros((len(top.lines["pairs"]), nz, len(lifts)), dtype=bool)
-    for j in range(nz):
-        for k, lift in enumerate(lifts):
-            valid[:, j, k] = valid_at(top.lines, top.zones, j, lift, delta, a.nmpt_mode)
-    if not same_lines(prod, top.lines["pairs"][ordered(top.lines, valid[:, 0, 0])], a.anchors):
-        raise StudyError(f"{a.folder}: the superset's lines at zone 0, lift 0 differ from find_valid_lines")
+    valid = valid_grid(top, lifts, a.nmpt_mode)
+    # the referee: the superset's lines at zone 0, lift 0 by its buckets are today's (lines and order)
+    if not same_lines(top.table.take(valid[:, 0, 0]), base.table):
+        raise StudyError(f"{a.folder}: the superset's lines at zone 0, lift 0 differ from find_valid_lines at 0 / 0")
+    if not np.array_equal(decision_at(top.table.columns["zone_margins"][valid[:, 0, 0]], 0, 0.0, delta),
+                          base.table.columns["clearance"]):
+        raise StudyError(f"{a.folder}: the superset's buckets do not give today's clearances")
     if not valid[:, -1, -1].all():
         raise StudyError(f"{a.folder}: a line of the superset run fails the superset's own buckets")
     table = {}
@@ -490,20 +357,25 @@ def variants_call(a: SimpleNamespace, zones: Sequence[float], lifts: Sequence[fl
             mask = valid[:, j, k]
             entry = {"zone": x, "lift": lift, "lines": int(mask.sum()), "new": int((mask & ~valid[:, 0, 0]).sum())}
             if long:
-                longer = top.lines["length"] >= long
+                longer = top.table.columns["length"] >= long
                 entry["long"] = int((mask & longer).sum())
                 entry["long_new"] = int((mask & longer & ~valid[:, 0, 0]).sum())
             if with_spots:
-                entry["spots"] = spots(a, top.lines, ordered(top.lines, mask), distance, by)
+                rows = np.flatnonzero(mask)
+                clearance = decision_at(top.table.columns["zone_margins"][rows], j, lift, delta)
+                over = np.zeros(len(rows), dtype=bool)
+                if a.nmpt_mode == "mark" and "zone_margins_nmpt" in top.table.columns:
+                    over = decision_at(top.table.columns["zone_margins_nmpt"][rows], j, lift, delta) <= 0
+                entry["spots"] = spots(a, top.table, rows, clearance, over, distance, by)
             table[f"{x:g},{lift:g}"] = entry
     return {"call": os.path.basename(os.path.normpath(a.folder)), "anchors": len(a.anchors), "res": a.res,
             "min_length": a.min_length, "max_length": a.max_length, "model": "sag" if a.use_sag else "formula",
             "nmpt_mode": a.nmpt_mode, "fall": a.fall, "delta": delta, "zones": zones, "lifts": lifts, "cap": cap,
             "end_clearance": end_clearance, "threads": numba.get_num_threads(), "long": long, "table": table,
-            "funnel": {"baseline": base.funnel, "superset": top.funnel, "production": prod_funnel},
-            "seconds": {"baseline": base.seconds, "superset": top.seconds, "production": prod_seconds},
-            "checks": {"baseline_equals_production": True, "superset_00_equals_production": True},
-            "_lines": top.lines, "_valid": valid}
+            "funnel": {"baseline": base.funnel, "superset": top.funnel, "production": base.funnel},
+            "seconds": {"baseline": base.seconds, "superset": top.seconds, "production": base.seconds},
+            "checks": {"superset_00_equals_production": True, "superset_00_clearances": True},
+            "_table": top.table, "_valid": valid}
 
 
 def summed_calls(results: List[Dict]) -> Dict:
@@ -543,11 +415,12 @@ def variants(folder: str, zones, lifts, cap: float, end_clearance: float, thread
         distance = float(distance_opt) if distance_opt else max(20.0, 2 * a.res)
         r = variants_call(a, zones, lifts, cap, end_clearance, threads, with_spots, distance, by, long)
         name = r["call"]
-        arrays[f"{name}_a1"] = a.anchors[r["_lines"]["pairs"][:, 0]].astype(np.int32)
-        arrays[f"{name}_a2"] = a.anchors[r["_lines"]["pairs"][:, 1]].astype(np.int32)
-        arrays[f"{name}_valid"] = r["_valid"]
-        arrays[f"{name}_length"] = r["_lines"]["length"]
-        arrays[f"{name}_clearance"] = r["_lines"]["clearance"]
+        t = r.pop("_table").columns  # released with the call
+        arrays[f"{name}_a1"] = t["a1"].astype(np.int32)
+        arrays[f"{name}_a2"] = t["a2"].astype(np.int32)
+        arrays[f"{name}_valid"] = r.pop("_valid")
+        arrays[f"{name}_length"] = t["length"]
+        arrays[f"{name}_clearance"] = t["zone_margins"].min(axis=1)  # today's (strict) clearance
         results.append(r)
     data = summed_calls(results)
     data["place"] = os.path.basename(os.path.normpath(folder))
@@ -562,7 +435,7 @@ def variants(folder: str, zones, lifts, cap: float, end_clearance: float, thread
 
 
 # ---------------------------------------------------------------------------------------------
-# brute force (the tests' referee, and diagnose)
+# the margins of a line (diagnose and the profile chips)
 
 def margins(z: np.ndarray, p, q, res: float, sag_table, surface: Optional[np.ndarray] = None):
     """The strict margins of the line p -> q (pixels, p the lower index): helpers.evaluate_line's
@@ -579,57 +452,6 @@ def margins(z: np.ndarray, p, q, res: float, sag_table, surface: Optional[np.nda
     limit = sh.max_safe_elevation(t, length, float(z[r1, c1]), float(z[r2, c2]), sag_table)
     s = None if surface is None else limit - surface[rows, cols]
     return limit - z[rows, cols], s, steps, length
-
-
-def in_zone(steps: int, length: float, end_zone: float, cap: float) -> np.ndarray:
-    """Which of the steps 1 .. steps - 1 lie in the zone (end_zone_kernels.zone_steps)."""
-    kz = K.zone_steps(steps, length, end_zone, cap)
-    k = np.arange(1, steps)
-    return (k < kz) | (steps - k < kz)
-
-
-def rule_passes(m, steps: int, length: float, lift: float, delta: float, end_zone: float, cap: float,
-                nmpt_mode: Optional[str] = None) -> bool:
-    """The rule of the study pixel by pixel (no EPS): terrain margins m = (terrain, surface)."""
-    terrain, surface = m
-    zone = in_zone(steps, length, end_zone, cap)
-    bound = np.where(zone, -lift - delta, -lift - 0.0)
-    if not np.all(terrain > bound):  # NaN fails
-        return False
-    if nmpt_mode == "reject" and surface is not None:
-        seen = ~np.isnan(surface)
-        if np.any(surface[seen] <= bound[seen]):
-            return False
-    return True
-
-
-def brute_force(z, surface, anchors, res, min_length, max_length, max_dh_ratio, max_dh, sag_table, nmpt_mode,
-                rules: Sequence[tuple], cap: float = CAP, end_clearance: float = 0.0, first=None) -> List[set]:
-    """Every anchor pair under each rule (lift, end_zone) as find_valid_lines' filters and the
-    rule pixel by pixel decide (no limits, no strong mask): a set of (lower index, higher) each."""
-    delta = sh.fall_allowance(sag_table) - end_clearance
-    anchors = np.asarray(anchors, dtype=np.int64)
-    elev = z[anchors[:, 0], anchors[:, 1]]
-    found = [set() for _ in rules]
-    for i in range(len(anchors)):
-        for j in range(i + 1, len(anchors)):
-            if first is not None:  # the line belongs to its first anchor (smaller x, then y)
-                f = i if (anchors[i, 1], anchors[i, 0]) < (anchors[j, 1], anchors[j, 0]) else j
-                if not first[f]:
-                    continue
-            dr, dc = anchors[j] - anchors[i]
-            length = math.hypot(dr, dc) * res
-            if length > max_length or length < min_length:
-                continue
-            if not abs(float(elev[j]) - float(elev[i])) <= min(max_dh_ratio * length, max_dh):
-                continue
-            m = margins(z, anchors[i], anchors[j], res, sag_table, surface)
-            if m is None:
-                continue
-            for n, (lift, end_zone) in enumerate(rules):
-                if rule_passes(m[:2], m[2], m[3], lift, delta, end_zone, cap, nmpt_mode):
-                    found[n].add((i, j))
-    return found
 
 
 # ---------------------------------------------------------------------------------------------
@@ -660,26 +482,18 @@ def disc(z: np.ndarray, centre, radius_px: float) -> np.ndarray:
     return np.column_stack([rr[inside], cc[inside]])
 
 
-def buckets_of(m, steps: int, length: float, zones: Sequence[float], cap: float):
-    """The smallest terrain margin per ladder bucket (as evaluate_v; NaN: the line fails anywhere)."""
-    terrain = m[0]
-    k = np.arange(1, steps)
-    e = np.minimum(k, steps - k)
-    out = np.full(len(zones) + 1, np.inf)
-    bucket = np.full(len(k), len(zones))
-    for j in reversed(range(len(zones))):
-        bucket[e < K.zone_steps(steps, length, zones[j], cap)] = j
-    for j in range(len(zones) + 1):
-        if (bucket == j).any():
-            out[j] = np.min(terrain[bucket == j])
-    return out
+def buckets_of(a: SimpleNamespace, lo, hi, zones: Sequence[float], cap: float) -> np.ndarray:
+    """The smallest strict terrain margin per ladder bucket of the line lo -> hi (helpers.evaluate_line
+    with the ladder: one column per zone, the core last; NaN: the line fails anywhere)."""
+    result = sh.evaluate_line(lo, hi, a.z, a.res, sag_table=a.sag_table, zone_cap=cap, zones=zones)
+    return np.full(len(zones), np.nan) if result is None else result[8]
 
 
 def needed_lift(buckets: np.ndarray, j: int, delta: float) -> float:
     """The lift that ladder zone j needs at least (valid for any larger lift; the rule is strict)."""
     if np.isnan(buckets).any():
         return math.inf
-    zone, core = buckets[:j + 1].min(), buckets[j + 1:].min() if len(buckets) > j + 1 else math.inf
+    zone, core = buckets[:j].min() if j else math.inf, buckets[j:].min()
     return max(0.0, -core, -zone - delta)
 
 
@@ -700,7 +514,7 @@ def line_detail(a: SimpleNamespace, lo, hi, zones: Sequence[float], cap: float, 
             "from_a1": {"step": first, "m": first * length / steps, "deficit": float(terrain[first - 1])},
             "from_a2": {"step": steps - last, "m": (steps - last) * length / steps,
                         "deficit": float(terrain[last - 1])}}
-    b = buckets_of(m, steps, length, zones, cap)
+    b = buckets_of(a, lo, hi, zones, cap)
     detail["staircase"] = [{"zone": float(x), "lift": needed_lift(b, j, delta)} for j, x in enumerate(zones)]
     return detail
 
@@ -732,7 +546,7 @@ def diagnose_line(a: SimpleNamespace, slope: np.ndarray, anchors: set, line: Dic
             if m is None:
                 continue
             clearance = float(np.min(m[0]))
-            b = buckets_of(m, m[2], m[3], zones, cap)
+            b = buckets_of(a, lo, hi, zones, cap)
             if best is None or clearance > best[0] or (math.isnan(best[0]) and not math.isnan(clearance)):
                 best = (clearance, lo, hi, m)
             for j in range(len(zones)):
@@ -840,8 +654,8 @@ def place_markdown(v: Dict, d: Optional[Dict]) -> List[str]:
                   f"| {f['todo']} | {f['candidates']} | {f['checked']} | {f['found']} | {f['valid']} |")
     md += ["", f"Seconds (superset: zone {zones[-1]:g} m, lift {lifts[-1]:g} m; indicative when measured in a "
                "shared slot):", "", *seconds_rows(v), "",
-           "Checks: the baseline run and the superset's zone 0 / lift 0 equal find_valid_lines (lines and order), "
-           "the baseline's funnel equals production's: " + ("passed" if all(v["checks"].values()) else "FAILED"), ""]
+           "Checks: the superset's zone 0 / lift 0 equals the baseline, find_valid_lines at 0 / 0 (lines, order and "
+           "clearances): " + ("passed" if all(v["checks"].values()) else "FAILED"), ""]
     if d:
         md += ["### Diagnosed lines", ""]
         for ln in d["lines"]:
@@ -954,7 +768,7 @@ def profile_chip(a: SimpleNamespace, lo, hi, delta: float, title: str, path: str
     limit = sh.max_safe_elevation(t, length, float(ground[0]), float(ground[-1]), a.sag_table)
     fig, ax = plt.subplots(figsize=(8, 3.2))
     if zone > 0:
-        kz = K.zone_steps(steps, length, zone, cap)
+        kz = sh.zone_steps(steps, length, zone, cap)
         for x0, x1 in ((0, kz * length / steps), (length - kz * length / steps, length)):
             ax.axvspan(x0, x1, color="#fde68a", alpha=0.5, lw=0)
     ax.plot(t * length, ground, color="#555", label="terrain")

@@ -1,6 +1,6 @@
-"""tools/end_zone_study.py: the variant kernels against production at zone 0 / lift 0, against a
-brute force elsewhere, the ladder's buckets against re-runs, threads, the zone's steps, and a
-capture/variants/diagnose/report of the Żabi Koń clip (offline)."""
+"""tools/end_zone_study.py: its harness at zone 0 / lift 0 against find_valid_lines, the variants of a
+call, the rule's checks, and a capture/variants/diagnose/report of the Żabi Koń clip (offline). The
+rule itself is production's since wave 1: tests/test_end_zone.py."""
 
 import json
 import os
@@ -13,12 +13,9 @@ import pytest
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "tools"))
-import end_zone_kernels as K  # noqa: E402
 import end_zone_study as ezs  # noqa: E402
 import perf_line_funnel as plf  # noqa: E402
 from test_offline import DATA, OFFLINE_ENV  # noqa: E402
-
-RULES = [(0.0, 0.0), (1.0, 0.0), (0.0, 5.0), (0.0, 20.0), (2.0, 10.0), (1.0, 20.0)]  # (lift, end zone)
 
 
 def canyon(rng):
@@ -63,66 +60,20 @@ def call(request, tmp_path_factory):
     return ezs.setup(folder), lines, raw, request.param
 
 
-def pairs_of(run, mask=None):
-    return [tuple(p) for p in run.lines["pairs"][ezs.ordered(run.lines, mask)].tolist()]
-
-
 def test_zero_rule_is_production(call):
-    a, lines, _, _ = call
+    """run_rule at zone 0, lift 0 is find_valid_lines on the captured call: its lines and funnel."""
+    import linesearch as ls
+    a, lines, raw, (model, nmpt, first) = call
     assert len(lines) > 20
-    base = ezs.run_rule(a)
-    assert ezs.same_lines(lines, base.lines["pairs"][ezs.ordered(base.lines)], a.anchors)
-    np.testing.assert_array_equal(base.lines["clearance"][ezs.ordered(base.lines)], lines.columns["clearance"])
-    result, stats, _ = ezs.production(a, 2)
-    assert {k: base.funnel[k] for k in ("open", "todo", "candidates", "checked", "found", "valid")} == \
-        {k: stats[k] for k in ("open", "todo", "candidates", "checked", "found", "valid")}
-
-
-def test_rules_against_brute_force(call):
-    a, _, (z, surface, anchors, table, first), (model, nmpt, _) = call
-    expected = ezs.brute_force(z, surface, anchors, 1.0, 20, 120, 0.4, np.inf, table, nmpt,
-                               [(lift, x) for lift, x in RULES], first=first)
-    counts = []
-    for (lift, x), want in zip(RULES, expected):
-        run = ezs.run_rule(a, lift, x)
-        got = set(pairs_of(run))
-        assert got == want, (lift, x, sorted(got ^ want)[:5])
-        counts.append(len(got))
-    # the rule matters on this canyon: every lift and zone adds lines
-    assert counts[0] < counts[1] and counts[0] < counts[2] <= counts[3] and counts[0] < counts[4], counts
-
-
-def test_ladder_equals_reruns(call):
-    a, _, _, (model, nmpt, _) = call
-    zones, lifts = [0.0, 5.0, 10.0, 20.0], [0.0, 1.0, 2.0]
-    top = ezs.run_rule(a, lifts[-1], zones[-1], zones=zones)
-    delta = a.fall
-    for j, x in enumerate(zones):
-        for lift in lifts:
-            mask = ezs.valid_at(top.lines, top.zones, j, lift, delta, a.nmpt_mode)
-            again = ezs.run_rule(a, lift, x, zones=zones)
-            assert pairs_of(top, mask) == pairs_of(again), (x, lift)
-    # with an end clearance (delta smaller) too
-    top = ezs.run_rule(a, 1.0, 10.0, end_clearance=2.5, zones=zones)
-    for j, x in enumerate(zones[:3]):
-        mask = ezs.valid_at(top.lines, top.zones, j, 1.0, top.delta, a.nmpt_mode)
-        assert pairs_of(top, mask) == pairs_of(ezs.run_rule(a, 1.0, x, end_clearance=2.5, zones=zones))
-
-
-def test_independent_of_threads(call):
-    import numba
-    a = call[0]
-    most = numba.config.NUMBA_NUM_THREADS
-    try:
-        numba.set_num_threads(1)
-        one = ezs.run_rule(a, 2.0, 20.0)
-        numba.set_num_threads(min(3, most))
-        three = ezs.run_rule(a, 2.0, 20.0)
-    finally:
-        numba.set_num_threads(most)
-    assert one.funnel == three.funnel
-    for key in one.lines:
-        np.testing.assert_array_equal(one.lines[key], three.lines[key])
+    base = ezs.run_rule(a, threads=2)
+    assert ezs.same_lines(lines, base.table)
+    np.testing.assert_array_equal(base.table.columns["clearance"], lines.columns["clearance"])
+    z, surface, anchors, table, first_mask = raw
+    stats = {}
+    ls.find_valid_lines(z, surface, anchors, 1.0, 20, 120, nmpt_mode=nmpt, threads=2, sag_table=table,
+                        max_dh_ratio=0.4, first=first_mask, stats=stats)
+    assert base.funnel == {"anchors": len(anchors), **{k: stats[k] for k in ("open", "todo", "candidates",
+                                                                          "checked", "found", "valid")}}
 
 
 def test_variants_of_a_call(call):
@@ -136,25 +87,9 @@ def test_variants_of_a_call(call):
     assert set(r["seconds"]["baseline"]) == set(ezs.STAGES) == set(r["seconds"]["superset"])
 
 
-def test_zone_steps():
-    assert K.zone_steps(100, 100.0, 0.0, 0.25) == 0
-    assert K.zone_steps(100, 100.0, 5.0, 0.25) == 5  # steps 1-4 (1-4 m) of each end
-    assert K.zone_steps(100, 100 * 2 ** 0.5, 5.0, 0.25) == 4  # diagonal: 1.41, 2.83, 4.24 m
-    assert K.zone_steps(30, 30.0, 20.0, 0.25) == 8  # capped at 7.5 m: steps 1-7
-    zone = ezs.in_zone(30, 30.0, 20.0, 0.25)
-    assert zone.sum() == 14 and zone[:7].all() and not zone[7:22].any() and zone[22:].all()
-    assert not ezs.in_zone(30, 30.0, 0.0, 0.25).any()
-    # a line shorter than 2 X: the cap keeps a strict middle
-    assert ezs.in_zone(30, 30.0, 20.0, 0.5).sum() == 28  # cap 0.5: everything but the middle step
-    # rings: the zone uncapped and never narrower than a line's
-    offsets = K.ring_offsets(6.0, 10, 1.0, 1.0, 6.0, 5.0)
-    assert offsets[1:6].tolist() == [-1.0] * 5 and offsets[6:].tolist() == [5.0] * 5
-    assert K.ring_offsets(6.0, 4, 1.0, 0.0, 6.0, 0.0).tolist() == [6.0] * 5
-
-
 def test_rule_checked():
     from types import SimpleNamespace
-    fake = SimpleNamespace(fall=6.0)
+    fake = SimpleNamespace(sag_table=None)  # the formula: a fall allowance of 6 m
     assert ezs.check_rule(fake, 1.0, 5.0, 2.0, 0.25) == 4.0
     for bad in ((-1.0, 0.0, 0.0, 0.25), (0.0, -1.0, 0.0, 0.25), (0.0, 0.0, 7.0, 0.25), (0.0, 0.0, 0.0, 0.8)):
         with pytest.raises(ValueError):
