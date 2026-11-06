@@ -15,7 +15,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { t } from "../i18n";
 import type { Anchor3d } from "./decode";
 import type { Edit } from "./edit";
-import type { Webbing } from "./geometry";
+import { raised, type Webbing } from "./geometry";
 import type { LineView } from "./line";
 import { chooseOthers, labelPoint, type Candidate, type Placed } from "./others";
 import "./others.css";
@@ -118,7 +118,8 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
   const build = (placed: Placed): Built | null => {
     const had = built.get(placed.key);
     if (had !== undefined) return had;
-    const w = webbing(placed.anchors, scene.meta.rigging);
+    const ends = raised(placed.anchors, scene.meta.lift);  // on the run's A-frames
+    const w = webbing(ends, scene.meta.rigging);
     let made: Built | null = null;
     if (w) {
       const geometry = new LineGeometry(), flat: number[] = [];
@@ -126,7 +127,7 @@ export function createOthers(scene: SceneCore, line: LineView, edit: Edit, root:
       geometry.setPositions(flat);
       const l = new Line2(geometry, materials.get("muted")!);
       l.name = "other-line";
-      made = {placed, webbing: w, line: l, span: w.span, at: labelPoint(w, placed.anchors)};
+      made = {placed, webbing: w, line: l, span: w.span, at: labelPoint(w, ends)};
     }
     built.set(placed.key, made);
     return made;

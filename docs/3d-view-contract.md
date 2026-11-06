@@ -93,6 +93,13 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
   `span = hypot(Δx, Δy)`, `dh = h1 − h2`; `sag.ts` `estimate(span, dh, rigging)`, `athlete(x)`; a point at distance
   `s` along the span with drop `d` is `(x1 + Δx·s/span, y1 + Δy·s/span, h1 − d)`. The walker starts at the largest
   sag of the envelope (`f`, `sag`).
+- **No-fall zone and A-frames** (2026-11-06, the end-zone task): the meta has `end_zone` and `lift` (metres) only for
+  a run searched with them (`search._end_keys`; a run without: neither key, everything as before). `anchors` stay the
+  ground's heights; the page raises both by `lift` for every webbing it draws (`geometry.ts` `raised`: the found
+  line, the other lines, the lines from a point), so the webbing, the walker and the pin start on the A-frames' tops,
+  and draws an A-frame at each anchor (`aFrame`: two legs half the height apart along the line). The handles, the
+  reach and the profile requests keep the ground's points: the server applies the run's rule itself, so a dragged
+  anchor's webbing starts at `heightAt + lift`. The zone is not drawn in 3D; the profile card's chart shows both.
 - **Lat/lon**: grid metres → lon/lat with the meta's affine; lon/lat → Web Mercator for texture UVs.
 
 ## Texts (already in `locales/en.json`)

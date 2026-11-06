@@ -13,6 +13,9 @@
 // Round 2, point 9 (point.ts, "Lines from a point"): `Edit.reach` (the lane's third slot: the reach of a picked point,
 // overlay.ts `PointReach`) and `Edit.pick` (the terrain under a screen point, with the bounds trees made at the first
 // call); both exist at level full only.
+// A run with A-frames (the patch meta's `lift`): an anchor here is the ground's point (the handle, the reach and the
+// profile requests are on the terrain); line.ts raises it by the lift for the webbing, so a dragged anchor's webbing
+// starts at scene.heightAt + lift.
 
 import { Vector3, type BufferGeometry, type Mesh } from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";

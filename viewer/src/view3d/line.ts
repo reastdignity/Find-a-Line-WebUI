@@ -1,7 +1,9 @@
 // The line in the scene: the webbing as two Line2 of CURVE_POINTS points written in place (the loaded curve with
 // the walker at s, also drawn faintly through the terrain; the unloaded one faint), the walker standing on it, its slider in the toolbar and the readout
 // (length, sag, clearance, over trees) once /api/profile answered; until then a neutral colour. The anchors can
-// change (edit.ts): the webbing is solved again, neutral and "edited" until the new profile is in.
+// change (edit.ts): the webbing is solved again, neutral and "edited" until the new profile is in. A run with
+// A-frames (the patch meta's `lift`): the webbing, the walker and the pin start on the A-frames' tops (geometry.ts
+// raised), an A-frame drawn at each anchor; `anchors` stay the ground's.
 
 import type { InterleavedBufferAttribute } from "three";
 import { Line2 } from "three/examples/jsm/lines/Line2.js";
@@ -10,7 +12,7 @@ import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { t } from "../i18n";
 import type { Profile } from "../types";
 import type { Anchor3d } from "./decode";
-import type { Point3d, Webbing } from "./geometry";
+import { aFrame, raised, type Point3d, type Webbing } from "./geometry";
 import type { SceneCore } from "./scene";
 import { createWalker, type Walker } from "./walker";
 import {
@@ -93,7 +95,10 @@ function curve(points: Point3d[], scene: SceneCore, material: LineMaterial) {
 /** The line of the patch's anchors in `scene`, its readout in `readoutBox`; null when the sag solver fails. */
 export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView | null {
   let anchors: Anchors = [{...scene.meta.anchors[0]}, {...scene.meta.anchors[1]}];
-  let w: Webbing | null = webbing(anchors, scene.meta.rigging);
+  // The run's A-frames (the patch meta's lift): the anchors stay the ground's, the webbing starts on their tops
+  const lift = scene.meta.lift;
+  let top = raised(anchors, lift);
+  let w: Webbing | null = webbing(top, scene.meta.rigging);
   if (!w) return null;
   const neutral = scene.token("--muted");
   const width = scene.level === "phone" ? 3 : 4;
@@ -105,7 +110,7 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
                                          depthTest: false, depthWrite: false});
   const materials = [loadedMaterial, faintMaterial, xrayMaterial];
   scene.view.onResize((size) => { for (const m of materials) m.resolution.copy(size); });
-  const first = walkerPose(w, anchors, w.start.s);
+  const first = walkerPose(w, top, w.start.s);
   const unloaded = curve(resample(w.unloaded), scene, faintMaterial);
   const loaded = curve(first ? first.points : resample(w.unloaded), scene, loadedMaterial);
   loaded.line.renderOrder = 1;
@@ -116,6 +121,16 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   scene.add(loaded.line);
   scene.add(xray);
   scene.add(walker.group);
+  // An A-frame at each anchor: two legs from the ground to the webbing's start (the profile chart's shape)
+  const frameMaterial = lift ? new LineMaterial({color: scene.token("--ink-2") || neutral, linewidth: width - 1}) : null;
+  const frames = frameMaterial ? ([0, 1] as const).map((k) => {
+    const c = curve(aFrame(anchors, k, lift)!, scene, frameMaterial);
+    c.line.name = "a-frame";
+    scene.add(c.line);
+    return c;
+  }) : [];
+  // its own colour, not the verdict's (colour() recolours `materials` only)
+  if (frameMaterial) scene.view.onResize((size) => frameMaterial.resolution.copy(size));
 
   // The readout: length and clearance from the profile, the sag with the walker from sag.ts
   const length = el("span", "v3-read"), sag = el("span", "v3-read"), clearance = el("span", "v3-read");
@@ -150,11 +165,11 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
 
   const self: LineView = {
     readout: null, s: w.start.s, span: w.span, anchors, field, slider, walker, edited: false, profile: null, key: null,
-    unloadedAt(s: number) { return unloadedAt(w!, anchors, s); },
+    unloadedAt(s: number) { return unloadedAt(w!, top, s); },
     onAnchors(fn) { anchorFns.push(fn); },
     onProfile(fn) { profileFns.push(fn); },
     setWalker(s: number) {
-      const pose = walkerPose(w!, anchors, s);
+      const pose = walkerPose(w!, top, s);
       if (!pose) return;
       self.s = Math.min(w!.span, Math.max(0, s));
       loaded.write(pose.points);
@@ -168,10 +183,13 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
     },
     onWalker(fn) { walkerFns.push(fn); },
     setAnchors(next: Anchors, isEdited: boolean, key: string | null = null) {
-      const solved = webbing(next, scene.meta.rigging);
+      const nextTop = raised(next, lift);
+      const solved = webbing(nextTop, scene.meta.rigging);
       if (!solved) return false;
       const fraction = w!.span > 0 ? self.s / w!.span : 0;
       anchors = self.anchors = [{...next[0]}, {...next[1]}];
+      top = nextTop;
+      frames.forEach((f, k) => f.write(aFrame(anchors, k as 0 | 1, lift)!));
       w = solved;
       self.span = solved.span;
       self.readout = null;
@@ -218,6 +236,8 @@ export function createLine(scene: SceneCore, readoutBox: HTMLElement): LineView 
   self.setWalker(w.start.s);
   scene.onDispose(() => {
     unloaded.dispose(); loaded.dispose(); walker.dispose();
+    for (const f of frames) f.dispose();
+    frameMaterial?.dispose();
     for (const m of materials) m.dispose();
   });
   return self;
