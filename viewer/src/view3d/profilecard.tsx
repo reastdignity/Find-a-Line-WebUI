@@ -60,7 +60,8 @@ function Card({shown, meta, onCursor, onHide}: CardProps) {
     </div>
     {line ? <div class="r-profile">
       <ProfilePanel line={line} model={meta.model === "sag" ? "sag" : "formula"} slope={meta.slope}
-                    leashFall={meta.leash_fall} rigging={meta.rigging} fill compact cursorAt={s.cursor}
+                    leashFall={meta.leash_fall} rigging={meta.rigging} endZone={meta.end_zone} lift={meta.lift}
+                    fill compact cursorAt={s.cursor}
                     onHover={() => {}} onCursor={onCursor} onClose={onHide}
                     onTitle={(title, facts) => setTitle((o) => o.title === title && o.facts === facts ? o : {title, facts})} />
     </div> : <p class="v3-pcard-wait" role="status">{t("ui.view3d.profile_waiting")}</p>}

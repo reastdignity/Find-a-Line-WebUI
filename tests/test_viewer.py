@@ -1563,3 +1563,128 @@ console.log(JSON.stringify({
   name: m.SIZE_HEADER,
 }));""")
     assert sizes == {"header": 1000, "length": 300, "gzip": None, "none": None, "name": web.SIZE_HEADER}
+
+
+def _quarry():
+    with open(os.path.join(REPO, "tests", "data", "profile_quarry.json"), encoding="utf-8") as f:
+        return json.load(f)
+
+
+def test_end_zone_rule_matches_python(tmp_path):
+    """endzone.ts: zoneSteps is helpers.zone_steps (the same integer arithmetic), inZone at a DDA step's distance is
+    the step's test (but for a rounding on the zone's edge), the rule's limit (formula) is max_safe_elevation raised by the lift and by the fall allowance
+    in the zone (helpers.zone_offsets), liftChoices, and riggingNeed from a found line's values or a profile's."""
+    rng = random.Random(4)
+    cases = []
+    for _ in range(3000):
+        steps = rng.randint(2, 3000)
+        length = steps * rng.choice([1.0, 2 ** 0.5, 1 + rng.random() * 0.42]) * rng.choice([0.5, 1, 2])
+        cases.append([steps, length, rng.choice([0.0, 5.0, 10.0, 20.0, rng.random() * 50, length / 4]),
+                      rng.choice([0.25, 0.5, 0.0, rng.random() * 0.5])])
+    quarry = _quarry()
+    found = run_ts(tmp_path, "endzone", f"""
+const cases = {json.dumps(cases)}, q = {json.dumps(quarry)};
+const kz = cases.map(([s, l, z, c]) => m.zoneSteps(s, l, z, c));
+// inZone at a step's distance and the step's own test: they differ only on the zone's edge, by a rounding
+const agree = cases.every(([s, l, z, c], n) => {{
+  const zone = m.zoneMetres(l, z, c);
+  for (let k = 1; k < s; k++) {{
+    if (m.inZone(k * l / s, l, zone) === m.stepInZone(k, s, kz[n])) continue;
+    if (Math.abs(Math.min(k, s - k) * l / s - zone) > 1e-9 * l) return false;
+  }}
+  return true;
+}});
+const rule = {{model: "formula", slope: 0.15, leashFall: 6, fall: 3, zone: m.zoneMetres(q.len, 5)}};
+const lim = m.limits(q.len, q.e1 + 2, q.e2 + 2, rule, null);
+const line = {{lift_needed: 0.4, lift_no_zone: 4.8}};
+const profile = {{d: q.d, z: q.z, min: [3, 1.6], lift: 2, zone: 5, water_m: 0, filled_m: 0}};
+console.log(JSON.stringify({{kz, agree,
+  limit: q.d.map((d) => lim.limitAt(d)), strict: q.d.map((d) => lim.strict(d)),
+  choices: [m.liftChoices(2), m.liftChoices(1.2), m.liftChoices(0.3)],
+  saved: m.riggingNeed(line, null, rule), fromProfile: m.riggingNeed({{}}, profile, rule),
+  none: m.riggingNeed({{}}, {{d: [0, 1], z: [1, 1], min: [0, 1], water_m: 0, filled_m: 0}}, rule),
+  short: [m.shortMetres(2), m.shortMetres(1.5), m.shortMetres(0.25)]}}));""")
+    assert found["kz"] == [helpers.zone_steps(*c) for c in cases]
+    assert found["agree"] is True
+    t = [d / quarry["len"] for d in quarry["d"]]
+    for k, d in enumerate(quarry["d"]):
+        strict = float(helpers.max_safe_elevation(t[k], quarry["len"], quarry["e1"], quarry["e2"])) + 2
+        assert found["strict"][k] == pytest.approx(strict, abs=1e-9)
+        zone = min(d, quarry["len"] - d) < 5
+        assert found["limit"][k] == pytest.approx(strict + (helpers.LEASH_FALL if zone else 0), abs=1e-9)
+    assert found["choices"] == [[0, 0.5, 1, 1.5, 2], [0, 0.5, 1, 1.2], [0, 0.3]]
+    assert found["saved"] == {"needed": 0.4, "noZone": 4.8}
+    # the need with the zone is the lift less the rule's smallest clearance; without it the smallest strict margin
+    margins = [float(helpers.max_safe_elevation(t[k], quarry["len"], quarry["z"][0], quarry["z"][-1])) - z
+               for k, z in enumerate(quarry["z"]) if 0 < k < len(quarry["z"]) - 1]
+    assert found["fromProfile"]["needed"] == pytest.approx(0.4)
+    assert found["fromProfile"]["noZone"] == pytest.approx(max(0.4, -min(margins)))
+    assert found["none"] is None and found["short"] == ["2", "1.5", "0.3"]
+
+
+LABEL_CASES = r"""
+const out = [];
+for (const [lift, endZone] of [[2, 5], [0, 0], [2, 0], [0, 5]]) for (const W of [360, 600, 1100]) for (const H of [120, 170, 250]) {
+  const e1 = q.e1 + lift, e2 = q.e2 + lift, zone = E.zoneMetres(q.len, endZone);
+  const rule = {model: "formula", slope: 0.15, leashFall: 6, fall: 3, zone};
+  const lim = E.limits(q.len, e1, e2, rule, null);
+  let min = null, high = null;
+  for (let i = 1; i < q.d.length - 1; i++) {
+    const c = lim.limitAt(q.d[i]) - q.z[i], h = lim.strict(q.d[i]) + 6 - q.z[i];
+    if (!min || c < min[1]) min = [q.d[i], c];
+    if (!high || h > high[1]) high = [q.d[i], h];
+  }
+  const values = q.z.concat([e1, e2, q.e1, q.e2]);
+  for (let k = 0; k <= 40; k++) values.push(lim.limitAt(q.len * k / 40));
+  const frame = m.chartFrame(W, H, q.len, values, false);
+  const marks = {len: q.len,
+    anchors: [{d: 0, ground: q.e1, post: lift, text: "A1 " + q.e1.toFixed(1) + " m" + (lift ? " +" + lift : "")},
+              {d: q.len, ground: q.e2, post: lift, text: "A2 " + q.e2.toFixed(1) + " m" + (lift ? " +" + lift : "")}],
+    aframe: lift ? [["A-frame " + lift + " m", lift + " m"], ["A-frame " + lift + " m", lift + " m"]] : undefined,
+    min: {d: min[0], top: lim.limitAt(min[0]), bottom: lim.limitAt(min[0]) - min[1], at: "below",
+          texts: ["min. clearance " + min[1].toFixed(1) + " m"]},
+    highest: {d: high[0], top: lim.strict(high[0]) + 6, bottom: lim.strict(high[0]) + 6 - high[1], at: "middle",
+              texts: ["highest " + high[1].toFixed(0) + " m above terrain", "highest " + high[1].toFixed(0) + " m"]},
+    zone: zone ? {metres: zone, texts: ["no-fall zone " + endZone + " m", "zone " + endZone + " m"]} : null};
+  const width = (text, bold) => L.estimateWidth(text, bold);
+  const specs = m.labelSpecs(frame, marks, width);
+  const placed = m.chartLabels(frame, marks, width);
+  const bold = new Set(["anchor1", "anchor2"]);
+  const boxes = placed.map((p) => L.boxOf(p.x, p.y, width(p.text, bold.has(p.id)), p.anchor));
+  let overlaps = 0;
+  for (let a = 0; a < boxes.length; a++) for (let b = a + 1; b < boxes.length; b++) if (L.intersects(boxes[a], boxes[b])) overlaps++;
+  const bounds = m.labelBounds(frame);
+  const outside = boxes.filter((b) => b.left < bounds.left || b.right > bounds.right || b.top < bounds.top || b.bottom > bounds.bottom).length;
+  out.push({lift, endZone, W, H, specs: specs.map((s) => s.id), placed: placed.map((p) => p.id + ":" + p.text), overlaps, outside});
+}
+// the layout alone: a label with no room left is dropped, a higher priority wins the place, a short text is taken
+const bounds = {left: 0, top: 0, right: 100, bottom: 30};
+const spec = (id, priority, texts, x, y) => ({id, priority, texts: texts.map((t) => ({text: t, width: t.length * 6})),
+                                             x, anchor: "start", y, yMin: y, yMax: y});
+const crowd = L.layoutLabels([spec("low", 5, ["aaaaaaaaaa"], 0, 15), spec("high", 1, ["bbbbbbbbbb"], 10, 15),
+                              spec("short", 3, ["cccccccccccccccc", "cc"], 80, 15)], bounds);
+console.log(JSON.stringify({out, crowd}));
+"""
+
+
+def test_profile_labels_do_not_overlap(tmp_path):
+    """The profile chart's labels (profilechart.ts with labels.ts' layout) on the quarry line of the mock-up, on
+    A-frames of 2 m with a no-fall zone of 5 m and without either, at the 3D card's and the result's widths (360,
+    600 and 1100 px) and heights: no two label boxes intersect, every box is inside the chart, the anchors' and the
+    smallest clearance's labels are always there; the layout leaves out what cannot fit and keeps priorities."""
+    quarry = _quarry()
+    head = (f"const L = require({json.dumps(str(tmp_path / 'labels.cjs'))}), "
+            f"E = require({json.dumps(str(tmp_path / 'endzone.cjs'))});\nconst q = {json.dumps(quarry)};\n")
+    found = run_ts(tmp_path, "profilechart", head + LABEL_CASES, bundles={"labels": "labels", "endzone": "endzone"})
+    for case in found["out"]:
+        assert case["overlaps"] == 0 and case["outside"] == 0, case
+        ids = [p.split(":")[0] for p in case["placed"]]
+        assert {"anchor1", "anchor2", "min"} <= set(ids), case
+        if case["lift"]:
+            assert "aframe1" in case["specs"] and "aframe2" in case["specs"]
+        if case["endZone"]:
+            assert "zone1" in case["specs"]
+    # at the result's desktop width everything fits
+    wide = [c for c in found["out"] if c["W"] == 1100 and c["H"] >= 170]
+    assert all(len(c["placed"]) == len(c["specs"]) for c in wide), wide
+    assert [(q["id"], q["text"]) for q in found["crowd"]] == [("high", "bbbbbbbbbb"), ("short", "cc")]

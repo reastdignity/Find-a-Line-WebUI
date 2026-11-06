@@ -23,6 +23,11 @@ export interface Profile {
   max_height?: [number, number];  // (distance, height) of the webbing highest above the terrain
   water_m: number;
   filled_m: number;
+  // a profile made with the run's end zone or A-frames (helpers.line_profile): the zone's metres at each end
+  // (min(end_zone, 0.25 · length), to 0.1 m) and the A-frame height; "min" is then the rule's smallest
+  // clearance and "max_height" the webbing on the A-frames
+  zone?: number;
+  lift?: number;
 }
 
 // One line as an array (compact):

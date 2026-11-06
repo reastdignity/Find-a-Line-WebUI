@@ -30,6 +30,10 @@ export interface PatchMeta {
   /** The run's formula-model constants as data.js has them (search.patch_of_line): the profile chart's limit. */
   slope: number;
   leash_fall: number;
+  /** The run's no-fall zone at the ends and its A-frame height, metres (search.patch_of_line, only when set): the
+   *  webbing starts `lift` above the anchors' heights (line.ts), the profile card's chart draws both. */
+  end_zone?: number;
+  lift?: number;
   /** The run has a surface model: the block of trees and buildings can be asked (canopy.ts). */
   surface?: boolean;
   /** The run's grouping distance in metres (options.ts: the lines from a point as the result's spots). */
