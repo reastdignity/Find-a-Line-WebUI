@@ -19,6 +19,7 @@ for every area of the folder, for a browser from disk) every HISTORY_SECONDS, <n
         --data-dir <data> --state-dir <state> --host-slots opendata.geoportal.gov.pl=2
     uv run tools/area_download.py status --state-dir <state> --watch 30
     uv run tools/area_download.py stop poland --state-dir <state>     # `run` again resumes
+    uv run --group tui tools/area_download.py tui --settings <file>   # the window: tools/area_download_tui.py
 
 The requests go out as those of a search (cache.http_headers); FINDALINE_CONTACT in the environment adds a contact.
 """
@@ -658,11 +659,20 @@ def main(argv: Optional[List[str]] = None) -> int:
     stop = commands.add_parser("stop", help="stop the areas: `run` resumes them")
     stop.add_argument("names", nargs="+")
     stop.add_argument("--state-dir", required=True)
+    tui = commands.add_parser("tui", help="the window: tick the areas, start and stop them (uv sync --group tui)")
+    tui.add_argument("--settings", required=True, help="the JSON file tools/area_rows.py describes")
     args = parser.parse_args(argv)
     if args.command == "run":
         return supervise(_area_of(args), _pass_command(args))
     if args.command == "pass":
         return run_pass(_area_of(args), args.number)
+    if args.command == "tui":
+        try:
+            import area_download_tui
+        except ModuleNotFoundError as e:
+            print(f"The window needs {e.name}: uv sync --group tui", file=sys.stderr)
+            return 2
+        return area_download_tui.run(args.settings)
     if args.command == "stop":
         for name in args.names:
             with open(state_file(args.state_dir, name, ".stop"), "w", encoding="utf-8"):
