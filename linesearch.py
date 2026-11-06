@@ -742,7 +742,9 @@ def _evaluate(z, s, has_s, anchors, found, res, use_sag, log_spans, span_index, 
                 clearance = np.nan  # np.min: no data anywhere makes the line fail
             elif value < clearance:
                 clearance = value
-            height = margin + fall  # helpers.webbing_height
+            height = margin + fall  # helpers.webbing_height: the lift added last, only when not 0
+            if lift != 0.0:
+                height = height + lift
             if height != height or height > height_max:  # np.max: NaN stays
                 height_max = height
             height_sum += height
@@ -986,7 +988,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
             zone_cap of the length, where only the webbing less end_clearance must stay above the
             terrain) and the lift (A-frames of that height at both ends): helpers.end_zone_rule;
             0 / 0 is the search of before, bit for bit. The clearances are the rule's decision
-            values; the heights stay those of the strict margin
+            values; the heights those of the strict margin plus the lift (the webbing on the A-frames)
         zones: Optional ladder of end zones (ascending from 0): the lines get their bucket minima
             ("zone_margins", "zone_margins_nmpt"), from which helpers.valid_at decides at any
             ladder zone and lift up to the call's

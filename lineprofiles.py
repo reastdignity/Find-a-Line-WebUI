@@ -51,7 +51,7 @@ def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, lo
     min distance and clearance, min_nmpt's (NaN: none), max_height's, water_m, filled_m; flags[k]:
     1 water on the line, 2 filled pixels on it, 4 a point kept without terrain or surface data.
     "min" and "min_nmpt" follow the decision values of the end zone and the lift (end_zone,
-    lift, delta, zone_cap: helpers.decision_values), "max_height" the strict margin.
+    lift, delta, zone_cap: helpers.decision_values), "max_height" the strict margin (plus the lift: the webbing on the A-frames).
     """
     fall = fall_zone if use_sag else sh.LEASH_FALL  # helpers.fall_allowance
     c_zone = lift + delta
@@ -131,7 +131,8 @@ def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, lo
                 keep[int(np.rint(np.float64(i) * step))] = True
             keep[steps] = True
         small[k, 0], small[k, 1] = i_min / steps * length, value[i_min]
-        small[k, 4], small[k, 5] = i_max / steps * length, margin[i_max] + fall  # helpers.webbing_height
+        height = margin[i_max] + fall  # helpers.webbing_height: the lift added last, only when not 0
+        small[k, 4], small[k, 5] = i_max / steps * length, height if lift == 0.0 else height + lift
         # Water and filled gaps: flags at the points kept, metres over the pixels between the anchors
         on_water = on_filled = 0
         any_water = any_filled = False

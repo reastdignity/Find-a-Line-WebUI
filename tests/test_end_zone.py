@@ -180,7 +180,7 @@ def test_evaluate_lines_matches_evaluate_line():
 def test_line_profiles_match_line_profile(model):
     """lineprofiles.line_profiles gives every line exactly (==, and the same JSON text) helpers.line_profile's
     profile at a zone and a lift, with "zone" and "lift" at its end; "min" follows the decision values,
-    "max_height" stays the strict margin's; at 0 / 0 neither key is there."""
+    "max_height" the strict margin's plus the lift; at 0 / 0 neither key is there."""
     from test_units import _profile_case
     terrain, surface, water, filled, a1, a2 = _profile_case()
     table = sag.EnvelopeTable(sag.Rigging(), 2, 400) if model == "sag" else None
@@ -203,7 +203,9 @@ def test_line_profiles_match_line_profile(model):
             assert encoder.encode(fast) == encoder.encode(slow), (res, points, k)
             before = plain[k].as_dict()
             assert ("zone" in fast) == bool(end_zone or lift) and "zone" not in before
-            assert fast["max_height"] == before["max_height"]  # (the points kept follow "min")
+            # the webbing on the A-frames: the strict margin's highest point, raised by the lift (rounded apart)
+            assert fast["max_height"][0] == before["max_height"][0]  # (the points kept follow "min")
+            assert abs(fast["max_height"][1] - before["max_height"][1] - lift) < 0.0101
             changed += fast["min"] != before["min"]
     assert changed > 100
 
@@ -317,6 +319,52 @@ def test_independent_of_threads():
         assert other.keys() == results[0].keys()
         for name in other:
             assert np.array_equal(other[name], results[0][name], equal_nan=True), name
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_heights_include_the_lift(model):
+    """The webbing on A-frames of h metres stands h higher: height_max, height_mean and high_pct of
+    helpers.evaluate_line and a profile's "max_height" at a lift are the values at lift 0 plus the lift
+    (high_pct: the share at high_above - h at lift 0, within one pixel), the zone leaving them alone;
+    linesearch.evaluate_lines gives evaluate_line's heights (==) at the lift; at lift 0 webbing_height
+    adds nothing (the values of before, bit for bit)."""
+    z, surface, anchors, *_ = canyon_of()
+    table = table_of(model)
+    rng = np.random.default_rng(11)
+    found = rng.integers(0, len(anchors), (400, 2))
+    found = found[found[:, 0] != found[:, 1]]
+    lift, high = 2.0, 12.0
+    rule = dict(high_above=high, end_zone=5.0)
+    seen = 0
+    for i, j in found.tolist():
+        base = sh.evaluate_line(anchors[i], anchors[j], z, 1.0, None, table, **rule)
+        if base is None or not np.isfinite(base[5]):
+            continue
+        up = sh.evaluate_line(anchors[i], anchors[j], z, 1.0, None, table, lift=lift, **rule)
+        low = sh.evaluate_line(anchors[i], anchors[j], z, 1.0, None, table, high_above=high - lift, end_zone=5.0)
+        seen += 1
+        assert up[5] == base[5] + lift  # max(a + h) == max(a) + h: rounding is monotone
+        assert math.isclose(up[6], base[6] + lift, abs_tol=1e-9)
+        steps = int(np.abs(anchors[i] - anchors[j]).max())
+        assert abs(up[7] - low[7]) <= 100.0 / (steps - 1) + 1e-9
+        profile = sh.line_profile(tuple(anchors[i]), tuple(anchors[j]), z, 1.0, sag_table=table, end_zone=5.0,
+                                  lift=lift)
+        before = sh.line_profile(tuple(anchors[i]), tuple(anchors[j]), z, 1.0, sag_table=table, end_zone=5.0)
+        assert profile["max_height"][0] == before["max_height"][0]
+        assert abs(profile["max_height"][1] - before["max_height"][1] - lift) < 0.0101
+    assert seen > 100
+    # the numba evaluation: evaluate_line's heights (==) at the lift, for every line it keeps
+    lifted = ls.evaluate_lines(found, anchors, z, 1.0, None, table, None, lift=lift, **rule)
+    assert len(lifted.columns["a1"]) > 10
+    for k, (a1, a2) in enumerate(zip(lifted.columns["a1"].tolist(), lifted.columns["a2"].tolist())):
+        up = sh.evaluate_line(np.array(a1), np.array(a2), z, 1.0, None, table, lift=lift, **rule)
+        got = [float(lifted.columns[name][k]) for name in ("height_max", "height_mean", "high_pct")]
+        assert got == list(up[5:8]), (a1, a2)
+    # at lift 0 nothing is added: margin + fall allowance as before
+    margin = np.array([-0.0, 1.5, -6.0, np.nan])
+    assert np.array_equal(sh.webbing_height(margin, table), margin + sh.fall_allowance(table), equal_nan=True)
+    assert np.array_equal(sh.webbing_height(margin, table, lift), margin + sh.fall_allowance(table) + lift,
+                          equal_nan=True)
 
 
 def test_zone_steps():

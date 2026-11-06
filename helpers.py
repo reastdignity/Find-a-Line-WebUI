@@ -311,13 +311,17 @@ def fall_allowance(sag_table=None) -> float:
     return LEASH_FALL if sag_table is None else float(sag_table.rig.fall_zone)
 
 
-def webbing_height(margin, sag_table=None):
+def webbing_height(margin, sag_table=None, lift: float = 0.0):
     """Height of the webbing above the terrain from the margin below max_safe_elevation.
 
     The webbing is the limit plus fall_allowance: with the sag estimator the chord minus the
-    sag under the athlete, with the formula min_anchor_elev - SLOPE * distance.
+    sag under the athlete, with the formula min_anchor_elev - SLOPE * distance. With A-frames of
+    `lift` metres at both ends the physical webbing stands that much higher: the lift added last,
+    and only when not 0 (so the heights at lift 0 are those of before, bit for bit; linesearch._evaluate
+    and lineprofiles._profiles add it in the same order).
     """
-    return margin + fall_allowance(sag_table)
+    height = margin + fall_allowance(sag_table)
+    return height + lift if lift else height
 
 
 # The end zone and the lift. A pixel of a line passes when its strict margin s (limit minus terrain,
@@ -519,8 +523,8 @@ def evaluate_line(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
         sag_table: sag.EnvelopeTable to use the sag estimator instead of the formula
         high_above: Height above the terrain from which a pixel counts as high
         end_zone, lift, end_clearance, zone_cap: the end zone and the lift (end_zone_rule;
-            the clearances are the rule's decision values, the heights stay those of the strict
-            margin)
+            the clearances are the rule's decision values, the heights those of the strict
+            margin plus the lift: the webbing on the A-frames, webbing_height)
         zones: Optional ladder of end zones (ascending from 0): the bucket minima of the strict
             margins are returned too (valid_at)
 
@@ -559,7 +563,7 @@ def evaluate_line(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
     clearance = float(np.min(decision_values(margin, offsets)))
     # Summed one pixel after another, as linesearch._evaluate: np.cumsum, not np.mean (pairwise)
     # or sum() (compensated since Python 3.12)
-    heights = webbing_height(margin, sag_table)
+    heights = webbing_height(margin, sag_table, lift)
     height_max = float(np.max(heights))
     height_mean = float(np.cumsum(heights)[-1]) / len(heights)
     high_pct = 100.0 * int(np.count_nonzero(heights >= high_above)) / len(heights)
@@ -600,7 +604,7 @@ def line_profile(a1: Tuple[int, int], a2: Tuple[int, int], elevation: np.ndarray
     With an end zone or a lift (end_zone_rule), "min" and "min_nmpt" are the smallest
     decision values of the rule (evaluate_line's clearances) and the dict ends with "zone"
     (metres of the capped zone, min(end_zone, zone_cap * length), to 0.1 m) and "lift";
-    "max_height" stays the strict margin's highest webbing.
+    "max_height" is the strict margin's highest webbing plus the lift (webbing_height).
 
     Returns:
         {"d": distances from anchor 1 [m], "z": NMT [m], "s": NMPT [m] or None,
@@ -634,7 +638,7 @@ def line_profile(a1: Tuple[int, int], a2: Tuple[int, int], elevation: np.ndarray
     profile = {"min": [round(distance[i_min], 1), round(float(value[i_min - 1]), 2)],
                "min_nmpt": None,
                "max_height": [round(distance[i_max], 1),
-                              round(float(webbing_height(max_elev[i_max] - terrain[i_max], sag_table)), 2)]}
+                              round(float(webbing_height(max_elev[i_max] - terrain[i_max], sag_table, lift)), 2)]}
     if obstacles is not None and not np.all(np.isnan(obstacles[inner])):
         over = decision_values((max_elev - obstacles)[inner], offsets)
         j_min = 1 + int(np.nanargmin(over))
