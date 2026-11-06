@@ -1233,6 +1233,7 @@ FAVOURITE = {"len": 120.5, "clr": 1.2, "clrN": None, "e1": 330.0, "e2": 328.5, "
              "filled": 0.0, "hmax": 15.0, "hmean": 9.5, "highPct": 0.0, "angle1": 12.0, "angle2": None,
              "prom1": 3.0, "prom2": None, "drop1": 30.0, "drop2": None}
 LINE, OTHER_LINE = "50.1570825,19.7572871,50.1561275,19.7547235", "50.157,19.757,1e-7,19.754"
+THIRD_LINE = "50.157,19.757,50.156,19.755"
 
 
 def mark(client, run: str, line, on=True, data=FAVOURITE):
@@ -1275,6 +1276,16 @@ def test_favourites(run_people, tmp_path, monkeypatch):
     assert [(f["run_id"], f["line"], f["run_name"], f["data"]) for f in listed] == [(RUN_A, OTHER_LINE, "A's run",
                                                                                       FAVOURITE)]
     assert listed[0]["run_created"] and listed[0]["created"]
+    # a line of a run with an end zone and A-frames carries its A-frame heights (kept only when given: null
+    # ones are left out, so the values of a favourite of another run stay those of before)
+    lifted = {**FAVOURITE, "lift_needed": 0.75, "lift_no_zone": 3.5}
+    for data in ({**lifted, "lift_needed": "inf"}, {**lifted, "lift_no_zone": "nan"}, {**lifted, "lift_needed": "x"}):
+        assert mark(b, RUN_A, LINE, data=data).status_code == 400, data
+    assert mark(b, RUN_A, LINE, data=lifted).status_code == 200
+    assert mark(b, RUN_A, THIRD_LINE, data={**FAVOURITE, "lift_needed": None, "lift_no_zone": None}).status_code == 200
+    listed = {f["line"]: f["data"] for f in b.get("/api/favourites").json()["favourites"]}
+    assert listed == {OTHER_LINE: FAVOURITE, LINE: lifted, THIRD_LINE: FAVOURITE}
+    assert mark(b, RUN_A, LINE, on=False).status_code == 200 and mark(b, RUN_A, THIRD_LINE, on=False).status_code == 200
     assert admin.post(f"/api/runs/{RUN_A}/demo", json={"demo": False}).status_code == 200
     assert b.get("/api/favourites").json() == {"favourites": [], "folders": []}  # no longer a run b may open
     assert [f["line"] for f in a.get("/api/favourites").json()["favourites"]] == [LINE]

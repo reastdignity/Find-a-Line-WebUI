@@ -30,10 +30,17 @@ export interface Profile {
 //  metres over water, metres over filled gaps, largest and mean height of the webbing above the
 //  terrain, % of the line at least high_above, wall angle at anchor 1 and 2 (degrees from the
 //  downslope direction), prominence of anchor 1 and 2, drop below anchor 1 and 2 (null: not
-//  known), profile] (lines.js leaves out the profile)
+//  known), then in a run with an end zone or A-frames the values its head's `ends` names (END_VALUES),
+//  profile] (lines.js leaves out the profile)
 export type LineRow = [number, number, number, number, number, number, number, number, number, number,
   number | null, number, number, boolean, number, number, number, number, number, number, number,
-  number | null, number | null, number | null, number | null, (Profile | null)?];
+  number | null, number | null, number | null, number | null, ...(number | Profile | null)[]];
+
+/** The values of a row before its profile (LineRow: after the drop below anchor 2). */
+const ROW_VALUES = 25;
+/** The extra values of a run with an end zone or A-frames, in the order its head's `ends` gives them
+ *  (helpers.END_VALUES): the A-frame height each line needs with the run's zone, and without a zone. */
+export const END_VALUES = ["lift_needed", "lift_no_zone"];
 
 export interface Line {
   lat1: number; lon1: number; lat2: number; lon2: number;
@@ -47,6 +54,9 @@ export interface Line {
   // percentile rank of each anchor's height in its run's search area (percentileRank; null: the run has no
   // terrain statistics). Derived in the browser: never saved with a favourite
   pct1: number | null; pct2: number | null;
+  // the A-frame height (m, both ends) the line needs with its run's end zone, and without a zone (it may
+  // exceed the run's A-frames: the line then needs the zone); null or missing: a run without the options
+  lift_needed?: number | null; lift_no_zone?: number | null;
   prof: Profile | null;
   run?: OtherRun;  // set for the lines of another run
 }
@@ -69,6 +79,7 @@ export interface RunLines {
   crs: string;
   area: Geometry;
   terrain?: Terrain | null;  // runs saved before 2026-11-03 have none
+  ends?: string[];  // the names of the rows' values before the profile (RunData.ends)
   lines: LineRow[];  // without the profile at the end
 }
 
@@ -137,6 +148,9 @@ export interface RunData {
   max_zoom: number;
   terrain?: Terrain | null;       // runs saved before 2026-11-03 have none
   shore?: Shore | null;           // the uncertain shore; runs saved before 2026-11-05 have none
+  end_zone?: number;              // m: the run's no-fall zone at the ends (none: off)
+  lift?: number;                  // m: the run's A-frame height (none: off)
+  ends?: string[];                // the names of the rows' values before the profile (END_VALUES); none: no such
   lines: LineRow[];
 }
 
@@ -164,11 +178,24 @@ export function percentileRank(z: number, q: number[]): number {
   return lo;
 }
 
-export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null): Line {
+/** A row of data.js or lines.js as a Line. The profile is the row's last value when that is an object or
+ *  null (data.js; lines.js has none); the values between the drop below anchor 2 and it are named by `ends`
+ *  (the run's head; a row longer than ROW_VALUES read without it takes END_VALUES, the only such values). */
+export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, ends: string[] = END_VALUES): Line {
   const q = terrain ? terrain.quantiles : null;
+  const last = d.length > ROW_VALUES ? d[d.length - 1] : undefined;
+  const profiled = last === null || typeof last === "object";
+  const extras = d.slice(ROW_VALUES, profiled ? d.length - 1 : d.length);
+  const extra = (name: string): number | null => {
+    const at = extras.length ? ends.indexOf(name) : -1;
+    const value = at >= 0 && at < extras.length ? extras[at] : null;
+    return typeof value === "number" ? value : null;
+  };
   return {lat1: d[0], lon1: d[1], lat2: d[2], lon2: d[3], x1: d[4], y1: d[5], x2: d[6], y2: d[7],
           len: d[8], clr: d[9], clrN: d[10], e1: d[11], e2: d[12], over: d[13], water: d[14], filled: d[15],
           hmax: d[16], hmean: d[17], highPct: d[18], angle1: d[19], angle2: d[20], prom1: d[21], prom2: d[22],
           drop1: d[23], drop2: d[24],
-          pct1: q ? percentileRank(d[11], q) : null, pct2: q ? percentileRank(d[12], q) : null, prof: d[25] || null, run};
+          pct1: q ? percentileRank(d[11], q) : null, pct2: q ? percentileRank(d[12], q) : null,
+          lift_needed: extra("lift_needed"), lift_no_zone: extra("lift_no_zone"),
+          prof: profiled ? (last as Profile | null) || null : null, run};
 }

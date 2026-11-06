@@ -28,12 +28,15 @@ pytestmark = pytest.mark.skipif(
     reason="needs Node and `npm install` in viewer/")
 
 
-def run_ts(tmp_path, module: str, script: str):
-    """Bundle viewer/src/<module>.ts for Node and run script with it as `m`; returns its JSON output."""
+def run_ts(tmp_path, module: str, script: str, bundles=None):
+    """Bundle viewer/src/<module>.ts for Node and run script with it as `m`; returns its JSON output.
+    bundles: more modules bundled beside it ({name: module}: <tmp_path>/<name>.cjs)."""
     bundle = tmp_path / f"{module}.cjs"
-    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/{module}.ts'], bundle: true, "
-                                  f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}}})"],
-                   cwd=VIEWER, check=True)
+    for name, source in [(module, module), *(bundles or {}).items()]:
+        out = tmp_path / f"{name}.cjs"
+        subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: ['src/{source}.ts'], bundle: true, "
+                                      f"format: 'cjs', platform: 'node', outfile: {json.dumps(str(out))}}})"],
+                       cwd=VIEWER, check=True)
     path = tmp_path / f"{module}-test.cjs"
     path.write_text(f"const m = require({json.dumps(str(bundle))});\n{script}", encoding="utf-8")
     result = subprocess.run(["node", str(path)], capture_output=True, text=True, encoding="utf-8", check=True)
@@ -64,16 +67,26 @@ console.log(JSON.stringify(out));""")
         assert ts["athlete"] == pytest.approx(athlete, abs=1e-6)
 
 
-def test_grouping_matches_python(tmp_path):
+@pytest.mark.parametrize("tied", [False, True], ids=["values", "ties"])
+def test_grouping_matches_python(tmp_path, tied):
+    """groupLines and mapping.group_lines give the same groups for lines in the same order. With ties
+    (clearance and length from a few values, as an end zone with A-frames makes them, the lines in
+    search._fixed_order's order: the order a run's data.js hands the browser) too: lines that rank the
+    same keep their order in both."""
     random.seed(1)
     results = []
     for _ in range(2000):  # clusters of similar lines, some over trees
         x, y = random.choice([(0, 0), (30, 5), (500, 500), (-40, 70)])
         x1, y1 = x + random.uniform(-25, 25), y + random.uniform(-25, 25)
+        length, clearance = round(random.uniform(80, 130), 1), round(random.uniform(0, 20), 2)
+        if tied:
+            length, clearance = random.choice([90.0, 100.5, 120.0]), random.choice([0.5, 1.25, 2.0])
         results.append({"a1_xy": (x1, y1), "a2_xy": (x1 + 100 + random.uniform(-25, 25), y1 + random.uniform(-25, 25)),
-                        "length": round(random.uniform(80, 130), 1), "clearance": round(random.uniform(0, 20), 2),
-                        "over_obstacles": random.random() < 0.3,
+                        "length": length, "clearance": clearance, "over_obstacles": random.random() < 0.3,
                         "height_max": random.choice([10.0, 20.0, round(random.uniform(5, 60), 2)])})
+    if tied:  # search._fixed_order: best clearance, longest, then the anchors (northing down, easting up)
+        results.sort(key=lambda r: (-r["clearance"], -r["length"], -r["a1_xy"][1], r["a1_xy"][0], -r["a2_xy"][1],
+                                    r["a2_xy"][0]))
     lines = [{"x1": r["a1_xy"][0], "y1": r["a1_xy"][1], "x2": r["a2_xy"][0], "y2": r["a2_xy"][1],
               "len": r["length"], "clr": r["clearance"], "over": r["over_obstacles"], "hmax": r["height_max"], "k": k}
              for k, r in enumerate(results)]
@@ -114,6 +127,39 @@ console.log(JSON.stringify({csv: m.favouritesCsv(lines), geojson: JSON.parse(m.f
     assert feature["geometry"] == {"type": "LineString", "coordinates": [[19.7, 50.1], [19.8, 50.2]]}
     assert feature["properties"]["height_mean_m"] is None and feature["properties"]["over_trees_buildings"] is True
     assert found["data"]["hmean"] is None and found["data"]["len"] == 120.5  # back as the server keeps it
+
+
+def test_to_line_with_and_without_ends(tmp_path):
+    """toLine reads rows of data.js and lines.js of a run without the end zone (the rows of before) and of a
+    run with it (the A-frame heights its head's "ends" names before the profile), by that list or by
+    END_VALUES without it; favouriteData sends the heights only for a line that has them (a favourite of
+    before keeps its values) and favouriteLine reads them back, null when missing."""
+    base = [50.1, 19.7, 50.2, 19.8, 1.0, 2.0, 3.0, 4.0, 120.5, 1.25, None, 330.0, 328.5, False, 0.0, 0.0, 15.0,
+            9.5, 20.0, 12.0, 30.0, 3.1, None, 30.0, None]
+    profile = {"d": [0, 120.5], "z": [330, 328.5], "min": [60, 1.25], "water_m": 0, "filled_m": 0}
+    found = run_ts(tmp_path, "favourites", f"""
+const t = require({json.dumps(str(tmp_path / "types.cjs"))});
+const base = {json.dumps(base)}, profile = {json.dumps(profile)};
+const pick = (l) => [l.len, l.drop2, l.lift_needed, l.lift_no_zone, l.prof && l.prof.min];
+const rows = [base.concat([profile]), base.concat([null]), base, base.concat([0.75, 3.5, profile]),
+              base.concat([0.75, 3.5, null]), base.concat([0, 1.5])];
+const lines = rows.map((row) => t.toLine(row));
+const swapped = t.toLine(base.concat([0.75, 3.5]), undefined, null, ["lift_no_zone", "lift_needed"]);
+const plain = m.favouriteData(lines[0]), ends = m.favouriteData(lines[3]);
+const back = m.favouriteLine({{run_id: "r", run_name: "", run_created: "", created: "", folder_id: null,
+                               line: "50.1,19.7,50.2,19.8", data: ends}});
+const old = m.favouriteLine({{run_id: "r", run_name: "", run_created: "", created: "", folder_id: null,
+                              line: "50.1,19.7,50.2,19.8", data: plain}});
+console.log(JSON.stringify({{lines: lines.map(pick), swapped: pick(swapped), plain: Object.keys(plain),
+                            ends: [ends.lift_needed, ends.lift_no_zone], back: pick(back), old: pick(old),
+                            names: t.END_VALUES}}));""", bundles={"types": "types"})
+    assert found["lines"] == [[120.5, None, None, None, [60, 1.25]], [120.5, None, None, None, None],
+                              [120.5, None, None, None, None], [120.5, None, 0.75, 3.5, [60, 1.25]],
+                              [120.5, None, 0.75, 3.5, None], [120.5, None, 0, 1.5, None]]
+    assert found["swapped"] == [120.5, None, 3.5, 0.75, None]
+    assert "lift_needed" not in found["plain"] and found["ends"] == [0.75, 3.5]
+    assert found["back"] == [120.5, None, 0.75, 3.5, None] and found["old"] == [120.5, None, None, None, None]
+    assert found["names"] == list(helpers.END_VALUES)
 
 
 def test_run_being_saved(tmp_path):
