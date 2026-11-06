@@ -49,6 +49,11 @@ dev = [
 tools = [
     "huggingface-hub>=2.3.0",
 ]
+# The window of tools/area_download.py (`tui`, tests/test_area_download_tui.py): `uv sync --group tui`; not installed
+# by a plain `uv sync` nor in the image
+tui = [
+    "textual>=8.2.8",
+]
 # Screenshots of the UI on desktop and phone profiles (tools/ui_shots.py) and the coverage map's media
 # (tools/coverage_media.py): `uv sync --group ui`, then `uv run playwright install chromium webkit`; not installed
 # by a plain `uv sync` nor in the image

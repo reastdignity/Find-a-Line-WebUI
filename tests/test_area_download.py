@@ -67,7 +67,7 @@ def setup(tmp_path, monkeypatch):
     data, state = tmp_path / "data", tmp_path / "state"
     (data / "cache").mkdir(parents=True)
     state.mkdir()
-    area = ad.Area("land", "osm:Land", "fake", 1.0, str(data), str(state))
+    area = ad.Area("land", "osm:Land", "fake", 1.0, str(data), str(state), min_free_gb=0)  # whatever this disk has
 
     def make(*layers):
         plan = SimpleNamespace(layers=list(layers), grid=_grid(), paths=SimpleNamespace(cache=str(data / "cache")))
