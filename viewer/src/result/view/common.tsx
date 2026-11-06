@@ -7,6 +7,7 @@ import type { ResultModel } from "../model";
 import { COLORS } from "../../style";
 import type { Line } from "../../types";
 import "./result.css";
+import "../../profile.css";
 
 /** Draw the component again after every change of the model. */
 export function useModel(model: ResultModel) {

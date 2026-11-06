@@ -286,7 +286,7 @@ class Redact:
     ("runs/<id>"), the folder of the app and other absolute paths "<path>". The fields of RAW are
     left alone: data, not text (the 3D view's heights in base64url, whose sha256 the web checks)."""
 
-    RAW = frozenset({"heights"})
+    RAW = frozenset({"heights", "mask"})
 
     def __init__(self, data_dir: str):
         folders = {os.path.abspath(data_dir), os.path.realpath(data_dir)}
@@ -1552,7 +1552,29 @@ def quick_profile(data_dir: str, request: Dict, limits: Optional[Limits] = None)
 def quick_patch(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
     """The terrain of the 3D view around a line of a saved run (/api/patch): {"run": id, "line":
     [lat1, lon1, lat2, lon2], "step": 1 or 2} -> {"meta": ..., "heights": the deflated heights in
-    base64url without padding} (search.patch_of_line; Redact leaves "heights" alone)."""
+    base64url without padding} (search.patch_of_line; Redact leaves "heights" alone). With "part":
+    "canopy" the trees and buildings of the same patch (search.canopy_of_line), in the same fields."""
+    import base64
+
+    import search
+    with open(os.path.join(data_dir, "runs", request["run"], "run.json"), encoding="utf-8") as f:
+        meta = json.load(f)
+    lat1, lon1, lat2, lon2 = request["line"]
+    paths = search.Paths(data_dir, os.path.join(data_dir, "work", "profiles", uuid.uuid4().hex))
+    os.makedirs(paths.work)
+    make = search.canopy_of_line if request.get("part") == "canopy" else search.patch_of_line
+    try:
+        patch, body = make(meta, paths, (lat1, lon1), (lat2, lon2), int(request.get("step", 1)))
+    finally:
+        cache.remove_work(paths.work)
+    return {"meta": patch, "heights": base64.urlsafe_b64encode(body).rstrip(b"=").decode("ascii")}
+
+
+def quick_reach(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
+    """Where the other anchor of a line may stand when one is fixed (/api/reach): {"run": id, "line":
+    [lat1, lon1, lat2, lon2], "anchor": [lat, lon], "as": 1 or 2} -> {"meta": ..., "mask": the deflated
+    values in base64url without padding} (search.reach_of_anchor; Redact leaves "mask" alone). The first
+    one of a process loads numba (the kernel's compiled code comes from numba's cache, warmup.py)."""
     import base64
 
     import search
@@ -1562,10 +1584,11 @@ def quick_patch(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     paths = search.Paths(data_dir, os.path.join(data_dir, "work", "profiles", uuid.uuid4().hex))
     os.makedirs(paths.work)
     try:
-        patch, body = search.patch_of_line(meta, paths, (lat1, lon1), (lat2, lon2), int(request.get("step", 1)))
+        reach, body = search.reach_of_anchor(meta, paths, (lat1, lon1), (lat2, lon2), tuple(request["anchor"]),
+                                             int(request["as"]))
     finally:
         cache.remove_work(paths.work)
-    return {"meta": patch, "heights": base64.urlsafe_b64encode(body).rstrip(b"=").decode("ascii")}
+    return {"meta": reach, "mask": base64.urlsafe_b64encode(body).rstrip(b"=").decode("ascii")}
 
 
 def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -> Dict:
@@ -1575,7 +1598,8 @@ def quick_place(data_dir: str, request: Dict, limits: Optional[Limits] = None) -
     return {"places": osm.places(request["q"], os.path.join(data_dir, "cache"))}
 
 
-QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place, "patch": quick_patch}
+QUICK = {"estimate": quick_estimate, "profile": quick_profile, "place": quick_place, "patch": quick_patch,
+         "reach": quick_reach}
 SLOT_MEMORY: Optional[int] = None  # the budget of a compute slot, in the quick lane's process (run_quick)
 
 

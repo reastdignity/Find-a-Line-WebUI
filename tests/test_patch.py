@@ -127,6 +127,11 @@ def test_patch_heights_are_the_clips(clip_data, tmp_path):
         lon, lat = to_lonlat(x, y)
         assert abs(a0 + a_x * x + a_y * y - lon) < 5e-7 and abs(b0 + b_x * x + b_y * y - lat) < 5e-7
     assert patch["rigging"] == meta["params"]["rigging"] and patch["model"] == "sag"
+    # The formula model's constants, as the run's data.js has them (the page's profile chart needs them)
+    import helpers
+    assert (patch["slope"], patch["leash_fall"]) == (helpers.SLOPE, helpers.LEASH_FALL)
+    assert patch["surface"] is bool(meta["params"]["nmpt"])  # the page offers trees and buildings only then
+    assert patch["group_distance"] == meta["params"]["group_distance"] > 0  # the spots of the lines from a point
     assert patch["ortho"] is None and patch["attribution"] == meta["attribution"]  # local files: no orthophoto
     json.dumps(patch, allow_nan=False)  # plain JSON
 

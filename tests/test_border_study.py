@@ -213,3 +213,88 @@ def test_exposure_and_report(study, monkeypatch):
     text = open(os.path.join(out, "study.md"), encoding="utf-8").read()
     assert "Żabi Koń split" in text and "| S | 30-60 m |" in text and "Estimate with the ratio of clip-files" in text
     assert os.path.exists(os.path.join(out, "pictures", "clip-files.png"))
+
+
+def test_resampling_runs_and_report(study, tmp_path, monkeypatch):
+    """A run with a resampling method counts into its own folder with sources.filling's setting on
+    (and off again afterwards), the method in its definition; the report compares every run with the
+    run of the other primary that has no method: here copies of one count, so every spot is found."""
+    import shutil
+    import search
+    import sources.filling as filling
+    out, data, place = str(tmp_path / "out"), study["data"], study["place"]
+    shutil.copytree(study["folder"], os.path.join(out, "clip-files"))
+    seen, real = [], search.count_tile
+    monkeypatch.setattr(search, "count_tile",
+                        lambda *a, **k: (seen.append(filling.NEIGHBOUR_RESAMPLING), real(*a, **k))[1])
+    folder = bs.run_place(place, "files", out, data, config=study["config"], say=lambda t: None, resampling="nearest")
+    assert os.path.basename(folder) == "clip-files-nearest" and seen and set(seen) == {"nearest"}
+    assert filling.NEIGHBOUR_RESAMPLING is None
+    assert json.load(open(os.path.join(folder, "study.json"), encoding="utf-8"))["definition"]["resampling"] == "nearest"
+    with pytest.raises(ValueError, match="resampling"):
+        bs.run_place(place, "files", out, data, config=study["config"], say=lambda t: None, resampling="lanczos")
+    for band in ("S", "M"):  # the clip has no neighbour: the same count
+        for name in bs.CLASSES:
+            for mine, theirs in zip(bs._merged(bs._class_tiles(folder, band, name)),
+                                    bs._merged(bs._class_tiles(study["folder"], band, name))):
+                assert np.array_equal(mine, theirs)
+    # the same count once more as the run of another primary, the source of B
+    other = os.path.join(out, "clip-east")
+    shutil.copytree(study["folder"], other)
+    state = json.load(open(os.path.join(other, "study.json"), encoding="utf-8"))
+    state["definition"]["primary"] = state["definition"]["place"]["b"]["source"] = "east"
+    bs._write_json(os.path.join(other, "study.json"), state)
+    assert bs.analyse(out, data, say=lambda t: None) == 0
+    result = json.load(open(os.path.join(out, "study.json"), encoding="utf-8"))
+    rows = result["resampling"]
+    assert {(r["run"], r["reference"], r["class"]) for r in rows} == {
+        ("clip-files", "clip-east", "bb"), ("clip-files", "clip-east", "ab"),
+        ("clip-files-nearest", "clip-east", "bb"), ("clip-files-nearest", "clip-east", "ab"),
+        ("clip-east", "clip-files", "aa"), ("clip-east", "clip-files", "ab")}
+    assert len(rows) == 12 and {r["band"] for r in rows} == {"S", "M"} and sum(r["spots"][0] for r in rows) > 20
+    for r in rows:
+        assert r["resampling"] == ("nearest" if r["run"].endswith("nearest") else None)
+        assert r["lines"][0] == r["lines"][1] > 0
+        assert r["spots"][0] == r["spots"][1]  # those with both ends in the small box less 100 m: none in some
+        assert r["reference_found"] == r["run_found"] == (1.0 if r["spots"][0] else None)
+        assert r["cpu_seconds"] > 0 and r["seconds"] >= r["prepare_seconds"] > 0
+        assert r["memory"]["rss"] > 0 and r["memory"]["private"] > 0
+    # the two runs without a method of the place's two primaries are still compared as before
+    assert {(a["band"], tuple(a["primaries"])) for a in result["agreements"]} == {("M", ("east", "files")),
+                                                                                  ("S", ("east", "files"))}
+    text = open(os.path.join(out, "study.md"), encoding="utf-8").read()
+    assert "## The resampling of the neighbour's data" in text
+    assert "| clip | M | clip-files-nearest | nearest | side |" in text and "| clip | S | clip-east | own | across |" in text
+    assert "the neighbour's data resampled nearest" in text
+
+
+def test_neighbour_boxes_along_the_borders():
+    """strip_share: of the neighbour's land within reach of the source's, the share inside its rough
+    boxes; box_reach: every declared pair of the catalogue with an outline, from the coverage map's
+    shapes (offline)."""
+    from shapely.geometry import box
+    a, b = box(10.0, 50.0, 11.0, 51.0), box(11.0, 50.0, 12.0, 51.0)  # b east of a
+    whole = bs.strip_share(a, b, [(49.0, 52.0, 9.0, 13.0)])
+    assert whole["share"] == pytest.approx(1.0) and whole["km2"] == pytest.approx(5.0 * 111.2, rel=0.03)
+    half = bs.strip_share(a, b, [(49.0, 50.5, 9.0, 13.0)])  # (south, north, west, east): the southern half
+    assert half["share"] == pytest.approx(0.5, abs=0.01) and half["km2"] == whole["km2"]
+    assert bs.strip_share(a, b, [(49.0, 52.0, 11.5, 13.0)])["share"] == 0.0  # the box starts 35 km east of the border
+    assert bs.strip_share(a, b, [])["share"] == 0.0
+    assert bs.strip_share(a, box(11.2, 50.0, 12.0, 51.0), [(49.0, 52.0, 9.0, 13.0)]) is None  # 14 km apart
+    # a region inside the other shape (a country holding it) is taken out of it first
+    inside = bs.strip_share(box(10.0, 50.0, 12.0, 51.0), b, [(49.0, 52.0, 9.0, 13.0)])
+    assert inside["km2"] == pytest.approx(whole["km2"], rel=0.02) and inside["share"] == pytest.approx(1.0)
+
+    rows = bs.box_reach()
+    import sources as src
+    by_id = {s.id: s for s in (src.SOURCES.values() if isinstance(src.SOURCES, dict) else src.SOURCES)}
+    declared = {(s.id, n) for s in by_id.values() for n in s.neighbours or () if s.coverage and by_id[n].coverage}
+    assert {(r["source"], r["neighbour"]) for r in rows} == declared
+    assert all(r["km2"] > 1 and (r["share"] is None or 0.0 <= r["share"] <= 1.0) for r in rows)
+    share = {(r["source"], r["neighbour"]): r["share"] for r in rows}
+    # measured on 2026-11-05: Czechia's boxes keep inside the country (the Saxon grid got 30 m data at Hrensko),
+    # South Tyrol's hold its whole border with Austria
+    assert share[("saxony", "czechia")] < 0.5 and share[("austria", "south_tyrol")] > 0.95
+    report = bs.box_reach_report(rows)
+    assert any(line.startswith("| saxony | czechia |") for line in report)
+    assert sum(line.startswith("| ") for line in report) == len(rows) + 2  # the head and its rule

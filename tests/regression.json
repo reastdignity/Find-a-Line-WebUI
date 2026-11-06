@@ -323,8 +323,8 @@
     ],
     "needs_env": "FINDALINE_MIRROR",
     "expected": {
-      "anchors": 2801,
-      "open": 2405,
+      "anchors": 2804,
+      "open": 2407,
       "checked": 8628,
       "lines": 566,
       "spots": 98,
@@ -339,7 +339,7 @@
       "filled_km2": 0.3,
       "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
     },
-    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM; since 2026-11-04 the Slovak side at 5 m comes from the mirror's tiles averaged to 5 m (`dmr5/5m`, `tools/sk_tiles.py average`; without that folder the 1 m tiles, and the anchors of before)",
+    "notes": "PL-1992 input; the filled gaps are on the Slovak side; with `--cache` on an empty folder it also tests the geoportal sheet download (index WFS, ASCII grid sheets, NMPT at 0.5 m); since the neighbours (2026-11-01) the Slovak side comes from ÚGKK SR (FINDALINE_MIRROR), the rest from FABDEM; since 2026-11-05 the Slovak side comes from the 1 m tiles again, averaged by the mosaic (the tiles averaged to 5 m go only to a grid of their own CRS: reprojected onto Poland's grid they were smoothed twice), with the anchors of before 2026-11-04",
     "seconds": 3.2
   },
   "R14": {
@@ -889,23 +889,23 @@
     ],
     "needs_env": "FINDALINE_MIRROR",
     "expected": {
-      "anchors": 313115,
-      "open": 13167,
-      "checked": 25432,
+      "anchors": 313278,
+      "open": 13203,
+      "checked": 25484,
       "lines": 2063,
-      "spots": 70,
-      "csv_sha256": "b33224d939f830c7c5722f440d79c7473f3de391ba92ae7a17b4eda267c0fdb1",
+      "spots": 73,
+      "csv_sha256": "e20dede5ba3d1a256323ad36eb06a17e50436a39e722468fcfed0b4b1bd4a050",
       "length_km": 371.166,
       "clearance_min": 0.0,
       "clearance_mean": 1.116,
       "clearance_max": 11.54,
-      "over_trees": 24,
+      "over_trees": 33,
       "coverage": 97.1,
       "empty_tiles": 0,
       "filled_km2": 0.34,
       "filled_from": "ÚGKK SR (DMR 5.0 / DMP 1.0)"
     },
-    "notes": "skipped without FINDALINE_MIRROR (without it the Slovak side comes from FABDEM); --source auto picks geoportal (the centre is in PL); the border ridge: 0.34 km² filled from 2 Slovak DMR/DMP tiles of 2 km, nothing left for FABDEM; geoportal has no NMPT sheet here",
+    "notes": "skipped without FINDALINE_MIRROR (without it the Slovak side comes from FABDEM); --source auto picks geoportal (the centre is in PL); the border ridge: 0.34 km² filled from 2 Slovak DMR/DMP tiles of 2 km, nothing left for FABDEM; geoportal has no NMPT sheet here; since 2026-11-05 the neighbour's 1 m data are reprojected onto the grid by nearest, not bilinearly (`filling.NEIGHBOUR_SAME_RESOLUTION`): 162 more anchors, 3 more spots",
     "seconds": 5.1
   },
   "R35": {

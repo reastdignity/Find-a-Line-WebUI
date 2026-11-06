@@ -8,6 +8,7 @@ import json
 import math
 import os
 import random
+import re
 import shutil
 import subprocess
 import sys
@@ -801,7 +802,7 @@ const pages = [m.parsePage("", hash, false), m.parsePage("", hash, true), m.pars
 console.log(JSON.stringify({pages, urls: pages.slice(0, 2).map(m.patchUrl), back: m.backUrl(pages[0])}));""")
     pages = found["pages"]
     assert pages[0] == {"run": "2026-11-01_12-00_Żabi Koń_ab12", "line": "50.1559508,19.7562722,50.1561234,19.7571234",
-                        "level": "full"}
+                        "level": "full", "also": []}
     assert [p["level"] for p in pages[:4]] == ["full", "phone", "full", "phone"]
     assert pages[4]["line"] is None and pages[5]["line"] is None
     run = "2026-11-01_12-00_%C5%BBabi%20Ko%C5%84_ab12"
@@ -1019,6 +1020,233 @@ const tick = () => new Promise((r) => setTimeout(r, 0));
     assert found["line"] == "50.1559508,19.7562722,50.2000000,19.7000000"
 
 
+def test_view3d_pin_placement(tmp_path):
+    """view3d/interact.ts pinPlacement (round 2, point 1): the pin's tip 14 px above the unloaded webbing at the
+    walker's place along the walker's own up on the screen, or 3 px over the head when that is higher (or the
+    webbing's point is missing); the leader from the head to the tip; segmentBox turns two points into an element
+    of a length and a rotation; webbing.ts unloadedAt: the unloaded curve's point at the walker's x and y."""
+    rig = sag.Rigging()
+    rigging = {"pretension": rig.pretension, "stretch": rig.stretch, "webbing_weight": rig.webbing_weight,
+               "athlete_mass": rig.athlete_mass, "fall_zone": rig.fall_zone}
+    anchors = [{"x": 100.5, "y": 200.5, "h": 350.0}, {"x": 220.5, "y": 200.5, "h": 340.0}]
+    found = run_ts(tmp_path, "view3d/webbing", f"""
+const a = {json.dumps(anchors)}, w = m.webbing(a, {json.dumps(rigging)});
+const at = (s) => m.unloadedAt(w, a, s);
+console.log(JSON.stringify({{
+  ends: [at(0), at(w.span), at(-5), at(w.span + 5)], mid: at(60), chord: 350 - 10 * 60 / 120,
+  along: [1, 17, 40, 77, 100].map(at),
+  none: m.unloadedAt({{...w, estimate: {{...w.estimate, unloaded: []}}}}, a, 10)}}));""")
+    start, end = found["ends"][0], found["ends"][1]
+    assert start == pytest.approx([100.5, 200.5, 350.0], abs=1e-6)
+    assert end == pytest.approx([220.5, 200.5, 340.0], abs=1e-6)
+    assert found["ends"][2] == start and found["ends"][3] == end  # clamped to the span
+    mid = found["mid"]
+    assert mid[:2] == pytest.approx([160.5, 200.5], abs=1e-6)
+    assert 0 < found["chord"] - mid[2] < 10  # below the chord by the unloaded webbing's sag
+    for p, s in zip(found["along"], [1, 17, 40, 77, 100]):
+        assert p[0] == pytest.approx(100.5 + s, abs=1e-6) and p[1] == pytest.approx(200.5)
+    assert found["none"] is None
+    found = run_ts(tmp_path, "view3d/interact", """
+const feet = {x: 100, y: 200}, head = {x: 100, y: 184};
+const P = (webbing, f = feet, h = head) => m.pinPlacement(f, h, webbing);
+console.log(JSON.stringify({
+  lift: [m.PIN_LIFT_PX, m.PIN_HEAD_GAP_PX],
+  over: P({x: 100, y: 190}),                  // the webbing below the head: 14 px over it
+  high: P({x: 100, y: 170}),                  // the webbing above the head: still 14 px over the webbing
+  low: P({x: 100, y: 200}),                   // the webbing at the feet: 14 px over it is under the head's own
+  missing: P(null),
+  tilted: P({x: 3, y: -2}, {x: 0, y: 0}, {x: 3, y: -4}),  // the walker's up (0.6, -0.8)
+  upsideDown: P(null, {x: 10, y: 10}, {x: 10, y: 14}),
+  flat: P(null, {x: 10, y: 10}, {x: 10, y: 10}),
+  boxes: [m.segmentBox({x: 0, y: 10}, {x: 0, y: 0}), m.segmentBox({x: 10, y: 0}, {x: 0, y: 0}),
+          m.segmentBox({x: -3, y: 4}, {x: 0, y: 0}), m.segmentBox({x: 5, y: 5}, {x: 5, y: 5})],
+}));""")
+    assert found["lift"] == [14, 3]
+    assert found["over"]["tip"] == {"x": 100, "y": 176}  # 190 - 14: higher than 184 - 3
+    assert found["over"]["leader"] == {"from": {"x": 100, "y": 184}, "to": {"x": 100, "y": 176}}
+    assert found["high"]["tip"] == {"x": 100, "y": 156}
+    assert found["low"]["tip"] == {"x": 100, "y": 181}  # 3 px over the head
+    assert found["low"]["leader"]["from"] == {"x": 100, "y": 184}
+    assert found["missing"]["tip"] == {"x": 100, "y": 181}
+    tip = found["tilted"]["tip"]
+    assert (tip["x"], tip["y"]) == pytest.approx((3 + 0.6 * 14, -2 - 0.8 * 14))
+    assert found["upsideDown"]["tip"]["y"] == pytest.approx(11)  # up is towards the top of the screen
+    assert found["flat"]["tip"] == {"x": 10, "y": 7}
+    down, right, back, none = found["boxes"]
+    assert down["length"] == 10 and down["angle"] == pytest.approx(0)
+    assert right["length"] == 10 and right["angle"] == pytest.approx(-math.pi / 2)  # +y turned counter-clockwise onto +x
+    assert back["length"] == 5 and back["angle"] == pytest.approx(math.atan2(3, 4))
+    assert none == {"length": 0, "angle": 0}
+
+
+def test_view3d_credits_box(tmp_path):
+    """view3d/scene.ts creditsBox (round 2, point 6): the data credits behind their button at every width, open at
+    the start from 768 px up and folded under it unless the user chose before ("open"/"folded" in the browser's
+    storage under findaline.view3d.credits, written on each click); a storage that throws changes nothing but the
+    memory; the imagery's credits stay out of the fold; the focus returns to the new button."""
+    found = run_ts(tmp_path, "view3d/scene", r"""
+const make = (stored, wide, broken = false) => {
+  const written = [];
+  const store = broken ? {getItem() { throw new Error("denied"); }, setItem() { throw new Error("denied"); }}
+                       : {getItem: (k) => (k === m.CREDITS_KEY ? stored : null), setItem: (k, v) => written.push([k, v])};
+  let focused = 0, handler = null;
+  const box = {innerHTML: "", hidden: null, classList: {toggle(c, on) { box.hidden = on; }},
+               addEventListener(type, fn) { if (type === "click") handler = fn; },
+               querySelector(sel) { return sel === ".u-credits-toggle" ? {focus() { focused++; }} : null; }};
+  const credits = m.creditsBox(box, store, () => wide);
+  credits.set("data", "<b>Data</b>", 1);
+  credits.set("imagery", "<i>Imagery</i>", 2);
+  const state = () => ({
+    open: /class="u-credits u-open"/.test(box.innerHTML), expanded: (box.innerHTML.match(/aria-expanded="(\w+)"/) || [])[1],
+    imageryOutside: /<span class="v3-credit"><i>Imagery<\/i><\/span>/.test(box.innerHTML),
+    button: /<button type="button" class="u-credits-toggle"/.test(box.innerHTML)});
+  const click = () => handler({target: {closest: (sel) => (sel === ".u-credits-toggle" ? {} : null)}});
+  const other = () => handler({target: {closest: () => null}});
+  return {box, written, state, click, other, focused: () => focused};
+};
+const out = {};
+let c = make(null, true);
+out.wide = c.state(); c.click(); out.wideClicked = [c.state(), c.written.slice(), c.focused()];
+c.other(); out.otherClick = [c.written.length, c.focused()];
+c = make(null, false);
+out.narrow = c.state(); c.click(); out.narrowClicked = [c.state(), c.written.slice()]; c.click(); out.narrowAgain = [c.state(), c.written.slice(-1)];
+out.chosen = [make("folded", true).state().open, make("open", false).state().open, make("junk", true).state().open, make("junk", false).state().open];
+c = make(null, true, true);
+out.broken = c.state(); c.click(); out.brokenClicked = c.state();
+console.log(JSON.stringify(out));""")
+    assert found["wide"] == {"open": True, "expanded": "true", "imageryOutside": True, "button": True}
+    assert found["wideClicked"][0]["open"] is False and found["wideClicked"][0]["expanded"] == "false"
+    assert found["wideClicked"][1] == [["findaline.view3d.credits", "folded"]] and found["wideClicked"][2] == 1
+    assert found["otherClick"] == [1, 1]  # a click elsewhere in the box changes nothing
+    assert found["narrow"] == {"open": False, "expanded": "false", "imageryOutside": True, "button": True}
+    assert found["narrowClicked"][0]["open"] is True
+    assert found["narrowClicked"][1] == [["findaline.view3d.credits", "open"]]
+    assert found["narrowAgain"][0]["open"] is False and found["narrowAgain"][1] == [["findaline.view3d.credits", "folded"]]
+    assert found["chosen"] == [False, True, True, False]  # a stored choice wins; anything else: by the width
+    assert found["broken"]["open"] is True and found["brokenClicked"]["open"] is False  # storage denied: still works
+
+
+def test_view3d_imagery_counts_in_the_pill(tmp_path):
+    """view3d/imagery.ts (round 2, point 2): the tiles loaded are counted in the stage's activity pill (entry
+    "imagery": "Imagery 3 / 12" and the fraction), no more often than COUNT_MS and ending at all of them; the entry
+    is cleared when the loading ends, when Shaded or Edges replaces it, and on dispose; a kind started over another
+    keeps one entry."""
+    from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM, GEOPORTAL
+    ax, ay = CX - 100, CY + 50
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}],
+            "ortho": {**GEOPORTAL, "cache": "../../cache/orthophoto/poland/wm256"}, "attribution": None}
+    bounds = [{"x0": ax - 60, "y0": ay - 60, "x1": ax + 140, "y1": ay + 60},
+              {"x0": CX + 600, "y0": CY + 600, "x1": CX + 900, "y1": CY + 900}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: "key"}});
+  await im.set("ortho");
+  const loaded = activity.splice(0);
+  await im.set("esri");
+  const second = activity.splice(0);
+  im.set("ortho");             // not awaited ...
+  await wait(0);
+  const mid = activity.splice(0);
+  await im.set("shaded");      // ... replaced by Shaded before it ends
+  await wait(20);
+  const replaced = activity.splice(0);
+  await im.set("ortho");
+  activity.splice(0);
+  im.dispose();
+  console.log(JSON.stringify({{loaded, second, mid, replaced, disposed: activity.splice(0),
+                              toolbar: toolbar.children[0].children.map((c) => c.className)}}));
+}})();""")
+    loaded = found["loaded"]
+    sets = [e for e in loaded if e[0] == "set"]
+    assert sets and loaded[-1] == ["clear", "imagery"] and all(e[1] == "imagery" for e in loaded)
+    total = int(re.search(r"/ (\d+)$", sets[0][2]).group(1))
+    assert total > 3 and sets[0][2] == f"Imagery 0 / {total}" and sets[0][3] == 0
+    assert sets[-1][2] == f"Imagery {total} / {total}" and sets[-1][3] == 1  # all of them, whatever the throttle
+    fractions = [e[3] for e in sets]
+    assert fractions == sorted(fractions) and len(sets) < total  # at most every COUNT_MS: fewer than the tiles
+    assert [e[0] for e in found["second"]][-1] == "clear" and found["second"][0][0] == "set"
+    assert found["mid"] and found["mid"][-1][0] == "set"
+    assert found["replaced"] == [["clear", "imagery"]]  # the stopped loading adds nothing after the clear
+    assert found["disposed"] == [["clear", "imagery"]]
+    assert "u-small v3-imagery-status" not in found["toolbar"]
+
+
+def test_view3d_imagery_says_what_failed(tmp_path):
+    """view3d/imagery.ts: tiles that could not be loaded are named in a notice of the activity pill with "Try
+    again" (their number, or that the service does not answer); a service failing REFUSED_AFTER times in a row is
+    not asked for its other tiles; a chunk none of whose tiles came is shaded, not a flat picture; the notice goes
+    when a loading succeeds and when Shaded is chosen."""
+    from test_view3d_tiles import AFFINE, CX, CY, FAKE_DOM
+    ax, ay = CX - 100, CY + 50
+    meta = {"left": CX - 768.5, "top": CY + 768.5, "width": 1537, "height": 1537, "res": 1, "affine": AFFINE,
+            "anchors": [{"x": ax, "y": ay, "h": 400}, {"x": ax + 80, "y": ay, "h": 395}], "ortho": None,
+            "attribution": None}
+    bounds = [{"x0": ax - 300, "y0": ay - 300, "x1": ax + 300, "y1": ay + 300},
+              {"x0": CX + 300, "y0": CY + 300, "x1": CX + 760, "y1": CY + 760}]
+    found = run_ts(tmp_path, "view3d/imagery", f"""
+const META = {json.dumps(meta)}, BOUNDS = {json.dumps(bounds)};
+{FAKE_DOM}
+// Esri's tiles (one image a tile): all refused, one tile failing, or all answered
+let mode = "refuse", bad = null;
+const base = (v) => v.replace(/[?&]_fal3d=[^&]*/, "");
+global.Image = class {{
+  set src(v) {{
+    this._src = v; if (!v) return;
+    loads.push(v);
+    if (mode === "one" && bad === null) bad = base(v);
+    const fails = mode === "refuse" || (mode === "one" && base(v) === bad);
+    setTimeout(() => (fails ? this.onerror : this.onload)?.(), 1);
+  }}
+  get src() {{ return this._src; }}
+}};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// the pill's notice of the failed tiles (the activity's entry "imagery-failed"): what it says last, or "cleared"
+const state = () => {{
+  const log = activity.splice(0), mine = log.filter((e) => e[1] === "imagery-failed").at(-1) || null;
+  return {{notice: mine && mine[0] === "notice" ? mine.slice(2) : mine && "cleared", loads: loads.splice(0).length,
+          total: Number((log.find((e) => e[0] === "set") || [0, 0, "/ 0"])[2].split("/ ")[1]),
+          last: [0, 1].map((k) => (textures.filter((x) => x[0] === k).at(-1) || [k, "none"])[1])}};
+}};
+(async () => {{
+  const im = m.createImagery(scene, {{runId: "r1", esriKey: "key"}});
+  await im.set("esri");
+  const out = {{refusedAfter: m.REFUSED_AFTER, refused: state()}};
+  mode = "one";
+  await im.set("esri");
+  out.one = state();
+  mode = "refuse";
+  await im.set("esri");
+  state();
+  mode = "ok";
+  scene.noticeAction.onClick();  // Try again
+  await wait(300);
+  out.again = state();
+  mode = "one"; bad = null;
+  await im.set("esri");
+  await im.set("shaded");
+  out.shaded = state();
+  console.log(JSON.stringify(out));
+}})();""")
+    refused, total = found["refused"], found["refused"]["total"]
+    assert total > 2 * found["refusedAfter"], found  # enough tiles for the refusal to save requests
+    assert refused["notice"] == ["The imagery service does not answer: the terrain is shaded where its tiles are missing.",
+                                 "Try again"]
+    # the failures in a row and what was in flight beside them (six at a time), each asked twice, and the six of
+    # the loading the page began by itself: fewer requests than one a tile
+    assert refused["loads"] <= 2 * (found["refusedAfter"] + 2 * 6) + 6 < total, found
+    assert refused["last"] == [None, None]  # shaded chunks, no flat picture of the terrain's colour
+    one = found["one"]
+    assert one["notice"] == [f"1 of {total} imagery tiles could not be loaded.", "Try again"]
+    assert one["loads"] == total + 1 and any(t for t in one["last"])  # the one tile asked twice; its chunk keeps its picture
+    again = found["again"]
+    assert again["notice"] == "cleared" and again["loads"] == total and all(again["last"])
+    assert found["shaded"]["notice"] == "cleared"  # Shaded shows no failed tiles of the kind before
+
+
 def test_view3d_verdict(tmp_path):
     """view3d/webbing.ts: a line's verdict from its profile (fits; over the terrain only when the surface model's
     clearance is ≤ 0; does not fit when the terrain's is below 0, whatever the surface's), its colour token and
@@ -1234,7 +1462,7 @@ scene.setEdges = (on) => looks.push(on);
 }})();""")
     assert found["available"] == ["ortho", "shaded", "edges"]
     assert found["buttons"] == ["Orthophoto", "Shaded", "Edges"]
-    assert found["notes"] == 3  # the control, its select and the loading status: there is imagery, no note
+    assert found["notes"] == 2  # the control and its select: there is imagery, no note; the count is in the pill
     assert found["first"] == [False]  # the orthophoto first: the look off
     edges = found["edges"]
     assert edges["current"] == "edges" and edges["imagery"] is None and edges["looks"] == [True]
@@ -1262,8 +1490,7 @@ console.log(JSON.stringify({{available: im.available, texts: row.children.map((c
                             buttons: row.children[0].children.map((b) => b.textContent)}}));""")
     assert found["available"] == ["shaded", "edges"]
     assert found["texts"] == [["u-seg", None], ["u-input v3-select", None],
-                              ["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded."],
-                              ["u-small v3-imagery-status", None]]  # its count written when imagery loads
+                              ["u-small v3-imagery-note", "No imagery for this result: the terrain is shaded."]]
     assert found["buttons"] == ["Shaded", "Edges"]
 
 

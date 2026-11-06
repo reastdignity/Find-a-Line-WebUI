@@ -194,16 +194,19 @@ def test_places_of_a_name(tmp_path, monkeypatch):
 
 
 @contextlib.contextmanager
-def _fake_server(body: bytes, seconds: float = 0.0, statuses=()):
+def _fake_server(body: bytes, seconds: float = 0.0, statuses=(), asked=None):
     """A local HTTP server answering every GET with `body` after `seconds` (the first ones with the
     HTTP statuses of `statuses`, then 200); yields its URL and the list of (start, end) times of the
-    requests it served."""
+    requests it served. `asked`: a list it adds (start, the query's q) of each request to."""
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    from urllib.parse import parse_qs, urlsplit
     served = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             start = time.time()
+            if asked is not None:
+                asked.append((start, parse_qs(urlsplit(self.path).query).get("q", [None])[0]))
             time.sleep(seconds)
             self.send_response(statuses[len(served)] if len(served) < len(statuses) else 200)
             self.send_header("Content-Type", "application/json")
@@ -225,26 +228,38 @@ def _fake_server(body: bytes, seconds: float = 0.0, statuses=()):
         server.server_close()
 
 
-def _in_turn(kind: str, url: str, cache_dir: str, names, start: float):
-    """Run in a spawned process: Nominatim searches or Overpass tiles against the fake server."""
+def _in_turn(kind: str, url: str, cache_dir: str, names, start: float, out=None):
+    """Run in a spawned process: Nominatim searches or Overpass tiles against the fake server; `out`:
+    a JSON file for each search's name, the time (ms) of the permit granted for it and the timeouts
+    of the bucket's polls (tests/test_rates.py, permit_recorders)."""
     os.environ["NO_PROXY"] = "127.0.0.1"
     import osm
     import osmextract
     osmextract.build_tile = lambda *args: False  # no extracts: Overpass
     osm.SEARCH_URL = osm.OVERPASS_URL = url
+    permits, waits, turns = [], set(), []
+    if out is not None:
+        from pyrate_limiter import Limiter, SQLiteBucket
+        from test_rates import permit_recorders
+        SQLiteBucket.put, Limiter.try_acquire = permit_recorders(permits, waits)
     time.sleep(max(0.0, start - time.time()))  # both processes begin together
     for name in names:
         if kind == "nominatim":
             osm.search(name, cache_dir)
+            turns.append((name, permits[-1] if permits else None, len(permits)))
         else:
             osm.fetch_tile("cliff", name, 10.0, cache_dir)
+    if out is not None:
+        with open(out, "w", encoding="utf-8") as f:
+            json.dump({"turns": turns, "waits": sorted(waits)}, f)
 
 
-def _two_processes(kind: str, url: str, cache_dir: str, names):
+def _two_processes(kind: str, url: str, cache_dir: str, names, outs=(None, None)):
     import multiprocessing
     context = multiprocessing.get_context("spawn")
     start = time.time() + 5  # time to start both
-    processes = [context.Process(target=_in_turn, args=(kind, url, cache_dir, names[i::2], start)) for i in range(2)]
+    processes = [context.Process(target=_in_turn, args=(kind, url, cache_dir, names[i::2], start, outs[i]))
+                 for i in range(2)]
     for process in processes:
         process.start()
     for process in processes:
@@ -253,35 +268,51 @@ def _two_processes(kind: str, url: str, cache_dir: str, names):
 
 
 def test_nominatim_one_request_per_second_across_processes(tmp_path):
-    """Two processes searching at once: the requests reach Nominatim at least a second apart."""
-    with _fake_server(b"[]") as (url, served):
-        _two_processes("nominatim", url, str(tmp_path), [f"place {i}" for i in range(6)])
-    starts = sorted(start for start, _ in served)
-    assert len(starts) == 6
-    assert min(b - a for a, b in zip(starts, starts[1:])) >= 1.0
-
-
-def test_nominatim_turns_never_early(tmp_path):
-    """Threads asking for Nominatim turns at once get them NOMINATIM_INTERVAL_MS apart, never less
-    (pyrate-limiter's own blocking wait let one in about a timer's oversleep early)."""
+    """Two processes searching at once share one limit: the permits granted to both together are
+    NOMINATIM_INTERVAL_MS (1.1 s) apart, and each request reaches Nominatim only after its own permit.
+    That is what the code guarantees; the time from a permit to the request reaching the server depends
+    on the scheduler (measured under heavy load: up to 0.5 s in the client and 0.7 s before the fake
+    server's handler ran), so the arrivals themselves can come closer than a second: an accepted risk
+    while the production load is light."""
     import osm
-    turns, lock = [], threading.Lock()
+    names = [f"place {i}" for i in range(6)]
+    outs = [str(tmp_path / f"turns{i}.json") for i in range(2)]
+    asked = []
+    with _fake_server(b"[]", asked=asked) as (url, served):
+        _two_processes("nominatim", url, str(tmp_path), names, outs)
+    assert len(served) == 6 and sorted(q for _, q in asked) == names
+    children = [json.loads(open(out, encoding="utf-8").read()) for out in outs]
+    assert all(child["waits"] == [0] for child in children)  # polled: each permit stamped when asked
+    turns = [turn for child in children for turn in child["turns"]]
+    # one permit per search, each process's own in its order
+    assert all([n for _, _, n in child["turns"]] == [1, 2, 3] for child in children)
+    permits = sorted(permit for _, permit, _ in turns)
+    assert min(b - a for a, b in zip(permits, permits[1:])) >= osm.NOMINATIM_INTERVAL_MS
+    permit_of = {name: permit for name, permit, _ in turns}
+    assert all(start >= permit_of[q] / 1000 for start, q in asked), (asked, permit_of)
+
+
+def test_nominatim_turns_never_early(tmp_path, monkeypatch):
+    """Threads asking for Nominatim turns at once get them NOMINATIM_INTERVAL_MS apart, never less
+    (pyrate-limiter's own blocking wait let one in about a timer's oversleep early). The turns as the
+    bucket grants them and no wait inside pyrate-limiter (tests/test_rates.py, permit_recorders): a
+    clock read after the turn, 2 ms allowed for the way there, was 19 ms short on a busy machine."""
+    import osm
+    from test_rates import _record_permits
+    permits, waits = _record_permits(monkeypatch)
 
     def ask():
         for _ in range(3):
             osm._nominatim_turn(str(tmp_path))
-            with lock:
-                turns.append(time.monotonic())
 
     threads = [threading.Thread(target=ask) for _ in range(3)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(60)
-    turns.sort()
-    assert len(turns) == 9
-    # 2 ms for the way from the permit to the list
-    assert min(b - a for a, b in zip(turns, turns[1:])) >= osm.NOMINATIM_INTERVAL_MS / 1000 - 0.002
+    permits.sort()
+    assert len(permits) == 9 and waits == {0}
+    assert min(b - a for a, b in zip(permits, permits[1:])) >= osm.NOMINATIM_INTERVAL_MS
 
 
 def test_overpass_one_query_at_a_time_across_processes(tmp_path):

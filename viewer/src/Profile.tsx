@@ -48,6 +48,10 @@ export interface ProfileProps {
   onTitle?(title: string, facts: string): void;  // the title (as the head has it) and its facts after the length
   onClose(): void;
   onHover(at: [number, number] | null): void;   // (lat, lon) under the cursor
+  /** An outside cursor (the 3D view's walker): the distance from A1 shown while the chart is not pointed at. */
+  cursorAt?: number | null;
+  /** The distance from A1 under the chart's own cursor, with the line's length (null: it left the chart). */
+  onCursor?(distance: number | null, length: number): void;
 }
 
 export function ProfilePanel(props: ProfileProps) {
@@ -62,7 +66,8 @@ export function ProfilePanel(props: ProfileProps) {
   const [equal, setEqual] = useState(false);
   const [width, setWidth] = useState(800);
   const [boxHeight, setBoxHeight] = useState(HEIGHT);  // the chart's box (fill mode)
-  const [hover, setHover] = useState<number | null>(null);  // distance from A1 under the cursor
+  const [pointed, setHover] = useState<number | null>(null);  // distance from A1 under the chart's cursor
+  const hover = pointed ?? props.cursorAt ?? null;  // else the outside cursor's
   const chartRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -238,14 +243,16 @@ export function ProfilePanel(props: ProfileProps) {
     setHover(d);
     const t = d / l.len;
     props.onHover([l.lat1 + (l.lat2 - l.lat1) * t, l.lon1 + (l.lon2 - l.lon1) * t]);
+    props.onCursor?.(d, l.len);
   };
-  const onLeave = () => { setHover(null); props.onHover(null); };
+  const onLeave = () => { setHover(null); props.onHover(null); props.onCursor?.(null, l.len); };
   // The keyboard: ← → move the readout by a fiftieth of the line (Shift: a tenth), Home/End to the anchors
   const hoverTo = (d: number) => {
     d = Math.max(0, Math.min(l.len, d));
     setHover(d);
     const t = d / l.len;
     props.onHover([l.lat1 + (l.lat2 - l.lat1) * t, l.lon1 + (l.lon2 - l.lon1) * t]);
+    props.onCursor?.(d, l.len);
   };
   const onKey = (e: KeyboardEvent) => {
     const by = l.len / (e.shiftKey ? 10 : 50), at = hover ?? 0;

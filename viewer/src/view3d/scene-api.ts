@@ -31,10 +31,60 @@ export interface Chunk {
 export interface Credits {
   set(id: string, html: string, order?: number): void;
   remove(id: string): void;
+  /** Fold the run's data credits behind their button, for now (the choice kept in the browser stays): a card
+   *  opened under them, and open they would cover the line. */
+  fold(): void;
+}
+
+/** The activity pill over the stage (round 2): what the page is loading or computing right now, with a spinner.
+ *  The entry added last shows (setting an entry again changes it in place: the imagery's count never hides a
+ *  wait that began after it); `fraction` (0 to 1) adds a small bar, null none. Hidden without an entry. */
+export interface Activity {
+  set(id: string, text: string, fraction?: number | null): void;
+  /** A notice in the pill's place (something went wrong: imagery tiles that could not be loaded): no spinner,
+   *  the warning's colour, `action`'s button and one to dismiss it; it shows while no wait does, until cleared. */
+  notice(id: string, text: string, action?: ActivityAction | null): void;
+  clear(id: string): void;
+}
+
+export interface ActivityAction { label: string; onClick(): void }
+
+/** A button of the tool strip over the stage (round 2). */
+export interface ToolSpec {
+  /** The button's `data-tool` (for tests). */
+  id: string;
+  label: string;
+  /** The `d` of a path in a 16 × 16 box, drawn as a line in the text's colour. */
+  icon: string;
+  /** Its place in the strip, low first (docs/3d-view-contract.md, "Round 2": the tools' order). */
+  order: number;
+  /** A switch (`aria-pressed`, `setPressed`) and not an action. */
+  toggle?: boolean;
+  onClick(): void;
+}
+
+export interface ToolButton {
+  element: HTMLButtonElement;
+  setPressed(on: boolean): void;
+  setLabel(text: string): void;
+  setIcon(d: string): void;
+  remove(): void;
+}
+
+/** The tool strip over the stage: the controls of round 2 (the bar below keeps the walker, the imagery, the views). */
+export interface Tools {
+  add(spec: ToolSpec): ToolButton;
 }
 
 export interface Scene3D {
   level: Level;
+  activity: Activity;
+  tools: Tools;
+  /** The slot of the card over the stage's bottom (the profile's): it lies on the canvas, which keeps its size. */
+  card: HTMLElement;
+  /** A half-transparent picture over the whole terrain (round 2: the reach of an anchor); `uv` maps grid metres
+   *  to its (u, v) in [0, 1]; null takes it away. Never drawn in the edges' pass, never a pick target. */
+  setOverlay(texture: Texture | null, uv?: (x: number, y: number) => [number, number]): void;
   patch: Patch;
   meta: PatchMeta;
   origin: Origin;

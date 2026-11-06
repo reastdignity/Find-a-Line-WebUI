@@ -18,6 +18,14 @@ def res_name(res: float) -> str:
     return f"{res:g}m"
 
 
+def _same(a: str, b: str) -> bool:
+    """Are two CRS (as a grid names them) the same?"""
+    if str(a) == str(b):
+        return True
+    from rasterio.crs import CRS
+    return CRS.from_user_input(a) == CRS.from_user_input(b)
+
+
 def renamed(text: str, native: float, res: float) -> str:
     """text (a cache folder, a mirror folder, a URL) with its one name of the native resolution
     replaced by that of res: "slovakia/dmr5/5.0/epsg8353-1m-2km" -> "...-2m-2km",
@@ -31,24 +39,31 @@ def renamed(text: str, native: float, res: float) -> str:
 
 class GridResolutions(Index):
     """One MetricTiling per resolution the tiles are kept at (the native, and the averaged ones):
-    a grid at exactly one of them reads that resolution's tiles when they are available
-    (`available(res)`: the mirror or a URL has them), any other grid the native ones. A tile is
-    (res, i, j), cached in the folder of its resolution."""
+    a grid of the tiles' CRS at exactly one of them reads that resolution's tiles when they are
+    available (`available(res)`: the mirror or a URL has them), any other grid the native ones. A
+    grid of another CRS (a neighbour's, filling its border gaps) never reads the averaged tiles:
+    the mosaic would reproject them bilinearly, as data of its own resolution (averaged, then
+    smoothed: on Poland's 2 m grid in the Tatras 12 % of the Slovak side's spots were lost, 4 %
+    with the native tiles averaged by the mosaic; docs/performance.md, "The resampling of a
+    neighbour's data"). A tile is (res, i, j), cached in the folder of its resolution."""
 
     def __init__(self, crs: str, folders: Dict[float, str], tile_m: float, available: Callable[[float], bool]):
         self.tilings = {res: MetricTiling(crs, folder, tile_m) for res, folder in folders.items()}
         self.native = min(self.tilings)
         self.available = available
+        self.crs = crs
 
-    def resolution(self, grid_res: float) -> float:
-        """The resolution of the tiles a grid reads."""
+    def resolution(self, grid_res: float, grid_crs: Optional[str] = None) -> float:
+        """The resolution of the tiles a grid reads (grid_crs None: a grid of the tiles' CRS)."""
+        if grid_crs is not None and not _same(grid_crs, self.crs):
+            return self.native
         for res in self.tilings:
             if res != self.native and math.isclose(res, grid_res) and self.available(res):
                 return res
         return self.native
 
     def tiles(self, grid: Grid) -> list:
-        res = self.resolution(grid.res)
+        res = self.resolution(grid.res, grid.crs)
         return [(res, i, j) for i, j in self.tilings[res].tiles(grid)]
 
     def path(self, cache_dir: str, tile) -> str:
@@ -112,6 +127,7 @@ class GridTiles(ComposedLayer):
         """Where the native tiles come from, in order (see TileBases.bases)."""
         return self.readers[self.native_res].bases()
 
-    def resolution(self, grid_res: float) -> float:
-        """The resolution of the tiles a grid of grid_res reads (the native, or an averaged one)."""
-        return self.index.resolution(grid_res)
+    def resolution(self, grid_res: float, grid_crs: Optional[str] = None) -> float:
+        """The resolution of the tiles a grid of grid_res reads (the native, or an averaged one;
+        a grid of another CRS than the tiles' always the native)."""
+        return self.index.resolution(grid_res, grid_crs)

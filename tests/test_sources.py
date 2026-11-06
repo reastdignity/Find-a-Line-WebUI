@@ -460,6 +460,14 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
     # Any other resolution reads the 1 m tiles, as does a resolution the mirror lacks
     assert layer.resolution(3.0) == 1.0 and layer.tiles(gd.make_grid(bounds, 3.0, "EPSG:8353"))[0][0] == 1.0
     assert layer.resolution(1.0) == 1.0
+    # A grid of another CRS (a neighbour's) reads the 1 m tiles also at 2 m and 5 m: the averaged ones would be
+    # reprojected bilinearly on top
+    from rasterio.warp import transform_bounds
+    other = transform_bounds("EPSG:8353", "EPSG:2180", *bounds)
+    for res in (2.0, 5.0):
+        assert layer.resolution(res, "EPSG:2180") == 1.0 and layer.resolution(res, "EPSG:8353") == res
+        foreign = layer.tiles(gd.make_grid(other, res, "EPSG:2180"))
+        assert foreign and all(t[0] == 1.0 for t in foreign)
     import shutil
     shutil.rmtree(root.parent / "5m")
     assert layer.resolution(5.0) == 1.0 and layer.resolution(2.0) == 2.0

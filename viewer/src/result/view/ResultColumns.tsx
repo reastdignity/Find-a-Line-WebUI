@@ -122,14 +122,16 @@ function useResultMap(model: ResultModel, data: RunData, ortho: ResultColumnsPro
   return {ref, map, view};
 }
 
-/** The selection follows the route's line, and the hash follows the selection. */
+/** The selection follows the route's line, and the hash follows the selection. A line of the route that is not
+ *  among the run's is measured where profiles can be asked and handed to `setMeasured` (the 3D view's moved
+ *  anchors, or a favourite saved there). */
 function useLinkedLine(model: ResultModel, line: string | null, view: ResultMap | null, padding: () => Padding,
-                       nav: number, hashOf: ResultColumnsProps["hashOf"]) {
+                       nav: number, hashOf: ResultColumnsProps["hashOf"], setMeasured: (l: Line) => void) {
   useEffect(() => {
     if (!view || !line) return;
     const sel = model.selected?.line;
     if (sel && model.runOf(sel) === model.runId && model.lineLink(sel) === linkOf(line)) return;
-    const found = model.openLinked(line);
+    const found = model.openLinked(line, (measured) => { setMeasured(measured); view.zoomTo(measured, padding(), false); });
     if (found) view.zoomTo(found, padding(), false);
   }, [line, view, nav]);  // nav: Back or Forward to the same link opens it again
   useEffect(() => model.subscribe(() => {
@@ -143,6 +145,7 @@ function useLinkedLine(model: ResultModel, line: string | null, view: ResultMap 
     if (!want) {  // nothing selected: the link stays for a line hidden by the filters only
       const link = linkOf(now), linked = link && model.lines.find((l) => model.lineLink(l) === link);
       if (linked && !model.groupOf(linked)) return;
+      if (link && (link === model.measuredLink || (!linked && model.measurableLink(link)))) return;  // outside the run: measured
     }
     history.replaceState(history.state, "", hash);
   }), [model]);
@@ -170,6 +173,7 @@ function useMeasureEnds(model: ResultModel, view: ResultMap | null, setMeasured:
       last = now;
       if (!now) return;
       setMeasured(null);
+      model.measuredLink = null;
       view?.clearMeasure();
       then?.();
     });
@@ -293,7 +297,7 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
   const closeChoice = () => setChoice(null);
   const {ref, map, view} = useResultMap(model, data, ortho, padding, (choices, at) => setChoice({choices, at}));
   useChoiceCloses(model, map, closeChoice);
-  useLinkedLine(model, line, view, padding, nav, hashOf);
+  useLinkedLine(model, line, view, padding, nav, hashOf, setMeasured);
   useMeasureEnds(model, view, setMeasured);
   useRunCredits(map, data, base, folder);
   // The attribution and the scale stay in sight above the profile's card where it covers them
@@ -394,7 +398,7 @@ function Phone({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, ac
   useChoiceCloses(model, map, closeChoice);
   const phoneRef = useRef<HTMLDivElement>(null);
   useCornersAboveSheet(phoneRef, ref, true);  // the attribution and the scale above the sheet
-  useLinkedLine(model, line, view, padding, nav, hashOf);
+  useLinkedLine(model, line, view, padding, nav, hashOf, (l) => measuredNow(l));
   useMeasureEnds(model, view, setMeasured, () => setSnap((s) => s === "full" ? "half" : s));
   useRunCredits(map, data, base, folder);
   // Measuring: the sheet goes down, the map is where the points are clicked

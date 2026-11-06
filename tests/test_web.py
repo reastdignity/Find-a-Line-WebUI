@@ -247,7 +247,11 @@ def test_status_events_in_the_order_of_the_changes(tmp_path):
 
     def claim():
         while True:
-            if not jobs.claim("ready", "computing", "w") and readied.is_set():
+            # Done when a claim finds nothing although every job was set "ready" before it began: with
+            # readied looked at after the claim, a job set "ready" while that claim ran (the thread
+            # descheduled between the two) was left unclaimed
+            readied_before = readied.is_set()
+            if not jobs.claim("ready", "computing", "w") and readied_before:
                 return
 
     claimer = threading.Thread(target=claim)
@@ -341,7 +345,14 @@ def test_two_jobs_computing_at_once(tmp_path, monkeypatch):
         seen.append(memory)
         raise ValueError("planned")
     monkeypatch.setattr(search, "plan_search", plan_search)
-    monkeypatch.setattr(sys, "stdout", sys.stdout)  # run_phase sends it to the job's events
+    # run_phase in this process: what it changes here is put back after the test (its stdout goes to the
+    # job's events, its progress listener writes events into this test's jobs.sqlite)
+    import osm
+    import progress
+    monkeypatch.setattr(sys, "stdout", sys.stdout)
+    monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
+    monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
     job = jobs.add({"params": params, "geometry": None}, "budget")
     jobs.set(job, "downloading")
     import jobs as jb
@@ -1144,8 +1155,12 @@ def test_event_stream(tmp_path, monkeypatch):
             connection.request("GET", url, headers=headers)
             response = connection.getresponse()
             assert response.status == 200 and response.getheader("content-type").startswith("text/event-stream")
+            # Up to a keep-alive and the worker's line, which follows the events the stream catches up with;
+            # up to the first keep-alive alone was too short on a busy machine (written on its own timer, a
+            # ping came before the events: test_public.py's test_event_stream_per_user)
             lines, started = [], time.time()
-            while not any(line.startswith(":") for line in lines) and time.time() - started < 15:
+            while not (any(line.startswith(":") for line in lines) and any('"kind": "worker"' in line for line in lines)) \
+                    and time.time() - started < 15:
                 lines.append(response.fp.readline().decode("utf-8").rstrip("\r\n"))
             connection.close()
             data = [json.loads(line[5:]) for line in lines if line.startswith("data:")]
@@ -2072,8 +2087,16 @@ RESULTS_SCRIPT = """
       });
     },
   };
+  // Where the steps got to is written at each step, and an error or a rejected promise of a step is recorded:
+  // a chain of steps that broke off would otherwise leave no result at all (CI on Windows, 2026-11-02)
+  window.addEventListener("error", (e) => { result.error = step + ": " + e.message; done(); });
+  window.addEventListener("unhandledrejection", (e) => { result.error = step + ": " + e.reason; done(); });
   const names = Object.keys(steps);
-  const go = (k) => { if (k >= names.length) return done(); step = names[k]; steps[step](() => go(k + 1)); };
+  const go = (k) => {
+    step = result.at = k >= names.length ? "end" : names[k];
+    done();
+    if (k < names.length) steps[step](() => go(k + 1));
+  };
   go(0);
 })();
 """
@@ -2083,7 +2106,11 @@ PHONE_SCRIPT = """
   const out = document.createElement("pre");
   out.id = "result";
   const wait = (ok, then, tries = 150) => ok() ? then() : tries ? setTimeout(() => wait(ok, then, tries - 1), 200) : then();
-  wait(() => document.querySelector(".r-details .r-dtitle"), () => {
+  // Measured once the sheet's profile is done (its chart, or an error), not when the line's details first
+  // show: ProfileDock takes even a saved profile in an effect, which Preact runs after the next frame (or
+  // 35 ms of the page's time without one), so for that while the dock still says "Computing..."
+  const dock = () => document.querySelector(".u-sheet .r-dock");
+  wait(() => document.querySelector(".r-details .r-dtitle") && dock() && !dock().querySelector("[aria-busy]"), () => {
     out.textContent = JSON.stringify({width: innerWidth, sheet: !!document.querySelector(".u-sheet"),
       panel: !!document.querySelector(".r-panel"),
       head: (document.querySelector(".u-sheet-head .r-eyebrow") || {}).textContent || "",
@@ -2129,7 +2156,7 @@ def test_results_ui(tmp_path, monkeypatch):
     page_with(RESULTS_SCRIPT, "desk")
     dom = _edge_page(tmp_path, f"runs/kittest/desk.html{query}", start_scheduler=True, size="1280,800")
     r = result_of(dom)
-    assert "timeout" not in r, json.dumps(r)
+    assert "timeout" not in r and r["at"] == "end", json.dumps(r)
     assert r["wide"] and r["rows"] == min(100, r["spots"]) and r["more"] == (r["spots"] > 100), r
     assert r["summary"].startswith(f"{r['spots']} spots"), r
     assert r["legend"][0] == "Clear", r

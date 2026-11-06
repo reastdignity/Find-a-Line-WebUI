@@ -505,6 +505,56 @@ the providers' terms (Google's EEA terms, Esri's agreement, Earth Pro's end).
 - Fathom (fabdem@fathom.global): do donations make our FABDEM use commercial?
 - GUGiK: the legal basis for reusing NMPT (and the 3D mesh) free of charge.
 
+## Several lines in one view (explored 2026-11-05)
+
+The user's question of round 2: could the 3D view show several highlines at once? This section is the exploration:
+what the data allow, what each way costs, and which step comes first. After it the user decided (the same day) to
+build A and B below in round 2 (docs/3d-view-contract.md, "Round 2", point 7); C waits.
+
+**What one patch holds.** The patch is a square of at least 1536 m around the line (`search.patch_of_line`:
+`max(1536, length + 500)` m, rounded up to 512 samples). Counted on the saved runs of the development data folder
+(150 lines sampled per run, the run's other lines with both anchors inside that line's patch):
+
+| Run | Lines | `lines.js` | In one patch, median | p90 |
+| --- | ---: | ---: | ---: | ---: |
+| Strelecká kotlina (Tatras), 1 m | 6 437 | 1.3 MB | 3 517 | 3 538 |
+| Jura test, 1 m | 13 118 | 1.9 MB | 9 107 | 9 409 |
+| Malá Gankowa Przełączka (Tatras), 1 m | 41 377 | 8.6 MB | 34 810 | 36 874 |
+| Dolinki pod Krakowem, 1 m | 223 717 | 32.5 MB | 48 133 | 85 717 |
+| Gozo coast, 1 m | 403 026 | 80.9 MB | 91 595 | 186 951 |
+| Malta coast, 1 m | 614 231 | 89.5 MB | 157 415 | 182 660 |
+
+So "the run's lines inside the patch" is never a handful: it is thousands at the least. Drawing them all is neither
+readable nor cheap (each webbing is two `Line2` of 61 points), and the file that holds them is 1 to 100 MB. Several
+lines in one view therefore means a **chosen** set, and the question is who chooses.
+
+**Where the set can come from**
+
+| Source | New data path | Cost per open | What the user gets |
+| --- | --- | --- | --- |
+| A. The user's favourites of this run inside the patch | none: `GET /api/runs/<run>/favourites` exists, and the page will ask it anyway once a line can be saved from the 3D view | one small JSON | the lines they already picked, with length, clearance and the over-trees flag stored |
+| B. Lines handed over by the 2D result in the address (`&line=` repeated: the selected spot's other lines, or lines ticked in the list) | none on the server; the 2D result builds the link | nothing extra | a comparison the user set up on the map |
+| C. The spots of the run inside the patch (one line per group) | new: the groups exist only in the browser (`grouping.ts` over data.js), so either the 3D page loads `lines.js` and groups it (1 to 100 MB), or the server answers "representatives in a box" from the run's files | large, or a new quick-lane task | an overview of everything found there |
+| D. The whole `lines.js`, filtered in the page | none | 1 to 100 MB a run | too many lines (the table) |
+
+**What several lines need in the page**
+- *The patch.* It is sized and centred for one line. A favourite or a handed-over line partly outside it can only be
+  drawn where the terrain is; lines wholly inside are the simple case. A patch grown to hold a set of lines is
+  possible (the bounding square of their anchors plus 500 m) up to `MAX_MEASURED_PX` (6000 px a side: 6 km at 1 m),
+  at the cost of the budgets of one open (about 1 to 1.5 MB of heights per 1.5 km at 1 m; four times that at 3 km).
+- *Drawing.* One active line as today (walker, readout, handles, profile); the others as their unloaded webbing
+  only, thinner and in their stored verdict's colour (the favourite's `clr` and `over`, no `/api/profile`), with a
+  small label. A click on one makes it the active line: its profile is asked for then.
+- *Limits.* A cap on the lines drawn (about 20) keeps the scene readable and the overlay's labels apart.
+- *The phone level.* Nothing in the way: no editing is involved.
+
+**Recommendation.** A first, small step is A: once the 3D view can save a line (round 2, point 5), the same
+favourites request gives the other saved lines of the run, and those inside the patch can be shown behind one switch
+("Saved lines"). B is the natural second step and needs only the 2D result's link. C is what "all the lines here"
+would really mean, and it belongs with the round-2 point "lines from a clicked point": that one computes fresh
+options from the terrain, C would list what the search already found; both end in the same list and fan of lines,
+so they should share that part of the page. D is ruled out by the table.
+
 ## Side findings for `main`
 - **Licence notices** of the bundled libraries were stripped (`viewer/build.mjs:17`, `legalComments: "none"`).
   Fixed on `main` (b0d5f74): `generate-license-file` writes `viewer/dist/THIRD-PARTY-LICENSES.txt`, every bundle

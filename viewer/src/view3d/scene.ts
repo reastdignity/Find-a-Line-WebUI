@@ -11,6 +11,7 @@ import {
   MeshBasicMaterial, MeshLambertMaterial, Vector3, type Material, type Object3D, type Texture,
 } from "three";
 import { t } from "../i18n";
+import { createActivity, createTools } from "./chrome";
 import { DATA_CREDITS } from "./credits";
 import type { Patch } from "./decode";
 import { featureEdges, TERRAIN_LAYER, WALL_OPACITY } from "./edges";
@@ -29,6 +30,10 @@ export interface SceneParts {
   stage: HTMLElement;
   toolbar: HTMLElement;
   credits: HTMLElement;
+  /** The elements of the activity pill, the tool strip and the card's slot (chrome.ts; round 2). */
+  activity: HTMLElement;
+  tools: HTMLElement;
+  card: HTMLElement;
 }
 
 export interface SceneCore extends Scene3D {
@@ -44,12 +49,39 @@ export interface SceneCore extends Scene3D {
   onDispose(fn: () => void): void;
 }
 
+/** Where the user's last choice of the data credits (open or folded) is kept in the browser, and the width from
+ *  which they start open (ui.css folds them under it on the 2D result). */
+export const CREDITS_KEY = "findaline.view3d.credits";
+export const CREDITS_WIDE_PX = 768;
+
+/** Whether the data credits start open: the stored choice ("open" or "folded") if there is one, else open on a
+ *  wide screen and folded on a narrow one. */
+export function creditsStartOpen(stored: string | null, wide: boolean): boolean {
+  return stored === "open" ? true : stored === "folded" ? false : wide;
+}
+
+type Store = Pick<Storage, "getItem" | "setItem">;
+
+/** The browser's local storage, null where it is not there (the page is right without it). */
+function browserStore(): Store | null {
+  try { return window.localStorage; } catch { return null; }
+}
+
+function wideScreen(): boolean {
+  try { return matchMedia(`(min-width: ${CREDITS_WIDE_PX}px)`).matches; } catch { return false; }
+}
+
 /** The credits box: entries sorted by their order, hidden while empty. The run's data credits (DATA_CREDITS) fold
- *  behind a "Data credits" button on phones, as the 2D map's (layers.ts creditsHtml, ui.css .u-credits: under
- *  768 px; unfolded it stays so when the entries change); the imagery's and the ring's credits never fold. */
-function creditsBox(box: HTMLElement): Credits {
+ *  behind a "Data credits" button at every width (the 2D map's button, layers.ts creditsHtml, ui.css .u-credits;
+ *  view3d.css shows it above 768 px too), open at the start from 768 px up and folded under it, then as the user
+ *  last left them (`store`, try/catch: the page is right without it; unfolded it stays so when the entries
+ *  change); the imagery's and the ring's credits never fold. */
+export function creditsBox(box: HTMLElement, store: Store | null = browserStore(), wide: () => boolean = wideScreen):
+    Credits {
   const entries = new Map<string, {html: string; order: number}>();
-  let open = false;
+  let stored: string | null = null;
+  try { stored = store?.getItem(CREDITS_KEY) ?? null; } catch { /* storage refused: the default */ }
+  let open = creditsStartOpen(stored, wide());
   const label = t("ui.credits.toggle").replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
   const render = () => {
     const list = [...entries.entries()].sort((a, b) => a[1].order - b[1].order);
@@ -61,6 +93,7 @@ function creditsBox(box: HTMLElement): Credits {
   box.addEventListener("click", (e) => {
     if (!(e.target as HTMLElement).closest?.(".u-credits-toggle")) return;
     open = !open;
+    try { store?.setItem(CREDITS_KEY, open ? "open" : "folded"); } catch { /* not kept */ }
     render();
     box.querySelector<HTMLElement>(".u-credits-toggle")?.focus();  // the new button
   });
@@ -68,6 +101,7 @@ function creditsBox(box: HTMLElement): Credits {
   return {
     set(id, html, order = 0) { entries.set(id, {html, order}); render(); },
     remove(id) { entries.delete(id); render(); },
+    fold() { if (open) { open = false; render(); } },
   };
 }
 
@@ -157,6 +191,74 @@ function featureLines(colour: string, opacity = 1): LineBasicMaterial {
   return material;
 }
 
+/** The overlay's polygon offset (toward the camera, so that it wins the depth test against the surface it lies on). */
+export const OVERLAY_OFFSET = -2;
+
+/** The overlay of round 2 (`Scene3D.setOverlay`): one half-transparent picture over the whole terrain, drawn by a
+ *  second mesh on each chunk that shares the chunk's positions and index (the surface's triangles only: the draw
+ *  range stops before the skirts) and has a UV attribute of its own. The meshes are children of the chunks on the
+ *  default layer alone: the edges' pass (terrain layer only) never draws them, and they are not in `pickTargets`.
+ *  The meshes and their UVs are made at the first picture and kept (the chunks' buffers they share must not be
+ *  released with a geometry of theirs); a picture taken away frees the texture and hides them. */
+export function createOverlay(terrain: Terrain, chunks: Chunk[], invalidate: () => void) {
+  let parts: {mesh: Mesh; uv: BufferAttribute; grid: Float64Array; count: number}[] | null = null;
+  let material: MeshBasicMaterial | null = null, held: Texture | null = null;
+  const release = () => { held?.dispose(); held = null; };
+  return {
+    set(texture: Texture | null, uv?: (x: number, y: number) => [number, number]) {
+      release();
+      if (!texture || !uv) {
+        if (parts) for (const p of parts) p.mesh.visible = false;
+        if (material) material.map = null;
+        invalidate();
+        return;
+      }
+      held = texture;
+      if (!material) {
+        material = new MeshBasicMaterial({map: texture, transparent: true, depthWrite: false, side: DoubleSide,
+                                          polygonOffset: true, polygonOffsetFactor: OVERLAY_OFFSET,
+                                          polygonOffsetUnits: OVERLAY_OFFSET});
+      }
+      material.map = texture;
+      material.needsUpdate = true;
+      if (!parts) {
+        parts = terrain.chunks.map((m, k) => {
+          const source = chunks[k].mesh.geometry, geometry = new BufferGeometry();
+          const attribute = new Float32BufferAttribute(new Float32Array(2 * m.surfaceVertices), 2);
+          geometry.setAttribute("position", source.getAttribute("position"));
+          geometry.setAttribute("uv", attribute);
+          geometry.setIndex(source.getIndex());
+          geometry.setDrawRange(0, m.surfaceIndices);
+          geometry.boundingSphere = source.boundingSphere?.clone() ?? null;
+          const mesh = new Mesh(geometry, material!);
+          mesh.name = `reach-${m.ci}-${m.cj}`;
+          mesh.raycast = () => {};  // never a pick target
+          chunks[k].mesh.add(mesh);
+          return {mesh, uv: attribute, grid: m.grid, count: m.surfaceVertices};
+        });
+      }
+      for (const p of parts) {
+        const array = p.uv.array as Float32Array;
+        for (let v = 0; v < p.count; v++) {
+          const [u, w] = uv(p.grid[2 * v], p.grid[2 * v + 1]);
+          array[2 * v] = u;
+          array[2 * v + 1] = w;
+        }
+        p.uv.needsUpdate = true;
+        p.mesh.visible = true;
+      }
+      invalidate();
+    },
+    dispose() {
+      release();
+      if (parts) for (const p of parts) { p.mesh.removeFromParent(); p.mesh.geometry.dispose(); }
+      parts = null;
+      material?.dispose();
+      material = null;
+    },
+  };
+}
+
 /** The scene of a decoded patch in `parts.stage`; throws when the browser has no WebGL 2. */
 export function createScene(patch: Patch, level: Level, parts: SceneParts, onLost: () => void): SceneCore {
   const root = parts.stage.closest(".ui") || document.documentElement;
@@ -208,11 +310,16 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
     if (page) { if (on) page.dataset.edges = "on"; else delete page.dataset.edges; }
   };
 
+  const overlay = createOverlay(terrain, chunks, view.invalidate);
   const scene: SceneCore = {
     level, patch, meta: patch.meta, origin, chunks, view, terrain, token, stage: parts.stage,
     pickTargets: chunks.map((c) => c.mesh),
     credits: creditsBox(parts.credits),
     toolbar: parts.toolbar,
+    activity: createActivity(parts.activity),
+    tools: createTools(parts.tools),
+    card: parts.card,
+    setOverlay(texture, uv) { if (!disposed) overlay.set(texture, uv); },
     invalidate: view.invalidate,
     onFrame: view.onFrame,
     beforeDraw: view.beforeDraw,
@@ -237,6 +344,7 @@ export function createScene(patch: Patch, level: Level, parts: SceneParts, onLos
       for (const fn of disposers.splice(0).reverse()) {
         try { fn(); } catch (e) { console.error(e); }
       }
+      overlay.dispose();
       for (const c of chunks) {
         c.setTexture(null);
         c.mesh.geometry.dispose();

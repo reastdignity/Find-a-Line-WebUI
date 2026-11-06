@@ -16,9 +16,74 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from test_patch import _offline_env, clip_data  # noqa: E402,F401 (the fixture)
 from test_web import CSP_STUB, EDGE, LOCAL, TOKEN, _lines_of, _server, _violations, web  # noqa: E402
 
+# The waits of the page scripts below: until(test, ms, then) calls then(true) once test() holds, then(false) after
+# ms / 100 polls, each over one of the browser's animation frames. Under a virtual time budget headless Edge runs
+# timers in virtual time, which jumps ahead while nothing loads, and animation frames in real time (each drawn by
+# software GL here, seconds apart on a starved machine): behind plain timers the page's first frame often never
+# came, and even with a small file loading all the while the virtual time leaked ahead between two loads, 16 s of
+# it while one frame was drawn (6 copies of a test and 14 CPU burners). So the waits count frames, never virtual
+# time: a pause of t ms spans t / 100 real frames, and a frame the page asked for before a poll has come by the
+# poll's end (the browser runs every frame callback asked for before the frame: a probe saw the page's and a poll's
+# run together, never more than one poll's frame between the page's asking and its frame). While a poll waits for
+# its frame a small file is loading, again and again (which holds the virtual time), and a timer 1 virtual ms ahead
+# is armed: what leaks between two loads then stops at that timer, never jumping to the page's next timer or to the
+# budget's end. Each poll ends with 100 virtual ms for the page's own timers (e.g. a debounce). So the virtual
+# time the waits take stays far within the tests' --virtual-time-budget (VIRTUAL_BUDGET); in real time a wait
+# takes as long as the frames (EDGE_SECONDS). `frameTick` is the browser's own requestAnimationFrame, taken before
+# any wrapper of a script, so the polls' frames are not counted as the page's. A script that defines
+# `onPollError(e)` has an error of its test() handed to it and polls on (else the error stops the wait).
+# settledOn(frames, ms, then): then(true) once `frames()` (the page's frame count) did not change during ten
+# polls, each over a frame, so no frame the page asked for is still coming; then(false) after ms / 100 polls.
+UNTIL_JS = """
+  let n = 0;
+  const frameTick = window.requestAnimationFrame.bind(window), pollId = Math.random().toString(36).slice(2);
+  const tick = (then) => {
+    let framed = false, ended = false;
+    frameTick(() => { framed = true; });
+    const guard = () => { if (!ended) setTimeout(guard, 1); };
+    const load = () => fetch("stubs.js?poll=" + pollId + "-" + (++n)).then(next, next);  // never from the cache
+    const next = () => { if (!framed) load(); else { ended = true; then(); } };
+    guard();
+    load();
+  };
+  const until = (test, ms, then) => {
+    let left = Math.ceil(ms / 100);
+    const poll = () => {
+      let ok = false;
+      try { ok = test(); } catch (e) { if (typeof onPollError !== "function") throw e; onPollError(e); }
+      if (ok) then(true);
+      else if (left-- <= 0) then(false);
+      else tick(() => setTimeout(poll, 100));  // and 100 virtual ms for the page's own timers (e.g. a debounce)
+    };
+    poll();
+  };
+  const settledOn = (frames, ms, then) => {
+    let last = frames(), still = 0;
+    until(() => {
+      const now = frames();
+      if (now !== last) { last = now; still = 0; return false; }
+      return ++still > 10;
+    }, ms, then);
+  };
+"""
+# The virtual time budget of the page tests: a ceiling only (once the page idles, Edge runs its virtual time to the
+# end at once), far above what leaks while the waits above hold it (74 virtual seconds at most in the test of the
+# first frame at 6 copies and 14 CPU burners, about 2 s for each frame drawn; the ring's draws many more)
+VIRTUAL_BUDGET = 3_600_000
+# The real seconds an Edge run of these tests may take: the waits count frames, which a starved machine draws
+# slowly (the ring's at level full took up to 331 s at 6 copies of the tests and 14 CPU burners)
+EDGE_SECONDS = 900
+
+
+def _with_until(script: str) -> str:
+    """A page script with UNTIL_JS in place of its line `/* until */`."""
+    assert "  /* until */\n" in script
+    return script.replace("  /* until */\n", UNTIL_JS.lstrip("\n"))
+
+
 # On the page after the bundle: waits for the page's ready marker (the terrain drawn and the profile in), then
 # writes what it found into <pre id="result">
-READY_SCRIPT = """
+READY_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const done = (what) => {
@@ -33,23 +98,42 @@ READY_SCRIPT = """
     const stage = root.dataset.stage;
     if (stage && stages[stages.length - 1] !== stage) stages.push(stage);
   }).observe(root, {attributes: true, attributeFilter: ["data-stage"]});
-  const started = Date.now();
-  const wait = () => {
-    if (root.dataset.ready === "1") {
+  /* until */
+  // The page's animation frames asked for and not run yet (it asks for them after this script: the patch comes
+  // first); the polls' own frames are not among them
+  const waiting = new Set(), raf = window.requestAnimationFrame.bind(window), caf = window.cancelAnimationFrame.bind(window);
+  window.requestAnimationFrame = (fn) => {
+    const id = raf((time) => { waiting.delete(id); fn(time); });
+    waiting.add(id);
+    return id;
+  };
+  window.cancelAnimationFrame = (id) => { waiting.delete(id); caf(id); };
+  // settled: no frame drawn and none asked for during ten polls (each over a frame), at most `ms`
+  const settled = (ms, then) => {
+    let frames = root.dataset.frames, still = 0;
+    until(() => {
+      if (root.dataset.frames !== frames || waiting.size) { frames = root.dataset.frames; still = 0; return false; }
+      return ++still > 10;
+    }, ms, then);
+  };
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    if (!ready) {
+      done({ready: false, status: (document.querySelector(".v3-status") || {}).textContent, data: {...root.dataset}});
+      return;
+    }
+    settled(15000, (still) => {
       const frames = Number(root.dataset.frames);
-      setTimeout(() => done({ready: true, stages, frames: [frames, Number(root.dataset.frames)], triangles: Number(root.dataset.triangles), vertices: Number(root.dataset.vertices),
+      // two seconds of loading: a frame would come if the page asked for one
+      until(() => false, 2000, () => done({ready: true, settled: still, stages, frames: [frames, Number(root.dataset.frames)], triangles: Number(root.dataset.triangles), vertices: Number(root.dataset.vertices),
         maxError: Number(root.dataset.maxError), readout: (document.querySelector(".v3-readout") || {}).textContent,
         filled: (document.querySelector(".v3-readout") || {dataset: {}}).dataset.filled || null,
         profileError: root.dataset.profileError || null, toolbar: document.querySelectorAll(".v3-toolbar input[type=range]").length,
         note: (document.querySelector(".v3-note") || {}).textContent, status: (document.querySelector(".v3-status") || {}).className,
-        canvas: document.querySelectorAll("canvas.v3-canvas").length}), 2000);
-    } else if (Date.now() - started > 25000) {
-      done({ready: false, status: (document.querySelector(".v3-status") || {}).textContent, data: {...root.dataset}});
-    } else setTimeout(wait, 100);
-  };
-  wait();
+        canvas: document.querySelectorAll("canvas.v3-canvas").length}));
+    });
+  });
 })();
-"""
+""")
 
 
 def _page(data, run_id: str) -> str:
@@ -82,14 +166,14 @@ def test_view3d_draws_the_line(clip_data, tmp_path, monkeypatch, level):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=60000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=240).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, result)
-    assert result["ready"], result
+    assert result["ready"] and result["settled"], result
     assert result["stages"] == ["server", "download", "unpacking", "building", "done"], result
     assert result["triangles"] > 0 and result["canvas"] == 1
     assert result["frames"][0] == result["frames"][1] < 10  # drawn on demand: nothing while nothing changes
@@ -105,7 +189,7 @@ def test_view3d_draws_the_line(clip_data, tmp_path, monkeypatch, level):
 # On the page after the bundle: once ready, the controls of the level and the pin's state; at level full an anchor
 # dragged by synthetic pointer events (the readout "edited", the moved line's profile asked for and shown), back
 # to the found line, then the walk's buttons; the findings go into <pre id="result">
-INTERACT_SCRIPT = """
+INTERACT_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {};
@@ -116,31 +200,21 @@ INTERACT_SCRIPT = """
     document.body.appendChild(pre);
   };
   const readout = () => (document.querySelector(".v3-readout") || {}).innerText;
-  // under a virtual time budget headless Edge draws animation frames only while something loads: each poll loads a
-  // small file, so a frame the page asked for comes (with plain timers a busy machine could end the budget before
-  // the first frame, or before the frame of the canvas resized by the filled readout, which places the handles)
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
-  // settled: no frame drawn for a second (the handles where the last frame put them), at most `ms`
+  // polls over the browser's frames (UNTIL_JS): the frame of the canvas resized by the filled readout, which places
+  // the handles, comes before the drag
+  /* until */
+  // settled: no frame drawn during ten polls, each over a frame (the handles where the last frame put them), at
+  // most `ms`
   const settled = (ms, then) => {
-    let frames = root.dataset.frames, since = Date.now();
+    let frames = root.dataset.frames, still = 0;
     until(() => {
-      if (root.dataset.frames !== frames) { frames = root.dataset.frames; since = Date.now(); }
-      return Date.now() - since >= 1000;
+      if (root.dataset.frames !== frames) { frames = root.dataset.frames; still = 0; return false; }
+      return ++still > 10;
     }, ms, then);
   };
   const pointer = (type, target, x, y) => target.dispatchEvent(new PointerEvent(type, {clientX: x, clientY: y,
     pointerId: 7, button: 0, buttons: type === "pointerup" ? 0 : 1, bubbles: true, cancelable: true, isPrimary: true}));
-  // headless Edge draws no animation frames under a virtual time budget: the walk's stepping is tested in Node
-  // (test_viewer.py), here its button and state
+  // the walk's stepping is tested in Node (test_viewer.py), here its button and state
   const walk = () => {
     const button = document.querySelector(".v3-walk");
     button.click();
@@ -163,6 +237,14 @@ INTERACT_SCRIPT = """
     out.hint = document.querySelectorAll(".v3-hint").length;
     out.pin = root.dataset.pin;
     out.edit = root.dataset.edit;
+    // the pin's tip and its leader (round 2, point 1): the leader from the walker's head up to the tip, the pin's
+    // rotated box ending in the tip
+    const leader = document.querySelector(".v3-leader"), tipBox = document.querySelector(".v3-pin-tip"), pinEl = document.querySelector(".v3-pin");
+    if (leader && tipBox && pinEl) {
+      const lr = leader.getBoundingClientRect(), tr = tipBox.getBoundingClientRect(), pr = pinEl.getBoundingClientRect();
+      out.leader = {height: leader.style.height, transform: leader.style.transform, width: lr.width, top: lr.top, bottom: lr.bottom,
+                    tipY: tr.top, pinBottom: pr.bottom, pinTop: pr.top, opacity: getComputedStyle(leader).backgroundColor};
+    }
     if (!ready || !out.handles) { if (ready) walk(); else done(); return; }
     const [h1, h2] = [...document.querySelectorAll(".v3-handle")].map((h) => h.getBoundingClientRect());
     const handle = document.querySelectorAll(".v3-handle")[1];
@@ -193,7 +275,7 @@ INTERACT_SCRIPT = """
     });
   }));
 })();
-"""
+""")
 
 
 def _interact_page(data) -> str:
@@ -232,15 +314,20 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", motion, "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", motion, "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
     print(level, result)
     assert result["ready"] and result["settled"], result
     assert result["pin"] == "1" and result["edit"] == ""
+    leader = result["leader"]
+    assert leader["height"].endswith("px") and float(leader["height"][:-2]) >= 2.5 and "rotate(" in leader["transform"], leader
+    assert abs(leader["top"] - leader["tipY"]) <= 2 and leader["tipY"] < leader["bottom"], leader  # from the tip down to the head
+    assert abs(leader["pinBottom"] - leader["tipY"]) <= 1.5 and leader["pinTop"] < leader["tipY"], leader  # the pin ends in its tip
+    assert leader["opacity"].startswith("rgba(255, 255, 255, 0.65"), leader
     assert result["walkButton"] == 1 and result["speed"] == "×1"
     assert result["reduced"] is reduced, result
     assert result["walkHidden"] is reduced and result["reducedNote"] is reduced, result
@@ -265,7 +352,7 @@ def test_view3d_interaction(clip_data, tmp_path, monkeypatch, level, reduced):
 # On the page after the bundle: once ready, Edges chosen in the imagery control (the root's data-imagery and
 # data-edges, the triangles of a frame: the terrain twice and the pass's quad, the frames still once drawn), then
 # Shaded again (the pass gone, a frame of one draw); the findings go into <pre id="result">
-EDGES_SCRIPT = """
+EDGES_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {errors: []};
@@ -277,18 +364,7 @@ EDGES_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  // under a virtual time budget headless Edge draws animation frames only while something loads: each poll
-  // loads a small file, so the page's frame asked for comes
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  /* until */
   const button = (text) => [...document.querySelectorAll(".v3-toolbar [role=radio]")].find((b) => b.textContent.trim() === text);
   const state = () => ({imagery: root.dataset.imagery || null, edges: root.dataset.edges || null,
                         triangles: Number(root.dataset.triangles), frames: Number(root.dataset.frames)});
@@ -314,7 +390,7 @@ EDGES_SCRIPT = """
     });
   });
 })();
-"""
+""")
 
 
 def _script_page(data, name: str, script: str) -> str:
@@ -351,9 +427,9 @@ def test_view3d_edges(clip_data, tmp_path, monkeypatch, level):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -377,7 +453,7 @@ def test_view3d_edges(clip_data, tmp_path, monkeypatch, level):
 # another or leaving the window), the imagery's select (shown instead of the segmented control, in sync with it),
 # then again with the imagery's longest labels added to the select (four kinds: the clip's run has Shaded and Edges
 # only) and, at level full, "Back to the found line" shown; the findings go into <pre id="result">
-NARROW_SCRIPT = """
+NARROW_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {};
@@ -387,16 +463,7 @@ NARROW_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  /* until */
   const shown = (e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
   const name = (e) => (e.className || e.tagName) + ":" + (e.textContent || e.value || "").trim().slice(0, 30);
   const measure = () => {
@@ -463,7 +530,7 @@ NARROW_SCRIPT = """
     });
   });
 })();
-"""
+""")
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
@@ -489,9 +556,9 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=500,900", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=500,900", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     run_json.write_text(saved, encoding="utf-8")
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
@@ -534,7 +601,7 @@ def test_view3d_narrow_bar(clip_data, tmp_path, monkeypatch, level):
 # (the gaze turns, the eyes stay), the walker moved by its slider (the camera follows), behind the walker, then
 # the orbit again (its camera as it was, the handles back); between the steps nothing is drawn while nothing
 # changes; the findings go into <pre id="result">
-VIEWS_SCRIPT = """
+VIEWS_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {errors: []};
@@ -546,16 +613,7 @@ VIEWS_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  /* until */
   const frames = () => Number(root.dataset.frames);
   const shown = (sel) => [...document.querySelectorAll(sel)].filter((e) => getComputedStyle(e).display !== "none" &&
     e.getBoundingClientRect().width > 0).length;
@@ -601,7 +659,7 @@ VIEWS_SCRIPT = """
     });
   });
 })();
-"""
+""")
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
@@ -622,9 +680,9 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -663,7 +721,7 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
 # the gaze not turned) and the - button, each a frame with its camera and the indicator; behind the walker the
 # wheel (away: farther) and +; the eyes again (their zoom kept), the orbit (the box hidden, its camera as it was);
 # the findings go into <pre id="result">
-ZOOM_SCRIPT = """
+ZOOM_SCRIPT = _with_until("""
 (function () {
   const root = document.getElementById("view3d");
   const out = {errors: []};
@@ -675,16 +733,7 @@ ZOOM_SCRIPT = """
     pre.textContent = JSON.stringify(out);
     document.body.appendChild(pre);
   };
-  let n = 0;
-  const until = (test, ms, then) => {
-    const started = Date.now();
-    const poll = () => {
-      if (test()) then(true);
-      else if (Date.now() - started > ms) then(false);
-      else fetch("stubs.js?poll=" + (++n)).then(() => setTimeout(poll, 100), () => setTimeout(poll, 100));
-    };
-    poll();
-  };
+  /* until */
   const frames = () => Number(root.dataset.frames);
   const box = () => document.querySelector(".v3-zoom");
   const state = () => ({view: root.dataset.view, camera: root.dataset.camera,
@@ -738,7 +787,7 @@ ZOOM_SCRIPT = """
     });
   });
 })();
-"""
+""")
 
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
@@ -757,9 +806,9 @@ def test_view3d_walker_zoom(clip_data, tmp_path, monkeypatch):
     with _server(data, start_scheduler=True) as port:
         dom = subprocess.run(
             [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
-             "--window-size=1200,800", "--virtual-time-budget=90000", "--dump-dom",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
              f"http://127.0.0.1:{port}/{page}?level=full#run={meta['id']}&line={line}"],
-            capture_output=True, text=True, encoding="utf-8", timeout=300).stdout
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
     found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
     assert found, dom[-3000:]
     result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
@@ -785,4 +834,99 @@ def test_view3d_walker_zoom(clip_data, tmp_path, monkeypatch):
     assert result["farther"]["value"].endswith(" m") and result["nearer"]["value"] == "7.1 m"  # 9.1 m, onto the grid
     assert cam["eyesAgain"][7] == cam["minus"][7] and result["eyesAgain"]["value"] == result["minus"]["value"]
     assert cam["back"] == cam["orbit"] and len(cam["orbit"]) == 8
+    assert _violations(dom) == []
+
+
+# On the page after the bundle, in a desktop window (round 2, points 2 and 6): once ready, the activity pill (an
+# element of the stage with role "status", hidden: the clip's run has no orthophoto, so no tiles are counted here;
+# the count is tested on a fake scene in test_viewer.py), no status element of the imagery in the toolbar, and the
+# credits box: its data credits open behind their button at this width, the box's type and surface, a click folding
+# them (the choice kept in localStorage, the focus on the new button) and another unfolding them
+CREDITS_SCRIPT = _with_until("""
+(function () {
+  const root = document.getElementById("view3d");
+  const out = {};
+  const done = () => {
+    const pre = document.createElement("pre");
+    pre.id = "result";
+    pre.textContent = JSON.stringify(out);
+    document.body.appendChild(pre);
+  };
+  const shown = (e) => { if (!e) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
+  const store = () => { try { return localStorage.getItem("findaline.view3d.credits"); } catch (e) { return "error"; } };
+  const state = () => {
+    const toggle = document.querySelector(".v3-credits .u-credits-toggle"), body = document.querySelector(".v3-credits .u-credits");
+    return {toggle: shown(toggle), expanded: toggle && toggle.getAttribute("aria-expanded"), body: shown(body),
+            focused: !!toggle && document.activeElement === toggle, stored: store(), text: body ? body.textContent.slice(0, 40) : null};
+  };
+  /* until */
+  try { localStorage.removeItem("findaline.view3d.credits"); } catch (e) { /* none */ }
+  until(() => root.dataset.ready === "1", 25000, (ready) => {
+    out.ready = ready;
+    if (!ready) { done(); return; }
+    const pill = document.querySelector(".v3-stage > .v3-activity");
+    out.pill = {role: pill && pill.getAttribute("role"), hidden: !shown(pill)};
+    out.statusInToolbar = document.querySelectorAll(".v3-toolbar .v3-imagery-status").length;
+    out.width = innerWidth;
+    out.start = state();
+    const box = document.querySelector(".v3-credits"), css = getComputedStyle(box), page = getComputedStyle(root);
+    out.box = {fontSize: css.fontSize, border: css.borderTopWidth, background: css.backgroundColor,
+               surface: page.getPropertyValue("--surface").trim(), shadow: css.boxShadow !== "none",
+               first: box === box.parentElement.firstElementChild, parent: box.parentElement.className,
+               inStage: box.getBoundingClientRect().right <= innerWidth && box.getBoundingClientRect().bottom <= innerHeight};
+    document.querySelector(".v3-credits .u-credits-toggle").click();
+    out.folded = state();
+    document.querySelector(".v3-credits .u-credits-toggle").click();
+    out.unfolded = state();
+    done();
+  });
+})();
+""")
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+@pytest.mark.parametrize("level", ["full", "phone"])
+def test_view3d_credits_and_pill(clip_data, tmp_path, monkeypatch, level):
+    """Round 2, points 2 and 6, in a desktop window: the imagery's count is no longer an element of the toolbar and
+    the activity pill is there (role status, hidden while nothing loads); the data credits (given to the clip's run
+    here) behind their button at this width too, open at the start, folded and unfolded by clicks with the choice
+    kept in the browser and the focus on the button; the box at 12.5 px on the surface with a border and a shadow,
+    the first child of the stage's bottom column, inside the window."""
+    data, meta = clip_data
+    run_json = data / "runs" / meta["id"] / "run.json"
+    saved = run_json.read_text("utf-8")
+    run_json.write_text(json.dumps({**json.loads(saved), "attribution": [
+        {"data": "Test model", "attribution": "Test survey", "licence": "CC BY 4.0", "url": "https://example.org/"}]}),
+        encoding="utf-8")
+    for key, value in _offline_env().items():
+        monkeypatch.setenv(key, value)
+    row = _lines_of(data, meta["id"])[0]
+    line = ",".join(f"{v:.7f}" for v in row[:4])
+    page = _script_page(data, "view3dcredits", CREDITS_SCRIPT)
+    with _server(data, start_scheduler=True) as port:
+        dom = subprocess.run(
+            [EDGE, "--headless", "--disable-gpu", f"--user-data-dir={tmp_path / 'edge'}", "--no-first-run",
+             "--window-size=1200,800", f"--virtual-time-budget={VIRTUAL_BUDGET}", "--dump-dom",
+             f"http://127.0.0.1:{port}/{page}?level={level}#run={meta['id']}&line={line}"],
+            capture_output=True, text=True, encoding="utf-8", timeout=EDGE_SECONDS).stdout
+    run_json.write_text(saved, encoding="utf-8")
+    found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+    assert found, dom[-3000:]
+    result = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+    print(level, result)
+    assert result["ready"], result
+    assert result["pill"] == {"role": "status", "hidden": True} and result["statusInToolbar"] == 0, result
+    assert result["width"] >= 768
+    start = result["start"]
+    assert start["toggle"] and start["expanded"] == "true" and start["body"] and start["stored"] is None, result
+    assert start["text"].startswith("Data: Test survey"), result
+    box = result["box"]
+    assert box["fontSize"] == "12.5px" and box["border"] == "1px" and box["shadow"] and box["first"], result
+    assert box["parent"] == "v3-bottom" and box["inStage"], result
+    assert box["background"].startswith("rgb("), result  # the surface's full colour, not a translucent one
+    folded = result["folded"]
+    assert folded["toggle"] and folded["expanded"] == "false" and not folded["body"], result
+    assert folded["stored"] == "folded" and folded["focused"], result
+    unfolded = result["unfolded"]
+    assert unfolded["expanded"] == "true" and unfolded["body"] and unfolded["stored"] == "open" and unfolded["focused"]
     assert _violations(dom) == []

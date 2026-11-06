@@ -165,6 +165,7 @@ class Progress:
         """
         mode = os.environ.get("FINDALINE_PROGRESS", "")
         terminal = mode == "bars" or (mode != "text" and sys.stderr.isatty() and sys.stdout.isatty())
+        before = self.download, self.compute
         self.download = _Bar("Download", 0, terminal)
         self.compute = _Bar("Compute", 1, terminal)
         self._stdout = sys.stdout
@@ -177,7 +178,9 @@ class Progress:
         finally:
             self.download.close()
             self.compute.close()
-            self.download = self.compute = _Bar("", 0, False)  # later updates print nothing useful
+            # The bars that were there, as they were: bars without a label here stayed for the rest of the
+            # process, and what listened to the bars by their label (a worker's StepClock, a test) saw none
+            self.download, self.compute = before
 
     @staticmethod
     def set_step(text: str):
