@@ -390,6 +390,17 @@ def test_osm_data_step():
     assert skipped == ["us", "canada", "nunavut", "british-columbia"]
 
 
+def test_cache_migrate_step():
+    """vps.sh update converts the cached tiles of an older encoding in the worker container with the
+    app's own command, after the new image runs; tiles left over are listed, never a failure."""
+    vps = _read("vps.sh")
+    body = vps[vps.index("\ncache_migrate() {"):vps.index("\nbackups() {")]
+    assert "compose exec -T worker python findaline.py cache migrate \\\n        || todo " in body
+    steps = vps[vps.index("\nupdate() {"):]
+    steps = steps[:steps.index("\n}")]
+    assert steps.index("start\n") < steps.index("cache_migrate\n") < steps.index("monitoring\n")
+
+
 def _bash():
     """bash for a test of vps.sh's functions: Git's on Windows (`bash` there may be WSL's)"""
     if sys.platform == "win32":

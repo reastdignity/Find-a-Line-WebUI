@@ -835,7 +835,8 @@ check runs of the newest one; a private repository's are not readable without a 
 asks, and `--skip-ci` leaves the check out), pulls them, installs the files of `deploy/` again
 where they changed (nginx reloaded, fail2ban restarted, the blocks of `ufw`'s files replaced and
 `ufw` reloaded), makes the file of every secret added since (empty, so its service or source is off; owned by its container's uid, mode 0400: secrets/README.md), builds the image, restarts the services, downloads the OpenStreetMap data not there yet
-(section 9), installs the monitoring's units and
+(section 9), converts the cached elevation tiles still in an older encoding (`cache_migrate`:
+`findaline.py cache migrate` in the worker, see below), installs the monitoring's units and
 pulls and starts its containers (section 15; a failure there is listed at the end and leaves the
 site running) and warns when the examples of the settings changed. By hand:
 
@@ -866,6 +867,14 @@ site running) and warns when the examples of the settings changed. By hand:
    firewall files of section 2: restore the `.bak` copies and add the block and the rule again),
    to `findaline.env.example` and `.env.example` (new settings) and for migrations of stored data
    (they run automatically at start; each commit says so).
+
+**The cache's tile encoding.** The elevation tiles in `cache/` are written as LERC_ZSTD within
+5 mm since 2026-11-06 (deflate before). A search converts the older tiles it reads before it reads
+them, so nothing has to be done by hand; `docker compose exec -T worker python findaline.py cache
+migrate` converts all the others at once and so frees their disk space right away (`--dry-run`
+only counts them; `cache status` says how many are left). It can run while the site is used and
+be stopped at any tile; with nothing left it only reads the tiles' headers. `deploy/vps.sh update`
+runs it after the services started; a failure is listed at the end and leaves the site running.
 
 **Moving the checkout** (e.g. after the repository was renamed): stop the services
 (`docker compose down`, the volumes stay), move the folder, point `git remote set-url origin` at
