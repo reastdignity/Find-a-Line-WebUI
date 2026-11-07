@@ -906,9 +906,15 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
 
 def _keys(values: np.ndarray) -> np.ndarray:
     """The float32 values as int64 keys in their order (-0.0 just below 0.0): the bits, those of
-    a negative value reversed."""
-    bits = np.asarray(values, dtype=np.float32).view(np.int32).astype(np.int64)
-    return np.where(bits < 0, -(bits & 0x7FFFFFFF) - 1, bits)
+    a negative value reversed (-(bits & 0x7FFFFFFF) - 1, the keys of _keys32)."""
+    return _keys32(values).astype(np.int64)
+
+
+def _keys32(values: np.ndarray) -> np.ndarray:
+    """_keys as int32 (they fit): the low 31 bits of a negative value flipped, bits ^ 0x7FFFFFFF, which
+    is -(bits & 0x7FFFFFFF) - 1 in two's complement; three int32 passes instead of five of int64."""
+    bits = np.asarray(values, dtype=np.float32).view(np.int32)
+    return bits ^ ((bits >> 31) & 0x7FFFFFFF)
 
 
 def _key_value(key: int) -> np.float32:
@@ -925,7 +931,7 @@ class _KeyRange:
 
     def add(self, values: np.ndarray):
         if values.size:
-            keys = _keys(values)
+            keys = _keys32(values)
             self.n += values.size
             lo, hi = int(keys.min()), int(keys.max())
             self.lo = lo if self.lo is None else min(self.lo, lo)
@@ -957,8 +963,8 @@ def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int
         width = -(-(hi - lo + 1) // SELECT_BINS)  # keys per bin, at least 1
         counts = np.zeros(SELECT_BINS, np.int64)
         for values in chunks():
-            keys = _keys(values)
-            keys = keys[(keys >= lo) & (keys <= hi)]
+            keys = _keys32(values)  # compared as int32 (lo and hi are keys), only those in range made int64
+            keys = keys[(keys >= lo) & (keys <= hi)].astype(np.int64)
             counts += np.bincount((keys - lo) // width, minlength=SELECT_BINS)
         cum = np.cumsum(counts)
         b = int(np.searchsorted(cum, k, side="right"))  # the first bin whose count reaches past k
@@ -969,7 +975,7 @@ def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int
         if counts[b] <= SELECT_COLLECT:
             found = []
             for values in chunks():
-                keys = _keys(values)
+                keys = _keys32(values)
                 found.append(np.asarray(values, dtype=np.float32)[(keys >= lo) & (keys <= hi)])
             found = np.sort(np.concatenate(found))
             return (found[k], found[k + 1]) if pair else found[k]

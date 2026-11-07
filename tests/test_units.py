@@ -1636,6 +1636,22 @@ def test_select_pair_as_two_selections(monkeypatch):
                 assert bits(src.filling._median_of(chunks, keys)) == bits(median), (len(values), chunk, small)
 
 
+def test_keys32_as_keys_before():
+    """The keys of the selection in int32 (filling._keys32, and _keys from it) are those of before,
+    -(bits & 0x7FFFFFFF) - 1 for a negative float32 and its bits otherwise, on every sign and exponent:
+    random bit patterns, the extremes of int32, the zeros, the infinities and the NaNs."""
+    rng = np.random.default_rng(11)
+    patterns = np.concatenate([rng.integers(-2 ** 31, 2 ** 31, 1_000_000, dtype=np.int64).astype(np.int32),
+                               np.array([-2 ** 31, -2 ** 31 + 1, -1, 0, 1, 2 ** 31 - 1], np.int32)])
+    values = np.concatenate([patterns.view(np.float32),
+                             np.array([-0.0, 0.0, np.inf, -np.inf, np.nan, 1e-45, -1e-45], np.float32)])
+    bits = values.view(np.int32).astype(np.int64)
+    before = np.where(bits < 0, -(bits & 0x7FFFFFFF) - 1, bits)
+    assert src.filling._keys32(values).dtype == np.int32
+    assert np.array_equal(src.filling._keys32(values).astype(np.int64), before)
+    assert np.array_equal(src.filling._keys(values), before) and src.filling._keys(values).dtype == np.int64
+
+
 def _gap_fill_case(seed):
     """A terrain with gaps and a filling source (test_gap_fill_as_before's)."""
     from scipy import ndimage
