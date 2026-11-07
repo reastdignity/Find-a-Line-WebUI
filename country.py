@@ -398,7 +398,8 @@ def form_params(country: Country, band: Band) -> Dict:
     lo, hi = band.lengths
     params = {"source": country.source, "min_length": lo, "max_length": hi, "resolution": band.resolution,
               "model": band.model, "slope_threshold": band.slope_threshold}
-    params.update({k: v for k, v in country.options.items() if k in ("nmpt", "water", "coastline", "fill_gaps")})
+    params.update({k: v for k, v in country.options.items()
+                   if k in ("nmpt", "water", "coastline", "fill_gaps", "end_zone", "anchor_lift")})
     params["pretension"] = sg.tension_at(country.tension, hi)
     params.update(country.rig)
     return params

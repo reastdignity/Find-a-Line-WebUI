@@ -2570,3 +2570,101 @@ back at its anchors of before the averaged tiles (2 804).
 - Native anchors for the partner's side (the contract's next step) are not needed: with nearest at
   the grid's resolution, the average for finer data and bilinear for coarser data the reference's
   spots are found to 98.3-99.7 %.
+
+## The no-fall zone and the A-frames (2026-11-06/07, branch `end-zone`)
+
+The rule (docs/roadmap.md, "Done: the no-fall zone at the ends and the A-frames"): a pixel passes when its
+strict margin `limit − terrain` exceeds `−lift − δ·[in the zone]`, the zone `min(end_zone, L/4)` from each
+anchor, `δ` the fall allowance. The limit's arithmetic is untouched; the kernels get the comparison and the ring
+screen per-ring offsets (`linesearch.ring_offsets`: a ring k relaxed by δ where `(k−1)·res < end_zone`, every
+ring less the lift). At 0/0 the comparison subtracts exact zeros.
+
+### What the options cost (wave 0, `tools/end_zone_study.py`, shared slot: indicative)
+
+Captured calls of `find_valid_lines` (the Żabi Koń clip and the user's quarry lake, 49.80640, 19.57644,
+r 300 m, 1 m, formula, lines 30-1000 m, `--nmpt mark`, 8 threads), every (zone, lift) of 0/5/10/20 m × 0/1/2 m
+run through the production kernels (wave 1; the study's numbers equal wave 0's prototype):
+
+| Place, anchors | Setting | Open anchors | Candidates | Checked | Lines (spots) | Step 3 wall / CPU s |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Żabi Koń 45°, 39 050 | today | 1 493 (3.8 %) | 129 046 | 26 672 | 1 664 (66) | 0.02 / 0.12 |
+| | lift 2 m | | | | 10 059 (199) | 0.04 |
+| | zone 5 m | | | | 146 484 (340) | 0.39 / 3.0 |
+| | zone 5 m, lift 2 m | | | | 664 391 (671) | 1.05 / 8.3 |
+| | zone 10 m | | | | 434 346 (602) | 1.0 |
+| | zone 20 m, lift 2 m | 39 045 (100 %) | 101 084 809 | 27 373 059 | 2 566 835 (1 275) | 2.5 / 19.8 |
+| Żabi Koń 35°, 130 618 | today | 1 504 (1.2 %) | 129 871 | 26 795 | 1 680 (66) | 0.03 / 0.25 |
+| | zone 20 m, lift 2 m | 130 599 (100 %) | 717 848 402 | 150 787 964 | 11 725 800 (2 267) | 12.5 / 99.5 |
+| Quarry 45°, 5 039 | today | 9 (0.2 %) | 5 | 0 | 0 | 0.00 |
+| | zone 5 m | | | | 992 (8); 206 of 250 m+ | |
+| | zone 5 m, lift 2 m | | | | 11 849 (22); 3 321 of 250 m+ | |
+| | zone 20 m, lift 2 m | 5 039 (100 %) | 1 477 114 | 583 547 | 62 991 (55) | 0.10 / 0.83 |
+
+- The ring screen decides nothing once the zone reaches the first rings of a 1 m grid: every anchor becomes
+  open (3.8 % → 100 %), the candidates grow ×780 and the checked pairs ×1 000 at Żabi Koń; the kernel's time
+  ×15 at zone 5 m and ×125 at 20 m / 2 m, in a search whose step 3 takes a hundredth of its seconds today.
+  The lines grow ×88 (zone 5 m) to ×1 540 (20 m / 2 m): the lines, not the kernel, are the cost of a large
+  search with the options (the public site's `lines_max` and the memory budget refuse it sooner), and the
+  reason the public limits are 5 m and 2 m.
+- A-frames alone (2 m, no zone) give ×6 at Żabi Koń and nothing at the quarry: there every line needs the
+  zone (the first strict failure lies 1 m from an anchor with a deficit of 4-5.6 m).
+- The plan's estimate before the measurement (step 3 ×1.05 best, ×10-30 worst) was far too low for the
+  kernel at 20 m and said nothing about the lines; the measured numbers replaced it before wave 1.
+- Memory per line (`search.LINE_BYTES` 450 B, measured 389 B): with the options two float64 columns per line
+  (`lift_needed`, `lift_no_zone`, +16 B) are held through steps 4-5, and the bucket minima (`zone_margins`,
+  2 or 3 float64 columns, +16-24 B) through step 3's join until they are dropped right after
+  `find_valid_lines`; within the margin, not measured again.
+
+### At the defaults (exclusive, `tools/perf_profile.py --cores 7`, cached data)
+
+main's code (41377c2) against the branch's (c9b4cae), both exported, each search once per code to warm numba's
+cache and then three pairs in turn, main and the branch: the Gozo coast (`--area coast --buffer 100 --within
+osm:Gozo --slope-threshold 60 --tile-size 5000`, 6 tiles), R22 (El Capitan, 1 m, 400 m) and R40 (Preikestolen,
+1 m, 600 m). The results are byte for byte main's (the regression set: 63 ok, R17 skipped for Overpass).
+
+| Search | Value | main | the branch |
+| --- | --- | ---: | ---: |
+| Gozo coast (6 tiles, 126 Mpx) | step 3 wall s (free directions / pairs / checking) | 2.0 (0.5 / 1.0 / 0.3) | 2.0-2.1 (0.5 / 1.0 / 0.3-0.4) |
+| | step 3 CPU s | 13.5-14.2 | 14.0-14.6 |
+| | the whole search, wall s | 42.6-43.8 | 42.7-42.9 |
+| | the whole search, CPU s | 67.3-69.2 | 67.5-68.5 |
+| | peak RSS, MB | 2 851-2 860 | 2 851-2 866 |
+| R22 (18 990 lines) | step 3 wall s / CPU s | 0.2 / 1.8-1.9 | 0.2-0.3 / 1.9-2.1 |
+| | the whole search, wall s / CPU s | 3.0-3.1 / 5.7-5.9 | 3.1 / 5.6-5.9 |
+| | peak RSS, MB | 262-275 | 266-298 |
+| R40 (125 032 lines) | step 3 wall s / CPU s | 0.4 / 3.3-3.4 | 0.4-0.5 / 3.2-3.4 |
+| | the whole search, wall s / CPU s | 4.8-4.9 / 7.3-7.7 | 4.9-5.0 / 7.5-7.7 |
+| | peak RSS, MB | 297-312 | 309-314 |
+
+Nothing measurable: step 3 of the Gozo coast at 2.0 s on both, its CPU seconds 0.5 s apart (the three pairs of
+each overlap), the whole searches within their own runs' spread; the `lines.csv` of the eight runs of each search
+have one checksum. The kernels' new arguments (scalars and an offsets array of 64 floats) cost nothing seen.
+
+### The country layer (exclusive, `findaline.py country run`, 12 workers)
+
+sk-sulov (the band study's 12 km square of the Súľov rocks and the Manín gorge, 144 km², the surface model
+marking lines over trees) counted on the layer's bands S1m60 (1 m, formula, 60°, cores of 5 km), M2m60 (2 m, sag,
+60°), L1-5m45 and L2-5m45 (5 m, sag, 45°), as it is and as `sk-sulov-ends` with `end_zone` 5 and `anchor_lift` 2
+in its `options` (`country.form_params` passes them to every band's search), the same code and day, one run after
+the other:
+
+| Band (tiles) | Lines: as is → with 5 m / 2 m | Spots | Tile seconds (median a tile) | CPU s (seconds × mean cores) | Private bytes of a tile, max |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| S1m60 (10) | 44 215 → 7 330 820 (×166) | 759 → 6 845 (×9.0) | 83 → 113 (8.0 → 11.4) | 101 → 180 | 0.59 → 0.62 GiB |
+| M2m60 (4) | 3 734 998 → 10 366 250 (×2.8) | 9 307 → 14 318 (×1.5) | 43 → 66 (7.8 → 11.5) | 120 → 212 | 0.38 → 0.51 |
+| L1-5m45 (4) | 1 177 437 → 1 963 585 (×1.7) | 12 853 → 17 072 (×1.3) | 27 → 28 (3.6 → 3.6) | 39 → 44 | 0.27 → 0.27 |
+| L2-5m45 (4) | 2 523 275 → 3 845 915 (×1.5) | 31 883 → 40 356 (×1.3) | 48 → 64 (10.5 → 13.8) | 92 → 120 | 0.34 → 0.37 |
+| all | 7 479 925 → 23 506 570 (×3.1) | 54 127 → 77 201 (×1.4) | 201 → 271 (×1.35); the run's wall 29 → 41 s | 352 → 556 (×1.6) | |
+
+- Far below the circle study's factors: the layer's anchors are 60° (S, M) and 45° (L) over whole tiles,
+  most of them in forest and fields where an anchor has no partner whatever the zone, and the 5 m zone leaves
+  the long bands' rings almost as they are (L: lines ×1.5-1.7, seconds ×1.0-1.3). The S band, nearly empty
+  here as it is (44 k lines in 144 km²), is where the zone finds most: ×166 lines, ×9 spots, +36 % seconds.
+- Memory per tile unchanged (the count keeps no lines); the cube's spots ×1.4.
+- Carried to Slovakia (13.57 CPU-h, about 48 min on 12 workers; 1.18 G lines, 3.68 M spots at the last
+  count): about ×1.6 of CPU and of wall (22 CPU-h, 65-75 min), spots ×1.4, lines ×3 if the Súľov square
+  stands for the country, which one square of 144 km² cannot show (the plan's estimate was a line factor
+  of 1.5-5, which it is here, with the time ×1.35-1.6 instead of ×F). A count of the superset also needs
+  the count mode to keep the bucket minima (`zones`, docs/country-precompute/contract.md, section 6:
+  not measured, a few per cent of step 3's work by the circle study's kernels). The decision is the
+  user's (extra computing: the rule of 2026-11-05).
