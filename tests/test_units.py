@@ -1586,8 +1586,9 @@ def test_read_band_without_the_mask(tmp_path):
 
 
 def test_mosaic_of_float_tiles_as_before(tmp_path):
-    """build_mosaic of float32 tiles with NaN as nodata, on the grid and overlapping (a raster placed before
-    wins), with others and a reprojected one: the bits of the reference (_place_before)."""
+    """build_mosaic of float32 tiles with NaN as nodata, on the grid (disjoint ones read straight into the mosaic)
+    and overlapping (a raster placed before wins), with others and a reprojected one first or later, whole and in
+    strips: the bits of the reference (_place_before)."""
     import rasterio as rio
     from rasterio.transform import from_origin
     _, fast, other = _float_tiles(tmp_path)
@@ -1604,16 +1605,23 @@ def test_mosaic_of_float_tiles_as_before(tmp_path):
     off = str(tmp_path / "off.tif")
     with rio.open(off, "w", **profile) as dst:
         dst.write(data, 1)
+    halves = []  # the tile cut in two on the grid: disjoint, each read straight into the mosaic
+    for name, rows, top in (("top", slice(0, 150), 300600), ("bottom", slice(150, 300), 300300)):
+        profile.update(height=150, transform=from_origin(500000, top, 2, 2))
+        halves.append(str(tmp_path / f"{name}.tif"))
+        with rio.open(halves[-1], "w", **profile) as dst:
+            dst.write(np.ascontiguousarray(data[rows]), 1)
     for files in ([fast["lerc"], moved, other["masked"]], [moved, fast["nan"], off, other["number"]],
-                  [other["float64"], fast["deflate"]]):
-        new = src.build_mosaic(files, grid, str(tmp_path / "new.npy"), "test")
+                  [other["float64"], fast["deflate"]], halves + [moved], [off, fast["lerc"]], [other["none"], off]):
         old = np.full((grid.height, grid.width), np.nan, np.float32)
         for path in files:
             with rio.open(path) as f:
                 _place_before(f, grid, old)
         assert np.isfinite(old).any() and np.isnan(old).any()
-        assert np.array_equal(_bits(new), _bits(old)), files
-        del new
+        for rows in (None, 7):
+            new = src.build_mosaic(files, grid, str(tmp_path / "new.npy"), "test", rows=rows)
+            assert np.array_equal(_bits(new), _bits(old)), (files, rows)
+            del new
 
 
 def test_mosaic_reads_sidecars(tmp_path):
