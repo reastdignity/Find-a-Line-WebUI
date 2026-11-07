@@ -929,20 +929,23 @@ def _median_of(chunks: Callable[[], Iterable[np.ndarray]], keys: _KeyRange) -> f
     """np.median of the float32 values that chunks() yields (read again for each pass, never held
     whole): the middle value(s) by _select on their keys, the mean of two as np.median takes it."""
     k0, k1 = (keys.n - 1) // 2, keys.n // 2
-    v0 = _select(chunks, k0, keys.lo, keys.hi)
     if k1 == k0:
-        return float(v0)
-    return float(np.median(np.array([v0, _select(chunks, k1, keys.lo, keys.hi)], np.float32)))
+        return float(_select(chunks, k0, keys.lo, keys.hi))
+    v0, v1 = _select(chunks, k0, keys.lo, keys.hi, pair=True)  # both middle values in the same passes
+    return float(np.median(np.array([v0, v1], np.float32)))
 
 
 SELECT_BINS = 1 << 16   # bins of a pass of _select over the keys' range
 SELECT_COLLECT = 1 << 22  # values of a bin collected and sorted at once (the last pass)
 
 
-def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int) -> np.float32:
+def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int, pair: bool = False):
     """The k-th smallest (from 0) of the float32 values chunks() yields, whose keys (_keys) lie in
     [lo, hi]: a histogram of SELECT_BINS bins over the keys' range finds the bin of the k-th, the
-    range narrows to it until its values can be collected (SELECT_COLLECT) and sorted."""
+    range narrows to it until its values can be collected (SELECT_COLLECT) and sorted.
+    pair: the k-th and the (k+1)-th, found in the same passes while they share a bin (the two middle
+    values of an even count: _median_of); in two bins, each on its own from there. Each is the exact
+    order statistic of the keys, so the values are those of two calls."""
     while lo < hi:
         width = -(-(hi - lo + 1) // SELECT_BINS)  # keys per bin, at least 1
         counts = np.zeros(SELECT_BINS, np.int64)
@@ -952,6 +955,8 @@ def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int
             counts += np.bincount((keys - lo) // width, minlength=SELECT_BINS)
         cum = np.cumsum(counts)
         b = int(np.searchsorted(cum, k, side="right"))  # the first bin whose count reaches past k
+        if pair and int(cum[b]) == k + 1:  # the (k+1)-th lies in a later bin: each value on its own
+            return _select(chunks, k, lo, hi), _select(chunks, k + 1, lo, hi)
         k -= int(cum[b - 1]) if b else 0
         lo, hi = lo + b * width, min(hi, lo + (b + 1) * width - 1)
         if counts[b] <= SELECT_COLLECT:
@@ -959,8 +964,9 @@ def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int
             for values in chunks():
                 keys = _keys(values)
                 found.append(np.asarray(values, dtype=np.float32)[(keys >= lo) & (keys <= hi)])
-            return np.sort(np.concatenate(found))[k]
-    return _key_value(lo)
+            found = np.sort(np.concatenate(found))
+            return (found[k], found[k + 1]) if pair else found[k]
+    return (_key_value(lo), _key_value(lo)) if pair else _key_value(lo)
 
 
 def _or_rows(out_path: str, more_path: str, rows: int):
