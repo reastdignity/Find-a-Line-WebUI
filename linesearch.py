@@ -63,6 +63,62 @@ COVERED_PART = 1 << 16  # lines per part of covered_metres and covered_pixels
 # in parts of at most SINK_PART pairs, each handed to the sink at once (nothing is kept)
 SINK_CHUNK = 2048
 SINK_PART = 1 << 20
+# LazyAnchorValues: the values of the anchors of a part's lines are computed for that part this many
+# times; the next part with an anchor not known yet has every useful anchor computed that a line of it or
+# of a later part can still have (the rows from its first anchors' less the longest line on). A tile with
+# lines in at most this many parts computes its lines' anchors only (most tiles with lines: a few lines,
+# a few thousand anchors of a million); one with lines in many parts pays about one computation of all of
+# them (the windows of a part's anchors overlap the next part's, so a computation per part would take
+# several times that)
+SUBSET_CALLS = 4
+
+
+class LazyAnchorValues:
+    """anchor_values of find_valid_lines computed when lines first need them, for the anchors of those
+    lines (the count mode: most anchors of a tile never get a line). compute(indices) gives
+    [prominence, drop] of anchors[indices] (indices increasing; a (k, 2) array), which must be the
+    values these anchors have among all of them (terrain.prominence and terrain.drop of a subset).
+    Called with the pairs of the passing lines (evaluate_lines), it computes the anchors among them
+    not known yet, each anchor once, and returns the values of every anchor (NaN where not computed);
+    after `calls` computations the next takes every anchor of `rest` not known yet whose row (`rows`)
+    is at least floor() (find_valid_lines sets the useful anchors, the only ones a line can have, and
+    their rows; _sink_lines the smallest row a line of the pairs evaluated from now on can reach).
+    after: called after each computation (_sink_lines puts the bar of the pairs back). Held from the
+    first line on: the values (16 bytes an anchor, as the array of before) and whether each is known
+    (1 byte)."""
+
+    def __init__(self, compute: Callable[[np.ndarray], np.ndarray], count: int, calls: Optional[int] = None):
+        self.compute, self.count = compute, count
+        self.calls = SUBSET_CALLS if calls is None else calls
+        self.values: Optional[np.ndarray] = None
+        self.known: Optional[np.ndarray] = None
+        self.rest: Optional[np.ndarray] = None
+        self.rows: Optional[np.ndarray] = None
+        self.floor: Optional[Callable[[], int]] = None
+        self.reach = 0  # rows a line's second anchor may lie above its first (find_valid_lines)
+        self.after: Optional[Callable[[], None]] = None
+        self.computed = 0  # computations so far
+
+    def __call__(self, found: np.ndarray) -> np.ndarray:
+        if self.values is None:  # the first line (most tiles have none)
+            self.values = np.full((self.count, 2), np.nan)
+            self.known = np.zeros(self.count, dtype=bool)
+        need = np.unique(np.asarray(found, dtype=np.int64))
+        need = need[~self.known[need]]
+        if len(need):
+            if self.computed >= self.calls and self.rest is not None:
+                rest = np.asarray(self.rest, dtype=np.int64)
+                rest = rest[~self.known[rest]]
+                if self.floor is not None and self.rows is not None:
+                    rest = rest[self.rows[rest] >= self.floor()]
+                need = np.union1d(need, rest)
+            values = np.asarray(self.compute(need), dtype=np.float64).reshape(len(need), 2)
+            self.values[need] = values
+            self.known[need] = True
+            self.computed += 1
+            if self.after is not None:
+                self.after()
+        return self.values
 
 
 @njit(cache=True)
@@ -780,7 +836,7 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
                    surface: Optional[np.ndarray], sag_table, nmpt_mode: Optional[str],
                    high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
                    down: Optional[np.ndarray] = None,
-                   anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None,
+                   anchor_values: Union[np.ndarray, Callable[[], np.ndarray], LazyAnchorValues, None] = None,
                    end_zone: float = 0.0, lift: float = 0.0, end_clearance: float = 0.0,
                    zone_cap: float = sh.ZONE_CAP, zones=()) -> sh.LineTable:
     """The lines among the pairs found (indices into anchors) that pass helpers.evaluate_line
@@ -788,7 +844,8 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
     only the lines that reach them (sh.LineLimits.passes). down: helpers.downslope of the
     anchors (computed here when not given); anchor_values: [prominence, drop] of every
     anchor (terrain.py; NaN when not given), or a callable giving them, asked only when some
-    line passes. end_zone, lift, end_clearance, zone_cap: the end zone and the lift
+    line passes, or a LazyAnchorValues, asked with the passing pairs (the values of their
+    anchors computed then). end_zone, lift, end_clearance, zone_cap: the end zone and the lift
     (helpers.end_zone_rule); zones: a ladder of end zones, whose bucket minima become the
     columns "zone_margins" (lines x zones) and, with a surface, "zone_margins_nmpt"
     (helpers.valid_at); without zones the table has the columns of before."""
@@ -829,6 +886,8 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
     found, out = found[keep], out[keep]
     if anchor_values is None:
         anchor_values = np.full((len(anchors), 2), np.nan)
+    elif isinstance(anchor_values, LazyAnchorValues):
+        anchor_values = anchor_values(found) if len(found) else np.zeros((0, 2))
     elif callable(anchor_values):
         anchor_values = anchor_values() if len(found) else np.zeros((0, 2))
     anchor_values = np.asarray(anchor_values, dtype=np.float64)
@@ -946,7 +1005,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      sag_table=None, max_dh_ratio: float = np.inf,
                      max_dh: float = np.inf, first: Optional[np.ndarray] = None,
                      high_above: float = sh.HIGH_ABOVE, limits: Optional[sh.LineLimits] = None,
-                     anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None] = None,
+                     anchor_values: Union[np.ndarray, Callable[[], np.ndarray], LazyAnchorValues, None] = None,
                      strong: Optional[np.ndarray] = None, stats: Optional[Dict[str, int]] = None,
                      check: Optional[Callable[[int], None]] = None,
                      sink: Optional[Callable[[sh.LineTable], None]] = None,
@@ -971,7 +1030,9 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         limits: Optional limits of the heights above the terrain and the wall angle; lines
             that do not reach them are left out (counted in limits.left_out)
         anchor_values: [prominence, drop] of every anchor (terrain.py), saved with the lines; with
-            a sink also a callable giving them, asked once, by the first part with a valid line
+            a sink also a callable giving them, asked once, by the first part with a valid line, or a
+            LazyAnchorValues, computing those of the anchors of each part's lines (its rest: the
+            useful anchors)
         strong: Optional mask of the anchors one of which every line must have (--min-prominence)
         stats: Optional dict the counts of this call are added to (the funnel of the line search,
             jobs.FUNNEL_STEPS): anchors with an open direction, those pairs start from, candidate
@@ -1033,6 +1094,9 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                                           max_dh_ratio, max_dh, down, cos_limit, strong, use_sag, log_spans,
                                           ratios, table, fall_zone, end_zone, lift, delta, zone_cap)
     if sink is not None:
+        if isinstance(anchor_values, LazyAnchorValues):
+            anchor_values.rest, anchor_values.rows = useful, anchors[:, 0]
+            anchor_values.reach = int(math.ceil(max_length / res)) + 2  # _pairs' far2: max_length / res + 2
         _sink_lines(sink, args, tail, todo_all, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above,
                     limits, down, anchor_values, len(useful), stats, start_time, rule)
         return None
@@ -1105,24 +1169,35 @@ def _summary(start_time: float, candidates: int, checked: int, limits: Optional[
 def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, todo_all: np.ndarray,
                 anchors: np.ndarray, elevation: np.ndarray, res: float, surface: Optional[np.ndarray], sag_table,
                 nmpt_mode: Optional[str], high_above: float, limits: Optional[sh.LineLimits], down: np.ndarray,
-                anchor_values: Union[np.ndarray, Callable[[], np.ndarray], None], useful: int,
+                anchor_values: Union[np.ndarray, Callable[[], np.ndarray], LazyAnchorValues, None], useful: int,
                 stats: Optional[Dict[str, int]], start_time: float, rule: Optional[Dict] = None):
     """Steps 2 and 3 of find_valid_lines with a sink: the pairs of SINK_CHUNK anchors at a time,
     evaluated whenever EVAL_PART of them are pending (and after the last anchors), each evaluated
     part handed to the sink at once. One bar, "anchor pairs", with the valid lines as a postfix.
-    A callable anchor_values is asked once, by the first part with a valid line; it runs a bar of
-    its own, so the bar of the pairs is put back where it stood. rule: evaluate_lines' end zone,
-    lift, end clearance, zone cap and zones."""
+    A callable anchor_values is asked once, by the first part with a valid line, a LazyAnchorValues
+    by every part whose lines have an anchor not known yet; either runs a bar of its own, so the bar
+    of the pairs is put back where it stood. rule: evaluate_lines' end zone, lift, end clearance,
+    zone cap and zones."""
     rule = rule or {}
     pending, held, candidates, checked, found, valid = [], 0, 0, 0, 0, 0
-    at, known, values = 0, None, anchor_values
-    if callable(anchor_values):
+    at, known, values, pending_at = 0, None, anchor_values, 0
+
+    def resume():
+        progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
+        progress.compute.update(at, pairs=f"{checked:,}", lines=found, valid=valid)
+
+    lazy = anchor_values if isinstance(anchor_values, LazyAnchorValues) else None
+    if lazy is not None:
+        lazy.after = resume
+        # the first anchors of the pairs evaluated from now on: todo_all[pending_at:]; their partners lie at
+        # most lazy.reach rows above them
+        lazy.floor = lambda: int(anchors[todo_all[pending_at:], 0].min()) - lazy.reach
+    elif callable(anchor_values):
         def values() -> np.ndarray:
             nonlocal known
             if known is None:
                 known = anchor_values()
-                progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
-                progress.compute.update(at, pairs=f"{checked:,}", lines=found, valid=valid)
+                resume()
             return known
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
     for at in range(0, len(todo_all), SINK_CHUNK):
@@ -1132,6 +1207,8 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
         candidates += int(counts[:, 0].sum())
         checked += int(counts[:, 1].sum())
         if len(out):
+            if not pending:
+                pending_at = at  # the first anchors of the pending pairs: todo_all[pending_at] on
             pending.append(out)
             held += len(out)
         del out

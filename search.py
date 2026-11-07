@@ -1242,7 +1242,7 @@ def at_seams(gaps: np.ndarray, anchors: np.ndarray) -> np.ndarray:
 @dataclass
 class Anchors:
     """Step 2's results: the anchors ([row, col]), their prominence and drop (terrain.py; None: not
-    computed, _pair_search leaves them to the first line), and the mask of the strong ones
+    computed, _pair_search leaves them to the lines: linesearch.LazyAnchorValues), and the mask of the strong ones
     (--min-prominence; None: every anchor)."""
     anchors: np.ndarray
     prominence: Optional[np.ndarray]
@@ -1250,14 +1250,15 @@ class Anchors:
     strong: Optional[np.ndarray]
 
 
-def _anchor_values(plan: Plan, data: Data, anchors: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """How far each anchor stands out (terrain.py): its prominence and its drop."""
+def _anchor_values(plan: Plan, data: Data, anchors: np.ndarray, crop: bool = False) -> Tuple[np.ndarray, np.ndarray]:
+    """How far each anchor stands out (terrain.py): its prominence and its drop. crop: on the part of
+    the grid around these anchors only (a few anchors of a tile: the count mode's lines)."""
     import terrain  # numba: only when computing (test_search_imports_numba_only_to_compute)
 
     progress.compute.start("anchor prominence and drop", 2, unit="step")
-    prom = terrain.prominence(data.elevation, anchors, plan.resolution, plan.params.prominence_span)
+    prom = terrain.prominence(data.elevation, anchors, plan.resolution, plan.params.prominence_span, crop=crop)
     progress.compute.update(1)
-    drop = terrain.drop(data.elevation, anchors, plan.resolution, plan.params.drop_radius)
+    drop = terrain.drop(data.elevation, anchors, plan.resolution, plan.params.drop_radius, crop=crop)
     progress.compute.finish()
     return prom, drop
 
@@ -1267,7 +1268,8 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False
     data) within the elevation band (--min/--max-elevation), with their prominence and drop and
     the limits on them. Too few anchors: None when quiet (a tile, a count), else SearchError.
     limits.anchors_max refuses too many either way. deferred: prominence and drop left to the
-    first line when no limit needs them (a count: most tiles of a country have no line)."""
+    lines when no limit needs them (a count: most tiles of a country have no line, and most anchors of
+    one with lines are in none; _pair_search computes those of the lines' anchors)."""
     p, grid, emit = plan.params, plan.grid, plan.emit
     _step(plan, 2, "finding significant slopes")
     anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
@@ -1344,8 +1346,12 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
         first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
     _count(plan, "grids", 1)
     _count(plan, "anchors_kept", len(anchors))  # what the line search gets
-    values = ((lambda: np.column_stack(_anchor_values(plan, data, anchors))) if found.prominence is None
-              else np.column_stack([found.prominence, found.drop]))
+    # Deferred (the count mode): the values of the anchors of each part's lines, then of every useful
+    # anchor once lines come in many parts (linesearch.LazyAnchorValues; terrain.py gives a subset the
+    # values it has among all the anchors, bit for bit)
+    values = (ls.LazyAnchorValues(lambda idx: np.column_stack(_anchor_values(plan, data, anchors[idx], crop=True)),
+                                  len(anchors))
+              if found.prominence is None else np.column_stack([found.prominence, found.drop]))
     # With an end zone or A-frames (not in count mode) the buckets of the zone and the core, from which
     # the A-frame heights each line needs follow (helpers.lift_values); the margins are dropped then
     ends = sink is None and bool(plan.end_zone or plan.lift)

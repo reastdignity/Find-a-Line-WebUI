@@ -880,7 +880,9 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   builds on:** `search._anchors(deferred=True)` in `count_tile`
   computes the prominence and the drop at a tile's first line (with a limit `min_prominence`,
   `min_prominence_both` or `min_drop` as before, before the pairs); `linesearch.evaluate_lines` and
-  `_sink_lines` take `anchor_values` as a function called once; the columns `prom1`, `prom2`,
+  `_sink_lines` take `anchor_values` as a function called once (since round 5's C1 a
+  `linesearch.LazyAnchorValues`: the anchors of each part's lines, each once, after four parts every
+  useful anchor not known yet in the rows still to come; the same values bit for bit); the columns `prom1`, `prom2`,
   `drop1`, `drop2` reach the counter unchanged. `Plan.border` False means more than "no neighbour":
   the full mask without burning the outline and no coverage counted, on the assumption that the
   tile's grid lies wholly inside the outline (`country._at_border`). R3 keeps that assumption: a grid
