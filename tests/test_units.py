@@ -1390,7 +1390,7 @@ def _fill_before(target, other, gaps, res):
     return count
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize("seed", [0, 1, 2, 4])
 def test_gap_fill_as_before(seed, tmp_path):
     """_fill with its temporaries computed in place fills every gap with the same float32 bits as before."""
     terrain, gaps, other = _gap_fill_case(seed)
@@ -1652,10 +1652,12 @@ def _gap_fill_case(seed):
     other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
     if seed == 2:
         other[:] = np.nan  # nothing to fill with
+    if seed == 4:  # a tile at a border: the land beyond it a gap, its edge irregular, small gaps beside it
+        gaps |= x > 150 + 12 * np.sin(y / 9)
     return terrain, gaps, other
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
 def test_fill_rows_as_before(seed, tmp_path):
     """_fill in strips of rows fills every gap with the float32 bits of _fill on the whole grid
     (test_gap_fill_as_before's reference): any strip height, also the filling source known on a

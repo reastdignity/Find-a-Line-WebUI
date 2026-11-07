@@ -863,13 +863,20 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
     count = ndimage.label(gaps, structure=np.ones((3, 3)), output=labels)
     ring_labels, ring_diffs = [], []
     for r0, r1, h0, h1 in strips(height, rows, GAP_RING):
-        ring = ndimage.grey_dilation(labels[h0:h1], size=(GAP_RING * 2 + 1,) * 2)[r0 - h0:r1 - h0]
-        ring *= np.asarray(both[r0:r1]) & (labels[r0:r1] == 0)  # integers, in place
+        # The dilation only over the columns within GAP_RING of a gap of the strip's rows (with their
+        # halo): 0 beyond them, and the same values in them (the reflection at the part's edges brings
+        # in 0s as the columns outside it hold); a strip with no gap near it has no ring
+        cols = np.flatnonzero(labels[h0:h1].any(axis=0))
+        if not cols.size:
+            continue
+        c0, c1 = max(0, int(cols[0]) - GAP_RING), min(width, int(cols[-1]) + GAP_RING + 1)
+        ring = ndimage.grey_dilation(labels[h0:h1, c0:c1], size=(GAP_RING * 2 + 1,) * 2)[r0 - h0:r1 - h0]
+        ring *= np.asarray(both[r0:r1, c0:c1]) & (labels[r0:r1, c0:c1] == 0)  # integers, in place
         near = ring > 0
         if near.any():
-            ring_labels.append(ring[near])
+            ring_labels.append(ring[near])  # row by row as over the whole strip: every ring pixel lies in c0:c1
             with np.errstate(invalid="ignore"):
-                ring_diffs.append((np.asarray(target[r0:r1]) - other_rows(r0, r1))[near])
+                ring_diffs.append((np.asarray(target[r0:r1, c0:c1]) - other_rows(r0, r1)[:, c0:c1])[near])
         del ring, near
     del both
     remove_grid(both_path)
