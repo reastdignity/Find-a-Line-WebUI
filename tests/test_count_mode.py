@@ -434,6 +434,43 @@ def test_count_tile_carries_the_lift_values(tmp_path, offline, monkeypatch, mode
         del data
 
 
+@pytest.mark.parametrize("calls", [None, 0])
+def test_count_tile_releases_its_grids(tmp_path, offline, monkeypatch, calls):
+    """After a count (lines, lazy anchor values, the switch to every useful anchor or not) nothing keeps the
+    grids of step 1: deleting the data frees the memory-mapped terrain by reference counting alone, with the
+    cyclic collector off, and step 1 writes the same work path again (Windows refuses to write a file while a
+    view of it lives: the next grid of a work path, a test's fixture or a tile of a worker). A count on another
+    plan first compiles what numba has not cached (the first compilation in a process may keep the frames of
+    its call alive, whatever the count holds)."""
+    import gc
+    import weakref
+    import linesearch as ls
+    import search
+    if calls is not None:
+        monkeypatch.setattr(ls, "SUBSET_CALLS", calls)
+    (tmp_path / "warm").mkdir()
+    warm = _krovak_plan(tmp_path / "warm")
+    search.count_tile(warm, search.prepare_data(warm), None, [].append)
+    plan = _krovak_plan(tmp_path)
+    data = search.prepare_data(plan)
+    terrain = weakref.ref(data.elevation)
+    parts = []
+    enabled = gc.isenabled()
+    gc.collect()
+    gc.disable()
+    try:
+        search.count_tile(plan, data, None, parts.append)
+        assert sum(len(p) for p in parts) > 100
+        del data, parts
+        assert terrain() is None
+        again = search.prepare_data(plan)  # the same work path written again
+        assert again.elevation.shape == (plan.grid.height, plan.grid.width)
+        del again
+    finally:
+        if enabled:
+            gc.enable()
+
+
 def test_lazy_anchor_values():
     """LazyAnchorValues: the anchors of the pairs not known yet computed, each once, in increasing
     order; the values of every anchor returned (NaN where not computed); after `calls` computations

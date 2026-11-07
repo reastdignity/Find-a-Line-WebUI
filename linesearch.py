@@ -1188,10 +1188,13 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
 
     lazy = anchor_values if isinstance(anchor_values, LazyAnchorValues) else None
     if lazy is not None:
-        lazy.after = resume
         # the first anchors of the pairs evaluated from now on: todo_all[pending_at:]; their partners lie at
-        # most lazy.reach rows above them
-        lazy.floor = lambda: int(anchors[todo_all[pending_at:], 0].min()) - lazy.reach
+        # most reach rows above them. Neither hook refers to lazy: a cycle through it would keep the grids its
+        # computation reads (search._pair_search's data, memory-mapped) alive until the cyclic collector ran,
+        # and Windows refuses to write a mapped file again (the next grid of a work path)
+        reach = lazy.reach
+        lazy.after = resume
+        lazy.floor = lambda: int(anchors[todo_all[pending_at:], 0].min()) - reach
     elif callable(anchor_values):
         def values() -> np.ndarray:
             nonlocal known
@@ -1222,6 +1225,8 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
                 del table
             pending, held = [], 0
         progress.compute.update(len(todo), pairs=f"{checked:,}", lines=found, valid=valid)
+    if lazy is not None:
+        lazy.after = lazy.floor = None
     progress.compute.finish(f"{valid} valid")
     _summary(start_time, candidates, checked, limits, valid)
     _add_stats(stats, useful, len(todo_all), candidates, checked, found, valid, limits)
