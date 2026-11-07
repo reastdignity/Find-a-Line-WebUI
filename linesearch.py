@@ -58,11 +58,16 @@ PAIR_BUFFER_BYTES = 16 << 20
 # them): the chunks' arrays as they are, small ones joined, large ones cut
 EVAL_PART = 10_000
 COVERED_PART = 1 << 16  # lines per part of covered_metres and covered_pixels
-# find_valid_lines(sink=): the anchors go through pair_chunk in slices of SINK_CHUNK (PAIR_BUFFER
-# pairs each fit PAIR_BUFFER_BYTES), and the pairs found are evaluated once EVAL_PART are pending,
-# in parts of at most SINK_PART pairs, each handed to the sink at once (nothing is kept)
+# find_valid_lines(sink=): the anchors go through pair_chunk in slices of SINK_CHUNK, and the pairs
+# found are evaluated once EVAL_PART are pending, in parts of at most SINK_PART pairs, each handed
+# to the sink at once (nothing is kept). A slice's buffer holds SINK_PAIR_BUFFER pairs per anchor
+# (SINK_CHUNK of them fit SINK_PAIR_BUFFER_BYTES): more than any anchor of Slovakia's heaviest
+# tiles found (6169 in M2's Tatras tile, 7887 in L's), whose anchors over PAIR_BUFFER held 76 % of
+# their pairs and made the writing pass repeat 75-77 % of their pixel tests (13-14 % of the tile)
 SINK_CHUNK = 2048
 SINK_PART = 1 << 20
+SINK_PAIR_BUFFER = 8192
+SINK_PAIR_BUFFER_BYTES = 128 << 20
 
 
 @njit(cache=True)
@@ -602,15 +607,20 @@ def _copy_buffered(buf, found, offsets, out):
                 out[offsets[q] + k, 1] = buf[q, k, 1]
 
 
-def pair_chunk(args: tuple, todo: np.ndarray, tail: tuple, buffer: Optional[int] = None):
+def pair_chunk(args: tuple, todo: np.ndarray, tail: tuple, buffer: Optional[int] = None,
+               per_anchor: Optional[int] = None, max_bytes: Optional[int] = None):
     """The pairs of the anchors in todo (_pairs' arguments before and after todo), in the order
     of todo: one pass over all of them holding the first pairs of each anchor in a buffer
-    (buffer pairs per anchor; by default PAIR_BUFFER, fewer when the buffer would exceed
-    PAIR_BUFFER_BYTES), then a writing pass over the anchors that found more only. Returns the
-    counts and the pairs."""
+    (buffer pairs per anchor; by default per_anchor (PAIR_BUFFER), fewer when the buffer would
+    exceed max_bytes (PAIR_BUFFER_BYTES); the count mode passes SINK_PAIR_BUFFER and
+    SINK_PAIR_BUFFER_BYTES), then a writing pass over the anchors that found more only. Either
+    pass writes an anchor's pairs in the order of its visits, so the size of the buffer changes
+    neither the pairs nor their order. Returns the counts and the pairs."""
     n = len(todo)
     index = np.int32 if len(args[1]) <= np.iinfo(np.int32).max else np.int64  # 8 B a pair
-    keep = buffer or max(1, min(PAIR_BUFFER, PAIR_BUFFER_BYTES // (2 * np.dtype(index).itemsize * max(1, n))))
+    per_anchor = PAIR_BUFFER if per_anchor is None else per_anchor
+    max_bytes = PAIR_BUFFER_BYTES if max_bytes is None else max_bytes
+    keep = buffer or max(1, min(per_anchor, max_bytes // (2 * np.dtype(index).itemsize * max(1, n))))
     buf = np.empty((n, keep, 2), dtype=index)
     counts = np.zeros((n, 3), dtype=np.int64)
     _pairs(*args, todo, *tail, None, np.zeros((0, 2), dtype=np.int64), buf, counts)
@@ -1127,7 +1137,7 @@ def _sink_lines(sink: Callable[[sh.LineTable], None], args: tuple, tail: tuple, 
     progress.compute.start("anchor pairs", len(todo_all), unit="anchor")
     for at in range(0, len(todo_all), SINK_CHUNK):
         todo = todo_all[at:at + SINK_CHUNK]
-        counts, out = pair_chunk(args, todo, tail)
+        counts, out = pair_chunk(args, todo, tail, per_anchor=SINK_PAIR_BUFFER, max_bytes=SINK_PAIR_BUFFER_BYTES)
         found += len(out)
         candidates += int(counts[:, 0].sum())
         checked += int(counts[:, 1].sum())

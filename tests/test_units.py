@@ -893,6 +893,42 @@ def test_pair_buffer_overflow_matches_reference(model, buffer):
         assert overflowed > 5 and len(ref_out) > 10
 
 
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_sink_pair_buffer_as_the_search_path(model, monkeypatch):
+    """The count mode's buffer (SINK_PAIR_BUFFER per anchor, SINK_CHUNK anchors within
+    SINK_PAIR_BUFFER_BYTES) gives the counts and the pairs, in their order, of the search path's
+    buffer and of the frozen reference, with the writing pass (a sink buffer of a few pairs) and
+    without; find_valid_lines(sink=) asks pair_chunk for it."""
+    import linesearch as ls
+    assert ls.SINK_PAIR_BUFFER_BYTES // (2 * np.dtype(np.int32).itemsize * ls.SINK_CHUNK) >= ls.SINK_PAIR_BUFFER
+    assert ls.SINK_PAIR_BUFFER > ls.PAIR_BUFFER
+    for first in (False, True):
+        plf, a = _reference_case(model, first, False, True)
+        head, tail, todo_all = plf.production_args(a, plf.production_directions(a))
+        for todo in [todo_all[at:at + ls.SINK_CHUNK] for at in range(0, len(todo_all), ls.SINK_CHUNK)] + [todo_all]:
+            ref_counts, ref_out = plf.two_passes(plf.K.ref_pairs, a, todo)
+            counts, out = ls.pair_chunk(head, todo, tail)
+            for per_anchor in (ls.SINK_PAIR_BUFFER, 2):  # 2: the writing pass for most anchors with lines
+                c, o = ls.pair_chunk(head, todo, tail, per_anchor=per_anchor, max_bytes=ls.SINK_PAIR_BUFFER_BYTES)
+                assert np.array_equal(c, counts) and np.array_equal(o, out)
+            assert np.array_equal(counts[:, 1:], ref_counts[:, 1:]) and np.array_equal(out, ref_out)
+    asked = []
+    original = ls.pair_chunk
+
+    def recording(*args, **kwargs):
+        asked.append((kwargs.get("per_anchor"), kwargs.get("max_bytes")))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ls, "pair_chunk", recording)
+    z = np.full((60, 60), 100.0, dtype=np.float32)
+    z[:, 20:40] = 0.0
+    anchors = np.array([[r, c] for r in range(5, 55, 5) for c in (19, 40)], dtype=np.int64)
+    found = []
+    ls.find_valid_lines(z, None, anchors, 1.0, 10.0, 40.0, sink=found.append)
+    assert asked and set(asked) == {(ls.SINK_PAIR_BUFFER, ls.SINK_PAIR_BUFFER_BYTES)}
+    assert sum(len(p) for p in found) > 0
+
+
 def _random_case(model, seed, first, strong, wall, max_length=150.0, size=400):
     """Random terrain with raised blocks whose edges hold anchors (lines in every direction,
     cells in every sector around an anchor, also across the -pi / pi seam of atan2) and
