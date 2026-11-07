@@ -496,21 +496,54 @@ class TileCounter:
         self.lines = 0
         self.dropped = 0
         self.transform_seconds = 0.0  # the anchors' pixels to (lon, lat) and their clusters
+        # The pixels transformed so far (sorted codes row * width + col) and their lon, lat, cx, cy:
+        # each anchor of the tile goes through pyproj once, whatever the parts it is in
+        self._codes = np.zeros(0, dtype=np.int64)
+        self._lon = np.zeros(0, dtype=np.float64)
+        self._lat = np.zeros(0, dtype=np.float64)
+        self._cx = np.zeros(0, dtype=np.int64)
+        self._cy = np.zeros(0, dtype=np.int64)
+
+    def _lookup(self, unique: np.ndarray):
+        """lon, lat, cx, cy of sorted distinct pixel codes: the ones not seen yet transformed (pyproj,
+        point by point: a pixel's values do not depend on the batch) and kept."""
+        codes = self._codes
+        pos = np.searchsorted(codes, unique)
+        seen = pos < len(codes)
+        seen[seen] = codes[pos[seen]] == unique[seen]
+        if not seen.all():
+            new = unique[~seen]
+            width = self.grid.width
+            x, y = self.grid.pixel_to_xy(new // width, new % width)
+            lon, lat = self._transformer.transform(x, y)
+            lon, lat = np.asarray(lon, dtype=np.float64), np.asarray(lat, dtype=np.float64)
+            cx, cy = clusters_of(lon, lat, self.origin)
+            at = pos[~seen]
+            self._codes = np.insert(codes, at, new)
+            self._lon, self._lat = np.insert(self._lon, at, lon), np.insert(self._lat, at, lat)
+            self._cx, self._cy = np.insert(self._cx, at, cx), np.insert(self._cy, at, cy)
+            pos = np.searchsorted(self._codes, unique)
+        return self._lon[pos], self._lat[pos], self._cx[pos], self._cy[pos]
 
     def anchors(self, a1: np.ndarray, a2: np.ndarray):
-        """lon, lat, cx, cy of both anchors of each line (pixels [row, col]), the distinct pixels
-        transformed once."""
+        """lon, lat, cx, cy of both anchors of each line (pixels [row, col]): the part's distinct
+        pixels (a1's runs first: a part holds the pairs of one first anchor together) looked up in
+        the tile's transformed pixels (_lookup)."""
         k = len(a1)
         width = self.grid.width
-        codes = np.concatenate([a1[:, 0].astype(np.int64) * width + a1[:, 1],
-                                a2[:, 0].astype(np.int64) * width + a2[:, 1]])
-        unique, inverse = np.unique(codes, return_inverse=True)
-        inverse = inverse.reshape(-1)
-        x, y = self.grid.pixel_to_xy(unique // width, unique % width)
-        lon, lat = self._transformer.transform(x, y)
-        lon, lat = np.asarray(lon, dtype=np.float64), np.asarray(lat, dtype=np.float64)
-        cx, cy = clusters_of(lon, lat, self.origin)
-        first, second = inverse[:k], inverse[k:]
+        code1 = a1[:, 0].astype(np.int64) * width + a1[:, 1]
+        code2 = a2[:, 0].astype(np.int64) * width + a2[:, 1]
+        heads = np.flatnonzero(np.concatenate(([True], code1[1:] != code1[:-1])))
+        if 2 * len(heads) <= k:
+            unique, inverse = np.unique(np.concatenate([code1[heads], code2]), return_inverse=True)
+            inverse = inverse.reshape(-1)
+            first = np.repeat(inverse[:len(heads)], np.diff(np.append(heads, k)))
+            second = inverse[len(heads):]
+        else:
+            unique, inverse = np.unique(np.concatenate([code1, code2]), return_inverse=True)
+            inverse = inverse.reshape(-1)
+            first, second = inverse[:k], inverse[k:]
+        lon, lat, cx, cy = self._lookup(unique)
         return (lon[first], lat[first], cx[first], cy[first]), (lon[second], lat[second], cx[second], cy[second])
 
     def __call__(self, part) -> None:

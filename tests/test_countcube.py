@@ -349,6 +349,36 @@ def test_tile_counter_against_brute_force(core, last, monkeypatch):
     assert len({b for _, b in spots}) > 5  # spots split by border and partner
 
 
+def test_anchors_transformed_once_per_tile():
+    """TileCounter.anchors over parts with a1 in runs (as the count hands them) and without: each line's
+    lon, lat and clusters as pyproj gives them pixel by pixel; a pixel seen in an earlier part is not
+    transformed again, and the pixels kept are sorted and distinct."""
+    rng = np.random.default_rng(6)
+    grid = _grid()
+    counter = cc.TileCounter(grid, ORIGIN, None, (30, 5000), True)
+    calls = []
+    transform = counter._transformer.transform
+    counter._transformer = type("Counting", (), {"transform": lambda self, x, y: (calls.append(len(x)),
+                                                                                   transform(x, y))[1]})()
+    pool = rng.integers(0, grid.height, size=(3000, 2))
+    seen = set()
+    for runs in (True, False, True, True):
+        n = 4000
+        a1 = pool[np.sort(rng.integers(0, 3000, n // 8)).repeat(8)] if runs else pool[rng.integers(0, 3000, n)]
+        a2 = pool[rng.integers(0, 3000, n)]
+        (lon1, lat1, cx1, cy1), (lon2, lat2, cx2, cy2) = counter.anchors(a1, a2)
+        for a, lon, lat, cx, cy in ((a1, lon1, lat1, cx1, cy1), (a2, lon2, lat2, cx2, cy2)):
+            x, y = grid.pixel_to_xy(a[:, 0], a[:, 1])
+            elon, elat = TO_WGS84.transform(x, y)
+            assert (lon == elon).all() and (lat == elat).all()
+            ecx, ecy = cc.clusters_of(elon, elat, ORIGIN)
+            assert (cx == ecx).all() and (cy == ecy).all()
+        codes = {int(r) * grid.width + int(c) for r, c in np.concatenate([a1, a2])}
+        assert calls[-1] == len(codes - seen) if codes - seen else True
+        seen |= codes
+    assert sum(calls) == len(seen) and (np.diff(counter._codes) > 0).all() and len(counter._codes) == len(seen)
+
+
 def test_merge_on_word_b_and_the_split_by_border():
     rng = np.random.default_rng(3)
     grid = _grid()
