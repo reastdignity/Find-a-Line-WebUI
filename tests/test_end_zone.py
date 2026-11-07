@@ -287,13 +287,15 @@ def test_lift_values_against_brute_force(case):
 
 
 @pytest.mark.parametrize("case", [CASES[0], CASES[2]], ids=["formula", "sag"])
-def test_count_mode_with_a_zone(case):
-    """The sink (count) mode gives the lines of the table mode at a zone and a lift, every column."""
-    rule = (10.0, 1.0, 0.0)
+@pytest.mark.parametrize("rule, zones", [((10.0, 1.0, 0.0), ZONES), ((5.0, 2.0, 0.0), (0.0, 5.0))])
+def test_count_mode_with_a_zone(case, rule, zones):
+    """The sink (count) mode gives the lines of the table mode at a zone and a lift, every column; with
+    the ladder search._pair_search passes ((0, zone)) each part's lines get the A-frame heights of the
+    table's (helpers.lift_values of their buckets, per line)."""
     parts = []
-    assert search(case, rule, zones=ZONES, sink=parts.append) is None
+    assert search(case, rule, zones=zones, sink=parts.append) is None
     joined = sh.LineTable.concat(parts)
-    table = search(case, rule, zones=ZONES)
+    table = search(case, rule, zones=zones)
     order = np.lexsort((joined.columns["a2"][:, 1], joined.columns["a2"][:, 0], joined.columns["a1"][:, 1],
                         joined.columns["a1"][:, 0]))
     expected = np.lexsort((table.columns["a2"][:, 1], table.columns["a2"][:, 0], table.columns["a1"][:, 1],
@@ -301,6 +303,13 @@ def test_count_mode_with_a_zone(case):
     assert len(joined) == len(table) > 50 and set(joined.columns) == set(table.columns)
     for name in table.columns:
         assert np.array_equal(joined.columns[name][order], table.columns[name][expected], equal_nan=True), name
+    if len(zones) == 2:
+        delta = sh.end_delta(table_of(case[0]))
+        per_part = [sh.lift_values(p.columns["zone_margins"], delta, rule[1]) for p in parts]
+        mine = [np.concatenate([v[i] for v in per_part])[order] for i in (0, 1)]
+        theirs = [v[expected] for v in sh.lift_values(table.columns["zone_margins"], delta, rule[1])]
+        assert all(np.array_equal(a, b) for a, b in zip(mine, theirs))
+        assert (theirs[0] > 0).any() and (theirs[1] > theirs[0]).any()
 
 
 def test_independent_of_threads():

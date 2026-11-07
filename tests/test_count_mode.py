@@ -391,6 +391,49 @@ def test_count_tile_computes_the_anchor_values_of_the_lines(tmp_path, offline, m
     assert bars[-1] == ("anchor pairs", True)
 
 
+@pytest.mark.parametrize("model", ["formula", "tension"])
+def test_count_tile_carries_the_lift_values(tmp_path, offline, monkeypatch, model):
+    """With the no-fall zone and A-frames (5 m, 2 m) every part handed to the sink carries the A-frame
+    heights of its lines ("lift_needed", "lift_no_zone"), those the search's table has for the same
+    lines (every column equal, bit for bit); the ladder adds values only (without it the same lines and
+    values); at 0 / 0 the parts have the columns of before, no END_VALUES."""
+    import helpers as sh
+    import linesearch as ls
+    import sag as sg
+    import search
+    for ends in ({"end_zone": 5.0, "anchor_lift": 2.0}, {}):
+        values = {"model": "sag", **ends} if model == "tension" else dict(ends)
+        folder = tmp_path / ("ends" if ends else "plain")
+        folder.mkdir()
+        plan = _krovak_plan(folder, **values)
+        table = sg.TensionTable(plan.rigging, plan.params.min_length, plan.params.max_length,
+                                [(30, 2.5), (150, 6.0)]) if model == "tension" else None
+        data = search.prepare_data(plan)
+        whole = search._pair_search(plan, data, search._anchors(plan, data), None, table)
+        plan.funnel = {}
+        parts = []
+        search.count_tile(plan, data, None, parts.append, table)
+        assert len(parts) and sum(len(p) for p in parts) == len(whole) > 100
+        columns = {"a1", "a2", *sh.LINE_VALUES, "water_px"} | (set(sh.END_VALUES) if ends else set())
+        assert all(set(p.columns) == columns for p in parts)
+        counted = _sorted(_joined(parts))
+        del counted["water_px"]
+        _assert_same(_sorted(whole.columns), counted)
+        if not ends:
+            continue
+        assert (counted["lift_needed"] > 0).any() and (counted["lift_no_zone"] > counted["lift_needed"]).any()
+        find = ls.find_valid_lines  # the same count without the ladder: the same lines and values
+        monkeypatch.setattr(ls, "find_valid_lines", lambda *a, **k: find(*a, **{**k, "zones": ()}))
+        plan.funnel = {}
+        plain = []
+        search.count_tile(plan, data, None, plain.append, table)
+        monkeypatch.setattr(ls, "find_valid_lines", find)
+        plain = _sorted(_joined(plain))
+        for name in ("a1", "a2", *sh.LINE_VALUES, "water_px"):
+            assert np.array_equal(plain[name], _sorted(_joined(parts))[name], equal_nan=True), name
+        del data
+
+
 def test_lazy_anchor_values():
     """LazyAnchorValues: the anchors of the pairs not known yet computed, each once, in increasing
     order; the values of every anchor returned (NaN where not computed); after `calls` computations

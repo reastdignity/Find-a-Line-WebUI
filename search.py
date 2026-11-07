@@ -1352,30 +1352,42 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
     values = (ls.LazyAnchorValues(lambda idx: np.column_stack(_anchor_values(plan, data, anchors[idx], crop=True)),
                                   len(anchors))
               if found.prominence is None else np.column_stack([found.prominence, found.drop]))
-    # With an end zone or A-frames (not in count mode) the buckets of the zone and the core, from which
-    # the A-frame heights each line needs follow (helpers.lift_values); the margins are dropped then
-    ends = sink is None and bool(plan.end_zone or plan.lift)
+    # With an end zone or A-frames the buckets of the zone and the core, from which the A-frame heights
+    # each line needs follow (helpers.lift_values: the columns END_VALUES, in the table and in each part
+    # handed to a sink); the margins are dropped then. At 0 / 0 no buckets: the columns of before
+    ends = bool(plan.end_zone or plan.lift)
     zones = ((0.0, plan.end_zone) if plan.end_zone else (0.0,)) if ends else ()
+    delta = sh.end_delta(sag_table) if ends else 0.0
+
+    def end_values(table: sh.LineTable):
+        margins = table.columns.pop("zone_margins", np.zeros((len(table), len(zones))))  # none: an empty table
+        table.columns.pop("zone_margins_nmpt", None)  # the surface's: reject and mark decided already
+        needed, no_zone = sh.lift_values(margins, delta, plan.lift)
+        del margins
+        table.columns.update(zip(sh.END_VALUES, (needed, no_zone)))
+
+    def ended(part: sh.LineTable):
+        end_values(part)
+        sink(part)
+
     lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
                                 p.min_length, p.max_length, plan.nmpt, line_threads(p),
                                 sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
                                 p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
                                                             p.min_high_share, p.max_wall_angle),
-                                values, found.strong, stats=plan.funnel, check=check, sink=sink,
+                                values, found.strong, stats=plan.funnel, check=check,
+                                sink=ended if ends and sink is not None else sink,
                                 end_zone=plan.end_zone, lift=plan.lift, zones=zones)
-    if ends:
-        margins = lines.columns.pop("zone_margins", np.zeros((len(lines), len(zones))))  # none: an empty table
-        lines.columns.pop("zone_margins_nmpt", None)  # the surface's: reject and mark decided already
-        needed, no_zone = sh.lift_values(margins, sh.end_delta(sag_table), plan.lift)
-        del margins
-        lines.columns.update(zip(sh.END_VALUES, (needed, no_zone)))
+    if ends and sink is None:
+        end_values(lines)
     return lines
 
 
 def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh.LineTable], None],
                sag_table=None) -> Dict[str, int]:
     """Steps 2 and 3 of a tile in count mode (the country layer): the valid lines go to sink part
-    by part (linesearch.find_valid_lines(sink=)), each part with "a1", "a2", the LINE_VALUES and
+    by part (linesearch.find_valid_lines(sink=)), each part with "a1", "a2", the LINE_VALUES, with an
+    end zone or A-frames the END_VALUES ("lift_needed", "lift_no_zone": as _lines' table has them), and
     "water_px" (int64: linesearch.covered_pixels of data.water), and nothing is kept. The same
     anchors, first mask (core), line limits and arguments as _lines; no step 4 (the sink decides
     which first anchors lie in core), no "no steep terrain"/"no lines" errors (an empty grid hands
