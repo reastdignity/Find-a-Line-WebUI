@@ -652,10 +652,9 @@ class Countries:
         return mode, level, box, filters
 
     @staticmethod
-    def _cell_m(cube, level: int):
-        import countcube as cc
-        size = level * cube.info.get("cell_m", cc.CELL_M)
-        return int(size) if float(size).is_integer() else size
+    def _cell_deg(cube, level: int) -> float:
+        """The side of a level's cell in degrees (cube v2's lattice of cell_deg, 30″)."""
+        return level * float(cube.info["cell_deg"])
 
     @staticmethod
     def cells(cube, query) -> Dict:
@@ -667,7 +666,7 @@ class Countries:
         i, j, count = cube.cells(mode, level, box, filters)
         corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
         cut = cube.cut(level)
-        return {"level": level, "cell_m": Countries._cell_m(cube, level),
+        return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
                 "total": int(count.sum()), "max": int(count.max()) if len(count) else 0,
                 "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)],
                 "cut": {f"{a},{b}": cut[a, b] for a, b in zip(i.tolist(), j.tolist()) if (a, b) in cut}}
@@ -681,7 +680,7 @@ class Countries:
         mode, level, box, filters = Countries._view(cube, query)
         text = query.get("bbox") or ""
         view = tuple(float(v) for v in text.split(",")) if text else None  # checked by _view
-        return {"level": level, "cell_m": Countries._cell_m(cube, level),
+        return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
                 **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS)}
 
     @staticmethod

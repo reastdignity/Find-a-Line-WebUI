@@ -372,18 +372,24 @@ def setup(country_id: str, folder: str, data_dir: str, redo: bool, say) -> Tuple
         say("--redo: the tiles, the cube and the manifest are removed")
         _remove_results(folder)
         state.pop("origin", None)
+    if "origin" in state and state.get("cube_version") != countcube.VERSION:
+        raise CountryError(f"The tiles of {country_id} were counted for another version of the cube: run again "
+                           f"with --redo to count everything again")
     state.update(config=config, area_sha256=area_sha, hash=digest)
     state.setdefault("created", _now())
     return state, country
 
 
 def _finish_state(state: Dict, folder: str, plans: Dict):
-    """The CRS, the cube's origin (once: countcube.origin_of the outline's bounds in the CRS) and the
-    outline's WGS84 bounds, then country.json."""
+    """The CRS, the cube's origin (once: countcube.origin_of the outline's WGS84 bounds less the
+    longest line of the bands, in cells of the lattice) and the outline's WGS84 bounds, then
+    country.json."""
     plan = next(iter(plans.values()))
     state["crs"] = plan.crs
     if "origin" not in state:
-        state["origin"] = list(countcube.origin_of(plan.grid.area_shape.bounds))
+        reach = max(float(p.params.max_length) for p in plans.values())
+        state["origin"] = list(countcube.origin_of(plan.area.geometry.bounds, reach))
+        state["cube_version"] = countcube.VERSION
     state["bounds_wgs84"] = [round(v, 6) for v in plan.area.geometry.bounds]
     _write_json(os.path.join(folder, "country.json"), state)
 
@@ -1658,18 +1664,22 @@ def _band_counts(folder: str, rows, band: str, mask: Optional[int]):
         spots.add(counts.spot_ids, counts.spot_records)
     keys, n = lines.flush()
     ids, records = spots.flush()
+    if keys is None:
+        keys, n = np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int64)
+    if ids is None:
+        ids, records = np.zeros(0, dtype=np.int64), np.zeros((0, 2), dtype=np.int64)
     if mask is not None:
-        keep = ((keys >> countcube.LENGTH_SHIFT) & mask) != 0
+        keep = ((keys[:, 0] >> countcube.LENGTH_SHIFT) & mask) != 0
         keys, n = keys[keep], n[keep]
-        keep = ((records >> countcube.LENGTH_SHIFT) & mask) != 0
+        keep = ((records[:, 0] >> countcube.LENGTH_SHIFT) & mask) != 0
         ids = ids[keep]
     return keys, n, ids
 
 
 def _per_cell(keys, n, ids, level: int) -> Tuple[Dict[int, int], Dict[int, int]]:
-    """Lines and spots per cell of a level: {cell: count} with cell = i << 14 | j."""
-    i = (keys >> countcube.COL_SHIFT) // level
-    j = ((keys >> countcube.ROW_SHIFT) & countcube.CELL_MASK) // level
+    """Lines and spots per cell of a level: {cell: count} with cell = i << 16 | j."""
+    i = (keys[:, 0] >> countcube.COL_SHIFT) // level
+    j = ((keys[:, 0] >> countcube.ROW_SHIFT) & countcube.CELL_MASK) // level
     cells, counts = countcube.sum_keys((i << countcube.CELL_BITS) | j, n)
     si, sj = countcube.spot_cells(ids)
     spot_cells, spot_counts = countcube.count_keys(((si // level) << countcube.CELL_BITS) | (sj // level))
@@ -1725,7 +1735,7 @@ def compare(country_id: str, data_dir: str, control: str = "M2", against: str = 
         with_spot = [c for c in cells if c_cells_spots.get(c, 0)]
         lost = sum(1 for c in with_spot if not a_cells_spots.get(c, 0))
         result["cells"][str(level)] = {
-            "km": level * countcube.CELL_M / 1000, "cells": len(cells),
+            "cell_deg": level * countcube.CELL_DEG, "cells": len(cells),
             "control_cells": sum(1 for c in cells if c_cells_lines.get(c, 0)),
             "against_cells": sum(1 for c in cells if a_cells_lines.get(c, 0)),
             "spearman_spots": rho, "lost": lost / len(with_spot) if with_spot else None}
@@ -1740,9 +1750,9 @@ def compare(country_id: str, data_dir: str, control: str = "M2", against: str = 
     print(f"{'lines':<14} {c_lines:>14,} {a_lines:>14,} {ratio(result['lines']['ratio']):>8}")
     print(f"{'spots':<14} {len(c_ids):>14,} {len(a_ids):>14,} {ratio(result['spots']['ratio']):>8}")
     print(f"{'seconds':<14} {result['seconds']['control']:>14,.0f} {result['seconds']['against']:>14,.0f}")
-    print(f"{'Cell':<6} {'cells':>8} {'Spearman':>9} {'lost':>7}")
+    print(f"{'Cell':<9} {'cells':>8} {'Spearman':>9} {'lost':>7}")
     for level, row in result["cells"].items():
-        print(f"{row['km']:>4g} km {row['cells']:>8} {ratio(row['spearman_spots']):>9} {ratio(row['lost']):>7}")
+        print(f"{row['cell_deg'] * 3600:>4g} sec {row['cells']:>8} {ratio(row['spearman_spots']):>9} {ratio(row['lost']):>7}")
     print(f"Saved to {os.path.join(folder, 'compare.json')}")
     return 0
 

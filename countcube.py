@@ -1,27 +1,37 @@
-"""The counter cube of a country (docs/country-precompute/contract.md, section 2).
+"""The counter cube of a country (docs/country-precompute/contract.md, sections 2 and 6).
 
-A country is searched in fixed tiles that keep only counts: for each 1 km cell of the country's
-CRS and each combination of filter bins, the number of lines and of spots (pairs of 50 m anchor
-clusters with at least one line). Each count is a row [key, count] of a sorted int64 array; the
-key packs the cell and the bins into 53 bits:
+A country is searched in fixed tiles that keep only counts: for each cell of the global lattice
+(30″ × 30″ by longitude and latitude, the same for every country) and each combination of filter
+bins, the number of lines and of spots (pairs of 1.5″ anchor clusters with at least one line).
+Each count is a row [key_a, key_b, count] of a sorted int64 array; the key is two words:
 
-    bits 0-1 water (bit 0: not over water, bit 1: over water), 2-3 trees (bit 2: not over trees or
-    buildings, bit 3: over them), 4-6 height bin, 7-9 clearance bin, 10-12 wall bin, 13-15
-    prominence bin, 16-24 length mask (bit 16 + k: length bin k), 25-38 cell row j, 39-52 cell
-    column i (from the country's origin).
+    word A: bits 0-1 water (bit 0: not over water, bit 1: over water), 2-3 trees (bit 2: not over
+    trees or buildings, bit 3: over them), 4-6 height bin, 7-9 clearance bin, 10-12 wall bin,
+    13-15 prominence bin (the weaker anchor's), 16-24 length mask (bit 16 + k: length bin k),
+    25-26 border (0 interior, 1 across the border and owned, 2 across it and the partner's), 27-29
+    partner (0 none, 1-6 an index into cube.json's neighbours, 7 unknown), 30-45 cell row j, 46-61
+    cell column i (in cells from the country's origin);
+    word B: 3-bit bins from bit 0, in the order of B_FIELDS: metres over water, the lower anchor's
+    height, the upper anchor's, the webbing's mean height, the stronger anchor's prominence, the
+    drop below both anchors, the share high above the terrain, the anchors' height difference, the
+    clearance over trees and buildings, the A-frame needed with the no-fall zone and without it;
+    bits 33-62 reserved (0).
 
-The low RECORD_BITS are a line's (or a spot's) record. A line sets one bit of each flag pair and
-one length bit; a spot's record merges those of its lines (merge_spots), so a spot passes one
-filter exactly when some line of it does, and several filters as an upper bound.
+All but the cell are a line's (or a spot's) record: RECORD_BITS of word A and all of word B. A
+line sets one bit of each flag pair and one length bit; a spot's record merges those of its lines
+(merge_spots: a floor's bin the largest, a ceiling's the smallest), so a spot passes one filter
+exactly when some line of it does, and several filters as an upper bound. The border and the
+partner are a spot's identity, not merged: a spot with lines of two border values is two spots.
 
 TileCounter counts the lines search.count_tile hands it, save_tile/load_tile keep a tile's counts,
-build sums the tiles into the cube (levels 1, 2, 4 and 8 km), Cube reads it for the web's layer,
-cell_request gives the search of one cell. Pure numpy, pyproj and shapely: the web
-process imports this module, so it never imports numba, linesearch, search or country.
+build sums the tiles into the cube (levels of 1, 2, 4 and 8 cells), Cube reads it for the web's
+layer, cell_request gives the search of one cell. Pure numpy, pyproj and shapely: the web process
+imports this module, so it never imports numba, linesearch, search or country.
 """
 import json
 import math
 import os
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Dict, Iterable, List, Mapping, Optional, Tuple
@@ -29,45 +39,86 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 import numpy as np
 import shapely
 from pyproj import Transformer
-from shapely.geometry import box as shapely_box, shape
+from shapely.geometry import shape
 
 import cache
 
-VERSION = 1           # tile files and cubes of another version are refused (computed again, no migration)
-CELL_M = 1000.0
-LEVELS = (1, 2, 4, 8)  # a level's cell: L * CELL_M
-ALIGN_M = 8000.0      # a country's origin: its grid's left/bottom floored to a multiple of this
-CLUSTER_M = 50.0      # a spot's anchor clusters
+VERSION = 2           # tile files and cubes of another version are refused (computed again, no migration)
+CELLS_PER_DEGREE = 120  # the global lattice: cells of 30″
+CELL_DEG = 1.0 / CELLS_PER_DEGREE
+LEVELS = (1, 2, 4, 8)   # a level's cell: L × L cells of the lattice
+ALIGN_CELLS = 8         # a country's origin: floored to a multiple of this many cells (1/15°)
+CLUSTERS_PER_CELL = 20  # a spot's anchor clusters: 1.5″ (46 m north-south, 30 m east-west at 49°)
+CLUSTERS_PER_DEGREE = CELLS_PER_DEGREE * CLUSTERS_PER_CELL
 LENGTH_EDGES = (30, 60, 100, 150, 300, 600, 1000, 2000, 3000, 5000)  # 9 bins [e_k, e_k+1); 5000 in the last
-EDGES = {             # lower edges of the 3-bit dimensions; below the first: bin 0; the last bin open upwards
+EDGES = {             # the edges of the 3-bit dimensions (KINDS: how they are binned and filtered)
+    # word A
     "prominence": (0, 5, 10, 20, 50),   # of the weaker anchor: np.minimum(prom1, prom2)
     "wall": (0, 30, 45, 60, 90),        # of the steeper anchor: np.maximum(angle1, angle2)
     "clearance": (0, 2, 5, 10, 20),     # "clearance" over the terrain
     "height": (0, 10, 20, 50, 100),     # "height_max" of the webbing over the terrain
+    # word B: working values of the contract (docs/country-precompute/contract.md, "The key v2"),
+    # to be chosen by the user on the measurement of wave A
+    "water_m": (0, 5, 20, 50, 100),          # "water_px" × the resolution
+    "elevation_low": (0, 500, 1000, 1500, 2000),   # np.minimum(elev_a1, elev_a2)
+    "elevation_high": (0, 500, 1000, 1500, 2000),  # np.maximum(elev_a1, elev_a2)
+    "height_mean": (0, 10, 20, 50, 100),     # "height_mean" of the webbing over the terrain
+    "prominence_high": (0, 5, 10, 20, 50),   # of the stronger anchor: np.maximum(prom1, prom2)
+    "drop": (0, 20, 50, 100, 200),           # below both anchors: np.minimum(drop1, drop2)
+    "high_pct": (0, 25, 50, 75, 90),         # "high_pct"
+    "height_diff": (0, 5, 10, 20, 50),       # |elev_a1 - elev_a2|
+    "clearance_trees": (0, 2, 5, 10, 20),    # "clearance_nmpt" (NaN without a surface model)
+    "lift_needed": (0, 0.5, 1, 1.5, 2),      # "lift_needed" (absent without the options)
+    "lift_no_zone": (0, 0.5, 1, 1.5, 2),     # "lift_no_zone"
 }
-UNKNOWN = 7           # a 3-bit dimension whose value is NaN
+UNKNOWN = 7           # a 3-bit dimension whose value is NaN (or absent)
 
-# The key's fields: (first bit, width)
+# How a dimension is binned, merged and filtered:
+#   floor:   bins [e_k, e_k+1) (below the first edge bin 0, the last open upwards); a filter passes
+#            at or above its edge (the first edge: off); a spot takes its lines' largest bin
+#   below:   binned as a floor; a filter passes below its edge (None: off; for the new ones the
+#            first edge too, the wall keeps today's meaning of 0: nothing); a spot takes the smallest
+#   at_most: bins (e_k-1, e_k] (at most the first edge bin 0, above the last bin len(edges)); a
+#            filter passes at most its edge (None: off); a spot takes the smallest bin
+KINDS = {"prominence": "floor", "wall": "below", "clearance": "floor", "height": "floor",
+         "water_m": "floor", "elevation_low": "floor", "elevation_high": "below", "height_mean": "floor",
+         "prominence_high": "floor", "drop": "floor", "high_pct": "floor", "height_diff": "below",
+         "clearance_trees": "floor", "lift_needed": "at_most", "lift_no_zone": "at_most"}
+
+# Word A's fields: (first bit, width)
 WATER_BIT, TREES_BIT = 0, 2
-SHIFT = {"height": 4, "clearance": 7, "wall": 10, "prominence": 13}
+SHIFT = {"height": 4, "clearance": 7, "wall": 10, "prominence": 13}  # word A's 3-bit dimensions
 LENGTH_SHIFT = 16
 LENGTH_BINS = len(LENGTH_EDGES) - 1
-RECORD_BITS = 25
+BORDER_SHIFT, PARTNER_SHIFT = 25, 27
+BP_SHIFT, BP_MASK = 25, 31         # border and partner together: a spot's identity besides its id
+RECORD_BITS = 30                   # word A's record; word B is all record
 RECORD_MASK = (1 << RECORD_BITS) - 1
-ROW_SHIFT, COL_SHIFT = 25, 39
-CELL_BITS = 14        # rows and columns: up to 16384 cells of CELL_M
+ROW_SHIFT, COL_SHIFT = 30, 46
+CELL_BITS = 16        # rows and columns: up to 65536 cells of the lattice (546°)
 CELL_MASK = (1 << CELL_BITS) - 1
+# Word B's 3-bit dimensions, from bit 0
+B_FIELDS = ("water_m", "elevation_low", "elevation_high", "height_mean", "prominence_high", "drop", "high_pct",
+            "height_diff", "clearance_trees", "lift_needed", "lift_no_zone")
+B_SHIFT = {name: 3 * k for k, name in enumerate(B_FIELDS)}
+B_BITS = 3 * len(B_FIELDS)
 # The bits merge_spots ORs: the flag pairs and the length mask
 OR_MASK = 0xF | (((1 << LENGTH_BINS) - 1) << LENGTH_SHIFT)
 
-# Spot ids: p.cx << 35 | p.cy << 16 | dx << 8 | (dy + 128)
-SPOT_CX_SHIFT, SPOT_CY_SHIFT = 35, 16
-SPOT_CY_BITS = 19
-SPOT_CX_BITS = 18
-CLUSTERS_PER_CELL = int(round(CELL_M / CLUSTER_M))  # 20
+# Spot ids: p.cx << 42 | p.cy << 22 | dx << 11 | (dy + 1024)
+SPOT_CX_SHIFT, SPOT_CY_SHIFT = 42, 22
+SPOT_C_BITS = 20                   # cx and cy (from the country's origin)
+SPOT_D_BITS = 11                   # dx (0..2047) and dy + 1024 (dy -1024..1023)
+SPOT_C_MASK = (1 << SPOT_C_BITS) - 1
 
 PENDING_MAX = 4_000_000  # entries waiting before they are reduced (or the size of the reduced arrays, if larger)
-DENSIFY = 21             # points per edge when a box is projected
+
+# WGS84, for the km² of a cell and the metres of a buffer without pyproj
+_A = 6378137.0
+_F = 1 / 298.257223563
+_E2 = _F * (2 - _F)
+_E = math.sqrt(_E2)
+_B = _A * (1 - _F)
 
 
 def _bin(values: np.ndarray, edges) -> np.ndarray:
@@ -80,6 +131,26 @@ def _bin(values: np.ndarray, edges) -> np.ndarray:
     return b
 
 
+def _bin_at_most(values: np.ndarray, edges) -> np.ndarray:
+    """The 3-bit bins of values over upper edges: at most the first bin 0, above the last
+    len(edges), NaN UNKNOWN."""
+    values = np.asarray(values, dtype=np.float64)
+    b = np.searchsorted(np.asarray(edges, dtype=np.float64), values, side="left").astype(np.int64)
+    b[np.isnan(values)] = UNKNOWN
+    return b
+
+
+def bin_of(name: str, values: np.ndarray, edges=None) -> np.ndarray:
+    """The bins of a dimension's values (its KINDS rule; edges: EDGES[name] unless given)."""
+    edges = EDGES[name] if edges is None else edges
+    return _bin_at_most(values, edges) if KINDS[name] == "at_most" else _bin(values, edges)
+
+
+def bins_of(name: str) -> int:
+    """How many bins a dimension has besides UNKNOWN: its edges, one more for an at_most."""
+    return len(EDGES[name]) + (KINDS[name] == "at_most")
+
+
 def length_bin(lengths: np.ndarray) -> np.ndarray:
     """The length bin k of each length: [e_k, e_k+1), 5000 (the last edge) in the last bin; lengths
     off the edges go to the nearest bin."""
@@ -88,8 +159,30 @@ def length_bin(lengths: np.ndarray) -> np.ndarray:
     return np.clip(b, 0, LENGTH_BINS - 1)
 
 
-def line_records(columns: Mapping[str, np.ndarray]) -> np.ndarray:
-    """The records (RECORD_BITS) of lines given as columns: the LINE_VALUES and "water_px"."""
+def dimension_values(columns: Mapping[str, np.ndarray], res: float) -> Dict[str, np.ndarray]:
+    """The value of each dimension of word B per line, from a part's columns (float64; NaN: unknown;
+    the A-frame fields NaN when the part has no such column)."""
+    c = columns
+
+    def column(name):
+        return np.asarray(c[name], dtype=np.float64)
+
+    e1, e2 = column("elev_a1"), column("elev_a2")
+    out = {"water_m": column("water_px") * float(res), "elevation_low": np.minimum(e1, e2),
+           "elevation_high": np.maximum(e1, e2), "height_mean": column("height_mean"),
+           "prominence_high": np.maximum(column("prom1"), column("prom2")),
+           "drop": np.minimum(column("drop1"), column("drop2")), "high_pct": column("high_pct"),
+           "height_diff": np.abs(e1 - e2), "clearance_trees": column("clearance_nmpt")}
+    n = len(e1)
+    for name in ("lift_needed", "lift_no_zone"):
+        out[name] = column(name) if name in c else np.full(n, np.nan)
+    return out
+
+
+def line_records(columns: Mapping[str, np.ndarray], res: float = 1.0) -> np.ndarray:
+    """The records of lines given as columns (the LINE_VALUES and "water_px"; "lift_needed",
+    "lift_no_zone", "border" and "partner" when present): (n, 2) int64, word A's RECORD_BITS and
+    word B. res: the grid's resolution (the metres over water are water_px × res)."""
     c = columns
     water = np.asarray(c["water_px"]) > 0
     with np.errstate(invalid="ignore"):
@@ -101,111 +194,227 @@ def line_records(columns: Mapping[str, np.ndarray]) -> np.ndarray:
     rec |= _bin(np.maximum(c["angle1"], c["angle2"]), EDGES["wall"]) << SHIFT["wall"]
     rec |= _bin(np.minimum(c["prom1"], c["prom2"]), EDGES["prominence"]) << SHIFT["prominence"]
     rec |= np.left_shift(1, LENGTH_SHIFT + length_bin(c["length"]))
-    return rec.astype(np.int64)
-
-
-def pack_keys(i: np.ndarray, j: np.ndarray, records: np.ndarray) -> np.ndarray:
-    """Keys of cells (i, j) with their records."""
-    i, j = np.asarray(i, dtype=np.int64), np.asarray(j, dtype=np.int64)
-    if len(i) and (i.min() < 0 or j.min() < 0 or i.max() > CELL_MASK or j.max() > CELL_MASK):
-        raise ValueError("a cell lies outside the cube: check the country's origin")
-    return (i << COL_SHIFT) | (j << ROW_SHIFT) | (np.asarray(records, dtype=np.int64) & RECORD_MASK)
-
-
-def unpack_keys(keys: np.ndarray) -> Dict[str, np.ndarray]:
-    """The fields of keys: "i", "j", "record", the bins "height", "clearance", "wall", "prominence",
-    "length" (the mask), "water" and "trees" (their two bits)."""
-    keys = np.asarray(keys, dtype=np.int64)
-    out = {"i": keys >> COL_SHIFT, "j": (keys >> ROW_SHIFT) & CELL_MASK, "record": keys & RECORD_MASK,
-           "length": (keys >> LENGTH_SHIFT) & ((1 << LENGTH_BINS) - 1),
-           "water": keys & 3, "trees": (keys >> TREES_BIT) & 3}
-    out.update({name: (keys >> shift) & 7 for name, shift in SHIFT.items()})
+    n = len(rec)
+    if "border" in c:
+        rec |= (np.asarray(c["border"]).astype(np.int64) & 3) << BORDER_SHIFT
+    if "partner" in c:
+        rec |= (np.asarray(c["partner"]).astype(np.int64) & 7) << PARTNER_SHIFT
+    out = np.empty((n, 2), dtype=np.int64)
+    out[:, 0] = rec
+    word = np.zeros(n, dtype=np.int64)
+    for name, values in dimension_values(c, res).items():
+        word |= bin_of(name, values) << B_SHIFT[name]
+    out[:, 1] = word
     return out
 
 
-def origin_of(bounds: Tuple[float, float, float, float]) -> Tuple[float, float]:
-    """A country's origin: the (left, bottom) of its grid's bounds floored to a multiple of ALIGN_M."""
-    left, bottom = bounds[0], bounds[1]
-    return (math.floor(left / ALIGN_M) * ALIGN_M, math.floor(bottom / ALIGN_M) * ALIGN_M)
+def pack_keys(i: np.ndarray, j: np.ndarray, records: np.ndarray) -> np.ndarray:
+    """Keys of cells (i, j) with their records ((n, 2): word A's record and word B): (n, 2) int64."""
+    i, j = np.asarray(i, dtype=np.int64), np.asarray(j, dtype=np.int64)
+    records = np.asarray(records, dtype=np.int64).reshape(-1, 2)
+    if len(i) and (i.min() < 0 or j.min() < 0 or i.max() > CELL_MASK or j.max() > CELL_MASK):
+        raise ValueError("a cell lies outside the cube: check the country's origin")
+    out = np.empty((len(i), 2), dtype=np.int64)
+    out[:, 0] = (i << COL_SHIFT) | (j << ROW_SHIFT) | (records[:, 0] & RECORD_MASK)
+    out[:, 1] = records[:, 1]
+    return out
 
 
-def spot_ids(x1, y1, x2, y2, origin: Tuple[float, float]) -> np.ndarray:
-    """The spot of each line: the pair of the CLUSTER_M clusters of its anchors (in CRS metres)."""
-    x0, y0 = origin
-    cx1 = np.floor((np.asarray(x1) - x0) / CLUSTER_M).astype(np.int64)
-    cy1 = np.floor((np.asarray(y1) - y0) / CLUSTER_M).astype(np.int64)
-    cx2 = np.floor((np.asarray(x2) - x0) / CLUSTER_M).astype(np.int64)
-    cy2 = np.floor((np.asarray(y2) - y0) / CLUSTER_M).astype(np.int64)
+def unpack_keys(keys: np.ndarray) -> Dict[str, np.ndarray]:
+    """The fields of keys ((n, 2)): "i", "j", "record" (word A's), "border", "partner", the bins of
+    every dimension of EDGES, "length" (the mask), "water" and "trees" (their two bits)."""
+    keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)
+    a, b = keys[:, 0], keys[:, 1]
+    out = {"i": a >> COL_SHIFT, "j": (a >> ROW_SHIFT) & CELL_MASK, "record": a & RECORD_MASK,
+           "length": (a >> LENGTH_SHIFT) & ((1 << LENGTH_BINS) - 1), "water": a & 3, "trees": (a >> TREES_BIT) & 3,
+           "border": (a >> BORDER_SHIFT) & 3, "partner": (a >> PARTNER_SHIFT) & 7}
+    out.update({name: (a >> shift) & 7 for name, shift in SHIFT.items()})
+    out.update({name: (b >> shift) & 7 for name, shift in B_SHIFT.items()})
+    return out
+
+
+def _field(keys: np.ndarray, name: str) -> np.ndarray:
+    """The 3-bit bin of a dimension in keys or records ((n, 2))."""
+    if name in SHIFT:
+        return (keys[:, 0] >> SHIFT[name]) & 7
+    return (keys[:, 1] >> B_SHIFT[name]) & 7
+
+
+def _metres_per_degree(lat: float) -> Tuple[float, float]:
+    """Metres per degree of longitude and of latitude at a latitude (WGS84)."""
+    s = math.sin(math.radians(lat))
+    w = math.sqrt(1 - _E2 * s * s)
+    return (_A / w * math.cos(math.radians(lat)) * math.pi / 180,
+            _A * (1 - _E2) / w ** 3 * math.pi / 180)
+
+
+def origin_of(bounds_wgs84: Tuple[float, float, float, float], reach_m: float) -> Tuple[int, int]:
+    """A country's origin (I0, J0) in cells of the lattice: the south-west corner of its outline's box
+    (WGS84: west, south, east, north) less reach_m (the longest line of its layer, so an anchor
+    beyond the outline still lies inside the cube), floored to a multiple of ALIGN_CELLS cells."""
+    west, south, east, north = (float(v) for v in bounds_wgs84)
+    pole = min(max(abs(south), abs(north)), 89.0)
+    dlat = reach_m / _metres_per_degree(0.0)[1]  # the fewest metres per degree of latitude
+    dlon = reach_m / _metres_per_degree(min(pole + dlat, 89.5))[0]
+    i0 = math.floor((west - dlon) * CELLS_PER_DEGREE / ALIGN_CELLS) * ALIGN_CELLS
+    j0 = math.floor((south - dlat) * CELLS_PER_DEGREE / ALIGN_CELLS) * ALIGN_CELLS
+    return int(i0), int(j0)
+
+
+def clusters_of(lon: np.ndarray, lat: np.ndarray, origin: Tuple[int, int]) -> Tuple[np.ndarray, np.ndarray]:
+    """The anchor clusters (cx, cy) of points from the country's origin (in cells): 1/2400° each."""
+    i0, j0 = int(origin[0]), int(origin[1])
+    cx = np.floor(np.asarray(lon, dtype=np.float64) * CLUSTERS_PER_DEGREE).astype(np.int64) - CLUSTERS_PER_CELL * i0
+    cy = np.floor(np.asarray(lat, dtype=np.float64) * CLUSTERS_PER_DEGREE).astype(np.int64) - CLUSTERS_PER_CELL * j0
+    if len(cx) and (cx.min() < 0 or cy.min() < 0 or cx.max() > SPOT_C_MASK or cy.max() > SPOT_C_MASK):
+        raise ValueError("an anchor lies outside the cube: check the country's origin")
+    return cx, cy
+
+
+def cluster_spot_ids(cx1, cy1, cx2, cy2) -> np.ndarray:
+    """The spot of each line from its anchors' clusters: p the smaller (cx, cy), q the other,
+    p.cx << 42 | p.cy << 22 | dx << 11 | (dy + 1024). ValueError for a line spanning more than
+    2047 clusters east-west or 1023 north-south (a 5 km line at 78°: 520 east-west)."""
+    cx1, cy1, cx2, cy2 = (np.asarray(v, dtype=np.int64) for v in (cx1, cy1, cx2, cy2))
     first = (cx1 < cx2) | ((cx1 == cx2) & (cy1 <= cy2))
     pcx, pcy = np.where(first, cx1, cx2), np.where(first, cy1, cy2)
     dx, dy = np.where(first, cx2, cx1) - pcx, np.where(first, cy2, cy1) - pcy
-    if len(pcx) and (pcx.min() < 0 or pcy.min() < 0 or pcx.max() >= 1 << SPOT_CX_BITS
-                     or pcy.max() >= 1 << SPOT_CY_BITS):
-        raise ValueError("an anchor lies outside the cube: check the country's origin")
-    if len(dx) and (dx.max() > 255 or np.abs(dy).max() > 127):
-        raise ValueError("a line is too long for a spot id")
-    return (pcx << SPOT_CX_SHIFT) | (pcy << SPOT_CY_SHIFT) | (dx << 8) | (dy + 128)
+    half = 1 << (SPOT_D_BITS - 1)
+    if len(dx) and (dx.max() >= 1 << SPOT_D_BITS or dy.min() < -half or dy.max() >= half):
+        raise ValueError("a line spans more than 2047 anchor clusters east-west or 1023 north-south: "
+                         "too long for a spot id (keep the band's longest line shorter at this latitude)")
+    return (pcx << SPOT_CX_SHIFT) | (pcy << SPOT_CY_SHIFT) | (dx << SPOT_D_BITS) | (dy + half)
+
+
+def spot_ids(lon1, lat1, lon2, lat2, origin: Tuple[int, int]) -> np.ndarray:
+    """The spot of each line: the pair of the clusters of its anchors (lon, lat in degrees)."""
+    cx1, cy1 = clusters_of(lon1, lat1, origin)
+    cx2, cy2 = clusters_of(lon2, lat2, origin)
+    return cluster_spot_ids(cx1, cy1, cx2, cy2)
 
 
 def spot_cells(ids: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     """The cell (i, j) of each spot: that of its first cluster p."""
     ids = np.asarray(ids, dtype=np.int64)
     return ((ids >> SPOT_CX_SHIFT) // CLUSTERS_PER_CELL,
-            ((ids >> SPOT_CY_SHIFT) & ((1 << SPOT_CY_BITS) - 1)) // CLUSTERS_PER_CELL)
+            ((ids >> SPOT_CY_SHIFT) & SPOT_C_MASK) // CLUSTERS_PER_CELL)
 
 
-def merge_spots(ids: np.ndarray, records: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Sorted unique ids and their merged records: the length mask and the flag bits ORed,
-    prominence, clearance and height the largest bin (UNKNOWN only when every one is), wall the
-    smallest (UNKNOWN likewise). Commutative and associative, so partial merges may be merged again."""
-    ids = np.asarray(ids, dtype=np.int64)
-    records = np.asarray(records, dtype=np.int64)
-    if not len(ids):
-        return ids.copy(), records.copy()
-    order = np.argsort(ids, kind="stable")
-    ids, records = ids[order], records[order]
-    starts = np.flatnonzero(np.concatenate(([True], ids[1:] != ids[:-1])))
-    out = np.bitwise_or.reduceat(records & OR_MASK, starts)
-    for name in ("prominence", "clearance", "height"):
-        b = (records >> SHIFT[name]) & 7
-        b[b == UNKNOWN] = -1
-        m = np.maximum.reduceat(b, starts)
-        m[m < 0] = UNKNOWN
-        out |= m << SHIFT[name]
-    b = (records >> SHIFT["wall"]) & 7
-    b[b == UNKNOWN] = 8
-    m = np.minimum.reduceat(b, starts)
-    m[m == 8] = UNKNOWN
-    out |= m << SHIFT["wall"]
-    return ids[starts], out
+def _rows_order(a: np.ndarray, b: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """The order sorting rows (a, b) of non-negative int64 words lexicographically, and the starts
+    of the runs of equal rows in that order. One int64 sort when a's distinct values and b's range
+    fit 63 bits together (np.unique's inverse of a, then b), else np.lexsort."""
+    ua, inverse = np.unique(a, return_inverse=True)
+    lo = int(b.min())
+    width = (int(b.max()) - lo).bit_length()
+    if (len(ua) - 1).bit_length() + width <= 62:
+        code = (inverse.astype(np.int64).reshape(-1) << width) | (b - lo)
+        order = np.argsort(code)
+        code = code[order]
+        starts = np.flatnonzero(np.concatenate(([True], code[1:] != code[:-1])))
+        return order, starts
+    order = np.lexsort((b, a))
+    sa, sb = a[order], b[order]
+    starts = np.flatnonzero(np.concatenate(([True], (sa[1:] != sa[:-1]) | (sb[1:] != sb[:-1]))))
+    return order, starts
 
 
 def sum_keys(keys: np.ndarray, counts: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Sorted unique keys and their summed counts."""
+    """Sorted unique keys ((n, 2): by word A, then word B; or int64 of one dimension) and their
+    summed counts."""
     keys = np.asarray(keys, dtype=np.int64)
     counts = np.asarray(counts, dtype=np.int64)
     if not len(keys):
         return keys.copy(), counts.copy()
-    order = np.argsort(keys, kind="stable")
-    keys, counts = keys[order], counts[order]
-    starts = np.flatnonzero(np.concatenate(([True], keys[1:] != keys[:-1])))
-    return keys[starts], np.add.reduceat(counts, starts)
+    if keys.ndim == 1:
+        order = np.argsort(keys)
+        sk = keys[order]
+        starts = np.flatnonzero(np.concatenate(([True], sk[1:] != sk[:-1])))
+        return sk[starts], np.add.reduceat(counts[order], starts)
+    order, starts = _rows_order(keys[:, 0], keys[:, 1])
+    return keys[order[starts]], np.add.reduceat(counts[order], starts)
 
 
 def count_keys(keys: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    """Sorted unique keys and how often each occurs."""
-    u, n = np.unique(np.asarray(keys, dtype=np.int64), return_counts=True)
-    return u, n.astype(np.int64)
+    """Sorted unique keys ((n, 2), or int64 of one dimension) and how often each occurs."""
+    keys = np.asarray(keys, dtype=np.int64)
+    if keys.ndim == 1:
+        u, n = np.unique(keys, return_counts=True)
+        return u, n.astype(np.int64)
+    if not len(keys):
+        return keys.copy(), np.zeros(0, dtype=np.int64)
+    a, b = keys[:, 0], keys[:, 1]
+    ua, inverse = np.unique(a, return_inverse=True)
+    lo = int(b.min())
+    width = (int(b.max()) - lo).bit_length()
+    if (len(ua) - 1).bit_length() + width <= 62:
+        code, n = np.unique((inverse.astype(np.int64).reshape(-1) << width) | (b - lo), return_counts=True)
+        out = np.empty((len(code), 2), dtype=np.int64)
+        out[:, 0] = ua[code >> width]
+        out[:, 1] = (code & ((1 << width) - 1)) + lo
+        return out, n.astype(np.int64)
+    return sum_keys(keys, np.ones(len(keys), dtype=np.int64))
+
+
+def _merge_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """A floor's bins merged per run: the largest, UNKNOWN only when every one is."""
+    v = values.astype(np.int8)
+    v[v == UNKNOWN] = -1
+    m = np.maximum.reduceat(v, starts).astype(np.int64)
+    m[m < 0] = UNKNOWN
+    return m
+
+
+def _merge_min(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
+    """A ceiling's bins merged per run: the smallest, UNKNOWN only when every one is."""
+    v = values.astype(np.int8)
+    v[v == UNKNOWN] = 8
+    m = np.minimum.reduceat(v, starts).astype(np.int64)
+    m[m == 8] = UNKNOWN
+    return m
+
+
+def merge_spots(ids: np.ndarray, records: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Spots of one (id, border, partner) merged: the ids and records ((m, 2)) sorted by id, then by
+    border and partner. Word A: the length mask and the flag bits ORed, prominence, clearance and
+    height the largest bin (UNKNOWN only when every one is), the wall the smallest (UNKNOWN
+    likewise); word B: a floor's bin the largest, a ceiling's the smallest (KINDS). Commutative and
+    associative, so partial merges may be merged again."""
+    ids = np.asarray(ids, dtype=np.int64)
+    records = np.asarray(records, dtype=np.int64).reshape(-1, 2)
+    if not len(ids):
+        return ids.copy(), records.copy()
+    bp = (records[:, 0] >> BP_SHIFT) & BP_MASK
+    if bp.any():
+        order, starts = _rows_order(ids, bp)
+    else:
+        order = np.argsort(ids)
+        sid = ids[order]
+        starts = np.flatnonzero(np.concatenate(([True], sid[1:] != sid[:-1])))
+    ra, rb = records[order, 0], records[order, 1]
+    out = np.empty((len(starts), 2), dtype=np.int64)
+    word = np.bitwise_or.reduceat(ra & OR_MASK, starts) | (ra[starts] & (BP_MASK << BP_SHIFT))
+    for name in ("prominence", "clearance", "height"):
+        word |= _merge_max((ra >> SHIFT[name]) & 7, starts) << SHIFT[name]
+    word |= _merge_min((ra >> SHIFT["wall"]) & 7, starts) << SHIFT["wall"]
+    out[:, 0] = word
+    word = np.zeros(len(starts), dtype=np.int64)
+    for name in B_FIELDS:
+        merge = _merge_max if KINDS[name] == "floor" else _merge_min
+        word |= merge((rb >> B_SHIFT[name]) & 7, starts) << B_SHIFT[name]
+    out[:, 1] = word
+    return ids[order[starts]], out
 
 
 class _Reducer:
     """Pairs of (keys, values) collected part by part and reduced by `reduce` whenever more than
-    PENDING_MAX entries (or as many as the reduced arrays hold) wait: amortised, bounded memory."""
+    PENDING_MAX entries (or as many as the reduced arrays hold) wait: amortised, bounded memory.
+    keys: int64 of one dimension (spot ids) or (n, 2) (the keys of lines); values likewise."""
 
     def __init__(self, reduce):
         self.reduce = reduce
-        self.keys = np.zeros(0, dtype=np.int64)
-        self.values = np.zeros(0, dtype=np.int64)
+        self.keys: Optional[np.ndarray] = None
+        self.values: Optional[np.ndarray] = None
         self.pending: List[Tuple[np.ndarray, np.ndarray]] = []
         self.waiting = 0
 
@@ -214,47 +423,95 @@ class _Reducer:
             return
         self.pending.append((keys, values))
         self.waiting += len(keys)
-        if self.waiting > max(PENDING_MAX, len(self.keys)):
+        if self.waiting > max(PENDING_MAX, 0 if self.keys is None else len(self.keys)):
             self.flush()
 
     def flush(self) -> Tuple[np.ndarray, np.ndarray]:
         if self.pending:
-            keys = np.concatenate([self.keys] + [k for k, _ in self.pending])
-            values = np.concatenate([self.values] + [v for _, v in self.pending])
+            held = [] if self.keys is None else [(self.keys, self.values)]
+            keys = np.concatenate([k for k, _ in held + self.pending])
+            values = np.concatenate([v for _, v in held + self.pending])
             self.pending, self.waiting = [], 0
             self.keys, self.values = self.reduce(keys, values)
+        if self.keys is None:
+            return None, None
         return self.keys, self.values
 
 
 @dataclass
 class TileCounts:
-    line_keys: np.ndarray     # int64, sorted, unique
+    line_keys: np.ndarray     # (n, 2) int64, sorted, unique
     line_counts: np.ndarray   # int64
-    spot_ids: np.ndarray      # int64, sorted, unique
-    spot_records: np.ndarray  # int64 (RECORD_BITS)
+    spot_ids: np.ndarray      # int64, sorted (with the border and partner of the records), unique with them
+    spot_records: np.ndarray  # (m, 2) int64: word A's RECORD_BITS and word B
     lines: int                # lines counted
     dropped: int              # lines left out: outside lengths or with the first anchor outside core
 
 
+def _empty_counts(lines: int = 0, dropped: int = 0) -> TileCounts:
+    return TileCounts(np.zeros((0, 2), dtype=np.int64), np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64),
+                      np.zeros((0, 2), dtype=np.int64), lines, dropped)
+
+
+_TRANSFORMERS: Dict[str, Transformer] = {}
+
+
+def _to_wgs84(crs: str) -> Transformer:
+    """A transformer of a CRS to WGS84 (lon, lat), one per CRS and process."""
+    found = _TRANSFORMERS.get(crs)
+    if found is None:
+        found = _TRANSFORMERS[crs] = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+    return found
+
+
+# The columns a TileCounter reads of a part (those of OPTIONAL_COLUMNS when present)
+RECORD_COLUMNS = ("length", "clearance", "clearance_nmpt", "height_max", "height_mean", "high_pct", "angle1",
+                  "angle2", "prom1", "prom2", "drop1", "drop2", "elev_a1", "elev_a2", "water_px")
+OPTIONAL_COLUMNS = ("lift_needed", "lift_no_zone", "border", "partner")
+
+
 class TileCounter:
     """The counts of one tile, fed part by part by search.count_tile (a LineTable with "a1", "a2",
-    the LINE_VALUES and "water_px").
+    the LINE_VALUES and "water_px"; "lift_needed", "lift_no_zone", "border" and "partner" when the
+    count gives them).
 
-    A line is counted when its first anchor (the smaller x, then y, as mapping.first_anchor) lies in
-    `core` (left <= x < right, bottom <= y < top; None: everywhere) and its length within `lengths`
-    (lo <= length < hi, or <= hi when `last`)."""
+    A line is counted when its first anchor in pixel order (the smaller x, then y, as
+    mapping.first_anchor) lies in `core` (left <= x < right, bottom <= y < top in the grid's CRS;
+    None: everywhere) and its length within `lengths` (lo <= length < hi, or <= hi when `last`).
+    Its cell is that of its first anchor by (lon, lat) (the smaller lon, then lat) on the global
+    lattice from `origin` (I0, J0) in cells: i = cx // 20 with cx = floor(lon × 2400) - 20 I0, which
+    is floor(lon × 120) - I0 but for the rounding at a cell's edge, so a line and the cluster of its
+    first anchor share a cell. Each part's distinct anchor pixels go to WGS84 once (pyproj)."""
 
-    def __init__(self, grid, origin: Tuple[float, float], core: Optional[Tuple[float, float, float, float]],
+    def __init__(self, grid, origin: Tuple[int, int], core: Optional[Tuple[float, float, float, float]],
                  lengths: Tuple[float, float], last: bool):
         self.grid = grid
-        self.origin = (float(origin[0]), float(origin[1]))
+        self.origin = (int(origin[0]), int(origin[1]))
         self.core = core
         self.lengths = (float(lengths[0]), float(lengths[1]))
         self.last = last
+        self._transformer = _to_wgs84(grid.crs)
         self._lines = _Reducer(sum_keys)
         self._spots = _Reducer(merge_spots)
         self.lines = 0
         self.dropped = 0
+        self.transform_seconds = 0.0  # the anchors' pixels to (lon, lat) and their clusters
+
+    def anchors(self, a1: np.ndarray, a2: np.ndarray):
+        """lon, lat, cx, cy of both anchors of each line (pixels [row, col]), the distinct pixels
+        transformed once."""
+        k = len(a1)
+        width = self.grid.width
+        codes = np.concatenate([a1[:, 0].astype(np.int64) * width + a1[:, 1],
+                                a2[:, 0].astype(np.int64) * width + a2[:, 1]])
+        unique, inverse = np.unique(codes, return_inverse=True)
+        inverse = inverse.reshape(-1)
+        x, y = self.grid.pixel_to_xy(unique // width, unique % width)
+        lon, lat = self._transformer.transform(x, y)
+        lon, lat = np.asarray(lon, dtype=np.float64), np.asarray(lat, dtype=np.float64)
+        cx, cy = clusters_of(lon, lat, self.origin)
+        first, second = inverse[:k], inverse[k:]
+        return (lon[first], lat[first], cx[first], cy[first]), (lon[second], lat[second], cx[second], cy[second])
 
     def __call__(self, part) -> None:
         c = part.columns
@@ -262,49 +519,55 @@ class TileCounter:
         n = len(a1)
         if not n:
             return
-        x1, y1 = self.grid.pixel_to_xy(a1[:, 0], a1[:, 1])
-        x2, y2 = self.grid.pixel_to_xy(a2[:, 0], a2[:, 1])
         length = np.asarray(c["length"], dtype=np.float64)
         lo, hi = self.lengths
         keep = (length >= lo) & ((length <= hi) if self.last else (length < hi))
-        first = (x1 < x2) | ((x1 == x2) & (y1 <= y2))
-        fx, fy = np.where(first, x1, x2), np.where(first, y1, y2)
         if self.core is not None:
+            x1, y1 = self.grid.pixel_to_xy(a1[:, 0], a1[:, 1])
+            x2, y2 = self.grid.pixel_to_xy(a2[:, 0], a2[:, 1])
+            first = (x1 < x2) | ((x1 == x2) & (y1 <= y2))
+            fx, fy = np.where(first, x1, x2), np.where(first, y1, y2)
             left, bottom, right, top = self.core
             keep &= (fx >= left) & (fx < right) & (fy >= bottom) & (fy < top)
+            del x1, y1, x2, y2, first, fx, fy
         kept = int(np.count_nonzero(keep))
         self.dropped += n - kept
         if not kept:
             return
         self.lines += kept
         if kept < n:
-            x1, y1, x2, y2, fx, fy = (v[keep] for v in (x1, y1, x2, y2, fx, fy))
-            columns = {name: np.asarray(c[name])[keep] for name in RECORD_COLUMNS}
+            a1, a2 = a1[keep], a2[keep]
+            columns = {name: np.asarray(c[name])[keep] for name in RECORD_COLUMNS + OPTIONAL_COLUMNS if name in c}
         else:
             columns = c
-        records = line_records(columns)
-        x0, y0 = self.origin
-        i = np.floor((fx - x0) / CELL_M).astype(np.int64)
-        j = np.floor((fy - y0) / CELL_M).astype(np.int64)
+        records = line_records(columns, self.grid.res)
+        t = time.perf_counter()
+        (lon1, lat1, cx1, cy1), (lon2, lat2, cx2, cy2) = self.anchors(a1, a2)
+        self.transform_seconds += time.perf_counter() - t
+        first = (lon1 < lon2) | ((lon1 == lon2) & (lat1 <= lat2))
+        i = np.where(first, cx1, cx2) // CLUSTERS_PER_CELL
+        j = np.where(first, cy1, cy2) // CLUSTERS_PER_CELL
         self._lines.add(*count_keys(pack_keys(i, j, records)))
-        self._spots.add(*merge_spots(spot_ids(x1, y1, x2, y2, self.origin), records))
+        self._spots.add(*merge_spots(cluster_spot_ids(cx1, cy1, cx2, cy2), records))
 
     def result(self) -> TileCounts:
         keys, counts = self._lines.flush()
         ids, records = self._spots.flush()
+        empty = _empty_counts()
+        if keys is None:
+            keys, counts = empty.line_keys, empty.line_counts
+        if ids is None:
+            ids, records = empty.spot_ids, empty.spot_records
         return TileCounts(keys, counts, ids, records, self.lines, self.dropped)
-
-
-RECORD_COLUMNS = ("length", "clearance", "clearance_nmpt", "height_max", "angle1", "angle2", "prom1", "prom2",
-                  "water_px")
 
 
 def save_tile(path: str, counts: TileCounts, meta: Dict) -> None:
     """A tile's counts and its meta (JSON text) as a compressed .npz, written atomically."""
     with cache.replacing(path) as f:
         np.savez_compressed(f, version=np.int64(VERSION), meta=np.array(json.dumps(meta)),
-                            line_keys=counts.line_keys, line_counts=counts.line_counts,
-                            spot_ids=counts.spot_ids, spot_records=counts.spot_records,
+                            line_keys=np.asarray(counts.line_keys, dtype=np.int64).reshape(-1, 2),
+                            line_counts=counts.line_counts, spot_ids=counts.spot_ids,
+                            spot_records=np.asarray(counts.spot_records, dtype=np.int64).reshape(-1, 2),
                             lines=np.int64(counts.lines), dropped=np.int64(counts.dropped))
 
 
@@ -314,32 +577,42 @@ def load_tile(path: str) -> Tuple[TileCounts, Dict]:
         version = int(z["version"]) if "version" in z.files else None
         if version != VERSION:
             raise ValueError(f"{path}: a tile file of version {version}, not {VERSION}: count it again")
-        counts = TileCounts(z["line_keys"].astype(np.int64), z["line_counts"].astype(np.int64),
-                            z["spot_ids"].astype(np.int64), z["spot_records"].astype(np.int64),
+        counts = TileCounts(z["line_keys"].astype(np.int64).reshape(-1, 2), z["line_counts"].astype(np.int64),
+                            z["spot_ids"].astype(np.int64), z["spot_records"].astype(np.int64).reshape(-1, 2),
                             int(z["lines"]), int(z["dropped"]))
         return counts, json.loads(str(z["meta"]))
 
 
 def _level_keys(keys: np.ndarray, counts: np.ndarray, level: int) -> Tuple[np.ndarray, np.ndarray]:
-    """Level-1 keys summed into cells of `level` km."""
+    """Level-1 keys summed into cells of `level` × `level` cells."""
     if level == 1:
         return keys, counts
-    i = (keys >> COL_SHIFT) // level
-    j = ((keys >> ROW_SHIFT) & CELL_MASK) // level
-    return sum_keys((i << COL_SHIFT) | (j << ROW_SHIFT) | (keys & RECORD_MASK), counts)
+    a = keys[:, 0]
+    i = (a >> COL_SHIFT) // level
+    j = ((a >> ROW_SHIFT) & CELL_MASK) // level
+    out = np.empty_like(keys)
+    out[:, 0] = (i << COL_SHIFT) | (j << ROW_SHIFT) | (a & RECORD_MASK)
+    out[:, 1] = keys[:, 1]
+    return sum_keys(out, counts)
 
 
 def _save_npy(path: str, keys: np.ndarray, counts: np.ndarray) -> None:
     with cache.replacing(path) as f:
-        np.save(f, np.column_stack([keys, counts]).astype(np.int64))
+        np.save(f, np.column_stack([keys.reshape(-1, 2), counts]).astype(np.int64))
+
+
+def _border_totals(keys: np.ndarray, counts: np.ndarray) -> Dict[str, int]:
+    border = (keys[:, 0] >> BORDER_SHIFT) & 3 if len(keys) else np.zeros(0, dtype=np.int64)
+    return {"owned": int(counts[border == 1].sum()), "partner": int(counts[border == 2].sum())}
 
 
 def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
     """The cube of the tile files given (the caller picks the layer bands' tiles): lines summed per
-    key, spots merged per id over all tiles and bands and then counted per key, the levels 2, 4 and
-    8 summed from level 1; writes out_dir/lines_<L>.npy and spots_<L>.npy ((n, 2) int64 [key,
-    count], sorted by key) and cube.json last (removed first, so a half-built cube is never read).
-    Returns cube.json's content."""
+    key, spots merged per (id, border, partner) over all tiles and bands and then counted per key,
+    the levels 2, 4 and 8 summed from level 1; writes out_dir/lines_<L>.npy and spots_<L>.npy
+    ((n, 3) int64 [key_a, key_b, count], sorted by key) and cube.json last (removed first, so a
+    half-built cube is never read). info's "origin" is the country's (I0, J0) in cells. Returns
+    cube.json's content."""
     os.makedirs(out_dir, exist_ok=True)
     meta_path = os.path.join(out_dir, "cube.json")
     if os.path.exists(meta_path):
@@ -349,8 +622,13 @@ def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
         counts, _ = load_tile(path)
         lines.add(counts.line_keys, counts.line_counts)
         spots.add(counts.spot_ids, counts.spot_records)
+    empty = _empty_counts()
     line_keys, line_counts = lines.flush()
+    if line_keys is None:
+        line_keys, line_counts = empty.line_keys, empty.line_counts
     ids, records = spots.flush()
+    if ids is None:
+        ids, records = empty.spot_ids, empty.spot_records
     i, j = spot_cells(ids)
     spot_keys, spot_counts = count_keys(pack_keys(i, j, records))
     del ids, records, i, j
@@ -360,10 +638,16 @@ def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
             k, n = _level_keys(keys, counts, level)
             _save_npy(os.path.join(out_dir, f"{mode}_{level}.npy"), k, n)
             keys_total[f"{mode}_{level}"] = int(len(k))
-    cube = {**info, "version": VERSION, "cell_m": CELL_M, "levels": list(LEVELS), "cluster_m": CLUSTER_M,
+    cube = {**info, "version": VERSION, "cell_deg": CELL_DEG, "levels": list(LEVELS),
+            "clusters_per_cell": CLUSTERS_PER_CELL,
             "edges": {"length": list(LENGTH_EDGES), **{k: list(v) for k, v in EDGES.items()}},
-            "totals": {"lines": int(line_counts.sum()), "spots": int(spot_counts.sum()), "keys": keys_total},
+            "kinds": dict(KINDS), "neighbours": list(info.get("neighbours", [])),
+            "totals": {"lines": int(line_counts.sum()), "spots": int(spot_counts.sum()), "keys": keys_total,
+                       "border": {"lines": _border_totals(line_keys, line_counts),
+                                  "spots": _border_totals(spot_keys, spot_counts)}},
             "built": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    if "origin" in info:
+        cube["origin"] = [int(round(float(v))) for v in info["origin"]]
     with cache.replacing(meta_path, "w", encoding="utf-8") as f:
         json.dump(cube, f, indent=1)
     return cube
@@ -371,6 +655,7 @@ def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
 
 TREES = ("all", "no", "only")
 WATERS = ("all", "land", "water")
+CEILINGS = tuple(name for name, kind in KINDS.items() if kind != "floor")
 
 
 def _edges_text(edges) -> str:
@@ -379,10 +664,14 @@ def _edges_text(edges) -> str:
 
 @dataclass(frozen=True)
 class Filters:
-    """The filters of the layer, on the bins' edges: a line passes when its length bin lies within
-    `length`, its weaker anchor's prominence >= `prominence`, its steeper anchor's wall angle <
-    `wall`, its clearance >= `clearance`, its webbing height >= `height`, and over trees and water
-    as asked. An UNKNOWN value passes only a filter that is off (0, or None for the wall)."""
+    """The filters of the layer, on the bins' edges (KINDS): a line passes when its length bin lies
+    within `length`, each floor (the weaker anchor's prominence, the clearance, the webbing's height,
+    the metres over water, the lower anchor's height, the mean height, the stronger anchor's
+    prominence, the drop, the high share, the clearance over trees) at or above its value, each
+    ceiling below its value (the steeper anchor's wall angle, the upper anchor's height, the height
+    difference) or at most it (the two A-frame fields), and over trees and water as asked. A floor
+    at its first edge is off, a ceiling at None (and the upper anchor's height and the height
+    difference at their first edge); an UNKNOWN value passes only a filter that is off."""
     length: Tuple[float, float] = (30, 5000)  # metres, both edges of LENGTH_EDGES
     prominence: float = 0      # >= (0: no filter, UNKNOWN passes only then)
     wall: Optional[float] = None  # < (None: no filter, UNKNOWN passes only then)
@@ -390,17 +679,30 @@ class Filters:
     height: float = 0          # >=
     trees: str = "all"         # all | no (some line not over trees) | only (some line over them)
     water: str = "all"         # all | land (some line not over water) | water (some line over water)
+    water_m: float = 0         # >=
+    elevation_low: float = 0   # >=
+    elevation_high: Optional[float] = None  # <
+    height_mean: float = 0     # >=
+    prominence_high: float = 0  # >=
+    drop: float = 0            # >=
+    high_pct: float = 0        # >=
+    height_diff: Optional[float] = None  # <
+    clearance_trees: float = 0  # >=
+    lift_needed: Optional[float] = None  # <= (0: lines that stand without A-frames)
+    lift_no_zone: Optional[float] = None  # <=
 
     def __post_init__(self):
         lo, hi = self.length
         if lo not in LENGTH_EDGES or hi not in LENGTH_EDGES or not lo < hi:
             raise ValueError(f"the length range must be two different lengths of {_edges_text(LENGTH_EDGES)} m, "
                              "the shorter first")
-        for name in ("prominence", "clearance", "height"):
-            if getattr(self, name) not in EDGES[name]:
-                raise ValueError(f"{name} must be one of {_edges_text(EDGES[name])}")
-        if self.wall is not None and self.wall not in EDGES["wall"]:
-            raise ValueError(f"wall must be one of {_edges_text(EDGES['wall'])}, or left out")
+        for name, kind in KINDS.items():
+            value = getattr(self, name)
+            if kind == "floor":
+                if value not in EDGES[name]:
+                    raise ValueError(f"{name} must be one of {_edges_text(EDGES[name])}")
+            elif value is not None and value not in EDGES[name]:
+                raise ValueError(f"{name} must be one of {_edges_text(EDGES[name])}, or left out")
         if self.trees not in TREES:
             raise ValueError(f"trees must be one of {', '.join(TREES)}")
         if self.water not in WATERS:
@@ -408,9 +710,9 @@ class Filters:
 
     @classmethod
     def parse(cls, query: Mapping[str, str]) -> "Filters":
-        """Filters from the web's query strings (length "<lo>-<hi>", prominence, wall, clearance,
-        height, trees, water; others ignored, absent or empty ones off); ValueError with a plain
-        message for a value off the edges."""
+        """Filters from the web's query strings (length "<lo>-<hi>", every dimension of KINDS by its
+        name, trees, water; others ignored, absent or empty ones off); ValueError with a plain message
+        for a value off the edges."""
         def number(name: str, text: str) -> float:
             try:
                 value = float(text)
@@ -427,7 +729,7 @@ class Filters:
             if len(parts) != 2:
                 raise ValueError("length must be given as <shortest>-<longest>, for example 30-5000")
             args["length"] = (number("length", parts[0]), number("length", parts[1]))
-        for name in ("prominence", "clearance", "height", "wall"):
+        for name in KINDS:
             text = query.get(name) or ""
             if text:
                 args[name] = number(name, text)
@@ -442,33 +744,68 @@ class Filters:
         lo, hi = self.length
         return sum(1 << k for k in range(LENGTH_BINS) if LENGTH_EDGES[k] >= lo and LENGTH_EDGES[k + 1] <= hi)
 
+    def active(self, name: str) -> bool:
+        """Whether the filter of a dimension of KINDS is on."""
+        value = getattr(self, name)
+        kind = KINDS[name]
+        if kind == "floor":
+            return value != EDGES[name][0]
+        if value is None:
+            return False
+        return not (kind == "below" and name != "wall" and value == EDGES[name][0])
 
-DIMENSIONS = ("length", "prominence", "wall", "clearance", "height")  # the dimensions a histogram counts
+
+DIMENSIONS = ("length",) + tuple(KINDS)  # the dimensions a histogram counts
 
 
 def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np.ndarray:
-    """A boolean mask of the keys (of lines or spots) passing the filters; `skip`, one of DIMENSIONS,
-    leaves that dimension's condition out (for "length" the length mask's)."""
+    """A boolean mask of the keys ((n, 2), of lines or spots) passing the filters; `skip`, one of
+    DIMENSIONS, leaves that dimension's condition out (for "length" the length mask's)."""
     if skip is not None and skip not in DIMENSIONS:
         raise ValueError(f"skip must be one of {', '.join(DIMENSIONS)}")
-    keys = np.asarray(keys, dtype=np.int64)
+    keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)
+    a = keys[:, 0]
     if skip == "length":
         mask = np.ones(len(keys), dtype=bool)
     else:
-        mask = ((keys >> LENGTH_SHIFT) & filters.length_mask()) != 0
-    for name in ("prominence", "clearance", "height"):
-        value = getattr(filters, name)
-        if value != EDGES[name][0] and name != skip:
-            b = (keys >> SHIFT[name]) & 7
-            mask &= (b != UNKNOWN) & (b >= EDGES[name].index(value))
-    if filters.wall is not None and skip != "wall":
-        b = (keys >> SHIFT["wall"]) & 7
-        mask &= (b != UNKNOWN) & (b < EDGES["wall"].index(filters.wall))
+        mask = ((a >> LENGTH_SHIFT) & filters.length_mask()) != 0
+    for name, kind in KINDS.items():
+        if name == skip or not filters.active(name):
+            continue
+        b = _field(keys, name)
+        index = EDGES[name].index(getattr(filters, name))
+        if kind == "floor":
+            mask &= (b != UNKNOWN) & (b >= index)
+        elif kind == "below":
+            mask &= (b != UNKNOWN) & (b < index)
+        else:
+            mask &= (b != UNKNOWN) & (b <= index)
     if filters.trees != "all":
-        mask &= (keys & (1 << (TREES_BIT + (filters.trees == "only")))) != 0
+        mask &= (a & (1 << (TREES_BIT + (filters.trees == "only")))) != 0
     if filters.water != "all":
-        mask &= (keys & (1 << (WATER_BIT + (filters.water == "water")))) != 0
+        mask &= (a & (1 << (WATER_BIT + (filters.water == "water")))) != 0
     return mask
+
+
+def _authalic(lat: np.ndarray) -> np.ndarray:
+    """(b² / 2) × q(φ) of WGS84: the area between the equator and φ per radian of longitude is its
+    value, so (λ in radians, this) is a cylindrical projection of equal area (m²)."""
+    s = np.sin(np.radians(np.asarray(lat, dtype=np.float64)))
+    return _B * _B / 2 * (s / (1 - _E2 * s * s) + np.log((1 + _E * s) / (1 - _E * s)) / (2 * _E))
+
+
+def _equal_area(geometry):
+    """A WGS84 (lon, lat) geometry on the cylindrical projection of equal area (its area in m²)."""
+    return shapely.transform(geometry, lambda xy: np.column_stack([np.radians(xy[:, 0]), _authalic(xy[:, 1])]))
+
+
+def lattice_km2(level: int, origin_j: int, j: np.ndarray) -> np.ndarray:
+    """The km² of a whole cell of a level in row j (from the origin's row origin_j, in cells): the
+    ellipsoid's area between its parallels over its longitudes."""
+    j = np.asarray(j, dtype=np.int64)
+    south = (origin_j + j * level) / CELLS_PER_DEGREE
+    north = (origin_j + (j + 1) * level) / CELLS_PER_DEGREE
+    return (_authalic(north) - _authalic(south)) * math.radians(level / CELLS_PER_DEGREE) / 1e6
 
 
 Box = Tuple[float, float, float, float]
@@ -482,7 +819,8 @@ CUT_FULL = 1 - 1e-9        # a cell with this share of it inside the outline is 
 class Cube:
     """A built cube: cube.json and the .npy files, each read into memory when first used (not
     memory-mapped: a mapped file stays open, and Windows would refuse the next build's replacing
-    it while the app shows the layer)."""
+    it while the app shows the layer). Its cells are the lattice's: lon/lat rectangles of
+    level / 120 degrees from the origin (I0, J0) in cells, so nothing of it needs pyproj."""
 
     def __init__(self, folder: str):
         self.folder = folder
@@ -490,30 +828,33 @@ class Cube:
             self.info: Dict = json.load(f)
         if self.info.get("version") != VERSION:
             raise ValueError(f"{folder}: a cube of version {self.info.get('version')}, not {VERSION}: build it again")
-        self.origin = (float(self.info["origin"][0]), float(self.info["origin"][1]))
-        self.crs = self.info["crs"]
+        self.origin = (int(self.info["origin"][0]), int(self.info["origin"][1]))
+        self.crs = self.info.get("crs")
         self.levels = tuple(self.info.get("levels", LEVELS))
-        self._arrays: Dict[str, np.ndarray] = {}
+        self._arrays: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
         self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
         self._cuts: Optional[Dict[int, Dict[Tuple[int, int], Dict]]] = None  # cut's cells per level
-        self._to_crs = Transformer.from_crs("EPSG:4326", self.crs, always_xy=True)
-        self._to_wgs84 = Transformer.from_crs(self.crs, "EPSG:4326", always_xy=True)
 
     def array(self, mode: str, level: int) -> np.ndarray:
-        """The (n, 2) [key, count] rows of a mode ("lines" or "spots") and level."""
+        """The (n, 3) [key_a, key_b, count] rows of a mode ("lines" or "spots") and level."""
+        keys, counts = self._rows(mode, level)
+        return np.column_stack([keys, counts])
+
+    def _rows(self, mode: str, level: int) -> Tuple[np.ndarray, np.ndarray]:
+        """The keys ((n, 2), C-contiguous) and counts of a mode and level, read once."""
         if mode not in ("lines", "spots"):
             raise ValueError("mode must be lines or spots")
         if level not in self.levels:
             raise ValueError(f"level must be one of {', '.join(map(str, self.levels))}")
         name = f"{mode}_{level}"
         if name not in self._arrays:
-            self._arrays[name] = np.load(os.path.join(self.folder, name + ".npy"))
+            rows = np.load(os.path.join(self.folder, name + ".npy")).reshape(-1, 3)
+            self._arrays[name] = (np.ascontiguousarray(rows[:, :2]), np.ascontiguousarray(rows[:, 2]))
         return self._arrays[name]
 
     def box(self, west: float, south: float, east: float, north: float) -> Box:
-        """A WGS84 box in the cube's CRS (its edges densified). It is clipped first to the country's
-        bounds_wgs84 with a margin of a degree, so a view of half the world stays finite; a view
-        away from the country gives an empty box (left > right)."""
+        """A WGS84 box clipped to the country's bounds_wgs84 with a margin of a degree, so a view of
+        half the world stays finite; a view away from the country gives an empty box (west > east)."""
         values = (west, south, east, north)
         if not all(math.isfinite(v) for v in values) or west > east or south > north:
             raise ValueError("the box must be west,south,east,north in degrees")
@@ -524,24 +865,21 @@ class Cube:
             west, south = max(west, bounds[0] - 1), max(south, bounds[1] - 1)
             east, north = min(east, bounds[2] + 1), min(north, bounds[3] + 1)
             if west > east or south > north:
-                return (self.origin[0], self.origin[1], self.origin[0] - 1, self.origin[1] - 1)
-        out = self._to_crs.transform_bounds(west, south, east, north, densify_pts=DENSIFY)
-        if not all(math.isfinite(v) for v in out):
-            raise ValueError("the box lies outside the country's coordinate system")
-        return tuple(float(v) for v in out)
+                return (1.0, 1.0, 0.0, 0.0)
+        return (float(west), float(south), float(east), float(north))
 
     def _range(self, level: int, box: Box) -> Tuple[int, int, int, int]:
         """The columns and rows (inclusive) of the level's cells touching box (may be empty)."""
-        size = level * CELL_M
-        x0, y0 = self.origin
-        return (math.floor((box[0] - x0) / size), math.floor((box[2] - x0) / size),
-                math.floor((box[1] - y0) / size), math.floor((box[3] - y0) / size))
+        if box[0] > box[2] or box[1] > box[3]:
+            return (0, -1, 0, -1)
+        i0, j0 = self.origin
+        return (math.floor((box[0] * CELLS_PER_DEGREE - i0) / level), math.floor((box[2] * CELLS_PER_DEGREE - i0) / level),
+                math.floor((box[1] * CELLS_PER_DEGREE - j0) / level), math.floor((box[3] * CELLS_PER_DEGREE - j0) / level))
 
     def auto_level(self, box: Box, most: int = 4000) -> int:
         """The finest level with at most `most` cells over box (by its geometry), else the coarsest."""
         for level in sorted(self.levels):
-            i0, i1, j0, j1 = self._range(level, box)
-            if max(i1 - i0 + 1, 0) * max(j1 - j0 + 1, 0) <= most:
+            if self.cell_count(level, box) <= most:
                 return level
         return max(self.levels)
 
@@ -551,28 +889,22 @@ class Cube:
         return max(i1 - i0 + 1, 0) * max(j1 - j0 + 1, 0)
 
     def _slice(self, mode: str, level: int, box: Optional[Box]) -> Tuple[np.ndarray, np.ndarray]:
-        """The keys (sorted) and counts of the level's rows in the cells touching box (None: all):
-        the columns' range by searchsorted, the rows' by a mask."""
-        rows = self.array(mode, level)
+        """The keys ((n, 2), sorted) and counts of the level's rows in the cells touching box (None:
+        all): the columns' range by searchsorted on word A, the rows' by a mask."""
+        keys, counts = self._rows(mode, level)
         empty = np.zeros(0, dtype=np.int64)
         if box is None:
-            part = np.asarray(rows)
-            if not len(part):
-                return empty, empty
-            return part[:, 0], part[:, 1]
+            return keys, counts
         i0, i1, j0, j1 = self._range(level, box)
         i0, j0 = max(i0, 0), max(j0, 0)
         i1, j1 = min(i1, CELL_MASK), min(j1, CELL_MASK)
         if i0 > i1 or j0 > j1:
-            return empty, empty
-        keys = rows[:, 0]
-        lo = int(np.searchsorted(keys, i0 << COL_SHIFT, side="left"))
-        hi = int(np.searchsorted(keys, (i1 + 1) << COL_SHIFT, side="left"))
-        part = np.asarray(rows[lo:hi])
-        if not len(part):
-            return empty, empty
-        keys, counts = part[:, 0], part[:, 1]
-        j = (keys >> ROW_SHIFT) & CELL_MASK
+            return empty.reshape(0, 2), empty
+        a = keys[:, 0]
+        lo = int(np.searchsorted(a, i0 << COL_SHIFT, side="left"))
+        hi = int(np.searchsorted(a, (i1 + 1) << COL_SHIFT, side="left"))
+        keys, counts = keys[lo:hi], counts[lo:hi]
+        j = (keys[:, 0] >> ROW_SHIFT) & CELL_MASK
         mask = (j >= j0) & (j <= j1)
         return keys[mask], counts[mask]
 
@@ -584,7 +916,7 @@ class Cube:
         if not len(keys):
             return empty, empty, empty
         mask = select(keys, filters)
-        cell = (keys >> ROW_SHIFT)[mask]  # sorted, as the keys are
+        cell = (keys[:, 0] >> ROW_SHIFT)[mask]  # sorted, as the keys are
         counts = counts[mask]
         if not len(cell):
             return empty, empty, empty
@@ -597,11 +929,13 @@ class Cube:
 
     def reaching(self, level: int, keys: np.ndarray, view: Tuple[float, float, float, float],
                  decimals: Optional[int] = None) -> np.ndarray:
-        """A mask of the keys whose cell reaches a WGS84 view (west, south, east, north): the box of the
-        cell's corners (rounded to `decimals`, as /api/countries/<id>/cells gives them) intersects the
-        view, edges included, as Leaflet's LatLngBounds.intersects: the page's total in view."""
+        """A mask of the keys ((n, 2)) whose cell reaches a WGS84 view (west, south, east, north): the
+        box of the cell's corners (rounded to `decimals`, as /api/countries/<id>/cells gives them)
+        intersects the view, edges included, as Leaflet's LatLngBounds.intersects: the page's total
+        in view."""
         west, south, east, north = view
-        cell = np.asarray(keys, dtype=np.int64) >> ROW_SHIFT
+        keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)
+        cell = keys[:, 0] >> ROW_SHIFT
         if not len(cell):
             return np.zeros(0, dtype=bool)
         unique, inverse = np.unique(cell, return_inverse=True)
@@ -610,22 +944,21 @@ class Cube:
             corners = np.round(corners, decimals)
         lat, lon = corners[:, :, 0], corners[:, :, 1]
         ok = (lat.max(1) >= south) & (lat.min(1) <= north) & (lon.max(1) >= west) & (lon.min(1) <= east)
-        return ok[inverse]
+        return ok[inverse.reshape(-1)]
 
     def histogram(self, mode: str, level: int, box: Optional[Box], filters: Filters,
                   view: Optional[Tuple[float, float, float, float]] = None, decimals: Optional[int] = None) -> Dict:
         """The counts over box (None: all) per bin of each dimension, each dimension counted under every
         filter but its own (select(skip=)): {"total": the sum under all filters, "length": [9 ints, one
-        per length bin], "prominence", "wall", "clearance", "height": [6 ints: the bins 0-4 and UNKNOWN]}.
-        With `view` (the WGS84 box that gave box), only the cells reaching it (`reaching`): box, the
-        view's box in the cube's CRS, holds more where the CRS turns against the meridians (Slovakia's
-        Krovak: 13 % more cells in a view of the Tatras, 2026-11-04), so the page's total in view and its
-        histograms would disagree; box is grown by a cell first, so no cell reaching the view is missed.
-        A line carries one length bit, so a mode's length bins partition its total (under the other
-        filters); a spot's record ORs the length bits of its lines (merge_spots), so a spot counts in
-        every bin of its lines: per-bin spot counts are upper bounds and may sum above the total."""
+        per length bin], every dimension of KINDS: [the bins 0 .. bins_of(name) - 1, then UNKNOWN]: 6
+        ints, 7 for an at_most}. With `view` (the WGS84 box that gave box), only the cells reaching it
+        (`reaching`: by their corners rounded as /cells rounds them; box is grown by a cell first, so
+        no cell reaching the view is missed). A line carries one length bit, so a mode's length bins
+        partition its total (under the other filters); a spot's record ORs the length bits of its
+        lines (merge_spots), so a spot counts in every bin of its lines: per-bin spot counts are upper
+        bounds and may sum above the total."""
         if view is not None and box is not None and box[0] <= box[2] and box[1] <= box[3]:
-            size = level * CELL_M
+            size = level * CELL_DEG
             box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
         keys, counts = self._slice(mode, level, box)
         if view is not None and len(keys):
@@ -634,31 +967,34 @@ class Cube:
         out: Dict = {"total": int(counts[select(keys, filters)].sum()) if len(keys) else 0}
         if not len(keys):
             out["length"] = [0] * LENGTH_BINS
-            for name in SHIFT:
-                out[name] = [0] * 6
+            for name in KINDS:
+                out[name] = [0] * (bins_of(name) + 1)
             return out
         weights = counts.astype(np.float64)  # exact below 2^53
         mask = select(keys, filters, skip="length")
-        bits = (keys >> LENGTH_SHIFT)[mask]
+        bits = (keys[:, 0] >> LENGTH_SHIFT)[mask]
         out["length"] = [int(round(weights[mask][(bits & (1 << k)) != 0].sum())) for k in range(LENGTH_BINS)]
-        for name in ("prominence", "wall", "clearance", "height"):
+        for name in KINDS:
             mask = select(keys, filters, skip=name)
-            h = np.bincount(((keys >> SHIFT[name]) & 7)[mask], weights=weights[mask], minlength=8)
-            out[name] = [int(round(v)) for v in (*h[:5], h[UNKNOWN])]
+            h = np.bincount(_field(keys, name)[mask], weights=weights[mask], minlength=8)
+            out[name] = [int(round(v)) for v in (*h[:bins_of(name)], h[UNKNOWN])]
         return out
 
     def corners(self, level: int, i: np.ndarray, j: np.ndarray) -> np.ndarray:
-        """(n, 4, 2) [lat, lon] of the cells' corners: SW, SE, NE, NW."""
-        size = level * CELL_M
-        i, j = np.asarray(i, dtype=np.float64), np.asarray(j, dtype=np.float64)
-        west, south = self.origin[0] + i * size, self.origin[1] + j * size
-        xs = np.stack([west, west + size, west + size, west], axis=1)
-        ys = np.stack([south, south, south + size, south + size], axis=1)
-        lon, lat = self._to_wgs84.transform(xs.ravel(), ys.ravel())
+        """(n, 4, 2) [lat, lon] of the cells' corners: SW, SE, NE, NW (a lon/lat rectangle)."""
+        i, j = np.asarray(i, dtype=np.int64), np.asarray(j, dtype=np.int64)
+        west = (self.origin[0] + i * level) / CELLS_PER_DEGREE
+        east = (self.origin[0] + (i + 1) * level) / CELLS_PER_DEGREE
+        south = (self.origin[1] + j * level) / CELLS_PER_DEGREE
+        north = (self.origin[1] + (j + 1) * level) / CELLS_PER_DEGREE
         out = np.empty((len(i), 4, 2))
-        out[:, :, 0] = np.asarray(lat).reshape(-1, 4)
-        out[:, :, 1] = np.asarray(lon).reshape(-1, 4)
+        out[:, :, 0] = np.stack([south, south, north, north], axis=1)
+        out[:, :, 1] = np.stack([west, east, east, west], axis=1)
         return out
+
+    def cell_km2(self, level: int, j: np.ndarray) -> np.ndarray:
+        """The km² of a whole cell of a level in row j (a cut cell's part inside the outline: cut)."""
+        return lattice_km2(level, self.origin[1], j)
 
     def outline(self):
         """The country's outline (area.geojson of the cube folder) as a shapely geometry, WGS84."""
@@ -673,15 +1009,16 @@ class Cube:
         return shapely.union_all([shape(g) for g in geometries if g is not None])
 
     def outline_simplified(self, tolerance: float = OUTLINE_TOLERANCE) -> Dict:
-        """The outline for a map: {"tolerance": degrees, "area_km2": of the original outline in the cube's
-        CRS, "geometry": the outline simplified by `tolerance` (topology preserved, made valid when
-        needed), its coordinates rounded to OUTLINE_DECIMALS, as a GeoJSON mapping}; kept per tolerance."""
+        """The outline for a map: {"tolerance": degrees, "area_km2": of the original outline on the
+        ellipsoid, "geometry": the outline simplified by `tolerance` (topology preserved, made valid
+        when needed), its coordinates rounded to OUTLINE_DECIMALS, as a GeoJSON mapping}; kept per
+        tolerance."""
         tolerance = float(tolerance)
         found = self._outlines.get(tolerance)
         if found is not None:
             return found
         outline = self.outline()
-        area = _project(outline, self._to_crs).area / 1e6
+        area = _equal_area(outline).area / 1e6
         simple = outline.simplify(tolerance, preserve_topology=True)
         simple = shapely.transform(simple, lambda xy: np.round(xy, OUTLINE_DECIMALS))
         if not simple.is_valid:
@@ -695,55 +1032,55 @@ class Cube:
 
     def cut(self, level: int) -> Dict[Tuple[int, int], Dict]:
         """The level's cells the country's outline cuts, by (i, j): {"km2": the cell's part inside the
-        outline (the exact outline, in the cube's CRS: the true divisor of its density), "shape": that
-        part for a map: polygons of rings of [lat, lon], simplified by the cell's side over CUT_SIMPLIFY}.
-        A cell not listed lies wholly inside or wholly outside. All levels are worked out at the first
-        call and kept (Slovakia: 0.3 s for 3400 cells); without an outline no cell is cut."""
+        outline (the exact outline, its area on the ellipsoid: the true divisor of its density),
+        "shape": that part for a map: polygons of rings of [lat, lon], simplified by the cell's side
+        over CUT_SIMPLIFY}. A cell not listed lies wholly inside or wholly outside (cell_km2 gives a
+        whole one's km²). All levels are worked out at the first call and kept; without an outline no
+        cell is cut."""
         if self._cuts is None:
             self._cuts = self._cut_cells()
         return self._cuts[level]
 
     def _cut_cells(self) -> Dict[int, Dict[Tuple[int, int], Dict]]:
-        """cut's cells of every level: a quadtree from a cell holding the whole outline down to the finest
-        level. A cell's piece is cut out of its parent's, so an intersection sees the few points of the
-        outline near it, and a branch ends at a cell wholly inside or outside."""
+        """cut's cells of every level: a quadtree of the lattice's rectangles from a cell holding the
+        whole outline down to the finest level. A cell's piece is cut out of its parent's, so an
+        intersection sees the few points of the outline near it, and a branch ends at a cell wholly
+        inside or outside (by its area in square degrees: whole when it is the rectangle's)."""
         out: Dict[int, Dict[Tuple[int, int], Dict]] = {level: {} for level in self.levels}
         try:
-            outline = _project(self.outline(), self._to_crs)
+            outline = self.outline()
         except (OSError, ValueError, KeyError):  # a cube without its area.geojson
             return out
         if not outline.is_valid:
             outline = shapely.make_valid(outline)
-        x0, y0 = self.origin
+        i0, j0 = self.origin
         level = max(self.levels)
-        while level * CELL_M < max(outline.bounds[2] - x0, outline.bounds[3] - y0):
+        bounds = outline.bounds
+        while level < max(bounds[2] * CELLS_PER_DEGREE - i0, bounds[3] * CELLS_PER_DEGREE - j0):
             level *= 2
         i, j = np.zeros(1, dtype=np.int64), np.zeros(1, dtype=np.int64)
         pieces = np.array([outline], dtype=object)
 
         def lat_lon(xy):
-            return np.round(np.column_stack(self._to_wgs84.transform(xy[:, 0], xy[:, 1]))[:, ::-1], CUT_DECIMALS)
+            return np.round(xy[:, ::-1], CUT_DECIMALS)
 
         while True:
-            size = level * CELL_M
+            side = level / CELLS_PER_DEGREE
             area = shapely.area(pieces)
-            keep = (area > 0) & (area < size * size * CUT_FULL)
-            i, j, pieces, area = i[keep], j[keep], pieces[keep], area[keep]
+            keep = (area > 0) & (area < side * side * CUT_FULL)
+            i, j, pieces = i[keep], j[keep], pieces[keep]
             if level in out and len(pieces):
-                shapes = shapely.transform(shapely.simplify(pieces, size / CUT_SIMPLIFY, preserve_topology=True), lat_lon)
-                out[level] = {(a, b): {"km2": max(round(float(km2) / 1e6, 6), 1e-6), "shape": _polygon_rings(shape)}
-                              for a, b, km2, shape in zip(i.tolist(), j.tolist(), area, shapes)}
+                km2 = shapely.area(_equal_area(shapely.segmentize(pieces, side / 8))) / 1e6
+                shapes = shapely.transform(shapely.simplify(pieces, side / CUT_SIMPLIFY, preserve_topology=True), lat_lon)
+                out[level] = {(a, b): {"km2": max(round(float(k), 6), 1e-6), "shape": _polygon_rings(s)}
+                              for a, b, k, s in zip(i.tolist(), j.tolist(), km2, shapes)}
             if level <= min(self.levels):
                 return out
             level //= 2
-            size = level * CELL_M
             i, j = np.repeat(2 * i, 4) + np.tile((0, 1, 0, 1), len(i)), np.repeat(2 * j, 4) + np.tile((0, 0, 1, 1), len(j))
-            boxes = shapely.box(x0 + i * size, y0 + j * size, x0 + (i + 1) * size, y0 + (j + 1) * size)
+            boxes = shapely.box((i0 + i * level) / CELLS_PER_DEGREE, (j0 + j * level) / CELLS_PER_DEGREE,
+                                (i0 + (i + 1) * level) / CELLS_PER_DEGREE, (j0 + (j + 1) * level) / CELLS_PER_DEGREE)
             pieces = shapely.intersection(np.repeat(pieces, 4), boxes)
-
-
-def _project(geometry, transformer: Transformer):
-    return shapely.transform(geometry, lambda xy: np.column_stack(transformer.transform(xy[:, 0], xy[:, 1])))
 
 
 def _polygon_rings(geometry) -> List:
@@ -763,10 +1100,11 @@ REQUEST_SEGMENT_M = 100.0  # its edges densified to this before they go back to 
 
 
 def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
-    """The search of one cell (a SearchRequest: {"params", "geometry"}): the level's square buffered
-    by the band's max_length, intersected with the country's outline, as a WGS84 GeoJSON Polygon or
-    MultiPolygon; the band's params from cube.json. ValueError for a band not in the layer, a level
-    not in the cube or a cell outside the country."""
+    """The search of one cell (a SearchRequest: {"params", "geometry"}): the level's rectangle
+    buffered by the band's max_length (in metres of a local plane at the cell's centre, no pyproj),
+    intersected with the country's outline, as a WGS84 GeoJSON Polygon or MultiPolygon; the band's
+    params from cube.json. ValueError for a band not in the layer, a level not in the cube or a cell
+    outside the country."""
     found = [b for b in cube.info.get("bands", []) if b.get("name") == band and b.get("layer")]
     if not found:
         names = [b["name"] for b in cube.info.get("bands", []) if b.get("layer")]
@@ -776,16 +1114,23 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
     b = found[0]
     params = dict(b.get("params", {}))
     reach = float(params.get("max_length", b["lengths"][1]))
-    size = level * CELL_M
-    x, y = cube.origin[0] + i * size, cube.origin[1] + j * size
-    square = shapely_box(x, y, x + size, y + size)
-    outline = _project(cube.outline(), cube._to_crs)
-    if i < 0 or j < 0 or not square.intersects(outline):
+    (south, west), _, (north, east), _ = cube.corners(level, np.array([i]), np.array([j]))[0]
+    rectangle = shapely.box(west, south, east, north)
+    outline = cube.outline()
+    if i < 0 or j < 0 or not rectangle.intersects(outline):
         raise ValueError("the cell lies outside the country")
-    region = square.buffer(reach).intersection(outline)
+    lon0, lat0 = (west + east) / 2, (south + north) / 2
+    kx, ky = _metres_per_degree(lat0)
+
+    def to_plane(xy):
+        return np.column_stack([(xy[:, 0] - lon0) * kx, (xy[:, 1] - lat0) * ky])
+
+    def to_degrees(xy):
+        return np.column_stack([xy[:, 0] / kx + lon0, xy[:, 1] / ky + lat0])
+
+    region = shapely.transform(rectangle, to_plane).buffer(reach).intersection(shapely.transform(outline, to_plane))
     region = shapely.segmentize(region, REQUEST_SEGMENT_M)
-    back = _project(region, cube._to_wgs84)
-    back = shapely.transform(back, lambda xy: np.round(xy, REQUEST_DECIMALS))
+    back = shapely.transform(region, lambda xy: np.round(to_degrees(xy), REQUEST_DECIMALS))
     if not back.is_valid:
         back = shapely.make_valid(back)
     polygons = [g for g in getattr(back, "geoms", [back]) if g.geom_type in ("Polygon", "MultiPolygon")]

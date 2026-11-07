@@ -138,8 +138,13 @@ def _cube_folder(folder: str) -> dict:
 def test_cube_equals_one_grid(env, full):
     """The cube of the tiles equals the counts of one grid, in a CRS of negative coordinates, with
     at least 2 x 2 tiles; cube.json as the contract gives it."""
+    import countcube
     data, state = full["data"], full["state"]
-    assert state["crs"] == "EPSG:8353" and state["origin"][0] < 0 and state["origin"][1] < 0
+    assert state["crs"] == "EPSG:8353" and state["cube_version"] == countcube.VERSION
+    # the origin in cells of the global lattice (cube v2): south-west of the outline by its longest line
+    west, south = state["bounds_wgs84"][:2]
+    assert all(isinstance(v, int) and v % 8 == 0 for v in state["origin"])
+    assert 0 < west * 120 - state["origin"][0] < 8 + 2 and 0 < south * 120 - state["origin"][1] < 8 + 2
     rows = _manifest(data)
     assert sum(r[0] == "S" for r in rows) >= 4 and sum(r[0] == "M" for r in rows) >= 2
     assert all(r[2] == "done" for r in rows)
