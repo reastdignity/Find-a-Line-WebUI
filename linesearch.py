@@ -30,7 +30,9 @@ bucket minima of the strict margins: helpers.valid_at).
 
 import math
 import time
-from typing import Callable, Dict, Iterator, List, Optional, Union
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
+from typing import Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 import numba
 import numpy as np
@@ -68,6 +70,11 @@ SINK_CHUNK = 2048
 SINK_PART = 1 << 20
 SINK_PAIR_BUFFER = 8192
 SINK_PAIR_BUFFER_BYTES = 128 << 20
+# evaluate_lines works out the values around its kernel (wall angles, which lines pass, the columns of the
+# table) in blocks of at least VALUE_BLOCK pairs, VALUE_BLOCKS per thread numba may use, on a thread pool:
+# numpy on one thread took 189 of the 1012 s of M2's heaviest tile and 151 of L's 729 (round 5, C4)
+VALUE_BLOCK = 1 << 16
+VALUE_BLOCKS = 2
 
 
 @njit(cache=True)
@@ -806,7 +813,40 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
     if down is None:
         down = sh.downslope(elevation, anchors, res)
     found = np.asarray(found, dtype=np.int64).reshape(-1, 2)
-    angles = sh.wall_angles(anchors[found[:, 0]], anchors[found[:, 1]], down[found[:, 0]], down[found[:, 1]])
+    anchors = np.asarray(anchors, dtype=np.int64)
+    blocks = _value_blocks(len(found))
+    workers = min(len(blocks), max(1, numba.get_num_threads()))
+    with ThreadPoolExecutor(workers) if workers > 1 else nullcontext() as pool:
+        return _evaluated(found, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above, limits, down,
+                          anchor_values, end_zone, lift, zone_cap, delta, ladder, blocks,
+                          pool.map if pool else map)
+
+
+def _value_blocks(n: int) -> List[Tuple[int, int]]:
+    """The blocks of pairs (lo, hi) whose values evaluate_lines' numpy works out each on a thread of
+    its pool: VALUE_BLOCKS per thread numba may use, of at least VALUE_BLOCK pairs; one block for
+    fewer than two of them or one thread. Every value is an element's own (a ufunc of that row, or
+    a copy), written at the row's place, so the blocks change none."""
+    threads = max(1, numba.get_num_threads())
+    if threads == 1 or n < 2 * VALUE_BLOCK:
+        return [(0, n)]
+    size = max(VALUE_BLOCK, -(-n // (VALUE_BLOCKS * threads)))
+    return [(lo, min(n, lo + size)) for lo in range(0, n, size)]
+
+
+def _evaluated(found, anchors, elevation, res, surface, sag_table, nmpt_mode, high_above, limits, down, anchor_values,
+               end_zone, lift, zone_cap, delta, ladder, blocks, each) -> sh.LineTable:
+    """evaluate_lines' work: each(f, blocks) runs f on every block (the pool's map, or map)."""
+    n = len(found)
+    angles = (np.empty(n), np.empty(n))
+
+    def wall(block):
+        lo, hi = block
+        f = found[lo:hi]
+        angles[0][lo:hi], angles[1][lo:hi] = sh.wall_angles(anchors[f[:, 0]], anchors[f[:, 1]], down[f[:, 0]],
+                                                            down[f[:, 1]])
+
+    list(each(wall, blocks))
     out = np.zeros((len(found), 9))
     nz = len(ladder)
     margins = np.zeros((len(found), nz))
@@ -830,26 +870,49 @@ def evaluate_lines(found: np.ndarray, anchors: np.ndarray, elevation: np.ndarray
                   float(lift), delta, float(zone_cap), ladder, out, np.zeros((len(found), nz), dtype=np.int64),
                   margins, margins_s)
     # helpers.is_valid of every result, then the limits
-    clearance, nmpt = out[:, 3], out[:, 4]
-    keep = (out[:, 5] != 0) & (clearance > 0)
-    if nmpt_mode == "reject":
-        keep &= ~(nmpt <= 0)  # NaN: not measured, kept
-    if limits is not None:
-        keep = limits.passes(out[:, 6], out[:, 7], out[:, 8], angles[0], angles[1], keep)
-    found, out = found[keep], out[keep]
+    keeps = [None] * len(blocks)
+
+    def valid(k):
+        lo, hi = blocks[k]
+        keep = (out[lo:hi, 5] != 0) & (out[lo:hi, 3] > 0)
+        if nmpt_mode == "reject":
+            keep &= ~(out[lo:hi, 4] <= 0)  # NaN: not measured, kept
+        keeps[k] = keep
+
+    list(each(valid, range(len(blocks))))
+    if limits is not None:  # on all rows at once: it counts the lines it leaves out
+        keep = limits.passes(out[:, 6], out[:, 7], out[:, 8], angles[0], angles[1], np.concatenate(keeps))
+        keeps = [keep[lo:hi] for lo, hi in blocks]
+    sizes = [int(k.sum()) for k in keeps]
+    at = np.concatenate([[0], np.cumsum(sizes)]).astype(np.int64)
+    kept = int(at[-1])
     if anchor_values is None:
         anchor_values = np.full((len(anchors), 2), np.nan)
     elif callable(anchor_values):
-        anchor_values = anchor_values() if len(found) else np.zeros((0, 2))
+        anchor_values = anchor_values() if kept else np.zeros((0, 2))
     anchor_values = np.asarray(anchor_values, dtype=np.float64)
-    first, second = anchor_values[found[:, 0]], anchor_values[found[:, 1]]
-    columns = {"a1": np.asarray(anchors, dtype=np.int64)[found[:, 0]],
-               "a2": np.asarray(anchors, dtype=np.int64)[found[:, 1]]}
-    for name, value in zip(sh.LINE_VALUES, (out[:, 2], out[:, 0], out[:, 1], out[:, 3], out[:, 4], out[:, 6],
-                                            out[:, 7], out[:, 8], angles[0][keep], angles[1][keep], first[:, 0],
-                                            second[:, 0], first[:, 1], second[:, 1])):
-        columns[name] = np.ascontiguousarray(value, dtype=np.float64)
+    columns = {"a1": np.empty((kept, 2), dtype=np.int64), "a2": np.empty((kept, 2), dtype=np.int64)}
+    columns.update((name, np.empty(kept)) for name in sh.LINE_VALUES)
+    sources = (2, 0, 1, 3, 4, 6, 7, 8)  # the columns of out of the first LINE_VALUES
+
+    def write(k):
+        (lo, hi), keep = blocks[k], keeps[k]
+        o0, o1 = int(at[k]), int(at[k + 1])
+        f = found[lo:hi][keep]
+        o = out[lo:hi][keep]
+        columns["a1"][o0:o1] = anchors[f[:, 0]]
+        columns["a2"][o0:o1] = anchors[f[:, 1]]
+        for name, j in zip(sh.LINE_VALUES, sources):
+            columns[name][o0:o1] = o[:, j]
+        columns["angle1"][o0:o1] = angles[0][lo:hi][keep]
+        columns["angle2"][o0:o1] = angles[1][lo:hi][keep]
+        first, second = anchor_values[f[:, 0]], anchor_values[f[:, 1]]
+        columns["prom1"][o0:o1], columns["prom2"][o0:o1] = first[:, 0], second[:, 0]
+        columns["drop1"][o0:o1], columns["drop2"][o0:o1] = first[:, 1], second[:, 1]
+
+    list(each(write, range(len(blocks))))
     if nz:
+        keep = np.concatenate(keeps)
         columns["zone_margins"] = margins[keep]
         if surface is not None:
             columns["zone_margins_nmpt"] = margins_s[keep]
