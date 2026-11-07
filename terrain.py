@@ -183,15 +183,17 @@ def _window(z, rows, cols, row_starts, reach, index_type):
 
 
 def _crop(elevation: np.ndarray, anchors: np.ndarray, reach: int):
-    """The part of the grid within reach (pixels, Chebyshev) of the anchors, a contiguous float32
-    copy, read-only as the count mode's memory-mapped grid is (the kernels' argument types stay
-    those of the whole grid: no compilation of their own), and the anchors in it; the grid itself
-    when that part is all of it."""
+    """The part of the grid within reach (pixels, Chebyshev) of the anchors and the anchors in it:
+    when that part spans the grid's width, its rows of the grid itself (a contiguous view: no copy,
+    the count mode's switch to every useful anchor takes about the whole tile), else a contiguous
+    float32 copy, read-only as the count mode's memory-mapped grid is (the kernels' argument types
+    stay those of the whole grid: no compilation of their own)."""
     h, w = elevation.shape
     r0, c0 = (max(0, int(v) - reach) for v in anchors.min(axis=0))
     r1, c1 = (min(n, int(v) + reach + 1) for v, n in zip(anchors.max(axis=0), (h, w)))
-    if (r1 - r0) * (c1 - c0) == h * w:
-        return np.ascontiguousarray(elevation, dtype=np.float32), anchors
+    if c0 == 0 and c1 == w:
+        rows = np.ascontiguousarray(elevation, dtype=np.float32)[r0:r1]
+        return rows, (anchors - np.array([r0, 0]) if r0 else anchors)
     part = np.array(elevation[r0:r1, c0:c1], dtype=np.float32, order="C")
     part.setflags(write=False)
     return part, anchors - np.array([r0, c0])

@@ -1196,6 +1196,13 @@ def test_prominence_and_drop_of_a_subset(seed):
                         assert np.array_equal(got, drop[order], equal_nan=True), (res, radius, size, crop)
         assert terrain.prominence(z, anchors[:0], res, span, crop=True).shape == (0,)
         assert terrain.drop(z, anchors[:0], res, radius, crop=True).shape == (0,)
+    # a crop across the grid's width is its rows of the grid itself, no copy; a narrower one a copy
+    wide = np.array([[h // 2, 0], [h // 2 + 1, w - 1]])
+    rows, shifted = terrain._crop(z, wide, 2)
+    assert np.shares_memory(rows, z) and rows.flags.c_contiguous and rows.shape == (min(h, h // 2 + 4) - max(0, h // 2 - 2), w)
+    assert np.array_equal(rows[shifted[:, 0], shifted[:, 1]], z[wide[:, 0], wide[:, 1]], equal_nan=True)
+    narrow, _ = terrain._crop(z, np.array([[h // 2, w // 2]]), 2)
+    assert not np.shares_memory(narrow, z) and not narrow.flags.writeable
 
 
 def test_prominence_and_drop_of_a_tower():
