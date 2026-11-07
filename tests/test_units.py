@@ -1390,7 +1390,7 @@ def _fill_before(target, other, gaps, res):
     return count
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize("seed", [0, 1, 2, 4])
 def test_gap_fill_as_before(seed, tmp_path):
     """_fill with its temporaries computed in place fills every gap with the same float32 bits as before."""
     terrain, gaps, other = _gap_fill_case(seed)
@@ -1577,6 +1577,81 @@ def test_median_of_rows_is_np_median(monkeypatch):
                for k, v in zip(keys, [-np.inf, -1e38, -2.0, -0.0, 0.0, 1e-45, 2.0, np.inf]))
 
 
+def _select_before(chunks, k, lo, hi):
+    """filling._select of main d466347 (one value a call): the reference of the pairs."""
+    f = src.filling
+    while lo < hi:
+        width = -(-(hi - lo + 1) // f.SELECT_BINS)
+        counts = np.zeros(f.SELECT_BINS, np.int64)
+        for values in chunks():
+            keys = f._keys(values)
+            keys = keys[(keys >= lo) & (keys <= hi)]
+            counts += np.bincount((keys - lo) // width, minlength=f.SELECT_BINS)
+        cum = np.cumsum(counts)
+        b = int(np.searchsorted(cum, k, side="right"))
+        k -= int(cum[b - 1]) if b else 0
+        lo, hi = lo + b * width, min(hi, lo + (b + 1) * width - 1)
+        if counts[b] <= f.SELECT_COLLECT:
+            found = []
+            for values in chunks():
+                keys = f._keys(values)
+                found.append(np.asarray(values, dtype=np.float32)[(keys >= lo) & (keys <= hi)])
+            return np.sort(np.concatenate(found))[k]
+    return f._key_value(lo)
+
+
+def test_select_pair_as_two_selections(monkeypatch):
+    """_select(pair=True), the two middle values of an even count in the same passes, gives the float32
+    bits of two selections of before (_select_before), and _median_of the bits of before: ties across
+    and within bins, -0.0 and 0.0 as the two middle values, two clusters far apart (the (k+1)-th in a
+    later bin, also of single keys), at the default bins and at bins of a few keys over several rounds."""
+    rng = np.random.default_rng(9)
+    cases = [rng.normal(0, 3, n).astype(np.float32) for n in (2, 4, 1000, 100000)]
+    cases.append(np.round(rng.normal(0, 3, 5000), 1).astype(np.float32))
+    cases.append(np.array([-0.0, 0.0, 0.0, -0.0], np.float32))
+    cases.append(np.array([0.0, -0.0], np.float32))
+    cases.append(np.array([3.0, -1e-40, 1e38, -1e38, 7.0, -7.5], np.float32))
+    cases.append(np.concatenate([np.full(3000, -1e38, np.float32), np.full(3000, 1e38, np.float32)]))
+    cases.append(np.concatenate([np.full(300, 1.5, np.float32), np.full(300, np.nextafter(np.float32(1.5), 2))]))
+    cases.append(rng.choice(np.array([-2.0, -1.0, 0.0, 1.0, 2.0], np.float32), 300000))
+    bits = lambda v: np.float32(v).view(np.uint32)  # noqa: E731
+    for small in (False, True):
+        if small:
+            monkeypatch.setattr(src.filling, "SELECT_BINS", 4)
+            monkeypatch.setattr(src.filling, "SELECT_COLLECT", 50)
+        for values in cases:
+            for chunk in (1, 7, len(values)):
+                parts = [values[i:i + chunk] for i in range(0, len(values), chunk)]
+                keys = src.filling._KeyRange()
+                for part in parts:
+                    keys.add(part)
+                chunks = lambda: iter(parts)  # noqa: E731
+                for k in sorted({0, (len(values) - 2) // 2, len(values) - 2}):
+                    pair = src.filling._select(chunks, k, keys.lo, keys.hi, pair=True)
+                    before = (_select_before(chunks, k, keys.lo, keys.hi), _select_before(chunks, k + 1, keys.lo, keys.hi))
+                    assert [bits(v) for v in pair] == [bits(v) for v in before], (len(values), chunk, small, k)
+                k0 = (len(values) - 1) // 2
+                v0, v1 = _select_before(chunks, k0, keys.lo, keys.hi), _select_before(chunks, len(values) // 2, keys.lo, keys.hi)
+                median = float(np.median(np.array([v0, v1], np.float32))) if len(values) % 2 == 0 else float(v0)
+                assert bits(src.filling._median_of(chunks, keys)) == bits(median), (len(values), chunk, small)
+
+
+def test_keys32_as_keys_before():
+    """The keys of the selection in int32 (filling._keys32, and _keys from it) are those of before,
+    -(bits & 0x7FFFFFFF) - 1 for a negative float32 and its bits otherwise, on every sign and exponent:
+    random bit patterns, the extremes of int32, the zeros, the infinities and the NaNs."""
+    rng = np.random.default_rng(11)
+    patterns = np.concatenate([rng.integers(-2 ** 31, 2 ** 31, 1_000_000, dtype=np.int64).astype(np.int32),
+                               np.array([-2 ** 31, -2 ** 31 + 1, -1, 0, 1, 2 ** 31 - 1], np.int32)])
+    values = np.concatenate([patterns.view(np.float32),
+                             np.array([-0.0, 0.0, np.inf, -np.inf, np.nan, 1e-45, -1e-45], np.float32)])
+    bits = values.view(np.int32).astype(np.int64)
+    before = np.where(bits < 0, -(bits & 0x7FFFFFFF) - 1, bits)
+    assert src.filling._keys32(values).dtype == np.int32
+    assert np.array_equal(src.filling._keys32(values).astype(np.int64), before)
+    assert np.array_equal(src.filling._keys(values), before) and src.filling._keys(values).dtype == np.int64
+
+
 def _gap_fill_case(seed):
     """A terrain with gaps and a filling source (test_gap_fill_as_before's)."""
     from scipy import ndimage
@@ -1593,10 +1668,12 @@ def _gap_fill_case(seed):
     other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
     if seed == 2:
         other[:] = np.nan  # nothing to fill with
+    if seed == 4:  # a tile at a border: the land beyond it a gap, its edge irregular, small gaps beside it
+        gaps |= x > 150 + 12 * np.sin(y / 9)
     return terrain, gaps, other
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
 def test_fill_rows_as_before(seed, tmp_path):
     """_fill in strips of rows fills every gap with the float32 bits of _fill on the whole grid
     (test_gap_fill_as_before's reference): any strip height, also the filling source known on a

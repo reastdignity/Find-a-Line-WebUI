@@ -863,13 +863,20 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
     count = ndimage.label(gaps, structure=np.ones((3, 3)), output=labels)
     ring_labels, ring_diffs = [], []
     for r0, r1, h0, h1 in strips(height, rows, GAP_RING):
-        ring = ndimage.grey_dilation(labels[h0:h1], size=(GAP_RING * 2 + 1,) * 2)[r0 - h0:r1 - h0]
-        ring *= np.asarray(both[r0:r1]) & (labels[r0:r1] == 0)  # integers, in place
+        # The dilation only over the columns within GAP_RING of a gap of the strip's rows (with their
+        # halo): 0 beyond them, and the same values in them (the reflection at the part's edges brings
+        # in 0s as the columns outside it hold); a strip with no gap near it has no ring
+        cols = np.flatnonzero(labels[h0:h1].any(axis=0))
+        if not cols.size:
+            continue
+        c0, c1 = max(0, int(cols[0]) - GAP_RING), min(width, int(cols[-1]) + GAP_RING + 1)
+        ring = ndimage.grey_dilation(labels[h0:h1, c0:c1], size=(GAP_RING * 2 + 1,) * 2)[r0 - h0:r1 - h0]
+        ring *= np.asarray(both[r0:r1, c0:c1]) & (labels[r0:r1, c0:c1] == 0)  # integers, in place
         near = ring > 0
         if near.any():
-            ring_labels.append(ring[near])
+            ring_labels.append(ring[near])  # row by row as over the whole strip: every ring pixel lies in c0:c1
             with np.errstate(invalid="ignore"):
-                ring_diffs.append((np.asarray(target[r0:r1]) - other_rows(r0, r1))[near])
+                ring_diffs.append((np.asarray(target[r0:r1, c0:c1]) - other_rows(r0, r1)[:, c0:c1])[near])
         del ring, near
     del both
     remove_grid(both_path)
@@ -899,9 +906,15 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
 
 def _keys(values: np.ndarray) -> np.ndarray:
     """The float32 values as int64 keys in their order (-0.0 just below 0.0): the bits, those of
-    a negative value reversed."""
-    bits = np.asarray(values, dtype=np.float32).view(np.int32).astype(np.int64)
-    return np.where(bits < 0, -(bits & 0x7FFFFFFF) - 1, bits)
+    a negative value reversed (-(bits & 0x7FFFFFFF) - 1, the keys of _keys32)."""
+    return _keys32(values).astype(np.int64)
+
+
+def _keys32(values: np.ndarray) -> np.ndarray:
+    """_keys as int32 (they fit): the low 31 bits of a negative value flipped, bits ^ 0x7FFFFFFF, which
+    is -(bits & 0x7FFFFFFF) - 1 in two's complement; three int32 passes instead of five of int64."""
+    bits = np.asarray(values, dtype=np.float32).view(np.int32)
+    return bits ^ ((bits >> 31) & 0x7FFFFFFF)
 
 
 def _key_value(key: int) -> np.float32:
@@ -918,7 +931,7 @@ class _KeyRange:
 
     def add(self, values: np.ndarray):
         if values.size:
-            keys = _keys(values)
+            keys = _keys32(values)
             self.n += values.size
             lo, hi = int(keys.min()), int(keys.max())
             self.lo = lo if self.lo is None else min(self.lo, lo)
@@ -929,38 +942,44 @@ def _median_of(chunks: Callable[[], Iterable[np.ndarray]], keys: _KeyRange) -> f
     """np.median of the float32 values that chunks() yields (read again for each pass, never held
     whole): the middle value(s) by _select on their keys, the mean of two as np.median takes it."""
     k0, k1 = (keys.n - 1) // 2, keys.n // 2
-    v0 = _select(chunks, k0, keys.lo, keys.hi)
     if k1 == k0:
-        return float(v0)
-    return float(np.median(np.array([v0, _select(chunks, k1, keys.lo, keys.hi)], np.float32)))
+        return float(_select(chunks, k0, keys.lo, keys.hi))
+    v0, v1 = _select(chunks, k0, keys.lo, keys.hi, pair=True)  # both middle values in the same passes
+    return float(np.median(np.array([v0, v1], np.float32)))
 
 
 SELECT_BINS = 1 << 16   # bins of a pass of _select over the keys' range
 SELECT_COLLECT = 1 << 22  # values of a bin collected and sorted at once (the last pass)
 
 
-def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int) -> np.float32:
+def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int, pair: bool = False):
     """The k-th smallest (from 0) of the float32 values chunks() yields, whose keys (_keys) lie in
     [lo, hi]: a histogram of SELECT_BINS bins over the keys' range finds the bin of the k-th, the
-    range narrows to it until its values can be collected (SELECT_COLLECT) and sorted."""
+    range narrows to it until its values can be collected (SELECT_COLLECT) and sorted.
+    pair: the k-th and the (k+1)-th, found in the same passes while they share a bin (the two middle
+    values of an even count: _median_of); in two bins, each on its own from there. Each is the exact
+    order statistic of the keys, so the values are those of two calls."""
     while lo < hi:
         width = -(-(hi - lo + 1) // SELECT_BINS)  # keys per bin, at least 1
         counts = np.zeros(SELECT_BINS, np.int64)
         for values in chunks():
-            keys = _keys(values)
-            keys = keys[(keys >= lo) & (keys <= hi)]
+            keys = _keys32(values)  # compared as int32 (lo and hi are keys), only those in range made int64
+            keys = keys[(keys >= lo) & (keys <= hi)].astype(np.int64)
             counts += np.bincount((keys - lo) // width, minlength=SELECT_BINS)
         cum = np.cumsum(counts)
         b = int(np.searchsorted(cum, k, side="right"))  # the first bin whose count reaches past k
+        if pair and int(cum[b]) == k + 1:  # the (k+1)-th lies in a later bin: each value on its own
+            return _select(chunks, k, lo, hi), _select(chunks, k + 1, lo, hi)
         k -= int(cum[b - 1]) if b else 0
         lo, hi = lo + b * width, min(hi, lo + (b + 1) * width - 1)
         if counts[b] <= SELECT_COLLECT:
             found = []
             for values in chunks():
-                keys = _keys(values)
+                keys = _keys32(values)
                 found.append(np.asarray(values, dtype=np.float32)[(keys >= lo) & (keys <= hi)])
-            return np.sort(np.concatenate(found))[k]
-    return _key_value(lo)
+            found = np.sort(np.concatenate(found))
+            return (found[k], found[k + 1]) if pair else found[k]
+    return (_key_value(lo), _key_value(lo)) if pair else _key_value(lo)
 
 
 def _or_rows(out_path: str, more_path: str, rows: int):
@@ -1167,14 +1186,19 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     border_path = os.path.join(os.path.dirname(out_path), "border.npy")
     for n, neighbour in enumerate(neighbours):
         progress.compute.start(f"border gaps ({neighbour.name})", 1, unit="step")
-        if gaps is None:
-            if rows is None:
-                gaps = border_gaps(elevation_path, surface_path, grid, exclude)
-            else:
-                shape = (grid.height, grid.width)
-                gaps = border_gaps(elevation_path, surface_path, grid, exclude, rows=rows,
-                                   out=new_mask(border_path, shape))
-        window = neighbour_window(neighbour, grid, gaps, rows=rows)
+        if gaps is None and _box_ranges(neighbour, grid) == []:
+            # Its rough boxes reach no pixel of the grid: no border gap lies inside them (neighbour_window's
+            # None), so the border gaps wait for a neighbour that can use them (a tile at a border without one)
+            window = None
+        else:
+            if gaps is None:
+                if rows is None:
+                    gaps = border_gaps(elevation_path, surface_path, grid, exclude)
+                else:
+                    shape = (grid.height, grid.width)
+                    gaps = border_gaps(elevation_path, surface_path, grid, exclude, rows=rows,
+                                       out=new_mask(border_path, shape))
+            window = neighbour_window(neighbour, grid, gaps, rows=rows)
         progress.compute.update(1)
         progress.compute.finish()
         if window is None:
