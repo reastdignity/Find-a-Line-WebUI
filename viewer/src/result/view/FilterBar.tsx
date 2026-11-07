@@ -9,7 +9,8 @@ import { Button, Chip, Chips, Segmented } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { IntroLink, useIntro } from "../../ui/Intro";
 import { t } from "../../i18n";
-import { active, NO_FILTERS, type Filters } from "../../filters";
+import { active, liftNeed, NO_FILTERS, type Filters } from "../../filters";
+import { liftChoices, shortMetres } from "../../endzone";
 import { COLORS } from "../../style";
 import type { ResultModel } from "../model";
 import { Limit, Swatch, num, useModel } from "./common";
@@ -137,6 +138,42 @@ function Distance({value, max, onChange}: {value: number; max: number; onChange(
   </div>;
 }
 
+const LIFT_BIN = 0.5;  // m: the bars of the filter "A-frame needed at most"
+
+/** The filter "A-frame needed at most" of a run with a no-fall zone or A-frames: its choices from 0 to the run's
+ *  A-frame height, the switch "without the no-fall zone" (on lift_no_zone), how many of the run's lines pass and
+ *  their distribution in bars of LIFT_BIN. */
+function LiftFilter({model}: {model: ResultModel}) {
+  const f = model.filters, r = model.ranges.lift!;
+  const max = f.liftMax ?? r.lift, choices = liftChoices(r.lift);
+  const value = choices.find((c) => Math.abs(c - max) < 1e-9) ?? r.lift;
+  const top = f.liftNoZone ? Math.max(r.lift, Math.ceil(r.noZone / LIFT_BIN) * LIFT_BIN) : Math.max(r.lift, LIFT_BIN);
+  const bins = Math.min(16, Math.max(1, Math.ceil(top / LIFT_BIN))), binWidth = top / bins;
+  const counts: number[] = new Array(bins).fill(0);
+  for (const l of model.lines) {  // bin k: (k, k + 1] bin widths, 0 in the first
+    const need = liftNeed(l, f.liftNoZone);
+    if (need !== null) counts[Math.min(bins - 1, Math.max(0, Math.ceil(need / binWidth - 1e-9) - 1))]++;
+  }
+  const most = Math.max(1, ...counts);
+  return <div class="r-more-sec r-lift">
+    <h3>{t("ui.filter.rigging")}</h3>
+    <div class="r-field-lab">{t("ui.filter.lift")}</div>
+    <Segmented label={t("ui.filter.lift")} value={String(value)}
+               onChange={(v) => set(model, {liftMax: Math.abs(+v - r.lift) < 1e-9 ? null : +v})}
+               options={choices.map((c, k) => ({value: String(c),
+                                                label: k === choices.length - 1 ? t("ui.filter.lift_axis", {m: shortMetres(c)}) : shortMetres(c)}))} />
+    {r.zone > 0 && <label class="r-check"><input type="checkbox" class="r-lift-nozone" checked={f.liftNoZone}
+                                                 onChange={(e) => set(model, {liftNoZone: e.currentTarget.checked})} />
+      {t("ui.filter.lift_no_zone")}</label>}
+    <div class="u-small r-lift-count">{t("ui.filter.lift_count", {shown: model.liftCount(max, f.liftNoZone),
+                                                                   total: model.lines.length})}</div>
+    <div class="r-lift-bars" aria-hidden="true">{counts.map((c, k) =>
+      <i class={k === 0 || k * binWidth < max - 1e-9 ? "r-on" : ""} style={{height: `${Math.round(c / most * 100)}%`}} />)}</div>
+    <div class="r-lift-axis u-small" aria-hidden="true"><span>0</span>
+      <span>{t("ui.filter.lift_axis", {m: shortMetres(top)})}</span></div>
+  </div>;
+}
+
 export interface MoreFiltersProps {
   model: ResultModel;
   onClose?: () => void;
@@ -209,6 +246,8 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
       {limit("Both anchors prominent at least", "promBothMin", r.prom, 0.5, "min")}
       {limit("Drop below both anchors at least", "dropMin", r.drop, 1, "min")}
     </div>
+
+    {r.lift && <LiftFilter model={model} />}
 
     {(r.hmax || r.hmean || r.highPct) && <div class="r-more-sec">
       <h3>Height above the ground</h3>

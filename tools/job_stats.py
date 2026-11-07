@@ -1,7 +1,7 @@
 """
 Where the computing time of the web app's searches goes (F19 of docs/monitoring.md), from a
 jobs.sqlite: the finished searches by class (model, resolution, longest line, circle or area,
-preset), their computing seconds (sum, median, p90), the seconds and CPU seconds of every step
+preset, no-fall zone or A-frames), their computing seconds (sum, median, p90), the seconds and CPU seconds of every step
 (job_steps) and of the stages of the line search (job_stages), and the ratios of its funnel
 (job_funnel). Jobs from before migration 16 have no stages or funnel: those are read from their
 "info" events (the lines the search prints, whole seconds; no CPU).
@@ -33,7 +33,8 @@ from typing import Dict, Iterable, List, Optional, Tuple
 
 # What the tool needs of params.SearchParams and params.PRESETS (tests/test_job_stats.py checks it):
 # the defaults of the fields a class depends on, and the values of the presets of the kind of lines
-DEFAULTS = {"model": "formula", "min_length": 30, "max_length": 1000, "max_anchor_diff_m": 50, "resolution": None}
+DEFAULTS = {"model": "formula", "min_length": 30, "max_length": 1000, "max_anchor_diff_m": 50, "resolution": None,
+            "end_zone": 0, "anchor_lift": 0}
 PRESETS = {
     "typical": {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10},
     "long": {"min_length": 100, "max_length": 400},
@@ -47,7 +48,7 @@ STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator ta
 FUNNEL_STEPS = ("grids", "anchors", "anchors_kept", "open", "todo", "candidates", "checked", "found", "valid",
                 "left_out", "lines")
 RATIOS = (("open", "anchors_kept"), ("checked", "candidates"), ("found", "checked"), ("valid", "found"))
-CLASSES = ("model", "resolution", "length", "shape", "preset")
+CLASSES = ("model", "resolution", "length", "shape", "preset", "ends")
 # --phases: the seconds between the timestamps of a job (jobs.created, downloading_at, ready_at,
 # computing_at, finished) and of its computing phase outside the steps
 PHASE_KEYS = ("wait_download", "download", "wait_compute", "compute", "outside_steps", "orthophoto", "other")
@@ -238,6 +239,8 @@ def load(db: sqlite3.Connection, days: Optional[float] = None) -> List[Dict]:
             "length": length_class(float(params.get("max_length", DEFAULTS["max_length"]))),
             "shape": "area" if params.get("area") or request.get("geometry") or params.get("geometry") else "circle",
             "preset": preset_of(params),
+            # the no-fall zone at the ends or A-frames set: such a search finds many more lines
+            "ends": "on" if any(float(params.get(k, DEFAULTS[k])) for k in ("end_zone", "anchor_lift")) else "off",
             "seconds": seconds, "steps": steps.get(job_id, {}), "stages": stage_times, "funnel": funnel,
             "phases": phases_of(job, steps.get(job_id, {})), "tiles": tiles_of(texts),
         })
@@ -268,7 +271,7 @@ def _percentile(values: List[float], share: float) -> Optional[float]:
 
 
 def summarise(jobs: List[Dict]) -> List[Dict]:
-    """One row per class (model, resolution, length, shape, preset) of the searches."""
+    """One row per class (model, resolution, length, shape, preset, ends) of the searches."""
     groups: Dict[tuple, List[Dict]] = {}
     for job in jobs:
         groups.setdefault(tuple(job[c] for c in CLASSES), []).append(job)

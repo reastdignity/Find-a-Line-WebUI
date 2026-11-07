@@ -43,15 +43,18 @@ def _first_min(values, lo, hi, largest):
 
 @njit(parallel=True, cache=True)
 def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, log_spans, span_index, ratios,
-              ratio_index, sag, fractions, fall_zone, max_points, starts, d_out, z_out, s_out, w_out, g_out,
-              counts, small, flags):
+              ratio_index, sag, fractions, fall_zone, max_points, end_zone, lift, delta, zone_cap, starts, d_out,
+              z_out, s_out, w_out, g_out, counts, small, flags):
     """helpers.line_profile of every line, unrounded, into the rows starts[k].. of the outputs.
 
     counts[k]: the points kept (-1: no pixel between the anchors, -2: no data there); small[k]:
     min distance and clearance, min_nmpt's (NaN: none), max_height's, water_m, filled_m; flags[k]:
     1 water on the line, 2 filled pixels on it, 4 a point kept without terrain or surface data.
+    "min" and "min_nmpt" follow the decision values of the end zone and the lift (end_zone,
+    lift, delta, zone_cap: helpers.decision_values), "max_height" the strict margin (plus the lift: the webbing on the A-frames).
     """
     fall = fall_zone if use_sag else sh.LEASH_FALL  # helpers.fall_allowance
+    c_zone = lift + delta
     for k in prange(a1.shape[0]):
         r1, c1, r2, c2 = a1[k, 0], a1[k, 1], a2[k, 0], a2[k, 1]
         dr, dc = r2 - r1, c2 - c1
@@ -83,6 +86,9 @@ def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, lo
                           + (1 - a) * b * sag[i0, j0 + 1, f] + a * b * sag[i0 + 1, j0 + 1, f])
         limit = np.empty(n)
         margin = np.empty(n)
+        value = np.empty(n)  # the decision values (helpers.decision_values; the margin at 0 / 0)
+        offset = np.empty(n)
+        kz = ls._zone_steps(steps, length, end_zone, zone_cap)  # helpers.zone_offsets
         for i in range(n):  # helpers.max_safe_elevation
             t = i / steps
             if use_sag:
@@ -90,7 +96,9 @@ def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, lo
             else:
                 limit[i] = emin - sh.SLOPE * min(t, 1 - t) * length - sh.LEASH_FALL
             margin[i] = limit[i] - terrain[i]
-        i_min = _first_min(margin, 1, steps, False)
+            offset[i] = c_zone if min(i, steps - i) < kz else lift
+            value[i] = margin[i] if offset[i] == 0.0 else margin[i] + offset[i]
+        i_min = _first_min(value, 1, steps, False)
         i_max = _first_min(margin, 1, steps, True)
         if i_min < 0:
             counts[k] = -2
@@ -105,6 +113,8 @@ def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, lo
             over = np.empty(n)
             for i in range(n):
                 over[i] = limit[i] - obstacles[i]
+                if offset[i] != 0.0:
+                    over[i] += offset[i]
             j_min = _first_min(over, 1, steps, False)  # -1: no surface data between the anchors
             if j_min >= 0:
                 keep[j_min] = True
@@ -120,8 +130,9 @@ def _profiles(z, s, has_s, water, has_w, filled, has_g, a1, a2, res, use_sag, lo
             for i in range(num - 1):
                 keep[int(np.rint(np.float64(i) * step))] = True
             keep[steps] = True
-        small[k, 0], small[k, 1] = i_min / steps * length, margin[i_min]
-        small[k, 4], small[k, 5] = i_max / steps * length, margin[i_max] + fall  # helpers.webbing_height
+        small[k, 0], small[k, 1] = i_min / steps * length, value[i_min]
+        height = margin[i_max] + fall  # helpers.webbing_height: the lift added last, only when not 0
+        small[k, 4], small[k, 5] = i_max / steps * length, height if lift == 0.0 else height + lift
         # Water and filled gaps: flags at the points kept, metres over the pixels between the anchors
         on_water = on_filled = 0
         any_water = any_filled = False
@@ -179,11 +190,14 @@ def _sag_arguments(sag_table):
 def line_profiles(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: float,
                   surface: Optional[np.ndarray] = None, max_points: int = 200, sag_table=None,
                   water: Optional[np.ndarray] = None, filled: Optional[np.ndarray] = None,
-                  on_part=None, parts: int = 20) -> sh.Profiles:
+                  on_part=None, parts: int = 20, end_zone: float = 0.0, lift: float = 0.0,
+                  end_clearance: float = 0.0, zone_cap: float = sh.ZONE_CAP) -> sh.Profiles:
     """helpers.line_profile of the lines a1[k] -> a2[k] ([row, col] each), all at once: the same
     values, as a helpers.Profiles. on_part(n) is called after each of about `parts` parts with
     the lines done in it (progress). Raises ValueError where line_profile would (a line without
-    pixels between its anchors, or without data there)."""
+    pixels between its anchors, or without data there). end_zone, lift, end_clearance, zone_cap:
+    the end zone and the lift, as line_profile's."""
+    delta, _ = sh.end_zone_rule(sag_table, end_zone, lift, end_clearance, zone_cap)
     a1 = np.ascontiguousarray(np.asarray(a1).reshape(-1, 2), dtype=np.int64)
     a2 = np.ascontiguousarray(np.asarray(a2).reshape(-1, 2), dtype=np.int64)
     steps = np.abs(a2 - a1).max(axis=1) if len(a1) else np.zeros(0, dtype=np.int64)
@@ -208,8 +222,8 @@ def line_profiles(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
         hi = min(lo + size, len(a1))
         part = slice(lo, hi)
         _profiles(z, s, surface is not None, w, water is not None, g, filled is not None, a1[part], a2[part],
-                  float(res), sag_table is not None, *sag_args, int(max_points), starts[part], d, zs, ss, ws, gs,
-                  counts[part], small[part], flags[part])
+                  float(res), sag_table is not None, *sag_args, int(max_points), float(end_zone), float(lift), delta,
+                  float(zone_cap), starts[part], d, zs, ss, ws, gs, counts[part], small[part], flags[part])
         if on_part is not None:
             on_part(hi - lo)
     if (counts == -1).any():
@@ -232,5 +246,9 @@ def line_profiles(a1: np.ndarray, a2: np.ndarray, elevation: np.ndarray, res: fl
                 values[lo:lo + ROUND_PART] = rn.round_floats(values[lo:lo + ROUND_PART], digits)
     for k, digits in enumerate(SMALL_DIGITS):
         small[:, k] = np.round(small[:, k], digits) if k in NUMPY_ROUNDED else rn.round_floats(small[:, k], digits)
+    zone, lifted = None, None
+    if end_zone or lift:  # line_profile's "zone" (min(end_zone, zone_cap * length) to 0.1 m) and "lift"
+        lengths = np.hypot(*(a2 - a1).T.astype(np.float64)) * float(res)
+        zone, lifted = rn.round_floats(np.minimum(float(end_zone), zone_cap * lengths), 1), float(lift)
     return sh.Profiles(offsets, d, zs, ss if surface is not None else None, ws if water is not None else None,
-                       gs if filled is not None else None, small, flags)
+                       gs if filled is not None else None, small, flags, zone, lifted)

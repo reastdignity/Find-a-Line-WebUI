@@ -101,7 +101,8 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
     </div>
     {ready ? <div class="r-profile">
       <ProfilePanel line={shown} measured={!!measured} model={model.data.model} slope={model.data.slope}
-                    leashFall={model.data.leash_fall} rigging={model.data.rigging} onHover={hover} onClose={close}
+                    leashFall={model.data.leash_fall} rigging={model.data.rigging} endZone={model.data.end_zone}
+                    lift={model.data.lift} onHover={hover} onClose={close}
                     fill={fill} compact={fill}
                     onTitle={fill ? (t, facts) => setTitle((o) => o.title === t && o.facts === facts ? o
                       : {title: t, facts}) : undefined} />

@@ -816,7 +816,9 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 | B 18-20 | share of the line high above the terrain: `high_pct`, edges (0, 25, 50, 75, 90) |
 | B 21-23 | height difference of the anchors: `|elev_a1 - elev_a2|`, edges (0, 5, 10, 20, 50) |
 | B 24-26 | clearance over trees and buildings: `clearance_nmpt`, edges as the clearance's; UNKNOWN without a surface model |
-| B 27-62 | reserved (0) |
+| B 27-29 | A-frame needed with the no-fall zone: `lift_needed` (the smallest lift at both ends that validates the line with the country's `end_zone`), edges (0, 0.5, 1, 1.5, 2); a ceiling (a filter "needs at most h"); bin 0 is a line that stands without A-frames; UNKNOWN for a country counted without the options |
+| B 30-32 | A-frame needed without the zone: `lift_no_zone`, the same edges; a line of a bin above the last edge needs the zone whatever the A-frame |
+| B 33-62 | reserved (0) |
 
 - The edges of word B are **working values**: those the measurement of 2026-11-05 used to count the
   keys' growth (`local/country-perf-2026-11-04/cube-params/`, section 6.3's table: the cube about
@@ -827,7 +829,16 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 - `merge_spots` on word B, as section 6.3's rule (a filter passes when some line of the spot does):
   a floor's field (metres over water, the lower anchor's height, the mean height, the stronger
   prominence, the drop, the high share, the clearance over trees) takes the largest bin, a ceiling's
-  field (the upper anchor's height, the height difference) the smallest;
+  field (the upper anchor's height, the height difference, the two A-frame fields) the smallest;
+- the two A-frame fields (added 2026-11-07, the end-zone task: docs/roadmap.md "Done: the no-fall zone at
+  the ends and the A-frames") exist only when a country is counted with `end_zone`/`anchor_lift` in its
+  `options` (`country.form_params`): the count then runs at the superset (every line valid with the zone
+  and the largest lift), and the two values per line come from the bucket minima that
+  `find_valid_lines(zones=(0, end_zone))` returns (`helpers.lift_values`), which the count mode must
+  then ask for (today it passes `zones=()`); the cost is extra computing, so by the rule of 2026-11-05 it is
+  decided by the user on the measurement of docs/performance.md, "The no-fall zone and the A-frames",
+  "The country layer". Today's lines are those of bin 0 of both fields, so a cube counted at the
+  superset shows today's layer under the filter "no A-frame needed, without the zone";
   UNKNOWN as in section 2. Word A's border and partner fields of a spot: the border field of its
   lines ORed as a 2-bit mask would lose the owner, so a spot's border is that of its first line and
   a spot with lines of two border values is split into two spots by the border value (an id of a

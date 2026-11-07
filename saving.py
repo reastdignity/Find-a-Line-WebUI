@@ -48,7 +48,7 @@ MAP_FILES = ("data.js", "lines.js")  # mapping.write_map_scripts
 # VPS's core is about 4 times slower per line, so its break-even lies lower)
 MIN_LINES = 100_000
 STDERR_LINES = 30  # of a failed child's stderr kept in the error
-PROFILE_ARRAYS = ("offsets", "d", "z", "s", "w", "g", "small", "flags")  # helpers.Profiles
+PROFILE_ARRAYS = ("offsets", "d", "z", "s", "w", "g", "small", "flags", "zone")  # helpers.Profiles
 
 
 def processes(threads: Optional[int]) -> int:
@@ -85,7 +85,7 @@ def hand_over(folder: str, lines: sh.LineTable, groups: mp.Groups, meta: Dict,
         np.save(os.path.join(folder, f"column-{name}.npy"), column)
     for name in ("rep", "members", "start"):
         np.save(os.path.join(folder, f"groups-{name}.npy"), getattr(groups, name))
-    batches, present, dicts = {}, [], {}
+    batches, present, lifts, dicts = {}, [], [], {}
     of_batch, index, rows = [], [], []
     for k, profile in lines.profiles.items():
         if isinstance(profile, sh.Profile):
@@ -93,6 +93,7 @@ def hand_over(folder: str, lines: sh.LineTable, groups: mp.Groups, meta: Dict,
             if b == len(present):
                 batch = profile.batch
                 present.append([name for name in PROFILE_ARRAYS if getattr(batch, name) is not None])
+                lifts.append(batch.lift)  # a float or None (the end zone and the A-frames: helpers.Profiles)
                 for name in present[-1]:
                     np.save(os.path.join(folder, f"profiles-{b}-{name}.npy"), getattr(batch, name))
             rows.append(k)
@@ -103,7 +104,7 @@ def hand_over(folder: str, lines: sh.LineTable, groups: mp.Groups, meta: Dict,
     for name, values in (("rows", rows), ("batch", of_batch), ("index", index)):
         np.save(os.path.join(folder, f"profile-{name}.npy"), np.array(values, dtype=np.int64))
     with open(os.path.join(folder, "saving.json"), "w", encoding="utf-8") as f:
-        json.dump({"columns": list(lines.columns), "batches": present, "dicts": dicts, "meta": meta,
+        json.dump({"columns": list(lines.columns), "batches": present, "lifts": lifts, "dicts": dicts, "meta": meta,
                    "heads": heads}, f, ensure_ascii=False)
 
 
@@ -123,8 +124,8 @@ def load(folder: str) -> Tuple[sh.LineTable, mp.Groups, Dict, Optional[Tuple[str
     columns = {name: array(f"column-{name}") for name in info["columns"]}
     groups = mp.Groups(*(array(f"groups-{name}") for name in ("rep", "members", "start")))
     batches = [sh.Profiles(**{name: array(f"profiles-{b}-{name}") if name in present else None
-                              for name in PROFILE_ARRAYS})
-               for b, present in enumerate(info["batches"])]
+                              for name in PROFILE_ARRAYS}, lift=lift)
+               for b, (present, lift) in enumerate(zip(info["batches"], info["lifts"]))]
     rows, of_batch, index = (array(f"profile-{name}").tolist() for name in ("rows", "batch", "index"))
     profiles = {k: sh.Profile(batches[b], i) for k, b, i in zip(rows, of_batch, index)}
     profiles.update({int(k): profile for k, profile in info["dicts"].items()})

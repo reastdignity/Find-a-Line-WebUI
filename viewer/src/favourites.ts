@@ -13,6 +13,8 @@ export interface FavouriteData {
   water: number; filled: number; hmax: number | null; hmean: number | null; highPct: number | null;
   angle1: number | null; angle2: number | null; prom1: number | null; prom2: number | null;
   drop1: number | null; drop2: number | null;
+  // the A-frame heights of a line of a run with an end zone or A-frames (types.ts Line); sent only then
+  lift_needed?: number | null; lift_no_zone?: number | null;
 }
 
 /** A favourite as /api/favourites lists it. */
@@ -47,7 +49,10 @@ export function favouriteData(l: Line): FavouriteData {
   return {len: l.len, clr: l.clr, clrN: known(l.clrN), e1: l.e1, e2: l.e2, over: l.over, water: l.water,
           filled: l.filled, hmax: known(l.hmax), hmean: known(l.hmean), highPct: known(l.highPct),
           angle1: known(l.angle1), angle2: known(l.angle2), prom1: known(l.prom1), prom2: known(l.prom2),
-          drop1: known(l.drop1), drop2: known(l.drop2)};
+          drop1: known(l.drop1), drop2: known(l.drop2),
+          // only for a line that has them: a favourite of a run without the options keeps the values of before
+          ...(l.lift_needed != null ? {lift_needed: known(l.lift_needed)} : {}),
+          ...(l.lift_no_zone != null ? {lift_no_zone: known(l.lift_no_zone)} : {})};
 }
 
 /** A favourite as a line of the viewer (without grid coordinates and profile). */
@@ -56,7 +61,8 @@ export function favouriteLine(f: Favourite): Line {
   return {lat1, lon1, lat2, lon2, x1: 0, y1: 0, x2: 0, y2: 0, len: d.len, clr: d.clr, clrN: d.clrN, e1: d.e1,
           e2: d.e2, over: d.over, water: d.water, filled: d.filled, hmax: nan(d.hmax), hmean: nan(d.hmean),
           highPct: nan(d.highPct), angle1: nan(d.angle1), angle2: nan(d.angle2), prom1: d.prom1, prom2: d.prom2,
-          drop1: d.drop1, drop2: d.drop2, pct1: null, pct2: null, prof: null};  // percentiles: never saved
+          drop1: d.drop1, drop2: d.drop2, pct1: null, pct2: null,  // percentiles: never saved
+          lift_needed: d.lift_needed ?? null, lift_no_zone: d.lift_no_zone ?? null, prof: null};
 }
 
 let mapToken = "";  // the token of a map's changes, from the server's answer (a map is a static page)

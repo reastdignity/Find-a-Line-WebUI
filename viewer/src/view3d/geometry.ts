@@ -43,6 +43,24 @@ export function along(a: Anchor3d, b: Anchor3d, span: number, s: number, d: numb
   return [a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.h - d];
 }
 
+/** The anchors on A-frames of `lift` metres (the patch meta's "lift": the run's): the webbing starts on their tops.
+ *  The anchors themselves stay the ground's (the handles, the reach, the profile requests); whoever draws a webbing
+ *  draws it from these. The same objects when there is no lift. */
+export function raised(anchors: [Anchor3d, Anchor3d], lift: number | undefined): [Anchor3d, Anchor3d] {
+  if (!lift || !(lift > 0)) return anchors;
+  return [{...anchors[0], h: anchors[0].h + lift}, {...anchors[1], h: anchors[1].h + lift}];
+}
+
+/** The A-frame at anchor `k` (0: anchor 1) of a line on A-frames of `lift` metres, as the profile chart draws it: its
+ *  outer foot, its top (the raised anchor) and its inner foot, the feet half the height apart along the line on
+ *  either side, at the anchor's height; null without a lift. */
+export function aFrame(anchors: [Anchor3d, Anchor3d], k: 0 | 1, lift: number | undefined): Point3d[] | null {
+  if (!lift || !(lift > 0)) return null;
+  const a = anchors[k], b = anchors[1 - k], span = Math.hypot(b.x - a.x, b.y - a.y);
+  const ux = span > 0 ? (b.x - a.x) / span : 1, uy = span > 0 ? (b.y - a.y) / span : 0, leg = lift * 0.45;
+  return [[a.x - ux * leg, a.y - uy * leg, a.h], [a.x, a.y, a.h + lift], [a.x + ux * leg, a.y + uy * leg, a.h]];
+}
+
 /** The webbing of a line from its anchors and the run's rigging; null when the sag solver fails. */
 export function webbing(anchors: [Anchor3d, Anchor3d], rigging: Rigging): Webbing | null {
   const [a, b] = anchors, span = Math.hypot(b.x - a.x, b.y - a.y), dh = a.h - b.h;

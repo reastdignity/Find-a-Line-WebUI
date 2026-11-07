@@ -161,6 +161,23 @@ FIELDS = ["group", "representative", "group_size", "length_m", "clearance_m",
           "anchor2_wall_angle", "anchor2_prominence_m", "anchor2_drop_m"]
 
 
+# The A-frame heights of a run with --end-zone or --anchor-lift (helpers.END_VALUES, in that order), after
+# clearance_nmpt_m; a run without the options has none of them (the FIELDS of before)
+END_FIELDS = ["lift_needed_m", "lift_no_zone_m"]
+END_COLUMNS = ("lift_needed", "lift_no_zone")  # helpers.END_VALUES (runs is imported without helpers)
+
+
+def fields_of(lines) -> List[str]:
+    """The columns of lines.csv (and properties of lines.geojson) of lines (a helpers.LineTable):
+    FIELDS, with END_FIELDS after clearance_nmpt_m when the lines have the A-frame heights."""
+    return _with_ends(FIELDS) if END_COLUMNS[0] in lines.columns else FIELDS
+
+
+def _with_ends(fields: List[str]) -> List[str]:
+    at = fields.index("clearance_nmpt_m") + 1
+    return fields[:at] + END_FIELDS + fields[at:]
+
+
 def rounded(value: float, digits: int):
     """round(), with None (an empty cell) for NaN."""
     return None if value != value else round(value, digits)
@@ -262,9 +279,14 @@ def row_order(groups, lo: int, hi: int, at: np.ndarray) -> tuple:
     return lines, group + 1, lines == groups.rep[group], groups.start[group + 1] - start
 
 
-# A feature of lines.geojson as json.dumps(..., ensure_ascii=False) writes it, its values as %s
-FEATURE = ('{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[%s, %s], [%s, %s]]}, '
-           '"properties": {' + ", ".join(f"{json.dumps(name)}: %s" for name in FIELDS) + "}}")
+def feature_template(fields: List[str]) -> str:
+    """A feature of lines.geojson as json.dumps(..., ensure_ascii=False) writes it, its values as %s."""
+    return ('{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [[%s, %s], [%s, %s]]}, '
+            '"properties": {' + ", ".join(f"{json.dumps(name)}: %s" for name in fields) + "}}")
+
+
+FEATURE = feature_template(FIELDS)
+END_FEATURE = feature_template(_with_ends(FIELDS))
 
 
 def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size: np.ndarray,
@@ -275,10 +297,13 @@ def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size
     file not wanted (csv, geojson: the texts of the values are made for both anyway)."""
     c = lines.columns
     pick = lambda name, k=None: c[name][order] if k is None else c[name][order, k]
-    columns = [  # (csv, JSON) texts in the order of FIELDS
+    ends = END_COLUMNS[0] in c
+    columns = [  # (csv, JSON) texts in the order of FIELDS (fields_of: with END_FIELDS)
         column_texts(number), column_texts(is_rep), column_texts(size),
         column_texts(pick("length"), 1), column_texts(pick("clearance"), 2),
-        column_texts(pick("clearance_nmpt"), 2, empty_nan=True), column_texts(pick("over_obstacles")),
+        column_texts(pick("clearance_nmpt"), 2, empty_nan=True),
+        *([column_texts(pick(name), 2) for name in END_COLUMNS] if ends else []),  # rounded as the clearances
+        column_texts(pick("over_obstacles")),
         column_texts(pick("water_m")), column_texts(pick("filled_m")),
         column_texts(pick("height_max"), 2), column_texts(pick("height_mean"), 2),
         column_texts(pick("high_pct"), 1)]
@@ -293,9 +318,11 @@ def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size
     if not geojson:
         return table, ""
     values = [j for _, j in columns]
-    lat1, lon1, lat2, lon2 = (values[FIELDS.index(name)] for name in
+    fields = _with_ends(FIELDS) if ends else FIELDS
+    lat1, lon1, lat2, lon2 = (values[fields.index(name)] for name in
                               ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
-    features = ", ".join(FEATURE % row for row in zip(lon1, lat1, lon2, lat2, *values))
+    template = END_FEATURE if ends else FEATURE
+    features = ", ".join(template % row for row in zip(lon1, lat1, lon2, lat2, *values))
     return table, features
 
 
@@ -347,7 +374,7 @@ def save_results(run_path: str, lines, groups, meta: Dict, on_lines=lambda n, fi
             if want_csv:
                 table = stack.enter_context(open(os.path.join(run_path, "lines.csv"), "w", newline="",
                                                  encoding="utf-8-sig"))
-                table.write(",".join(FIELDS) + "\r\n")  # csv.writer's header: no name needs quotes
+                table.write(",".join(fields_of(lines)) + "\r\n")  # csv.writer's header: no name needs quotes
             if want_geojson:
                 geojson = stack.enter_context(open(os.path.join(run_path, "lines.geojson"), "w", encoding="utf-8"))
                 geojson.write('{"type": "FeatureCollection", "features": [')
@@ -425,6 +452,10 @@ def params_summary(meta: Dict) -> str:
         r = p["rigging"]
         text += (f", sag model ({r['pretension']:g} kN, {r['stretch']:g}%, {r['webbing_weight']:g} g/m, "
                  f"{r['athlete_mass']:g} kg, fall {r['fall_zone']:g} m)")
+    if p.get("end_zone"):
+        text += f", no-fall zone {p['end_zone']:g} m at the ends"
+    if p.get("anchor_lift"):
+        text += f", A-frames {p['anchor_lift']:g} m"
     return text
 
 

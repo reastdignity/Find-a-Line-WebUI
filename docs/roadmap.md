@@ -81,6 +81,55 @@ Rules for every step:
      places and on FABDEM itself), the form's hint for coarse sources, and perhaps longer default lines at 30 m;
      the regression set's 30 m rows (R11, R12) re-baselined in the same commit.
 
+## Done: the no-fall zone at the ends and the A-frames (2026-11-06/07, branch `end-zone`)
+
+The search missed lines in less steep terrain: every pixel between the anchors had to lie below the limit
+(formula: `min(e1, e2) − 0.15·d − 6 m`; sag: the chord less the sag and the fall zone), so one metre from an
+anchor the ground had to be 6.15 m lower already, a face of 81° or more. The user's two ideas (2026-11-06):
+the first metres from each anchor tested less strictly (a **no-fall zone**: the loaded webbing must still clear
+the ground there, but nobody falls that close to the anchor), and **A-frames** lifting the anchor point.
+
+- **The rule** (`helpers.end_zone_rule`, every kernel and reference): a pixel passes when its strict margin
+  `limit − terrain` exceeds `−lift − δ·[in the zone]`, `δ` the fall allowance (6 m under the formula, the fall
+  zone under the sag model; `end_clearance` 0: the loaded webbing clears the ground). The limit's arithmetic is
+  untouched, so at `--end-zone 0 --anchor-lift 0` (the defaults) every file and checksum is as before. The zone is
+  `min(end_zone, L/4)` from each anchor (`ZONE_CAP`: a 30 m line keeps strict pixels at 20 m of zone); the lift
+  is the same at both ends (a lift at one end only stays with the `structure-anchors` branch, 9e154d6).
+- **Decided by the user**: zones up to 20 m ("do not check more than 20 m"), the test setting 5 m with 2 m
+  A-frames, which are the public site's limits (`END_ZONE_MAX` 5, `ANCHOR_LIFT_MAX` 2; the command line allows
+  20 and 3); the chart's zone look A (shaded bands with a dashed edge), the A-frame posts, the pill "needs
+  A-frames of h m · without the no-fall zone: h' m", a filter "A-frame needed ≤ h" with a switch "without the
+  no-fall zone", the details' Rigging row; no label may overlap another (`viewer/src/labels.ts`).
+- **What a run keeps**: two values per line, `lift_needed` (the smallest A-frame that makes it valid with the
+  run's zone, at most the run's lift) and `lift_no_zone` (without any zone, uncapped), from the smallest strict
+  margin per bucket of a ladder (`zones`: the zone and the core) that `find_valid_lines` returns; exact for any
+  lift, equal to a re-run (`tests/test_end_zone.py`). They go into `lines.csv`, `lines.geojson`, `data.js`
+  and `lines.js` only when the run has the options (`ends` in the head), so runs without them stay byte for
+  byte; the favourites carry them as optional values. With the options on, exactly tied lines (clearance and
+  length: the first step from an anchor sets the clearance for many) are ordered by their anchors' pixels
+  (`search._fixed_order`), so tiles give one grid's rows in one order. No migration: optional keys only.
+- **Heights**: with A-frames the webbing stands `lift` higher, so `height_max`, `height_mean`, `high_pct` and
+  a profile's `max_height` include it (added last, only when not 0).
+- **The quarry lake** (49.80640, 19.57644, r 300 m: the user's test place, several 250 m+ lines expected across
+  the water): today 0 lines at 45°, 35° and 30° (9 anchors with an open direction); zone 5 m: 992 lines,
+  206 of 250 m or more, 8 spots; 5 m with 2 m A-frames: 11 849 lines, 3 321 of 250 m+, 22 spots;
+  A-frames alone (even 2 m): 0. Every long line there needs the zone; the A-frames add spots. Żabi Koń at
+  45°: 1 664 lines today, 146 484 at zone 5 m, 664 391 with 2 m A-frames too, 2 566 835 at 20 m / 2 m
+  (`tools/end_zone_study.py`, local/end-zone-2026-11-06/study/).
+- **Cost** (docs/performance.md, "The no-fall zone and the A-frames"): at the defaults nothing changes (the
+  comparison subtracts exact zeros; measured with `tools/perf_profile.py`); with 5 m / 2 m the pair search
+  visits every anchor's neighbourhood (the ring screen of a 1 m grid is decided by relaxed rings) and the lines
+  multiply: the public site's `lines_max` and the memory budget refuse the largest searches sooner.
+- **The country layer**: counted on sk-sulov's layer bands with and without the options (the table in
+  docs/performance.md): lines ×3.1 (S ×166 from 44 k, M2 ×2.8, L ×1.5-1.7), spots ×1.4, tile seconds ×1.35,
+  CPU ×1.6, memory unchanged, so about 22 CPU-h and 65-75 min for Slovakia if that square stands for the
+  country; the cube's two fields of word B for the next recount are drafted in
+  docs/country-precompute/contract.md, section 6 ("The key v2"); whether Slovakia is counted at the superset
+  is the user's decision on those numbers (extra computing: the rule of 2026-11-05).
+- Not done: a lift at one end only (towers: `structure-anchors`), the zone drawn in 3D, a lower default slope
+  threshold for gentle terrain (priority 2 above decides the threshold per resolution; the end zone's gain at
+  the quarry was the same at 45°, 35° and 30°).
+
 ## Done: shore faces from the surface model (2026-11-04)
 - *What was seen*: in the 3D view a sea cliff of Gozo (Ta' Cenc, 36.018828, 14.246257) cut off sharply: a wall from the
   terrain's last pixel (20-50 m) straight down to 0 m.

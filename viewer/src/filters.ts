@@ -23,13 +23,16 @@ export interface Filters {
   water: "all" | "water" | "land";
   hideFilled: boolean;        // hide lines over gaps filled from another source
   groupMin: number | null;    // similar lines in a group (with grouping on)
+  liftMax: number | null;     // A-frame height needed at most (null: the run's own, everything shown; lines of a
+                              // run without the options pass)
+  liftNoZone: boolean;        // ... without the no-fall zone (lift_no_zone instead of lift_needed)
   favOnly: boolean;           // only favourite lines (applied by result/model.ts, which knows them)
 }
 
 export const NO_FILTERS: Filters = {lenMin: null, lenMax: null, clrMin: null, clrNMin: null, dhMax: null,
                                     elevMin: null, elevMax: null, pctMin: null, pctMax: null, heightMin: null, meanMin: null, highPctMin: null,
                                     angleMax: null, promMin: null, promBothMin: null, dropMin: null, water: "all", hideFilled: false, groupMin: null,
-                                    favOnly: false};
+                                    liftMax: null, liftNoZone: false, favOnly: false};
 const STORAGE_KEY = "findaline.filters";
 
 export const dh = (l: Line) => Math.abs(l.e1 - l.e2);
@@ -41,7 +44,19 @@ const known = (v: number | null) => v === null ? NaN : v;  // NaN fails every li
 export const prominence = (l: Line, pick: (a: number, b: number) => number) => pick(known(l.prom1), known(l.prom2));
 export const drop = (l: Line) => Math.min(known(l.drop1), known(l.drop2));
 
-export function passes(l: Line, f: Filters): boolean {
+/** The A-frame height a line needs as the filter reads it: with the run's zone, or without it; null: not known. */
+export const liftNeed = (l: Line, noZone: boolean): number | null => {
+  const v = noZone ? l.lift_no_zone : l.lift_needed;
+  return typeof v === "number" ? v : null;
+};
+
+/** Whether a line passes the filters; `lift`: its run's A-frame height, the limit of "A-frame needed at most" while
+ *  that is not set (with the switch "without the no-fall zone" on, the lines that need more without the zone go). */
+export function passes(l: Line, f: Filters, lift?: number): boolean {
+  if (f.liftMax !== null || f.liftNoZone) {
+    const need = liftNeed(l, f.liftNoZone), max = f.liftMax ?? lift ?? Infinity;
+    if (need !== null && need > max + 1e-9) return false;
+  }
   return (f.lenMin === null || l.len >= f.lenMin) && (f.lenMax === null || l.len <= f.lenMax) &&
     (f.clrMin === null || l.clr >= f.clrMin) &&
     (f.clrNMin === null || l.clrN === null || l.clrN >= f.clrNMin) &&
@@ -82,6 +97,9 @@ export interface FilterRanges {
   prom: Range | null;
   drop: Range | null;
   group: Range | null;
+  // a run with a no-fall zone or A-frames: its A-frame height and zone, the largest A-frame heights its lines need
+  // with and without the zone (null: a run without the options)
+  lift: {lift: number; zone: number; needed: number; noZone: number} | null;
   water: boolean;   // some lines are over water
   filled: boolean;  // some lines are over filled gaps
   favourites: boolean;  // the user's favourite lines are known

@@ -249,6 +249,16 @@ class Plan:
     # (prepare_data in strips)
     border: bool = True
 
+    @property
+    def end_zone(self) -> float:
+        """The no-fall zone at the ends, metres (--end-zone; 0: off): helpers.end_zone_rule."""
+        return float(self.params.end_zone)
+
+    @property
+    def lift(self) -> float:
+        """The A-frames' height at both anchors, metres (--anchor-lift; 0: none)."""
+        return float(self.params.anchor_lift)
+
 
 STEPS = 5
 
@@ -442,6 +452,8 @@ def plan_search(params: SearchParams, paths: Paths, on_event: Optional[OnEvent] 
                      f"fall zone {params.fall_zone:g} m)")
     else:
         lines.append("Clearance model: maximum elevation formula")
+    if params.end_zone or params.anchor_lift:  # unset: the lines of before
+        lines.append(f"Ends: no-fall zone {params.end_zone:g} m, A-frames {params.anchor_lift:g} m")
     lines.append("=" * 60)
     for line in lines:
         emit("info", line)
@@ -1187,6 +1199,7 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     _step(plan, 4, "coordinates, groups and profiles")
     results = line_coordinates(valid_lines, grid, plan.nmpt, plan.resolution, data.water, data.filled_pixels(), core)
     del valid_lines  # the same table (in place)
+    _fixed_order(plan, results)
     _count(plan, "lines", len(results))
     a1, a2 = results.columns["a1"], results.columns["a2"]
     groups = mp.group_lines(results, plan.group_distance, p.group_by)
@@ -1194,7 +1207,8 @@ def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0
     progress.compute.start("line profiles", len(wanted), unit="line")
     batch = lp.line_profiles(a1[wanted], a2[wanted], data.elevation, plan.resolution, data.surface,
                              sag_table=sag_table, water=data.water, filled=data.filled_pixels(),
-                             on_part=progress.compute.update)  # helpers.line_profile of each, in parallel
+                             on_part=progress.compute.update, end_zone=plan.end_zone,
+                             lift=plan.lift)  # helpers.line_profile of each, in parallel
     results.profiles.update(zip(wanted.tolist(), map(batch.__getitem__, range(len(wanted)))))
     progress.compute.finish()
     del a1, a2
@@ -1332,12 +1346,24 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
     _count(plan, "anchors_kept", len(anchors))  # what the line search gets
     values = ((lambda: np.column_stack(_anchor_values(plan, data, anchors))) if found.prominence is None
               else np.column_stack([found.prominence, found.drop]))
-    return ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
-                               p.min_length, p.max_length, plan.nmpt, line_threads(p),
-                               sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
-                               p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
-                                                           p.min_high_share, p.max_wall_angle),
-                               values, found.strong, stats=plan.funnel, check=check, sink=sink)
+    # With an end zone or A-frames (not in count mode) the buckets of the zone and the core, from which
+    # the A-frame heights each line needs follow (helpers.lift_values); the margins are dropped then
+    ends = sink is None and bool(plan.end_zone or plan.lift)
+    zones = ((0.0, plan.end_zone) if plan.end_zone else (0.0,)) if ends else ()
+    lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
+                                p.min_length, p.max_length, plan.nmpt, line_threads(p),
+                                sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
+                                p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
+                                                            p.min_high_share, p.max_wall_angle),
+                                values, found.strong, stats=plan.funnel, check=check, sink=sink,
+                                end_zone=plan.end_zone, lift=plan.lift, zones=zones)
+    if ends:
+        margins = lines.columns.pop("zone_margins", np.zeros((len(lines), len(zones))))  # none: an empty table
+        lines.columns.pop("zone_margins_nmpt", None)  # the surface's: reject and mark decided already
+        needed, no_zone = sh.lift_values(margins, sh.end_delta(sag_table), plan.lift)
+        del margins
+        lines.columns.update(zip(sh.END_VALUES, (needed, no_zone)))
+    return lines
 
 
 def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh.LineTable], None],
@@ -1393,6 +1419,21 @@ def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float,
     results.columns["filled_m"] = ls.covered_metres(a1, a2, res, filled)
     progress.compute.finish()
     return results
+
+
+def _fixed_order(plan: Plan, lines: sh.LineTable) -> sh.LineTable:
+    """With an end zone or A-frames, the lines (with coordinates, in place) in one fixed order: best
+    clearance first, then longest, then by the first anchor's pixel (row, col) and the second's, as
+    northing descending and easting ascending, which tiles share with one grid. The rule sets the
+    clearance of many lines at the first step from an anchor, so parallel lines tie exactly on
+    clearance and length, and lines tied so would keep the order they were found in, which tiles
+    change: the groups (mapping.group_lines and the browser's groupLines read the lines in this
+    order) and every file then differ. Without the options the order of before (the checksums)."""
+    if not (plan.end_zone or plan.lift) or not len(lines):
+        return lines
+    c = lines.columns
+    return lines.reorder(np.lexsort((c["a2_xy"][:, 0], -c["a2_xy"][:, 1], c["a1_xy"][:, 0], -c["a1_xy"][:, 1],
+                                     -c["length"], -c["clearance"])))
 
 
 def _count(plan: Plan, key: str, n: int):
@@ -1461,6 +1502,9 @@ def _search_hash(plan: Plan) -> str:
                                         "opentopo_key", "tile_size", "group_distance", "group_by"})
     for name in ("min_elevation", "max_elevation"):  # unset: the hash of before (its tiles resume)
         if p[name] is None:
+            del p[name]
+    for name in ("end_zone", "anchor_lift"):  # 0: the hash of before
+        if p[name] == 0:
             del p[name]
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
@@ -1665,6 +1709,7 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         raise SearchError("No lines found matching elevation requirements.", "no_lines")
     results = sh.LineTable.join(tables)  # column by column, each tile's column released once joined
     del tables
+    _fixed_order(plan, results)  # with an end zone or A-frames: the order of one grid
     progress.set_step(f"Step 4/{STEPS}: groups of all tiles")
     groups = mp.group_lines(results, plan.group_distance, plan.params.group_by)
     # A line shown for a group is the best of its tile's group too, except near the edge of a
@@ -1739,7 +1784,7 @@ def _dated_data(data: List[Dict], year: int) -> List[Dict]:
 def _run_params(plan: Plan) -> Dict:
     """The parameters run.json records (also what profile_of_line needs)."""
     p, circle = plan.params, isinstance(plan.area, ar.Circle)
-    return {"radius": p.radius if circle else None,
+    params = {"radius": p.radius if circle else None,
             "area": None if circle else {"area": ar.DRAWN if p.geometry is not None else p.area,
                                          "buffer": p.buffer, "within": p.within},
             "resolution": plan.resolution,
@@ -1757,6 +1802,12 @@ def _run_params(plan: Plan) -> Dict:
             "group_distance": plan.group_distance,
             "group_by": p.group_by, "model": p.model,
             "rigging": dataclasses.asdict(plan.rigging)}
+    # The end zone and the A-frames only when set: run.json of before, and a run without them reads as 0
+    if plan.end_zone:
+        params["end_zone"] = p.end_zone
+    if plan.lift:
+        params["anchor_lift"] = p.anchor_lift
+    return params
 
 
 def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
@@ -1969,7 +2020,8 @@ def profile_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
             spans = (p["min_length"], p["max_length"])
         sag_table = _sag_table(dataclasses.astuple(plan.rigging), *spans)
     profile = sh.line_profile(pixel(x1, y1), pixel(x2, y2), data.elevation, res, data.surface,
-                              sag_table=sag_table, water=data.water, filled=data.filled_pixels())
+                              sag_table=sag_table, water=data.water, filled=data.filled_pixels(),
+                              end_zone=plan.end_zone, lift=plan.lift)  # the run's (0 and 0 before them)
     del data
     gc.collect()  # close the memory-mapped grids before the work folder is deleted (Windows)
     return profile
@@ -1982,6 +2034,8 @@ def _run_values(meta: Dict) -> Dict:
     values = {k: p[k] for k in ("resolution", "min_length", "max_length", "max_anchor_diff", "max_anchor_diff_m",
                                 "slope_threshold", "water", "coastline", "shore_buffer", "fill_gaps", "model")}
     values.update(p["rigging"], nmpt=p["nmpt"] or "off", source=meta["source"]["id"], ortho="never", no_html=True)
+    # the run's end zone and A-frames (Plan.end_zone, Plan.lift); a run saved without them: 0 and 0
+    values.update(end_zone=p.get("end_zone", 0), anchor_lift=p.get("anchor_lift", 0))
     if values["source"] == "files":
         files = {d.get("layer"): d.get("file") for d in meta.get("data", [])}
         values.update(elevation_file=files.get("Terrain file"), surface_file=files.get("Surface file"))
@@ -2069,6 +2123,7 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         "rigging": dataclasses.asdict(plan.rigging), "model": p["model"],
         # the formula model's constants as data.js writes them (mapping.map_heads), for the page's profile chart
         "slope": sh.SLOPE, "leash_fall": sh.LEASH_FALL,
+        **_end_keys(plan.end_zone, plan.lift),
         # the run has a surface model: the page may ask the block of trees and buildings (part "canopy")
         "surface": bool(plan.nmpt),
         # the run's grouping distance: the page groups the lines from a clicked point into spots as the result does
@@ -2084,6 +2139,12 @@ def patch_of_line(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anchor
         patch["shore_bytes"] = len(shore)
         patch["shore_sha256"] = hashlib.sha256(shore).hexdigest()
     return patch, body + shore
+
+
+def _end_keys(end_zone: float, lift: float) -> Dict[str, float]:
+    """The end zone and the A-frames as the heads of data.js and the patch meta name them (mapping.map_heads):
+    "end_zone" and "lift", each only when not 0 (runs without them: the keys of before)."""
+    return {**({"end_zone": end_zone} if end_zone else {}), **({"lift": lift} if lift else {})}
 
 
 def encode_shore(kinds: np.ndarray) -> bytes:
@@ -2235,7 +2296,8 @@ def reach_of_anchor(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
         sag_table = None
         if p["model"] == "sag":
             sag_table = _sag_table(dataclasses.astuple(plan.rigging), p["min_length"], p["max_length"])
-        mask, lattice = _reach_mask(z, s, res, (row, col), which, limits, sag_table, plan.nmpt)
+        mask, lattice = _reach_mask(z, s, res, (row, col), which, limits, sag_table, plan.nmpt,
+                                    plan.end_zone, plan.lift)  # the run's end zone and A-frames
         height_here = float(z[row, col])
     finally:
         z = s = data = None
@@ -2253,9 +2315,11 @@ def reach_of_anchor(meta: Dict, paths: Paths, anchor1: Tuple[float, float], anch
 
 
 def _reach_mask(z: np.ndarray, s: Optional[np.ndarray], res: float, fixed: Tuple[int, int], which: int,
-                limits: Dict, sag_table, nmpt_mode: Optional[str]) -> Tuple[np.ndarray, int]:
+                limits: Dict, sag_table, nmpt_mode: Optional[str], end_zone: float = 0.0,
+                lift: float = 0.0) -> Tuple[np.ndarray, int]:
     """(the lattice of reach_of_anchor's values, the lattice step) for a fixed pixel of the grids z (terrain)
-    and s (the obstacle surface or None)."""
+    and s (the obstacle surface or None); end_zone, lift: the run's end zone and A-frames
+    (helpers.end_zone_rule), as profile_of_line applies them."""
     import numba
 
     import linesearch as ls
@@ -2275,7 +2339,8 @@ def _reach_mask(z: np.ndarray, s: Optional[np.ndarray], res: float, fixed: Tuple
                 anchors[1:, 0], anchors[1:, 1] = rows, cols
                 target, fixed_index = np.arange(1, n + 1), np.zeros(n, dtype=np.int64)
                 found = np.column_stack([fixed_index, target] if which == 1 else [target, fixed_index])
-                lines = ls.evaluate_lines(found, anchors, z, res, s, sag_table, nmpt_mode, down=np.zeros((n + 1, 2)))
+                lines = ls.evaluate_lines(found, anchors, z, res, s, sag_table, nmpt_mode, down=np.zeros((n + 1, 2)),
+                                          end_zone=end_zone, lift=lift)
                 other = lines.columns["a2" if which == 1 else "a1"]  # the target's pixel
                 with np.errstate(invalid="ignore"):
                     over = lines.columns["clearance_nmpt"] <= 0  # NaN: no surface there

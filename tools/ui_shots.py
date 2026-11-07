@@ -16,6 +16,10 @@ HTTPS with a certificate made for the run: WebKit, unlike Chromium, sends no Sec
     uv run playwright install chromium webkit
     uv run tools/ui_shots.py --out <folder> [--only c-] [--dark]
 
+`--run <folder>` shows a saved run instead of the clip's (copied into the data folder's runs/ unless it is there;
+the data folder then needs the run's cache, e.g. a link to the real one) and `--line <lat1,lon1,lat2,lon2>` its line
+on the pages of a line ("c-line", the 3D view's); the search's other pages stay as they are.
+
 The "map" pages are a run's own map.html (from the server and by its share link). The files are
 <page>-<device>-<theme>.png; a page whose click finds nothing on a device is left out.
 Phone screenshots of the viewport only (the app scrolls inside, not the page).
@@ -66,6 +70,10 @@ ZOOM_OUT = "(window.FINDALINE_PLACE.map.setZoom(5), new Promise((done) => setTim
 ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t) return t.scrollIntoView({block: 'center'}); "
                  "[...document.querySelectorAll('.r-more-sec > h3')].find((h) => h.textContent === 'Anchors')"
                  "?.scrollIntoView({block: 'start'}); })()")
+# The filter of a run with a no-fall zone or A-frames ("A-frame needed at most", FilterBar.tsx LiftFilter) in view
+RIGGING_SHOWN = "document.querySelector('.r-lift')?.scrollIntoView({block: 'center'})"
+# The profile of the selected line in view (phones: further down the sheet; a desktop's card is over the map)
+PROFILE_IN_VIEW = "document.querySelector('.r-dock .fal-profile-chart')?.scrollIntoView({block: 'center'})"
 # A click at the map's centre on what is there (the cells' canvas: Leaflet finds the cell under it)
 CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.getContainer().getBoundingClientRect(); "
                   "const p = map.getSize().divideBy(2), x = box.left + p.x, y = box.top + p.y; "
@@ -122,8 +130,13 @@ PAGES = {
     "c-osm": ("c", "#osm", None),
     "c-result": ("c", "#run={run}", None),
     "c-line": ("c", "#run={run}&line={line}", None),  # a line selected: its details, the profile's card over the map
+    "c-line-profile": ("c", "#run={run}&line={line}", ["wait:document.querySelector('.r-dock .fal-profile-chart')",
+                                                        "js:" + PROFILE_IN_VIEW]),  # its profile in view (phones)
     "c-result-intro": ("c", "#run={run}", ".r-filters .n-intro-link"),  # "How to read the result"
     "c-result-more": ("c", "#run={run}", [".r-filters .u-chip.u-add", "js:" + ANCHORS_SHOWN]),  # More filters: Anchors
+    # More filters: Rigging (a run with a no-fall zone or A-frames, --run; the clip's has no such section)
+    "c-result-rigging": ("c", "#run={run}", [".r-filters .u-chip.u-add", "wait:document.querySelector('.r-lift')",
+                                              "js:" + RIGGING_SHOWN]),
     "c-result-rails": ("c", "#run={run}&line={line}", None),  # both panels collapsed to rails (LAYOUTS)
     "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
@@ -301,9 +314,18 @@ def certificate(folder: str):
     return cert_file, key_file
 
 
-def serve(data: str):
+def saved_run(data: str, folder: str) -> str:
+    """A saved run's folder in this data folder's runs/ (copied there unless it is already in it): its id."""
+    run = os.path.basename(os.path.normpath(folder))
+    target = os.path.join(data, "runs", run)
+    if os.path.normcase(os.path.abspath(folder)) != os.path.normcase(os.path.abspath(target)):
+        shutil.copytree(folder, target, dirs_exist_ok=True)
+    return run
+
+
+def serve(data: str, run_folder: str | None = None):
     """The public site on a free port of 127.0.0.1, with a worker; (address, session cookies by user, run,
-    the run's share token, stop)."""
+    the run's share token, stop). `run_folder`: a saved run shown instead of the clip's (saved_run)."""
     import uvicorn
 
     import accounts as ac
@@ -325,7 +347,7 @@ def serve(data: str):
     users.set_status(walker.id, "approved")
     cookies = {"admin": cookie, "walker": users.new_session(walker.id)[0]}
     jobs = Jobs(data, public=True)
-    run = clip_run(data)
+    run = saved_run(data, run_folder) if run_folder else clip_run(data)
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from test_country_web import OUTLINE2, OUTLINE_STUDY, sample_cube
     sample_cube(data)  # the highline layer's pages (#layer): two cubes, as tests/test_country_web.py's fixture
@@ -363,14 +385,16 @@ def main():
     parser.add_argument("--devices", default="desktop,iphone,pixel", help="of: " + ", ".join(DEVICES))
     parser.add_argument("--dark", action="store_true", help="the dark theme too")
     parser.add_argument("--data-dir", help="a scratch data folder (default: a new temporary one, removed at the end)")
+    parser.add_argument("--run", help="a saved run's folder to show instead of the clip's (its cache in the data folder)")
+    parser.add_argument("--line", help="the line of the line's pages (lat1,lon1,lat2,lon2; default: the run's first)")
     args = parser.parse_args()
 
     from playwright.sync_api import sync_playwright
 
     os.makedirs(args.out, exist_ok=True)
     data = args.data_dir or tempfile.mkdtemp(prefix="ui-shots-")
-    site, cookies, run, share, stop = serve(data)
-    line = first_line(data, run)
+    site, cookies, run, share, stop = serve(data, args.run)
+    line = args.line or first_line(data, run)
     also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines of the run ("view3d-others")
     wanted = [w for w in args.only.split(",") if w]
     pages = {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}

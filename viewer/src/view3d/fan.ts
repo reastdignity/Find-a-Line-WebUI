@@ -16,6 +16,7 @@ import type { InterleavedBufferAttribute } from "three";
 import type { Option } from "./options";
 import type { SceneCore } from "./scene";
 import { overlayOf, place, toScreen } from "./screen";
+import { raised } from "./geometry";
 import { CURVE_POINTS, resample, webbing, writeSegments } from "./webbing";
 import "./point.css";
 
@@ -107,10 +108,11 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
       for (const o of options) {
         if (o.h === null) { curves.push(null); continue; }
         const to: Anchor3d = {x: o.x2, y: o.y2, h: o.h};
-        const w = webbing([from, to], scene.meta.rigging);
+        const [a, b] = raised([from, to], scene.meta.lift);  // on the run's A-frames
+        const w = webbing([a, b], scene.meta.rigging);
         // a span the sag solver refuses is drawn as its chord
         const points = w ? resample(w.unloaded, FAN_POINTS)
-                         : resample([[from.x, from.y, from.h], [to.x, to.y, to.h]], FAN_POINTS);
+                         : resample([[a.x, a.y, a.h], [b.x, b.y, b.h]], FAN_POINTS);
         const segments = new Float32Array(6 * (points.length - 1));
         writeSegments(points, scene.origin, segments);
         const c = o.over ? trees : clear;
@@ -152,8 +154,9 @@ export function createFan(scene: SceneCore, handlers: FanHandlers): Fan {
       const k = shown && rank !== null ? shown.curves.findIndex((o) => o?.rank === rank) : -1;
       if (!shown || k < 0) { marked.visible = false; scene.invalidate(); return; }
       const o = shown.curves[k]!, to = {x: o.x2, y: o.y2, h: o.h!};
-      const w = webbing([shown.from, to], scene.meta.rigging);
-      const points = resample(w ? w.unloaded : [[shown.from.x, shown.from.y, shown.from.h], [to.x, to.y, to.h]]);
+      const [a, b] = raised([shown.from, to], scene.meta.lift);
+      const w = webbing([a, b], scene.meta.rigging);
+      const points = resample(w ? w.unloaded : [[a.x, a.y, a.h], [b.x, b.y, b.h]]);
       writeSegments(points, scene.origin, markBuffer.array as Float32Array);
       markBuffer.needsUpdate = true;
       markGeometry.computeBoundingBox();

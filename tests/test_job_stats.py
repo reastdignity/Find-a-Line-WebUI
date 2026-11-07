@@ -94,7 +94,8 @@ def test_report_of_a_database(tmp_path, capsys):
     """A database with a search of migration 16's tables, one from before (its events only) and an
     OSM extract: the classes, the sums and ratios, read-only, nothing that names a job."""
     jobs = jb.Jobs(str(tmp_path))
-    new = _search(jobs, {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10, "resolution": 2}, SECRET["title"])
+    new = _search(jobs, {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10, "resolution": 2, "end_zone": 5},
+                  SECRET["title"])
     jobs.event(new, "info", f"Run saved: {SECRET['place']}")
     jobs.set_steps(new, {"2": 2.0, "3": 10.0}, {"2": 3.0, "3": 70.0})
     jobs.set_stages(new, {"anchor pairs": (6.0, 50.0), "checking lines": (3.0, 18.0)})
@@ -115,6 +116,7 @@ def test_report_of_a_database(tmp_path, capsys):
     assert set(rows) == {("formula", "circle"), ("sag", "area")}
     first, second = rows["formula", "circle"], rows["sag", "area"]
     assert (first["resolution"], first["length"], first["preset"], first["jobs"]) == ("2", "<=150", "typical", 1)
+    assert (first["ends"], second["ends"]) == ("on", "off")  # a no-fall zone at the ends (or A-frames) set
     assert first["step 3 s"] == 10.0 and first["step 3 cpu"] == 70.0 and first["step 1 s"] is None
     assert first["stage anchor pairs cpu"] == 50.0 and first["open/anchors_kept"] == 0.5
     assert first["found/checked"] == 0.2 and first["valid/found"] == 0.5 and first["compute_s"] >= 0
@@ -132,7 +134,7 @@ def test_report_of_a_database(tmp_path, capsys):
     assert js.main(["--db", path, "--days", "1"]) == 0
     assert js.main(["--db", path, "--phases"]) == 0
     text = open(out_csv, encoding="utf-8").read() + capsys.readouterr().out
-    assert "| sag | 1 | <=1000 | area | custom | 1 |" in text
+    assert "| sag | 1 | <=1000 | area | custom | off | 1 |" in text
     assert "## Phases of the jobs" in text and "| all |" in text
     for secret in (new, old, osm, SECRET["title"], SECRET["place"], "an old search", "Gozo", "19.75"):
         assert secret not in text, secret

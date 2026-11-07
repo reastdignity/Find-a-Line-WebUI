@@ -49,6 +49,7 @@ PUBLIC = {
     "download_seconds": 3600, "compute_seconds": 7200, "osm_seconds": 7200, "quick_seconds": 120,
     "buffer_max": 500, "max_length_max": 2000, "prominence_span_max": 1000, "drop_radius_max": 1000,
     "slope_threshold_min": 30, "group_distance_min_res": 2, "ortho_detail_max": 50,
+    "end_zone_max": 5, "anchor_lift_max": 2,
     # the downloads are the site's to decide: the data source, water and gaps, the orthophoto, the cache
     "not_allowed": ["update", "threads", "tile_size", "source", "water", "shore_buffer", "fill_gaps", "coastline",
                     "ortho", "ortho_detail"],
@@ -66,7 +67,8 @@ PUBLIC = {
 BOUNDS = {"buffer_max": ("buffer", "max"), "max_length_max": ("max_length", "max"),
           "prominence_span_max": ("prominence_span", "max"), "drop_radius_max": ("drop_radius", "max"),
           "slope_threshold_min": ("slope_threshold", "min"), "ortho_detail_max": ("ortho_detail", "max"),
-          "radius_max": ("radius", "max"), "resolution_max": ("resolution", "max")}
+          "radius_max": ("radius", "max"), "resolution_max": ("resolution", "max"),
+          "end_zone_max": ("end_zone", "max"), "anchor_lift_max": ("anchor_lift", "max")}
 
 
 class Limits(BaseSettings):
@@ -105,6 +107,8 @@ class Limits(BaseSettings):
     radius_max: Optional[float] = Field(None, gt=0, description="largest --radius, m")
     resolution_max: Optional[float] = Field(
         None, gt=0, description="largest --resolution, m (also the data's own, when none is given)")
+    end_zone_max: Optional[float] = Field(None, ge=0, description="largest --end-zone (the no-fall zone at the ends), m")
+    anchor_lift_max: Optional[float] = Field(None, ge=0, description="largest --anchor-lift (the A-frames' height), m")
     not_allowed: List[str] = Field(
         default_factory=list, description="parameters the web may not set (\"threads\"), or values of them "
                                           "(\"ortho=always\"); a JSON list")

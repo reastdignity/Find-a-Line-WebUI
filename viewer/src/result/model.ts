@@ -91,8 +91,9 @@ const both = (a: Range | null, b: Range | null): Range | null =>
   a && b ? {min: Math.min(a.min, b.min), max: Math.max(a.max, b.max)} : a || b;
 
 /** The ranges of the lines' values the filters offer. */
-function lineRanges(all: Line[], highAbove: number, largestGroup: number, favourites: boolean): FilterRanges {
-  return {len: valueRange(all, (l) => l.len), clr: valueRange(all, (l) => l.clr),
+function lineRanges(all: Line[], highAbove: number, largestGroup: number, favourites: boolean,
+                    lift: FilterRanges["lift"] = null): FilterRanges {
+  return {lift, len: valueRange(all, (l) => l.len), clr: valueRange(all, (l) => l.clr),
           clrN: valueRange(all, (l) => l.clrN), dh: valueRange(all, dh),
           elev: valueRange(all, lowerAnchor), elevHigh: valueRange(all, upperAnchor),
           pct: both(valueRange(all, (l) => l.pct1), valueRange(all, (l) => l.pct2)),
@@ -164,7 +165,7 @@ export class ResultModel {
   constructor(data: RunData, options: ResultOptions = {}) {
     this.data = data;
     this.runId = data.run.id;
-    this.lines = timed("fal:run:lines", () => data.lines.map((row) => toLine(row, undefined, data.terrain)),
+    this.lines = timed("fal:run:lines", () => data.lines.map((row) => toLine(row, undefined, data.terrain, data.ends)),
                        {count: data.lines.length});
     this.gather();
     this.api = options.api || SERVER_API;
@@ -241,7 +242,8 @@ export class ResultModel {
     // Runs in another coordinate system are grouped in a local plane around this run;
     // the groups hold the lines themselves, not their copies in the plane
     const framed = Array.from(this.others.values()).some((r) => r.crs !== this.data.crs);
-    const visible = timed("fal:run:filter", () => all.filter((l) => (l.over ? s.showOver : s.showClean) && passes(l, f)
+    const lift = this.data.lift;
+    const visible = timed("fal:run:filter", () => all.filter((l) => (l.over ? s.showOver : s.showClean) && passes(l, f, lift)
       && (!f.favOnly || !this.favouritesOn || this.favouriteSet.has(l))));
     const planar = framed ? inLocalPlane(visible, this.data.center[0], this.data.center[1]) : visible;
     const original = framed ? new Map<Line, Line>(planar.map((p, k) => [p, visible[k]])) : null;
@@ -257,10 +259,33 @@ export class ResultModel {
   /** The filters' ranges: of the values only when the lines changed. */
   private rangesNow(): FilterRanges {
     if (this.valueRanges?.of !== this.all) {
-      this.valueRanges = {of: this.all, ranges: lineRanges(this.all, this.data.high_above, 1, false)};
+      this.valueRanges = {of: this.all, ranges: lineRanges(this.all, this.data.high_above, 1, false, this.liftRange())};
     }
     const largest = this.largestGroup;
     return {...this.valueRanges.ranges, group: largest > 1 ? {min: 1, max: largest} : null, favourites: this.favouritesOn};
+  }
+
+  /** The filter "A-frame needed at most" of a run with a no-fall zone or A-frames: the run's options and the
+   *  largest values of this run's lines (null: a run without the options, no filter). */
+  private liftRange(): FilterRanges["lift"] {
+    const d = this.data;
+    if (!d.end_zone && !d.lift) return null;
+    let needed = 0, noZone = 0;
+    for (const l of this.lines) {
+      if (typeof l.lift_needed === "number" && l.lift_needed > needed) needed = l.lift_needed;
+      if (typeof l.lift_no_zone === "number" && l.lift_no_zone > noZone) noZone = l.lift_no_zone;
+    }
+    return {lift: d.lift || 0, zone: d.end_zone || 0, needed, noZone};
+  }
+
+  /** How many of this run's lines need at most `max` metres of A-frames (with the zone, or without it: `noZone`). */
+  liftCount(max: number, noZone: boolean): number {
+    let n = 0;
+    for (const l of this.lines) {
+      const v = noZone ? l.lift_no_zone : l.lift_needed;
+      if (typeof v !== "number" || v <= max + 1e-9) n++;
+    }
+    return n;
   }
 
   /** The groups shown (the group size filter) and their rows again. */
@@ -608,7 +633,7 @@ export class ResultModel {
   addRun(info: RunInfo, loaded: RunLines, color = colorOf(info.id)) {
     const run = {info, color};
     this.others.set(info.id, {info, color, crs: loaded.crs, area: loaded.area,
-                              lines: loaded.lines.map((row) => toLine(row, run, loaded.terrain))});
+                              lines: loaded.lines.map((row) => toLine(row, run, loaded.terrain, loaded.ends))});
     this.gather();
     this.compute();
     this.notify();

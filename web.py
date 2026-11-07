@@ -46,7 +46,7 @@ import threading
 import time
 import traceback
 import webbrowser
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 
 import pydantic
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -333,6 +333,12 @@ class FavouriteLine(pydantic.BaseModel):
     prom2: Optional[pydantic.FiniteFloat]
     drop1: Optional[pydantic.FiniteFloat]
     drop2: Optional[pydantic.FiniteFloat]
+    # the A-frame heights of a line of a run with an end zone or A-frames (helpers.END_VALUES); optional,
+    # stored only when given (OPTIONAL: checked_favourite drops them when null)
+    lift_needed: Optional[pydantic.FiniteFloat] = None
+    lift_no_zone: Optional[pydantic.FiniteFloat] = None
+
+    OPTIONAL: ClassVar[Tuple[str, ...]] = ("lift_needed", "lift_no_zone")
 
 
 def checked_line(line) -> str:
@@ -407,7 +413,11 @@ def checked_favourite(body) -> Tuple[str, Optional[Dict]]:
     if not body["favourite"]:
         return line, None
     try:
-        return line, FavouriteLine.model_validate(body.get("data")).model_dump()
+        values = FavouriteLine.model_validate(body.get("data")).model_dump()
+        for name in FavouriteLine.OPTIONAL:  # kept only when given: a favourite of before has the same values
+            if values[name] is None:
+                del values[name]
+        return line, values
     except pydantic.ValidationError:
         raise ValueError("data: the values of the line") from None
 

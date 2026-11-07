@@ -867,7 +867,7 @@ def test_line_ok_matches_reference(model):
         if rng.random() < 0.5:  # one pixel too high somewhere
             k = int(rng.integers(1, steps))
             z[r1 + int(np.rint((r2 - r1) * k / steps)), c1 + int(np.rint((c2 - c1) * k / steps))] = 200
-        ok = ls._line_ok(z, r1, c1, r2, c2, 1.0, *args)
+        ok = ls._line_ok(z, r1, c1, r2, c2, 1.0, *args, 0.0, 0.0, 0.0, 0.25)  # end zone 0, lift 0
         assert ok == K.ref_line_ok(z, r1, c1, r2, c2, 1.0, *args)
         decided[bool(ok)] += 1
     assert min(decided.values()) > 100
@@ -2394,6 +2394,7 @@ def _old_csv_and_features(lines, groups):
     import json
     import runs as rn
     rows = []
+    ends = "lift_needed" in lines.columns  # a run with an end zone or A-frames (wave 2b): two columns more
     for k, number, is_rep, size in zip(*(column.tolist() for column in _old_row_order(groups))):
         r = lines.row(k)
         (lat1, lon1), (lat2, lon2), (x1, y1), (x2, y2) = r["anchor1"], r["anchor2"], r["a1_xy"], r["a2_xy"]
@@ -2401,6 +2402,8 @@ def _old_csv_and_features(lines, groups):
         rows.append({
             "group": number, "representative": is_rep, "group_size": size, "length_m": round(r["length"], 1),
             "clearance_m": round(r["clearance"], 2), "clearance_nmpt_m": rn.rounded(nmpt, 2),
+            **({"lift_needed_m": round(r["lift_needed"], 2), "lift_no_zone_m": round(r["lift_no_zone"], 2)}
+               if ends else {}),
             "over_trees_buildings": r["over_obstacles"], "water_m": r["water_m"], "filled_m": r["filled_m"],
             "height_max_m": round(r["height_max"], 2), "height_mean_m": round(r["height_mean"], 2),
             "high_pct": round(r["high_pct"], 1),
@@ -2413,7 +2416,8 @@ def _old_csv_and_features(lines, groups):
             "anchor2_wall_angle": round(r["angle2"], 1),
             "anchor2_prominence_m": rn.rounded(r["prom2"], 1), "anchor2_drop_m": rn.rounded(r["drop2"], 1)})
     table = io.StringIO(newline="")
-    writer = csv.DictWriter(table, fieldnames=rn.FIELDS)
+    fields = list(rows[0]) if ends else rn.FIELDS
+    writer = csv.DictWriter(table, fieldnames=fields)
     writer.writeheader()
     writer.writerows(rows)
     features = [{"type": "Feature", "geometry": {"type": "LineString", "coordinates": [
@@ -2434,17 +2438,21 @@ def _old_map_rows(lines, profiles: bool):
                round(r["height_mean"], 2), round(r["high_pct"], 1), round(r["angle1"], 1), round(r["angle2"], 1),
                rn.rounded(r["prom1"], 1), rn.rounded(r["prom2"], 1), rn.rounded(r["drop1"], 1),
                rn.rounded(r["drop2"], 1)]
+        if "lift_needed" in r:  # wave 2b: the head's "ends", before the profile
+            row += [round(r["lift_needed"], 2), round(r["lift_no_zone"], 2)]
         if profiles:
             row.append(lines.profiles.get(k))
         rows.append(row)
     return rows
 
 
-def test_saved_text_as_before(tmp_path, monkeypatch):
+@pytest.mark.parametrize("ends", [False, True], ids=["plain", "end-zone"])
+def test_saved_text_as_before(tmp_path, monkeypatch, ends):
     """lines.csv, lines.geojson, data.js and lines.js built column by column: the same text as
     csv.DictWriter and json.dumps of the rows of Python values wrote, for values hard to round
     (halves, negative zero, NaN, infinities, very large and small), a missing clearance and
-    non-ASCII names."""
+    non-ASCII names; with an end zone and A-frames (ends) also the two A-frame heights (after
+    clearance_nmpt_m, before the profile) and the heads' "ends"."""
     import json
     from shapely.geometry import Point
     import mapping as mp
@@ -2466,10 +2474,14 @@ def test_saved_text_as_before(tmp_path, monkeypatch):
         lines.columns[name] = np.roll(hard, shift)
     for shift, name in enumerate(["anchor1", "anchor2", "a1_xy", "a2_xy"]):
         lines.columns[name] = np.column_stack([np.roll(hard, 3 * shift + 1), np.roll(hard, -3 * shift - 2)])
+    if ends:
+        lines.columns["lift_needed"], lines.columns["lift_no_zone"] = np.roll(hard, 5), np.roll(hard, -7)
     lines.profiles[2] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
     groups = mp.Groups(np.array([4, 0]), np.array([4, *range(5, n), 3, 0, 1, 2]), np.array([0, n - 4, n]))
     meta = {"name": "Żabi Koń „ß”", "summary": {"lines": n}}
     run = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00"}
+    if ends:
+        run["params"] = {"end_zone": 5, "anchor_lift": 2}
     monkeypatch.setattr(rn, "LINES_CHUNK", 5)
     monkeypatch.setattr(mp, "LINES_CHUNK", 5)
     rn.save_results(str(tmp_path), lines, groups, meta)
@@ -2484,7 +2496,14 @@ def test_saved_text_as_before(tmp_path, monkeypatch):
         text = (tmp_path / name).read_text(encoding="utf-8")
         expected = json.dumps(_old_map_rows(lines, profiles), separators=(",", ":"))
         assert text[text.index('"lines":[') + len('"lines":'):] == expected + "};\n"
+        head = json.loads(text[text.index(" = {") + 3:text.index(',"lines":[')] + "}")
+        assert head.get("ends") == (["lift_needed", "lift_no_zone"] if ends else None), name
     assert '"name":"\\u017babi Ko\\u0144' in (tmp_path / "data.js").read_text(encoding="utf-8")
+    header = (tmp_path / "lines.csv").read_text(encoding="utf-8-sig").splitlines()[0].split(",")
+    assert ("lift_needed_m" in header) == ends and header[6:8] == (["lift_needed_m", "lift_no_zone_m"] if ends else
+                                                                   ["over_trees_buildings", "water_m"])
+    import helpers as sh
+    assert rn.END_COLUMNS == sh.END_VALUES  # runs repeats them (the web process imports runs, not helpers)
 
 
 def test_year_of_the_run():
@@ -2745,8 +2764,9 @@ def _batch_profiles(n: int, rng) -> "sh.Profiles":
 def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     """saving.py: the line files of a run written by child processes (one per file, or the
     results' apart from the map's) are byte for byte those save_results and save_map write in
-    one process, for 50 000 lines with the profiles of a batch, profiles that are dicts, lines
-    without one and values hard to round; the children's progress reaches the Compute bars
+    one process, for 50 000 lines with the profiles of a batch, of a batch with an end zone and
+    a lift ("zone", "lift"), the A-frame heights of a run with those options, profiles that
+    are dicts, lines without one and values hard to round; the children's progress reaches the Compute bars
     "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
     removed; a failing child raises RuntimeError naming its file."""
     import os
@@ -2770,8 +2790,15 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     for shift, name in enumerate(["length", "clearance", "clearance_nmpt", "height_max", "high_pct", "prom1", "drop2"]):
         lines.columns[name][:len(hard)] = np.roll(hard, shift)
     lines.columns["anchor1"][:len(hard)] = np.column_stack([np.roll(hard, 1), np.roll(hard, -2)])
+    # a run with --end-zone and --anchor-lift: the A-frame heights of every line, hard ones among them
+    lines.columns["lift_needed"] = np.round(rng.random(n) * 2, 3)
+    lines.columns["lift_no_zone"] = lines.columns["lift_needed"] + rng.random(n) * 5
+    lines.columns["lift_no_zone"][:len(hard)] = np.roll(hard, 3)
     batch = _batch_profiles(n, rng)
-    lines.profiles = {k: batch[k] for k in range(n) if k % 7}
+    zoned = _batch_profiles(n, rng)  # a search with --end-zone and --anchor-lift: the zone of each line, the lift
+    zoned.zone, zoned.lift = np.round(np.minimum(5.0, rng.random(n) * 30), 1), 2.0
+    lines.profiles = {k: (zoned if k % 3 == 0 else batch)[k] for k in range(n) if k % 7}
+    assert "zone" in lines.profiles[3].as_dict() and "zone" not in lines.profiles[1].as_dict()
     lines.profiles[7] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
     members = rng.permutation(n).astype(np.int64)
     start = np.concatenate([[0], np.sort(rng.integers(0, n + 1, 3000)), [n]]).astype(np.int64)
@@ -2779,7 +2806,8 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
                    dtype=np.int64)
     groups = mp.Groups(rep, members, start)
     meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00", "summary": {"lines": n},
-            "attribution": [], "source": {"id": "files"}, "params": {"x": 1.5}, "data": [{"file": "C:/a/b.tif"}]}
+            "attribution": [], "source": {"id": "files"}, "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2},
+            "data": [{"file": "C:/a/b.tif"}]}
     one = tmp_path / "one"
     one.mkdir()
     rn.save_results(str(one), lines, groups, meta)
@@ -2802,6 +2830,8 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
         mp.save_map(lines, Area, str(folder), str(tmp_path / "runs"), meta, "EPSG:2180", files=("map.html",))
         for name in files:
             assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
+        assert b"lift_no_zone_m" in (folder / "lines.csv").read_bytes()
+        assert b'"ends":["lift_needed","lift_no_zone"]' in (folder / "lines.js").read_bytes()
         assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
         # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)
         bars = [(s["stage"], s["count"], s["total"], s["done"]) for s in states if s["stage"].startswith("saving")]

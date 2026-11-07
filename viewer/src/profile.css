@@ -41,3 +41,24 @@
 .ui .r-rigging .r-profile .fal-compact .fal-key { display: flex; }
 .ui .r-profile .fal-key .fal-profile-legend { margin-left: 0; }
 .ui .r-profile .fal-compact .fal-profile-readout { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The no-fall zone and the A-frames (a run with the options): the zone's bands and dashed edges, the A-frames, their
+   labels, and what the line needs rigged above the chart */
+.ui { --r-zone: var(--accent); --r-frame: var(--ink-2); }
+.ui .r-profile svg .fal-zone-band { fill: color-mix(in srgb, var(--r-zone) 12%, transparent); }
+.ui .r-profile svg .fal-zone-edge { stroke: var(--r-zone); }
+.ui .r-profile svg .fal-zone-label { fill: var(--r-zone); font-weight: 600; }
+.ui .r-profile svg .fal-frame polyline { stroke: var(--r-frame); }
+.ui .r-profile svg .fal-frame circle { fill: var(--r-frame); }
+.ui .r-profile svg .fal-frame-label { fill: var(--r-frame); }
+/* every placed label on a halo of the card's colour, so the curves under it do not cross its letters */
+.ui .r-profile svg .fal-label { paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.ui .r-profile .fal-swatch-zone { height: 8px; background: color-mix(in srgb, var(--r-zone) 12%, transparent);
+  border-left: 1px dashed var(--r-zone); border-right: 1px dashed var(--r-zone); }
+.ui .r-profile .fal-swatch-frame { vertical-align: middle; }
+.ui .r-profile .fal-swatch-frame polyline { stroke: var(--r-frame); }
+.ui .r-profile .fal-need { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin: 2px 0; }
+.ui .r-profile .fal-pill { display: inline-block; border-radius: 999px; padding: 1px 8px; font-weight: 600; }
+.ui .r-profile .fal-pill.fal-ok { background: var(--ok-soft); color: var(--ok); }
+.ui .r-profile .fal-pill.fal-warn { background: var(--warn-soft); color: var(--warn); }
+.ui .r-profile .fal-pill.fal-bad { background: var(--bad-soft); color: var(--bad); }
+.ui .r-profile .fal-bad-text { color: var(--bad); }

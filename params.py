@@ -45,6 +45,8 @@ def field(default, help: str, group: str, *, default_text: Optional[str] = None,
 
 MAX_NAME = 100  # characters of a run name
 MAX_AREA_TEXT = 200  # characters of --within, and of an --area that is no file (osm:<name>)
+END_ZONE_MAX = 20  # metres of --end-zone
+ANCHOR_LIFT_MAX = 3  # metres of --anchor-lift
 
 
 class SearchParams(BaseModel):
@@ -156,6 +158,12 @@ class SearchParams(BaseModel):
     webbing_weight: float = field(70, "webbing weight in g/m", "rigging")
     athlete_mass: float = field(80, "athlete mass in kg", "rigging")
     fall_zone: float = field(3, "height below the sagged webbing that must stay free (leash fall), m", "rigging")
+    end_zone: float = field(0, "no-fall zone at both ends, m: within this distance of each anchor (at most a "
+                               "quarter of the line's length) the terrain need only stay below the loaded "
+                               "webbing, not the leash fall space below it; 0 to 20, 0: off (finds many more "
+                               "lines and takes longer)", "rigging")
+    anchor_lift: float = field(0, "height of an A-frame at both anchors, m: the webbing starts this much above "
+                                  "each anchor; 0 to 3, 0: none (finds many more lines and takes longer)", "rigging")
 
     # Output of the run
     update: Optional[Literal["stale", "all"]] = field(
@@ -274,6 +282,10 @@ class SearchParams(BaseModel):
             if value < 0 or (value == 0 and name in ("pretension", "stretch")):
                 raise UserError("rigging values must be positive", "positive" if value <= 0 and name in (
                     "pretension", "stretch") else "not_negative", field=name)
+        if not 0 <= self.end_zone <= END_ZONE_MAX:
+            raise UserError(f"--end-zone is 0 to {END_ZONE_MAX:g} m", "end_zone_range", max=END_ZONE_MAX)
+        if not 0 <= self.anchor_lift <= ANCHOR_LIFT_MAX:
+            raise UserError(f"--anchor-lift is 0 to {ANCHOR_LIFT_MAX:g} m", "anchor_lift_range", max=ANCHOR_LIFT_MAX)
         return self
 
 
@@ -289,7 +301,8 @@ TOPICS = {
                 "prominence_span", "min_drop", "drop_radius"],
     "lines": ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "max_wall_angle"],
     "data": ["source", "resolution", "water", "coastline", "shore_buffer", "fill_gaps", "update"],
-    "rigging": ["model", "pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"],
+    "rigging": ["model", "pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone", "end_zone",
+                "anchor_lift"],
     "output": ["group_distance", "group_by", "no_html", "ortho", "ortho_detail"],
     "computing": ["threads", "tile_size"],
 }

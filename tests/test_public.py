@@ -1233,6 +1233,7 @@ FAVOURITE = {"len": 120.5, "clr": 1.2, "clrN": None, "e1": 330.0, "e2": 328.5, "
              "filled": 0.0, "hmax": 15.0, "hmean": 9.5, "highPct": 0.0, "angle1": 12.0, "angle2": None,
              "prom1": 3.0, "prom2": None, "drop1": 30.0, "drop2": None}
 LINE, OTHER_LINE = "50.1570825,19.7572871,50.1561275,19.7547235", "50.157,19.757,1e-7,19.754"
+THIRD_LINE = "50.157,19.757,50.156,19.755"
 
 
 def mark(client, run: str, line, on=True, data=FAVOURITE):
@@ -1275,6 +1276,16 @@ def test_favourites(run_people, tmp_path, monkeypatch):
     assert [(f["run_id"], f["line"], f["run_name"], f["data"]) for f in listed] == [(RUN_A, OTHER_LINE, "A's run",
                                                                                       FAVOURITE)]
     assert listed[0]["run_created"] and listed[0]["created"]
+    # a line of a run with an end zone and A-frames carries its A-frame heights (kept only when given: null
+    # ones are left out, so the values of a favourite of another run stay those of before)
+    lifted = {**FAVOURITE, "lift_needed": 0.75, "lift_no_zone": 3.5}
+    for data in ({**lifted, "lift_needed": "inf"}, {**lifted, "lift_no_zone": "nan"}, {**lifted, "lift_needed": "x"}):
+        assert mark(b, RUN_A, LINE, data=data).status_code == 400, data
+    assert mark(b, RUN_A, LINE, data=lifted).status_code == 200
+    assert mark(b, RUN_A, THIRD_LINE, data={**FAVOURITE, "lift_needed": None, "lift_no_zone": None}).status_code == 200
+    listed = {f["line"]: f["data"] for f in b.get("/api/favourites").json()["favourites"]}
+    assert listed == {OTHER_LINE: FAVOURITE, LINE: lifted, THIRD_LINE: FAVOURITE}
+    assert mark(b, RUN_A, LINE, on=False).status_code == 200 and mark(b, RUN_A, THIRD_LINE, on=False).status_code == 200
     assert admin.post(f"/api/runs/{RUN_A}/demo", json={"demo": False}).status_code == 200
     assert b.get("/api/favourites").json() == {"favourites": [], "folders": []}  # no longer a run b may open
     assert [f["line"] for f in a.get("/api/favourites").json()["favourites"]] == [LINE]
@@ -1763,16 +1774,17 @@ def test_jobs_database_gets_owners(tmp_path):
     from settings import Limits
     plan = _plan(tmp_path, Limits(), northing=254608, easting=553966, radius=150)
     import hashlib as hl
-    # the formula of before the elevation band (its fields unset are left out, so tiled runs resume)
+    # the formula of before the elevation band and the end zone (their fields unset or 0 are left out, so
+    # tiled runs resume)
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
                                         "opentopo_key", "tile_size", "group_distance", "group_by",
-                                        "min_elevation", "max_elevation"})
+                                        "min_elevation", "max_elevation", "end_zone", "anchor_lift"})
     before = hl.sha1(json.dumps({"params": p, "source": plan.source.id, "resolution": plan.resolution},
                                 sort_keys=True).encode()).hexdigest()[:16]
     assert search._search_hash(plan) == before
     params = plan.params
-    for name in ("min_elevation", "max_elevation"):
-        plan.params = params.model_copy(update={name: 800.0})
+    for name, value in (("min_elevation", 800.0), ("max_elevation", 800.0), ("end_zone", 5.0), ("anchor_lift", 2.0)):
+        plan.params = params.model_copy(update={name: value})
         assert search._search_hash(plan) != before
     plan.params = params
     plan.owner = 7
@@ -2726,14 +2738,22 @@ def test_request_limits(monkeypatch, tmp_path):
                {**point, "prominence_span": 1500}, {**point, "drop_radius": 1001}, {**point, "slope_threshold": 20},
                {**point, "ortho_detail": 51}, {**point, "ortho": "always"}, {**point, "update": "stale"},
                {**point, "coastline": "world"}, {**point, "threads": 2}, {**point, "tile_size": 500},
-               {**point, "resolution": 5, "group_distance": 9}, {**point, "group_distance": 1}]
+               {**point, "resolution": 5, "group_distance": 9}, {**point, "group_distance": 1},
+               {**point, "end_zone": 5.5}, {**point, "anchor_lift": 2.1}]
     for params in refused:
         with pytest.raises(ValueError):
             web.check_request({"params": params}, limits)
         web.check_request({"params": params}, None)  # no limits
     for params in ({**point, "max_length": 2000, "slope_threshold": 30},
-                   {**point, "resolution": 5, "group_distance": 10}, {**point, "max_length": "1500"}):
+                   {**point, "resolution": 5, "group_distance": 10}, {**point, "max_length": "1500"},
+                   {**point, "end_zone": 5, "anchor_lift": 2}):
         web.check_request({"params": params}, limits)
+    with pytest.raises(ValueError, match="end_zone: at most 5"):
+        web.check_request({"params": {**point, "end_zone": 6}}, limits)
+    # Beyond what the search allows anywhere (params.END_ZONE_MAX, ANCHOR_LIFT_MAX): refused without limits too
+    for params in ({**point, "end_zone": 21}, {**point, "anchor_lift": 3.5}, {**point, "end_zone": -1}):
+        with pytest.raises(ValueError):
+            web.check_request({"params": params}, None)
     # The download fields are not allowed at all; a site that allows them again still has their bounds
     reopened = limits.model_copy(update={"not_allowed": []})
     with pytest.raises(ValueError, match="ortho_detail: at most 50"):
@@ -2750,6 +2770,8 @@ def test_request_limits(monkeypatch, tmp_path):
     assert not {"threads", "tile_size", "update", "source", "water", "shore_buffer", "fill_gaps", "coastline",
                 "ortho", "ortho_detail"} & set(fields)
     assert (fields["max_length"]["max"], fields["slope_threshold"]["min"], fields["group_distance"]["min"]) == (2000, 30, 2)
+    assert (fields["end_zone"]["max"], fields["anchor_lift"]["max"]) == (5, 2)
+    assert fields["end_zone"]["topic"] == fields["anchor_lift"]["topic"] == "rigging"
     # The page says the bounds in the hint (hint.bounds.*), the help is the catalogue's text alone
     assert fields["max_length"]["help"] == messages.text("field.max_length.help")
     assert fields["group_distance"]["min_factor"] == 2 and fields["max_length"]["min_factor"] is None

@@ -5,6 +5,7 @@
 - A 600 x 600 m clip of Żabi Koń (tests/data, see make_fixture.py) with known results.
 """
 
+import collections
 import csv
 import glob
 import json
@@ -291,6 +292,148 @@ def test_area_in_tiles(tmp_path):
         reps = {tuple(float(r[k]) for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
                 for r in rows if r["representative"] == "True"}
         assert with_profile == reps, name
+
+
+def _script(path) -> dict:
+    """The object of a run's data.js or lines.js (from its first " = {")."""
+    text = open(path, encoding="utf-8").read()
+    return json.loads(text[text.index(" = {") + 3:].rstrip().rstrip(";"))
+
+
+ENDS = ["--end-zone", "5", "--anchor-lift", "2"]
+
+
+def test_end_zone_and_lift(tmp_path):
+    """--end-zone and --anchor-lift: the lines of the search without them and more, the same anchors; the
+    rule printed, recorded in run.json (params, description) and in the heads of data.js and lines.js, the
+    saved profiles carrying "zone" and "lift"; a profile computed again (search.profile_of_line) applies the
+    run's rule and equals the saved one. Without them none of it is there."""
+    import search
+    common = ["--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
+              "--surface-file", os.path.join(DATA, "zabi_kon_nmpt.tif"),
+              "--northing", "254608", "--easting", "553966", "--radius", "290", "--ortho", "never"]
+    plain_out, plain = run_search(tmp_path / "plain", *common)
+    ends_out, ends = run_search(tmp_path / "ends", *common, *ENDS)
+    anchors = lambda out: int(re.search(r"Found (\d+) potential anchors", out).group(1))  # noqa: E731
+    assert anchors(plain_out) == anchors(ends_out) == ZABI_KON["anchors"] and len(plain) == ZABI_KON["lines"]
+    assert _lines(plain) < _lines(ends)  # a strict superset
+    assert "Ends: no-fall zone 5 m, A-frames 2 m" in ends_out and "Ends:" not in plain_out
+    folders = {name: os.path.dirname(glob.glob(str(tmp_path / name / "runs" / "*" / "run.json"))[0])
+               for name in ("plain", "ends")}
+    metas = {name: json.load(open(os.path.join(folder, "run.json"), encoding="utf-8")) for name, folder in folders.items()}
+    assert (metas["ends"]["params"]["end_zone"], metas["ends"]["params"]["anchor_lift"]) == (5, 2)
+    assert "end_zone" not in metas["plain"]["params"] and "anchor_lift" not in metas["plain"]["params"]
+    assert metas["ends"]["description"].endswith(", no-fall zone 5 m at the ends, A-frames 2 m")
+    ends_keys = {"end_zone": 5, "lift": 2, "ends": ["lift_needed", "lift_no_zone"]}
+    for name, keys in (("plain", {}), ("ends", ends_keys)):
+        for script in ("data.js", "lines.js"):
+            head = _script(os.path.join(folders[name], script))
+            assert {k: head[k] for k in ("end_zone", "lift", "ends") if k in head} == keys, (name, script)
+            assert {len(line) for line in head["lines"]} == {25 + len(keys.get("ends", [])) + (script == "data.js")}
+    # The A-frame heights each line needs, with the run's zone and without one: in all four files of the run
+    # with the options (after clearance_nmpt_m; before the profile in the scripts), in none of the other's
+    assert "lift_needed_m" not in plain[0] and "lift_no_zone_m" not in plain[0]
+    header = open(os.path.join(folders["ends"], "lines.csv"), encoding="utf-8-sig").readline().strip().split(",")
+    at = header.index("clearance_nmpt_m")
+    assert header[at + 1:at + 3] == ["lift_needed_m", "lift_no_zone_m"]
+    features = json.load(open(os.path.join(folders["ends"], "lines.geojson"), encoding="utf-8"))["features"]
+    plain_features = json.load(open(os.path.join(folders["plain"], "lines.geojson"), encoding="utf-8"))["features"]
+    assert "lift_needed_m" not in plain_features[0]["properties"]
+    key = lambda values: tuple(round(float(v), 7) for v in values)  # noqa: E731
+    lifts = {key(r[k] for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon")):
+             (float(r["lift_needed_m"]), float(r["lift_no_zone_m"])) for r in ends}
+    assert len(lifts) == len(ends) == len(features)
+    assert lifts == {key((f["properties"]["anchor1_lat"], f["properties"]["anchor1_lon"], f["properties"]["anchor2_lat"],
+                          f["properties"]["anchor2_lon"])): (f["properties"]["lift_needed_m"],
+                                                             f["properties"]["lift_no_zone_m"]) for f in features}
+    for script in ("data.js", "lines.js"):
+        assert lifts == {key(line[:4]): (line[25], line[26]) for line in _script(os.path.join(folders["ends"], script))["lines"]}
+    # with A-frames of 2 m the rule's clearance is 2 less the height needed (exactly so before rounding), and
+    # the lines of the search without the options need none; some lines need the zone (more than 2 m without it)
+    anchors_of = lambda r: key(r[k] for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))  # noqa: E731
+    standing = set(map(anchors_of, plain))
+    consistent = lambda needed, value: (abs(value - (2 - needed)) <= 0.011 if needed > 0  # noqa: E731
+                                        else value >= 2 - 0.006)
+    for r in ends:
+        needed, no_zone, clearance = float(r["lift_needed_m"]), float(r["lift_no_zone_m"]), float(r["clearance_m"])
+        assert 0 <= needed <= 2 and no_zone >= needed and consistent(needed, clearance), r
+        if anchors_of(r) in standing:
+            assert needed == no_zone == 0, r
+    assert any(no_zone > 2 for _, no_zone in lifts.values()) and any(needed > 0 for needed, _ in lifts.values())
+    for line in _script(os.path.join(folders["ends"], "data.js"))["lines"]:  # and the profiles' smallest value
+        if line[-1]:
+            assert consistent(line[25], line[-1]["min"][1]), line[:4]
+    # the profiles the map keeps (of the spots' lines here: those of every line would be too many)
+    lines = [line for line in _script(os.path.join(folders["ends"], "data.js"))["lines"] if line[-1]]
+    assert lines
+    assert all("zone" not in line[-1] for line in _script(os.path.join(folders["plain"], "data.js"))["lines"] if line[-1])
+    for line in lines:
+        assert line[-1]["lift"] == 2 and 0 < line[-1]["zone"] <= 5, line[-1]
+    # Profiles computed again: those of lines only the rule finds, and others, equal the saved ones
+    found_plain = {tuple(round(float(r[k]), 7) for k in ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
+                   for r in plain}
+    only = [line for line in lines if tuple(line[:4]) not in found_plain]
+    assert only
+    paths = search.Paths(str(tmp_path / "ends"), str(tmp_path / "profile-work"))
+    os.makedirs(paths.work)
+    for line in only[:3] + [line for line in lines if tuple(line[:4]) in found_plain][:2]:
+        profile = search.profile_of_line(metas["ends"], paths, tuple(line[0:2]), tuple(line[2:4]))
+        assert json.loads(json.dumps(profile)) == line[-1], line[:4]
+        assert profile["min"][1] > 0  # the rule's decision value: valid
+    # The same lines computed again without the rule: those only the rule finds are not valid
+    del metas["ends"]["params"]["end_zone"], metas["ends"]["params"]["anchor_lift"]
+    for line in only[:3]:
+        profile = search.profile_of_line(metas["ends"], paths, tuple(line[0:2]), tuple(line[2:4]))
+        assert "zone" not in profile and profile["min"][1] <= 0, line[:4]
+
+
+def test_end_zone_in_tiles(tmp_path):
+    """An area with an end zone and A-frames gives the same lines in tiles as in one grid."""
+    square = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
+                                                  [19.7522, 50.1580], [19.7522, 50.1546]]]}
+    path = tmp_path / "square.geojson"
+    path.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": square}))
+    common = ["--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"), "--area", str(path),
+              "--max-length", "150", *ENDS]
+    one_out, one = run_search(tmp_path / "one", *common)
+    tiled_out, tiled = run_search(tmp_path / "tiled", *common, "--tile-size", "150")
+    assert "one grid" in one_out and "tiles)" in tiled_out
+    # Every column of every line in the same order, its group and representative too: with the rule the clearance
+    # of many lines is set at the first step from an anchor, so parallel lines tie exactly (clearance and length),
+    # and search._fixed_order breaks such ties by the anchors' pixels, as tiles and one grid share them
+    assert one and one == tiled and "lift_needed_m" in one[0]
+    ties = collections.Counter((r["clearance_m"], r["length_m"]) for r in one)
+    assert max(ties.values()) > 1  # the case the order is fixed for
+    for name in ("data.js", "lines.js", "lines.geojson"):  # the files too, from their lines on
+        texts = []
+        for run in ("one", "tiled"):
+            text = open(glob.glob(str(tmp_path / run / "runs" / "*" / name))[0], encoding="utf-8").read()
+            texts.append(text[text.index('"lines":['):] if name.endswith(".js") else text[:text.index('"findaline"')])
+        assert texts[0] == texts[1], name
+    assert len(glob.glob(str(tmp_path / "tiled" / "runs" / "*" / "tiles" / "*.pkl.gz"))) > 1
+    # the profiles of the groups' lines in the map, those at tile edges too (profile_of_line), carry the rule
+    profiles = {}
+    for name in ("one", "tiled"):
+        lines = _script(glob.glob(str(tmp_path / name / "runs" / "*" / "data.js"))[0])["lines"]
+        profiles[name] = {tuple(line[:4]): line[-1] for line in lines if line[-1]}
+        assert profiles[name] and all(p["lift"] == 2 for p in profiles[name].values())
+    assert profiles["one"] == profiles["tiled"]
+
+
+def test_search_hash_without_the_ends():
+    """_search_hash at --end-zone 0 and --anchor-lift 0 is the hash of before (computed with the code before
+    the two fields, abc807e), so an unfinished tiled search resumes; with either set it differs."""
+    import types
+    import search
+    from params import SearchParams
+
+    def hash_of(owner=None, **values):
+        params = SearchParams(lat=50.1559508, lon=19.7562722, radius=300, max_length=150, **values)
+        return search._search_hash(types.SimpleNamespace(params=params, source=types.SimpleNamespace(id="geoportal"),
+                                                         resolution=1.0, owner=owner))
+    assert hash_of() == hash_of(end_zone=0, anchor_lift=0) == "e8dc08d333d941ab"
+    assert hash_of(owner=7) == "0129d3c3e76f7a68"
+    assert len({hash_of(), hash_of(end_zone=5), hash_of(anchor_lift=2), hash_of(end_zone=5, anchor_lift=2)}) == 4
 
 
 def _terrain(data_dir) -> dict:

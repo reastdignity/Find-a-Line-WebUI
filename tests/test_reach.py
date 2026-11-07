@@ -119,16 +119,28 @@ def candidate_mask(z: np.ndarray, fixed, p: dict) -> np.ndarray:
                 & (np.abs(z - z[fixed]) <= np.minimum(p["max_anchor_diff"] / 100 * length, p["max_anchor_diff_m"])))
 
 
-@pytest.mark.parametrize("mode", [None, "mark", "reject"])
+def with_ends(meta: dict) -> dict:
+    """The run as if it had been searched with --end-zone 5 --anchor-lift 2."""
+    meta = copy.deepcopy(meta)
+    meta["params"].update(end_zone=5.0, anchor_lift=2.0)
+    return meta
+
+
+@pytest.mark.parametrize("mode", [None, "mark", "reject", "ends"])
 @pytest.mark.parametrize("which", [1, 2])
 def test_mask_equals_the_profiles(clip_data, tmp_path, mode, which):
     """For a sample of the lattice's targets the mask says what search.profile_of_line says of the line in the
     order the page asks it (which 1: the fixed point first, 2: the target first): valid exactly where the
     clearance over the terrain is above 0 (and, with --nmpt reject, the surface's too), the over-trees flag where
-    the surface clearance is not, the clearance within the quantum; no target outside the limits is valid."""
+    the surface clearance is not, the clearance within the quantum; no target outside the limits is valid.
+    "ends": a run with an end zone and A-frames, which both apply as the run's (more targets valid)."""
     data, meta, fixed, other = clip_data
-    meta = with_surface(meta, mode) if mode else meta
+    plain = meta
+    meta = with_ends(meta) if mode == "ends" else with_surface(meta, mode) if mode else meta
     reach, body = search.reach_of_anchor(meta, paths_in(data, tmp_path), fixed, other, fixed, which)
+    if mode == "ends":
+        without, _ = search.reach_of_anchor(plain, paths_in(data, tmp_path, "plain"), fixed, other, fixed, which)
+        assert reach["valid"] > without["valid"]
     mask = mask_of(reach, body)
     assert set(reach) == META_KEYS and reach["as"] == which and reach["lattice"] == 1
     assert mask.shape == (reach["height"], reach["width"]) == (1537, 1537)
@@ -137,7 +149,7 @@ def test_mask_equals_the_profiles(clip_data, tmp_path, mode, which):
     assert int(((mask & 0x80) > 0).sum()) == reach["trees"]
     if mode == "mark":
         assert reach["trees"] > 0  # the sample must hold both kinds, or the flag is not tested
-    if mode is None:
+    if mode in (None, "ends"):
         assert reach["trees"] == 0 and not (mask & 0x80).any()
 
     z, _, plan = grids(meta, data, tmp_path, fixed, other)

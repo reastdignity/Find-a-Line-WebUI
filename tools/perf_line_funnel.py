@@ -120,7 +120,12 @@ def save_call(folder: str, bound: Dict, step: str = ""):
               "rigging": dataclasses.asdict(table.rig) if table is not None else None,
               "sag_min_span": float(bound["min_length"]) if table is not None else None,
               "sag_max_span": float(bound["max_length"]) if table is not None else None,
-              "step": step}
+              "step": step,
+              # the end zone and the lift (helpers.end_zone_rule; captures without them were at 0 / 0)
+              "end_zone": float(bound.get("end_zone", 0.0)), "lift": float(bound.get("lift", 0.0)),
+              "end_clearance": float(bound.get("end_clearance", 0.0)),
+              "zone_cap": float(bound.get("zone_cap", sh.ZONE_CAP)),
+              "zones": [float(x) for x in np.asarray(bound.get("zones", ()), dtype=np.float64).reshape(-1)]}
     with open(os.path.join(folder, "params.json"), "w") as f:
         json.dump(params, f, indent=1)
 
@@ -260,6 +265,10 @@ def rebuild(inputs: Dict, params: Dict, free_rings=K.ref_free_rings) -> SimpleNa
               float(max_dh), a.down, a.cos_limit, a.strong, a.use_sag, a.log_spans, a.ratios, a.table,
               float(a.fall_zone), a.first_only)
     a.max_dh_ratio, a.max_dh = float(max_dh_ratio), float(max_dh)
+    # the end zone and the lift of the call (captures of before: 0 / 0); the references know neither
+    a.end_zone, a.lift = float(params.get("end_zone", 0.0)), float(params.get("lift", 0.0))
+    a.end_clearance = float(params.get("end_clearance", 0.0))
+    a.zone_cap = float(params.get("zone_cap", sh.ZONE_CAP))
     return a
 
 
@@ -280,9 +289,11 @@ def two_passes(kernel, a, todo):
 
 
 def production_rings(a):
-    """Production's rings of every anchor of the call (linesearch._free_rings on all at once)."""
-    return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, a.offset,
-                          ls.largest_need(a.min_length, a.max_length, a.res), ls.sector_masks())
+    """Production's rings of every anchor of the call (linesearch._free_rings on all at once), at
+    end zone 0 and lift 0 (the references')."""
+    kmax = ls.largest_need(a.min_length, a.max_length, a.res)
+    return ls._free_rings(a.z, a.anchors, a.res, a.gain, a.cap, ls.ring_offsets(a.offset, a.res, kmax), kmax,
+                          ls.sector_masks())
 
 
 def production_directions(a):
@@ -329,7 +340,11 @@ def self_check(a, folder: str = "", sample_every: int = 1) -> List:
     sample_every-th anchor). The pairs and the checked and found counts must be equal; the
     candidates are the references' less those N1 and F8c skip (production skips them before
     counting: they fail the rings' test, which comes after the count). Returns per chunk (todo,
-    the references' counts, funnel_pairs' counters, simulated tests, histograms)."""
+    the references' counts, funnel_pairs' counters, simulated tests, histograms). A call with an
+    end zone or a lift is refused: the references know only today's rule."""
+    if getattr(a, "end_zone", 0.0) or getattr(a, "lift", 0.0):
+        raise SelfCheckError(f"{folder}: the call has an end zone ({a.end_zone:g} m) or a lift ({a.lift:g} m); the "
+                             "frozen references know only end zone 0 and lift 0: capture the search without them")
     capped = capped_rings(a)
     if not np.array_equal(production_rings(a), capped):
         raise SelfCheckError(f"{folder}: linesearch._free_rings differs from ref_free_rings")
