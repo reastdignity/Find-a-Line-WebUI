@@ -1186,14 +1186,19 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     border_path = os.path.join(os.path.dirname(out_path), "border.npy")
     for n, neighbour in enumerate(neighbours):
         progress.compute.start(f"border gaps ({neighbour.name})", 1, unit="step")
-        if gaps is None:
-            if rows is None:
-                gaps = border_gaps(elevation_path, surface_path, grid, exclude)
-            else:
-                shape = (grid.height, grid.width)
-                gaps = border_gaps(elevation_path, surface_path, grid, exclude, rows=rows,
-                                   out=new_mask(border_path, shape))
-        window = neighbour_window(neighbour, grid, gaps, rows=rows)
+        if gaps is None and _box_ranges(neighbour, grid) == []:
+            # Its rough boxes reach no pixel of the grid: no border gap lies inside them (neighbour_window's
+            # None), so the border gaps wait for a neighbour that can use them (a tile at a border without one)
+            window = None
+        else:
+            if gaps is None:
+                if rows is None:
+                    gaps = border_gaps(elevation_path, surface_path, grid, exclude)
+                else:
+                    shape = (grid.height, grid.width)
+                    gaps = border_gaps(elevation_path, surface_path, grid, exclude, rows=rows,
+                                       out=new_mask(border_path, shape))
+            window = neighbour_window(neighbour, grid, gaps, rows=rows)
         progress.compute.update(1)
         progress.compute.finish()
         if window is None:
