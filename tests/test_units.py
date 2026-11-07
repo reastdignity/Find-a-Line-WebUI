@@ -1675,6 +1675,56 @@ def test_fill_water_rows_as_before(tmp_path):
             assert not os.path.exists(tmp_path / "lake.npy")
 
 
+def test_fill_water_rows_dry_strips(tmp_path, monkeypatch):
+    """fill_water in strips leaves out the dry strips (no sea zone in them, no lake within SHORE_BUFFER of
+    them) and gives the whole grid's values: the sea in the top rows only, a lake measured and one without
+    data in the middle, gaps on land in every row (they stay without data), and a grid with no water at all,
+    whose water and bare masks stay all False and whose elevation is never read for the water with data."""
+    from grid import Grid
+    rng = np.random.default_rng(5)
+    H, W = 120, 70  # 2 m pixels: the lakes' shore buffer reaches 23 px
+    z = (rng.random((H, W)) * 30 + 2).astype(np.float32)
+    z[::9, 40:43] = np.nan  # gaps on land in every few rows
+    z[:6, :] = np.nan  # the sea without data in the top rows
+    z[6, :20] = 0.4  # the sea given by the data
+    z[60:66, 10:20] = np.nan  # a lake without data
+    wbm = np.zeros((H, W), np.uint8)
+    wbm[:7, :] = src.OCEAN
+    wbm[58:68, 8:22] = src.LAKE
+    wbm[80:84, 50:60] = src.LAKE  # measured
+    sea_zone = np.zeros((H, W), bool)
+    sea_zone[:12, :] = True
+    surface = (z + 2).astype(np.float32)
+    grid = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
+    calls = []
+    original = src.filling.water_with_data
+    monkeypatch.setattr(src.filling, "water_with_data", lambda z, *a, **k: calls.append(len(z)) or original(z, *a, **k))
+    for name, (w, zone) in {"wet": (wbm, sea_zone), "dry": (np.zeros_like(wbm), np.zeros_like(sea_zone))}.items():
+        np.save(str(tmp_path / "nmt_w.npy"), z)
+        np.save(str(tmp_path / "nmpt_w.npy"), surface)
+        water_w = np.load(src.fill_water(str(tmp_path / "nmt_w.npy"), str(tmp_path / "nmpt_w.npy"), grid, w, zone,
+                                         str(tmp_path / "water_w.npy")))
+        assert water_w.any() == (name == "wet")
+        w_mm, zone_mm = _memmap(tmp_path, f"wbm_{name}.npy", w), _memmap(tmp_path, f"zone_{name}.npy", zone)
+        for rows in (1, 7, 16, 50, H):
+            nmt, nmpt = _memmap(tmp_path, "nmt_s.npy", z), _memmap(tmp_path, "nmpt_s.npy", surface)
+            del nmt, nmpt
+            calls.clear()
+            water_s = np.load(src.fill_water(str(tmp_path / "nmt_s.npy"), str(tmp_path / "nmpt_s.npy"), grid, w_mm,
+                                             zone_mm, str(tmp_path / "water_s.npy"), rows=rows,
+                                             bare_path=str(tmp_path / "bare.npy")))
+            assert np.array_equal(water_s, water_w), (name, rows)
+            for f in ("nmt", "nmpt"):
+                assert np.array_equal(_bits(np.load(str(tmp_path / f"{f}_s.npy"))),
+                                      _bits(np.load(str(tmp_path / f"{f}_w.npy")))), (name, f, rows)
+            assert np.array_equal(np.load(str(tmp_path / "bare.npy")), water_s & np.isnan(z)), (name, rows)
+            if name == "dry":
+                assert not calls and not water_s.any()  # every strip dry: the water with data never computed
+            elif rows <= 16:  # the strips more than SHORE_BUFFER from the lakes and below the sea zone are left out
+                assert 0 < sum(calls) < H, (rows, calls)
+        del w_mm, zone_mm
+
+
 def test_border_gaps_rows_as_whole(tmp_path):
     """border_gaps in strips of rows marks the gaps of the whole grid (the footprint and its edge
     strip by strip), for a circle's footprint and an area's outline, and neighbour_window finds

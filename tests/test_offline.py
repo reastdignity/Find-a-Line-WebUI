@@ -694,6 +694,210 @@ def test_work_estimate_counts_the_grids_written(tmp_path, monkeypatch):
     del tile, data
 
 
+def _old_fill_water_rows(elevation_path, surface_path, grid, wbm, sea_zone, out_path, sea_value, rows, bare_path):
+    """sources.filling._fill_water_rows before the dry strips were left out (main d466347): the reference."""
+    import math
+    from scipy import ndimage
+    from sources import filling as f
+
+    elevation = np.load(elevation_path, mmap_mode="r+")
+    surface = np.load(surface_path, mmap_mode="r+") if surface_path else None
+    shape = elevation.shape
+    f.progress.compute.start("filling sea and lakes", 3, unit="step")
+    f.progress.compute.update(0, part="sea")
+    water = f.new_mask(out_path, shape)
+    lake_path = os.path.join(os.path.dirname(out_path), "lake.npy")
+    lake = f.new_mask(lake_path, shape)
+    n = max(1, math.ceil(f.SHORE_BUFFER / grid.res))
+    size = 2 * n + 1
+    sea_px = 0
+    any_lake = False
+    for r0, r1, h0, h1 in f.strips(shape[0], rows, n):
+        empty = np.isnan(elevation[r0:r1])
+        sea_fill = empty & np.asarray(sea_zone[r0:r1], dtype=bool)
+        shore = np.asarray(wbm[h0:h1]) == f.LAKE
+        if shore.any():
+            shore = ndimage.maximum_filter1d(shore, size, axis=0, mode="constant", cval=0)[r0 - h0:r1 - h0]
+            shore = ndimage.maximum_filter1d(shore, size, axis=1, mode="constant", cval=0)
+            here = empty & shore & ~sea_fill
+            if here.any():
+                lake[r0:r1] = here
+                any_lake = True
+        del empty, shore
+        if sea_fill.any():
+            block = elevation[r0:r1]
+            block[sea_fill] = 0.0
+            if surface is not None:
+                sblock = surface[r0:r1]
+                sblock[sea_fill & np.isnan(sblock)] = 0.0
+            water[r0:r1] = sea_fill
+            sea_px += int(sea_fill.sum())
+    f.progress.compute.update(1, part="lakes")
+    if any_lake:
+        labels = np.zeros(shape, np.int32)
+        ndimage.label(lake, structure=np.ones((3, 3)), output=labels)
+    del lake
+    f.remove_grid(lake_path)
+    f.progress.compute.update(1, part="levels")
+    lake_px = 0
+    for index, region in enumerate(ndimage.find_objects(labels) if any_lake else (), 1):
+        if region is None:
+            continue
+        box_rows = slice(max(region[0].start - 1, 0), region[0].stop + 1)
+        cols = slice(max(region[1].start - 1, 0), region[1].stop + 1)
+        area = labels[box_rows, cols] == index
+        empty = np.isnan(elevation[box_rows, cols]) | np.asarray(water[box_rows, cols])
+        shore = ndimage.binary_dilation(area) & ~empty
+        heights = elevation[box_rows, cols][shore]
+        heights = heights[np.isfinite(heights)]
+        if heights.size == 0:
+            continue
+        level = float(np.median(heights))
+        block = elevation[box_rows, cols]
+        block[area] = level
+        if surface is not None:
+            sblock = surface[box_rows, cols]
+            sblock[area & np.isnan(sblock)] = level
+        water[box_rows, cols] |= area
+        lake_px += int(area.sum())
+    labels = None
+    bare = f.new_mask(bare_path, shape) if bare_path else None
+    for r0, r1, _, _ in f.strips(shape[0], rows):
+        if bare is not None:
+            bare[r0:r1] = water[r0:r1]
+        with_data = f.water_with_data(np.asarray(elevation[r0:r1]), wbm[r0:r1], sea_zone[r0:r1], sea_value)
+        if with_data.any():
+            water[r0:r1] |= with_data
+    f.flush_grid(elevation)
+    if surface is not None:
+        f.flush_grid(surface)
+    f.flush_grid(water)
+    if bare is not None:
+        f.flush_grid(bare)
+    del water, bare
+    f.progress.compute.update(1)
+    km2 = lambda px: px * grid.res ** 2 / 1e6  # noqa: E731
+    f.progress.compute.finish(f"sea {km2(sea_px):.2f} km², lakes {km2(lake_px):.2f} km²")
+    return out_path
+
+
+@pytest.mark.parametrize("scene", ["dry", "lake"])
+def test_dry_tile_in_strips_as_before(tmp_path, monkeypatch, scene):
+    """Step 1 in strips (prepare_data(strips=True), as country.TileWork counts a tile) gives what it gave
+    before a lone water body mask tile of one category was left unreprojected (filling.constant_category)
+    and the dry strips were left out of fill_water (the reference _old_fill_water_rows): every grid of
+    Data, every file left in the work folder, the printed lines and the bars. "dry": no water and no gap,
+    the water body mask a tile of 0 in WGS84 (both early-outs taken); "lake": a lake measured and one
+    without data, a gap on land that a fallback fills (the mask is built, the strips far from the lakes
+    are dry)."""
+    import search
+    import sources as src
+    from params import SearchParams
+    from rasterio.warp import transform_bounds
+    from scipy import ndimage
+    with rio.open(os.path.join(DATA, "zabi_kon_nmt.tif")) as s:
+        terrain, left, top = s.read(1), s.bounds.left, s.bounds.top
+    size = terrain.shape[0]
+    fallback = (ndimage.uniform_filter(terrain, 5) + 1.5).astype(np.float32)
+    if scene == "lake":
+        terrain[330:360, 300:340] = np.nan  # a lake without data
+        terrain[100:110, 150:170] = np.nan  # a gap on land: the fallback's
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    write_raster(tmp_path / "fallback.tif", fallback, left, top)
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", left, top - size, left + size, top)
+    pad = 40 / 3600  # the tile reaches 40 of its pixels beyond the clip
+    origin = (west - pad, north + pad)
+    shape = (int((north - south + 2 * pad) * 3600) + 1, int((east - west + 2 * pad) * 3600) + 1)
+    water = np.zeros(shape, np.uint8)
+    if scene == "lake":
+        from pyproj import Transformer
+        to_wgs84 = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True)
+        for (x, y), half in (((left + 320, top - 345), 1), ((left + 100, top - 450), 0)):  # without data, measured
+            lon, lat = to_wgs84.transform(x, y)
+            r, c = int((origin[1] - lat) * 3600), int((lon - origin[0]) * 3600)
+            water[r - half:r + half + 1, c - half:c + half + 1] = src.LAKE
+    with rio.open(tmp_path / "wbm.tif", "w", driver="GTiff", width=shape[1], height=shape[0], count=1, dtype="uint8",
+                  crs="EPSG:4326", transform=from_origin(*origin, 1 / 3600, 1 / 3600)) as dst:
+        dst.write(water, 1)
+
+    class _WaterFile(src.FileLayer):  # the water body mask from a file: no tiles of the cache
+        def tiles(self, grid):
+            return []
+
+        def files(self, grid, cache_dir):
+            return [self.path]
+
+    mask = _WaterFile("Water body mask file", str(tmp_path / "wbm.tif"))
+    monkeypatch.setattr(src, "WATER_MASK", mask)
+    monkeypatch.setattr(src.filling, "WATER_MASK", mask)
+    monkeypatch.setitem(src.SOURCES, "test_fallback", src.Source(
+        id="test_fallback", name="test fallback", description="fallback",
+        nmt=src.FileLayer("Fallback terrain", str(tmp_path / "fallback.tif")),
+        credits=(src.Credit("fallback", "© fallback", "CC BY 4.0", "https://example.org"),)))
+    choose = src.choose_source
+
+    def with_fallback(*args, **kwargs):
+        source, reason = choose(*args, **kwargs)
+        source.fallback = "test_fallback"
+        return source, reason
+    monkeypatch.setattr(src, "choose_source", with_fallback)
+    for name, value in OFFLINE_ENV.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(src.filling, "STRIP_PX", 16 * 600)  # strips of 16 rows
+    built = []
+    build_mosaic = src.filling.build_mosaic
+    monkeypatch.setattr(src.filling, "build_mosaic", lambda files, grid, out, label, **kw: built.append(label) or
+                        build_mosaic(files, grid, out, label, **kw))
+    params = SearchParams(elevation_file=str(tmp_path / "nmt.tif"), water="fill", fill_gaps="on",
+                          coastline="copernicus", ortho="never", nmpt="off", northing=top - size / 2,
+                          easting=left + size / 2, radius=260, resolution=1, prominence_span=20, drop_radius=20)
+    fields = ("elevation", "surface", "water", "filled", "slope", "joined", "mask", "covered", "shore_kinds")
+
+    def step1(mode):
+        events, bars = [], []
+        listener = lambda state: bars.append(dict(state)) if state.get("bar") else None  # noqa: E731
+        work = tmp_path / mode / "work"
+        os.makedirs(work)
+        plan = search.plan_search(params, search.Paths(str(tmp_path / mode), str(work)),
+                                  lambda kind, text: events.append((kind, str(text))))
+        built.clear()
+        search.progress.subscribe(listener)  # the bars' object search holds
+        try:
+            data = search.prepare_data(plan, statistics=False, shore="none", strips=True)
+        finally:
+            search.progress.unsubscribe(listener)
+        grids = {f: None if getattr(data, f) is None else np.array(getattr(data, f)) for f in fields}
+        assert data.terrain is None and data.tile_terrain is None and data.shore is None
+        del data
+        files = {}
+        for path in sorted(glob.glob(str(work / "*"))):
+            files[os.path.basename(path)] = np.load(path) if path.endswith(".npy") else open(path, "rb").read()
+        return {"grids": grids, "files": files, "events": events, "bars": bars, "built": list(built)}
+
+    now = step1("now")
+    with monkeypatch.context() as m:
+        m.setattr(src.filling, "constant_category", lambda files, grid: None)
+        m.setattr(src.filling, "_fill_water_rows", _old_fill_water_rows)
+        before = step1("before")
+    for f in fields:
+        a, b = now["grids"][f], before["grids"][f]
+        assert (a is None) == (b is None), f
+        if a is not None:
+            assert a.dtype == b.dtype and np.array_equal(a, b, equal_nan=a.dtype.kind == "f"), f
+    assert sorted(now["files"]) == sorted(before["files"])
+    for name, a in now["files"].items():
+        b = before["files"][name]
+        assert np.array_equal(a, b, equal_nan=a.dtype.kind == "f") if isinstance(a, np.ndarray) else a == b, name
+    assert now["events"] == before["events"] and now["bars"] == before["bars"]
+    assert "water mask" in before["built"] and ("water mask" in now["built"]) == (scene == "lake")
+    water, filled = now["grids"]["water"], now["grids"]["filled"]
+    if scene == "dry":
+        assert not water.any() and not filled.any() and not np.isnan(now["grids"]["elevation"]).any()
+        assert not now["files"]["wbm.npy"].any()
+    else:
+        assert water.any() and filled.any() and not water[:150].any()  # the strips far from the lakes stay dry
+
+
 def test_area_in_tiles_with_water_and_gaps(tmp_path, monkeypatch):
     """An area computed in tiles gives exactly the lines of one grid also with the sea and a lake
     filled and gaps on land filled from a fallback: step 1 runs once on the whole grid (the lake

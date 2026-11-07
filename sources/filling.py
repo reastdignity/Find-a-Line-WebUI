@@ -79,7 +79,12 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
     rows: the mosaic built and the missing tiles' blocks set in strips of that many rows."""
     if download:
         WATER_MASK.download(grid, cache_dir, update, "water mask")
-    wbm = build_mosaic(WATER_MASK.files(grid, cache_dir), grid, out_path, "water mask", categorical=True, rows=rows)
+    files = WATER_MASK.files(grid, cache_dir)
+    value = constant_category(files, grid)
+    if value is None:
+        wbm = build_mosaic(files, grid, out_path, "water mask", categorical=True, rows=rows)
+    else:
+        wbm = _constant_mosaic(out_path, grid, value, len(files), "water mask", rows)
     used_data.append(WATER_MASK.used(grid, cache_dir))
     tiles = WATER_MASK.tiles(grid)
     for tile, state in zip(tiles, cache.states(cache_dir, [WATER_MASK.tile_path(cache_dir, t) for t in tiles])):
@@ -93,6 +98,61 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
                     block = wbm[r0 + s0:r0 + s1, c0:c1]
                     block[block == NODATA] = OCEAN
     return np.asarray(wbm)
+
+
+# A lone raster of the water body mask that holds one category all around the grid gives every pixel
+# of its mosaic that category: build_mosaic reprojects it by the nearest pixel, each pixel of the grid
+# taking a pixel of the window read for its strip (the strip's box with three of the raster's pixels
+# around it), so the reprojection can be left out (constant_category, _constant_mosaic). This many of
+# the raster's pixels around the grid's box keep its whole footprint inside the raster with room for the
+# windows' rounding (a pixel) and GDAL's approximate transformer (an eighth of a pixel); a window that
+# would reach beyond the raster is not taken (a degree tile's edge, the next tile).
+CONSTANT_MARGIN = 5
+
+
+def constant_category(files: List[str], grid: Grid) -> Optional[int]:
+    """The category every pixel of the grid's categorical mosaic of files gets when that is one value
+    (build_mosaic(categorical=True)): a single raster whose window over the grid's box, CONSTANT_MARGIN
+    of its pixels around it, lies inside it, holds no nodata and one whole number; None otherwise (two
+    rasters, an edge, a lake or a river under part of the grid: the mosaic is built). A tile of the water body
+    mask over dry land holds 0 there (tests/test_filling.py::test_constant_water_mask_as_built)."""
+    import rasterio as rio
+    from rasterio.windows import from_bounds
+
+    if len(files) != 1:
+        return None
+    with rio.open(files[0]) as src:
+        crs = src.crs or rio.crs.CRS.from_user_input(grid.crs)
+        left, bottom, right, top = transform_bounds(grid.crs, crs, *grid.bounds)
+        m = CONSTANT_MARGIN * max(abs(src.res[0]), abs(src.res[1]))
+        window = from_bounds(left - m, bottom - m, right + m, top + m, src.transform)
+        if window.col_off < 0 or window.row_off < 0 or window.col_off + window.width > src.width \
+                or window.row_off + window.height > src.height:
+            return None
+        band = src.read(1, window=window.round_offsets().round_lengths(), masked=True)
+    if np.ma.count_masked(band):
+        return None
+    values = np.ma.getdata(band)
+    first = values.flat[0]
+    if not (values == first).all() or not float(first).is_integer() or not 0 <= first <= NODATA:
+        return None
+    return int(first)
+
+
+def _constant_mosaic(out_path: str, grid: Grid, value: int, files: int, label: str,
+                     rows: Optional[int]) -> np.ndarray:
+    """build_mosaic's categorical mosaic when its raster gives every pixel `value` (constant_category):
+    the same array and bar, without the reprojection; the pages of a new grid of 0 are never written."""
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8, shape=(grid.height, grid.width))
+    progress.compute.start(f"stitching {label}", files, unit="tile")
+    progress.compute.update(files)
+    if value:
+        for r0, r1, _, _ in strips(grid.height, rows or grid.height):
+            mosaic[r0:r1] = value
+    flush_grid(mosaic)
+    progress.compute.finish()
+    return mosaic
 
 
 def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
@@ -434,7 +494,10 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     """fill_water in strips of rows (its values): the sea and the lake mask strip by strip, the
     lakes' labels over the whole grid (none without a lake to fill), each lake's level from its own
     box as before, the water with data strip by strip. Masks start all False: a strip with nothing
-    to mark is not written (a tile of the country layer without water writes neither)."""
+    to mark is not written (a tile of the country layer without water writes neither). A dry strip,
+    no sea zone in it and no lake within SHORE_BUFFER of it, has nothing to fill and no water with
+    data: it is left out of both passes, its elevation never read (the values are the same:
+    tests/test_units.py::test_fill_water_rows_dry_strips)."""
     from scipy import ndimage
 
     elevation = np.load(elevation_path, mmap_mode="r+")
@@ -449,12 +512,19 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     size = 2 * n + 1
     sea_px = 0
     any_lake = False
+    wet = set()  # the strips (r0) that are not dry
     for r0, r1, h0, h1 in strips(shape[0], rows, n):
-        empty = np.isnan(elevation[r0:r1])
-        sea_fill = empty & np.asarray(sea_zone[r0:r1], dtype=bool)
+        zone = np.asarray(sea_zone[r0:r1], dtype=bool)
         # near(wbm == LAKE, SHORE_BUFFER) of the strip from the rows within n of it (near_rows)
         shore = np.asarray(wbm[h0:h1]) == LAKE
-        if shore.any():
+        lakes = shore.any()
+        if not lakes and not zone.any():
+            continue  # a dry strip: no sea to fill, no lake's shore (sea_fill and here would be all False)
+        wet.add(r0)
+        empty = np.isnan(elevation[r0:r1])
+        sea_fill = empty & zone
+        del zone
+        if lakes:
             shore = ndimage.maximum_filter1d(shore, size, axis=0, mode="constant", cval=0)[r0 - h0:r1 - h0]
             shore = ndimage.maximum_filter1d(shore, size, axis=1, mode="constant", cval=0)
             here = empty & shore & ~sea_fill
@@ -503,6 +573,8 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     labels = None
     bare = new_mask(bare_path, shape) if bare_path else None
     for r0, r1, _, _ in strips(shape[0], rows):
+        if r0 not in wet:
+            continue  # nothing filled there (a lake's pixels lie in the strips that found it) and no water with data
         if bare is not None:
             bare[r0:r1] = water[r0:r1]  # what was filled: the sea and the lakes without data
         # Water that the elevation data covers (as fill_water: the pixels filled are in water already)
