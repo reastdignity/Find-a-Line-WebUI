@@ -57,17 +57,17 @@ EDGES = {             # the edges of the 3-bit dimensions (KINDS: how they are b
     "wall": (0, 30, 45, 60, 90),        # of the steeper anchor: np.maximum(angle1, angle2)
     "clearance": (0, 2, 5, 10, 20),     # "clearance" over the terrain
     "height": (0, 10, 20, 50, 100),     # "height_max" of the webbing over the terrain
-    # word B: working values of the contract (docs/country-precompute/contract.md, "The key v2"),
-    # to be chosen by the user on the measurement of wave A
+    # word B: measured by wave A on 58 tiles of Slovakia's layer bands (round 2's recommendation) and chosen by
+    # the user on 2026-11-08 (docs/country-precompute/contract.md, "The key v2")
     "water_m": (0, 5, 20, 50, 100),          # "water_px" × the resolution
-    "elevation_low": (0, 500, 1000, 1500, 2000),   # np.minimum(elev_a1, elev_a2)
-    "elevation_high": (0, 500, 1000, 1500, 2000),  # np.maximum(elev_a1, elev_a2)
-    "height_mean": (0, 10, 20, 50, 100),     # "height_mean" of the webbing over the terrain
+    "elevation_low": (0, 500, 1000, 2000, 3000),   # np.minimum(elev_a1, elev_a2)
+    "elevation_high": (0, 500, 1000, 2000, 3000),  # np.maximum(elev_a1, elev_a2)
+    "height_mean": (0, 20, 50, 100, 200),    # "height_mean" of the webbing over the terrain
     "prominence_high": (0, 5, 10, 20, 50),   # of the stronger anchor: np.maximum(prom1, prom2)
-    "drop": (0, 20, 50, 100, 200),           # below both anchors: np.minimum(drop1, drop2)
-    "high_pct": (0, 25, 50, 75, 90),         # "high_pct"
-    "height_diff": (0, 5, 10, 20, 50),       # |elev_a1 - elev_a2|
-    "clearance_trees": (0, 2, 5, 10, 20),    # "clearance_nmpt" (NaN without a surface model)
+    "drop": (0, 40, 60, 80, 100),            # below both anchors: np.minimum(drop1, drop2)
+    "high_pct": (0, 75, 90, 95, 98),         # "high_pct"
+    "height_diff": (0, 2, 5, 10, 25),        # |elev_a1 - elev_a2|
+    "clearance_trees": (0, 1, 2, 5, 10),     # "clearance_nmpt" (NaN without a surface model)
     "lift_needed": (0, 0.5, 1, 1.5, 2),      # "lift_needed" (absent without the options)
     "lift_no_zone": (0, 0.5, 1, 1.5, 2),     # "lift_no_zone"
 }

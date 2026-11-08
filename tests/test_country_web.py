@@ -255,8 +255,8 @@ QUERIES = (({"bbox": VIEW, "level": "auto"}, None, cc.Filters(replaced=REPLACED)
             cc.Filters(length=(60, 1000), prominence=10, wall=60, water="land", replaced=REPLACED)),
            ({"bbox": VIEW, "level": "8", "height": "50", "clearance": "5", "border": "own"}, 8,
             cc.Filters(height=50, clearance=5, border="own")),
-           ({"bbox": VIEW, "level": "1", "drop": "50", "elevation_low": "1000", "height_diff": "20"}, 1,
-            cc.Filters(drop=50, elevation_low=1000, height_diff=20, replaced=REPLACED)))
+           ({"bbox": VIEW, "level": "1", "drop": "60", "elevation_low": "1000", "height_diff": "10"}, 1,
+            cc.Filters(drop=60, elevation_low=1000, height_diff=10, replaced=REPLACED)))
 
 
 def test_cells_as_the_cube_gives_them(client, sample):

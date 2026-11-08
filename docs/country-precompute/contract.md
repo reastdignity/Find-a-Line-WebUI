@@ -808,24 +808,30 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 | A 30-45 | cell row `j` (16 bits, from the origin) |
 | A 46-61 | cell column `i` (16 bits) |
 | B 0-2 | metres over water: `water_px × res`, edges (0, 5, 20, 50, 100) |
-| B 3-5 | height of the lower anchor: `min(elev_a1, elev_a2)`, edges (0, 500, 1000, 1500, 2000) |
+| B 3-5 | height of the lower anchor: `min(elev_a1, elev_a2)`, edges (0, 500, 1000, 2000, 3000) |
 | B 6-8 | height of the upper anchor: `max(elev_a1, elev_a2)`, the same edges |
-| B 9-11 | mean height of the webbing: `height_mean`, edges (0, 10, 20, 50, 100) |
+| B 9-11 | mean height of the webbing: `height_mean`, edges (0, 20, 50, 100, 200) |
 | B 12-14 | prominence of the stronger anchor: `max(prom1, prom2)`, edges (0, 5, 10, 20, 50) |
-| B 15-17 | drop below both anchors: `min(drop1, drop2)`, edges (0, 20, 50, 100, 200) |
-| B 18-20 | share of the line high above the terrain: `high_pct`, edges (0, 25, 50, 75, 90) |
-| B 21-23 | height difference of the anchors: `|elev_a1 - elev_a2|`, edges (0, 5, 10, 20, 50) |
-| B 24-26 | clearance over trees and buildings: `clearance_nmpt`, edges as the clearance's; UNKNOWN without a surface model |
+| B 15-17 | drop below both anchors: `min(drop1, drop2)`, edges (0, 40, 60, 80, 100) |
+| B 18-20 | share of the line high above the terrain: `high_pct`, edges (0, 75, 90, 95, 98) |
+| B 21-23 | height difference of the anchors: `|elev_a1 - elev_a2|`, edges (0, 2, 5, 10, 25) |
+| B 24-26 | clearance over trees and buildings: `clearance_nmpt`, edges (0, 1, 2, 5, 10); UNKNOWN without a surface model |
 | B 27-29 | A-frame needed with the no-fall zone: `lift_needed` (the smallest lift at both ends that validates the line with the country's `end_zone`), edges (0, 0.5, 1, 1.5, 2); a ceiling (a filter "needs at most h"); bin 0 is a line that stands without A-frames; UNKNOWN for a country counted without the options |
 | B 30-32 | A-frame needed without the zone: `lift_no_zone`, the same edges; a line of a bin above the last edge needs the zone whatever the A-frame |
 | B 33-62 | reserved (0) |
 
-- The edges of word B are **working values**: those the measurement of 2026-11-05 used to count the
-  keys' growth (`local/country-perf-2026-11-04/cube-params/`, section 6.3's table: the cube about
-  152 MB of arrays with all eight, 229 MB with the wider key, est.), not chosen ones. Section 6.3
-  asks for edges from a measurement and the growth checked on a second country: wave A measures the
-  edges on Slovakia's tiles (the keys per edge set, the bins' shares) and proposes them to the user
-  before the recount; a change of an edge is a change of this table.
+- The edges of word B are **chosen** (the user, 2026-11-08): wave A's recommendation of its second round
+  (`local/country-perf-2026-11-07/stage3/A/sk-r2/analysis.md`), measured on 58 tiles of Slovakia's layer
+  bands (185 M lines) for each bin's share of the lines and spots and the keys each set adds; the
+  measurement of 2026-11-05 (section 6.3's table) had used working values (the lower anchor's and the
+  upper anchor's heights 0, 500, 1000, 1500, 2000; the mean height 0, 10, 20, 50, 100; the drop 0, 20,
+  50, 100, 200; the high share 0, 25, 50, 75, 90; the height difference 0, 5, 10, 20, 50; the
+  clearance over trees as the clearance's), which left bins empty or overfull. The sample's arrays at
+  all levels: 91.9 MB at these edges against 40.3 MB at the working values (24 B a row); Slovakia's
+  cube about 775 MB (*est.*: that ratio applied to the working values' about 340 MB, without the
+  growth of the clearance over trees and of the A-frame fields, which the sample did not hold). The
+  growth is still to be checked on a second country. A change of an edge is a change of this table
+  and a recount.
 - `merge_spots` on word B, as section 6.3's rule (a filter passes when some line of the spot does):
   a floor's field (metres over water, the lower anchor's height, the mean height, the stronger
   prominence, the drop, the high share, the clearance over trees) takes the largest bin, a ceiling's

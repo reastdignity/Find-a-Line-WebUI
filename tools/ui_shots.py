@@ -150,8 +150,8 @@ PAGES = {
     "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
     "c-layer-collapsed": ("c", "#layer", None),   # the left panel collapsed to its rail (LAYER_LAYOUTS)
     # two filters of the fold "More filters" set: the closed fold names them as chips; opened
-    "c-layer-chips": ("c", "#layer&drop=50&elevation_low=1000", "js:" + FOLD_SHOWN),
-    "c-layer-fold": ("c", "#layer&drop=50&elevation_low=1000", [".c-layer-more > summary", "js:" + FOLD_SHOWN]),
+    "c-layer-chips": ("c", "#layer&drop=60&elevation_low=1000", "js:" + FOLD_SHOWN),
+    "c-layer-fold": ("c", "#layer&drop=60&elevation_low=1000", [".c-layer-more > summary", "js:" + FOLD_SHOWN]),
     # a cell the border cuts selected at the map's centre (its part inside the country), the card and the notes in view
     "c-layer-border": ("c", "{border}", ["js:" + CELL_AT_CENTRE, "wait:document.querySelector('.c-layer-search-hint')",
                                          "js:" + BORDER_CARD_SHOWN]),

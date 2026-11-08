@@ -136,9 +136,9 @@ export function Gallery() {
 
 const KIT_EDGES: CountryCube["edges"] = {
   length: [30, 60, 100, 150, 300, 600, 1000, 2000, 3000, 5000], prominence: [0, 5, 10, 20, 50], wall: [0, 30, 45, 60, 90],
-  clearance: [0, 2, 5, 10, 20], height: [0, 10, 20, 50, 100], water_m: [0, 5, 20, 50, 100], elevation_low: [0, 500, 1000, 1500, 2000],
-  elevation_high: [0, 500, 1000, 1500, 2000], height_mean: [0, 10, 20, 50, 100], prominence_high: [0, 5, 10, 20, 50],
-  drop: [0, 20, 50, 100, 200], high_pct: [0, 25, 50, 75, 90], height_diff: [0, 5, 10, 20, 50], clearance_trees: [0, 2, 5, 10, 20],
+  clearance: [0, 2, 5, 10, 20], height: [0, 10, 20, 50, 100], water_m: [0, 5, 20, 50, 100], elevation_low: [0, 500, 1000, 2000, 3000],
+  elevation_high: [0, 500, 1000, 2000, 3000], height_mean: [0, 20, 50, 100, 200], prominence_high: [0, 5, 10, 20, 50],
+  drop: [0, 40, 60, 80, 100], high_pct: [0, 75, 90, 95, 98], height_diff: [0, 2, 5, 10, 25], clearance_trees: [0, 1, 2, 5, 10],
   lift_needed: [0, 0.5, 1, 1.5, 2], lift_no_zone: [0, 0.5, 1, 1.5, 2]};
 const KIT_KINDS: CountryCube["kinds"] = {
   prominence: "floor", wall: "below", clearance: "floor", height: "floor", water_m: "floor", elevation_low: "floor",

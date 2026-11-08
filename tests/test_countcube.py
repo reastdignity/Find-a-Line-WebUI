@@ -49,12 +49,12 @@ def _lines(rng, grid, n, max_px=600, nan_share=0.1, lengths=(20, 5200), lifts=Tr
         c[name] = rng.uniform(-5, 120, n)
     c["length"] = rng.uniform(*lengths, n)
     c["angle1"], c["angle2"] = rng.uniform(0, 95, n), rng.uniform(0, 95, n)  # never below the first edge
-    c["elev_a1"], c["elev_a2"] = rng.uniform(-20, 2600, n), rng.uniform(-20, 2600, n)
+    c["elev_a1"], c["elev_a2"] = rng.uniform(-20, 3200, n), rng.uniform(-20, 3200, n)  # beyond the top edges
     near = rng.random(n) < 0.4  # anchors of about one height, so the height difference's bins fill
     c["elev_a2"][near] = c["elev_a1"][near] + rng.uniform(-60, 60, near.sum())
     c["drop1"], c["drop2"] = rng.uniform(0, 300, n), rng.uniform(0, 300, n)
     c["high_pct"] = rng.uniform(0, 100, n)
-    c["height_mean"] = rng.uniform(0, 150, n)
+    c["height_mean"] = rng.uniform(0, 250, n)
     edges = np.array([e for v in cc.EDGES.values() for e in v], dtype=float)
     for name in ("prom1", "prom2", "clearance", "clearance_nmpt", "height_max", "height_mean", "high_pct",
                  "angle1", "angle2", "drop1", "drop2", "elev_a1", "elev_a2"):
@@ -694,11 +694,11 @@ def test_select_against_the_values():
 def test_filters_parse():
     f = cc.Filters.parse({"length": "60-1000", "prominence": "10", "wall": "45", "clearance": "2", "height": "",
                           "trees": "no", "water": "land", "mode": "spots", "bbox": "1,2,3,4", "water_m": "20",
-                          "elevation_low": "500", "elevation_high": "2000", "height_mean": "10",
+                          "elevation_low": "500", "elevation_high": "2000", "height_mean": "20",
                           "prominence_high": "50", "drop": "100", "high_pct": "75", "height_diff": "5",
                           "clearance_trees": "5", "lift_needed": "0", "lift_no_zone": "1.5"})
     assert f == cc.Filters(length=(60, 1000), prominence=10, wall=45, clearance=2, trees="no", water="land",
-                           water_m=20, elevation_low=500, elevation_high=2000, height_mean=10, prominence_high=50,
+                           water_m=20, elevation_low=500, elevation_high=2000, height_mean=20, prominence_high=50,
                            drop=100, high_pct=75, height_diff=5, clearance_trees=5, lift_needed=0, lift_no_zone=1.5)
     assert cc.Filters.parse({}) == cc.Filters()
     assert not any(cc.Filters().active(name) for name in cc.KINDS)
