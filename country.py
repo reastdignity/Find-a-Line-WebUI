@@ -2,7 +2,7 @@
 The country layer's driver (docs/country-precompute/contract.md, section 3): a whole country
 searched offline in fixed tiles that keep only counts (countcube.py), then summed into its cube.
 
-    findaline.py country run <id> [--processes K] [--bands S,M,L,M2] [--max-tiles N] [--redo] [--yes]
+    findaline.py country run <id> [--processes K] [--bands S,M,L,M2] [--max-tiles N] [--group K] [--redo] [--yes]
     findaline.py country status <id>
     findaline.py country profile <id>
     findaline.py country build <id> [--partial]
@@ -11,15 +11,17 @@ searched offline in fixed tiles that keep only counts (countcube.py), then summe
 
 Lines are searched in length bands (Band), each on its own grid and in its own fixed tiles
 (search.fixed_tiles): a tile's plan is its band's (search.plan_search(tiled=False) of the
-country's outline) on the tile's grid, step 1 as a search's (search.prepare_data), steps 2 and 3
-in count mode (search.count_tile) into a countcube.TileCounter, the counts saved per tile
-(countcube.save_tile). A tile is the unit of work and of resuming: the manifest (manifest.sqlite,
-one row per band and tile) says which are pending, running, done or failed; `run` starts worker
-processes that claim tiles from it one at a time, so an interrupted run goes on where it stopped,
-and the results never depend on the number of processes or on resuming.
+country's outline) on the tile's grid, step 1 as a search's (search.prepare_data) once per group
+of GROUP x GROUP tiles on the grid of the group's cores (each tile counted on its window of it),
+steps 2 and 3 in count mode (search.count_tile) into a countcube.TileCounter, the counts saved per
+tile (countcube.save_tile). A tile is the unit of the counts and of resuming: the manifest
+(manifest.sqlite, one row per band and tile, with its group) says which are pending, running, done
+or failed; `run` starts worker processes that claim a group's pending tiles at a time, so an
+interrupted run goes on where it stopped, and the results never depend on the number of processes
+or on resuming (a group's grid is that of all its tiles, whatever is pending).
 
 Data (all under <data>/countries/<id>/, nothing else of the data folder changes but the cache and
-the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
+the work folders <data>/work/country-<id>/<band>-<tile or group>[.tile|.ready]/):
     country.json   the configuration (Country as JSON), the sha256 of the outline and of both
                    (the config hash every tile file records), the CRS and the cube's origin
     area.geojson   the outline (WGS84), fetched once (osm:<name> through Nominatim)
