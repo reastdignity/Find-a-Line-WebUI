@@ -104,6 +104,26 @@ def test_first_failure_stops_unless_asked(tmp_path):
     assert seen == [(layer, [2], "tile 2 cannot be read")]
 
 
+def test_the_prune_runs_after_a_stop(tmp_path):
+    """What on_error raises ends the pool, but the layers' `downloaded` (the older surveys of the tiles that came
+    are deleted) runs first; the tiles not started are not downloaded; another error skips it as before."""
+    class Pruning(FakeLayer):
+        pruned = 0
+
+        def downloaded(self, grid, cache_dir):
+            Pruning.pruned += 1
+    layer = Pruning(40, bad=[3])
+
+    def stop(failed, tiles, error):
+        raise ad.Stop("enough")
+    with pytest.raises(ad.Stop, match="enough"):
+        src.download_layers([(layer, "terrain")], _grid(), str(tmp_path / "a"), on_error=stop)
+    assert Pruning.pruned == 1 and len(layer.fetched) < 40
+    with pytest.raises(RuntimeError, match="cannot be read"):
+        src.download_layers([(Pruning(5, bad=[2]), "terrain")], _grid(), str(tmp_path / "b"))
+    assert Pruning.pruned == 1
+
+
 def test_pass_to_its_end(setup):
     """Everything downloaded: the state says done, with the tiles and MB, and a second pass fetches nothing."""
     layer = FakeLayer(6)
@@ -310,8 +330,8 @@ def test_a_stand_in_source_is_downloaded_too(setup, monkeypatch):
     area = setup(first)
 
     def plan(layer, source, instead):
-        return SimpleNamespace(layers=[layer], grid=_grid(), source=SimpleNamespace(id=source, instead_without_data=instead),
-                               paths=SimpleNamespace(cache=os.path.join(area.data_dir, "cache")))
+        return SimpleNamespace(layers=[layer], grid=_grid(), paths=SimpleNamespace(cache=os.path.join(area.data_dir, "cache")),
+                               source=SimpleNamespace(id=source, instead_without_data=instead))
     plans = {"fake": plan(first, "fake", "fake_ifsar"), "fake_ifsar": plan(second, "fake_ifsar", None)}
     monkeypatch.setattr(ad, "plan_of", lambda a: plans[a.source])
     assert [p.source.id for p in ad.plans_of(area)] == ["fake", "fake_ifsar"]

@@ -469,7 +469,8 @@ def run_pass(area: Area, number: int) -> int:
                 # 0.5 m, 20 km at 2 m): PREFETCH_GROUP_M is sized for 1 m data, and at 0.5 m (Luxembourg's float64
                 # national COG) groups of 10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB
                 # on a server of 62 GB without swap (Luxembourg 11 kills, Scotland 7, New Zealand 6, Wales 2;
-                # 2026-11-07). reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does
+                # 2026-11-07). reencode_cached False: a pass reads no tile, so those in the old encoding wait for
+                # what does
                 src.download_layers(list(zip(plan.layers, plan_labels)), plan.grid, cache_dir, None,
                                     group_m=country.PREFETCH_GROUP_M * area.resolution, on_error=failures,
                                     reencode_cached=False)
@@ -479,7 +480,8 @@ def run_pass(area: Area, number: int) -> int:
             if failures.tiles:
                 code = EXIT_FAILED
             elif missing == reporter.tiles_total:
-                raise Stop(f"all {missing:,} tiles without data: the source has nothing under the outline", EXIT_NOTHING)
+                raise Stop(f"all {missing:,} tiles without data: the source has nothing under the outline",
+                           EXIT_NOTHING)
             else:
                 print(f"{_remove_parts(plans)} temporary files of earlier passes removed", flush=True)
                 reporter.state["stage"] = "done"
