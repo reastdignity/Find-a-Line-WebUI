@@ -575,11 +575,14 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
     """Passes (`command` with the pass's number after it) until one finds nothing left, the area turns out to need
     attention or the stop file comes. Exit: 0 done or stopped, 1 running already, 2 needs attention.
 
-    A pass over its memory budget (EXIT_RESTART) is started again at once; any other pass that did not finish is
-    followed by another after retry_seconds. Attention: an area without data (EXIT_NOTHING); the same tiles failing
-    (EXIT_FAILED), a pass giving up with the same message (EXIT_STOPPED: Slovenia looped 37 passes on "50 failures
-    in a row", Denmark 13 on a missing key) or a crash (any other code) ending on the same line of the log, each
-    ATTENTION_PASSES passes in a row; a restart neither counts nor breaks such a row."""
+    A pass over its memory budget (EXIT_RESTART) is started again at once when it made progress (the state's tiles
+    or MB grew since the pass before, or it was the first pass); without progress the next pass waits retry_seconds
+    like any other, and ATTENTION_PASSES such restarts in a row end the area (a budget too small for a group, or a
+    pass over it before its first tile, would otherwise list everything again in a hot loop). Any other pass that
+    did not finish is followed by another after retry_seconds. Attention: an area without data (EXIT_NOTHING); the
+    same tiles failing (EXIT_FAILED), a pass giving up with the same message (EXIT_STOPPED: Slovenia looped 37
+    passes on "50 failures in a row", Denmark 13 on a missing key) or a crash (any other code) ending on the same
+    line of the log, each ATTENTION_PASSES passes in a row; a restart neither counts nor breaks such a row."""
     os.makedirs(area.state_dir, exist_ok=True)
     lock = FileLock(area.file(".lock"))
     try:
@@ -596,6 +599,7 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
         env.setdefault("GDAL_CACHEMAX", str(GDAL_CACHEMAX_MB))
         ended, same, number = None, 0, 0   # how the last pass ended, and how many ended that way in a row
         restarts = read_state(area.state_dir, area.name).get("restarts", 0)
+        reached, stuck = None, 0   # (tiles, MB) at the last pass's end; restarts without progress in a row
         with open(area.file(".log"), "a", encoding="utf-8") as log:
             while True:
                 number += 1
@@ -615,10 +619,29 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
                     return 0
                 state = read_state(area.state_dir, area.name)
                 message = state.get("message", "") or f"pass {number} ended with {code}"
+                now_reached = (state.get("tiles_done", 0), state.get("mb", 0.0))
+                progressed = reached is None or now_reached[0] > reached[0] or now_reached[1] > reached[1]
+                reached = now_reached
                 if code == EXIT_RESTART:
                     restarts += 1
-                    _say(log, f"started again at once ({restarts} restarts): {message}")
+                    if progressed:
+                        stuck = 0
+                        _say(log, f"started again at once ({restarts} restarts): {message}")
+                        _set_stage(area, "waiting", message, restarts=restarts)
+                        continue
+                    stuck += 1
+                    _say(log, f"restart without progress ({stuck} in a row, {restarts} restarts): {message}")
+                    if stuck >= ATTENTION_PASSES:
+                        text = (f"the memory budget of {area.max_memory_gb:g} GB is too small for this area: "
+                                "raise --max-memory-gb")
+                        _say(log, f"needs attention: {text}")
+                        _set_stage(area, "needs attention", text, restarts=restarts)
+                        return 2
                     _set_stage(area, "waiting", message, restarts=restarts)
+                    if not _wait_or_stop(area, retry_seconds):
+                        _say(log, "stopped by hand")
+                        _set_stage(area, "stopped", "stopped by hand: `run` resumes")
+                        return 0
                     continue
                 if code == EXIT_NOTHING:
                     _say(log, f"needs attention: {message}")

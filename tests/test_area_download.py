@@ -457,22 +457,51 @@ def test_supervisor_needs_attention_for_the_same_tiles(tmp_path):
     assert ad.supervise(area, command, retry_seconds=0.01) == 0
 
 
-def test_supervisor_starts_a_pass_over_its_budget_again_at_once(tmp_path):
-    """EXIT_RESTART: no retry wait, the restarts counted in the state; they never count towards attention."""
-    area = _area(tmp_path)
+def _restarting_pass(tmp_path, area, tiles, last):
+    """A pass over its budget: the state as the Reporter leaves it (the restarts before carried over), its tiles
+    done from `tiles` (a Python expression of `number`), exit 5 until pass `last` exits 0."""
     state = area.file(".state.json")
-    command = _pass(tmp_path, f"import os\nstate = {state!r}\n"  # as the Reporter: the restarts before are carried over
-                              "before = json.load(open(state)) if os.path.exists(state) else {}\n"
-                              "json.dump({'name': 'land', 'stage': 'downloading', 'message': 'memory 9.0 GB over "
-                              "the budget of 8 GB, the pass is started again', 'restarts': before.get('restarts', 0)}, "
-                              "open(state, 'w'))\n"
-                              "sys.exit(0 if number == 4 else 5)\n")
+    return _pass(tmp_path, f"import os\nstate = {state!r}\n"
+                           "before = json.load(open(state)) if os.path.exists(state) else {}\n"
+                           "json.dump({'name': 'land', 'stage': 'downloading', 'message': 'memory 9.0 GB over "
+                           f"the budget of 8 GB, the pass is started again', 'tiles_done': {tiles}, "
+                           "'tiles_total': 100, 'mb': 5.0, 'restarts': before.get('restarts', 0)}, open(state, 'w'))\n"
+                           f"sys.exit(0 if number == {last} else 5)\n")
+
+
+def test_supervisor_starts_a_pass_over_its_budget_again_at_once(tmp_path):
+    """EXIT_RESTART after progress: no retry wait, the restarts counted in the state, never attention."""
+    area = _area(tmp_path)
     started = time.monotonic()
-    assert ad.supervise(area, command, retry_seconds=30) == 0
+    assert ad.supervise(area, _restarting_pass(tmp_path, area, "10 * number", 5), retry_seconds=30) == 0
     assert time.monotonic() - started < 25
-    assert ad.read_state(area.state_dir, "land")["restarts"] == 3
+    assert ad.read_state(area.state_dir, "land")["restarts"] == 4
     log = open(area.file(".log"), encoding="utf-8").read()
-    assert "started again at once (3 restarts)" in log
+    assert "started again at once (4 restarts)" in log and "without progress" not in log
+
+
+def test_restarts_without_progress_wait_and_end_as_attention(tmp_path):
+    """A budget too small for one group (or a pass over it before its first tile): the pass would list everything
+    again in a hot loop. The first pass restarts at once; without progress the next waits, and three such restarts
+    in a row end the area; progress between them resets the count."""
+    area = dataclasses.replace(_area(tmp_path), max_memory_gb=8)
+    assert ad.supervise(area, _restarting_pass(tmp_path, area, "10", 99), retry_seconds=0.01) == 2
+    state = ad.read_state(area.state_dir, "land")
+    assert state["stage"] == "needs attention" and state["restarts"] == 4
+    assert state["message"] == "the memory budget of 8 GB is too small for this area: raise --max-memory-gb"
+    log = open(area.file(".log"), encoding="utf-8").read()
+    assert "pass 4 ended with 5" in log and "pass 5 starts" not in log
+    assert "restart without progress (3 in a row, 4 restarts)" in log
+    # progress on every other pass: never three in a row without it
+    (tmp_path / "b").mkdir()
+    area = dataclasses.replace(_area(tmp_path / "b"), max_memory_gb=8)
+    command = _restarting_pass(tmp_path / "b", area, "10 * (number // 2)", 8)
+    assert ad.supervise(area, command, retry_seconds=0.01) == 0
+    state = ad.read_state(area.state_dir, "land")
+    assert state["restarts"] == 7 and state["stage"] == "downloading"
+    log = open(area.file(".log"), encoding="utf-8").read()
+    assert "needs attention" not in log and "restart without progress (1 in a row" in log
+    assert "restart without progress (2 in a row" not in log
 
 
 def test_supervisor_needs_attention_for_the_same_stop(tmp_path):
