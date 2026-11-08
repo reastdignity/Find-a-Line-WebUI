@@ -27,10 +27,12 @@ The requests go out as those of a search (cache.http_headers); FINDALINE_CONTACT
 import argparse
 import contextlib
 import csv
+import dataclasses
 import glob
 import html
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -50,7 +52,9 @@ import cache  # noqa: E402
 
 EXIT_DONE = 0      # a pass with nothing left to download
 EXIT_FAILED = 3    # a pass to its end, with tiles that failed (<name>.failed.json)
-EXIT_STOPPED = 4   # a pass that gave up: the index could not be reached, the failures in a row, the disk
+EXIT_STOPPED = 4   # a pass that gave up: the plan, the index could not be reached, the failures in a row, the disk
+EXIT_RESTART = 5   # a pass over its memory budget: the supervisor starts the next one at once
+EXIT_NOTHING = 6   # an area without data: no tile under the outline, or every tile without data (needs attention)
 RETRY_SECONDS = 600
 POLL_SECONDS = 2
 STATE_SECONDS = 10
@@ -66,7 +70,9 @@ REPLACE_ATTEMPTS = 5
 CHART_POINTS = 120
 PART_AGE_SECONDS = 86400    # .part files of killed passes are removed at the end, older than this
 GDAL_CACHEMAX_MB = 512      # GDAL's block cache of a pass (supervise), unless the environment sets GDAL_CACHEMAX
+LOG_TAIL_BYTES = 65536      # what the supervisor reads of the log for a crashed pass's last line
 FINISHED = ("done", "stopped", "needs attention")
+NO_CONTACT = "no contact in the User-Agent: set the contact in the settings or export FINDALINE_CONTACT"
 
 
 @dataclass(frozen=True)
@@ -80,6 +86,7 @@ class Area:
     state_dir: str
     host_slots: Tuple[Tuple[str, int], ...] = ()
     min_free_gb: float = FREE_GB_MIN
+    max_memory_gb: float = 0.0   # a pass over it is started again (EXIT_RESTART); 0: no budget
 
     def file(self, suffix: str) -> str:
         return state_file(self.state_dir, self.name, suffix)
@@ -119,8 +126,19 @@ def write_state(state_dir: str, name: str, state: Dict):
             time.sleep(0.1 * (attempt + 1))
 
 
+def memory_gb() -> float:
+    """The resident memory of this process in GB: what the budget of a pass is measured on."""
+    return psutil.Process().memory_info().rss / 1e9
+
+
+def default_max_memory_gb() -> float:
+    """A quarter of the machine's memory: several areas download at once, and GDAL's cache comes on top."""
+    return round(psutil.virtual_memory().total / 4e9, 1)
+
+
 def read_history(state_dir: str, name: str) -> List[Tuple[float, float, float]]:
-    """(seconds, tiles done, MB) of <name>.history.csv."""
+    """(seconds, tiles done, MB) of <name>.history.csv; its fourth column (the pass's memory in GB, since
+    2026-11-08) is for reading by hand, and rows without it are read as before."""
     rows = []
     try:
         with open(state_file(state_dir, name, ".history.csv"), encoding="utf-8", newline="") as f:
@@ -135,7 +153,12 @@ def read_history(state_dir: str, name: str) -> List[Tuple[float, float, float]]:
 # --- a pass ------------------------------------------------------------------------------------------------------
 
 class Stop(Exception):
-    """The pass cannot go on for now: the text says why."""
+    """The pass cannot go on for now: the text says why, `code` how it ends (EXIT_STOPPED; EXIT_RESTART for a pass
+    over its memory budget, started again at once; EXIT_NOTHING for an area without data)."""
+
+    def __init__(self, text: str, code: int = EXIT_STOPPED):
+        super().__init__(text)
+        self.code = code
 
 
 class Failures:
@@ -160,21 +183,26 @@ class Reporter:
     """The state of a pass: the listener of the progress bars (the tiles, the MB) and a thread writing it down
     while nothing else happens, as during the listing of a big index."""
 
-    def __init__(self, area: Area, number: int, plan, failures: Failures, clock=time.time):
-        self.area, self.plan, self.failures, self.clock = area, plan, failures, clock
+    def __init__(self, area: Area, number: int, plans: Sequence, failures: Failures, clock=time.time):
+        self.area, self.plans, self.failures, self.clock = area, list(plans), failures, clock
         before = read_state(area.state_dir, area.name)
         self.mb_before = before.get("mb", 0.0) if before.get("source") == area.source else 0.0
         self.tiles_total = self.tiles_cached = self.mb_pass = self.tiles_pass = 0
+        self.tiles_offset, self.mb_offset = 0, 0.0   # the tiles and MB of the plans downloaded before this one
         self.free_gb: Optional[float] = None
+        self.memory_gb = self.memory_peak_gb = 0.0
+        self.over_budget = False   # set by the beat, turned into a Stop by the next tile
         self.state = {"name": area.name, "area": area.area, "source": area.source, "resolution": area.resolution,
                       "stage": "listing", "pass": number, "pid": os.getpid(), "started": _now(), "message": "",
-                      "tiles_done": 0, "tiles_total": 0, "failed": 0, "mb": self.mb_before}
+                      "tiles_done": 0, "tiles_total": 0, "failed": 0, "mb": self.mb_before,
+                      "restarts": before.get("restarts", 0), "memory_gb": 0.0, "memory_peak_gb": 0.0}
         self.next_minute = 0.0
         self.lock = threading.Lock()  # the thread and the end of the pass both write
         self.quit = threading.Event()
         self.thread = threading.Thread(target=self._beat, daemon=True)
 
     def __enter__(self):
+        self.sample_memory()
         self.thread.start()
         return self
 
@@ -184,31 +212,44 @@ class Reporter:
 
     def _beat(self):
         while not self.quit.wait(STATE_SECONDS):
+            self.sample_memory()
             try:
                 self.write()
             except OSError as e:  # the next round tries again
                 print(f"The state was not written: {e}", flush=True)
+
+    def sample_memory(self):
+        """The process's memory now and its peak; over the budget the next tile stops the pass (EXIT_RESTART): a
+        group of a window layer holds its window whole, and a pass is cheap to start again."""
+        self.memory_gb = memory_gb()
+        self.memory_peak_gb = max(self.memory_peak_gb, self.memory_gb)
+        if self.area.max_memory_gb and self.memory_gb > self.area.max_memory_gb:
+            self.over_budget = True
 
     def _index_counts(self) -> Tuple[int, int]:
         """The index answers of 0.25° tiles there are (over the box of the grid, all layers), and how many."""
         import osm
         from rasterio.warp import transform_bounds
         from sources.indexes.cached import CachedIndex
-        grid = self.plan.grid
-        tiles = osm.tiles(*transform_bounds(grid.crs, "EPSG:4326", *grid.bounds))
         got = total = 0
-        for layer in self.plan.layers:
-            index = getattr(layer, "index", None)
-            if isinstance(index, CachedIndex) and tiles:
-                folder = os.path.dirname(index.index_path(self.plan.paths.cache, *tiles[0]))
-                got += len(glob.glob(os.path.join(folder, "*.json")))
-                total += len(tiles)
+        for plan in self.plans:
+            grid = plan.grid
+            tiles = osm.tiles(*transform_bounds(grid.crs, "EPSG:4326", *grid.bounds))
+            for layer in plan.layers:
+                index = getattr(layer, "index", None)
+                if isinstance(index, CachedIndex) and tiles:
+                    folder = os.path.dirname(index.index_path(plan.paths.cache, *tiles[0]))
+                    got += len(glob.glob(os.path.join(folder, "*.json")))
+                    total += len(tiles)
         return got, total
 
     def _free(self) -> Optional[float]:
-        """GB free where the tiles go; None when that cannot be asked (a share that is away)."""
+        """GB free where the tiles go; None when that cannot be asked (a share that is away), or before the plan."""
+        if not self.plans:
+            return None
         try:
-            folder = os.path.join(self.plan.paths.cache, self.plan.layers[0].folder)
+            plan = self.plans[0]
+            folder = os.path.join(plan.paths.cache, plan.layers[0].folder)
             os.makedirs(folder, exist_ok=True)
             return shutil.disk_usage(folder).free / 1e9
         except OSError:
@@ -219,10 +260,11 @@ class Reporter:
             state = self.state
             state["failed"] = len(self.failures.tiles)
             state["mb"] = self.mb_before + self.mb_pass
+            state["memory_gb"], state["memory_peak_gb"] = round(self.memory_gb, 2), round(self.memory_peak_gb, 2)
             if self.tiles_total:
                 state["tiles_total"] = self.tiles_total
                 state["tiles_done"] = self.tiles_cached + self.tiles_pass
-            elif state["stage"] == "listing":
+            elif state["stage"] == "listing" and self.plans:
                 state["index_done"], state["index_total"] = self._index_counts()
             now = self.clock()
             minute = now >= self.next_minute
@@ -232,18 +274,28 @@ class Reporter:
             write_state(self.area.state_dir, self.area.name, dict(state))
             if minute and self.tiles_total:
                 with open(self.area.file(".history.csv"), "a", encoding="utf-8", newline="") as f:
-                    csv.writer(f).writerow([round(now), state["tiles_done"], round(state["mb"], 1)])
+                    csv.writer(f).writerow([round(now), state["tiles_done"], round(state["mb"], 1),
+                                            round(self.memory_gb, 2)])
             if minute:
                 write_page(self.area.state_dir)
+
+    def next_plan(self):
+        """The tiles and MB downloaded so far stay counted while the next plan's bar starts from 0."""
+        self.tiles_offset, self.mb_offset = self.tiles_pass, self.mb_pass
 
     def __call__(self, bar: Dict):
         """A change of a progress bar (progress.subscribe), in the thread downloading."""
         if bar["bar"] != "Download" or bar["unit"] != "tile" or not bar["count"] or bar["done"]:
             return  # a finished bar stands at its total, with the tiles that failed
         self.failures.in_a_row = 0
-        self.tiles_pass = bar["count"]
+        self.tiles_pass = self.tiles_offset + bar["count"]
         with contextlib.suppress(KeyError, ValueError):
-            self.mb_pass = float(bar["extra"]["MB"])
+            self.mb_pass = self.mb_offset + float(bar["extra"]["MB"])
+        if self.state["message"] == NO_CONTACT:
+            self.state["message"] = ""   # shown until the first tile
+        if self.over_budget:
+            raise Stop(f"memory {self.memory_gb:.1f} GB over the budget of {self.area.max_memory_gb:g} GB, "
+                       "the pass is started again", EXIT_RESTART)
         if self.free_gb is not None and self.free_gb < self.area.min_free_gb:
             raise Stop(f"{self.free_gb:.0f} GB free where the tiles go, at least {self.area.min_free_gb:g} kept")
 
@@ -284,6 +336,27 @@ def plan_of(area: Area):
     return search.plan_search(params, search.Paths(area.data_dir, work), lambda kind, text: print(text), tiled=False)
 
 
+def plans_of(area: Area) -> List:
+    """The plan of the area's source and, where the catalogue names one, of its stand-in (Source.instead_without_data:
+    `alaska` has no 1 m data over most of Alaska, so a search there switches to `alaska_ifsar`, which choose_source
+    never does for a source given by name): both are downloaded, so a search anywhere in the area finds its data."""
+    plan = plan_of(area)
+    stand_in = getattr(getattr(plan, "source", None), "instead_without_data", None)
+    if not stand_in or stand_in == area.source:
+        return [plan]
+    return [plan, plan_of(dataclasses.replace(area, source=stand_in))]
+
+
+def _labels(area: Area, plans: Sequence) -> List[List[str]]:
+    """The labels of each plan's layers in the state: "terrain", "surface"; a stand-in's with its id."""
+    labels = []
+    for k, plan in enumerate(plans):
+        source = getattr(getattr(plan, "source", None), "id", area.source)
+        suffix = "" if k == 0 else f" ({source})"
+        labels.append([f"{kind}{suffix}" for kind, _ in zip(("terrain", "surface"), plan.layers)])
+    return labels
+
+
 def _set_host_slots(area: Area):
     """The connections this process opens to a host, also below what the app keeps for it. The threads beyond them
     would only wait, holding their tiles."""
@@ -293,67 +366,92 @@ def _set_host_slots(area: Area):
         src.layer.DOWNLOAD_THREADS = min(src.layer.DOWNLOAD_THREADS, *(n for _, n in area.host_slots))
 
 
-def _remove_parts(plan) -> int:
+def _remove_parts(plans: Sequence) -> int:
     """The temporary files of killed passes in the layers' folders."""
     removed = 0
     limit = time.time() - PART_AGE_SECONDS
-    for layer in plan.layers:
-        for folder, _, names in os.walk(os.path.join(plan.paths.cache, layer.folder)):
-            for name in names:
-                path = os.path.join(folder, name)
-                if name.endswith(".part") and os.path.getmtime(path) < limit:
-                    os.remove(path)
-                    removed += 1
+    for plan in plans:
+        for layer in plan.layers:
+            for folder, _, names in os.walk(os.path.join(plan.paths.cache, layer.folder)):
+                for name in names:
+                    path = os.path.join(folder, name)
+                    if name.endswith(".part") and os.path.getmtime(path) < limit:
+                        os.remove(path)
+                        removed += 1
     return removed
 
 
+def _planned(area: Area) -> List:
+    """plans_of, or a Stop with what went wrong (a source without its key, an outline Nominatim does not know):
+    the pass ends with the text in the state, not a traceback as its only trace."""
+    import search
+    try:
+        return plans_of(area)
+    except (search.SearchError, ValueError, RuntimeError, OSError) as e:
+        raise Stop(f"the download could not be planned: {cache.clean_error(e)}") from e
+
+
 def run_pass(area: Area, number: int) -> int:
-    """One pass over everything still missing: EXIT_DONE, EXIT_FAILED or EXIT_STOPPED."""
+    """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING."""
     import country
     import progress as bars
     import sources as src
     bars.TEXT_INTERVAL = PROGRESS_SECONDS
     print(f"=== pass {number} of {area.name}, {_now()}, {cache.http_headers()['User-Agent']} ===", flush=True)
-    _set_host_slots(area)
-    plan = plan_of(area)
-    cache_dir, grid = plan.paths.cache, plan.grid
+    cache_dir = os.path.join(area.data_dir, "cache")  # search.Paths(area.data_dir, ...).cache
     failures = Failures(cache_dir)
-    layers = list(zip(plan.layers, ("terrain", "surface")))
     code = EXIT_DONE
-    with Reporter(area, number, plan, failures) as reporter:
+    plans: List = []
+    with Reporter(area, number, plans, failures) as reporter:
+        if not os.environ.get("FINDALINE_CONTACT"):
+            print(f"Warning: {NO_CONTACT}", flush=True)
+            reporter.state["message"] = NO_CONTACT
         try:
-            print(f"{area.name}: {grid.width} x {grid.height} px, listing the tiles", flush=True)
-            # to_download, not Layer.estimate: that opens every cached file of a layer whose index cannot be reached
-            listed = src.layer.each_layer(plan.layers, lambda layer: layer.to_download(grid, cache_dir, None))
-            for layer, _ in layers:
-                if layer.tiles(grid) is None:
-                    raise Stop(f"the index of {layer.description} could not be reached")
-            reporter.state["layers"] = [{"label": label, "tiles": len(layer.tiles(grid)), "to_download": len(todo)}
-                                        for (layer, label), (todo, _) in zip(layers, listed)]
-            reporter.tiles_total = sum(row["tiles"] for row in reporter.state["layers"])
-            reporter.tiles_cached = reporter.tiles_total - sum(row["to_download"] for row in reporter.state["layers"])
+            _set_host_slots(area)
+            plans = _planned(area)
+            reporter.plans = plans
+            labels = _labels(area, plans)
+            rows = []
+            for plan, plan_labels in zip(plans, labels):
+                grid = plan.grid
+                print(f"{area.name} ({plan_labels[0]}): {grid.width} x {grid.height} px, listing the tiles", flush=True)
+                # to_download, not Layer.estimate: that opens every cached file of a layer whose index cannot be reached
+                listed = src.layer.each_layer(plan.layers, lambda layer, g=grid: layer.to_download(g, cache_dir, None))
+                for layer in plan.layers:
+                    if layer.tiles(grid) is None:
+                        raise Stop(f"the index of {layer.description} could not be reached")
+                rows += [{"label": label, "tiles": len(layer.tiles(grid)), "to_download": len(todo)}
+                         for layer, label, (todo, _) in zip(plan.layers, plan_labels, listed)]
+            reporter.state["layers"] = rows
+            reporter.tiles_total = sum(row["tiles"] for row in rows)
+            reporter.tiles_cached = reporter.tiles_total - sum(row["to_download"] for row in rows)
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
-            # The groups of the window layers hold the same pixels at every resolution (10 km at 1 m, 5 km at 0.5 m,
-            # 20 km at 2 m): PREFETCH_GROUP_M is sized for 1 m data, and at 0.5 m (Luxembourg's float64 national COG)
-            # groups of 10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB on a server of
-            # 62 GB without swap (Luxembourg 11 kills, Scotland 7, New Zealand 6, Wales 2; 2026-11-07)
-            src.download_layers(layers, grid, cache_dir, None, group_m=country.PREFETCH_GROUP_M * area.resolution,
-                               on_error=failures,
-                               reencode_cached=False)  # reads no tile: the tiles still in the old encoding wait for what does
+            for plan, plan_labels in zip(plans, labels):
+                # The groups of the window layers hold the same pixels at every resolution (10 km at 1 m, 5 km at
+                # 0.5 m, 20 km at 2 m): PREFETCH_GROUP_M is sized for 1 m data, and at 0.5 m (Luxembourg's float64
+                # national COG) groups of 10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB
+                # on a server of 62 GB without swap (Luxembourg 11 kills, Scotland 7, New Zealand 6, Wales 2;
+                # 2026-11-07). reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does
+                src.download_layers(list(zip(plan.layers, plan_labels)), plan.grid, cache_dir, None,
+                                    group_m=country.PREFETCH_GROUP_M * area.resolution, on_error=failures,
+                                    reencode_cached=False)
+                reporter.next_plan()
             if failures.tiles:
                 code = EXIT_FAILED
             else:
-                print(f"{_remove_parts(plan)} temporary files of earlier passes removed", flush=True)
+                print(f"{_remove_parts(plans)} temporary files of earlier passes removed", flush=True)
                 reporter.state["stage"] = "done"
         except Stop as e:
             print(f"Stopped: {e}", flush=True)
             reporter.state["message"] = str(e)
-            code = EXIT_STOPPED
+            code = e.code
         finally:
             with contextlib.suppress(ValueError):
                 bars.progress.unsubscribe(reporter)
+        if code == EXIT_DONE and reporter.state["message"] == NO_CONTACT:
+            reporter.state["message"] = ""   # nothing to download: a pass that ended early keeps the warning in sight
         reporter.write()
     with cache.replacing(area.file(".failed.json"), "w", encoding="utf-8") as f:
         json.dump(failures.tiles, f, indent=1, ensure_ascii=False)
@@ -385,11 +483,26 @@ def _say(log, text: str):
     log.flush()
 
 
-def _set_stage(area: Area, stage: str, message: str = ""):
+def _set_stage(area: Area, stage: str, message: str = "", **more):
     state = read_state(area.state_dir, area.name) or {"name": area.name, "area": area.area, "source": area.source}
-    state.update(stage=stage, message=message, pid=os.getpid())
+    state.update(stage=stage, message=message, pid=os.getpid(), **more)
     write_state(area.state_dir, area.name, state)
     write_page(area.state_dir)
+
+
+_SAID = re.compile(r"^\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\] ")   # the supervisor's own lines of the log (_say)
+
+
+def _last_line(path: str) -> str:
+    """The last line a pass wrote to the log: what a crash (a code of its own, a traceback) left to go on."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(max(0, os.path.getsize(path) - LOG_TAIL_BYTES))
+            lines = [line.strip() for line in f.read().decode("utf-8", errors="replace").splitlines()]
+    except OSError:
+        return ""
+    lines = [line for line in lines if line and not _SAID.match(line)]
+    return lines[-1] if lines else ""
 
 
 def _wait_or_stop(area: Area, seconds: float) -> bool:
@@ -403,8 +516,14 @@ def _wait_or_stop(area: Area, seconds: float) -> bool:
 
 
 def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_SECONDS) -> int:
-    """Passes (`command` with the pass's number after it) until one finds nothing left, the same tiles keep failing
-    or the stop file comes. Exit: 0 done or stopped, 1 running already, 2 needs attention."""
+    """Passes (`command` with the pass's number after it) until one finds nothing left, the area turns out to need
+    attention or the stop file comes. Exit: 0 done or stopped, 1 running already, 2 needs attention.
+
+    A pass over its memory budget (EXIT_RESTART) is started again at once; any other pass that did not finish is
+    followed by another after retry_seconds. Attention: an area without data (EXIT_NOTHING); the same tiles failing
+    (EXIT_FAILED), a pass giving up with the same message (EXIT_STOPPED: Slovenia looped 37 passes on "50 failures
+    in a row", Denmark 13 on a missing key) or a crash (any other code) ending on the same line of the log, each
+    ATTENTION_PASSES passes in a row; a restart neither counts nor breaks such a row."""
     os.makedirs(area.state_dir, exist_ok=True)
     lock = FileLock(area.file(".lock"))
     try:
@@ -419,7 +538,8 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
         # GDAL's block cache of a pass: its default is 5 % of the machine's memory for every process, and several
         # areas download at once on one machine; the environment's own setting stays
         env.setdefault("GDAL_CACHEMAX", str(GDAL_CACHEMAX_MB))
-        failed, same, number = None, 0, 0
+        ended, same, number = None, 0, 0   # how the last pass ended, and how many ended that way in a row
+        restarts = read_state(area.state_dir, area.name).get("restarts", 0)
         with open(area.file(".log"), "a", encoding="utf-8") as log:
             while True:
                 number += 1
@@ -433,21 +553,41 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
                         _set_stage(area, "stopped", "stopped by hand: `run` resumes")
                         return 0
                 code = process.returncode
+                last = _last_line(area.file(".log"))
                 _say(log, f"pass {number} ended with {code}")
                 if code == EXIT_DONE:
                     return 0
-                message = read_state(area.state_dir, area.name).get("message", "") or f"pass {number} ended with {code}"
+                state = read_state(area.state_dir, area.name)
+                message = state.get("message", "") or f"pass {number} ended with {code}"
+                if code == EXIT_RESTART:
+                    restarts += 1
+                    _say(log, f"started again at once ({restarts} restarts): {message}")
+                    _set_stage(area, "waiting", message, restarts=restarts)
+                    continue
+                if code == EXIT_NOTHING:
+                    _say(log, f"needs attention: {message}")
+                    _set_stage(area, "needs attention", message)
+                    return 2
                 if code == EXIT_FAILED:
                     with open(area.file(".failed.json"), encoding="utf-8") as f:
-                        now = set(json.load(f))
-                    same = same + 1 if now == failed else 1
-                    failed = now
+                        now = frozenset(json.load(f))
+                    this = ("failed", now)
                     message = f"{len(now)} tiles failed in pass {number}"
-                    if same >= ATTENTION_PASSES:
-                        _say(log, f"needs attention: {message}, {same} passes in a row")
-                        _set_stage(area, "needs attention", f"{message}, the same in {same} passes: "
-                                                            f"{os.path.basename(area.file('.failed.json'))}")
-                        return 2
+                elif code == EXIT_STOPPED:
+                    this = ("stopped", message)
+                else:  # a crash: what the log says last
+                    message = f"pass {number} ended with {code}" + (f": {last}" if last else "")
+                    this = ("crashed", code, last)
+                same = same + 1 if this == ended else 1
+                ended = this
+                if same >= ATTENTION_PASSES:
+                    if code == EXIT_FAILED:
+                        text = f"{message}, the same in {same} passes: {os.path.basename(area.file('.failed.json'))}"
+                    else:
+                        text = f"{message} ({same} {'passes' if code == EXIT_STOPPED else 'crashes'} in a row)"
+                    _say(log, f"needs attention: {text}")
+                    _set_stage(area, "needs attention", text)
+                    return 2
                 _set_stage(area, "waiting", message)
                 if not _wait_or_stop(area, retry_seconds):
                     _say(log, "stopped by hand")
@@ -479,7 +619,9 @@ def summary(state: Dict, history: Sequence[Tuple[float, float, float]], now: flo
             "share": done / total if total else None, "gb": state.get("mb", 0.0) / 1000, "mb_s": mb_s, "eta": eta,
             "failed": state.get("failed", 0), "free_gb": state.get("free_gb"), "message": state.get("message", ""),
             "index_done": state.get("index_done"), "index_total": state.get("index_total"), "stale": stale,
-            "updated": updated, "pass": state.get("pass"), "source": state.get("source", "")}
+            "updated": updated, "pass": state.get("pass"), "source": state.get("source", ""),
+            "restarts": state.get("restarts", 0), "memory_gb": state.get("memory_gb"),
+            "memory_peak_gb": state.get("memory_peak_gb")}
 
 
 def duration(seconds: Optional[float]) -> str:
@@ -490,6 +632,14 @@ def duration(seconds: Optional[float]) -> str:
     if seconds >= 3600:
         return f"{seconds / 3600:.1f} h"
     return f"{seconds / 60:.0f} min"
+
+
+def _notes(row: Dict) -> List[str]:
+    """What the table and the page add after the numbers: the restarts over the memory budget."""
+    notes = []
+    if row.get("restarts"):
+        notes.append(f"{row['restarts']} {'restart' if row['restarts'] == 1 else 'restarts'} over the memory budget")
+    return notes
 
 
 def _tiles_text(row: Dict) -> str:
@@ -515,15 +665,18 @@ def table(state_dir: str, now: Optional[float] = None) -> str:
     rows = areas(state_dir, now)
     if not rows:
         return f"No areas in {state_dir}"
-    lines = [f"{'area':<10} {'stage':<16} {'tiles':<34} {'GB':>8} {'MB/s':>6} {'left':>8} {'failed':>6} {'free GB':>8}"]
+    lines = [f"{'area':<10} {'stage':<16} {'tiles':<34} {'GB':>8} {'MB/s':>6} {'left':>8} {'failed':>6} {'free GB':>8} "
+             f"{'mem GB':>7}"]
     for r in rows:
         speed = f"{r['mb_s']:.1f}" if r["mb_s"] is not None else "-"
         free = f"{r['free_gb']:.0f}" if r["free_gb"] is not None else "-"
+        memory = f"{r['memory_gb']:.1f}" if r["memory_gb"] is not None else "-"
         stage = r["stage"] + (" (stale)" if r["stale"] else "")
         lines.append(f"{r['name']:<10} {stage:<16} {_tiles_text(r):<34} {r['gb']:>8.1f} {speed:>6} "
-                     f"{duration(r['eta']):>8} {r['failed']:>6} {free:>8}")
-        if r["message"]:
-            lines.append(f"{'':<10} {r['message']}")
+                     f"{duration(r['eta']):>8} {r['failed']:>6} {free:>8} {memory:>7}")
+        notes = ([r["message"]] if r["message"] else []) + _notes(r)
+        if notes:
+            lines.append(f"{'':<10} {'; '.join(notes)}")
     return "\n".join(lines)
 
 
@@ -609,6 +762,10 @@ def _section(row: Dict) -> str:
     free = f"{row['free_gb']:,.0f} GB" if row["free_gb"] is not None else "-"
     cells = [("Tiles", _tiles_text(row)), ("Downloaded", f"{row['gb']:,.1f} GB"), ("Speed", speed),
              ("Time left", duration(row["eta"])), ("Failed", f"{row['failed']:,}"), ("Free space", free)]
+    if row["memory_gb"] is not None:
+        cells.append(("Memory", f"{row['memory_gb']:.1f} GB (peak {row['memory_peak_gb'] or 0:.1f})"))
+    if row["restarts"]:
+        cells.append(("Restarts", f"{row['restarts']:,}"))
     terms = "".join(f"<div><dt>{html.escape(k)}</dt><dd>{html.escape(v)}</dd></div>" for k, v in cells)
     message = f'<p class="message warn">{html.escape(row["message"])}</p>' if row["message"] else ""
     return (f'<section><h2><span>{html.escape(row["name"])} <span class="note">{html.escape(row["source"])}</span></span>'
@@ -640,16 +797,19 @@ def _area_of(args) -> Area:
     for item in args.host_slots or ():
         host, _, number = item.partition("=")
         slots.append((host, int(number)))
+    budget = default_max_memory_gb() if args.max_memory_gb is None else args.max_memory_gb
     return Area(args.name, args.area, args.source, args.resolution, os.path.abspath(args.data_dir),
-                os.path.abspath(args.state_dir), tuple(slots), args.min_free_gb)
+                os.path.abspath(args.state_dir), tuple(slots), args.min_free_gb, budget)
 
 
-def _pass_command(args) -> List[str]:
-    command = [sys.executable, os.path.abspath(__file__), "pass", args.name, "--area", args.area, "--source",
-               args.source, "--resolution", str(args.resolution), "--data-dir", os.path.abspath(args.data_dir),
-               "--state-dir", os.path.abspath(args.state_dir), "--min-free-gb", str(args.min_free_gb)]
-    for item in args.host_slots or ():
-        command += ["--host-slots", item]
+def _pass_command(area: Area) -> List[str]:
+    """`pass` of this area, as the supervisor starts it: the budget as resolved, so every pass has the same."""
+    command = [sys.executable, os.path.abspath(__file__), "pass", area.name, "--area", area.area, "--source",
+               area.source, "--resolution", str(area.resolution), "--data-dir", area.data_dir,
+               "--state-dir", area.state_dir, "--min-free-gb", str(area.min_free_gb),
+               "--max-memory-gb", str(area.max_memory_gb)]
+    for host, n in area.host_slots:
+        command += ["--host-slots", f"{host}={n}"]
     return command + ["--number"]
 
 
@@ -666,6 +826,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         sub.add_argument("--state-dir", required=True, help="where the state, logs and status.html go")
         sub.add_argument("--host-slots", action="append", metavar="HOST=N", help="at most N connections to a host")
         sub.add_argument("--min-free-gb", type=float, default=FREE_GB_MIN, help="stop waiting below this much free")
+        sub.add_argument("--max-memory-gb", type=float, help="a pass over this much memory is started again "
+                         "(a quarter of the machine's memory unless given; 0: no budget)")
 
     downloading(commands.add_parser("run", help="download, pass after pass, until nothing is left"))
     one = commands.add_parser("pass", help="one pass (started by run)")
@@ -681,7 +843,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     tui.add_argument("--settings", required=True, help="the JSON file tools/area_rows.py describes")
     args = parser.parse_args(argv)
     if args.command == "run":
-        return supervise(_area_of(args), _pass_command(args))
+        area = _area_of(args)
+        return supervise(area, _pass_command(area))
     if args.command == "pass":
         return run_pass(_area_of(args), args.number)
     if args.command == "tui":

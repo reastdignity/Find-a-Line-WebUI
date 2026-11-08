@@ -139,16 +139,133 @@ def test_many_failures_in_a_row_end_the_pass(setup, monkeypatch):
     assert "failures in a row" in ad.read_state(area.state_dir, "land")["message"]
 
 
+def _reporter(failures):
+    """A Reporter without its thread and state file: what __call__ reads."""
+    reporter = ad.Reporter.__new__(ad.Reporter)
+    reporter.failures, reporter.free_gb, reporter.mb_pass, reporter.tiles_pass = failures, None, 0.0, 0
+    reporter.tiles_offset, reporter.mb_offset, reporter.over_budget = 0, 0.0, False
+    reporter.state, reporter.memory_gb = {"message": ""}, 0.0
+    reporter.area = ad.Area("a", "b", "c", 1.0, "d", "e", min_free_gb=0, max_memory_gb=0)
+    return reporter
+
+
 def test_a_tile_between_failures_resets_the_count():
     failures = ad.Failures("cache")
     layer = FakeLayer(1)
     failures(layer, [0], RuntimeError("no"))
-    reporter = ad.Reporter.__new__(ad.Reporter)
-    reporter.failures, reporter.free_gb, reporter.mb_pass = failures, None, 0
+    reporter = _reporter(failures)
     reporter({"bar": "Download", "unit": "tile", "count": 1, "extra": {"MB": "5"}, "done": False})
     assert failures.in_a_row == 0 and reporter.mb_pass == 5
     reporter({"bar": "Compute", "unit": "tile", "count": 9, "extra": {}, "done": False})
     assert reporter.tiles_pass == 1
+
+
+def test_the_tiles_of_the_plans_add_up():
+    """A stand-in source's bar starts from 0: the tiles and MB of the plan before it stay counted."""
+    reporter = _reporter(ad.Failures("cache"))
+    reporter({"bar": "Download", "unit": "tile", "count": 4, "extra": {"MB": "10"}, "done": False})
+    reporter.next_plan()
+    reporter({"bar": "Download", "unit": "tile", "count": 2, "extra": {"MB": "3"}, "done": False})
+    assert (reporter.tiles_pass, reporter.mb_pass) == (6, 13)
+
+
+class SlowLayer(FakeLayer):
+    def download_tile(self, tile, path):
+        time.sleep(0.02)
+        return super().download_tile(tile, path)
+
+
+def test_a_pass_over_its_memory_budget_is_started_again(setup, monkeypatch):
+    """The beat samples the memory; over the budget the next tile ends the pass with EXIT_RESTART and the message."""
+    monkeypatch.setattr(ad, "memory_gb", lambda: 100.0)
+    layer = SlowLayer(40)
+    area = dataclasses.replace(setup(layer), max_memory_gb=6.5)
+    assert ad.run_pass(area, 1) == ad.EXIT_RESTART
+    state = ad.read_state(area.state_dir, "land")
+    assert state["message"] == "memory 100.0 GB over the budget of 6.5 GB, the pass is started again"
+    assert state["memory_gb"] == 100.0 and state["memory_peak_gb"] == 100.0 and state["stage"] == "downloading"
+    assert len(layer.fetched) < 40
+    assert ad.run_pass(dataclasses.replace(area, max_memory_gb=0), 2) == ad.EXIT_DONE  # 0: no budget
+
+
+def test_memory_in_the_state_and_the_history(setup, monkeypatch):
+    values = iter([1.5, 2.5, 2.0, 2.0, 2.0, 2.0])
+    monkeypatch.setattr(ad, "memory_gb", lambda: next(values, 2.0))
+    monkeypatch.setattr(ad, "STATE_SECONDS", 0.01)
+    area = setup(SlowLayer(16))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    state = ad.read_state(area.state_dir, "land")
+    assert state["memory_peak_gb"] == 2.5 and state["memory_gb"] == 2.0
+    rows = open(area.file(".history.csv"), encoding="utf-8").read().splitlines()
+    assert rows and all(len(row.split(",")) == 4 for row in rows)  # seconds, tiles, MB, memory GB
+    assert ad.read_history(area.state_dir, "land")[0][1] == 0  # read as before, three values
+
+
+def test_history_rows_without_the_memory_column_are_read(tmp_path):
+    with open(ad.state_file(str(tmp_path), "land", ".history.csv"), "w", encoding="utf-8") as f:
+        f.write("100,5,20.5\n160,8,30.0,1.25\n")
+    assert ad.read_history(str(tmp_path), "land") == [(100.0, 5.0, 20.5), (160.0, 8.0, 30.0)]
+
+
+def test_a_plan_that_fails_ends_the_pass_with_its_text(setup, monkeypatch, capsys):
+    """Denmark without its key, an outline Nominatim does not know: a stopped pass with the reason, no traceback."""
+    import search
+    area = setup(FakeLayer(1))
+    for error in (ValueError("no key for Datafordeler"), search.SearchError("no source covers the area"),
+                  RuntimeError("Nominatim gave nothing")):
+        def failing(_, error=error):
+            raise error
+        monkeypatch.setattr(ad, "plan_of", failing)
+        assert ad.run_pass(area, 1) == ad.EXIT_STOPPED
+        state = ad.read_state(area.state_dir, "land")
+        assert state["message"] == f"the download could not be planned: {error}" and state["stage"] == "listing"
+        assert f"Stopped: the download could not be planned: {error}" in capsys.readouterr().out
+
+
+def test_a_stand_in_source_is_downloaded_too(setup, monkeypatch):
+    """`alaska` names alaska_ifsar where it has no data (Source.instead_without_data): both are planned and
+    downloaded, the stand-in's layers labelled with its id, the totals over both."""
+    first, second = FakeLayer(3), FakeLayer(2)
+    second.folder = "fake/ifsar"
+    area = setup(first)
+
+    def plan(layer, source, instead):
+        return SimpleNamespace(layers=[layer], grid=_grid(), source=SimpleNamespace(id=source, instead_without_data=instead),
+                               paths=SimpleNamespace(cache=os.path.join(area.data_dir, "cache")))
+    plans = {"fake": plan(first, "fake", "fake_ifsar"), "fake_ifsar": plan(second, "fake_ifsar", None)}
+    monkeypatch.setattr(ad, "plan_of", lambda a: plans[a.source])
+    assert [p.source.id for p in ad.plans_of(area)] == ["fake", "fake_ifsar"]
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    state = ad.read_state(area.state_dir, "land")
+    assert [row["label"] for row in state["layers"]] == ["terrain", "terrain (fake_ifsar)"]
+    assert (state["tiles_done"], state["tiles_total"]) == (5, 5) and sorted(second.fetched) == [0, 1]
+    assert state["mb"] == pytest.approx(10)
+    alone = ad.Area("land", "osm:Land", "fake_ifsar", 1.0, area.data_dir, area.state_dir)
+    assert ad.plans_of(alone) == [plans["fake_ifsar"]]
+
+
+def test_a_pass_without_a_contact_warns(setup, monkeypatch, capsys):
+    """The warning is printed and stands in the state until the first tile; the pass never fails for it."""
+    monkeypatch.delenv("FINDALINE_CONTACT", raising=False)
+    area = setup(FakeLayer(2))
+    seen = []
+
+    class Reading(FakeLayer):
+        def download_tile(self, tile, path):
+            seen.append(ad.read_state(area.state_dir, "land")["message"])
+            return super().download_tile(tile, path)
+    area = setup(Reading(2))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    assert f"Warning: {ad.NO_CONTACT}" in capsys.readouterr().out
+    assert seen[0] == ad.NO_CONTACT
+    assert ad.read_state(area.state_dir, "land")["message"] == ""
+    area = setup(NoIndex(0))
+    assert ad.run_pass(area, 2) == ad.EXIT_STOPPED   # another message replaces it
+    assert "could not be reached" in ad.read_state(area.state_dir, "land")["message"]
+    assert "Warning" in capsys.readouterr().out
+    monkeypatch.setenv("FINDALINE_CONTACT", "someone@example.org")
+    assert ad.run_pass(setup(FakeLayer(1)), 3) == ad.EXIT_DONE
+    assert "Warning" not in capsys.readouterr().out
 
 
 def test_a_full_disk_ends_the_pass(setup, monkeypatch):
@@ -228,6 +345,84 @@ def test_supervisor_needs_attention_for_the_same_tiles(tmp_path):
     command = _pass(tmp_path, f"json.dump({{str(number): 'broken'}}, open({failed!r}, 'w'))\n"
                               "sys.exit(0 if number == 5 else 3)\n")
     assert ad.supervise(area, command, retry_seconds=0.01) == 0
+
+
+def test_supervisor_starts_a_pass_over_its_budget_again_at_once(tmp_path):
+    """EXIT_RESTART: no retry wait, the restarts counted in the state; they never count towards attention."""
+    area = _area(tmp_path)
+    state = area.file(".state.json")
+    command = _pass(tmp_path, f"import os\nstate = {state!r}\n"  # as the Reporter: the restarts before are carried over
+                              "before = json.load(open(state)) if os.path.exists(state) else {}\n"
+                              "json.dump({'name': 'land', 'stage': 'downloading', 'message': 'memory 9.0 GB over "
+                              "the budget of 8 GB, the pass is started again', 'restarts': before.get('restarts', 0)}, "
+                              "open(state, 'w'))\n"
+                              "sys.exit(0 if number == 4 else 5)\n")
+    started = time.monotonic()
+    assert ad.supervise(area, command, retry_seconds=30) == 0
+    assert time.monotonic() - started < 25
+    assert ad.read_state(area.state_dir, "land")["restarts"] == 3
+    log = open(area.file(".log"), encoding="utf-8").read()
+    assert "started again at once (3 restarts)" in log
+
+
+def test_supervisor_needs_attention_for_the_same_stop(tmp_path):
+    """A pass giving up with the same message ATTENTION_PASSES times (Slovenia: 37 passes of "50 failures in a
+    row"; Denmark: 13 without its key); a restart between them does not break the row."""
+    area = _area(tmp_path)
+    state = area.file(".state.json")
+    command = _pass(tmp_path, "json.dump({'name': 'land', 'stage': 'listing', 'message': 'the download could not be "
+                              "planned: no key'}, open(" + repr(state) + ", 'w'))\n"
+                              "sys.exit(5 if number == 2 else 4)\n")
+    assert ad.supervise(area, command, retry_seconds=0.01) == 2
+    state_now = ad.read_state(area.state_dir, "land")
+    assert state_now["stage"] == "needs attention"
+    assert state_now["message"] == "the download could not be planned: no key (3 passes in a row)"
+    assert "pass 4 ended with 4" in open(area.file(".log"), encoding="utf-8").read()
+    command = _pass(tmp_path, "json.dump({'name': 'land', 'stage': 'listing', 'message': 'reason %d' % number}, "
+                              "open(" + repr(state) + ", 'w'))\nsys.exit(0 if number == 5 else 4)\n")
+    assert ad.supervise(area, command, retry_seconds=0.01) == 0
+
+
+def test_supervisor_needs_attention_for_the_same_crash(tmp_path):
+    """A code of its own (a traceback): the log's last line is the message, three alike end the area."""
+    area = _area(tmp_path)
+    command = _pass(tmp_path, "print('Traceback (most recent call last):')\nprint('  File x')\n"
+                              "print('ModuleNotFoundError: No module named rasterio')\nsys.exit(1)\n")
+    assert ad.supervise(area, command, retry_seconds=0.01) == 2
+    state = ad.read_state(area.state_dir, "land")
+    assert state["stage"] == "needs attention"
+    assert state["message"] == ("pass 3 ended with 1: ModuleNotFoundError: No module named rasterio "
+                                "(3 crashes in a row)")
+    command = _pass(tmp_path, "print('crash', number)\nsys.exit(0 if number == 5 else 1)\n")
+    assert ad.supervise(area, command, retry_seconds=0.01) == 0
+    assert "crash 4" in ad.read_state(area.state_dir, "land")["message"]  # the last waiting message
+
+
+def test_the_last_line_of_the_log(tmp_path):
+    path = tmp_path / "land.log"
+    path.write_text("[2026-11-08T10:00:00Z] pass 1 starts\nsomething\n\n  Error: broken  \n"
+                    "[2026-11-08T10:00:01Z] pass 1 ended with 1\n", encoding="utf-8")
+    assert ad._last_line(str(path)) == "Error: broken"
+    assert ad._last_line(str(tmp_path / "none.log")) == ""
+    path.write_bytes(b"x" * (ad.LOG_TAIL_BYTES + 10) + b"\nlast\n")
+    assert ad._last_line(str(path)) == "last"
+
+
+def test_the_budget_on_the_command_line(monkeypatch):
+    """`run` resolves the default once and hands every pass the same number; 0 is no budget."""
+    seen = []
+    monkeypatch.setattr(ad, "supervise", lambda area, command: seen.append((area, command)) or 0)
+    monkeypatch.setattr(ad, "default_max_memory_gb", lambda: 15.5)
+    base = ["run", "land", "--area", "osm:Land", "--source", "fake", "--resolution", "1", "--data-dir", "d",
+            "--state-dir", "s"]
+    ad.main(base)
+    area, command = seen[-1]
+    assert area.max_memory_gb == 15.5 and command[command.index("--max-memory-gb") + 1] == "15.5"
+    ad.main(base + ["--max-memory-gb", "0", "--host-slots", "h=2"])
+    area, command = seen[-1]
+    assert area.max_memory_gb == 0 and command[command.index("--max-memory-gb") + 1] == "0.0"
+    assert command[command.index("--host-slots") + 1] == "h=2" and command[-1] == "--number"
+    assert ad.default_max_memory_gb() > 0
 
 
 def test_supervisor_stops_by_hand(tmp_path):

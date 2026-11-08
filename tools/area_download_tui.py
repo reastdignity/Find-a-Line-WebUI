@@ -57,6 +57,8 @@ def state_text(state: Dict) -> str:
         text = stage
     if state["failed"] and stage != "needs attention":
         text += f", {state['failed']:,} failed"
+    if state.get("restarts"):
+        text += f", {state['restarts']} restarts"
     return text + ", no news" if state["stale"] else text
 
 

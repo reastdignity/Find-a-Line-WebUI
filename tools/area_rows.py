@@ -9,16 +9,19 @@ the state folder, so a download started by hand with that name is the same row.
 
 The settings, a JSON file outside the repository (it may name a contact and a share):
 
-    {"state_dir": "<folder>", "contact": "<address>", "default_target": "cache",
+    {"state_dir": "<folder>", "contact": "<an e-mail address or an http(s) address>", "default_target": "cache",
      "targets": {"cache": {"data_dir": "<the app's data folder>"},
-                 "NAS": {"data_dir": "<a local data folder>", "tiles": "<a share's cache folder>", "min_free_gb": 200}},
-     "rows": {"poland": {"target": "NAS", "host_slots": ["opendata.geoportal.gov.pl=2"]}},
+                 "NAS": {"data_dir": "<a local data folder>", "tiles": "<a share's cache folder>", "min_free_gb": 200,
+                         "max_memory_gb": 12}},
+     "rows": {"poland": {"target": "NAS", "host_slots": ["opendata.geoportal.gov.pl=2"], "max_memory_gb": 8}},
      "extra": [{"name": "utah", "title": "United States: Utah", "continent": "North America", "area": "osm:Utah",
                 "source": "usa", "km2": 219900}]}
 
-A target with `tiles` keeps its indexes in `data_dir` and its tile folders on the share: SQLite's WAL does not work over
-one. The tile folders are symbolic links, made when a download starts: Windows lets only an administrator make them
-while Developer Mode is off, so there they take one UAC window per start.
+`max_memory_gb` (a target's, a row's over it; area_download.py's `--max-memory-gb`, a quarter of the machine's memory
+unless given, 0 no budget): a pass over it is started again. A target with `tiles` keeps its indexes in `data_dir` and
+its tile folders on the share: SQLite's WAL does not work over one. The tile folders are symbolic links, made when a
+download starts: Windows lets only an administrator make them while Developer Mode is off, so there they take one UAC
+window per start.
 """
 
 import json
@@ -76,6 +79,15 @@ class SettingsError(ValueError):
     """A settings file that cannot be used: its text is shown as it is."""
 
 
+EMAIL = re.compile(r"^[^@\s]+@[^@\s.]+(\.[^@\s.]+)+$")
+URL = re.compile(r"^https?://\S+$")
+
+
+def contact_ok(contact: str) -> bool:
+    """A contact a provider can use: an e-mail address with a dotted domain, or an http(s) address."""
+    return bool(EMAIL.match(contact) or URL.match(contact))
+
+
 @dataclass(frozen=True)
 class Row:
     """One line of the window."""
@@ -88,6 +100,7 @@ class Row:
     surface: bool    # whether the source has a surface model
     km2: int         # about: from the coverage map's outlines
     host_slots: Tuple[str, ...] = ()
+    max_memory_gb: Optional[float] = None   # the row's own budget of a pass; None: the target's, or the default
 
 
 @dataclass(frozen=True)
@@ -97,6 +110,7 @@ class Target:
     data_dir: str
     tiles: Optional[str] = None   # a share: the tile folders live there, linked from the data folder's cache
     min_free_gb: float = ad.FREE_GB_MIN
+    max_memory_gb: Optional[float] = None   # a pass's budget (area_download.py --max-memory-gb); None: its default
 
     @property
     def disk(self) -> str:
@@ -182,7 +196,7 @@ def load_settings(path: str) -> Settings:
         raise SettingsError(f"{path}: not JSON: {e}") from e
     try:
         targets = {label: Target(label, os.path.abspath(entry["data_dir"]), entry.get("tiles"),
-                                 float(entry.get("min_free_gb", ad.FREE_GB_MIN)))
+                                 float(entry.get("min_free_gb", ad.FREE_GB_MIN)), _budget(entry))
                    for label, entry in raw["targets"].items()}
         settings = Settings(os.path.abspath(raw["state_dir"]), targets, raw.get("default_target", next(iter(targets))),
                             raw.get("rows", {}), raw.get("extra", []), raw.get("contact", ""))
@@ -192,7 +206,15 @@ def load_settings(path: str) -> Settings:
     unknown = sorted({label for label in named if label not in targets})
     if unknown:
         raise SettingsError(f"{path}: no target named {', '.join(unknown)}")
+    if settings.contact and not contact_ok(settings.contact):
+        raise SettingsError(f"{path}: the contact must be an e-mail address (name@domain.tld) or an http(s) address, "
+                            f"not {settings.contact!r}: it goes into the User-Agent of every request")
     return settings
+
+
+def _budget(entry: Dict) -> Optional[float]:
+    value = entry.get("max_memory_gb")
+    return None if value is None else float(value)
 
 
 def rows_of(settings: Settings) -> List[Row]:
@@ -209,7 +231,7 @@ def rows_of(settings: Settings) -> List[Row]:
 
 def _with_settings(row: Row, entry: Dict) -> Row:
     return Row(row.name, row.title, row.continent, row.area, row.source, float(entry.get("resolution", row.resolution)),
-               row.surface, row.km2, tuple(entry.get("host_slots", ())))
+               row.surface, row.km2, tuple(entry.get("host_slots", ())), _budget(entry))
 
 
 def targets_chosen(settings: Settings) -> Dict[str, str]:
@@ -336,6 +358,9 @@ def command_of(row: Row, target: Target, settings: Settings) -> List[str]:
                "--state-dir", settings.state_dir, "--min-free-gb", f"{target.min_free_gb:g}"]
     for slots in row.host_slots:
         command += ["--host-slots", slots]
+    budget = target.max_memory_gb if row.max_memory_gb is None else row.max_memory_gb
+    if budget is not None:
+        command += ["--max-memory-gb", f"{budget:g}"]
     return command
 
 
