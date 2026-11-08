@@ -368,6 +368,14 @@ def test_worker_env_lets_openmp_threads_sleep(monkeypatch):
     assert country._worker_env()["OMP_WAIT_POLICY"] == "ACTIVE"
 
 
+def test_worker_env_dumps_a_fatal_error(monkeypatch):
+    """A worker that dies of a fatal error (a heap corruption, 0xC0000374) writes its Python stack into its
+    log: faulthandler on, unless the caller's environment sets it."""
+    import country
+    monkeypatch.delenv("PYTHONFAULTHANDLER", raising=False)
+    assert country._worker_env()["PYTHONFAULTHANDLER"] == "1"
+
+
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
     """The hash of the configuration, its profile's sha256 and the outline's; with the surface model
     another obstacle rule gives another hash, so its tiles are counted again."""

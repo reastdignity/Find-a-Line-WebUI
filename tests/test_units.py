@@ -1524,7 +1524,7 @@ def _place_before(src_file, grid, mosaic, categorical=False, shift=(0.0, 0.0)):
     from rasterio.warp import Resampling, reproject, transform_bounds
     from rasterio.windows import from_bounds
     from sources.layer import _clean
-    from sources.mosaic import WARP_THREADS
+    from sources.mosaic import WARP_KWARGS  # the threads only: the same values (sources.mosaic)
     clean = (lambda band: band.astype(np.float32)) if categorical else _clean
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src_file.crs or grid_crs
@@ -1568,7 +1568,7 @@ def _place_before(src_file, grid, mosaic, categorical=False, shift=(0.0, 0.0)):
     band = src_file.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
     reproject(clean(band), values, src_transform=moved @ src_file.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
-              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
+              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, **WARP_KWARGS)
     target = mosaic[r0:r1, c0:c1]
     mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
 
@@ -2195,6 +2195,59 @@ def test_mosaic_resampling_methods(tmp_path):
         mosaic("coarse", coarse, 499987, 300321, 5, "lanczos")
     with pytest.raises(ValueError, match="resampling"):
         mosaic("coarse", coarse.astype(np.uint8), 499987, 300321, 5, "nearest", categorical=True)
+
+
+def test_mosaic_warps_without_a_thread_per_chunk(tmp_path, monkeypatch):
+    """build_mosaic reprojects with mosaic.WARP_KWARGS: rasterio's num_threads=1 (ChunkAndWarpImage: no thread
+    per chunk, whose race in GDAL before 3.14 on Windows freed a thread's record twice, 0xC0000374, at the
+    stitches of two degree tiles that a strip's chunks split small) with GDAL's kernel on WARP_THREADS threads
+    of its pool (the warp option NUM_THREADS); the kernel's threads change no value: the mosaics of two
+    rasters in EPSG:4326, each covering part of the grid, equal those of a kernel on one thread."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_bounds
+    rng = np.random.default_rng(12)
+    grid = gd.make_grid((500000, 300000, 500600, 300400), 2, "EPSG:2180")
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", *grid.bounds)
+    step, middle = 1 / 3600, round((west + east) / 2 * 3600) / 3600
+    rows, cols = int((north - south) / step) + 8, int((middle - west) / step) + 4
+
+    def tif(name, band, left):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1,
+                      dtype=band.dtype, crs="EPSG:4326", nodata=None if band.dtype == np.uint8 else np.nan,
+                      transform=from_origin(left, north + 2 * step, step, step)) as dst:
+            dst.write(band, 1)
+        return path
+
+    pairs = {"heights": [tif(f"h{k}", (200 + rng.normal(0, 30, (rows, cols))).astype(np.float32), left)
+                         for k, left in enumerate((middle - cols * step, middle))],
+             "categories": [tif(f"c{k}", rng.integers(0, 4, (rows, cols)).astype(np.uint8), left)
+                            for k, left in enumerate((middle - cols * step, middle))]}
+    calls = []
+    original = src.mosaic.reproject
+
+    def recorded(*args, **kwargs):
+        calls.append({k: kwargs.get(k) for k in ("num_threads", "NUM_THREADS")})
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(src.mosaic, "reproject", recorded)
+    # GDAL gives a chunk of fewer than 65536 pixels per thread to one thread: split this small grid's rows too
+    monkeypatch.setenv("WARP_THREAD_CHUNK_SIZE", "0")
+    assert src.mosaic.WARP_KWARGS == {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS}
+    for name, files in pairs.items():
+        categorical = name == "categories"
+        for rows_ in (None, 50):
+            calls.clear()
+            got = np.array(src.build_mosaic(files, grid, str(tmp_path / "m.npy"), "test", categorical=categorical,
+                                            rows=rows_))
+            assert calls and all(c == {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS} for c in calls)
+            assert (got != src.mosaic.NODATA).all() if categorical else np.isfinite(got).mean() > 0.99
+            monkeypatch.setattr(src.mosaic, "WARP_KWARGS", {"num_threads": 1, "NUM_THREADS": 1})
+            one = np.array(src.build_mosaic(files, grid, str(tmp_path / "one.npy"), "test", categorical=categorical,
+                                            rows=rows_))
+            monkeypatch.setattr(src.mosaic, "WARP_KWARGS", {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS})
+            assert np.array_equal(got.view(np.uint8), one.view(np.uint8))
 
 
 def test_mosaic_rows_as_whole(tmp_path):
