@@ -173,6 +173,8 @@ def test_cube_equals_one_grid(env, full):
     assert border["lines"]["owned"] + border["lines"]["partner"] < info["totals"]["lines"]
     assert info["neighbours"] == [] and info["profile"] == country.Country.from_config(state["config"]).profile.sha256
     assert any(n.startswith("Lines across the border are counted too") for n in info["notes"])
+    # the square lies in Poland, far from its borders: no hard border (Poland is its own, not a neighbour)
+    assert not any(n.startswith("No data of the neighbours") for n in info["notes"])
     keys = countcube.unpack_keys(countcube.Cube(os.path.join(folder, "cube")).array("lines", 1)[:, :2])
     assert set(keys["partner"][keys["border"] > 0].tolist()) == {7} and not keys["partner"][keys["border"] == 0].any()
     assert [b["name"] for b in info["bands"]] == ["S", "M", "C"] and [b["layer"] for b in info["bands"]] == \
@@ -390,6 +392,28 @@ def test_config_hash_follows_the_obstacle_rule(monkeypatch):
     assert first != country.config_hash({"id": "x", "options": {"nmpt": "off"}}, "a")
     monkeypatch.setattr(obstacles, "RULE", {"radius": 3, "min_height": 1.0})
     assert country.config_hash(marked, "a") != first
+
+
+def test_border_notes(tmp_path):
+    """cube.json's notes on the borders: a country's name none of its neighbours (the page #layer writes a
+    sentence per neighbour of "neighbours" itself) and list the borders no neighbour's source covers (the
+    coverage map's outline of Slovakia: Hungary and Ukraine, never Slovakia itself); a source without
+    countries (an elevation file) counts the country holding its outline as its own; a study area keeps its
+    sentence."""
+    import country
+    with open(country.SHAPES, encoding="utf-8") as f:
+        sk = next(ft for ft in json.load(f)["features"] if ft["properties"]["id"] == "sk")
+    (tmp_path / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": sk["geometry"]}))
+    slovakia = country.Country(id="slovakia", name="Slovakia", source="slovakia", area="osm:Slovensko")
+    notes = country._border_notes(slovakia, str(tmp_path))
+    assert len(notes) == 2 and notes[0].startswith("Lines across the border are counted too: one anchor in Slovakia")
+    assert not any(name in notes[0] for name in ("poland", "austria", "czechia", "Neighbours"))
+    assert notes[1].startswith("No data of the neighbours across the border with HU, UA (no source here)")
+    files = country.Country(id="testland", name="Testland", source="files", area="x")
+    assert country._hard_borders(files, str(tmp_path)) == ["AT", "CZ", "HU", "PL", "UA"]
+    study = country.Country(id="sk-part", name="Part", source="slovakia", area="osm:Slovensko",
+                            options={"within": "48.5,19,49,19.5"})
+    assert country._border_notes(study, str(tmp_path)) == ["Only lines with both anchors inside Part are counted."]
 
 
 def test_outline_within_a_box(tmp_path):

@@ -1732,15 +1732,18 @@ def _hard_borders(country: Country, folder: str) -> List[str]:
     """The countries (ISO codes, upper case) of the coverage map's outlines (SHAPES) next to the outline
     that no neighbour of the country's source covers (Source.neighbours' countries and regions): across
     their borders lines are counted only where the source's own data reach beyond the outline (partner
-    7). [] when the outlines cannot be read."""
+    7). The country holding the outline is its own (a source without countries: an elevation file). []
+    when the outlines cannot be read."""
     import sources as src
     from shapely.geometry import shape
     try:
         with open(SHAPES, encoding="utf-8") as f:
             features = json.load(f)["features"]
-        outline = _read_outline(folder).buffer(BORDER_NEAR_DEG)
+        exact = _read_outline(folder)
+        outline = exact.buffer(BORDER_NEAR_DEG)
     except (OSError, ValueError, KeyError):
         return []
+    centre = exact.representative_point()
     source = src.SOURCES.get(country.source)
     own = set(source.countries or ()) if source is not None else set()
     covered = set()
@@ -1752,19 +1755,20 @@ def _hard_borders(country: Country, folder: str) -> List[str]:
         code = feature["properties"]["id"]
         if feature["properties"].get("kind") != "country" or code in own or code in covered or code in found:
             continue
-        if shape(feature["geometry"]).intersects(outline):
+        geometry = shape(feature["geometry"])
+        if geometry.intersects(outline) and not geometry.contains(centre):
             found.add(code)
     return sorted(code.upper() for code in found)
 
 
-def _border_notes(country: Country, folder: str, neighbours: List[str]) -> List[str]:
-    """cube.json's notes on the borders: which lines are counted across them, which borders stay hard."""
+def _border_notes(country: Country, folder: str) -> List[str]:
+    """cube.json's notes on the borders: which lines are counted across them, which borders stay hard.
+    The page #layer writes a sentence per neighbour of cube.json's "neighbours" itself (counted from this
+    country's data, or the neighbour's own layer shown), so these name none of them."""
     if country.study:
         return [f"Only lines with both anchors inside {country.name} are counted."]
     notes = [f"Lines across the border are counted too: one anchor in {country.name}, the other within the band's "
-             f"longest line beyond the border, on the neighbours' data or on {country.name}'s own data there."
-             + (f" Neighbours: {', '.join(dict.fromkeys(neighbours))}; such a line is counted from {country.name}'s "
-                f"data until the neighbour has a layer of its own." if neighbours else "")]
+             f"longest line beyond the border, on the neighbours' data or on {country.name}'s own data there."]
     hard = _hard_borders(country, folder)
     if hard:
         notes.append(f"No data of the neighbours across the border with {', '.join(hard)} (no source here): lines "
@@ -1832,7 +1836,7 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
     year = datetime.now().year
     dsm = country.options.get("nmpt", "off") != "off"
     neighbours = [] if country.study else neighbour_cubes(country.source)
-    notes = _border_notes(country, folder, neighbours)
+    notes = _border_notes(country, folder)
     if not dsm:
         notes.append("The surface model (trees, buildings) was not used: every line counts as not over trees "
                      "or buildings.")
