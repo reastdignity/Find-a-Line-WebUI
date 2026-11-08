@@ -180,8 +180,8 @@ class WcsReader(Reader):
         where = f"{self.description} tile {i}_{j}"
         try:
             got = self._fetch_box(box, res, (req_px, req_px), where)
-        except RuntimeError as e:
-            raise RuntimeError(f"Could not download {where}: {e}")
+        except RuntimeError as error:
+            raise RuntimeError(f"Could not download {where}: {error}")
         if got is None:
             return Fetched(0, self.service_url)
         band, fetched = got
