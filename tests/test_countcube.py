@@ -270,7 +270,8 @@ def test_origin_of():
     assert cc.origin_of((16.83, 47.73, 22.57, 49.61), 5000) == (2008, 5720)
 
 
-def test_lattice_of_known_points():
+@pytest.mark.parametrize("engine", ["numba", "numpy"])
+def test_lattice_of_known_points(engine):
     """The cells and clusters of points of known lon/lat on a grid of WGS84 itself: the cell of a line is
     its first anchor's by (lon, lat), whatever the pixel order; a spot's clusters are 1/2400°."""
     origin = (2160, 5880)  # 18°, 49°
@@ -290,7 +291,7 @@ def test_lattice_of_known_points():
     n = len(pairs)
     columns = {"a1": a1, "a2": a2, **{name: np.full(n, 10.0) for name in sh.LINE_VALUES}, "water_px": np.zeros(n)}
     columns["length"] = np.full(n, 100.0)
-    counter = cc.TileCounter(grid, origin, None, (30, 300), False)
+    counter = cc.TileCounter(grid, origin, None, (30, 300), False, engine=engine)
     counter(sh.LineTable(columns))
     counts = counter.result()
     f = cc.unpack_keys(counts.line_keys)
@@ -307,7 +308,7 @@ def test_lattice_of_known_points():
     i, j = cc.spot_cells(ids)
     assert sorted(zip(i.tolist(), j.tolist())) == expected  # here the first anchor's cluster is p
     with pytest.raises(ValueError, match="outside the cube"):
-        cc.TileCounter(grid, (2200, 5880), None, (30, 300), False)(sh.LineTable(columns))
+        cc.TileCounter(grid, (2200, 5880), None, (30, 300), False, engine=engine)(sh.LineTable(columns))
 
 
 def test_spot_ids_span():
@@ -326,12 +327,16 @@ def test_spot_ids_span():
     assert len(cc.spot_ids(lon[:1], np.array([49.0]), lon[1:], np.array([49.0]), (2152, 5872))) == 1
 
 
+@pytest.mark.parametrize("engine", ["numba", "numpy"])
 @pytest.mark.parametrize("core,last", [(None, False), ((-557000.0, -1235000.0, -553000.0, -1231000.0), True)])
-def test_tile_counter_against_brute_force(core, last, monkeypatch):
+def test_tile_counter_against_brute_force(core, last, engine, monkeypatch):
     rng = np.random.default_rng(7)
     grid = _grid()
     monkeypatch.setattr(cc, "PENDING_MAX", 3000)  # reduced again on the way
-    counter = cc.TileCounter(grid, ORIGIN, core, (100, 3000), last)
+    import countkernels as ck
+    for name in ("GROW_LINES", "GROW_SPOTS", "GROW_PIXELS"):  # the hash tables grown on the way
+        monkeypatch.setattr(ck, name, 16)
+    counter = cc.TileCounter(grid, ORIGIN, core, (100, 3000), last, engine=engine)
     tables = [_lines(rng, grid, n, borders=True) for n in (5000, 0, 1, 4000)] + [_lines(rng, grid, 2500, lifts=False)]
     for t in tables:
         counter(t)
@@ -388,6 +393,42 @@ def test_anchors_transformed_once_per_tile():
         assert calls[-1] == len(codes - seen) if codes - seen else True
         seen |= codes
     assert sum(calls) == len(seen) and (np.diff(counter._codes) > 0).all() and len(counter._codes) == len(seen)
+
+
+def test_engines_count_alike(monkeypatch):
+    """The engines numba (hash tables, grown from tiny ones) and numpy give the same counts, byte for byte,
+    over parts with and without the optional columns, a1 in runs and not, and a core; the numba engine
+    transforms each pixel of the tile once."""
+    import countkernels as ck
+    for name in ("GROW_LINES", "GROW_SPOTS", "GROW_PIXELS"):
+        monkeypatch.setattr(ck, name, 8)
+    rng = np.random.default_rng(9)
+    grid = _grid()
+    core = (-558000.0, -1237000.0, -552000.0, -1231000.0)
+    parts = []
+    for k in range(6):
+        table = _lines(rng, grid, 3000, max_px=300, lifts=k % 2 == 0, borders=k % 3 == 0)
+        if k % 2:  # a1 in runs, as the count hands them
+            order = np.lexsort((table.columns["a1"][:, 1], table.columns["a1"][:, 0]))
+            table = sh.LineTable({name: np.asarray(v)[order] for name, v in table.columns.items()})
+        parts.append(table)
+    counters = {e: cc.TileCounter(grid, ORIGIN, core, (30, 3000), True, engine=e) for e in ("numba", "numpy")}
+    seen = []
+    transform = counters["numba"]._transform
+    counters["numba"]._transform = lambda codes: (seen.append(codes.copy()), transform(codes))[1]
+    for part in parts:
+        for counter in counters.values():
+            counter(part)
+    a, b = counters["numba"].result(), counters["numpy"].result()
+    for name in ("line_keys", "line_counts", "spot_ids", "spot_records"):
+        x, y = getattr(a, name), getattr(b, name)
+        assert x.dtype == y.dtype == np.int64 and x.shape == y.shape and np.array_equal(x, y), name
+    assert (a.lines, a.dropped) == (b.lines, b.dropped) and 0 < a.lines < 18000
+    codes = np.concatenate(seen)
+    assert len(np.unique(codes)) == len(codes) and len(seen) > 1  # each pixel once, over several parts
+    assert len(counters["numba"]._tables.line_a) > 8 and len(counters["numba"]._tables.spot_id) > 8  # grown
+    with pytest.raises(ValueError, match="engine"):
+        cc.TileCounter(grid, ORIGIN, core, (30, 3000), True, engine="pandas")
 
 
 def test_merge_on_word_b_and_the_split_by_border():
@@ -657,13 +698,15 @@ def test_filters_parse():
 
 
 def _inside(cube, level, a, box):
-    """Whether the key's cell (word A) touches a box (west, south, east, north in degrees)."""
+    """Whether the key's cell (word A) touches a box (west, south, east, north in degrees), edges included
+    within RANGE_EPSILON of a cell."""
     if box is None:
         return True
     i, j = a >> 46, (a >> 30) & 0xFFFF
     side = level / 120
+    e = cc.RANGE_EPSILON * side
     west, south = (cube.origin[0] + i * level) / 120, (cube.origin[1] + j * level) / 120
-    return west + side > box[0] and west <= box[2] and south + side > box[1] and south <= box[3]
+    return west + side + e > box[0] and west - e <= box[2] and south + side + e > box[1] and south - e <= box[3]
 
 
 def _random_box(rng, cube):

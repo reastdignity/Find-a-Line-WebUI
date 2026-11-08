@@ -1098,6 +1098,13 @@ def _warm_up(country: Country, plans: Dict, folder: str, data_dir: str, say):
         table = sg.TensionTable(plan.rigging, 10, 40, country.tension) if model == "sag" else None
         found = []
         search.count_tile(small, data, None, found.append, table)
+        # the counter's kernels (countkernels) on the parts as the count hands them
+        from pyproj import Transformer
+        bounds = Transformer.from_crs(plan.crs, "EPSG:4326", always_xy=True).transform_bounds(0.0, 0.0, size, size)
+        counter = countcube.TileCounter(grid, countcube.origin_of(bounds, 0.0), None, (10, 40), True)
+        for part in found:
+            counter(part)
+        counter.result()
         say(f"Warm-up of the {model} model: {sum(len(p) for p in found)} lines")
     del data
     gc.collect()

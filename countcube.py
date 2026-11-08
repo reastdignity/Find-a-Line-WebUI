@@ -273,6 +273,18 @@ def _metres_per_degree(lat: float) -> Tuple[float, float]:
             _A * (1 - _E2) / w ** 3 * math.pi / 180)
 
 
+def cell_size_km(level: int, lat: float) -> Tuple[float, float]:
+    """The size (east-west, north-south) in km of a level's cell at a latitude."""
+    east, north = _metres_per_degree(lat)
+    return east * level / CELLS_PER_DEGREE / 1000, north * level / CELLS_PER_DEGREE / 1000
+
+
+def cluster_size_m(lat: float) -> Tuple[float, float]:
+    """The size (east-west, north-south) in metres of a spot's anchor cluster at a latitude."""
+    east, north = _metres_per_degree(lat)
+    return east / CLUSTERS_PER_DEGREE, north / CLUSTERS_PER_DEGREE
+
+
 def origin_of(bounds_wgs84: Tuple[float, float, float, float], reach_m: float) -> Tuple[int, int]:
     """A country's origin (I0, J0) in cells of the lattice: the south-west corner of its outline's box
     (WGS84: west, south, east, north) less reach_m (the longest line of its layer, so an anchor
@@ -492,6 +504,12 @@ def _to_wgs84(crs: str) -> Transformer:
     return found
 
 
+# How a TileCounter counts: "numba", hash tables (countkernels.py, imported at the first part, never by
+# the web process), or "numpy", the parts sorted and merged as they come (the reference of the tests)
+ENGINE = "numba"
+VALUE_COLUMNS = ("length", "clearance", "clearance_nmpt", "height_max", "height_mean", "high_pct", "angle1", "angle2",
+                 "prom1", "prom2", "drop1", "drop2", "elev_a1", "elev_a2")  # countkernels.count's order
+
 # The columns a TileCounter reads of a part (those of OPTIONAL_COLUMNS when present)
 RECORD_COLUMNS = ("length", "clearance", "clearance_nmpt", "height_max", "height_mean", "high_pct", "angle1",
                   "angle2", "prom1", "prom2", "drop1", "drop2", "elev_a1", "elev_a2", "water_px")
@@ -509,10 +527,15 @@ class TileCounter:
     Its cell is that of its first anchor by (lon, lat) (the smaller lon, then lat) on the global
     lattice from `origin` (I0, J0) in cells: i = cx // 20 with cx = floor(lon × 2400) - 20 I0, which
     is floor(lon × 120) - I0 but for the rounding at a cell's edge, so a line and the cluster of its
-    first anchor share a cell. Each part's distinct anchor pixels go to WGS84 once (pyproj)."""
+    first anchor share a cell. Each anchor pixel of the tile goes to WGS84 once (pyproj). engine: ENGINE
+    unless given; both give the same counts."""
 
     def __init__(self, grid, origin: Tuple[int, int], core: Optional[Tuple[float, float, float, float]],
-                 lengths: Tuple[float, float], last: bool):
+                 lengths: Tuple[float, float], last: bool, engine: Optional[str] = None):
+        self.engine = engine or ENGINE
+        if self.engine not in ("numba", "numpy"):
+            raise ValueError("the engine must be numba or numpy")
+        self._tables = None  # countkernels.Tables of the engine numba, made at the first part
         self.grid = grid
         self.origin = (int(origin[0]), int(origin[1]))
         self.core = core
@@ -574,7 +597,74 @@ class TileCounter:
         lon, lat, cx, cy = self._lookup(unique)
         return (lon[first], lat[first], cx[first], cy[first]), (lon[second], lat[second], cx[second], cy[second])
 
+    def _transform(self, codes: np.ndarray):
+        """lon, lat, cx, cy of distinct pixel codes (row * width + col), through pyproj."""
+        width = self.grid.width
+        x, y = self.grid.pixel_to_xy(codes // width, codes % width)
+        lon, lat = self._transformer.transform(x, y)
+        lon, lat = np.asarray(lon, dtype=np.float64), np.asarray(lat, dtype=np.float64)
+        cx, cy = clusters_of(lon, lat, self.origin)
+        return lon, lat, cx, cy
+
+    def _count_numba(self, part) -> None:
+        """A part into the tile's hash tables (countkernels)."""
+        import countkernels as ck
+        if self._tables is None:
+            self._tables = ck.Tables()
+        tables = self._tables
+        c = part.columns
+        a1 = np.ascontiguousarray(c["a1"], dtype=np.int64)
+        a2 = np.ascontiguousarray(c["a2"], dtype=np.int64)
+        n = len(a1)
+        if not n:
+            return
+        g = self.grid
+        core = np.asarray(self.core if self.core is not None else (0.0, 0.0, 0.0, 0.0), dtype=np.float64)
+        kept, codes1, codes2 = (np.empty(n, dtype=np.int64) for _ in range(3))
+        k = ck.select(a1, a2, np.asarray(c["length"], dtype=np.float64), int(g.width), float(g.left), float(g.top),
+                      float(g.res), core, self.core is not None, self.lengths[0], self.lengths[1], bool(self.last),
+                      kept, codes1, codes2)
+        self.dropped += n - k
+        if not k:
+            return
+        self.lines += k
+        kept = kept[:k]
+        t = time.perf_counter()
+        index = tables.indices(np.concatenate([codes1[:k], codes2[:k]]), self._transform)
+        self.transform_seconds += time.perf_counter() - t
+        values = [np.asarray(c[name], dtype=np.float64) for name in VALUE_COLUMNS]
+        water = np.asarray(c["water_px"], dtype=np.float64)
+        none_f, none_i = np.empty(0, dtype=np.float64), np.empty(0, dtype=np.int64)
+        lifts = [np.asarray(c[name], dtype=np.float64) if name in c else none_f for name in ("lift_needed", "lift_no_zone")]
+        sides = [np.asarray(c[name]).astype(np.int64) if name in c else none_i for name in ("border", "partner")]
+        start = 0
+        while True:
+            start = ck.count(start, kept, index[:k], index[k:], tables.lon, tables.lat, tables.cx, tables.cy, *values,
+                             water, *lifts, *sides, float(g.res), ck.EDGES, ck.AT_MOST, ck.SHIFTS, ck.IN_B,
+                             ck.LENGTH_EDGES, _MERGED, tables.line_a, tables.line_b, tables.line_n, tables.line_used,
+                             tables.spot_id, tables.spot_bp, tables.spot_flags, tables.spot_bins, tables.spot_used,
+                             tables.used)
+            if start == k:
+                break
+            tables.grow()
+
+    def _result_numba(self) -> TileCounts:
+        keys, lines, ids, bps, flags, bins = self._tables.counts()
+        a, b = flags | (bps << BP_SHIFT), np.zeros(len(ids), dtype=np.int64)
+        for k, name in enumerate(DIMS3):
+            value = _UNMERGED[k][bins[:, k]]
+            if name in SHIFT:
+                a |= value << SHIFT[name]
+            else:
+                b |= value << B_SHIFT[name]
+        records = np.empty((len(ids), 2), dtype=np.int64)
+        records[:, 0], records[:, 1] = a, b
+        return TileCounts(keys, lines, ids.astype(np.int64), records, self.lines, self.dropped)
+
     def __call__(self, part) -> None:
+        if self.engine == "numba":
+            self._count_numba(part)
+            return
         c = part.columns
         a1, a2 = np.asarray(c["a1"]), np.asarray(c["a2"])
         n = len(a1)
@@ -613,6 +703,8 @@ class TileCounter:
         self._spots.add(*_merge_bins(cluster_spot_ids(cx1, cy1, cx2, cy2), flags, bins))
 
     def result(self) -> TileCounts:
+        if self.engine == "numba":
+            return self._result_numba() if self._tables is not None else _empty_counts(self.lines, self.dropped)
         keys, counts = self._lines.flush()
         ids, records = self._spots.flush()
         empty = _empty_counts()
@@ -876,6 +968,7 @@ OUTLINE_DECIMALS = 4       # of its coordinates (about 10 m)
 CUT_SIMPLIFY = 250         # a cut cell's shape on a map, simplified by its side over this (Slovakia: 4 m, 11 points a cell)
 CUT_DECIMALS = 6           # of its coordinates (about 0.1 m): the corners of /api/countries/<id>/cells
 CUT_FULL = 1 - 1e-9        # a cell with this share of it inside the outline is whole
+RANGE_EPSILON = 1e-4       # cells: more than the corners' rounding to CUT_DECIMALS (1e-6°: 1.2e-4 of a 30" cell)
 
 
 class Cube:
@@ -931,12 +1024,17 @@ class Cube:
         return (float(west), float(south), float(east), float(north))
 
     def _range(self, level: int, box: Box) -> Tuple[int, int, int, int]:
-        """The columns and rows (inclusive) of the level's cells touching box (may be empty)."""
+        """The columns and rows (inclusive) of the level's cells touching box, edges included within
+        RANGE_EPSILON (may be empty): a box's edge on the lattice (19.9° is 2388 cells) touches the cells
+        on both sides, as their corners rounded to 6 decimals reach it for the page."""
         if box[0] > box[2] or box[1] > box[3]:
             return (0, -1, 0, -1)
         i0, j0 = self.origin
-        return (math.floor((box[0] * CELLS_PER_DEGREE - i0) / level), math.floor((box[2] * CELLS_PER_DEGREE - i0) / level),
-                math.floor((box[1] * CELLS_PER_DEGREE - j0) / level), math.floor((box[3] * CELLS_PER_DEGREE - j0) / level))
+        e = RANGE_EPSILON
+        return (math.floor((box[0] * CELLS_PER_DEGREE - i0) / level - e),
+                math.floor((box[2] * CELLS_PER_DEGREE - i0) / level + e),
+                math.floor((box[1] * CELLS_PER_DEGREE - j0) / level - e),
+                math.floor((box[3] * CELLS_PER_DEGREE - j0) / level + e))
 
     def auto_level(self, box: Box, most: int = 4000) -> int:
         """The finest level with at most `most` cells over box (by its geometry), else the coarsest."""
