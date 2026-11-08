@@ -2199,6 +2199,8 @@ def test_mosaic_warps_without_a_thread_per_chunk(tmp_path, monkeypatch):
         return original(*args, **kwargs)
 
     monkeypatch.setattr(src.mosaic, "reproject", recorded)
+    # GDAL gives a chunk of fewer than 65536 pixels per thread to one thread: split this small grid's rows too
+    monkeypatch.setenv("WARP_THREAD_CHUNK_SIZE", "0")
     assert src.mosaic.WARP_KWARGS == {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS}
     for name, files in pairs.items():
         categorical = name == "categories"
