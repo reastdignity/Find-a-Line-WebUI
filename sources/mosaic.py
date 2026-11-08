@@ -22,6 +22,17 @@ from .layer import VALID_MIN, Layer, _clean
 # a 7600 px grid, 2.6 s on one thread, 0.8 s on 4, 0.5 s on 8): the cores numba may use
 # (NUMBA_NUM_THREADS, WORKER_CPUS in the container), at most 8
 WARP_THREADS = max(1, min(8, int(os.environ.get("NUMBA_NUM_THREADS") or os.cpu_count() or 1)))
+# reproject()'s threads: GDAL's warp kernel on WARP_THREADS threads of its global pool (the warp option
+# NUM_THREADS, passed after rasterio's own), the chunks of a warp one after another in the calling thread
+# (num_threads=1: rasterio's ChunkAndWarpImage). rasterio's num_threads > 1 runs ChunkAndWarpMulti, which
+# starts a joinable thread per chunk, and on Windows GDAL before 3.14 a thread that ends before
+# CreateThread() has returned frees its own record, which CPLJoinThread() then frees again: 0xC0000374
+# (OSGeo/gdal#15452, fixed on GDAL's master by #15451, in no release of 3.12 or 3.13). A destination strip
+# its source covers only in part (a mosaic of two degree tiles) is split into 40-55 chunks, many with no
+# source pixel, so the country layer's workers died at about 1.4 of 1000 such stitches (12 workers on 24
+# logical cores); 41 times in 15 minutes of a stress of 12 processes, never with these options (the same
+# values bit for bit: the kernel splits the rows of a chunk among its threads, the chunk list is the same).
+WARP_KWARGS = {"num_threads": 1, "NUM_THREADS": WARP_THREADS}
 
 
 # What the layers prepared in this process came from (Layer.used), saved with the run
@@ -262,7 +273,7 @@ def _warp(src, src_crs, grid: Grid, moved: Affine, shift: Tuple[float, float], c
     band = _read_band(src, window, clean)
     reproject(band, values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
-              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
+              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, **WARP_KWARGS)
     del band
     return values
 
