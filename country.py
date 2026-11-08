@@ -144,28 +144,72 @@ class Band:
 
 
 @dataclass(frozen=True)
+class Profile:
+    """The layer's profile (docs/country-precompute/contract.md section 6, "The profile (R7)"): the bands,
+    T(L) and the rig, one for every country, so that two countries' cubes count the same lines and add up
+    (PROFILE); a study area (tools/band_study.py) or a test may have its own. Its sha256 (of config()) is
+    cube.json's "profile" and part of every tile's config hash."""
+    bands: Tuple[Band, ...]
+    tension: Tuple[Tuple[float, float], ...]  # T(L): (span m, pretension kN), sag.tension_at
+    rig: Dict[str, float]                     # SearchParams' fields of every band's search: the webbing's
+
+    def config(self) -> Dict:
+        return json.loads(json.dumps({"bands": [dataclasses.asdict(b) for b in self.bands],
+                                      "tension": [list(p) for p in self.tension], "rig": dict(self.rig)}))
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(json.dumps(self.config(), sort_keys=True).encode("utf-8")).hexdigest()
+
+    @classmethod
+    def from_config(cls, config: Dict) -> "Profile":
+        """The profile of a country's configuration: its bands, tension and rig, PROFILE's where it has none."""
+        bands = (tuple(Band(**{**b, "lengths": tuple(b["lengths"])}) for b in config["bands"])
+                 if "bands" in config else PROFILE.bands)
+        tension = tuple(tuple(p) for p in config["tension"]) if "tension" in config else PROFILE.tension
+        rig = dict(config.get("rig") or {}) if "rig" in config else dict(PROFILE.rig)
+        return cls(bands, tension, rig)
+
+
+# The profile of every country: the pilot's bands (S, M, L in the layer, M2 a control band of L's
+# [1000, 2000)), T(L) and Silk 99 (the other rigging fields at their defaults), until the user decides on
+# the band study's result: a change of the profile is a change of this value, and every country is
+# counted again (the config hash)
+PROFILE = Profile(
+    bands=(Band("S", (30, 300), 1.0, "formula", 60, 5000, True),
+           Band("M", (300, 1000), 2.0, "sag", 60, 10000, True),
+           Band("L", (1000, 5000), 5.0, "sag", 45, 20000, True),
+           Band("M2", (1000, 2000), 2.0, "sag", 60, 10000, False)),
+    tension=((300, 2.5), (1500, 6.0), (5000, 15.0)),
+    rig={"webbing_weight": 41.0, "stretch": 2.1})
+
+
+@dataclass(frozen=True)
 class Country:
     id: str
     name: str
     source: str
     area: str                     # an area spec of area.from_spec, e.g. "osm:Slovensko"
-    bands: Tuple[Band, ...]
-    tension: Tuple[Tuple[float, float], ...]  # T(L): (span m, pretension kN), sag.tension_at
-    rig: Dict[str, float] = field(default_factory=dict)      # SearchParams' webbing fields
+    bands: Tuple[Band, ...] = PROFILE.bands  # the profile's (PROFILE) unless a study area (or a test) has its own
+    tension: Tuple[Tuple[float, float], ...] = PROFILE.tension  # T(L): (span m, pretension kN), sag.tension_at
+    rig: Dict[str, float] = field(default_factory=lambda: dict(PROFILE.rig))  # SearchParams' webbing fields
     # nmpt, water, coastline, fill_gaps; within: a box S,W,N,E clipping the area (tools/band_study.py's
     # squares); elevation_file, surface_file: tests
     options: Dict[str, str] = field(default_factory=dict)
 
     def config(self) -> Dict:
-        """The configuration as JSON values (country.json)."""
+        """The configuration as JSON values (country.json), the profile's bands, tension and rig with it."""
         return json.loads(json.dumps(dataclasses.asdict(self)))
 
     @classmethod
     def from_config(cls, config: Dict) -> "Country":
-        bands = tuple(Band(**{**b, "lengths": tuple(b["lengths"])}) for b in config["bands"])
-        return cls(config["id"], config["name"], config["source"], config["area"], bands,
-                   tuple(tuple(p) for p in config["tension"]), dict(config.get("rig") or {}),
-                   dict(config.get("options") or {}))
+        profile = Profile.from_config(config)
+        return cls(config["id"], config["name"], config["source"], config["area"], profile.bands, profile.tension,
+                   profile.rig, dict(config.get("options") or {}))
+
+    @property
+    def profile(self) -> Profile:
+        return Profile(self.bands, self.tension, self.rig)
 
     def band(self, name: str) -> Band:
         for band in self.bands:
@@ -186,15 +230,33 @@ class Country:
 COUNTRIES = {
     "slovakia": Country(
         id="slovakia", name="Slovakia", source="slovakia", area="osm:Slovensko",
-        bands=(Band("S", (30, 300), 1.0, "formula", 60, 5000, True),
-               Band("M", (300, 1000), 2.0, "sag", 60, 10000, True),
-               Band("L", (1000, 5000), 5.0, "sag", 45, 20000, True),
-               Band("M2", (1000, 2000), 2.0, "sag", 60, 10000, False)),
-        tension=((300, 2.5), (1500, 6.0), (5000, 15.0)),
-        rig={"webbing_weight": 41.0, "stretch": 2.1},  # Silk 99; the other rigging fields at their defaults
         # The pilot runs without the DSM (the user's decision of 2026-11-02)
         options={"nmpt": "off", "water": "fill", "coastline": "copernicus", "fill_gaps": "on"}),
 }
+
+# The cube of each source the catalogue names as some source's neighbour (Source.neighbours): the id of the
+# layer counted from its data (a country's, or a region's where the catalogue's source is a region's). A
+# country's cube.json lists its source's neighbours' cube ids in their order ("neighbours"), the partner
+# index 1-6 of a line across its border (no source declares more than six); such a line is counted from this
+# country's data until the neighbour has a cube of its own (docs/country-precompute/contract.md section 6)
+NEIGHBOUR_CUBES = {
+    "alaska": "alaska", "alaska_ifsar": "alaska", "austria": "austria", "baden_wurttemberg": "baden_wurttemberg",
+    "bavaria": "bavaria", "brandenburg": "brandenburg", "british_columbia": "british_columbia", "canada": "canada",
+    "czechia": "czechia", "denmark": "denmark", "england": "england", "finland": "finland", "france": "france",
+    "geoportal": "poland", "hesse": "hesse", "lower_saxony": "lower_saxony", "luxembourg": "luxembourg",
+    "mecklenburg_vorpommern": "mecklenburg_vorpommern", "north_rhine_westphalia": "north_rhine_westphalia",
+    "norway": "norway", "nunavut": "nunavut", "rhineland_palatinate": "rhineland_palatinate", "saarland": "saarland",
+    "saxony": "saxony", "saxony_anhalt": "saxony_anhalt", "schleswig_holstein": "schleswig_holstein",
+    "scotland": "scotland", "slovakia": "slovakia", "slovenia": "slovenia", "south_tyrol": "south_tyrol",
+    "spain": "spain", "swisstopo": "switzerland", "trento": "trento", "usa": "usa", "wales": "wales"}
+
+
+def neighbour_cubes(source_id: str) -> List[str]:
+    """The cube ids of a source's neighbours in the order of Source.neighbours (cube.json's "neighbours": a
+    line's partner index k is the k-th); [] for a source outside the catalogue (an elevation file)."""
+    import sources as src
+    source = src.SOURCES.get(source_id)
+    return [NEIGHBOUR_CUBES[n] for n in (source.neighbours or ())] if source is not None else []
 
 
 class CountryError(Exception):
@@ -218,10 +280,10 @@ def _sha256_file(path: str) -> str:
 
 
 def config_hash(config: Dict, area_sha256: str) -> str:
-    """What every tile file records (meta "config"): the configuration and the outline, and with the
-    surface model the obstacle rule (obstacles.RULE: tiles of another rule are counted again; without
-    the surface model the hash is the one of before)."""
-    value = {"config": config, "area_sha256": area_sha256}
+    """What every tile file records (meta "config"): the configuration, its profile's sha256 (Profile:
+    cube.json's "profile") and the outline, and with the surface model the obstacle rule (obstacles.RULE:
+    tiles of another rule are counted again)."""
+    value = {"config": config, "profile": Profile.from_config(config).sha256, "area_sha256": area_sha256}
     if (config.get("options") or {}).get("nmpt", "off") != "off":
         import obstacles
         value["obstacles"] = obstacles.RULE
@@ -422,9 +484,39 @@ def band_plan(country: Country, band: Band, folder: str, data_dir: str, emit=Non
             values[key] = country.options[key]
     paths = search.Paths(data_dir, os.path.join(data_dir, "work", f"country-{country.id}"))
     try:
-        return search.plan_search(SearchParams(**values), paths, emit or (lambda kind, text: None), tiled=False)
+        plan = search.plan_search(SearchParams(**values), paths, emit or (lambda kind, text: None), tiled=False)
     except search.SearchError as e:
         raise CountryError(f"Band {band.name}: {e}") from e
+    return plan if country.study else _grown(plan)
+
+
+def _grown(plan):
+    """A country's band plan with its grid grown by the band's longest line beyond the outline's box:
+    search.tile_grid clips a tile's grid to the band's, so a border tile at that box's edge reaches the
+    partner anchors (Plan.partners) beyond it too. The cores (search.fixed_tiles, from the outline) stay;
+    a tile's grid grows only where it was clipped."""
+    import grid as gd
+    g, res = plan.grid, plan.resolution
+    reach = math.ceil(float(plan.params.max_length) / res) * res
+    left, bottom, right, top = g.bounds
+    wide = gd.make_grid((left - reach, bottom - reach, right + reach, top + reach), res, g.crs,
+                        plan.source.grid_origin)
+    wide.area_shape = g.area_shape
+    return dataclasses.replace(plan, grid=wide)
+
+
+def reach_shape(outline, grid, reach: float):
+    """The outline (the grid's CRS) grown by reach, within the grid: a border tile's footprint
+    (grid.area_shape: the data tiles mosaicked under it, the border gaps a neighbour fills), so the
+    partner anchors' side has the source's own data and the neighbours' as a search over both sides
+    would have them. Only the outline's part within reach of the grid is grown (the same shape within
+    the grid: a point's nearest piece of the outline lies within reach of it)."""
+    from shapely.geometry import box
+    from shapely.validation import make_valid
+    left, bottom, right, top = grid.bounds
+    near = outline.intersection(box(left - reach, bottom - reach, right + reach, top + reach))
+    grown = near.buffer(reach)
+    return grown if grown.is_valid else make_valid(grown)
 
 
 def tension_table(country: Country, band: Band, plan):
@@ -832,16 +924,12 @@ class TileWork:
         band, plan, table = self._band(band_name)
         started = _now()
         res = plan.resolution
-        grid = search.tile_grid(plan.grid, core, search._overlap(plan.params, res), res, plan.source.grid_origin)
         work = os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band.name}-{name}")
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
-        # search_grid: the band's grid, as search_lines gives its tiles (the world file's water
-        # polygons read once per band in this process, coast.sea_mask's extent)
-        tile_plan = dataclasses.replace(plan, params=plan.params.model_copy(update={"threads": threads}), grid=grid,
-                                        paths=search.Paths(self.data_dir, work), tiles=None, funnel={},
-                                        tile_label=f"{band.name} {name} · ", emit=_print_event,
-                                        search_grid=plan.grid, border=_at_border(grid))
+        tile_plan_ = tile_plan(self.country, plan, core, search.Paths(self.data_dir, work), threads,
+                               tile_label=f"{band.name} {name} · ", emit=_print_event)
+        grid, partners = tile_plan_.grid, tile_plan_.partners
         print(f"\n--- Band {band.name}, tile {name} ({grid.width} x {grid.height} px, {threads} threads) ---",
               flush=True)
         src.used_data.clear()
@@ -861,12 +949,12 @@ class TileWork:
             # files with the same argument types (warmup.SEARCHES), so no copy of a tile's window
             # (search._tile_data) is needed: the window is the grid. No terrain histogram and no shore:
             # the cube holds none.
-            data = search.prepare_data(tile_plan, statistics=False, shore="none", strips=True)
+            data = search.prepare_data(tile_plan_, statistics=False, shore="none", strips=True)
             t1 = time.time()
             counter = _TimedSink(countcube.TileCounter(grid, self.origin, core, band.lengths,
                                                        float(band.lengths[1]) >= self.country.last_edge))
             sink = counter if threads_now is None else _Rethreading(counter, threads_now, threads)
-            funnel = search.count_tile(tile_plan, data, core, sink, table)
+            funnel = search.count_tile(tile_plan_, data, core, sink, table)
             counts = counter.result()
             t2 = time.time()
         finally:
@@ -875,8 +963,9 @@ class TileWork:
         read1, written1 = _io_counters()
         del data
         self._remove_grids(work)
-        meta = {"version": countcube.VERSION, "config": self.state["hash"], "origin": list(self.origin),
-                "country": self.country.id, "band": band.name, "tile": name, "core": list(core),
+        meta = {"version": countcube.VERSION, "config": self.state["hash"], "profile": self.country.profile.sha256,
+                "origin": list(self.origin), "country": self.country.id, "band": band.name, "tile": name,
+                "core": list(core), "partners": partners,
                 "grid": {"width": grid.width, "height": grid.height, "res": res, "left": grid.left, "top": grid.top},
                 "lines": counts.lines, "spots": int(len(counts.spot_ids)), "dropped": counts.dropped,
                 "funnel": dict(funnel), "seconds": {"prepare": round(t1 - t0, 3), "count": round(t2 - t1, 3)},
@@ -939,6 +1028,28 @@ class TileWork:
             if freeze and done == 1:
                 gc.freeze()
         return done
+
+
+def tile_plan(country: Country, plan, core: Tuple[float, ...], paths, threads: Optional[int] = None, **changes):
+    """The plan of a tile of a band (TileWork.count): its grid (search.tile_grid: the core with the band's
+    overlap, within the band's grid), the band's grid as its search grid (as search_lines gives its tiles:
+    the world file's water polygons read once per band, coast.sea_mask's extent), Plan.border from
+    _at_border, and at a country's border (not a study area's) the partner anchors within the band's
+    longest line beyond the outline (Plan.partners; docs/country-precompute/contract.md section 6, "The
+    borders") on the footprint grown by the overlap (reach_shape: the source's own data beyond the outline,
+    the neighbours' fill). changes: other fields of the plan."""
+    import search
+    res = plan.resolution
+    overlap = search._overlap(plan.params, res)
+    grid = search.tile_grid(plan.grid, core, overlap, res, plan.source.grid_origin)
+    border = _at_border(grid)
+    partners = None
+    if border and not country.study:
+        partners = float(plan.params.max_length)
+        grid.area_shape = reach_shape(plan.grid.area_shape, grid, overlap)
+    params = plan.params if threads is None else plan.params.model_copy(update={"threads": threads})
+    return dataclasses.replace(plan, params=params, grid=grid, paths=paths, tiles=None, funnel={},
+                               search_grid=plan.grid, border=border, partners=partners, **changes)
 
 
 def _at_border(grid) -> bool:
@@ -1008,11 +1119,12 @@ def _duration(seconds: float) -> str:
     return text(seconds)
 
 
-def _disk_bytes(plan) -> int:
+def _disk_bytes(plan, across: bool = False) -> int:
     """The bytes per pixel a tile's work folder holds at most: the grids step 1 writes for the
-    band's plan and its temporaries in strips."""
+    band's plan and its temporaries in strips; across (a country's border tile): the partner grid
+    (uint8) and its zone (bool, a temporary)."""
     import search
-    return search.work_bytes(plan) + search.AREA_TEMP_BYTES
+    return search.work_bytes(plan) + search.AREA_TEMP_BYTES + (2 if across else 0)
 
 
 def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
@@ -1041,11 +1153,13 @@ def _ask(question: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "t", "tak")
 
 
-def _prefetch(plans: Dict, say):
+def _prefetch(plans: Dict, say, across: bool = False):
     """The data over the whole country into the cache (sources.download_layers of the terrain, the
     surface when used and the water mask) on the grid of each resolution (a band's grid: its tiles
     lie within it), before the workers start; the blocks of big remote files in squares of PREFETCH_GROUP_M,
-    each file read once per square. Gap filling data stays with the tiles."""
+    each file read once per square. across (a country, not a study area): the footprint is the outline
+    grown by the band's overlap, as a border tile's (reach_shape). Gap filling data stays with the tiles."""
+    import copy
     import search
     import sources as src
     largest = {}
@@ -1058,8 +1172,12 @@ def _prefetch(plans: Dict, say):
         if plan.params.water == "fill" or search._fills_gaps(plan):
             layers.append((src.WATER_MASK, "water mask"))
         say(f"Prefetch at {res:g} m: {', '.join(label for _, label in layers)}")
+        grid = plan.grid
+        if across:
+            grid = copy.copy(plan.grid)
+            grid.area_shape = reach_shape(plan.grid.area_shape, plan.grid, search._overlap(plan.params, res))
         try:
-            src.download_layers(layers, plan.grid, plan.paths.cache, None, group_m=PREFETCH_GROUP_M)
+            src.download_layers(layers, grid, plan.paths.cache, None, group_m=PREFETCH_GROUP_M)
         except RuntimeError as e:
             say(f"WARNING: the prefetch failed ({cache.clean_error(e)}): the tiles download what they need")
 
@@ -1247,7 +1365,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
             manifest.add_tiles(band.name, tiles)
             if band.name in selected and tiles:
                 largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
-                disk = max(disk, max(t.grid.width * t.grid.height for t in tiles) * _disk_bytes(plans[band.name]))
+                disk = max(disk, max(t.grid.width * t.grid.height for t in tiles)
+                           * _disk_bytes(plans[band.name], across=not country.study))
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
@@ -1283,7 +1402,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         if todo:
             _set_weights(manifest, selected, plans, say)
             with progress.bars():
-                _prefetch({n: plans[n] for n in selected}, say)
+                _prefetch({n: plans[n] for n in selected}, say, across=not country.study)
                 if k:
                     _warm_up(country, {n: plans[n] for n in selected}, folder, data_dir, say)
             manifest.set_run(selected, max_tiles, k_eff)
@@ -1591,6 +1710,54 @@ def _credits(metas: List[Dict], area_spec: str, year: int) -> List[Dict]:
     return list(unique.values())
 
 
+SHAPES = os.path.join(REPO, "viewer", "dist", "coverage-shapes.json")  # the coverage map's outlines (Natural Earth)
+BORDER_NEAR_DEG = 0.01  # a country of SHAPES within this of the outline is its neighbour (_hard_borders)
+
+
+def _hard_borders(country: Country, folder: str) -> List[str]:
+    """The countries (ISO codes, upper case) of the coverage map's outlines (SHAPES) next to the outline
+    that no neighbour of the country's source covers (Source.neighbours' countries and regions): across
+    their borders lines are counted only where the source's own data reach beyond the outline (partner
+    7). [] when the outlines cannot be read."""
+    import sources as src
+    from shapely.geometry import shape
+    try:
+        with open(SHAPES, encoding="utf-8") as f:
+            features = json.load(f)["features"]
+        outline = _read_outline(folder).buffer(BORDER_NEAR_DEG)
+    except (OSError, ValueError, KeyError):
+        return []
+    source = src.SOURCES.get(country.source)
+    own = set(source.countries or ()) if source is not None else set()
+    covered = set()
+    for name in (source.neighbours or ()) if source is not None else ():
+        other = src.SOURCES[name]
+        covered |= set(other.countries or ()) | set(other.regions or ())
+    found = set()
+    for feature in features:
+        code = feature["properties"]["id"]
+        if feature["properties"].get("kind") != "country" or code in own or code in covered or code in found:
+            continue
+        if shape(feature["geometry"]).intersects(outline):
+            found.add(code)
+    return sorted(code.upper() for code in found)
+
+
+def _border_notes(country: Country, folder: str, neighbours: List[str]) -> List[str]:
+    """cube.json's notes on the borders: which lines are counted across them, which borders stay hard."""
+    if country.study:
+        return [f"Only lines with both anchors inside {country.name} are counted."]
+    notes = [f"Lines across the border are counted too: one anchor in {country.name}, the other within the band's "
+             f"longest line beyond the border, on the neighbours' data or on {country.name}'s own data there."
+             + (f" Neighbours: {', '.join(dict.fromkeys(neighbours))}; such a line is counted from {country.name}'s "
+                f"data until the neighbour has a layer of its own." if neighbours else "")]
+    hard = _hard_borders(country, folder)
+    if hard:
+        notes.append(f"No data of the neighbours across the border with {', '.join(hard)} (no source here): lines "
+                     f"cross it only where {country.name}'s own data reach beyond the border.")
+    return notes
+
+
 def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> int:
     """`country build`: the cube of the layer bands' tiles (countcube.build). Refused while tiles are
     missing unless partial; every tile must have the country's origin and config."""
@@ -1632,11 +1799,16 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
             f"{country_id}`, or build a partial cube with --partial")
         return 1
     origin = [float(v) for v in state["origin"]]
+    profile = country.profile.sha256
     for path in paths:
         try:
             meta = _tile_meta(path)
         except ValueError as e:
             say(str(e))
+            return 1
+        if meta.get("profile") != profile:
+            say(f"{path} was counted with another profile of the layer (its bands, T(L) or rig): count it again "
+                f"(`country run {country_id} --redo` counts everything again)")
             return 1
         if meta.get("config") != state["hash"] or [float(v) for v in meta.get("origin", [])] != origin:
             say(f"{path} was counted with another configuration or origin: count it again "
@@ -1645,13 +1817,15 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
         metas.append(meta)
     year = datetime.now().year
     dsm = country.options.get("nmpt", "off") != "off"
-    notes = [f"Only lines with both anchors inside {country.name} are counted."]
+    neighbours = [] if country.study else neighbour_cubes(country.source)
+    notes = _border_notes(country, folder, neighbours)
     if not dsm:
         notes.append("The surface model (trees, buildings) was not used: every line counts as not over trees "
                      "or buildings.")
     if missing:
         notes.append(f"Partial: {total - missing} of {total} tiles of the layer bands.")
     info = {"id": country.id, "name": country.name, "crs": state["crs"], "origin": origin, "study": country.study,
+            "profile": profile, "neighbours": neighbours,
             "bounds_wgs84": state["bounds_wgs84"], "bands": bands_info, "dsm": dsm,
             "water": country.options.get("water") == "fill", "partial": bool(missing), "config": state["hash"],
             "credits": _credits(metas, country.area, year), "notes": notes}

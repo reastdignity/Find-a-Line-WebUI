@@ -19,6 +19,11 @@ OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.
                "FINDALINE_PROGRESS": "text"}
 SQUARE = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
                                               [19.7522, 50.1580], [19.7522, 50.1546]]]}
+# Testland: the clip west of the tower's meridian (tests/test_border_study.py's BORDER_LON), so its lines from the
+# tower to the rocks west of it cross the border; the clip's own data east of it are the partners (partner 7), and
+# a strip west of it (the clip reprojected to EPSG:8353 reaches beyond the outline's west edge)
+WEST = {"type": "Polygon", "coordinates": [[[19.7505, 50.1530], [19.7561, 50.1530], [19.7561, 50.1595],
+                                            [19.7505, 50.1595], [19.7505, 50.1530]]]}
 ID = "testland"
 
 
@@ -47,7 +52,7 @@ def env(tmp_path_factory):
     os.environ.update(OFFLINE_ENV)
     base = tmp_path_factory.mktemp("country")
     area = base / "square.geojson"
-    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": SQUARE}))
+    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": WEST}))
     config = {"id": ID, "name": "Testland", "source": "files", "area": str(area),
               "bands": [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula",
                          "slope_threshold": 45, "core_m": 200, "layer": True},
@@ -104,7 +109,9 @@ def _assert_same_cube(a: dict, b: dict):
 @pytest.fixture(scope="module")
 def full(env):
     """A whole run in this process, and the counts of one grid per layer band (count_tile with
-    core=None and a TileCounter over the band's whole grid) built into a cube."""
+    core=None and a TileCounter over the band's whole grid, with the partner anchors beyond the
+    outline as a border tile has them: the square lies inside the clip) built into a cube."""
+    import dataclasses
     import country
     import countcube
     import search
@@ -119,7 +126,7 @@ def full(env):
     for band in c.bands:
         if not band.layer:
             continue
-        plan = country.band_plan(c, band, folder, data)
+        plan = dataclasses.replace(country.band_plan(c, band, folder, data), partners=float(band.lengths[1]))
         os.makedirs(plan.paths.work, exist_ok=True)
         counter = countcube.TileCounter(plan.grid, tuple(state["origin"]), None, band.lengths, False)
         search.count_tile(plan, search.prepare_data(plan), None, counter, country.tension_table(c, band, plan))
@@ -137,7 +144,8 @@ def _cube_folder(folder: str) -> dict:
 
 def test_cube_equals_one_grid(env, full):
     """The cube of the tiles equals the counts of one grid, in a CRS of negative coordinates, with
-    at least 2 x 2 tiles; cube.json as the contract gives it."""
+    at least 2 x 2 tiles, the lines across the border too; cube.json as the contract gives it."""
+    import country
     import countcube
     data, state = full["data"], full["state"]
     assert state["crs"] == "EPSG:8353" and state["cube_version"] == countcube.VERSION
@@ -157,6 +165,16 @@ def test_cube_equals_one_grid(env, full):
     assert info["totals"]["lines"] > 100 and info["totals"]["spots"] > 10
     assert info["partial"] is False and info["dsm"] is False and info["water"] is False and info["study"] is False
     assert info["config"] == state["hash"] and info["origin"] == state["origin"]
+    # across the border (the file's own data beyond the outline, partner 7): owned lines (a partner east of the
+    # outline) and the partner's (one west of it), no neighbour of an elevation file, the profile's sha256, the
+    # notes on the borders
+    border = info["totals"]["border"]
+    assert border["lines"]["owned"] > 0 and border["lines"]["partner"] > 0 and border["spots"]["owned"] > 0
+    assert border["lines"]["owned"] + border["lines"]["partner"] < info["totals"]["lines"]
+    assert info["neighbours"] == [] and info["profile"] == country.Country.from_config(state["config"]).profile.sha256
+    assert any(n.startswith("Lines across the border are counted too") for n in info["notes"])
+    keys = countcube.unpack_keys(countcube.Cube(os.path.join(folder, "cube")).array("lines", 1)[:, :2])
+    assert set(keys["partner"][keys["border"] > 0].tolist()) == {7} and not keys["partner"][keys["border"] == 0].any()
     assert [b["name"] for b in info["bands"]] == ["S", "M", "C"] and [b["layer"] for b in info["bands"]] == \
         [True, True, False]
     m = info["bands"][1]
@@ -171,6 +189,7 @@ def test_cube_equals_one_grid(env, full):
     path = os.path.join(folder, "tiles", "S", rows[0][1] + ".npz")
     counts, meta = countcube.load_tile(path)
     assert meta["config"] == state["hash"] and meta["origin"] == state["origin"] and meta["band"] == "S"
+    assert meta["profile"] == info["profile"] and meta["partners"] == 150.0  # a border tile of S (30-150 m)
     assert meta["lines"] == counts.lines and meta["spots"] == len(counts.spot_ids) and "dropped" in meta
     assert meta["seconds"]["count"] >= 0 and meta["threads"] >= 1 and meta["data"] and "peak_memory" in meta
     # its profile (`country profile`): seconds and CPU per stage, the counter, the memory, the file reads
@@ -350,14 +369,14 @@ def test_worker_env_lets_openmp_threads_sleep(monkeypatch):
 
 
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
-    """Without the surface model the hash is the one of before (Slovakia's tiles keep theirs); with
-    it, another obstacle rule gives another hash, so its tiles are counted again."""
+    """The hash of the configuration, its profile's sha256 and the outline's; with the surface model
+    another obstacle rule gives another hash, so its tiles are counted again."""
     import hashlib
     import country
     import obstacles
     config = {"id": "x", "options": {"nmpt": "off"}}
-    before = hashlib.sha256(json.dumps({"config": config, "area_sha256": "a"}, sort_keys=True).encode("utf-8"))
-    assert country.config_hash(config, "a") == before.hexdigest()
+    value = {"config": config, "profile": country.PROFILE.sha256, "area_sha256": "a"}
+    assert country.config_hash(config, "a") == hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
     marked = {"id": "x", "options": {"nmpt": "mark"}}
     first = country.config_hash(marked, "a")
     assert first != country.config_hash({"id": "x", "options": {"nmpt": "off"}}, "a")
@@ -919,21 +938,21 @@ def test_tile_in_strips_as_plain(env, full):
     finally:
         db.close()
     core = tuple(json.loads(core))
-    res = plan.resolution
-    grid = search.tile_grid(plan.grid, core, search._overlap(plan.params, res), res, plan.source.grid_origin)
     results, grids = {}, {}
     for mode in ("plain", "strips"):
         work = os.path.join(data, "work", f"strips-test-{mode}")
         os.makedirs(work, exist_ok=True)
-        tile_plan = dataclasses.replace(plan, grid=grid, paths=search.Paths(data, work), tiles=None, funnel={},
-                                        search_grid=plan.grid, border=country._at_border(grid))
+        tile_plan = country.tile_plan(c, plan, core, search.Paths(data, work))
+        grid = tile_plan.grid
+        assert tile_plan.border and tile_plan.partners == 150.0
         tile = search.prepare_data(tile_plan, statistics=False, strips=mode == "strips")
-        for field in ("elevation", "surface", "water", "filled", "slope", "joined", "covered"):
+        for field in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "partner"):
             array = getattr(tile, field)
             if array is not None:
                 assert isinstance(array, np.memmap) and not array.flags.writeable, (mode, field)
         grids[mode] = {f: None if getattr(tile, f) is None else np.array(getattr(tile, f))
-                       for f in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "mask")}
+                       for f in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "mask",
+                                 "partner")}
         counter = countcube.TileCounter(grid, tuple(state["origin"]), core, band.lengths, False)
         search.count_tile(tile_plan, tile, core, counter, country.tension_table(c, band, plan))
         results[mode] = counter.result()
@@ -952,3 +971,60 @@ def test_tile_in_strips_as_plain(env, full):
     assert saved.lines == plain.lines and np.array_equal(saved.line_keys, plain.line_keys)
     assert np.array_equal(saved.line_counts, plain.line_counts) and np.array_equal(saved.spot_ids, plain.spot_ids)
     assert np.array_equal(saved.spot_records, plain.spot_records)
+
+
+def test_neighbour_cubes():
+    """NEIGHBOUR_CUBES names a cube for every source the catalogue declares as a neighbour (no source
+    declares more than six: the partner indices 1-6), a country of COUNTRIES its own id; a source's
+    cube.json neighbours in the order of Source.neighbours; none for an elevation file."""
+    import country
+    import sources as src
+    named = {n for s in src.SOURCES.values() for n in (s.neighbours or ())}
+    assert named == set(country.NEIGHBOUR_CUBES)
+    assert max(len(s.neighbours or ()) for s in src.SOURCES.values()) <= 6
+    assert all(country.ID_PATTERN.match(cube) for cube in country.NEIGHBOUR_CUBES.values())
+    for c in country.COUNTRIES.values():
+        assert country.NEIGHBOUR_CUBES.get(c.source, c.id) == c.id
+    assert country.neighbour_cubes("slovakia") == ["poland", "austria", "czechia"]
+    assert country.neighbour_cubes("files") == []
+
+
+def test_profile_of_a_country_and_of_a_study_area():
+    """A country without bands of its own has the profile's (PROFILE: its bands, T(L) and rig); a study
+    area (or a test) may override them, which gives another profile sha256 and config hash; config()
+    and from_config keep either; the profile's sha256 is that of its JSON."""
+    import hashlib
+    import country
+    plain = country.Country(id="land", name="Land", source="slovakia", area="osm:Land")
+    assert plain.bands == country.PROFILE.bands and plain.tension == country.PROFILE.tension
+    assert plain.rig == country.PROFILE.rig and plain.profile.sha256 == country.PROFILE.sha256
+    assert country.COUNTRIES["slovakia"].profile.sha256 == country.PROFILE.sha256
+    config = {"id": "land", "name": "Land", "source": "slovakia", "area": "osm:Land", "options": {}}
+    assert country.Country.from_config(config) == plain and country.Country.from_config(plain.config()) == plain
+    text = json.dumps(country.PROFILE.config(), sort_keys=True).encode("utf-8")
+    assert country.PROFILE.sha256 == hashlib.sha256(text).hexdigest()
+    bands = [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula", "slope_threshold": 45,
+              "core_m": 200, "layer": True}]
+    study = country.Country.from_config({**config, "id": "box", "bands": bands, "tension": [[30, 2.5]],
+                                         "options": {"within": "49.0,19.0,49.1,19.1"}})
+    assert study.study and [b.name for b in study.bands] == ["S"] and study.tension == ((30, 2.5),)
+    assert study.rig == country.PROFILE.rig  # the profile's where it has none
+    assert study.profile.sha256 != country.PROFILE.sha256
+    assert country.Country.from_config(study.config()) == study
+    assert country.config_hash(study.config(), "a") != country.config_hash({**study.config(), "bands": []}, "a")
+
+
+def test_build_refuses_a_tile_of_another_profile(env, full, tmp_path, capsys):
+    """build refuses a tile counted with another profile of the layer (its meta's "profile"), as it
+    refuses another configuration or origin."""
+    import shutil
+    import countcube
+    data = str(tmp_path / "data")
+    shutil.copytree(os.path.join(full["data"], "countries"), os.path.join(data, "countries"))
+    folder = os.path.join(data, "countries", ID, "tiles", "S")
+    name = sorted(os.listdir(folder))[0]
+    counts, meta = countcube.load_tile(os.path.join(folder, name))
+    countcube.save_tile(os.path.join(folder, name), counts, {**meta, "profile": "another"})
+    capsys.readouterr()
+    assert _country("build", ID, "--data-dir", data) == 1
+    assert "another profile" in capsys.readouterr().out

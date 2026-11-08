@@ -555,3 +555,229 @@ def test_count_tile_without_anchors(tmp_path, offline):
     parts = []
     funnel = search.count_tile(plan, search.prepare_data(plan), None, parts.append)
     assert parts == [] and funnel.get("valid", 0) == 0
+
+
+def _box_file(path, west, east, south=50.152, north=50.161) -> str:
+    ring = [[west, south], [east, south], [east, north], [west, north], [west, south]]
+    path.write_text(json.dumps({"type": "Feature", "properties": {},
+                                "geometry": {"type": "Polygon", "coordinates": [ring]}}))
+    return str(path)
+
+
+def _grown(plan):
+    """The plan's grid grown by its longest line (as country._grown gives a country's band)."""
+    import grid as gd
+    g, res = plan.grid, plan.resolution
+    reach = math.ceil(plan.params.max_length / res) * res
+    left, bottom, right, top = g.bounds
+    wide = gd.make_grid((left - reach, bottom - reach, right + reach, top + reach), res, g.crs,
+                        plan.source.grid_origin)
+    wide.area_shape = g.area_shape
+    return dataclasses.replace(plan, grid=wide)
+
+
+SPLIT_LON = 19.7561  # tests/test_border_study.py's BORDER_LON: lines from the tower to the rocks west of it cross it
+SIDES = {"west": (19.750, SPLIT_LON, {1}), "east": (SPLIT_LON, 19.762, {2})}  # its anchor first by longitude, or not
+
+
+def _split(tmp_path, side="west", **values):
+    """The clip (EPSG:2180, its data within the box of the whole) split at SPLIT_LON: the plan of a box around
+    the whole clip (one grid) and that of one side (its grid grown by the longest line, as a country's band),
+    offline, water and gap filling off."""
+    clip = CLIP
+    whole = _plan(tmp_path / "whole", tiled=False, elevation_file=clip, max_length=150,
+                  area=_box_file(tmp_path / "whole.geojson", 19.750, 19.762), **values)
+    west, east, _ = SIDES[side]
+    plan = _plan(tmp_path / side, tiled=False, elevation_file=clip, max_length=150,
+                 area=_box_file(tmp_path / f"{side}.geojson", west, east), **values)
+    return whole, _grown(plan)
+
+
+def _first_by_lonlat(grid, a1, a2):
+    from pyproj import Transformer
+    to = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True)
+    lon1, lat1 = (np.asarray(v) for v in to.transform(*grid.pixel_to_xy(a1[:, 0], a1[:, 1])))
+    lon2, lat2 = (np.asarray(v) for v in to.transform(*grid.pixel_to_xy(a2[:, 0], a2[:, 1])))
+    return (lon1 < lon2) | ((lon1 == lon2) & (lat1 <= lat2))
+
+
+@pytest.mark.parametrize("model", ["formula", "tension"])
+@pytest.mark.parametrize("side", ["west", "east"])
+def test_count_tile_across_a_border(tmp_path, offline, model, side):
+    """A grid split by an outline, with the partner anchors beyond it (Plan.partners): the lines with a
+    border are those of one grid over both sides with one anchor in the outline (every value, the
+    partners' prominence and drop too), those without the lines of one grid with both anchors in it and
+    the lines of the clipped grid without partners; "partner" 7 (an elevation file has no neighbour:
+    its own data beyond the outline), "border" 1 exactly when the anchor in the outline is the first by
+    (lon, lat) (always west of the meridian, never east of it), both 0 inside."""
+    import area as ar
+    import sag as sg
+    import search
+    values = {"model": "sag"} if model == "tension" else {}
+    whole, cut = _split(tmp_path, side, **values)
+    table = sg.TensionTable(cut.rigging, 30, 150, [(30, 2.5), (150, 6.0)]) if model == "tension" else None
+    parts = []
+    search.count_tile(whole, search.prepare_data(whole), None, parts.append, table)
+    one = _joined(parts)
+    inside = ar.Polygon(cut.area.geometry).mask(whole.grid)
+    in1 = inside[one["a1"][:, 0], one["a1"][:, 1]]
+    in2 = inside[one["a2"][:, 0], one["a2"][:, 1]]
+    both = {k: v[in1 & in2] for k, v in one.items()}
+    across = {k: v[in1 != in2] for k, v in one.items()}
+    assert len(both["a1"]) > 0 and len(across["a1"]) > 5
+    plain = dataclasses.replace(cut, funnel={}, paths=search.Paths(cut.paths.data, str(tmp_path / "plain")))
+    clipped = []
+    search.count_tile(plain, search.prepare_data(plain), None, clipped.append, table)
+    plan = dataclasses.replace(cut, partners=150.0, funnel={})
+    data = search.prepare_data(plan)
+    assert data.partner is not None and data.partner.dtype == np.uint8
+    assert set(np.unique(data.partner).tolist()) == {0, 7} and not data.partner[data.mask].any()
+    counted = []
+    funnel = search.count_tile(plan, data, None, counted.append, table)
+    got = _joined(counted)
+    border, partner = got["border"], got["partner"]
+    assert border.dtype == np.int8 and partner.dtype == np.uint8
+    assert ((border != 0) == (partner != 0)).all() and set(partner.tolist()) == {0, 7}
+    inner = {k: v[border == 0] for k, v in got.items()}
+    outer = {k: v[border != 0] for k, v in got.items()}
+    assert _lines_by_xy(plan.grid, inner) == _lines_by_xy(whole.grid, both)
+    assert _lines_by_xy(plan.grid, inner) == _lines_by_xy(plain.grid, _joined(clipped))
+    assert _lines_by_xy(plan.grid, outer) == _lines_by_xy(whole.grid, across)
+    assert np.isfinite(outer["prom1"]).all() and np.isfinite(outer["drop2"]).all()
+    own1 = data.mask[outer["a1"][:, 0], outer["a1"][:, 1]]
+    assert (own1 != data.mask[outer["a2"][:, 0], outer["a2"][:, 1]]).all()
+    first = _first_by_lonlat(plan.grid, outer["a1"], outer["a2"])
+    assert np.array_equal(outer["border"], np.where(first == own1, 1, 2))
+    assert set(outer["border"].tolist()) == SIDES[side][2]
+    assert funnel["valid"] == len(got["a1"]) and funnel["anchors"] > plain.funnel["anchors"]
+
+
+def test_count_tile_with_partners_inside_a_country(tmp_path, offline):
+    """Partners asked where none lies beyond the outline (the clip wholly inside it): the same parts and
+    funnel as without, their columns of a border all 0; and find_valid_lines with an array of zeros as
+    without."""
+    import linesearch as ls
+    import search
+    whole, _ = _split(tmp_path)
+    data = search.prepare_data(whole)
+    parts, partnered = [], []
+    funnel = dict(search.count_tile(dataclasses.replace(whole, funnel={}), data, None, parts.append))
+    asked = dataclasses.replace(whole, partners=150.0, funnel={},
+                                paths=search.Paths(whole.paths.data, str(tmp_path / "asked")))
+    asked_data = search.prepare_data(asked)
+    assert asked_data.partner is not None and not asked_data.partner.any()
+    assert dict(search.count_tile(asked, asked_data, None, partnered.append)) == funnel
+    joined = _sorted(_joined(partnered))
+    assert not joined.pop("border").any() and not joined.pop("partner").any()
+    _assert_same(_sorted(_joined(parts)), joined)
+    found = search._anchors(whole, data)
+    args = (data.elevation, None, found.anchors, whole.resolution, 30, 150)
+    values = np.column_stack([found.prominence, found.drop])
+    zeros = ls.find_valid_lines(*args, partner=np.zeros(len(found.anchors), dtype=np.uint8), anchor_values=values)
+    plain = ls.find_valid_lines(*args, anchor_values=values)
+    assert len(plain) > 100
+    _assert_same(plain.columns, zeros.columns)
+
+
+@pytest.mark.parametrize("engine", ["numba", "numpy"])
+def test_border_lines_over_fixed_tiles(tmp_path, offline, engine):
+    """Each side of the split clip counted in fixed tiles as the country layer counts a border tile (the
+    partners within the longest line, the footprint grown: country.tile_plan): each line once, by the tile
+    whose core holds its anchor in the outline (a line inside: its first anchor in pixel order), and the
+    tiles' TileCounters sum to the counter of one grid with partners (lines and spots per key), the lines
+    across the border owned (border 1, west) or the partner's (border 2, east)."""
+    import country
+    import countcube as cc
+    import search
+    land = country.Country(id="land", name="Land", source="files", area="unused")
+    for side in SIDES:
+        (tmp_path / side).mkdir()
+        _, cut = _split(tmp_path / side, side)
+        plan = dataclasses.replace(cut, partners=150.0, funnel={})
+        data = search.prepare_data(plan)
+        parts = []
+        search.count_tile(plan, data, None, parts.append)
+        one = _joined(parts)
+        origin = cc.origin_of(cut.area.geometry.bounds, 150.0)
+        reference = cc.TileCounter(plan.grid, origin, None, (30, 150), True, engine=engine)
+        for part in parts:
+            reference(part)
+        reference = reference.result()
+        expected = sorted(_lines_by_xy(plan.grid, one))
+        del data
+        tiles = search.fixed_tiles(cut, 200)
+        assert len(tiles) >= 4
+        lines, keys, spots = [], [], []
+        for tile in tiles:
+            tile_plan = country.tile_plan(land, cut, tile.core,
+                                          search.Paths(cut.paths.data, str(tmp_path / side / "tiles" / tile.name)))
+            assert tile_plan.border and tile_plan.partners == 150.0  # the clip's tiles all reach the meridian
+            grid = tile_plan.grid
+            tile_data = search.prepare_data(tile_plan, strips=True)
+            counter = cc.TileCounter(grid, origin, tile.core, (30, 150), True, engine=engine)
+            tile_parts = []
+            search.count_tile(tile_plan, tile_data, tile.core, lambda p: (tile_parts.append(p), counter(p)), None)
+            if tile_parts:
+                got = _joined(tile_parts)
+                mine = got["border"] == 0
+                lines += _lines_by_xy(grid, {k: v[mine] for k, v in got.items()}, tile.core)  # inside: first in core
+                lines += _lines_by_xy(grid, {k: v[~mine] for k, v in got.items()})  # across: all of them the tile's
+            counts = counter.result()
+            keys.append((counts.line_keys, counts.line_counts))
+            spots.append((counts.spot_ids, counts.spot_records))
+            del tile_data
+        assert sorted(lines) == expected, side
+        k, n = cc.sum_keys(np.concatenate([k for k, _ in keys]), np.concatenate([n for _, n in keys]))
+        assert np.array_equal(k, reference.line_keys) and np.array_equal(n, reference.line_counts), side
+        ids, records = cc.merge_spots(np.concatenate([i for i, _ in spots]), np.concatenate([r for _, r in spots]))
+        assert np.array_equal(ids, reference.spot_ids) and np.array_equal(records, reference.spot_records), side
+        found = cc.unpack_keys(reference.line_keys)
+        assert {int(b) for b in found["border"]} == {0} | SIDES[side][2], side
+        assert set(found["partner"][found["border"] > 0].tolist()) == {7}, side
+
+
+def test_partner_grid_and_its_last_pass(tmp_path):
+    """sources.filling's partner grid: the zone beyond the outline within reach (near()'s square, in strips
+    as whole), the source's own data in it marked before the filling, a neighbour's index where it filled,
+    and the last pass: 0 outside the zone; own data the neighbour whose fill lies nearest when its rough
+    boxes hold them, else the first neighbour whose boxes hold them (a neighbour without boxes holds every
+    pixel), else 7."""
+    from types import SimpleNamespace
+    import sources.filling as filling
+    from grid import Grid
+    grid = Grid(left=19.0, top=50.0, res=0.01, width=12, height=10, crs="EPSG:4326")
+    mask = np.zeros((10, 12), dtype=bool)
+    mask[:, :4] = True  # the outline: the four western columns
+    whole = filling.partner_zone(mask, 0.025, 0.01)
+    assert whole[:, 4:7].all() and not whole[:, 7:].any() and not whole[mask].any()
+    rows = filling.partner_zone(mask, 0.025, 0.01, filling.new_mask(str(tmp_path / "zone.npy"), mask.shape), 3)
+    assert np.array_equal(np.asarray(rows), whole)
+    z = np.full((10, 12), np.nan, dtype=np.float32)
+    z[:, :6] = 100.0  # the source's data reach two columns beyond the outline
+    np.save(tmp_path / "nmt.npy", z)
+    partner = filling.partner_grid(str(tmp_path / "nmt.npy"), whole, str(tmp_path / "partner.npy"), 4)
+    assert (partner[:, 4:6] == filling.PARTNER_OWN).all() and not partner[:, :4].any() and not partner[:, 6:].any()
+    north = SimpleNamespace(rough_boxes=lambda: [(49.95, 50.0, 18.0, 20.0)])  # the top five rows
+    everywhere = SimpleNamespace(rough_boxes=lambda: [(49.0, 51.0, 18.0, 20.0)])
+    nowhere = SimpleNamespace(rough_boxes=lambda: [(10.0, 11.0, 0.0, 1.0)])
+
+    def resolved(start, neighbours):
+        out = np.array(start)
+        filling.resolve_partners(out, whole, neighbours, grid, 3)
+        return out
+
+    p = resolved(partner, [north, everywhere])  # nothing filled: the first whose boxes hold them
+    assert (p[:5, 4:6] == 1).all() and (p[5:, 4:6] == 2).all() and not p[:, 6:].any() and not p[:, :4].any()
+    assert (resolved(partner, [nowhere])[:, 4:6] == filling.PARTNER_UNKNOWN).all()
+    assert (resolved(partner, [nowhere, SimpleNamespace(rough_boxes=lambda: [])])[:, 4:6] == 2).all()
+    assert (resolved(partner, [])[:, 4:6] == filling.PARTNER_UNKNOWN).all()
+    np.save(tmp_path / "filled.npy", np.isnan(z) & (np.arange(12) >= 6))  # a neighbour filled the rest
+    second = np.array(partner)
+    filling._mark_rows(second, str(tmp_path / "filled.npy"), 2, 4)
+    assert (second[:, 6:] == 2).all()
+    p = resolved(second, [north, everywhere])  # the nearest fill (everywhere's) first: its boxes hold them all
+    assert (p[:, 4:6] == 2).all() and (p[:, 6] == 2).all() and not p[:, 7:].any()  # beyond the reach: 0
+    first = np.array(partner)
+    filling._mark_rows(first, str(tmp_path / "filled.npy"), 1, 4)
+    p = resolved(first, [north, everywhere])  # north's fill nearest, but its boxes hold the top rows only
+    assert (p[:5, 4:6] == 1).all() and (p[5:, 4:6] == 2).all()

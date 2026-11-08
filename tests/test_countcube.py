@@ -152,7 +152,8 @@ def _lon_lat(grid, pixels):
 
 def _brute(grid, table, origin, core, lengths, last):
     """Lines per key and spot records per (id, border, partner), line by line, the cell by the
-    contract's formula: floor(lon × 120) - I0 of the first anchor by (lon, lat)."""
+    contract's formula: floor(lon × 120) - I0 of the first anchor by (lon, lat); a line across a border
+    (its border not 0) skips the core's test (search.count_tile hands it to the tile that owns it)."""
     lines, spots, dropped = Counter(), {}, 0
     lon1, lat1 = _lon_lat(grid, table.columns["a1"])
     lon2, lat2 = _lon_lat(grid, table.columns["a2"])
@@ -162,7 +163,7 @@ def _brute(grid, table, origin, core, lengths, last):
         x2, y2 = (float(v) for v in grid.pixel_to_xy(row["a2"][0], row["a2"][1]))
         fx, fy = min((x1, y1), (x2, y2))
         ok = lengths[0] <= row["length"] and (row["length"] <= lengths[1] if last else row["length"] < lengths[1])
-        if core is not None:
+        if core is not None and not int(row.get("border", 0)):
             ok = ok and core[0] <= fx < core[2] and core[1] <= fy < core[3]
         if not ok:
             dropped += 1
@@ -553,6 +554,19 @@ def _rows(out, mode, level):
     return rows
 
 
+def _owned(grid, table, core):
+    """The lines a tile's count hands its counter: those inside the country, and those across the border whose
+    first anchor in pixel order lies in the core (a stand-in for the anchor in the country)."""
+    import helpers as sh
+    c = table.columns
+    x1, y1 = grid.pixel_to_xy(c["a1"][:, 0], c["a1"][:, 1])
+    x2, y2 = grid.pixel_to_xy(c["a2"][:, 0], c["a2"][:, 1])
+    first = (x1 < x2) | ((x1 == x2) & (y1 <= y2))
+    fx, fy = np.where(first, x1, x2), np.where(first, y1, y2)
+    keep = (c["border"] == 0) | ((fx >= core[0]) & (fx < core[2]) & (fy >= core[1]) & (fy < core[3]))
+    return sh.LineTable({name: column[keep] for name, column in c.items()})
+
+
 def test_build_counts_shared_spots_once_and_sums_levels(tmp_path):
     rng = np.random.default_rng(11)
     grid = _grid()
@@ -564,7 +578,9 @@ def test_build_counts_shared_spots_once_and_sums_levels(tmp_path):
     c["length"][3000:4000] = rng.uniform(150, 300, 1000)
     # two tiles and two bands: (30, 150) and [150, 300] in each
     left, right = (-559000.0, -1238000.0, -555000.0, -1230000.0), (-555000.0, -1238000.0, -551000.0, -1230000.0)
-    tiles = [(grid, table, core, lengths, last) for core in (left, right)
+    # a line across a border reaches only the tile that owns it (search.count_tile): here the one holding its
+    # first anchor in pixel order, as a line inside
+    tiles = [(grid, _owned(grid, table, core), core, lengths, last) for core in (left, right)
              for lengths, last in (((30, 150), False), ((150, 300), True))]
     out, cube = _build(tmp_path, tiles)
     whole = _counts(grid, table, (left[0], left[1], right[2], right[3]), (30, 300), True)
@@ -1039,8 +1055,10 @@ def test_cell_request(tmp_path):
         (south, west), _, (north, east), _ = cube.corners(level, np.array([i]), np.array([j]))[0]
         rectangle = shapely.transform(shapely.segmentize(shapely.box(west, south, east, north), 1e-4),
                                       lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
-        expected = rectangle.buffer(300).intersection(local)
+        expected = rectangle.buffer(300)  # not cut by the outline: the lines across the border are counted too
         assert got.symmetric_difference(expected).area < 3e-3 * expected.area, (level, i, j)
+        if level == 1 and (i, j) in edge:
+            assert not got.within(local.buffer(1))  # it reaches beyond the outline
     with pytest.raises(ValueError, match="band"):
         cc.cell_request(cube, "M2", 1, *inside[0])  # not in the layer
     with pytest.raises(ValueError, match="band"):

@@ -523,7 +523,9 @@ class TileCounter:
 
     A line is counted when its first anchor in pixel order (the smaller x, then y, as
     mapping.first_anchor) lies in `core` (left <= x < right, bottom <= y < top in the grid's CRS;
-    None: everywhere) and its length within `lengths` (lo <= length < hi, or <= hi when `last`).
+    None: everywhere) and its length within `lengths` (lo <= length < hi, or <= hi when `last`); a
+    line across a border (its "border" not 0) skips the core's test: search.count_tile hands only
+    those whose anchor in the country lies in the core.
     Its cell is that of its first anchor by (lon, lat) (the smaller lon, then lat) on the global
     lattice from `origin` (I0, J0) in cells: i = cx // 20 with cx = floor(lon × 2400) - 20 I0, which
     is floor(lon × 120) - I0 but for the rounding at a cell's edge, so a line and the cluster of its
@@ -621,9 +623,10 @@ class TileCounter:
         g = self.grid
         core = np.asarray(self.core if self.core is not None else (0.0, 0.0, 0.0, 0.0), dtype=np.float64)
         kept, codes1, codes2 = (np.empty(n, dtype=np.int64) for _ in range(3))
+        across = np.asarray(c["border"]).astype(np.int64) if "border" in c else np.empty(0, dtype=np.int64)
         k = ck.select(a1, a2, np.asarray(c["length"], dtype=np.float64), int(g.width), float(g.left), float(g.top),
-                      float(g.res), core, self.core is not None, self.lengths[0], self.lengths[1], bool(self.last),
-                      kept, codes1, codes2)
+                      float(g.res), core, self.core is not None, across, self.lengths[0], self.lengths[1],
+                      bool(self.last), kept, codes1, codes2)
         self.dropped += n - k
         if not k:
             return
@@ -679,8 +682,11 @@ class TileCounter:
             first = (x1 < x2) | ((x1 == x2) & (y1 <= y2))
             fx, fy = np.where(first, x1, x2), np.where(first, y1, y2)
             left, bottom, right, top = self.core
-            keep &= (fx >= left) & (fx < right) & (fy >= bottom) & (fy < top)
-            del x1, y1, x2, y2, first, fx, fy
+            in_core = (fx >= left) & (fx < right) & (fy >= bottom) & (fy < top)
+            if "border" in c:  # across a border: search.count_tile handed it to the tile holding its own anchor
+                in_core |= np.asarray(c["border"]) != 0
+            keep &= in_core
+            del x1, y1, x2, y2, first, fx, fy, in_core
         kept = int(np.count_nonzero(keep))
         self.dropped += n - kept
         if not kept:
@@ -1262,9 +1268,11 @@ REQUEST_SEGMENT_M = 100.0  # its edges densified to this before they go back to 
 def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
     """The search of one cell (a SearchRequest: {"params", "geometry"}): the level's rectangle
     buffered by the band's max_length (in metres of a local plane at the cell's centre, no pyproj),
-    intersected with the country's outline, as a WGS84 GeoJSON Polygon or MultiPolygon; the band's
-    params from cube.json. ValueError for a band not in the layer, a level not in the cube or a cell
-    outside the country."""
+    as a WGS84 GeoJSON Polygon or MultiPolygon; the band's params from cube.json. Not cut by the
+    country's outline: the layer counts the lines across the border too (a line's cell is that of its
+    first anchor, whichever country holds it), and the app's search fills the neighbour's data at the
+    border as the count does. ValueError for a band not in the layer, a level not in the cube or a
+    cell outside the country."""
     found = [b for b in cube.info.get("bands", []) if b.get("name") == band and b.get("layer")]
     if not found:
         names = [b["name"] for b in cube.info.get("bands", []) if b.get("layer")]
@@ -1288,7 +1296,7 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
     def to_degrees(xy):
         return np.column_stack([xy[:, 0] / kx + lon0, xy[:, 1] / ky + lat0])
 
-    region = shapely.transform(rectangle, to_plane).buffer(reach).intersection(shapely.transform(outline, to_plane))
+    region = shapely.transform(rectangle, to_plane).buffer(reach)
     region = shapely.segmentize(region, REQUEST_SEGMENT_M)
     back = shapely.transform(region, lambda xy: np.round(to_degrees(xy), REQUEST_DECIMALS))
     if not back.is_valid:

@@ -84,16 +84,17 @@ def pixel_insert(codes, first, keys, values):
 
 
 @njit(cache=True)
-def select(a1, a2, length, width, left, top, res, core, has_core, lo, hi, last, kept, codes1, codes2):
+def select(a1, a2, length, width, left, top, res, core, has_core, border, lo, hi, last, kept, codes1, codes2):
     """The lines a tile counts (TileCounter's rule: the length within lo, hi (<= hi when last) and the
-    first anchor in pixel order, the smaller x then y, in core): their indices into kept and their
-    anchors' pixel codes (row * width + col) into codes1, codes2; returns how many."""
+    first anchor in pixel order, the smaller x then y, in core, but for a line across a border, whose
+    border, when given (not empty), is not 0): their indices into kept and their anchors' pixel codes
+    (row * width + col) into codes1, codes2; returns how many."""
     k = 0
     for t in range(len(length)):
         n = length[t]
         if not (n >= lo and ((n <= hi) if last else (n < hi))):
             continue
-        if has_core:
+        if has_core and not (border.size > 0 and border[t] != 0):
             x1 = left + (a1[t, 1] + 0.5) * res
             y1 = top - (a1[t, 0] + 0.5) * res
             x2 = left + (a2[t, 1] + 0.5) * res

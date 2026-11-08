@@ -318,3 +318,56 @@ def test_neighbour_boxes_along_the_borders():
     report = bs.box_reach_report(rows)
     assert any(line.startswith("| saxony | czechia |") for line in report)
     assert sum(line.startswith("| ") for line in report) == len(rows) + 2  # the head and its rule
+
+
+WHOLE_BOX = "50.1530,19.7510,50.1595,19.7605"  # the whole clip: the border study counts all its lines
+
+
+def test_lines_across_the_border_from_one_side(study, tmp_path):
+    """The count across the border (search.count_tile with Plan.partners, a country's border tile) on each
+    side's grid: West's lines across are all owned (border 1: west of a meridian its anchor is the first by
+    longitude), East's all the partner's (border 2), and either side's are the lines the border study counts
+    one in each outline (AB) of a box holding the whole clip, key by key and spot by spot (their border and
+    partner bits aside); partner 7 (an elevation file has no neighbour: its own data beyond the outline)."""
+    import dataclasses
+    from types import SimpleNamespace
+    import country
+    import search
+    data, config, place = study["data"], study["config"], study["place"]
+    whole = dataclasses.replace(place, id="clipall", box=WHOLE_BOX)
+    folder = bs.run_place(whole, "files", str(tmp_path / "out"), data, config=config, say=lambda text: None)
+    d = json.load(open(os.path.join(folder, "study.json"), encoding="utf-8"))["definition"]
+    origin = tuple(d["origin"])
+    masked = ~np.int64(((1 << 5) - 1) << cc.BORDER_SHIFT)  # the border and partner bits
+    sides = {"west": (_polygon_file(tmp_path / "west-near.geojson", 19.745, BORDER_LON), {1}),  # the clip's sides
+             "east": (_polygon_file(tmp_path / "east-near.geojson", BORDER_LON, 19.765), {2})}
+    for band in ("S", "M"):
+        b = config.band(band)
+        ab_keys, ab_counts, ab_ids, ab_records = bs._merged(bs._class_tiles(folder, band, "ab"))
+        assert int(ab_counts.sum()) > 5, band
+        for side, (outline, border) in sides.items():
+            plan = bs._band_plan(config, b, "files", outline, data, os.path.join(data, "work", f"across-{side}-{band}"),
+                                 lambda kind, text: None)
+            plan = dataclasses.replace(country._grown(plan), partners=float(b.lengths[1]))
+            os.makedirs(plan.paths.work, exist_ok=True)
+            counter = cc.TileCounter(plan.grid, origin, None, b.lengths, False)
+            partners = []
+
+            def across(part):
+                c = part.columns
+                chosen = np.asarray(c["border"]) != 0
+                partners.append(np.asarray(c["partner"])[chosen])
+                counter(SimpleNamespace(columns={k: np.asarray(v)[chosen] for k, v in c.items()}))
+
+            search.count_tile(plan, search.prepare_data(plan), None, across, country.tension_table(config, b, plan))
+            counts = counter.result()
+            assert set(np.concatenate(partners).tolist()) == {7}, (side, band)
+            assert set(cc.unpack_keys(counts.line_keys)["border"].tolist()) == border, (side, band)
+            keys = counts.line_keys.copy()
+            keys[:, 0] &= masked
+            keys, n = cc.sum_keys(keys, counts.line_counts)
+            assert np.array_equal(keys, ab_keys) and np.array_equal(n, ab_counts), (side, band)
+            records = counts.spot_records.copy()
+            records[:, 0] &= masked
+            ids, records = cc.merge_spots(counts.spot_ids, records)
+            assert np.array_equal(ids, ab_ids) and np.array_equal(records, ab_records), (side, band)
