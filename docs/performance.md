@@ -1679,7 +1679,14 @@ is no better (10-20 min of heavy tiles plus 23 of light ones). Lower means a sho
   DMR's 64.6 GB of 1 m tiles and 26.7 + 4.9 GB beside the DMP's 77.9 (6.3 and 6.5 min on all cores):
   1.6-1.8 times the estimate, since they are deflated float32 and the 1 m tiles LERC with 5 mm of
   error. The cache keeps a copy of what a run reads, as of the 1 m tiles (dmr5's 23.4 + 4.3 GB after
-  the two runs).
+  the two runs). Since 2026-11-08 the averaged tiles are ZSTD (level 9) with the same floating point
+  predictor instead of deflate: the same bits in 1-2 % fewer bytes (the four folders 59.6 → 58.7 GB),
+  decoded at one thread in 9.1 instead of 14.6 ms/Mpx at 2 m and 9.5 instead of 14.7 at 5 m
+  (`tools/sk_tiles.py recompress`: the mirror's 51 304 files in 14.3 min, the cache's 26 242 copies in
+  6.5 min). On Slovakia's L band, measured before and after the cache's rewrite in one sitting with
+  the same code (d466347), "stitching terrain" fell from 0.112 to 0.095 h (CPU 0.102 → 0.094 h, the
+  decode the benchmark predicts for the band's 5 889 Mpx: 0.009 h), 1 % of its 1.70 tile hours; the
+  band's wall and tile hours moved within the spread of equal runs, the counts identical (163 of 163).
 - The user's decisions: the L band of `countries/slovakia` counted again with the averaged tiles
   (below), and R13 re-baselined (2 804 → 2 801 anchors, 2 407 → 2 405 open, its lines unchanged:
   docs/regression-tests.md).
@@ -2286,6 +2293,38 @@ What it shows:
 - **Memory**: the M2 band's tiles reach 1.24 GiB of private bytes at most (1.12 in W1: C1's switch to every useful
   anchor, after the row slice), under their budget of 2.1 GiB; the workers' private peak falls 11.9 → 8.7 GiB.
   Other programs held 8 GiB more of the RAM that morning (27.1 GiB free at the start against 35.2).
+
+### The averaged tiles as ZSTD (wave 7)
+
+The user's decision of 2026-11-08, on C3's codec trial: the 2 m and 5 m tiles of DMR 5.0 and DMP 1.0
+(`tools/sk_tiles.py average`), in the mirror and in the cache, as float32 ZSTD with the floating point predictor
+instead of deflate with the same predictor, losslessly (`AVERAGED_PROFILE`: ZSTD level 9, predictor 3, 256 px tiles,
+NaN). `tools/sk_tiles.py recompress <folder> ...` writes the folders made before: each file through a `.part` read
+back and compared bit for bit, then replaced; a file already ZSTD skipped; a mirror's `index.json` and card, a cache's
+rows' sha256 by `cache.reencoded`, their times kept (`stage2/ZSTD/`).
+
+- **The level** (20 tiles of DMR 5.0 at 2 m, one thread, `levels.md`): deflate 2.06 MB a tile, decoded in
+  14.2 ms/Mpx; ZSTD 3 / 9 / 15: 2.08 / 2.04 / 2.03 MB, 9.0 / 8.0 / 8.0 ms/Mpx, written in 0.013 / 0.036 / 0.155 s.
+  Level 9, GDAL's default (the same bytes): as fast to decode as 15, 4 times faster to write. C3's codec trial
+  listed "zstd p3" and "zstd p3 level 9" as two rows: they were one encoding, their 9.20 against 8.37 ms/Mpx its
+  spread.
+- **The rewrite** (exclusive lock with `--resource data`, none failed): the mirror's four folders, 4 × 12 826 files,
+  59.58 → 58.65 GB in 857 s; the cache's `slovakia/dmr5/5.0/epsg8353-{2m,5m}-2km` and
+  `dmp1/1.0/epsg8353-{2m,5m}-2km`, 26 242 files, 29.0 → 28.7 GB in 392 s: 20.8 min in all. The cache's rows changed
+  in their sha256 only, which equal the mirror's new `index.json` (the bytes of a copy of the new mirror); a second
+  `recompress` skipped all 77 546 files and corrected none; `cache migrate --dry-run slovakia` finds nothing.
+- **Before and after, in one sitting, the same code (d466347)**: decoding the cache's tiles at one thread
+  14.61 → 9.05 ms/Mpx at 2 m and 14.70 → 9.47 at 5 m (8 threads: 3.10 → 2.70 and 7.45 → 6.27). Slovakia's L band,
+  12 workers: "stitching terrain" 0.112 → 0.095 h, CPU 0.102 → 0.094 h (the same code that morning: 0.104 / 0.100),
+  1.0 % of the band's 1.70 tile hours and 0.15 % of its 5.54 CPU hours; the wall 18.1 → 17.9 min and the tile hours
+  1.70 → 1.64, within the spread of equal runs; counts 163/163 both. The decode the benchmark predicts for the band's
+  5 889 Mpx of grids is 0.009 h; measured 0.008 h of CPU. sk-sulov (22/22) is too small to show it.
+- **M and M2** (*est.*, not measured): 0.035 and 0.047 h of decode CPU (their 22 587 and 30 301 Mpx of grids at
+  5.56 ms/Mpx less), or 0.023 and 0.033 h of stitching with L's share of it: about 1-1.7 % of their tile hours (M's
+  2.09, M2's 3.11 in W1). S reads the 1 m tiles (LERC), unchanged. Main reads the tiles without GDAL's mask since
+  the five squashes, so its share is not measured.
+- **Open**: the VPS still holds its mirror and cache copies in deflate (readable, slower to decode): it needs the new
+  mirror copied over, or `recompress` run there.
 
 ### Memory
 

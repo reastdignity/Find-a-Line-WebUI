@@ -15,6 +15,7 @@ Licence CC BY 4.0, author ÚGKK SR (the licence PDF in the ZIPs).
     python tools/sk_tiles.py extract dmp1 --zips C:\\sk-zips                     # the TIFF beside it
     python tools/sk_tiles.py cut dmp1 --zips C:\\sk-zips --out C:\\mirror\\slovakia  # tiles + index (resumable)
     python tools/sk_tiles.py average dmr5 --out C:\\mirror\\slovakia               # 2m and 5m from 1m (resumable)
+    python tools/sk_tiles.py recompress C:\\mirror\\slovakia\\dmr5\\2m ...          # averaged tiles in ZSTD (resumable)
     python tools/sk_tiles.py upload dmp1 --out C:\\mirror\\slovakia --repo user/name  # needs HF_TOKEN
 
 --work DIR stands for both --zips DIR and --out DIR/tiles.
@@ -32,10 +33,22 @@ on lot 04, against 9.4 MB lossless; the surveys are accurate to centimetres).
 
 average writes the same tiles at coarser resolutions, <product>/2m and <product>/5m (FACTORS),
 from the 1 m tiles: each pixel the mean of the valid 1 m pixels of its 2 x 2 or 5 x 5 block
-(sources.readers.download._block_means, the rule of Download(average=)), a float32 deflate
-GeoTIFF without further loss, with its own index.json (null for the tiles without data). A
-search on a grid of exactly that resolution reads them (sources.GridTiles with `averaged`):
-the country layer's bands at 2 m and 5 m stitch a tile from 4 and 25 times fewer pixels.
+(sources.readers.download._block_means, the rule of Download(average=)), a float32 GeoTIFF
+without further loss (ZSTD with the floating point predictor, AVERAGED_PROFILE), with its own
+index.json (null for the tiles without data). A search on a grid of exactly that resolution
+reads them (sources.GridTiles with `averaged`): the country layer's bands at 2 m and 5 m
+stitch a tile from 4 and 25 times fewer pixels.
+
+recompress writes the averaged tiles of folders made before in AVERAGED_PROFILE (deflate until
+2026-11-08: the same bits in about the same bytes, decoded in about 60 % of the time): every .tif
+under each folder given, read, written to a .part beside it, read back and compared bit for bit
+(values, georeference, nodata, tags), then put in its place atomically; a file that differs or
+cannot be replaced is listed and left as it was, a file already in ZSTD is skipped (resumable).
+A mirror's folder (an index.json in it) gets its tiles' new sha256 and encoding text in the
+index and the dataset card beside the products written again; a folder in a cache (a LAYOUT
+file above it: the copies GridTiles made of the mirror's tiles) gets each rewritten tile's new
+sha256 in the cache's index (cache.reencoded: its times kept), under the tile's lock. A LERC
+tile (the 1 m tiles) is refused and left.
 """
 
 import argparse
@@ -80,6 +93,14 @@ HEADERS = {"User-Agent": "Find-a-Line/1.0 (highline finder; tiles for a public m
 
 
 FACTORS = (2, 5)     # the coarser resolutions kept beside the 1 m tiles (average)
+# The averaged tiles: lossless float32, ZSTD with the floating point predictor in 256 px tiles (deflate with the same
+# predictor until 2026-11-08). On 20 tiles of DMR 5.0 at 2 m (2026-11-08): deflate 2.06 MB a tile, decoded at one
+# thread in 14.2 ms/Mpx; ZSTD at levels 3 / 9 / 15 2.08 / 2.04 / 2.03 MB, 9.0 / 8.0 / 8.0 ms/Mpx, encoded in
+# 0.013 / 0.036 / 0.155 s. Level 9 (GDAL's default: the same bytes) decodes as fast as 15 and encodes 4 times faster
+ZSTD_LEVEL = 9
+AVERAGED_PROFILE = dict(compress="ZSTD", predictor=3, zstd_level=ZSTD_LEVEL, tiled=True, blockxsize=256,
+                        blockysize=256)
+REPLACE_SECONDS = 30  # recompress: how long replacing a tile another process has open is tried (Windows)
 
 
 def tile_folder(product: str, res: float = 1.0) -> str:
@@ -152,12 +173,192 @@ def _write(path: str, band: np.ndarray, crs, transform):
     os.replace(tmp, path)
 
 
-def _write_averaged(path: str, band: np.ndarray, crs, transform):
-    """An averaged tile: float32 deflate, lossless (sources.layer._write_tile with max_z_error None, the cache's
-    profile before it wrote LERC): a 2 m or 5 m tile stays GDAL's average of the 1 m tiles byte for byte, and the
-    mirror's hashes in index.json stay those of the files on disk."""
-    from sources.layer import _write_tile
-    _write_tile(path, band, crs, transform, max_z_error=None)
+def _write_averaged_part(path: str, band: np.ndarray, crs, transform, tags=None, level: Optional[int] = None) -> str:
+    """An averaged tile written to a temporary file next to path (its .part), whose name is returned:
+    AVERAGED_PROFILE (level: ZSTD's instead of the profile's), NaN for no data."""
+    from sources.net import _part
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = _part(path)
+    profile = {**AVERAGED_PROFILE, **({} if level is None else {"zstd_level": level})}
+    with rio.open(tmp, "w", driver="GTiff", height=band.shape[0], width=band.shape[1], count=1, dtype="float32",
+                  crs=crs, transform=transform, nodata=np.nan, **profile) as dst:
+        dst.write(band.astype(np.float32, copy=False), 1)
+        if tags:
+            dst.update_tags(**tags)
+    return tmp
+
+
+def _write_averaged(path: str, band: np.ndarray, crs, transform, level: Optional[int] = None):
+    """An averaged tile, atomically: float32 in AVERAGED_PROFILE, lossless, so a 2 m or 5 m tile stays GDAL's
+    average of the 1 m tiles byte for byte, and the mirror's hashes in index.json stay those of the files on disk."""
+    os.replace(_write_averaged_part(path, band, crs, transform, level=level), path)
+
+
+def averaged_encoding(factor) -> str:
+    """The encoding text of an averaged folder's index.json."""
+    return (f"GeoTIFF float32 ZSTD (level {AVERAGED_PROFILE['zstd_level']}) with the floating point predictor, "
+            f"lossless: the mean of the valid 1 m pixels of each {factor:g} x {factor:g} block "
+            "(sources.readers.download._block_means)")
+
+
+def is_zstd(path: str) -> bool:
+    """Whether a tile is ZSTD-compressed already (from its header)."""
+    with rio.open(path) as src:
+        return (src.tags(ns="IMAGE_STRUCTURE").get("COMPRESSION") or "").upper() == "ZSTD"
+
+
+def _same_tile(a, b, band: np.ndarray) -> bool:
+    """Whether the open raster b holds band and the georeference, nodata and tags of the open raster a, bit for bit."""
+    if (b.count, b.dtypes, b.shape, b.crs, b.transform, b.tags()) != (a.count, a.dtypes, a.shape, a.crs, a.transform,
+                                                                       a.tags()):
+        return False
+    if not (np.isnan(b.nodata) if a.nodata is not None and np.isnan(a.nodata) else b.nodata == a.nodata):
+        return False
+    return np.array_equal(b.read(1).view(np.uint32), band.view(np.uint32))
+
+
+def _layout_root(folder: str) -> Optional[str]:
+    """The cache folder above folder (the one with the LAYOUT file, cache.check_layout's), or None."""
+    path = os.path.abspath(folder)
+    while True:
+        parent = os.path.dirname(path)
+        if os.path.isfile(os.path.join(path, "LAYOUT")):
+            return path
+        if parent == path:
+            return None
+        path = parent
+
+
+def _recompress_tile(path: str, cache_dir: Optional[str]) -> dict:
+    """One averaged tile written again in AVERAGED_PROFILE (see recompress): {"status": "rewritten" | "skipped"
+    | "failed", "before", "after" (bytes), "sha256" (of the file now), "error"}. In a cache under the tile's lock,
+    the index row's sha256 made the file's (cache.reencoded) also for a file found in ZSTD already with another."""
+    import contextlib
+    import cache
+    from sources.net import tile_lock
+    before = os.path.getsize(path)
+    lock = tile_lock(cache_dir, path) if cache_dir else contextlib.nullcontext()
+    with lock:
+        if is_zstd(path):
+            digest = _sha256(path)
+            if cache_dir and (cache.info(cache_dir, path) or {}).get("sha256") not in (None, digest):
+                cache.reencoded(cache_dir, path)  # replaced before an interruption, its row not updated yet
+            return dict(status="skipped", before=before, after=before, sha256=digest, error=None)
+        tmp = None
+        try:
+            with rio.open(path) as src:
+                if src.count != 1 or src.dtypes[0] != "float32":
+                    raise ValueError(f"{src.count} band(s) of {src.dtypes[0]}: not an averaged tile")
+                compression = src.tags(ns="IMAGE_STRUCTURE").get("COMPRESSION") or ""
+                if compression.upper().startswith("LERC"):  # a 1 m tile: ZSTD would keep LERC's error, larger
+                    raise ValueError(f"{compression}: not an averaged tile")
+                band = src.read(1)
+                # the tags but AREA_OR_POINT, which the GeoTIFF keys hold already: given, it would go into
+                # GDAL_METADATA too, and the file would differ from what average writes
+                from sources.layer import copied_tags
+                tmp = _write_averaged_part(path, band, src.crs, src.transform, copied_tags(src))
+                with rio.open(tmp) as back:
+                    if not _same_tile(src, back, band) or not is_zstd(tmp):
+                        raise ValueError("the rewritten tile differs from the original")
+            deadline = time.monotonic() + REPLACE_SECONDS
+            while True:
+                try:
+                    os.replace(tmp, path)
+                    tmp = None
+                    break
+                except PermissionError:  # open in another process (Windows)
+                    if time.monotonic() > deadline:
+                        raise
+                    time.sleep(0.2)
+        except Exception as e:
+            if tmp and os.path.exists(tmp):
+                os.remove(tmp)
+            return dict(status="failed", before=before, after=before, sha256=None, error=f"{type(e).__name__}: {e}")
+        if cache_dir:
+            cache.reencoded(cache_dir, path)
+        return dict(status="rewritten", before=before, after=os.path.getsize(path), sha256=_sha256(path), error=None)
+
+
+def recompress(folder: str, threads: int = WRITE_THREADS) -> dict:
+    """Write every averaged tile (.tif) under folder again in AVERAGED_PROFILE, losslessly (see the module's
+    docstring): the files already in ZSTD skipped, each other one through a .part compared bit for bit before it
+    replaces the file. A mirror's folder (index.json in it, which must be an averaged folder's): the tiles' sha256
+    in the index (written every 30 s while it changes), and once no tile failed its encoding text and the dataset
+    card beside the products; a folder in a cache: the index rows' sha256 (cache.reencoded). Returns the counts
+    (files, rewritten, skipped, failed), the bytes before and after, the seconds and the failures ({path: error}),
+    after printing a summary line."""
+    start = time.time()
+    folder = os.path.abspath(folder)
+    paths = sorted(os.path.join(root, name) for root, _, names in os.walk(folder) for name in names
+                   if name.endswith(".tif"))
+    index_path = os.path.join(folder, "index.json")
+    index = None
+    if os.path.exists(index_path):
+        with open(index_path, encoding="utf-8") as f:
+            index = json.load(f)
+        if "from_resolution" not in index:
+            raise ValueError(f"{index_path}: not an averaged folder's index (no from_resolution)")
+    cache_dir = None if index is not None else _layout_root(folder)
+    kind = "a mirror's folder" if index is not None else (f"a folder of the cache {cache_dir}" if cache_dir
+                                                           else "a folder")
+    print(f"{folder}: {len(paths)} tiles, {kind}", flush=True)
+
+    def save_index():
+        with open(index_path + ".part", "w", encoding="utf-8") as f:
+            json.dump(index, f)
+        os.replace(index_path + ".part", index_path)
+
+    def task(path):
+        try:
+            return _recompress_tile(path, cache_dir)
+        except Exception as e:  # unreadable, its lock not had: listed and left
+            size = os.path.getsize(path) if os.path.exists(path) else 0
+            return dict(status="failed", before=size, after=size, sha256=None, error=f"{type(e).__name__}: {e}")
+
+    counts = {"rewritten": 0, "skipped": 0, "failed": 0}
+    before = after = corrected = unlisted = 0
+    failed, dirty, last = {}, False, time.time()
+    with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
+        for n, (path, result) in enumerate(zip(paths, pool.map(task, paths)), 1):
+            counts[result["status"]] += 1
+            before += result["before"]
+            after += result["after"]
+            if result["status"] == "failed":
+                failed[path] = result["error"]
+            elif index is not None:
+                key = os.path.basename(path)[:-len(".tif")]
+                if index["tiles"].get(key) is None:
+                    unlisted += 1  # a file the index does not name (or names as without data): left out of it
+                elif index["tiles"][key] != result["sha256"]:
+                    corrected += result["status"] == "skipped"  # replaced before an interruption
+                    index["tiles"][key] = result["sha256"]
+                    dirty = True
+            if time.time() - last > 30 or n == len(paths):
+                last = time.time()
+                if dirty:
+                    save_index()
+                    dirty = False
+                print(f"  {n}/{len(paths)} tiles, {counts['rewritten']} rewritten, {counts['failed']} failed, "
+                      f"{(time.time() - start) / 60:.1f} min", flush=True)
+    if index is not None and not failed:
+        encoding = averaged_encoding(index["resolution"] / index["from_resolution"])
+        if dirty or index.get("encoding") != encoding:
+            index["encoding"] = encoding
+            save_index()
+        root = os.path.dirname(os.path.dirname(folder))
+        if os.path.exists(os.path.join(root, "README.md")):
+            write_card(root)
+    elif dirty:
+        save_index()
+    seconds = time.time() - start
+    print(f"{folder}: {len(paths)} files, {counts['rewritten']} rewritten, {counts['skipped']} already ZSTD, "
+          f"{counts['failed']} failed; {before / 1e6:.1f} MB -> {after / 1e6:.1f} MB; {seconds:.0f} s"
+          + (f"; {corrected} index entries corrected" if corrected else "")
+          + (f"; {unlisted} files not in the index" if unlisted else ""), flush=True)
+    for path, error in failed.items():
+        print(f"  failed: {path}: {error}", flush=True)
+    return dict(files=len(paths), **counts, before=before, after=after, seconds=seconds, failures=failed,
+                corrected=corrected, unlisted=unlisted)
 
 
 def _sha256(path: str) -> str:
@@ -263,9 +464,7 @@ def average(product: str, root: str, factors=FACTORS):
             with open(path, encoding="utf-8") as f:
                 indexes[factor] = json.load(f)
         indexes[factor].update({k: v for k, v in source.items() if k != "tiles"},
-                               resolution=float(factor), from_resolution=1.0,
-                               encoding="GeoTIFF float32 deflate: the mean of the valid 1 m pixels of each "
-                                        f"{factor} x {factor} block (sources.readers.download._block_means)",
+                               resolution=float(factor), from_resolution=1.0, encoding=averaged_encoding(factor),
                                created=datetime.date.today().isoformat())
     todo = {factor: {k for k in source["tiles"] if k not in indexes[factor]["tiles"]} for factor in factors}
     keys = sorted({k for ks in todo.values() for k in ks}, key=lambda k: (-int(k.split("_")[1]), int(k.split("_")[0])))
@@ -337,8 +536,8 @@ Layout: `<product>/1m/<E//10>_<N//10>/<E>_<N>.tif`, where E = floor(x / 2000) an
 N = floor(y / 2000) of the tile's lower left corner; `<product>/1m/index.json` lists every tile
 with its sha256. `<product>/2m` and `<product>/5m` hold the same tiles at 2 m and 5 m: each
 pixel the mean of the valid 1 m pixels of its 2 × 2 or 5 × 5 block, stored as float32 GeoTIFF
-(deflate) without further loss, with their own `index.json`. Made for Find-a-Line (a highline
-finder); not endorsed by ÚGKK SR.
+(ZSTD with the floating-point predictor) without further loss, with their own `index.json`.
+Made for Find-a-Line (a highline finder); not endorsed by ÚGKK SR.
 """
 
 
@@ -372,8 +571,10 @@ def upload(product: str, root: str, repo: str):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("step", choices=["download", "extract", "cut", "average", "upload"])
-    parser.add_argument("product", choices=list(PRODUCTS))
+    parser.add_argument("step", choices=["download", "extract", "cut", "average", "recompress", "upload"])
+    parser.add_argument("product", metavar="product|folder",
+                        help=f"the product ({', '.join(PRODUCTS)}); recompress: an averaged folder (more may follow)")
+    parser.add_argument("folders", nargs="*", help="recompress: more averaged folders")
     parser.add_argument("--zips", help="folder of the ZIPs (download, cut)")
     parser.add_argument("--out", help="folder of the tiles, laid out as the dataset (cut, average, upload)")
     parser.add_argument("--work", help="the same as --zips WORK --out WORK/tiles")
@@ -381,7 +582,21 @@ def main():
     parser.add_argument("--factors", type=int, nargs="+", default=list(FACTORS),
                         help=f"average: the factors of the 1 m tiles to write (default {' '.join(map(str, FACTORS))})")
     parser.add_argument("--repo", help="Hugging Face dataset, user/name (upload)")
+    parser.add_argument("--threads", type=int, default=WRITE_THREADS,
+                        help=f"recompress: tiles at a time (default {WRITE_THREADS})")
     args = parser.parse_args()
+    if args.step == "recompress":
+        failed = 0
+        for folder in [args.product] + args.folders:
+            if not os.path.isdir(folder):
+                sys.exit(f"{folder}: no such folder")
+            try:
+                failed += recompress(folder, args.threads)["failed"]
+            except ValueError as e:
+                sys.exit(str(e))
+        sys.exit(1 if failed else 0)
+    if args.product not in PRODUCTS or args.folders:
+        parser.error(f"one product is needed: {', '.join(PRODUCTS)}")
     zips = args.zips or args.work
     out = args.out or (os.path.join(args.work, "tiles") if args.work else None)
     if args.step in ("download", "extract", "cut") and not zips:

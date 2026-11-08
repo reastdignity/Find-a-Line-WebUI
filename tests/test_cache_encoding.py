@@ -27,6 +27,9 @@ from sources import filling, layer as tiles  # noqa: E402
 from sources.composed import ComposedLayer  # noqa: E402
 from sources.readers.download import Download  # noqa: E402
 
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+import sk_tiles  # noqa: E402
+
 EPS = 0.0051  # m: the bound of the tiles (5 mm) and the float32 rounding of a height of some hundred metres
 UTM = "EPSG:25832"
 
@@ -119,7 +122,8 @@ def _size_deflate(tmp_path, band):
 
 
 def test_lossless_profile_stays_available(tmp_path):
-    """max_z_error None: deflate with predictor 3, the values exactly (tools/sk_tiles.py average)."""
+    """max_z_error None: deflate with predictor 3, the values exactly (the cache's tiles of before; the averaged
+    Slovak tiles until 2026-11-08)."""
     band, path = _band(), str(tmp_path / "t.tif")
     tiles._write_tile(path, band, UTM, from_origin(500000, 5500000, 1, 1), max_z_error=None)
     assert _compression(path) == "DEFLATE" and np.array_equal(_read(path), band, equal_nan=True)
@@ -373,7 +377,8 @@ def test_download_writes_a_float_raster_as_a_tile_and_keeps_the_rest(http_server
 
 def _mixed_cache(tmp_path):
     """A small cache: one tile of a rewriting layer in each of deflate / LERC, a Copernicus float tile as it came,
-    NASADEM's int16, the water mask's uint8, a Slovak mirror tile (LERC) and a non-tile file."""
+    NASADEM's int16, the water mask's uint8, a Slovak mirror tile (LERC), averaged ones (deflate, the mirror's
+    tiles of before, and ZSTD, its tiles since 2026-11-08: tools/sk_tiles.py) and a non-tile file."""
     cache_dir = str(tmp_path / "data" / "cache")
     os.makedirs(cache_dir)
     cache.check_layout(cache_dir)
@@ -390,6 +395,8 @@ def _mixed_cache(tmp_path):
     files["slovak"] = os.path.join(cache_dir, "slovakia", "dmr5", "5.0", "epsg8353-1m-2km", "x", "t.tif")
     tiles._write_tile(files["slovak"], _band(5), "EPSG:8353", from_origin(0, 0, 1, 1))
     files["avg"] = _old(os.path.join(cache_dir, "slovakia", "dmr5", "5.0", "epsg8353-2m-2km", "x", "t.tif"), _band(6))
+    files["avg_zstd"] = os.path.join(cache_dir, "slovakia", "dmp1", "1.0", "epsg8353-5m-2km", "x", "t.tif")
+    sk_tiles._write_averaged(files["avg_zstd"], _band(7), "EPSG:8353", from_origin(0, 0, 5, 5))
     for key, p in files.items():
         cache.record(cache_dir, p)
     return cache_dir, files
@@ -410,7 +417,7 @@ def test_migrate_converts_what_is_ours_and_a_second_run_nothing(tmp_path, capsys
     assert "copernicus30: 1 of 1 tiles converted" in out and "GB ->" in out
     for key in ("sheet", "cop"):
         assert not tiles.old_encoding(files[key]) and np.nanmax(np.abs(_read(files[key]) - expected[key])) <= EPS
-    for key in ("lerc", "nasadem", "wbm", "slovak", "avg"):
+    for key in ("lerc", "nasadem", "wbm", "slovak", "avg", "avg_zstd"):
         assert _sha(files[key]) == shas[key], key  # not ours, or ours already
     assert update.old_tiles(cache_dir) == {}
     assert update.migrate(cache_dir) == 0 and "Nothing to migrate" in capsys.readouterr().out
@@ -439,6 +446,51 @@ def test_status_counts_the_tiles_to_migrate(tmp_path, capsys):
     capsys.readouterr()
     update.status(cache_dir, str(tmp_path / "runs"))
     assert "older encoding" not in capsys.readouterr().out
+
+
+def test_an_averaged_zstd_tile_is_never_encoded_again(tmp_path, monkeypatch, capsys):
+    """The Slovak mirror's averaged tiles in ZSTD (tools/sk_tiles.py since 2026-11-08) are one float band that is not
+    LERC, which old_encoding calls old by its header alone: only the layer's rewrites (False: GridTiles copies the
+    mirror's files) keeps them from being written again lossily. In a scratch data folder holding one, cached as
+    a search caches it: `cache migrate --dry-run` and `cache status` find nothing, and a search's download_layers
+    over it (the catalogue's DMR 5.0 at 2 m, read from the mirror's 2m folder) hands it to no re-encoding."""
+    monkeypatch.setattr(src.net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    data = tmp_path / "data"
+    cache_dir = str(data / "cache")
+    cache.check_layout(cache_dir)
+    mirror = tmp_path / "mirror"
+    i, j = -241, -601
+    band = _band(8, shape=(1000, 1000))
+    name = src.grid_tile_name(i, j)
+    tile = mirror / "slovakia" / "dmr5" / "2m" / name
+    sk_tiles._write_averaged(str(tile), band, "EPSG:8353", from_origin(i * 2000, (j + 1) * 2000, 2, 2))
+    (mirror / "slovakia" / "dmr5" / "2m" / "index.json").write_text(
+        '{"tiles": {"%d_%d": "%s"}, "resolution": 2.0, "from_resolution": 1.0}' % (i, j, _sha(str(tile))),
+        encoding="utf-8")
+    monkeypatch.setenv(src.MIRROR_ENV, str(mirror))
+    layer = src.SOURCES["slovakia"].nmt
+    grid = Grid(i * 2000 + 200, (j + 1) * 2000 - 200, 2.0, 300, 400, "EPSG:8353")
+    assert layer.resolution(2.0) == 2.0 and len(layer.tiles(grid)) == 1
+    src.download_layers([(layer, "terrain")], grid, cache_dir)  # copied from the mirror as a search copies it
+    path = layer.tile_path(cache_dir, layer.tiles(grid)[0])
+    assert path.replace(os.sep, "/").endswith("slovakia/dmr5/5.0/epsg8353-2m-2km/" + name)
+    sha = _sha(path)
+    assert sha == _sha(str(tile)) and sk_tiles.is_zstd(path) and cache.info(cache_dir, path)["sha256"] == sha
+    assert tiles.old_encoding(path) and not layer.rewrites and update.rewriting_layer(cache.relative(cache_dir, path)) is None
+
+    assert update.old_tiles(cache_dir) == {}
+    assert update.main(["--data-dir", str(data), "cache", "migrate", "--dry-run"]) == 0
+    assert "Nothing to migrate" in capsys.readouterr().out
+    update.status(cache_dir, str(data / "runs"))
+    assert "older encoding" not in capsys.readouterr().out
+    given, real = [], tiles.reencode_paths
+    monkeypatch.setattr(tiles, "reencode_paths", lambda cache_dir, paths, *a, **k: given.append(list(paths)) or real(
+        cache_dir, paths, *a, **k))
+    tiles._NEW.clear()
+    src.download_layers([(layer, "terrain")], grid, cache_dir)  # cached now: nothing copied, nothing re-encoded
+    assert given == [[]] and _sha(path) == sha and sk_tiles.is_zstd(path)
+    assert np.array_equal(_read(path), band, equal_nan=True)
+    assert update.migrate(cache_dir) == 0 and _sha(path) == sha
 
 
 def test_every_layer_that_rewrites_says_so_and_the_slovak_mirror_does_not():
