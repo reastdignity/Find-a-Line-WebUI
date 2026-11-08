@@ -377,17 +377,89 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
     assert layer.download_tile(empty, str(tmp_path / "empty.tif")).received == 0
     assert not (tmp_path / "empty.tif").exists()
 
-    # A tile not cut yet is an error, never "missing"; a damaged file is refused
-    later = (1.0, math.floor(left / 2000), math.floor(top / 2000) + 3)
-    assert f"{later[1]}_{later[2]}" not in index
-    with pytest.raises(RuntimeError, match="not in .* yet"):
-        layer.download_tile(later, str(tmp_path / "later.tif"))
+    # A tile beyond the index's extent is outside the data as a null one (test_slovak_tiles_beyond_the_index); a
+    # damaged file is refused
+    beyond = (1.0, math.floor(left / 2000), math.floor(top / 2000) + 3)
+    assert f"{beyond[1]}_{beyond[2]}" not in index
+    assert layer.download_tile(beyond, str(tmp_path / "beyond.tif")).received == 0
+    assert not (tmp_path / "beyond.tif").exists()
     key = next(k for k, v in index.items() if v)
     tile = tuple(map(int, key.split("_")))
     with open(root / src.grid_tile_name(*tile), "ab") as f:
         f.write(b"x")
     with pytest.raises(RuntimeError, match="sha256"):
         layer.download_tile((1.0, *tile), str(tmp_path / "damaged.tif"))
+
+
+def test_slovak_tiles_beyond_the_index(tmp_path, monkeypatch):
+    """A grid reaching beyond the extent of a mirror's index.json (the rectangle of its keys: tools/sk_tiles.py lists
+    every tile of the raster's extent) gets those tiles as missing, as the tiles the index lists as null, without a
+    request to the URLs after the mirror: the layer's download goes on (a country layer's border footprint reaches
+    such tiles). A tile not in the index while the index says "partial" (sk_tiles still cutting), or in a hole
+    inside the rectangle, is not cut yet: looked for further, an error without another base."""
+    import grid as gd
+    import cache
+    mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
+    asked = []
+    monkeypatch.setattr(src.net, "_get", lambda url, *a, **k: asked.append(url))
+    monkeypatch.setenv(src.MIRROR_ENV, str(mirror))
+    layer = src.GridTiles("Test DSM", ["https://hf.example/test/1m"], "EPSG:8353", "slovakia/test/1m", 2000, 1.0,
+                          6e6, mirror="slovakia/test/1m")
+    index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+    assert "partial" not in index  # the cut is complete
+    keys = [tuple(map(int, k.split("_"))) for k in index["tiles"]]
+    i0, j0 = min(i for i, _ in keys), min(j for _, j in keys)
+    i1, j1 = max(i for i, _ in keys), max(j for _, j in keys)
+    assert len(keys) == (i1 - i0 + 1) * (j1 - j0 + 1)  # every tile of the extent, null where no data
+    # 1 km west of the raster (its western tiles null) and 4 km north of it (beyond the index)
+    grid = gd.make_grid((left - 1000, top - 2800, left + 4600, top + 4100), 1.0, "EPSG:8353")
+    cache_dir = str(tmp_path / "cache")
+    tiles = layer.tiles(grid)
+    beyond = [t for t in tiles if not (i0 <= t[1] <= i1 and j0 <= t[2] <= j1)]
+    null = [t for t in tiles if index["tiles"].get(f"{t[1]}_{t[2]}", "x") is None]
+    data = [t for t in tiles if index["tiles"].get(f"{t[1]}_{t[2]}")]
+    assert beyond and null and data and len(beyond) + len(null) + len(data) == len(tiles)
+    assert layer.estimate(grid, cache_dir, None) == (len(tiles), len(tiles), len(tiles) * 6e6 / 1e6)
+    layer.download(grid, cache_dir, None, "test")
+    states = {t: cache.state(cache_dir, layer.tile_path(cache_dir, t)) for t in tiles}
+    assert {states[t] for t in beyond} == {states[t] for t in null} == {"missing"}
+    assert {states[t] for t in data} == {"ok"}
+    assert layer.estimate(grid, cache_dir, None) == (len(tiles), 0, 0.0)
+    assert not asked  # nothing beyond the mirror asked from the URLs
+    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
+    assert np.isfinite(mosaic).any() and not np.isfinite(mosaic[:4000]).any()  # the 4 km north: no data
+
+    # Not cut yet: every tile it does not list while the index says "partial", a hole inside the rectangle
+    alone = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
+    (root / "index.json").write_text(json.dumps({**index, "partial": True}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="not in .* yet"):
+        alone.download_tile(beyond[0], str(tmp_path / "later.tif"))
+    hole = data[0]
+    tiles_left = {k: v for k, v in index["tiles"].items() if k != f"{hole[1]}_{hole[2]}"}
+    (root / "index.json").write_text(json.dumps({**index, "tiles": tiles_left}), encoding="utf-8")
+    alone = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
+    with pytest.raises(RuntimeError, match="not in .* yet"):
+        alone.download_tile(hole, str(tmp_path / "hole.tif"))
+    assert alone.download_tile(beyond[0], str(tmp_path / "beyond.tif")).received == 0
+    assert not asked
+
+
+def test_slovak_tiles_partial_while_cut(tmp_path, monkeypatch):
+    """tools/sk_tiles.py's index.json says "partial" while rows of the raster's extent are still to be cut (a cut
+    stopped after its first row), not once the cut is complete; average likewise for its tiles."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import sk_tiles
+    work, band, left, top = _synthetic_zip(tmp_path)
+    monkeypatch.setitem(sk_tiles.PRODUCTS, "test", {"zip": "https://example.org/test.zip", "member": "t.tif",
+                                                   "title": "test"})
+    out = tmp_path / "mirror" / "slovakia"
+    sk_tiles.cut("test", str(work), str(out), rows_limit=1)
+    index_path = out / "test" / "1m" / "index.json"
+    assert json.loads(index_path.read_text(encoding="utf-8"))["partial"] is True
+    sk_tiles.cut("test", str(work), str(out))
+    assert "partial" not in json.loads(index_path.read_text(encoding="utf-8"))
+    sk_tiles.average("test", str(out), factors=(2,))
+    assert "partial" not in json.loads((out / "test" / "2m" / "index.json").read_text(encoding="utf-8"))
 
 
 def test_slovak_tiles_averaged(tmp_path, monkeypatch):
