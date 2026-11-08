@@ -1206,6 +1206,8 @@ class TileWork:
         print(f"\n--- Band {band.name}, group {claim.group}: {len(claim.cores)} tiles, {len(claim.tiles)} to count "
               f"({grid.width} x {grid.height} px) ---", flush=True)
         src.used_data.clear()
+        gc.collect()
+        before = _private(psutil.Process().memory_info())  # the private bytes its step 1 adds to (meta: base)
         clock = _StageClock()
         sampler = _MemorySampler(clock)
         cpu0, (read0, written0) = time.process_time(), _io_counters()
@@ -1229,7 +1231,8 @@ class TileWork:
                  "info": {"name": claim.group, "tiles": len(claim.cores), "served": n, "border": group_plan.border,
                           "grid": {"width": grid.width, "height": grid.height, "left": grid.left, "top": grid.top},
                           "prepare": round(seconds, 3), "cpu_seconds": round(cpu, 3), "stages": stages,
-                          "memory": {"rss": memory["rss"], "private": memory["private"]}}}
+                          "memory": {"rss": memory["rss"], "private": memory["private"], "base": before,
+                                     "stages": memory["stages"]}}}
         print(f"Group {band.name} {claim.group}: step 1 in {seconds:.1f} s for {n} tiles", flush=True)
         return _Group(band.name, claim.group, group_plan, data, work, share)
 
