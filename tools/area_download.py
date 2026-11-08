@@ -65,6 +65,7 @@ STALE_SECONDS = 180         # a state older than this, with its area not finishe
 REPLACE_ATTEMPTS = 5
 CHART_POINTS = 120
 PART_AGE_SECONDS = 86400    # .part files of killed passes are removed at the end, older than this
+GDAL_CACHEMAX_MB = 512      # GDAL's block cache of a pass (supervise), unless the environment sets GDAL_CACHEMAX
 FINISHED = ("done", "stopped", "needs attention")
 
 
@@ -334,7 +335,12 @@ def run_pass(area: Area, number: int) -> int:
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
-            src.download_layers(layers, grid, cache_dir, None, group_m=country.PREFETCH_GROUP_M, on_error=failures,
+            # The groups of the window layers hold the same pixels at every resolution (10 km at 1 m, 5 km at 0.5 m,
+            # 20 km at 2 m): PREFETCH_GROUP_M is sized for 1 m data, and at 0.5 m (Luxembourg's float64 national COG)
+            # groups of 10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB on a server of
+            # 62 GB without swap (Luxembourg 11 kills, Scotland 7, New Zealand 6, Wales 2; 2026-11-07)
+            src.download_layers(layers, grid, cache_dir, None, group_m=country.PREFETCH_GROUP_M * area.resolution,
+                               on_error=failures,
                                reencode_cached=False)  # reads no tile: the tiles still in the old encoding wait for what does
             if failures.tiles:
                 code = EXIT_FAILED
@@ -410,6 +416,9 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
         with contextlib.suppress(FileNotFoundError):
             os.remove(area.file(".stop"))
         env = dict(os.environ, PYTHONUNBUFFERED="1", FINDALINE_PROGRESS="text")
+        # GDAL's block cache of a pass: its default is 5 % of the machine's memory for every process, and several
+        # areas download at once on one machine; the environment's own setting stays
+        env.setdefault("GDAL_CACHEMAX", str(GDAL_CACHEMAX_MB))
         failed, same, number = None, 0, 0
         with open(area.file(".log"), "a", encoding="utf-8") as log:
             while True:

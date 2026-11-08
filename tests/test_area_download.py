@@ -2,6 +2,7 @@
 tile only when asked, a pass over a made-up layer (the tiles failing, an index out of reach, too many failures in a
 row, the disk), the supervisor's passes, and what is shown of them."""
 
+import dataclasses
 import json
 import os
 import sys
@@ -158,6 +159,18 @@ def test_a_full_disk_ends_the_pass(setup, monkeypatch):
     assert "1 GB free" in ad.read_state(area.state_dir, "land")["message"]
 
 
+@pytest.mark.parametrize("resolution", [0.5, 1.0, 2.0])
+def test_groups_hold_the_same_pixels_at_every_resolution(setup, monkeypatch, resolution):
+    """The window layers' groups are PREFETCH_GROUP_M at 1 m, half that at 0.5 m: 10 km of float64 at 0.5 m took
+    about 5 GB a thread and the passes were killed for memory."""
+    import country
+    area = dataclasses.replace(setup(FakeLayer(2)), resolution=resolution)
+    asked = []
+    monkeypatch.setattr(src, "download_layers", lambda *a, **k: asked.append(k))
+    ad.run_pass(area, 1)
+    assert asked[0]["group_m"] == country.PREFETCH_GROUP_M * resolution
+
+
 def test_host_slots_only_in_this_process(monkeypatch):
     """A cap below the app's: that many connections, and no threads waiting beyond them."""
     monkeypatch.setattr(src.net, "HOST_SLOTS_OF", dict(src.net.HOST_SLOTS_OF))
@@ -187,6 +200,20 @@ def test_supervisor_goes_on_until_done(tmp_path):
     assert ad.supervise(area, command, retry_seconds=0.01) == 0
     log = open(area.file(".log"), encoding="utf-8").read()
     assert "pass 3 here" in log and "pass 3 ended with 0" in log
+
+
+def test_a_pass_gets_gdals_block_cache(tmp_path, monkeypatch):
+    """GDAL's default is 5 % of the memory for each of several passes at once; a setting of the environment stays."""
+    area = _area(tmp_path)
+    seen = tmp_path / "env.txt"
+    command = _pass(tmp_path, f"import os\nopen({str(seen)!r}, 'w').write(os.environ.get('GDAL_CACHEMAX', ''))\n"
+                              "sys.exit(0)\n")
+    monkeypatch.delenv("GDAL_CACHEMAX", raising=False)
+    assert ad.supervise(area, command) == 0
+    assert seen.read_text() == str(ad.GDAL_CACHEMAX_MB)
+    monkeypatch.setenv("GDAL_CACHEMAX", "64")
+    assert ad.supervise(area, command) == 0
+    assert seen.read_text() == "64"
 
 
 def test_supervisor_needs_attention_for_the_same_tiles(tmp_path):
