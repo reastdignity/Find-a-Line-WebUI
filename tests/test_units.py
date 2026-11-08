@@ -1810,23 +1810,28 @@ def test_select_pair_as_two_selections(monkeypatch):
     """_select(pair=True), the two middle values of an even count in the same passes, gives the float32
     bits of two selections of before (_select_before), and _median_of the bits of before: ties across
     and within bins, -0.0 and 0.0 as the two middle values, two clusters far apart (the (k+1)-th in a
-    later bin, also of single keys), at the default bins and at bins of a few keys over several rounds."""
+    later bin, also of single keys), at the default bins and at bins of a few keys over several rounds.
+    The inputs are the smallest that reach the branches the larger ones of before reached (60 equal
+    values: more than the small bins' SELECT_COLLECT, so the range narrows to a single key), split into
+    parts of 1 and 7 values only while that gives at most 200 parts: every part costs a bincount of
+    SELECT_BINS per pass (100 000 and 300 000 values in parts of one took 755 s)."""
     rng = np.random.default_rng(9)
-    cases = [rng.normal(0, 3, n).astype(np.float32) for n in (2, 4, 1000, 100000)]
-    cases.append(np.round(rng.normal(0, 3, 5000), 1).astype(np.float32))
+    cases = [rng.normal(0, 3, n).astype(np.float32) for n in (2, 4, 1000, 10000)]
+    cases.append(np.round(rng.normal(0, 3, 1000), 1).astype(np.float32))
     cases.append(np.array([-0.0, 0.0, 0.0, -0.0], np.float32))
     cases.append(np.array([0.0, -0.0], np.float32))
     cases.append(np.array([3.0, -1e-40, 1e38, -1e38, 7.0, -7.5], np.float32))
-    cases.append(np.concatenate([np.full(3000, -1e38, np.float32), np.full(3000, 1e38, np.float32)]))
-    cases.append(np.concatenate([np.full(300, 1.5, np.float32), np.full(300, np.nextafter(np.float32(1.5), 2))]))
-    cases.append(rng.choice(np.array([-2.0, -1.0, 0.0, 1.0, 2.0], np.float32), 300000))
+    cases.append(np.concatenate([np.full(60, -1e38, np.float32), np.full(60, 1e38, np.float32)]))
+    cases.append(np.concatenate([np.full(60, 1.5, np.float32), np.full(60, np.nextafter(np.float32(1.5), 2))]))
+    cases.append(rng.choice(np.array([-2.0, -1.0, 0.0, 1.0, 2.0], np.float32), 500))
     bits = lambda v: np.float32(v).view(np.uint32)  # noqa: E731
     for small in (False, True):
         if small:
             monkeypatch.setattr(src.filling, "SELECT_BINS", 4)
             monkeypatch.setattr(src.filling, "SELECT_COLLECT", 50)
         for values in cases:
-            for chunk in (1, 7, len(values)):
+            n = len(values)
+            for chunk in sorted({c for c in (1, 7) if n // c <= 200} | {n // 7 + 1, n}):  # at most 200 parts
                 parts = [values[i:i + chunk] for i in range(0, len(values), chunk)]
                 keys = src.filling._KeyRange()
                 for part in parts:
