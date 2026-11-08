@@ -541,7 +541,8 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
       const k = openKey(d);
       if (!dims.includes(k)) dims.push(k);
     }
-    return {id: topic.id, dims};
+    // the narrow fields first, so they pair in the two columns; the wide ones after them, each across both
+    return {id: topic.id, dims: [...dims.filter((d) => !WIDE.has(d)), ...dims.filter((d) => WIDE.has(d))]};
   }).filter((topic) => topic.dims.length);
   const foldOn = (d: string) => d === "elevation" ? limitOn(cube0, "elevation_low", limit("elevation_low")) || limitOn(cube0, "elevation_high", limit("elevation_high"))
     : limitOn(cube0, d, limit(d));
