@@ -2357,6 +2357,26 @@ rows' sha256 by `cache.reencoded`, their times kept (`stage2/ZSTD/`).
   in S, 1.3× in M and M2, 1.2× in L (*est.*, sk-sulov's ratios on W1's shares of step 1). Decided: counted in the
   recount bundle; the DMP not copied into the cache before it.
 
+### The workers' crashes (wave 10, 2026-11-08)
+
+A `country worker` died now and then with exit code 3221226356 (0xC0000374, a heap corruption), was started again
+and counted its tile again with the same bits: 32 times in 81 550 tiles of rounds 4 and 5 (0.39 per 1000; S 0.16,
+M2 1.18, L 1.28, M 0), always inside a stitch of two or four degree tiles of another CRS (the water mask 23 times,
+FABDEM 9), never at a stitch of one, about 1.4-2.1 per 1000 such stitches. The cause is GDAL's
+(OSGeo/gdal#15452, fixed on GDAL's master by #15451 on 2026-11-03, in no release of 3.12 or 3.13): rasterio's
+`reproject(num_threads > 1)` runs `ChunkAndWarpMulti`, which starts a joinable thread per chunk, and on Windows
+a thread that ends before `CreateThread` has returned frees its own record, which `CPLJoinThread` frees again. A
+strip its source covers only in part is split by the warper's fill-ratio heuristic into 40-55 chunks, many without
+a source pixel: 212 such threads for a stitch of two tiles of an S tile against 20 for one tile. A stress of 12
+processes stitching one crashed tile's water mask and FABDEM over and over crashed 41 times in 2686 rounds (15
+minutes); with `num_threads=1` and the warp option `NUM_THREADS=8` (`mosaic.WARP_KWARGS`: rasterio's
+`ChunkAndWarpImage`, GDAL's kernel still on 8 threads of its pool) 0 times in 2486. The mosaics are the same bit for
+bit (12 of the crashed tiles' mosaics, every variant), the 31 crashed tiles and sk-sulov's 22 count as the user's
+tiles. It costs nothing: the stitches of two or four tiles got faster without a thread per chunk (water mask 0.80
+→ 0.52 s and FABDEM 1.16 → 0.72 s on S's E-395000_N-1205000, 0.69 → 0.51 and 0.98 → 0.82 s on L's
+E-500000_N-1200000, medians of 5, shared lock), one tile's the same (0.32 / 0.33 s); sk-sulov's stitching stages
+within the spread of two runs each (`local/country-perf-2026-11-07/stage2/CRASH/`).
+
 ### Lessons
 
 - **Two interpreters**: the main checkout's venv is Python 3.13.7, every worktree's (`uv sync --frozen`) 3.15.2. C3's
