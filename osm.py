@@ -79,10 +79,14 @@ THEMES = {name: "".join(f'{kind}["{key}"="{value}"]({{bbox}});' for kind, key, v
 
 
 def tiles(west: float, south: float, east: float, north: float) -> List[Tuple[float, float]]:
-    """South-west corners of the 0.25° tiles covering a WGS84 box."""
+    """South-west corners of the 0.25° tiles covering a WGS84 box, south to north and, within a
+    row, west to east (both edges inclusive). A box with west > east crosses 180° (as rasterio's
+    transform_bounds gives the box of a grid spanning it): the tiles of both sides, west..180°
+    first, then -180°..east."""
     def steps(a, b):
         return range(math.floor(a / TILE_DEG), math.floor(b / TILE_DEG) + 1)
-    return [(i * TILE_DEG, j * TILE_DEG) for i in steps(south, north) for j in steps(west, east)]
+    lons = list(steps(west, east)) if west <= east else list(steps(west, 180 - TILE_DEG)) + list(steps(-180, east))
+    return [(i * TILE_DEG, j * TILE_DEG) for i in steps(south, north) for j in lons]
 
 
 def tile_name(lat: float, lon: float) -> str:
