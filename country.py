@@ -1854,7 +1854,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         elif max_tiles is not None or todo:
             k = max(1, min(k, pending_groups or todo, max_tiles if max_tiles is not None else todo))
         k_eff = max(1, k)  # the processes counting at once (0: this one)
-        need = k_eff * disk + DISK_SPARE
+        # the workers that hold grids at once: at most the pending groups (one claimed by each)
+        need = min(k_eff, pending_groups or k_eff) * disk + DISK_SPARE
         free = shutil.disk_usage(data_dir).free
         for band in country.bands:
             c = counts.get(band.name, {})
