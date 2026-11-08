@@ -314,37 +314,189 @@ def _timed_values(monkeypatch):
     seen = []
     for name in ("prominence", "drop"):
         kernel = getattr(terrain, name)
-        monkeypatch.setattr(terrain, name, lambda *args, k=kernel, n=name: (seen.append(n), k(*args))[1])
+        monkeypatch.setattr(terrain, name, lambda *args, k=kernel, n=name, **kw: (seen.append(n), k(*args, **kw))[1])
     listener = lambda state: seen.append(("bar", state["stage"], state["done"])) if state.get("bar") else None
     search.progress.subscribe(listener)
     return seen, lambda: search.progress.unsubscribe(listener)
 
 
-def test_count_tile_leaves_the_anchor_values_to_the_first_line(tmp_path, offline, monkeypatch):
-    """count_tile computes prominence and drop when the first line needs them, once, and hands the
-    sink what a search computing them first does; the bar of the pairs goes on afterwards."""
+@pytest.mark.parametrize("chunk, part, calls", [(None, None, None), (16, 50, 1000), (16, 50, 2), (16, 50, 0)])
+def test_count_tile_computes_the_anchor_values_of_the_lines(tmp_path, offline, monkeypatch, chunk, part, calls):
+    """count_tile computes prominence and drop of the anchors of each part's lines when the part comes
+    (terrain.py on the crop around them), each anchor once, after linesearch.SUBSET_CALLS computations
+    every useful anchor not known yet in the rows a later line can reach, and hands the sink what a
+    search computing them first does, bit for bit; the bar of the pairs goes on after each computation.
+    One part; many parts, subsets only; the switch after two; the switch at the first line."""
+    import linesearch as ls
     import search
+    import terrain
+    if chunk is not None:
+        monkeypatch.setattr(ls, "SINK_CHUNK", chunk)
+        monkeypatch.setattr(ls, "EVAL_PART", part)
+        monkeypatch.setattr(ls, "SUBSET_CALLS", calls)
     plan = _krovak_plan(tmp_path)
     data = search.prepare_data(plan)
     first = []
     search._pair_search(plan, data, search._anchors(plan, data), None, None, sink=first.append)
-    seen, stop = _timed_values(monkeypatch)
+    asked, useful = {"prominence": [], "drop": []}, []
+    for name in asked:
+        kernel = getattr(terrain, name)
+        monkeypatch.setattr(terrain, name, lambda z, a, *args, k=kernel, n=name, **kw:
+                            (asked[n].append((np.array(a), kw.get("crop"))), k(z, a, *args, **kw))[1])
+    free = ls.free_directions
+    monkeypatch.setattr(ls, "free_directions", lambda *a, **k: (lambda r: (useful.append(r[0]), r)[1])(free(*a, **k)))
+    bars = []
+    listener = lambda state: bars.append((state["stage"], state["done"])) if state.get("bar") else None
+    search.progress.subscribe(listener)
     try:
         plan.funnel = {}
         later = []
         search.count_tile(plan, data, None, later.append)
     finally:
-        stop()
-    assert sum(len(p) for p in later) > 100
-    assert seen.count("prominence") == 1 and seen.count("drop") == 1
+        search.progress.unsubscribe(listener)
+    assert sum(len(p) for p in later) > 100 and len(later) > (1 if chunk else 0)
     a, b = _sorted(_joined(first)), _sorted(_joined(later))
     del b["water_px"]
     _assert_same(a, b)
-    bars = [s for s in seen if isinstance(s, tuple)]
-    start = bars.index(("bar", "anchor prominence and drop", False))
-    assert bars[0:start] and any(s[1] == "anchor pairs" for s in bars[:start])  # the pairs had started
-    after = bars[bars.index(("bar", "anchor prominence and drop", True)):]
-    assert ("bar", "anchor pairs", False) in after and after[-1] == ("bar", "anchor pairs", True)
+    # the anchors computed: each once, on a crop, the lines' own while subsets, all useful after the switch
+    anchors = search._anchors(plan, data, quiet=True, deferred=True).anchors
+    w = data.elevation.shape[1]
+    flat = anchors[:, 0] * w + anchors[:, 1]
+    sets = [np.searchsorted(flat, a[:, 0] * w + a[:, 1]) for a, crop in asked["prominence"]]
+    assert all(crop is True for _, crop in asked["prominence"] + asked["drop"])
+    assert [len(s) for s in sets] == [len(a) for a, _ in asked["drop"]]
+    done = np.concatenate(sets)
+    assert len(np.unique(done)) == len(done)  # each anchor once
+    in_lines = set(np.searchsorted(flat, b["a1"][:, 0] * w + b["a1"][:, 1]).tolist()) | \
+        set(np.searchsorted(flat, b["a2"][:, 0] * w + b["a2"][:, 1]).tolist())
+    limit = ls.SUBSET_CALLS
+    assert 1 <= len(sets) <= limit + 1
+    if len(sets) > limit:  # switched: the useful anchors not known before, from the rows a later line can reach
+        computed, whole = set(done.tolist()), set(useful[0].tolist())
+        assert in_lines <= computed <= whole
+        missing = np.array(sorted(whole - computed), dtype=np.int64)
+        extra = np.setdiff1d(sets[-1], np.array(sorted(in_lines), dtype=np.int64))
+        assert len(extra)
+        if len(missing):
+            assert anchors[missing, 0].max() < anchors[extra, 0].min()
+    else:
+        assert set(done.tolist()) == in_lines
+    assert any(len(s) < len(anchors) for s in sets)
+    starts = [k for k, bar in enumerate(bars) if bar == ("anchor prominence and drop", False)  # its start, not its update
+              and (k == 0 or bars[k - 1][0] != "anchor prominence and drop")]
+    assert len(starts) == len(sets) and bars[:starts[0]] and ("anchor pairs", False) in bars[:starts[0]]
+    for k in starts:  # the bar of the pairs put back right after each computation
+        done_at = bars.index(("anchor prominence and drop", True), k)
+        assert bars[done_at + 1] == ("anchor pairs", False)
+    assert bars[-1] == ("anchor pairs", True)
+
+
+@pytest.mark.parametrize("model", ["formula", "tension"])
+def test_count_tile_carries_the_lift_values(tmp_path, offline, monkeypatch, model):
+    """With the no-fall zone and A-frames (5 m, 2 m) every part handed to the sink carries the A-frame
+    heights of its lines ("lift_needed", "lift_no_zone"), those the search's table has for the same
+    lines (every column equal, bit for bit); the ladder adds values only (without it the same lines and
+    values); at 0 / 0 the parts have the columns of before, no END_VALUES."""
+    import helpers as sh
+    import linesearch as ls
+    import sag as sg
+    import search
+    for ends in ({"end_zone": 5.0, "anchor_lift": 2.0}, {}):
+        values = {"model": "sag", **ends} if model == "tension" else dict(ends)
+        folder = tmp_path / ("ends" if ends else "plain")
+        folder.mkdir()
+        plan = _krovak_plan(folder, **values)
+        table = sg.TensionTable(plan.rigging, plan.params.min_length, plan.params.max_length,
+                                [(30, 2.5), (150, 6.0)]) if model == "tension" else None
+        data = search.prepare_data(plan)
+        whole = search._pair_search(plan, data, search._anchors(plan, data), None, table)
+        plan.funnel = {}
+        parts = []
+        search.count_tile(plan, data, None, parts.append, table)
+        assert len(parts) and sum(len(p) for p in parts) == len(whole) > 100
+        columns = {"a1", "a2", *sh.LINE_VALUES, "water_px"} | (set(sh.END_VALUES) if ends else set())
+        assert all(set(p.columns) == columns for p in parts)
+        counted = _sorted(_joined(parts))
+        del counted["water_px"]
+        _assert_same(_sorted(whole.columns), counted)
+        if not ends:
+            continue
+        assert (counted["lift_needed"] > 0).any() and (counted["lift_no_zone"] > counted["lift_needed"]).any()
+        find = ls.find_valid_lines  # the same count without the ladder: the same lines and values
+        monkeypatch.setattr(ls, "find_valid_lines", lambda *a, **k: find(*a, **{**k, "zones": ()}))
+        plan.funnel = {}
+        plain = []
+        search.count_tile(plan, data, None, plain.append, table)
+        monkeypatch.setattr(ls, "find_valid_lines", find)
+        plain = _sorted(_joined(plain))
+        for name in ("a1", "a2", *sh.LINE_VALUES, "water_px"):
+            assert np.array_equal(plain[name], _sorted(_joined(parts))[name], equal_nan=True), name
+        del data
+
+
+@pytest.mark.parametrize("calls", [None, 0])
+def test_count_tile_releases_its_grids(tmp_path, offline, monkeypatch, calls):
+    """After a count (lines, lazy anchor values, the switch to every useful anchor or not) nothing keeps the
+    grids of step 1: deleting the data frees the memory-mapped terrain by reference counting alone, with the
+    cyclic collector off, and step 1 writes the same work path again (Windows refuses to write a file while a
+    view of it lives: the next grid of a work path, a test's fixture or a tile of a worker). A count on another
+    plan first compiles what numba has not cached (the first compilation in a process may keep the frames of
+    its call alive, whatever the count holds)."""
+    import gc
+    import weakref
+    import linesearch as ls
+    import search
+    if calls is not None:
+        monkeypatch.setattr(ls, "SUBSET_CALLS", calls)
+    (tmp_path / "warm").mkdir()
+    warm = _krovak_plan(tmp_path / "warm")
+    search.count_tile(warm, search.prepare_data(warm), None, [].append)
+    plan = _krovak_plan(tmp_path)
+    data = search.prepare_data(plan)
+    terrain = weakref.ref(data.elevation)
+    parts = []
+    enabled = gc.isenabled()
+    gc.collect()
+    gc.disable()
+    try:
+        search.count_tile(plan, data, None, parts.append)
+        assert sum(len(p) for p in parts) > 100
+        del data, parts
+        assert terrain() is None
+        again = search.prepare_data(plan)  # the same work path written again
+        assert again.elevation.shape == (plan.grid.height, plan.grid.width)
+        del again
+    finally:
+        if enabled:
+            gc.enable()
+
+
+def test_lazy_anchor_values():
+    """LazyAnchorValues: the anchors of the pairs not known yet computed, each once, in increasing
+    order; the values of every anchor returned (NaN where not computed); after `calls` computations
+    the next takes the rest too, in the rows from floor() on; nothing computed when every anchor of the
+    pairs is known."""
+    import linesearch as ls
+    truth = np.column_stack([np.arange(20.0), -np.arange(20.0)])
+    truth[3] = np.nan  # a value NaN (an anchor without data) is a value, never asked again
+    asked, after = [], []
+    lazy = ls.LazyAnchorValues(lambda idx: (asked.append(idx.tolist()), truth[idx])[1], 20, calls=2)
+    lazy.after = lambda: after.append(len(asked))
+    lazy.rest = np.array([0, 3, 5, 7, 9, 11, 13])
+    lazy.rows, lazy.floor = np.arange(20) // 2, lambda: 3  # anchor 0 (row 0) never in a later line
+    got = lazy(np.array([[5, 3], [3, 1]]))
+    assert asked == [[1, 3, 5]] and after == [1]
+    assert np.array_equal(got[[1, 3, 5]], truth[[1, 3, 5]], equal_nan=True) and np.isnan(got[[0, 2, 4]]).all()
+    lazy(np.array([[1, 5], [5, 3]]))
+    assert asked == [[1, 3, 5]]  # all known: nothing computed
+    lazy(np.array([[2, 1]]))
+    assert asked == [[1, 3, 5], [2]]
+    got = lazy(np.array([[19, 2]]))  # the third: the rest not known yet in rows from 3 on with it
+    assert asked[-1] == [7, 9, 11, 13, 19] and lazy.computed == 3 and after == [1, 2, 3]
+    assert np.array_equal(got[lazy.known], truth[lazy.known], equal_nan=True)
+    assert np.isnan(got[~lazy.known]).all() and lazy.known.sum() == 9
+    lazy(np.array([[0, 19]]))  # an anchor left out by the floor is still computed when a line has it
+    assert asked[-1] == [0] and lazy.known[0]
 
 
 def test_count_tile_without_a_line_computes_no_anchor_values(tmp_path, offline, monkeypatch):

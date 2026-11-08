@@ -182,14 +182,38 @@ def _window(z, rows, cols, row_starts, reach, index_type):
     return pixels
 
 
-def prominence(elevation: np.ndarray, anchors: np.ndarray, res: float, span: float) -> np.ndarray:
-    """Prominence of every anchor ([row, col]) in metres, for a span in metres."""
+def _crop(elevation: np.ndarray, anchors: np.ndarray, reach: int):
+    """The part of the grid within reach (pixels, Chebyshev) of the anchors and the anchors in it:
+    when that part spans the grid's width, its rows of the grid itself (a contiguous view: no copy,
+    the count mode's switch to every useful anchor takes about the whole tile), else a contiguous
+    float32 copy, read-only as the count mode's memory-mapped grid is (the kernels' argument types
+    stay those of the whole grid: no compilation of their own)."""
+    h, w = elevation.shape
+    r0, c0 = (max(0, int(v) - reach) for v in anchors.min(axis=0))
+    r1, c1 = (min(n, int(v) + reach + 1) for v, n in zip(anchors.max(axis=0), (h, w)))
+    if c0 == 0 and c1 == w:
+        rows = np.ascontiguousarray(elevation, dtype=np.float32)[r0:r1]
+        return rows, (anchors - np.array([r0, 0]) if r0 else anchors)
+    part = np.array(elevation[r0:r1, c0:c1], dtype=np.float32, order="C")
+    part.setflags(write=False)
+    return part, anchors - np.array([r0, c0])
+
+
+def prominence(elevation: np.ndarray, anchors: np.ndarray, res: float, span: float, crop: bool = False) -> np.ndarray:
+    """Prominence of every anchor ([row, col]) in metres, for a span in metres. Any subset of the
+    anchors gets the values it has among all of them (an anchor's value depends on its own window
+    only, _window). crop: computed on the part of the grid within span - 1 pixels of these anchors
+    (a copy), the same values without the passes over the whole grid: a few anchors of a large
+    grid (the count mode asks those of each part's lines)."""
     anchors = np.asarray(anchors, dtype=np.int64).reshape(-1, 2)
     if len(anchors) == 0:
         return np.zeros(0)
-    z = np.ascontiguousarray(elevation, dtype=np.float32)
-    h, w = z.shape
     span_px = max(1, math.ceil(span / res))
+    if crop:
+        z, anchors = _crop(elevation, anchors, span_px - 1)
+    else:
+        z = np.ascontiguousarray(elevation, dtype=np.float32)
+    h, w = z.shape
     anchor_pixel = anchors[:, 0] * w + anchors[:, 1]
     if np.all(anchor_pixel[1:] >= anchor_pixel[:-1]):
         # Row-major already (find_significant_slopes gives them so): the stable lexsort's order
@@ -283,18 +307,23 @@ def _min_cols_at(x, rad, rows, cols, starts):
     return out
 
 
-def drop(elevation: np.ndarray, anchors: np.ndarray, res: float, radius: float) -> np.ndarray:
-    """The anchors' elevation minus the lowest terrain within +-radius metres (a square)."""
+def drop(elevation: np.ndarray, anchors: np.ndarray, res: float, radius: float, crop: bool = False) -> np.ndarray:
+    """The anchors' elevation minus the lowest terrain within +-radius metres (a square). crop: on
+    the part of the grid within the radius of these anchors (a copy), the same values (a minimum
+    over each anchor's square, which lies in it)."""
     anchors = np.asarray(anchors, dtype=np.int64).reshape(-1, 2)
     if len(anchors) == 0:
         return np.zeros(0)
     rad = max(1, math.ceil(radius / res))
-    z = np.ascontiguousarray(elevation, dtype=np.float32)
+    e = np.asarray(elevation[anchors[:, 0], anchors[:, 1]], dtype=np.float64)
+    if crop:
+        z, anchors = _crop(elevation, anchors, rad)
+    else:
+        z = np.ascontiguousarray(elevation, dtype=np.float32)
     lowest_in_rows = _min_rows(z, rad)
     by_col = np.argsort(anchors[:, 1], kind="stable")
     rows, cols = anchors[by_col, 0], anchors[by_col, 1]
     starts = np.searchsorted(cols, np.arange(0, z.shape[1] + 64, 64)[:(z.shape[1] + 63) // 64 + 1])
     lowest = np.empty(len(anchors), dtype=np.float32)
     lowest[by_col] = _min_cols_at(lowest_in_rows, rad, rows, cols, starts)
-    e = np.asarray(elevation[anchors[:, 0], anchors[:, 1]], dtype=np.float64)
     return e - lowest.astype(np.float64)
