@@ -22,7 +22,7 @@ from grid import Grid
 
 from .. import net
 from ..net import _part
-from .cached import CachedIndex, IndexUnavailable, Listing, Versions
+from .cached import CachedIndex, IndexUnavailable, Listing, Versions, index_tiles
 
 # RFC 5854, section 4: the namespace of every element of a Metalink 4 document
 METALINK_NS = "urn:ietf:params:xml:ns:metalink"
@@ -232,15 +232,16 @@ class ShaPerTile(Versions):
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
         """The newest tile of each place over the grid (and the area's shape), newest first."""
-        west, south, east, north = transform_bounds(grid.crs, "EPSG:4326", *grid.bounds)
         g_left, g_bottom, g_right, g_top = transform_bounds(grid.crs, self.crs, *grid.bounds)
         shape = None
         if grid.area_shape is not None:
+            import shapely
             from area import project
             from shapely.geometry import box
             shape = project(grid.area_shape, grid.crs, self.crs).intersection(box(g_left, g_bottom, g_right, g_top))
+            shapely.prepare(shape)  # tested against every listed file
         items = []
-        for lat, lon in osm.tiles(west, south, east, north):
+        for lat, lon in index_tiles(grid):
             for item in index.answers(cache_dir, lat, lon, update):
                 left, bottom, right, top = item["extent"]
                 if not (left < g_right and right > g_left and bottom < g_top and top > g_bottom):

@@ -238,6 +238,76 @@ def test_prepared_outline_keeps_the_tiles():
     assert not shapely.is_prepared(outline)
 
 
+def test_tilings_per_part_as_the_whole_box():
+    """cells_under (MetricTiling, FileBlockTiling, TenthDegreeTiling, WcsTiling with an outline) gives exactly
+    the tiles a loop over every cell of the whole box tests against the outline, in each class's order, for an
+    outline of two parts far apart (nothing between them visited) and one of many small parts, in strips of a
+    few cells; the memo answers the same grid again (a copy) and another grid anew."""
+    import math
+    from rasterio.warp import transform_bounds
+    from shapely.geometry import MultiPolygon, Polygon, box
+
+    from area import project
+    from grid import Grid
+    from sources.indexes import tilings
+    from sources.indexes.tilings import FileBlockTiling, MetricTiling, TenthDegreeTiling, WcsTiling
+    crs = "EPSG:32634"
+    x, y = 500_000.0, 5_000_000.0
+    rng = np.random.default_rng(5)
+    far = MultiPolygon([box(x, y, x + 7000, y + 5000),
+                        Polygon([(x + 60_000, y + 50_000), (x + 75_000, y + 52_000), (x + 66_000, y + 68_000)])])
+    many = MultiPolygon([box(x + a, y + b, x + a + 900, y + b + 700)
+                         for a, b in zip(rng.integers(0, 80_000, 60), rng.integers(0, 80_000, 60))]).buffer(0)
+
+    def brute(index, grid, edges, cell_range, order):
+        shape = project(grid.area_shape, grid.crs, index.crs)
+        left, bottom, right, top = transform_bounds(grid.crs, index.crs, *grid.bounds)
+        (i0, j0), (i1, j1) = cell_range(left, bottom), cell_range(right, top)
+        found = [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1) if shape.intersects(box(*edges(i, j)))]
+        return sorted(found, key=order)
+    metric = MetricTiling(crs, "f", 4000, origin=(1000.0, 0.0))
+    blocks = FileBlockTiling(crs, "f", 1.0, 3000, lambda i, j: [])
+    tenth = TenthDegreeTiling("EPSG:4326", "f", 3600, lambda name: name)
+    wcs = WcsTiling(crs, "f", 1000, "image/tiff", 2.5, shift=(3.0, -2.0), origin=(1.25, 1.25))
+    size = 1000 * 2.5
+    wx, wy = -wcs.shift[0] - wcs.origin[0], -wcs.shift[1] - wcs.origin[1]
+    cases = [
+        (metric, lambda i, j: metric.edges((i, j)),
+         lambda a, b: (math.floor((a - 1000.0) / 4000), math.floor(b / 4000)), lambda c: (c[1], c[0])),
+        (blocks, lambda i, j: blocks._edges(i, j),
+         lambda a, b: (math.floor(a / 3000), math.floor(b / 3000)), lambda c: (c[1], c[0])),
+        (tenth, lambda i, j: (i / 10, j / 10, (i + 1) / 10, (j + 1) / 10),
+         lambda a, b: (math.floor(a * 10), math.floor(b * 10)), lambda c: (c[1], c[0])),
+        (wcs, lambda i, j: (i * size - wx, j * size - wy, (i + 1) * size - wx, (j + 1) * size - wy),
+         lambda a, b: (math.floor((a + wx) / size), math.floor((b + wy) / size)), lambda c: c),
+    ]
+    for outline in (far, many):
+        left, bottom, right, top = outline.bounds
+        grid = Grid(crs=crs, left=left - 500, top=top + 500, width=int((right - left) / 100) + 10,
+                    height=int((top - bottom) / 100) + 10, res=100.0)
+        grid.area_shape = outline
+        for index, edges, cell_range, order in cases:
+            for strip in (tilings.STRIP_CELLS, 7):
+                index._memo = None
+                tilings.STRIP_CELLS = strip
+                try:
+                    tiles = index.tiles(grid)
+                finally:
+                    tilings.STRIP_CELLS = 250_000
+                expected = brute(index, grid, edges, cell_range, order)
+                if index is wcs:
+                    expected = [(2.5, i, j) for i, j in expected]
+                assert tiles == expected and len(tiles) >= 4, (index, outline is far, strip)
+            again = index.tiles(grid)
+            assert again == tiles and again is not tiles
+            again.append("x")
+            assert index.tiles(grid) == tiles
+            other = Grid(crs=crs, left=grid.left, top=grid.top, width=grid.width, height=grid.height, res=grid.res)
+            other.area_shape = box(x, y, x + 100, y + 100)
+            assert len(index.tiles(other)) < len(tiles) and index.tiles(grid) == tiles
+    assert tilings.STRIP_CELLS == 250_000
+
+
 def test_update_checks(tmp_path):
     """Live tiles are checked after their interval, releases never; --bbox limits the checks."""
     spain = src.SOURCES["spain"].nmt

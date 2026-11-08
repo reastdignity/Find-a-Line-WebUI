@@ -108,10 +108,10 @@ def _both(server, tmp_path, kind, group_m, grid=None, origin=(0.0, 0.0)):
             for mode, group in (("blocks", None), ("groups", group_m))]
 
 
-@pytest.mark.parametrize("kind", ["grid", "newest first", "point", "other"])
+@pytest.mark.parametrize("kind", ["grid", "newest first", "point"])
 def test_groups_cache_what_blocks_cache(files, tmp_path, kind):
     """Byte for byte the same files and the same index rows (two files sharing a column and a third one missing,
-    a newer file with holes an older one fills, PixelIsPoint, another CRS), with groups of several sizes."""
+    a newer file with holes an older one fills, PixelIsPoint), with groups of several sizes."""
     grid = _grid(560) if kind == "grid" else _grid()
     blocks, rows = _download(files, tmp_path / "blocks", kind, None, grid)
     for group_m in (40, 60, 1000):
@@ -121,8 +121,21 @@ def test_groups_cache_what_blocks_cache(files, tmp_path, kind):
     if kind == "grid":
         assert any("gone" in (r[2] or "") and r[1] == "missing" for r in rows)  # the 404: missing in both
         assert any("east" in (r[2] or "") and r[1] == "ok" for r in rows)
-    if kind == "other":
-        assert not blocks and rows and all(r[1] == "missing" for r in rows)
+
+
+@pytest.mark.parametrize("group_m", [None, 40, 1000])
+def test_a_layer_in_another_crs_fails(files, tmp_path, group_m, capsys):
+    """A layer whose only file is in another CRS than its blocks' fails, block by block and in groups alike (the
+    group falls back to one block at a time, which fails), and caches nothing: before 2026-11-08 every block was
+    recorded as "missing" after a printed line only (ArcticDEM over Jan Mayen: "0 of 1252 tiles" in silence)."""
+    cache_dir = tmp_path / "cache"
+    with pytest.raises(RuntimeError, match="other is in EPSG:25833, not EPSG:3035; no file of this block could be read"):
+        _download(files, cache_dir, "other", group_m)
+    assert not os.path.exists(cache_dir / "test" / "other")
+    out = capsys.readouterr().out
+    assert "Test other: other is in EPSG:25833, not EPSG:3035; not used" in out
+    if group_m:
+        assert "tiles one by one (Test other: other is in EPSG:25833, not EPSG:3035; no file of" in out
 
 
 def test_blocks_off_the_files_pixels(files, tmp_path):

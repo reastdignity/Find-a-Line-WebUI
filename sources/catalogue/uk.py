@@ -41,6 +41,18 @@ def _wales(kind: str, description: str) -> FileBlocks:
 # its WCS 2.0.1 (axes E and N; GeoTIFF float32 on the coverage's pixels, edges on whole metres, nodata
 # -3.4e38; millimetre heights). Tiles of 2 km on the native grid, 16.8 MB uncompressed in about 2 s
 # (geotiff:compression=Deflate gives 10.4 MB but takes longer to make). The composite is not updated.
+# The service answers HTTP 500 ({"message":"Internal server error"}, application/json) for any GetCoverage box
+# not wholly covered by its granules, which follow England's outline (Wales and the open sea beyond a line are
+# absent, while DescribeCoverage gives a rectangle: E 80000-656000, N 4000-665000 for the DTM, E 133000-656000,
+# N 11000-657601 for the DSM), also for a box straddling that rectangle's edge; the 500 is positional and
+# deterministic, the service up meanwhile, and transient 500s exist too (a DescribeCoverage answered 500 once
+# and 200 six minutes later). Measured 2026-11-08 at Hay-on-Wye (tile 161_121, corner 322000/242000, on the
+# Welsh border): the 2 km tile and its four 1000 px quarters answered 500, 500 and 250 px pieces on its English
+# side 200 with valid heights, 16 px boxes 500 where 100 px answered 200. So a 500 never makes a tile
+# "missing": the tiles are asked again in pieces down to SPLIT_MIN_PX (WcsReader's split_on_error). Where
+# granules exist but hold nothing (open sea 20 km off Northumberland, Cardiff) the service answers 0.0 without a
+# nodata tag: zero_is_nodata stays False (fill_water takes them as water at sea; over Wales the neighbour fill
+# applies only where the grid has no England data), noted in docs/roadmap.md, "To check".
 EA_WCS = "https://environment.data.gov.uk/spatialdata"
 # Defra's Data Services Platform Fair Use Policy, §7: "Clearly indicate if you have modified the original data"
 EA_CREDIT = Credit("LIDAR Composite DTM / First Return DSM 2022, 1 m (Environment Agency, England)",
@@ -50,7 +62,7 @@ EA_CREDIT = Credit("LIDAR Composite DTM / First Return DSM 2022, 1 m (Environmen
 
 def _england(service: str, coverage: str, kind: str, description: str) -> WcsTiles:
     return WcsTiles(description, f"{EA_WCS}/{service}/wcs", coverage, BNG, f"england/lidar-composite-{kind}/2022",
-                    native_res=1.0, fetch_res=1.0, axes=("E", "N"))
+                    native_res=1.0, fetch_res=1.0, axes=("E", "N"), split_on_error=True)
 
 
 NO_ORTHO = "– (no open orthophoto)"
