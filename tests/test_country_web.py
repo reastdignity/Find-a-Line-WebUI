@@ -581,8 +581,11 @@ window.fetch = (url, init) => {
   const p = realFetch2(url, init);
   const found = String(url).match(/\\/api\\/countries\\/([^/]+)\\/(cells|histogram|outline)(\\?.*)?$/);
   if (found) {
-    if (!grouping) { round++; grouping = true; setTimeout(() => { grouping = false; }, 0); }  // one round: one task
-    const e = {kind: found[2], id: found[1], round, query: new URLSearchParams(found[3] || ""), done: false};
+    const query = new URLSearchParams(found[3] || ""), box = (query.get("bbox") || "").split(",").map(Number);
+    // the histogram of a picked cell alone (a box inside it): kind "cell", no part of a round
+    const kind = found[2] === "histogram" && box.length === 4 && box[2] - box[0] < 0.1 ? "cell" : found[2];
+    if (!grouping && kind !== "cell") { round++; grouping = true; setTimeout(() => { grouping = false; }, 0); }  // one round: one task
+    const e = {kind, id: found[1], round, query, done: false};
     log.push(e);
     p.then((r) => r.clone().json()).then((j) => { e.answer = j; e.done = true; }, () => { e.done = true; });
   }
@@ -637,6 +640,7 @@ run({
   cells: (next) => wait(() => settled() && lastCells("slovakia") && mostPainted() > 0, () => {  // drawn in a frame
     const a = lastCells("slovakia").answer;
     result.level = a.level; result.cells = a.cells.length; result.total = text(".c-layer-total");
+    result.sides = [...new Set(a.cells.map((r) => r[11]))].sort();
     result.painted = mostPainted();
     next();
   }),
@@ -657,9 +661,10 @@ run({
       next();
     });
   },
-  cut: (next) => {  // a point of a cut cell's part inside the country, and one of its part outside (an inner lattice)
+  cut: (next) => {  // a point of a cut cell's part inside the country, and one of its part beyond the border (an inner
+    // lattice), in a cell of two rows: the country's part and its partner lines
     const a = lastCells("slovakia").answer;
-    const full = (a.cell_m / 1000) ** 2;
+    const whole = (r) => (r[7] - r[3]) * 111.2 * (r[6] - r[4]) * 111.32 * Math.cos((r[3] + r[7]) / 2 * Math.PI / 180);
     const lattice = (row) => {
       const out = [];
       for (let u = 1; u < 12; u++) for (let v = 1; v < 12; v++) {
@@ -668,25 +673,34 @@ run({
       }
       return out;
     };
-    let row = null, inner = null, outer = null;
+    let row = null, partner = null, inner = null, outer = null;
     for (const r of a.cells) {
       const cut = a.cut[r[0] + "," + r[1]];
-      if (!cut || cut.km2 < 0.2 * full || cut.km2 > 0.8 * full) continue;
+      if (r[11] || !cut || cut.km2 < 0.2 * whole(r) || cut.km2 > 0.8 * whole(r)) continue;
+      const other = a.cells.find((q) => q[0] === r[0] && q[1] === r[1] && q[11] > 0);
+      if (!other) continue;
       const points = lattice(r);
       inner = points.find((p) => insideCut(cut, p[0], p[1]));
-      outer = points.find((p) => !insideCut(cut, p[0], p[1]));
-      if (inner && outer) { row = r; break; }
+      outer = points.find((p) => !insideCut(cut, p[0], p[1]) && insideCut(a.cut[r[0] + "," + r[1] + ",out"], p[0], p[1]));
+      if (inner && outer) { row = r; partner = other; break; }
     }
     const cut = a.cut[row[0] + "," + row[1]];
-    result.cut = {wanted: row.slice(0, 3), km2: cut.km2, cells: Object.keys(a.cut).length};
+    result.cut = {wanted: row.slice(0, 3), partner: [partner[2], partner[11]], km2: cut.km2, cells: Object.keys(a.cut).length};
     clickAt(inner[0], inner[1]);
     wait(() => /of it lie in Slovakia/.test(text(".c-layer-cell")) && text(".c-layer-cell").includes(row[2].toLocaleString("en")), () => {
       result.cut.selected = text(".c-layer-cell");
-      clickAt(outer[0], outer[1]);  // no cell of this country there: the map's click, nothing selected
-      wait(() => !$(".c-layer-cell"), next);
+      result.cut.hint = text(".c-layer-search-hint");
+      clickAt(outer[0], outer[1]);  // the partner row of the same cell, beyond the border
+      wait(() => /beyond Slovakia's border/.test(text(".c-layer-cell")) && text(".c-layer-cell").includes(partner[2].toLocaleString("en")), () => {
+        result.cut.beyond = text(".c-layer-cell");
+        result.cut.beyondHint = text(".c-layer-search-hint");
+        result.notes = $$(".c-layer-notes li").map((li) => li.textContent.trim());
+        result.legend = text(".c-layer-legend");
+        next();
+      });
     });
   },
-  histograms: (next) => wait(() => settled() && $$(".c-layer-hist").length === 5
+  histograms: (next) => wait(() => settled() && $$(".c-layer-hist").length === 16
                                    && lastRound("histogram").every((e) => e.answer), () => {
     const answers = lastRound("histogram");
     result.histograms = {count: $$(".c-layer-hist").length, ids: answers.map((e) => e.id), bars: lengthBars(),
@@ -704,7 +718,7 @@ run({
   },
   both: (next) => {
     const before = log.length;
-    button("2 km").click();  // the cells of 2 km, over both cubes' outlines: one round for both changes
+    button("1′").click();  // the cells of 1′ (level 2), over both cubes' outlines: one round for both changes
     map().fitBounds([[48.95, 18.7], [49.9, 20.62]], {animate: false});
     wait(() => /level=2/.test(location.hash) && /view=/.test(location.hash)
                && log.slice(before).some((e) => e.kind === "histogram") && settled()
@@ -734,36 +748,49 @@ run({
 @pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
                     reason="needs Microsoft Edge")
 def test_layer_page_in_edge(sample, tmp_path):
-    """#layer on the real local server with the two sample cubes (the page fits the first listed, Slovakia;
-    testland, west of it, may reach the view): the cells drawn on the map's canvas, a click selects the cell
-    under it (its count, one "Search here" per layer band); five histograms on the right, the length bars the
-    /histogram answers summed over the cubes of the round; a length bar clicked sets the range in the hash and
-    the next /cells queries; both cubes in view at 2 km cells answer and their totals add up; zoomed out, both
-    outlines; no CSP violations."""
+    """#layer on the real local server with the two sample cubes v2 (the page fits the first listed, Slovakia;
+    testland, west of it, may reach the view): the rows drawn on the map's canvas, their partner rows too (border=all),
+    a click selects the cell under it (its count, one "Search here" per layer band); a cell the border cuts clicked on
+    its part inside (the country's row, the hint naming the neighbour) and beyond (its partner row, counted from
+    Slovakia's data), the notes "Across the borders" (Poland from Slovakia's data, Testland's own layer) and the
+    hatched swatch; sixteen histograms on the right, the length bars the /histogram answers summed over the cubes of
+    the round; a length bar clicked sets the range in the hash and the next /cells queries; both cubes in view at 1′
+    cells answer and their totals add up; zoomed out, both outlines; no CSP violations."""
     from test_shell_c import _edge, stub_page
     from test_web import _server
     page = stub_page(sample, "layer", LAYER_SCRIPT)
     with _server(sample) as port:
         r = _edge(port, f"{page}?ui=c#layer", tmp_path / "edge")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert r["cells"] > 10 and r["painted"] > 1000 and "lines in view" in r["total"], r
+    assert r["cells"] > 10 and r["painted"] > 1000 and "spots in view" in r["total"] and "30″ cells" in r["total"], r
+    assert 0 in r["sides"] and 1 in r["sides"] and 2 not in r["sides"], r  # testland's partner lines replaced
     count = f"{r['wanted'][2]:,}"
     assert r["selected"].startswith("Selected cell") and count in r["selected"], r
     level = r["level"]
     assert r["search"] == [f"#new&cell=slovakia:{b}:{level}:{r['wanted'][0]}:{r['wanted'][1]}" for b in ("S", "M", "L")], r
-    # a cell the outline cuts: picked by a click on its part inside the country, its density over that part, not
-    # picked by a click on the part outside
+    # a cell the outline cuts: picked by a click on its part inside the country, its density over that part, the
+    # hint of the search at the border; a click on its part beyond picks its partner row
     cut = r["cut"]
     assert cut["cells"] > 0 and cut["selected"].startswith("Selected cell"), cut
     assert "of it lie in Slovakia" in cut["selected"], cut
-    # the right panel: five histograms, the length bars the answers of the round summed over its cubes
+    assert ("on the border with Poland" if cut["partner"][1] == 1 else "on its border") in cut["selected"], cut
+    assert cut["hint"].startswith("On the border with Poland") or cut["hint"].startswith("On the border:"), cut
+    assert "Poland" in cut["hint"] if cut["partner"][1] == 1 else True, cut
+    assert "beyond Slovakia's border" in cut["beyond"] and "Only lines across the border" in cut["beyond"], cut
+    assert cut["beyondHint"].startswith("Counted from Slovakia's data"), cut
+    notes = r["notes"]
+    assert "Across the borders" in notes, notes
+    assert "Lines across the border with Poland: from Slovakia's data until Poland has a layer." in notes, notes
+    assert any(n.startswith("Lines across the border with Testland: Testland's own layer") for n in notes), notes
+    assert "Beyond the border: lines that cross it, counted from Slovakia's data" in r["legend"], r
+    # the right panel: sixteen histograms, the length bars the answers of the round summed over its cubes
     h = r["histograms"]
-    assert h["count"] == 5 and "slovakia" in h["ids"] and h["bars"] == h["expected"] and sum(h["bars"]) > 0, h
+    assert h["count"] == 16 and "slovakia" in h["ids"] and h["bars"] == h["expected"] and sum(h["bars"]) > 0, h
     # the second length bar: its range in the hash and in every /cells query after it, its bar pressed alone
     bar = r["bar"]
     assert "length=60-100" in bar["hash"] and bar["queries"] and set(bar["queries"]) == {"60-100"}, bar
     assert bar["pressed"] == ["false", "true"] + ["false"] * 7, bar
-    # both cubes in view at 2 km cells: each answered, the total in view the sum of their histograms' (the cells
+    # both cubes in view at 1′ cells: each answered, the total in view the sum of their histograms' (the cells
     # reaching the view: the cells' answers are of a padded box, at least as much)
     both = r["both"]
     assert sorted(c[0] for c in both["cells"]) == ["slovakia", "testland"] and {c[1] for c in both["cells"]} == {2}, both

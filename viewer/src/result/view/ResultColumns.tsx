@@ -14,9 +14,10 @@
 // nothing is selected. Styles in columns.css (the class names are C's: c-*).
 
 import L from "leaflet";
-import type { ComponentChildren, RefObject } from "preact";
+import type { ComponentChildren } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import { Button, IconButton, Sheet, Splitter, type Snap } from "../../ui/components";
+import { Button, IconButton, Sheet, type Snap } from "../../ui/components";
+import { SidePanel, useWidthOf } from "../../ui/SidePanel";
 import { Icon, type IconName } from "../../ui/icons";
 import { baseLayers } from "../../baselayers";
 import { addShore } from "../../shoreLayer";
@@ -194,24 +195,7 @@ function Back({back}: {back?: BackAction}) {
 
 type Side = "list" | "details";
 
-/** The width of the element `ref` holds: measured after every render (where no frame is drawn too), on a window
- *  resize and by a ResizeObserver. */
-function useWidthOf(ref: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => { if (ref.current) setWidth(ref.current.clientWidth); });
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) return;
-    const measure = () => setWidth(element.clientWidth);
-    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
-    observer?.observe(element);
-    addEventListener("resize", measure);
-    return () => { observer?.disconnect(); removeEventListener("resize", measure); };
-  }, []);
-  return width;
-}
-
-interface SidePanelProps {
+interface ResultPanelProps {
   side: Side;
   /** The panel's accessible name. */
   label: string;
@@ -226,35 +210,16 @@ interface SidePanelProps {
   children: ComponentChildren;
 }
 
-/** A side panel of the columns: its content, its edge to the map (a Splitter for the width: a double click the
- *  default, Enter collapses) with the round collapse tab beside it (a sibling: a separator's children are
- *  presentational); collapsed a rail of LIMITS.rail px, one button expanding it, marked "auto" when the
- *  window collapsed it. The content stays drawn while collapsed (hidden: its scroll and state are kept). */
-function SidePanel({side, label, column, max, layout, onOpen, rail, class: cls, children}: SidePanelProps) {
-  const list = side === "list";
+/** A side panel of the columns (ui/SidePanel.tsx) on the result's kept layout: the list on the left, the details on
+ *  the right, LIMITS' widths and rail. */
+function ResultPanel({side, label, column, max, layout, onOpen, rail, class: cls, children}: ResultPanelProps) {
   const width = (part: Partial<Layout[Side]>): Layout =>
     ({...layout.latest.current, [side]: {...layout.latest.current[side], ...part}});
-  const style = {"--c-w": `${column.open ? column.width : LIMITS.rail}px`} as Record<string, string>;
-  return <aside class={cx(cls, "c-col-side", !column.open && "c-collapsed", !column.open && column.forced && "c-forced")}
-                style={style} aria-label={label}>
-    {children}
-    {column.open ? <>
-      <Splitter orientation="vertical" class="c-split" label={`Width of the ${side}`} grow={list ? 1 : -1}
-                value={column.width} min={LIMITS[side][0]} max={max}
-                onChange={(w) => layout.change(width({w}), false)} onCommit={layout.commit}
-                onReset={() => layout.change(width({w: DEFAULT_LAYOUT[side].w}), true)}
-                onToggle={() => onOpen(side, false)} />
-      <button type="button" class="u-split-tab c-col-tab" aria-label={`Collapse the ${side}`}
-              title={`Collapse the ${side}`} onClick={() => onOpen(side, false)}>
-        <Icon name={list ? "back" : "next"} /></button>
-    </> : <button type="button" class="c-rail" aria-label={`Expand the ${side}`} title={`Expand the ${side}`}
-                  onClick={() => onOpen(side, true)}>
-      <Icon name={rail.icon} />
-      <span class="c-rail-text">{rail.text}</span>
-      <span class="u-split-tab c-rail-tab" aria-hidden="true"><Icon name={list ? "next" : "back"} /></span>
-      {column.forced && <span class="c-rail-auto">auto</span>}
-    </button>}
-  </aside>;
+  return <SidePanel side={side === "list" ? "left" : "right"} name={side} label={label} column={column}
+                    min={LIMITS[side][0]} max={max} railWidth={LIMITS.rail}
+                    onWidth={(w) => layout.change(width({w}), false)} onCommit={layout.commit}
+                    onReset={() => layout.change(width({w: DEFAULT_LAYOUT[side].w}), true)}
+                    onOpen={(open) => onOpen(side, open)} rail={rail} class={cls}>{children}</SidePanel>;
 }
 
 /** A line's anchors both in the part of the map `padding` leaves free (with `slack` px to spare). */
@@ -359,20 +324,20 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
       <RunActions model={model} view={view} onMeasured={setMeasured} show={show} base={base} folder={folder} />
     </header>
     <div class="c-cols" ref={colsRef}>
-      <SidePanel side="list" class="c-col-list" label="Lines" column={fit.list} max={maxColumnWidth("list", width, fit)}
+      <ResultPanel side="list" class="c-col-list" label="Lines" column={fit.list} max={maxColumnWidth("list", width, fit)}
                  layout={layout} onOpen={setOpen} rail={{icon: "list", text: `Lines · ${model.shown.lines}`}}>
         <div class="c-col-head"><ResultSummary model={model} />
           <FilterBar model={model} onMore={() => setMore((m) => !m)} moreOpen={more} /></div>
         {/* More filters scroll with the list: under the chips they took the whole column */}
         <div class="c-col-body">{more && <MoreFilters model={model} onClose={() => setMore(false)} />}
           <LinesTable model={model} view={view} onSelect={reveal} /></div>
-      </SidePanel>
+      </ResultPanel>
       <div class={cx("c-col-map", profileShown(model, measured) && "c-card-on")} ref={colRef}>
         <div class="c-leaflet" ref={ref} />
         <ProfileCard model={model} view={view} measured={measured} onCloseMeasured={closeMeasured}
                      layout={layout.layout} onLayout={layout.change} onSettle={keepFree} />
       </div>
-      <SidePanel side="details" class="c-col-details" label="The selected line" column={fit.details}
+      <ResultPanel side="details" class="c-col-details" label="The selected line" column={fit.details}
                  max={maxColumnWidth("details", width, fit)} layout={layout} onOpen={setOpen}
                  rail={{icon: "info", text: detailsRail}}>
         <div class="c-col-dbody">
@@ -380,7 +345,7 @@ function Desktop({model, data, line, nav, back, hashOf, linkOf: link, view3dOf, 
                               view3dOf={view3dOf && ((l) => view3dOf(model, l))} />
             : <p class="c-pick"><Icon name="info" />Select a line on the map or in the list.</p>}
         </div>
-      </SidePanel>
+      </ResultPanel>
     </div>
     {choice && view && <LineChooser key={`${choice.at.x},${choice.at.y}`} model={model} view={view} choices={choice.choices}
                                     at={choice.at} area={freeArea()} onClose={closeChoice} />}

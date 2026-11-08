@@ -133,24 +133,42 @@ export interface OsmState { regions: OsmRegion[]; extracts: OsmExtract[] }
 export interface CountryBand { name: string; lengths: [number, number]; resolution: number; model: string;
                                slope_threshold: number; core_m: number; layer: boolean; tiles: number; done: number;
                                seconds: number; params: Record<string, unknown> }
-/** /api/countries: a country's counter cube (cube.json without "config" and "origin"); `study`: a study area, a box
- *  of a country (cubes built before 2026-11-05 have no such field: none was one). */
-export interface CountryCube { id: string; name: string; crs: string; study?: boolean; cell_m: number; levels: number[];
-                               cluster_m: number; bounds_wgs84: [number, number, number, number];
-                               edges: Record<"length" | "prominence" | "wall" | "clearance" | "height", number[]>;
+/** How a dimension of the cube is binned and filtered (countcube.KINDS): a floor passes at or above its edge, a
+ *  "below" under it, an "at_most" at most it (its bins (e_k-1, e_k], one more than its edges). */
+export type DimensionKind = "floor" | "below" | "at_most";
+/** The lines (or spots) across the borders of a cube (cube.json's totals.border): owned (the first anchor by
+ *  (lon, lat) in the country) and partner (beyond it, counted from this country's data). */
+export interface BorderTotals { owned: number; partner: number }
+/** /api/countries: a country's counter cube v2 (cube.json without "config" and "origin"; countcube.build): cells of
+ *  `cell_deg` degrees (30″) on one global lattice, `edges` of the length and of every dimension of `kinds`,
+ *  `neighbours` the cube ids of its partner indices 1-6, `profile` the layer profile's hash (R7: absent before it);
+ *  `study`: a study area, a box of a country (cubes built before 2026-11-05 have no such field: none was one). */
+export interface CountryCube { id: string; name: string; crs: string; study?: boolean; version?: number; cell_deg: number;
+                               levels: number[]; clusters_per_cell?: number; bounds_wgs84: [number, number, number, number];
+                               edges: Record<string, number[]>; kinds: Record<string, DimensionKind>;
+                               neighbours?: string[]; profile?: string | null;
                                bands: CountryBand[]; dsm: boolean; water: boolean; partial: boolean;
-                               totals: {lines: number; spots: number}; built: string;
-                               credits: Credit[]; notes: string[] }
-/** A cell cut by its country's outline: the km² inside it and that part, polygons of rings of [lat, lon]. */
+                               totals: {lines: number; spots: number; border?: {lines: BorderTotals; spots: BorderTotals}};
+                               built: string; credits: Credit[]; notes: string[] }
+/** A part of a cell to draw and divide its count by: the km² and that part, polygons of rings of [lat, lon]. */
 export interface CutCell { km2: number; shape: number[][][][] }
-/** /api/countries/<id>/cells: the cells with a count, each [i, j, count, lat, lon of SW, SE, NE, NW]; `cut` those of
- *  them the country's outline cuts, by "i,j". */
-export interface CountryCells { level: number; cell_m: number; total: number; max: number; cells: number[][];
+/** /api/countries/<id>/cells: the rows with a count, each [i, j, count, lat, lon of SW, SE, NE, NW, side] (side 0 the
+ *  country's own lines, 1-7 the partner index of its partner lines: a cell the border cuts may have two rows); `cut`
+ *  the parts: "i,j" a side-0 row's part inside the outline, "i,j,out" a partner row's part beyond it (a row without
+ *  its key is its whole cell). */
+export interface CountryCells { level: number; cell_deg: number; total: number; max: number; cells: number[][];
                                 cut: Record<string, CutCell> }
 /** /api/countries/<id>/histogram: the counts in view per bin of each dimension, each dimension under every other
- *  filter but its own (length: the 9 bins of edges.length; the others: bins 0..4 of their edges, then unknown). */
-export interface CountryHistogram { level: number; cell_m: number; total: number; length: number[]; prominence: number[];
-                                    wall: number[]; clearance: number[]; height: number[] }
+ *  filter but its own (length: the 9 bins of edges.length; the others: their bins, then unknown: binsOf), with both
+ *  modes' totals and the lines' border split (interior, owned, partner). */
+export interface CountryHistogram { level: number; cell_deg: number; total: number; length: number[];
+                                    totals?: {lines: number; spots: number};
+                                    border?: {interior: number; owned: number; partner: number} }
+/** The bins of one dimension of a histogram (absent: none). */
+export function binsOf(h: CountryHistogram, dimension: string): number[] {
+  const value = (h as unknown as Record<string, unknown>)[dimension];
+  return Array.isArray(value) ? value as number[] : [];
+}
 /** /api/countries/<id>/outline: the country's outline in WGS84 (a Polygon or MultiPolygon), simplified by `tolerance`. */
 export interface CountryOutline { tolerance: number; area_km2: number; geometry: GeoJSON }
 
