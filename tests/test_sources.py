@@ -222,6 +222,34 @@ def test_edge_pixels_not_at_tile_borders(monkeypatch, tmp_path):
             assert same_tile(tile.read(1), whole[r0:r0 + 100, c0:c0 + 100], 2 * TILE_EPS)  # tiles written apart
 
 
+def test_wcs_tiles_of_a_tall_area():
+    """The tiles of an area under a WCS tiling scan the whole box of the grid: an outline one tile wide and
+    three tall lists all three (until 2026-11-08 the loop over the rows used half the grid's width as its
+    reach, written for circles, so a tall area lost its top and bottom rows: Norway's mainland was missed
+    entirely); a wide one as before; a circle's tiles stay those reaching into the circle."""
+    import grid as gd
+    from shapely.geometry import box
+    layer = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         tile_px=100, fetch_res=1.0, axes=("E", "N"))
+    tall = box(10, 10, 90, 290)
+    grid = gd.make_grid(tall.bounds, 1.0, "EPSG:32633")
+    grid.area_shape = tall
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 0, 1), (1.0, 0, 2)]
+    wide = box(10, 10, 290, 90)
+    grid = gd.make_grid(wide.bounds, 1.0, "EPSG:32633")
+    grid.area_shape = wide
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 1, 0), (1.0, 2, 0)]
+    circle = gd.make_grid((0, 0, 300, 300), 1.0, "EPSG:32633")  # the 9 tiles of the box and the 2 touching the
+    assert layer.tiles(circle) == [(1.0, i, j) for i in range(4) for j in range(4)  # circle at the top and right
+                                   if (i < 3 and j < 3) or (i, j) in ((1, 3), (3, 1))]
+    # The memo: the same grid answers again, a copy; another grid anew
+    first = layer.tiles(grid)
+    first.append("changed")
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 1, 0), (1.0, 2, 0)]
+    grid.area_shape = box(10, 10, 190, 90)
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 1, 0)]
+
+
 def test_tiles_from_an_origin(monkeypatch, tmp_path):
     """A coverage whose pixel edges are at 0.5 m: its tiles start there, are requested on its
     own pixels and cached in a folder of their own; without an origin, as before."""
