@@ -7,13 +7,21 @@ days or weeks, so it survives what happens in that time, and can be followed.
   that could not be reached is remembered as None by sources.indexes.cached.CachedIndex.tiles, which would skip the
   whole layer) ends with it. A pass that did not finish is followed by another after RETRY_SECONDS, and what is
   cached stays: restarting costs the listing only.
+- A pass downloads the source's layers and, where the catalogue names one (Source.instead_without_data: alaska and
+  alaska_ifsar), the stand-in's too. The window layers' groups hold the same pixels at every resolution
+  (country.PREFETCH_GROUP_M at 1 m, half that at 0.5 m), and a pass over --max-memory-gb (a quarter of the machine's
+  memory unless given) ends with EXIT_RESTART and is started again at once (counted as `restarts`).
 - A tile that fails does not stop the others (sources.download_layers(on_error=)). FAILURES_IN_A_ROW failed tasks with
   no tile between them end the pass (the service or the disk is away), and so does a disk with less than --min-free-gb.
-- When the same tiles fail in ATTENTION_PASSES passes in a row, the area stops as "needs attention" with them in
-  <name>.failed.json: everything else is downloaded by then.
+- "Needs attention" (the supervisor's exit 2): the same tiles failing in ATTENTION_PASSES passes in a row (in
+  <name>.failed.json: everything else is downloaded by then), a pass giving up with the same message that often (a
+  key missing, an index out of reach), a crash ending on the same last line of the log, or an area without data
+  (EXIT_NOTHING: no tile under the outline, or every tile without data). At its end a pass counts the tiles the service
+  has no data for (the sea), so "done" says what it has.
 
-The state goes to --state-dir: <name>.state.json every STATE_SECONDS, <name>.history.csv and status.html (one page
-for every area of the folder, for a browser from disk) every HISTORY_SECONDS, <name>.log (the passes' output).
+The state goes to --state-dir: <name>.state.json every STATE_SECONDS (with the pass's memory now and at its peak),
+<name>.history.csv (seconds, tiles, MB, memory GB) and status.html (one page for every area of the folder, for a browser
+from disk) every HISTORY_SECONDS, <name>.log (the passes' output).
 
     uv run tools/area_download.py run poland --area osm:Polska --source geoportal --resolution 1 \\
         --data-dir <data> --state-dir <state> --host-slots opendata.geoportal.gov.pl=2
@@ -21,7 +29,8 @@ for every area of the folder, for a browser from disk) every HISTORY_SECONDS, <n
     uv run tools/area_download.py stop poland --state-dir <state>     # `run` again resumes
     uv run --group tui tools/area_download.py tui --settings <file>   # the window: tools/area_download_tui.py
 
-The requests go out as those of a search (cache.http_headers); FINDALINE_CONTACT in the environment adds a contact.
+The requests go out as those of a search (cache.http_headers); FINDALINE_CONTACT in the environment adds a contact,
+and a pass without one warns in its log and its state until its first tile.
 """
 
 import argparse
