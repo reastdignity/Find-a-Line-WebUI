@@ -415,6 +415,13 @@ def test_border_notes(tmp_path):
     assert country._names_text(["HU"]) == "Hungary"
     assert country._names_text(["UA", "AT", "HU"]) == "Austria, Hungary and Ukraine"
     assert country._names_text(["HU", "XX"]) == "Hungary and XX"  # a code without a name as it is
+    # the odd names of tzdata's table replaced by the page's (Intl.DisplayNames): every one a code of the table
+    assert country._names_text(["GB", "CZ", "TR"]) == "Czechia, Türkiye and United Kingdom"
+    from importlib import resources
+    table = resources.files("tzdata").joinpath("zoneinfo", "iso3166.tab").read_text(encoding="utf-8")
+    codes = {line.split("\t")[0] for line in table.splitlines() if line and not line.startswith("#")}
+    assert set(country.COUNTRY_NAMES) <= codes
+    assert all(country._country_names()[code] == name for code, name in country.COUNTRY_NAMES.items())
     study = country.Country(id="sk-part", name="Part", source="slovakia", area="osm:Slovensko",
                             options={"within": "48.5,19,49,19.5"})
     assert country._border_notes(study, str(tmp_path)) == ["Only lines with both anchors inside Part are counted."]

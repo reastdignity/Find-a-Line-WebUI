@@ -1762,22 +1762,37 @@ def _hard_borders(country: Country, folder: str) -> List[str]:
     return sorted(code.upper() for code in found)
 
 
+# The names of iso3166.tab that read oddly in a sentence (abbreviated, inverted, parenthesised or older), as the
+# page names the same countries: the browser's Intl.DisplayNames(["en"], {type: "region"}) (CLDR; checked with
+# Node's ICU 76.1 on 2026-11-08). The table's other differences from it stay as tzdata writes them: "St" without
+# its full stop and without accents (BL, KN, LC, PM, SH, ST), Hong Kong and Macau without "SAR China", Palestine,
+# Pitcairn, and the long names of GS and HM.
+COUNTRY_NAMES = {
+    "AS": "American Samoa", "BQ": "Caribbean Netherlands", "CD": "Congo - Kinshasa", "CF": "Central African Republic",
+    "CG": "Congo - Brazzaville", "CZ": "Czechia", "GB": "United Kingdom", "KP": "North Korea", "KR": "South Korea",
+    "MF": "St. Martin", "SX": "Sint Maarten", "SZ": "Eswatini", "TC": "Turks & Caicos Islands",
+    "TF": "French Southern Territories", "TL": "Timor-Leste", "TR": "Türkiye", "UM": "U.S. Outlying Islands",
+    "VC": "St. Vincent & Grenadines", "VG": "British Virgin Islands", "VI": "U.S. Virgin Islands", "WS": "Samoa"}
+
+
 @functools.lru_cache(maxsize=1)
 def _country_names() -> Dict[str, str]:
     """ISO 3166-1 alpha-2 codes (upper case) -> the usual English names of tzdata's iso3166.tab ("HU"
-    Hungary, "UA" Ukraine; the tzdata package, which accounts.country_of_zone reads too). The coverage
-    map's outlines carry codes only, and tools/area_rows.py's COUNTRIES names only the catalogue's
-    countries, which a hard border lacks by definition. {} when the table cannot be read."""
+    Hungary, "UA" Ukraine; the tzdata package, which accounts.country_of_zone reads too), the odd ones
+    replaced by COUNTRY_NAMES. The coverage map's outlines carry codes only, and tools/area_rows.py's
+    COUNTRIES names only the catalogue's countries, which a hard border lacks by definition. Only
+    COUNTRY_NAMES when the table cannot be read."""
     from importlib import resources
     names = {}
     try:
         text = resources.files("tzdata").joinpath("zoneinfo", "iso3166.tab").read_text(encoding="utf-8")
     except (OSError, ModuleNotFoundError):
-        return names
+        text = ""
     for line in text.splitlines():
         if line and not line.startswith("#"):
             code, name = line.split("\t")[:2]
             names[code] = name
+    names.update(COUNTRY_NAMES)
     return names
 
 
