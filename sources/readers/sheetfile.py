@@ -15,6 +15,12 @@ from .. import net
 from ..layer import Fetched, _clean, _write_tile
 from ..composed import Reader
 
+# The members _member_grid reads as rasters (GeoTIFF and ASCII grid by GDAL, XYZ text): a ZIP with members that
+# holds none of them is no data, not an error (LGL's DOM1 ZIPs of three 1 km tiles on Baden-Württemberg's border,
+# 379 KB each, dated 2026-07-03: two CSV lines of tile metadata, the licence PDF and a Meta-...txt, no raster;
+# measured 2026-11-08). A .txt is metadata here, never an XYZ grid without a matching name.
+RASTER_MEMBERS = (".tif", ".tiff", ".asc", ".xyz")
+
 
 class SheetFile(Reader):
     """A Sheet's file (geoportal.gov.pl): an ARC/INFO ASCII grid or "x y z" lines of a regular
@@ -24,10 +30,12 @@ class SheetFile(Reader):
     ZIP whose matching members (ASCII grids, XYZ or GeoTIFF) are the parts of the tile, all on
     the same pixels: they are merged into one raster over their union (GeoSN's 2 km ZIPs of one
     GeoTIFF, LGL's of four 1 km XYZ grids or GeoTIFFs), in the request's CRS whatever the
-    members name (a compound CRS with heights, or none). A ZIP is read whole (the servers give
-    no index of its members): at most max_bytes downloaded, at most member_bytes unpacked per
-    member, so a broken or hostile ZIP cannot fill the memory. Requests need url, godlo (the
-    name in messages), crs and res."""
+    members name (a compound CRS with heights, or none). A ZIP without a matching member is an
+    error when it holds a raster of another name (RASTER_MEMBERS), no data when it holds none (a
+    publisher's ZIP of metadata only). A ZIP is read whole (the servers give no index of its
+    members): at most max_bytes downloaded, at most member_bytes unpacked per member, so a broken
+    or hostile ZIP cannot fill the memory. Requests need url, godlo (the name in messages), crs and
+    res."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, members: Optional[str] = None, max_bytes: int = 200_000_000,
@@ -46,7 +54,10 @@ class SheetFile(Reader):
         if response is None:
             return Fetched(0, tile.url)
         if self.members is not None:
-            band, transform = self._parts(tile, response.content)
+            parts = self._parts(tile, response.content)
+            if parts is None:  # a ZIP without any raster: no data there
+                return Fetched(0, tile.url)
+            band, transform = parts
             _write_tile(path, _clean(band), tile.crs, transform)
             return Fetched.of(response, tile.url)
         name, data = tile.url.lower(), response.content
@@ -64,8 +75,9 @@ class SheetFile(Reader):
         _write_tile(path, _clean(band), tile.crs, transform)
         return Fetched.of(response, tile.url)
 
-    def _parts(self, tile, data: bytes) -> Tuple[np.ndarray, Affine]:
-        """The members of a ZIP matching self.members, merged into one raster."""
+    def _parts(self, tile, data: bytes) -> Optional[Tuple[np.ndarray, Affine]]:
+        """The members of a ZIP matching self.members, merged into one raster; None (said) when the ZIP
+        holds no raster at all (RASTER_MEMBERS), RuntimeError when it holds one of another name."""
         where = f"{self.description} sheet {tile.godlo}"
         if len(data) > self.max_bytes:
             raise RuntimeError(f"{where}: the file has {len(data)} bytes, more than {self.max_bytes}")
@@ -75,10 +87,14 @@ class SheetFile(Reader):
             raise RuntimeError(f"{where}: not a ZIP file ({e})")
         parts = []
         with archive:
-            wanted = [i for i in archive.infolist()
-                      if not i.is_dir() and re.search(self.members, i.filename.rsplit("/", 1)[-1], re.I)]
+            files = [i for i in archive.infolist() if not i.is_dir()]
+            wanted = [i for i in files if re.search(self.members, i.filename.rsplit("/", 1)[-1], re.I)]
             if not wanted:
-                raise RuntimeError(f"{where}: no member like {self.members} in {archive.namelist()[:10]}")
+                names = [i.filename for i in files]
+                if not any(n.lower().endswith(RASTER_MEMBERS) for n in names):
+                    print(f"{where}: no raster in the file, only {names[:10]}; no data")
+                    return None
+                raise RuntimeError(f"{where}: no member like {self.members} in {names[:10]}")
             for info in sorted(wanted, key=lambda i: i.filename):
                 if info.file_size > self.member_bytes:
                     raise RuntimeError(f"{where}: {info.filename} has {info.file_size} bytes unpacked, "
