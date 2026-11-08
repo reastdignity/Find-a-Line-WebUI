@@ -2067,6 +2067,18 @@ What it shows:
 Left of the stage: 0.99 h of S, 0.28 h of M2 and 0.08 h of L in tiles with lines, where only the
 anchors of those lines need the values.
 
+## Round 5 (2026-11-07): the country layer, continued
+
+numba's OpenMP layer (vcomp140 on Windows) keeps its threads spinning after each parallel region: through 15 s of
+serial numpy between two kernels a tile's 7 other threads burnt 6.2 CPU seconds, none with `OMP_WAIT_POLICY=PASSIVE`.
+With PASSIVE (or `NUMBA_THREADING_LAYER=workqueue`, the same within one run) sk-sulov's four layer bands took 19 %
+fewer CPU seconds and 6 % fewer tile seconds with cores free, and Slovakia's first all-bands run (3435 tiles, 12
+workers, the machine at 96-98 %) 5.4 % fewer CPU seconds (22.27 → 21.08 h, all in the heavy tiles' pair search) at a
+wall within the spread of equal runs (64.7 → 63.7 min); the counts identical tile by tile. PASSIVE is set in the
+workers' environment (`country._worker_env`, the caller's own value wins): it keeps numba's layer and gives the
+other workers the cores. Until then, a tile's CPU seconds held the spinning, so compare CPU seconds of runs at the
+same load only (the same S tiles: 4.86 CPU-h alone at 84 % against 3.93 inside the all-bands run at 98 %).
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,

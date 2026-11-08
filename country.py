@@ -1133,9 +1133,16 @@ def _worker_env() -> Dict[str, str]:
     buffers are reserved, never touched (never in the working set): they count against Windows' commit
     limit, not the RAM, and made the private bytes a worker_count model is measured on 1.5 GiB larger.
     A count calls no BLAS routine on anything large (helpers.downslope's 3-vector products at the
-    anchors, sag's 3 x 3 solves)."""
-    return {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1",
-            "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
+    anchors, sag's 3 x 3 solves).
+
+    OMP_WAIT_POLICY=PASSIVE unless the caller's environment sets it: numba's OpenMP layer (vcomp on
+    Windows) keeps its threads spinning after each parallel region, through the counter's numpy and
+    step 1 between the kernels, so a tile's threads take cores from the other workers and its CPU
+    seconds count the spinning. With PASSIVE sk-sulov's four layer bands took 19 % fewer CPU seconds
+    and 6 % fewer tile seconds, Slovakia's first all-bands run 5.4 % fewer CPU seconds at a wall within
+    the spread of equal runs, the counts the same (2026-11-07, docs/performance.md "Round 5")."""
+    return {"OMP_WAIT_POLICY": "PASSIVE", **os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
+            "PYTHONUNBUFFERED": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
 
 
 def _worker_process(country_id: str, data_dir: str, folder: str, slot: int) -> subprocess.Popen:
