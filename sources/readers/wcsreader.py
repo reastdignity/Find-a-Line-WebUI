@@ -25,6 +25,8 @@ from ..composed import Reader
 # 1000 px quarters, 200 with valid heights for 500 and 250 px pieces on its English side, and 500 for a 16 px box
 # where 100 px answered 200 (measured 2026-11-08); below about 250 px the service misbehaves on its own
 SPLIT_MIN_PX = 250
+# The content types of a coverage answer (net._get's default: an answer of another type is an error, not data)
+BINARY_TYPES = ("image", "octet", "tiff", "multipart")
 
 
 class WcsReader(Reader):
@@ -49,7 +51,15 @@ class WcsReader(Reader):
     failing at the floor stays without data (the fallback fills it), and a tile none of whose
     pieces answered is an error as before, never "missing". For the Environment Agency's WCS,
     whose 500 comes for any box not wholly covered by its granules, which follow England's
-    outline (a tile of real land at the border lost whole otherwise; 2026-11-08).
+    outline (a tile of real land at the border lost whole otherwise; 2026-11-08). The whole tile
+    (and its part inside the coverage extent) keeps net._get's three attempts; a piece is asked
+    once on a 5xx (_request_piece: the 500 is positional and deterministic, the same box answered
+    the same every time; connection errors and 429/503 are still tried again with the backoff),
+    with no sleep between pieces beyond its turn (net.rate_turn). A 2 km tile wholly beyond the
+    granules costs 1 + 4 + 16 + 64 = 85 requests and about half a minute under the Environment
+    Agency's rate (net.HOST_RATES_OF, 180 a minute), so England's about 1100 such tiles (its
+    waters, about 560 a layer) are about 95 000 requests once; with three attempts and the
+    backoff a tile took 255 requests and about ten minutes.
 
     params: more parameters of every GetCoverage (GeoServer's GEOTIFF:COMPRESSION=DEFLATE
     makes South Tyrol's float32 tiles a quarter of their size).
@@ -238,13 +248,46 @@ class WcsReader(Reader):
         HTTP 5xx after net._get's retries), never a connection or rate failure."""
         return self.split_on_error and re.match(r"HTTP 5\d\d", str(error)) is not None
 
+    def _request_piece(self, left: float, bottom: float, right: float, top: float, res: float):
+        """GetCoverage of a piece of a split tile, as _request (net._get: a turn and a count per attempt,
+        connection errors and 429/503 tried net.RETRIES times with its backoff, 404 None, an answer that is
+        not data an error), but another HTTP 5xx is final at the first attempt: the service's own error, which
+        the split is for, is deterministic, and the pieces of a 2 km tile asked three times each with the
+        backoff took about ten minutes (2026-11-08)."""
+        url, params = self.service_url, self.coverage_params(left, bottom, right, top, res)
+        last = None
+        for attempt in range(net.RETRIES):
+            slow_down = final = False
+            try:
+                net.rate_turn(url)
+                with servicecounts.request(url) as counted:
+                    response = counted.got(requests.get(url, params=params, timeout=300,
+                                                        headers=cache.http_headers(), verify=net.verify(url)))
+                    kind = response.headers.get("content-type", "")
+                    if response.status_code == 404:
+                        return None
+                    if response.status_code == 200 and any(t in kind for t in BINARY_TYPES):
+                        return response
+                    if response.status_code == 200:
+                        counted.outcome = "other"
+                    slow_down = response.status_code in (429, 503)
+                    final = response.status_code >= 500 and not slow_down
+                    raise RuntimeError(f"HTTP {response.status_code}: {response.text[:300]}")
+            except (requests.RequestException, RuntimeError) as e:
+                last = e
+                if final:
+                    break
+                net._sleep(attempt + 3 if slow_down else attempt)
+        raise RuntimeError(cache.clean_error(last))
+
     def _pieces(self, box: tuple, frame: tuple, res: float, shape: Tuple[int, int], where: str,
                 error: RuntimeError) -> Tuple[np.ndarray, Fetched]:
         """GetCoverage of a box that failed with an HTTP 5xx as a quadtree of smaller boxes, composed on the
         pixels of frame (shape): a piece failing so is halved along each side whose half has SPLIT_MIN_PX
-        pixels or more, one failing at the floor stays without data, any other error raises. The band and
-        the bytes received; RuntimeError when no piece answered (the service's error, as for one request).
-        One line printed per tile: the pieces asked and those that failed."""
+        pixels or more, one failing at the floor stays without data, any other error raises. Each piece is
+        asked once on a 5xx (_request_piece), the pieces one after another with no sleep between them. The
+        band and the bytes received; RuntimeError when no piece answered (the service's error, as for one
+        request). One line printed per tile: the pieces asked and those that failed."""
         band = np.full(shape, np.nan, dtype=np.float32)
         col, row = round((box[0] - frame[0]) / res), round((frame[3] - box[3]) / res)
         todo = deque(_halves(col, row, round((box[2] - box[0]) / res), round((box[3] - box[1]) / res)))
@@ -255,7 +298,7 @@ class WcsReader(Reader):
             c, r, w, h = todo.popleft()
             piece = (frame[0] + c * res, frame[3] - (r + h) * res, frame[0] + (c + w) * res, frame[3] - r * res)
             try:
-                response = self._request(*piece, res)
+                response = self._request_piece(*piece, res)
             except RuntimeError as e:
                 if not self._splits(e):
                     raise

@@ -197,10 +197,10 @@ def test_split_on_error(http_server, tmp_path, monkeypatch, capsys):
     assert np.isnan(band[:250, 750:]).all()                      # the piece that failed at the floor
     valid = np.isfinite(band)
     assert valid.sum() == 1000 * 1000 - 250 * 250 and np.array_equal(band[valid], truth[valid])
-    # The whole, the four quarters, the four pieces of the failing quarter, every failing box net.RETRIES times
+    # The whole tile net.RETRIES times, then the four quarters and the four pieces of the failing quarter once each
     widths = _asked_widths(http_server, "/corner")
     r = src.net.RETRIES
-    assert sorted(widths) == [250] * (3 + r) + [500] * (3 + r) + [1000] * r
+    assert sorted(widths) == [250] * 4 + [500] * 4 + [1000] * r
     assert min(widths) == SPLIT_MIN_PX == 250
     out = capsys.readouterr().out
     assert "tile 0_0: asked in 7 pieces down to 250 px, 1 failed" in out  # 6 answered, 1 left without data
@@ -212,7 +212,7 @@ def test_split_on_error(http_server, tmp_path, monkeypatch, capsys):
     with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: its 4 pieces .*failed too: HTTP 500"):
         layer.download_tile((1.0, 0, 0), path)
     assert not os.path.exists(path)
-    assert sorted(_asked_widths(http_server, "/all")) == [250] * 4 * r + [500] * r
+    assert sorted(_asked_widths(http_server, "/all")) == [250] * 4 + [500] * r  # each piece once
 
     # Without the flag: the error as before, one box asked
     layer = _wcs_layer(http_server, "/corner", 1000)
@@ -221,6 +221,26 @@ def test_split_on_error(http_server, tmp_path, monkeypatch, capsys):
         layer.download_tile((1.0, 0, 0), str(tmp_path / "plain.tif"))
     assert _asked_widths(http_server, "/corner")[before:] == [1000] * r
     assert not os.path.exists(tmp_path / "plain.tif")
+
+
+def test_split_pieces_asked_once(http_server, tmp_path, monkeypatch):
+    """A 2 km tile wholly beyond the granules (every box answers 500): the whole tile keeps net._get's attempts
+    with the backoff, then the 4 + 16 + 64 pieces of the quadtree are asked once each with no sleep between
+    them (1 + 4 + 16 + 64 = 85 boxes, 84 + net.RETRIES requests), an error at the end, nothing written: about
+    half a minute under the Environment Agency's rate instead of ten minutes with three attempts a piece."""
+    sleeps = []
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: sleeps.append(attempt))
+    _wcs_service(http_server, "/sea", lambda box: True)
+    layer = _wcs_layer(http_server, "/sea", 2000, split_on_error=True)
+    path = str(tmp_path / "sea.tif")
+    with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: its 64 pieces .*failed too: HTTP 500"):
+        layer.download_tile((1.0, 0, 0), path)
+    assert not os.path.exists(path)
+    widths = _asked_widths(http_server, "/sea")
+    r = src.net.RETRIES
+    assert sorted(widths) == [250] * 64 + [500] * 16 + [1000] * 4 + [2000] * r
+    assert len(widths) == 84 + r and len(sleeps) == r               # the backoff for the whole tile only
+    assert widths[:r] == [2000] * r and widths[r:r + 4] == [1000] * 4  # the whole first, then the quadtree
 
 
 def test_failed_request_clipped_to_the_extent(http_server, tmp_path, monkeypatch):
