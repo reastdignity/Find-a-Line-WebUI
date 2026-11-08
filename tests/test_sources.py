@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import sys
 from types import SimpleNamespace
 
@@ -391,9 +392,10 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
 
 def test_slovak_tiles_averaged(tmp_path, monkeypatch):
     """tools/sk_tiles.py average writes the 1 m tiles at 2 m and 5 m (the block mean of the valid 1 m
-    pixels, Download(average=)'s rule, byte for byte) next to them; GridTiles reads them for a grid of
-    exactly that resolution, giving the mosaic of the 1 m tiles averaged by GDAL (byte for byte at 2 m),
-    the 1 m tiles for any other grid and where the averaged folder is not there."""
+    pixels, Download(average=)'s rule, byte for byte) next to them, losslessly in ZSTD with the floating point
+    predictor (sk_tiles.AVERAGED_PROFILE); GridTiles reads them for a grid of exactly that resolution, giving
+    the mosaic of the 1 m tiles averaged by GDAL (byte for byte at 2 m), the 1 m tiles for any other grid and
+    where the averaged folder is not there."""
     import grid as gd
     import sk_tiles
     from sources.readers.download import Download, _block_means
@@ -409,6 +411,7 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
         with open(folder / "index.json", encoding="utf-8") as f:
             index = json.load(f)
         assert index["resolution"] == factor and index["tiles"].keys() == fine.keys()
+        assert index["encoding"] == sk_tiles.averaged_encoding(factor) and "ZSTD" in index["encoding"]
         assert {k for k, v in index["tiles"].items() if v is None} == {k for k, v in fine.items() if v is None}
         for key, sha in index["tiles"].items():
             if sha is None:
@@ -424,7 +427,11 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
                     str(root / src.grid_tile_name(i, j)), str(reference), "test")
             with rio.open(path) as a, rio.open(reference) as b:
                 assert a.transform == b.transform and a.crs == b.crs and a.shape == b.shape == (2000 // factor,) * 2
-                assert np.array_equal(a.read(1).view(np.uint32), b.read(1).view(np.uint32))
+                assert np.array_equal(a.read(1).view(np.uint32), b.read(1).view(np.uint32))  # lossless
+                # the mirror's profile: ZSTD, the floating point predictor, 256 px tiles, NaN for no data
+                assert a.tags(ns="IMAGE_STRUCTURE") == {"COMPRESSION": "ZSTD", "INTERLEAVE": "BAND", "PREDICTOR": "3"}
+                assert a.block_shapes == [(256, 256)] and np.isnan(a.nodata) and a.overviews(1) == []
+                assert b.tags(ns="IMAGE_STRUCTURE")["COMPRESSION"] == "DEFLATE"
     # Run again: nothing to do (resumable), the indexes as they were
     before = (root.parent / "2m" / "index.json").read_bytes()
     sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
@@ -510,6 +517,125 @@ def test_slovak_averaged_tiles_over_http(tmp_path, monkeypatch):
     both = np.isfinite(expected)
     assert np.array_equal(np.isfinite(mosaic), both) and np.nanmax(np.abs(mosaic[both] - expected[both])) <= 0.005
     assert layer.tile_url((5.0, 0, 0)) == "https://hf.example/test/5m"
+
+
+def test_slovak_averaged_tiles_recompressed(tmp_path, monkeypatch):
+    """tools/sk_tiles.py recompress writes averaged tiles made before (deflate, until 2026-11-08) in ZSTD: the same
+    bits, the very bytes average writes now, the mirror's index.json and dataset card and a cache's index rows
+    made to match the new files (the rows' times kept); a second run skips them all; a tile that would differ, a
+    LERC tile and a tile that cannot be replaced are listed and left as they were, with no .part behind."""
+    import shutil
+    import grid as gd
+    import sk_tiles
+    from sources.layer import _write_tile
+
+    def tifs(folder):
+        return sorted(p for p in folder.rglob("*.tif"))
+
+    def values(path):
+        with rio.open(path) as f:
+            return f.read(1).view(np.uint32).copy(), f.transform, f.crs
+
+    def deflate(path, band, crs, transform):  # the averaged tiles as written until 2026-11-08
+        _write_tile(path, band, crs, transform, max_z_error=None)
+
+    def rows():
+        db = sqlite3.connect(os.path.join(cache_dir, "slovakia", "index.sqlite"))
+        try:
+            return {r[0]: r[1:] for r in db.execute("SELECT path, fetched_at, checked_at, last_used_at, url, status, "
+                                                    "processing FROM files")}
+        finally:
+            db.close()
+
+    mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
+    fresh = tmp_path / "fresh" / "slovakia"  # what average writes now
+    shutil.copytree(root, fresh / "test" / "1m")
+    sk_tiles.average("test", str(fresh), (2, 5))
+    with monkeypatch.context() as old:  # the mirror as made on 2026-11-04
+        old.setattr(sk_tiles, "_write_averaged", deflate)
+        sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
+    for factor in (2, 5):  # and its indexes' text of then
+        index = json.loads((root.parent / f"{factor}m" / "index.json").read_text(encoding="utf-8"))
+        index["encoding"] = (f"GeoTIFF float32 deflate: the mean of the valid 1 m pixels of each {factor} x {factor} "
+                             "block (sources.readers.download._block_means)")
+        (root.parent / f"{factor}m" / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    (mirror / "slovakia" / "README.md").write_text("the card of before", encoding="utf-8")
+    # the cache's copies of the deflate tiles, made by GridTiles as a search makes them
+    monkeypatch.setattr(src.net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setenv(src.MIRROR_ENV, str(mirror))
+    layer = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m",
+                          averaged=(2, 5))
+    cache_dir = str(tmp_path / "data" / "cache")
+    cache.check_layout(cache_dir)
+    bounds = (left + 500, top - 2800, left + 4600, top - 100)
+    for res in (2.0, 5.0):
+        layer.download(gd.make_grid(bounds, res, "EPSG:8353"), cache_dir, None, "test")
+    cached = {f: tmp_path / "data" / "cache" / "slovakia" / "test" / f"{f}m" for f in (2, 5)}
+    rows_before = rows()
+    assert len(tifs(cached[2])) > 1 and len(tifs(cached[5])) > 1
+
+    for factor in (2, 5):
+        folder = root.parent / f"{factor}m"
+        old_index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        paths = tifs(folder)
+        bits = {p: values(p) for p in paths}
+        assert paths and not any(sk_tiles.is_zstd(p) for p in paths)
+        result = sk_tiles.recompress(str(folder), threads=2)
+        assert [result[k] for k in ("files", "rewritten", "skipped", "failed")] == [len(paths), len(paths), 0, 0]
+        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        new = json.loads((fresh / "test" / f"{factor}m" / "index.json").read_text(encoding="utf-8"))
+        assert index["tiles"] == new["tiles"]  # every tile the very bytes average writes now
+        assert index["encoding"] == new["encoding"] == sk_tiles.averaged_encoding(factor) != old_index["encoding"]
+        assert {k: v for k, v in index.items() if k not in ("tiles", "encoding")} == \
+            {k: v for k, v in old_index.items() if k not in ("tiles", "encoding")}
+        for p in paths:
+            assert sk_tiles.is_zstd(p) and values(p)[1:] == bits[p][1:]
+            assert np.array_equal(values(p)[0], bits[p][0])  # lossless
+            assert hashlib.sha256(p.read_bytes()).hexdigest() == index["tiles"][p.stem]
+        before = (folder / "index.json").read_bytes()
+        again = sk_tiles.recompress(str(folder), threads=2)
+        assert [again[k] for k in ("rewritten", "skipped", "corrected")] == [0, len(paths), 0]
+        assert (folder / "index.json").read_bytes() == before
+    assert (mirror / "slovakia" / "README.md").read_text(encoding="utf-8") == sk_tiles.CARD
+
+    # The cache's copies: the same bytes as the mirror's now, the rows' sha256 those of the new files, nothing else
+    for factor in (2, 5):
+        paths = tifs(cached[factor])
+        result = sk_tiles.recompress(str(cached[factor]), threads=2)
+        assert [result[k] for k in ("rewritten", "failed")] == [len(paths), 0]
+        index = json.loads((root.parent / f"{factor}m" / "index.json").read_text(encoding="utf-8"))
+        for p in paths:
+            sha = hashlib.sha256(p.read_bytes()).hexdigest()
+            assert sha == index["tiles"][p.stem] == cache.info(cache_dir, str(p))["sha256"]
+    assert rows() == rows_before
+    for res in (2.0, 5.0):  # cached: nothing to copy again (a copy checks the mirror's sha256)
+        assert layer.missing(gd.make_grid(bounds, res, "EPSG:8353"), cache_dir, None) == []
+    assert not list(tmp_path.rglob("*.part"))
+
+    # A LERC tile, a tile that would differ and one that cannot be replaced: listed and left
+    odd = tmp_path / "odd"
+    with pytest.raises(ValueError, match="not an averaged folder"):  # the mirror's 1 m folder: refused whole
+        sk_tiles.recompress(str(fresh / "test" / "1m"))
+    shutil.copytree(fresh / "test" / "1m", odd / "lerc", ignore=shutil.ignore_patterns("index.json"))  # the 1 m tiles
+    shutil.copytree(cached[5], odd / "zstd")
+    with monkeypatch.context() as old:
+        old.setattr(sk_tiles, "_write_averaged", deflate)
+        sk_tiles.average("test", str(fresh), (4,))
+    shutil.copytree(fresh / "test" / "4m", odd / "deflate")
+    shas = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in tifs(odd)}
+    result = sk_tiles.recompress(str(odd / "lerc"), threads=2)
+    assert result["failed"] == len(tifs(odd / "lerc")) and all("LERC" in e for e in result["failures"].values())
+    with monkeypatch.context() as broken:
+        broken.setattr(sk_tiles, "_same_tile", lambda a, b, band: False)
+        result = sk_tiles.recompress(str(odd / "deflate"), threads=2)
+        assert result["failed"] == len(tifs(odd / "deflate")) and all("differs" in e for e in result["failures"].values())
+        assert sk_tiles.recompress(str(odd / "zstd"), threads=2)["skipped"] == len(tifs(odd / "zstd"))
+    with monkeypatch.context() as held:
+        held.setattr(sk_tiles, "REPLACE_SECONDS", 0.1)
+        held.setattr(sk_tiles.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError(13, "open")))
+        assert sk_tiles.recompress(str(odd / "deflate"), threads=2)["failed"] == len(tifs(odd / "deflate"))
+    assert {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in tifs(odd)} == shas
+    assert not list(tmp_path.rglob("*.part"))
 
 
 

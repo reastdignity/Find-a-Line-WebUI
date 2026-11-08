@@ -1153,8 +1153,12 @@ def _worker_env() -> Dict[str, str]:
     step 1 between the kernels, so a tile's threads take cores from the other workers and its CPU
     seconds count the spinning. With PASSIVE sk-sulov's four layer bands took 19 % fewer CPU seconds
     and 6 % fewer tile seconds, Slovakia's first all-bands run 5.4 % fewer CPU seconds at a wall within
-    the spread of equal runs, the counts the same (2026-11-07, docs/performance.md "Round 5")."""
-    return {"OMP_WAIT_POLICY": "PASSIVE", **os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
+    the spread of equal runs, the counts the same (2026-11-07, docs/performance.md "Round 5").
+
+    PYTHONFAULTHANDLER=1 unless the caller's environment sets it: a worker that dies of a fatal error
+    writes the Python stack of its threads into its log (the heap corruptions of GDAL's warper,
+    0xC0000374, left a log that stopped mid-tile without a word: CLAUDE.md, "GDAL's warper on Windows")."""
+    return {"OMP_WAIT_POLICY": "PASSIVE", "PYTHONFAULTHANDLER": "1", **os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
             "PYTHONUNBUFFERED": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
 
 
