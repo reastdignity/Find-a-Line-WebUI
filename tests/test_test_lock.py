@@ -602,11 +602,16 @@ class Runs:
             queue.db.close()
 
     def stop(self):
+        """Every child told to end; the user's state back to free first, so a wrapper it held
+        starts its child and ends too (it waited the whole timeout before, 60 s per test);
+        one still waiting after that (held for memory) is killed, its child never started."""
+        if self.processes:
+            self.set_state("free")
         for name in "abcdefgh":
             self.go(name)
         for process in self.processes:
             try:
-                process.wait(timeout=60)
+                process.wait(timeout=20)
             except subprocess.TimeoutExpired:
                 process.kill()
 
