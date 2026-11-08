@@ -653,8 +653,11 @@ class Countries:
                 west, south, east, north = (float(v) for v in text.split(","))
             except ValueError:
                 raise ValueError("bbox must be west,south,east,north in degrees") from None
-        else:
+        else:  # the cube's bounds grown by the layer's reach: the partner lines' cells beyond the outline too
             west, south, east, north = cube.info["bounds_wgs84"]
+            reach = (cube.reach_m() or 0.0) / 110_000.0  # degrees of latitude, a little more than the metres
+            wide = reach / max(math.cos(math.radians(min(max(abs(south), abs(north)), 89.0))), 0.01)
+            west, south, east, north = west - wide, south - reach, east + wide, north + reach
         box = cube.box(west, south, east, north)
         text = query.get("level") or "auto"
         if text == "auto":

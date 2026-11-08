@@ -37,7 +37,7 @@ BANDS = [("S", 30, 300, 1.0, "formula", 60, 5000, True), ("M", 300, 1000, 2.0, "
 
 
 NEIGHBOURS = ("poland", "testland")  # the sample Slovakia's partners 1 and 2 (testland is a cube of the fixture)
-PARTNER_REACH = 0.05  # degrees beyond the outline where the sample's partner lines have their western end
+PARTNER_REACH = 0.03  # degrees beyond the outline where the sample's partner lines have their western end (within the L band's 5 km)
 OWNED_NEAR = 0.03     # degrees inside the outline where some of its lines are owned lines across the border
 
 
@@ -79,9 +79,10 @@ def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", see
     inside = shapely.contains_xy(outline, lon, lat)
     # the country's own lines: the cells whose centre lies inside; the partner lines: the cells reaching beyond the
     # outline (a part of the cell outside) within PARTNER_REACH of it
-    boxes = shapely.box(lon - 0.5 / cc.CELLS_PER_DEGREE, lat - 0.5 / cc.CELLS_PER_DEGREE,
-                        lon + 0.5 / cc.CELLS_PER_DEGREE, lat + 0.5 / cc.CELLS_PER_DEGREE)
-    beyond = ~shapely.within(boxes, outline) & (shapely.distance(outline, boxes) < grow) if neighbours else np.zeros(len(i), bool)
+    boxes = shapely.box((i0 + i) / cc.CELLS_PER_DEGREE, (j0 + j) / cc.CELLS_PER_DEGREE,  # the cube's rectangles
+                        (i0 + i + 1) / cc.CELLS_PER_DEGREE, (j0 + j + 1) / cc.CELLS_PER_DEGREE)
+    outside = shapely.area(shapely.difference(boxes, outline)) > shapely.area(boxes) * 1e-6  # not a rounding's sliver
+    beyond = outside & (shapely.distance(outline, boxes) < grow) if neighbours else np.zeros(len(i), bool)
     own = np.round(density * km2 * rng.uniform(0.5, 1.5, len(i))).astype(np.int64) * inside
     partner_lines = np.round(density * km2 * 0.2 * rng.uniform(0.5, 1.5, len(i))).astype(np.int64) * beyond
     near = inside & (shapely.distance(outline.boundary, shapely.points(lon, lat)) < OWNED_NEAR) if neighbours \
@@ -422,7 +423,7 @@ def test_two_rows_of_a_cut_cell(client, sample):
     assert whole_cells, "partner cells wholly beyond the outline"
     for i, j in whole_cells:
         west, south = (cube.origin[0] + i) / 120, (cube.origin[1] + j) / 120
-        assert not shapely.box(west, south, west + 1 / 120, south + 1 / 120).intersects(outline)
+        assert shapely.box(west, south, west + 1 / 120, south + 1 / 120).intersection(outline).area < 1e-12  # or touches it
 
 
 def _refused_by(client, path: str):
@@ -687,7 +688,7 @@ run({
     const cut = a.cut[row[0] + "," + row[1]];
     result.cut = {wanted: row.slice(0, 3), partner: [partner[2], partner[11]], km2: cut.km2, cells: Object.keys(a.cut).length};
     clickAt(inner[0], inner[1]);
-    wait(() => /of it lie in Slovakia/.test(text(".c-layer-cell")) && text(".c-layer-cell").includes(row[2].toLocaleString("en")), () => {
+    wait(() => /km² inside Slovakia/.test(text(".c-layer-cell")) && text(".c-layer-cell").includes(row[2].toLocaleString("en")), () => {
       result.cut.selected = text(".c-layer-cell");
       result.cut.hint = text(".c-layer-search-hint");
       clickAt(outer[0], outer[1]);  // the partner row of the same cell, beyond the border
@@ -762,7 +763,8 @@ def test_layer_page_in_edge(sample, tmp_path):
     with _server(sample) as port:
         r = _edge(port, f"{page}?ui=c#layer", tmp_path / "edge")
     assert "timeout" not in r and "error" not in r, json.dumps(r)
-    assert r["cells"] > 10 and r["painted"] > 1000 and "spots in view" in r["total"] and "30″ cells" in r["total"], r
+    assert r["cells"] > 10 and r["painted"] > 1000 and "spots in view" in r["total"], r
+    assert "cells, about" in r["total"] and "lines across the border" in r["total"], r
     assert 0 in r["sides"] and 1 in r["sides"] and 2 not in r["sides"], r  # testland's partner lines replaced
     count = f"{r['wanted'][2]:,}"
     assert r["selected"].startswith("Selected cell") and count in r["selected"], r
@@ -772,7 +774,7 @@ def test_layer_page_in_edge(sample, tmp_path):
     # hint of the search at the border; a click on its part beyond picks its partner row
     cut = r["cut"]
     assert cut["cells"] > 0 and cut["selected"].startswith("Selected cell"), cut
-    assert "of it lie in Slovakia" in cut["selected"], cut
+    assert "km² inside Slovakia" in cut["selected"], cut
     assert ("on the border with Poland" if cut["partner"][1] == 1 else "on its border") in cut["selected"], cut
     assert cut["hint"].startswith("On the border with Poland") or cut["hint"].startswith("On the border:"), cut
     assert "Poland" in cut["hint"] if cut["partner"][1] == 1 else True, cut

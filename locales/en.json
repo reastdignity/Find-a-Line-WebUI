@@ -602,7 +602,6 @@
   "ui.layer.copy_link": "Copy link",
   "ui.layer.copied": "Link copied: the view and the filters.",
   "ui.layer.selected": "Selected cell",
-  "ui.layer.cell_cut": "{{km2}} km² of it lie in {{name}}: the density is over that part.",
   "ui.layer.search_here": "Search here",
   "ui.layer.search_note": "A search of the cell and the band's longest line around it, with the band's settings.",
   "ui.layer.click_hint": "Click a cell to see its counts and search it.",

@@ -724,8 +724,6 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
       <div><b>{picked.count.toLocaleString("en")}</b> {noun}
         {otherInCell !== null && <> · <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
         {" · "}{short(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
-      {picked.km2 < picked.whole * 0.999 && !picked.side &&
-        <div class="u-small">{t("ui.layer.cell_cut", {km2: short(picked.km2), name: pickedCube.name})}</div>}
       {picked.side ? <div class="c-layer-cell-border">{t("ui.layer.cell_partner")}</div>
         : acrossInCell ? <div class="c-layer-cell-border">{t("ui.layer.cell_across", {n: acrossInCell.toLocaleString("en")})}</div> : null}
       {centre && <div class="u-small u-mono">{centre[0].toFixed(4)}, {centre[1].toFixed(4)}</div>}

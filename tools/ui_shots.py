@@ -82,6 +82,8 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
 # The highline layer's selected cell at the top of its panel, the notes under it ("c-layer-border")
 BORDER_CARD_SHOWN = "document.querySelector('.c-layer-cell')?.scrollIntoView({block: 'start'})"
+# The highline layer's fold "More filters" in view ("c-layer-chips", "c-layer-fold")
+FOLD_SHOWN = "document.querySelector('.c-layer-more')?.scrollIntoView({block: 'start'})"
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
 VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
                 "(document.querySelector('.v3-activity')?.classList.contains('v3-hidden') !== false || "
@@ -147,6 +149,9 @@ PAGES = {
     "c-layer-study": ("c", "#layer&country=sk-part", None),  # the study area, alone
     "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
     "c-layer-collapsed": ("c", "#layer", None),   # the left panel collapsed to its rail (LAYER_LAYOUTS)
+    # two filters of the fold "More filters" set: the closed fold names them as chips; opened
+    "c-layer-chips": ("c", "#layer&drop=50&elevation_low=1000", "js:" + FOLD_SHOWN),
+    "c-layer-fold": ("c", "#layer&drop=50&elevation_low=1000", [".c-layer-more > summary", "js:" + FOLD_SHOWN]),
     # a cell the border cuts selected at the map's centre (its part inside the country), the card and the notes in view
     "c-layer-border": ("c", "{border}", ["js:" + CELL_AT_CENTRE, "wait:document.querySelector('.c-layer-search-hint')",
                                          "js:" + BORDER_CARD_SHOWN]),

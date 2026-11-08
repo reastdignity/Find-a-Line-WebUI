@@ -234,7 +234,7 @@ export function LayerHistograms({cube, state, hist, status, error, countries, ct
                 {countries > 1 ? ` · ${t("ui.layer.countries", {count: countries})}` : ""}</span></div>
             {other !== undefined && <div class="c-layer-inview-more">
               <b>{short(other)}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}
-              {border && cross !== null && <> · <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
+              {border && cross !== null && cross > 0 && <> · <b>{short(cross)}</b> {t("ui.layer.lines_across")}</>}</div>}
           </>
         : status === "error" ? <p class="c-error u-small" role="alert">{t("ui.layer.hist.failed")} {error}</p>
         : <p class="u-small">{t("ui.layer.counting")}</p>}
