@@ -213,6 +213,17 @@ def test_bins_at_the_edges():
     assert cc.length_bin(lengths).tolist() == [0, 0, 1, 3, 4, 6, 7, 8, 8, 8]
     for name, e in cc.EDGES.items():
         assert cc.bins_of(name) < cc.UNKNOWN and list(e) == sorted(e), name
+    # the bins by comparisons are searchsorted's (lower edges: side right less one, at least 0; upper: side left)
+    rng = np.random.default_rng(8)
+    values = np.concatenate([rng.uniform(-100, 3000, 20000), [np.nan, -np.inf, np.inf]])
+    for name, e in cc.EDGES.items():
+        values[:200] = rng.choice(np.asarray(e, dtype=float), 200)
+        edges = np.asarray(e, dtype=float)
+        lower = np.maximum(np.searchsorted(edges, values, side="right") - 1, 0)
+        upper = np.searchsorted(edges, values, side="left")
+        for got, plain in ((cc._bin(values, e), lower), (cc._bin_at_most(values, e), upper)):
+            plain[np.isnan(values)] = cc.UNKNOWN
+            assert (got == plain).all() and got.dtype == np.int64, name
 
 
 def test_line_records_field_by_field():

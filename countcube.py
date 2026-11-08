@@ -121,23 +121,29 @@ _E = math.sqrt(_E2)
 _B = _A * (1 - _F)
 
 
-def _bin(values: np.ndarray, edges) -> np.ndarray:
-    """The 3-bit bins of values over lower edges: below the first bin 0, the last open upwards,
-    NaN UNKNOWN."""
+def _bins8(values: np.ndarray, edges, at_most: bool = False) -> np.ndarray:
+    """The 3-bit bins of values (uint8), by comparisons with the edges (about three times faster
+    than searchsorted over a few edges): over lower edges the count of edges after the first at or
+    below the value (below the first bin 0, the last open upwards), over upper edges (at_most) the
+    count of edges below it (at most the first bin 0, above the last len(edges)); NaN UNKNOWN."""
     values = np.asarray(values, dtype=np.float64)
-    b = np.searchsorted(np.asarray(edges, dtype=np.float64), values, side="right").astype(np.int64) - 1
-    np.maximum(b, 0, out=b)
+    b = np.zeros(values.shape, dtype=np.uint8)
+    for edge in (edges if at_most else edges[1:]):
+        b += (values > edge) if at_most else (values >= edge)
     b[np.isnan(values)] = UNKNOWN
     return b
+
+
+def _bin(values: np.ndarray, edges) -> np.ndarray:
+    """The 3-bit bins of values over lower edges: below the first bin 0, the last open upwards,
+    NaN UNKNOWN (int64)."""
+    return _bins8(values, edges).astype(np.int64)
 
 
 def _bin_at_most(values: np.ndarray, edges) -> np.ndarray:
     """The 3-bit bins of values over upper edges: at most the first bin 0, above the last
-    len(edges), NaN UNKNOWN."""
-    values = np.asarray(values, dtype=np.float64)
-    b = np.searchsorted(np.asarray(edges, dtype=np.float64), values, side="left").astype(np.int64)
-    b[np.isnan(values)] = UNKNOWN
-    return b
+    len(edges), NaN UNKNOWN (int64)."""
+    return _bins8(values, edges, at_most=True).astype(np.int64)
 
 
 def bin_of(name: str, values: np.ndarray, edges=None) -> np.ndarray:
@@ -179,33 +185,52 @@ def dimension_values(columns: Mapping[str, np.ndarray], res: float) -> Dict[str,
     return out
 
 
-def line_records(columns: Mapping[str, np.ndarray], res: float = 1.0) -> np.ndarray:
-    """The records of lines given as columns (the LINE_VALUES and "water_px"; "lift_needed",
-    "lift_no_zone", "border" and "partner" when present): (n, 2) int64, word A's RECORD_BITS and
-    word B. res: the grid's resolution (the metres over water are water_px × res)."""
+# The 3-bit dimensions in the order of _line_bins' rows: word A's, then word B's
+DIMS3 = ("height", "clearance", "wall", "prominence") + B_FIELDS
+
+
+def _line_bins(columns: Mapping[str, np.ndarray], res: float) -> Tuple[np.ndarray, np.ndarray]:
+    """A part's lines as their flags (int64: the water and trees bits, the length bit, border and
+    partner) and the bins of DIMS3 ((15, n) uint8, a row a dimension)."""
     c = columns
     water = np.asarray(c["water_px"]) > 0
     with np.errstate(invalid="ignore"):
         trees = np.asarray(c["clearance_nmpt"], dtype=np.float64) <= 0  # NaN: not over
-    rec = np.left_shift(1, WATER_BIT + water.astype(np.int64))
-    rec |= np.left_shift(1, TREES_BIT + trees.astype(np.int64))
-    rec |= _bin(c["height_max"], EDGES["height"]) << SHIFT["height"]
-    rec |= _bin(c["clearance"], EDGES["clearance"]) << SHIFT["clearance"]
-    rec |= _bin(np.maximum(c["angle1"], c["angle2"]), EDGES["wall"]) << SHIFT["wall"]
-    rec |= _bin(np.minimum(c["prom1"], c["prom2"]), EDGES["prominence"]) << SHIFT["prominence"]
-    rec |= np.left_shift(1, LENGTH_SHIFT + length_bin(c["length"]))
-    n = len(rec)
+    flags = np.left_shift(1, WATER_BIT + water.astype(np.int64))
+    flags |= np.left_shift(1, TREES_BIT + trees.astype(np.int64))
+    flags |= np.left_shift(1, LENGTH_SHIFT + length_bin(c["length"]))
     if "border" in c:
-        rec |= (np.asarray(c["border"]).astype(np.int64) & 3) << BORDER_SHIFT
+        flags |= (np.asarray(c["border"]).astype(np.int64) & 3) << BORDER_SHIFT
     if "partner" in c:
-        rec |= (np.asarray(c["partner"]).astype(np.int64) & 7) << PARTNER_SHIFT
+        flags |= (np.asarray(c["partner"]).astype(np.int64) & 7) << PARTNER_SHIFT
+    values = {"height": c["height_max"], "clearance": c["clearance"],
+              "wall": np.maximum(c["angle1"], c["angle2"]), "prominence": np.minimum(c["prom1"], c["prom2"]),
+              **dimension_values(c, res)}
+    bins = np.empty((len(DIMS3), len(flags)), dtype=np.uint8)
+    for k, name in enumerate(DIMS3):
+        bins[k] = _bins8(values[name], EDGES[name], KINDS[name] == "at_most")
+    return flags, bins
+
+
+def _pack(flags: np.ndarray, bins: np.ndarray) -> np.ndarray:
+    """Records ((n, 2) int64) of flags and the bins of DIMS3."""
+    n = len(flags)
     out = np.empty((n, 2), dtype=np.int64)
-    out[:, 0] = rec
-    word = np.zeros(n, dtype=np.int64)
-    for name, values in dimension_values(c, res).items():
-        word |= bin_of(name, values) << B_SHIFT[name]
-    out[:, 1] = word
+    a, b = flags.copy(), np.zeros(n, dtype=np.int64)
+    shifted = np.empty(n, dtype=np.int64)
+    for k, name in enumerate(DIMS3):
+        word, shift = (a, SHIFT[name]) if name in SHIFT else (b, B_SHIFT[name])
+        np.left_shift(bins[k], shift, out=shifted, dtype=np.int64)
+        word |= shifted
+    out[:, 0], out[:, 1] = a, b
     return out
+
+
+def line_records(columns: Mapping[str, np.ndarray], res: float = 1.0) -> np.ndarray:
+    """The records of lines given as columns (the LINE_VALUES and "water_px"; "lift_needed",
+    "lift_no_zone", "border" and "partner" when present): (n, 2) int64, word A's RECORD_BITS and
+    word B. res: the grid's resolution (the metres over water are water_px × res)."""
+    return _pack(*_line_bins(columns, res))
 
 
 def pack_keys(i: np.ndarray, j: np.ndarray, records: np.ndarray) -> np.ndarray:
@@ -356,22 +381,40 @@ def count_keys(keys: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return sum_keys(keys, np.ones(len(keys), dtype=np.int64))
 
 
-def _merge_max(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
-    """A floor's bins merged per run: the largest, UNKNOWN only when every one is."""
-    v = values.astype(np.int8)
-    v[v == UNKNOWN] = -1
-    m = np.maximum.reduceat(v, starts).astype(np.int64)
-    m[m < 0] = UNKNOWN
-    return m
+# A bin as a value whose largest is the spot's (a floor's largest bin, a ceiling's smallest), 0 for
+# UNKNOWN (so UNKNOWN only when every line's is), and back: one np.maximum.reduceat a dimension
+_MERGED = np.zeros((len(DIMS3), 8), dtype=np.uint8)
+_UNMERGED = np.zeros((len(DIMS3), 10), dtype=np.int64)
+for _k, _name in enumerate(DIMS3):
+    _floor = KINDS[_name] == "floor"
+    for _b in range(8):
+        _MERGED[_k, _b] = 0 if _b == UNKNOWN else (_b + 1 if _floor else 8 - _b)
+    for _m in range(10):
+        _UNMERGED[_k, _m] = UNKNOWN if _m == 0 else (_m - 1 if _floor else 8 - _m)
 
 
-def _merge_min(values: np.ndarray, starts: np.ndarray) -> np.ndarray:
-    """A ceiling's bins merged per run: the smallest, UNKNOWN only when every one is."""
-    v = values.astype(np.int8)
-    v[v == UNKNOWN] = 8
-    m = np.minimum.reduceat(v, starts).astype(np.int64)
-    m[m == 8] = UNKNOWN
-    return m
+def _merge_bins(ids: np.ndarray, flags: np.ndarray, bins: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """merge_spots of lines given as flags and the bins of DIMS3 (_line_bins)."""
+    bp = (flags >> BP_SHIFT) & BP_MASK
+    if bp.any():
+        order, starts = _rows_order(ids, bp)
+    else:
+        order = np.argsort(ids)
+        sid = ids[order]
+        starts = np.flatnonzero(np.concatenate(([True], sid[1:] != sid[:-1])))
+    sorted_flags = flags[order]
+    a = np.bitwise_or.reduceat(sorted_flags & OR_MASK, starts) | (sorted_flags[starts] & (BP_MASK << BP_SHIFT))
+    b = np.zeros(len(starts), dtype=np.int64)
+    for k, name in enumerate(DIMS3):
+        merged = np.maximum.reduceat(_MERGED[k][bins[k][order]], starts)
+        value = _UNMERGED[k][merged]
+        if name in SHIFT:
+            a |= value << SHIFT[name]
+        else:
+            b |= value << B_SHIFT[name]
+    out = np.empty((len(starts), 2), dtype=np.int64)
+    out[:, 0], out[:, 1] = a, b
+    return ids[order[starts]], out
 
 
 def merge_spots(ids: np.ndarray, records: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -384,26 +427,11 @@ def merge_spots(ids: np.ndarray, records: np.ndarray) -> Tuple[np.ndarray, np.nd
     records = np.asarray(records, dtype=np.int64).reshape(-1, 2)
     if not len(ids):
         return ids.copy(), records.copy()
-    bp = (records[:, 0] >> BP_SHIFT) & BP_MASK
-    if bp.any():
-        order, starts = _rows_order(ids, bp)
-    else:
-        order = np.argsort(ids)
-        sid = ids[order]
-        starts = np.flatnonzero(np.concatenate(([True], sid[1:] != sid[:-1])))
-    ra, rb = records[order, 0], records[order, 1]
-    out = np.empty((len(starts), 2), dtype=np.int64)
-    word = np.bitwise_or.reduceat(ra & OR_MASK, starts) | (ra[starts] & (BP_MASK << BP_SHIFT))
-    for name in ("prominence", "clearance", "height"):
-        word |= _merge_max((ra >> SHIFT[name]) & 7, starts) << SHIFT[name]
-    word |= _merge_min((ra >> SHIFT["wall"]) & 7, starts) << SHIFT["wall"]
-    out[:, 0] = word
-    word = np.zeros(len(starts), dtype=np.int64)
-    for name in B_FIELDS:
-        merge = _merge_max if KINDS[name] == "floor" else _merge_min
-        word |= merge((rb >> B_SHIFT[name]) & 7, starts) << B_SHIFT[name]
-    out[:, 1] = word
-    return ids[order[starts]], out
+    bins = np.empty((len(DIMS3), len(ids)), dtype=np.uint8)
+    for k, name in enumerate(DIMS3):
+        word, shift = (records[:, 0], SHIFT[name]) if name in SHIFT else (records[:, 1], B_SHIFT[name])
+        bins[k] = (word >> shift) & 7
+    return _merge_bins(ids, records[:, 0] & (OR_MASK | (BP_MASK << BP_SHIFT)), bins)
 
 
 class _Reducer:
@@ -573,7 +601,8 @@ class TileCounter:
             columns = {name: np.asarray(c[name])[keep] for name in RECORD_COLUMNS + OPTIONAL_COLUMNS if name in c}
         else:
             columns = c
-        records = line_records(columns, self.grid.res)
+        flags, bins = _line_bins(columns, self.grid.res)
+        records = _pack(flags, bins)
         t = time.perf_counter()
         (lon1, lat1, cx1, cy1), (lon2, lat2, cx2, cy2) = self.anchors(a1, a2)
         self.transform_seconds += time.perf_counter() - t
@@ -581,7 +610,7 @@ class TileCounter:
         i = np.where(first, cx1, cx2) // CLUSTERS_PER_CELL
         j = np.where(first, cy1, cy2) // CLUSTERS_PER_CELL
         self._lines.add(*count_keys(pack_keys(i, j, records)))
-        self._spots.add(*merge_spots(cluster_spot_ids(cx1, cy1, cx2, cy2), records))
+        self._spots.add(*_merge_bins(cluster_spot_ids(cx1, cy1, cx2, cy2), flags, bins))
 
     def result(self) -> TileCounts:
         keys, counts = self._lines.flush()
