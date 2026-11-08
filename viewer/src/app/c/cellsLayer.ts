@@ -39,6 +39,13 @@ export function short(n: number): string {
   return String(+n.toFixed(n >= 10 ? 0 : n >= 1 ? 1 : 2));
 }
 
+/** A density per km² as the selected cell's card and a cell's tooltip write it: short's digits without its
+ *  abbreviations, with the thousands separator of the page's counts (`toLocaleString("en")`): 0.5 → "0.5",
+ *  9135 → "9,135", 300000 → "300,000". */
+export function densityText(n: number): string {
+  return n.toLocaleString("en", {maximumFractionDigits: n >= 10 ? 0 : n >= 1 ? 1 : 2});
+}
+
 /** The class colours of the theme in force, from the tokens on `element`'s .ui root. */
 export function classColours(element: HTMLElement): string[] {
   const style = getComputedStyle(element);

@@ -27,8 +27,8 @@ import { day } from "../../time";
 import { copy, LinkField } from "../../result/view/LineDetails";
 import { MapPage, type MapPageExtras } from "./Account";
 import { cellHash, go, layerHash } from "./route";
-import { CLASS_BREAKS, CellsLayer, cellKm2, cellShape, rowBounds, rowSide, short, wholeKm2, type DrawnCells, type LayerMode,
-         type OutlineShape, type PickedCell } from "./cellsLayer";
+import { CLASS_BREAKS, CellsLayer, cellKm2, cellShape, densityText, rowBounds, rowSide, short, wholeKm2, type DrawnCells,
+         type LayerMode, type OutlineShape, type PickedCell } from "./cellsLayer";
 import { LayerHistograms, addHistogram, dimensionContext, dimensionLabel, dimensionShort, emptyHistogram, limitText,
          unitOf, type DimensionContext, type SummedHistogram } from "./LayerHistograms";
 import { OUTLINE_MPP, REQUEST_CELLS_MAX, SEVEN, activeCubes, autoLevel, cellDeg, cellsAt, countriesFirst, cubesIn,
@@ -210,7 +210,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
     else fitCountry(first.country && cubes.some((c) => c.id === first.country) ? first.country : cube0.id);
     const noun = () => stateRef.current.mode === "lines" ? t("ui.layer.lines") : t("ui.layer.spots");
     layer.current = new CellsLayer(map, choose, fitCountry, (count, density, side) =>
-      `${count.toLocaleString("en")} ${noun()} · ${short(density)} ${t("ui.layer.per_km2")}${side ? ` · ${t("ui.layer.beyond_short")}` : ""}`);
+      `${count.toLocaleString("en")} ${noun()} · ${densityText(density)} ${t("ui.layer.per_km2")}${side ? ` · ${t("ui.layer.beyond_short")}` : ""}`);
     const moved = () => {
       const c = map.getCenter();
       set({view: {lat: c.lat, lon: c.lng, zoom: map.getZoom()}});
@@ -676,7 +676,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
 
     <section class="c-layer-view" aria-live="polite">
       <div class="c-layer-total">
-        {status === "ready" && outlineMode ? <span><b>{inView.length}</b> {t("ui.layer.countries_in_view", {count: inView.length})}
+        {status === "ready" && outlineMode ? <span><b>{inView.length.toLocaleString("en")}</b> {t("ui.layer.countries_in_view", {count: inView.length})}
             {histStatus === "ready" && hist && <> · <b>{hist.total.toLocaleString("en")}</b> {noun}</>}</span>
           : status === "ready" ? <>
               <span><b>{total.toLocaleString("en")}</b> {noun}, <b>{otherTotal === null ? "…" : otherTotal.toLocaleString("en")}</b>{" "}
@@ -724,7 +724,7 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
           : `${picked.km2.toFixed(2)} km²`}</div>
       <div><b>{picked.count.toLocaleString("en")}</b> {noun}
         {otherInCell !== null && <> · <b>{otherInCell.toLocaleString("en")}</b> {mode === "lines" ? t("ui.layer.spots") : t("ui.layer.lines")}</>}
-        {" · "}{short(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
+        {" · "}{densityText(picked.count / picked.km2)} {noun} {t("ui.layer.per_km2")}</div>
       {picked.side ? <div class="c-layer-cell-border">{t("ui.layer.cell_partner")}</div>
         : acrossInCell ? <div class="c-layer-cell-border">{t("ui.layer.cell_across", {n: acrossInCell.toLocaleString("en")})}</div> : null}
       {centre && <div class="u-small u-mono">{centre[0].toFixed(4)}, {centre[1].toFixed(4)}</div>}

@@ -6,6 +6,7 @@ and the page #layer in headless Edge on the real server, with a study area too."
 import json
 import math
 import os
+import re
 import subprocess
 import sys
 from collections import defaultdict
@@ -746,12 +747,21 @@ run({
 """
 
 
+def _card_density(card: str) -> float:
+    """The density per km² of a selected cell's card as it reads: the thousands separator of the counts, no
+    abbreviation ("9,135", "0.37"); its value."""
+    found = re.search(r"· ([\d.,]+) lines per km²", card)
+    assert found and re.fullmatch(r"\d{1,3}(,\d{3})*(\.\d+)?", found.group(1)), card
+    return float(found.group(1).replace(",", ""))
+
+
 @pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
                     reason="needs Microsoft Edge")
 def test_layer_page_in_edge(sample, tmp_path):
     """#layer on the real local server with the two sample cubes v2 (the page fits the first listed, Slovakia;
     testland, west of it, may reach the view): the rows drawn on the map's canvas, their partner rows too (border=all),
-    a click selects the cell under it (its count, one "Search here" per layer band); a cell the border cuts clicked on
+    a click selects the cell under it (its count, its density per km² with the thousands separator, one "Search
+    here" per layer band); a cell the border cuts clicked on
     its part inside (the country's row, the hint naming the neighbour) and beyond (its partner row, counted from
     Slovakia's data), the notes "Across the borders" (Poland from Slovakia's data, Testland's own layer) and the
     hatched swatch; sixteen histograms on the right, the length bars the /histogram answers summed over the cubes of
@@ -768,6 +778,11 @@ def test_layer_page_in_edge(sample, tmp_path):
     assert 0 in r["sides"] and 1 in r["sides"] and 2 not in r["sides"], r  # testland's partner lines replaced
     count = f"{r['wanted'][2]:,}"
     assert r["selected"].startswith("Selected cell") and count in r["selected"], r
+    # its density per km² with the thousands separator of the counts ("9,135", never "9135" or "9 k"), the count
+    # over the cell's km² as the card writes them
+    km2 = float(re.search(r"(\d+\.\d\d) km²", r["selected"]).group(1))
+    density = _card_density(r["selected"])
+    assert density >= 1000 and abs(density - r["wanted"][2] / km2) <= 0.02 * density, (density, km2, r["selected"])
     level = r["level"]
     assert r["search"] == [f"#new&cell=slovakia:{b}:{level}:{r['wanted'][0]}:{r['wanted'][1]}" for b in ("S", "M", "L")], r
     # a cell the outline cuts: picked by a click on its part inside the country, its density over that part, the
@@ -780,6 +795,7 @@ def test_layer_page_in_edge(sample, tmp_path):
     assert "Poland" in cut["hint"] if cut["partner"][1] == 1 else True, cut
     assert "beyond Slovakia's border" in cut["beyond"] and "Only lines across the border" in cut["beyond"], cut
     assert cut["beyondHint"].startswith("Counted from Slovakia's data"), cut
+    _card_density(cut["selected"]), _card_density(cut["beyond"])  # the same look on both parts' cards
     notes = r["notes"]
     assert "Across the borders" in notes, notes
     assert "Lines across the border with Poland: from Slovakia's data until Poland has a layer." in notes, notes
