@@ -716,15 +716,19 @@ class Manifest:
                 return None
             bands = json.loads(row[0])
             marks = ",".join("?" * len(bands))
-            group = db.execute(f"SELECT band, COALESCE(grp, name) AS g, SUM(weight) AS w, MIN(rowid) AS r FROM tiles "
+            # a handed-over tile (prepared) is claimed alone: its window is ready, and its group's step 1 may be
+            # running in another worker still
+            key = "CASE WHEN prepared IS NULL THEN COALESCE(grp, name) ELSE '.ready ' || name END"
+            group = db.execute(f"SELECT band, {key} AS g, SUM(weight) AS w, MIN(rowid) AS r FROM tiles "
                                f"WHERE status = 'pending' AND band IN ({marks}) GROUP BY band, g "
                                f"ORDER BY w IS NULL, w DESC, r LIMIT 1", bands).fetchone()
             if group is None:
                 return None
-            band, name = group[0], group[1]
-            tiles = db.execute("SELECT name, core, weight, prepared FROM tiles WHERE status = 'pending' AND band = ? "
-                               "AND COALESCE(grp, name) = ? ORDER BY weight IS NULL, weight DESC, rowid LIMIT ?",
-                               (band, name, -1 if row[1] is None else row[1])).fetchall()
+            band = group[0]
+            tiles = db.execute(f"SELECT name, core, weight, prepared, COALESCE(grp, name) FROM tiles WHERE "
+                               f"status = 'pending' AND band = ? AND {key} = ? ORDER BY weight IS NULL, weight DESC, "
+                               f"rowid LIMIT ?", (band, group[1], -1 if row[1] is None else row[1])).fetchall()
+            name = tiles[0][4]  # the group's name (of a handed-over tile too)
             db.executemany("UPDATE tiles SET status = 'running', attempts = attempts + 1, worker = ?, started_at = NULL, "
                            "error = NULL WHERE band = ? AND name = ?", [(worker, band, t[0]) for t in tiles])
             if row[1] is not None:
@@ -1086,9 +1090,15 @@ class TileWork:
 
     def _work(self, band: str, name: str, suffix: str = "") -> str:
         """A work folder of the country: <band>-<tile> of a tile with its own step 1 (as before groups),
-        <band>-<group> of a group's step 1, <band>-<tile>.tile of a tile's window copied from its group,
+        <band>-<group>@<worker> of a group's step 1 (_group_work), <band>-<tile>.tile of a tile's window copied
+        from its group,
         <band>-<tile>.ready of a handed-over tile."""
         return os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band}-{name}{suffix}")
+
+    def _group_work(self, band: str, group: str) -> str:
+        """A group's step 1 folder, this worker's own (a tile of the group failed back to pending may be claimed
+        by another worker while this one still counts the group's other tiles on its grids)."""
+        return self._work(band, group, f"@{self.worker}")
 
     def count(self, band_name: str, name: str, core: Tuple[float, ...], threads: int,
               threads_now: Optional[Callable[[], int]] = None, window: Optional[_Window] = None) -> Dict:
@@ -1187,7 +1197,7 @@ class TileWork:
         import sources as src
         from progress import progress
         band, plan, _ = self._band(claim.band)
-        work = self._work(band.name, claim.group)
+        work = self._group_work(band.name, claim.group)
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
         group_plan = tile_plan(self.country, plan, group_box(claim.cores), search.Paths(self.data_dir, work), threads,
@@ -1310,14 +1320,17 @@ class TileWork:
     def _count_one(self, manifest: Manifest, band: str, tile: ClaimedTile, window: Optional[_Window]) -> bool:
         """A claimed tile counted (Manifest.begin, count, done), or failed; whether it was done."""
         threads = manifest.begin(band, tile.name, self.cores, tile.heavy)
+        error = None
         try:
             meta = self.count(band, tile.name, tile.core, threads,
                               threads_now=lambda: manifest.threads(self.cores, tile.heavy), window=window)
         except Exception as e:  # the tile fails (pending again once, then failed); the others go on
             traceback.print_exc()
             sys.stdout.flush()
+            error = f"{type(e).__name__}: {cache.clean_error(e)}"
+        if error is not None:  # out of the except: its traceback no longer holds the grids open (Windows)
             self.cleanup(band, tile.name, window)
-            manifest.fail(band, tile.name, f"{type(e).__name__}: {cache.clean_error(e)}")
+            manifest.fail(band, tile.name, error)
             return False
         seconds = meta["seconds"]["prepare"] + meta["seconds"]["count"]
         manifest.done(band, tile.name, seconds, meta["lines"], meta["spots"])
@@ -1339,15 +1352,17 @@ class TileWork:
             window = self._prepared(claim)
             if window is not None:
                 return int(self._count_one(manifest, band, tiles[0], window))
+        error = None
         try:
             group = self.prepare_group(claim, manifest.threads(self.cores))
         except Exception as e:
             traceback.print_exc()
             sys.stdout.flush()
-            self._remove_grids(self._work(band, claim.group))
+            error = f"group {claim.group}: {type(e).__name__}: {cache.clean_error(e)}"
+        if error is not None:  # out of the except: its traceback no longer holds the grids open (Windows)
+            self._remove_grids(self._group_work(band, claim.group))
             src.used_data.clear()
-            manifest.fail(None, None, f"group {claim.group}: {type(e).__name__}: {cache.clean_error(e)}",
-                          worker=self.worker)
+            manifest.fail(None, None, error, worker=self.worker)
             return 0
         done, last = 0, None
         try:
