@@ -23,7 +23,10 @@ Licence CC BY 4.0, author ÚGKK SR (the licence PDF in the ZIPs).
 Layout in the dataset: <product>/1m/<block>/<E>_<N>.tif, where E, N are the tile's lower
 left corner in km divided by 2 (E = floor(x / 2000)) and <block> groups 10 x 10 tiles
 (E // 10, N // 10) so no folder holds more than 100 files; <product>/1m/index.json lists
-the tiles with their sha256 (None: no data there). The TIFF is read in 2 km bands of the
+the tiles with their sha256 (None: no data there), every tile of the raster's extent, so a tile
+beyond the rectangle of its keys is outside the data too (sources.TileBases); while cut or
+average still has tiles of the extent to write, the index says "partial": true, and then
+nothing it does not list counts as beyond it. The TIFF is read in 2 km bands of the
 full width from the top. Extract it first (122–157 GB): GDAL can read it straight from the
 ZIP (/vsizip/; the national ZIPs are plain Deflate, forwards only), but at about 7 MB/s
 (DMP 1.0: 9 min per band, 15 h in all) against 400 MB/s for Python's zipfile, and from the
@@ -61,7 +64,7 @@ import sys
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Dict, Optional
 
 import numpy as np
 import rasterio as rio
@@ -369,6 +372,23 @@ def _sha256(path: str) -> str:
     return digest.hexdigest()
 
 
+def _mark_partial(index: Dict, partial: bool):
+    """index.json's "partial" while tiles of the extent are still to be written (sources.TileBases then looks
+    for a tile it does not list further, never takes it as beyond the data); none once complete."""
+    if partial:
+        index["partial"] = True
+    else:
+        index.pop("partial", None)
+
+
+def _save_index(index: Dict, path: str):
+    """Write an index.json atomically."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump(index, f)
+    os.replace(path + ".part", path)
+
+
 def cut(product: str, zips: str, root: str, rows_limit: Optional[int] = None):
     """Cut the TIFF (extracted, or else inside the ZIP) into 2 km tiles under root (skips
     rows already written; rows_limit stops after that many rows, for a timing trial)."""
@@ -430,13 +450,14 @@ def cut(product: str, zips: str, root: str, rows_limit: Optional[int] = None):
                          heights="EPSG:8357 (Baltic 1957)", tile_m=TILE_M, resolution=res, block=BLOCK,
                          encoding=f"COG LERC_ZSTD, max_z_error {MAX_Z_ERROR} m", licence="CC-BY-4.0",
                          attribution="ÚGKK SR", created=datetime.date.today().isoformat())
-            os.makedirs(out, exist_ok=True)
-            with open(index_path + ".part", "w", encoding="utf-8") as f:
-                json.dump(index, f)
-            os.replace(index_path + ".part", index_path)
+            _mark_partial(index, any(f"{i}_{j}" not in index["tiles"] for j in rows for i in cols))
+            _save_index(index, index_path)
             done = sum(v is not None for v in index["tiles"].values())
             print(f"  row {n + 1}/{len(rows)}: {done} tiles with data, {(time.time() - start) / 60:.0f} min",
                   flush=True)
+        if index.get("partial") and all(f"{i}_{j}" in index["tiles"] for j in rows for i in cols):
+            _mark_partial(index, False)  # every row was there already
+            _save_index(index, index_path)
     write_card(root)
     print(f"done: {sum(v is not None for v in index['tiles'].values())} tiles in {(time.time() - start) / 60:.0f} min")
 
@@ -466,6 +487,7 @@ def average(product: str, root: str, factors=FACTORS):
         indexes[factor].update({k: v for k, v in source.items() if k != "tiles"},
                                resolution=float(factor), from_resolution=1.0, encoding=averaged_encoding(factor),
                                created=datetime.date.today().isoformat())
+        _mark_partial(indexes[factor], True)
     todo = {factor: {k for k in source["tiles"] if k not in indexes[factor]["tiles"]} for factor in factors}
     keys = sorted({k for ks in todo.values() for k in ks}, key=lambda k: (-int(k.split("_")[1]), int(k.split("_")[0])))
     print(f"{src_root}: {len(source['tiles'])} tiles, {len(keys)} to average by {', '.join(map(str, factors))}",
@@ -506,6 +528,8 @@ def average(product: str, root: str, factors=FACTORS):
                     save_index(f)
                 print(f"  {n}/{len(keys)} tiles, {(time.time() - start) / 60:.1f} min", flush=True)
     for f in factors:
+        _mark_partial(indexes[f], bool(source.get("partial"))
+                      or any(k not in indexes[f]["tiles"] for k in source["tiles"]))
         save_index(f)
         done = sum(v is not None for v in indexes[f]["tiles"].values())
         size = sum(os.path.getsize(os.path.join(outs[f], tile_name(*map(int, k.split("_")))))
