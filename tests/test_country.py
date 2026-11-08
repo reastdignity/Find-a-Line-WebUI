@@ -397,9 +397,9 @@ def test_config_hash_follows_the_obstacle_rule(monkeypatch):
 def test_border_notes(tmp_path):
     """cube.json's notes on the borders: a country's name none of its neighbours (the page #layer writes a
     sentence per neighbour of "neighbours" itself) and list the borders no neighbour's source covers (the
-    coverage map's outline of Slovakia: Hungary and Ukraine, never Slovakia itself); a source without
-    countries (an elevation file) counts the country holding its outline as its own; a study area keeps its
-    sentence."""
+    coverage map's outline of Slovakia: Hungary and Ukraine, never Slovakia itself) by the countries'
+    English names, two joined by "and", more by commas and "and"; a source without countries (an elevation
+    file) counts the country holding its outline as its own; a study area keeps its sentence."""
     import country
     with open(country.SHAPES, encoding="utf-8") as f:
         sk = next(ft for ft in json.load(f)["features"] if ft["properties"]["id"] == "sk")
@@ -408,9 +408,13 @@ def test_border_notes(tmp_path):
     notes = country._border_notes(slovakia, str(tmp_path))
     assert len(notes) == 2 and notes[0].startswith("Lines across the border are counted too: one anchor in Slovakia")
     assert not any(name in notes[0] for name in ("poland", "austria", "czechia", "Neighbours"))
-    assert notes[1].startswith("No data of the neighbours across the border with HU, UA (no source here)")
+    assert notes[1] == ("No data of the neighbours across the border with Hungary and Ukraine (no source here): "
+                        "lines cross it only where Slovakia's own data reach beyond the border."), notes
     files = country.Country(id="testland", name="Testland", source="files", area="x")
     assert country._hard_borders(files, str(tmp_path)) == ["AT", "CZ", "HU", "PL", "UA"]
+    assert country._names_text(["HU"]) == "Hungary"
+    assert country._names_text(["UA", "AT", "HU"]) == "Austria, Hungary and Ukraine"
+    assert country._names_text(["HU", "XX"]) == "Hungary and XX"  # a code without a name as it is
     study = country.Country(id="sk-part", name="Part", source="slovakia", area="osm:Slovensko",
                             options={"within": "48.5,19,49,19.5"})
     assert country._border_notes(study, str(tmp_path)) == ["Only lines with both anchors inside Part are counted."]

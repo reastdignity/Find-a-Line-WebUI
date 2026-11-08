@@ -35,6 +35,7 @@ the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
 
 import argparse
 import dataclasses
+import functools
 import gc
 import glob
 import hashlib
@@ -1761,17 +1762,44 @@ def _hard_borders(country: Country, folder: str) -> List[str]:
     return sorted(code.upper() for code in found)
 
 
+@functools.lru_cache(maxsize=1)
+def _country_names() -> Dict[str, str]:
+    """ISO 3166-1 alpha-2 codes (upper case) -> the usual English names of tzdata's iso3166.tab ("HU"
+    Hungary, "UA" Ukraine; the tzdata package, which accounts.country_of_zone reads too). The coverage
+    map's outlines carry codes only, and tools/area_rows.py's COUNTRIES names only the catalogue's
+    countries, which a hard border lacks by definition. {} when the table cannot be read."""
+    from importlib import resources
+    names = {}
+    try:
+        text = resources.files("tzdata").joinpath("zoneinfo", "iso3166.tab").read_text(encoding="utf-8")
+    except (OSError, ModuleNotFoundError):
+        return names
+    for line in text.splitlines():
+        if line and not line.startswith("#"):
+            code, name = line.split("\t")[:2]
+            names[code] = name
+    return names
+
+
+def _names_text(codes: Sequence[str]) -> str:
+    """The countries of ISO codes in words, by name: "Hungary and Ukraine", "Austria, Hungary and
+    Ukraine" (a code without a name as it is)."""
+    names = sorted(_country_names().get(code, code) for code in codes)
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
 def _border_notes(country: Country, folder: str) -> List[str]:
     """cube.json's notes on the borders: which lines are counted across them, which borders stay hard.
     The page #layer writes a sentence per neighbour of cube.json's "neighbours" itself (counted from this
-    country's data, or the neighbour's own layer shown), so these name none of them."""
+    country's data, or the neighbour's own layer shown), so these name none of them; the hard borders by
+    the countries' English names (_names_text)."""
     if country.study:
         return [f"Only lines with both anchors inside {country.name} are counted."]
     notes = [f"Lines across the border are counted too: one anchor in {country.name}, the other within the band's "
              f"longest line beyond the border, on the neighbours' data or on {country.name}'s own data there."]
     hard = _hard_borders(country, folder)
     if hard:
-        notes.append(f"No data of the neighbours across the border with {', '.join(hard)} (no source here): lines "
+        notes.append(f"No data of the neighbours across the border with {_names_text(hard)} (no source here): lines "
                      f"cross it only where {country.name}'s own data reach beyond the border.")
     return notes
 
