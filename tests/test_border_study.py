@@ -148,25 +148,28 @@ def test_resume_and_definition(study, monkeypatch):
 
 
 def test_reframed_spots():
-    """Spots moved into another CRS and back match themselves within a cluster; in their own frame
-    they keep their ids."""
-    from pyproj import Transformer
+    """Spots of one origin as spots of another and back: themselves exactly (one lattice for every CRS,
+    the origins' offset alone); in the other frame other ids; within a box only the spots with both ends
+    in it; their clusters' centres in degrees."""
+    from shapely.geometry import box
     rng = np.random.default_rng(3)
-    to = Transformer.from_crs("EPSG:4326", "EPSG:2180", always_xy=True)
-    x, y = to.transform(20.0 + rng.random(200) * 0.05, 49.2 + rng.random(200) * 0.03)
-    angle = rng.random(200) * 2 * np.pi
-    span = 100 + rng.random(200) * 2000
-    origin = cc.origin_of((min(x) - 6000, min(y) - 6000, 0, 0))
-    ids = np.unique(cc.spot_ids(x, y, x + span * np.cos(angle), y + span * np.sin(angle), origin))
+    lon1, lat1 = 20.0 + rng.random(200) * 0.05, 49.2 + rng.random(200) * 0.03
+    lon2, lat2 = lon1 + (rng.random(200) - 0.5) * 0.05, lat1 + (rng.random(200) - 0.5) * 0.03
+    origin, other = cc.origin_of((19.9, 49.1, 20.1, 49.3), 5000), cc.origin_of((19.5, 48.9, 20.1, 49.3), 5000)
+    assert origin != other
+    ids = np.unique(cc.spot_ids(lon1, lat1, lon2, lat2, origin))
     assert np.array_equal(np.sort(bs.reframed_spots(ids, origin, "EPSG:2180", origin, "EPSG:2180")), ids)
-    krovak = Transformer.from_crs("EPSG:2180", "EPSG:8353", always_xy=True)
-    kx, ky = krovak.transform(min(x) - 6000, min(y) - 6000)
-    other = cc.origin_of((kx - 10000, ky - 10000, 0, 0))
     there = bs.reframed_spots(ids, origin, "EPSG:2180", other, "EPSG:8353")
-    back = np.unique(bs.reframed_spots(np.unique(there), other, "EPSG:8353", origin, "EPSG:2180"))
+    assert np.array_equal(np.sort(bs.reframed_spots(there, other, "EPSG:8353", origin, "EPSG:2180")), ids)
+    assert np.array_equal(np.sort(there), np.unique(cc.spot_ids(lon1, lat1, lon2, lat2, other)))
     import band_study
-    assert band_study.matched(ids, back, 2).all()
     assert band_study.matched(ids, np.unique(there), 0).mean() < 0.5  # another frame: other ids
+    x1, y1, x2, y2 = bs.spot_points(ids, origin)
+    assert np.all(np.abs(np.sort(np.concatenate([x1, x2])) - np.sort(np.concatenate([lon1, lon2]))) <= 1 / 2400)
+    within = box(20.0, 49.2, 20.03, 49.22)
+    inside = bs.reframed_spots(ids, origin, "EPSG:2180", origin, "EPSG:2180", within)
+    keep = (x1 > 20.0) & (x1 < 20.03) & (y1 > 49.2) & (y1 < 49.22) & (x2 > 20.0) & (x2 < 20.03) & (y2 > 49.2) & (y2 < 49.22)
+    assert np.array_equal(np.sort(inside), np.sort(ids[keep])) and 0 < keep.sum() < len(ids)
 
 
 def test_exposure_and_report(study, monkeypatch):
@@ -198,8 +201,9 @@ def test_exposure_and_report(study, monkeypatch):
     assert found["boxes"] == ["clip-files"] and found["measured"] == ab > 0
     # the cube's lines (the run's of A, all near the border) whose cell's centre lies outside the box: the
     # rest, carried over with the run's ratio in every bin with lines of A near the border
-    keys, counts = cc.Cube(cube_dir).array("lines", 1).T
-    x, y = bs._cell_centres(keys, tuple(d["origin"])).T
+    rows = cc.Cube(cube_dir).array("lines", 1)
+    keys, counts = rows[:, :2], rows[:, 2]
+    x, y = bs._cell_centres(keys, tuple(d["origin"]), d["crs"]).T
     left, bottom, right, top = d["counted"]
     in_box = (x >= left) & (x < right) & (y >= bottom) & (y < top)
     assert found["rest"] == int(counts[~in_box].sum())
@@ -208,7 +212,7 @@ def test_exposure_and_report(study, monkeypatch):
         assert b["carried"] == (b["aa_near"] > 0)
     assert found["estimate"] >= found["measured"]
     assert found["spots"]["measured"] == run["spots"]["ab"] > 0 and found["spots"]["estimate"] >= run["spots"]["ab"]
-    assert found["check"] == {"cube": "west", "bins": []}  # no 1 km cell lies wholly inside the small box
+    assert found["check"] == {"cube": "west", "bins": []}  # no cell of the lattice lies wholly inside the small box
     assert exposed["lines"]["near_total"]["East"] == exposed["lines"]["total"]
     text = open(os.path.join(out, "study.md"), encoding="utf-8").read()
     assert "Żabi Koń split" in text and "| S | 30-60 m |" in text and "Estimate with the ratio of clip-files" in text

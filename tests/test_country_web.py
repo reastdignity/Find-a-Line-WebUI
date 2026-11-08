@@ -4,6 +4,7 @@ against Cube, the cells the outline cuts, the errors, who may ask, a cube built 
 and the page #layer in headless Edge on the real server, with a study area too."""
 
 import json
+import math
 import os
 import subprocess
 import sys
@@ -11,7 +12,6 @@ import sys
 import numpy as np
 import pytest
 import shapely
-from pyproj import Transformer
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO)
@@ -37,55 +37,57 @@ BANDS = [("S", 30, 300, 1.0, "formula", 60, 5000, True), ("M", 300, 1000, 2.0, "
 
 def sample_cube(data_dir, country: str = "slovakia", name: str = "Slovakia", seed: int = 1, outline=OUTLINE,
                 study: bool = False) -> str:
-    """A small cube of made-up counts in <data_dir>/countries/<country>/cube (countcube.build of one tile
-    of synthetic TileCounts) with its area.geojson of `outline` (lon, lat), a study area if `study`; the
-    cube folder. Also tools/ui_shots.py's sample."""
+    """A small cube (countcube v2) of made-up counts in <data_dir>/countries/<country>/cube (countcube.build
+    of one tile of synthetic TileCounts on the global lattice: 30" cells from the origin of `outline`'s box
+    less 5 km) with its area.geojson of `outline` (lon, lat), a study area if `study`; the cube folder. Also
+    tools/ui_shots.py's sample."""
     rng = np.random.default_rng(seed)
-    to_crs = Transformer.from_crs("EPSG:4326", CRS, always_xy=True)
-    to_wgs84 = Transformer.from_crs(CRS, "EPSG:4326", always_xy=True)
     outline = shapely.Polygon(outline)
-    local = shapely.transform(shapely.segmentize(outline, 0.01),
-                              lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
-    origin = cc.origin_of(local.bounds)
-    x0, y0 = origin
-    left, bottom, right, top = local.bounds
-    i0, i1 = int((left - x0) // cc.CELL_M), int((right - x0) // cc.CELL_M)
-    j0, j1 = int((bottom - y0) // cc.CELL_M), int((top - y0) // cc.CELL_M)
-    i, j = np.meshgrid(np.arange(i0, i1 + 1), np.arange(j0, j1 + 1), indexing="ij")
+    origin = cc.origin_of(outline.bounds, 5000)
+    i0, j0 = origin
+    west, south, east, north = outline.bounds
+    i, j = np.meshgrid(np.arange(math.floor(west * cc.CELLS_PER_DEGREE) - i0, math.floor(east * cc.CELLS_PER_DEGREE) - i0 + 1),
+                       np.arange(math.floor(south * cc.CELLS_PER_DEGREE) - j0,
+                                 math.floor(north * cc.CELLS_PER_DEGREE) - j0 + 1), indexing="ij")
     i, j = i.ravel(), j.ravel()
-    inside = shapely.contains_xy(local, x0 + (i + 0.5) * cc.CELL_M, y0 + (j + 0.5) * cc.CELL_M)
-    i, j = i[inside], j[inside]
-    lon, lat = to_wgs84.transform(x0 + (i + 0.5) * cc.CELL_M, y0 + (j + 0.5) * cc.CELL_M)
+    lon, lat = (i0 + i + 0.5) / cc.CELLS_PER_DEGREE, (j0 + j + 0.5) / cc.CELLS_PER_DEGREE
+    inside = shapely.contains_xy(outline, lon, lat)
+    i, j, lon, lat = i[inside], j[inside], lon[inside], lat[inside]
     density = rng.uniform(0, 3, len(i)) * (rng.random(len(i)) < 0.3)
     for hlon, hlat, peak, radius in HOT:
         d2 = ((lon - hlon) * 111.32 * np.cos(np.radians(49.1))) ** 2 + ((lat - hlat) * 111.32) ** 2
         density += peak * np.exp(-d2 / (2 * radius ** 2))
-    lines = np.round(density * rng.uniform(0.5, 1.5, len(i))).astype(np.int64)
+    km2 = cc.lattice_km2(1, j0, j)  # density is per km²
+    lines = np.round(density * km2 * rng.uniform(0.5, 1.5, len(i))).astype(np.int64)
     i, j, lines = i[lines > 0], j[lines > 0], lines[lines > 0]
 
     # Each cell's lines in a few records of random values, the counts split among them
     per = rng.integers(1, 6, len(i))
     cell = np.repeat(np.arange(len(i)), per)
     n = len(cell)
+    elevation = rng.uniform(400, 2600, n)
     columns = {"length": rng.choice(np.array(cc.LENGTH_EDGES[:-1], dtype=float), n) + rng.uniform(0, 20, n),
                "clearance": rng.uniform(0, 30, n), "clearance_nmpt": np.full(n, np.nan),
                "height_max": rng.uniform(2, 150, n), "angle1": rng.uniform(20, 95, n), "angle2": rng.uniform(20, 95, n),
                "prom1": rng.uniform(0, 80, n), "prom2": rng.uniform(0, 80, n),
-               "water_px": rng.integers(0, 3, n) * (rng.random(n) < 0.1)}
-    records = cc.line_records(columns)
+               "water_px": rng.integers(0, 3, n) * (rng.random(n) < 0.1),
+               "elev_a1": elevation, "elev_a2": elevation + rng.uniform(-40, 40, n),
+               "drop1": rng.uniform(20, 250, n), "drop2": rng.uniform(20, 250, n),
+               "height_mean": rng.uniform(2, 120, n), "high_pct": rng.uniform(0, 100, n)}
+    records = cc.line_records(columns, 1.0)
     share = rng.random(n)
     total = np.bincount(cell, share)[cell]
     counts = np.maximum(np.round(lines[cell] * share / total), 1).astype(np.int64)
     keys, counts = cc.sum_keys(cc.pack_keys(i[cell], j[cell], records), counts)
 
-    # Spots: about one per 300 lines, each a pair of clusters in its cell with one of the cell's records
+    # Spots: about one per 300 lines, each a pair of the lattice's clusters in its cell with one of the cell's records
     spots = np.maximum(np.round(lines / 300 * rng.uniform(0.5, 1.5, len(i))), 1).astype(np.int64)
     owner = np.repeat(np.arange(len(i)), spots)
     m = len(owner)
     pcx = i[owner] * cc.CLUSTERS_PER_CELL + rng.integers(0, cc.CLUSTERS_PER_CELL, m)
     pcy = j[owner] * cc.CLUSTERS_PER_CELL + rng.integers(0, cc.CLUSTERS_PER_CELL, m)
     dx, dy = rng.integers(1, 30, m), rng.integers(-30, 31, m)
-    ids = (pcx << cc.SPOT_CX_SHIFT) | (pcy << cc.SPOT_CY_SHIFT) | (dx << 8) | (dy + 128)
+    ids = cc.cluster_spot_ids(pcx, pcy, pcx + dx, pcy + dy)
     first = np.searchsorted(cell, owner)  # the first record of the spot's cell
     ids, spot_records = cc.merge_spots(ids, records[first + rng.integers(0, per[owner])])
 
@@ -149,7 +151,8 @@ def test_countries_listed(client, sample, tmp_path):
         info = json.load(f)
     assert slovakia == {k: v for k, v in info.items() if k not in ("config", "origin")}
     assert "config" not in slovakia and "origin" not in slovakia
-    assert {"bands", "edges", "levels", "cell_m", "totals", "built", "credits", "dsm"} <= set(slovakia)
+    assert {"bands", "edges", "levels", "cell_deg", "totals", "built", "credits", "dsm", "kinds"} <= set(slovakia)
+    assert "cell_m" not in slovakia and slovakia["version"] == cc.VERSION == 2
 
     with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as empty:
         assert empty.get("/api/countries").json() == {"countries": []}
@@ -176,9 +179,9 @@ def test_cells_cut_by_the_outline(client, sample):
         cut = cube.cut(level)
         rows = {(r[0], r[1]) for r in answer["cells"]}
         assert answer["cut"] == {f"{i},{j}": json.loads(json.dumps(v)) for (i, j), v in cut.items() if (i, j) in rows}
-        assert answer["cut"] and all(len(r) == 11 for r in answer["cells"])
-        full = (answer["cell_m"] / 1000) ** 2
-        assert all(0 < v["km2"] < full and v["shape"] for v in answer["cut"].values())
+        assert answer["cut"] and all(len(r) == 11 for r in answer["cells"]) and answer["cell_deg"] == level * cc.CELL_DEG
+        full = {key: cube.cell_km2(level, np.array([int(key.split(",")[1])]))[0] for key in answer["cut"]}
+        assert all(0 < v["km2"] < full[key] and v["shape"] for key, v in answer["cut"].items())
     assert _cells(client, level="1", length="30-60", prominence="50", height="100", clearance="20")["cut"] is not None
     away = client.get("/api/countries/slovakia/cells", params={"bbox": "0,0,1,1", "level": "1"})
     assert away.json()["cells"] == [] and away.json()["cut"] == {}
@@ -208,7 +211,7 @@ def test_cells_as_the_cube_gives_them(client, sample):
         level = cube.auto_level(box) if level is None else level
         got = _cells(client, **query)
         i, j, n = cube.cells(query.get("mode", "lines"), level, box, filters)
-        assert got["level"] == level and got["cell_m"] == level * 1000, query
+        assert got["level"] == level and got["cell_deg"] == level * cc.CELL_DEG, query
         assert len(got["cells"]) == len(i) > 0, query
         assert got["total"] == int(n.sum()) and got["max"] == int(n.max()), query
         corners = cube.corners(level, i, j)
@@ -220,8 +223,8 @@ def test_cells_as_the_cube_gives_them(client, sample):
     whole = _cells(client, level="8")
     assert whole["total"] == int(cube.cells("lines", 8, None, cc.Filters())[2].sum())
     # far from the country: no cells
-    assert _cells(client, bbox="100,10,101,11", level="1") == {"level": 1, "cell_m": 1000, "total": 0, "max": 0,
-                                                               "cells": [], "cut": {}}
+    assert _cells(client, bbox="100,10,101,11", level="1") == {"level": 1, "cell_deg": cc.CELL_DEG, "total": 0,
+                                                               "max": 0, "cells": [], "cut": {}}
     # filters that leave nothing
     assert _cells(client, bbox=VIEW, level="8", trees="only")["cells"] == []
 
@@ -250,7 +253,7 @@ def test_histogram_as_the_cube_gives_it(client, sample):
         level = cube.auto_level(box) if level is None else level
         got = _histogram(client, **query)
         expected = cube.histogram(query.get("mode", "lines"), level, box, filters, view=VIEW_BOX, decimals=6)
-        assert got == {"level": level, "cell_m": level * 1000, **expected}, query
+        assert got == {"level": level, "cell_deg": level * cc.CELL_DEG, **expected}, query
         # the cells the page counts in view: their corners' box reaches the view (Leaflet's intersects)
         assert got["total"] > 0 and got["total"] == _in_view(_cells(client, **query), VIEW_BOX), query
         assert got["total"] <= _cells(client, **query)["total"], query
@@ -258,13 +261,14 @@ def test_histogram_as_the_cube_gives_it(client, sample):
                                                                                   "height"))
     assert _histogram(client, bbox=VIEW)["level"] == cube.auto_level(box)  # level=auto by default
     whole = _histogram(client, level="8")
-    assert whole == {"level": 8, "cell_m": 8000, **cube.histogram("lines", 8, None, cc.Filters())}
+    assert whole == {"level": 8, "cell_deg": 8 * cc.CELL_DEG, **cube.histogram("lines", 8, None, cc.Filters())}
     assert whole["total"] == cube.info["totals"]["lines"]
-    zeros = {"length": [0] * 9, **{name: [0] * 6 for name in ("prominence", "wall", "clearance", "height")}}
-    assert _histogram(client, bbox="100,10,101,11", level="1") == {"level": 1, "cell_m": 1000, "total": 0, **zeros}
+    zeros = {"length": [0] * 9, **{name: [0] * (cc.bins_of(name) + 1) for name in cc.KINDS}}
+    assert _histogram(client, bbox="100,10,101,11", level="1") == {"level": 1, "cell_deg": cc.CELL_DEG, "total": 0,
+                                                                   **zeros}
     # the second country answers for itself
     other = cc.Cube(os.path.join(sample, "countries", "testland", "cube"))
-    assert _histogram(client, "testland", level="8") == {"level": 8, "cell_m": 8000,
+    assert _histogram(client, "testland", level="8") == {"level": 8, "cell_deg": 8 * cc.CELL_DEG,
                                                          **other.histogram("lines", 8, None, cc.Filters())}
     assert _histogram(client, "testland", level="8")["total"] != whole["total"]
 

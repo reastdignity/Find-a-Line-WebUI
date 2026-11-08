@@ -66,55 +66,59 @@ def test_setup_and_reset(tmp_path):
 
 
 def _spots(*lines):
-    """The spot ids of lines given as (x1, y1, x2, y2) in metres from the origin (0, 0)."""
-    a = np.array(lines, dtype=float)
-    return cc.spot_ids(a[:, 0], a[:, 1], a[:, 2], a[:, 3], (0.0, 0.0))
+    """The spot ids of lines given by their anchors' clusters (cx1, cy1, cx2, cy2) of the lattice."""
+    a = np.array(lines, dtype=np.int64)
+    return cc.cluster_spot_ids(a[:, 0], a[:, 1], a[:, 2], a[:, 3])
 
 
 def test_matched():
-    """A spot matches one whose ends each lie within one cluster, in either order; two clusters
-    off is no match."""
-    ref = _spots((1010, 1010, 2010, 1010), (1010, 1010, 1010, 3010), (5010, 5010, 6010, 5010))
-    var = _spots((1040, 1030, 2040, 990),      # each end at most one cluster off
-                 (990, 3010, 1010, 1010),      # the same vertical line, its first end the other one
-                 (5160, 5010, 6160, 5010))     # three clusters off
-    assert bs.matched(ref, var).tolist() == [True, True, False]
-    assert bs.matched(var, ref).tolist() == [True, True, False]
+    """A spot matches one whose ends each lie within TOLERANCE clusters (two east-west, one north-south:
+    about cube v1's +-50 m), in either order; three clusters east-west or two north-south off is no
+    match."""
+    assert bs.TOLERANCE == (2, 1)
+    ref = _spots((200, 200, 230, 200), (200, 200, 200, 240), (500, 500, 530, 500), (700, 700, 730, 700))
+    var = _spots((202, 201, 228, 199),      # each end two clusters east-west and one north-south off at most
+                 (200, 240, 199, 200),      # the same line north-south, its first end the other one
+                 (503, 500, 533, 500),      # three clusters east-west off
+                 (700, 702, 730, 702))      # two clusters north-south off
+    assert bs.matched(ref, var).tolist() == [True, True, False, False]
+    assert bs.matched(var, ref).tolist() == [True, True, False, False]
+    assert bs.matched(ref, var, tolerance=3).tolist() == [True, True, True, True]  # one number: both axes
     assert bs.matched(ref, ref, tolerance=0).all()
     assert not bs.matched(ref, np.zeros(0, dtype=np.int64)).any()
     assert len(bs.matched(np.zeros(0, dtype=np.int64), ref)) == 0
 
 
 def _counts(cells, spots, trees_over=()):
-    """Counts of one line per cell (i, j) of 1 km and of spots, of the length bin 30-60 m; the
-    cells in trees_over have their line over trees."""
+    """Counts of one line per cell (i, j) of the lattice (level 1) and of spots, of the length bin
+    30-60 m; the cells in trees_over have their line over trees."""
     record = 1 << cc.LENGTH_SHIFT
-    keys = [int(cc.pack_keys(np.array([i]), np.array([j]),
-                             np.array([record | (1 << (cc.TREES_BIT + ((i, j) in trees_over)))]))[0])
-            for i, j in cells]
+    keys = np.concatenate([cc.pack_keys(np.array([i]), np.array([j]),
+                                        np.array([[record | (1 << (cc.TREES_BIT + ((i, j) in trees_over))), 0]]))
+                           for i, j in cells])
     ids = _spots(*spots) if spots else np.zeros(0, dtype=np.int64)
-    records = np.array([record | (1 << cc.TREES_BIT)] * len(ids), dtype=np.int64)
-    order = np.argsort(keys)
-    return bs.Counts(np.array(keys, dtype=np.int64)[order], np.ones(len(keys), dtype=np.int64), ids, records)
+    records = np.array([[record | (1 << cc.TREES_BIT), 0]] * len(ids), dtype=np.int64).reshape(-1, 2)
+    keys, n = cc.sum_keys(keys, np.ones(len(keys), dtype=np.int64))
+    return bs.Counts(keys, n, ids, records)
 
 
 def test_compare_counts():
     """The same counts match fully; a cell the variant misses is lost, one only it has is added."""
-    ref = _counts([(1, 1), (3, 3)], [(1010, 1010, 1040, 1010), (3010, 3010, 3050, 3010)])
+    ref = _counts([(1, 1), (3, 3)], [(20, 20, 21, 20), (60, 60, 61, 60)])
     same = bs.compare_counts(ref, ref)
     assert same["spots"]["recall"] == same["spots"]["precision"] == 1.0
     assert same["cells"]["1"]["lost"] == same["cells"]["1"]["added"] == 0.0
     assert same["lines"]["ratio"] == 1.0
-    var = _counts([(1, 1), (5, 5)], [(1010, 1010, 1040, 1010), (5010, 5010, 5050, 5010)])
+    var = _counts([(1, 1), (5, 5)], [(20, 20, 21, 20), (100, 100, 101, 100)])
     other = bs.compare_counts(ref, var)
     assert other["spots"]["recall"] == other["spots"]["precision"] == 0.5
     assert other["cells"]["1"]["lost"] == other["cells"]["1"]["added"] == 0.5
-    assert other["cells"]["4"]["lost"] == 0.0  # cells (1, 1) and (3, 3) lie in the 4 km cell (0, 0)
+    assert other["cells"]["4"]["lost"] == 0.0  # cells (1, 1) and (3, 3) lie in the level-4 cell (0, 0)
 
 
 def test_open_filter():
     """bits(trees' "not over" bit) keeps the lines not over trees and the spots with such a line."""
-    c = _counts([(1, 1), (2, 2)], [(1010, 1010, 1040, 1010)], trees_over=[(2, 2)])
+    c = _counts([(1, 1), (2, 2)], [(20, 20, 21, 20)], trees_over=[(2, 2)])
     open_ = c.bits(1 << cc.TREES_BIT)
     assert len(open_.keys) == 1 and len(open_.ids) == 1
 
@@ -191,6 +195,9 @@ def test_study_of_the_clip(study):
     assert all(os.path.exists(p["picture"]) for p in result["pairs"])
     text = (study["out"] / "study.md").read_text(encoding="utf-8")
     assert "Studyland (studyland)" in text and "Not over trees" in text
+    # the cells named by their size at the area's latitude (50.16°: 30" are 0.60 x 0.93 km)
+    assert result["cell_km"]["1"] == pytest.approx([0.595, 0.927], abs=0.005) and "Lost 0.6x0.9 km" in text
+    assert result["cluster_m"] == pytest.approx([29.8, 46.3], abs=0.2) and "60 x 46 m" in text
 
 
 def test_missing_band(study, tmp_path):
