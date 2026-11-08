@@ -187,3 +187,54 @@ def test_check_source_file_cut_short(http_server, tiff):
     with pytest.raises(RuntimeError, match="not read completely"):
         cs._read_source(http_server.url("/cut.tif"), profile)
     assert (cs._read_source(http_server.url("/cut.tif"), profile) == band[1000:1040, 1000:1040]).all()
+
+
+def _other_crs_tiff(tmp_path, name="other.tif", crs="EPSG:32633"):
+    """The test file written again in another CRS (the same pixels), as bytes."""
+    path = str(tmp_path / name)
+    band = np.full((SIZE, SIZE), 7.0, dtype=np.float32)
+    with rio.open(path, "w", driver="GTiff", width=SIZE, height=SIZE, count=1, dtype="float32", crs=crs,
+                  transform=from_origin(0, SIZE, 1, 1), tiled=True, blockxsize=16, blockysize=16) as dst:
+        dst.write(band, 1)
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def test_file_in_another_crs(http_server, tiff, tmp_path, capsys):
+    """A listed file in another CRS than the block's is not used (said) while another file of the block serves
+    it; a block none of whose files could be read for that reason is an error (the next pass tries again),
+    never "missing": ArcticDEM over Jan Mayen gave "0 of 1252 tiles" without a word (2026-11-08)."""
+    data, band = tiff
+    http_server.add("/big.tif", data, "image/tiff")
+    http_server.add("/other.tif", _other_crs_tiff(tmp_path), "image/tiff")
+    transform, shape = from_origin(1000, SIZE - 1000, 1, 1), (40, 40)
+    path = str(tmp_path / "block.tif")
+    with pytest.raises(RuntimeError, match="test: other is in EPSG:32633, not EPSG:3035; no file of this block "
+                                           "could be read in its CRS"):
+        _read_block([("other", http_server.url("/other.tif"), 2020)], CRS, transform, shape, path, "test")
+    assert not os.path.exists(path)
+    fetched = _read_block([("other", http_server.url("/other.tif"), 2020), ("big", http_server.url("/big.tif"), 2019)],
+                          CRS, transform, shape, path, "test")
+    assert fetched.received > 0
+    with rio.open(path) as block:
+        assert (block.read(1) == band[1000:1040, 1000:1040]).all() and block.tags()["sources"] == "big"
+    assert "test: other is in EPSG:32633, not EPSG:3035; not used" in capsys.readouterr().out
+
+
+def test_group_with_a_file_in_another_crs(http_server, tiff, tmp_path, capsys):
+    """read_group: a file of another CRS is not used for the blocks that list it; the group raises when a
+    block none of whose files could be read for that reason is among them (the caller then reads the blocks
+    one by one, where that block fails alone)."""
+    from sources.readers.windows import BlockRequest, read_group
+    data, band = tiff
+    http_server.add("/big.tif", data, "image/tiff")
+    http_server.add("/other.tif", _other_crs_tiff(tmp_path), "image/tiff")
+    other, big = (http_server.url("/other.tif"), http_server.url("/big.tif"))
+    served = BlockRequest([("other", other, 2020), ("big", big, 2019)], CRS, from_origin(1000, SIZE - 1000, 1, 1),
+                          (40, 40))
+    (values, tags), = read_group([served], "test")
+    assert (values == band[1000:1040, 1000:1040]).all() and tags["sources"] == "big"
+    assert "test: other is in EPSG:32633, not EPSG:3035; not used" in capsys.readouterr().out
+    unserved = BlockRequest([("other", other, 2020)], CRS, from_origin(1100, SIZE - 1100, 1, 1), (40, 40))
+    with pytest.raises(RuntimeError, match="other is in EPSG:32633, not EPSG:3035; no file of 1 blocks could be read"):
+        read_group([served, unserved], "test")
