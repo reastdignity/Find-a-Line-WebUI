@@ -195,8 +195,10 @@ class Reporter:
         self.state = {"name": area.name, "area": area.area, "source": area.source, "resolution": area.resolution,
                       "stage": "listing", "pass": number, "pid": os.getpid(), "started": _now(), "message": "",
                       "tiles_done": 0, "tiles_total": 0, "failed": 0, "mb": self.mb_before,
-                      "restarts": before.get("restarts", 0), "memory_gb": 0.0, "memory_peak_gb": 0.0}
+                      "restarts": before.get("restarts", 0), "memory_gb": 0.0, "memory_peak_gb": 0.0,
+                      "tiles_missing": 0}
         self.next_minute = 0.0
+        self._indexes: Optional[List[Tuple[str, set]]] = None   # _index_folders, once
         self.lock = threading.Lock()  # the thread and the end of the pass both write
         self.quit = threading.Event()
         self.thread = threading.Thread(target=self._beat, daemon=True)
@@ -226,21 +228,41 @@ class Reporter:
         if self.area.max_memory_gb and self.memory_gb > self.area.max_memory_gb:
             self.over_budget = True
 
-    def _index_counts(self) -> Tuple[int, int]:
-        """The index answers of 0.25° tiles there are (over the box of the grid, all layers), and how many."""
+    def _index_folders(self) -> List[Tuple[str, set]]:
+        """For every layer with a cached index: its folder of 0.25° answers and the names of this area's tiles
+        there (sources.indexes.cached.index_tiles: those near the outline; the grid's whole box before it)."""
         import osm
         from rasterio.warp import transform_bounds
-        from sources.indexes.cached import CachedIndex
-        got = total = 0
+        from sources.indexes import cached
+        found = []
         for plan in self.plans:
             grid = plan.grid
-            tiles = osm.tiles(*transform_bounds(grid.crs, "EPSG:4326", *grid.bounds))
+            index_tiles = getattr(cached, "index_tiles", None)
+            if index_tiles is not None:
+                tiles = index_tiles(grid)
+            else:
+                tiles = osm.tiles(*transform_bounds(grid.crs, "EPSG:4326", *grid.bounds))
+            names = {f"{osm.tile_name(lat, lon)}.json" for lat, lon in tiles}
             for layer in plan.layers:
                 index = getattr(layer, "index", None)
-                if isinstance(index, CachedIndex) and tiles:
-                    folder = os.path.dirname(index.index_path(plan.paths.cache, *tiles[0]))
-                    got += len(glob.glob(os.path.join(folder, "*.json")))
-                    total += len(tiles)
+                if isinstance(index, cached.CachedIndex) and tiles:
+                    found.append((os.path.dirname(index.index_path(plan.paths.cache, *tiles[0])), names))
+        return found
+
+    def _index_counts(self) -> Tuple[int, int]:
+        """The index answers of this area's 0.25° tiles there are (all layers), and how many there will be. The
+        tiles are listed once per pass (680 000 for the USA), and only they are counted: a folder is shared by
+        every area of a source (Liechtenstein showed 48 of 8 with Austria's answers beside its own)."""
+        if self._indexes is None:
+            self._indexes = self._index_folders()
+        got = total = 0
+        for folder, names in self._indexes:
+            try:
+                present = set(os.listdir(folder))
+            except OSError:
+                present = set()
+            got += len(names & present)
+            total += len(names)
         return got, total
 
     def _free(self) -> Optional[float]:
@@ -381,6 +403,17 @@ def _remove_parts(plans: Sequence) -> int:
     return removed
 
 
+def _count_missing(cache_dir: str, plans: Sequence, rows: List[Dict]):
+    """How many tiles of each layer the service has no data for (the sea, a Land's edge, a sheet never flown),
+    into the rows of the state: "done" then says what it has."""
+    k = 0
+    for plan in plans:
+        for layer in plan.layers:
+            tiles = layer.tiles(plan.grid) or []
+            rows[k]["missing"] = cache.count_missing(cache_dir, (layer.tile_path(cache_dir, t) for t in tiles))
+            k += 1
+
+
 def _planned(area: Area) -> List:
     """plans_of, or a Stop with what went wrong (a source without its key, an outline Nominatim does not know):
     the pass ends with the text in the state, not a traceback as its only trace."""
@@ -420,11 +453,14 @@ def run_pass(area: Area, number: int) -> int:
                 for layer in plan.layers:
                     if layer.tiles(grid) is None:
                         raise Stop(f"the index of {layer.description} could not be reached")
-                rows += [{"label": label, "tiles": len(layer.tiles(grid)), "to_download": len(todo)}
+                rows += [{"label": label, "tiles": len(layer.tiles(grid)), "to_download": len(todo), "missing": 0}
                          for layer, label, (todo, _) in zip(plan.layers, plan_labels, listed)]
             reporter.state["layers"] = rows
             reporter.tiles_total = sum(row["tiles"] for row in rows)
             reporter.tiles_cached = reporter.tiles_total - sum(row["to_download"] for row in rows)
+            if not reporter.tiles_total:
+                raise Stop("no tiles under the outline: the source has no data here or the listing found none",
+                           EXIT_NOTHING)
             reporter.state["stage"] = "downloading"
             reporter.write()
             bars.progress.subscribe(reporter)
@@ -438,8 +474,12 @@ def run_pass(area: Area, number: int) -> int:
                                     group_m=country.PREFETCH_GROUP_M * area.resolution, on_error=failures,
                                     reencode_cached=False)
                 reporter.next_plan()
+            _count_missing(cache_dir, plans, rows)
+            reporter.state["tiles_missing"] = missing = sum(row["missing"] for row in rows)
             if failures.tiles:
                 code = EXIT_FAILED
+            elif missing == reporter.tiles_total:
+                raise Stop(f"all {missing:,} tiles without data: the source has nothing under the outline", EXIT_NOTHING)
             else:
                 print(f"{_remove_parts(plans)} temporary files of earlier passes removed", flush=True)
                 reporter.state["stage"] = "done"
@@ -621,7 +661,7 @@ def summary(state: Dict, history: Sequence[Tuple[float, float, float]], now: flo
             "index_done": state.get("index_done"), "index_total": state.get("index_total"), "stale": stale,
             "updated": updated, "pass": state.get("pass"), "source": state.get("source", ""),
             "restarts": state.get("restarts", 0), "memory_gb": state.get("memory_gb"),
-            "memory_peak_gb": state.get("memory_peak_gb")}
+            "memory_peak_gb": state.get("memory_peak_gb"), "missing": state.get("tiles_missing", 0)}
 
 
 def duration(seconds: Optional[float]) -> str:
@@ -637,6 +677,8 @@ def duration(seconds: Optional[float]) -> str:
 def _notes(row: Dict) -> List[str]:
     """What the table and the page add after the numbers: the restarts over the memory budget."""
     notes = []
+    if row.get("missing"):
+        notes.append(f"{row['missing']:,} tiles without data")
     if row.get("restarts"):
         notes.append(f"{row['restarts']} {'restart' if row['restarts'] == 1 else 'restarts'} over the memory budget")
     return notes
@@ -762,6 +804,8 @@ def _section(row: Dict) -> str:
     free = f"{row['free_gb']:,.0f} GB" if row["free_gb"] is not None else "-"
     cells = [("Tiles", _tiles_text(row)), ("Downloaded", f"{row['gb']:,.1f} GB"), ("Speed", speed),
              ("Time left", duration(row["eta"])), ("Failed", f"{row['failed']:,}"), ("Free space", free)]
+    if row["missing"]:
+        cells.append(("Without data", f"{row['missing']:,}"))
     if row["memory_gb"] is not None:
         cells.append(("Memory", f"{row['memory_gb']:.1f} GB (peak {row['memory_peak_gb'] or 0:.1f})"))
     if row["restarts"]:

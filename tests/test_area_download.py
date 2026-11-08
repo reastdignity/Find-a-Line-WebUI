@@ -59,7 +59,21 @@ class NoIndex(FakeLayer):
 
 
 def _grid():
-    return SimpleNamespace(crs="EPSG:2180", bounds=(0, 0, 1000, 1000), width=1000, height=1000, res=1.0)
+    return SimpleNamespace(crs="EPSG:2180", bounds=(0, 0, 1000, 1000), width=1000, height=1000, res=1.0,
+                           area_shape=None)
+
+
+class EmptyLayer(FakeLayer):
+    """A layer whose tiles in `empty` have no data (the sea): recorded as missing, no file."""
+
+    def __init__(self, n, empty=(), bad=()):
+        super().__init__(n, bad)
+        self.empty = set(empty)
+
+    def download_tile(self, tile, path):
+        if tile in self.empty:
+            return Fetched(0)
+        return super().download_tile(tile, path)
 
 
 @pytest.fixture
@@ -98,7 +112,8 @@ def test_pass_to_its_end(setup):
     state = ad.read_state(area.state_dir, "land")
     assert state["stage"] == "done"
     assert (state["tiles_done"], state["tiles_total"], state["failed"]) == (6, 6, 0)
-    assert state["layers"] == [{"label": "terrain", "tiles": 6, "to_download": 6}]
+    assert state["layers"] == [{"label": "terrain", "tiles": 6, "to_download": 6, "missing": 0}]
+    assert state["tiles_missing"] == 0
     assert state["mb"] == pytest.approx(12)
     assert json.load(open(area.file(".failed.json"), encoding="utf-8")) == {}
     assert os.path.exists(os.path.join(area.state_dir, "status.html"))
@@ -120,6 +135,71 @@ def test_pass_with_failed_tiles(setup):
     layer = FakeLayer(6)
     assert ad.run_pass(setup(layer), 2) == ad.EXIT_DONE
     assert sorted(layer.fetched) == [1, 4]
+
+
+def test_done_says_what_has_no_data(setup):
+    """The tiles the service has nothing for are counted per layer at the end (one query per cache folder), so a
+    "done" area with half its tiles over the sea says so; a second pass counts the ones recorded before too."""
+    layer, surface = EmptyLayer(6, empty=[1, 2]), EmptyLayer(4, empty=[3])
+    surface.folder, surface.description = "fake/surface", "fake surface"
+    area = setup(layer, surface)
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+    state = ad.read_state(area.state_dir, "land")
+    assert [row["missing"] for row in state["layers"]] == [2, 1] and state["tiles_missing"] == 3
+    assert (state["tiles_done"], state["tiles_total"]) == (10, 10)
+    row = ad.summary(state, [], time.time())
+    assert row["missing"] == 3 and "3 tiles without data" in ad.table(area.state_dir)
+    assert "Without data" in ad.page(area.state_dir)
+    again = EmptyLayer(4)
+    again.folder = "fake/surface"
+    assert ad.run_pass(setup(EmptyLayer(6), again), 2) == ad.EXIT_DONE
+    assert ad.read_state(area.state_dir, "land")["tiles_missing"] == 3
+
+
+def test_an_area_without_data_needs_attention(setup, tmp_path):
+    """No tile under the outline, or every tile without data: EXIT_NOTHING, never "done"."""
+    area = setup(FakeLayer(0))
+    assert ad.run_pass(area, 1) == ad.EXIT_NOTHING
+    state = ad.read_state(area.state_dir, "land")
+    assert state["message"].startswith("no tiles under the outline") and state["stage"] == "listing"
+    area = setup(EmptyLayer(5, empty=range(5)))
+    assert ad.run_pass(area, 2) == ad.EXIT_NOTHING
+    state = ad.read_state(area.state_dir, "land")
+    assert state["message"] == "all 5 tiles without data: the source has nothing under the outline"
+    assert state["tiles_missing"] == 5 and state["stage"] == "downloading"
+    (tmp_path / "run").mkdir()
+    super_area = _area(tmp_path / "run")
+    command = _pass(tmp_path, "json.dump({'name': 'land', 'stage': 'downloading', 'message': 'all 5 tiles without "
+                              f"data'}}, open({super_area.file('.state.json')!r}, 'w'))\nsys.exit(6)\n")
+    assert ad.supervise(super_area, command, retry_seconds=30) == 2
+    state = ad.read_state(super_area.state_dir, "land")
+    assert state["stage"] == "needs attention" and state["message"] == "all 5 tiles without data"
+
+
+def test_the_index_counter_counts_this_areas_tiles_once(setup, monkeypatch, tmp_path):
+    """The folder of index answers is shared by every area of a source: only the tiles of this area's grid count,
+    and they are listed once per pass, not every ten seconds."""
+    from sources.indexes.cached import CachedIndex
+    grid = SimpleNamespace(crs="EPSG:4326", bounds=(10.0, 50.0, 10.6, 50.3), width=10, height=10, res=1.0,
+                           area_shape=None)  # 3 x 2 tiles of 0.25°
+    layer, other = FakeLayer(1), FakeLayer(1)
+    layer.index = CachedIndex("fake index", None, None, "sheets", "fake")
+    other.index = CachedIndex("other index", None, None, "other", "fake")
+    area = setup(layer, other)
+    cache_dir = os.path.join(area.data_dir, "cache")
+    plan = SimpleNamespace(layers=[layer, other], grid=grid, paths=SimpleNamespace(cache=cache_dir))
+    folder = os.path.dirname(layer.index.index_path(cache_dir, 50.0, 10.0))
+    os.makedirs(folder)
+    for name in ("N50.00_E010.00", "N50.25_E010.50", "N48.00_E012.00", "N47.75_E012.25", "N47.50_E012.50"):
+        open(os.path.join(folder, name + ".json"), "w").close()   # two of this area's six, three of another's
+    reporter = ad.Reporter(area, 1, [plan], ad.Failures(cache_dir))
+    assert reporter._index_counts() == (2, 12)   # the other index has no folder yet: 0 of 6
+    listed = []
+    monkeypatch.setattr(ad.Reporter, "_index_folders", lambda self: listed.append(1) or [])
+    assert reporter._index_counts() == (2, 12) and not listed
+    reporter.write()
+    state = ad.read_state(area.state_dir, "land")
+    assert (state["index_done"], state["index_total"]) == (2, 12)
 
 
 def test_index_out_of_reach_is_no_success(setup):
