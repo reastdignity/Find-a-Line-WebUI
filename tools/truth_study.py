@@ -9,7 +9,7 @@ them, the known lines matched to the lines found and every miss diagnosed on the
         [--auto | --country-from-lines | --offline-sources] [--extra "<findaline.py options>"]
     uv run tools/truth_study.py places --out <out>
     uv run tools/truth_study.py run --out <out> --data-dir <data> [--ids ID ...] [--country PL] [--source geoportal]
-        [--max-clusters N] [--national-only] [--again] [--timeout S]
+        [--max-clusters N] [--national-only] [--again] [--timeout S] [--parallel N]
     uv run tools/truth_study.py run --out <out> --place NAME=OPTIONS [--known lines.json] [--no-cache-link]
     uv run tools/truth_study.py analyse <out> [--profiles] [--cache <cache> | --data-dir <data>] [--cluster ID ...]
     uv run tools/truth_study.py report <out> [--no-pictures]
@@ -51,10 +51,11 @@ tests of an --area left out), "covered by R<n>" within --near metres (2 km): <ou
 
 run searches each cluster (or --place NAME=OPTIONS of findaline.py, with the known lines of --known: a
 JSON list of KnownLine dicts, or a GeoJSON FeatureCollection of SlackMap-like line features) in a
-child process (search-child), one after another, all with one data folder, <out>/data: its cache/ a
-link to the real cache for the whole run (studylib.linked_data_folder: made once at the start, removed
-at the end, also after an error or Ctrl+C; --no-cache-link: a fresh cache of its own in it), its
-runs/ every cluster's saved run (one copy of the viewer, runs/_viewer, for them all). It writes,
+child process (search-child), one after another (--parallel N: N at once, below), all with one data
+folder, <out>/data: its cache/ a link to the real cache for the whole run (studylib.linked_data_folder:
+made once at the start, removed at the end, also after an error or Ctrl+C; --no-cache-link: a fresh
+cache of its own in it), its runs/ every cluster's saved run (one copy of the viewer, runs/_viewer, for
+them all). It writes,
 resumable (a cluster captured with the same options and known lines is not searched again unless
 --again; a failed one is; a cluster searched again has its earlier run removed):
 
@@ -93,6 +94,23 @@ A search without lines (findaline.py's exit 1 with a SearchError of NO_LINES: no
 terrain, ...) is a result, status "no_lines" (every known line a miss), not a failure. Circles only:
 the tiles of an area are not captured.
 
+run --parallel N (default 1) keeps N children running, started in the order of the clusters (the most
+known lines first; one waits while a search of the same id runs), looked at by one thread every
+POLL_SECONDS; all share the one data folder (the runs' viewer and runs.js go through cache.runs_lock,
+the cache's downloads through its tile locks; a fresh cache of --no-cache-link is marked before they
+start). One at a time a progress line names the cluster's place in the order, "[k/n] <id>: ...", as
+before; with several, the searches finished so far, "[d/n done] <id>: ..." (those captured already
+too). Each child makes its searches' work folders inside one folder of the data folder's work/ that run
+names for it (search-child --work-id work/truth-<time>-<hex>/: cache.new_work wrapped in the child, its
+folder inside named as production names it), and run removes that folder, and only that one, once the
+child's process tree has ended: findaline.py on Windows cannot delete its own work folder after a
+search that stops without lines, and another child's folders are never touched (nothing goes by age or
+by "new in work/"). --timeout is each child's own; a child stopped by it has its process tree killed
+(jobs.kill_tree: also the processes it started) and the status "failed". A child's failure never stops
+the others. Ctrl+C (or an error of run itself) kills every running child's tree and removes its work
+folder: the clusters finished keep their captures, those still running have no capture.json (searched
+on the next pass), the cache is unlinked and the interruption goes on (the exit code as before).
+
 analyse and report are tools/truth_analysis.py's (truth_analysis.analyse, truth_analysis.report);
 analyse --profiles computes in <out>/data, its cache/ linked to --cache (default: the data folder's
 cache) while the analysis runs when it has none.
@@ -115,6 +133,7 @@ import subprocess
 import sys
 import time
 import traceback
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -147,6 +166,7 @@ SOURCE_MODES = ("nominatim", "lines", "offline", "defer")
 LINE_EXTRAS = ("elev_a1", "elev_a2", "height_max", "height_mean", "high_pct", "angle1", "angle2", "prom1", "prom2",
                "drop1", "drop2", "water_m", "filled_m")
 DEFAULT_RADIUS = 1000.0     # findaline.py's --radius when a regression test gives none (params.SearchParams)
+POLL_SECONDS = 0.2          # run: how often the running children are looked at
 
 
 # ---------------------------------------------------------------------------------------------
@@ -710,23 +730,49 @@ def _remove_run(out: str, folder: str):
         shutil.rmtree(path)
 
 
-def _remove_left_work(work: str, before: set):
-    """The work folders a search left in the data folder's work/ (those not there before it, once its
-    process has ended): findaline.py on Windows cannot delete its own after a search that stops without
-    lines (cache.remove_work's "Could not delete the work folder": the memory-mapped grids are still
-    referenced by the exception in flight), and every cluster's search shares the one data folder."""
-    if not os.path.isdir(work):
-        return
-    for name in sorted(set(os.listdir(work)) - before):
-        path = os.path.join(work, name)
-        if os.path.isdir(path) and not os.path.islink(path):
-            shutil.rmtree(path, ignore_errors=True)
+def _work_id(data: str) -> str:
+    """A name for one child's folder in <data>/work, not taken there: "truth-<time>-<6 hex digits>"."""
+    while True:
+        work_id = f"truth-{datetime.now():%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:6]}"
+        if not os.path.lexists(os.path.join(data, "work", work_id)):
+            return work_id
 
 
-def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
-            timeout: Optional[float] = None) -> Dict:
-    """One search with its capture into <out>/<name>/ (a fresh folder; an earlier search's run removed),
-    data: the data folder of the search (run's <out>/data, its cache ready); returns its capture.json."""
+def _remove_work(data: str, work_id: str):
+    """One child's folder in the data folder's work/, <data>/work/<work_id>, once the child's process tree
+    has ended. The child makes its searches' work folders inside it (search-child --work-id: cache.new_work
+    wrapped), so this removes what its search left and nothing of another child running beside it:
+    findaline.py on Windows cannot delete its own work folder after a search that stops without lines
+    (cache.remove_work's "Could not delete the work folder": the memory-mapped grids are still referenced
+    by the exception in flight), and every cluster's search shares the one data folder."""
+    path = os.path.join(data, "work", work_id)
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def child_command(capture: str, options: str, data: str, work_id: str) -> List[str]:
+    """The command of one cluster's search: this script's search-child (the tests put a stand-in here)."""
+    return [sys.executable, os.path.abspath(__file__), "search-child", "--out", capture, "--work-id", work_id, "--",
+            *split_options(options), "--data-dir", data]
+
+
+@dataclass
+class Child:
+    """A cluster's search running in its child process."""
+    k: int                       # its place in the order of the items (from 1)
+    name: str
+    options: str
+    folder: str                  # <out>/<name>
+    data: str                    # the data folder
+    work_id: str                 # its folder in <data>/work (_remove_work)
+    process: subprocess.Popen
+    log: object                  # output.log: the child's stdout and stderr
+    started: float
+
+
+def start_child(out: str, k: int, name: str, options: str, known: List[Dict], data: str) -> Child:
+    """One search started in a fresh <out>/<name>/ (an earlier search's folder and run removed): its
+    known.json written, the child's output into output.log, its work folders in <data>/work/<work id>."""
     folder = os.path.join(os.path.abspath(out), _check_name(name))
     if os.path.exists(folder):
         _remove_run(out, folder)
@@ -735,43 +781,88 @@ def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
     os.makedirs(folder)
     with open(os.path.join(folder, "known.json"), "w", encoding="utf-8") as f:
         json.dump(known, f, indent=1, ensure_ascii=False)
-    capture = os.path.join(folder, "capture")
     env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
     started = time.time()
-    returncode: Optional[int] = None
-    work = os.path.join(data, "work")
-    before = set(os.listdir(work)) if os.path.isdir(work) else set()
-    with open(os.path.join(folder, "output.log"), "w", encoding="utf-8") as log:
-        try:
-            returncode = subprocess.run(
-                [sys.executable, os.path.abspath(__file__), "search-child", "--out", capture, "--",
-                 *split_options(options), "--data-dir", data],
-                cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout).returncode
-        except subprocess.TimeoutExpired:
-            log.write(f"\ntruth_study: stopped after {timeout:g} s\n")
-        finally:
-            _remove_left_work(work, before)
-    child = _read_json(os.path.join(capture, "result.json")) or {}
+    work_id = _work_id(data)
+    log = open(os.path.join(folder, "output.log"), "w", encoding="utf-8")
+    try:
+        process = subprocess.Popen(child_command(os.path.join(folder, "capture"), options, data, work_id),
+                                   cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT)
+    except BaseException:
+        log.close()
+        raise
+    return Child(k, name, options, folder, data, work_id, process, log, started)
+
+
+def _kill(child: Child):
+    """A running child's process tree ended (jobs.kill_tree: also the processes it started)."""
+    import jobs
+    if child.process.poll() is None:  # never the number of a process ended and gone (it may be another's now)
+        jobs.kill_tree(child.process.pid)
+    child.process.wait()
+
+
+def _drop(child: Child):
+    """A child stopped unfinished (Ctrl+C, an error of the run itself): its tree ended, its work folder
+    removed, no capture.json (the cluster is searched on the next pass)."""
+    try:
+        _kill(child)
+    finally:
+        child.log.close()
+        _remove_work(child.data, child.work_id)
+
+
+def _anchor_count(path: str) -> Optional[int]:
+    """The anchors of a capture's anchors.npy; None without one (or a part of one: a child killed while
+    writing it)."""
+    try:
+        return int(np.load(path).shape[0]) if os.path.exists(path) else None
+    except (OSError, ValueError, EOFError):
+        return None
+
+
+def finish_child(out: str, child: Child, timeout: Optional[float] = None) -> Dict:
+    """The capture.json of a child whose process has ended (timeout: stopped after that many seconds, its
+    tree killed), written into its folder once its work folder is removed; returns it."""
+    returncode = None if timeout is not None else child.process.returncode
+    try:
+        if timeout is not None:
+            child.log.write(f"\ntruth_study: stopped after {timeout:g} s\n")
+    finally:
+        child.log.close()
+        _remove_work(child.data, child.work_id)
+    capture = os.path.join(child.folder, "capture")
+    result = _read_json(os.path.join(capture, "result.json")) or {}
     grid = _read_json(os.path.join(capture, "grid.json")) or {}
-    anchors = os.path.join(capture, "anchors.npy")
-    state = {"status": status_of(returncode, child), "seconds": round(time.time() - started, 1), "options": options,
-             "id": name, "returncode": returncode,
-             "error": child.get("error") or ("timeout" if returncode is None else None),
-             "message": child.get("message"), "lines": child.get("lines"),
-             "anchors": int(np.load(anchors).shape[0]) if os.path.exists(anchors) else None,
+    state = {"status": status_of(returncode, result), "seconds": round(time.time() - child.started, 1),
+             "options": child.options, "id": child.name, "returncode": returncode,
+             "error": result.get("error") or ("timeout" if returncode is None else None),
+             "message": result.get("message"), "lines": result.get("lines"),
+             "anchors": _anchor_count(os.path.join(capture, "anchors.npy")),
              "source": grid.get("source"), "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-             "run": _relative_run(out, child.get("run"))}
-    with open(os.path.join(folder, "capture.json"), "w", encoding="utf-8") as f:
+             "run": _relative_run(out, result.get("run"))}
+    with open(os.path.join(child.folder, "capture.json"), "w", encoding="utf-8") as f:
         json.dump(state, f, indent=1, ensure_ascii=False)
     return state
 
 
+def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
+            timeout: Optional[float] = None) -> Dict:
+    """One search with its capture into <out>/<name>/ (a fresh folder; an earlier search's run removed),
+    data: the data folder of the search (run's <out>/data, its cache ready); returns its capture.json."""
+    return _run_items(out, [{"id": name, "options": options, "known": known}], data, True, timeout,
+                      lambda text: None)[name]
+
+
 def run(out: str, items: List[Dict], cache_dir: Optional[str], again: bool = False, timeout: Optional[float] = None,
-        say: Callable[[str], None] = print) -> Dict[str, Dict]:
-    """The searches of items ({"id", "options", "known": KnownLine dicts}) one after another, each
-    skipped when captured already with the same options and known lines (unless again), all in the
-    data folder <out>/data, its cache/ linked to cache_dir while they run (None: a cache of its own;
-    nothing linked when every item is captured already). Returns {id: its capture.json}."""
+        say: Callable[[str], None] = print, parallel: int = 1) -> Dict[str, Dict]:
+    """The searches of items ({"id", "options", "known": KnownLine dicts}) one after another, or
+    `parallel` at once (started in the items' order), each skipped when captured already with the same
+    options and known lines (unless again), all in the data folder <out>/data, its cache/ linked to
+    cache_dir while they run (None: a cache of its own, marked before several children start; nothing
+    linked when every item is captured already). Returns {id: its capture.json}."""
+    if parallel < 1:
+        raise ValueError(f"--parallel {parallel}: one search at once or more")
     out = os.path.abspath(out)
     os.makedirs(out, exist_ok=True)
     pending = [item for item in items
@@ -779,28 +870,71 @@ def run(out: str, items: List[Dict], cache_dir: Optional[str], again: bool = Fal
                                         [line["id"] for line in item["known"]])]
     with contextlib.ExitStack() as stack:
         data = stack.enter_context(linked_data_folder(out, cache_dir)) if pending else None
-        return _run_items(out, items, data, again, timeout, say)
+        if data and not cache_dir and parallel > 1:
+            cache.check_layout(os.path.join(data, "cache"))  # children started together never race to mark it
+        return _run_items(out, items, data, again, timeout, say, parallel)
+
+
+def _outcome(state: Dict) -> str:
+    """A finished search's status, lines, seconds and error, as its progress line says them."""
+    return (f"{state['status']}, {state['lines'] if state['lines'] is not None else '-'} lines, "
+            f"{state['seconds']:.0f} s" + (f" ({state['error']}: {state['message']})"
+                                           if state["status"] == "failed" and state.get("message")
+                                           else f" ({state['error']})" if state["error"] else ""))
 
 
 def _run_items(out: str, items: List[Dict], data: Optional[str], again: bool, timeout: Optional[float],
-               say: Callable[[str], None]) -> Dict[str, Dict]:
-    found = {}
-    for k, item in enumerate(items, 1):
-        name, options, known = item["id"], item["options"], item["known"]
-        folder = os.path.join(out, _check_name(name))
-        done = None if again else captured(folder, options, [line["id"] for line in known])
-        if done:
-            say(f"[{k}/{len(items)}] {name}: captured already ({done})")
-            found[name] = _read_json(os.path.join(folder, "capture.json"))
-            continue
-        say(f"[{k}/{len(items)}] {name}: searching ({len(known)} known lines) {options}")
-        state = run_one(out, name, options, known, data, timeout)
-        say(f"[{k}/{len(items)}] {name}: {state['status']}, {state['lines'] if state['lines'] is not None else '-'} "
-            f"lines, {state['seconds']:.0f} s" + (f" ({state['error']}: {state['message']})"
-                                                  if state["status"] == "failed" and state.get("message")
-                                                  else f" ({state['error']})" if state["error"] else ""))
-        found[name] = state
-    return found
+               say: Callable[[str], None], parallel: int = 1) -> Dict[str, Dict]:
+    """The items' searches, at most `parallel` children at once, started in the items' order (an item
+    waits while a search of the same id runs), looked at every POLL_SECONDS by this one thread. Each line
+    said names its cluster: "[k/n] <id>: ..." with its place k in the order when one runs at a time,
+    "[d/n done] <id>: ..." with the searches finished so far (those captured already too) when several do.
+    A child's failure is its status only; --timeout is each child's own. A child still running when this
+    stops (Ctrl+C, an error of the run itself) has its tree killed and leaves no capture.json, the
+    finished ones keep theirs, and the exception goes on."""
+    found: Dict[str, Dict] = {}
+    running: List[Child] = []
+    queue = collections.deque(enumerate(items, 1))
+    total, finished = len(items), 0
+
+    def tell(k: int, name: str, text: str):
+        say(f"[{k}/{total}] {name}: {text}" if parallel == 1 else f"[{finished}/{total} done] {name}: {text}")
+
+    try:
+        while queue or running:
+            while queue and len(running) < parallel and queue[0][1]["id"] not in {c.name for c in running}:
+                k, item = queue.popleft()
+                name, options, known = item["id"], item["options"], item["known"]
+                folder = os.path.join(out, _check_name(name))
+                done = None if again else captured(folder, options, [line["id"] for line in known])
+                if done:
+                    finished += 1
+                    tell(k, name, f"captured already ({done})")
+                    found[name] = _read_json(os.path.join(folder, "capture.json"))
+                    continue
+                running.append(start_child(out, k, name, options, known, data))
+                tell(k, name, f"searching ({len(known)} known lines) {options}")
+            if running:
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    running[0].process.wait(POLL_SECONDS)
+            for child in list(running):
+                ended = child.process.poll() is not None
+                late = not ended and timeout is not None and time.time() - child.started > timeout
+                if not ended and not late:
+                    continue
+                if late:
+                    _kill(child)
+                state = finish_child(out, child, timeout if late else None)
+                running.remove(child)
+                finished += 1
+                tell(child.k, child.name, _outcome(state))
+                found[child.name] = state
+    except BaseException:
+        for child in running:
+            with contextlib.suppress(Exception):  # the others are ended all the same; the first exception goes on
+                _drop(child)
+        raise
+    return {item["id"]: found[item["id"]] for item in items}
 
 
 def chosen(clusters: List[Dict], ids: Sequence[str] = (), countries: Sequence[str] = (),
@@ -888,9 +1022,11 @@ def save_lines(out: str, results=None, groups=None):
     np.savez(os.path.join(out, "lines.npz"), **arrays)
 
 
-def search_child(out: str, search_args: List[str]) -> int:
+def search_child(out: str, search_args: List[str], work_id: Optional[str] = None) -> int:
     """findaline.py with search._lines and search._anchors wrapped (the capture: write_grid, the
-    anchors, save_lines), its outcome in result.json. Production's obstacle rule, one grid only."""
+    anchors, save_lines), its outcome in result.json. Production's obstacle rule, one grid only.
+    work_id: each search's work folder made inside <data>/work/<work_id>/ (cache.new_work wrapped; the
+    name production gives it, "<time>-<pid>"), the folder run removes once this process has ended."""
     import runpy
 
     import helpers as sh
@@ -900,7 +1036,12 @@ def search_child(out: str, search_args: List[str]) -> int:
     os.environ.setdefault("FINDALINE_PROGRESS", "text")
     state = SimpleNamespace(grid=False, anchors=None, lines=None, error=None, message=None, steep=None, run=None)
     original_lines, original_anchors, original_slopes = search._lines, search._anchors, sh.find_significant_slopes
-    original_save = search.save_run
+    original_save, original_new_work = search.save_run, cache.new_work
+
+    def new_work(data: str) -> str:
+        path = os.path.join(data, "work", work_id, f"{datetime.now():%Y%m%d-%H%M%S}-{os.getpid()}")
+        os.makedirs(path, exist_ok=True)
+        return path
 
     def save_run(plan, lines, run=None):
         result = original_save(plan, lines, run)
@@ -942,6 +1083,8 @@ def search_child(out: str, search_args: List[str]) -> int:
         return results, groups
 
     search._lines, search._anchors, sh.find_significant_slopes, search.save_run = lines, anchors, slopes, save_run
+    if work_id:
+        cache.new_work = new_work
     sys.argv = [os.path.join(HERE, "findaline.py"), *search_args, *FIXED_OPTIONS]
     code = 0
     try:
@@ -956,7 +1099,7 @@ def search_child(out: str, search_args: List[str]) -> int:
         code = 1
     finally:
         search._lines, search._anchors, sh.find_significant_slopes = original_lines, original_anchors, original_slopes
-        search.save_run = original_save
+        search.save_run, cache.new_work = original_save, original_new_work
     complete = state.grid and all(os.path.exists(os.path.join(out, name))
                                   for name in ("grid.json", "grids.npz", "anchors.npy", "lines.npz"))
     with open(os.path.join(out, "result.json"), "w", encoding="utf-8") as f:
@@ -1038,7 +1181,8 @@ def _run_command(args) -> int:
     cache_dir = None if args.no_cache_link else os.path.abspath(args.cache or _cache_dir(args.data_dir))
     if cache_dir:
         cache.check_layout(cache_dir)
-    found = run(args.out, items, cache_dir, args.again, args.timeout, say=lambda text: print(text, flush=True))
+    found = run(args.out, items, cache_dir, args.again, args.timeout, say=lambda text: print(text, flush=True),
+                parallel=args.parallel)
     counts = collections.Counter(state["status"] for state in found.values())
     print(f"\n{len(found)} searches: " + ", ".join(f"{counts.get(s, 0)} {s}" for s in STATUSES))
     return 1 if counts.get("failed") else 0
@@ -1090,13 +1234,16 @@ def main(argv=None) -> int:
     p.add_argument("--known", action="append", help="the known lines of --place: a JSON list of KnownLine dicts "
                                                     "or a GeoJSON FeatureCollection (one for all places, or one each)")
     p.add_argument("--again", action="store_true", help="search clusters captured already again")
-    p.add_argument("--timeout", type=float, help="seconds a search may take (then: failed)")
+    p.add_argument("--timeout", type=float, help="seconds a search may take (then: failed), each search's own")
+    p.add_argument("--parallel", type=int, default=1, metavar="N",
+                   help="searches at once, each in its child process (default %(default)s)")
     p.add_argument("--data-dir", help=data_help)
     link = p.add_mutually_exclusive_group()
     link.add_argument("--cache", help="the cache to link (default: the data folder's)")
     link.add_argument("--no-cache-link", action="store_true", help="a fresh cache in <out>/data (all clusters)")
     p = sub.add_parser("search-child", help="(child) one search with its capture")
     p.add_argument("--out", required=True)
+    p.add_argument("--work-id", help="its searches' work folders inside <data>/work/<this> (run removes it)")
     p.add_argument("search_args", nargs=argparse.REMAINDER)
     p = sub.add_parser("analyse", help="match and diagnose the captures (tools/truth_analysis.py)")
     p.add_argument("out")
@@ -1124,7 +1271,7 @@ def main(argv=None) -> int:
             return _run_command(args)
         if args.command == "search-child":
             search_args = args.search_args[1:] if args.search_args[:1] == ["--"] else args.search_args
-            return search_child(args.out, search_args)
+            return search_child(args.out, search_args, args.work_id and _check_name(args.work_id))
         analysis = _analysis()
         if analysis is None:
             return 2

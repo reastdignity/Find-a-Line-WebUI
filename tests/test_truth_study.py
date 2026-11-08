@@ -2,8 +2,10 @@
 rules, midlines clustered with highlines), the sources chosen offline, the places against a copy of
 tests/regression.json, the delegation to tools/truth_analysis.py, the one data folder of a run (its cache
 linked once, unlinked afterwards, also after an interruption; a cluster searched again keeps only its new
-run), cluster --extra, and a run of the Żabi Koń clip offline with the formula and with the sag model (a
-search with lines, one without, a resumed pass) with the capture's files as the analysis reads them (the found
+run; each child's own work folder removed), run --parallel with a stand-in child process (three at once,
+a failure, one without lines, a timeout, Ctrl+C: the children's trees killed), cluster --extra, and a run of
+the Żabi Koń clip offline with the formula and with the sag model (a search with lines, one without, a resumed
+pass; both at once giving the same captures) with the capture's files as the analysis reads them (the found
 anchors back on their pixels, their clearances evaluated again; analyse --profiles on the saved run).
 Synthetic lines only: invented ids and coordinates (no SlackMap data in the repository)."""
 
@@ -14,12 +16,15 @@ import json
 import math
 import os
 import random
+import re
 import subprocess
 import sys
+import time
 import types
 from decimal import Decimal
 
 import numpy as np
+import psutil
 import pytest
 from pyproj import Geod, Transformer
 
@@ -272,63 +277,258 @@ def _is_link(path) -> bool:
     return os.path.islink(path) or (hasattr(os.path, "isjunction") and os.path.isjunction(path))
 
 
+STAND_IN = r'''"""A stand-in for search-child (tests/test_truth_study.py): the arguments of truth_study.child_command,
+the work folder findaline.py leaves on Windows, a saved run and a complete capture, and a record of what it saw
+in STANDIN_LOG; its behaviour by the cluster's name in the STANDIN_* variables."""
+import json
+import os
+import sys
+import time
+
+args = sys.argv[1:]
+capture, work_id = args[args.index("--out") + 1], args[args.index("--work-id") + 1]
+data = args[args.index("--data-dir") + 1]
+name = os.path.basename(os.path.dirname(capture))
+log = os.environ["STANDIN_LOG"]
+
+
+def named(key):
+    return name in os.environ.get("STANDIN_" + key, "").split(",")
+
+
+def count(kind):
+    return sum(n.endswith(f".{kind}.json") for n in os.listdir(log))
+
+
+def write(kind, record):
+    path = os.path.join(log, f"{name}.{os.getpid()}.{kind}.json")
+    with open(path + ".part", "w", encoding="utf-8") as f:
+        json.dump(record, f)
+    os.replace(path + ".part", path)
+
+
+cache = os.path.join(data, "cache")
+os.makedirs(os.path.join(data, "work", work_id, f"20261108-000000-{os.getpid()}", "grids"))
+record = {"name": name, "pid": os.getpid(), "data": data, "work_id": work_id, "start": time.time(),
+          "link": os.path.islink(cache) or (hasattr(os.path, "isjunction") and os.path.isjunction(cache)),
+          "tile": os.path.exists(os.path.join(cache, "layer", "tile.txt")),
+          "running": count("start") - count("end") + 1}
+write("start", record)
+print(f"stand-in {name}: started", flush=True)
+barrier, deadline = int(os.environ.get("STANDIN_BARRIER", "0")), time.time() + 30
+while count("start") < barrier and time.time() < deadline:
+    time.sleep(0.02)
+record["met"] = count("start") >= barrier
+if named("HANG"):
+    time.sleep(600)
+code, result = 0, None
+if named("FAIL"):
+    code = 3  # no capture: a failed search
+elif named("NO_LINES"):
+    code, result = 1, {"complete": True, "lines": 0, "error": "no_lines", "message": "No lines found", "run": None}
+else:
+    run = os.path.join(data, "runs", f"2026-11-08_{name}_{os.getpid()}_{time.time_ns()}")
+    os.makedirs(run)
+    with open(os.path.join(run, "run.json"), "w", encoding="utf-8") as f:
+        json.dump({"id": os.path.basename(run)}, f)
+    result = {"complete": True, "lines": 3, "error": None, "run": run}
+if result is not None:
+    os.makedirs(capture)
+    with open(os.path.join(capture, "result.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f)
+record["run"] = result and result["run"]
+write("end", record)
+sys.exit(code)
+'''
+
+
+def stand_in(monkeypatch, tmp_path, **behaviour):
+    """search-child replaced by STAND_IN, a real child process (so the run's processes, their kill and their work
+    folders are real); returns the folder of its records. behaviour: the STANDIN_<KEY> variables (barrier: wait
+    until that many children have started, at most 30 s; hang, fail, no_lines: the clusters named, by commas)."""
+    script = tmp_path / "stand_in.py"
+    script.write_text(STAND_IN, encoding="utf-8")
+    log = tmp_path / "records"
+    log.mkdir()
+    monkeypatch.setenv("STANDIN_LOG", str(log))
+    for key, value in behaviour.items():
+        monkeypatch.setenv(f"STANDIN_{key.upper()}", value)
+    real = ts.child_command
+    monkeypatch.setattr(ts, "child_command", lambda *args: [sys.executable, str(script), *real(*args)[2:]])
+    return log
+
+
+def records(log, kind="start"):
+    """The stand-ins' records of a kind ("start", "end"), in the order they started."""
+    return sorted((json.loads(path.read_text(encoding="utf-8")) for path in log.glob(f"*.{kind}.json")),
+                  key=lambda r: r["start"])
+
+
+def wait_for(test, seconds=60.0):
+    deadline = time.time() + seconds
+    while not test():
+        assert time.time() < deadline, "the stand-in children did not start"
+        time.sleep(0.02)
+
+
 def test_run_shares_one_data_folder(monkeypatch, tmp_path):
-    """run: every search in <out>/data, its cache/ linked once and unlinked at the end, also after an
-    interruption (Ctrl+C in the second search); capture.json names each saved run relative to <out>; a cluster
-    searched again keeps only its new run, the work folders the searches left are removed. The child is a stand-in
-    that saves a run and a complete capture."""
+    """run, one search at a time (the default): every search in <out>/data, its cache/ linked once and unlinked at
+    the end, also after an interruption (Ctrl+C while the second search runs: its child's tree killed); the lines
+    said as before; capture.json names each saved run relative to <out>; a cluster searched again keeps only its
+    new run; the work folder each child was given is removed, nothing else of work/. The child is a stand-in
+    process that saves a run and a complete capture."""
     cache_dir = tmp_path / "cache"
     (cache_dir / "layer").mkdir(parents=True)
     (cache_dir / "layer" / "tile.txt").write_text("tile", encoding="utf-8")
     out = tmp_path / "out"
-    seen, stop, counter = [], {"at": None}, iter(range(1, 100))
-
-    def child(command, **kwargs):
-        capture, data = command[command.index("--out") + 1], command[command.index("--data-dir") + 1]
-        name = os.path.basename(os.path.dirname(capture))
-        seen.append((name, data, _is_link(os.path.join(data, "cache")),
-                     os.path.exists(os.path.join(data, "cache", "layer", "tile.txt"))))
-        if name == stop["at"]:
-            raise KeyboardInterrupt
-        run_dir = os.path.join(data, "runs", f"2026-11-08_{name}_{next(counter)}")
-        os.makedirs(run_dir)
-        os.makedirs(os.path.join(data, "work", f"left-by-{name}", "grids"))  # as findaline.py leaves it on Windows
-        with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8") as f:
-            json.dump({"id": os.path.basename(run_dir)}, f)
-        os.makedirs(capture)
-        with open(os.path.join(capture, "result.json"), "w", encoding="utf-8") as f:
-            json.dump({"complete": True, "lines": 3, "error": None, "run": run_dir}, f)
-        return subprocess.CompletedProcess(command, 0)
-
-    monkeypatch.setattr(ts.subprocess, "run", child)
+    log = stand_in(monkeypatch, tmp_path)
     items = [{"id": name, "options": "--lat 50 --lon 20", "known": [{"id": f"{name}-1"}]} for name in ("c1", "c2")]
-    quiet = lambda text: None  # noqa: E731
-    found = ts.run(str(out), items, str(cache_dir), say=quiet)
+    said, quiet = [], (lambda text: None)
+    found = ts.run(str(out), items, str(cache_dir), say=said.append)
     data = str(out / "data")
-    assert seen == [("c1", data, True, True), ("c2", data, True, True)]
+    seen = records(log)
+    assert [(r["name"], r["data"], r["link"], r["tile"]) for r in seen] == [("c1", data, True, True),
+                                                                            ("c2", data, True, True)]
+    assert len(said) == 4 and said[0::2] == [f"[{k}/2] c{k}: searching (1 known lines) --lat 50 --lon 20"
+                                             for k in (1, 2)]
+    assert all(re.fullmatch(rf"\[{k}/2\] c{k}: done, 3 lines, \d+ s", said[2 * k - 1]) for k in (1, 2))
     assert not os.path.lexists(out / "data" / "cache") and (cache_dir / "layer" / "tile.txt").exists()
     assert [found[n]["status"] for n in ("c1", "c2")] == ["done", "done"]
-    assert found["c1"]["run"] == "data/runs/2026-11-08_c1_1" and (out / found["c1"]["run"] / "run.json").exists()
+    runs = {r["name"]: os.path.basename(r["run"]) for r in records(log, "end")}
+    assert found["c1"]["run"] == f"data/runs/{runs['c1']}" and (out / found["c1"]["run"] / "run.json").exists()
     assert not (out / "c1" / "data").exists()  # no data folder per cluster
+    assert len({r["work_id"] for r in seen}) == 2 and all(r["work_id"].startswith("truth-") for r in seen)
     assert os.listdir(out / "data" / "work") == []  # the work folders the searches left removed
+    assert (out / "c1" / "output.log").read_text(encoding="utf-8") == "stand-in c1: started\n"
 
-    seen.clear()
     ts.run(str(out), items, str(cache_dir), say=quiet)  # captured already: nothing searched, nothing linked
-    assert seen == [] and not os.path.lexists(out / "data" / "cache")
+    assert len(records(log)) == 2 and not os.path.lexists(out / "data" / "cache")
 
     found = ts.run(str(out), items[:1], str(cache_dir), again=True, say=quiet)  # c1 again: its old run removed
-    assert found["c1"]["run"] == "data/runs/2026-11-08_c1_3" and seen[-1][0] == "c1"
-    assert sorted(os.listdir(out / "data" / "runs")) == ["2026-11-08_c1_3", "2026-11-08_c2_2"]
+    again = records(log, "end")[-1]
+    assert again["name"] == "c1" and found["c1"]["run"] == "data/runs/" + os.path.basename(again["run"])
+    assert sorted(os.listdir(out / "data" / "runs")) == sorted([os.path.basename(again["run"]), runs["c2"]])
 
     (out / "data" / "work" / "another").mkdir()  # not left by a search of this run: kept
-    stop["at"] = "c2"
+    monkeypatch.setenv("STANDIN_HANG", "c2")
+    before = len(records(log))
+
+    def interrupt(text):  # Ctrl+C once the second search's child runs
+        if "c2: searching" in text:
+            wait_for(lambda: len(records(log)) == before + 2)
+            raise KeyboardInterrupt
+
     with pytest.raises(KeyboardInterrupt):
-        ts.run(str(out), items, str(cache_dir), again=True, say=quiet)
-    assert seen[-1] == ("c2", data, True, True)  # the link was there while the search ran
+        ts.run(str(out), items, str(cache_dir), again=True, say=interrupt)
+    c2 = records(log)[-1]
+    assert (c2["name"], c2["data"], c2["link"], c2["tile"]) == ("c2", data, True, True)  # linked while it ran
+    assert not psutil.pid_exists(c2["pid"])  # its process tree ended (jobs.kill_tree)
     assert not os.path.lexists(out / "data" / "cache") and (cache_dir / "layer" / "tile.txt").exists()
     assert not (out / "c2" / "capture.json").exists()  # an interrupted cluster is searched on the next pass
     assert ts.captured(str(out / "c2"), items[1]["options"], ["c2-1"]) is None
     assert os.listdir(out / "data" / "work") == ["another"]
+
+
+def test_run_in_parallel(monkeypatch, tmp_path, capsys):
+    """run --parallel 3 over six places, the stand-in child: three children at once (each waits until three have
+    started) and never more, started in the order given, all in the one data folder with its one cache link
+    (unlinked afterwards); a failing child and one without lines leave the others going; each child's own work
+    folder removed; the lines name the cluster and the searches done so far; the summary and the exit code as one
+    at a time. A second pass searches only the failed place again."""
+    import cache
+    cache_dir = tmp_path / "cache"
+    cache.check_layout(str(cache_dir))
+    (cache_dir / "layer").mkdir()
+    (cache_dir / "layer" / "tile.txt").write_text("tile", encoding="utf-8")
+    log = stand_in(monkeypatch, tmp_path, barrier="3", fail="c2", no_lines="c5")
+    out = tmp_path / "out"
+    command = ["run", "--out", str(out), "--cache", str(cache_dir), "--parallel", "3"]
+    for k in range(1, 7):
+        command += ["--place", f"c{k}=--lat 50 --lon {20 + k}"]
+    assert ts.main(command) == 1  # a failed search
+    printed = capsys.readouterr().out
+    assert "\n6 searches: 4 done, 1 no_lines, 1 failed\n" in printed
+    seen = records(log)
+    assert sorted(r["name"] for r in seen) == [f"c{k}" for k in range(1, 7)]  # each searched once
+    assert {r["name"] for r in seen[:3]} == {"c1", "c2", "c3"}  # the first three at once, in the order given
+    assert all(r["data"] == str(out / "data") and r["link"] and r["tile"] for r in seen)  # one folder, one link
+    assert max(r["running"] for r in seen) <= 3 and all(r["met"] for r in records(log, "end"))
+    assert len({r["work_id"] for r in seen}) == 6 and os.listdir(out / "data" / "work") == []
+    assert not os.path.lexists(out / "data" / "cache") and (cache_dir / "layer" / "tile.txt").exists()
+    states = [json.loads((out / f"c{k}" / "capture.json").read_text(encoding="utf-8")) for k in range(1, 7)]
+    assert [s["status"] for s in states] == ["done", "failed", "done", "done", "no_lines", "done"]
+    assert states[1]["returncode"] == 3 and states[4]["error"] == "no_lines" and states[4]["run"] is None
+    assert all((out / s["run"] / "run.json").exists() for s in states if s["status"] == "done")
+    assert len(os.listdir(out / "data" / "runs")) == 4
+    lines = [line for line in printed.splitlines() if line.startswith("[")]
+    assert len(lines) == 12
+    assert lines[:3] == [f"[0/6 done] c{k}: searching (0 known lines) --lat 50 --lon {20 + k}" for k in (1, 2, 3)]
+    ends = [re.fullmatch(r"\[(\d)/6 done\] (c\d): (done|failed|no_lines), [-\d]+ lines, \d+ s( \(no_lines\))?",
+                         line) for line in lines if ": searching" not in line]
+    assert all(ends) and [int(m.group(1)) for m in ends] == [1, 2, 3, 4, 5, 6]
+    assert sorted(m.group(2) for m in ends) == [f"c{k}" for k in range(1, 7)]
+
+    assert ts.main(command) == 1  # the failed place searched again (failing again), the others captured already
+    lines = [line for line in capsys.readouterr().out.splitlines() if line.startswith("[")]
+    assert len(records(log)) == 7 and records(log)[-1]["name"] == "c2"
+    assert lines[:6] == ["[1/6 done] c1: captured already (done)",
+                         "[1/6 done] c2: searching (0 known lines) --lat 50 --lon 22",
+                         "[2/6 done] c3: captured already (done)", "[3/6 done] c4: captured already (done)",
+                         "[4/6 done] c5: captured already (no_lines)", "[5/6 done] c6: captured already (done)"]
+    assert len(lines) == 7 and re.fullmatch(r"\[6/6 done\] c2: failed, - lines, \d+ s", lines[6])
+    assert ts.main([*command[:6], "0", *command[7:]]) == 1 and "error: --parallel 0" in capsys.readouterr().err
+
+
+def test_run_parallel_timeout(monkeypatch, tmp_path):
+    """--timeout is each child's own: a child past it has its process tree killed (status failed, error timeout,
+    the line in its log) and its work folder removed while the other runs to its end; a fresh cache of its own
+    (no cache link) is marked once before the children start."""
+    import cache
+    log = stand_in(monkeypatch, tmp_path, hang="slow")
+    out = tmp_path / "out"
+    items = [{"id": name, "options": "--lat 50 --lon 20", "known": []} for name in ("slow", "quick")]
+    found = ts.run(str(out), items, None, timeout=5, say=lambda text: None, parallel=2)
+    assert list(found) == ["slow", "quick"] and found["quick"]["status"] == "done"
+    slow = found["slow"]
+    assert slow["status"] == "failed" and slow["error"] == "timeout" and slow["returncode"] is None
+    assert 5 <= slow["seconds"] < 60
+    assert not psutil.pid_exists(next(r for r in records(log) if r["name"] == "slow")["pid"])
+    assert (out / "slow" / "output.log").read_text(encoding="utf-8").endswith("truth_study: stopped after 5 s\n")
+    assert os.listdir(out / "data" / "work") == []
+    assert (out / "data" / "cache" / "LAYOUT").read_text(encoding="utf-8").strip() == str(cache.LAYOUT)
+    assert not any(r["link"] for r in records(log))
+
+
+def test_run_parallel_interrupted(monkeypatch, tmp_path):
+    """Ctrl+C while three children run: every child's process tree killed and its work folder removed, the
+    cluster finished before keeps its capture, the interrupted ones have none and the rest never started; the
+    cache unlinked; the interruption goes on."""
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "layer").mkdir(parents=True)
+    log = stand_in(monkeypatch, tmp_path, hang="c2,c3,c4,c5,c6")
+    out = tmp_path / "out"
+    items = [{"id": f"c{k}", "options": "--lat 50 --lon 20", "known": [{"id": f"c{k}-1"}]} for k in range(1, 7)]
+    said = []
+
+    def interrupt(text):
+        said.append(text)
+        if "c4: searching" in text:
+            wait_for(lambda: len(records(log)) == 4)  # c1 done, c2, c3 and c4 running
+            raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        ts.run(str(out), items, str(cache_dir), say=interrupt, parallel=3)
+    assert said[:3] == [f"[0/6 done] c{k}: searching (1 known lines) --lat 50 --lon 20" for k in (1, 2, 3)]
+    assert len(said) == 5 and re.fullmatch(r"\[1/6 done\] c1: done, 3 lines, \d+ s", said[3])
+    stopped = [r for r in records(log) if r["name"] != "c1"]
+    assert sorted(r["name"] for r in stopped) == ["c2", "c3", "c4"]
+    assert not any(psutil.pid_exists(r["pid"]) for r in stopped)  # every child's tree ended (jobs.kill_tree)
+    assert json.loads((out / "c1" / "capture.json").read_text(encoding="utf-8"))["status"] == "done"
+    for name in ("c2", "c3", "c4"):
+        assert (out / name / "known.json").exists() and not (out / name / "capture.json").exists()
+    assert not (out / "c5").exists() and not (out / "c6").exists()
+    assert not os.path.lexists(out / "data" / "cache") and cache_dir.is_dir()
+    assert os.listdir(out / "data" / "work") == []
 
 
 def test_split_options_and_status():
@@ -377,12 +577,31 @@ def check_capture(folder, rows_cols=None, model="formula"):
     return grid, lines, surface
 
 
+def same_capture(a, b):
+    """Two captures of one search alike: known.json byte for byte, grid.json, every array of grids.npz, anchors.npy
+    and lines.npz, capture.json but for its times and the saved run's name."""
+    assert (a / "known.json").read_bytes() == (b / "known.json").read_bytes()
+    grids = [json.loads((x / "capture" / "grid.json").read_text(encoding="utf-8")) for x in (a, b)]
+    assert grids[0] == grids[1]
+    for name in ("grids.npz", "lines.npz"):
+        with np.load(a / "capture" / name) as x, np.load(b / "capture" / name) as y:
+            assert sorted(x.files) == sorted(y.files), name
+            for key in x.files:
+                assert x[key].dtype == y[key].dtype and x[key].shape == y[key].shape, (name, key)
+                assert np.array_equal(x[key], y[key], equal_nan=x[key].dtype.kind == "f"), (name, key)
+    assert np.array_equal(np.load(a / "capture" / "anchors.npy"), np.load(b / "capture" / "anchors.npy"))
+    states = [json.loads((x / "capture.json").read_text(encoding="utf-8")) for x in (a, b)]
+    assert (states[0]["run"] is None) == (states[1]["run"] is None)
+    kept = [{k: v for k, v in s.items() if k not in ("seconds", "finished", "run")} for s in states]
+    assert kept[0] == kept[1]
+
+
 @pytest.mark.parametrize("model", ["formula", "sag"])
 def test_run_zabi_kon_clip(tmp_path, model):
     """run --place on the Żabi Koń clip offline (no cache link): a search with lines and one without (status
     no_lines, every array of lines.npz empty), known.json back as KnownLines, a second pass skips both; with
     the formula and with the sag model (the analysis then evaluates with the run's envelope table: the found
-    lines' clearances given back exactly)."""
+    lines' clearances given back exactly); with the formula, run --parallel 2 gives the same captures."""
     known = [line("zk1", 0, 0, 60, 0), line("zk2", 0, 20, 45, 30, lt="m")]
     known_file = tmp_path / "known.json"
     known_file.write_text(json.dumps([dataclasses.asdict(k) for k in known]), encoding="utf-8")
@@ -444,6 +663,17 @@ def test_run_zabi_kon_clip(tmp_path, model):
     assert state["run"] is None  # no run saved without lines
     grid_none, lines_none, _ = check_capture(out / "zk-none", tuple(grid["shape"]), model)
     assert all(len(v) == 0 for v in lines_none.values())
+
+    if model == "formula":  # both places at once (--parallel 2): the same captures as one after another
+        out2 = tmp_path / "out-parallel"
+        both = subprocess.run([*command[:4], str(out2), *command[5:], "--parallel", "2"], cwd=REPO, env=env,
+                              capture_output=True, text=True, encoding="utf-8", timeout=900)
+        assert both.returncode == 0, both.stdout + both.stderr
+        assert "2 searches: 1 done, 1 no_lines, 0 failed" in both.stdout
+        assert "[0/2 done] zk: searching" in both.stdout and "[0/2 done] zk-none: searching" in both.stdout
+        for place in ("zk", "zk-none"):
+            same_capture(out / place, out2 / place)
+        assert len(list((out2 / "data" / "runs").glob("*/run.json"))) == 1 and not os.listdir(out2 / "data" / "work")
 
     stamp = os.path.getmtime(out / "zk" / "capture.json")
     again = subprocess.run(command, cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
