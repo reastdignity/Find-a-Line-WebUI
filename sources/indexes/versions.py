@@ -21,7 +21,7 @@ import osm
 from grid import Grid
 
 from ..readers.windows import BlockRequest, _same_crs
-from .cached import CachedIndex, Versions
+from .cached import CachedIndex, Versions, index_tiles
 
 
 @dataclass(frozen=True)
@@ -94,7 +94,6 @@ class NewestPerSheet(Versions):
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
         """The newest sheet per godło over the grid, newest first."""
-        west, south, east, north = transform_bounds(grid.crs, "EPSG:4326", *grid.bounds)
         g_left, g_bottom, g_right, g_top = transform_bounds(grid.crs, self.index_crs, *grid.bounds)
         shape = None
         if grid.area_shape is not None:
@@ -105,7 +104,7 @@ class NewestPerSheet(Versions):
                 box(g_left, g_bottom, g_right, g_top))
             shapely.prepare(shape)  # tested against every sheet listed, a country's outline has many vertices
         newest: Dict[str, Sheet] = {}
-        for items in _answers(index, cache_dir, osm.tiles(west, south, east, north), update):
+        for items in _answers(index, cache_dir, index_tiles(grid), update):
             for item in items:
                 left, bottom, right, top = item["extent"]
                 if not (left < g_right and right > g_left and bottom < g_top and top > g_bottom):
@@ -199,8 +198,14 @@ class ComposedBlocks(Versions):
     def _items(self, index: CachedIndex, cache_dir: str, west: float, south: float, east: float, north: float,
                update: Optional[str] = None) -> List[Dict]:
         """The listed files of the index tiles over a box (WGS84)."""
+        return self._items_of(index, cache_dir, osm.tiles(west, south, east, north), update)
+
+    @staticmethod
+    def _items_of(index: CachedIndex, cache_dir: str, tiles: List[Tuple[float, float]],
+                  update: Optional[str] = None) -> List[Dict]:
+        """The listed files of the given index tiles (south-west corners), each file once."""
         items: Dict[str, Dict] = {}
-        for lat, lon in osm.tiles(west, south, east, north):
+        for lat, lon in tiles:
             for item in index.answers(cache_dir, lat, lon, update):
                 items[item["url"]] = item
         return list(items.values())
@@ -222,9 +227,12 @@ class ComposedBlocks(Versions):
                 for j in range(math.floor(bottom / size), math.ceil(top / size)):
                     over.setdefault((item["crs"], i, j), []).append(item)
         if shape is not None:
+            import shapely
             from area import project
             from shapely.geometry import box
             projected = {crs: project(shape, "EPSG:4326", crs) for crs in bounds}
+            for outline in projected.values():
+                shapely.prepare(outline)  # tested against every block: a country's outline has many vertices
             over = {k: v for k, v in over.items()
                     if projected[k[0]].intersects(box(k[1] * size, k[2] * size, (k[1] + 1) * size, (k[2] + 1) * size))}
         blocks = []
@@ -236,8 +244,7 @@ class ComposedBlocks(Versions):
         return blocks
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
-        west, south, east, north = transform_bounds(grid.crs, "EPSG:4326", *grid.bounds)
-        items = self._items(index, cache_dir, west, south, east, north, update)
+        items = self._items_of(index, cache_dir, index_tiles(grid), update)
         bounds = {crs: transform_bounds(grid.crs, crs, *grid.bounds) for crs in {item["crs"] for item in items}}
         shape = None
         if grid.area_shape is not None:

@@ -4,7 +4,9 @@ import json
 import os
 from typing import Dict, List, Optional, Tuple
 
+import numpy as np
 import requests
+from rasterio.warp import transform_bounds
 
 import cache
 import osm
@@ -12,6 +14,55 @@ from grid import Grid
 
 from ..net import _part, tile_lock
 from ..composed import Index
+
+
+# The margin, in degrees, around an area's outline and around each 0.25° tile in the test of which
+# tiles an index must answer for it (index_tiles): the outline's edges are straight in the grid's
+# CRS and only their vertices are projected, so in degrees the projected outline sags from the true
+# edge; 0.01° (about 1 km) covers that for any edge of a search area, and a file listed in a tile
+# only touching the outline is found either way
+INDEX_MARGIN_DEG = 0.01
+
+
+def index_tiles(grid: Grid) -> List[Tuple[float, float]]:
+    """The 0.25° tiles (south-west corners, in osm.tiles' order) an index must answer for a grid.
+    Without an outline (a circle) the tiles of the grid's box, as before. With one (grid.area_shape,
+    an area), the tiles under the outline only: for each part of it (shapely.get_parts: the islands
+    of a country, the pieces of a coast) the tiles of the part's own box grown by INDEX_MARGIN_DEG,
+    kept where the tile's box grown by the margin intersects the outline.
+
+    This gives the same files as the whole box did, with far fewer requests: a versions policy keeps
+    only the files under the outline (NewestPerSheet, ShaPerTile: a listed extent intersecting it;
+    ComposedBlocks: the blocks under it), and such a file meets the outline at some point, which lies
+    in a tile that intersects the outline, so that tile is asked and the file is in its answer (a
+    listing answers every file reaching into its tile). The USA's outline (with Alaska) spans 680 152
+    tiles of which 99.9 % hold no land of it: an area download asked one a second for days; now the
+    tiles along and inside the coast only. A part whose longitudes span more than 180° crosses the
+    antimeridian (its projected coordinates wrap): it takes the tiles of the grid's box in its own
+    latitude band, as osm.tiles gives them for a box with west > east.
+    """
+    west, south, east, north = transform_bounds(grid.crs, "EPSG:4326", *grid.bounds)
+    if grid.area_shape is None:
+        return osm.tiles(west, south, east, north)
+    import shapely
+    from area import project
+    shape = project(grid.area_shape, grid.crs, "EPSG:4326")
+    shapely.prepare(shape)
+    margin = INDEX_MARGIN_DEG
+    found = set()
+    for part in shapely.get_parts(shape):
+        p_west, p_south, p_east, p_north = part.bounds
+        if p_east - p_west > 180:  # across 180°
+            corners = osm.tiles(west, max(south, p_south - margin), east, min(north, p_north + margin))
+        else:
+            corners = osm.tiles(p_west - margin, p_south - margin, p_east + margin, p_north + margin)
+        if not corners:
+            continue
+        lats = np.array([lat for lat, _ in corners])
+        lons = np.array([lon for _, lon in corners])
+        boxes = shapely.box(lons - margin, lats - margin, lons + osm.TILE_DEG + margin, lats + osm.TILE_DEG + margin)
+        found.update(corner for corner, hit in zip(corners, shapely.intersects(shape, boxes)) if hit)
+    return sorted(found)
 
 
 class IndexUnavailable(requests.RequestException):
@@ -114,8 +165,10 @@ class CachedIndex(Index):
             try:
                 self._listed[key] = self.versions.query(self, grid, self.cache_dir, self.update)
             except requests.RequestException as e:
+                # The error's text at the end: an area download (tools/area_download.py) meets this
+                # pass after pass and needs to know what the service answered
                 print(f"{self.description}: index not available ({type(e).__name__}); "
-                      "using the cached files")
+                      f"using the cached files ({cache.clean_error(e)})")
                 self._listed[key] = None
         return self._listed[key]
 

@@ -366,6 +366,139 @@ def test_index_tiles_at_once(tmp_path):
     assert [s.url for s in sheets] == [f"https://x.example/{order[0][0]}_{order[0][1]}/A.asc"]
 
 
+def _area_grid(parts, crs="EPSG:2180", res=100.0, margin=2000.0):
+    """A grid over shapely parts (in crs) with their union as its outline."""
+    from shapely.ops import unary_union
+    outline = unary_union(parts)
+    left, bottom, right, top = outline.bounds
+    left, bottom, right, top = left - margin, bottom - margin, right + margin, top + margin
+    grid = Grid(left=left, top=top, res=res, height=int(round((top - bottom) / res)),
+                width=int(round((right - left) / res)), crs=crs)
+    grid.area_shape = outline
+    return grid
+
+
+def _box_tiles(grid):
+    import osm
+    from rasterio.warp import transform_bounds
+    return osm.tiles(*transform_bounds(grid.crs, "EPSG:4326", *grid.bounds))
+
+
+def test_index_tiles_of_a_grid():
+    """index_tiles: a circle's grid gets the tiles of its box exactly as before; an area of two parts far
+    apart only the tiles under the parts (none between them), in osm.tiles' order; a tile whose edge lies
+    just outside the outline is kept by the margin; two parts on both sides of 180° list tiles on both."""
+    import osm
+    from shapely.geometry import box
+
+    from area import project
+    from sources.indexes.cached import INDEX_MARGIN_DEG, index_tiles
+    circle = Grid(left=500000.0, top=700000.0, res=100.0, height=500, width=500, crs="EPSG:2180")
+    assert index_tiles(circle) == _box_tiles(circle) and len(_box_tiles(circle)) > 6
+    # Two squares of 3 km, 220 km apart in both directions, in Poland's CS92 (a box of 112 tiles)
+    west_part, east_part = box(300000, 500000, 303000, 503000), box(520000, 700000, 523000, 703000)
+    grid = _area_grid([west_part, east_part])
+    tiles = index_tiles(grid)
+    whole = _box_tiles(grid)
+    assert len(whole) > 100 and 2 <= len(tiles) <= 8 and set(tiles) < set(whole)
+    assert tiles == sorted(tiles) and tiles == [t for t in whole if t in set(tiles)]
+    for part in (west_part, east_part):
+        w, s, e, n = project(part, "EPSG:2180", "EPSG:4326").bounds
+        assert set(osm.tiles(w, s, e, n)) <= set(tiles)
+    # The margin: an outline ending 0.005° short of a tile's edge still lists that tile; 0.02° short does not
+    lon_edge, lat = 19.0, 52.0
+    for gap, kept in ((0.005, True), (0.02, False)):
+        shape = project(box(lon_edge - 0.1, lat - 0.1, lon_edge - gap, lat + 0.1), "EPSG:4326", "EPSG:2180")
+        found = index_tiles(_area_grid([shape], margin=5000.0))
+        assert ((lat - 0.25, lon_edge) in found and (lat, lon_edge) in found) is kept
+        assert (lat, lon_edge - 0.25) in found
+    assert 0 < INDEX_MARGIN_DEG < osm.TILE_DEG
+    # Across 180°: the outline's parts at 179.9° E and 179.9° W, in UTM zone 60 (EPSG:32660)
+    far_west = project(box(179.85, 60.0, 179.95, 60.1), "EPSG:4326", "EPSG:32660")
+    far_east = project(box(-179.95, 60.0, -179.85, 60.1), "EPSG:4326", "EPSG:32660")
+    both = index_tiles(_area_grid([far_west, far_east], crs="EPSG:32660", margin=5000.0))
+    assert {lon for _, lon in both} == {179.75, -180.0} and {lat for lat, _ in both} == {59.75, 60.0}
+
+
+def _counting(items_of):
+    """A Listing counting the tiles asked, answering items_of(lat, lon)."""
+    from sources.indexes.cached import Listing
+    asked = []
+
+    class Tiles(Listing):
+        def fetch(self, lat, lon):
+            asked.append((lat, lon))
+            return {"sheets": items_of(lat, lon)}
+    return Tiles(), asked
+
+
+def test_versions_ask_the_index_tiles_of_the_outline(tmp_path):
+    """NewestPerSheet, ComposedBlocks and ShaPerTile ask the index exactly index_tiles(grid): the tiles under
+    an area's outline, not those of its whole box (the USA's box: 680 152 tiles, 99.9 % without its land);
+    a file over the outline is found, one between the parts is not."""
+    from rasterio.warp import transform_bounds
+    from shapely.geometry import box
+
+    from sources.indexes.cached import CachedIndex, index_tiles
+    from sources.indexes.metalink import ShaPerTile
+    from sources.indexes.versions import ComposedBlocks, NewestPerSheet
+    west_part, east_part = box(300000, 500000, 303000, 503000), box(520000, 700000, 523000, 703000)
+    grid = _area_grid([west_part, east_part])
+    wanted, whole = index_tiles(grid), _box_tiles(grid)
+    assert len(wanted) < len(whole) / 10
+    between = box(410000, 600000, 413000, 603000)  # a file between the parts, in a tile not asked
+
+    def extent(lat, lon):
+        left, bottom, right, top = transform_bounds("EPSG:4326", "EPSG:2180", lon, lat, lon + 0.25, lat + 0.25)
+        return [left, bottom, right, top]
+    cache_dir = str(tmp_path / "cache")
+    # NewestPerSheet: one sheet per tile over the tile's box
+    listing, asked = _counting(lambda lat, lon: [
+        {"year": 2020, "godlo": f"{lat}_{lon}", "url": f"https://x.example/{lat}_{lon}/A.asc", "crs": "EPSG:2180",
+         "res": 1.0, "extent": extent(lat, lon)}])
+    index = CachedIndex("test", listing, NewestPerSheet("t/sheets", "EPSG:2180", 1.0), "n", "t")
+    index.use(cache_dir, None)
+    sheets = index.tiles(grid)
+    assert asked == wanted and 2 <= len(sheets) <= len(wanted)
+    # ComposedBlocks: a file per tile, and the file between the parts listed in every tile
+    listing, asked = _counting(lambda lat, lon: [
+        {"name": f"f{lat}_{lon}", "url": f"https://x.example/{lat}_{lon}.tif", "crs": "EPSG:2180",
+         "extent": extent(lat, lon), "year": 2020, "published": "2021"},
+        {"name": "between", "url": "https://x.example/between.tif", "crs": "EPSG:2180",
+         "extent": list(between.bounds), "year": 2020, "published": "2021"}])
+    index = CachedIndex("test", listing, ComposedBlocks("t/blocks", 1000, 1.0), "c", "t")
+    index.use(cache_dir, None)
+    blocks = index.tiles(grid)
+    assert asked == wanted and blocks and not any("between" in f[0] for b in blocks for f in b.files)
+    assert all(any(f[0].startswith("f") for f in b.files) for b in blocks)
+    # ShaPerTile: 1 km tiles named by their km, one per index tile at its south-west corner
+    listing, asked = _counting(lambda lat, lon: [
+        {"godlo": f"{int(extent(lat, lon)[0] // 1000)}_{int(extent(lat, lon)[1] // 1000)}", "year": 2021,
+         "url": f"https://x.example/{lat}_{lon}.tif", "extent": extent(lat, lon), "sha256": "ab" * 32}])
+    index = CachedIndex("test", listing, ShaPerTile("t/sha", "EPSG:2180"), "s", "t")
+    index.use(cache_dir, None)
+    tiles = index.tiles(grid)
+    assert asked == wanted and tiles
+
+
+def test_index_not_available_names_the_error(tmp_path, capsys):
+    """The line printed when an index cannot be asked ends with the error's text (cache.clean_error: no query
+    strings): an area download retries pass after pass and needs it; the wording before stays."""
+    from sources.indexes.cached import CachedIndex, Listing
+    from sources.indexes.versions import NewestPerSheet
+
+    class Down(Listing):
+        def fetch(self, lat, lon):
+            raise IndexUnavailable("HTTP 503 for url: https://x.example/wfs?key=secret&bbox=1")
+    index = CachedIndex("Fake sheets", Down(), NewestPerSheet("t/sheets", "EPSG:2180", 1.0), "d", "t")
+    index.use(str(tmp_path / "cache"), None)
+    grid = Grid(left=500000.0, top=700000.0, res=100.0, height=500, width=500, crs="EPSG:2180")
+    assert index.tiles(grid) is None
+    out = capsys.readouterr().out
+    assert out == ("Fake sheets: index not available (IndexUnavailable); using the cached files "
+                   "(HTTP 503 for url: https://x.example/wfs?...)\n")
+
+
 def test_estimate_lists_the_layers_at_once():
     """search.estimate_search asks the layers' indexes at the same time (each would wait for the
     other at the barrier), the lines in the order of the layers."""
