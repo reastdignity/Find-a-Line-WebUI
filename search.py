@@ -1699,10 +1699,13 @@ def _tile_window(grid: gd.Grid, tile: gd.Grid) -> Tuple[slice, slice]:
 
 
 def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Optional[hy.Histogram]) -> Data:
-    """The grids of a tile of a tiled search: its window of the area's grids of step 1 (data, on
-    grid) copied, strip by strip, into contiguous memory-mapped grids of its work folder
-    (nmt.npy and the others, as a tile's own step 1 wrote them), so steps 2-4 read what they read
-    before; the area mask's window in memory; terrain the histogram of the tile's core."""
+    """The grids of a tile of a tiled search (or of a group of the country layer's tiles, country.TileWork):
+    its window of the area's grids of step 1 (data, on grid) copied, strip by strip, into contiguous
+    memory-mapped grids of its work folder (nmt.npy and the others, as a tile's own step 1 wrote them,
+    the partner grid of a count across a border too), so steps 2-4 read what they read before (read-only
+    C-contiguous memmaps: the kernels' argument types); each copy done through mosaic.flush_grid (a
+    country worker holds its view until the folder is deleted); the area mask's window in memory; terrain
+    the histogram of the tile's core."""
     rows, cols = _tile_window(grid, tile)
     step = src.filling.strip_rows(tile.width)
 
@@ -1724,13 +1727,14 @@ def _tile_data(data: Data, grid: gd.Grid, tile: gd.Grid, work: str, terrain: Opt
         for r0 in range(0, tile.height, step):
             r1 = min(tile.height, r0 + step)
             out[r0:r1] = window(array, r0, r1)
-        out.flush()
+        src.mosaic.flush_grid(out)  # a country worker holds the view instead (the copy never reaches the disk)
         del out
         return np.load(path, mmap_mode="r")
 
     return Data(copy(data.elevation, "nmt.npy"), copy(data.surface, "surface.npy"), copy(data.water, "water.npy"),
                 copy(data.filled, "filled.npy"), copy(data.slope, "slope.npy"), copy(data.joined, "joined.npy"),
-                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"))
+                window(data.mask, 0, tile.height), terrain, covered=copy(data.covered, "covered.npy"),
+                partner=copy(data.partner, "partner.npy"))
 
 
 def _remove_grids(work: str):

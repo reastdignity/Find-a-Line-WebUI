@@ -78,6 +78,15 @@ ATTEMPTS = 2               # a tile that fails goes back to pending once, then s
 # holds no table of lines, no profiles and no step 4, and that model follows the app's.
 COUNT_PIXEL_BYTES = 32
 WORKER_BASE = 512 << 20
+# Step 1 once per group of tiles (B3, round 5 of the country layer's performance): GROUP x GROUP fixed tiles of
+# a band on a lattice of GROUP * core_m share one step 1 on the grid of their cores with one overlap (the
+# overlaps of neighbouring tiles were prepared 1.5-2.3 times over), each tile counted on its window (TileWork);
+# a country's options.group sets another size (an int, or {band: size}). GROUP_PIXEL_BYTES: the private
+# memory of a group's step 1 per pixel of its grid (the int32 labels of the gap filling, the border gaps and
+# the lakes, and a strip's temporaries; at most 7.9 B/px over a tile's lowest stage on Slovakia's S border
+# tiles, 2026-11-08), twice that as COUNT_PIXEL_BYTES is twice its rise (worker_count)
+GROUP = 2
+GROUP_PIXEL_BYTES = 16
 RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
 # A tile is heavy when its weight (_weights: the lines of the done tiles under its core) reaches
 # HEAVY_SHARE of the largest weight of the run's tiles: its count is a long pair search, which takes
@@ -226,6 +235,54 @@ class Country:
         """A study area: a box of a country (the option "within"), not a country of the layer."""
         return bool(self.options.get("within"))
 
+    def group(self, band: str) -> int:
+        """The tiles per side of a band's groups (group_sizes)."""
+        return group_sizes(self.config())[band]
+
+
+def parse_group(text: str):
+    """`--group`: "2" (every band) or "S=3,M2=2" (those bands; the others GROUP)."""
+    text = text.strip()
+    try:
+        if "=" not in text:
+            return int(text)
+        out = {}
+        for part in text.split(","):
+            name, value = part.split("=")
+            out[name.strip()] = int(value)
+        return out
+    except ValueError:
+        raise CountryError(f"--group {text!r}: a number of tiles per side, or band=number,... (e.g. S=3,M2=2)")
+
+
+def group_sizes(config: Dict) -> Dict[str, int]:
+    """The tiles per side of each band's groups of a configuration (step 1 once per group, TileWork): its
+    options.group, an int for every band or {band: size} (the bands it does not name: GROUP); GROUP without
+    it. 1: every tile alone, as before groups."""
+    value = (config.get("options") or {}).get("group")
+    out = {}
+    for band in Profile.from_config(config).bands:
+        size = value.get(band.name, GROUP) if isinstance(value, dict) else (GROUP if value is None else value)
+        if not isinstance(size, int) or isinstance(size, bool) or size < 1:
+            raise CountryError(f"The group size of band {band.name} must be a whole number of tiles, 1 or more "
+                               f"(options.group: {value!r})")
+        out[band.name] = size
+    return out
+
+
+def group_of(core: Tuple[float, ...], core_m: float, size: int) -> str:
+    """The group of a fixed tile (search.fixed_tiles): the name of the south-west tile of its cell of size x
+    size tiles on the lattice of size * core_m in the band's CRS (whether that tile exists or not); size 1:
+    the tile's own name."""
+    i = math.floor(round(core[0] / core_m) / size) * size
+    j = math.floor(round(core[1] / core_m) / size) * size
+    return f"E{round(i * core_m)}_N{round(j * core_m)}"
+
+
+def group_box(cores: Sequence[Tuple[float, ...]]) -> Tuple[float, float, float, float]:
+    """The box of a group's cores: its grid is search.tile_grid of it (with the band's overlap)."""
+    return (min(c[0] for c in cores), min(c[1] for c in cores), max(c[2] for c in cores), max(c[3] for c in cores))
+
 
 COUNTRIES = {
     "slovakia": Country(
@@ -281,9 +338,12 @@ def _sha256_file(path: str) -> str:
 
 def config_hash(config: Dict, area_sha256: str) -> str:
     """What every tile file records (meta "config"): the configuration, its profile's sha256 (Profile:
-    cube.json's "profile") and the outline, and with the surface model the obstacle rule (obstacles.RULE:
-    tiles of another rule are counted again)."""
-    value = {"config": config, "profile": Profile.from_config(config).sha256, "area_sha256": area_sha256}
+    cube.json's "profile"), the outline, the group size of each band (group_sizes: step 1's gap offsets,
+    lake levels and border gaps are a group's, so tiles of another size are counted again; tiles counted
+    before groups are), and with the surface model the obstacle rule (obstacles.RULE: tiles of another
+    rule are counted again)."""
+    value = {"config": config, "profile": Profile.from_config(config).sha256, "area_sha256": area_sha256,
+             "group": group_sizes(config)}
     if (config.get("options") or {}).get("nmpt", "off") != "off":
         import obstacles
         value["obstacles"] = obstacles.RULE
@@ -396,10 +456,12 @@ def _remove_results(folder: str):
             os.remove(path)
 
 
-def setup(country_id: str, folder: str, data_dir: str, redo: bool, say) -> Tuple[Dict, Country]:
+def setup(country_id: str, folder: str, data_dir: str, redo: bool, say, group=None) -> Tuple[Dict, Country]:
     """country.json (written the first time, from COUNTRIES or a country.json holding only "config"),
     and area.geojson (fetched once). A configuration or outline other than the tiles' is refused
-    unless redo, which removes the tiles, the cube and the manifest."""
+    unless redo, which removes the tiles, the cube and the manifest. group (`--group`): the group size
+    (parse_group) put into the configuration's options.group; without it the stored configuration's
+    options.group stays (also for a country of COUNTRIES), so another size needs redo once."""
     path = os.path.join(folder, "country.json")
     state = read_state(folder) if os.path.exists(path) else {}
     if country_id in COUNTRIES:
@@ -410,9 +472,14 @@ def setup(country_id: str, folder: str, data_dir: str, redo: bool, say) -> Tuple
         raise CountryError(f"Unknown country {country_id!r}: one of {', '.join(sorted(COUNTRIES))}")
     if config["id"] != country_id:
         raise CountryError(f"{path} describes {config['id']!r}, not {country_id!r}")
-    country = Country.from_config(config)
     stored = state.get("config")
-    if stored is not None and stored != config and not redo:
+    if group is None and stored is not None:
+        group = (stored.get("options") or {}).get("group")
+    if group is not None:
+        config = {**config, "options": {**(config.get("options") or {}), "group": group}}
+    group_sizes(config)  # a size that is no number is refused here
+    country = Country.from_config(config)
+    if stored is not None and state.get("hash") is not None and stored != config and not redo:  # tiles counted
         raise CountryError(f"The configuration of {country_id} changed since its tiles were counted: run again with "
                            f"--redo to count everything again")
     outline = os.path.join(folder, "area.geojson")
@@ -552,7 +619,35 @@ MIGRATIONS = [
     """
     ALTER TABLE tiles ADD COLUMN weight REAL;
     """,
+    # v3: the group of a tile (step 1 once per group, TileWork: the group's name, its south-west tile; NULL, a
+    # row of before: the tile alone) and the folder of its window copied by its group's step 1 when the tile was
+    # handed over to another worker (a heavy tile beside its group's heaviest; cleared by every run's start)
+    """
+    ALTER TABLE tiles ADD COLUMN grp TEXT;
+    ALTER TABLE tiles ADD COLUMN prepared TEXT;
+    """,
 ]
+
+
+@dataclass
+class ClaimedTile:
+    """A tile of a claim: its core, weight, whether it is heavy (_heavy_weight) and the folder of its window
+    when its group's step 1 handed it over (Manifest.hand_over)."""
+    name: str
+    core: Tuple[float, ...]
+    weight: Optional[float]
+    heavy: bool
+    prepared: Optional[str] = None
+
+
+@dataclass
+class Claim:
+    """What a worker claims at once (Manifest.claim): the pending tiles of one group of a band, the heaviest
+    first, and the cores of every tile of the group (its grid: search.tile_grid of their box, group_box)."""
+    band: str
+    group: str
+    tiles: List[ClaimedTile]
+    cores: List[Tuple[float, ...]]
 
 
 class Manifest:
@@ -578,46 +673,81 @@ class Manifest:
             self.db.execute("ROLLBACK")
             raise
 
-    def add_tiles(self, band: str, tiles) -> None:
-        self._write(lambda db: db.executemany(
-            "INSERT OR IGNORE INTO tiles (band, name, core) VALUES (?, ?, ?)",
-            [(band, t.name, json.dumps(list(t.core))) for t in tiles]))
+    def add_tiles(self, band: str, tiles, groups: Optional[Dict[str, str]] = None) -> None:
+        """The band's tiles (search.fixed_tiles), each in its group (groups: name -> group_of; without it each
+        tile alone); a row of before without a group gets its group too."""
+        rows = [(band, t.name, json.dumps(list(t.core)), (groups or {}).get(t.name, t.name)) for t in tiles]
+
+        def work(db):
+            db.executemany("INSERT OR IGNORE INTO tiles (band, name, core, grp) VALUES (?, ?, ?, ?)", rows)
+            db.executemany("UPDATE tiles SET grp = ? WHERE band = ? AND name = ? AND grp IS NULL",
+                           [(g, b, n) for b, n, _, g in rows])
+        self._write(work)
 
     def release_running(self, worker: Optional[str] = None) -> int:
-        """Running tiles (of one worker, or all) back to pending: an interruption, not a failure."""
+        """Running tiles (of one worker, or all; claimed with a group and not begun too) back to pending: an
+        interruption, not a failure."""
         where, args = ("status = 'running'", ()) if worker is None else ("status = 'running' AND worker = ?", (worker,))
         return self._write(lambda db: db.execute(
             f"UPDATE tiles SET status = 'pending', attempts = MAX(attempts - 1, 0), worker = NULL, started_at = NULL "
             f"WHERE {where}", args).rowcount)
+
+    def clear_prepared(self) -> int:
+        """The folders of handed-over tiles forgotten (a run's start removes the work folders)."""
+        return self._write(lambda db: db.execute(
+            "UPDATE tiles SET prepared = NULL WHERE prepared IS NOT NULL").rowcount)
 
     def set_run(self, bands: Sequence[str], tiles_left: Optional[int], processes: int):
         self._write(lambda db: db.execute(
             "INSERT OR REPLACE INTO run (id, bands, tiles_left, processes, started_at) VALUES (1, ?, ?, ?, ?)",
             (json.dumps(list(bands)), tiles_left, processes, _now())))
 
-    def claim(self, worker: str, cores: int) -> Optional[Tuple[str, str, Tuple[float, ...], int]]:
-        """The next pending tile of the run's bands (the heaviest first, by weight; then in the
-        order they were added: bands as configured, rows from the north), marked running; with the
-        threads its count may use (_threads) and whether it is heavy (_heavy_weight). None when
-        nothing is left to claim."""
+    def claim(self, worker: str) -> Optional[Claim]:
+        """The next pending group of the run's bands (the heaviest first, by the sum of its pending tiles'
+        weights; then in the order they were added: bands as configured, rows from the north): its pending
+        tiles (at most the run's tiles_left) marked running for the worker, not begun yet (started_at NULL:
+        begin), the heaviest first, each with whether it is heavy (_heavy_weight). A group of one tile each
+        (k = 1) claims the tiles in the order of before. None when nothing is left to claim."""
         def work(db):
             row = db.execute("SELECT bands, tiles_left, processes FROM run WHERE id = 1").fetchone()
             if row is None or (row[1] is not None and row[1] <= 0):
                 return None
             bands = json.loads(row[0])
             marks = ",".join("?" * len(bands))
-            tile = db.execute(f"SELECT band, name, core, weight FROM tiles WHERE status = 'pending' "
-                              f"AND band IN ({marks}) ORDER BY weight IS NULL, weight DESC, rowid LIMIT 1",
-                              bands).fetchone()
-            if tile is None:
+            group = db.execute(f"SELECT band, COALESCE(grp, name) AS g, SUM(weight) AS w, MIN(rowid) AS r FROM tiles "
+                               f"WHERE status = 'pending' AND band IN ({marks}) GROUP BY band, g "
+                               f"ORDER BY w IS NULL, w DESC, r LIMIT 1", bands).fetchone()
+            if group is None:
                 return None
-            db.execute("UPDATE tiles SET status = 'running', attempts = attempts + 1, worker = ?, started_at = ?, "
-                       "error = NULL WHERE band = ? AND name = ?", (worker, _now(), tile[0], tile[1]))
+            band, name = group[0], group[1]
+            tiles = db.execute("SELECT name, core, weight, prepared FROM tiles WHERE status = 'pending' AND band = ? "
+                               "AND COALESCE(grp, name) = ? ORDER BY weight IS NULL, weight DESC, rowid LIMIT ?",
+                               (band, name, -1 if row[1] is None else row[1])).fetchall()
+            db.executemany("UPDATE tiles SET status = 'running', attempts = attempts + 1, worker = ?, started_at = NULL, "
+                           "error = NULL WHERE band = ? AND name = ?", [(worker, band, t[0]) for t in tiles])
             if row[1] is not None:
-                db.execute("UPDATE run SET tiles_left = tiles_left - 1 WHERE id = 1")
-            heavy = tile[3] is not None and tile[3] >= _heavy_weight(db, bands)
-            return tile[0], tile[1], tuple(json.loads(tile[2])), _threads(db, bands, row[2], cores, heavy), heavy
+                db.execute("UPDATE run SET tiles_left = tiles_left - ? WHERE id = 1", (len(tiles),))
+            cores = [tuple(json.loads(c)) for (c,) in db.execute(
+                "SELECT core FROM tiles WHERE band = ? AND COALESCE(grp, name) = ? ORDER BY rowid", (band, name))]
+            heavy = _heavy_weight(db, bands)
+            return Claim(band, name, [ClaimedTile(t[0], tuple(json.loads(t[1])), t[2], t[2] is not None and t[2] >= heavy,
+                                                  t[3]) for t in tiles], cores)
         return self._write(work)
+
+    def begin(self, band: str, name: str, cores: int, heavy: bool = False) -> int:
+        """A claimed tile's count begins (started_at): the threads it may use now (_threads)."""
+        def work(db):
+            db.execute("UPDATE tiles SET started_at = ? WHERE band = ? AND name = ?", (_now(), band, name))
+            row = db.execute("SELECT bands, processes FROM run WHERE id = 1").fetchone()
+            return 1 if row is None else _threads(db, json.loads(row[0]), row[1], cores, heavy)
+        return self._write(work)
+
+    def hand_over(self, band: str, name: str, prepared: str):
+        """A claimed tile back to pending with the folder of its window (its group's step 1 done, TileWork):
+        any worker counts it from there; not an attempt."""
+        self._write(lambda db: db.execute(
+            "UPDATE tiles SET status = 'pending', attempts = MAX(attempts - 1, 0), worker = NULL, started_at = NULL, "
+            "prepared = ? WHERE band = ? AND name = ?", (prepared, band, name)))
 
     def threads(self, cores: int, heavy: bool = False) -> int:
         """The threads a counting tile (heavy: _heavy_weight) may use now (_threads; one when no
@@ -633,17 +763,19 @@ class Manifest:
 
     def done(self, band: str, name: str, seconds: float, lines: int, spots: int):
         self._write(lambda db: db.execute(
-            "UPDATE tiles SET status = 'done', finished_at = ?, seconds = ?, lines = ?, spots = ?, error = NULL "
-            "WHERE band = ? AND name = ?", (_now(), seconds, lines, spots, band, name)))
+            "UPDATE tiles SET status = 'done', finished_at = ?, seconds = ?, lines = ?, spots = ?, error = NULL, "
+            "prepared = NULL WHERE band = ? AND name = ?", (_now(), seconds, lines, spots, band, name)))
 
     def fail(self, band: Optional[str], name: Optional[str], error: str, worker: Optional[str] = None) -> int:
-        """A tile (or the running tiles of a worker that stopped) failed: back to pending after its
-        first attempt, failed after ATTEMPTS."""
+        """A tile (or the running tiles of a worker that stopped, those claimed with its group too) failed:
+        back to pending after its first attempt, failed after ATTEMPTS; a handed-over tile's folder is
+        forgotten (its group's step 1 again)."""
         where, args = (("band = ? AND name = ?", (band, name)) if worker is None
                        else ("status = 'running' AND worker = ?", (worker,)))
         return self._write(lambda db: db.execute(
             f"UPDATE tiles SET status = CASE WHEN attempts < {ATTEMPTS:d} THEN 'pending' ELSE 'failed' END, "
-            f"worker = NULL, finished_at = ?, error = ? WHERE {where}", (_now(), error[-2000:], *args)).rowcount)
+            f"worker = NULL, finished_at = ?, error = ?, prepared = NULL WHERE {where}",
+            (_now(), error[-2000:], *args)).rowcount)
 
     def rows(self, band: Optional[str] = None) -> List[sqlite3.Row]:
         self.db.row_factory = sqlite3.Row
@@ -672,13 +804,18 @@ def _heavy_weight(db, bands: Sequence[str]) -> float:
 
 def _threads(db, bands: Sequence[str], processes: int, cores: int, heavy: bool = False) -> int:
     """The threads of a counting tile: the logical cores shared by the workers still busy (the
-    running and pending tiles of the run's bands, at most its processes). A heavy tile (the
-    one asking is counted among the running) takes instead its share of the cores left after
-    LIGHT_CORES per light tile running, when that is more; a light tile keeps at most
-    LIGHT_THREADS while a heavy one runs."""
+    workers holding running tiles of the run's bands and its pending groups, at most its processes).
+    A heavy tile (the one asking is counted among the running) takes instead its share of the cores
+    left after LIGHT_CORES per light worker running, when that is more; a light tile keeps at most
+    LIGHT_THREADS while a heavy one runs. A worker counts once whatever it holds (a group's tiles
+    claimed and not begun, Manifest.begin; a row running without a worker counts as its own), and a
+    heavy tile only once its count has begun (a group's step 1 is light work): with one tile per group
+    and per worker, the tiles as before."""
     marks = ",".join("?" * len(bands))
     running, pending, heavy_running = db.execute(
-        f"SELECT SUM(status = 'running'), SUM(status = 'pending'), SUM(status = 'running' AND weight >= ?) "
+        f"SELECT COUNT(DISTINCT CASE WHEN status = 'running' THEN COALESCE(worker, band || ' ' || name) END), "
+        f"COUNT(DISTINCT CASE WHEN status = 'pending' THEN band || ' ' || COALESCE(grp, name) END), "
+        f"SUM(status = 'running' AND NOT (worker IS NOT NULL AND started_at IS NULL) AND weight >= ?) "
         f"FROM tiles WHERE band IN ({marks})", [_heavy_weight(db, bands), *bands]).fetchone()
     running, pending, heavy_running = running or 0, pending or 0, heavy_running or 0
     busy = max(1, min(processes, running + pending))
@@ -889,8 +1026,39 @@ class _MemorySampler(threading.Thread):
         return {"rss": self.rss, "private": self.private, "stages": dict(self.stages)}
 
 
+GRID_FIELDS = ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "partner")
+
+
+@dataclass
+class _Group:
+    """A group's step 1 in a worker (TileWork.prepare_group): its plan and step 1's grids on its grid, its work
+    folder, and what each tile it serves takes of it (share: seconds, CPU, stages and file reads split evenly
+    over the tiles claimed with it, its memory peaks whole, its data credits, and info: the group's own
+    numbers, whole)."""
+    band: str
+    name: str
+    plan: object
+    data: object
+    work: str
+    share: Dict
+
+
+@dataclass
+class _Window:
+    """A tile whose grids are its window of its group's step 1 (TileWork.count): copied now from source, copied
+    before (data, copy_seconds), or the folder of a handed-over tile (data, handed_over); work its folder."""
+    group: str
+    share: Dict
+    work: str
+    source: Optional[_Group] = None
+    data: Optional[object] = None
+    copy_seconds: float = 0.0
+    handed_over: Optional[Dict] = None
+
+
 class TileWork:
-    """Counts the tiles one process claims: the bands' plans and sag tables made once per process."""
+    """Counts the tiles one process claims: the bands' plans and sag tables made once per process, step 1
+    once per claimed group of tiles (prepare_group), each tile on its window (count)."""
 
     def __init__(self, folder: str, data_dir: str, slot: int):
         self.folder, self.data_dir = folder, data_dir
@@ -914,25 +1082,33 @@ class TileWork:
     def tile_path(self, band: str, name: str) -> str:
         return os.path.join(self.folder, "tiles", band, f"{name}.npz")
 
+    def _work(self, band: str, name: str, suffix: str = "") -> str:
+        """A work folder of the country: <band>-<tile> of a tile with its own step 1 (as before groups),
+        <band>-<group> of a group's step 1, <band>-<tile>.tile of a tile's window copied from its group,
+        <band>-<tile>.ready of a handed-over tile."""
+        return os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band}-{name}{suffix}")
+
     def count(self, band_name: str, name: str, core: Tuple[float, ...], threads: int,
-              threads_now: Optional[Callable[[], int]] = None) -> Dict:
-        """One tile: step 1, the count, its file; returns its meta. threads_now: the threads the
-        count may take as it goes on (_Rethreading), else threads throughout."""
+              threads_now: Optional[Callable[[], int]] = None, window: Optional[_Window] = None) -> Dict:
+        """One tile: step 1 (or its window of its group's step 1), the count, its file; returns its meta.
+        threads_now: the threads the count may take as it goes on (_Rethreading), else threads throughout."""
         import search
         import sources as src
         from progress import progress
         band, plan, table = self._band(band_name)
         started = _now()
         res = plan.resolution
-        work = os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band.name}-{name}")
-        shutil.rmtree(work, ignore_errors=True)
-        os.makedirs(work, exist_ok=True)
+        work = self._work(band.name, name) if window is None else window.work
+        if window is None or window.data is None:
+            shutil.rmtree(work, ignore_errors=True)
+            os.makedirs(work, exist_ok=True)
         tile_plan_ = tile_plan(self.country, plan, core, search.Paths(self.data_dir, work), threads,
                                tile_label=f"{band.name} {name} · ", emit=_print_event)
         grid, partners = tile_plan_.grid, tile_plan_.partners
-        print(f"\n--- Band {band.name}, tile {name} ({grid.width} x {grid.height} px, {threads} threads) ---",
-              flush=True)
-        src.used_data.clear()
+        print(f"\n--- Band {band.name}, tile {name}" + ("" if window is None else f" of group {window.group}") +
+              f" ({grid.width} x {grid.height} px, {threads} threads) ---", flush=True)
+        if window is None:
+            src.used_data.clear()
         # The profile of the tile (`country profile`): seconds and CPU per stage, the counter's
         # share, the memory sampled while it runs, its file reads and writes
         clock = _StageClock()
@@ -942,14 +1118,24 @@ class TileWork:
         sampler.start()
         try:
             t0 = time.time()
-            # Step 1 in strips of rows on the tile's own grid (round 3's wave 4 for a tiled area): the
-            # grids memory-mapped in the work folder as the plain path writes them, one int32 array of
-            # labels and a strip's temporaries in memory at a time, so the private memory of a worker
-            # is not the whole tile's gap filling any more (COUNT_PIXEL_BYTES); steps 2-3 read the same
-            # files with the same argument types (warmup.SEARCHES), so no copy of a tile's window
-            # (search._tile_data) is needed: the window is the grid. No terrain histogram and no shore:
-            # the cube holds none.
-            data = search.prepare_data(tile_plan_, statistics=False, shore="none", strips=True)
+            if window is None:
+                # Step 1 in strips of rows on the tile's own grid (round 3's wave 4 for a tiled area): the
+                # grids memory-mapped in the work folder as the plain path writes them, one int32 array of
+                # labels and a strip's temporaries in memory at a time, so the private memory of a worker
+                # is not the whole tile's gap filling any more (COUNT_PIXEL_BYTES); steps 2-3 read the same
+                # files with the same argument types (warmup.SEARCHES), so no copy of a tile's window
+                # (search._tile_data) is needed: the window is the grid. No terrain histogram and no shore:
+                # the cube holds none.
+                data = search.prepare_data(tile_plan_, statistics=False, shore="none", strips=True)
+            elif window.data is None:
+                # Its window of its group's step 1, copied into contiguous memory-mapped grids (the kernels'
+                # argument types: read-only C-contiguous memmaps, as a tile's own step 1 gives them)
+                progress.compute.start("tile window", 1, unit="step")
+                data = self._copy_window(window.source, tile_plan_, work)
+                progress.compute.update(1)
+                progress.compute.finish()
+            else:
+                data, window.data = window.data, None
             t1 = time.time()
             counter = _TimedSink(countcube.TileCounter(grid, self.origin, core, band.lengths,
                                                        float(band.lengths[1]) >= self.country.last_edge))
@@ -975,6 +1161,8 @@ class TileWork:
                 "threads": threads, "threads_max": getattr(sink, "most", threads), "peak_memory": _peak_memory(),
                 "commit": self.commit,
                 "data": json.loads(json.dumps(src.used_data)), "started": started, "finished": _now()}
+        if window is not None:
+            _with_share(meta, window)
         path = self.tile_path(band.name, name)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         countcube.save_tile(path, counts, meta)
@@ -982,52 +1170,271 @@ class TileWork:
               f"{t2 - t0:.1f} s", flush=True)
         return meta
 
-    def _remove_grids(self, work: str):
-        """A tile's work folder removed: its memory-mapped grids closed first (Windows), the views a
-        worker kept (sources.mosaic.HELD_GRIDS) too, and the files deleted right after them, before
-        the system writes their pages."""
+    def _copy_window(self, group: _Group, tile_plan_, work: str):
+        """A tile's window of its group's grids (search._tile_data) into work; without the partner grid for a
+        tile whose own grid lies inside the outline (its plan has no partners, as before groups)."""
+        import search
+        source = group.data if tile_plan_.partners is not None else dataclasses.replace(group.data, partner=None)
+        return search._tile_data(source, group.plan.grid, tile_plan_.grid, work, None)
+
+    def prepare_group(self, claim: Claim, threads: int) -> _Group:
+        """Step 1 of a claimed group on its grid (search.tile_grid of its cores' box with the band's overlap:
+        country.tile_plan of that box, so the group is at the border when its grid is, with the partners and
+        the footprint on its grid), in strips as a tile's own; the grids its Data does not read deleted."""
+        import search
+        import sources as src
+        from progress import progress
+        band, plan, _ = self._band(claim.band)
+        work = self._work(band.name, claim.group)
+        shutil.rmtree(work, ignore_errors=True)
+        os.makedirs(work, exist_ok=True)
+        group_plan = tile_plan(self.country, plan, group_box(claim.cores), search.Paths(self.data_dir, work), threads,
+                               tile_label=f"{band.name} group {claim.group} · ", emit=_print_event)
+        grid = group_plan.grid
+        print(f"\n--- Band {band.name}, group {claim.group}: {len(claim.cores)} tiles, {len(claim.tiles)} to count "
+              f"({grid.width} x {grid.height} px) ---", flush=True)
+        src.used_data.clear()
+        clock = _StageClock()
+        sampler = _MemorySampler(clock)
+        cpu0, (read0, written0) = time.process_time(), _io_counters()
+        progress.subscribe(clock)
+        sampler.start()
+        try:
+            t0 = time.time()
+            data = search.prepare_data(group_plan, statistics=False, shore="none", strips=True)
+            seconds = time.time() - t0
+        finally:
+            memory = sampler.stop()
+            progress.unsubscribe(clock)
+        cpu = time.process_time() - cpu0
+        read1, written1 = _io_counters()
+        self._drop_unread(work, data)
+        n = len(claim.tiles)
+        stages = clock.result()
+        share = {"seconds": seconds / n, "cpu": cpu / n, "stages": {k: [a / n, b / n] for k, (a, b) in stages.items()},
+                 "memory": memory, "io": [(read1 - read0) / n, (written1 - written0) / n],
+                 "data": json.loads(json.dumps(src.used_data)),
+                 "info": {"name": claim.group, "tiles": len(claim.cores), "served": n, "border": group_plan.border,
+                          "grid": {"width": grid.width, "height": grid.height, "left": grid.left, "top": grid.top},
+                          "prepare": round(seconds, 3), "cpu_seconds": round(cpu, 3), "stages": stages,
+                          "memory": {"rss": memory["rss"], "private": memory["private"]}}}
+        print(f"Group {band.name} {claim.group}: step 1 in {seconds:.1f} s for {n} tiles", flush=True)
+        return _Group(band.name, claim.group, group_plan, data, work, share)
+
+    def _drop_unread(self, work: str, data):
+        """The grids of a group's step 1 its Data does not read (the water body mask, the fallbacks' and the
+        neighbours' grids, the surface under the obstacles' surface...) deleted at once: their held views
+        closed first, so they reach neither the disk nor the tiles' time."""
         import sources.mosaic
-        if sources.mosaic.HELD_GRIDS:
-            sources.mosaic.HELD_GRIDS.clear()
+        keep = {_norm(a.filename) for a in (getattr(data, f) for f in GRID_FIELDS + ("mask",))
+                if isinstance(a, np.memmap) and a.filename}
+        prefix = _norm(work) + os.sep
+        held = sources.mosaic.HELD_GRIDS
+        if held:
+            held[:] = [g for g in held if not (g.filename and _norm(g.filename).startswith(prefix)
+                                               and _norm(g.filename) not in keep)]
+        gc.collect()
+        for path in glob.glob(os.path.join(work, "*.npy")):
+            if _norm(path) not in keep:
+                try:
+                    os.remove(path)
+                except OSError:  # still open somewhere: removed with the folder
+                    pass
+
+    def hand_over(self, manifest: Manifest, group: _Group, tile: ClaimedTile):
+        """A heavy tile beside its group's heaviest: its window copied into its own folder (flushed: another
+        worker maps it), with tile.json (the grids, its share of the group's step 1, the copy's cost), and the
+        tile back to pending with that folder (Manifest.hand_over)."""
+        import search
+        import sources.mosaic
+        _, plan, _ = self._band(group.band)
+        folder = self._work(group.band, tile.name, ".ready")
+        shutil.rmtree(folder, ignore_errors=True)
+        os.makedirs(folder)
+        t0, c0 = time.time(), time.process_time()
+        tile_plan_ = tile_plan(self.country, plan, tile.core, search.Paths(self.data_dir, folder))
+        held, sources.mosaic.HELD_GRIDS = sources.mosaic.HELD_GRIDS, None  # these copies flushed, not held
+        try:
+            data = self._copy_window(group, tile_plan_, folder)
+        finally:
+            sources.mosaic.HELD_GRIDS = held
+        np.save(os.path.join(folder, "mask.npy"), np.asarray(data.mask))
+        fields = {f: os.path.basename(getattr(data, f).filename) for f in GRID_FIELDS if getattr(data, f) is not None}
+        del data
+        gc.collect()
+        size = sum(os.path.getsize(p) for p in glob.glob(os.path.join(folder, "*.npy")))
+        _write_json(os.path.join(folder, "tile.json"), {
+            "fields": fields, "mask": "mask.npy", "share": group.share,
+            "handed_over": {"by": self.worker, "bytes": size, "seconds": round(time.time() - t0, 3),
+                            "cpu_seconds": round(time.process_time() - c0, 3)}})
+        manifest.hand_over(group.band, tile.name, folder)
+        print(f"Tile {group.band} {tile.name} handed over: its window ({size / 2 ** 20:.0f} MiB) in {folder}, "
+              f"{time.time() - t0:.1f} s", flush=True)
+
+    def _prepared(self, claim: Claim) -> Optional[_Window]:
+        """The window of a handed-over tile claimed alone, from its folder; None when it is gone."""
+        tile = claim.tiles[0]
+        try:
+            with open(os.path.join(tile.prepared, "tile.json"), encoding="utf-8") as f:
+                info = json.load(f)
+            import search
+            arrays = {f: np.load(os.path.join(tile.prepared, name), mmap_mode="r") for f, name in info["fields"].items()}
+            mask = np.load(os.path.join(tile.prepared, info["mask"]))
+        except (OSError, ValueError, KeyError):
+            return None
+        data = search.Data(arrays.get("elevation"), arrays.get("surface"), arrays.get("water"), arrays.get("filled"),
+                           arrays.get("slope"), joined=arrays.get("joined"), mask=mask, covered=arrays.get("covered"),
+                           partner=arrays.get("partner"))
+        return _Window(claim.group, info["share"], tile.prepared, data=data, handed_over=info["handed_over"])
+
+    def _remove_grids(self, work: str):
+        """A work folder removed: the memory-mapped grids under it closed first (Windows), the views a worker
+        kept of them (sources.mosaic.HELD_GRIDS) too, and the files deleted right after them, before the
+        system writes their pages; the views of other folders (a group's grids while its tiles are counted)
+        stay held."""
+        import sources.mosaic
+        held = sources.mosaic.HELD_GRIDS
+        if held:
+            prefix = _norm(work) + os.sep
+            held[:] = [g for g in held if not (g.filename and _norm(g.filename).startswith(prefix))]
         gc.collect()
         shutil.rmtree(work, ignore_errors=True)
 
-    def cleanup(self, band: str, name: str):
+    def cleanup(self, band: str, name: str, window: Optional[_Window] = None):
         import sources as src
-        self._remove_grids(os.path.join(self.data_dir, "work", f"country-{self.country.id}", f"{band}-{name}"))
+        self._remove_grids(self._work(band, name) if window is None else window.work)
         src.used_data.clear()
 
+    def _count_one(self, manifest: Manifest, band: str, tile: ClaimedTile, window: Optional[_Window]) -> bool:
+        """A claimed tile counted (Manifest.begin, count, done), or failed; whether it was done."""
+        threads = manifest.begin(band, tile.name, self.cores, tile.heavy)
+        try:
+            meta = self.count(band, tile.name, tile.core, threads,
+                              threads_now=lambda: manifest.threads(self.cores, tile.heavy), window=window)
+        except Exception as e:  # the tile fails (pending again once, then failed); the others go on
+            traceback.print_exc()
+            sys.stdout.flush()
+            self.cleanup(band, tile.name, window)
+            manifest.fail(band, tile.name, f"{type(e).__name__}: {cache.clean_error(e)}")
+            return False
+        seconds = meta["seconds"]["prepare"] + meta["seconds"]["count"]
+        manifest.done(band, tile.name, seconds, meta["lines"], meta["spots"])
+        self.cleanup(band, tile.name, window)
+        return True
+
+    def count_claim(self, manifest: Manifest, claim: Claim) -> int:
+        """The tiles of a claim; returns those done. A tile alone in its group: its own step 1 (as before
+        groups). A handed-over tile claimed alone: from its folder. A group: its step 1 once (prepare_group),
+        a heavy tile beside its heaviest handed over (any worker counts it at once: two heavy tiles never wait
+        for each other in one worker), the heaviest's window copied, the light tiles counted on their windows
+        one after another, the group's grids removed, then the heaviest counted on its copy. A failure of the
+        group's step 1 fails every tile claimed with it."""
+        import sources as src
+        band, tiles = claim.band, claim.tiles
+        if len(claim.cores) == 1:
+            return int(self._count_one(manifest, band, tiles[0], None))
+        if len(tiles) == 1 and tiles[0].prepared:
+            window = self._prepared(claim)
+            if window is not None:
+                return int(self._count_one(manifest, band, tiles[0], window))
+        try:
+            group = self.prepare_group(claim, manifest.threads(self.cores))
+        except Exception as e:
+            traceback.print_exc()
+            sys.stdout.flush()
+            self._remove_grids(self._work(band, claim.group))
+            src.used_data.clear()
+            manifest.fail(None, None, f"group {claim.group}: {type(e).__name__}: {cache.clean_error(e)}",
+                          worker=self.worker)
+            return 0
+        done, last = 0, None
+        try:
+            heavy = [t for t in tiles if t.heavy]
+            light = [t for t in tiles if not t.heavy]
+            for tile in heavy[1:]:
+                try:
+                    self.hand_over(manifest, group, tile)
+                except Exception:  # counted here then, from the group's grids
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                    self._remove_grids(self._work(band, tile.name, ".ready"))
+                    light.append(tile)
+            if heavy:
+                import search
+                _, plan, _ = self._band(band)
+                work = self._work(band, heavy[0].name, ".tile")
+                shutil.rmtree(work, ignore_errors=True)
+                os.makedirs(work)
+                t0 = time.time()
+                try:  # no other reference to its grids: count() closes them before removing its folder
+                    last = _Window(claim.group, group.share, work, copy_seconds=0.0,
+                                   data=self._copy_window(group, tile_plan(self.country, plan, heavy[0].core,
+                                                                           search.Paths(self.data_dir, work)), work))
+                    last.copy_seconds = time.time() - t0
+                except Exception:  # counted first then, on its window of the group's grids
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                    self._remove_grids(work)
+                    light.insert(0, heavy[0])
+            for tile in light:
+                done += self._count_one(manifest, band, tile,
+                                        _Window(claim.group, group.share, self._work(band, tile.name, ".tile"),
+                                                source=group))
+        finally:
+            group.data = None
+            self._remove_grids(group.work)
+        if last is not None:
+            done += self._count_one(manifest, band, heavy[0], last)
+        return done
+
     def loop(self, manifest: Manifest, run_gone=None, freeze: bool = False) -> int:
-        """Claim and count tiles until none is left (or the run is gone); returns the tiles done.
-        freeze: what is alive after the first tile (the modules, numba's kernels, the band's plan)
+        """Claim and count groups of tiles until none is left (or the run is gone); returns the tiles done.
+        freeze: what is alive after the first claim (the modules, numba's kernels, the band's plan)
         kept out of the collections of the next tiles (gc.freeze): count and cleanup each collect
         to close the memory-mapped grids, about 45 ms alone and 120 ms beside eleven workers over
-        everything a worker has loaded."""
+        everything a worker has loaded; after the claim's last tile, so no grid is frozen open."""
         done = 0
         while True:
             if run_gone is not None and run_gone():
                 print("The run is gone: this worker stops", flush=True)
                 break
-            claimed = manifest.claim(self.worker, self.cores)
-            if claimed is None:
+            claim = manifest.claim(self.worker)
+            if claim is None:
                 break
-            band, name, core, threads, heavy = claimed
-            try:
-                meta = self.count(band, name, core, threads,
-                                  threads_now=lambda: manifest.threads(self.cores, heavy))
-            except Exception as e:  # the tile fails (pending again once, then failed); the others go on
-                traceback.print_exc()
-                sys.stdout.flush()
-                self.cleanup(band, name)
-                manifest.fail(band, name, f"{type(e).__name__}: {cache.clean_error(e)}")
-                continue
-            seconds = meta["seconds"]["prepare"] + meta["seconds"]["count"]
-            manifest.done(band, name, seconds, meta["lines"], meta["spots"])
-            self.cleanup(band, name)
-            done += 1
-            if freeze and done == 1:
+            first = done == 0
+            done += self.count_claim(manifest, claim)
+            if freeze and first and done:
                 gc.freeze()
         return done
+
+
+def _norm(path: str) -> str:
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _with_share(meta: Dict, window: _Window):
+    """A tile's meta with its part of its group's step 1 (_Group.share): the seconds, CPU, stages and file
+    reads added, the memory peaks the larger, the data credits the group's, "group" its own numbers (whole)
+    and, for a tile copied before or handed over, that copy's cost."""
+    share = window.share
+    copy = window.copy_seconds + (window.handed_over or {}).get("seconds", 0.0)
+    meta["seconds"]["prepare"] = round(meta["seconds"]["prepare"] + share["seconds"] + copy, 3)
+    copy_cpu = window.copy_seconds + (window.handed_over or {}).get("cpu_seconds", 0.0)  # a copy runs on one core
+    meta["cpu_seconds"] = round(meta["cpu_seconds"] + share["cpu"] + copy_cpu, 3)
+    stages = meta["stages"]
+    for name, (seconds, cpu) in share["stages"].items():
+        mine = stages.setdefault(name, [0.0, 0.0])
+        stages[name] = [round(mine[0] + seconds, 3), round(mine[1] + cpu, 3)]
+    if copy:
+        mine = stages.setdefault("tile window", [0.0, 0.0])
+        stages["tile window"] = [round(mine[0] + copy, 3), round(mine[1] + copy_cpu, 3)]
+    memory, group = meta["memory"], share["memory"]
+    memory["rss"], memory["private"] = max(memory["rss"], group["rss"]), max(memory["private"], group["private"])
+    for name, peak in group["stages"].items():
+        memory["stages"][name] = max(memory["stages"].get(name, 0), peak)
+    meta["io"] = {"read": meta["io"]["read"] + int(share["io"][0]), "write": meta["io"]["write"] + int(share["io"][1])}
+    meta["data"] = share["data"]
+    meta["group"] = dict(share["info"], **({"handed_over": window.handed_over} if window.handed_over else {}))
 
 
 def partner_reach(plan) -> float:
@@ -1137,9 +1544,35 @@ def _disk_bytes(plan, across: bool = False) -> int:
     return search.work_bytes(plan) + search.AREA_TEMP_BYTES + (2 if across else 0)
 
 
-def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
+def _copy_bytes(plan, across: bool = False) -> int:
+    """The bytes per pixel of a tile's window copied from its group's grids (search.tile_bytes, and the
+    partner grid across a border)."""
+    import search
+    return search.tile_bytes(plan) + (1 if across else 0)
+
+
+def _group_pixels(plan, tiles, groups: Dict[str, str]) -> Tuple[int, int, int]:
+    """The pixels of a band's largest tile grid and largest group grid (search.tile_grid of a group's cores'
+    box, for a group of more than one tile; else 0), and the number of groups."""
+    import search
+    by: Dict[str, list] = {}
+    for t in tiles:
+        by.setdefault(groups[t.name], []).append(t.core)
+    largest = max(t.grid.width * t.grid.height for t in tiles)
+    overlap = search._overlap(plan.params, plan.resolution)
+    group = 0
+    for cores in by.values():
+        if len(cores) > 1:
+            g = search.tile_grid(plan.grid, group_box(cores), overlap, plan.resolution, plan.source.grid_origin)
+            group = max(group, g.width * g.height)
+    return largest, group, len(by)
+
+
+def worker_count(largest_px: int, available: Optional[int] = None, group_px: int = 0) -> Tuple[int, float]:
     """The processes of a run (at most the physical cores, each with the memory of the largest
-    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel) and the bytes each needs. No cap below the
+    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel, or of the largest group's step 1 (group_px: its
+    grid's pixels) at GROUP_PIXEL_BYTES when that is more, so a group never budgets less than its tile)
+    and the bytes each needs. No cap below the
     physical cores: on this PC (12 physical, 24 logical cores) Slovakia's M2 band took 31.7, 32.1
     and 32.5-32.7 min at 8, 10 and 12 workers (LIGHT_CORES 1; 33.5, 33.7 and 34.3-34.4 with 2), its
     L band 17.8, 18.2 and 18.3 at 8, 10 and 12 (2026-11-05, docs/performance.md "Round 4", W1): the
@@ -1148,7 +1581,7 @@ def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int,
     every worker it gets: the S band (every tile under 40 s) 29.3 min at 12 workers, 32.6 at 8 (the
     machine at 80 and 62 %)."""
     import search
-    per = WORKER_BASE + COUNT_PIXEL_BYTES * largest_px
+    per = WORKER_BASE + max(COUNT_PIXEL_BYTES * largest_px, GROUP_PIXEL_BYTES * group_px)
     available = search.available_memory() if available is None else available
     cores = psutil.cpu_count(logical=False) or os.cpu_count() or 1
     return max(1, min(cores, int(available // per))), per
@@ -1310,7 +1743,7 @@ def _worker_process(country_id: str, data_dir: str, folder: str, slot: int) -> s
 
 
 def run(country_id: str, data_dir: str, processes: Optional[int] = None, bands: Optional[Sequence[str]] = None,
-        max_tiles: Optional[int] = None, redo: bool = False, yes: bool = False) -> int:
+        max_tiles: Optional[int] = None, redo: bool = False, yes: bool = False, group=None) -> int:
     """`country run`: count the tiles still pending, then build the cube when every layer band is
     done. Returns the exit code (0 done or more to do, 1 failed tiles or refused, 130 interrupted)."""
     from filelock import FileLock, Timeout
@@ -1324,7 +1757,7 @@ def run(country_id: str, data_dir: str, processes: Optional[int] = None, bands: 
         return 1
     say = _Log(folder)
     try:
-        return _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say)
+        return _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say, group)
     except CountryError as e:
         say(str(e))
         return 1
@@ -1359,11 +1792,11 @@ def _set_weights(manifest: Manifest, bands: Sequence[str], plans: Dict, say):
                                                      f"{unknown} lie under no done tile"))
 
 
-def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say) -> int:
+def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say, group=None) -> int:
     import search
     from progress import progress
     say(f"=== country run {country_id} ({_now()}) ===")
-    state, country = setup(country_id, folder, data_dir, redo, say)
+    state, country = setup(country_id, folder, data_dir, redo, say, group)
     _say_overlaps(country, folder, data_dir, say)
     names = [b.name for b in country.bands]
     selected = list(bands) if bands else names
@@ -1373,25 +1806,36 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     _finish_state(state, folder, plans)
     manifest = Manifest(folder)
     try:
-        largest = disk = 0
+        largest = largest_group = disk = 0
+        sizes = group_sizes(country.config())
         for band in country.bands:
-            tiles = search.fixed_tiles(plans[band.name], band.core_m)
-            manifest.add_tiles(band.name, tiles)
+            plan = plans[band.name]
+            tiles = search.fixed_tiles(plan, band.core_m)
+            groups = {t.name: group_of(t.core, band.core_m, sizes[band.name]) for t in tiles}
+            manifest.add_tiles(band.name, tiles, groups)
             if band.name in selected and tiles:
-                largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
-                disk = max(disk, max(t.grid.width * t.grid.height for t in tiles)
-                           * _disk_bytes(plans[band.name], across=not country.study))
+                tile_px, group_px, _ = _group_pixels(plan, tiles, groups)
+                largest, largest_group = max(largest, tile_px), max(largest_group, group_px)
+                across = not country.study
+                # a group's grids and two tiles' copies (one counted, the heaviest's held), else a tile's grids
+                disk = max(disk, group_px * _disk_bytes(plan, across) + 2 * tile_px * _copy_bytes(plan, across)
+                           if group_px else tile_px * _disk_bytes(plan, across))
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
         shutil.rmtree(os.path.join(data_dir, "work", f"country-{country.id}"), ignore_errors=True)
+        manifest.clear_prepared()  # the handed-over tiles' folders went with the work folder
         counts = manifest.counts()
         todo = sum(counts.get(b, {}).get("pending", 0) for b in selected)
-        k, per = worker_count(largest)
+        marks = ",".join("?" * len(selected))
+        pending_groups = manifest.db.execute(
+            f"SELECT COUNT(DISTINCT band || ' ' || COALESCE(grp, name)) FROM tiles WHERE status = 'pending' "
+            f"AND band IN ({marks})", list(selected)).fetchone()[0]
+        k, per = worker_count(largest, group_px=largest_group)
         if processes is not None:
             k = processes
         elif max_tiles is not None or todo:
-            k = max(1, min(k, todo, max_tiles if max_tiles is not None else todo))
+            k = max(1, min(k, pending_groups or todo, max_tiles if max_tiles is not None else todo))
         k_eff = max(1, k)  # the processes counting at once (0: this one)
         need = k_eff * disk + DISK_SPARE
         free = shutil.disk_usage(data_dir).free
@@ -1401,7 +1845,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
                 f"({band.model}, {band.slope_threshold:g}°, cores of {band.core_m:g} m"
                 f"{'' if band.layer else ', control'}): {sum(c.values())} tiles, {c.get('done', 0)} done, "
                 f"{c.get('pending', 0)} pending, {c.get('failed', 0)} failed")
-        say(f"Selected bands: {', '.join(selected)}; {todo} tiles to count"
+        say(f"Groups of tiles (step 1 once per group): " + ", ".join(f"{b} {k} x {k}" for b, k in sizes.items()))
+        say(f"Selected bands: {', '.join(selected)}; {todo} tiles to count in {pending_groups} groups"
             + (f" (at most {max_tiles} now)" if max_tiles is not None else "")
             + (f"; {k} worker processes, about {per / 2 ** 30:.1f} GiB of memory each" if k else
                "; in this process"))
@@ -1425,9 +1870,33 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
             if code:
                 return code
             say(_progress_line(manifest, selected, k_eff, started))
+            handed = _handed_over(folder, manifest, selected, started)
+            if handed[0]:
+                say(f"{handed[0]} tiles handed over to another worker with their windows: {handed[1] / 2 ** 30:.2f} GiB "
+                    f"written, {handed[2]:.0f} s of copying")
         return _after(country, data_dir, manifest, selected, say)
     finally:
         manifest.close()
+
+
+def _handed_over(folder: str, manifest: Manifest, bands: Sequence[str], since: float) -> Tuple[int, int, float]:
+    """The tiles of these bands done since a run's start that were handed over (TileWork.hand_over), the bytes
+    their windows wrote and the seconds of copying, from their meta."""
+    stamp = datetime.fromtimestamp(since, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    marks = ",".join("?" * len(bands))
+    rows = manifest.db.execute(f"SELECT band, name FROM tiles WHERE status = 'done' AND finished_at >= ? "
+                               f"AND band IN ({marks})", [stamp, *bands]).fetchall()
+    n, size, seconds = 0, 0, 0.0
+    for band, name in rows:
+        path = os.path.join(folder, "tiles", band, f"{name}.npz")
+        try:
+            with np.load(path, allow_pickle=False) as z:
+                handed = json.loads(str(z["meta"])).get("group", {}).get("handed_over")
+        except (OSError, KeyError, ValueError):
+            continue
+        if handed:
+            n, size, seconds = n + 1, size + handed["bytes"], seconds + handed["seconds"]
+    return n, size, seconds
 
 
 def _run_here(folder: str, data_dir: str, manifest: Manifest, say) -> int:
@@ -1582,7 +2051,8 @@ def status(country_id: str, data_dir: str) -> int:
     manifest = Manifest(folder)
     try:
         print(f"{country.name} ({country.id}): config {state.get('hash', '?')[:12]}, origin {state.get('origin')}, "
-              f"{state.get('crs', '?')}")
+              f"{state.get('crs', '?')}, groups " + ", ".join(f"{b} {k} x {k}" for b, k in
+                                                             group_sizes(state["config"]).items()))
         header = f"{'Band':<5} {'Tiles':>6} {'Done':>6} {'Run':>4} {'Pend':>6} {'Fail':>5} {'Lines':>14} " \
                  f"{'Spots':>12} {'Seconds':>10} {'Median s':>9}"
         print(header)
@@ -1978,6 +2448,8 @@ def main(argv: List[str]) -> int:
     r.add_argument("--redo", action="store_true", help="remove the tiles, the cube and the manifest and count "
                                                        "everything again (needed after a change of the configuration)")
     r.add_argument("--yes", action="store_true", help="do not ask before starting")
+    r.add_argument("--group", help=f"tiles per side of a group sharing one step 1: a number for every band or "
+                                   f"band=number,... (default {GROUP}; kept in country.json, another needs --redo)")
     commands.add_parser("status", help="the tiles of each band by status, lines, spots, seconds, errors")
     commands.add_parser("profile", help="where the time and the memory of the counted tiles went, per band and "
                                         "stage, and the last run's timeline")
@@ -1998,7 +2470,8 @@ def main(argv: List[str]) -> int:
             if args.processes is not None and args.processes < 0:
                 parser.error("--processes must be 0 or more")
             bands = [s.strip() for s in args.bands.split(",") if s.strip()] if args.bands else None
-            return run(args.id, data_dir, args.processes, bands, args.max_tiles, args.redo, args.yes)
+            group = parse_group(args.group) if args.group else None
+            return run(args.id, data_dir, args.processes, bands, args.max_tiles, args.redo, args.yes, group)
         if args.command == "status":
             return status(args.id, data_dir)
         if args.command == "profile":

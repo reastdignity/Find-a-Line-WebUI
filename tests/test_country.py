@@ -379,14 +379,20 @@ def test_worker_env_dumps_a_fatal_error(monkeypatch):
 
 
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
-    """The hash of the configuration, its profile's sha256 and the outline's; with the surface model
+    """The hash of the configuration, its profile's sha256, the outline's and the group size of each band
+    (another size counts the tiles again, and so do tiles counted before groups); with the surface model
     another obstacle rule gives another hash, so its tiles are counted again."""
     import hashlib
     import country
     import obstacles
     config = {"id": "x", "options": {"nmpt": "off"}}
-    value = {"config": config, "profile": country.PROFILE.sha256, "area_sha256": "a"}
+    value = {"config": config, "profile": country.PROFILE.sha256, "area_sha256": "a",
+             "group": {b.name: country.GROUP for b in country.PROFILE.bands}}
     assert country.config_hash(config, "a") == hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
+    sized = {"id": "x", "options": {"nmpt": "off", "group": {"S": 3}}}
+    assert country.group_sizes(sized) == {**value["group"], "S": 3}
+    assert country.config_hash(sized, "a") != country.config_hash(config, "a")
+    assert country.config_hash({"id": "x", "options": {"nmpt": "off", "group": 1}}, "a") != country.config_hash(config, "a")
     marked = {"id": "x", "options": {"nmpt": "mark"}}
     first = country.config_hash(marked, "a")
     assert first != country.config_hash({"id": "x", "options": {"nmpt": "off"}}, "a")
@@ -532,6 +538,15 @@ def _tile(name, core):
     return types.SimpleNamespace(name=name, core=core)
 
 
+def _claimed(m, worker, cores=24):
+    """A claim of a group of one tile and its count's begin: (band, name, core, threads, heavy)."""
+    c = m.claim(worker)
+    if c is None:
+        return None
+    t = c.tiles[0]
+    return c.band, t.name, t.core, m.begin(c.band, t.name, cores, t.heavy), t.heavy
+
+
 def test_heaviest_tiles_first(tmp_path):
     """A manifest of schema v1 gets the column of the weights; a run claims the tiles under the
     most lines of the tiles done already first (_weights: the cores that overlap, not those that
@@ -546,7 +561,7 @@ def test_heaviest_tiles_first(tmp_path):
     db.close()
     m = country.Manifest(str(tmp_path))
     try:
-        assert "weight" in [r[1] for r in m.db.execute("PRAGMA table_info(tiles)")]
+        assert {"weight", "grp", "prepared"} <= {r[1] for r in m.db.execute("PRAGMA table_info(tiles)")}
         m.add_tiles("B", [_tile("b2", (20, 0, 40, 20)), _tile("b1", (0, 0, 20, 20)), _tile("b3", (0, 20, 20, 40))])
         # nothing done yet: every tile unknown
         assert country._weights(m, ["B"]) == ({("B", "b2"): 0.0, ("B", "b1"): 0.0, ("B", "b3"): 0.0}, 3)
@@ -558,7 +573,7 @@ def test_heaviest_tiles_first(tmp_path):
         assert unknown == 2  # b2 and b3 only touch a2 and a3; b1 lies under a1 and a2 (and a3 of 0 lines)
         m.set_weights(weights)
         m.set_run(["B"], None, 2)
-        assert [m.claim("w", 24)[1] for _ in range(3)] == ["b1", "b2", "b3"] and m.claim("w", 24) is None
+        assert [_claimed(m, "w")[1] for _ in range(3)] == ["b1", "b2", "b3"] and _claimed(m, "w") is None
     finally:
         m.close()
 
@@ -612,7 +627,7 @@ def test_relief_weights_of_a_first_run(tmp_path):
         country._set_weights(m, ["B", "C"], plans, said.append)
         assert "by the relief" in said[-1] and "no tile is done yet" in said[-1]
         m.set_run(["B", "C"], None, 7)
-        claims = [m.claim("w", 24) for _ in range(7)]
+        claims = [_claimed(m, "w") for _ in range(7)]
         assert [c[1] for c in claims] == ["east", "c-far", "c-east", "west", "middle", "c-w2", "c-west"]
         # c-far's km² about 0.4 of east's: 0.22 of its weight; c-east's about 0.1: 0.02, light
         assert [c[4] for c in claims] == [True, True, False, False, False, False, False]
@@ -667,7 +682,7 @@ def test_threads_follow_the_busy_workers(tmp_path, monkeypatch):
     try:
         m.add_tiles("B", [_tile(f"b{k}", (k, 0, k + 1, 1)) for k in range(6)])
         m.set_run(["B"], None, 4)
-        assert m.claim("w", 24)[3] == 6  # 4 workers busy
+        assert _claimed(m, "w")[3] == 6  # 4 workers busy
         m.db.execute("UPDATE tiles SET status = 'done' WHERE status = 'pending'")
         assert m.threads(24) == 24  # the last tile alone
     finally:
@@ -714,14 +729,14 @@ def test_heavy_tiles_take_the_spare_cores(tmp_path):
     try:
         m.add_tiles("B", [_tile(f"b{k}", (k, 0, k + 1, 1)) for k in range(8)])
         m.set_run(["B"], None, 4)
-        assert m.claim("w", 24)[3:] == (6, False)  # no weights: 24 // 4, as before
+        assert _claimed(m, "w")[3:] == (6, False)  # no weights: 24 // 4, as before
         m.db.execute("UPDATE tiles SET status = 'pending', worker = NULL")
         m.set_weights({("B", "b0"): 1000.0, ("B", "b1"): 60.0, ("B", "b2"): 40.0, ("B", "b3"): 1.0})
-        band, name, _, threads, heavy = m.claim("w0", 24)
+        band, name, _, threads, heavy = _claimed(m, "w0")
         assert (name, heavy, threads) == ("b0", True, 24)  # the heaviest first, alone: every core
-        assert m.claim("w1", 24)[1:] == ("b1", (1, 0, 2, 1), 12, True)  # (24 - 0) // 2 heavy running
-        assert m.claim("w2", 24)[1:] == ("b2", (2, 0, 3, 1), 3, False)  # 40 < 5 % of 1000: light, 3 at most
-        assert m.claim("w3", 24)[1:] == ("b3", (3, 0, 4, 1), 3, False)
+        assert _claimed(m, "w1")[1:] == ("b1", (1, 0, 2, 1), 12, True)  # (24 - 0) // 2 heavy running
+        assert _claimed(m, "w2")[1:] == ("b2", (2, 0, 3, 1), 3, False)  # 40 < 5 % of 1000: light, 3 at most
+        assert _claimed(m, "w3")[1:] == ("b3", (3, 0, 4, 1), 3, False)
         assert m.threads(24, heavy=True) == 11  # (24 - 1 * 2 light) // 2 heavy
         assert m.threads(24, heavy=False) == 3
         m.db.execute("UPDATE tiles SET status = 'done' WHERE name IN ('b1', 'b2')")
@@ -809,12 +824,13 @@ def test_tiles_with_their_grids_held(env, full, tmp_path, monkeypatch):
     def remove_grids(work, path):
         seen.append(len(held))
         clear(work, path)
-        assert not held and not os.path.exists(path)
+        inside = os.path.normcase(os.path.abspath(path)) + os.sep
+        assert not any(os.path.normcase(g.filename).startswith(inside) for g in held) and not os.path.exists(path)
 
     monkeypatch.setattr(country.TileWork, "_remove_grids", remove_grids)
     data = _data_dir(env, "unflushed")
     assert _country("run", ID, "--data-dir", data, "--processes", "0", "--bands", "S", "--yes") == 0
-    assert not flushed and any(seen)
+    assert not flushed and any(seen) and not held  # a group's views until its last tile, none after
     tiles = os.path.join(data, "countries", ID, "tiles", "S")
     names = os.listdir(tiles)
     assert len(names) >= 4 and sorted(names) == sorted(os.listdir(os.path.join(full["data"], "countries", ID, "tiles", "S")))
@@ -846,11 +862,18 @@ def test_surface_model_with_its_grids_held(env, tmp_path, monkeypatch):
     held_names = set()
     clear = country.TileWork._remove_grids
 
+    drop = country.TileWork._drop_unread
+
     def remove_grids(work, path):
         held_names.update(os.path.basename(view.filename) for view in sources.mosaic.HELD_GRIDS or [])
         clear(work, path)
 
+    def drop_unread(work, path, data):  # a group's step 1: the grids its tiles do not read go at once
+        held_names.update(os.path.basename(view.filename) for view in sources.mosaic.HELD_GRIDS or [])
+        drop(work, path, data)
+
     monkeypatch.setattr(country.TileWork, "_remove_grids", remove_grids)
+    monkeypatch.setattr(country.TileWork, "_drop_unread", drop_unread)
 
     def tiles(name, held):
         monkeypatch.setattr(sources.mosaic, "HELD_GRIDS", held)
@@ -904,19 +927,23 @@ def test_worker_keeps_the_grids_from_the_disk(monkeypatch, tmp_path):
         def __init__(self):
             self.cores, self.worker = 1, "slot-0"
 
-        def count(self, band, name, core, threads, threads_now=None):
+        def count(self, band, name, core, threads, threads_now=None, window=None):
             return {"seconds": {"prepare": 0.0, "count": 0.0}, "lines": 0, "spots": 0}
 
-        def cleanup(self, band, name):
+        def cleanup(self, band, name, window=None):
             events.append(name)
 
     class Claims:
         def __init__(self, names):
             self.names = iter(names)
 
-        def claim(self, worker, cores):
+        def claim(self, worker):
             name = next(self.names, None)
-            return None if name is None else ("S", name, (0, 0, 1, 1), 1, False)
+            return None if name is None else country.Claim(
+                "S", name, [country.ClaimedTile(name, (0, 0, 1, 1), None, False)], [(0, 0, 1, 1)])
+
+        def begin(self, *args):
+            return 1
 
         def done(self, *args):
             pass
@@ -1060,3 +1087,225 @@ def test_build_refuses_a_tile_of_another_profile(env, full, tmp_path, capsys):
     capsys.readouterr()
     assert _country("build", ID, "--data-dir", data) == 1
     assert "another profile" in capsys.readouterr().out
+
+
+# --- step 1 once per group of tiles (B3) ----------------------------------------------------------
+
+
+def test_group_names_and_sizes():
+    """group_of: the south-west tile of a tile's cell of k x k on the lattice of k * core_m (negative
+    coordinates too), the tile itself for k = 1; parse_group and group_sizes read --group and options.group;
+    group_box is the box of the cores."""
+    import country
+    assert country.group_of((-350000, -1190000, -340000, -1180000), 10000, 2) == "E-360000_N-1200000"
+    assert country.group_of((-340000, -1190000, -330000, -1180000), 10000, 2) == "E-340000_N-1200000"
+    assert country.group_of((-345000, -1185000, -340000, -1180000), 5000, 1) == "E-345000_N-1185000"
+    assert country.group_of((10000, 20000, 15000, 25000), 5000, 3) == "E0_N15000"
+    assert country.parse_group("3") == 3 and country.parse_group("S=3, M2=2") == {"S": 3, "M2": 2}
+    with pytest.raises(country.CountryError):
+        country.parse_group("big")
+    config = {"id": "x", "options": {}}
+    assert set(country.group_sizes(config).values()) == {country.GROUP}
+    assert country.group_sizes({"id": "x", "options": {"group": {"L": 1}}})["L"] == 1
+    for bad in (0, "2", 1.5, True):
+        with pytest.raises(country.CountryError):
+            country.group_sizes({"id": "x", "options": {"group": bad}})
+    assert country.group_box([(0, 0, 10, 10), (10, 10, 20, 20)]) == (0, 0, 20, 20)
+
+
+def test_group_size_kept_in_country_json(env, tmp_path):
+    """--group goes into country.json's options.group and stays without it (the hash with it); another
+    size is refused without --redo."""
+    import country
+    data = _data_dir(env, "sized")
+    folder = os.path.join(data, "countries", ID)
+    state, c = country.setup(ID, folder, data, False, lambda text: None, 3)
+    assert c.options["group"] == 3 and state["config"]["options"]["group"] == 3 and c.group("S") == 3
+    country._write_json(os.path.join(folder, "country.json"), state)
+    again, c = country.setup(ID, folder, data, False, lambda text: None)
+    assert c.group("M") == 3 and again["hash"] == state["hash"]
+    with pytest.raises(country.CountryError):
+        country.setup(ID, folder, data, False, lambda text: None, 2)
+    redone, c = country.setup(ID, folder, data, True, lambda text: None, 2)
+    assert c.group("S") == 2 and redone["hash"] != state["hash"]
+
+
+def test_manifest_claims_groups(tmp_path):
+    """A manifest of schema v2 gets the group and the folder of a handed-over tile (v3); add_tiles puts
+    each tile in its group (a row of before too); claim takes a whole group, the heaviest sum first, its
+    tiles the heaviest first and not begun (begin starts one and gives its threads), at most tiles_left;
+    a worker counts once in _threads whatever it holds, a pending group once; hand_over puts a tile back
+    without an attempt with its folder, which fail and the run's start forget; release_running covers
+    the tiles claimed and not begun."""
+    import cache
+    import country
+    db = sqlite3.connect(tmp_path / "manifest.sqlite")
+    cache.migrate(db, country.MIGRATIONS[:2])
+    db.execute("INSERT INTO tiles (band, name, core) VALUES ('B', 'b00', '[0, 0, 1, 1]')")
+    db.commit()
+    db.close()
+    m = country.Manifest(str(tmp_path))
+    try:
+        assert {"grp", "prepared"} <= {r[1] for r in m.db.execute("PRAGMA table_info(tiles)")}
+        tiles = [_tile(f"b{i}{j}", (i, j, i + 1, j + 1)) for i in range(4) for j in range(2)]
+        groups = {t.name: country.group_of(t.core, 1, 2) for t in tiles}
+        m.add_tiles("B", tiles, groups)
+        assert dict(m.db.execute("SELECT name, grp FROM tiles WHERE name IN ('b00', 'b31')")) == \
+            {"b00": "E0_N0", "b31": "E2_N0"}
+        m.set_weights({("B", "b20"): 50.0, ("B", "b21"): 40.0, ("B", "b30"): 30.0, ("B", "b00"): 100.0})
+        m.set_run(["B"], None, 3)
+        first = m.claim("w0")
+        assert (first.band, first.group) == ("B", "E2_N0")  # 50 + 40 + 30 against 100
+        assert [t.name for t in first.tiles] == ["b20", "b21", "b30", "b31"] and len(first.cores) == 4
+        assert [t.heavy for t in first.tiles] == [True, True, True, False]  # 5 % of 100
+        statuses = dict(m.db.execute("SELECT name, started_at IS NULL FROM tiles WHERE status = 'running'"))
+        assert statuses == {"b20": 1, "b21": 1, "b30": 1, "b31": 1}
+        # one worker busy (its four tiles) and one pending group: 24 // 2; a heavy tile alone takes 23
+        assert m.threads(24) == 12 and m.threads(24, heavy=True) == 23
+        assert m.begin("B", "b20", 24, True) == 24  # begun: the worker is that heavy tile, no light one
+        m.hand_over("B", "b21", "somewhere")
+        assert m.db.execute("SELECT status, attempts, worker, prepared FROM tiles WHERE name = 'b21'").fetchone() == \
+            ("pending", 0, None, "somewhere")
+        second = m.claim("w1")  # b21 alone in its group now (its mates running): its weight against 100
+        assert second.group == "E0_N0" and [t.name for t in second.tiles] == ["b00", "b01", "b10", "b11"]
+        third = m.claim("w2")
+        assert [(t.name, t.prepared) for t in third.tiles] == [("b21", "somewhere")]
+        m.fail("B", "b21", "boom")
+        assert m.db.execute("SELECT status, prepared FROM tiles WHERE name = 'b21'").fetchone() == ("pending", None)
+        m.hand_over("B", "b21", "again")
+        assert m.clear_prepared() == 1
+        assert m.release_running("w1") == 4  # claimed, none begun
+        assert m.db.execute("SELECT COUNT(*) FROM tiles WHERE worker = 'w1'").fetchone()[0] == 0
+        m.set_run(["B"], 1, 3)  # --max-tiles 1: one tile of the next group
+        last = m.claim("w3")
+        assert len(last.tiles) == 1 and m.claim("w3") is None
+    finally:
+        m.close()
+
+
+def _watery_country(tmp_path, monkeypatch, size: int = 2):
+    """A country of the clip (EPSG:2180) with a sea in its west, a lake and gaps on land filled from a
+    fallback (tests/test_offline.py's set-up), the outline a square inside the clip, one band of cores of
+    100 m and a terrain margin of 20 m (so a tile's grid, 444 m, and a group's, 544 m, are smaller than the
+    band's); its data folder and config."""
+    from scipy import ndimage
+    from test_offline import _square, _water_and_fallback, write_raster
+    import rasterio as rio
+    import sources as src
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    with rio.open(CLIP) as s:
+        terrain, left, top = s.read(1), s.bounds.left, s.bounds.top
+    fallback = (ndimage.uniform_filter(terrain, 5) + 1.5).astype(np.float32)
+    n = terrain.shape[0]
+    terrain[:, :80] = np.nan  # the sea in the west, without data
+    terrain[200:260, 300:360] = np.nan  # a lake
+    terrain[400:430, 150:190] = np.nan  # gaps on land
+    terrain[290:310, 240:260] = np.nan
+    terrain[120:200, 430:445] = np.nan  # a gap across a tile's edge
+    write_raster(tmp_path / "nmt.tif", terrain, left, top)
+    water = np.zeros((n, n), np.uint8)
+    water[:, :85] = src.OCEAN
+    water[195:265, 295:365] = src.LAKE
+    _water_and_fallback(tmp_path, monkeypatch, water, fallback, left, top)
+    area = _square(tmp_path / "square.geojson", left + 90, top - n + 90, left + n - 90, top - 90)
+    config = {"id": ID, "name": "Testland", "source": "files", "area": area,
+              "bands": [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula",
+                         "slope_threshold": 45, "core_m": 100, "layer": True}],
+              "tension": [[30, 2.5], [300, 6.0]],
+              "rig": {"webbing_weight": 41.0, "stretch": 2.1, "prominence_span": 20, "drop_radius": 20},
+              "options": {"nmpt": "off", "water": "fill", "coastline": "copernicus", "fill_gaps": "on",
+                          "elevation_file": str(tmp_path / "nmt.tif"), "group": size}}
+    data = tmp_path / f"data-{size}"
+    folder = data / "countries" / ID
+    folder.mkdir(parents=True)
+    (folder / "country.json").write_text(json.dumps({"config": config}))
+    return str(data), config
+
+
+def _same_counts(a, b) -> bool:
+    import dataclasses
+    for f in dataclasses.fields(a):
+        x, y = getattr(a, f.name), getattr(b, f.name)
+        if not (np.array_equal(x, y) if isinstance(x, np.ndarray) else x == y):
+            return False
+    return True
+
+
+def test_group_tiles_as_the_group_grid(tmp_path, monkeypatch):
+    """Step 1 once per group, with a sea, a lake, gaps filled from a fallback (one across a tile's edge)
+    and the partner anchors beyond the outline: each tile of a run in groups of 2 x 2 holds what count_tile
+    over its group's grid gives for its core (every key, count and spot), a heavy tile beside its group's
+    heaviest handed over with its window and counted from it, the work folders gone; a run in groups of 1
+    holds each tile's count on its own grid (step 1 on the tile's grid, as before groups)."""
+    import dataclasses
+    import countcube
+    import country
+    import search
+    data, config = _watery_country(tmp_path, monkeypatch, 2)
+    folder = os.path.join(data, "countries", ID)
+    c = country.Country.from_config(config)
+    band = c.band("S")
+    heavy = []
+
+    def weights(manifest, bands, plans, say):  # two heavy tiles in one group of four: its second is handed over
+        rows = manifest.db.execute("SELECT name, grp FROM tiles ORDER BY rowid").fetchall()
+        sizes = {}
+        for name, grp in rows:
+            sizes.setdefault(grp, []).append(name)
+        four = next((names for names in sizes.values() if len(names) == 4), None)
+        if four is None or heavy:  # the run in groups of 1: no weights
+            return
+        heavy.extend(four[:2])
+        manifest.set_weights({("S", name): (1000.0 if name == heavy[0] else 900.0 if name == heavy[1] else 1.0)
+                              for name, _ in rows})
+
+    monkeypatch.setattr(country, "_set_weights", weights)
+    assert _country("run", ID, "--data-dir", data, "--processes", "0", "--yes") == 0
+    plan = country.band_plan(c, band, folder, data)
+    tiles = search.fixed_tiles(plan, band.core_m)
+    by: dict = {}
+    for t in tiles:
+        by.setdefault(country.group_of(t.core, band.core_m, 2), []).append(t)
+    work = os.path.join(data, "work", f"country-{ID}")
+    assert not os.path.isdir(work) or not os.listdir(work)
+    with open(os.path.join(folder, "country.json"), encoding="utf-8") as f:
+        state = json.load(f)
+    origin = tuple(state["origin"])
+    lines, handed = 0, []
+    for name, members in by.items():
+        paths = search.Paths(data, os.path.join(data, "reference", name))
+        os.makedirs(paths.work)
+        group_plan = country.tile_plan(c, plan, country.group_box([t.core for t in members]), paths)
+        grid_data = search.prepare_data(group_plan, statistics=False, shore="none", strips=True)
+        for t in members:
+            counter = countcube.TileCounter(group_plan.grid, origin, t.core, band.lengths, False)
+            search.count_tile(dataclasses.replace(group_plan, funnel={}), grid_data, t.core, counter, None)
+            saved, meta = countcube.load_tile(os.path.join(folder, "tiles", "S", t.name + ".npz"))
+            assert _same_counts(saved, counter.result()), t.name
+            lines += saved.lines
+            if len(members) > 1:
+                assert meta["group"]["name"] == name and meta["group"]["tiles"] == len(members)
+                assert meta["group"]["prepare"] > 0 and meta["seconds"]["prepare"] > 0
+            else:
+                assert "group" not in meta
+            if meta.get("group", {}).get("handed_over"):
+                handed.append(t.name)
+                assert meta["group"]["handed_over"]["bytes"] > 0
+        del grid_data
+    assert lines > 100 and handed == [heavy[1]]
+    # groups of 1: each tile on its own grid
+    one, _ = _watery_country(tmp_path / "one", monkeypatch, 1)
+    assert _country("run", ID, "--data-dir", one, "--processes", "0", "--yes") == 0
+    one_folder = os.path.join(one, "countries", ID)
+    with open(os.path.join(one_folder, "country.json"), encoding="utf-8") as f:
+        one_origin = tuple(json.load(f)["origin"])
+    plan = country.band_plan(c, band, one_folder, one)
+    for t in tiles:
+        paths = search.Paths(one, os.path.join(one, "reference", t.name))
+        os.makedirs(paths.work)
+        own = country.tile_plan(c, plan, t.core, paths)
+        counter = countcube.TileCounter(own.grid, one_origin, t.core, band.lengths, False)
+        search.count_tile(own, search.prepare_data(own, statistics=False, shore="none", strips=True), t.core,
+                          counter, None)
+        saved, meta = countcube.load_tile(os.path.join(one_folder, "tiles", "S", t.name + ".npz"))
+        assert _same_counts(saved, counter.result()) and "group" not in meta, t.name
