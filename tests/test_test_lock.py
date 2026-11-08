@@ -1,11 +1,14 @@
 """tools/test_lock.py: the shared test lock of parallel sessions and agents (its own queue in tmp_path)."""
 
 import os
+import re
 import sqlite3
 import subprocess
 import sys
 import time
+from datetime import datetime
 
+import psutil
 import pytest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,8 +34,8 @@ def entry(id, mode="shared", resources=(), started=True, at=1.0, expect=None, fi
     return tl.Entry(id, f"t{id}", mode, list(resources), "x", 1, "c", 0.0, at if started else None, expect, first)
 
 
-def admitted(entries, now=10.0, slots=3, slack=0.0, passing=None):
-    return tl.startable(entries, now, lambda e: e.expect, slots, passing, slack)
+def admitted(entries, now=10.0, slots=3, slack=0.0, passing=None, state="free"):
+    return tl.startable(entries, now, lambda e: e.expect, slots, passing, slack, state=state)
 
 
 def priorities():
@@ -137,6 +140,122 @@ def test_first():
     late.queued = 5.0
     assert admitted([early, late, entry(3, started=False, expect=210.0)], slack=120) == {3}   # ends at 220
     assert admitted([early, late, entry(3, started=False, expect=211.0)], slack=120) == set()
+
+
+def test_the_users_state_in_the_queue():
+    """busy (and heavy-ok, before --heavy exists) holds a waiting exclusive one, which then holds
+    nobody up and has no reservation; quiet holds every waiting one; running ones go on;
+    --first keeps its meaning among the admissible ones."""
+    running = entry(1, at=0.0, expect=100.0)
+    exclusive = entry(2, "exclusive", started=False)
+    assert admitted([running, exclusive, entry(3, started=False)]) == set()                # free: as before
+    for state in ("busy", "heavy-ok"):
+        assert tl.held(exclusive, state) == "busy" and tl.held(entry(3, started=False), state) is None
+        assert admitted([exclusive], state=state) == set()                                 # nothing running
+        assert admitted([entry(3, "exclusive", started=False, expect=1.0)], state=state) == set()
+        # Shared ones behind it start as if it were not there: no estimate needed, its slots taken
+        assert admitted([running, exclusive, entry(3, started=False)], state=state) == {3}
+        assert admitted([running, exclusive, entry(3, started=False, expect=1e6)], state=state) == {3}
+        assert admitted([running, exclusive, entry(3, started=False), entry(4, started=False)], state=state) == {3, 4}
+        # Resources between shared ones as before; a running exclusive still keeps everything out
+        data = entry(1, resources=["data"], at=0.0)
+        assert admitted([data, exclusive, entry(3, resources=["data"], started=False)], state=state) == set()
+        assert admitted([entry(1, "exclusive"), entry(3, started=False)], state=state) == set()
+        # What a waiting one waits for: never a held one
+        waiting = entry(3, started=False)
+        assert [e.id for e in tl.blockers(waiting, [running, exclusive, waiting], state)] == [1]
+    assert [e.id for e in tl.blockers(waiting, [running, exclusive, waiting])] == [1, 2]
+    # quiet: nobody starts, whatever the slots
+    assert tl.held(entry(3, started=False), "quiet") == tl.held(exclusive, "quiet") == "quiet"
+    assert admitted([entry(3, started=False)], state="quiet") == set()
+    assert admitted([running, entry(3, started=False, expect=1.0)], state="quiet") == set()
+    assert tl.held(entry(3, started=False), "free") is None and tl.held(exclusive, "free") is None
+    # --first among the admissible ones: a held --first exclusive leaves the order to the others
+    first = entry(2, "exclusive", started=False, first=True)
+    queue = [entry(1), first, entry(3, started=False), entry(4, started=False, first=True)]
+    assert admitted(queue, slots=2, state="busy") == {4}
+    assert admitted(queue, slots=2) == set()
+
+
+def test_user_state(tmp_path):
+    """The row of the table `state` resolved at each look: `after` (free) once `until` passed."""
+    queue = tl.Queue(str(tmp_path))
+    assert queue.user_state(100.0) == tl.UserState("free", None)
+    queue.set_state("busy", until=200.0, note="call", now=100.0)
+    assert queue.user_state(150.0) == tl.UserState("busy", 100.0, 200.0, "free", "call")
+    assert queue.user_state(200.0) == tl.UserState("free", 200.0)
+    queue.set_state("free", until=300.0, after="busy", now=250.0)
+    assert queue.user_state(299.0).value == "free" and queue.user_state(300.0) == tl.UserState("busy", 300.0)
+    queue.set_state("quiet", now=400.0)
+    assert queue.user_state(1e9) == tl.UserState("quiet", 400.0)
+    for bad in (dict(value="nap"), dict(value="busy", until=500.0, after="nap"), dict(value="busy", after="free"),
+                dict(value="busy", until=450.0), dict(value="busy", until=460.0 + 400 * 86400)):
+        with pytest.raises(ValueError):
+            queue.set_state(**bad, now=450.0)
+    assert queue.user_state(450.0) == tl.UserState("quiet", 400.0)
+    queue.db.close()
+
+
+def test_describe_and_parse_until():
+    now = datetime(2026, 11, 8, 15, 0).timestamp()
+
+    def at(hour, minute, day=8):
+        return datetime(2026, 11, day, hour, minute).timestamp()
+
+    assert tl.describe_state(tl.UserState("free", None), now) == "free"
+    assert tl.describe_state(tl.UserState("busy", at(14, 2), at(18, 0), "free"), now) == \
+        "busy since 14:02, until 18:00, then free"
+    assert tl.describe_state(tl.UserState("free", at(22, 0, 7), at(7, 0, 9), "busy", "night"), now) == \
+        "free since yesterday 22:00, until tomorrow 07:00, then busy; note: night"
+    assert tl.describe_state(tl.UserState("quiet", at(9, 0, 1)), now) == "quiet since 2026-11-01 09:00"
+    assert tl.parse_until("18:00", now) == at(18, 0)
+    assert tl.parse_until("07:00", now) == at(7, 0, 9)                    # past today: tomorrow
+    assert tl.parse_until("15:00", now) == at(15, 0, 9)
+    assert tl.parse_until("2026-11-10 06:30", now) == at(6, 30, 10)
+    assert tl.parse_until("+2h", now) == now + 7200 and tl.parse_until("+90m", now) == now + 5400
+    assert tl.parse_until("+1h30m", now) == tl.parse_until("+1.5h", now) == now + 5400
+    for bad in ("2026-11-01 10:00", "tomorrow", "+", "+2", "25:00", "18.00", ""):
+        with pytest.raises(ValueError):
+            tl.parse_until(bad, now)
+
+
+def test_state_command(tmp_path):
+    """`state` prints or sets the user's state; `status` names it first."""
+    env = dict(os.environ, FINDALINE_TEST_LOCK_DIR=str(tmp_path))
+
+    def tool(*args):
+        return subprocess.run([sys.executable, TOOL, *args], env=env, capture_output=True, text=True,
+                              encoding="utf-8", timeout=60)
+
+    assert tool("state").stdout.strip() == "User: free"
+    result = tool("state", "busy", "--until", "+2h", "--note", "video call")
+    assert result.returncode == 0, result.stderr
+    assert re.fullmatch(r"User: busy since \d\d:\d\d, until (tomorrow )?\d\d:\d\d, then free; note: video call",
+                        result.stdout.strip()), result.stdout
+    assert tool("state").stdout == result.stdout
+    assert tool("status").stdout.splitlines()[0] == result.stdout.strip()
+    for bad in (("state", "nap"), ("state", "busy", "--after", "free"), ("state", "--until", "+1h"),
+                ("state", "busy", "--until", "soon"), ("state", "busy", "--until", "2020-01-01 10:00")):
+        assert tool(*bad).returncode == 2, bad
+    assert tool("state", "free", "--until", "07:00", "--after", "quiet").stdout.startswith("User: free since ")
+    queue = tl.Queue(str(tmp_path))
+    state = queue.user_state()
+    assert (state.value, state.after) == ("free", "quiet") and state.until > time.time()
+    queue.db.close()
+
+
+def test_old_queue_gets_new_columns(tmp_path):
+    """A queue made by an older wrapper gets the columns and tables of the newer one."""
+    db = sqlite3.connect(str(tmp_path / "queue.sqlite"))
+    db.execute("CREATE TABLE entries (id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL, mode TEXT NOT NULL, "
+               "resources TEXT NOT NULL, owner TEXT NOT NULL, pid INTEGER NOT NULL, command TEXT NOT NULL, "
+               "queued REAL NOT NULL, started REAL)")
+    db.close()
+    queue = tl.Queue(str(tmp_path))
+    columns = [row[1] for row in queue.db.execute("PRAGMA table_info(entries)")]
+    assert columns[-3:] == ["expect", "first", "stop"]
+    assert queue.user_state().value == "free"
+    queue.db.close()
 
 
 def test_command_kind_and_key():
@@ -268,6 +387,27 @@ class Runs:
                 time.sleep(0.1)
             finally:
                 db.close()
+
+    def queue(self):
+        """The wrappers' queue (close its db)."""
+        folder = self.env["FINDALINE_TEST_LOCK_DIR"]
+        os.makedirs(folder, exist_ok=True)
+        return tl.Queue(folder)
+
+    def set_state(self, value, **options):
+        queue = self.queue()
+        try:
+            queue.set_state(value, **options)
+        finally:
+            queue.db.close()
+
+    def ids(self):
+        """The live entries' ids by owner."""
+        queue = self.queue()
+        try:
+            return dict(queue.db.execute("SELECT owner, id FROM entries").fetchall())
+        finally:
+            queue.db.close()
 
     def stop(self):
         for name in "abcdefgh":
@@ -411,3 +551,73 @@ def test_timeout_and_giving_up(runs):
     assert not runs.started("c")
     runs.go("b")
     assert b.wait(timeout=60) == 0
+
+
+def test_busy_holds_an_exclusive_not_the_shared(runs):
+    """While the user is busy an exclusive one waits, saying so, without that time counting toward
+    its --wait, and a shared one that came after it starts; once free, the exclusive one waits for
+    the shared one, and that time counts."""
+    runs.set_state("busy", note="call")
+    e = runs.start("e", "--exclusive", "--wait", "1")
+    runs.wait_for(lambda: runs.queued("exclusive") == 1)
+    c = runs.start("c")
+    runs.wait_for(lambda: runs.started("c"))
+    time.sleep(2.5)
+    assert e.poll() is None and not runs.started("e")             # held for longer than its --wait
+    runs.set_state("free")
+    assert e.wait(timeout=60) == 75
+    stderr = e.stderr.read()
+    assert "test lock: exclusive waits: the PC is in use (busy since " in stderr and "; note: call)" in stderr
+    assert "test lock: exclusive waits for\n" in stderr and "held by the user's state" in stderr
+    assert not runs.started("e")
+    runs.go("c")
+    assert c.wait(timeout=60) == 0
+
+
+def test_quiet_holds_every_one_until_its_time(runs):
+    """Quiet holds a new shared one (not one running) until its time has passed: then the queue
+    is free again without anybody setting it."""
+    a = runs.start("a")
+    runs.wait_for(lambda: runs.started("a"))
+    runs.set_state("quiet", until=time.time() + 8)
+    b = runs.start("b", "--wait", "0.5")
+    runs.wait_for(lambda: runs.queued("shared") == 2)
+    status = subprocess.run([sys.executable, TOOL, "status"], env=runs.env, capture_output=True, text=True)
+    assert status.stdout.startswith("User: quiet since ") and ", then free\n" in status.stdout
+    assert " (held: the user asked for quiet) owner=b" in status.stdout
+    time.sleep(1.0)
+    assert not runs.started("b") and b.poll() is None
+    runs.go("a")
+    assert a.wait(timeout=60) == 0                                 # a running one ends as usual
+    runs.wait_for(lambda: runs.started("b"))
+    runs.go("b")
+    assert b.wait(timeout=60) == 0
+    assert "test lock: shared waits: the user asked for quiet (quiet since " in b.stderr.read()
+
+
+def test_stop_from_the_page(runs):
+    """A stop asked for a running entry kills its command's process tree (125, said on stderr) and
+    leaves the estimates alone; one still waiting, or gone, cannot be stopped."""
+    a = runs.start("a", "--exclusive")
+    runs.wait_for(lambda: runs.started("a"))
+    b = runs.start("b")
+    runs.wait_for(lambda: runs.queued("shared") == 1)
+    ids = runs.ids()
+    queue = runs.queue()
+    try:
+        assert not queue.request_stop(ids["b"]) and not queue.request_stop(999)
+        assert queue.request_stop(ids["a"])
+        assert a.wait(timeout=60) == tl.STOPPED == 125
+        assert "test lock: stopped by the user from the test lock page" in a.stderr.read()
+        left = []
+        for process in psutil.process_iter(["cmdline"]):
+            command = process.info["cmdline"] or []
+            if runs.folder in command and command[-1] == "a":
+                left.append(command)
+        assert not left                                            # the command's whole tree
+        runs.wait_for(lambda: runs.started("b"))
+        runs.go("b")
+        assert b.wait(timeout=60) == 0
+        assert queue.db.execute("SELECT code FROM history").fetchall() == [(0,)]   # b's only
+    finally:
+        queue.db.close()

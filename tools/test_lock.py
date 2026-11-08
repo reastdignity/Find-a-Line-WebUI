@@ -33,6 +33,23 @@ its kind (pytest of chosen tests, pytest-all, regression.py, perf_profile.py, ..
 table `history`; to pass, the longest of its kind's last runs (one too short delays the one
 passed). Without one it passes nobody, and a running command without one, or past it, leaves
 only SLACK to pass in. An estimate can be wrong: the command passed is then late by the overrun.
+
+The user's state (STATES, from the most to the least permissive; set by the test lock page,
+tools/test_lock_page.py, or by `state`) says whether they are using the PC, so agents queue
+their measurements instead of asking:
+- free (also when never set): as above.
+- heavy-ok: as busy for exclusive commands (big untimed runs of --heavy, still to come, may
+  start tamed); shared ones as free.
+- busy: no waiting exclusive command starts (measurements wait); it is not admissible and holds
+  nobody up, so shared ones behind it start as if it were not there, and it has no reservation.
+- quiet: no waiting command starts.
+Running commands are never touched by it, and --first keeps its meaning among the admissible
+ones. A state may last until a time and then become another (free unless given): every reader
+resolves it (user_state), no timer anywhere. The time a command is held by the state does not
+count toward --wait, so a measurement queued in the morning still waits in the evening.
+The page may also ask the wrapper of a running command to stop it (entries.stop): the wrapper
+kills the command's process tree and exits 125; such a run never goes into `history`.
+
 The queue is a SQLite database in the git common directory (<.git>/findaline-locks/, the same
 for every worktree, never in `git status`); every entry holds an OS lock (filelock) for as long
 as its wrapper lives, so the entry of a killed wrapper is dropped by the next one that looks.
@@ -40,15 +57,19 @@ Killing the wrapper itself leaves its command running: stop a hung command, not 
 
     python tools/test_lock.py run [--exclusive] [--resource data] [--owner NAME] [--expect S] [--first] -- pytest
     python tools/test_lock.py status
+    python tools/test_lock.py state [free|heavy-ok|busy|quiet] [--until 18:00|'2026-11-09 07:00'|+2h|+90m]
+                                    [--after STATE] [--note TEXT]
 
 Runs with the standard library and filelock (any Python of the repository's environment;
 run it from the main checkout's path, a worktree of an older branch may not have it).
-Exit codes: the command's, 75 gave up waiting (--wait), 124 killed after --timeout, 130 Ctrl-C.
+Exit codes: the command's, 75 gave up waiting (--wait, the time held by the user's state not
+counted), 124 killed after --timeout, 125 stopped from the test lock page, 130 Ctrl-C.
 """
 
 import argparse
 import ntpath
 import os
+import re
 import secrets
 import shlex
 import signal
@@ -57,7 +78,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional, Sequence, Set
 
 from filelock import FileLock, Timeout
@@ -85,6 +106,12 @@ PYTEST_VALUES = ("-p", "-W", "-o", "-c", "-n", "-r", "--deselect", "--ignore", "
 THREAD_VARS = ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                "GDAL_NUM_THREADS")
 TASKKILL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
+STATES = ("free", "heavy-ok", "busy", "quiet")   # the user's state, from the most to the least permissive
+FREE = "free"
+HOLDS = {"busy": "the PC is in use",              # what holds a waiting command besides the others (try_start)
+         "quiet": "the user asked for quiet"}
+STATE_HOLDS = ("busy", "quiet")                   # those of the user's state (held): not counted toward --wait
+STOPPED = 125         # the exit code of a command stopped from the test lock page
 
 SCHEMA = """CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT, token TEXT NOT NULL, mode TEXT NOT NULL,
@@ -94,7 +121,9 @@ CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT, key TEXT NOT NULL, kind TEXT, seconds REAL NOT NULL,
     code INTEGER NOT NULL, ended REAL NOT NULL);
 CREATE INDEX IF NOT EXISTS history_key ON history (key);
-CREATE INDEX IF NOT EXISTS history_kind ON history (kind)"""
+CREATE INDEX IF NOT EXISTS history_kind ON history (kind);
+CREATE TABLE IF NOT EXISTS state (
+    key TEXT PRIMARY KEY, value TEXT NOT NULL, since REAL NOT NULL, until REAL, after TEXT, note TEXT)"""
 
 
 @dataclass
@@ -110,6 +139,7 @@ class Entry:
     started: Optional[float]        # None while waiting
     expect: Optional[float] = None  # seconds given by --expect
     first: bool = False             # --first: ahead of the waiting ones without it
+    stop: Optional[float] = None    # when the test lock page asked to stop it (running ones only)
 
 
 def order(entry: Entry) -> tuple:
@@ -122,9 +152,19 @@ def conflicts(a: Entry, b: Entry) -> bool:
     return a.mode == "exclusive" or b.mode == "exclusive" or bool(set(a.resources) & set(b.resources))
 
 
+def held(entry: Entry, state: str) -> Optional[str]:
+    """What of the user's state holds a waiting entry (a key of HOLDS), None when nothing:
+    quiet holds every one, busy and heavy-ok the exclusive ones."""
+    if state == "quiet":
+        return "quiet"
+    if state in ("busy", "heavy-ok") and entry.mode == "exclusive":
+        return "busy"
+    return None
+
+
 def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], Optional[float]],
               slots: int = SLOTS, passing: Optional[Callable[[Entry], Optional[float]]] = None,
-              slack: float = SLACK) -> Set[int]:
+              slack: float = SLACK, state: str = FREE) -> Set[int]:
     """The ids of the waiting entries that may start now. The waiting ones are taken in their
     order, each one admitted counting as started: one may start with no running or admitted one
     it conflicts with and, if shared, a slot left by them; and with no earlier waiting one it
@@ -133,7 +173,9 @@ def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], 
     and admitted ones it conflicts with that did not pass it (their start plus their estimate,
     not before now, and now when unknown), and in any case before the latest of all it
     conflicts with; with only those that passed it, before the latter, so the ones passing it
-    never push it back further. Passed it: later in the order and started after it came."""
+    never push it back further. Passed it: later in the order and started after it came.
+    One held by the user's `state` (held) is not admissible and holds nobody up: the later ones
+    are taken as if it were not there (it has no reservation)."""
     started = {e.id: e.started for e in entries if e.started is not None}
     by_id = {e.id: e for e in entries}
     seconds = {e.id: estimate(e) for e in entries}
@@ -142,26 +184,103 @@ def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], 
     def end(id: int) -> float:
         return now if seconds[id] is None else max(now, started[id] + seconds[id])
 
-    held: Dict[int, float] = {}   # waiting ones not admitted → the end a later one passing them may not exceed
+    held_up: Dict[int, float] = {}   # waiting ones not admitted → the end a later one passing them may not exceed
     for entry in sorted((e for e in entries if e.started is None), key=order):
+        if held(entry, state) is not None:
+            continue
         blocking = [i for i in started if conflicts(entry, by_id[i])]
         full = entry.mode == "shared" and sum(by_id[i].mode == "shared" for i in started) >= slots
-        passed = [i for i in held if conflicts(entry, by_id[i])]
+        passed = [i for i in held_up if conflicts(entry, by_id[i])]
         own = passing(entry) if passed else None
-        passes = all(own is not None and now + own <= held[i] for i in passed)
+        passes = all(own is not None and now + own <= held_up[i] for i in passed)
         if not blocking and not full and passes:
             started[entry.id] = now
         else:
             before = [end(i) for i in blocking if order(by_id[i]) < order(entry) or started[i] <= entry.queued]
             latest = max((end(i) for i in blocking), default=now)
-            held[entry.id] = max(latest, max(before) + slack) if before else latest
+            held_up[entry.id] = max(latest, max(before) + slack) if before else latest
     return {i for i in started if by_id[i].started is None}
 
 
 def may_start(entry: Entry, others: Sequence[Entry], slots: int = SLOTS,
-              estimate: Callable[[Entry], Optional[float]] = lambda e: None, now: Optional[float] = None) -> bool:
+              estimate: Callable[[Entry], Optional[float]] = lambda e: None, now: Optional[float] = None,
+              state: str = FREE) -> bool:
     """Whether a waiting entry may start now, given the other live entries (startable)."""
-    return entry.id in startable([entry, *others], time.time() if now is None else now, estimate, slots)
+    return entry.id in startable([entry, *others], time.time() if now is None else now, estimate, slots,
+                                 state=state)
+
+
+def blockers(entry: Entry, entries: Sequence[Entry], state: str = FREE) -> List[Entry]:
+    """The live entries a waiting one waits for (besides the user's state): the running ones it
+    conflicts with or shares the slots with, and the earlier waiting ones of those the state
+    does not hold (one it holds holds nobody up)."""
+    return [e for e in entries if e.id != entry.id
+            and (e.started is not None or (order(e) < order(entry) and held(e, state) is None))
+            and (conflicts(entry, e) or e.mode == entry.mode == "shared")]
+
+
+@dataclass
+class UserState:
+    value: str                    # one of STATES
+    since: Optional[float]        # when it began (written, or its `until` passed); None: never set
+    until: Optional[float] = None
+    after: Optional[str] = None   # the state from `until` on (with `until` only)
+    note: Optional[str] = None
+
+
+def resolve_state(row: Optional[tuple], now: float) -> UserState:
+    """The user's state at `now` from the row (value, since, until, after, note) of the table
+    `state`: none is free; once `until` has passed, `after` (free when NULL) since `until`."""
+    if row is None:
+        return UserState(FREE, None)
+    value, since, until, after, note = row
+    if until is not None and now >= until:
+        return UserState(after or FREE, until)
+    if until is None:
+        return UserState(value, since, note=note)
+    return UserState(value, since, until, after or FREE, note)
+
+
+def parse_until(text: str, now: Optional[float] = None) -> float:
+    """The epoch seconds of `--until`: HH:MM (today, or tomorrow once past), 'YYYY-MM-DD HH:MM'
+    (not past), or a duration from now: +2h, +90m, +1h30m, +1.5h."""
+    now = time.time() if now is None else now
+    text = text.strip()
+    match = re.fullmatch(r"\+\s*(?:(\d+(?:\.\d+)?)\s*h)?\s*(?:(\d+(?:\.\d+)?)\s*m(?:in)?)?", text)
+    if match and (match.group(1) or match.group(2)):
+        return now + float(match.group(1) or 0) * 3600 + float(match.group(2) or 0) * 60
+    try:
+        clock = datetime.strptime(text, "%H:%M")
+    except ValueError:
+        pass
+    else:
+        at = datetime.fromtimestamp(now).replace(hour=clock.hour, minute=clock.minute, second=0, microsecond=0)
+        if at.timestamp() <= now:
+            at += timedelta(days=1)
+        return at.timestamp()
+    try:
+        at = datetime.strptime(text, "%Y-%m-%d %H:%M").timestamp()
+    except ValueError:
+        raise ValueError(f"not a time: {text!r} (HH:MM, 'YYYY-MM-DD HH:MM', +2h or +90m)") from None
+    if at <= now:
+        raise ValueError(f"{text} has passed")
+    return at
+
+
+def _clock(at: float, now: float) -> str:
+    """A time of day, with its day when not today's."""
+    day = datetime.fromtimestamp(at)
+    days = (day.date() - datetime.fromtimestamp(now).date()).days
+    prefix = {0: "", -1: "yesterday ", 1: "tomorrow "}.get(days, f"{day:%Y-%m-%d} ")
+    return f"{prefix}{day:%H:%M}"
+
+
+def describe_state(state: UserState, now: float) -> str:
+    """'busy since 14:02, until 18:00, then free; note: ...' (just 'free' when never set)."""
+    text = state.value if state.since is None else f"{state.value} since {_clock(state.since, now)}"
+    if state.until is not None:
+        text += f", until {_clock(state.until, now)}, then {state.after or FREE}"
+    return f"{text}; note: {state.note}" if state.note else text
 
 
 def command_key(command: Sequence[str]) -> str:
@@ -175,6 +294,16 @@ def command_kind(command: Sequence[str]) -> Optional[str]:
     it takes ten minutes where most chosen tests take seconds. uv's own options are skipped
     (`uv run --frozen --project X pytest`): an option of it taking a value not in UV_VALUES
     gives the kind of its value."""
+    i = program_index(command)
+    if i == len(command) or command[i].startswith("-"):
+        return None
+    kind = _name(command[i])
+    return "pytest-all" if kind == "pytest" and not _selects(command[i + 1:]) else kind
+
+
+def program_index(command: Sequence[str]) -> int:
+    """Where the program or script that a command runs stands, after Python, uv and their
+    options (command_kind); len(command) when there is none, at `-c` for `python -c`."""
     i, uv = 0, False  # uv: between uv and the program it runs, where its own options stand
     while i < len(command):
         word, name = command[i], _name(command[i])
@@ -187,10 +316,7 @@ def command_kind(command: Sequence[str]) -> Optional[str]:
         else:
             break
         i += 1
-    if i == len(command) or command[i].startswith("-"):
-        return None
-    kind = _name(command[i])
-    return "pytest-all" if kind == "pytest" and not _selects(command[i + 1:]) else kind
+    return min(i, len(command))
 
 
 def _selects(args: Sequence[str]) -> bool:
@@ -242,6 +368,7 @@ def _release(lock: FileLock) -> None:
 class Queue:
     def __init__(self, folder: str):
         self.folder = folder
+        self.state = UserState(FREE, None)   # the user's state at the last try_start
         self.db = sqlite3.connect(os.path.join(folder, "queue.sqlite"), timeout=60, isolation_level=None)
         # One at a time: wrappers setting up a new queue together get "database is locked" at once,
         # without the busy timeout (switching to WAL, creating the schema)
@@ -249,7 +376,7 @@ class Queue:
             self.db.execute("PRAGMA journal_mode=WAL")
             self.db.executescript(SCHEMA)
             columns = [row[1] for row in self.db.execute("PRAGMA table_info(entries)")]
-            for column, kind in (("expect", "REAL"), ("first", "INTEGER")):
+            for column, kind in (("expect", "REAL"), ("first", "INTEGER"), ("stop", "REAL")):
                 if column not in columns:  # wrappers of older checkouts leave it NULL
                     self.db.execute(f"ALTER TABLE entries ADD COLUMN {column} {kind}")
             if self.db.execute("PRAGMA user_version").fetchone()[0] < QUEUE_VERSION:
@@ -274,9 +401,9 @@ class Queue:
 
     def _entries(self) -> List[Entry]:
         rows = self.db.execute("SELECT id, token, mode, resources, owner, pid, command, queued, started, expect, "
-                               "first FROM entries ORDER BY id").fetchall()
-        return [Entry(i, t, m, [r for r in res.split(",") if r], o, p, c, q, s, x, bool(f))
-                for i, t, m, res, o, p, c, q, s, x, f in rows]
+                               "first, stop FROM entries ORDER BY id").fetchall()
+        return [Entry(i, t, m, [r for r in res.split(",") if r], o, p, c, q, s, x, bool(f), stop)
+                for i, t, m, res, o, p, c, q, s, x, f, stop in rows]
 
     def live(self, own: Optional[str] = None) -> List[Entry]:
         """The entries whose wrapper still holds its lock (the others are deleted); call it inside
@@ -331,20 +458,23 @@ class Queue:
         self.db.execute("DELETE FROM history WHERE id <= (SELECT max(id) FROM history) - ?", (HISTORY_ROWS,))
 
     def try_start(self, token: str) -> tuple:
-        """(started, the entries it waits for or, once started, the earlier waiting ones it passed)."""
+        """(started, the entries it waits for or, once started, the earlier waiting ones it passed,
+        what holds it besides them: None or a key of HOLDS). The user's state it read: self.state."""
         self.db.execute("BEGIN IMMEDIATE")
         try:
             entries = self.live(own=token)
             entry = next(e for e in entries if e.token == token)
             others = [e for e in entries if e.token != token]
             now = time.time()
-            if entry.id in startable(entries, now, self.estimate, passing=lambda e: self.estimate(e, passing=True)):
+            self.state = self.user_state(now)
+            state = self.state.value
+            if entry.id in startable(entries, now, self.estimate, passing=lambda e: self.estimate(e, passing=True),
+                                     state=state):
                 self.db.execute("UPDATE entries SET started = ? WHERE id = ?", (now, entry.id))
                 result = True, [e for e in others if e.started is None and order(e) < order(entry)
-                                and conflicts(entry, e)]
+                                and conflicts(entry, e) and held(e, state) is None], None
             else:
-                result = False, [e for e in others if (e.started is not None or order(e) < order(entry))
-                                 and (conflicts(entry, e) or e.mode == entry.mode == "shared")]
+                result = False, blockers(entry, entries, state), held(entry, state)
         except BaseException:
             if self.db.in_transaction:
                 self.db.execute("ROLLBACK")
@@ -355,12 +485,63 @@ class Queue:
     def remove(self, token: str) -> None:
         self.db.execute("DELETE FROM entries WHERE token = ?", (token,))
 
+    def user_state(self, now: Optional[float] = None) -> UserState:
+        """The user's state now (resolve_state)."""
+        row = self.db.execute("SELECT value, since, until, after, note FROM state WHERE key = 'user'").fetchone()
+        return resolve_state(row, time.time() if now is None else now)
 
-def _describe(entry: Entry, now: float, expected: Optional[float] = None) -> str:
+    def set_state(self, value: str, until: Optional[float] = None, after: Optional[str] = None,
+                  note: Optional[str] = None, now: Optional[float] = None) -> UserState:
+        """Sets the user's state from now: `value` until `until` (epoch seconds, None: no end), then
+        `after` (free when None). ValueError for an unknown state, a past `until` or one more
+        than a year ahead, or `after` without `until`."""
+        now = time.time() if now is None else now
+        for state in (value, after):
+            if state is not None and state not in STATES:
+                raise ValueError(f"unknown state {state!r} (one of {', '.join(STATES)})")
+        if after is not None and until is None:
+            raise ValueError("a state after needs a time until")
+        if until is not None and until <= now:
+            raise ValueError("the time until has passed")
+        if until is not None and until > now + 366 * 86400:
+            raise ValueError("the time until is more than a year ahead")
+        self.db.execute("INSERT OR REPLACE INTO state (key, value, since, until, after, note) "
+                        "VALUES ('user', ?, ?, ?, ?, ?)", (value, now, until, after, note or None))
+        return self.user_state(now)
+
+    def request_stop(self, id: int) -> bool:
+        """Asks the wrapper of a running entry to stop its command (the test lock page); False
+        for an entry that is not live or still waits."""
+        self.db.execute("BEGIN IMMEDIATE")
+        try:
+            entry = next((e for e in self.live() if e.id == id), None)
+            if entry is not None and entry.started is not None:
+                self.db.execute("UPDATE entries SET stop = coalesce(stop, ?) WHERE id = ?", (time.time(), id))
+        except BaseException:
+            if self.db.in_transaction:
+                self.db.execute("ROLLBACK")
+            raise
+        self.db.execute("COMMIT")
+        return entry is not None and entry.started is not None
+
+    def stop_requested(self, token: str) -> bool:
+        """Whether the page asked to stop the entry's command (read by its wrapper every POLL)."""
+        try:
+            row = self.db.execute("SELECT stop FROM entries WHERE token = ?", (token,)).fetchone()
+        except sqlite3.OperationalError:  # read again at the next round
+            return False
+        return row is not None and row[0] is not None
+
+
+def _describe(entry: Entry, now: float, expected: Optional[float] = None, hold: Optional[str] = None) -> str:
     state = (f"running {(now - entry.started) / 60:.0f} min" if entry.started is not None
              else f"waiting {(now - entry.queued) / 60:.0f} min")
     if expected is not None:
         state += f" (takes ~{expected / 60:.1f} min)"
+    if hold is not None:
+        state += f" (held: {HOLDS[hold]})"
+    if entry.stop is not None:
+        state += " (asked to stop)"
     resources = f" +{','.join(entry.resources)}" if entry.resources else ""
     first = " first" if entry.first else ""
     return f"#{entry.id} {entry.mode}{resources}{first} {state} owner={entry.owner} pid={entry.pid}: {entry.command}"
@@ -406,43 +587,63 @@ def run(args) -> int:
     process = None
     try:
         queue.add(token, mode, args.resource, args.owner, text, args.expect, args.first)
-        start, reported, trouble = time.time(), None, None
+        start = looked = time.time()
+        reported, said, trouble = None, None, None
+        on_hold = 0.0   # seconds held by the user's state: not counted toward --wait
         while True:
             try:
-                started, blocking = queue.try_start(token)
+                started, blocking, hold = queue.try_start(token)
             except sqlite3.OperationalError as error:  # e.g. a disk I/O error on Windows just after a wrapper was killed
                 if str(error) != trouble:
                     trouble = str(error)
                     print(f"test lock: the queue could not be read ({error}), trying again", file=sys.stderr)
-                started, blocking = False, []
+                started, blocking, hold = False, [], None
+            now = time.time()
+            if hold in STATE_HOLDS:
+                on_hold += now - looked
+            looked = now
             if started:
                 if blocking:
                     print(f"test lock: {mode} starts ahead of #{', #'.join(str(e.id) for e in blocking)}, "
                           f"expected to end in time for them (at most {SLACK:.0f} s after they could start)",
                           file=sys.stderr)
                 break
-            now = time.time()
-            if now - start >= args.wait:
-                print(f"test lock: gave up after {(now - start) / 60:.0f} min of waiting", file=sys.stderr)
+            if now - start - on_hold >= args.wait:
+                held_for = f" (and {on_hold / 60:.0f} min held by the user's state)" if on_hold else ""
+                print(f"test lock: gave up after {(now - start - on_hold) / 60:.0f} min of waiting{held_for}",
+                      file=sys.stderr)
                 return 75
-            if reported is None or now - reported >= REPORT:
-                reported = now
-                print(f"test lock: {mode} waits for", file=sys.stderr)
-                for entry in blocking:
-                    print(f"  {_describe(entry, now)}", file=sys.stderr)
+            if reported is None or now - reported >= REPORT or hold != said:
+                reported, said = now, hold
+                if hold is not None:
+                    print(f"test lock: {mode} waits: {HOLDS[hold]} ({describe_state(queue.state, now)})",
+                          file=sys.stderr)
+                if blocking or hold is None:
+                    print(f"test lock: {mode} waits for", file=sys.stderr)
+                    for entry in blocking:
+                        print(f"  {_describe(entry, now)}", file=sys.stderr)
                 sys.stderr.flush()
             time.sleep(POLL)
         began = time.time()
+        deadline = began + args.timeout
         process = subprocess.Popen(command, env=_environment(mode), start_new_session=os.name != "nt",
                                    **_priority(mode))
-        try:
-            code = process.wait(timeout=args.timeout)
-        except subprocess.TimeoutExpired:
-            print(f"test lock: command still running after {args.timeout / 60:.0f} min, killing its process tree",
-                  file=sys.stderr)
-            _kill_tree(process)
-            code = 124
-        queue.record(command, time.time() - began, code)  # not after Ctrl-C: cut short
+        code = None
+        while code is None:  # in rounds of POLL, for a stop asked by the test lock page
+            try:
+                code = process.wait(timeout=max(0.0, min(POLL, deadline - time.time())))
+            except subprocess.TimeoutExpired:
+                if time.time() >= deadline:
+                    print(f"test lock: command still running after {args.timeout / 60:.0f} min, killing its "
+                          "process tree", file=sys.stderr)
+                    _kill_tree(process)
+                    code = 124
+                elif queue.stop_requested(token):
+                    print("test lock: stopped by the user from the test lock page", file=sys.stderr)
+                    _kill_tree(process)
+                    code = STOPPED
+        if code != STOPPED:  # a stopped run would shorten the estimates
+            queue.record(command, time.time() - began, code)  # not after Ctrl-C: cut short
         return code
     except KeyboardInterrupt:
         if process is not None:
@@ -458,14 +659,37 @@ def status(_args) -> int:
     queue.db.execute("BEGIN IMMEDIATE")
     try:
         entries = queue.live()
+        state = queue.user_state()
     finally:
         queue.db.execute("COMMIT")
     now = time.time()
+    print(f"User: {describe_state(state, now)}")
     print(f"{queue.folder} ({SLOTS} shared slots, {datetime.now():%H:%M:%S})")
     for entry in entries:
-        print(f"  {_describe(entry, now, queue.estimate(entry))}")
+        hold = held(entry, state.value) if entry.started is None else None
+        print(f"  {_describe(entry, now, queue.estimate(entry), hold)}")
     if not entries:
         print("  (empty)")
+    return 0
+
+
+def state_command(args, parser: argparse.ArgumentParser) -> int:
+    """Prints the user's state, or sets it."""
+    if args.value is None and (args.until or args.after or args.note):
+        parser.error("--until, --after and --note go with a state")
+    if args.after and not args.until:
+        parser.error("--after needs --until")
+    queue = Queue(lock_dir())
+    now = time.time()
+    if args.value is None:
+        print(f"User: {describe_state(queue.user_state(now), now)}")
+        return 0
+    try:
+        until = parse_until(args.until, now) if args.until else None
+        state = queue.set_state(args.value, until, args.after, args.note, now)
+    except ValueError as error:
+        parser.error(str(error))
+    print(f"User: {describe_state(state, now)}")
     return 0
 
 
@@ -490,10 +714,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                         help="wait ahead of every waiting command (never ahead of a running one); only with "
                              "the user's permission")
     runner.add_argument("command", nargs=argparse.REMAINDER)
-    commands.add_parser("status", help="the running and waiting commands")
+    commands.add_parser("status", help="the user's state and the running and waiting commands")
+    stater = commands.add_parser(
+        "state", help="the user's state: print it, or set it",
+        description="free: everything runs; heavy-ok: no measurements (exclusive commands wait), tests keep "
+                    "running; busy: no exclusive command starts, shared ones keep running below your programs' "
+                    "priority; quiet: no waiting command starts. Running commands are never touched.")
+    stater.add_argument("value", nargs="?", choices=STATES, help="the state to set (none: print it)")
+    stater.add_argument("--until", metavar="T", help="until when: HH:MM (today, or tomorrow once past), "
+                                                     "'YYYY-MM-DD HH:MM', or from now: +2h, +90m")
+    stater.add_argument("--after", choices=STATES, help="the state once --until has passed (default free)")
+    stater.add_argument("--note", help="a note shown with the state")
     args = parser.parse_args(argv)
     if args.action == "status":
         return status(args)
+    if args.action == "state":
+        return state_command(args, stater)
     if not [c for c in args.command if c != "--"]:
         parser.error("no command")
     if args.timeout is None:
