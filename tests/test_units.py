@@ -1199,6 +1199,48 @@ def test_prominence_and_drop_match_the_whole_grid(seed):
             assert got.dtype == kind and np.array_equal(got, expected), (reach, kind)
 
 
+@pytest.mark.parametrize("seed", range(6))
+def test_prominence_and_drop_of_a_subset(seed):
+    """The values of a subset of the anchors (the count mode asks those of a part's lines), also on
+    the crop of the grid within reach of them (crop=True), are exactly those of all the anchors
+    computed over the whole grid: random terrain with ties, plateaus, holes and a band without
+    data, random subsets (row-major as the count mode gives them, and shuffled), single anchors,
+    anchors at the edges and several on one pixel."""
+    import terrain
+    rng = np.random.default_rng(100 + seed)
+    h, w = int(rng.integers(30, 160)), int(rng.integers(30, 160))
+    z = np.round(rng.random((h, w)) * rng.choice([5, 40]) + np.linspace(0, 30, w), 0).astype(np.float32)
+    z[h // 4:h // 2, w // 5:w // 2] = 20                      # a plateau
+    z[rng.random((h, w)) < 0.04] = np.nan
+    z[:, -3:] = np.nan                                        # a band without data
+    picked = np.argwhere(rng.random((h, w)) < rng.choice([0.01, 0.05, 0.2]))
+    edges = np.array([[0, 0], [h - 1, w - 1], [0, w - 4], [h - 1, 5], [h // 2, 0], [3, w - 1]])
+    anchors = np.vstack([picked, edges, picked[:3]])
+    anchors = anchors[np.lexsort((anchors[:, 1], anchors[:, 0]))]  # row-major, as find_significant_slopes
+    for res, span, radius in [(1.0, 1, 0.5), (1.0, 5, 3), (2.0, 24, 21), (1.0, 37, 10), (0.5, 40, 7),
+                              (1.0, 1000, 500)]:
+        prom = terrain.prominence(z, anchors, res, span)
+        drop = terrain.drop(z, anchors, res, radius)
+        for size in (1, 2, 5, len(anchors) // 3, len(anchors)):
+            for _ in range(3):
+                subset = np.sort(rng.choice(len(anchors), size=min(size, len(anchors)), replace=False))
+                for order in (subset, rng.permutation(subset)):
+                    for crop in (False, True):
+                        got = terrain.prominence(z, anchors[order], res, span, crop=crop)
+                        assert np.array_equal(got, prom[order], equal_nan=True), (res, span, size, crop)
+                        got = terrain.drop(z, anchors[order], res, radius, crop=crop)
+                        assert np.array_equal(got, drop[order], equal_nan=True), (res, radius, size, crop)
+        assert terrain.prominence(z, anchors[:0], res, span, crop=True).shape == (0,)
+        assert terrain.drop(z, anchors[:0], res, radius, crop=True).shape == (0,)
+    # a crop across the grid's width is its rows of the grid itself, no copy; a narrower one a copy
+    wide = np.array([[h // 2, 0], [h // 2 + 1, w - 1]])
+    rows, shifted = terrain._crop(z, wide, 2)
+    assert np.shares_memory(rows, z) and rows.flags.c_contiguous and rows.shape == (min(h, h // 2 + 4) - max(0, h // 2 - 2), w)
+    assert np.array_equal(rows[shifted[:, 0], shifted[:, 1]], z[wide[:, 0], wide[:, 1]], equal_nan=True)
+    narrow, _ = terrain._crop(z, np.array([[h // 2, w // 2]]), 2)
+    assert not np.shares_memory(narrow, z) and not narrow.flags.writeable
+
+
 def test_prominence_and_drop_of_a_tower():
     """A 30 m cone on a plain next to a wall: an anchor on the cone has its height above the
     plain, the edge of the wall none; the drop is the height above the lowest ground near."""
