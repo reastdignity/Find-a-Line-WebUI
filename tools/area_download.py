@@ -625,7 +625,7 @@ def supervise(area: Area, command: Sequence[str], retry_seconds: float = RETRY_S
                     this = ("failed", now)
                     message = f"{len(now)} tiles failed in pass {number}"
                 elif code == EXIT_STOPPED:
-                    this = ("stopped", message)
+                    this = ("stopped", message.split(", the last:")[0])  # Failures' last error differs by tile
                 else:  # a crash: what the log says last
                     message = f"pass {number} ended with {code}" + (f": {last}" if last else "")
                     this = ("crashed", code, last)

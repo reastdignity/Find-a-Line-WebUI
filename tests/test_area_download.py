@@ -478,6 +478,12 @@ def test_supervisor_needs_attention_for_the_same_stop(tmp_path):
     assert state_now["stage"] == "needs attention"
     assert state_now["message"] == "the download could not be planned: no key (3 passes in a row)"
     assert "pass 4 ended with 4" in open(area.file(".log"), encoding="utf-8").read()
+    # Failures' message names the last error, another tile's each pass: the same stop all the same
+    command = _pass(tmp_path, "json.dump({'name': 'land', 'stage': 'downloading', 'message': '50 failures in a row, "
+                              "the last: tile %d cannot be read' % number}, open(" + repr(state) + ", 'w'))\n"
+                              "sys.exit(4)\n")
+    assert ad.supervise(area, command, retry_seconds=0.01) == 2
+    assert ad.read_state(area.state_dir, "land")["message"].endswith("tile 3 cannot be read (3 passes in a row)")
     command = _pass(tmp_path, "json.dump({'name': 'land', 'stage': 'listing', 'message': 'reason %d' % number}, "
                               "open(" + repr(state) + ", 'w'))\nsys.exit(0 if number == 5 else 4)\n")
     assert ad.supervise(area, command, retry_seconds=0.01) == 0
