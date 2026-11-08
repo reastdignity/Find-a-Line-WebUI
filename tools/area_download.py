@@ -8,9 +8,9 @@ days or weeks, so it survives what happens in that time, and can be followed.
   whole layer) ends with it. A pass that did not finish is followed by another after RETRY_SECONDS, and what is
   cached stays: restarting costs the listing only.
 - A pass downloads the source's layers and, where the catalogue names one (Source.instead_without_data: alaska and
-  alaska_ifsar), the stand-in's too. The window layers' groups hold the same pixels at every resolution
-  (country.PREFETCH_GROUP_M at 1 m, half that at 0.5 m), and a pass over --max-memory-gb (a quarter of the machine's
-  memory unless given) ends with EXIT_RESTART and is started again at once (counted as `restarts`).
+  alaska_ifsar), the stand-in's too. The window layers' groups hold the same pixels whatever the files' resolution
+  (country.PREFETCH_GROUP_M at 1 m, half that for 0.5 m files), and a pass over --max-memory-gb (a quarter of the
+  machine's memory unless given) ends with EXIT_RESTART and is started again at once (counted as `restarts`).
 - A tile that fails does not stop the others (sources.download_layers(on_error=)). FAILURES_IN_A_ROW failed tasks with
   no tile between them end the pass (the service or the disk is away), and so does a disk with less than --min-free-gb.
 - "Needs attention" (the supervisor's exit 2): the same tiles failing in ATTENTION_PASSES passes in a row (in
@@ -412,6 +412,18 @@ def _remove_parts(plans: Sequence) -> int:
     return removed
 
 
+def _group_m(area: Area, plan) -> float:
+    """The window layers' groups (sources.download_layers(group_m=)) hold the same pixels whatever the data:
+    country.PREFETCH_GROUP_M is sized for 1 m data, and a group's window is read on the files' own pixels, not the
+    grid's (Luxembourg's and Scotland's 0.5 m float64 files, downloaded at the app's minimum of 1 m: groups of
+    10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB on a server of 62 GB without swap,
+    Luxembourg 11 times, Scotland 7, New Zealand 6, Wales 2; 2026-11-07). So 10 km at 1 m, 5 km at 0.5 m, 20 km at
+    2 m, by the finest native resolution of the plan's grouped layers (the area's resolution without one)."""
+    import country
+    native = [getattr(layer, "native_res", None) for layer in plan.layers if getattr(layer, "groups", False)]
+    return country.PREFETCH_GROUP_M * min([r for r in native if r] or [area.resolution])
+
+
 def _count_missing(cache_dir: str, plans: Sequence, rows: List[Dict]):
     """How many tiles of each layer the service has no data for (the sea, a Land's edge, a sheet never flown),
     into the rows of the state: "done" then says what it has."""
@@ -435,7 +447,6 @@ def _planned(area: Area) -> List:
 
 def run_pass(area: Area, number: int) -> int:
     """One pass over everything still missing: EXIT_DONE, EXIT_FAILED, EXIT_STOPPED, EXIT_RESTART or EXIT_NOTHING."""
-    import country
     import progress as bars
     import sources as src
     bars.TEXT_INTERVAL = PROGRESS_SECONDS
@@ -474,15 +485,9 @@ def run_pass(area: Area, number: int) -> int:
             reporter.write()
             bars.progress.subscribe(reporter)
             for plan, plan_labels in zip(plans, labels):
-                # The groups of the window layers hold the same pixels at every resolution (10 km at 1 m, 5 km at
-                # 0.5 m, 20 km at 2 m): PREFETCH_GROUP_M is sized for 1 m data, and at 0.5 m (Luxembourg's float64
-                # national COG) groups of 10 km took about 5 GB a thread, and the passes were OOM-killed at 17-49 GB
-                # on a server of 62 GB without swap (Luxembourg 11 kills, Scotland 7, New Zealand 6, Wales 2;
-                # 2026-11-07). reencode_cached False: a pass reads no tile, so those in the old encoding wait for
-                # what does
+                # reencode_cached False: a pass reads no tile, so those in the old encoding wait for what does
                 src.download_layers(list(zip(plan.layers, plan_labels)), plan.grid, cache_dir, None,
-                                    group_m=country.PREFETCH_GROUP_M * area.resolution, on_error=failures,
-                                    reencode_cached=False)
+                                    group_m=_group_m(area, plan), on_error=failures, reencode_cached=False)
                 reporter.next_plan()
             _count_missing(cache_dir, plans, rows)
             reporter.state["tiles_missing"] = missing = sum(row["missing"] for row in rows)

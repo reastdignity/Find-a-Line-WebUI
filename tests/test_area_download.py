@@ -330,7 +330,8 @@ def test_a_stand_in_source_is_downloaded_too(setup, monkeypatch):
     area = setup(first)
 
     def plan(layer, source, instead):
-        return SimpleNamespace(layers=[layer], grid=_grid(), paths=SimpleNamespace(cache=os.path.join(area.data_dir, "cache")),
+        cache_dir = os.path.join(area.data_dir, "cache")
+        return SimpleNamespace(layers=[layer], grid=_grid(), paths=SimpleNamespace(cache=cache_dir),
                                source=SimpleNamespace(id=source, instead_without_data=instead))
     plans = {"fake": plan(first, "fake", "fake_ifsar"), "fake_ifsar": plan(second, "fake_ifsar", None)}
     monkeypatch.setattr(ad, "plan_of", lambda a: plans[a.source])
@@ -376,16 +377,25 @@ def test_a_full_disk_ends_the_pass(setup, monkeypatch):
     assert "1 GB free" in ad.read_state(area.state_dir, "land")["message"]
 
 
-@pytest.mark.parametrize("resolution", [0.5, 1.0, 2.0])
-def test_groups_hold_the_same_pixels_at_every_resolution(setup, monkeypatch, resolution):
-    """The window layers' groups are PREFETCH_GROUP_M at 1 m, half that at 0.5 m: 10 km of float64 at 0.5 m took
-    about 5 GB a thread and the passes were killed for memory."""
+@pytest.mark.parametrize("native, expected", [(0.5, 5000), (1.0, 10000), (2.0, 20000)])
+def test_groups_hold_the_same_pixels_whatever_the_files(setup, monkeypatch, native, expected):
+    """The window layers' groups are PREFETCH_GROUP_M for 1 m files, half that for 0.5 m ones (Luxembourg's and
+    Scotland's float64 at the app's 1 m minimum: 10 km took about 5 GB a thread and the passes were killed), by
+    the finest grouped layer of the plan; the area's resolution only without a native one."""
     import country
-    area = dataclasses.replace(setup(FakeLayer(2)), resolution=resolution)
+    assert country.PREFETCH_GROUP_M == 10000
+    dtm, dsm = FakeLayer(2), FakeLayer(2)
+    dtm.groups = dsm.groups = True
+    dtm.native_res, dsm.native_res = native, 2 * native
+    area = dataclasses.replace(setup(dtm, dsm), resolution=1.0)
     asked = []
     monkeypatch.setattr(src, "download_layers", lambda *a, **k: asked.append(k))
     ad.run_pass(area, 1)
-    assert asked[0]["group_m"] == country.PREFETCH_GROUP_M * resolution
+    assert asked[0]["group_m"] == expected
+    plain = FakeLayer(2)
+    plain.groups = True
+    assert ad._group_m(dataclasses.replace(area, resolution=2.0), SimpleNamespace(layers=[plain])) == 20000
+    assert ad._group_m(area, SimpleNamespace(layers=[FakeLayer(1)])) == 10000  # no grouped layer: unused anyway
 
 
 def test_host_slots_only_in_this_process(monkeypatch):
