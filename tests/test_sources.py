@@ -52,6 +52,12 @@ def fake_get(url, params=None, **kwargs):
     (left, right), (bottom, top) = boxes["E"], boxes["N"]
     if left < EXTENT[0] or bottom < EXTENT[1] or right > EXTENT[2] or top > EXTENT[3]:
         return None
+    return FakeResponse(_geotiff((left, bottom, right, top)))
+
+
+def _geotiff(box) -> bytes:
+    """The fake coverage (height) over a box (left, bottom, right, top) as a GeoTIFF of 1 m pixels."""
+    left, bottom, right, top = box
     width, rows = round(right - left), round(top - bottom)
     ys, xs = np.mgrid[0:rows, 0:width]
     band = height(left + xs + 0.5, top - ys - 0.5).astype(np.float32)
@@ -59,7 +65,17 @@ def fake_get(url, params=None, **kwargs):
         with memfile.open(driver="GTiff", width=width, height=rows, count=1, dtype="float32",
                           crs="EPSG:32633", transform=from_origin(left, top, 1, 1)) as dst:
             dst.write(band, 1)
-        return FakeResponse(memfile.read())
+        return memfile.read()
+
+
+def _subset_box(query) -> tuple:
+    """(left, bottom, right, top) of the SUBSET parameters of a GetCoverage query (pairs)."""
+    boxes = {}
+    for key, value in query:
+        if key == "SUBSET":
+            axis, low, high = re.fullmatch(r"(\w+)\(([^,]+),([^)]+)\)", value).groups()
+            boxes[axis] = (float(low), float(high))
+    return boxes["E"][0], boxes["N"][0], boxes["E"][1], boxes["N"][1]
 
 
 def fake_describe(url, params=None, **kwargs):
@@ -128,6 +144,117 @@ def test_error_outside_the_coverage(monkeypatch, tmp_path):
     monkeypatch.setattr(src.net, "_get", failing)
     with pytest.raises(RuntimeError, match="Could not download"):
         layer.download_tile((1.0, -1, -1), str(tmp_path / "d.tif"))
+
+
+EA_500 = b'{"message":"Internal server error","statusCode":500,"code":"internal_error"}'
+
+
+def _wcs_service(server, path: str, fails, extent=(-1e6, -1e6, 1e6, 1e6)):
+    """A WCS 2.0.1 on the local server at path: GetCoverage of any box as a GeoTIFF of the fake coverage, or
+    the Environment Agency's HTTP 500 for a box `fails(box)`; DescribeCoverage with `extent`."""
+    def answer(request):
+        if dict(request.query).get("REQUEST") == "DescribeCoverage":
+            body = (f'<gml:Envelope axisLabels="E N"><gml:lowerCorner>{extent[0]} {extent[1]}</gml:lowerCorner>'
+                    f'<gml:upperCorner>{extent[2]} {extent[3]}</gml:upperCorner></gml:Envelope>')
+            return Answer(200, body.encode(), {"Content-Type": "text/xml"})
+        box = _subset_box(request.query)
+        if fails(box):
+            return Answer(500, EA_500, {"Content-Type": "application/json"})
+        return Answer(200, _geotiff(box), {"Content-Type": "image/tiff"})
+    server.route(path, answer)
+
+
+def _wcs_layer(server, path: str, tile_px: int, **kwargs):
+    return src.WcsTiles("Fake DTM", server.url(path), "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                        tile_px=tile_px, fetch_res=1.0, axes=("E", "N"), **kwargs)
+
+
+def _asked_widths(server, path: str):
+    """The width in pixels of every GetCoverage box asked of the service at path."""
+    return [round(b[2] - b[0]) for b in (_subset_box(r.query) for r in server.requests(path)
+                                        if dict(r.query).get("REQUEST") == "GetCoverage")]
+
+
+def test_split_on_error(http_server, tmp_path, monkeypatch, capsys):
+    """split_on_error (the Environment Agency's WCS answers HTTP 500 for a box not wholly covered by its
+    granules, also for a 2 km tile of real land at the Welsh border): a tile answered 500 is asked again as a
+    quadtree of pieces down to SPLIT_MIN_PX, composed on the tile's pixels, a piece failing at the floor left
+    without data; a tile none of whose pieces answered is an error, never missing; a reader without the flag
+    fails as before."""
+    from sources.readers.wcsreader import SPLIT_MIN_PX
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    # Any box reaching the NE corner of 250 m fails: the tile, its NE quarter and the quarter's NE piece
+    _wcs_service(http_server, "/corner", lambda box: box[2] > 750 and box[3] > 750)
+    layer = _wcs_layer(http_server, "/corner", 1000, split_on_error=True)
+    path = str(tmp_path / "split.tif")
+    fetched = layer.download_tile((1.0, 0, 0), path)
+    assert fetched.received > 0 and fetched.url == http_server.url("/corner")
+    with rio.open(path) as tile:
+        assert tile.transform == from_origin(0, 1000, 1, 1)
+        band = tile.read(1)
+    ys, xs = np.mgrid[0:1000, 0:1000]
+    truth = height(xs + 0.5, 1000 - ys - 0.5).astype(np.float32)
+    assert np.isnan(band[:250, 750:]).all()                      # the piece that failed at the floor
+    valid = np.isfinite(band)
+    assert valid.sum() == 1000 * 1000 - 250 * 250 and np.array_equal(band[valid], truth[valid])
+    # The whole, the four quarters, the four pieces of the failing quarter, every failing box net.RETRIES times
+    widths = _asked_widths(http_server, "/corner")
+    r = src.net.RETRIES
+    assert sorted(widths) == [250] * (3 + r) + [500] * (3 + r) + [1000] * r
+    assert min(widths) == SPLIT_MIN_PX == 250
+    out = capsys.readouterr().out
+    assert "tile 0_0: asked in 7 pieces down to 250 px, 1 failed" in out  # 6 answered, 1 left without data
+
+    # Every box fails (tile_px 500: the tile and its four pieces of 250 px): an error, nothing written
+    _wcs_service(http_server, "/all", lambda box: True)
+    layer = _wcs_layer(http_server, "/all", 500, split_on_error=True)
+    path = str(tmp_path / "all.tif")
+    with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: its 4 pieces .*failed too: HTTP 500"):
+        layer.download_tile((1.0, 0, 0), path)
+    assert not os.path.exists(path)
+    assert sorted(_asked_widths(http_server, "/all")) == [250] * 4 * r + [500] * r
+
+    # Without the flag: the error as before, one box asked
+    layer = _wcs_layer(http_server, "/corner", 1000)
+    before = len(_asked_widths(http_server, "/corner"))
+    with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: HTTP 500"):
+        layer.download_tile((1.0, 0, 0), str(tmp_path / "plain.tif"))
+    assert _asked_widths(http_server, "/corner")[before:] == [1000] * r
+    assert not os.path.exists(tmp_path / "plain.tif")
+
+
+def test_failed_request_clipped_to_the_extent(http_server, tmp_path, monkeypatch):
+    """A request that fails (not only a 404) for a box straddling the coverage extent's edge is asked again
+    clipped to the extent, with any reader; with split_on_error the clipped box failing too is asked in
+    pieces."""
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    # The extent ends at N 600; the service fails for a box reaching beyond it, as the Environment Agency's does
+    _wcs_service(http_server, "/edge", lambda box: box[3] > 600, extent=(-1e6, -1e6, 1e6, 600))
+    layer = _wcs_layer(http_server, "/edge", 1000)
+    path = str(tmp_path / "edge.tif")
+    assert layer.download_tile((1.0, 0, 0), path).received > 0
+    with rio.open(path) as tile:
+        assert tile.transform == from_origin(0, 1000, 1, 1)
+        band = tile.read(1)
+    assert np.isnan(band[:400]).all() and np.isfinite(band[400:]).all()
+    ys, xs = np.mgrid[400:1000, 0:1000]
+    assert np.array_equal(band[400:], height(xs + 0.5, 1000 - ys - 0.5).astype(np.float32))
+    heights = [round(b[3] - b[1]) for b in (_subset_box(r.query) for r in http_server.requests("/edge")
+                                           if dict(r.query).get("REQUEST") == "GetCoverage")]
+    assert heights == [1000] * src.net.RETRIES + [600]
+
+    # The clipped box fails too (the NE corner of the inner part): pieces of the inner part
+    _wcs_service(http_server, "/inner", lambda box: box[3] > 600 or (box[2] > 750 and box[3] > 350),
+                 extent=(-1e6, -1e6, 1e6, 600))
+    layer = _wcs_layer(http_server, "/inner", 1000, split_on_error=True)
+    path = str(tmp_path / "inner.tif")
+    assert layer.download_tile((1.0, 0, 0), path).received > 0
+    with rio.open(path) as tile:
+        band = tile.read(1)
+    assert np.isnan(band[:400]).all()
+    # The inner box is 1000 x 600 px: halved once each way (300 px rows cannot be halved again), its NE piece
+    # of 500 x 300 fails and is halved along its columns only, the 250 x 300 piece at the corner fails at the floor
+    assert np.isnan(band[400:700, 750:]).all() and np.isfinite(band[700:]).all() and np.isfinite(band[400:, :750]).all()
 
 
 def blended(x, y):
