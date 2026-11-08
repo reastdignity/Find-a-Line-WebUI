@@ -90,6 +90,36 @@ def test_state_and_entries(runs, server):
     assert a.wait(timeout=60) == 0
 
 
+def test_heavy_and_memory_on_the_page(runs, server):
+    """A heavy one started while free shows as running untamed once the state is heavy-ok; one
+    waiting for memory is held by "memory" with what it needs; the PC's memory and the budget."""
+    h = runs.start("h", "--heavy")
+    runs.wait_for(lambda: runs.started("h"))
+    answer = call(server, "GET", "/api/state")[2]
+    heavy = answer["entries"][0]
+    assert (heavy["mode"], heavy["tamed"], heavy["untamed"], heavy["memory"]) == ("heavy", False, False, None)
+    runs.set_state("heavy-ok")
+    m = runs.start("m", "--memory", "100000")
+    runs.wait_for(lambda: runs.queued("shared") == 1)
+    answer = call(server, "GET", "/api/state")[2]
+    heavy, waiting = answer["entries"]
+    assert (heavy["owner"], heavy["untamed"]) == ("h", True)
+    assert heavy["rss"] is None or heavy["rss"] > 0
+    assert (waiting["owner"], waiting["memory"], waiting["peak"]) == ("m", 100000 * tl.GB, 100000 * tl.GB)
+    if answer["memory"] is None:                      # no psutil: nothing guarded
+        assert waiting["held_by"] is None
+    else:
+        assert set(answer["memory"]) == {"available", "total", "budget", "share"}
+        assert 0 < answer["memory"]["available"] <= answer["memory"]["total"]
+        assert waiting["held_by"] == "memory"
+        assert re.fullmatch(r"held: not enough free memory \(needs ~100000\.0 GB, \d+\.\d GB free for it\)",
+                            waiting["reason"]), waiting["reason"]
+    m.kill()
+    runs.set_state("free")
+    runs.go("h")
+    assert h.wait(timeout=60) == 0
+
+
 def test_set_the_state(server):
     """POST /api/state with the page's header and an own or no Origin; 403 otherwise, 400 for a
     value the queue refuses."""
@@ -222,8 +252,11 @@ def test_install_and_uninstall_dry_run(tmp_path, monkeypatch, capsys):
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Edge (run from PowerShell: Git Bash's Edge prints nothing)")
 def test_page_in_edge(runs, server, tmp_path):
-    """The page as headless Edge draws it: the state's button on, its line, the running command
-    with Stop, the waiting one held by the state."""
+    """The page as headless Edge draws it: the state's button on, its line, the running commands
+    with Stop (a heavy one started while free as running untamed), the waiting one held by the
+    state, the PC's memory."""
+    runs.start("h", "--heavy")
+    runs.wait_for(lambda: runs.started("h"))
     runs.set_state("busy", note="call")
     runs.start("a")
     runs.wait_for(lambda: runs.started("a"))
@@ -238,4 +271,8 @@ def test_page_in_edge(runs, server, tmp_path):
                         for name in ("running", "waiting"))
     assert '<span class="muted">a</span>' in running and '<button class="stop" type="button">Stop</button>' in running
     assert '<span class="muted">e</span>' in waiting and '<span class="held">held: the PC is in use</span>' in waiting
-    assert "1 of 6 shared slots in use" in dom or f"1 of {tl.SLOTS} shared slots in use" in dom
+    assert '<span class="badge heavy">heavy</span>' in running and '<span class="muted">h</span>' in running
+    assert '<span class="untamed">running untamed: all threads, normal priority</span>' in running
+    assert f"1 of {tl.SLOTS} shared slots in use · a heavy command runs</span>" in dom
+    assert re.search(r'<span id="ram" class="muted">(RAM \d+\.\d GB free of \d+\.\d GB · budget for the lock '
+                     r'\d+\.\d GB|RAM unknown \(no psutil\))</span>', dom), dom

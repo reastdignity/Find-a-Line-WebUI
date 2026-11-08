@@ -8,12 +8,16 @@ open as an Edge app window (`msedge --app=http://127.0.0.1:8771/`):
 - four buttons set the user's state in the queue (test_lock.STATES; the queue's rules are in
   tools/test_lock.py's docstring): Free (everything runs), Heavy OK (no measurements; big untimed
   runs start below your programs' priority on at most 16 threads; tests keep running), Busy (no
-  measurements start, tests keep running below your programs' priority), Quiet (nothing new
-  starts); each with no end or until a time (in 1, 2 or 4 h, at 18:00 or 07:00, or any time),
-  then another state (free, or busy after Free, unless chosen);
-- the queue's running commands, each with Stop (asked once: its wrapper kills the command's
-  process tree and exits 125, and the run never goes into the estimates), and the waiting ones
-  with what holds them (the state, the commands they wait for, the slots);
+  measurements or big runs start, tests keep running below your programs' priority), Quiet
+  (nothing new starts); each with no end or until a time (in 1, 2 or 4 h, at 18:00 or 07:00, or
+  any time), then another state (free, or busy after Free, unless chosen);
+- the queue's running commands (shared, heavy, tamed or "running untamed" when a heavy one
+  started while free and the state now asks for less, exclusive; the memory each uses of its
+  expected peak), each with Stop (asked once: its wrapper kills the command's process tree and
+  exits 125, and the run never goes into the estimates), and the waiting ones with what holds
+  them (the state, the RAM guard with what it needs and what is free for it, the commands they
+  wait for, the slots);
+- the slots in use and the PC's memory: free, total, and the RAM guard's budget for the lock;
 - refreshed every 3 s, the browser's clock corrected by the server's.
 
     python tools/test_lock_page.py serve [--port N] [--verbose]
@@ -27,7 +31,9 @@ and writes the desktop shortcut "Test lock" (Edge as an app window, Edge's path 
 registry's App Paths; without Edge a plain `start` of the address); uninstall removes both;
 --dry-run prints what either would do and changes nothing.
 
-Routes: GET / (the page), /page.css, /page.js, /api/state ({state, now, slots, entries});
+Routes: GET / (the page), /page.css, /page.js, /api/state ({state, now, slots, memory, entries}: memory
+{available, total, budget, share} or null without psutil; each entry's held_by busy, quiet, memory
+or null, tamed, untamed, memory (declared bytes), rss, peak (expected bytes));
 POST /api/state ({value, until, after, note}: until in epoch seconds or null), POST /api/stop
 ({id} of a running entry, else 404). A POST needs the header X-Test-Lock: 1 and an Origin that is
 absent or the page's own (a page of another site can send neither), else 403; a Host other than
@@ -115,9 +121,13 @@ def short_command(text: str, words: int = 4, width: int = 72) -> str:
     return out if len(out) <= width else out[:width - 1] + "\u2026"
 
 
-def _reason(entry: tl.Entry, entries: List[tl.Entry], state: str, admitted: set, slots: int) -> str:
-    """Why a waiting entry waits, in words."""
-    hold = tl.held(entry, state)
+def _reason(entry: tl.Entry, entries: List[tl.Entry], state: str, admitted: set, slots: int,
+            hold: Optional[str], room: Optional[tuple]) -> str:
+    """Why a waiting entry waits, in words: hold, what holds it besides the others (Queue.admission),
+    room, the RAM guard's (expected peak, budget left for it)."""
+    if hold == "memory" and room is not None:
+        need, budget = room
+        return f"{HELD_BY[hold]} (needs ~{need / tl.GB:.1f} GB, {max(0.0, budget) / tl.GB:.1f} GB free for it)"
     if hold is not None:
         return HELD_BY[hold]
     if entry.id in admitted:
@@ -144,26 +154,32 @@ def snapshot(folder: str) -> dict:
             entries = queue.live()
             now = time.time()
             state = queue.user_state(now)
-            admitted = tl.startable(entries, now, queue.estimate, passing=lambda e: queue.estimate(e, passing=True),
-                                    state=state.value)
+            memory = tl._memory()
+            admitted, holds, room = queue.admission(entries, now, state.value, memory)
+            budget = tl.memory_budget(entries, memory, queue.peak)
         finally:
             queue.db.execute("COMMIT")
         rows = []
         for entry in sorted(entries, key=lambda e: (e.started is None, e.started or 0, tl.order(e))):
             estimate = queue.estimate(entry)
             waiting = entry.started is None
+            hold = holds.get(entry.id) if waiting else None
             rows.append({
                 "id": entry.id, "mode": entry.mode, "resources": entry.resources, "owner": entry.owner,
                 "command": entry.command, "short": short_command(entry.command),
                 "kind": _kind(entry.command), "queued": entry.queued, "started": entry.started,
                 "estimate": estimate,
                 "expected_end": entry.started + estimate if not waiting and estimate is not None else None,
-                "held_by": tl.held(entry, state.value) if waiting else None,
-                "first": entry.first, "stop": entry.stop,
-                "reason": _reason(entry, entries, state.value, admitted, tl.SLOTS) if waiting else None})
+                "held_by": hold, "first": entry.first, "stop": entry.stop,
+                "tamed": entry.tamed, "untamed": tl.untamed(entry, state.value),
+                "memory": entry.memory, "rss": entry.rss if not waiting else None, "peak": queue.peak(entry),
+                "reason": _reason(entry, entries, state.value, admitted, tl.SLOTS, hold, room.get(entry.id))
+                if waiting else None})
     finally:
         queue.db.close()
-    return {"state": state_json(state, now), "now": now, "slots": tl.SLOTS, "entries": rows}
+    ram = None if memory is None else {"available": memory[0], "total": memory[1], "budget": budget,
+                                       "share": tl.RAM_SHARE}
+    return {"state": state_json(state, now), "now": now, "slots": tl.SLOTS, "memory": ram, "entries": rows}
 
 
 def _kind(text: str) -> Optional[str]:
@@ -562,7 +578,10 @@ PAGE_HTML = """<!doctype html>
 <main>
   <header class="top">
     <h1>Test lock</h1>
-    <span id="slots" class="muted"></span>
+    <div class="facts">
+      <span id="slots" class="muted"></span>
+      <span id="ram" class="muted"></span>
+    </div>
   </header>
   <p id="error" class="error" hidden></p>
 
@@ -579,7 +598,8 @@ PAGE_HTML = """<!doctype html>
       <li data-state="free"><b>Free:</b> everything runs, measurements too</li>
       <li data-state="heavy-ok"><b>Heavy OK:</b> no measurements; big untimed runs start below your programs'
         priority on at most 16 threads; tests keep running</li>
-      <li data-state="busy"><b>Busy:</b> no measurements start, tests keep running below your programs' priority</li>
+      <li data-state="busy"><b>Busy:</b> no measurements or big runs start, tests keep running below your programs'
+        priority</li>
       <li data-state="quiet"><b>Quiet:</b> nothing new starts</li>
     </ul>
     <div class="until" role="group" aria-label="For how long">
@@ -666,6 +686,7 @@ body {
 }
 main { max-width: 860px; margin: 0 auto; padding: 16px; }
 .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.facts { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 13px; }
 h1 { font-size: 22px; margin: 0 0 12px; }
 h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase;
      letter-spacing: 0.04em; }
@@ -713,12 +734,14 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .entry-id { font-weight: 700; }
 .badge { font-size: 12px; border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; color: var(--muted); }
 .badge.exclusive { border-color: var(--busy); color: var(--busy); }
+.badge.heavy { border-color: var(--heavy-ok); color: var(--heavy-ok); }
 .entry-command { font-family: Consolas, ui-monospace, monospace; font-size: 13px; overflow: hidden;
                  text-overflow: ellipsis; white-space: nowrap; }
 .entry-meta { font-size: 13px; color: var(--muted); }
-.entry-meta .held { color: var(--held); font-weight: 600; }
+.entry-meta .held, .entry-meta .untamed { color: var(--held); font-weight: 600; }
 .stop { border-color: var(--quiet); color: var(--quiet); font-weight: 600; }
 @media (max-width: 560px) {
+  .facts { align-items: flex-start; }
   .states { grid-template-columns: repeat(2, 1fr); }
   .states .state:nth-child(3) { border-left: 0; }
   .states .state:nth-child(n+3) { border-top: 1px solid var(--line); }
@@ -772,6 +795,10 @@ PAGE_JS = r""""use strict";
     const minutes = Math.max(0, Math.round(seconds / 60));
     if (minutes < 60) return minutes + " min";
     return Math.floor(minutes / 60) + " h " + String(minutes % 60).padStart(2, "0") + " min";
+  }
+
+  function gb(bytes) {
+    return (Math.max(0, bytes) / 1073741824).toFixed(1) + " GB";
   }
 
   function nextAt(text) {
@@ -851,8 +878,17 @@ PAGE_JS = r""""use strict";
       text += entry.expected_end >= now ? " \u00b7 expected end " + clock(entry.expected_end)
                                         : " \u00b7 expected to end at " + clock(entry.expected_end) + ", overdue";
     }
+    if (entry.rss !== null) {
+      text += " \u00b7 uses " + gb(entry.rss) + (entry.peak !== null ? " of ~" + gb(entry.peak) : "");
+    } else if (entry.peak !== null) {
+      text += " \u00b7 ~" + gb(entry.peak);
+    }
+    if (entry.tamed) text += " \u00b7 tamed: below your programs' priority, at most 16 threads";
     if (entry.stop !== null) text += " \u00b7 stopping";
     meta.textContent = text;
+    if (entry.untamed) {
+      meta.append(" \u00b7 ", element("span", "untamed", "running untamed: all threads, normal priority"));
+    }
     main.append(head(entry), command(entry), meta);
     const button = element("button", "stop", entry.stop !== null ? "Stopping" : "Stop");
     button.type = "button";
@@ -866,7 +902,8 @@ PAGE_JS = r""""use strict";
     const item = element("li");
     const main = element("div", "entry-main");
     const meta = element("div", "entry-meta");
-    meta.append("waiting " + span(now - entry.queued) + " \u00b7 ");
+    meta.append("waiting " + span(now - entry.queued) + (entry.peak !== null ? " \u00b7 ~" + gb(entry.peak) : "") +
+                " \u00b7 ");
     meta.append(element("span", entry.held_by ? "held" : "", entry.reason));
     main.append(head(entry), command(entry), meta);
     item.append(main);
@@ -902,8 +939,13 @@ PAGE_JS = r""""use strict";
     const running = data.entries.filter((e) => e.started !== null);
     const waiting = data.entries.filter((e) => e.started === null);
     const shared = running.filter((e) => e.mode === "shared").length;
+    const heavy = running.find((e) => e.mode === "heavy");
     $("slots").textContent = shared + " of " + data.slots + " shared slots in use" +
-      (running.some((e) => e.mode === "exclusive") ? " \u00b7 an exclusive command runs" : "");
+      (running.some((e) => e.mode === "exclusive") ? " \u00b7 an exclusive command runs" : "") +
+      (heavy ? " \u00b7 a heavy command runs" + (heavy.tamed ? " (tamed)" : "") : "");
+    const ram = data.memory;
+    $("ram").textContent = ram ? "RAM " + gb(ram.available) + " free of " + gb(ram.total) +
+                                 " \u00b7 budget for the lock " + gb(ram.budget) : "RAM unknown (no psutil)";
     fill($("running"), running, runningItem, "Nothing runs.", now);
     fill($("waiting"), waiting, waitingItem, "Nothing waits.", now);
   }
