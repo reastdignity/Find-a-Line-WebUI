@@ -134,10 +134,12 @@ MAX_END_ANCHORS = 400  # anchors per end in the funnel, the nearest to the known
 MAX_PAIRS = 3000      # pairs evaluated pixel by pixel, those of the smallest distance sum
 LENGTH_EDGES = (0, 30, 50, 100, 200, 500)  # SlackMap's length bins, metres
 REPORT_TYPES = ("highline", "midline")    # always in the tables, other types when present
-PICTURE_PX = 1600     # pixels of a place's hillshade at most (a larger grid is drawn every k-th pixel)
+PICTURE_PX = 1600     # pixels of a place's hillshade at most (a larger view is drawn every k-th pixel)
+VIEW_PAD = (20, 0.05)  # a place's picture: the search area and the known lines, padded by max(20 px, 5 % of it)
 MAP_LINES = 20000     # found lines a place's picture draws at most (a sample beyond)
 COLOURS = {"matched": "#2f855a", "missed": "#c53030", "unverifiable": "#dd6b20"}
-FOUND_COLOUR = "#9ca3af"
+FOUND_COLOUR = "#334155"
+AREA_COLOUR = "#2563eb"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -1211,9 +1213,28 @@ def _chip_pair(r: Dict, shape) -> Optional[Tuple[list, list]]:
     return None
 
 
+def view_box(mask: np.ndarray, grid: Dict, lines: Sequence[KnownLine]) -> Tuple[int, int, int, int]:
+    """The pixels a place's picture shows, (row0, row1, col0, col1) half-open: the search area (the
+    mask's box: the grid reaches the search's margin beyond it, often more than half of it) and every
+    known line's ends, padded by VIEW_PAD, within the grid; the whole grid without an area."""
+    h, w = mask.shape
+    rows, cols = np.nonzero(np.any(mask, axis=1))[0], np.nonzero(np.any(mask, axis=0))[0]
+    if not len(rows):
+        return 0, h, 0, w
+    r0, r1, c0, c1 = float(rows[0]), float(rows[-1]), float(cols[0]), float(cols[-1])
+    for line in lines:
+        for point in (line.a, line.b):
+            r, c = _pixel_float(grid, *point)
+            r0, r1, c0, c1 = min(r0, r), max(r1, r), min(c0, c), max(c1, c)
+    pad = max(VIEW_PAD[0], VIEW_PAD[1] * max(r1 - r0, c1 - c0))
+    return (max(0, int(math.floor(r0 - pad))), min(h, int(math.ceil(r1 + pad)) + 1),
+            max(0, int(math.floor(c0 - pad))), min(w, int(math.ceil(c1 + pad)) + 1))
+
+
 def draw(out: str, analysis: Dict) -> List[str]:
-    """pictures/: a hillshade per place (found lines grey, known lines coloured by outcome, numbered as
-    in study.md) and a profile chip per miss (studylib.profile_chip, the reason in its title)."""
+    """pictures/: a hillshade per place over view_box (the search area outlined, found lines dark grey,
+    known lines coloured by outcome, numbered as in study.md) and a profile chip per miss
+    (studylib.profile_chip, the reason in its title)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -1236,19 +1257,24 @@ def draw(out: str, analysis: Dict) -> List[str]:
             print(f"{s['cluster']}: no pictures ({e})", flush=True)
             continue
         rs = by_place.get(s["cluster"], [])
-        h, w = c.elevation.shape
-        k = max(1, int(math.ceil(max(h, w) / PICTURE_PX)))
-        shade = coverage_contrast.shade(c.elevation[::k, ::k], c.res * k)
+        r0, r1, c0, c1 = view_box(c.mask, c.grid, c.known)
+        k = max(1, int(math.ceil(max(r1 - r0, c1 - c0) / PICTURE_PX)))
+        window = c.elevation[r0:r1:k, c0:c1:k]
+        shade = coverage_contrast.shade(window, c.res * k)
         fig, ax = plt.subplots(figsize=(9.5, 8))
         ax.imshow(shade, cmap="gray", interpolation="nearest",
-                  extent=(-0.5, shade.shape[1] * k - 0.5, shade.shape[0] * k - 0.5, -0.5))
+                  extent=(c0 - 0.5, c0 + shade.shape[1] * k - 0.5, r0 + shade.shape[0] * k - 0.5, r0 - 0.5))
+        area = c.mask[r0:r1:k, c0:c1:k]
+        if area.any() and not area.all():
+            ax.contour(c0 + np.arange(area.shape[1]) * k, r0 + np.arange(area.shape[0]) * k, area.astype(float),
+                       levels=[0.5], colors=AREA_COLOUR, linewidths=0.8, linestyles="--")
         f = c.found
         if len(f):
             rows = np.arange(len(f)) if len(f) <= MAP_LINES else np.sort(rng.choice(len(f), MAP_LINES, replace=False))
             g = c.grid  # (col, row) of the anchors: the image's x and y
             ends = [np.column_stack([(xy[rows, 0] - g["left"]) / g["res"] - 0.5,
                                      (g["top"] - xy[rows, 1]) / g["res"] - 0.5]) for xy in (f.xy1, f.xy2)]
-            ax.add_collection(LineCollection(np.stack(ends, axis=1), colors=FOUND_COLOUR, linewidths=0.4, alpha=0.6))
+            ax.add_collection(LineCollection(np.stack(ends, axis=1), colors=FOUND_COLOUR, linewidths=0.5, alpha=0.5))
         known = {x.id: x for x in c.known}
         for n, r in enumerate(rs, 1):
             outcome = "unverifiable" if r["reason"] == "unverifiable" else r["outcome"]
@@ -1256,15 +1282,12 @@ def draw(out: str, analysis: Dict) -> List[str]:
             (ra, ca), (rb, cb) = _pixel_float(c.grid, *line.a), _pixel_float(c.grid, *line.b)
             ax.plot([ca, cb], [ra, rb], color=COLOURS[outcome], lw=1.6)
             ax.annotate(str(n), ((ca + cb) / 2, (ra + rb) / 2), color=COLOURS[outcome], fontsize=8, fontweight="bold")
-        finite = np.argwhere(np.isfinite(c.elevation[::k, ::k])) * k
-        if len(finite):
-            box = [finite[:, 1].min() - 0.5, finite[:, 1].max() + k - 0.5, finite[:, 0].max() + k - 0.5,
-                   finite[:, 0].min() - 0.5]
-            ax.set_xlim(box[0], box[1])
-            ax.set_ylim(box[2], box[3])
+        ax.set_xlim(c0 - 0.5, c1 - 0.5)
+        ax.set_ylim(r1 - 0.5, r0 - 0.5)
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.legend(handles=[Line2D([], [], color=FOUND_COLOUR, lw=1, label=f"found ({len(f)})")] +
+        ax.legend(handles=[Line2D([], [], color=FOUND_COLOUR, lw=1, label=f"found ({len(f)})"),
+                           Line2D([], [], color=AREA_COLOUR, lw=1, ls="--", label="search area")] +
                   [Line2D([], [], color=colour, lw=2, label=name) for name, colour in COLOURS.items()],
                   fontsize=7, loc="upper left", bbox_to_anchor=(1.01, 1.0))
         ax.set_title(f"{s['cluster']}: {s['source']}, {s['resolution']:g} m; {s['matched']} of {s['known']} known "

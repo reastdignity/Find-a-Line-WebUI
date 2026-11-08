@@ -330,6 +330,20 @@ def test_profile_folders(tmp_path):
     assert ta.run_folder(str(out / "c1"), {"run": None}) is None
 
 
+def test_view_box():
+    """A place's picture: the search area's box and the known lines' ends, padded, within the grid."""
+    mask = np.zeros((ROWS, COLS), dtype=bool)
+    mask[100:161, 40:101] = True                                   # a square area of 61 x 61 px
+    assert ta.view_box(mask, GRID, []) == (80, 181, 20, 121)        # padded by 20 px
+    line = known("k", (90.5, 30.5), (150, 128.6))                   # ends above, left of and beyond the area
+    r0, r1, c0, c1 = ta.view_box(mask, GRID, [line])
+    assert (r0, c0) == (70, 10) and r1 == 181 and c1 == COLS        # floor(90.5 - 20), ...; the grid's edge
+    assert ta.view_box(np.zeros_like(mask), GRID, [line]) == (0, ROWS, 0, COLS)
+    big = np.zeros((2000, 2000), dtype=bool)
+    big[500:1501, 500:1501] = True
+    assert ta.view_box(big, GRID, []) == (450, 1551, 450, 1551)     # 5 % of 1000 px
+
+
 def test_main(study):
     out, _ = study
     assert ta.main(["analyse", out, "--cluster", "testland-001"]) == 0

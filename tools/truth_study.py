@@ -704,6 +704,19 @@ def _remove_run(out: str, folder: str):
         shutil.rmtree(path)
 
 
+def _remove_left_work(work: str, before: set):
+    """The work folders a search left in the data folder's work/ (those not there before it, once its
+    process has ended): findaline.py on Windows cannot delete its own after a search that stops without
+    lines (cache.remove_work's "Could not delete the work folder": the memory-mapped grids are still
+    referenced by the exception in flight), and every cluster's search shares the one data folder."""
+    if not os.path.isdir(work):
+        return
+    for name in sorted(set(os.listdir(work)) - before):
+        path = os.path.join(work, name)
+        if os.path.isdir(path) and not os.path.islink(path):
+            shutil.rmtree(path, ignore_errors=True)
+
+
 def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
             timeout: Optional[float] = None) -> Dict:
     """One search with its capture into <out>/<name>/ (a fresh folder; an earlier search's run removed),
@@ -720,6 +733,8 @@ def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
     env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
     started = time.time()
     returncode: Optional[int] = None
+    work = os.path.join(data, "work")
+    before = set(os.listdir(work)) if os.path.isdir(work) else set()
     with open(os.path.join(folder, "output.log"), "w", encoding="utf-8") as log:
         try:
             returncode = subprocess.run(
@@ -728,6 +743,8 @@ def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
                 cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout).returncode
         except subprocess.TimeoutExpired:
             log.write(f"\ntruth_study: stopped after {timeout:g} s\n")
+        finally:
+            _remove_left_work(work, before)
     child = _read_json(os.path.join(capture, "result.json")) or {}
     grid = _read_json(os.path.join(capture, "grid.json")) or {}
     anchors = os.path.join(capture, "anchors.npy")
@@ -1011,7 +1028,7 @@ def _run_command(args) -> int:
     cache_dir = None if args.no_cache_link else os.path.abspath(args.cache or _cache_dir(args.data_dir))
     if cache_dir:
         cache.check_layout(cache_dir)
-    found = run(args.out, items, cache_dir, args.again, args.timeout)
+    found = run(args.out, items, cache_dir, args.again, args.timeout, say=lambda text: print(text, flush=True))
     counts = collections.Counter(state["status"] for state in found.values())
     print(f"\n{len(found)} searches: " + ", ".join(f"{counts.get(s, 0)} {s}" for s in STATUSES))
     return 1 if counts.get("failed") else 0

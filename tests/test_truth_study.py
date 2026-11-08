@@ -241,7 +241,8 @@ def _is_link(path) -> bool:
 def test_run_shares_one_data_folder(monkeypatch, tmp_path):
     """run: every search in <out>/data, its cache/ linked once and unlinked at the end, also after an
     interruption (Ctrl+C in the second search); capture.json names each saved run relative to <out>; a cluster
-    searched again keeps only its new run. The child is a stand-in that saves a run and a complete capture."""
+    searched again keeps only its new run, the work folders the searches left are removed. The child is a stand-in
+    that saves a run and a complete capture."""
     cache_dir = tmp_path / "cache"
     (cache_dir / "layer").mkdir(parents=True)
     (cache_dir / "layer" / "tile.txt").write_text("tile", encoding="utf-8")
@@ -257,6 +258,7 @@ def test_run_shares_one_data_folder(monkeypatch, tmp_path):
             raise KeyboardInterrupt
         run_dir = os.path.join(data, "runs", f"2026-11-08_{name}_{next(counter)}")
         os.makedirs(run_dir)
+        os.makedirs(os.path.join(data, "work", f"left-by-{name}", "grids"))  # as findaline.py leaves it on Windows
         with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8") as f:
             json.dump({"id": os.path.basename(run_dir)}, f)
         os.makedirs(capture)
@@ -274,6 +276,7 @@ def test_run_shares_one_data_folder(monkeypatch, tmp_path):
     assert [found[n]["status"] for n in ("c1", "c2")] == ["done", "done"]
     assert found["c1"]["run"] == "data/runs/2026-11-08_c1_1" and (out / found["c1"]["run"] / "run.json").exists()
     assert not (out / "c1" / "data").exists()  # no data folder per cluster
+    assert os.listdir(out / "data" / "work") == []  # the work folders the searches left removed
 
     seen.clear()
     ts.run(str(out), items, str(cache_dir), say=quiet)  # captured already: nothing searched, nothing linked
@@ -283,6 +286,7 @@ def test_run_shares_one_data_folder(monkeypatch, tmp_path):
     assert found["c1"]["run"] == "data/runs/2026-11-08_c1_3" and seen[-1][0] == "c1"
     assert sorted(os.listdir(out / "data" / "runs")) == ["2026-11-08_c1_3", "2026-11-08_c2_2"]
 
+    (out / "data" / "work" / "another").mkdir()  # not left by a search of this run: kept
     stop["at"] = "c2"
     with pytest.raises(KeyboardInterrupt):
         ts.run(str(out), items, str(cache_dir), again=True, say=quiet)
@@ -290,6 +294,7 @@ def test_run_shares_one_data_folder(monkeypatch, tmp_path):
     assert not os.path.lexists(out / "data" / "cache") and (cache_dir / "layer" / "tile.txt").exists()
     assert not (out / "c2" / "capture.json").exists()  # an interrupted cluster is searched on the next pass
     assert ts.captured(str(out / "c2"), items[1]["options"], ["c2-1"]) is None
+    assert os.listdir(out / "data" / "work") == ["another"]
 
 
 def test_split_options_and_status():
@@ -378,6 +383,7 @@ def test_run_zabi_kon_clip(tmp_path):
     assert len(runs) == 1 and state["run"] == "data/runs/" + runs[0].parent.name
     assert not (out / "zk" / "data").exists() and (out / "data" / "runs" / "_viewer").is_dir()
     assert (out / "data" / "cache").is_dir() and not _is_link(out / "data" / "cache")  # --no-cache-link: its own
+    assert not os.listdir(out / "data" / "work")  # also the one findaline.py leaves after no lines (Windows)
     import studylib
     anchors = {tuple(p) for p in np.load(out / "zk" / "capture" / "anchors.npy").tolist()}
     to_grid = Transformer.from_crs("EPSG:4326", grid["crs"], always_xy=True)
