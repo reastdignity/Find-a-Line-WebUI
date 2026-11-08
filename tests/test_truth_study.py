@@ -1,8 +1,10 @@
 """tools/truth_study.py: the clusters of known lines (the link, the cap's bisection, the radius and length
 rules, midlines clustered with highlines), the sources chosen offline, the places against a copy of
-tests/regression.json, the delegation to tools/truth_analysis.py, and a run of the Żabi Koń clip offline
-(a search with lines, one without, a resumed pass) with the capture's files as the analysis reads them.
-Synthetic lines only: invented ids and coordinates (no SlackMap data in the repository)."""
+tests/regression.json, the delegation to tools/truth_analysis.py, the one data folder of a run (its cache
+linked once, unlinked afterwards, also after an interruption; a cluster searched again keeps only its new
+run), and a run of the Żabi Koń clip offline (a search with lines, one without, a resumed pass) with the
+capture's files as the analysis reads them (the found anchors back on their pixels; analyse --profiles on
+the saved run). Synthetic lines only: invented ids and coordinates (no SlackMap data in the repository)."""
 
 import dataclasses
 import json
@@ -215,17 +217,79 @@ def test_places_against_regression_json(tmp_path):
 def test_analyse_and_report_delegate(monkeypatch, tmp_path, capsys):
     """analyse and report call tools/truth_analysis.py's functions; a missing module is said plainly."""
     calls = []
-    fake = types.SimpleNamespace(analyse=lambda out, profiles=False, clusters=None: calls.append(
-        ("analyse", out, profiles, clusters)), report=lambda out, pictures=True: calls.append(
+    fake = types.SimpleNamespace(analyse=lambda out, profiles=False, clusters=None, cache_dir=None: calls.append(
+        ("analyse", out, profiles, clusters, cache_dir)), report=lambda out, pictures=True: calls.append(
         ("report", out, pictures)) or "the report")
     monkeypatch.setitem(sys.modules, "truth_analysis", fake)
-    assert ts.main(["analyse", str(tmp_path), "--profiles", "--cluster", "pl-1", "pl-2"]) == 0
+    cache_dir = str(tmp_path / "elsewhere" / "cache")
+    assert ts.main(["analyse", str(tmp_path), "--profiles", "--cluster", "pl-1", "pl-2", "--cache", cache_dir]) == 0
+    assert ts.main(["analyse", str(tmp_path), "--data-dir", str(tmp_path / "data-folder")]) == 0
     assert ts.main(["report", str(tmp_path), "--no-pictures"]) == 0
-    assert calls == [("analyse", str(tmp_path), True, ["pl-1", "pl-2"]), ("report", str(tmp_path), False)]
+    assert calls == [("analyse", str(tmp_path), True, ["pl-1", "pl-2"], cache_dir),
+                     ("analyse", str(tmp_path), False, None, str(tmp_path / "data-folder" / "cache")),
+                     ("report", str(tmp_path), False)]
     assert "the report" in capsys.readouterr().out
     monkeypatch.setitem(sys.modules, "truth_analysis", None)  # an import of it raises ImportError
     assert ts.main(["report", str(tmp_path)]) == 2
     assert "truth_analysis.py is missing" in capsys.readouterr().err
+
+
+def _is_link(path) -> bool:
+    return os.path.islink(path) or (hasattr(os.path, "isjunction") and os.path.isjunction(path))
+
+
+def test_run_shares_one_data_folder(monkeypatch, tmp_path):
+    """run: every search in <out>/data, its cache/ linked once and unlinked at the end, also after an
+    interruption (Ctrl+C in the second search); capture.json names each saved run relative to <out>; a cluster
+    searched again keeps only its new run. The child is a stand-in that saves a run and a complete capture."""
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "layer").mkdir(parents=True)
+    (cache_dir / "layer" / "tile.txt").write_text("tile", encoding="utf-8")
+    out = tmp_path / "out"
+    seen, stop, counter = [], {"at": None}, iter(range(1, 100))
+
+    def child(command, **kwargs):
+        capture, data = command[command.index("--out") + 1], command[command.index("--data-dir") + 1]
+        name = os.path.basename(os.path.dirname(capture))
+        seen.append((name, data, _is_link(os.path.join(data, "cache")),
+                     os.path.exists(os.path.join(data, "cache", "layer", "tile.txt"))))
+        if name == stop["at"]:
+            raise KeyboardInterrupt
+        run_dir = os.path.join(data, "runs", f"2026-11-08_{name}_{next(counter)}")
+        os.makedirs(run_dir)
+        with open(os.path.join(run_dir, "run.json"), "w", encoding="utf-8") as f:
+            json.dump({"id": os.path.basename(run_dir)}, f)
+        os.makedirs(capture)
+        with open(os.path.join(capture, "result.json"), "w", encoding="utf-8") as f:
+            json.dump({"complete": True, "lines": 3, "error": None, "run": run_dir}, f)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(ts.subprocess, "run", child)
+    items = [{"id": name, "options": "--lat 50 --lon 20", "known": [{"id": f"{name}-1"}]} for name in ("c1", "c2")]
+    quiet = lambda text: None  # noqa: E731
+    found = ts.run(str(out), items, str(cache_dir), say=quiet)
+    data = str(out / "data")
+    assert seen == [("c1", data, True, True), ("c2", data, True, True)]
+    assert not os.path.lexists(out / "data" / "cache") and (cache_dir / "layer" / "tile.txt").exists()
+    assert [found[n]["status"] for n in ("c1", "c2")] == ["done", "done"]
+    assert found["c1"]["run"] == "data/runs/2026-11-08_c1_1" and (out / found["c1"]["run"] / "run.json").exists()
+    assert not (out / "c1" / "data").exists()  # no data folder per cluster
+
+    seen.clear()
+    ts.run(str(out), items, str(cache_dir), say=quiet)  # captured already: nothing searched, nothing linked
+    assert seen == [] and not os.path.lexists(out / "data" / "cache")
+
+    found = ts.run(str(out), items[:1], str(cache_dir), again=True, say=quiet)  # c1 again: its old run removed
+    assert found["c1"]["run"] == "data/runs/2026-11-08_c1_3" and seen[-1][0] == "c1"
+    assert sorted(os.listdir(out / "data" / "runs")) == ["2026-11-08_c1_3", "2026-11-08_c2_2"]
+
+    stop["at"] = "c2"
+    with pytest.raises(KeyboardInterrupt):
+        ts.run(str(out), items, str(cache_dir), again=True, say=quiet)
+    assert seen[-1] == ("c2", data, True, True)  # the link was there while the search ran
+    assert not os.path.lexists(out / "data" / "cache") and (cache_dir / "layer" / "tile.txt").exists()
+    assert not (out / "c2" / "capture.json").exists()  # an interrupted cluster is searched on the next pass
+    assert ts.captured(str(out / "c2"), items[1]["options"], ["c2-1"]) is None
 
 
 def test_split_options_and_status():
@@ -310,10 +374,28 @@ def test_run_zabi_kon_clip(tmp_path):
     assert lines["a1_xy"].shape == (n, 2) and lines["angle1"].shape == (n,)  # beyond the contract: the extras
     back = [sd.KnownLine.from_dict(d) for d in json.loads((out / "zk" / "known.json").read_text(encoding="utf-8"))]
     assert back == known
-    assert len(list((out / "zk" / "data" / "runs").glob("*/run.json"))) == 1  # the saved run
+    runs = list((out / "data" / "runs").glob("*/run.json"))  # the saved runs of every place: one data folder
+    assert len(runs) == 1 and state["run"] == "data/runs/" + runs[0].parent.name
+    assert not (out / "zk" / "data").exists() and (out / "data" / "runs" / "_viewer").is_dir()
+    assert (out / "data" / "cache").is_dir() and not _is_link(out / "data" / "cache")  # --no-cache-link: its own
+    import studylib
+    anchors = {tuple(p) for p in np.load(out / "zk" / "capture" / "anchors.npy").tolist()}
+    to_grid = Transformer.from_crs("EPSG:4326", grid["crs"], always_xy=True)
+    for latlon_, xy in ((lines["a1"], lines["a1_xy"]), (lines["a2"], lines["a2_xy"])):
+        lat, lon = latlon_[:, 0], latlon_[:, 1]
+        x, y = (np.asarray(v) for v in to_grid.transform(lon, lat))
+        exact = np.column_stack([(grid["top"] - y) / grid["res"] - 0.5, (x - grid["left"]) / grid["res"] - 0.5])
+        assert np.abs(exact - np.rint(exact)).max() < 1e-6  # pixel centres to a micrometre: 7 decimals leave ~1 cm
+        assert np.abs(np.column_stack([x, y]) - xy).max() < 1e-6  # the points of the grid's CRS columns
+        pixels = [studylib.to_pixel(grid, a, b) for a, b in latlon_.tolist()]
+        assert pixels == [tuple(p) for p in np.rint(exact).astype(int).tolist()]
+        assert set(pixels) <= anchors  # each found line's anchors are step 2's anchors
+        back = Transformer.from_crs(grid["crs"], "EPSG:4326", always_xy=True).transform(xy[:, 0], xy[:, 1])
+        assert np.array_equal(lon, back[0]) and np.array_equal(lat, back[1])  # float64 as the table holds them
 
     state = json.loads((out / "zk-none" / "capture.json").read_text(encoding="utf-8"))
     assert state["status"] == "no_lines" and state["error"] == "no_lines" and state["lines"] == 0
+    assert state["run"] is None  # no run saved without lines
     grid_none, lines_none, _ = check_capture(out / "zk-none", tuple(grid["shape"]))
     assert all(len(v) == 0 for v in lines_none.values())
 
@@ -321,3 +403,29 @@ def test_run_zabi_kon_clip(tmp_path):
     again = subprocess.run(command, cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=300)
     assert again.returncode == 0, again.stdout + again.stderr
     assert again.stdout.count("captured already") == 2 and os.path.getmtime(out / "zk" / "capture.json") == stamp
+
+    # analyse --profiles on the saved run: a known line copied from a found one (the table's float64 anchors)
+    # is matched and production's profile agrees; a made-up line at the centre is a miss, its profile agreeing too
+    rep = int(np.flatnonzero(lines["rep"])[0])
+    copied = dataclasses.replace(known[0], id="copy", a=tuple(lines["a1"][rep].tolist()),
+                                 b=tuple(lines["a2"][rep].tolist()), stated_m=float(lines["length"][rep]),
+                                 geodesic_m=float(lines["length"][rep]), flags=())
+    centre_lat, centre_lon = grid["centre"]
+    flat = dataclasses.replace(known[0], id="made-up", a=(centre_lat, centre_lon), b=(centre_lat, centre_lon + 0.0005),
+                               stated_m=36.0, geodesic_m=35.7, flags=())
+    (out / "zk" / "known.json").write_text(json.dumps([dataclasses.asdict(k) for k in (copied, flat)]),
+                                           encoding="utf-8")
+    analysed = subprocess.run([sys.executable, os.path.join("tools", "truth_study.py"), "analyse", str(out),
+                               "--profiles", "--cluster", "zk", "--cache", str(tmp_path / "unused-cache")],
+                              cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8", timeout=600)
+    assert analysed.returncode == 0, analysed.stdout + analysed.stderr
+    result = json.loads((out / "zk" / "analysis.json").read_text(encoding="utf-8"))
+    records = {r["id"]: r for r in result["records"]}
+    assert result["matched"] == 1 and records["copy"]["outcome"] == "matched" and records["copy"]["match"]["d"] == \
+        [pytest.approx(0, abs=1e-6)] * 2
+    assert records["copy"]["profile"] == {**records["copy"]["profile"], "production": True, "grid": True,
+                                          "agree": True}
+    assert records["made-up"]["outcome"] == "missed" and "profile" in records["made-up"]
+    assert "error" not in records["made-up"]["profile"] and records["made-up"]["profile"]["agree"]
+    assert not (tmp_path / "unused-cache").exists() and not _is_link(out / "data" / "cache")  # its own cache used
+    assert result["seconds"] > 0

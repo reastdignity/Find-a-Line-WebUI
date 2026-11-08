@@ -282,6 +282,54 @@ def test_analyse_and_report(study):
     assert json.load(open(os.path.join(out, "study.json"), encoding="utf-8"))["pictures"] == []
 
 
+def test_length_range(study):
+    """A known line whose anchor pairs all lie outside the search's min_length..max_length (20-120 m): a line
+    of 210 m down the left rim (tol 21 m, so no pair shorter than 168 m) with anchors at both ends."""
+    assert ta.REASONS.index("length_range") == ta.REASONS.index("anchor_filtered") + 1
+    assert ta.REASONS.index("length_range") + 1 == ta.REASONS.index("height_difference")
+    out, _ = study
+    c = ta.load_capture(os.path.join(out, "testland-001"))
+    line = known("long", (5, 30), (215, 30))
+    assert ta.match([line], c.found, c.grid) == [None]
+    r = ta.diagnose(c, line, None)
+    assert r["reason"] == "length_range" and r["note"] is None and r["which"] is None
+    assert r["ends"][0]["anchors"] > 0 and r["ends"][1]["anchors"] > 0
+    assert r["funnel"]["pairs"] > 0 and r["funnel"]["length"] == 0 and "height" not in r["funnel"]
+    assert r["best"]["stage"] == "length" and r["best"]["length"] > PARAMS["max_length"]
+    assert "length_range" in ta._miss_line(1, ta._plain(r))
+
+
+def test_profile_folders(tmp_path):
+    """--profiles' data folders: the run's (<out>/data), its cache linked to the given cache once and unlinked
+    on leaving; a real cache or an existing link used as it is and left."""
+    import regression
+    from types import SimpleNamespace
+    cache_dir = tmp_path / "cache"
+    (cache_dir / "layer").mkdir(parents=True)
+    out = tmp_path / "out"
+    (out / "data" / "runs" / "r1").mkdir(parents=True)
+    with_run = SimpleNamespace(run=str(out / "data" / "runs" / "r1"), folder=str(out / "c1"))
+    without = SimpleNamespace(run=None, folder=str(out / "c2"))
+    link = out / "data" / "cache"
+    with ta.ProfileFolders(str(cache_dir)) as folders:
+        data = folders.data_of(with_run)
+        assert data == str(out / "data") and folders.data_of(without) == data
+        assert os.path.isdir(link / "layer") and len(folders.ready) == 1
+    assert not os.path.lexists(link) and (cache_dir / "layer").is_dir()
+    regression.link(str(cache_dir), str(link))  # a run's link: used, never removed here
+    with ta.ProfileFolders(str(tmp_path / "other")) as folders:
+        assert folders.data_of(without) == str(out / "data")
+    assert os.path.isdir(link / "layer")
+    ta.studylib._unlink(str(link))
+    own = tmp_path / "own"
+    (own / "data" / "cache").mkdir(parents=True)  # a run with --no-cache-link: its own cache
+    with ta.ProfileFolders(str(cache_dir)) as folders:
+        assert folders.data_of(SimpleNamespace(run=str(own / "data" / "runs" / "r"), folder="x")) == str(own / "data")
+    assert (own / "data" / "cache").is_dir() and not ta._is_link(str(own / "data" / "cache"))
+    assert ta.run_folder(str(out / "c1"), {"run": "data/runs/r1"}) == str(out / "data" / "runs" / "r1")
+    assert ta.run_folder(str(out / "c1"), {"run": None}) is None
+
+
 def test_main(study):
     out, _ = study
     assert ta.main(["analyse", out, "--cluster", "testland-001"]) == 0

@@ -11,7 +11,7 @@ them, the known lines matched to the lines found and every miss diagnosed on the
     uv run tools/truth_study.py run --out <out> --data-dir <data> [--ids ID ...] [--country PL] [--source geoportal]
         [--max-clusters N] [--national-only] [--again] [--timeout S]
     uv run tools/truth_study.py run --out <out> --place NAME=OPTIONS [--known lines.json] [--no-cache-link]
-    uv run tools/truth_study.py analyse <out> [--profiles] [--cluster ID ...]
+    uv run tools/truth_study.py analyse <out> [--profiles] [--cache <cache> | --data-dir <data>] [--cluster ID ...]
     uv run tools/truth_study.py report <out> [--no-pictures]
 
 fetch is slackmap_data.fetch (the lines and spots files into the data folder's cache).
@@ -48,16 +48,20 @@ tests of an --area left out), "covered by R<n>" within --near metres (2 km): <ou
 
 run searches each cluster (or --place NAME=OPTIONS of findaline.py, with the known lines of --known: a
 JSON list of KnownLine dicts, or a GeoJSON FeatureCollection of SlackMap-like line features) in a
-child process (search-child) with <out>/<cluster>/data as its data folder, data/cache a link to the
-real cache (studylib.linked_data_folder; --no-cache-link: a fresh cache), and writes, resumable (a
-cluster captured with the same options and known lines is not searched again unless --again; a
-failed one is):
+child process (search-child), one after another, all with one data folder, <out>/data: its cache/ a
+link to the real cache for the whole run (studylib.linked_data_folder: made once at the start, removed
+at the end, also after an error or Ctrl+C; --no-cache-link: a fresh cache of its own in it), its
+runs/ every cluster's saved run (one copy of the viewer, runs/_viewer, for them all). It writes,
+resumable (a cluster captured with the same options and known lines is not searched again unless
+--again; a failed one is; a cluster searched again has its earlier run removed):
 
     <out>/<cluster>/known.json        the cluster's known lines (KnownLine dicts)
     <out>/<cluster>/output.log        the search's output
     <out>/<cluster>/capture.json      {"status": "done" | "no_lines" | "failed", "seconds", "options", "id",
                                        "returncode", "error" (a SearchError's code), "message", "lines",
-                                       "anchors", "source", "finished"}
+                                       "anchors", "source", "finished", "run" (the saved run's folder
+                                       relative to <out>, "data/runs/<run>"; null when none was saved:
+                                       a search without lines, a failed one)}
     <out>/<cluster>/capture/grid.json {"crs", "left", "top" (the grid's upper left corner), "res",
                                        "shape": [rows, cols], "params": search._run_params, "nmpt",
                                        "obstacles", "model", "rigging", "slope_threshold", "fall"
@@ -78,14 +82,17 @@ failed one is):
                                       height_max, height_mean, high_pct, angle1, angle2, prom1, prom2,
                                       drop1, drop2, water_m, filled_m (float64), lift_needed, lift_no_zone
                                       (with an end zone or A-frames); every array of length 0 without lines
-    <out>/<cluster>/capture/result.json what the child saw: its exit code, the SearchError's code and text
-    <out>/<cluster>/data/runs/<run>/    the saved run (its map, run.json for analyse --profiles)
+    <out>/<cluster>/capture/result.json what the child saw: its exit code, the SearchError's code and text,
+                                      the saved run's folder (absolute)
+    <out>/data/runs/<run>/            the saved run (its map, run.json for analyse --profiles)
 
 A search without lines (findaline.py's exit 1 with a SearchError of NO_LINES: no lines, no steep
 terrain, ...) is a result, status "no_lines" (every known line a miss), not a failure. Circles only:
 the tiles of an area are not captured.
 
-analyse and report are tools/truth_analysis.py's (truth_analysis.analyse, truth_analysis.report).
+analyse and report are tools/truth_analysis.py's (truth_analysis.analyse, truth_analysis.report);
+analyse --profiles computes in <out>/data, its cache/ linked to --cache (default: the data folder's
+cache) while the analysis runs when it has none.
 
 SlackMap's data have no published licence: nothing of them goes into the repository (the tests use
 synthetic lines); the study's outputs belong outside it (a scratchpad, local/).
@@ -680,12 +687,31 @@ def status_of(returncode: Optional[int], child: Optional[Dict]) -> str:
     return "failed"
 
 
-def run_one(out: str, name: str, options: str, known: List[Dict], cache_dir: Optional[str],
+def _relative_run(out: str, run: Optional[str]) -> Optional[str]:
+    """A saved run's folder relative to <out> with forward slashes ("data/runs/<run>"), None for none."""
+    return os.path.relpath(run, os.path.abspath(out)).replace(os.sep, "/") if run else None
+
+
+def _remove_run(out: str, folder: str):
+    """The run an earlier search of a cluster saved (its capture.json's "run"), when it lies in
+    <out>/data/runs/: a cluster searched again keeps only its new run."""
+    run = (_read_json(os.path.join(folder, "capture.json")) or {}).get("run")
+    if not run:
+        return
+    runs = os.path.join(os.path.abspath(out), "data", "runs")
+    path = os.path.normpath(os.path.join(os.path.abspath(out), run))
+    if os.path.dirname(path) == runs and os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+
+
+def run_one(out: str, name: str, options: str, known: List[Dict], data: str,
             timeout: Optional[float] = None) -> Dict:
-    """One search with its capture into <out>/<name>/ (a fresh folder); returns its capture.json."""
+    """One search with its capture into <out>/<name>/ (a fresh folder; an earlier search's run removed),
+    data: the data folder of the search (run's <out>/data, its cache ready); returns its capture.json."""
     folder = os.path.join(os.path.abspath(out), _check_name(name))
     if os.path.exists(folder):
-        _unlink(os.path.join(folder, "data", "cache"))  # the link only, never the cache behind it
+        _remove_run(out, folder)
+        _unlink(os.path.join(folder, "data", "cache"))  # a data folder of its own (before 2026-11-08): the link only
         shutil.rmtree(folder)
     os.makedirs(folder)
     with open(os.path.join(folder, "known.json"), "w", encoding="utf-8") as f:
@@ -694,15 +720,14 @@ def run_one(out: str, name: str, options: str, known: List[Dict], cache_dir: Opt
     env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
     started = time.time()
     returncode: Optional[int] = None
-    with linked_data_folder(folder, cache_dir) as data:
-        with open(os.path.join(folder, "output.log"), "w", encoding="utf-8") as log:
-            try:
-                returncode = subprocess.run(
-                    [sys.executable, os.path.abspath(__file__), "search-child", "--out", capture, "--",
-                     *split_options(options), "--data-dir", data],
-                    cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout).returncode
-            except subprocess.TimeoutExpired:
-                log.write(f"\ntruth_study: stopped after {timeout:g} s\n")
+    with open(os.path.join(folder, "output.log"), "w", encoding="utf-8") as log:
+        try:
+            returncode = subprocess.run(
+                [sys.executable, os.path.abspath(__file__), "search-child", "--out", capture, "--",
+                 *split_options(options), "--data-dir", data],
+                cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout).returncode
+        except subprocess.TimeoutExpired:
+            log.write(f"\ntruth_study: stopped after {timeout:g} s\n")
     child = _read_json(os.path.join(capture, "result.json")) or {}
     grid = _read_json(os.path.join(capture, "grid.json")) or {}
     anchors = os.path.join(capture, "anchors.npy")
@@ -711,7 +736,8 @@ def run_one(out: str, name: str, options: str, known: List[Dict], cache_dir: Opt
              "error": child.get("error") or ("timeout" if returncode is None else None),
              "message": child.get("message"), "lines": child.get("lines"),
              "anchors": int(np.load(anchors).shape[0]) if os.path.exists(anchors) else None,
-             "source": grid.get("source"), "finished": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+             "source": grid.get("source"), "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+             "run": _relative_run(out, child.get("run"))}
     with open(os.path.join(folder, "capture.json"), "w", encoding="utf-8") as f:
         json.dump(state, f, indent=1, ensure_ascii=False)
     return state
@@ -720,10 +746,21 @@ def run_one(out: str, name: str, options: str, known: List[Dict], cache_dir: Opt
 def run(out: str, items: List[Dict], cache_dir: Optional[str], again: bool = False, timeout: Optional[float] = None,
         say: Callable[[str], None] = print) -> Dict[str, Dict]:
     """The searches of items ({"id", "options", "known": KnownLine dicts}) one after another, each
-    skipped when captured already with the same options and known lines (unless again). Returns
-    {id: its capture.json}."""
+    skipped when captured already with the same options and known lines (unless again), all in the
+    data folder <out>/data, its cache/ linked to cache_dir while they run (None: a cache of its own;
+    nothing linked when every item is captured already). Returns {id: its capture.json}."""
     out = os.path.abspath(out)
     os.makedirs(out, exist_ok=True)
+    pending = [item for item in items
+               if again or not captured(os.path.join(out, _check_name(item["id"])), item["options"],
+                                        [line["id"] for line in item["known"]])]
+    with contextlib.ExitStack() as stack:
+        data = stack.enter_context(linked_data_folder(out, cache_dir)) if pending else None
+        return _run_items(out, items, data, again, timeout, say)
+
+
+def _run_items(out: str, items: List[Dict], data: Optional[str], again: bool, timeout: Optional[float],
+               say: Callable[[str], None]) -> Dict[str, Dict]:
     found = {}
     for k, item in enumerate(items, 1):
         name, options, known = item["id"], item["options"], item["known"]
@@ -734,7 +771,7 @@ def run(out: str, items: List[Dict], cache_dir: Optional[str], again: bool = Fal
             found[name] = _read_json(os.path.join(folder, "capture.json"))
             continue
         say(f"[{k}/{len(items)}] {name}: searching ({len(known)} known lines) {options}")
-        state = run_one(out, name, options, known, cache_dir, timeout)
+        state = run_one(out, name, options, known, data, timeout)
         say(f"[{k}/{len(items)}] {name}: {state['status']}, {state['lines'] if state['lines'] is not None else '-'} "
             f"lines, {state['seconds']:.0f} s" + (f" ({state['error']}: {state['message']})"
                                                   if state["status"] == "failed" and state.get("message")
@@ -838,8 +875,14 @@ def search_child(out: str, search_args: List[str]) -> int:
 
     os.makedirs(out, exist_ok=True)
     os.environ.setdefault("FINDALINE_PROGRESS", "text")
-    state = SimpleNamespace(grid=False, anchors=None, lines=None, error=None, message=None, steep=None)
+    state = SimpleNamespace(grid=False, anchors=None, lines=None, error=None, message=None, steep=None, run=None)
     original_lines, original_anchors, original_slopes = search._lines, search._anchors, sh.find_significant_slopes
+    original_save = search.save_run
+
+    def save_run(plan, lines, run=None):
+        result = original_save(plan, lines, run)
+        state.run = os.path.abspath(result.run.get("path") or os.path.join(plan.paths.runs, result.meta["id"]))
+        return result
 
     def slopes(*args, **kwargs):
         state.steep = original_slopes(*args, **kwargs)
@@ -875,7 +918,7 @@ def search_child(out: str, search_args: List[str]) -> int:
         state.lines = len(results)
         return results, groups
 
-    search._lines, search._anchors, sh.find_significant_slopes = lines, anchors, slopes
+    search._lines, search._anchors, sh.find_significant_slopes, search.save_run = lines, anchors, slopes, save_run
     sys.argv = [os.path.join(HERE, "findaline.py"), *search_args, *FIXED_OPTIONS]
     code = 0
     try:
@@ -890,11 +933,13 @@ def search_child(out: str, search_args: List[str]) -> int:
         code = 1
     finally:
         search._lines, search._anchors, sh.find_significant_slopes = original_lines, original_anchors, original_slopes
+        search.save_run = original_save
     complete = state.grid and all(os.path.exists(os.path.join(out, name))
                                   for name in ("grid.json", "grids.npz", "anchors.npy", "lines.npz"))
     with open(os.path.join(out, "result.json"), "w", encoding="utf-8") as f:
         json.dump({"code": code, "error": state.error, "message": state.message, "lines": state.lines,
-                   "anchors": state.anchors, "complete": bool(complete)}, f, indent=1, ensure_ascii=False)
+                   "anchors": state.anchors, "complete": bool(complete), "run": state.run}, f, indent=1,
+                  ensure_ascii=False)
     print(f"truth_study: exit {code}, {state.lines if state.lines is not None else 'no'} lines captured into {out}")
     return code
 
@@ -1020,7 +1065,7 @@ def main(argv=None) -> int:
     p.add_argument("--data-dir", help=data_help)
     link = p.add_mutually_exclusive_group()
     link.add_argument("--cache", help="the cache to link (default: the data folder's)")
-    link.add_argument("--no-cache-link", action="store_true", help="a fresh cache in each cluster's data folder")
+    link.add_argument("--no-cache-link", action="store_true", help="a fresh cache in <out>/data (all clusters)")
     p = sub.add_parser("search-child", help="(child) one search with its capture")
     p.add_argument("--out", required=True)
     p.add_argument("search_args", nargs=argparse.REMAINDER)
@@ -1028,6 +1073,9 @@ def main(argv=None) -> int:
     p.add_argument("out")
     p.add_argument("--profiles", action="store_true", help="also search.profile_of_line of every known pair")
     p.add_argument("--cluster", nargs="+", help="only these clusters")
+    where = p.add_mutually_exclusive_group()
+    where.add_argument("--cache", help="the cache --profiles links into <out>/data (default: the data folder's)")
+    where.add_argument("--data-dir", help=data_help)
     p = sub.add_parser("report", help="study.json, study.md and pictures (tools/truth_analysis.py)")
     p.add_argument("out")
     p.add_argument("--no-pictures", dest="pictures", action="store_false")
@@ -1052,7 +1100,8 @@ def main(argv=None) -> int:
         if analysis is None:
             return 2
         if args.command == "analyse":
-            analysis.analyse(args.out, profiles=args.profiles, clusters=args.cluster)
+            cache_dir = os.path.abspath(args.cache or _cache_dir(args.data_dir))
+            analysis.analyse(args.out, profiles=args.profiles, clusters=args.cluster, cache_dir=cache_dir)
             return 0
         print(analysis.report(args.out, pictures=args.pictures))
         return 0

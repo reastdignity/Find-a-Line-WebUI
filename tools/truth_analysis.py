@@ -9,7 +9,12 @@ grid, and the recall of the search per country, source, length and resolution.
 The input is what tools/truth_study.py run writes per cluster of known lines (<out>/<cluster>/:
 capture/grid.json, capture/grids.npz, capture/anchors.npy, capture/lines.npz, capture.json and
 known.json; the contract of the task, "The capture of a cluster"). Nothing here runs a search, but
---profiles (search.profile_of_line of each known pair from the cache, as a cross-check).
+--profiles: search.profile_of_line of each known pair from the cache, as a cross-check, with the
+saved run's run.json as its meta (capture.json's "run": the run's folder relative to <out>,
+data/runs/<run>; a search without lines saved no run: a meta made from grid.json instead) in the
+data folder the run was saved in (<out>/data, shared by every cluster), its cache/ linked to --cache
+for the analysis when it has none (an existing link is used as it is and left: a `run` may be using
+it; a real cache/, a run with --no-cache-link, is that data folder's own).
 
 The known lines are SlackMap's (tools/slackmap_data.KnownLine): known positives only. A line missing
 from SlackMap is not a line missing from the cliff, so the found spots without a known line are a
@@ -44,8 +49,12 @@ helpers.find_significant_slopes) at or above the search's threshold (grid.json's
 - the rest have anchors within tol at both ends; their pairs (at most MAX_END_ANCHORS per end, the
   nearest to the known point) go through the search's tests in its order, and the reason is the first
   stage no pair passes:
-  - length (not a reason: no pair within the search's min_length..max_length gives "unexplained" with
-    the note "length_range"),
+  - length_range: no pair with min_length <= length <= max_length (the search's length range, grid.json's
+    params; the length of a pair is the distance of its pixel centres, as linesearch._pairs measures it).
+    The study's searches take their range from the known lines' stated and geodesic lengths
+    (truth_study.py: 0.8 x the shortest, 1.1 x the longest), so a known line gets this reason when its
+    anchors as written lie far off the length the range was made from (the tolerance moves each end up
+    to tol), or when the range a --place gave leaves it out,
   - height_difference: no pair with |z2 - z1| <= min(max_anchor_diff / 100 * length, max_anchor_diff_m)
     (linesearch._pairs' test, grid.json's params),
   - clearance (helpers.evaluate_line's decision with the run's end zone and lift, on the MAX_PAIRS
@@ -61,7 +70,8 @@ helpers.find_significant_slopes) at or above the search's threshold (grid.json's
   - the other line limits (min_height, min_mean_height, min_high_share): no pair passes them gives
     "unexplained" with the note "height_limits",
 - unexplained: a pair passes every test (the note "a_pair_passes"; with min_prominence set the strong
-  anchors, which the capture does not hold, may explain it: the note says so), or the length note.
+  anchors, which the capture does not hold, may explain it: the note says so), or no pixel lies
+  between a pair's anchors (the note "no_pixel_between").
 
 Each record (diagnose) holds the ends (per end: its pixel, slope, the nearest pixel of each of
 THRESHOLDS within tol, the anchors within tol and the nearest one's distance, steep pixels at a seam,
@@ -93,6 +103,7 @@ import math
 import os
 import shutil
 import sys
+import time
 import warnings
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Tuple
@@ -108,8 +119,8 @@ import studylib  # noqa: E402
 from slackmap_data import KnownLine  # noqa: E402
 
 REASONS = ("unverifiable", "outside_area", "no_data", "seam_pixel", "water_pixel", "no_steep_pixel",
-           "anchor_filtered", "height_difference", "clearance_near_anchor", "clearance_mid", "surface_obstacle",
-           "wall_angle", "unexplained")
+           "anchor_filtered", "length_range", "height_difference", "clearance_near_anchor", "clearance_mid",
+           "surface_obstacle", "wall_angle", "unexplained")
 TOL_M = 10.0          # metres: the tolerance's floor
 TOL_SHARE = 0.10      # of the line's length
 QUANTUM_M = 1.11e5    # metres of one degree of latitude: a coarse anchor's quantum is QUANTUM_M * 10 ** -decimals
@@ -171,6 +182,7 @@ class Capture:
     found: FoundLines
     known: List[KnownLine]
     status: Optional[str] = None      # capture.json's status
+    run: Optional[str] = None         # the saved run's folder (absolute: capture.json's "run" under <out>), or None
     _cache: Dict = field(default_factory=dict, repr=False)
 
     @property
@@ -274,12 +286,26 @@ def load_known(cluster_folder: str) -> List[KnownLine]:
         return [KnownLine.from_dict(d) for d in json.load(f)]
 
 
-def capture_status(cluster_folder: str) -> Optional[str]:
+def capture_state(cluster_folder: str) -> Dict:
+    """capture.json of a cluster ({} when missing)."""
     path = os.path.join(cluster_folder, "capture.json")
     if not os.path.exists(path):
-        return None
+        return {}
     with open(path, encoding="utf-8") as f:
-        return json.load(f).get("status")
+        return json.load(f)
+
+
+def capture_status(cluster_folder: str) -> Optional[str]:
+    return capture_state(cluster_folder).get("status")
+
+
+def run_folder(cluster_folder: str, state: Optional[Dict] = None) -> Optional[str]:
+    """The absolute folder of a cluster's saved run: capture.json's "run", a path relative to <out> (the
+    cluster folder's parent), or None (no run saved: a search without lines, a failed one)."""
+    run = (capture_state(cluster_folder) if state is None else state).get("run")
+    if not run:
+        return None
+    return os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(cluster_folder)), run))
 
 
 def load_capture(folder: str) -> Capture:
@@ -299,10 +325,12 @@ def load_capture(folder: str) -> Capture:
     path = os.path.join(cap, "anchors.npy")
     anchors = np.load(path).astype(np.int64).reshape(-1, 2) if os.path.exists(path) else np.zeros((0, 2), np.int64)
     found = load_found(os.path.join(cap, "lines.npz"), grid)
+    state = capture_state(cluster_folder)
     return Capture(folder=cluster_folder, cluster=os.path.basename(cluster_folder), grid=grid, elevation=elevation,
                    surface=grids.get("surface"), filled=as_mask("filled"), joined=as_mask("joined"),
                    water=as_mask("water"), mask=mask, anchors=np.ascontiguousarray(anchors), found=found,
-                   known=load_known(cluster_folder), status=capture_status(cluster_folder))
+                   known=load_known(cluster_folder), status=state.get("status"),
+                   run=run_folder(cluster_folder, state))
 
 
 def load_found(path: str, grid: Dict) -> FoundLines:
@@ -558,7 +586,7 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
 
     if not in_range.any():
         k = int(np.argmin(dsum)) if len(dsum) else None
-        return counts, None if k is None else detail(k, "length"), "unexplained", "length_range"
+        return counts, None if k is None else detail(k, "length"), "length_range", None
     z = c.elevation
     dh = np.abs(z[hi[:, 0], hi[:, 1]] - z[lo[:, 0], lo[:, 1]])
     max_dh = p.get("max_anchor_diff_m")
@@ -753,12 +781,22 @@ def grid_verdict(exact: Optional[Dict], nmpt: Optional[str]) -> Optional[bool]:
     return not (nmpt == "reject" and s is not None and not round(s, 2) > 0)
 
 
-def profile_check(c: Capture, line: KnownLine, record: Dict, data: str) -> Dict:
-    """search.profile_of_line of the known pair (a meta from grid.json, the cluster's data folder `data`
-    with its cache) against the grid's verdict of the same pair."""
-    import search
-    meta = {"params": c.params, "center": {"crs": c.grid["crs"]}, "source": {"id": c.source},
+def profile_meta(c: Capture) -> Dict:
+    """The meta search.profile_of_line takes: the saved run's run.json, or (no run saved: a search
+    without lines) one made from grid.json (its params, CRS and source)."""
+    path = os.path.join(c.run, "run.json") if c.run else None
+    if path and os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    return {"params": c.params, "center": {"crs": c.grid["crs"]}, "source": {"id": c.source},
             "data": (c.grid.get("layer_meta") or {}).get("data", [])}
+
+
+def profile_check(c: Capture, line: KnownLine, record: Dict, data: str) -> Dict:
+    """search.profile_of_line of the known pair (profile_meta; the data folder `data` with its cache)
+    against the grid's verdict of the same pair."""
+    import search
+    meta = profile_meta(c)
     work = os.path.join(c.folder, "profile-work")
     os.makedirs(work, exist_ok=True)
     try:
@@ -773,17 +811,41 @@ def profile_check(c: Capture, line: KnownLine, record: Dict, data: str) -> Dict:
             "clearance": profile["min"][1], "clearance_nmpt": (profile.get("min_nmpt") or [None, None])[1]}
 
 
-@contextlib.contextmanager
-def _profile_data(c: Capture, cache_dir: Optional[str]):
-    """The cluster's data folder for profile_of_line: its own cache when it has a real one, else one
-    linked to cache_dir (studylib.linked_data_folder, the link removed afterwards)."""
-    own = os.path.join(c.folder, "data", "cache")
-    if os.path.isdir(own) and not os.path.islink(own) and not \
-            (hasattr(os.path, "isjunction") and os.path.isjunction(own)):
-        yield os.path.join(c.folder, "data")
-        return
-    with studylib.linked_data_folder(c.folder, cache_dir) as data:
-        yield data
+def _is_link(path: str) -> bool:
+    """A directory link: a symlink, or a junction on Windows."""
+    return os.path.islink(path) or (hasattr(os.path, "isjunction") and os.path.isjunction(path))
+
+
+class ProfileFolders:
+    """The data folders --profiles computes in, each made ready once per analyse (a context manager):
+    the folder the cluster's run was saved in (<out>/data/runs/<run> -> <out>/data), else <out>/data.
+    A data folder with a real cache/ is used as it is (a run with --no-cache-link), one whose cache/ is
+    a link already too (a `run` may be using it: never removed here); otherwise its cache/ is linked to
+    cache_dir (studylib.linked_data_folder) and the link removed on leaving, also after an error."""
+
+    def __init__(self, cache_dir: Optional[str]):
+        self.cache_dir = cache_dir
+        self.ready: Dict[str, str] = {}
+        self.stack = contextlib.ExitStack()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.ready.clear()
+        return self.stack.__exit__(*exc)
+
+    def data_of(self, c: Capture) -> str:
+        data = os.path.dirname(os.path.dirname(c.run)) if c.run else os.path.join(os.path.dirname(c.folder), "data")
+        data = os.path.normpath(os.path.abspath(data))
+        if data not in self.ready:
+            cache_folder = os.path.join(data, "cache")
+            if os.path.isdir(cache_folder) or _is_link(cache_folder):
+                self.ready[data] = data
+            else:
+                self.ready[data] = self.stack.enter_context(
+                    studylib.linked_data_folder(os.path.dirname(data), self.cache_dir))
+        return self.ready[data]
 
 
 # ---------------------------------------------------------------------------------------------
@@ -820,8 +882,14 @@ def cluster_folders(out: str, clusters: Optional[Sequence[str]] = None) -> List[
         os.path.exists(os.path.join(f, "known.json")) or os.path.isdir(os.path.join(f, "capture"))))
 
 
-def analyse_cluster(folder: str, profiles: bool = False, cache_dir: Optional[str] = None) -> Dict:
-    """One cluster: its records and summary, written to <folder>/analysis.json."""
+def analyse_cluster(folder: str, profiles: bool = False, cache_dir: Optional[str] = None,
+                    folders: Optional[ProfileFolders] = None) -> Dict:
+    """One cluster: its records and summary (with the seconds it took), written to <folder>/analysis.json.
+    folders: the data folders of --profiles made ready for the whole analyse (else for this cluster)."""
+    if profiles and folders is None:
+        with ProfileFolders(cache_dir) as folders:
+            return analyse_cluster(folder, profiles, cache_dir, folders)
+    started = time.perf_counter()
     name = os.path.basename(os.path.normpath(folder))
     status = capture_status(folder)
     try:
@@ -841,9 +909,9 @@ def analyse_cluster(folder: str, profiles: bool = False, cache_dir: Optional[str
         candidates = [(line, r) for line, r in zip(c.known, records)
                       if r["verifiable"] and r["reason"] not in ("outside_area", "no_data")]
         if candidates:
-            with _profile_data(c, cache_dir) as data:
-                for line, r in candidates:
-                    r["profile"] = profile_check(c, line, r, data)
+            data = folders.data_of(c)
+            for line, r in candidates:
+                r["profile"] = profile_check(c, line, r, data)
     near = near_known(c.known, c.found, c.grid)
     groups = np.unique(c.found.group)
     with_known = np.unique(c.found.group[near]) if near.any() else np.zeros(0, dtype=np.int64)
@@ -852,7 +920,8 @@ def analyse_cluster(folder: str, profiles: bool = False, cache_dir: Optional[str
               "nmpt": c.nmpt, "slope_threshold": c.threshold, "anchors": int(len(c.anchors)),
               "found_lines": int(len(c.found)), "found_spots": int(len(groups)),
               "spots_without_known": int(len(groups) - len(with_known)), "known": len(c.known),
-              "matched": int(sum(k is not None for k in index)), "records": records}
+              "matched": int(sum(k is not None for k in index)),
+              "seconds": round(time.perf_counter() - started, 2), "records": records}
     _write_json(os.path.join(folder, "analysis.json"), result)
     return result
 
@@ -861,17 +930,19 @@ def analyse(out: str, profiles: bool = False, clusters: Optional[Sequence[str]] 
             cache_dir: Optional[str] = None) -> Dict:
     """Every cluster's capture (or the named ones) -> <out>/<cluster>/analysis.json, then <out>/analysis.json
     of every cluster analysed so far (the summaries and all records). cache_dir: the cache --profiles
-    links into a cluster's data folder (default: the data folder's, cache.data_dir())."""
+    links into the data folder the runs were saved in when it has none (ProfileFolders; default: the
+    data folder's, cache.data_dir())."""
     if profiles and cache_dir is None:
         import cache
         cache_dir = os.path.join(cache.data_dir(), "cache")
-    for folder in cluster_folders(out, clusters):
-        r = analyse_cluster(folder, profiles, cache_dir)
-        if r["analysed"]:
-            print(f"{r['cluster']}: {r['matched']} of {r['known']} known lines matched, {r['found_lines']} lines found",
-                  flush=True)
-        else:
-            print(f"{r['cluster']}: not analysed ({r['error']})", flush=True)
+    with ProfileFolders(cache_dir) as folders:
+        for folder in cluster_folders(out, clusters):
+            r = analyse_cluster(folder, profiles, cache_dir, folders)
+            if r["analysed"]:
+                print(f"{r['cluster']}: {r['matched']} of {r['known']} known lines matched, {r['found_lines']} "
+                      f"lines found, {r['seconds']:.1f} s", flush=True)
+            else:
+                print(f"{r['cluster']}: not analysed ({r['error']})", flush=True)
     summaries, records = [], []
     for folder in cluster_folders(out):
         path = os.path.join(folder, "analysis.json")
