@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import rasterio as rio
 from affine import Affine
+from rasterio.enums import MaskFlags
 from rasterio.transform import from_origin
 from rasterio.warp import Resampling, reproject, transform_bounds
 from rasterio.windows import from_bounds
@@ -15,7 +16,7 @@ import cache
 from grid import Grid
 from progress import progress
 
-from .layer import Layer, _clean
+from .layer import VALID_MIN, Layer, _clean
 
 # Threads of GDAL's reprojection of a mosaic (the same values with any number: checked on FABDEM over
 # a 7600 px grid, 2.6 s on one thread, 0.8 s on 4, 0.5 s on 8): the cores numba may use
@@ -110,42 +111,79 @@ def build_mosaic(files: List[str], grid: Grid, out_path: str, label: str,
         for r0 in range(0, grid.height, rows):
             mosaic[r0:r0 + rows] = NODATA if categorical else np.nan
     progress.compute.start(f"stitching {label}", len(files), unit="tile")
+    written: List[Tuple[int, int, int, int]] = []  # the parts of the mosaic the rasters wrote into (_first_here)
     for path in files:
         progress.compute.update(1)
         # The cached files' blocks decoded on WARP_THREADS (GDAL reads it when the file is opened;
-        # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http)
-        with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS)), rio.open(path) as src:
-            _place(src, grid, mosaic, categorical, shift, rows, resampling, same_resolution)
+        # decompression: the same values). Local files only: remote reads keep one thread (net._gdal_http).
+        # No listing of the file's folder on its opening (GDAL_DISABLE_READDIR_ON_OPEN): GDAL looks for a
+        # sidecar file (.aux.xml, .ovr, .msk) by its name instead, so it opens the same dataset; a folder
+        # of 100 tiles listed for every file took 1.6 of the 2.8 ms an opening took (an L tile opens 256)
+        with rio.Env(GDAL_NUM_THREADS=str(WARP_THREADS), GDAL_DISABLE_READDIR_ON_OPEN="TRUE"), \
+                rio.open(path) as src:
+            _place(src, grid, mosaic, categorical, shift, rows, resampling, same_resolution, written)
     flush_grid(mosaic)
     progress.compute.finish()
     return mosaic
 
 
-def _read_band(src, window) -> np.ndarray:
+def _nan_nodata(src) -> bool:
+    """Is band 1 of src float32 with NaN as its nodata and no other mask (GDAL's mask of it is its NaN pixels:
+    every cached tile of ours, _write_tile's)?"""
+    return src.dtypes[0] == "float32" and src.nodata is not None and math.isnan(src.nodata) \
+        and list(src.mask_flag_enums[0]) == [MaskFlags.nodata]
+
+
+def _read_band(src, window, clean: bool = False) -> np.ndarray:
     """Band 1 of src in window as float32 with NaN where it is masked: the values of
     src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan) without its two
-    copies (the read's own array converted in place when it is float32 already)."""
+    copies (the read's own array converted in place when it is float32 already); clean: and
+    with NaN below VALID_MIN (layer._clean). A float32 band whose nodata is NaN (_nan_nodata) is
+    read without GDAL's mask, which decodes every block a second time to find the pixels that are
+    NaN already: its NaN pixels set to np.nan (the masked read's bits), with clean in the same pass."""
+    if _nan_nodata(src):
+        values = src.read(1, window=window)
+        np.copyto(values, np.nan, where=~(values >= VALID_MIN) if clean else np.isnan(values))
+        return values
     band = src.read(1, window=window, masked=True)
     values = band.data.astype(np.float32, copy=False)
     mask = np.ma.getmask(band)
     if mask is not np.ma.nomask:
         np.copyto(values, np.nan, where=mask)
-    return values
+    return _clean(values, copy=False) if clean else values
 
 
-def _put(target: np.ndarray, values: np.ndarray, categorical: bool):
+def _first_here(written: Optional[List[Tuple[int, int, int, int]]], part: Tuple[int, int, int, int]) -> bool:
+    """Whether no raster wrote into part (r0, r1, c0, c1) of the mosaic before, whose pixels then all hold the
+    mosaic's NaN still (written: the parts written so far, to which part is added; None: not known, False)."""
+    if written is None:
+        return False
+    r0, r1, c0, c1 = part
+    first = not any(a0 < r1 and r0 < a1 and b0 < c1 and c0 < b1 for a0, a1, b0, b1 in written)
+    written.append(part)
+    return first
+
+
+def _put(target: np.ndarray, values: np.ndarray, categorical: bool, first: bool = False):
     """values (float32, NaN for none) into the pixels of target (a part of the mosaic) that have
-    none yet: a raster placed before wins (np.where(np.isnan(target), values, target) in place)."""
+    none yet: a raster placed before wins (np.where(np.isnan(target), values, target) in place).
+    first: no raster wrote into target before (_first_here): every pixel takes its value, a copy."""
     if categorical:  # uint8: NODATA for NaN, the categories (whole numbers below NODATA) as they are
         np.copyto(target, values, where=(target == NODATA) & ~np.isnan(values), casting="unsafe")
+    elif first:
+        target[...] = values
     else:
         np.copyto(target, values, where=np.isnan(target))
 
 
 def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
            shift: Tuple[float, float] = (0.0, 0.0), rows: Optional[int] = None, method: Optional[str] = None,
-           same: Optional[str] = None):
-    clean = (lambda band: band) if categorical else (lambda band: _clean(band, copy=False))
+           same: Optional[str] = None, written: Optional[List[Tuple[int, int, int, int]]] = None):
+    """Raster src into the mosaic where it has no value yet. written: build_mosaic's parts written so far
+    (_first_here): a part no raster wrote into is copied, and a raster on the grid of float32 heights with
+    NaN as nodata is read straight into it (no array of its own; its NaN pixels and those below VALID_MIN
+    set to np.nan in place, _read_band's values)."""
+    clean = not categorical
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src.crs or grid_crs
     moved = Affine.translation(*shift)
@@ -161,7 +199,13 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
             r1, c1 = min(row_off + src.height, grid.height), min(col_off + src.width, grid.width)
             if r0 < r1 and c0 < c1:
                 window = rio.windows.Window(c0 - col_off, r0 - row_off, c1 - c0, r1 - r0)
-                _put(mosaic[r0:r1, c0:c1], clean(_read_band(src, window)), categorical)
+                target = mosaic[r0:r1, c0:c1]
+                first = _first_here(written, (r0, r1, c0, c1))
+                if first and clean and _nan_nodata(src):
+                    src.read(1, window=window, out=target)
+                    np.copyto(target, np.nan, where=~(target >= VALID_MIN))
+                else:
+                    _put(target, _read_band(src, window, clean), categorical, first)
             return
 
     # Part of the grid covered by this raster
@@ -186,20 +230,21 @@ def _place(src, grid: Grid, mosaic: np.ndarray, categorical: bool = False,
     if rows is None or r1 - r0 <= rows:
         # Read only the part of the raster under the grid (plus a margin for resampling)
         values = _warp(src, src_crs, grid, moved, shift, clean, (r0, r1, c0, c1), grid.bounds, resampling)
-        _put(mosaic[r0:r1, c0:c1], values, categorical)
+        _put(mosaic[r0:r1, c0:c1], values, categorical, _first_here(written, (r0, r1, c0, c1)))
         return
     for s0 in range(r0, r1, rows):  # strips of the part: the raster read under each strip
         s1 = min(r1, s0 + rows)
         bounds = (grid.left + c0 * grid.res, grid.top - s1 * grid.res, grid.left + c1 * grid.res,
                   grid.top - s0 * grid.res)
         values = _warp(src, src_crs, grid, moved, shift, clean, (s0, s1, c0, c1), bounds, resampling)
-        _put(mosaic[s0:s1, c0:c1], values, categorical)
+        _put(mosaic[s0:s1, c0:c1], values, categorical, _first_here(written, (s0, s1, c0, c1)))
 
 
-def _warp(src, src_crs, grid: Grid, moved: Affine, shift: Tuple[float, float], clean, part: Tuple[int, int, int, int],
+def _warp(src, src_crs, grid: Grid, moved: Affine, shift: Tuple[float, float], clean: bool,
+          part: Tuple[int, int, int, int],
           bounds: Tuple[float, float, float, float], resampling: Resampling) -> np.ndarray:
     """The raster reprojected onto part (r0, r1, c0, c1) of the grid, float32 with NaN: the raster
-    read under bounds (of the grid's CRS) plus a margin for the resampling."""
+    read under bounds (of the grid's CRS) plus a margin for the resampling; clean: _read_band's."""
     r0, r1, c0, c1 = part
     window_transform = from_origin(grid.left + c0 * grid.res, grid.top - r0 * grid.res, grid.res, grid.res)
     values = np.full((r1 - r0, c1 - c0), np.nan, dtype=np.float32)
@@ -214,7 +259,7 @@ def _warp(src, src_crs, grid: Grid, moved: Affine, shift: Tuple[float, float], c
         return values
     if window.width <= 0 or window.height <= 0:
         return values
-    band = clean(_read_band(src, window))
+    band = _read_band(src, window, clean)
     reproject(band, values, src_transform=moved @ src.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
               src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)

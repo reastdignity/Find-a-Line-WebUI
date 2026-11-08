@@ -8,7 +8,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import rasterio as rio
 import rasterio.warp
@@ -22,6 +22,51 @@ from grid import Grid
 
 from ..readers.windows import BlockRequest, _same_crs
 from .cached import CachedIndex, Versions
+
+
+# existing() lists a folder once when at least LISTING_FROM of the paths it is asked about lie in it, and asks
+# os.path.exists of each path otherwise: on a network share every question takes a round trip (about 12 ms each on
+# the NAS of Z:, 2026-11-07: NewestPerSheet.prune asked 1503 of them for 210 sheets, 18.5 s), a listing of a
+# folder one per few hundred entries
+LISTING_FROM = 64
+
+
+def existing(paths: Sequence[str], listing_from: Optional[int] = None,
+             listings: Optional[Dict[str, Optional[Dict]]] = None) -> List[bool]:
+    """os.path.exists of each path, in their order. The paths of a folder asked about at least listing_from
+    times (LISTING_FROM) are looked up in one listing of it (os.scandir): a name found as the system compares
+    names (os.path.normcase) that is a file or a folder, a symbolic link followed as os.path.exists follows it;
+    a name ending in a dot or a space, an entry that is a link or a junction, and a folder that cannot be
+    listed are asked of os.path.exists itself. listings: the listings of folders by path, kept between calls
+    that ask about the same folders while nothing in them changes (filled here)."""
+    listing_from = LISTING_FROM if listing_from is None else listing_from
+    listings = {} if listings is None else listings
+    folders: Dict[str, List[int]] = {}
+    for k, path in enumerate(paths):
+        folders.setdefault(os.path.dirname(path), []).append(k)
+    out = [False] * len(paths)
+    for folder, ks in folders.items():
+        entries = None
+        if folder in listings:
+            entries = listings[folder]
+        elif len(ks) >= listing_from:
+            try:
+                with os.scandir(folder or ".") as found:
+                    entries = {os.path.normcase(e.name): e for e in found}
+            except FileNotFoundError:
+                entries = {}
+            except OSError:  # not a folder, no permission: as os.path.exists answers
+                entries = None
+            listings[folder] = entries
+        for k in ks:
+            name = os.path.basename(paths[k])
+            entry = None if entries is None else entries.get(os.path.normcase(name))
+            if entries is None or name.endswith((".", " ")) or (entry is not None and (
+                    entry.is_symlink() or getattr(entry, "is_junction", lambda: False)())):
+                out[k] = os.path.exists(paths[k])
+            else:
+                out[k] = entry is not None and (entry.is_file() or entry.is_dir())
+    return out
 
 
 @dataclass(frozen=True)
@@ -127,11 +172,14 @@ class NewestPerSheet(Versions):
         return os.path.join(cache_dir, self.folder, f"{tile.year}_{tile.name}.tif")
 
     def prune(self, cache_dir: str, tiles: List[Sheet]) -> int:
-        older = []
-        for sheet in tiles:
-            if os.path.exists(self.path(cache_dir, sheet)):
-                older += [self.path(cache_dir, v) for v in self._versions.get(sheet.godlo, ())
-                          if v != sheet and os.path.exists(self.path(cache_dir, v))]
+        """Delete the other surveys of the sheets whose file is cached (their files and rows); returns how
+        many. The files asked about through existing(): one listing of a folder for both questions instead of a
+        question per file (the country layer's prefetch asks about every sheet of a country)."""
+        listings: Dict[str, Optional[Dict]] = {}
+        cached = [sheet for sheet, there in zip(tiles, existing([self.path(cache_dir, s) for s in tiles],
+                                                                listings=listings)) if there]
+        others = [self.path(cache_dir, v) for sheet in cached for v in self._versions.get(sheet.godlo, ()) if v != sheet]
+        older = [p for p, there in zip(others, existing(others, listings=listings)) if there]
         cache.forget(cache_dir, older)
         return len(older)
 

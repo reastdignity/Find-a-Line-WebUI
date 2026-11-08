@@ -251,6 +251,27 @@ def test_border_gaps_once_unless_a_neighbour_wrote(scene, monkeypatch):
 
 
 @pytest.mark.parametrize("rows", [None, 30])
+def test_border_gaps_only_for_a_neighbour_reaching_the_grid(scene, monkeypatch, rows):
+    """A neighbour whose rough boxes reach no pixel of the grid has no border gap inside them
+    (neighbour_window gives None for any), so the border gaps are found only for one that reaches the
+    grid (a tile at a border without such a neighbour finds none), and the fill is as before."""
+    grid, path, tmp = scene
+    calls = []
+    original = src.filling.border_gaps
+    monkeypatch.setattr(src.filling, "border_gaps", lambda *a, **k: calls.append(1) or original(*a, **k))
+    far = _source("far", _Untouchable(), offline=(("es", FAR),))
+    assert src.filling._box_ranges(far, grid) == []
+    joined, counts = src.filling.fill_from_neighbours(path, None, grid, [far], str(tmp / "cache"),
+                                                      str(tmp / "far.npy"), rows=rows)
+    assert joined is None and counts == [] and not calls
+    useful = _neighbour(tmp, grid, "useful", slice(0, 40), 120.0)
+    _, counts = src.filling.fill_from_neighbours(path, None, grid, [far, useful, far], str(tmp / "cache"),
+                                                 str(tmp / "joined.npy"), rows=rows)
+    assert [(s.id, n > 0) for s, n in counts] == [("useful", True)] and len(calls) == 1
+    assert np.isfinite(np.load(path)[50, 5:40]).all() and not os.path.exists(tmp / "border.npy")
+
+
+@pytest.mark.parametrize("rows", [None, 30])
 def test_neighbours_resampled_as_set(scene, monkeypatch, rows):
     """How a neighbour's data are reprojected (half a pixel off our grid here, at its resolution):
     by NEIGHBOUR_SAME_RESOLUTION, nearest, which keeps the neighbour's own values (None: bilinear,

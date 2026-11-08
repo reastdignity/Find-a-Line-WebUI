@@ -834,8 +834,9 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   the ends and the A-frames") exist only when a country is counted with `end_zone`/`anchor_lift` in its
   `options` (`country.form_params`): the count then runs at the superset (every line valid with the zone
   and the largest lift), and the two values per line come from the bucket minima that
-  `find_valid_lines(zones=(0, end_zone))` returns (`helpers.lift_values`), which the count mode must
-  then ask for (today it passes `zones=()`); the cost is extra computing, so by the rule of 2026-11-05 it is
+  `find_valid_lines(zones=(0, end_zone))` returns (`helpers.lift_values`), which the count mode
+  asks for since round 5's Z1 (each part handed to the sink carries `lift_needed` and `lift_no_zone`;
+  at 0 / 0 no ladder and no columns); the cost is extra computing, so by the rule of 2026-11-05 it is
   decided by the user on the measurement of docs/performance.md, "The no-fall zone and the A-frames",
   "The country layer". Today's lines are those of bin 0 of both fields, so a cube counted at the
   superset shows today's layer under the filter "no A-frame needed, without the zone";
@@ -880,7 +881,9 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   builds on:** `search._anchors(deferred=True)` in `count_tile`
   computes the prominence and the drop at a tile's first line (with a limit `min_prominence`,
   `min_prominence_both` or `min_drop` as before, before the pairs); `linesearch.evaluate_lines` and
-  `_sink_lines` take `anchor_values` as a function called once; the columns `prom1`, `prom2`,
+  `_sink_lines` take `anchor_values` as a function called once (since round 5's C1 a
+  `linesearch.LazyAnchorValues`: the anchors of each part's lines, each once, after four parts every
+  useful anchor not known yet in the rows still to come; the same values bit for bit); the columns `prom1`, `prom2`,
   `drop1`, `drop2` reach the counter unchanged. `Plan.border` False means more than "no neighbour":
   the full mask without burning the outline and no coverage counted, on the assumption that the
   tile's grid lies wholly inside the outline (`country._at_border`). R3 keeps that assumption: a grid

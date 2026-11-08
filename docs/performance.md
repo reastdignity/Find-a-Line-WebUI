@@ -2067,6 +2067,276 @@ What it shows:
 Left of the stage: 0.99 h of S, 0.28 h of M2 and 0.08 h of L in tiles with lines, where only the
 anchors of those lines need the values.
 
+## Round 5 (2026-11-07/08): the country layer, continued
+
+Slovakia's pilot again, on this PC (12 cores / 24 threads, 61.6 GiB), from main d466347 (round 4's end with the
+no-fall zone and the A-frames, which change nothing at 0 / 0). Three stages: measurements without code (stage 1),
+count-preserving code in five branches, each measured against its own base (stage 2), and the recount bundle
+(stage 3: cube v2, step 1 per group of tiles, the surface model, the superset; docs/roadmap.md, "Country layer").
+Every run under the exclusive lock on a scratch copy of `countries/slovakia` or `countries/sk-sulov`, the cache a
+junction to the real one, a dead proxy in the runs' environment (the cache's index unchanged by every run), the
+counts compared tile by tile with the user's tiles (`countcube.load_tile`, every array). The runs, their logs and
+timelines are in `local/country-perf-2026-11-07/` (`stage1/<item>/`, `stage2/<item>/`).
+
+### The user's decisions (2026-11-07)
+
+- **The superset goes into Slovakia's cube** (the no-fall zone of 5 m and A-frames of 2 m): the count mode takes the
+  ladder of zones in stage 2 (Z1 below), cube v2's word B keeps the two values per line (stage 3, wave A), and the
+  recount counts with `options.end_zone` 5 and `options.anchor_lift` 2, so no tile is counted twice.
+- **The band study is unblocked**: its areas counted in the PC's idle time between the measurements, so its profile
+  is ready for the recount.
+- **The order**: stage 1, then 2, then 3. The PC was free for 40 hours: every measurement under the exclusive lock,
+  A/B on the same day and the same base commit.
+- **The surface model (the DMP)**: in the recount bundle, with its cost measured first (D1 below).
+- **A report page at the end of the round**, for the user and anyone outside the project.
+
+### Stage 1: what was measured (main d466347, no code)
+
+| Item | Measured | Result |
+| --- | --- | --- |
+| W1 | The first run of all four bands in one `country run` (3435 tiles pending, relief weights for all, 12 workers) | 64.7 min from its start, 64.0 of tiles, 11.93 tile hours, 22.27 CPU hours, the machine at 98 %; twelve tiles running until +60.1 min, then M2's Tatras tile E-350000_N-1190000 alone for 4.1 min (3840 s, 16 425 CPU s); counts identical (S 2122/2122, M 575/575, L 163/163, M2 575/575); 1 183 773 337 lines, 3 679 609 spots |
+| D1 | sk-sulov's four layer bands with the surface model (`nmpt: mark`) and without, A/B/A/B | 1.30× the tile seconds (175.2 against 134.7 s), 1.18× the CPU seconds, 1.22-1.24× the wall; all of it in step 1 (2.0×: the obstacle surface in "other" +12.6 s, the surface's gap filling +8.0, its stitching +6.0); the same lines and spots, only the trees flag moves (89-98 % of the lines over trees per band); a tile's private peak the same, its working set +36 % in S |
+| C4 | Where M2's and L's heaviest tiles spend their seconds, each alone on 24 threads, timers in a worktree | M2's 1012 s: `_pairs`' first pass 27 %, its second pass (the anchors over 1024 pairs, all again) 13 %, `_evaluate` 35 %, the numpy around it 10 %, `covered_pixels` 2 %, the counter 9 %; L's 729 s alike; a valid line's pixels walked about 3.75 times; numba's OpenMP threads spinning through the serial numpy: 19 % of the tile's CPU (21 % in L) |
+| C5 | The counter's share of the tiles (W1's meta, no run) | 1.69 % of all tile seconds (S 0.01 %, M 1.69, L 2.89, M2 2.42 %); 4-5 % of the heaviest tiles, 6-7 % when M2 runs alone: 120-190 s of serial numpy on the critical path |
+| I1 | The S band of a 30 × 30 km box near Opole (210 sheets) read from the network share Z: against the local disk | Not bound by the link at 12 workers (36-43 MB/s on average of the 150-170 MB/s 12 readers get); the stitching per tile 1.36 s on a first read, 0.85 s again, 0.71 s locally, tile seconds +10 % and +3 %; the counts equal; the one real cost the prefetch's `prune`: 1503 `os.path.exists` in 18.5 s with the share's metadata cold (I2). LERC_ZSTD decodes 3.3-4× faster than deflate on one thread, 1.2-1.8× on eight, `build_mosaic` 13-25 % faster |
+| W2 | The S band at 16 workers against 12 (`--processes 16`) | 18.3 min both, the wall to the second; tile seconds 3.61 → 4.80 h, CPU +11 %, all workers' private peak 17.4 → 23.7 GiB: no rule for `worker_count` |
+| W4 | W1 again with `OMP_WAIT_POLICY=PASSIVE`, and sk-sulov without and with it | below: the item "omp" |
+
+What the stage told: an all-bands run is the work of 24 busy logical cores, its tail one tile of 4.1 minutes, so
+the split of the heaviest core (W3) was not taken and the work itself became the target: the heavy tiles' second
+pass and their single-threaded numpy (C4), the spinning threads (W4), prominence and drop of every anchor (round
+4's leftover), and step 1 of the light tiles (S: 63 % of its tile seconds).
+
+### Stage 2: the five branches (each count-preserving, the counts identical tile by tile)
+
+- **omp** (tag `history/perf5-omp`): numba's OpenMP layer (vcomp140 on Windows) keeps its threads spinning after
+  each parallel region: through 15 s of serial numpy between two kernels a tile's 7 other threads burnt 6.2 CPU
+  seconds, none with `OMP_WAIT_POLICY=PASSIVE`. With PASSIVE (or `NUMBA_THREADING_LAYER=workqueue`, the same within
+  one run) sk-sulov's four layer bands took 19 % fewer CPU seconds and 6 % fewer tile seconds with cores free, and
+  the first all-bands run 5.4 % fewer CPU seconds (22.27 → 21.08 h, all in the heavy tiles' pair search) at a wall
+  within the spread of equal runs (64.7 → 63.7 min). PASSIVE is set in the workers' environment
+  (`country._worker_env`, the caller's own value wins). Until then a tile's CPU seconds held the spinning, so
+  compare CPU seconds of runs at the same load only (the same S tiles: 4.86 CPU-h alone at 84 % against 3.93 inside
+  the all-bands run at 98 %).
+- **C1 and Z1** (tag `history/perf5-anchors`): prominence and drop of the lines' anchors only.
+  `linesearch.LazyAnchorValues` computes, part by part, the anchors of the part's passing lines not known yet, each
+  once; after `SUBSET_CALLS` (4) computations the next takes every useful anchor not known yet in the rows a line of
+  the pairs still to be evaluated can reach. `terrain.prominence` and `terrain.drop` take `crop=True` (the part of
+  the grid within reach of the given anchors), and a crop across the grid's width is a row slice of the grid, not a
+  copy. A subset gets the values it has among all the anchors, bit for bit. Z1: the count mode passes the search's
+  ladder of end zones, so each sink part carries `lift_needed` and `lift_no_zone` for cube v2 (nothing changes at
+  0 / 0; on sk-sulov-ends at 5 m / 2 m no cost beyond the spread: 274-276 tile seconds with the ladder against
+  268-295 without it). A third commit breaks a reference cycle that kept a count's memory-mapped grids alive until
+  the cyclic collector ran (Windows then refuses to open the file for writing: tests/test_country.py's module
+  fixture failed). In the squash, C9's blocks no longer filter the found pairs before the values are asked, so the
+  merge asks the lazy values with the passing pairs only, as C1's branch did (`linesearch._evaluated`; without it
+  `tests/test_count_mode.py::test_count_tile_without_a_line_computes_no_anchor_values` fails).
+- **C2 and C7** (tag `history/perf5-step1`), step 1 of the light tiles (`sources/filling.py`). C2, a dry tile: the
+  water body mask written without its reprojection when one tile of the mask holds one category all around the
+  grid (858 of 2122 S tiles, 62 of 575 M, 42 of 575 M2, 1 of 163 L, each equal to the built mask), and the strips
+  with no sea zone and no lake left out of `fill_water`. C7, a border tile's gap filling: the median's two middle
+  values in the same passes, the rings' dilation only near the gaps, int32 keys, and no border gaps while no
+  neighbour's rough boxes reach the grid (148 of S's 345 border tiles with gaps: the Hungarian and Ukrainian
+  border).
+- **C3** (tag `history/perf5-stitch`), the stitching (`sources/mosaic.py`): a float32 band with NaN as its nodata
+  read without GDAL's mask, which decoded every block a second time with `GDAL_NUM_THREADS` above 1; no listing of
+  a file's folder on its opening (`GDAL_DISABLE_READDIR_ON_OPEN=TRUE`); where no raster wrote before, such a raster
+  on the grid read by GDAL straight into the mosaic's window. On the real cache 0 of 8 008 reads differ.
+- **C8, C9 and I2** (tag `history/perf5-sink`). C8: the count mode's pair buffer holds 8192 pairs per anchor
+  (`SINK_PAIR_BUFFER`, within `SINK_PAIR_BUFFER_BYTES` 128 MB a slice), so the heavy tiles' anchors need no
+  writing pass; the search keeps 1024. C9: the numpy around `evaluate_lines`' kernel (wall angles, which lines
+  pass, the table's columns) in blocks of `VALUE_BLOCK` pairs on a thread pool, the table the one of before bit
+  for bit. I2: `NewestPerSheet.prune` answers from one listing per folder (`existing`, from `LISTING_FROM` paths
+  in a folder) instead of a question per file.
+
+### Step by step: Slovakia's S, M2 and L bands
+
+Each column is one step's own A/B against its own base, measured on this PC under the exclusive lock with 12 workers
+on a scratch copy of `countries/slovakia`. Both sides ran on Python 3.15.2, each base in a detached worktree with
+its own venv; C3's first runs, which compared main's 3.13 venv with the branch's 3.15, are left out
+(`stage2/C3/CONFOUNDED.md`).
+
+- A cell reads "base → step". Several runs of a side are separated by commas; one value stands for all when every
+  run gave it.
+- The base is d466347 unless the column names another. Both sides ran one after the other unless the column says
+  otherwise.
+- The first column is round 4's end measured again in this round: every run of d466347 of the band, so its range is
+  the spread of equal code.
+- "W1 → W4" is PASSIVE inside the all-bands run, its only measurement per band, and so is the last column: the band's
+  tiles ran beside the other bands', so their wall and the workers' peak are the run's.
+- "The step's stages" are the stages the step works on: C1 prominence and drop, C2 the water mask with sea and lakes,
+  C7 the terrain's gap filling with the border gaps, C3 the stitching of the terrain, C8 and C9 the pairs.
+- Every run's manifest and tiles' meta are read the same way (`stage2/SQUASH/numbers.json`), and the counts are
+  compared with the user's tiles.
+
+| S | Round 4's end (d466347), 6 runs | W1 → W4 (in the all-bands run) | C1 + Z1 (743f8ef) | C2 (385c7b9) | C7 (4f54f28, base C2) | C3 (0b9e402; the runs over two days) | C8 (03d23fb) | C9 (54c1af6, base C8) | All five (318b9a2): W1 → ALL, in the all-bands run |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Counts identical to the user's | 2122/2122 | 2122/2122 → 2122/2122 | 2122/2122 → 2122/2122 | 2122/2122 → 2122/2122 | 2122/2122 → 2122/2122 | 2122/2122 → 2122/2122 | not measured | not measured | 2122/2122 → 2122/2122 |
+| Wall of the band's tiles, min | 18.2-18.7 | 52.2 → 51.8 | 18.3 → 15.7 | 18.2 → 16.5, 16.6 | 17.0, 16.9 → 15.6, 15.5 | 18.5, 18.7 → 17.5, 16.9, 17.0 | not measured | not measured | 52.2 → 40.3 |
+| Tile hours | 3.59-3.67 | 3.40 → 3.40 | 3.60 → 3.06 | 3.59 → 3.24, 3.25 | 3.34, 3.31 → 3.07, 3.05 | 3.65, 3.67 → 3.43, 3.32, 3.33 | not measured | not measured | 3.40 → 2.08 |
+| CPU hours | 4.80-4.85 | 3.93 → 3.93 | 4.81 → 4.25 | 4.81, 4.80 → 4.36, 4.37 | 4.40, 4.39 → 4.11 | 4.81, 4.85 → 4.43, 4.32, 4.32 | not measured | not measured | 3.93 → 2.26 |
+| The step's stages, h |  |  | 0.958 → 0.078 | 0.702, 0.706 → 0.385, 0.387 | 0.679, 0.681 → 0.420, 0.423 | 0.420, 0.425 → 0.227, 0.223, 0.223 | not measured | not measured |  |
+| Private per tile: median / max, GiB | 0.28-0.29 / 1.23 | 0.31 / 1.23 → 0.31 / 1.23 | 0.29 / 1.23 → 0.28 / 1.09 | 0.28 / 1.23 → 0.28 / 1.23 | 0.28 / 1.23 → 0.28 / 1.23 | 0.29 / 1.23 → 0.28 / 1.23 | not measured | not measured | 0.31 / 1.23 → 0.30 / 0.99 |
+| All workers, private peak, GiB | 17.1-19.7 | 11.9 → 11.3 | 19.7 → 5.7 | 17.9, 17.1 → 19.9, 17.6 | 20.2, 19.9 → 18.0, 18.8 | 17.4, 18.1 → 17.1, 19.9, 19.2 | not measured | not measured | 11.9 → 8.7 |
+
+| M2 | Round 4's end (d466347), 3 runs | W1 → W4 (in the all-bands run) | C1 + Z1 (743f8ef) | C2 (385c7b9; base: round 4's B5, 2026-11-05) | C7 (4f54f28; base: C2's run, the day before) | C3 (0b9e402) | C8 (03d23fb) | C9 (54c1af6, base C8) | All five (318b9a2): W1 → ALL, in the all-bands run |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Counts identical to the user's | 575/575 | 575/575 → 575/575 | 575/575 → 575/575 | 575/575 → 575/575 | 575/575 → 575/575 | 575/575 → 575/575 | 575/575 → 575/575 | 575/575 → 575/575 | 575/575 → 575/575 |
+| Wall of the band's tiles, min | 30.9-31.8 | 64.0 → 63.0 | 31.8 → 31.2 | 30.4 → 30.8 | 30.8 → 30.6 | 30.9 → 30.6 | 31.0 → 27.4 | 27.4 → 26.5 | 64.0 → 51.9 |
+| Tile hours | 3.11-3.25 | 4.15 → 4.08 | 3.25 → 3.02 | 3.12 → 3.01 | 3.01 → 2.89 | 3.11 → 2.96 | 3.11 → 2.92 | 2.96 → 2.93 | 4.15 → 3.40 |
+| CPU hours | 10.46-10.51 | 10.21 → 9.35 | 10.51 → 10.39 | 10.13 → 10.48 | 10.48 → 10.30 | 10.46 → 10.35 | 10.48 → 9.23 | 9.18 → 8.89 | 10.21 → 7.47 |
+| The step's stages, h |  |  | 0.277 → 0.110 | 0.301 → 0.247 | 0.414 → 0.254 | 0.215 → 0.106 | 1.477 → 1.321 | 1.328 → 1.304 |  |
+| Private per tile: median / max, GiB | 0.44-0.45 / 1.12 | 0.46 / 1.12 → 0.46 / 1.12 | 0.44 / 1.12 → 0.29 / 1.48 | 0.45 / 1.15 → 0.45 / 1.12 | 0.45 / 1.12 → 0.43 / 1.12 | 0.45 / 1.12 → 0.45 / 1.12 | 0.45 / 1.12 → 0.44 / 1.12 | 0.45 / 1.12 → 0.44 / 1.11 | 0.46 / 1.12 → 0.32 / 1.24 |
+| All workers, private peak, GiB | 10.6-12.7 | 11.9 → 11.3 | 12.7 → 10.1 | 10.4 → 11.6 | 11.6 → 12.8 | 12.1 → 11.6 | 10.6 → 10.9 | 12.2 → 12.5 | 11.9 → 8.7 |
+
+| L | Round 4's end (d466347), 3 runs | W1 → W4 (in the all-bands run) | C1 + Z1 (743f8ef) | C2 (385c7b9; base: round 4's B5, 2026-11-05) | C7 (4f54f28) | C3 (0b9e402) | C8 (03d23fb) | C9 (54c1af6, base C8) | All five (318b9a2): W1 → ALL, in the all-bands run |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Counts identical to the user's | 163/163 | 163/163 → 163/163 | 163/163 → 163/163 | 163/163 → 163/163 | not measured | 163/163 → 163/163 | 163/163 → 163/163 | 163/163 → 163/163 | 163/163 → 163/163 |
+| Wall of the band's tiles, min | 17.5-18.2 | 57.0 → 56.8 | 17.5 → 17.6 | 17.4, 17.1 → 17.4 | not measured | 18.2 → 17.3 | 17.5 → 15.2 | 15.3 → 14.4 | 57.0 → 48.0 |
+| Tile hours | 1.59-1.65 | 2.29 → 2.27 | 1.59 → 1.57 | 1.57 → 1.57 | not measured | 1.65 → 1.51 | 1.59 → 1.46 | 1.49 → 1.46 | 2.29 → 2.02 |
+| CPU hours | 5.51-5.54 | 4.82 → 4.62 | 5.53 → 5.53 | 5.36, 5.37 → 5.55 | not measured | 5.51 → 5.51 | 5.54 → 4.78 | 4.77 → 4.51 | 4.82 → 3.80 |
+| The step's stages, h |  |  | 0.079 → 0.046 | 0.067, 0.070 → 0.061 | not measured | 0.104 → 0.045 | 1.059 → 0.966 | 0.971 → 0.957 |  |
+| Private per tile: median / max, GiB | 0.39-0.40 / 0.92 | 0.42 / 0.92 → 0.41 / 0.92 | 0.39 / 0.92 → 0.39 / 1.15 | 0.40 / 0.89, 0.40 / 0.91 → 0.40 / 0.92 | not measured | 0.39 / 0.92 → 0.39 / 0.92 | 0.40 / 0.92 → 0.39 / 0.92 | 0.39 / 0.91 → 0.39 / 0.88 | 0.42 / 0.92 → 0.40 / 0.94 |
+| All workers, private peak, GiB | 6.1-7.7 | 11.9 → 11.3 | 6.1 → 6.5 | 7.5, 6.5 → 6.6 | not measured | 6.8 → 7.1 | 7.7 → 7.1 | 7.3 → 6.9 | 11.9 → 8.7 |
+
+### The heavy tile alone, and the prefetch on Z:
+
+M2's heaviest tile, E-350000_N-1190000 (474 M lines), counted alone on 24 threads (`--bands M2 --max-tiles 1`, only
+that tile pending): each pair of columns one A/B of the same day (`stage2/C8/tile-M2-*`, `stage2/C9/tile-M2-*`,
+`stage2/C1/slice/H-*`).
+
+| M2 E-350000_N-1190000 alone | d466347 | C8 (03d23fb) | C8 again | C9 (54c1af6) | C1 (743f8ef) | C1 + the row slice (1db3ca5) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Tile seconds | 990.5 | 857.3 | 857.4 | 786.8 | 1004.2 | 1009.0 |
+| CPU seconds | 19 510 | 16 582 | 16 491 | 15 006 | 19 621 | 19 583 |
+| Private peak / working set, GiB | 1.120 / 2.371 | 1.118 / 2.369 | 1.117 / 2.368 | 1.106 / 2.357 | 1.484 / 2.744 | 1.298 / 2.559 |
+| Counts | equal | equal | equal | equal | equal | equal |
+
+C1 does not shorten this tile (its values took 4.1 s of it); its memory is the row slice's subject: the copy of a crop
+spanning the grid's width came on top of the pair search's memory, 1.119 GiB before C1 (stage 1's and the sink's
+runs of the tile), 1.484 with C1, 1.298 with the slice. The 0.18 GiB left over the base are the prominence's
+temporaries over the whole tile beside the pending pairs, after `SUBSET_CALLS` parts instead of at the first line
+(the anchors agent's reading, not measured further). Every tile's peak stays under its budget of `WORKER_BASE` + 32 B
+per pixel (2.1 GiB for M2's 7304 × 7304 px).
+
+I2, the prefetch of the study area pl-opole (210 sheets of the 30 km box of I1) on the network share Z:, reads only;
+"cold" the first question to the share after it idled for hours, "warm" seconds after another run
+(`stage2/I2/results.md`):
+
+| Run | Code | Share | Prefetch s | `prune` s | File system questions |
+| --- | --- | --- | ---: | ---: | --- |
+| I1, 2026-11-07 | d466347 | cold | 21.87 | 17.88 | 1503 `os.path.exists`, 18.46 s |
+| hold 2 | d466347 | cold | 22.01 | 17.75 | 1503 `os.path.exists`, 18.43 s |
+| hold 3 | 31483e1 | cold | 3.95 | 1.97 | one `os.scandir`, 1.94 s |
+| holds 2 and 3, three runs each | d466347 / 31483e1 | warm | 1.10-1.15 / 1.07-1.12 | 0.069-0.087 / 0.030-0.031 | |
+
+One listing of the share's folder (13 606 sheets on Z: that day) costs about 1.9 s cold and 0.03 s warm and grows with
+the folder; the questions of before grew with the grid (a country's prefetch asks about all its sheets).
+
+### All five together: the first run of all bands again (2026-11-08)
+
+The five squashed onto d466347 (318b9a2), Slovakia's four bands in one `country run` as W1:
+
+- every tile pending and no weights, so the relief weights for all;
+- 12 workers, the exclusive lock, a dead proxy;
+- W1's driver on the squash's worktree, Python 3.15.2 as W1's (`stage2/ALL/results.md`).
+
+The cache's index stayed unchanged, and no worker tried a neighbour's data, as in W1.
+
+| | W1 (d466347) | W4 (d466347, PASSIVE) | ALL (318b9a2) |
+| --- | ---: | ---: | ---: |
+| Counts identical to the user's tiles | S 2122/2122, M 575/575, L 163/163, M2 575/575 | the same | the same |
+| The run from its start | 64.7 min | 63.7 min | 52.5 min |
+| Wall of the tiles | 64.0 min | 63.0 min | 51.9 min |
+| Tile hours, all bands | 11.93 | 11.83 | 9.33 |
+| CPU hours of the tiles, all bands | 22.27 | 21.08 | 16.20 |
+| Twelve tiles running until | +60.1 min | +59.8 min | +47.0 min |
+| One tile alone (M2 E-350000_N-1190000) | 4.1 min | 3.5 min | 3.9 min |
+| Machine CPU, mean | 98 % | 96 % | 96 % |
+| Free RAM: at the start / the least | 35.2 / 22.4 GiB | 33.4 / 20.3 GiB | 27.1 / 18.0 GiB |
+| All workers, private: peak / mean | 11.9 / 5.4 GiB | 11.3 / 5.5 GiB | 8.7 / 4.7 GiB |
+| All workers, working set: peak | 19.9 GiB | 20.7 GiB | 17.1 GiB |
+| The machine's disks: read / written | 90.5 / 10.7 GB | 92.2 / 10.8 GB | 96.3 / 13.0 GB |
+| The cube | 1 183 773 337 lines, 3 679 609 spots | the same | the same |
+
+| | S: W1 → ALL | M: W1 → ALL | L: W1 → ALL | M2: W1 → ALL |
+| --- | ---: | ---: | ---: | ---: |
+| Wall of the band's tiles, min | 52.2 → 40.3 | 55.2 → 42.7 | 57.0 → 48.0 | 64.0 → 51.9 |
+| Tile hours | 3.40 → 2.08 | 2.09 → 1.84 | 2.29 → 2.02 | 4.15 → 3.40 |
+| CPU hours | 3.93 → 2.26 | 3.31 → 2.67 | 4.82 → 3.80 | 10.21 → 7.47 |
+| Step 1, h | 2.15 → 1.63 | 0.80 → 0.67 | 0.36 → 0.31 | 1.15 → 0.91 |
+| Anchor pairs, h | 0.01 → 0.01 | 0.97 → 0.95 | 1.79 → 1.59 | 2.56 → 2.22 |
+| Prominence and drop, h | 0.89 → 0.06 | 0.20 → 0.08 | 0.07 → 0.04 | 0.26 → 0.09 |
+| Stitching terrain, h | 0.40 → 0.24 | 0.15 → 0.10 | 0.11 → 0.09 | 0.18 → 0.13 |
+| Gap filling: terrain, h | 0.43 → 0.29 | 0.21 → 0.15 | 0.09 → 0.06 | 0.34 → 0.21 |
+| Median tile, s | 3.3 → 2.7 | 6.2 → 4.0 | 11.3 → 9.1 | 9.0 → 5.4 |
+| Heaviest tile, s (CPU s) | 37 (43) → 32 (37) | 1432 (3172) → 1391 (2662) | 3414 (9685) → 2875 (7244) | 3840 (16 425) → 3109 (11 225) |
+| Private per tile: median / max, GiB | 0.31 / 1.23 → 0.30 / 0.99 | 0.41 / 0.94 → 0.32 / 1.00 | 0.42 / 0.92 → 0.40 / 0.94 | 0.46 / 1.12 → 0.32 / 1.24 |
+
+What it shows:
+
+- **The run**: 64.7 → 52.5 min (−19 %), the tile hours 11.93 → 9.33 (−22 %), the CPU hours 22.27 → 16.20 (−27 %),
+  every count the same. One run of each, so the spread is not known for this run; round 4 measured about a minute
+  for a band ended by one tile.
+- **The tail is still one tile**: M2's Tatras tile alone for 3.9 min, the machine at 61-66 % meanwhile. The light
+  part ends 13 minutes sooner (+47.0 instead of +60.1), so the three heaviest tiles now run from the start nearly
+  to the end: M2's E-340000_N-1190000 until +48.0 min, L's E-360000_N-1200000 until +48.2, M2's E-350000_N-1190000
+  until +52.1. They are what the next step of the wall is about (the split of a core, W3, or more cores for the
+  heavy tiles at the end).
+- **Memory**: the M2 band's tiles reach 1.24 GiB of private bytes at most (1.12 in W1: C1's switch to every useful
+  anchor, after the row slice), under their budget of 2.1 GiB; the workers' private peak falls 11.9 → 8.7 GiB.
+  Other programs held 8 GiB more of the RAM that morning (27.1 GiB free at the start against 35.2).
+
+### Memory
+
+- **C8**: the buffer commits 128 MB instead of 16 MB while a slice's first pass runs. The private bytes sampled in
+  the "anchor pairs" stage rose by it (median 0.257 → 0.365 GiB on M2, 0.263 → 0.367 on L); a tile's peak stays in
+  step 1 (M2 at most 1.119 → 1.117 GiB, L 0.916 → 0.915). `country.WORKER_BASE` stays: a worker's budget for these
+  bands is 512 MiB + 32 B per pixel, 2.1 GiB for M2's 53 Mpx tiles and 1.6 GiB for L's, against peaks of 1.12 and
+  0.92 GiB. S was not measured with C8: its pairs stage gets the same 112 MB, its step-1 peak was at most 1.23 GiB.
+- **C1**: with every useful anchor computed at once after `SUBSET_CALLS` parts, a crop spans the grid's width,
+  and its float32 copy came on top of the pair search's memory: M2's heaviest tile 1.12 → 1.48 GiB private at its
+  peak, L's 0.92 → 1.15 (C1's band runs). The row slice (1db3ca5) brought the heavy tile alone to 1.298 GiB (1.484
+  with 743f8ef, 1.119 before C1); in the all-bands run on the five together the M2 band's tiles reached 1.24 GiB at
+  most. Every peak stays under its budget, so `COUNT_PIXEL_BYTES` and `WORKER_BASE` stay.
+- **The surface model** (D1): a tile's private peak the same (the extra grids are memory-mapped), its working set
+  +36 % in S (median 0.85 → 1.16 GiB), all workers' private peak 4.1 → 5.4 GiB on sk-sulov.
+
+### Measured and not taken
+
+- **16 workers** (W2): the S band's wall the same to the second, 11 % more CPU seconds, 6.3 GiB more private bytes
+  at the peak: the band is short of physical cores, not of workers. No rule in `worker_count`.
+- **Splitting the heaviest core** (W3): W1's tail is one tile of 4.1 minutes beside a full machine for 60, and on the
+  five together one of 3.9 minutes beside a full machine for 47; C8 and C9 took 20 % off that tile alone. Not built.
+- **The fused walk** (C4): `_evaluate` and `covered_pixels` folded into `_pairs`' walk of a found pair, bit for bit
+  possible (shown on 55.3 M lines), saves 10-12 % of the three walks on the same pairs (about 55 s of M2's
+  heaviest tile, *est.*), high effort. Not built.
+- **The counter** (C5): 1.69 % of all tile seconds, 4-5 % of the heaviest; measure again with cube v2's two int64.
+- **The partners' data in cell order** (C4, "L"): 1.4-5.7 % of `_pairs`' first pass, about 1 % of a heavy tile
+  (*est.*). Dynamic chunks for `_pairs`: no measurable change.
+- **The surface model's ratio** (D1): 1.30× the tile seconds on sk-sulov, all in step 1; for Slovakia about 1.7×
+  in S, 1.3× in M and M2, 1.2× in L (*est.*, sk-sulov's ratios on W1's shares of step 1). Decided: counted in the
+  recount bundle; the DMP not copied into the cache before it.
+
+### Lessons
+
+- **Two interpreters**: the main checkout's venv is Python 3.13.7, every worktree's (`uv sync --frozen`) 3.15.2. C3's
+  first runs compared main on 3.13 with the branch on 3.15, which mixed the interpreter with the code (a process's
+  private bytes before any stitching: 111-112 MiB on 3.13, 121-122 on 3.15); they were run again with the base in a
+  detached worktree of its own (`stage2/C3/CONFOUNDED.md`). An A/B runs both sides on one interpreter.
+- **CPU seconds move with the load**: the same S tiles took 4.86 CPU-h alone at 84 % and 3.93 inside the all-bands
+  run at 98 %, much of the difference numba's spinning threads (W1, W4). CPU seconds compare runs of the same load.
+- **A bound is not a gain**: C4 measured 189 s of single-threaded numpy around M2's heaviest tile's kernel; C9's
+  blocks took 70 s off it, the rest memory-bound gathers and copies.
+- **What a stage measures alone and in a band**: the stitching of one tile alone fell 0.30 → 0.18 s in S (C3), and
+  0.42 → 0.22 h over the band; a tile alone on 24 threads (C4, 1012 s) is not its seconds beside eleven others
+  (1826 s in round 4, 3840 s in W1).
+- **Reference cycles hold memory-mapped files**: a lambda closing over the object it was stored on kept a count's
+  grids mapped until the cyclic collector ran, and Windows refused to open them for writing again (281a301).
+- **The contract and the code**: `--processes 16` was not refused (W2: only `worker_count`'s default stops at the
+  physical cores); no complete mountain box of Poland was on Z: (13 606 of 86 446 sheets when the download stopped),
+  so I1 took the Opole box.
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,

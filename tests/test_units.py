@@ -893,6 +893,42 @@ def test_pair_buffer_overflow_matches_reference(model, buffer):
         assert overflowed > 5 and len(ref_out) > 10
 
 
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_sink_pair_buffer_as_the_search_path(model, monkeypatch):
+    """The count mode's buffer (SINK_PAIR_BUFFER per anchor, SINK_CHUNK anchors within
+    SINK_PAIR_BUFFER_BYTES) gives the counts and the pairs, in their order, of the search path's
+    buffer and of the frozen reference, with the writing pass (a sink buffer of a few pairs) and
+    without; find_valid_lines(sink=) asks pair_chunk for it."""
+    import linesearch as ls
+    assert ls.SINK_PAIR_BUFFER_BYTES // (2 * np.dtype(np.int32).itemsize * ls.SINK_CHUNK) >= ls.SINK_PAIR_BUFFER
+    assert ls.SINK_PAIR_BUFFER > ls.PAIR_BUFFER
+    for first in (False, True):
+        plf, a = _reference_case(model, first, False, True)
+        head, tail, todo_all = plf.production_args(a, plf.production_directions(a))
+        for todo in [todo_all[at:at + ls.SINK_CHUNK] for at in range(0, len(todo_all), ls.SINK_CHUNK)] + [todo_all]:
+            ref_counts, ref_out = plf.two_passes(plf.K.ref_pairs, a, todo)
+            counts, out = ls.pair_chunk(head, todo, tail)
+            for per_anchor in (ls.SINK_PAIR_BUFFER, 2):  # 2: the writing pass for most anchors with lines
+                c, o = ls.pair_chunk(head, todo, tail, per_anchor=per_anchor, max_bytes=ls.SINK_PAIR_BUFFER_BYTES)
+                assert np.array_equal(c, counts) and np.array_equal(o, out)
+            assert np.array_equal(counts[:, 1:], ref_counts[:, 1:]) and np.array_equal(out, ref_out)
+    asked = []
+    original = ls.pair_chunk
+
+    def recording(*args, **kwargs):
+        asked.append((kwargs.get("per_anchor"), kwargs.get("max_bytes")))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(ls, "pair_chunk", recording)
+    z = np.full((60, 60), 100.0, dtype=np.float32)
+    z[:, 20:40] = 0.0
+    anchors = np.array([[r, c] for r in range(5, 55, 5) for c in (19, 40)], dtype=np.int64)
+    found = []
+    ls.find_valid_lines(z, None, anchors, 1.0, 10.0, 40.0, sink=found.append)
+    assert asked and set(asked) == {(ls.SINK_PAIR_BUFFER, ls.SINK_PAIR_BUFFER_BYTES)}
+    assert sum(len(p) for p in found) > 0
+
+
 def _random_case(model, seed, first, strong, wall, max_length=150.0, size=400):
     """Random terrain with raised blocks whose edges hold anchors (lines in every direction,
     cells in every sector around an anchor, also across the -pi / pi seam of atan2) and
@@ -1163,6 +1199,48 @@ def test_prominence_and_drop_match_the_whole_grid(seed):
             assert got.dtype == kind and np.array_equal(got, expected), (reach, kind)
 
 
+@pytest.mark.parametrize("seed", range(6))
+def test_prominence_and_drop_of_a_subset(seed):
+    """The values of a subset of the anchors (the count mode asks those of a part's lines), also on
+    the crop of the grid within reach of them (crop=True), are exactly those of all the anchors
+    computed over the whole grid: random terrain with ties, plateaus, holes and a band without
+    data, random subsets (row-major as the count mode gives them, and shuffled), single anchors,
+    anchors at the edges and several on one pixel."""
+    import terrain
+    rng = np.random.default_rng(100 + seed)
+    h, w = int(rng.integers(30, 160)), int(rng.integers(30, 160))
+    z = np.round(rng.random((h, w)) * rng.choice([5, 40]) + np.linspace(0, 30, w), 0).astype(np.float32)
+    z[h // 4:h // 2, w // 5:w // 2] = 20                      # a plateau
+    z[rng.random((h, w)) < 0.04] = np.nan
+    z[:, -3:] = np.nan                                        # a band without data
+    picked = np.argwhere(rng.random((h, w)) < rng.choice([0.01, 0.05, 0.2]))
+    edges = np.array([[0, 0], [h - 1, w - 1], [0, w - 4], [h - 1, 5], [h // 2, 0], [3, w - 1]])
+    anchors = np.vstack([picked, edges, picked[:3]])
+    anchors = anchors[np.lexsort((anchors[:, 1], anchors[:, 0]))]  # row-major, as find_significant_slopes
+    for res, span, radius in [(1.0, 1, 0.5), (1.0, 5, 3), (2.0, 24, 21), (1.0, 37, 10), (0.5, 40, 7),
+                              (1.0, 1000, 500)]:
+        prom = terrain.prominence(z, anchors, res, span)
+        drop = terrain.drop(z, anchors, res, radius)
+        for size in (1, 2, 5, len(anchors) // 3, len(anchors)):
+            for _ in range(3):
+                subset = np.sort(rng.choice(len(anchors), size=min(size, len(anchors)), replace=False))
+                for order in (subset, rng.permutation(subset)):
+                    for crop in (False, True):
+                        got = terrain.prominence(z, anchors[order], res, span, crop=crop)
+                        assert np.array_equal(got, prom[order], equal_nan=True), (res, span, size, crop)
+                        got = terrain.drop(z, anchors[order], res, radius, crop=crop)
+                        assert np.array_equal(got, drop[order], equal_nan=True), (res, radius, size, crop)
+        assert terrain.prominence(z, anchors[:0], res, span, crop=True).shape == (0,)
+        assert terrain.drop(z, anchors[:0], res, radius, crop=True).shape == (0,)
+    # a crop across the grid's width is its rows of the grid itself, no copy; a narrower one a copy
+    wide = np.array([[h // 2, 0], [h // 2 + 1, w - 1]])
+    rows, shifted = terrain._crop(z, wide, 2)
+    assert np.shares_memory(rows, z) and rows.flags.c_contiguous and rows.shape == (min(h, h // 2 + 4) - max(0, h // 2 - 2), w)
+    assert np.array_equal(rows[shifted[:, 0], shifted[:, 1]], z[wide[:, 0], wide[:, 1]], equal_nan=True)
+    narrow, _ = terrain._crop(z, np.array([[h // 2, w // 2]]), 2)
+    assert not np.shares_memory(narrow, z) and not narrow.flags.writeable
+
+
 def test_prominence_and_drop_of_a_tower():
     """A 30 m cone on a plain next to a wall: an anchor on the cone has its height above the
     plain, the edge of the wall none; the drop is the height above the lowest ground near."""
@@ -1390,7 +1468,7 @@ def _fill_before(target, other, gaps, res):
     return count
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize("seed", [0, 1, 2, 4])
 def test_gap_fill_as_before(seed, tmp_path):
     """_fill with its temporaries computed in place fills every gap with the same float32 bits as before."""
     terrain, gaps, other = _gap_fill_case(seed)
@@ -1518,6 +1596,134 @@ def test_mosaics_as_before(tmp_path):
     del new
 
 
+def _float_tiles(tmp_path):
+    """Rasters of one band on a 2 m grid of EPSG:2180, float32 with NaN as nodata (GTiff as it comes, deflate in
+    blocks, LERC as the cache writes it) and others (a nodata number, an internal mask, float64, no nodata), with
+    NaN of other payloads, values below VALID_MIN and infinities."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    from sources.layer import _write_tile
+    rng = np.random.default_rng(12)
+    band = (300 + rng.normal(0, 40, (300, 260))).astype(np.float32)
+    band[20:40, 10:90] = np.nan
+    band.view(np.uint32)[50, :30] = 0xFFC00001  # NaN of other signs and payloads
+    band.view(np.uint32)[51, :30] = 0x7F800001
+    band[60:62] = -700  # below VALID_MIN: no data
+    band[63, :5], band[63, 5:10] = -np.inf, np.inf
+    transform = from_origin(500000, 300600, 2, 2)
+
+    def tif(name, data, nodata, mask=None, **profile):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=data.shape[1], height=data.shape[0], count=1,
+                      dtype=data.dtype, crs="EPSG:2180", nodata=nodata, transform=transform, **profile) as dst:
+            dst.write(data, 1)
+            if mask is not None:
+                dst.write_mask(mask)
+        return path
+
+    lerc = str(tmp_path / "lerc.tif")
+    _write_tile(lerc, band, "EPSG:2180", transform)
+    mask = np.full(band.shape, 255, np.uint8)
+    mask[100:120, 40:200] = 0  # masked, its values finite
+    fast = {"nan": tif("nan", band, np.nan),
+            "deflate": tif("deflate", band, np.nan, compress="deflate", predictor=3, tiled=True, blockxsize=64,
+                           blockysize=64),
+            "lerc": lerc}
+    with np.errstate(invalid="ignore"):  # the signalling NaN cast to float64
+        wide = band.astype(np.float64)
+    other = {"number": tif("number", np.where(np.isnan(band), np.float32(-9999), band).astype(np.float32), -9999),
+             "masked": tif("masked", band, np.nan, mask=mask),
+             "float64": tif("float64", wide, np.nan),
+             "none": tif("none", band, None)}
+    return band, fast, other
+
+
+def test_read_band_without_the_mask(tmp_path):
+    """_read_band reads a float32 band whose nodata is NaN without GDAL's mask (a second decode of every block
+    to find its NaN pixels): the bits of the masked read (every NaN np.nan, whatever its payload) and, with
+    clean, of _clean after it; any other band (a nodata number, an internal mask, float64, no nodata) by the
+    masked read as before."""
+    import rasterio as rio
+    from rasterio.windows import Window
+    from sources.layer import _clean
+    from sources.mosaic import _nan_nodata, _read_band
+    _, fast, other = _float_tiles(tmp_path)
+    windows = (Window(0, 0, 260, 300), Window(13, 7, 101, 95), Window(0, 250, 260, 50), Window(5, 48, 40, 20))
+    for name, path in {**fast, **other}.items():
+        with rio.open(path) as f:
+            assert _nan_nodata(f) == (name in fast), name
+            for window in windows:
+                for clean in (False, True):
+                    ref = f.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
+                    if clean:
+                        ref = _clean(ref)
+                    got = _read_band(f, window, clean)
+                    assert got.dtype == np.float32 and np.array_equal(_bits(got), _bits(ref)), (name, window, clean)
+                    if window == windows[0]:
+                        assert np.isnan(got).any() and np.isfinite(got).any()
+
+
+def test_mosaic_of_float_tiles_as_before(tmp_path):
+    """build_mosaic of float32 tiles with NaN as nodata, on the grid (disjoint ones read straight into the mosaic)
+    and overlapping (a raster placed before wins), with others and a reprojected one first or later, whole and in
+    strips: the bits of the reference (_place_before)."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    _, fast, other = _float_tiles(tmp_path)
+    grid = gd.make_grid((499900, 300100, 500500, 300700), 2, "EPSG:2180")
+    with rio.open(fast["deflate"]) as f:  # the same tile 50 px further east and south: overlapping
+        profile, data = f.profile, f.read(1)
+    profile["transform"] = from_origin(500100, 300500, 2, 2)
+    moved = str(tmp_path / "moved.tif")
+    with rio.open(moved, "w", **profile) as dst:
+        dst.write(np.ascontiguousarray(data[::-1]), 1)
+    with rio.open(fast["nan"]) as f:  # half a pixel off the grid: reprojected (bilinear)
+        profile, data = f.profile, f.read(1)
+    profile["transform"] = from_origin(499951, 300651, 2, 2)
+    off = str(tmp_path / "off.tif")
+    with rio.open(off, "w", **profile) as dst:
+        dst.write(data, 1)
+    halves = []  # the tile cut in two on the grid: disjoint, each read straight into the mosaic
+    for name, rows, top in (("top", slice(0, 150), 300600), ("bottom", slice(150, 300), 300300)):
+        profile.update(height=150, transform=from_origin(500000, top, 2, 2))
+        halves.append(str(tmp_path / f"{name}.tif"))
+        with rio.open(halves[-1], "w", **profile) as dst:
+            dst.write(np.ascontiguousarray(data[rows]), 1)
+    for files in ([fast["lerc"], moved, other["masked"]], [moved, fast["nan"], off, other["number"]],
+                  [other["float64"], fast["deflate"]], halves + [moved], [off, fast["lerc"]], [other["none"], off]):
+        old = np.full((grid.height, grid.width), np.nan, np.float32)
+        for path in files:
+            with rio.open(path) as f:
+                _place_before(f, grid, old)
+        assert np.isfinite(old).any() and np.isnan(old).any()
+        for rows in (None, 7):
+            new = src.build_mosaic(files, grid, str(tmp_path / "new.npy"), "test", rows=rows)
+            assert np.array_equal(_bits(new), _bits(old)), (files, rows)
+            del new
+
+
+def test_mosaic_reads_sidecars(tmp_path):
+    """build_mosaic opens its files without a listing of their folder (GDAL_DISABLE_READDIR_ON_OPEN): GDAL
+    still finds a file's sidecar by its name, here an .aux.xml giving its nodata."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    grid = gd.make_grid((500000, 300000, 500200, 300200), 2, "EPSG:2180")
+    band = np.full((100, 100), 250.0, np.float32)
+    band[:30] = 123.0
+    path = str(tmp_path / "tile.tif")
+    with rio.open(path, "w", driver="GTiff", width=100, height=100, count=1, dtype="float32", crs="EPSG:2180",
+                  transform=from_origin(500000, 300200, 2, 2)) as dst:
+        dst.write(band, 1)
+    with open(path + ".aux.xml", "w", encoding="utf-8") as f:
+        f.write('<PAMDataset><PAMRasterBand band="1"><NoDataValue>123</NoDataValue></PAMRasterBand></PAMDataset>')
+    for name in ("a.tif", "b.tif", "c.npy"):  # a folder of other files too
+        (tmp_path / name).write_bytes(b"")
+    with rio.open(path) as f:
+        assert f.nodata == 123.0
+    mosaic = np.array(src.build_mosaic([path], grid, str(tmp_path / "m.npy"), "test"))
+    assert np.isnan(mosaic[:30]).all() and (mosaic[30:] == 250.0).all()
+
+
 # Step 1 in strips of rows (the area of a tiled search, search.search_lines: prepare_data(strips=True)):
 # each function with `rows` gives the whole-grid function's values, for any strip height
 
@@ -1577,6 +1783,86 @@ def test_median_of_rows_is_np_median(monkeypatch):
                for k, v in zip(keys, [-np.inf, -1e38, -2.0, -0.0, 0.0, 1e-45, 2.0, np.inf]))
 
 
+def _select_before(chunks, k, lo, hi):
+    """filling._select of main d466347 (one value a call): the reference of the pairs."""
+    f = src.filling
+    while lo < hi:
+        width = -(-(hi - lo + 1) // f.SELECT_BINS)
+        counts = np.zeros(f.SELECT_BINS, np.int64)
+        for values in chunks():
+            keys = f._keys(values)
+            keys = keys[(keys >= lo) & (keys <= hi)]
+            counts += np.bincount((keys - lo) // width, minlength=f.SELECT_BINS)
+        cum = np.cumsum(counts)
+        b = int(np.searchsorted(cum, k, side="right"))
+        k -= int(cum[b - 1]) if b else 0
+        lo, hi = lo + b * width, min(hi, lo + (b + 1) * width - 1)
+        if counts[b] <= f.SELECT_COLLECT:
+            found = []
+            for values in chunks():
+                keys = f._keys(values)
+                found.append(np.asarray(values, dtype=np.float32)[(keys >= lo) & (keys <= hi)])
+            return np.sort(np.concatenate(found))[k]
+    return f._key_value(lo)
+
+
+def test_select_pair_as_two_selections(monkeypatch):
+    """_select(pair=True), the two middle values of an even count in the same passes, gives the float32
+    bits of two selections of before (_select_before), and _median_of the bits of before: ties across
+    and within bins, -0.0 and 0.0 as the two middle values, two clusters far apart (the (k+1)-th in a
+    later bin, also of single keys), at the default bins and at bins of a few keys over several rounds.
+    The inputs are the smallest that reach the branches the larger ones of before reached (60 equal
+    values: more than the small bins' SELECT_COLLECT, so the range narrows to a single key), split into
+    parts of 1 and 7 values only while that gives at most 200 parts: every part costs a bincount of
+    SELECT_BINS per pass (100 000 and 300 000 values in parts of one took 755 s)."""
+    rng = np.random.default_rng(9)
+    cases = [rng.normal(0, 3, n).astype(np.float32) for n in (2, 4, 1000, 10000)]
+    cases.append(np.round(rng.normal(0, 3, 1000), 1).astype(np.float32))
+    cases.append(np.array([-0.0, 0.0, 0.0, -0.0], np.float32))
+    cases.append(np.array([0.0, -0.0], np.float32))
+    cases.append(np.array([3.0, -1e-40, 1e38, -1e38, 7.0, -7.5], np.float32))
+    cases.append(np.concatenate([np.full(60, -1e38, np.float32), np.full(60, 1e38, np.float32)]))
+    cases.append(np.concatenate([np.full(60, 1.5, np.float32), np.full(60, np.nextafter(np.float32(1.5), 2))]))
+    cases.append(rng.choice(np.array([-2.0, -1.0, 0.0, 1.0, 2.0], np.float32), 500))
+    bits = lambda v: np.float32(v).view(np.uint32)  # noqa: E731
+    for small in (False, True):
+        if small:
+            monkeypatch.setattr(src.filling, "SELECT_BINS", 4)
+            monkeypatch.setattr(src.filling, "SELECT_COLLECT", 50)
+        for values in cases:
+            n = len(values)
+            for chunk in sorted({c for c in (1, 7) if n // c <= 200} | {n // 7 + 1, n}):  # at most 200 parts
+                parts = [values[i:i + chunk] for i in range(0, len(values), chunk)]
+                keys = src.filling._KeyRange()
+                for part in parts:
+                    keys.add(part)
+                chunks = lambda: iter(parts)  # noqa: E731
+                for k in sorted({0, (len(values) - 2) // 2, len(values) - 2}):
+                    pair = src.filling._select(chunks, k, keys.lo, keys.hi, pair=True)
+                    before = (_select_before(chunks, k, keys.lo, keys.hi), _select_before(chunks, k + 1, keys.lo, keys.hi))
+                    assert [bits(v) for v in pair] == [bits(v) for v in before], (len(values), chunk, small, k)
+                k0 = (len(values) - 1) // 2
+                v0, v1 = _select_before(chunks, k0, keys.lo, keys.hi), _select_before(chunks, len(values) // 2, keys.lo, keys.hi)
+                median = float(np.median(np.array([v0, v1], np.float32))) if len(values) % 2 == 0 else float(v0)
+                assert bits(src.filling._median_of(chunks, keys)) == bits(median), (len(values), chunk, small)
+
+
+def test_keys32_as_keys_before():
+    """The keys of the selection in int32 (filling._keys32, and _keys from it) are those of before,
+    -(bits & 0x7FFFFFFF) - 1 for a negative float32 and its bits otherwise, on every sign and exponent:
+    random bit patterns, the extremes of int32, the zeros, the infinities and the NaNs."""
+    rng = np.random.default_rng(11)
+    patterns = np.concatenate([rng.integers(-2 ** 31, 2 ** 31, 1_000_000, dtype=np.int64).astype(np.int32),
+                               np.array([-2 ** 31, -2 ** 31 + 1, -1, 0, 1, 2 ** 31 - 1], np.int32)])
+    values = np.concatenate([patterns.view(np.float32),
+                             np.array([-0.0, 0.0, np.inf, -np.inf, np.nan, 1e-45, -1e-45], np.float32)])
+    bits = values.view(np.int32).astype(np.int64)
+    before = np.where(bits < 0, -(bits & 0x7FFFFFFF) - 1, bits)
+    assert src.filling._keys32(values).dtype == np.int32
+    assert np.array_equal(src.filling._keys32(values).astype(np.int64), before)
+    assert np.array_equal(src.filling._keys(values), before) and src.filling._keys(values).dtype == np.int64
+
+
 def _gap_fill_case(seed):
     """A terrain with gaps and a filling source (test_gap_fill_as_before's)."""
     from scipy import ndimage
@@ -1593,10 +1879,12 @@ def _gap_fill_case(seed):
     other[100:110, 150:170] += 20  # a misaligned patch: a local offset far from the overall one
     if seed == 2:
         other[:] = np.nan  # nothing to fill with
+    if seed == 4:  # a tile at a border: the land beyond it a gap, its edge irregular, small gaps beside it
+        gaps |= x > 150 + 12 * np.sin(y / 9)
     return terrain, gaps, other
 
 
-@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+@pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
 def test_fill_rows_as_before(seed, tmp_path):
     """_fill in strips of rows fills every gap with the float32 bits of _fill on the whole grid
     (test_gap_fill_as_before's reference): any strip height, also the filling source known on a
@@ -1673,6 +1961,56 @@ def test_fill_water_rows_as_before(tmp_path):
             bare = np.load(str(tmp_path / "bare.npy"))
             assert np.array_equal(bare, water_s & np.isnan(z)) and bare.any()
             assert not os.path.exists(tmp_path / "lake.npy")
+
+
+def test_fill_water_rows_dry_strips(tmp_path, monkeypatch):
+    """fill_water in strips leaves out the dry strips (no sea zone in them, no lake within SHORE_BUFFER of
+    them) and gives the whole grid's values: the sea in the top rows only, a lake measured and one without
+    data in the middle, gaps on land in every row (they stay without data), and a grid with no water at all,
+    whose water and bare masks stay all False and whose elevation is never read for the water with data."""
+    from grid import Grid
+    rng = np.random.default_rng(5)
+    H, W = 120, 70  # 2 m pixels: the lakes' shore buffer reaches 23 px
+    z = (rng.random((H, W)) * 30 + 2).astype(np.float32)
+    z[::9, 40:43] = np.nan  # gaps on land in every few rows
+    z[:6, :] = np.nan  # the sea without data in the top rows
+    z[6, :20] = 0.4  # the sea given by the data
+    z[60:66, 10:20] = np.nan  # a lake without data
+    wbm = np.zeros((H, W), np.uint8)
+    wbm[:7, :] = src.OCEAN
+    wbm[58:68, 8:22] = src.LAKE
+    wbm[80:84, 50:60] = src.LAKE  # measured
+    sea_zone = np.zeros((H, W), bool)
+    sea_zone[:12, :] = True
+    surface = (z + 2).astype(np.float32)
+    grid = Grid(500000.0, 300000.0, 2.0, H, W, "EPSG:2180")
+    calls = []
+    original = src.filling.water_with_data
+    monkeypatch.setattr(src.filling, "water_with_data", lambda z, *a, **k: calls.append(len(z)) or original(z, *a, **k))
+    for name, (w, zone) in {"wet": (wbm, sea_zone), "dry": (np.zeros_like(wbm), np.zeros_like(sea_zone))}.items():
+        np.save(str(tmp_path / "nmt_w.npy"), z)
+        np.save(str(tmp_path / "nmpt_w.npy"), surface)
+        water_w = np.load(src.fill_water(str(tmp_path / "nmt_w.npy"), str(tmp_path / "nmpt_w.npy"), grid, w, zone,
+                                         str(tmp_path / "water_w.npy")))
+        assert water_w.any() == (name == "wet")
+        w_mm, zone_mm = _memmap(tmp_path, f"wbm_{name}.npy", w), _memmap(tmp_path, f"zone_{name}.npy", zone)
+        for rows in (1, 7, 16, 50, H):
+            nmt, nmpt = _memmap(tmp_path, "nmt_s.npy", z), _memmap(tmp_path, "nmpt_s.npy", surface)
+            del nmt, nmpt
+            calls.clear()
+            water_s = np.load(src.fill_water(str(tmp_path / "nmt_s.npy"), str(tmp_path / "nmpt_s.npy"), grid, w_mm,
+                                             zone_mm, str(tmp_path / "water_s.npy"), rows=rows,
+                                             bare_path=str(tmp_path / "bare.npy")))
+            assert np.array_equal(water_s, water_w), (name, rows)
+            for f in ("nmt", "nmpt"):
+                assert np.array_equal(_bits(np.load(str(tmp_path / f"{f}_s.npy"))),
+                                      _bits(np.load(str(tmp_path / f"{f}_w.npy")))), (name, f, rows)
+            assert np.array_equal(np.load(str(tmp_path / "bare.npy")), water_s & np.isnan(z)), (name, rows)
+            if name == "dry":
+                assert not calls and not water_s.any()  # every strip dry: the water with data never computed
+            elif rows <= 16:  # the strips more than SHORE_BUFFER from the lakes and below the sea zone are left out
+                assert 0 < sum(calls) < H, (rows, calls)
+        del w_mm, zone_mm
 
 
 def test_border_gaps_rows_as_whole(tmp_path):

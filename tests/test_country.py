@@ -339,6 +339,16 @@ def test_worker_env_keeps_blas_to_one_thread(monkeypatch):
     assert env["FINDALINE_PROGRESS"] == "text" and env["PYTHONIOENCODING"] == "utf-8"
 
 
+def test_worker_env_lets_openmp_threads_sleep(monkeypatch):
+    """A worker's OpenMP threads wait passively after a parallel region (numba's spinning threads took
+    cores from the other workers), unless the caller's environment says otherwise."""
+    import country
+    monkeypatch.delenv("OMP_WAIT_POLICY", raising=False)
+    assert country._worker_env()["OMP_WAIT_POLICY"] == "PASSIVE"
+    monkeypatch.setenv("OMP_WAIT_POLICY", "ACTIVE")
+    assert country._worker_env()["OMP_WAIT_POLICY"] == "ACTIVE"
+
+
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
     """Without the surface model the hash is the one of before (Slovakia's tiles keep theirs); with
     it, another obstacle rule gives another hash, so its tiles are counted again."""

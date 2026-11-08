@@ -466,3 +466,58 @@ def test_composed_layer(tmp_path, capsys):
     layer.reader.fetched.clear()
     src.download_layers([(layer, "fake")], None, cache_dir)
     assert layer.reader.fetched == []  # all cached or missing
+
+
+def test_prune_asks_a_folder_once(tmp_path, monkeypatch):
+    """NewestPerSheet.prune deletes exactly the files of the other surveys the per-file code of before
+    deleted (os.path.exists of every cached sheet and then of its other surveys), whether existing()
+    lists the folder or asks file by file, and existing() answers as os.path.exists: a missing folder,
+    a folder where a file is asked about, a name ending in a dot, and on Windows a name in other case."""
+    from sources.indexes import versions as vs
+
+    def old_prune(policy, cache_dir, tiles):  # the code of before (main d466347), without the deletion
+        older = []
+        for sheet in tiles:
+            if os.path.exists(policy.path(cache_dir, sheet)):
+                older += [policy.path(cache_dir, v) for v in policy._versions.get(sheet.godlo, ())
+                          if v != sheet and os.path.exists(policy.path(cache_dir, v))]
+        return older
+
+    for listing_from in (1, 10 ** 9):
+        monkeypatch.setattr(vs, "LISTING_FROM", listing_from)
+        rng = np.random.default_rng(3)
+        cache_dir = str(tmp_path / f"cache{listing_from}")
+        policy = vs.NewestPerSheet("pl/nmt", "EPSG:2180", 1.0)
+        os.makedirs(os.path.join(cache_dir, "pl", "nmt"))
+        tiles = []
+        for g in range(150):
+            years = sorted(int(y) for y in rng.choice(np.arange(2018, 2027), int(rng.integers(1, 5)), replace=False))
+            sheets = [vs.Sheet(y, f"{y}0_{g}_S-{g}", f"S-{g}", "", "EPSG:2180", 1.0) for y in years]
+            policy._versions[f"S-{g}"] = set(sheets)
+            tiles.append(sheets[-1])
+            for s in sheets:
+                if rng.random() < 0.6:
+                    with open(policy.path(cache_dir, s), "wb") as f:
+                        f.write(b"x")
+        ghost = next(s for s in tiles if not os.path.exists(policy.path(cache_dir, s)))
+        os.makedirs(policy.path(cache_dir, ghost))  # a folder where a sheet's file would be
+        expected = old_prune(policy, cache_dir, tiles)
+        before = sorted(os.listdir(os.path.join(cache_dir, "pl", "nmt")))
+        deleted, listed = [], []
+        monkeypatch.setattr(vs.cache, "forget", lambda c, paths: deleted.extend(paths))
+        scandir = os.scandir
+        monkeypatch.setattr(vs.os, "scandir", lambda p: listed.append(p) or scandir(p))
+        assert policy.prune(cache_dir, tiles) == len(expected) and deleted == expected and len(expected) > 20
+        monkeypatch.setattr(vs.os, "scandir", scandir)
+        assert len(listed) == (1 if listing_from == 1 else 0)  # one listing for both questions, or none
+        assert sorted(os.listdir(os.path.join(cache_dir, "pl", "nmt"))) == before
+
+        folder = os.path.join(cache_dir, "pl", "nmt")
+        names = sorted(os.listdir(folder))
+        asked = [os.path.join(folder, n) for n in names[:40]] + [os.path.join(folder, "none.tif"),
+                 os.path.join(folder, names[0] + "."), os.path.join(cache_dir, "missing", "a.tif"),
+                 os.path.join(folder, names[1].upper())]
+        assert vs.existing(asked, listing_from) == [os.path.exists(p) for p in asked]
+        assert vs.existing(asked, 1) == vs.existing(asked, 10 ** 9)
+        kept = {}
+        assert vs.existing(asked, 1, kept) == vs.existing(asked, 1, kept) == vs.existing(asked, 10 ** 9)

@@ -261,3 +261,78 @@ def test_shore_segments(tmp_path, monkeypatch):
     np.save(tmp_path / "dry.npy", np.zeros(terrain.shape, bool))
     none = filling.shore_segments(str(tmp_path / "flat.npy"), str(tmp_path / "dry.npy"), None, grid)
     assert none["segments"] == [] and none["totals"] == {"surface_m": 0, "sea_m": 0, "surface_px": 0, "sea_px": 0}
+
+
+def _water_tile(path, values, west, north, nodata=None):
+    """A water body mask raster of `values` (uint8) in WGS84 at one arc-second, as Copernicus', from
+    its north-west corner (west, north)."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    with rio.open(path, "w", driver="GTiff", width=values.shape[1], height=values.shape[0], count=1, dtype="uint8",
+                  crs="EPSG:4326", transform=from_origin(west, north, 1 / 3600, 1 / 3600), nodata=nodata) as dst:
+        dst.write(values, 1)
+    return str(path)
+
+
+def test_constant_water_mask_as_built(tmp_path, monkeypatch):
+    """A lone water body mask tile holding one category all around the grid (constant_category) gives the
+    mosaic build_mosaic gives, without its reprojection (_constant_mosaic), at any strip height: dry land,
+    a river everywhere, a lake beyond the windows the reprojection reads; anything else is built: a lake or
+    a nodata pixel under the grid, a tile ending within CONSTANT_MARGIN of the grid, two tiles.
+    water_body_mask takes the constant one, with the same bar (tests/test_offline.py runs it through
+    prepare_data)."""
+    from rasterio.warp import transform_bounds
+    from sources.mosaic import build_mosaic
+    grid = Grid(left=400017.0, top=5450003.0, res=1.0, height=700, width=900, crs="EPSG:32634")
+    west, south, east, north = transform_bounds(grid.crs, "EPSG:4326", *grid.bounds)
+    pad = 40 / 3600  # 40 of the tile's pixels around the grid's box
+    shape = (int(round((north - south + 2 * pad) * 3600)) + 1, int(round((east - west + 2 * pad) * 3600)) + 1)
+    origin = (west - pad, north + pad)
+    col = lambda lon: int((lon - origin[0]) * 3600)  # noqa: E731
+    row = lambda lat: int((origin[1] - lat) * 3600)  # noqa: E731
+
+    def built(files, name, rows):
+        return np.array(build_mosaic(files, grid, str(tmp_path / f"{name}.npy"), "water mask", categorical=True,
+                                     rows=rows))
+
+    dry = np.zeros(shape, np.uint8)
+    river = np.full(shape, 3, np.uint8)
+    far_lake = dry.copy()
+    far_lake[row(north) - 12, col(west) - 12] = filling.LAKE  # 12 pixels beyond the grid's box: outside every window read
+    for name, values in (("dry", dry), ("river", river), ("far_lake", far_lake)):
+        path = _water_tile(tmp_path / f"{name}.tif", values, *origin)
+        value = filling.constant_category([path], grid)
+        assert value == values[shape[0] // 2, shape[1] // 2], name
+        for rows in (None, 64, 1000):
+            reference = built([path], f"{name}-built", rows)
+            mosaic = np.array(filling._constant_mosaic(str(tmp_path / f"{name}-constant.npy"), grid, value, 1,
+                                                       "water mask", rows))
+            assert mosaic.dtype == reference.dtype and np.array_equal(mosaic, reference), (name, rows)
+            assert (reference == value).all()
+    near_lake = dry.copy()
+    near_lake[(row(north) + row(south)) // 2, (col(west) + col(east)) // 2] = filling.LAKE
+    nodata = dry.copy()
+    nodata[row(north) + 5, col(west) + 5] = 255
+    short = dry[:, :col(east) + 2]  # the tile ends 2 of its pixels beyond the grid's box
+    cases = {"lake under the grid": [_water_tile(tmp_path / "near.tif", near_lake, *origin)],
+             "nodata": [_water_tile(tmp_path / "nodata.tif", nodata, *origin, nodata=255)],
+             "edge": [_water_tile(tmp_path / "short.tif", short, *origin)],
+             "two tiles": [str(tmp_path / "dry.tif"), str(tmp_path / "river.tif")]}
+    for name, files in cases.items():
+        assert filling.constant_category(files, grid) is None, name
+    assert not (built(cases["lake under the grid"], "near-built", None) == 0).all()  # a lake to fill: no constant
+    path = str(tmp_path / "dry.tif")  # water_body_mask over one file, no tiles of the cache
+    monkeypatch.setattr(filling.WATER_MASK, "files", lambda g, cache_dir: [path])
+    monkeypatch.setattr(filling.WATER_MASK, "tiles", lambda g: [])
+    monkeypatch.setattr(filling.WATER_MASK, "used", lambda g, cache_dir: {"layer": "water"})
+    bars = []
+    listener = lambda state: bars.append((state.get("stage"), state.get("done"))) if state.get("bar") else None  # noqa: E731
+    filling.progress.subscribe(listener)  # the bars' object filling holds (tests load progress again)
+    try:
+        for rows in (None, 64):
+            wbm = filling.water_body_mask(grid, str(tmp_path), str(tmp_path / "wbm.npy"), download=False, rows=rows)
+            assert np.array_equal(wbm, built([path], "wbm-built", rows)) and wbm.dtype == np.uint8
+            del wbm
+    finally:
+        filling.progress.unsubscribe(listener)
+    assert ("stitching water mask", True) in bars

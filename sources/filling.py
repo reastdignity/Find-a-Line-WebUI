@@ -79,7 +79,12 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
     rows: the mosaic built and the missing tiles' blocks set in strips of that many rows."""
     if download:
         WATER_MASK.download(grid, cache_dir, update, "water mask")
-    wbm = build_mosaic(WATER_MASK.files(grid, cache_dir), grid, out_path, "water mask", categorical=True, rows=rows)
+    files = WATER_MASK.files(grid, cache_dir)
+    value = constant_category(files, grid)
+    if value is None:
+        wbm = build_mosaic(files, grid, out_path, "water mask", categorical=True, rows=rows)
+    else:
+        wbm = _constant_mosaic(out_path, grid, value, len(files), "water mask", rows)
     used_data.append(WATER_MASK.used(grid, cache_dir))
     tiles = WATER_MASK.tiles(grid)
     for tile, state in zip(tiles, cache.states(cache_dir, [WATER_MASK.tile_path(cache_dir, t) for t in tiles])):
@@ -93,6 +98,61 @@ def water_body_mask(grid: Grid, cache_dir: str, out_path: str, update: Optional[
                     block = wbm[r0 + s0:r0 + s1, c0:c1]
                     block[block == NODATA] = OCEAN
     return np.asarray(wbm)
+
+
+# A lone raster of the water body mask that holds one category all around the grid gives every pixel
+# of its mosaic that category: build_mosaic reprojects it by the nearest pixel, each pixel of the grid
+# taking a pixel of the window read for its strip (the strip's box with three of the raster's pixels
+# around it), so the reprojection can be left out (constant_category, _constant_mosaic). This many of
+# the raster's pixels around the grid's box keep its whole footprint inside the raster with room for the
+# windows' rounding (a pixel) and GDAL's approximate transformer (an eighth of a pixel); a window that
+# would reach beyond the raster is not taken (a degree tile's edge, the next tile).
+CONSTANT_MARGIN = 5
+
+
+def constant_category(files: List[str], grid: Grid) -> Optional[int]:
+    """The category every pixel of the grid's categorical mosaic of files gets when that is one value
+    (build_mosaic(categorical=True)): a single raster whose window over the grid's box, CONSTANT_MARGIN
+    of its pixels around it, lies inside it, holds no nodata and one whole number; None otherwise (two
+    rasters, an edge, a lake or a river under part of the grid: the mosaic is built). A tile of the water body
+    mask over dry land holds 0 there (tests/test_filling.py::test_constant_water_mask_as_built)."""
+    import rasterio as rio
+    from rasterio.windows import from_bounds
+
+    if len(files) != 1:
+        return None
+    with rio.open(files[0]) as src:
+        crs = src.crs or rio.crs.CRS.from_user_input(grid.crs)
+        left, bottom, right, top = transform_bounds(grid.crs, crs, *grid.bounds)
+        m = CONSTANT_MARGIN * max(abs(src.res[0]), abs(src.res[1]))
+        window = from_bounds(left - m, bottom - m, right + m, top + m, src.transform)
+        if window.col_off < 0 or window.row_off < 0 or window.col_off + window.width > src.width \
+                or window.row_off + window.height > src.height:
+            return None
+        band = src.read(1, window=window.round_offsets().round_lengths(), masked=True)
+    if np.ma.count_masked(band):
+        return None
+    values = np.ma.getdata(band)
+    first = values.flat[0]
+    if not (values == first).all() or not float(first).is_integer() or not 0 <= first <= NODATA:
+        return None
+    return int(first)
+
+
+def _constant_mosaic(out_path: str, grid: Grid, value: int, files: int, label: str,
+                     rows: Optional[int]) -> np.ndarray:
+    """build_mosaic's categorical mosaic when its raster gives every pixel `value` (constant_category):
+    the same array and bar, without the reprojection; the pages of a new grid of 0 are never written."""
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    mosaic = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8, shape=(grid.height, grid.width))
+    progress.compute.start(f"stitching {label}", files, unit="tile")
+    progress.compute.update(files)
+    if value:
+        for r0, r1, _, _ in strips(grid.height, rows or grid.height):
+            mosaic[r0:r1] = value
+    flush_grid(mosaic)
+    progress.compute.finish()
+    return mosaic
 
 
 def near(mask: np.ndarray, metres: float, res: float) -> np.ndarray:
@@ -434,7 +494,10 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     """fill_water in strips of rows (its values): the sea and the lake mask strip by strip, the
     lakes' labels over the whole grid (none without a lake to fill), each lake's level from its own
     box as before, the water with data strip by strip. Masks start all False: a strip with nothing
-    to mark is not written (a tile of the country layer without water writes neither)."""
+    to mark is not written (a tile of the country layer without water writes neither). A dry strip,
+    no sea zone in it and no lake within SHORE_BUFFER of it, has nothing to fill and no water with
+    data: it is left out of both passes, its elevation never read (the values are the same:
+    tests/test_units.py::test_fill_water_rows_dry_strips)."""
     from scipy import ndimage
 
     elevation = np.load(elevation_path, mmap_mode="r+")
@@ -449,12 +512,19 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     size = 2 * n + 1
     sea_px = 0
     any_lake = False
+    wet = set()  # the strips (r0) that are not dry
     for r0, r1, h0, h1 in strips(shape[0], rows, n):
-        empty = np.isnan(elevation[r0:r1])
-        sea_fill = empty & np.asarray(sea_zone[r0:r1], dtype=bool)
+        zone = np.asarray(sea_zone[r0:r1], dtype=bool)
         # near(wbm == LAKE, SHORE_BUFFER) of the strip from the rows within n of it (near_rows)
         shore = np.asarray(wbm[h0:h1]) == LAKE
-        if shore.any():
+        lakes = shore.any()
+        if not lakes and not zone.any():
+            continue  # a dry strip: no sea to fill, no lake's shore (sea_fill and here would be all False)
+        wet.add(r0)
+        empty = np.isnan(elevation[r0:r1])
+        sea_fill = empty & zone
+        del zone
+        if lakes:
             shore = ndimage.maximum_filter1d(shore, size, axis=0, mode="constant", cval=0)[r0 - h0:r1 - h0]
             shore = ndimage.maximum_filter1d(shore, size, axis=1, mode="constant", cval=0)
             here = empty & shore & ~sea_fill
@@ -503,6 +573,8 @@ def _fill_water_rows(elevation_path: str, surface_path: Optional[str], grid: Gri
     labels = None
     bare = new_mask(bare_path, shape) if bare_path else None
     for r0, r1, _, _ in strips(shape[0], rows):
+        if r0 not in wet:
+            continue  # nothing filled there (a lake's pixels lie in the strips that found it) and no water with data
         if bare is not None:
             bare[r0:r1] = water[r0:r1]  # what was filled: the sea and the lakes without data
         # Water that the elevation data covers (as fill_water: the pixels filled are in water already)
@@ -791,13 +863,20 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
     count = ndimage.label(gaps, structure=np.ones((3, 3)), output=labels)
     ring_labels, ring_diffs = [], []
     for r0, r1, h0, h1 in strips(height, rows, GAP_RING):
-        ring = ndimage.grey_dilation(labels[h0:h1], size=(GAP_RING * 2 + 1,) * 2)[r0 - h0:r1 - h0]
-        ring *= np.asarray(both[r0:r1]) & (labels[r0:r1] == 0)  # integers, in place
+        # The dilation only over the columns within GAP_RING of a gap of the strip's rows (with their
+        # halo): 0 beyond them, and the same values in them (the reflection at the part's edges brings
+        # in 0s as the columns outside it hold); a strip with no gap near it has no ring
+        cols = np.flatnonzero(labels[h0:h1].any(axis=0))
+        if not cols.size:
+            continue
+        c0, c1 = max(0, int(cols[0]) - GAP_RING), min(width, int(cols[-1]) + GAP_RING + 1)
+        ring = ndimage.grey_dilation(labels[h0:h1, c0:c1], size=(GAP_RING * 2 + 1,) * 2)[r0 - h0:r1 - h0]
+        ring *= np.asarray(both[r0:r1, c0:c1]) & (labels[r0:r1, c0:c1] == 0)  # integers, in place
         near = ring > 0
         if near.any():
-            ring_labels.append(ring[near])
+            ring_labels.append(ring[near])  # row by row as over the whole strip: every ring pixel lies in c0:c1
             with np.errstate(invalid="ignore"):
-                ring_diffs.append((np.asarray(target[r0:r1]) - other_rows(r0, r1))[near])
+                ring_diffs.append((np.asarray(target[r0:r1, c0:c1]) - other_rows(r0, r1)[:, c0:c1])[near])
         del ring, near
     del both
     remove_grid(both_path)
@@ -827,9 +906,15 @@ def _fill_rows(target: np.ndarray, other: np.ndarray, gaps: np.ndarray, res: flo
 
 def _keys(values: np.ndarray) -> np.ndarray:
     """The float32 values as int64 keys in their order (-0.0 just below 0.0): the bits, those of
-    a negative value reversed."""
-    bits = np.asarray(values, dtype=np.float32).view(np.int32).astype(np.int64)
-    return np.where(bits < 0, -(bits & 0x7FFFFFFF) - 1, bits)
+    a negative value reversed (-(bits & 0x7FFFFFFF) - 1, the keys of _keys32)."""
+    return _keys32(values).astype(np.int64)
+
+
+def _keys32(values: np.ndarray) -> np.ndarray:
+    """_keys as int32 (they fit): the low 31 bits of a negative value flipped, bits ^ 0x7FFFFFFF, which
+    is -(bits & 0x7FFFFFFF) - 1 in two's complement; three int32 passes instead of five of int64."""
+    bits = np.asarray(values, dtype=np.float32).view(np.int32)
+    return bits ^ ((bits >> 31) & 0x7FFFFFFF)
 
 
 def _key_value(key: int) -> np.float32:
@@ -846,7 +931,7 @@ class _KeyRange:
 
     def add(self, values: np.ndarray):
         if values.size:
-            keys = _keys(values)
+            keys = _keys32(values)
             self.n += values.size
             lo, hi = int(keys.min()), int(keys.max())
             self.lo = lo if self.lo is None else min(self.lo, lo)
@@ -857,38 +942,44 @@ def _median_of(chunks: Callable[[], Iterable[np.ndarray]], keys: _KeyRange) -> f
     """np.median of the float32 values that chunks() yields (read again for each pass, never held
     whole): the middle value(s) by _select on their keys, the mean of two as np.median takes it."""
     k0, k1 = (keys.n - 1) // 2, keys.n // 2
-    v0 = _select(chunks, k0, keys.lo, keys.hi)
     if k1 == k0:
-        return float(v0)
-    return float(np.median(np.array([v0, _select(chunks, k1, keys.lo, keys.hi)], np.float32)))
+        return float(_select(chunks, k0, keys.lo, keys.hi))
+    v0, v1 = _select(chunks, k0, keys.lo, keys.hi, pair=True)  # both middle values in the same passes
+    return float(np.median(np.array([v0, v1], np.float32)))
 
 
 SELECT_BINS = 1 << 16   # bins of a pass of _select over the keys' range
 SELECT_COLLECT = 1 << 22  # values of a bin collected and sorted at once (the last pass)
 
 
-def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int) -> np.float32:
+def _select(chunks: Callable[[], Iterable[np.ndarray]], k: int, lo: int, hi: int, pair: bool = False):
     """The k-th smallest (from 0) of the float32 values chunks() yields, whose keys (_keys) lie in
     [lo, hi]: a histogram of SELECT_BINS bins over the keys' range finds the bin of the k-th, the
-    range narrows to it until its values can be collected (SELECT_COLLECT) and sorted."""
+    range narrows to it until its values can be collected (SELECT_COLLECT) and sorted.
+    pair: the k-th and the (k+1)-th, found in the same passes while they share a bin (the two middle
+    values of an even count: _median_of); in two bins, each on its own from there. Each is the exact
+    order statistic of the keys, so the values are those of two calls."""
     while lo < hi:
         width = -(-(hi - lo + 1) // SELECT_BINS)  # keys per bin, at least 1
         counts = np.zeros(SELECT_BINS, np.int64)
         for values in chunks():
-            keys = _keys(values)
-            keys = keys[(keys >= lo) & (keys <= hi)]
+            keys = _keys32(values)  # compared as int32 (lo and hi are keys), only those in range made int64
+            keys = keys[(keys >= lo) & (keys <= hi)].astype(np.int64)
             counts += np.bincount((keys - lo) // width, minlength=SELECT_BINS)
         cum = np.cumsum(counts)
         b = int(np.searchsorted(cum, k, side="right"))  # the first bin whose count reaches past k
+        if pair and int(cum[b]) == k + 1:  # the (k+1)-th lies in a later bin: each value on its own
+            return _select(chunks, k, lo, hi), _select(chunks, k + 1, lo, hi)
         k -= int(cum[b - 1]) if b else 0
         lo, hi = lo + b * width, min(hi, lo + (b + 1) * width - 1)
         if counts[b] <= SELECT_COLLECT:
             found = []
             for values in chunks():
-                keys = _keys(values)
+                keys = _keys32(values)
                 found.append(np.asarray(values, dtype=np.float32)[(keys >= lo) & (keys <= hi)])
-            return np.sort(np.concatenate(found))[k]
-    return _key_value(lo)
+            found = np.sort(np.concatenate(found))
+            return (found[k], found[k + 1]) if pair else found[k]
+    return (_key_value(lo), _key_value(lo)) if pair else _key_value(lo)
 
 
 def _or_rows(out_path: str, more_path: str, rows: int):
@@ -1095,14 +1186,19 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     border_path = os.path.join(os.path.dirname(out_path), "border.npy")
     for n, neighbour in enumerate(neighbours):
         progress.compute.start(f"border gaps ({neighbour.name})", 1, unit="step")
-        if gaps is None:
-            if rows is None:
-                gaps = border_gaps(elevation_path, surface_path, grid, exclude)
-            else:
-                shape = (grid.height, grid.width)
-                gaps = border_gaps(elevation_path, surface_path, grid, exclude, rows=rows,
-                                   out=new_mask(border_path, shape))
-        window = neighbour_window(neighbour, grid, gaps, rows=rows)
+        if gaps is None and _box_ranges(neighbour, grid) == []:
+            # Its rough boxes reach no pixel of the grid: no border gap lies inside them (neighbour_window's
+            # None), so the border gaps wait for a neighbour that can use them (a tile at a border without one)
+            window = None
+        else:
+            if gaps is None:
+                if rows is None:
+                    gaps = border_gaps(elevation_path, surface_path, grid, exclude)
+                else:
+                    shape = (grid.height, grid.width)
+                    gaps = border_gaps(elevation_path, surface_path, grid, exclude, rows=rows,
+                                       out=new_mask(border_path, shape))
+            window = neighbour_window(neighbour, grid, gaps, rows=rows)
         progress.compute.update(1)
         progress.compute.finish()
         if window is None:
