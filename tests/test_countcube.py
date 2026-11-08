@@ -2,7 +2,8 @@
 lattice (cells and clusters of known lon/lat, the origin's floor, the levels), the spot ids, the tile
 counter against a brute-force count, merge_spots on word B and the split of a spot by its border, spots
 merged over tiles, filters and histograms of every dimension against the values, the cube's cells,
-corners, cut cells and requests, and a cube or tile of version 1 refused."""
+corners, cut cells and requests, the border filter, the rows by side and the parts beyond the outline,
+and a cube or tile of version 1 refused."""
 import json
 import math
 import os
@@ -854,6 +855,88 @@ def test_cube_histogram_of_a_view(tmp_path):
     assert cube.reaching(1, np.zeros((0, 2), dtype=np.int64), (0, 0, 1, 1)).shape == (0,)
 
 
+def _with_border(rng, f):
+    """Filters `f` with a random border (all or own) and random replaced partners."""
+    replaced = tuple(sorted(int(p) for p in rng.choice(np.arange(1, 7), rng.integers(0, 3), replace=False)))
+    return cc.Filters(**{**f.__dict__, "border": str(rng.choice(cc.BORDERS)), "replaced": replaced})
+
+
+def test_border_filter_against_the_fields():
+    """Filters.border and Filters.replaced against each line's border and partner columns: own keeps border 0 and 1,
+    all every line but the partner lines (border 2) of a replaced partner; with the other filters, their mask and the
+    border's; never skipped (select(skip=)); parsed from a query (replaced never), refused off its values."""
+    rng = np.random.default_rng(43)
+    grid = _grid()
+    table = _lines(rng, grid, 4000, lengths=(30, 5000), borders=True)
+    keys = cc.pack_keys(np.zeros(len(table)), np.zeros(len(table)), cc.line_records(table.columns, grid.res))
+    border = np.asarray(table.columns["border"], dtype=np.int64)
+    partner = np.asarray(table.columns["partner"], dtype=np.int64)
+    assert {0, 1, 2} <= set(border.tolist()) and set(range(1, 8)) <= set(partner[border == 2].tolist())
+    assert cc.select(keys, cc.Filters()).all() and cc.border_kept(keys, cc.Filters()) is None
+    assert cc.select(keys, cc.Filters(border="own")).tolist() == (border != 2).tolist()
+    for replaced in [(1,), (2, 5), (1, 2, 3, 4, 5, 6)]:
+        expected = ~((border == 2) & np.isin(partner, replaced))
+        assert cc.select(keys, cc.Filters(replaced=replaced)).tolist() == expected.tolist(), replaced
+        assert cc.select(keys, cc.Filters(border="own", replaced=replaced)).tolist() == (border != 2).tolist()
+    assert cc.select(keys, cc.Filters(replaced=(1, 2, 3, 4, 5, 6)))[(border == 2) & (partner == 7)].all()  # unknown kept
+    for _ in range(100):
+        f = _with_border(rng, _random_filters(rng))
+        plain = cc.Filters(**{**f.__dict__, "border": "all", "replaced": ()})
+        kept = (border != 2) if f.border == "own" else ~((border == 2) & np.isin(partner, f.replaced))
+        assert (cc.select(keys, f) == (cc.select(keys, plain) & kept)).all(), f
+        for name in cc.DIMENSIONS:
+            assert not (cc.select(keys, f, skip=name) & ~kept).any(), (f, name)
+    assert cc.Filters.parse({"border": "own", "replaced": "2"}) == cc.Filters(border="own")
+    assert cc.Filters.parse({"border": ""}) == cc.Filters()
+    for args, text in [({"border": "beyond"}, "border"), ({"replaced": (7,)}, "replaced"), ({"replaced": (0,)}, "replaced")]:
+        with pytest.raises(ValueError, match=text):
+            cc.Filters(**args)
+
+
+def test_cube_cells_by_side_and_the_histogram_summary(tmp_path):
+    """Cube.cells(sides=True): a row per cell and side (0 for the lines of border 0 and 1, the partner index for those
+    of border 2) against the rows of the cube, in the order of the cells and then the sides, summing to cells()'s; the
+    histogram's summary: both modes' totals (cells()'s) and the lines' split by their border field."""
+    rng = np.random.default_rng(47)
+    grid = _grid()
+    table = _lines(rng, grid, 8000, lengths=(30, 300), borders=True)
+    out, _ = _build(tmp_path, [(grid, table, None)])
+    cube = cc.Cube(str(out))
+    for mode in ("lines", "spots"):
+        for level in cc.LEVELS:
+            rows = _rows(out, mode, level)
+            for _ in range(10):
+                f = _with_border(rng, _random_filters(rng))
+                box = _random_box(rng, cube)
+                expected = defaultdict(int)
+                for (a, b, n), ok in zip(rows.tolist(), cc.select(rows[:, :2], f).tolist()):
+                    if ok and _inside(cube, level, a, box):
+                        side = (a >> 27) & 7 if (a >> 25) & 3 == 2 else 0
+                        expected[(a >> 46, (a >> 30) & 0xFFFF, side)] += n
+                i, j, side, n = cube.cells(mode, level, box, f, sides=True)
+                found = list(zip(i.tolist(), j.tolist(), side.tolist()))
+                assert dict(zip(found, n.tolist())) == {k: v for k, v in expected.items() if v}, (mode, level, f)
+                assert found == sorted(found)
+                ci, cj, cn = cube.cells(mode, level, box, f)
+                whole = defaultdict(int)
+                for (a, b, _), v in zip(found, n.tolist()):
+                    whole[a, b] += v
+                assert dict(whole) == dict(zip(zip(ci.tolist(), cj.tolist()), cn.tolist()))
+                got = cube.histogram(mode, level, box, f, summary=True)
+                plain = cube.histogram(mode, level, box, f)
+                assert {k: v for k, v in got.items() if k not in ("totals", "border")} == plain
+                assert got["totals"] == {m: int(cube.cells(m, level, box, f)[2].sum()) for m in ("lines", "spots")}
+                lines = _rows(out, "lines", level)
+                split = [0, 0, 0]
+                for (a, b, v), ok in zip(lines.tolist(), cc.select(lines[:, :2], f).tolist()):
+                    if ok and _inside(cube, level, a, box):
+                        split[(a >> 25) & 3] += v
+                assert got["border"] == dict(zip(("interior", "owned", "partner"), split)), (mode, level, f)
+    empty = cube.histogram("spots", 1, (0.0, 0.0, 1.0, 1.0), cc.Filters(), summary=True)
+    assert empty["totals"] == {"lines": 0, "spots": 0} and empty["border"] == {"interior": 0, "owned": 0, "partner": 0}
+    assert all(len(v) == 0 for v in cube.cells("lines", 1, (0.0, 0.0, 1.0, 1.0), cc.Filters(), sides=True))
+
+
 def test_outline_simplified(tmp_path):
     """The outline for a map: valid, fewer coordinates than the original, within the country's bounds (plus
     the tolerance), the original's km² on the ellipsoid, kept per tolerance."""
@@ -979,6 +1062,56 @@ def test_cut_cells(tmp_path):
     assert all(on_edges.cut(level) == {} for level in cc.LEVELS)
     (out / "area.geojson").unlink()
     assert cc.Cube(str(out)).cut(1) == {}
+
+
+def test_cut_outside_against_each_cell(tmp_path):
+    """Cube.cut_outside: the part of a cell beyond the outline within the layer's reach (its layer bands' longest line:
+    300 m here) against each cell cut alone (the rectangle less the outline, clipped to the outline grown by the reach
+    in the cube's CRS): the km² on the ellipsoid (pyproj's Geod) within the 20 m the grown outline is simplified by,
+    a whole part not listed, a cell beyond the reach not listed, the shape within its simplification; kept; the parts
+    inside (cut) and beyond add up to the cell's where the reach holds it whole."""
+    rng = np.random.default_rng(53)
+    grid = _grid()
+    out, _ = _build(tmp_path, [(grid, _lines(rng, grid, 10, lengths=(30, 300)), None)])
+    cube = cc.Cube(str(out))
+    assert cube.reach_m() == 300
+    outline = cube.outline()
+    plane = shapely.transform(outline, lambda xy: np.column_stack(TO_CRS.transform(xy[:, 0], xy[:, 1])))
+    zone = shapely.transform(shapely.segmentize(plane.buffer(300), 50.0),
+                             lambda xy: np.column_stack(TO_WGS84.transform(xy[:, 0], xy[:, 1])))
+    checked = 0
+    for level in (1, 2):
+        side = level / 120
+        columns, rows = _lattice(cube, level, zone)
+        cells = [(i, j) for i in columns for j in rows]
+        found = cube.cut_outside(level, cells)
+        assert cube.cut_outside(level, cells) == found  # kept
+        inside = cube.cut(level)
+        for i, j in cells:
+            west, south = (cube.origin[0] + i * level) / 120, (cube.origin[1] + j * level) / 120
+            rectangle = shapely.box(west, south, west + side, south + side)
+            part = rectangle.difference(outline).intersection(zone)
+            whole = abs(GEOD.geometry_area_perimeter(shapely.segmentize(rectangle, side / 64))[0]) / 1e6
+            geodesic = abs(GEOD.geometry_area_perimeter(shapely.segmentize(part, side / 64))[0]) / 1e6 if part.area else 0.0
+            if rectangle.within(outline):
+                continue  # no partner lines there: not asked of a real cube
+            km2 = found[i, j]["km2"] if (i, j) in found else (whole if part.area > rectangle.area / 2 else 0.0)
+            strip = 0.02 * 4 * side * 111.32  # the grown outline's simplification along the cell's edges, km²
+            assert km2 == pytest.approx(geodesic, abs=strip + 2e-6), (level, i, j)
+            if (i, j) in found:
+                checked += 1
+                polygons = [shapely.Polygon(rings[0], rings[1:])
+                            for rings in ([[(lon, lat) for lat, lon in ring] for ring in polygon]
+                                          for polygon in found[i, j]["shape"])]
+                drawn = shapely.MultiPolygon(polygons)
+                assert drawn.area == pytest.approx(part.area, abs=part.length * side / cc.CUT_SIMPLIFY
+                                                   + rectangle.length * 0.02 / 111.32 * 4)
+                if (i, j) in inside and rectangle.within(zone):
+                    assert inside[i, j]["km2"] + found[i, j]["km2"] == pytest.approx(whole, rel=1e-5)
+    assert checked > 20
+    json.dumps([v for v in cube.cut_outside(1, cells).values()])
+    (out / "area.geojson").unlink()
+    assert cc.Cube(str(out)).cut_outside(1, cells) == {}  # no outline: every part is the whole cell
 
 
 def test_box_auto_level_and_corners(tmp_path):
