@@ -1121,7 +1121,7 @@ The user's idea (2026-11-01): search whole countries offline in fixed tiles, kee
   - all four bands in one run with the five together: 64.7 → 52.5 min, 11.93 → 9.33 tile hours and 22.27 → 16.20 CPU hours, every count the same; its tail still one tile, M2's Tatras tile alone for 3.9 min.
 - **Next for the layer (stage 3 of round 5, the recount bundle)**: Slovakia counted once more with all of it in one `countcube.VERSION`:
   - cube v2 (branch `cube-v2`: the eight new parameters, the lines across borders, the global lattice; docs/country-precompute/contract.md, section 6);
-  - step 1 per group of tiles (B3: one gap offset and lake level per group, so the counts change);
+  - step 1 per group of tiles (B3): measured on 2026-11-08 and not taken (slower on S, no gain on M2): docs/performance.md, round 5, "B3: step 1 per group of tiles (measured, not taken)";
   - the surface model (`nmpt: mark`, the DMP copied into the cache first);
   - the superset (`options.end_zone` 5, `options.anchor_lift` 2; the count already keeps `lift_needed` and `lift_no_zone`);
   - the band study's profile of bands.

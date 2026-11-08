@@ -2377,6 +2377,123 @@ tiles. It costs nothing: the stitches of two or four tiles got faster without a 
 E-500000_N-1200000, medians of 5, shared lock), one tile's the same (0.32 / 0.33 s); sk-sulov's stitching stages
 within the spread of two runs each (`local/country-perf-2026-11-07/stage2/CRASH/`).
 
+### B3: step 1 per group of tiles (measured, not taken)
+
+Stage 3's B3 (round 4's plan, docs/roadmap.md "Country layer"): a band's fixed tiles counted in groups of k × k on
+a lattice of k · core_m, one step 1 (`prepare_data(strips=True)`) on the grid of the box of the group's cores with
+one overlap, each tile counted on its window copied by `search._tile_data` (read-only C-contiguous memmaps: the
+kernels' argument types), the manifest claiming a whole group, a heavy tile beside its group's heaviest handed over
+to another worker with its window (so two heavy tiles never wait for each other in one worker), `--group` in the
+config hash. Built on branch `cube-v2-b3` (tag `history/b3-step1-per-group`, not merged), measured on 2026-11-08 on
+this PC: 12 workers, the exclusive lock, a scratch copy of Slovakia and `sk-sulov` offline behind a dead proxy,
+Python 3.15.2, one code for both sides of each table (session 1's S k = 1 on the branch's first commit, which
+counts the same: 2122/2122 tiles equal to the second run). The bar for taking it: more than 5 % of a band's tile
+hours on S or M2, the counts moving only at seams, the disk and the working set within today's budgets. Not reached.
+The runs, logs, timelines and scripts: `local/country-perf-2026-11-07/stage3/B3/`.
+
+sk-sulov's four layer bands (a study area inside the country: no gaps, no lakes; two rounds per k):
+
+| k | Wall of the tiles, min | Tile h | CPU h | Step 1 itself h (s per Mpx) | Copies h | Hand-overs | All workers: private / working set peak, GiB | Disk written, GB | Counts against k = 1 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | 0.38, 0.39 | 0.0367, 0.0362 | 0.0646, 0.0641 | 0.0163, 0.0160 (0.163, 0.159) | 0 | 0 | 3.0 / 6.2, 2.9 / 5.8 | 0.1, 0.1 | (equal to wave B's tiles: 22/22) |
+| 2 | 0.39, 0.39 | 0.0337, 0.0328 | 0.0660, 0.0656 | 0.0148, 0.0145 (0.179, 0.176) | 0.0013 | 7 | 2.6 / 7.3, 2.2 / 7.0 | 0.7, 0.7 | 22/22 equal |
+| 3 | 0.64, 0.63 | 0.0215, 0.0218 | 0.0622, 0.0615 | 0.0117, 0.0115 (0.169, 0.166) | 0.0014 | 13 | 1.0 / 5.6, 1.1 / 6.0 | 2.4, 2.3 | 22/22 equal |
+
+At k = 3 the square has 5 groups for 12 workers: the wall grows by two thirds while each tile, on more threads,
+takes less time.
+
+Slovakia's S band (2122 tiles):
+
+| | k = 1 (two runs) | k = 2 |
+| --- | ---: | ---: |
+| Wall of the tiles, min | 12.1, 11.7 | 13.8 |
+| Tile hours | 2.321, 2.257 | 2.627 |
+| CPU hours | 3.023, 3.029 | 3.411 |
+| Step 1 itself, h (its pixels, Gpx) | 1.801, 1.756 (81.6) | 1.756 (67.5): the groups' own 1.692, 29 tiles alone 0.064 |
+| Step 1 itself, s per Mpx | 0.0795, 0.0775 | 0.0937 |
+| The windows' copies, h | 0 | 0.384 (0.65 s a tile) |
+| Hand-overs | 0 | 4 (1.04 GiB written) |
+| Machine CPU, mean | 96 %, 92 % | 91 % |
+| All workers: private peak / working set peak, GiB | 7.2 / 14.0, 6.2 / 13.0 | 6.2 / 27.1 |
+| Least free RAM, GiB | 19.9, 21.4 | 12.2 |
+| Disks read / written, GB | 58.8 / 5.3, 53.1 / 5.0 | 53.7 / 18.9 |
+| Private per tile: median / max, GiB | 0.28 / 1.00 | 0.31 / 1.04 |
+| Counts against k = 1 | the second run 2122/2122 equal | 2120/2122 equal; 8 lines in other keys, net 0, spots the same |
+
+| S: step 1's stages, h | k = 1 | k = 2 |
+| --- | ---: | ---: |
+| other (between the bars) | 0.484 | 0.281 + 0.081 in the tiles |
+| gap filling (FABDEM + Copernicus DEM): terrain | 0.394 | 0.457 |
+| stitching water mask | 0.338 | 0.353 |
+| stitching terrain | 0.244 | 0.197 |
+| filling sea and lakes | 0.094 | 0.087 |
+| area coverage | 0.093 | 0.078 |
+| stitching gap fill (FABDEM + Copernicus DEM) | 0.082 | 0.105 |
+| partner zone | 0.072 | 0.111 |
+| tile window (the copies) | 0 | 0.384 |
+
+Slovakia's M2 band (575 tiles), **contaminated**: the windows around a border tile's gaps (rectangles) reach
+beyond the strip the scratch cache had been given (the outline grown by `country.partner_reach`), so some border
+tiles asked BEV and ČÚZK for tiles mid-count, which failed behind the dead proxy after their retries' sleeps, and
+those tiles were filled without the neighbour's data (k = 1: 19 tiles asked BEV for 415 blocks, 24 asked ČÚZK for
+195 tiles; k = 2: 11 groups for 834 and 13 for 267). The rows "net" take the stages of those downloads out:
+
+| | k = 1 | k = 2 |
+| --- | ---: | ---: |
+| Wall of the tiles, min | 38.8 | 35.4 |
+| Tile hours | 7.251 | 6.242 |
+| ... of which the failed downloads (BEV, ČÚZK), h | 4.403, 0.438 | 3.618, 0.205 |
+| Tile hours net of them | 2.410 | 2.419 |
+| CPU hours | 7.084 | 6.925 |
+| Step 1 itself net, h (its pixels, Gpx; s per Mpx) | 0.769 (30.4; 0.091) | 0.764 (22.3; 0.123) |
+| The windows' copies, h | 0 | 0.085 (0.53 s a tile) |
+| Hand-overs | 0 | 1 (0.45 GiB) |
+| All workers: private peak / working set peak, GiB | 13.8 / 21.7 | 10.1 / 35.0 |
+| Least free RAM, GiB | 14.0 | 8.8 |
+| Disk written, GB | 3.2 | 5.2 |
+| Counts against k = 1 | | 563/575 equal; 531,412 lines (0.057 %) in other keys, net −14 lines, spots +1 / −2 |
+
+What moved in M2's keys: the water flag and the metres over water (the Tatras tarns, whose lake labelling and
+filling are a group's: 57,615 lines of the inner tile E-340000_N-1190000 lost the flag), at the border the partner
+and the water too (and there the missed fills); in S two tiles, one at the border with a group's gap area of 83 km²
+against its own 4 km².
+
+By kind of group, the same tiles' seconds (step 1 of the tiles at k = 1, the groups' own and the copies at k = 2;
+M2's border rows hold the failed downloads):
+
+| Band, kind | Groups | Tiles | Step 1's pixels, Gpx | Step 1 s: tiles → groups' own + copies | Tile s: k = 1 → k = 2 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| S, full, inside the outline | 400 | 1600 | 61.6 → 50.2 | 2930 → 2380 + 1045 | 4326 → 4726 |
+| S, full, at the border | 91 | 364 | 14.0 → 11.4 | 2118 → 2608 + 249 | 2478 → 3194 |
+| S, partial, at the border | 55 | 129 | 4.9 → 4.8 | 1185 → 1103 + 89 | 1280 → 1284 |
+| S, one tile | 29 | 29 | 1.1 → 1.1 | 252 → 232 | 273 → 251 |
+| M2, full, inside the outline | 79 | 316 | 16.9 → 12.0 | 642 → 445 + 173 | 3600 → 3433 |
+| M2, full, at the border | 46 | 184 | 9.7 → 6.8 | 7260 → 8140 + 102 | 9932 → 10795 |
+| M2, partial, at the border | 25 | 62 | 3.2 → 2.9 | 11347 → 6521 + 32 | 11620 → 6827 |
+| M2, one tile | 13 | 13 | 0.7 → 0.7 | 945 → 1407 | 953 → 1416 |
+
+Why it does not pay:
+
+- **The partial border groups' gap area**: a group of two or three tiles at the border takes the box of its cores,
+  and the missing tile's part of it lies beyond the outline, all gap, filled from the fallback and looked at by the
+  neighbours: S's gap filling 0.394 → 0.457 h and its partner zone 0.072 → 0.111 h with 17 % fewer pixels.
+- **The copies**: a tile's window copied into memory-mapped grids of its own, 0.65 s a tile on S and 0.53 on M2:
+  on S's inner groups more than the 0.34 s a tile their shared step 1 saves.
+- **C2's constant water mask lost**: a group's grid crosses a degree tile of the water mask more often than a
+  tile's, so the mask is reprojected where a tile's one category was written at once (S 0.338 → 0.353 h).
+- **Step 1 dearer per pixel on larger grids**: s per Mpx +18-21 % on S, +35 % on M2 (net), +10 % on sk-sulov; the
+  overlaps it saves are cheaper than the cores it keeps.
+- And the memory and disk: the working set's peak doubles (S 14.0 → 27.1 GiB, M2 21.7 → 35.0), S writes 18.9 GB
+  instead of 5.3 (the groups' and the copies' mapped pages under the memory's pressure), beyond today's budgets.
+  A group's step 1 adds at most 5.5 B of private memory per pixel of its grid (median 0.4; S and M2), so twice
+  that, about 11 B, would have budgeted it (`GROUP_PIXEL_BYTES`, 16 on the branch).
+
+The one gain: M2's full groups inside the outline, −5 % of their tile seconds (step 1 642 → 445 s, plus 173 s of
+copies). To revisit it would take windows read as views instead of copies (non-contiguous arrays: new argument
+types of the kernels, both warm-ups, the indexing measured again) and groups that stop at the outline (a group's
+grid over its tiles' footprint, not over its cores' box, so no all-gap corner), and the water mask's constant
+category decided per tile window again.
+
 ### Lessons
 
 - **Two interpreters**: the main checkout's venv is Python 3.13.7, every worktree's (`uv sync --frozen`) 3.15.2. C3's
