@@ -20,12 +20,20 @@ The known lines are SlackMap's (tools/slackmap_data.KnownLine): known positives 
 from SlackMap is not a line missing from the cliff, so the found spots without a known line are a
 precision proxy only, never a count of false lines.
 
-Matching (match): in the grid's CRS, a known line is matched when a found line has both anchors
-within its tolerance of the known anchors, either way round (tools/coverage_contrast.matched with a
-radius per line), the best of them the one with the smallest sum of the two anchor distances (the
-lowest index among ties). The tolerance (tolerance): tol = max(TOL_M, TOL_SHARE * L) metres, L the
-line's length_m (the stated length, else the anchors' distance); for coarse anchors (the flag
-coarse_anchor, at most 3 decimals) raised to the coordinate quantum QUANTUM_M * 10 ** -decimals.
+Matching (candidates, match): in the grid's CRS, a found line is a candidate of a known line when it
+has both anchors within the known line's tolerance of the known anchors, either way round
+(tools/coverage_contrast.matched with a radius per line), and its length within the tolerance of the
+known line's stated length or of its anchors' distance (two ends moved inwards by up to tol each would
+otherwise match a line of L - 2 tol; the anchors' distance as well, since on a line of a good geometry
+it may differ from the stated length by up to max(10 m, 20 %), more than the tolerance, and a found
+line on the known anchors themselves would fail). The match ("match") is the nearest candidate, the
+smallest sum of the two anchor distances (the lowest index among ties); "best_match" the candidate of
+the highest clearance (the nearest among ties): the best line the search offers there. The tolerance
+(tolerance): tol = max(TOL_M, TOL_SHARE * L) metres, L the line's length_m (the stated length, else
+the anchors' distance); for coarse anchors (the flag coarse_anchor, at most COARSE_DECIMALS decimals)
+raised to the coordinate quantum QUANTUM_M * 10 ** -decimals (111 m at 3 decimals): a line matched
+only thanks to it has a doubtful geometry and counts in matched_doubtful, and its match says whether
+the nearest candidate lies within the base tolerance max(TOL_M, TOL_SHARE * L) as well ("within_base").
 
 A miss gets one reason, the first of REASONS whose test holds; "an end" is a known anchor, its pixel
 the grid's pixel whose centre is nearest (studylib.to_pixel), "within tol" a distance from the exact
@@ -41,20 +49,29 @@ helpers.find_significant_slopes) at or above the search's threshold (grid.json's
   filled gaps or of a neighbour's data (search.at_seams on the masks filled and joined): the search
   drops anchors there.
 - water_pixel: an end has no anchor within tol and its pixel is water (the mask water).
-- no_steep_pixel: an end has no anchor and no steep pixel inside the area within tol (the record's
-  "which" names the end: "a", "b" or "both").
+- structure_anchor: an end has no anchor and no steep pixel inside the area within tol, and the
+  surface stands STRUCTURE_M or more above the terrain at the end's pixel or within STRUCTURE_PX
+  pixels of it (the obstacle surface the search used: obstacles.obstacle_surface keeps the surface
+  model only where it stands above the terrain's envelope): the line is rigged on a building, a tower
+  or a tree, which the search never takes as an anchor ("which" names the end, each end's
+  "structure_m" the largest height of the surface above the terrain there).
+- no_steep_pixel: an end has no anchor and no steep pixel inside the area within tol, and no
+  structure (the record's "which" names the end: "a", "b" or "both").
 - anchor_filtered: every end without an anchor within tol has a steep pixel inside the area within tol
   (the anchor was left out by the elevation band, the prominence or the drop: "hint" says which of
   those limits the search had).
 - the rest have anchors within tol at both ends; their pairs (at most MAX_END_ANCHORS per end, the
-  nearest to the known point) go through the search's tests in its order, and the reason is the first
-  stage no pair passes:
+  nearest to the known point) whose length lies within tol of the known line's stated length or of its
+  anchors' distance (candidates' length test: only such a pair can be a match; the length of a pair is
+  the distance of its pixel centres, as linesearch._pairs measures it and the found lines' table
+  holds it) go through the search's tests in its order, and the reason is the first stage no pair
+  passes:
   - length_range: no pair with min_length <= length <= max_length (the search's length range, grid.json's
-    params; the length of a pair is the distance of its pixel centres, as linesearch._pairs measures it).
-    The study's searches take their range from the known lines' stated and geodesic lengths
+    params). The study's searches take their range from the known lines' stated and geodesic lengths
     (truth_study.py: 0.8 x the shortest, 1.1 x the longest), so a known line gets this reason when its
     anchors as written lie far off the length the range was made from (the tolerance moves each end up
-    to tol), or when the range a --place gave leaves it out,
+    to tol), or when the range a --place gave leaves it out; also when no pair has the known line's
+    length at all (the note "known_length": the anchors at the two ends lie too near or too far apart),
   - height_difference: no pair with |z2 - z1| <= min(max_anchor_diff / 100 * length, max_anchor_diff_m)
     (linesearch._pairs' test, grid.json's params),
   - clearance (helpers.evaluate_line's decision with the run's end zone and lift, on the MAX_PAIRS
@@ -73,23 +90,51 @@ helpers.find_significant_slopes) at or above the search's threshold (grid.json's
   anchors, which the capture does not hold, may explain it: the note says so), or no pixel lies
   between a pair's anchors (the note "no_pixel_between").
 
+A clearance miss (ZONE_LIFT_REASONS: clearance_near_anchor, clearance_mid) also gets "zone_lift": the
+funnel's evaluated pairs at each end zone of ZONES and A-frame lift of LIFTS by the search's rule
+(helpers.evaluate_line's bucket minima with the ladder ZONES, a zone at most helpers.ZONE_CAP of a
+line's length as the search caps it, delta the fall allowance: the search's end_clearance is 0):
+"valid"[zone][lift] whether some pair passes there (helpers.valid_at on the terrain's buckets and,
+under nmpt "reject", on the surface's; the pairs over max_wall_angle left out; the height limits
+min_height, min_mean_height and min_high_share, which none of the study's searches sets, not
+applied), and "lift" per zone the smallest lift some pair needs (end_zone_study.needed_lift's rule,
+the larger of the terrain's and the surface's need; valid at any lift above it; None above the last
+of LIFTS). A column of the report, not a change of the verdict, which stays the run's rule (zone 0
+and lift 0 by default).
+
 Each record (diagnose) holds the ends (per end: its pixel, slope, the nearest pixel of each of
 THRESHOLDS within tol, the anchors within tol and the nearest one's distance, steep pixels at a seam,
-the pixel's filled/joined/water flags and canopy), the funnel's counts and its best pair
+the pixel's filled/joined/water flags, canopy, structure_m and structure), "on_terrain" (no structure
+at either end; an end without surface data or outside the grid counts as terrain), the funnel's
+counts and its best pair
 (end_zone_study.line_detail: length, strict clearance, first strict failure, the lift each ladder zone
 needs; with the rule's clearance, the surface's, the wall angles, the height difference and its
 limit), "near": end_zone_study.diagnose_line on studylib.grid_namespace within NEAR_PX pixels of the
 known ends (the best pair of any pixels there and its staircase: diagnose_line looks at every pair of
 pixels, which is too slow at the tolerance itself), and "exact": helpers.evaluate_line between the
-two end pixels. A match records the found line's clearances, over obstacles, representative, group,
-the anchor distances, the wall angles (on the capture's elevation at the found pixels) and the canopy
-(surface - terrain: the obstacle surface the search used) at both anchors.
+two end pixels. A match ("match", the nearest candidate, and "best_match", the one of the highest
+clearance) records the found line's clearances, over obstacles, representative, group, the anchor
+distances, the wall angles (on the capture's elevation at the found pixels) and the canopy (surface
+- terrain: the obstacle surface the search used) at both anchors; "match" also the number of
+candidates, whether any of them is a group's representative ("rep_any") and "within_base".
 
 analyse writes <out>/<cluster>/analysis.json and <out>/analysis.json (every cluster's records); a
 cluster whose search failed (capture.json's status "failed", or no grid.json) is listed, not counted.
 report writes <out>/study.json, study.md and pictures/ (a hillshade per place: the found lines grey,
 the known lines coloured by outcome; a profile chip per miss): per country, source, SlackMap length
-bin and resolution, every count as the total and per type (highline, midline).
+bin and resolution, every count as the total and per type (highline, midline): recall (matched /
+verifiable), recall_clean (the lines of a good geometry only), recall_terrain (matched / verifiable of
+the lines on terrain at both ends), the reasons, the clearance quantiles and the over-trees share of
+the best matches, the wall angles of the nearest, how many nearest matches are a group's
+representative (shown as a spot), the tolerances of the matched doubtful lines, and the clearance
+misses some pair of which is valid at each zone and lift ("zone_lift"). Its head names the searches'
+model ("model": the first place's model, for the sag model its rigging and fall zone, from grid.json,
+and whether every place's search used the same). study.md is written from study.json alone (read
+back): every number it quotes is there, the places' counts per type and the misses' lines too.
+
+Under the sag model (grid.json's model "sag") every evaluation takes the run's sag.EnvelopeTable
+(sag_table_of: search._sag_table of the run's rigging and length range, the table the search used),
+the fall allowance is the rigging's fall zone (grid.json's "fall"), and the zones' delta with it.
 """
 
 import argparse
@@ -116,11 +161,11 @@ import numpy as np  # noqa: E402
 
 import helpers as sh  # noqa: E402
 import studylib  # noqa: E402
-from slackmap_data import KnownLine  # noqa: E402
+from slackmap_data import COARSE_DECIMALS, KnownLine  # noqa: E402
 
-REASONS = ("unverifiable", "outside_area", "no_data", "seam_pixel", "water_pixel", "no_steep_pixel",
-           "anchor_filtered", "length_range", "height_difference", "clearance_near_anchor", "clearance_mid",
-           "surface_obstacle", "wall_angle", "unexplained")
+REASONS = ("unverifiable", "outside_area", "no_data", "seam_pixel", "water_pixel", "structure_anchor",
+           "no_steep_pixel", "anchor_filtered", "length_range", "height_difference", "clearance_near_anchor",
+           "clearance_mid", "surface_obstacle", "wall_angle", "unexplained")
 TOL_M = 10.0          # metres: the tolerance's floor
 TOL_SHARE = 0.10      # of the line's length
 QUANTUM_M = 1.11e5    # metres of one degree of latitude: a coarse anchor's quantum is QUANTUM_M * 10 ** -decimals
@@ -133,6 +178,12 @@ ENDS_MAX_M = 150.0    # metres: the ends' neighbourhood at most (a coarse line's
 MAX_END_ANCHORS = 400  # anchors per end in the funnel, the nearest to the known point
 MAX_PAIRS = 3000      # pairs evaluated pixel by pixel, those of the smallest distance sum
 LENGTH_EDGES = (0, 30, 50, 100, 200, 500)  # SlackMap's length bins, metres
+STRUCTURE_M = 3.0     # metres: a structure at an end (structure_anchor): the surface this much above the terrain
+STRUCTURE_PX = 1      # pixels around an end's pixel looked at for a structure
+ZONES = (0.0, 5.0, 10.0, 20.0)  # metres: the end zones of a clearance miss's "zone_lift" (a ladder from 0)
+LIFTS = (0.0, 1.0, 2.0, 3.0)    # metres: its A-frame lifts; a smallest lift above the last is None
+ZONE_LIFT_REASONS = ("clearance_near_anchor", "clearance_mid")
+DOUBTFUL_TOL_EDGES = (TOL_M, 100.0, 1000.0)  # metres: the report's bins of the matched doubtful lines' tolerances
 REPORT_TYPES = ("highline", "midline")    # always in the tables, other types when present
 PICTURE_PX = 1600     # pixels of a place's hillshade at most (a larger view is drawn every k-th pixel)
 VIEW_PAD = (20, 0.05)  # a place's picture: the search area and the known lines, padded by max(20 px, 5 % of it)
@@ -162,6 +213,11 @@ class FoundLines:
 
     def __len__(self) -> int:
         return len(self.a1)
+
+    @property
+    def lengths(self) -> np.ndarray:
+        """The lines' lengths in metres: the table's, the anchors' distance in the grid's CRS where it has none."""
+        return np.where(np.isfinite(self.length), self.length, np.hypot(*(self.xy2 - self.xy1).T))
 
     @property
     def spots(self) -> int:
@@ -372,21 +428,36 @@ def doubtful(line: KnownLine) -> bool:
     return any(flag in line.flags for flag in DOUBTFUL)
 
 
-def _distances(a: np.ndarray, b: np.ndarray, tol: float, found: FoundLines) -> np.ndarray:
+def known_lengths(line: KnownLine) -> Tuple[float, ...]:
+    """The lengths a candidate's length is compared with: the stated length (when given) and the
+    anchors' distance (the module docstring)."""
+    return tuple(float(v) for v in (line.stated_m, line.geodesic_m) if v is not None)
+
+
+def _distances(a: np.ndarray, b: np.ndarray, tol: float, found: FoundLines,
+               lengths: Sequence[float] = ()) -> np.ndarray:
     """The anchor-distance sum of each found line with both anchors within tol of (a, b), either way
-    round (the smaller sum of the orientations that fit), inf for the others."""
+    round (the smaller sum of the orientations that fit), and, lengths given, its length within tol of
+    one of them; inf for the others."""
     if not len(found):
         return np.zeros(0)
     d11, d22 = np.hypot(*(found.xy1 - a).T), np.hypot(*(found.xy2 - b).T)
     d12, d21 = np.hypot(*(found.xy1 - b).T), np.hypot(*(found.xy2 - a).T)
     straight = np.where((d11 <= tol) & (d22 <= tol), d11 + d22, np.inf)
     crossed = np.where((d12 <= tol) & (d21 <= tol), d12 + d21, np.inf)
-    return np.minimum(straight, crossed)
+    sums = np.minimum(straight, crossed)
+    if len(lengths):
+        fits = np.zeros(len(found), dtype=bool)
+        for length in lengths:
+            fits |= np.abs(found.lengths - length) <= tol
+        sums = np.where(fits, sums, np.inf)
+    return sums
 
 
-def match(known: List[KnownLine], found: FoundLines, grid: Dict) -> List[Optional[int]]:
-    """The index of each known line's found line (None: no match): coverage_contrast.matched with each
-    line's tolerance decides, the smallest anchor-distance sum chooses (the lowest index of a tie)."""
+def candidates(known: List[KnownLine], found: FoundLines, grid: Dict) -> List[np.ndarray]:
+    """The found lines matching each known line (both anchors and the length within its tolerance:
+    the module docstring), the nearest first (the anchor-distance sum, the lowest index among ties);
+    coverage_contrast.matched with each line's tolerance skips the lines without one."""
     import coverage_contrast
     if not known:
         return []
@@ -394,21 +465,37 @@ def match(known: List[KnownLine], found: FoundLines, grid: Dict) -> List[Optiona
     tol = np.array([tolerance(k) for k in known])
     ok = coverage_contrast.matched(ka, kb, found.xy1, found.xy2, tol)
     out = []
-    for k in range(len(known)):
-        sums = _distances(ka[k], kb[k], tol[k], found) if ok[k] else np.zeros(0)
-        out.append(int(np.argmin(sums)) if len(sums) and np.isfinite(sums).any() else None)
+    for k, line in enumerate(known):
+        sums = _distances(ka[k], kb[k], tol[k], found, known_lengths(line)) if ok[k] else np.zeros(0)
+        idx = np.flatnonzero(np.isfinite(sums))
+        out.append(idx[np.argsort(sums[idx], kind="stable")])
     return out
 
 
+def match(known: List[KnownLine], found: FoundLines, grid: Dict) -> List[Optional[int]]:
+    """The index of each known line's found line, its nearest candidate (None: no candidate)."""
+    return [int(c[0]) if len(c) else None for c in candidates(known, found, grid)]
+
+
+def best_candidate(cands: Sequence[int], found: FoundLines) -> Optional[int]:
+    """The candidate of the highest clearance (NaN the lowest; the nearest among ties: cands come
+    nearest first), None without candidates."""
+    cands = np.asarray(cands, dtype=np.int64)
+    if not len(cands):
+        return None
+    clearance = found.clearance[cands]
+    return int(cands[int(np.argmax(np.where(np.isnan(clearance), -np.inf, clearance)))])
+
+
 def near_known(known: List[KnownLine], found: FoundLines, grid: Dict) -> np.ndarray:
-    """Which found lines have a known line of a good geometry within its tolerance (either way round):
-    the found spots holding none are the precision proxy."""
+    """Which found lines are a candidate of a known line of a good geometry (candidates' test): the
+    found spots holding none are the precision proxy."""
     near = np.zeros(len(found), dtype=bool)
     for line in known:
         if doubtful(line):
             continue
         a, b = _xy(grid, [line.a])[0], _xy(grid, [line.b])[0]
-        near |= np.isfinite(_distances(a, b, tolerance(line), found))
+        near |= np.isfinite(_distances(a, b, tolerance(line), found, known_lengths(line)))
     return near
 
 
@@ -419,6 +506,15 @@ def length_bin(length: float) -> str:
         if length < hi:
             return f"{lo}-{hi}"
     return f"{edges[-1]}+"
+
+
+def tol_bin(tol: float) -> str:
+    """The bin of a tolerance on DOUBTFUL_TOL_EDGES (metres): "10-100", "100-1000", "1000+"."""
+    edges = DOUBTFUL_TOL_EDGES
+    for lo, hi in zip(edges, edges[1:]):
+        if tol < hi:
+            return f"{lo:g}-{hi:g}"
+    return f"{edges[-1]:g}+"
 
 
 # ---------------------------------------------------------------------------------------------
@@ -456,6 +552,20 @@ def _canopy(c: Capture, pixel) -> Optional[float]:
     """surface - terrain at a pixel (metres; None without a surface or data)."""
     s, z = _value(c.surface, pixel), _value(c.elevation, pixel)
     return None if s is None or z is None else s - z
+
+
+def _structure(c: Capture, pixel) -> Optional[float]:
+    """The largest height of the surface above the terrain at a pixel or within STRUCTURE_PX pixels of
+    it (metres; None without a surface, outside the grid or without data there)."""
+    r, col = pixel
+    h, w = c.elevation.shape
+    if c.surface is None or not (0 <= r < h and 0 <= col < w):
+        return None
+    k = STRUCTURE_PX
+    window = (slice(max(0, r - k), r + k + 1), slice(max(0, col - k), col + k + 1))
+    above = np.asarray(c.surface[window], dtype=np.float64) - np.asarray(c.elevation[window], dtype=np.float64)
+    above = above[np.isfinite(above)]
+    return float(above.max()) if len(above) else None
 
 
 def _end(c: Capture, point: Tuple[float, float], tol: float) -> Tuple[Dict, np.ndarray, np.ndarray]:
@@ -502,9 +612,11 @@ def _end(c: Capture, point: Tuple[float, float], tol: float) -> Tuple[Dict, np.n
     pa, da = pa[order], da[order]
     entry["anchors"] = int(keep.sum())
     entry["anchor_within"] = float(da[0]) if len(da) else None
+    structure = _structure(c, pixel)
     entry.update(filled=_flag(c.filled, pixel), joined=_flag(c.joined, pixel), water=_flag(c.water, pixel),
                  at_seam=bool(in_grid and _seams(c, np.array([pixel], dtype=np.int64))[0]),
-                 canopy=_canopy(c, pixel) if in_grid else None)
+                 canopy=_canopy(c, pixel) if in_grid else None, structure_m=structure,
+                 structure=bool(structure is not None and structure >= STRUCTURE_M))
     return entry, pa, da
 
 
@@ -527,14 +639,21 @@ def _first_failure(c: Capture, lo, hi) -> Optional[Dict]:
             "near": bool(min(from_a1, from_a2) <= max(NEAR_M, NEAR_SHARE * length))}
 
 
-def _evaluate(c: Capture, lo, hi):
-    """helpers.evaluate_line of the pair with the run's surface, model, end zone and lift."""
+def _evaluate(c: Capture, lo, hi, zones: Sequence[float] = ()):
+    """helpers.evaluate_line of the pair with the run's surface, model, end zone and lift (with zones
+    also the bucket minima of that ladder: two more values, the first eight unchanged); None for a pair
+    without a pixel between its anchors or with an anchor without data (no line: the sag table takes
+    no NaN height difference, and the formula's clearance would be NaN)."""
+    if not (math.isfinite(float(c.elevation[int(lo[0]), int(lo[1])]))
+            and math.isfinite(float(c.elevation[int(hi[0]), int(hi[1])]))):
+        return None
     p = c.params
     with warnings.catch_warnings():  # np.nanmin's "All-NaN slice" where an anchor has no data: NaN fails anyway
         warnings.simplefilter("ignore", RuntimeWarning)
         return sh.evaluate_line(lo, hi, c.elevation, c.res, c.surface if c.nmpt else None, c.sag_table,
                                 float(p.get("high_above", sh.HIGH_ABOVE)),
-                                end_zone=float(p.get("end_zone", 0) or 0), lift=float(p.get("anchor_lift", 0) or 0))
+                                end_zone=float(p.get("end_zone", 0) or 0), lift=float(p.get("anchor_lift", 0) or 0),
+                                zones=zones)
 
 
 def _limits_pass(c: Capture, result) -> bool:
@@ -564,10 +683,49 @@ def _pair_detail(c: Capture, lo, hi, stage: str, d_known: Sequence[float]) -> Di
     return detail
 
 
-def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
-            ) -> Tuple[Dict, Optional[Dict], str, Optional[str]]:
-    """The anchor pairs of the two ends through the search's tests (the module docstring): the counts,
-    the best pair of the last stage reached, the reason and a note."""
+def _needed(buckets: np.ndarray, j: int, delta: float) -> np.ndarray:
+    """end_zone_study.needed_lift of each row of bucket minima at ladder zone j: max(0, -min(core),
+    -min(zone) - delta), inf where a bucket is NaN (a pixel without data fails at any lift)."""
+    n = len(buckets)
+    core = buckets[:, j:].min(axis=1) if buckets.shape[1] > j else np.full(n, np.inf)
+    zone = buckets[:, :j].min(axis=1) if j else np.full(n, np.inf)
+    need = np.maximum(np.maximum(0.0, -core), -zone - delta) + 0.0  # + 0.0: never -0.0
+    need[np.isnan(buckets).any(axis=1)] = np.inf
+    return need
+
+
+def _zone_lift(c: Capture, lo: np.ndarray, hi: np.ndarray, results: Sequence[tuple]) -> Optional[Dict]:
+    """A clearance miss's evaluated pairs (lo, hi and their evaluate_line results with the ladder ZONES)
+    at each zone of ZONES and lift of LIFTS (the module docstring): "valid", "lift" and the pairs."""
+    if not len(results):
+        return None
+    delta = c.fall  # helpers.end_delta with the search's end_clearance of 0
+    grids = [np.array([r[8] for r in results], dtype=np.float64).reshape(-1, len(ZONES))]
+    if c.nmpt == "reject":  # helpers.is_valid: a line without surface data passes (+inf buckets)
+        grids.append(np.array([np.full(len(ZONES), np.inf) if r[9] is None else r[9] for r in results],
+                              dtype=np.float64).reshape(-1, len(ZONES)))
+    keep = np.ones(len(results), dtype=bool)
+    if c.params.get("max_wall_angle") is not None:
+        lo, hi = np.asarray(lo, dtype=np.int64).reshape(-1, 2), np.asarray(hi, dtype=np.int64).reshape(-1, 2)
+        down = sh.downslope(c.elevation, np.vstack([lo, hi]), c.res)
+        a1, a2 = sh.wall_angles(lo, hi, down[:len(lo)], down[len(lo):])
+        keep &= np.where(a2 > a1, a2, a1) <= float(c.params["max_wall_angle"])
+    valid, lift = [], []
+    for j in range(len(ZONES)):
+        ok = [keep & np.logical_and.reduce([sh.valid_at(g, j, h, delta) for g in grids]) for h in LIFTS]
+        valid.append([bool(v.any()) for v in ok])
+        need = np.maximum.reduce([_needed(g, j, delta) for g in grids])
+        smallest = float(need[keep].min()) if keep.any() else math.inf
+        lift.append(smallest if smallest <= LIFTS[-1] else None)
+    return {"zones": list(ZONES), "lifts": list(LIFTS), "valid": valid, "lift": lift, "pairs": int(keep.sum())}
+
+
+def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]], lengths: Sequence[float], tol: float
+            ) -> Tuple[Dict, Optional[Dict], str, Optional[str], Optional[Dict]]:
+    """The anchor pairs of the two ends with a length within tol of one of lengths (the known line's:
+    known_lengths) through the search's tests (the module docstring): the counts, the best pair of the
+    last stage reached, the reason, a note and a clearance miss's zone_lift (None for the other
+    reasons)."""
     (pa, da), (pb, db) = ends
     p = c.params
     i, j = np.meshgrid(np.arange(len(pa)), np.arange(len(pb)), indexing="ij")
@@ -579,16 +737,20 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
     lo, hi = np.where(first[:, None], p1, p2), np.where(first[:, None], p2, p1)
     dsum = da[i] + db[j]
     length = np.hypot(*(hi - lo).T.astype(np.float64)) * c.res
-    counts = {"pairs": int(len(i))}
-    in_range = (length >= float(p.get("min_length", 0))) & (length <= float(p.get("max_length", np.inf)))
+    fits = np.zeros(len(length), dtype=bool)
+    for known_length in lengths:
+        fits |= np.abs(length - known_length) <= tol
+    counts = {"pairs": int(len(i)), "known_length": int(fits.sum())}
+    in_range = fits & (length >= float(p.get("min_length", 0))) & (length <= float(p.get("max_length", np.inf)))
     counts["length"] = int(in_range.sum())
 
     def detail(k, stage):
         return _pair_detail(c, lo[k], hi[k], stage, (da[i[k]], db[j[k]]))
 
     if not in_range.any():
-        k = int(np.argmin(dsum)) if len(dsum) else None
-        return counts, None if k is None else detail(k, "length"), "length_range", None
+        k = int(np.argmin(np.where(fits, dsum, np.inf) if fits.any() else dsum)) if len(dsum) else None
+        return (counts, None if k is None else detail(k, "length"), "length_range",
+                None if fits.any() else "known_length", None)
     z = c.elevation
     dh = np.abs(z[hi[:, 0], hi[:, 1]] - z[lo[:, 0], lo[:, 1]])
     max_dh = p.get("max_anchor_diff_m")
@@ -599,13 +761,13 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
     if not height.any():
         excess = np.where(in_range, dh - limit, np.inf)
         excess = np.where(np.isnan(excess), np.inf, excess)
-        return counts, detail(int(np.argmin(excess)), "height"), "height_difference", None
+        return counts, detail(int(np.argmin(excess)), "height"), "height_difference", None, None
     rows = np.flatnonzero(height)
     rows = rows[np.argsort(dsum[rows], kind="stable")]
     counts["capped"] = bool(len(rows) > MAX_PAIRS)
     rows = rows[:MAX_PAIRS]
     counts["evaluated"] = int(len(rows))
-    results = [_evaluate(c, lo[k], hi[k]) for k in rows]
+    results = [_evaluate(c, lo[k], hi[k], ZONES) for k in rows]
     valid = np.array([r is not None for r in results])
     rows, results = rows[valid], [r for r in results if r is not None]
     clearance = np.array([r[3] for r in results], dtype=np.float64)
@@ -614,10 +776,11 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
     if not terrain.any():
         k = int(rows[np.argmax(np.where(np.isnan(clearance), -np.inf, clearance))]) if len(rows) else None
         if k is None:
-            return counts, None, "unexplained", "no_pixel_between"
+            return counts, None, "unexplained", "no_pixel_between", None
         best = detail(k, "terrain")
         failure = best["rule_failure"]
-        return counts, best, "clearance_near_anchor" if failure and failure["near"] else "clearance_mid", None
+        reason = "clearance_near_anchor" if failure and failure["near"] else "clearance_mid"
+        return counts, best, reason, None, _zone_lift(c, lo[rows], hi[rows], results)
     nmpt = np.array([np.nan if r[4] is None else r[4] for r in results], dtype=np.float64)
     surface = terrain.copy()
     if c.nmpt == "reject":  # helpers.is_valid: a surface without data at every pixel (None, NaN here) passes
@@ -625,7 +788,7 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
     counts["surface"] = int(surface.sum())
     if not surface.any():
         k = int(rows[np.argmax(np.where(terrain & ~np.isnan(nmpt), nmpt, -np.inf))])
-        return counts, detail(k, "surface"), "surface_obstacle", None
+        return counts, detail(k, "surface"), "surface_obstacle", None, None
     down = sh.downslope(z, np.vstack([lo[rows], hi[rows]]), c.res)
     a1, a2 = sh.wall_angles(lo[rows], hi[rows], down[:len(rows)], down[len(rows):])
     wall_max = np.where(a2 > a1, a2, a1)
@@ -635,7 +798,7 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
     counts["wall"] = int(wall.sum())
     if not wall.any():
         k = int(rows[np.argmin(np.where(surface, wall_max, np.inf))])
-        return counts, detail(k, "wall"), "wall_angle", None
+        return counts, detail(k, "wall"), "wall_angle", None, None
     limits = wall & np.array([_limits_pass(c, r) for r in results])
     counts["limits"] = int(limits.sum())
     last = limits if limits.any() else wall
@@ -643,7 +806,7 @@ def _funnel(c: Capture, ends: Sequence[Tuple[np.ndarray, np.ndarray]]
     note = "a_pair_passes" if limits.any() else "height_limits"
     if limits.any() and p.get("min_prominence") is not None:
         note += "; min_prominence set: the strong anchors are not in the capture"
-    return counts, detail(k, "limits" if limits.any() else "wall"), "unexplained", note
+    return counts, detail(k, "limits" if limits.any() else "wall"), "unexplained", note, None
 
 
 def _filter_hint(c: Capture, entries: Sequence[Dict]) -> str:
@@ -681,6 +844,9 @@ def _near(c: Capture, line: KnownLine) -> Optional[Dict]:
     there (today's strict rule) and the lift each ladder zone needs."""
     import end_zone_study as ezs
     ends = [studylib.to_pixel(c.grid, *line.a), studylib.to_pixel(c.grid, *line.b)]
+    if c.sag_table is not None and any(np.isnan(c.elevation[tuple(studylib.disc(c.elevation, e, NEAR_PX).T)]).any()
+                                       for e in ends):
+        return {"error": "a pixel without data near an end (the sag table takes no NaN height difference)"}
     anchors = set()
     if c.tree is not None:  # the anchors near the ends: the only ones diagnose_line asks about
         for e in ends:
@@ -712,8 +878,10 @@ def _match_detail(c: Capture, line: KnownLine, k: int) -> Dict:
             "pixels": [list(p2), list(p1)] if swapped else [list(p1), list(p2)]}
 
 
-def diagnose(capture: Capture, line: KnownLine, found_index: Optional[int]) -> Dict:
-    """One known line's record (the module docstring): the match, or the miss with its reason."""
+def diagnose(capture: Capture, line: KnownLine, found_index: Optional[int],
+             cands: Optional[Sequence[int]] = None) -> Dict:
+    """One known line's record (the module docstring): the match, or the miss with its reason. cands:
+    the line's candidates in candidates' order (computed here when not given)."""
     c = capture
     tol = tolerance(line)
     record = {"id": line.id, "type": line.type, "country": line.country, "cluster": c.cluster, "source": c.source,
@@ -721,16 +889,27 @@ def diagnose(capture: Capture, line: KnownLine, found_index: Optional[int]) -> D
               "decimals": line.decimals, "flags": list(line.flags), "doubtful": doubtful(line),
               "bin": length_bin(line.length_m), "tol": tol,
               "outcome": "matched" if found_index is not None else "missed",
-              "verifiable": True, "reason": None, "which": None, "note": None, "match": None, "ends": [],
-              "funnel": None, "best": None, "near": None, "exact": None, "canopy": [None, None]}
+              "verifiable": True, "reason": None, "which": None, "note": None, "match": None, "best_match": None,
+              "ends": [], "funnel": None, "best": None, "zone_lift": None, "near": None, "exact": None,
+              "canopy": [None, None], "structure": [None, None], "on_terrain": True}
     ea, pa, da = _end(c, line.a, tol)
     eb, pb, db = _end(c, line.b, tol)
     ends = [ea, eb]
-    record["ends"] = ends
-    record["exact"] = _exact(c, ends)
+    record.update(ends=ends, exact=_exact(c, ends), structure=[ea["structure_m"], eb["structure_m"]],
+                  on_terrain=not (ea["structure"] or eb["structure"]))
     if found_index is not None:
-        record["match"] = _match_detail(c, line, found_index)
-        record["canopy"] = record["match"]["canopy"]
+        found_index = int(found_index)
+        cands = [int(k) for k in (candidates([line], c.found, c.grid)[0] if cands is None else cands)]
+        if found_index not in cands:  # a match the caller chose: taken as the nearest candidate
+            cands.insert(0, found_index)
+        best = best_candidate(cands, c.found)
+        base = max(TOL_M, TOL_SHARE * line.length_m)
+        m = _match_detail(c, line, found_index)
+        fits = min(abs(float(c.found.lengths[found_index]) - v) for v in known_lengths(line)) <= base
+        m.update(candidates=len(cands), rep_any=bool(c.found.rep[cands].any()),
+                 within_base=bool(max(m["d"]) <= base and fits))
+        record.update(match=m, best_match={**_match_detail(c, line, best), "nearest": best == found_index},
+                      canopy=m["canopy"])
         return record
     record["canopy"] = [ea["canopy"], eb["canopy"]]
     if doubtful(line):
@@ -752,13 +931,16 @@ def diagnose(capture: Capture, line: KnownLine, found_index: Optional[int]) -> D
             record.update(reason="seam_pixel", which=_which([b and e["steep_at_seam"] > 0 for e, b in zip(ends, bare)]))
         elif any(e["water"] for e in lacking):
             record.update(reason="water_pixel", which=_which([b and e["water"] for e, b in zip(ends, bare)]))
+        elif any(not e["steep"] and e["structure"] for e in lacking):
+            record.update(reason="structure_anchor",
+                          which=_which([b and not e["steep"] and e["structure"] for e, b in zip(ends, bare)]))
         elif any(not e["steep"] for e in lacking):
             record.update(reason="no_steep_pixel", which=_which([b and not e["steep"] for e, b in zip(ends, bare)]))
         else:
             record.update(reason="anchor_filtered", which=_which(bare), note=_filter_hint(c, lacking))
         return record
-    counts, best, reason, note = _funnel(c, [(pa, da), (pb, db)])
-    record.update(funnel=counts, best=best, reason=reason, note=note)
+    counts, best, reason, note, zone_lift = _funnel(c, [(pa, da), (pb, db)], known_lengths(line), tol)
+    record.update(funnel=counts, best=best, reason=reason, note=note, zone_lift=zone_lift)
     return record
 
 
@@ -905,20 +1087,22 @@ def analyse_cluster(folder: str, profiles: bool = False, cache_dir: Optional[str
                   "records": []}
         _write_json(os.path.join(folder, "analysis.json"), result)
         return result
-    index = match(c.known, c.found, c.grid)
-    records = [diagnose(c, line, k) for line, k in zip(c.known, index)]
+    cands = candidates(c.known, c.found, c.grid)
+    index = [int(k[0]) if len(k) else None for k in cands]
+    records = [diagnose(c, line, k, ks) for line, k, ks in zip(c.known, index, cands)]
     if profiles:
-        candidates = [(line, r) for line, r in zip(c.known, records)
-                      if r["verifiable"] and r["reason"] not in ("outside_area", "no_data")]
-        if candidates:
+        checks = [(line, r) for line, r in zip(c.known, records)
+                  if r["verifiable"] and r["reason"] not in ("outside_area", "no_data")]
+        if checks:
             data = folders.data_of(c)
-            for line, r in candidates:
+            for line, r in checks:
                 r["profile"] = profile_check(c, line, r, data)
     near = near_known(c.known, c.found, c.grid)
     groups = np.unique(c.found.group)
     with_known = np.unique(c.found.group[near]) if near.any() else np.zeros(0, dtype=np.int64)
     result = {"cluster": name, "status": c.status or "done", "analysed": True, "source": c.source,
               "resolution": c.res, "crs": c.grid["crs"], "model": c.grid.get("model", c.params.get("model")),
+              "rigging": c.grid.get("rigging") or c.params.get("rigging"), "fall": c.fall,
               "nmpt": c.nmpt, "slope_threshold": c.threshold, "anchors": int(len(c.anchors)),
               "found_lines": int(len(c.found)), "found_spots": int(len(groups)),
               "spots_without_known": int(len(groups) - len(with_known)), "known": len(c.known),
@@ -967,23 +1151,61 @@ def _quantiles(values: Sequence[float]) -> Optional[List[float]]:
     return [round(float(q), 2) for q in np.percentile(values, [10, 50, 90])] if values else None
 
 
+def _share(n: int, d: int) -> Optional[float]:
+    return round(n / d, 4) if d else None
+
+
+def zone_lift_counts(records: Sequence[Dict]) -> Dict:
+    """The misses of ZONE_LIFT_REASONS (each, and "both") some pair of which is valid at each zone and
+    lift: {"zones", "lifts", "rows": {name: {"misses", "found": [[count per lift] per zone]}}}."""
+    rows = {}
+    for name, reasons in [*((r, (r,)) for r in ZONE_LIFT_REASONS), ("both", ZONE_LIFT_REASONS)]:
+        rs = [r for r in records if r["outcome"] == "missed" and r["reason"] in reasons]
+        found = [[0] * len(LIFTS) for _ in ZONES]
+        for r in rs:
+            valid = (r.get("zone_lift") or {}).get("valid")
+            for j in range(len(ZONES) if valid else 0):
+                for k in range(len(LIFTS)):
+                    found[j][k] += bool(valid[j][k])
+        rows[name] = {"misses": len(rs), "found": found}
+    return {"zones": list(ZONES), "lifts": list(LIFTS), "rows": rows}
+
+
 def stats(records: Sequence[Dict]) -> Dict:
-    """Counts, recall, reasons and the matched lines' quantiles of some records."""
+    """Counts, recalls, reasons, the matched lines' quantiles and representatives, the doubtful
+    matches' tolerances and the clearance misses' zones and lifts of some records (the module
+    docstring)."""
     matched = [r for r in records if r["outcome"] == "matched"]
     verifiable = sum(bool(r["verifiable"]) for r in records)
     clean = [r for r in records if not r["doubtful"]]
     clean_matched = sum(r["outcome"] == "matched" for r in clean)
+    terrain = [r for r in records if r.get("on_terrain", True)]
+    terrain_verifiable = sum(bool(r["verifiable"]) for r in terrain)
+    terrain_matched = sum(r["outcome"] == "matched" for r in terrain)
     reasons = collections.Counter(r["reason"] for r in records if r["outcome"] == "missed")
-    over = [r["match"]["over"] for r in matched]
+    best = [r.get("best_match") or r["match"] for r in matched]  # an analysis.json of before: the nearest only
+    over = [b["over"] for b in best]
+    doubtful_matched = [r for r in matched if r["doubtful"]]
+    bins = {tol_bin(lo): 0 for lo in DOUBTFUL_TOL_EDGES}
+    for r in doubtful_matched:
+        bins[tol_bin(r["tol"])] += 1
+    tols = sorted(round(r["tol"], 1) for r in doubtful_matched)
     return {"known": len(records), "verifiable": verifiable, "matched": len(matched),
-            "recall": round(len(matched) / verifiable, 4) if verifiable else None,
-            "known_clean": len(clean), "matched_clean": clean_matched,
-            "recall_clean": round(clean_matched / len(clean), 4) if clean else None,
-            "matched_doubtful": sum(r["doubtful"] for r in matched),
+            "recall": _share(len(matched), verifiable), "misses": len(records) - len(matched),
+            "known_clean": len(clean), "matched_clean": clean_matched, "recall_clean": _share(clean_matched, len(clean)),
+            "known_terrain": len(terrain), "verifiable_terrain": terrain_verifiable, "matched_terrain": terrain_matched,
+            "recall_terrain": _share(terrain_matched, terrain_verifiable),
+            "matched_doubtful": len(doubtful_matched),
+            "doubtful_tolerance": {"bins": bins, "quantiles": _quantiles(tols), "largest": tols[-1] if tols else None,
+                                   "within_base": sum(bool(r["match"].get("within_base")) for r in doubtful_matched),
+                                   "tolerances": tols},
+            "matched_rep": sum(bool(r["match"]["rep"]) for r in matched),
+            "matched_rep_any": sum(bool(r["match"].get("rep_any", r["match"]["rep"])) for r in matched),
             "reasons": {k: reasons.get(k, 0) for k in REASONS},
-            "clearance": _quantiles([r["match"]["clearance"] for r in matched]),
-            "over_trees": round(sum(over) / len(over), 4) if over else None,
-            "wall_angle": _quantiles([r["match"]["wall"] for r in matched])}
+            "clearance": _quantiles([b["clearance"] for b in best]),
+            "over_trees": _share(sum(over), len(over)),
+            "wall_angle": _quantiles([r["match"]["wall"] for r in matched]),
+            "zone_lift": zone_lift_counts(records)}
 
 
 def types_of(records: Sequence[Dict]) -> List[str]:
@@ -1037,9 +1259,31 @@ def _reason_cell(s: Dict, reason: str, types: Sequence[str]) -> str:
     return f"{s['all']['reasons'][reason]} (" + " / ".join(str(s[t]['reasons'][reason]) for t in types) + ")"
 
 
-def _miss_line(n: int, r: Dict) -> str:
-    """One miss of a place's list."""
-    text = (f"- #{n} `{r['id']}` ({r['type']}, {r['length_m']:.0f} m, tol {r['tol']:.0f} m): **{r['reason']}**"
+def _zone_cell(s: Dict, name: str, j: int, k: int, types: Sequence[str]) -> str:
+    """A cell of the zone x lift table: the misses found at zone j and lift k, total (per type)."""
+    found = {t: s[t]["zone_lift"]["rows"][name]["found"][j][k] for t in ["all", *types]}
+    return f"{found['all']} (" + " / ".join(str(found[t]) for t in types) + ")"
+
+
+def _miss_entry(n: int, r: Dict) -> Dict:
+    """What study.json keeps of a miss (record r, the n-th known line of its place: the number of its
+    picture) for its line in study.md (_miss_line)."""
+    entry = {"n": n, **{k: r.get(k) for k in ("id", "type", "length_m", "tol", "reason", "which", "note",
+                                               "profile")}}
+    b = r.get("best")
+    entry["best"] = {k: b.get(k) for k in ("length", "dh", "dh_limit", "clearance_rule", "clearance_nmpt",
+                                           "rule_failure", "angles", "staircase")} if b else None
+    entry["ends"] = [{k: e.get(k) for k in ("slope", "steep_m", "anchor_within", "structure_m", "structure")}
+                     for e in r.get("ends") or []]
+    entry["exact_clearance"] = (r.get("exact") or {}).get("clearance")
+    zl = r.get("zone_lift")
+    entry["zone_lift"] = {"zones": zl["zones"], "lift": zl["lift"]} if zl else None
+    return entry
+
+
+def _miss_line(r: Dict, rules_: Dict) -> str:
+    """One miss of a place's list, from its entry in study.json (_miss_entry)."""
+    text = (f"- #{r['n']} `{r['id']}` ({r['type']}, {r['length_m']:.0f} m, tol {r['tol']:.0f} m): **{r['reason']}**"
             + (f" ({r['which']})" if r.get("which") else "") + (f"; {r['note']}" if r.get("note") else ""))
     b = r.get("best")
     if b:
@@ -1051,15 +1295,24 @@ def _miss_line(n: int, r: Dict) -> str:
             f = b["rule_failure"]
             text += f", first failure {f['from_a1']:.1f} / {f['from_a2']:.1f} m from the ends"
         text += f", wall angles {_num(b['angles'][0], 0)} / {_num(b['angles'][1], 0)} deg"
-        text += "; lift needed " + ", ".join(f"zone {s['zone']:g} m: {_num(s['lift'])} m" for s in b["staircase"])
+        zl = r.get("zone_lift")
+        if zl:
+            text += "; smallest lift of any pair: " + ", ".join(
+                f"zone {z:g} m: " + (f"{_num(v)} m" if v is not None else f"over {rules_['lifts'][-1]:g} m")
+                for z, v in zip(zl["zones"], zl["lift"]))
+        else:
+            text += "; lift needed " + ", ".join(f"zone {s['zone']:g} m: {_num(s['lift'])} m" for s in b["staircase"])
     elif r.get("ends"):
         parts = []
         for side, e in zip("ab", r["ends"]):
-            parts.append(f"{side}: slope {_num(e.get('slope'))} deg, steep pixel {_num(e.get('steep_m'))} m, "
-                         f"anchor {_num(e.get('anchor_within'))} m")
+            part = (f"{side}: slope {_num(e.get('slope'))} deg, steep pixel {_num(e.get('steep_m'))} m, "
+                    f"anchor {_num(e.get('anchor_within'))} m")
+            if e.get("structure"):
+                part += f", surface {_num(e['structure_m'])} m above the terrain"
+            parts.append(part)
         text += "; " + "; ".join(parts)
-    if r.get("exact") and r["exact"].get("clearance") is not None:
-        text += f"; the known pair itself: clearance {_num(r['exact']['clearance'], 2)} m"
+    if r.get("exact_clearance") is not None:
+        text += f"; the known pair itself: clearance {_num(r['exact_clearance'], 2)} m"
     if r.get("profile"):
         p = r["profile"]
         text += (f"; profile: {p['error']}" if "error" in p else
@@ -1067,8 +1320,49 @@ def _miss_line(n: int, r: Dict) -> str:
     return text
 
 
+def model_of(places: Sequence[Dict]) -> Optional[Dict]:
+    """The model of the analysed places' searches: the first place's model, its fall allowance and (the
+    sag model) its rigging, and whether every place's search used the same ("variants": each with its
+    places); None without places."""
+    if not places:
+        return None
+
+    def key(s):
+        rigging = s.get("rigging") if s.get("model") == "sag" else None
+        return s.get("model"), json.dumps(rigging, sort_keys=True), s.get("fall")
+
+    variants = collections.Counter(key(s) for s in places)
+    first = places[0]
+    return {"model": first.get("model"), "fall": first.get("fall"),
+            "rigging": first.get("rigging") if first.get("model") == "sag" else None, "same": len(variants) == 1,
+            "variants": [{"model": m, "rigging": json.loads(r), "fall": f, "places": n}
+                         for (m, r, f), n in variants.items()]}
+
+
+def _model_text(m: Dict) -> str:
+    """The model of a variant of model_of, in words."""
+    if m["model"] != "sag":
+        return f"the {m['model']} model (a fall allowance of {_num(m['fall'], 1)} m)"
+    rig = m.get("rigging") or {}
+    if not rig:
+        return "the sag model (its rigging not recorded)"
+    return (f"the sag model (the sag estimator): pretension {_num(rig.get('pretension'))} kN, stretch "
+            f"{_num(rig.get('stretch'))} % at 10 kN, webbing {_num(rig.get('webbing_weight'), 0)} g/m, athlete "
+            f"{_num(rig.get('athlete_mass'), 0)} kg, a fall zone of {_num(rig.get('fall_zone'))} m below the sagged "
+            "webbing (the fall allowance)")
+
+
+def rules() -> Dict:
+    """The rules and constants study.md quotes (study.json's "rules")."""
+    return {"tolerance": {"floor_m": TOL_M, "share": TOL_SHARE, "quantum_m": QUANTUM_M},
+            "coarse_decimals": COARSE_DECIMALS, "structure_m": STRUCTURE_M, "structure_px": STRUCTURE_PX,
+            "zones": list(ZONES), "lifts": list(LIFTS), "zone_cap": sh.ZONE_CAP,
+            "zone_lift_reasons": list(ZONE_LIFT_REASONS), "doubtful_tol_edges": list(DOUBTFUL_TOL_EDGES)}
+
+
 def report(out: str, pictures: bool = True) -> str:
-    """<out>/study.json, study.md and pictures/ from <out>/analysis.json (analyse first); returns study.md's text."""
+    """<out>/study.json, study.md and pictures/ from <out>/analysis.json (analyse first); returns study.md's
+    text, written from study.json as read back (markdown)."""
     out = os.path.abspath(out)
     path = os.path.join(out, "analysis.json")
     if not os.path.exists(path):
@@ -1090,65 +1384,148 @@ def report(out: str, pictures: bool = True) -> str:
     profile_counts = {"checked": len(checked), "agree": sum(bool(p.get("agree")) for p in checked),
                       "disagree": sum("error" not in p and not p.get("agree") for p in checked),
                       "errors": sum("error" in p for p in checked)} if checked else None
-    made = []
-    if pictures:
-        made = draw(out, analysis)
+    by_place = collections.defaultdict(list)
+    for r in records:
+        by_place[r["cluster"]].append(r)
+    places = []
+    for s in analysed:
+        rs = by_place.get(s["cluster"], [])
+        places.append({**s, "known_by_type": {t: sum(r["type"] == t for r in rs) for t in types},
+                       "matched_by_type": {t: sum(r["type"] == t and r["outcome"] == "matched" for r in rs)
+                                           for t in types}})
+    misses = {s["cluster"]: [_miss_entry(n, r) for n, r in enumerate(by_place.get(s["cluster"], []), 1)
+                             if r["outcome"] == "missed"] for s in analysed}
+    made = draw(out, analysis) if pictures else []
     study = {"generated": datetime.date.today().isoformat(), "reasons": list(REASONS), "types": types,
-             "tolerance": {"floor_m": TOL_M, "share": TOL_SHARE, "quantum_m": QUANTUM_M},
-             "overall": overall, "by": by, "places": analysed, "failed": failed, "profiles": profile_counts,
-             "pictures": [os.path.relpath(p, out).replace(os.sep, "/") for p in made]}
+             "model": model_of(analysed), "rules": rules(), "overall": overall, "by": by, "places": places, "failed": failed, "misses": misses,
+             "profiles": profile_counts, "pictures": [os.path.relpath(p, out).replace(os.sep, "/") for p in made]}
     _write_json(os.path.join(out, "study.json"), study)
-    text = "\n".join(markdown(study, records, made, out))
+    with open(os.path.join(out, "study.json"), encoding="utf-8") as f:
+        text = "\n".join(markdown(json.load(f)))
     with open(os.path.join(out, "study.md"), "w", encoding="utf-8") as f:
         f.write(text)
     return text
 
 
-def markdown(study: Dict, records: Sequence[Dict], made: Sequence[str], out: str) -> List[str]:
-    types, overall = study["types"], study["overall"]
+def markdown(study: Dict) -> List[str]:
+    """study.md's lines from study.json alone: every number they quote is there (or a share of two of its
+    numbers)."""
+    types, overall, rules_ = study["types"], study["overall"], study["rules"]
+    tol = rules_["tolerance"]
+    columns = [*types, "all"]
     legend = "total (" + " / ".join(types) + ")"
-    md = ["# Truth check: the search against known lines", "",
-          f"{len(records)} known lines in {len(study['places'])} places"
+    a = overall["all"]
+
+    def headline(value) -> str:
+        """Each type's value first, the total's after: "highline ..., midline ...; all ..."."""
+        return ", ".join(f"{t} {value(overall[t])}" for t in types) + f"; all {value(a)}"
+
+    def recall(key, matched, verifiable):
+        return lambda s: f"{_pct(s[key])} ({s[matched]} of {s[verifiable]})"
+
+    quantum3 = tol["quantum_m"] * 10.0 ** -rules_["coarse_decimals"]
+    md = ["# Truth check: the search against known lines", ""]
+    m = study.get("model")
+    if m:
+        md += [f"Searches with {_model_text(m)}."
+               + ("" if m["same"] else " The places' searches differ: " + "; ".join(
+                   f"{_model_text(v)} in {v['places']} place{'' if v['places'] == 1 else 's'}"
+                   for v in m["variants"]) + "."), ""]
+    md += [
+          "- **Recall** (matched of verifiable known lines): " + headline(recall("recall", "matched", "verifiable")) + ".",
+          "- **Both ends on terrain** (no structure at either end): "
+          + headline(recall("recall_terrain", "matched_terrain", "verifiable_terrain")) + ".",
+          "- **Misses at a structure** (structure_anchor: an end on a building, a tower or a tree): "
+          + headline(lambda s: str(s["reasons"]["structure_anchor"])) + ".",
+          "- **Shown as a spot** (the nearest match is its group's representative): "
+          + headline(lambda s: f"{s['matched_rep']} of {s['matched']}") + ".", "",
+          "Midlines hang below the fall allowance by construction, so their recall is expected to be near 0 under "
+          "today's rule.", "",
+          f"{a['known']} known lines in {len(study['places'])} places"
           + (f" ({len(study['failed'])} more places whose search failed: their "
              f"{sum(s['known'] for s in study['failed'])} known lines are left out)" if study["failed"] else "")
-          + f". Counts as {legend}. A known line is matched when a found line has both anchors within its "
-          f"tolerance, either way round: max({TOL_M:g} m, {100 * TOL_SHARE:g} % of its length), for coarse anchors "
-          f"at least {QUANTUM_M:g} m x 10^-decimals. Recall = matched / verifiable (a line with coarse anchors or a "
-          "stated length far from its anchors' distance is verifiable only when matched); the clean recall leaves "
-          "those lines out. SlackMap holds the lines people rigged and reported: a found spot without a known line "
-          "is a precision proxy only, never a false line.", "", "## Overall", "",
-          "| | " + " | ".join(["all", *types]) + " |", "| --- | " + " | ".join(["---:"] * (len(types) + 1)) + " |"]
+          + f". Counts as {legend}. A found line is a candidate of a known line when both its anchors lie within "
+          f"the known line's tolerance, either way round, and its length within the tolerance of the known line's "
+          f"stated length or of its anchors' distance; the tolerance is max({tol['floor_m']:g} m, "
+          f"{100 * tol['share']:g} % of its length). The match is the nearest candidate (the smallest sum of the two "
+          "anchor distances), the best match the candidate of the highest clearance. Recall = matched / verifiable "
+          "(a line with coarse anchors or a stated length far from its anchors' distance is verifiable only when "
+          "matched); the clean recall leaves those lines out; the terrain recall takes the lines with no structure "
+          f"at either end (the surface {rules_['structure_m']:g} m or more above the terrain at an end's pixel or "
+          f"within {rules_['structure_px']} pixel of it; an end without a surface model counts as terrain). "
+          "SlackMap holds the lines people rigged and reported: a found spot without a known line is a precision "
+          "proxy only, never a false line.", "", "## Overall", "",
+          "| | " + " | ".join(columns) + " |", "| --- | " + " | ".join(["---:"] * len(columns)) + " |"]
     rows = (("known", "known", str), ("verifiable", "verifiable", str), ("matched", "matched", str),
             ("recall", "recall", _pct), ("clean geometry: known", "known_clean", str),
             ("clean geometry: matched", "matched_clean", str), ("clean recall", "recall_clean", _pct),
+            ("both ends on terrain: known", "known_terrain", str),
+            ("both ends on terrain: verifiable", "verifiable_terrain", str),
+            ("both ends on terrain: matched", "matched_terrain", str), ("terrain recall", "recall_terrain", _pct),
             ("matched with a doubtful geometry", "matched_doubtful", str),
-            ("matched: over trees", "over_trees", _pct))
+            ("matched: shown as a spot (the nearest match a representative)", "matched_rep", str),
+            ("matched: a representative among the candidates", "matched_rep_any", str),
+            ("matched: over trees (best match)", "over_trees", _pct))
     for label, key, fmt in rows:
-        md.append(f"| {label} | " + " | ".join(fmt(overall[t][key]) for t in ["all", *types]) + " |")
-    for label, key in (("matched: clearance p10 / p50 / p90 (m)", "clearance"),
-                       ("matched: wall angle p10 / p50 / p90 (deg)", "wall_angle")):
+        md.append(f"| {label} | " + " | ".join(fmt(overall[t][key]) for t in columns) + " |")
+    for label, key in (("matched: clearance p10 / p50 / p90 (m, best match)", "clearance"),
+                       ("matched: wall angle p10 / p50 / p90 (deg, nearest match)", "wall_angle")):
         md.append(f"| {label} | " + " | ".join(" / ".join(f"{v:g}" for v in overall[t][key]) if overall[t][key]
-                                                 else "-" for t in ["all", *types]) + " |")
-    misses = overall["all"]["known"] - overall["all"]["matched"]
-    md += ["", "### Reasons of the misses", "", "| reason | " + " | ".join(["all", *types]) + " | share |",
-           "| --- | " + " | ".join(["---:"] * (len(types) + 2)) + " |"]
-    for reason in REASONS:
-        n = overall["all"]["reasons"][reason]
-        md.append(f"| {reason} | " + " | ".join(str(overall[t]["reasons"][reason]) for t in ["all", *types])
-                  + f" | {_pct(n / misses) if misses else '-'} |")
+                                                 else "-" for t in columns) + " |")
+    md += ["", "The clearance quantiles and the over-trees share are those of each matched line's best match (its "
+           "candidate of the highest clearance: the best line the search offers there); the wall angles those of its "
+           "nearest match (the walls at the known anchors). Shown as a spot: the nearest match is its group's "
+           "representative, the line the map shows for that spot."]
+    dt = {t: overall[t]["doubtful_tolerance"] for t in columns}
+    md += ["", "### Matches with a doubtful geometry", "",
+           f"A line with coarse anchors (at most {rules_['coarse_decimals']} decimals) gets a tolerance of at least "
+           f"the coordinate quantum, {tol['quantum_m']:g} m x 10^-decimals ({quantum3:g} m at "
+           f"{rules_['coarse_decimals']} decimals), so its match is doubtful: it counts as matched with a doubtful "
+           "geometry, and the clean recall leaves it out. The tolerances of the matched doubtful lines, and how many "
+           "of them have their nearest match within the base tolerance as well:", "",
+           "| tolerance | " + " | ".join(columns) + " |", "| --- | " + " | ".join(["---:"] * len(columns)) + " |"]
+    for label in dt["all"]["bins"]:
+        md.append(f"| {label} m | " + " | ".join(str(dt[t]["bins"][label]) for t in columns) + " |")
+    md.append("| p10 / p50 / p90 (m) | " + " | ".join(" / ".join(f"{v:g}" for v in dt[t]["quantiles"])
+                                                       if dt[t]["quantiles"] else "-" for t in columns) + " |")
+    md.append("| largest (m) | " + " | ".join(_num(dt[t]["largest"]) for t in columns) + " |")
+    md.append("| within the base tolerance as well | " + " | ".join(str(dt[t]["within_base"]) for t in columns) + " |")
+    md += ["", "### Reasons of the misses", "", "| reason | " + " | ".join(columns) + " | share |",
+           "| --- | " + " | ".join(["---:"] * (len(columns) + 1)) + " |"]
+    for reason in study["reasons"]:
+        n = a["reasons"][reason]
+        md.append(f"| {reason} | " + " | ".join(str(overall[t]["reasons"][reason]) for t in columns)
+                  + f" | {_pct(n / a['misses']) if a['misses'] else '-'} |")
+    zones, lifts = rules_["zones"], rules_["lifts"]
+    md += ["", "## Clearance misses with a no-fall zone or A-frames", "",
+           f"The clearance misses ({', '.join(rules_['zone_lift_reasons'])}) checked again at each end zone (rows) "
+           "and A-frame lift (columns) by the search's rule: the pairs of anchors within the tolerance, of the known "
+           "line's length within it too, that passed the search's length range and the height difference, a zone at "
+           f"most {100 * rules_['zone_cap']:g} % of a line's length, "
+           "under nmpt reject the surface too, the pairs over the wall-angle limit left out. A cell counts the misses "
+           f"some pair of which would be valid there, {legend}. A column, not the verdict: the verdict stays the "
+           "run's rule, today's default no zone and no lift."]
+    for name in [*rules_["zone_lift_reasons"], "both"]:
+        title = "Both reasons" if name == "both" else name
+        md += ["", f"{title}: " + headline(lambda s: str(s["zone_lift"]["rows"][name]["misses"])) + " misses.", "",
+               "| zone \\ lift | " + " | ".join(f"{h:g} m" for h in lifts) + " |",
+               "| --- | " + " | ".join(["---:"] * len(lifts)) + " |"]
+        for j, z in enumerate(zones):
+            md.append(f"| {z:g} m | " + " | ".join(_zone_cell(overall, name, j, k, types) for k in range(len(lifts)))
+                      + " |")
     for dimension in DIMENSIONS:
         table = study["by"][dimension]
         md += ["", f"## By {dimension}", "",
-               f"| {dimension} | known | verifiable | matched | recall | clean recall | clearance p50 | over trees | "
-               "wall angle p50 |", "| --- | " + " | ".join(["---:"] * 8) + " |"]
+               f"| {dimension} | known | verifiable | matched | recall | clean recall | terrain recall | "
+               "clearance p50 | over trees | wall angle p50 |", "| --- | " + " | ".join(["---:"] * 9) + " |"]
         for key, s in table.items():
-            a = s["all"]
+            b = s["all"]
             md.append(f"| {key} | {_cell(s, 'known', types)} | {_cell(s, 'verifiable', types)} | "
                       f"{_cell(s, 'matched', types)} | {_cell(s, 'recall', types, pct=True)} | "
-                      f"{_cell(s, 'recall_clean', types, pct=True)} | "
-                      f"{a['clearance'][1] if a['clearance'] else '-'} | {_pct(a['over_trees'])} | "
-                      f"{a['wall_angle'][1] if a['wall_angle'] else '-'} |")
-        used = [reason for reason in REASONS if any(s["all"]["reasons"][reason] for s in table.values())]
+                      f"{_cell(s, 'recall_clean', types, pct=True)} | {_cell(s, 'recall_terrain', types, pct=True)} | "
+                      f"{b['clearance'][1] if b['clearance'] else '-'} | {_pct(b['over_trees'])} | "
+                      f"{b['wall_angle'][1] if b['wall_angle'] else '-'} |")
+        used = [reason for reason in study["reasons"] if any(s["all"]["reasons"][reason] for s in table.values())]
         if used:
             md += ["", f"Reasons of the misses by {dimension}, {legend}:", "",
                    f"| {dimension} | " + " | ".join(used) + " |", "| --- | " + " | ".join(["---:"] * len(used)) + " |"]
@@ -1160,53 +1537,50 @@ def markdown(study: Dict, records: Sequence[Dict], made: Sequence[str], out: str
                f"search.profile_of_line of each verifiable known pair, its verdict (helpers.is_valid on the rounded "
                f"clearances) against the captured grid's: {p['checked']} checked, {p['agree']} agree, "
                f"{p['disagree']} disagree, {p['errors']} could not be computed."]
-    md += ["", "## Places", "", "Spots without a known line: found spots none of whose lines has a known line of a "
-           "good geometry within its tolerance (a precision proxy only).", "",
+    md += ["", "## Places", "", "Spots without a known line: found spots none of whose lines is a candidate of a "
+           "known line of a good geometry (a precision proxy only).", "",
            "| place | source | res | found lines | found spots | spots without a known line | known | matched |",
            "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |"]
-    by_place = collections.defaultdict(list)
-    for r in records:
-        by_place[r["cluster"]].append(r)
     for s in study["places"]:
-        rs = by_place.get(s["cluster"], [])
-        known = f"{len(rs)} (" + " / ".join(str(sum(r['type'] == t for r in rs)) for t in types) + ")"
-        hits = f"{s['matched']} (" + " / ".join(str(sum(r['type'] == t and r['outcome'] == 'matched' for r in rs))
-                                                for t in types) + ")"
+        known = f"{s['known']} (" + " / ".join(str(s["known_by_type"][t]) for t in types) + ")"
+        hits = f"{s['matched']} (" + " / ".join(str(s["matched_by_type"][t]) for t in types) + ")"
         md.append(f"| {s['cluster']} | {s['source']} | {s['resolution']:g} | {s['found_lines']} | {s['found_spots']} | "
                   f"{s['spots_without_known']} | {known} | {hits} |")
     for s in study["failed"]:
         md.append(f"| {s['cluster']} | not analysed: {s.get('error', s.get('status'))} | | | | | {s['known']} | |")
-    names = {os.path.basename(p) for p in made}
+    names = {os.path.basename(p) for p in study["pictures"]}
     md += ["", "## Misses by place", ""]
     for s in study["places"]:
-        rs = by_place.get(s["cluster"], [])
-        if not any(r["outcome"] == "missed" for r in rs) and f"{s['cluster']}-map.png" not in names:
+        entries = study["misses"].get(s["cluster"], [])
+        if not entries and f"{s['cluster']}-map.png" not in names:
             continue
         md += [f"### {s['cluster']} ({s['source']}, {s['resolution']:g} m, {s['matched']} of {s['known']} matched)", ""]
         if f"{s['cluster']}-map.png" in names:
             md += [f"![{s['cluster']}](pictures/{s['cluster']}-map.png)", ""]
-        for n, r in enumerate(rs, 1):
-            if r["outcome"] != "missed":
-                continue
-            md.append(_miss_line(n, r))
-            chip = f"{s['cluster']}-miss-{n}.png"
+        for r in entries:
+            md.append(_miss_line(r, rules_))
+            chip = f"{s['cluster']}-miss-{r['n']}.png"
             if chip in names:
-                md.append(f"  ![#{n}](pictures/{chip})")
+                md.append(f"  ![#{r['n']}](pictures/{chip})")
         md.append("")
     return md
 
 
-def _chip_pair(r: Dict, shape) -> Optional[Tuple[list, list]]:
+def _chip_pair(r: Dict, z: np.ndarray) -> Optional[Tuple[list, list]]:
     """The pixels a miss's profile chip draws: the funnel's best pair, else the best pair near the known
-    ends, else the known end pixels when both lie in the grid; None otherwise."""
-    if r.get("best"):
-        return r["best"]["a1"], r["best"]["a2"]
+    ends, else the known end pixels when both lie in the grid, each only with data at both pixels (the
+    sag table takes no NaN); None otherwise."""
+    h, w = z.shape
+
+    def usable(p, q):
+        return all(0 <= v[0] < h and 0 <= v[1] < w and math.isfinite(float(z[v[0], v[1]])) for v in (p, q))
+
     near = r.get("near") or {}
-    if near.get("best"):
-        return near["best"]["a1"], near["best"]["a2"]
-    h, w = shape
+    for pair in (r.get("best"), near.get("best")):
+        if pair and usable(pair["a1"], pair["a2"]):
+            return pair["a1"], pair["a2"]
     pixels = [e["pixel"] for e in r.get("ends") or []]
-    if len(pixels) == 2 and all(0 <= p[0] < h and 0 <= p[1] < w for p in pixels):
+    if len(pixels) == 2 and usable(*pixels):
         lo, hi = sorted(map(tuple, pixels))
         if max(abs(hi[0] - lo[0]), abs(hi[1] - lo[1])) >= 2:
             return list(lo), list(hi)
@@ -1300,7 +1674,7 @@ def draw(out: str, analysis: Dict) -> List[str]:
         for n, r in enumerate(rs, 1):
             if r["outcome"] != "missed":
                 continue
-            pair = _chip_pair(r, c.elevation.shape)
+            pair = _chip_pair(r, c.elevation)
             if pair is None:
                 continue
             path = os.path.join(folder, f"{s['cluster']}-miss-{n}.png")

@@ -2,9 +2,12 @@
 rules, midlines clustered with highlines), the sources chosen offline, the places against a copy of
 tests/regression.json, the delegation to tools/truth_analysis.py, the one data folder of a run (its cache
 linked once, unlinked afterwards, also after an interruption; a cluster searched again keeps only its new
-run), and a run of the Żabi Koń clip offline (a search with lines, one without, a resumed pass) with the
-capture's files as the analysis reads them (the found anchors back on their pixels; analyse --profiles on
-the saved run). Synthetic lines only: invented ids and coordinates (no SlackMap data in the repository)."""
+run), cluster --extra, and a run of the Żabi Koń clip offline with the formula and with the sag model (a
+search with lines, one without, a resumed pass) with the capture's files as the analysis reads them (the found
+anchors back on their pixels, their clearances evaluated again; analyse --profiles on the saved run).
+Synthetic lines only: invented ids and coordinates (no SlackMap data in the repository)."""
+
+import gzip
 
 import dataclasses
 import json
@@ -119,6 +122,37 @@ def test_length_rules_and_options():
     assert options.startswith(f"--lat {c.centre[0]:.6f} --lon {c.centre[1]:.6f} --radius 200 ")
     assert "--min-length 15 --max-length 100" in options and "--source" not in options
     assert options.endswith("--no-plot --yes --ortho never")
+
+
+def test_cluster_extra_options(tmp_path):
+    """cluster --extra: the options added to every cluster's search after --source, before the fixed ones, and
+    kept in clusters.json as "extra" (each cluster's and the params'); an unclosed quote refused."""
+    c = ts.cluster([line("s", 0, 0, 50, 0)])[0]
+    c.source, c.extra = "geoportal", "--model sag --pretension 3"
+    assert c.options.endswith("--source geoportal --model sag --pretension 3 --no-plot --yes --ortho never")
+    assert c.as_dict()["extra"] == "--model sag --pretension 3"
+    import cache
+    data = tmp_path / "data"
+    cache_dir = str(data / "cache")
+    cache.check_layout(cache_dir)  # a new cache, then SlackMap's lines file in it (no download)
+    path = sd.lines_path(cache_dir)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    features = [feature("a", 0, 0, 60, 0), feature("b", 5000, 0, 5080, 0, lt="m")]
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f, default=float)
+    out = tmp_path / "out"
+    assert ts.main(["cluster", "--out", str(out), "--data-dir", str(data), "--auto", "--extra", " --model sag "]) == 0
+    written = json.loads((out / "clusters.json").read_text(encoding="utf-8"))
+    assert written["params"]["extra"] == "--model sag" and len(written["clusters"]) == 2
+    for c in written["clusters"]:
+        assert c["extra"] == "--model sag" and c["options"].endswith(
+            f"--max-length {c['max_length']:g} --model sag --no-plot --yes --ortho never")
+    assert ts.main(["cluster", "--out", str(out), "--data-dir", str(data), "--auto"]) == 0
+    assert all(c["extra"] == "" and "--model" not in c["options"]
+               for c in json.loads((out / "clusters.json").read_text(encoding="utf-8"))["clusters"])
+    assert ts.main(["cluster", "--out", str(tmp_path / "bad"), "--data-dir", str(data), "--auto",
+                    "--extra", '--name "unclosed']) == 1
+    assert not (tmp_path / "bad" / "clusters.json").exists()
 
 
 def test_midlines_with_highlines_and_types():
@@ -314,7 +348,7 @@ LINE_KEYS = {"a1": (np.float64, 2), "a2": (np.float64, 2), "length": (np.float64
              "clearance_nmpt": (np.float64, 1), "over": (np.bool_, 1), "rep": (np.bool_, 1), "group": (np.int64, 1)}
 
 
-def check_capture(folder, rows_cols=None):
+def check_capture(folder, rows_cols=None, model="formula"):
     """The capture's files with the contract's keys, dtypes and shapes; returns (grid, lines)."""
     capture = folder / "capture"
     grid = json.loads((capture / "grid.json").read_text(encoding="utf-8"))
@@ -323,7 +357,8 @@ def check_capture(folder, rows_cols=None):
     assert len(shape) == 2 and (rows_cols is None or shape == rows_cols)
     south, west, north, east = grid["area_wgs84"]
     assert south < north and west < east
-    assert grid["params"]["slope_threshold"] == grid["slope_threshold"] and grid["model"] == "formula"
+    assert grid["params"]["slope_threshold"] == grid["slope_threshold"] and grid["model"] == model
+    assert grid["params"]["model"] == model
     with np.load(capture / "grids.npz") as grids:
         assert grids["elevation"].dtype == np.float32 and grids["elevation"].shape == shape
         assert grids["mask"].dtype == np.uint8 and grids["mask"].shape == shape and grids["mask"].any()
@@ -342,15 +377,19 @@ def check_capture(folder, rows_cols=None):
     return grid, lines, surface
 
 
-def test_run_zabi_kon_clip(tmp_path):
+@pytest.mark.parametrize("model", ["formula", "sag"])
+def test_run_zabi_kon_clip(tmp_path, model):
     """run --place on the Żabi Koń clip offline (no cache link): a search with lines and one without (status
-    no_lines, every array of lines.npz empty), known.json back as KnownLines, a second pass skips both."""
+    no_lines, every array of lines.npz empty), known.json back as KnownLines, a second pass skips both; with
+    the formula and with the sag model (the analysis then evaluates with the run's envelope table: the found
+    lines' clearances given back exactly)."""
     known = [line("zk1", 0, 0, 60, 0), line("zk2", 0, 20, 45, 30, lt="m")]
     known_file = tmp_path / "known.json"
     known_file.write_text(json.dumps([dataclasses.asdict(k) for k in known]), encoding="utf-8")
     clip = (f'--elevation-file "{os.path.join(DATA, "zabi_kon_nmt.tif")}" '
             f'--surface-file "{os.path.join(DATA, "zabi_kon_nmpt.tif")}" '
-            "--northing 254608 --easting 553966 --radius 290 --slope-threshold 45 --water off --fill-gaps off")
+            "--northing 254608 --easting 553966 --radius 290 --slope-threshold 45 --water off --fill-gaps off"
+            + (" --model sag" if model == "sag" else ""))
     out = tmp_path / "out"
     command = [sys.executable, os.path.join("tools", "truth_study.py"), "run", "--out", str(out),
                "--place", f"zk={clip}", "--place", f"zk-none={clip} --min-length 990 --max-length 1000",
@@ -366,10 +405,11 @@ def test_run_zabi_kon_clip(tmp_path):
     state = json.loads((out / "zk" / "capture.json").read_text(encoding="utf-8"))
     assert state["status"] == "done" and state["options"] == clip and state["source"] == "files"
     assert {"seconds", "options"} <= set(state) and state["returncode"] == 0
-    grid, lines, surface = check_capture(out / "zk")
+    grid, lines, surface = check_capture(out / "zk", model=model)
     assert surface and grid["nmpt"] and grid["source"] == "files"
     import helpers
-    assert grid["fall"] == helpers.fall_allowance(None) and grid["radius"] == 290
+    assert grid["fall"] == (grid["rigging"]["fall_zone"] if model == "sag" else helpers.fall_allowance(None))
+    assert grid["radius"] == 290
     n = len(lines["length"])
     assert n > 100 and n == state["lines"]
     assert (lines["group"] >= 0).all() and lines["rep"].sum() == len(np.unique(lines["group"]))
@@ -402,7 +442,7 @@ def test_run_zabi_kon_clip(tmp_path):
     state = json.loads((out / "zk-none" / "capture.json").read_text(encoding="utf-8"))
     assert state["status"] == "no_lines" and state["error"] == "no_lines" and state["lines"] == 0
     assert state["run"] is None  # no run saved without lines
-    grid_none, lines_none, _ = check_capture(out / "zk-none", tuple(grid["shape"]))
+    grid_none, lines_none, _ = check_capture(out / "zk-none", tuple(grid["shape"]), model)
     assert all(len(v) == 0 for v in lines_none.values())
 
     stamp = os.path.getmtime(out / "zk" / "capture.json")
@@ -434,4 +474,10 @@ def test_run_zabi_kon_clip(tmp_path):
     assert records["made-up"]["outcome"] == "missed" and "profile" in records["made-up"]
     assert "error" not in records["made-up"]["profile"] and records["made-up"]["profile"]["agree"]
     assert not (tmp_path / "unused-cache").exists() and not _is_link(out / "data" / "cache")  # its own cache used
-    assert result["seconds"] > 0
+    assert result["seconds"] > 0 and result["model"] == model
+    import truth_analysis as ta
+    c = ta.load_capture(out / "zk")  # the analysis's evaluation: the search's own clearance, under either model
+    assert (c.sag_table is None) == (model == "formula") and c.fall == grid["fall"]
+    for k in np.linspace(0, len(c.found) - 1, 40).astype(int):
+        lo, hi = sorted([studylib.to_pixel(grid, *c.found.a1[k]), studylib.to_pixel(grid, *c.found.a2[k])])
+        assert ta._evaluate(c, lo, hi)[3] == c.found.clearance[k]

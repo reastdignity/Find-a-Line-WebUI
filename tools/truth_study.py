@@ -6,7 +6,7 @@ them, the known lines matched to the lines found and every miss diagnosed on the
 
     uv run tools/truth_study.py fetch [--update] --data-dir <data>
     uv run tools/truth_study.py cluster --out <out> --data-dir <data> [--types h,m] [--country PL SK]
-        [--auto | --country-from-lines | --offline-sources]
+        [--auto | --country-from-lines | --offline-sources] [--extra "<findaline.py options>"]
     uv run tools/truth_study.py places --out <out>
     uv run tools/truth_study.py run --out <out> --data-dir <data> [--ids ID ...] [--country PL] [--source geoportal]
         [--max-clusters N] [--national-only] [--again] [--timeout S]
@@ -30,7 +30,7 @@ radius, over_cap). Lines whose anchors lie farther apart than any cluster may re
 --radius-max less the margin: a misplaced anchor) are left out and counted. Each cluster's search:
 
     --lat --lon --radius, --min-length max(15, 0.8 shortest), --max-length max(100, 1.1 longest),
-    --source <id>, --no-plot --yes --ortho never
+    --source <id>, <--extra>, --no-plot --yes --ortho never
 
 the lengths of each line its stated and its geodesic length (only the stated one where they
 disagree: length_mismatch, the anchors misplaced), the source from sources.choose_source("auto") at
@@ -38,9 +38,12 @@ the centre, once per cluster (Nominatim, cached; --country-from-lines: the lines
 only for the regions of a country with regional sources; --offline-sources: from
 sources.choose.OFFLINE_BOXES alone, no lookup, rough at borders: the first box holding the centre
 wins; --auto: none, the search chooses), and the radius measured again in that source's
-working CRS (what the search's circle is drawn in). A cluster's id is its country and centre
-("pl-50.156n19.756e"): the same on the same data. <out>/clusters.json holds every cluster with its
-known lines (dataclasses.asdict of slackmap_data.KnownLine) and options; the summary is printed.
+working CRS (what the search's circle is drawn in). --extra: findaline.py options added to every
+cluster's search after --source (--extra "--model sag": the sag estimator; an option without a space
+as --extra=--yes; an option the cluster sets already is given twice, and findaline.py takes the
+last). A cluster's id is its country and centre ("pl-50.156n19.756e"): the same on the same data.
+<out>/clusters.json holds every cluster with its known lines (dataclasses.asdict of
+slackmap_data.KnownLine), its options and its "extra" (also in "params"); the summary is printed.
 
 places ranks the clusters by known lines, per country and source, with a ready --lat --lon --radius
 and the nearest place of tests/regression.json (its --lat/--lon, or --northing/--easting in EPSG:2180;
@@ -225,6 +228,7 @@ class Cluster:
     reason: Optional[str] = None     # why that source (sources.choose_source)
     national: Optional[bool] = None  # the source colours the coverage map (not a gap filler, not FABDEM)
     search_crs: Optional[str] = None  # the source's working CRS at the centre
+    extra: str = ""                  # findaline.py options added to its search (cluster --extra)
 
     @property
     def over_cap(self) -> bool:
@@ -258,6 +262,8 @@ class Cluster:
                  f"--min-length {self.min_length:g}", f"--max-length {self.max_length:g}"]
         if self.source:
             parts.append(f"--source {self.source}")
+        if self.extra:
+            parts.append(self.extra)
         return " ".join(parts + list(FIXED_OPTIONS))
 
     def as_dict(self) -> Dict:
@@ -267,8 +273,8 @@ class Cluster:
                 "source": self.source, "reason": self.reason, "national": self.national, "types": self.types,
                 "count": len(self.lines), "lines": [line.id for line in self.lines],
                 "shortest": round(self.shortest, 2), "longest": round(self.longest, 2),
-                "min_length": self.min_length, "max_length": self.max_length, "options": self.options,
-                "known": [dataclasses.asdict(line) for line in self.lines]}
+                "min_length": self.min_length, "max_length": self.max_length, "extra": self.extra,
+                "options": self.options, "known": [dataclasses.asdict(line) for line in self.lines]}
 
 
 def _transformer(source: str, target: str):
@@ -990,7 +996,11 @@ def _cluster_command(args) -> int:
         lines = [line for line in lines if line.country in countries]
     limit = reach_limit(args.margin, args.radius_max)
     left_out = sum(line.geodesic_m > limit for line in lines)
+    extra = args.extra.strip()
+    split_options(extra)  # a ValueError for an unclosed quote, before any lookup
     found = cluster(lines, args.link, args.margin, args.radius_min, args.radius_max, types)
+    for c in found:
+        c.extra = extra
     mode = ("defer" if args.auto else "offline" if args.offline_sources else "lines" if args.country_from_lines
             else "nominatim")
     print(f"{len(found)} clusters of {len(lines) - left_out} lines; choosing their sources ({mode})", flush=True)
@@ -998,7 +1008,7 @@ def _cluster_command(args) -> int:
     params = {"types": list(type_names(types)), "countries": sorted({c.upper() for v in args.country or []
                                                                       for c in v.split(",")}),
               "link_m": args.link, "margin_m": args.margin, "radius_min": args.radius_min,
-              "radius_max": args.radius_max, "sources": mode,
+              "radius_max": args.radius_max, "sources": mode, "extra": extra,
               "lines_file": cache.relative(cache_dir, sd.lines_path(cache_dir))}
     path = write_clusters(args.out, found, params, left_out)
     print(summary(found, left_out, args.radius_min))
@@ -1059,6 +1069,8 @@ def main(argv=None) -> int:
                      help="choose the sources from sources.choose.OFFLINE_BOXES alone (no Nominatim)")
     how.add_argument("--country-from-lines", action="store_true",
                      help="the lines' own country instead of Nominatim's (regions still looked up)")
+    p.add_argument("--extra", default="", help='findaline.py options added to every search, e.g. --extra '
+                                               '"--model sag" (one without a space: --extra=--yes)')
     p = sub.add_parser("places", help="the clusters ranked, with the nearest regression test: <out>/places.md")
     p.add_argument("--out", required=True)
     p.add_argument("--regression", help="the regression tests (default tests/regression.json)")
