@@ -815,6 +815,8 @@ def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
 
 TREES = ("all", "no", "only")
 WATERS = ("all", "land", "water")
+BORDERS = ("all", "own")  # the lines across the border: all (the partner lines too) | own (interior + owned)
+PARTNERS = 6              # partner indices 1-6 name cube.json's neighbours (7: unknown)
 CEILINGS = tuple(name for name, kind in KINDS.items() if kind != "floor")
 
 
@@ -831,7 +833,13 @@ class Filters:
     ceiling below its value (the steeper anchor's wall angle, the upper anchor's height, the height
     difference) or at most it (the two A-frame fields), and over trees and water as asked. A floor
     at its first edge is off, a ceiling at None (and the upper anchor's height and the height
-    difference at their first edge); an UNKNOWN value passes only a filter that is off."""
+    difference at their first edge); an UNKNOWN value passes only a filter that is off.
+
+    `border` (docs/country-precompute/contract.md, "The borders"): "own" keeps the interior and the
+    owned lines (border 0 and 1: both anchors in the country, or the first by (lon, lat) in it),
+    "all" the partner lines too (border 2: the first anchor beyond the border, counted from this
+    country's data) but those whose partner is in `replaced`: the indices (1-6) of cube.json's
+    neighbours whose own cube is shown (web.Countries.replaced), whose own lines take their place."""
     length: Tuple[float, float] = (30, 5000)  # metres, both edges of LENGTH_EDGES
     prominence: float = 0      # >= (0: no filter, UNKNOWN passes only then)
     wall: Optional[float] = None  # < (None: no filter, UNKNOWN passes only then)
@@ -850,6 +858,8 @@ class Filters:
     clearance_trees: float = 0  # >=
     lift_needed: Optional[float] = None  # <= (0: lines that stand without A-frames)
     lift_no_zone: Optional[float] = None  # <=
+    border: str = "all"        # all | own
+    replaced: Tuple[int, ...] = ()  # partners whose own cube replaces their partner lines (border "all")
 
     def __post_init__(self):
         lo, hi = self.length
@@ -867,12 +877,16 @@ class Filters:
             raise ValueError(f"trees must be one of {', '.join(TREES)}")
         if self.water not in WATERS:
             raise ValueError(f"water must be one of {', '.join(WATERS)}")
+        if self.border not in BORDERS:
+            raise ValueError(f"border must be one of {', '.join(BORDERS)}")
+        if any(not isinstance(p, int) or not 1 <= p <= PARTNERS for p in self.replaced):
+            raise ValueError(f"the replaced partners must be indices 1-{PARTNERS} of the cube's neighbours")
 
     @classmethod
     def parse(cls, query: Mapping[str, str]) -> "Filters":
         """Filters from the web's query strings (length "<lo>-<hi>", every dimension of KINDS by its
-        name, trees, water; others ignored, absent or empty ones off); ValueError with a plain message
-        for a value off the edges."""
+        name, trees, water, border; others ignored, absent or empty ones off; `replaced` is never read
+        from a query: the server sets it); ValueError with a plain message for a value off the edges."""
         def number(name: str, text: str) -> float:
             try:
                 value = float(text)
@@ -893,7 +907,7 @@ class Filters:
             text = query.get(name) or ""
             if text:
                 args[name] = number(name, text)
-        for name in ("trees", "water"):
+        for name in ("trees", "water", "border"):
             text = query.get(name) or ""
             if text:
                 args[name] = text
@@ -918,9 +932,22 @@ class Filters:
 DIMENSIONS = ("length",) + tuple(KINDS)  # the dimensions a histogram counts
 
 
+def border_kept(keys: np.ndarray, filters: Filters) -> Optional[np.ndarray]:
+    """A boolean mask of the keys ((n, 2)) the filters' border keeps (Filters.border, Filters.replaced),
+    or None when it keeps every key."""
+    if filters.border == "all" and not filters.replaced:
+        return None
+    a = np.asarray(keys, dtype=np.int64).reshape(-1, 2)[:, 0]
+    partner_line = ((a >> BORDER_SHIFT) & 3) == 2
+    if filters.border == "own":
+        return ~partner_line
+    return ~(partner_line & np.isin((a >> PARTNER_SHIFT) & 7, np.asarray(filters.replaced, dtype=np.int64)))
+
+
 def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np.ndarray:
     """A boolean mask of the keys ((n, 2), of lines or spots) passing the filters; `skip`, one of
-    DIMENSIONS, leaves that dimension's condition out (for "length" the length mask's)."""
+    DIMENSIONS, leaves that dimension's condition out (for "length" the length mask's); the border
+    (border_kept) is never skipped."""
     if skip is not None and skip not in DIMENSIONS:
         raise ValueError(f"skip must be one of {', '.join(DIMENSIONS)}")
     keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)
@@ -944,6 +971,9 @@ def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np
         mask &= (a & (1 << (TREES_BIT + (filters.trees == "only")))) != 0
     if filters.water != "all":
         mask &= (a & (1 << (WATER_BIT + (filters.water == "water")))) != 0
+    kept = border_kept(keys, filters)
+    if kept is not None:
+        mask &= kept
     return mask
 
 
@@ -995,6 +1025,9 @@ class Cube:
         self._arrays: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
         self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
         self._cuts: Optional[Dict[int, Dict[Tuple[int, int], Dict]]] = None  # cut's cells per level
+        self._pieces: Dict[int, Dict[Tuple[int, int], object]] = {}  # their exact parts inside the outline
+        self._zone = None  # the outline's surroundings within the layer's reach (cut_outside), made once
+        self._outside: Dict[Tuple[int, int, int], Optional[Dict]] = {}  # cut_outside's cells, by (level, i, j)
 
     def array(self, mode: str, level: int) -> np.ndarray:
         """The (n, 3) [key_a, key_b, count] rows of a mode ("lines" or "spots") and level."""
@@ -1074,24 +1107,38 @@ class Cube:
         mask = (j >= j0) & (j <= j1)
         return keys[mask], counts[mask]
 
-    def cells(self, mode: str, level: int, box: Optional[Box], filters: Filters
-              ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """i, j and count of the level's cells inside box (None: all) passing filters, count > 0."""
+    def cells(self, mode: str, level: int, box: Optional[Box], filters: Filters, sides: bool = False
+              ) -> Tuple[np.ndarray, ...]:
+        """i, j and count of the level's cells inside box (None: all) passing filters, count > 0. With
+        `sides`, i, j, side and count of a row per cell and side: side 0 the country's own lines
+        (border 0 and 1), else the partner index (1-7) of its partner lines (border 2), in the order of
+        the cells, then the sides: a cell the border cuts may have both."""
         empty = np.zeros(0, dtype=np.int64)
         keys, counts = self._slice(mode, level, box)
         if not len(keys):
-            return empty, empty, empty
+            return (empty,) * (4 if sides else 3)
         mask = select(keys, filters)
-        cell = (keys[:, 0] >> ROW_SHIFT)[mask]  # sorted, as the keys are
+        a = keys[:, 0][mask]
+        cell = a >> ROW_SHIFT  # sorted, as the keys are
         counts = counts[mask]
         if not len(cell):
-            return empty, empty, empty
-        starts = np.flatnonzero(np.concatenate(([True], cell[1:] != cell[:-1])))
+            return (empty,) * (4 if sides else 3)
+        if sides:
+            side = np.where(((a >> BORDER_SHIFT) & 3) == 2, (a >> PARTNER_SHIFT) & 7, 0)
+            group = (cell << 3) | side
+            order = np.argsort(group, kind="stable")
+            group, counts = group[order], counts[order]
+        else:
+            group = cell
+        starts = np.flatnonzero(np.concatenate(([True], group[1:] != group[:-1])))
         total = np.add.reduceat(counts, starts)
-        cell = cell[starts]
+        group = group[starts]
         keep = total > 0
-        cell, total = cell[keep], total[keep]
-        return cell >> (COL_SHIFT - ROW_SHIFT), cell & CELL_MASK, total.astype(np.int64)
+        group, total = group[keep], total[keep]
+        if not sides:
+            return group >> (COL_SHIFT - ROW_SHIFT), group & CELL_MASK, total.astype(np.int64)
+        cell = group >> 3
+        return cell >> (COL_SHIFT - ROW_SHIFT), cell & CELL_MASK, group & 7, total.astype(np.int64)
 
     def reaching(self, level: int, keys: np.ndarray, view: Tuple[float, float, float, float],
                  decimals: Optional[int] = None) -> np.ndarray:
@@ -1112,8 +1159,21 @@ class Cube:
         ok = (lat.max(1) >= south) & (lat.min(1) <= north) & (lon.max(1) >= west) & (lon.min(1) <= east)
         return ok[inverse.reshape(-1)]
 
+    def _view_rows(self, mode: str, level: int, box: Optional[Box], view: Optional[Tuple[float, float, float, float]],
+                   decimals: Optional[int]) -> Tuple[np.ndarray, np.ndarray]:
+        """The keys and counts of histogram's cells: over box (None: all), with `view` those reaching it."""
+        if view is not None and box is not None and box[0] <= box[2] and box[1] <= box[3]:
+            size = level * CELL_DEG
+            box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
+        keys, counts = self._slice(mode, level, box)
+        if view is not None and len(keys):
+            near = self.reaching(level, keys, view, decimals)
+            keys, counts = keys[near], counts[near]
+        return keys, counts
+
     def histogram(self, mode: str, level: int, box: Optional[Box], filters: Filters,
-                  view: Optional[Tuple[float, float, float, float]] = None, decimals: Optional[int] = None) -> Dict:
+                  view: Optional[Tuple[float, float, float, float]] = None, decimals: Optional[int] = None,
+                  summary: bool = False) -> Dict:
         """The counts over box (None: all) per bin of each dimension, each dimension counted under every
         filter but its own (select(skip=)): {"total": the sum under all filters, "length": [9 ints, one
         per length bin], every dimension of KINDS: [the bins 0 .. bins_of(name) - 1, then UNKNOWN]: 6
@@ -1122,15 +1182,23 @@ class Cube:
         no cell reaching the view is missed). A line carries one length bit, so a mode's length bins
         partition its total (under the other filters); a spot's record ORs the length bits of its
         lines (merge_spots), so a spot counts in every bin of its lines: per-bin spot counts are upper
-        bounds and may sum above the total."""
-        if view is not None and box is not None and box[0] <= box[2] and box[1] <= box[3]:
-            size = level * CELL_DEG
-            box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
-        keys, counts = self._slice(mode, level, box)
-        if view is not None and len(keys):
-            near = self.reaching(level, keys, view, decimals)
-            keys, counts = keys[near], counts[near]
+        bounds and may sum above the total. With `summary` also "totals": {"lines", "spots"} (both
+        modes' totals under all filters over the same cells) and "border": {"interior", "owned",
+        "partner"} (the lines of those totals by their border field: 0, 1, 2)."""
+        keys, counts = self._view_rows(mode, level, box, view, decimals)
         out: Dict = {"total": int(counts[select(keys, filters)].sum()) if len(keys) else 0}
+        if summary:
+            out["totals"] = {mode: out["total"]}
+            for other in ("lines", "spots"):
+                if other == mode:
+                    continue
+                k, n = self._view_rows(other, level, box, view, decimals)
+                out["totals"][other] = int(n[select(k, filters)].sum()) if len(k) else 0
+            out["totals"] = {m: out["totals"][m] for m in ("lines", "spots")}
+            k, n = (keys, counts) if mode == "lines" else self._view_rows("lines", level, box, view, decimals)
+            mask = select(k, filters) if len(k) else np.zeros(0, dtype=bool)
+            split = np.bincount((k[:, 0][mask] >> BORDER_SHIFT) & 3, weights=n[mask].astype(np.float64), minlength=3)
+            out["border"] = {name: int(round(split[b])) for b, name in enumerate(("interior", "owned", "partner"))}
         if not len(keys):
             out["length"] = [0] * LENGTH_BINS
             for name in KINDS:
@@ -1240,6 +1308,7 @@ class Cube:
                 shapes = shapely.transform(shapely.simplify(pieces, side / CUT_SIMPLIFY, preserve_topology=True), lat_lon)
                 out[level] = {(a, b): {"km2": max(round(float(k), 6), 1e-6), "shape": _polygon_rings(s)}
                               for a, b, k, s in zip(i.tolist(), j.tolist(), km2, shapes)}
+                self._pieces[level] = dict(zip(zip(i.tolist(), j.tolist()), pieces))  # exact: cut_outside's
             if level <= min(self.levels):
                 return out
             level //= 2
@@ -1247,6 +1316,111 @@ class Cube:
             boxes = shapely.box((i0 + i * level) / CELLS_PER_DEGREE, (j0 + j * level) / CELLS_PER_DEGREE,
                                 (i0 + (i + 1) * level) / CELLS_PER_DEGREE, (j0 + (j + 1) * level) / CELLS_PER_DEGREE)
             pieces = shapely.intersection(np.repeat(pieces, 4), boxes)
+
+
+    def reach_m(self) -> Optional[float]:
+        """The layer's reach: the longest line of its layer bands (a partner anchor lies within it of the
+        outline), None without bands."""
+        reach = [float(b.get("params", {}).get("max_length", b["lengths"][1]))
+                 for b in self.info.get("bands", []) if b.get("layer")]
+        return max(reach) if reach else None
+
+    def _reach_zone(self):
+        """The outline grown by the layer's reach (reach_m), a WGS84 geometry holding the outline, or None
+        (no outline, no bands): grown in the cube's CRS (pyproj; a plane of the outline's centre without
+        one) after simplifying it by ZONE_SIMPLIFY_M, its edges densified to ZONE_SEGMENT_M before they go
+        back to WGS84. Made once."""
+        if self._zone is None:
+            self._zone = False
+            reach = self.reach_m()
+            try:
+                outline = self.outline()
+            except (OSError, ValueError, KeyError):
+                return None
+            if reach is None or outline.is_empty:
+                return None
+            if not outline.is_valid:
+                outline = shapely.make_valid(outline)
+            if self.crs:
+                there = Transformer.from_crs("EPSG:4326", self.crs, always_xy=True)
+                back = _to_wgs84(self.crs)
+
+                def to_plane(xy):
+                    return np.column_stack(there.transform(xy[:, 0], xy[:, 1]))
+
+                def to_degrees(xy):
+                    return np.column_stack(back.transform(xy[:, 0], xy[:, 1]))
+            else:
+                lon0, lat0 = outline.centroid.x, outline.centroid.y
+                kx, ky = _metres_per_degree(lat0)
+
+                def to_plane(xy):
+                    return np.column_stack([(xy[:, 0] - lon0) * kx, (xy[:, 1] - lat0) * ky])
+
+                def to_degrees(xy):
+                    return np.column_stack([xy[:, 0] / kx + lon0, xy[:, 1] / ky + lat0])
+            plane = shapely.transform(outline, to_plane).simplify(ZONE_SIMPLIFY_M).buffer(reach)
+            zone = shapely.transform(shapely.segmentize(plane, ZONE_SEGMENT_M), to_degrees)
+            if not zone.is_valid:
+                zone = shapely.make_valid(zone)
+            shapely.prepare(zone)
+            self._zone = zone
+        return self._zone or None
+
+    def cut_outside(self, level: int, cells: Iterable[Tuple[int, int]]) -> Dict[Tuple[int, int], Dict]:
+        """The parts of the level's cells (i, j) beyond the country's outline within the layer's reach:
+        where a partner line's first anchor lies (/cells' rows of a side 1-7). For each cell {"km2": that
+        part's area on the ellipsoid, "shape": as cut's}: of a cell the outline cuts (cut) its rectangle
+        less the exact part inside, of any other its rectangle, both clipped to the outline grown by the
+        reach (_reach_zone). A cell whose part is its whole rectangle (or nothing: a cell beyond the reach,
+        or without an outline) is not listed: the page draws it whole. Kept per cell."""
+        out: Dict[Tuple[int, int], Dict] = {}
+        todo = []
+        for i, j in cells:
+            key = (level, int(i), int(j))
+            if key not in self._outside:
+                todo.append(key)
+            elif self._outside[key] is not None:
+                out[(key[1], key[2])] = self._outside[key]
+        if not todo:
+            return out
+        self.cut(level)  # the exact pieces inside (self._pieces)
+        zone = self._reach_zone()
+        inside = self._pieces.get(level, {})
+        i = np.array([k[1] for k in todo], dtype=np.int64)
+        j = np.array([k[2] for k in todo], dtype=np.int64)
+        i0, j0 = self.origin
+        side = level / CELLS_PER_DEGREE
+        rects = shapely.box((i0 + i * level) / CELLS_PER_DEGREE, (j0 + j * level) / CELLS_PER_DEGREE,
+                            (i0 + (i + 1) * level) / CELLS_PER_DEGREE, (j0 + (j + 1) * level) / CELLS_PER_DEGREE)
+        if zone is None:
+            pieces = rects.copy()
+        else:
+            pieces = shapely.intersection(rects, zone)
+        cut_here = np.array([(a, b) in inside for a, b in zip(i.tolist(), j.tolist())], dtype=bool)
+        if cut_here.any():
+            pieces[cut_here] = shapely.difference(pieces[cut_here],
+                                                  np.array([inside[(a, b)] for a, b, c in zip(i.tolist(), j.tolist(), cut_here)
+                                                            if c], dtype=object))
+        area = shapely.area(pieces)
+        listed = (area > 0) & (area < side * side * CUT_FULL)
+        if listed.any():
+            km2 = shapely.area(_equal_area(shapely.segmentize(pieces[listed], side / 8))) / 1e6
+            shapes = shapely.transform(shapely.simplify(pieces[listed], side / CUT_SIMPLIFY, preserve_topology=True),
+                                       lambda xy: np.round(xy[:, ::-1], CUT_DECIMALS))
+            found = iter(zip(km2, shapes))
+        for key, keep in zip(todo, listed):
+            value = None
+            if keep:
+                k, s = next(found)
+                value = {"km2": max(round(float(k), 6), 1e-6), "shape": _polygon_rings(s)}
+                out[(key[1], key[2])] = value
+            self._outside[key] = value
+        return out
+
+
+ZONE_SIMPLIFY_M = 20.0    # cut_outside: the outline simplified by this before it is grown by the reach
+ZONE_SEGMENT_M = 200.0    # and the grown outline's edges densified to this before they go back to WGS84
 
 
 def _polygon_rings(geometry) -> List:

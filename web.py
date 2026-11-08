@@ -618,13 +618,32 @@ class Countries:
                 out.append({k: v for k, v in cube.info.items() if k not in ("config", "origin")})
         return out
 
+    def replaced(self, cube) -> Tuple[int, ...]:
+        """The partners (indices 1-6 of cube.json's neighbours) whose own cube is shown with this one: built
+        in this data folder, readable, no study area, of the same profile (cube.json's "profile", None for
+        both before R7). Under border=all their own lines take the place of this cube's partner lines
+        (docs/country-precompute/contract.md, "The borders")."""
+        out = []
+        own = cube.info.get("id")
+        for k, neighbour in enumerate(cube.info.get("neighbours") or [], 1):
+            if k > 6 or not isinstance(neighbour, str) or neighbour == own:
+                continue
+            other = self.cube(neighbour)
+            if other is not None and not other.info.get("study") and other.info.get("profile") == cube.info.get("profile"):
+                out.append(k)
+        return tuple(out)
+
     @staticmethod
-    def _view(cube, query) -> Tuple[str, int, Optional[tuple], object]:
+    def _view(cube, query, replaced: Tuple[int, ...] = ()) -> Tuple[str, int, Optional[tuple], object]:
         """What a query of the layer asks: (mode, level, box, filters) from its mode, bbox, level (auto:
         countcube's Cube.auto_level; an explicit level over COUNTRY_CELLS_MAX cells in view refused) and
-        the filters of countcube.Filters.parse; ValueError with a plain message for a value it cannot take."""
+        the filters of countcube.Filters.parse (border=all|own, all by default) with the partners `replaced`
+        (Countries.replaced); ValueError with a plain message for a value it cannot take."""
+        import dataclasses
         import countcube as cc
         filters = cc.Filters.parse(query)
+        if replaced:
+            filters = dataclasses.replace(filters, replaced=tuple(replaced))
         mode = query.get("mode") or "lines"
         if mode not in ("lines", "spots"):
             raise ValueError("mode must be lines or spots")
@@ -634,8 +653,11 @@ class Countries:
                 west, south, east, north = (float(v) for v in text.split(","))
             except ValueError:
                 raise ValueError("bbox must be west,south,east,north in degrees") from None
-        else:
+        else:  # the cube's bounds grown by the layer's reach: the partner lines' cells beyond the outline too
             west, south, east, north = cube.info["bounds_wgs84"]
+            reach = (cube.reach_m() or 0.0) / 110_000.0  # degrees of latitude, a little more than the metres
+            wide = reach / max(math.cos(math.radians(min(max(abs(south), abs(north)), 89.0))), 0.01)
+            west, south, east, north = west - wide, south - reach, east + wide, north + reach
         box = cube.box(west, south, east, north)
         text = query.get("level") or "auto"
         if text == "auto":
@@ -656,32 +678,43 @@ class Countries:
         """The side of a level's cell in degrees (cube v2's lattice of cell_deg, 30″)."""
         return level * float(cube.info["cell_deg"])
 
-    @staticmethod
-    def cells(cube, query) -> Dict:
+    def cells(self, cube, query) -> Dict:
         """The answer of /api/countries/<id>/cells for its query (_view): the level and its cell size, the
-        cells passing the filters with their corners, the total and the largest count; `cut` those of them
-        the country's outline cuts, by "i,j" (countcube's Cube.cut: the km² inside and the shape to draw)."""
+        rows of the cells passing the filters, [i, j, count, lat, lon of SW, SE, NE, NW, side], a row per
+        cell and side (countcube's Cube.cells(sides=True): side 0 the country's own lines, 1-7 the partner
+        index of its partner lines, so a cell the border cuts may give two rows), the total and the
+        largest count of a row; `cut` the parts to draw and divide by: "i,j" a side-0 row's part inside
+        the outline (Cube.cut), "i,j,out" a partner row's part beyond it within the layer's reach
+        (Cube.cut_outside); a row without its key is its whole cell."""
         import numpy as np
-        mode, level, box, filters = Countries._view(cube, query)
-        i, j, count = cube.cells(mode, level, box, filters)
+        mode, level, box, filters = Countries._view(cube, query, self.replaced(cube))
+        i, j, side, count = cube.cells(mode, level, box, filters, sides=True)
         corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
         cut = cube.cut(level)
+        cells = list(zip(i.tolist(), j.tolist(), side.tolist()))
+        outside = cube.cut_outside(level, {(a, b) for a, b, s in cells if s}) if side.any() else {}
+        shapes = {}
+        for a, b, s in cells:
+            if not s and (a, b) in cut:
+                shapes[f"{a},{b}"] = cut[a, b]
+            elif s and (a, b) in outside:
+                shapes[f"{a},{b},out"] = outside[a, b]
         return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
                 "total": int(count.sum()), "max": int(count.max()) if len(count) else 0,
-                "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)],
-                "cut": {f"{a},{b}": cut[a, b] for a, b in zip(i.tolist(), j.tolist()) if (a, b) in cut}}
+                "cells": [[a, b, int(c), *xy, s] for (a, b, s), c, xy in zip(cells, count, corners)],
+                "cut": shapes}
 
-    @staticmethod
-    def histogram(cube, query) -> Dict:
+    def histogram(self, cube, query) -> Dict:
         """The answer of /api/countries/<id>/histogram for the query of /cells: countcube's Cube.histogram
-        of the view (the counts per bin of each dimension, each under every filter but its own) with the
-        level and its cell size as /cells gives them. With a bbox only the cells reaching it, by their
-        corners as /cells rounds them (Cube.reaching): the cells the page counts as in view."""
-        mode, level, box, filters = Countries._view(cube, query)
+        of the view (the counts per bin of each dimension, each under every filter but its own, with
+        "totals" of both modes and the lines' "border" split: interior, owned, partner) with the level and
+        its cell size as /cells gives them. With a bbox only the cells reaching it, by their corners as
+        /cells rounds them (Cube.reaching): the cells the page counts as in view."""
+        mode, level, box, filters = Countries._view(cube, query, self.replaced(cube))
         text = query.get("bbox") or ""
         view = tuple(float(v) for v in text.split(",")) if text else None  # checked by _view
         return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
-                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS)}
+                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS, summary=True)}
 
     @staticmethod
     def outline(cube) -> Dict:
@@ -1700,7 +1733,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The cells of the layer in view passing the filters (Countries.cells), with their corners."""
         cube = await country_cube(country)
         try:
-            return await run_in_threadpool(Countries.cells, cube, request.query_params)
+            return await run_in_threadpool(countries.cells, cube, request.query_params)
         except ValueError as e:
             raise HTTPException(400, str(e))
 
@@ -1709,7 +1742,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The counts of the layer in view per bin of each filter dimension (Countries.histogram)."""
         cube = await country_cube(country)
         try:
-            return await run_in_threadpool(Countries.histogram, cube, request.query_params)
+            return await run_in_threadpool(countries.histogram, cube, request.query_params)
         except ValueError as e:
             raise HTTPException(400, str(e))
 

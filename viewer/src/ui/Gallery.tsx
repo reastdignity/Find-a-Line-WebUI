@@ -1,7 +1,8 @@
 // ?ui=kit: every base component in the light and the dark theme side by side, for review and tests.
 // The toggle shows one column in the chosen theme instead (remembered for the app).
 // ?ui=kit-layer (KitLayer): the highline layer's page (app/c/LayerPage) on canned data, without a server:
-// two cubes (Slovakia and a made-up country north-west of it) and cells made up from a few hot spots (?theme=light|dark).
+// two cubes v2 (Slovakia and a made-up country north-west of it) and rows of the 30″ lattice made up from a few hot spots,
+// cells the border cuts and partner rows beyond it (?theme=light|dark; ?pick=border selects a cut cell).
 
 import { useState } from "preact/hooks";
 import { BottomNav, Button, Chip, Chips, Field, IconButton, Panel, Progress, Range, RangePair, Screen,
@@ -124,150 +125,252 @@ export function Gallery() {
   </Screen>;
 }
 
-// The canned highline layer of ?ui=kit-layer: two cubes as /api/countries gives them (Slovakia and a made-up
-// country north-west of it, their boxes apart), cells of a made-up density around some hot spots in cells of a plain degree grid (the
-// server's are cells of the country's CRS), the filters thinning them by rough factors; the histograms split
-// the cells' total by fixed shares per bin, consistent with the cells (the length filter is the sum of its
-// bins' shares); the outlines are rounded polygons of the bounds.
+// The canned highline layer of ?ui=kit-layer: two cubes v2 as /api/countries gives them (Slovakia and a made-up
+// country north-west of it, their boxes apart), every dimension's edges and kinds of countcube, their neighbours (the
+// other cube among them, so its partner lines are replaced as web.Countries.replaced does) and the border totals.
+// The cells are those of the global 30″ lattice and its levels inside a rounded outline of the cube's bounds, of a
+// made-up density around some hot spots: a cell the outline cuts gives its part inside (the outline clipped to the
+// cell) and, under border=all, a partner row over its part beyond (the rectangle less that part, drawn even-odd);
+// cells beyond the outline near it partner rows of their own (the neighbour by direction, or 7 where none is). The
+// filters thin them by the made-up shares of each dimension's bins; the histograms split the cells' total by them.
 
-const KIT_EDGES: CountryCube["edges"] = {length: [30, 60, 100, 150, 300, 600, 1000, 2000, 3000, 5000], prominence: [0, 5, 10, 20, 50],
-                                        wall: [0, 30, 45, 60, 90], clearance: [0, 2, 5, 10, 20], height: [0, 10, 20, 50, 100]};
-const KIT_BANDS = (): CountryBand[] =>
+const KIT_EDGES: CountryCube["edges"] = {
+  length: [30, 60, 100, 150, 300, 600, 1000, 2000, 3000, 5000], prominence: [0, 5, 10, 20, 50], wall: [0, 30, 45, 60, 90],
+  clearance: [0, 2, 5, 10, 20], height: [0, 10, 20, 50, 100], water_m: [0, 5, 20, 50, 100], elevation_low: [0, 500, 1000, 1500, 2000],
+  elevation_high: [0, 500, 1000, 1500, 2000], height_mean: [0, 10, 20, 50, 100], prominence_high: [0, 5, 10, 20, 50],
+  drop: [0, 20, 50, 100, 200], high_pct: [0, 25, 50, 75, 90], height_diff: [0, 5, 10, 20, 50], clearance_trees: [0, 2, 5, 10, 20],
+  lift_needed: [0, 0.5, 1, 1.5, 2], lift_no_zone: [0, 0.5, 1, 1.5, 2]};
+const KIT_KINDS: CountryCube["kinds"] = {
+  prominence: "floor", wall: "below", clearance: "floor", height: "floor", water_m: "floor", elevation_low: "floor",
+  elevation_high: "below", height_mean: "floor", prominence_high: "floor", drop: "floor", high_pct: "floor", height_diff: "below",
+  clearance_trees: "floor", lift_needed: "at_most", lift_no_zone: "at_most"};
+/** The made-up shares of the lines per bin of each dimension (its bins, then unknown), plausible for the Tatras. */
+const KIT_SHARES: Record<string, number[]> = {
+  clearance: [.30, .21, .15, .10, .24, 0], height: [.25, .18, .22, .15, .20, 0], height_mean: [.38, .20, .20, .12, .10, 0],
+  high_pct: [.35, .18, .17, .12, .18, 0], clearance_trees: [.22, .19, .15, .12, .32, 0], water_m: [.965, .015, .01, .006, .004, 0],
+  prominence: [.43, .25, .13, .08, .09, .02], prominence_high: [.15, .20, .22, .20, .23, 0], wall: [.08, .14, .28, .48, .02, 0],
+  drop: [.30, .25, .20, .15, .10, 0], elevation_low: [0, .12, .38, .35, .15, 0], elevation_high: [0, .08, .32, .38, .22, 0],
+  lift_needed: [.62, .12, .09, .07, .10, 0, 0], lift_no_zone: [.55, .10, .08, .06, .06, .15, 0], height_diff: [.12, .10, .15, .25, .38, 0]};
+const KIT_BANDS = (options: boolean): CountryBand[] =>
   [["S", 30, 300, 1, "formula", 60, 5000, true, 2200], ["M", 300, 1000, 2, "sag", 60, 10000, true, 560],
    ["L", 1000, 5000, 5, "sag", 45, 20000, true, 150], ["M2", 1000, 2000, 2, "sag", 60, 10000, false, 560]]
     .map(([name, lo, hi, resolution, model, slope, core, layer, tiles]) => ({
       name: name as string, lengths: [lo, hi] as [number, number], resolution: resolution as number, model: model as string,
       slope_threshold: slope as number, core_m: core as number, layer: layer as boolean, tiles: tiles as number,
-      done: name === "L" ? 120 : tiles as number, seconds: 0, params: {}}));
+      done: name === "L" ? 120 : tiles as number, seconds: 0,
+      params: {max_length: hi, high_above: 20, ...(options ? {end_zone: 5, anchor_lift: 2} : {})}}));
 
 const KIT_CUBE: CountryCube = {
-  id: "slovakia", name: "Slovakia", crs: "EPSG:8353", cell_m: 1000, levels: [1, 2, 4, 8], cluster_m: 50,
-  bounds_wgs84: [16.83, 47.73, 22.57, 49.61], edges: KIT_EDGES, bands: KIT_BANDS(),
-  dsm: false, water: true, partial: true, totals: {lines: 2.4e9, spots: 4.1e6}, built: "2026-11-03T10:00:00Z",
+  id: "slovakia", name: "Slovakia", crs: "EPSG:8353", version: 2, cell_deg: 1 / 120, levels: [1, 2, 4, 8], clusters_per_cell: 20,
+  bounds_wgs84: [16.83, 47.73, 22.57, 49.61], edges: KIT_EDGES, kinds: KIT_KINDS, neighbours: ["poland", "westland", "austria"],
+  bands: KIT_BANDS(true), dsm: false, water: true, partial: true,
+  totals: {lines: 2.4e9, spots: 4.1e6, border: {lines: {owned: 3.1e7, partner: 2.2e7}, spots: {owned: 5.2e4, partner: 3.8e4}}},
+  built: "2026-11-08T10:00:00Z",
   credits: [{data: "dem", attribution: "ÚGKK SR", licence: "CC BY 4.0", url: "https://creativecommons.org/licenses/by/4.0/", notice: ""},
             {data: "osm", attribution: "© OpenStreetMap contributors", licence: "ODbL", url: "https://www.openstreetmap.org/copyright", notice: ""}],
-  notes: ["A sample of made-up counts for the demo.", "Only lines with both anchors inside Slovakia are counted.",
+  notes: ["A sample of made-up counts for the demo.",
+          "Lines across the borders with Hungary and Ukraine: only where Slovakia's own data reach beyond the border (no source covers them yet).",
           "The surface model (trees, buildings) was not used: every line counts as not over trees or buildings."],
 };
 const KIT_CUBE_2: CountryCube = {
-  ...KIT_CUBE, id: "westland", name: "Westland", crs: "EPSG:5514", bounds_wgs84: [12.1, 49.7, 16.8, 51.1], bands: KIT_BANDS(),
-  dsm: true, partial: false, totals: {lines: 1.1e9, spots: 2.2e6}, built: "2026-11-04T08:00:00Z",
+  ...KIT_CUBE, id: "westland", name: "Westland", crs: "EPSG:5514", bounds_wgs84: [12.1, 49.7, 16.8, 51.1], neighbours: ["slovakia"],
+  bands: KIT_BANDS(false), dsm: true, partial: false,
+  totals: {lines: 1.1e9, spots: 2.2e6, border: {lines: {owned: 1.2e7, partner: 0.9e7}, spots: {owned: 2.1e4, partner: 1.7e4}}},
+  built: "2026-11-08T08:00:00Z",
   credits: [{data: "dem", attribution: "ČÚZK", licence: "CC BY 4.0", url: "https://creativecommons.org/licenses/by/4.0/", notice: ""},
             {data: "osm", attribution: "© OpenStreetMap contributors", licence: "ODbL", url: "https://www.openstreetmap.org/copyright", notice: ""}],
-  notes: ["A second made-up country of the demo.", "Only lines with both anchors inside Westland are counted."],
+  notes: ["A second made-up country of the demo, counted without the no-fall zone and the A-frames."],
 };
 export const KIT_CUBES = [KIT_CUBE, KIT_CUBE_2];
 
 /** [lat, lon, lines per km² at the centre, radius in km] per cube. */
 const HOT: Record<string, number[][]> = {
   slovakia: [[49.18, 20.08, 1.2e6, 7], [48.94, 20.38, 2e5, 9], [49.2, 19.05, 3e5, 5], [49.12, 18.55, 6e4, 3],
-             [48.75, 20.05, 4e4, 6], [48.63, 20.65, 8e4, 8], [48.95, 19.6, 2e4, 10]],
+             [48.75, 20.05, 4e4, 6], [48.63, 20.65, 8e4, 8], [48.95, 19.6, 2e4, 10], [49.42, 20.5, 2e5, 6]],
   westland: [[50.75, 14.3, 5e5, 6], [50.55, 15.7, 2.5e5, 8], [49.95, 13.4, 9e4, 9], [50.3, 12.9, 4e4, 5],
              [50.0, 16.1, 3e4, 7], [50.85, 16.5, 1.5e5, 4]],
 };
-const KM_LAT = 111.32, KM_LON = 111.32 * Math.cos(49 * Math.PI / 180);
+const KM_LAT = 111.32, kmLon = (lat: number) => 111.32 * Math.cos(lat * Math.PI / 180);
 /** The share of each length bin (geometric, summing to 1): the cells' length filter is the sum of its bins. */
 const BIN_SHARES = (() => { const w = [1, 0.9, 0.8, 0.62, 0.45, 0.22, 0.09, 0.03, 0.012]; const s = w.reduce((a, b) => a + b, 0); return w.map((x) => x / s); })();
-/** The share of the lines at or above each threshold of a dimension (bin k of the histogram: the share between). */
-const ABOVE: Record<"prominence" | "clearance" | "height", number[]> = {
-  prominence: [1, 0.55, 0.3, 0.17, 0.09], clearance: [1, 0.7, 0.49, 0.34, 0.24], height: [1, 0.7, 0.49, 0.34, 0.24]};
-/** The share of the lines below each wall edge (index k: below edges[k]). */
-const BELOW_WALL = [0, 0.25, 0.5, 0.75, 1];
 
 function noise(i: number, j: number): number {
   const x = Math.sin(i * 127.1 + j * 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
 
+/** The share of the lines a dimension's limit passes (its kind's rule over KIT_SHARES; unknown passes none); a cube
+ *  counted without the A-frames knows none of their values. */
+function passing(cube: CountryCube, d: string, text: string | undefined): number {
+  if (!text) return 1;
+  const e = KIT_EDGES[d], k = e.indexOf(Number(text)), kind = KIT_KINDS[d];
+  if (k < 0 || (kind === "floor" && k === 0)) return 1;
+  if ((d === "lift_needed" || d === "lift_no_zone") && !cube.bands.some((b) => b.params.end_zone)) return 0;
+  const shares = KIT_SHARES[d], known = kind === "at_most" ? e.length + 1 : e.length;
+  const take = kind === "floor" ? shares.slice(k, known) : kind === "below" ? shares.slice(0, k) : shares.slice(0, k + 1);
+  return take.reduce((s, x) => s + x, 0);
+}
+
 /** The thinning of a cube's counts by the filters; `except`: that filter left out (a histogram's own dimension). */
-function kitFactor(query: Record<string, string>, except: string = ""): number {
-  const edges = KIT_EDGES;
+function kitFactor(cube: CountryCube, query: Record<string, string>, except: string = ""): number {
   let factor = 1;
   if (except !== "length") {
     const [lo, hi] = (query.length || "30-5000").split("-").map(Number);
-    const a = edges.length.indexOf(lo), b = edges.length.indexOf(hi);
+    const a = KIT_EDGES.length.indexOf(lo), b = KIT_EDGES.length.indexOf(hi);
     factor *= BIN_SHARES.slice(a < 0 ? 0 : a, b < 0 ? 9 : b).reduce((s, x) => s + x, 0);
   }
-  for (const d of ["prominence", "clearance", "height"] as const) {
-    if (except !== d) factor *= ABOVE[d][Math.max(0, edges[d].indexOf(Number(query[d] || 0)))];
-  }
-  if (except !== "wall" && query.wall) factor *= BELOW_WALL[Math.max(0, edges.wall.indexOf(Number(query.wall)))];
+  for (const d of Object.keys(KIT_KINDS)) if (d !== except) factor *= passing(cube, d, query[d]);
   factor *= query.water === "water" ? 0.04 : query.water === "land" ? 0.98 : 1;
   factor *= query.trees === "only" ? 0.3 : query.trees === "no" ? 0.7 : 1;
   return factor;
 }
 
 /** The level of a query over a box: Auto as the server picks it, an explicit one refused over 20000 cells. */
-function kitLevel(query: Record<string, string>, km2: number): number {
+function kitLevel(query: Record<string, string>, cells1: number): number {
   let level = query.level === "auto" || !query.level ? 8 : Number(query.level);
-  if (query.level === "auto" || !query.level) for (const l of [8, 4, 2, 1]) if (km2 / (l * l) <= 4000) level = l;
-  else if (km2 / (level * level) > 20000) throw new ApiError("too many cells: zoom in or choose a coarser level", 400);
+  if (query.level === "auto" || !query.level) for (const l of [8, 4, 2, 1]) if (cells1 / (l * l) <= 4000) level = l;
+  else if (cells1 / (level * level) > 20000) throw new ApiError("too many cells: zoom in or choose a coarser level", 400);
   return level;
 }
 
-/** The cells of a cube under the query (as /api/countries/<id>/cells); `factor` the filters' thinning. */
-function kitCells(cube: CountryCube, query: Record<string, string>, factor = kitFactor(query)): CountryCells {
-  const [bw, bs, be, bn] = cube.bounds_wgs84;
-  const [west, south, east, north] = query.bbox ? query.bbox.split(",").map(Number) : cube.bounds_wgs84;
-  const w = Math.max(west, bw), s = Math.max(south, bs), e = Math.min(east, be), n = Math.min(north, bn);
-  const km2 = Math.max(0, e - w) * KM_LON * Math.max(0, n - s) * KM_LAT;
-  const level = kitLevel(query, km2);
-  const dlat = level / KM_LAT, dlon = level / KM_LON;
-  const mode = query.mode === "spots" ? "spots" : "lines";
-  const cells: number[][] = [];
-  let total = 0, max = 0;
-  for (let i = Math.floor((w - bw) / dlon); bw + i * dlon < e; i++) {
-    for (let j = Math.floor((s - bs) / dlat); bs + j * dlat < n; j++) {
-      const lat = bs + (j + 0.5) * dlat, lon = bw + (i + 0.5) * dlon;
-      let density = noise(i, j) < 0.25 ? 3 : 0;
-      for (const [hlat, hlon, peak, r] of HOT[cube.id]) {
-        const d2 = ((lat - hlat) * KM_LAT) ** 2 + ((lon - hlon) * KM_LON) ** 2;
-        density += peak * Math.exp(-d2 / (2 * r * r));
-      }
-      density *= (0.3 + 2 * noise(j, i)) * factor;
-      if (mode === "spots") density = 0.3 * density ** 0.6;
-      const count = Math.round(density * level * level);
-      if (count <= 0) continue;
-      const y0 = bs + j * dlat, x0 = bw + i * dlon;
-      cells.push([i, j, count, y0, x0, y0, x0 + dlon, y0 + dlat, x0 + dlon, y0 + dlat, x0].map((v, k) => k < 3 ? v : +v.toFixed(6)));
-      total += count;
-      max = Math.max(max, count);
-    }
-  }
-  return {level, cell_m: level * 1000, total, max, cells, cut: {}};
-}
-
-/** The histogram of a cube under the query (as /histogram): each dimension under every other filter but its own,
- *  the cells' total split by the shares; spots' length bins summing to about 1.4 × the total. */
-function kitHistogram(cube: CountryCube, query: Record<string, string>): CountryHistogram {
-  const edges = KIT_EDGES;
-  const cells = kitCells(cube, query);
-  const spots = query.mode === "spots";
-  const totalOf = (except: string) => kitCells(cube, query, kitFactor(query, except)).total;
-  const t0 = totalOf("length");
-  const length = BIN_SHARES.map((share) => Math.round(t0 * share * (spots ? 1.4 : 1)));
-  const dimension = (d: "prominence" | "clearance" | "height") => {
-    const t = totalOf(d), above = ABOVE[d];
-    // a few lines whose prominence is not known (the bin "?")
-    return [...above.map((a, k) => Math.round(t * (a - (above[k + 1] ?? 0)))), d === "prominence" ? Math.round(t * 0.02) : 0];
-  };
-  const tw = totalOf("wall");
-  const wall = [...BELOW_WALL.slice(1).map((b, k) => Math.round(tw * (b - BELOW_WALL[k]))), 0, 0];
-  return {level: cells.level, cell_m: cells.cell_m, total: cells.total, length, prominence: dimension("prominence"), wall,
-          clearance: dimension("clearance"), height: dimension("height")};
-}
-
-/** A rounded polygon of the cube's bounds, with its km². */
-function kitOutline(cube: CountryCube): CountryOutline {
+/** The outline of a cube: a rounded polygon of its bounds, [lon, lat] rings; its normalised radius at an angle. */
+const wobble = (a: number) => 0.9 + 0.08 * Math.sin(3 * a) + 0.04 * Math.cos(5 * a);
+function outlineRing(cube: CountryCube): number[][] {
   const [w, s, e, n] = cube.bounds_wgs84;
   const cx = (w + e) / 2, cy = (s + n) / 2, rx = (e - w) / 2, ry = (n - s) / 2;
   const ring: number[][] = [];
-  for (let k = 0; k < 36; k++) {
-    const a = k * Math.PI / 18, wobble = 0.9 + 0.08 * Math.sin(3 * a) + 0.04 * Math.cos(5 * a);
-    ring.push([+(cx + rx * wobble * Math.cos(a)).toFixed(4), +(cy + ry * wobble * Math.sin(a)).toFixed(4)]);
+  for (let k = 0; k < 72; k++) {
+    const a = k * Math.PI / 36;
+    ring.push([+(cx + rx * wobble(a) * Math.cos(a)).toFixed(4), +(cy + ry * wobble(a) * Math.sin(a)).toFixed(4)]);
   }
   ring.push(ring[0]);
-  return {tolerance: 0.01, area_km2: Math.round(Math.PI * rx * KM_LON * ry * KM_LAT * 0.81), geometry: {type: "Polygon", coordinates: [ring]}};
+  return ring;
+}
+/** How far beyond the outline a point lies, in its normalised radius (< 0 inside), and its angle. */
+function beyond(cube: CountryCube, lon: number, lat: number): [number, number] {
+  const [w, s, e, n] = cube.bounds_wgs84;
+  const x = (lon - (w + e) / 2) / ((e - w) / 2), y = (lat - (s + n) / 2) / ((n - s) / 2);
+  const a = Math.atan2(y, x);
+  return [Math.hypot(x, y) - wobble(a), a];
+}
+/** A ring clipped to a lon/lat rectangle (Sutherland–Hodgman, the rectangle convex). */
+function clipRing(ring: number[][], w: number, s: number, e: number, n: number): number[][] {
+  let out = ring.slice(0, -1);
+  const edges: [(p: number[]) => boolean, (a: number[], b: number[]) => number[]][] = [
+    [(p) => p[0] >= w, (a, b) => [w, a[1] + (b[1] - a[1]) * (w - a[0]) / (b[0] - a[0])]],
+    [(p) => p[0] <= e, (a, b) => [e, a[1] + (b[1] - a[1]) * (e - a[0]) / (b[0] - a[0])]],
+    [(p) => p[1] >= s, (a, b) => [a[0] + (b[0] - a[0]) * (s - a[1]) / (b[1] - a[1]), s]],
+    [(p) => p[1] <= n, (a, b) => [a[0] + (b[0] - a[0]) * (n - a[1]) / (b[1] - a[1]), n]]];
+  for (const [inside, cross] of edges) {
+    const input = out;
+    out = [];
+    for (let k = 0; k < input.length; k++) {
+      const cur = input[k], prev = input[(k + input.length - 1) % input.length];
+      if (inside(cur)) { if (!inside(prev)) out.push(cross(prev, cur)); out.push(cur); }
+      else if (inside(prev)) out.push(cross(prev, cur));
+    }
+    if (!out.length) break;
+  }
+  return out;
+}
+/** A [lon, lat] ring's km² (shoelace at its latitude). */
+function ringKm2(ring: number[][]): number {
+  let a = 0, lat = 0;
+  for (let k = 0; k < ring.length; k++) {
+    const p = ring[k], q = ring[(k + 1) % ring.length];
+    a += p[0] * q[1] - q[0] * p[1];
+    lat += p[1] / ring.length;
+  }
+  return Math.abs(a) / 2 * kmLon(lat) * KM_LAT;
+}
+const latLon = (ring: number[][]) => ring.map(([lon, lat]) => [+lat.toFixed(6), +lon.toFixed(6)]);
+
+/** The rows of a cube under the query (as /api/countries/<id>/cells); `factor` the filters' thinning. */
+function kitCells(cube: CountryCube, query: Record<string, string>, factor = kitFactor(cube, query)): CountryCells {
+  const [bw, bs, be, bn] = cube.bounds_wgs84;
+  const reach = 0.08;  // degrees of the outline's surroundings holding partner rows (about the L band's 5 km)
+  const [west, south, east, north] = query.bbox ? query.bbox.split(",").map(Number) : cube.bounds_wgs84;
+  const w = Math.max(west, bw - reach), s = Math.max(south, bs - reach), e = Math.min(east, be + reach), n = Math.min(north, bn + reach);
+  const cells1 = Math.max(0, (e - w) * 120) * Math.max(0, (n - s) * 120);
+  const level = kitLevel(query, cells1);
+  const deg = level / 120, i0 = Math.floor((bw - 0.2) * 15) * 8, j0 = Math.floor((bs - 0.2) * 15) * 8;
+  const mode = query.mode === "spots" ? "spots" : "lines";
+  const ring = outlineRing(cube);
+  const replaced = new Set((cube.neighbours || []).map((id, k) => KIT_CUBES.some((c) => c.id === id) ? k + 1 : 0));
+  const partnerOf = (a: number) => {  // north: the first neighbour, west: the second (south-west: the third), else none
+    const p = a > Math.PI / 4 && a < 3 * Math.PI / 4 ? 1 : Math.abs(a) > 3 * Math.PI / 4 ? (a > 0 ? 2 : 3) : 7;
+    return p <= (cube.neighbours || []).length || p === 7 ? p : 7;
+  };
+  const cells: number[][] = [], cut: CountryCells["cut"] = {};
+  let total = 0, max = 0;
+  const push = (row: number[]) => { cells.push(row); total += row[2]; max = Math.max(max, row[2]); };
+  for (let I = Math.floor(w / deg); I * deg < e; I++) {
+    for (let J = Math.floor(s / deg); J * deg < n; J++) {
+      const x0 = I * deg, y0 = J * deg, x1 = x0 + deg, y1 = y0 + deg, lat = y0 + deg / 2, lon = x0 + deg / 2;
+      let density = noise(I, J) < 0.25 ? 3 : 0;
+      for (const [hlat, hlon, peak, r] of HOT[cube.id]) {
+        const d2 = ((lat - hlat) * KM_LAT) ** 2 + ((lon - hlon) * kmLon(lat)) ** 2;
+        density += peak * Math.exp(-d2 / (2 * r * r));
+      }
+      density *= (0.3 + 2 * noise(J, I)) * factor;
+      if (mode === "spots") density = 0.3 * density ** 0.6;
+      const corners = [y0, x0, y0, x1, y1, x1, y1, x0].map((v) => +v.toFixed(6));
+      const i = I - i0 / level, j = J - j0 / level;
+      const inside = [[x0, y0], [x1, y0], [x1, y1], [x0, y1], [lon, lat]].map(([x, y]) => beyond(cube, x, y)[0] < 0);
+      const whole = ringKm2([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]);
+      let inKm2 = 0;
+      if (inside.every(Boolean)) inKm2 = whole;
+      else if (inside.some(Boolean)) {
+        const part = clipRing(ring, x0, y0, x1, y1);
+        inKm2 = part.length >= 3 ? Math.min(whole, ringKm2(part)) : 0;
+        if (inKm2 > 0) {
+          cut[`${i},${j}`] = {km2: +inKm2.toFixed(6), shape: [[latLon(part)]]};
+          if (whole - inKm2 > 1e-6) {
+            cut[`${i},${j},out`] = {km2: +(whole - inKm2).toFixed(6),
+                                    shape: [[latLon([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]), latLon(part)]]};
+          }
+        }
+      }
+      const own = Math.round(density * inKm2);
+      if (own > 0) push([i, j, own, ...corners, 0]);
+      const [far, angle] = beyond(cube, lon, lat);
+      const partner = partnerOf(angle);
+      if (query.border !== "own" && !replaced.has(partner) && whole - inKm2 > 1e-6 && far < reach / ((be - bw) / 2)) {
+        const count = Math.round(density * (whole - inKm2) * 0.3 * Math.exp(-Math.max(0, far) * 40));
+        if (count > 0) push([i, j, count, ...corners, partner]);
+      }
+    }
+  }
+  return {level, cell_deg: deg, total, max, cells, cut};
+}
+
+/** The histogram of a cube under the query (as /histogram): each dimension under every other filter but its own,
+ *  the rows' total split by the shares; spots' length bins summing to about 1.4 × the total; both modes' totals and
+ *  the lines' border split. */
+function kitHistogram(cube: CountryCube, query: Record<string, string>): CountryHistogram {
+  const cells = kitCells(cube, query);
+  const spots = query.mode === "spots";
+  const totalOf = (except: string) => kitCells(cube, query, kitFactor(cube, query, except)).total;
+  const t0 = totalOf("length");
+  const out: Record<string, unknown> = {level: cells.level, cell_deg: cells.cell_deg, total: cells.total,
+    length: BIN_SHARES.map((share) => Math.round(t0 * share * (spots ? 1.4 : 1)))};
+  for (const d of Object.keys(KIT_KINDS)) {
+    const t = totalOf(d), shares = KIT_SHARES[d];
+    const unknownAll = (d === "lift_needed" || d === "lift_no_zone") && !cube.bands.some((b) => b.params.end_zone);
+    out[d] = unknownAll ? [...shares.slice(0, -1).map(() => 0), t] : shares.map((x) => Math.round(t * x));
+  }
+  const lines = spots ? kitCells(cube, {...query, mode: "lines"}) : cells;
+  const own = lines.cells.filter((r) => !r[11]).reduce((s, r) => s + r[2], 0);
+  const partner = lines.total - own;
+  out.totals = {lines: lines.total, spots: spots ? cells.total : kitCells(cube, {...query, mode: "spots"}).total};
+  out.border = {interior: Math.round(own * 0.96), owned: own - Math.round(own * 0.96), partner};
+  return out as unknown as CountryHistogram;
+}
+
+/** The outline of a cube for the map (as /outline), with its km². */
+function kitOutline(cube: CountryCube): CountryOutline {
+  const ring = outlineRing(cube);
+  return {tolerance: 0.01, area_km2: Math.round(ringKm2(ring)), geometry: {type: "Polygon", coordinates: [ring]}};
 }
 
 const answer = <T,>(make: () => T) => new Promise<T>((resolve, reject) => { try { resolve(make()); } catch (e) { reject(e); } });
@@ -279,8 +382,13 @@ export const KIT_SOURCE: LayerSource = {
   outline: (id) => answer(() => kitOutline(cubeOf(id))),
 };
 
-/** The densest cell of the first answer, selected for the review's screenshots. */
-const densest = (data: CountryCells) => data.cells.reduce<number[] | null>((best, row) => !best || row[2] > best[2] ? row : best, null);
+/** The densest row of the first answer, selected for the review's screenshots (?pick=border: the densest of the
+ *  rows of a cell the border cuts). */
+const densest = (data: CountryCells) => {
+  const border = new URLSearchParams(location.search).get("pick") === "border";
+  const rows = border ? data.cells.filter((r) => !r[11] && data.cut[`${r[0]},${r[1]}`]) : data.cells;
+  return rows.reduce<number[] | null>((best, row) => !best || row[2] > best[2] ? row : best, null);
+};
 
 export function KitLayer() {
   const asked = new URLSearchParams(location.search).get("theme");
@@ -288,9 +396,9 @@ export function KitLayer() {
   const wide = useMedia(DESKTOP);
   return <Screen theme={theme} class={`u-app-c c-app ${wide ? "c-wide" : "c-narrow"}`}>
     <main class="c-main c-main-layer">
-      <MapPage title="Highline layer" aside="Counts in view">{(place, aside) =>
+      <MapPage title="Highline layer" aside="Counts in view">{(place, aside, extras) =>
         <LayerPanel place={place} aside={aside} source={KIT_SOURCE} params={new URLSearchParams(location.hash.replace(/^#/, ""))}
-                    pick={densest} />}</MapPage>
+                    pick={densest} extras={extras} />}</MapPage>
     </main>
   </Screen>;
 }
