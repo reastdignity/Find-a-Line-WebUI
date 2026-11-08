@@ -277,3 +277,81 @@ def test_contact_goes_with_the_requests(monkeypatch):
     assert "contact: someone@example.org" in cache.http_headers()["User-Agent"]
     monkeypatch.delenv("FINDALINE_CONTACT")
     assert cache.http_headers()["User-Agent"].endswith("self-hosted)")
+
+
+def test_clip_to_boxes():
+    """area.clip_to_boxes: a WGS84 outline cut to the union of (south, north, west, east) boxes, with about the km²
+    left out; no boxes: as it was; Source.coverage_boxes are the offline boxes and the bbox, never the border
+    boxes (they may hold a neighbour's land); rough_boxes adds those."""
+    import area as ar
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    main, far = box(19.0, 50.0, 20.0, 51.0), box(-160.0, 19.0, -159.0, 20.0)  # about 7 900 and 11 700 km²
+    outline = unary_union([main, far])
+    kept, dropped = ar.clip_to_boxes(outline, [(49.0, 52.0, 18.0, 21.0)])
+    assert kept.equals(main) and 11_000 < dropped < 12_500
+    kept, dropped = ar.clip_to_boxes(outline, [(49.0, 52.0, 18.0, 21.0), (18.0, 21.0, -161.0, -158.0)])
+    assert kept.equals(outline) and dropped == 0.0
+    assert ar.clip_to_boxes(outline, []) == (outline, 0.0)
+    kept, dropped = ar.clip_to_boxes(outline, [(50.5, 52.0, 18.0, 21.0)])  # half of the main part, all of far
+    assert kept.equals(box(19.0, 50.5, 20.0, 51.0)) and 15_000 < dropped < 16_500
+    assert ar.rough_km2(main) == pytest.approx(ar.size_km2(main), rel=0.02)
+    us = src.SOURCES["usa"]
+    assert us.coverage_boxes() == [b for _, b in us.offline] and us.rough_boxes()[:len(us.coverage_boxes())] == \
+        us.coverage_boxes()
+    cz = src.SOURCES["czechia"]
+    assert cz.border_boxes and cz.coverage_boxes() == [b for _, b in cz.offline]
+    assert cz.rough_boxes() == cz.coverage_boxes() + list(cz.border_boxes)
+
+
+def test_plan_clips_the_outline_to_the_coverage_boxes(tmp_path, monkeypatch, capsys):
+    """plan_of plans over the stored outline clipped to the source's coverage boxes (a Feature written into the
+    pass's work folder; the stored <state>/<name>.geojson stays): of an outline of two parts, one in the source's
+    box and one far away, the plan's area holds the first only, and a line names the km² left out; a source
+    without boxes, or one whose boxes hold the outline, plans over the stored file itself."""
+    import area as ar
+    from shapely.geometry import box, mapping, shape
+    from shapely.ops import unary_union
+    data, state = tmp_path / "data", tmp_path / "state"
+    (data / "cache").mkdir(parents=True)
+    state.mkdir()
+    near, far = box(19.0, 50.0, 19.2, 50.2), box(-160.0, 19.0, -159.8, 19.2)
+    stored = state / "land.geojson"
+    stored.write_text(json.dumps({"type": "Feature", "properties": {"name": "land"},
+                                  "geometry": mapping(unary_union([near, far]))}), encoding="utf-8")
+    before = stored.read_text(encoding="utf-8")
+    planned = []
+
+    def fake_plan(params, paths, say, tiled):
+        geometry = ar.from_spec(params.area, params.buffer, None, paths.cache).geometry
+        planned.append((params.area, geometry))
+        return SimpleNamespace(grid=SimpleNamespace(area_shape=geometry), paths=paths)
+    import search
+    monkeypatch.setattr(search, "plan_search", fake_plan)
+    # Real source ids (SearchParams checks them) with boxes of their own for the test
+    monkeypatch.setattr(src.SOURCES["usa"], "coverage_boxes", lambda: [(49.0, 52.0, 18.0, 21.0)])
+    monkeypatch.setattr(src.SOURCES["europe"], "coverage_boxes", lambda: [])
+    area = ad.Area("land", "osm:Land", "usa", 1.0, str(data), str(state), min_free_gb=0)
+    plan = ad.plan_of(area)
+    path, geometry = planned[-1]
+    assert path == os.path.join(str(data), "work", "area-download-land", "outline.geojson")
+    assert geometry.geom_type == "Polygon" and geometry.equals(near) and plan.grid.area_shape.equals(near)
+    assert stored.read_text(encoding="utf-8") == before
+    with open(path, encoding="utf-8") as f:
+        written = json.load(f)
+    assert shape(written["geometry"]).equals(near) and written["properties"]["name"] == "land"
+    out = capsys.readouterr().out
+    assert "Outline clipped to the source's coverage boxes: about" in out and "km² outside them left out" in out
+    # A source without boxes: the stored file as it is, nothing printed
+    ad.plan_of(ad.Area("land", "osm:Land", "europe", 1.0, str(data), str(state), min_free_gb=0))
+    assert planned[-1][0] == str(stored) and planned[-1][1].equals(unary_union([near, far]))
+    assert capsys.readouterr().out == ""
+    # Boxes holding the whole outline: the stored file too
+    monkeypatch.setattr(src.SOURCES["usa"], "coverage_boxes",
+                        lambda: [(49.0, 52.0, 18.0, 21.0), (18.0, 21.0, -161.0, -158.0)])
+    ad.plan_of(area)
+    assert planned[-1][0] == str(stored) and capsys.readouterr().out == ""
+    # Nothing inside the boxes: refused
+    monkeypatch.setattr(src.SOURCES["usa"], "coverage_boxes", lambda: [(0.0, 1.0, 0.0, 1.0)])
+    with pytest.raises(ValueError, match="outside the source's coverage"):
+        ad.plan_of(area)

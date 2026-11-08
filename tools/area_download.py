@@ -267,10 +267,19 @@ def outline(area: Area) -> str:
 def plan_of(area: Area):
     """The plan of a search over the whole outline: its layers (terrain, and the surface where the source has one)
     and its grid, without tiles."""
+    import area as ar
     import search
+    import sources as src
     from params import SearchParams
-    params = SearchParams(area=outline(area), source=area.source, resolution=area.resolution, nmpt="mark")
     work = os.path.join(area.data_dir, "work", f"area-download-{area.name}")
+    # The outline clipped to the source's coverage boxes (Source.coverage_boxes): the USA's holds Hawaii and
+    # islands far off its 1 m DEM; the stored outline (<state>/<name>.geojson) stays as it is
+    source = src.SOURCES.get(area.source)
+    path, dropped = ar.clip_outline_file(outline(area), source.coverage_boxes() if source else [],
+                                         os.path.join(work, "outline.geojson"))
+    if dropped:
+        print(f"Outline clipped to the source's coverage boxes: about {dropped:,.0f} km² outside them left out")
+    params = SearchParams(area=path, source=area.source, resolution=area.resolution, nmpt="mark")
     return search.plan_search(params, search.Paths(area.data_dir, work), lambda kind, text: print(text), tiled=False)
 
 
