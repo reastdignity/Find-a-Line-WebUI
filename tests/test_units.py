@@ -1518,6 +1518,134 @@ def test_mosaics_as_before(tmp_path):
     del new
 
 
+def _float_tiles(tmp_path):
+    """Rasters of one band on a 2 m grid of EPSG:2180, float32 with NaN as nodata (GTiff as it comes, deflate in
+    blocks, LERC as the cache writes it) and others (a nodata number, an internal mask, float64, no nodata), with
+    NaN of other payloads, values below VALID_MIN and infinities."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    from sources.layer import _write_tile
+    rng = np.random.default_rng(12)
+    band = (300 + rng.normal(0, 40, (300, 260))).astype(np.float32)
+    band[20:40, 10:90] = np.nan
+    band.view(np.uint32)[50, :30] = 0xFFC00001  # NaN of other signs and payloads
+    band.view(np.uint32)[51, :30] = 0x7F800001
+    band[60:62] = -700  # below VALID_MIN: no data
+    band[63, :5], band[63, 5:10] = -np.inf, np.inf
+    transform = from_origin(500000, 300600, 2, 2)
+
+    def tif(name, data, nodata, mask=None, **profile):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=data.shape[1], height=data.shape[0], count=1,
+                      dtype=data.dtype, crs="EPSG:2180", nodata=nodata, transform=transform, **profile) as dst:
+            dst.write(data, 1)
+            if mask is not None:
+                dst.write_mask(mask)
+        return path
+
+    lerc = str(tmp_path / "lerc.tif")
+    _write_tile(lerc, band, "EPSG:2180", transform)
+    mask = np.full(band.shape, 255, np.uint8)
+    mask[100:120, 40:200] = 0  # masked, its values finite
+    fast = {"nan": tif("nan", band, np.nan),
+            "deflate": tif("deflate", band, np.nan, compress="deflate", predictor=3, tiled=True, blockxsize=64,
+                           blockysize=64),
+            "lerc": lerc}
+    with np.errstate(invalid="ignore"):  # the signalling NaN cast to float64
+        wide = band.astype(np.float64)
+    other = {"number": tif("number", np.where(np.isnan(band), np.float32(-9999), band).astype(np.float32), -9999),
+             "masked": tif("masked", band, np.nan, mask=mask),
+             "float64": tif("float64", wide, np.nan),
+             "none": tif("none", band, None)}
+    return band, fast, other
+
+
+def test_read_band_without_the_mask(tmp_path):
+    """_read_band reads a float32 band whose nodata is NaN without GDAL's mask (a second decode of every block
+    to find its NaN pixels): the bits of the masked read (every NaN np.nan, whatever its payload) and, with
+    clean, of _clean after it; any other band (a nodata number, an internal mask, float64, no nodata) by the
+    masked read as before."""
+    import rasterio as rio
+    from rasterio.windows import Window
+    from sources.layer import _clean
+    from sources.mosaic import _nan_nodata, _read_band
+    _, fast, other = _float_tiles(tmp_path)
+    windows = (Window(0, 0, 260, 300), Window(13, 7, 101, 95), Window(0, 250, 260, 50), Window(5, 48, 40, 20))
+    for name, path in {**fast, **other}.items():
+        with rio.open(path) as f:
+            assert _nan_nodata(f) == (name in fast), name
+            for window in windows:
+                for clean in (False, True):
+                    ref = f.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
+                    if clean:
+                        ref = _clean(ref)
+                    got = _read_band(f, window, clean)
+                    assert got.dtype == np.float32 and np.array_equal(_bits(got), _bits(ref)), (name, window, clean)
+                    if window == windows[0]:
+                        assert np.isnan(got).any() and np.isfinite(got).any()
+
+
+def test_mosaic_of_float_tiles_as_before(tmp_path):
+    """build_mosaic of float32 tiles with NaN as nodata, on the grid (disjoint ones read straight into the mosaic)
+    and overlapping (a raster placed before wins), with others and a reprojected one first or later, whole and in
+    strips: the bits of the reference (_place_before)."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    _, fast, other = _float_tiles(tmp_path)
+    grid = gd.make_grid((499900, 300100, 500500, 300700), 2, "EPSG:2180")
+    with rio.open(fast["deflate"]) as f:  # the same tile 50 px further east and south: overlapping
+        profile, data = f.profile, f.read(1)
+    profile["transform"] = from_origin(500100, 300500, 2, 2)
+    moved = str(tmp_path / "moved.tif")
+    with rio.open(moved, "w", **profile) as dst:
+        dst.write(np.ascontiguousarray(data[::-1]), 1)
+    with rio.open(fast["nan"]) as f:  # half a pixel off the grid: reprojected (bilinear)
+        profile, data = f.profile, f.read(1)
+    profile["transform"] = from_origin(499951, 300651, 2, 2)
+    off = str(tmp_path / "off.tif")
+    with rio.open(off, "w", **profile) as dst:
+        dst.write(data, 1)
+    halves = []  # the tile cut in two on the grid: disjoint, each read straight into the mosaic
+    for name, rows, top in (("top", slice(0, 150), 300600), ("bottom", slice(150, 300), 300300)):
+        profile.update(height=150, transform=from_origin(500000, top, 2, 2))
+        halves.append(str(tmp_path / f"{name}.tif"))
+        with rio.open(halves[-1], "w", **profile) as dst:
+            dst.write(np.ascontiguousarray(data[rows]), 1)
+    for files in ([fast["lerc"], moved, other["masked"]], [moved, fast["nan"], off, other["number"]],
+                  [other["float64"], fast["deflate"]], halves + [moved], [off, fast["lerc"]], [other["none"], off]):
+        old = np.full((grid.height, grid.width), np.nan, np.float32)
+        for path in files:
+            with rio.open(path) as f:
+                _place_before(f, grid, old)
+        assert np.isfinite(old).any() and np.isnan(old).any()
+        for rows in (None, 7):
+            new = src.build_mosaic(files, grid, str(tmp_path / "new.npy"), "test", rows=rows)
+            assert np.array_equal(_bits(new), _bits(old)), (files, rows)
+            del new
+
+
+def test_mosaic_reads_sidecars(tmp_path):
+    """build_mosaic opens its files without a listing of their folder (GDAL_DISABLE_READDIR_ON_OPEN): GDAL
+    still finds a file's sidecar by its name, here an .aux.xml giving its nodata."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    grid = gd.make_grid((500000, 300000, 500200, 300200), 2, "EPSG:2180")
+    band = np.full((100, 100), 250.0, np.float32)
+    band[:30] = 123.0
+    path = str(tmp_path / "tile.tif")
+    with rio.open(path, "w", driver="GTiff", width=100, height=100, count=1, dtype="float32", crs="EPSG:2180",
+                  transform=from_origin(500000, 300200, 2, 2)) as dst:
+        dst.write(band, 1)
+    with open(path + ".aux.xml", "w", encoding="utf-8") as f:
+        f.write('<PAMDataset><PAMRasterBand band="1"><NoDataValue>123</NoDataValue></PAMRasterBand></PAMDataset>')
+    for name in ("a.tif", "b.tif", "c.npy"):  # a folder of other files too
+        (tmp_path / name).write_bytes(b"")
+    with rio.open(path) as f:
+        assert f.nodata == 123.0
+    mosaic = np.array(src.build_mosaic([path], grid, str(tmp_path / "m.npy"), "test"))
+    assert np.isnan(mosaic[:30]).all() and (mosaic[30:] == 250.0).all()
+
+
 # Step 1 in strips of rows (the area of a tiled search, search.search_lines: prepare_data(strips=True)):
 # each function with `rows` gives the whole-grid function's values, for any strip height
 
