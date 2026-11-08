@@ -1446,7 +1446,9 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
     country's outline: the layer counts the lines across the border too (a line's cell is that of its
     first anchor, whichever country holds it), and the app's search fills the neighbour's data at the
     border as the count does. ValueError for a band not in the layer, a level not in the cube or a
-    cell outside the country."""
+    cell outside the country: one whose rectangle lies farther than the band's max_length from the
+    outline (a cell beyond the border within it holds the band's partner lines, /cells' rows of a side
+    1-7, which the page offers to search)."""
     found = [b for b in cube.info.get("bands", []) if b.get("name") == band and b.get("layer")]
     if not found:
         names = [b["name"] for b in cube.info.get("bands", []) if b.get("layer")]
@@ -1458,8 +1460,7 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
     reach = float(params.get("max_length", b["lengths"][1]))
     (south, west), _, (north, east), _ = cube.corners(level, np.array([i]), np.array([j]))[0]
     rectangle = shapely.box(west, south, east, north)
-    outline = cube.outline()
-    if i < 0 or j < 0 or not rectangle.intersects(outline):
+    if i < 0 or j < 0:
         raise ValueError("the cell lies outside the country")
     lon0, lat0 = (west + east) / 2, (south + north) / 2
     kx, ky = _metres_per_degree(lat0)
@@ -1471,6 +1472,12 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict:
         return np.column_stack([xy[:, 0] / kx + lon0, xy[:, 1] / ky + lat0])
 
     region = shapely.transform(rectangle, to_plane).buffer(reach)
+    # the cell within the band's reach of the outline: the outline's part near the cell in the cell's plane
+    pad = 2 * reach
+    near = cube.outline().intersection(shapely.box(west - pad / kx, south - pad / ky, east + pad / kx,
+                                                   north + pad / ky))
+    if near.is_empty or not region.intersects(shapely.transform(near, to_plane)):
+        raise ValueError("the cell lies outside the country")
     region = shapely.segmentize(region, REQUEST_SEGMENT_M)
     back = shapely.transform(region, lambda xy: np.round(to_degrees(xy), REQUEST_DECIMALS))
     if not back.is_valid:

@@ -1192,6 +1192,25 @@ def test_cell_request(tmp_path):
         assert got.symmetric_difference(expected).area < 3e-3 * expected.area, (level, i, j)
         if level == 1 and (i, j) in edge:
             assert not got.within(local.buffer(1))  # it reaches beyond the outline
+    # a cell wholly beyond the outline within the band's reach (a partner row's cell, which the page offers to
+    # search) is searched as any other; one farther than the reach is outside the country
+    near_cells, far_cells = [], []
+    for i in range(columns.start - 2, columns.stop + 2):
+        for j in range(rows.start - 2, rows.stop + 2):
+            (south, west), _, (north, east), _ = cube.corners(1, np.array([i]), np.array([j]))[0]
+            if shapely.box(west, south, east, north).intersects(outline):
+                continue
+            box = shapely.transform(shapely.segmentize(shapely.box(west, south, east, north), 1e-4),
+                                    lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
+            gap = box.distance(local)
+            (near_cells if gap < 250 else far_cells if gap > 350 else []).append((i, j, box))
+    assert near_cells and far_cells
+    i, j, box = near_cells[0]
+    got = shapely.transform(shape(cc.cell_request(cube, "S", 1, i, j)["geometry"]),
+                            lambda xy: np.column_stack(to_crs.transform(xy[:, 0], xy[:, 1])))
+    assert got.symmetric_difference(box.buffer(300)).area < 3e-3 * box.buffer(300).area and got.intersects(local)
+    with pytest.raises(ValueError, match="outside"):
+        cc.cell_request(cube, "S", 1, far_cells[0][0], far_cells[0][1])
     with pytest.raises(ValueError, match="band"):
         cc.cell_request(cube, "M2", 1, *inside[0])  # not in the layer
     with pytest.raises(ValueError, match="band"):
