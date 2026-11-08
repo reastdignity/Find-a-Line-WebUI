@@ -105,17 +105,19 @@ def credits(used: Sequence[dict]) -> List[dict]:
 
 # The pure parts (tests/test_coverage.py)
 
-def matched(a1: np.ndarray, a2: np.ndarray, b1: np.ndarray, b2: np.ndarray, radius: float) -> np.ndarray:
+def matched(a1: np.ndarray, a2: np.ndarray, b1: np.ndarray, b2: np.ndarray, radius) -> np.ndarray:
     """For each line (a1[k], a2[k]): has a line of (b1, b2) both anchors within radius of its anchors,
-    either way round."""
+    either way round. radius: one for every line, or one per line of (a1, a2) (the truth check's
+    tolerance of each known line, tools/truth_analysis.py)."""
     from scipy.spatial import cKDTree
     out = np.zeros(len(a1), dtype=bool)
     if not len(a1) or not len(b1):
         return out
+    radius = np.broadcast_to(np.asarray(radius, dtype=np.float64), (len(a1),))
     t1, t2 = cKDTree(b1), cKDTree(b2)
     for k in range(len(a1)):
         for p, q in ((a1[k], a2[k]), (a2[k], a1[k])):
-            if set(t1.query_ball_point(p, radius)) & set(t2.query_ball_point(q, radius)):
+            if set(t1.query_ball_point(p, radius[k])) & set(t2.query_ball_point(q, radius[k])):
                 out[k] = True
                 break
     return out
