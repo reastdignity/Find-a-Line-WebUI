@@ -1030,13 +1030,23 @@ class TileWork:
         return done
 
 
+def partner_reach(plan) -> float:
+    """How far a border tile's footprint (reach_shape) reaches beyond the outline: the band's longest line and two
+    pixels, the terrain under every line across the border and the slope at its far anchor. Not the whole overlap
+    (which adds the terrain margin of the prominence and the drop): the partners' windows reaching beyond it see
+    the fallback's data there, which changed no count and no key of Slovakia's 367 border tiles of the S band and
+    saved 27 % of their tile seconds against the overlap (wave B, 2026-11-08)."""
+    res = plan.resolution
+    return math.ceil(float(plan.params.max_length) / res) * res + 2 * res
+
+
 def tile_plan(country: Country, plan, core: Tuple[float, ...], paths, threads: Optional[int] = None, **changes):
     """The plan of a tile of a band (TileWork.count): its grid (search.tile_grid: the core with the band's
     overlap, within the band's grid), the band's grid as its search grid (as search_lines gives its tiles:
     the world file's water polygons read once per band, coast.sea_mask's extent), Plan.border from
     _at_border, and at a country's border (not a study area's) the partner anchors within the band's
     longest line beyond the outline (Plan.partners; docs/country-precompute/contract.md section 6, "The
-    borders") on the footprint grown by the overlap (reach_shape: the source's own data beyond the outline,
+    borders") on the footprint grown by partner_reach (reach_shape: the source's own data beyond the outline,
     the neighbours' fill). changes: other fields of the plan."""
     import search
     res = plan.resolution
@@ -1046,7 +1056,7 @@ def tile_plan(country: Country, plan, core: Tuple[float, ...], paths, threads: O
     partners = None
     if border and not country.study:
         partners = float(plan.params.max_length)
-        grid.area_shape = reach_shape(plan.grid.area_shape, grid, overlap)
+        grid.area_shape = reach_shape(plan.grid.area_shape, grid, partner_reach(plan))
     params = plan.params if threads is None else plan.params.model_copy(update={"threads": threads})
     return dataclasses.replace(plan, params=params, grid=grid, paths=paths, tiles=None, funnel={},
                                search_grid=plan.grid, border=border, partners=partners, **changes)
@@ -1158,7 +1168,7 @@ def _prefetch(plans: Dict, say, across: bool = False):
     surface when used and the water mask) on the grid of each resolution (a band's grid: its tiles
     lie within it), before the workers start; the blocks of big remote files in squares of PREFETCH_GROUP_M,
     each file read once per square. across (a country, not a study area): the footprint is the outline
-    grown by the band's overlap, as a border tile's (reach_shape). Gap filling data stays with the tiles."""
+    grown by partner_reach, as a border tile's (reach_shape). Gap filling data stays with the tiles."""
     import copy
     import search
     import sources as src
@@ -1175,7 +1185,7 @@ def _prefetch(plans: Dict, say, across: bool = False):
         grid = plan.grid
         if across:
             grid = copy.copy(plan.grid)
-            grid.area_shape = reach_shape(plan.grid.area_shape, plan.grid, search._overlap(plan.params, res))
+            grid.area_shape = reach_shape(plan.grid.area_shape, plan.grid, partner_reach(plan))
         try:
             src.download_layers(layers, grid, plan.paths.cache, None, group_m=PREFETCH_GROUP_M)
         except RuntimeError as e:
