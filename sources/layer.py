@@ -342,14 +342,17 @@ def squares(layer: Layer, tiles: Sequence, size_m: float) -> List[list]:
     return list(found.values())
 
 
-def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: str,
+def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
                     update: Optional[str] = None, group_m: Optional[float] = None,
                     on_error: Optional[Callable[[Layer, Sequence, Exception], None]] = None,
                     reencode_cached: bool = True):
     """Download what the layers (layer, label) miss over the grid in one pool of DOWNLOAD_THREADS,
     so a slow tile of one layer does not hold the others: one progress bar for all their tiles,
     a line per layer of how many it has. Each tile under its lock and a slot of its host
-    (Layer._download_and_record), skipped when another search downloaded it meanwhile.
+    (Layer._download_and_record), skipped when another search downloaded it meanwhile. An entry
+    (layer, label, grid) takes that layer over a grid of its own instead (the country prefetch: the
+    neighbours' tiles over the windows of the border tiles, in the same pool as the source's own); a
+    layer named twice keeps its first grid.
 
     The tiles of a layer reading range by range (`serial`) go to the pool in squares of SERIAL_SQUARE x
     SERIAL_SQUARE, one task each, its tiles one after another: a tile shared by neighbours is then found in
@@ -368,8 +371,13 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
     leaves it to whatever reads them."""
     # The layers' indexes asked at the same time too (a WFS query of geoportal.gov.pl takes
     # seconds), each layer once; the lines in the order of the layers
+    entries = [(entry[0], entry[1], entry[2] if len(entry) > 2 else grid) for entry in layers]
+    grids = {}
+    for layer, _, own in entries:
+        grids.setdefault(id(layer), own)
+    layers = [(layer, label) for layer, label, _ in entries]
     distinct = list({id(layer): layer for layer, _ in layers}.values())
-    listed = each_layer(distinct, lambda layer: layer.to_download(grid, cache_dir, update))
+    listed = each_layer(distinct, lambda layer: layer.to_download(grids[id(layer)], cache_dir, update))
     roles = {id(layer): servicecounts.role_of(label) for layer, label in reversed(layers)}  # the first label's
     todo = []
     for layer, (tiles, line) in zip(distinct, listed):
@@ -377,7 +385,8 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
             print(line)
         todo += [(layer, tile) for tile in tiles]
         if servicecounts.enabled():  # the tiles found in the cache (the index may be unreachable: None)
-            servicecounts.tiles(layer.folder, roles[id(layer)], cached=len(layer.tiles(grid) or []) - len(tiles))
+            servicecounts.tiles(layer.folder, roles[id(layer)],
+                                cached=len(layer.tiles(grids[id(layer)]) or []) - len(tiles))
     if todo:
         labels = list(dict.fromkeys(label for layer, label in layers if any(t[0] is layer for t in todo)))
         progress.download.start(f"{', '.join(labels)} tiles", len(todo), unit="tile")
@@ -405,10 +414,11 @@ def download_layers(layers: Sequence[Tuple[Layer, str]], grid: Grid, cache_dir: 
             pool.shutdown(cancel_futures=True)  # after an error: the tiles not started yet are not
         progress.download.finish(f"{received / 1e6:.0f} MB")
     for layer, _ in layers:
-        layer.downloaded(grid, cache_dir)
+        layer.downloaded(grids[id(layer)], cache_dir)
     if reencode_cached:
         fetched = {layer.tile_path(cache_dir, tile) for layer, tile in todo}  # written in the current encoding
-        paths = [p for layer in distinct if layer.rewrites for p in layer.files(grid, cache_dir) if p not in fetched]
+        paths = [p for layer in distinct if layer.rewrites for p in layer.files(grids[id(layer)], cache_dir)
+                 if p not in fetched]
         reencode_paths(cache_dir, list(dict.fromkeys(paths)))
 
 

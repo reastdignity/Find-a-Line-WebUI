@@ -468,6 +468,32 @@ def test_composed_layer(tmp_path, capsys):
     assert layer.reader.fetched == []  # all cached or missing
 
 
+class GridLayer(FakeLayer):
+    """A fake layer whose tiles are those of its grid: the tiles 0..grid-1, in a folder of its own; it records the
+    grids it was asked about."""
+
+    def __init__(self, name):
+        super().__init__(0)
+        self.folder, self.asked, self.done = f"fake/{name}", [], []
+        self.index.tiles = lambda grid: self.asked.append(grid) or list(range(grid))
+        self.index.path = lambda cache_dir, tile: os.path.join(cache_dir, "fake", name, f"{tile}.bin")
+
+    def downloaded(self, grid, cache_dir):
+        self.done.append(grid)
+
+
+def test_download_layers_with_a_grid_per_layer(tmp_path, capsys):
+    """An entry (layer, label, grid) downloads that layer over its own grid in the same pool (the country
+    prefetch's neighbours); the others over the call's grid; a layer named twice keeps its first grid."""
+    own, other = GridLayer("own"), GridLayer("other")
+    src.download_layers([(own, "terrain"), (other, "gap fill (other)", 2), (other, "surface", 5)], 3, str(tmp_path))
+    assert sorted(own.reader.fetched) == [0, 1, 2] and sorted(other.reader.fetched) == [0, 1]
+    assert set(own.asked) == {3} and set(other.asked) == {2}
+    assert (own.done, other.done) == ([3], [2, 2])  # Layer.downloaded once per entry, as before
+    out = capsys.readouterr().out
+    assert "Fake: 3 tiles (0 cached, 3 to download)" in out and "Fake: 2 tiles (0 cached, 2 to download)" in out
+
+
 def test_prune_asks_a_folder_once(tmp_path, monkeypatch):
     """NewestPerSheet.prune deletes exactly the files of the other surveys the per-file code of before
     deleted (os.path.exists of every cached sheet and then of its other surveys), whether existing()
