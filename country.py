@@ -1072,6 +1072,54 @@ def _at_border(grid) -> bool:
     return outline is None or not box(*grid.bounds).within(outline)
 
 
+def neighbour_boxes(plan, tiles, footprint) -> Dict[str, List[Tuple[str, Tuple[float, float, float, float]]]]:
+    """Per neighbour of the band's source (Source.neighbours) the box (left, bottom, right, top in the plan's
+    CRS) of each border tile (_at_border) that holds every window the neighbour may fill in it
+    (sources.filling.neighbour_window): the strip of the footprint (reach_shape of the band's grid with its
+    partner_reach, as a border tile's) beyond the outline, within the tile's grid and under the neighbour's rough
+    boxes (their
+    bounds in the CRS, as filling._box_ranges takes them, a pixel larger for its pixel ranges), grown by
+    NEIGHBOUR_PAD and two pixels (a pixel the footprint touches, the window's pad), within the tile's grid. The
+    border gaps (filling.border_gaps) lie in that strip while the source's own data cover the outline: a gap of
+    its own data inside the outline reaching the strip could make a window larger (the tile then downloads the
+    rest itself, as before). A neighbour without rough boxes may fill any border gap: the strip within the
+    tile's grid. Asks nothing of the neighbours' services."""
+    import shapely
+    import sources as src
+    from rasterio.warp import transform_bounds
+    res = plan.resolution
+    strip = footprint.difference(plan.grid.area_shape)
+    rects = {}
+    for n in plan.source.neighbours or ():
+        boxes = src.SOURCES[n].rough_boxes()
+        rects[n] = None if not boxes else [
+            (left - res, bottom - res, right + res, top + res)
+            for left, bottom, right, top in (transform_bounds("EPSG:4326", plan.crs, west, south, east, north)
+                                             for south, north, west, east in boxes)]
+    pad = (src.filling.NEIGHBOUR_PAD + 2) * res
+    found: Dict[str, List[Tuple[str, Tuple[float, float, float, float]]]] = {n: [] for n in rects}
+    for tile in tiles:
+        if not _at_border(tile.grid):
+            continue
+        g_left, g_bottom, g_right, g_top = tile.grid.bounds
+        for n, boxes in rects.items():
+            near = None
+            for left, bottom, right, top in boxes or [tile.grid.bounds]:
+                left, bottom, right, top = max(left, g_left), max(bottom, g_bottom), min(right, g_right), min(top, g_top)
+                if left >= right or bottom >= top:
+                    continue
+                piece = shapely.clip_by_rect(strip, left, bottom, right, top)
+                if piece.is_empty:
+                    continue
+                b = piece.bounds
+                near = b if near is None else (min(near[0], b[0]), min(near[1], b[1]), max(near[2], b[2]),
+                                               max(near[3], b[3]))
+            if near is not None:
+                found[n].append((tile.name, (max(g_left, near[0] - pad), max(g_bottom, near[1] - pad),
+                                             min(g_right, near[2] + pad), min(g_top, near[3] + pad))))
+    return found
+
+
 def _print_event(kind: str, text: str):
     print(("WARNING: " if kind == "warning" else "") + str(text), flush=True)
 
@@ -1164,12 +1212,64 @@ def _ask(question: str) -> bool:
     return answer.strip().lower() in ("y", "yes", "t", "tak")
 
 
-def _prefetch(plans: Dict, say, across: bool = False):
+def neighbour_shapes(plans: Dict, tiles: Dict[str, Sequence]) -> Dict[str, object]:
+    """Per neighbour of the source the area (the plans' CRS) of every window a border tile of the bands may ask
+    of it: each band's boxes (neighbour_boxes, with its partner_reach) on its footprint grown by a pixel, joined
+    over the bands (plans of one resolution, whose tiles ask the neighbour's layers on grids of that resolution).
+    tiles: the FixedTiles of each band to cover (a band without any: none)."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    parts: Dict[str, list] = {}
+    for name, plan in plans.items():
+        if not tiles.get(name):
+            continue
+        footprint = reach_shape(plan.grid.area_shape, plan.grid, partner_reach(plan))
+        for n, boxes in neighbour_boxes(plan, tiles[name], footprint).items():
+            if boxes:
+                parts.setdefault(n, []).append(
+                    footprint.buffer(plan.resolution).intersection(unary_union([box(*b) for _, b in boxes])))
+    return {n: unary_union(shapes) for n, shapes in parts.items()}
+
+
+def _neighbour_layers(plans: Dict, tiles: Dict[str, Sequence]) -> List[Tuple[object, str, object]]:
+    """The neighbours' layers the border tiles of the bands (plans of one resolution) may fill their gaps from,
+    each (layer, label, grid) over its own grid (sources.download_layers): the terrain, and the surface model when
+    the bands use one (filling.fill_gaps fills a neighbour's surface gaps from its own surface model only; it
+    reads no water mask), over neighbour_shapes on a grid of the plans' (their CRS, resolution and pixel edges:
+    the tiles each tile's window asks are among them), its box made square where it is taller than wide
+    (indexes/tilings.WcsTiling looks for an area's tiles over a square of the grid's width). An unavailable
+    neighbour is left to the tiles, which say why (fill_from_neighbours)."""
+    import grid as gd
+    import sources as src
+    from sources.choose import source_unavailable
+    first = next(iter(plans.values()))
+    found = []
+    for n, shape in neighbour_shapes(plans, tiles).items():
+        neighbour = src.SOURCES[n]
+        if shape.is_empty or source_unavailable(neighbour):
+            continue
+        left, bottom, right, top = shape.bounds
+        if top - bottom > right - left:
+            middle, half = (left + right) / 2, (top - bottom) / 2
+            left, right = middle - half, middle + half
+        grid = gd.make_grid((left, bottom, right, top), first.resolution, first.crs, first.source.grid_origin)
+        grid.area_shape = shape
+        label = f"gap fill ({neighbour.name})"
+        found.append((neighbour.nmt, label, grid))
+        if first.nmpt and neighbour.nmpt is not None:
+            found.append((neighbour.nmpt, label, grid))
+    return found
+
+
+def _prefetch(plans: Dict, say, across: bool = False, tiles: Optional[Dict[str, Sequence]] = None):
     """The data over the whole country into the cache (sources.download_layers of the terrain, the
     surface when used and the water mask) on the grid of each resolution (a band's grid: its tiles
     lie within it), before the workers start; the blocks of big remote files in squares of PREFETCH_GROUP_M,
     each file read once per square. across (a country, not a study area): the footprint is the outline
-    grown by partner_reach, as a border tile's (reach_shape). Gap filling data stays with the tiles."""
+    grown by partner_reach, as a border tile's (reach_shape), and the neighbours' layers over the windows the
+    border tiles among `tiles` (each band's to count) may ask of them (_neighbour_layers), in the same pool:
+    otherwise each border tile downloads them in its step 1, block by block under the host slots (BEV allows
+    2 connections), its count waiting. The fallbacks' data stay with the tiles."""
     import copy
     import search
     import sources as src
@@ -1182,7 +1282,9 @@ def _prefetch(plans: Dict, say, across: bool = False):
         layers = list(zip(plan.layers, ("terrain", "surface")))
         if plan.params.water == "fill" or search._fills_gaps(plan):
             layers.append((src.WATER_MASK, "water mask"))
-        say(f"Prefetch at {res:g} m: {', '.join(label for _, label in layers)}")
+        if across and tiles and search._fills_gaps(plan):
+            layers += _neighbour_layers({n: p for n, p in plans.items() if p.resolution == res}, tiles)
+        say(f"Prefetch at {res:g} m: {', '.join(dict.fromkeys(entry[1] for entry in layers))}")
         grid = plan.grid
         if across:
             grid = copy.copy(plan.grid)
@@ -1375,8 +1477,9 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     manifest = Manifest(folder)
     try:
         largest = disk = 0
+        band_tiles = {}
         for band in country.bands:
-            tiles = search.fixed_tiles(plans[band.name], band.core_m)
+            tiles = band_tiles[band.name] = search.fixed_tiles(plans[band.name], band.core_m)
             manifest.add_tiles(band.name, tiles)
             if band.name in selected and tiles:
                 largest = max(largest, max(t.grid.width * t.grid.height for t in tiles))
@@ -1416,8 +1519,10 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         started = time.time()
         if todo:
             _set_weights(manifest, selected, plans, say)
+            pending = {(r["band"], r["name"]) for r in manifest.rows() if r["status"] == "pending"}
             with progress.bars():
-                _prefetch({n: plans[n] for n in selected}, say, across=not country.study)
+                _prefetch({n: plans[n] for n in selected}, say, across=not country.study,
+                          tiles={n: [t for t in band_tiles[n] if (n, t.name) in pending] for n in selected})
                 if k:
                     _warm_up(country, {n: plans[n] for n in selected}, folder, data_dir, say)
             manifest.set_run(selected, max_tiles, k_eff)

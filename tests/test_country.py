@@ -1071,3 +1071,142 @@ def test_build_refuses_a_tile_of_another_profile(env, full, tmp_path, capsys):
     capsys.readouterr()
     assert _country("build", ID, "--data-dir", data) == 1
     assert "another profile" in capsys.readouterr().out
+
+
+# The prefetch of the neighbours' windows (country.neighbour_boxes, _neighbour_layers, _prefetch)
+
+NEIGHBOUR_CRS = "EPSG:2180"
+
+
+def _box_wgs84(left, bottom, right, top):
+    """(south, north, west, east) of a box of NEIGHBOUR_CRS, as Source.offline holds them."""
+    from rasterio.warp import transform_bounds
+    west, south, east, north = transform_bounds(NEIGHBOUR_CRS, "EPSG:4326", left, bottom, right, top)
+    return south, north, west, east
+
+
+def _tiled(folder):
+    """A neighbour's layer of 250 m tiles (indexes/tilings.MetricTiling)."""
+    import sources as src
+    from sources.indexes.tilings import MetricTiling
+
+    class Tiled(src.composed.ComposedLayer):
+        description, native_res, _bytes = f"tiled {folder}", 10.0, 0
+
+        def __init__(self):
+            self.folder = folder
+            self.index, self.reader = MetricTiling(NEIGHBOUR_CRS, folder, 250.0), src.composed.Reader()
+    return Tiled()
+
+
+def _neighbour_country(monkeypatch):
+    """A country (an outline with its north-eastern corner cut off) whose source has four neighbours: "east" and
+    "north" with rough boxes over their side of the border (east with a surface model), "far" with a box far
+    away, "any" without boxes (it may fill any border gap); a band's plan of 10 m and 300 m lines, its tiles of
+    1 km on the band's grid."""
+    from types import SimpleNamespace
+    import grid as gd
+    import search
+    import sources as src
+    from shapely.geometry import Polygon
+    credit = src.Credit("data", "© test", "CC BY 4.0", "https://example.org")
+
+    def source(sid, offline, surface=False, **kwargs):
+        made = src.Source(id=sid, name=f"{sid} name", description=sid, nmt=_tiled(f"test/{sid}"),
+                          nmpt=_tiled(f"test/{sid}-dsm") if surface else None, credits=(credit,),
+                          offline=offline, **kwargs)
+        monkeypatch.setitem(src.SOURCES, sid, made)
+        return made
+    source("east", (("xe", _box_wgs84(503500, 299000, 506000, 305000)),), surface=True)
+    source("north", (("xn", _box_wgs84(499000, 303500, 506000, 305000)),))
+    source("far", (("xf", (40.0, 41.0, 0.0, 1.0)),))
+    source("any", ())
+    own = source("own", (), neighbours=("east", "north", "far", "any"))
+    outline = Polygon([(500000, 300000), (504000, 300000), (504000, 302500), (502500, 304000), (500000, 304000)])
+    res, max_length = 10.0, 300.0
+    grid = gd.make_grid((499600, 299600, 504400, 304400), res, NEIGHBOUR_CRS)
+    grid.area_shape = outline
+    plan = SimpleNamespace(resolution=res, crs=NEIGHBOUR_CRS, grid=grid, source=own, nmpt=None,
+                           params=SimpleNamespace(max_length=max_length, water="off", fill_gaps="on"),
+                           layers=[own.nmt], paths=SimpleNamespace(cache="unused"))
+    overlap = max_length + 50 + 2 * res
+    tiles = [search.FixedTile(f"E{i}_N{j}", core, search.tile_grid(grid, core, overlap, res, (0.0, 0.0)))
+             for j in range(303000, 299999, -1000) for i in range(500000, 504000, 1000)
+             for core in [(i, j, i + 1000, j + 1000)]]
+    return plan, outline, tiles
+
+
+def test_prefetch_holds_every_neighbour_window(monkeypatch, tmp_path):
+    """The boxes of the prefetch (neighbour_boxes) hold every window a border tile's step 1 asks a neighbour to fill
+    (sources.filling.neighbour_window of its border gaps on its footprint, as TileWork's plan has it: the source's
+    own data cover the outline, reach a little beyond it in the south-west, and leave a hole inside it), and the
+    tiles of the neighbour's layer over each window's sub-grid are among those of the prefetch's grid for it
+    (_neighbour_layers, the neighbour's surface model too where the bands have one); a neighbour whose boxes reach
+    no border gap gets no box and is not asked; _prefetch hands them to sources.download_layers with the source's
+    own layers, in one call per resolution."""
+    import copy
+    import shapely
+    import country
+    import sources as src
+    from shapely.geometry import box
+    plan, outline, tiles = _neighbour_country(monkeypatch)
+    reach = country.partner_reach(plan)
+    data_shape = outline.union(outline.buffer(80).intersection(box(500000, 299000, 502000, 301000))).difference(
+        box(501400, 301400, 501600, 301600))
+    boxes = {n: dict(found) for n, found in
+             country.neighbour_boxes(plan, tiles, country.reach_shape(outline, plan.grid, reach)).items()}
+    assert set(boxes) == {"east", "north", "far", "any"} and boxes["far"] == {}
+    plan.nmpt = "mark"
+    layers = country._neighbour_layers({"S": plan}, {"S": tiles})
+    grids = {id(layer): grid for layer, _, grid in layers}
+    assert [(label, layer.folder) for layer, label, _ in layers] == [
+        ("gap fill (east name)", "test/east"), ("gap fill (east name)", "test/east-dsm"),
+        ("gap fill (north name)", "test/north"), ("gap fill (any name)", "test/any")]
+    windows = {n: 0 for n in boxes}
+    for tile in tiles:
+        if not country._at_border(tile.grid):
+            assert all(tile.name not in found for found in boxes.values())
+            continue
+        g = copy.copy(tile.grid)
+        g.area_shape = country.reach_shape(outline, g, reach)  # as country.tile_plan gives a border tile
+        cols, rows = np.meshgrid(np.arange(g.width), np.arange(g.height))
+        inside = shapely.contains_xy(data_shape, g.left + (cols + 0.5) * g.res, g.top - (rows + 0.5) * g.res)
+        path = str(tmp_path / f"{tile.name}.npy")
+        np.save(path, np.where(inside, 100.0, np.nan).astype(np.float32))
+        gaps = src.filling.border_gaps(path, None, g)
+        for n in boxes:
+            neighbour = src.SOURCES[n]
+            window = src.filling.neighbour_window(neighbour, g, gaps)
+            if window is None:
+                continue
+            windows[n] += 1
+            r, c = window
+            left, top = g.left + c.start * g.res, g.top - r.start * g.res
+            right, bottom = g.left + c.stop * g.res, g.top - r.stop * g.res
+            b_left, b_bottom, b_right, b_top = boxes[n][tile.name]
+            eps = 1e-6
+            assert b_left - eps <= left and b_bottom - eps <= bottom and right <= b_right + eps and top <= b_top + eps
+            sub = src.filling._subgrid(g, window)
+            for layer in (neighbour.nmt, neighbour.nmpt):
+                if layer is not None:
+                    assert set(layer.tiles(sub)) <= set(layer.tiles(grids[id(layer)])), (n, tile.name)
+    assert windows["far"] == 0 and min(windows["east"], windows["north"], windows["any"]) >= 2
+    # One call of download_layers per resolution: the source's own layers over the footprint, the neighbours'
+    # over their grids, the blocks of big files in squares of PREFETCH_GROUP_M
+    calls = []
+    monkeypatch.setattr(src, "download_layers", lambda layers, grid, cache_dir, update, group_m=None: calls.append(
+        (layers, grid, group_m)))
+    said = []
+    country._prefetch({"S": plan}, said.append, across=True, tiles={"S": tiles})
+    [(passed, grid, group_m)] = calls
+    assert group_m == country.PREFETCH_GROUP_M
+    assert passed[:2] == [(plan.source.nmt, "terrain"), (src.WATER_MASK, "water mask")]
+    assert [(layer.folder, label) for layer, label, _ in passed[2:]] == [
+        (layer.folder, label) for layer, label, _ in layers]
+    assert grid.area_shape.equals(country.reach_shape(outline, plan.grid, reach))
+    assert said == ["Prefetch at 10 m: terrain, water mask, gap fill (east name), gap fill (north name), "
+                    "gap fill (any name)"]
+    calls.clear()
+    country._prefetch({"S": plan}, said.append, across=False, tiles={"S": tiles})  # a study area: its own only
+    assert [entry[1] for entry in calls[0][0]] == ["terrain", "water mask"]
+
