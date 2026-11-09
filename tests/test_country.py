@@ -1254,3 +1254,37 @@ def test_end_zone_reaches_the_pair_search(env, tmp_path, monkeypatch):
     search.count_tile(plan, search.prepare_data(plan, statistics=False, shore="none"), None, lambda part: None,
                       country.tension_table(c, band, plan))
     assert (seen["end_zone"], seen["lift"], seen["zones"]) == (5.0, 2.0, (0.0, 5.0))
+
+
+def test_disk_check_counts_the_prefetch(env, monkeypatch, capsys):
+    """_run's free-disk check counts what the prefetch would download into the cache (prefetch_bytes: the layers'
+    estimate on the grids the prefetch fetches) besides the work folders: a layer with more still to download than
+    the disk has free is refused before any download, the message naming both parts; a cached one passes (the run
+    goes on to the prefetch)."""
+    import re
+    from types import SimpleNamespace
+    import country
+    import sources as src
+
+    class Reached(Exception):
+        pass
+
+    def prefetch(*args, **kwargs):
+        raise Reached
+    monkeypatch.setattr(country, "_prefetch", prefetch)
+    free = 2 << 30
+    monkeypatch.setattr(country.shutil, "disk_usage", lambda path: SimpleNamespace(total=10 * free, used=9 * free,
+                                                                                   free=free))
+    data = _data_dir(env, "disk-check")
+    with monkeypatch.context() as m:  # the elevation file as a layer of 5 GB not cached yet
+        m.setattr(src.FileLayer, "missing", lambda self, grid, cache_dir, update: self.tiles(grid))
+        m.setattr(src.FileLayer, "bytes_per_tile", lambda self: 5e9)
+        capsys.readouterr()
+        assert country.run(ID, data, processes=0, yes=True) == 1
+    out = capsys.readouterr().out
+    assert "The prefetch downloads about 4.7 GiB into the cache" in out
+    assert "Not enough free disk" in out
+    assert re.search(r"the work folders need about [\d.]+ GiB and the prefetch about 4\.7 GiB in the cache", out)
+    with pytest.raises(Reached):  # cached: nothing to download, the work folders fit
+        country.run(ID, data, processes=0, yes=True)
+    assert "The prefetch downloads about 0.0 GiB" in capsys.readouterr().out

@@ -1241,8 +1241,10 @@ def _neighbour_layers(plans: Dict, tiles: Dict[str, Sequence]) -> List[Tuple[obj
     the bands use one (filling.fill_gaps fills a neighbour's surface gaps from its own surface model only; it
     reads no water mask), over neighbour_shapes on a grid of the plans' (their CRS, resolution and pixel edges:
     the tiles each tile's window asks are among them), its box made square where it is taller than wide
-    (indexes/tilings.WcsTiling looks for an area's tiles over a square of the grid's width). An unavailable
-    neighbour is left to the tiles, which say why (fill_from_neighbours)."""
+    (indexes/tilings.WcsTiling looks for an area's tiles over a square of the grid's width here: main's 04e91b0
+    of 2026-11-08 scans the whole box, tests/test_sources.py::test_wcs_tiles_of_a_tall_area; the square can go
+    once this branch has merged it). An unavailable neighbour is left to the tiles, which say why
+    (fill_from_neighbours)."""
     import grid as gd
     import sources as src
     from sources.choose import source_unavailable
@@ -1265,15 +1267,14 @@ def _neighbour_layers(plans: Dict, tiles: Dict[str, Sequence]) -> List[Tuple[obj
     return found
 
 
-def _prefetch(plans: Dict, say, across: bool = False, tiles: Optional[Dict[str, Sequence]] = None):
-    """The data over the whole country into the cache (sources.download_layers of the terrain, the
-    surface when used and the water mask) on the grid of each resolution (a band's grid: its tiles
-    lie within it), before the workers start; the blocks of big remote files in squares of PREFETCH_GROUP_M,
-    each file read once per square. across (a country, not a study area): the footprint is the outline
-    grown by partner_reach, as a border tile's (reach_shape), and the neighbours' layers over the windows the
-    border tiles among `tiles` (each band's to count) may ask of them (_neighbour_layers), in the same pool:
-    otherwise each border tile downloads them in its step 1, block by block under the host slots (BEV allows
-    2 connections), its count waiting. The fallbacks' data stay with the tiles."""
+def _prefetch_groups(plans: Dict, across: bool = False,
+                     tiles: Optional[Dict[str, Sequence]] = None) -> List[Tuple[float, list, object]]:
+    """What _prefetch fetches, per resolution: (resolution, the entries of sources.download_layers, the grid
+    of the source's own layers). The terrain, the surface when used and the water mask on the band's grid of
+    that resolution (the largest: its tiles lie within it); across (a country, not a study area) on its
+    footprint, the outline grown by partner_reach as a border tile's (reach_shape), and the neighbours' layers
+    on their own grids over the windows the border tiles among `tiles` (each band's to count) may ask of them
+    (_neighbour_layers)."""
     import copy
     import search
     import sources as src
@@ -1282,19 +1283,58 @@ def _prefetch(plans: Dict, say, across: bool = False, tiles: Optional[Dict[str, 
         best = largest.get(plan.resolution)
         if best is None or plan.grid.width * plan.grid.height > best.grid.width * best.grid.height:
             largest[plan.resolution] = plan
+    groups = []
     for res, plan in sorted(largest.items()):
         layers = list(zip(plan.layers, ("terrain", "surface")))
         if plan.params.water == "fill" or search._fills_gaps(plan):
             layers.append((src.WATER_MASK, "water mask"))
         if across and tiles and search._fills_gaps(plan):
             layers += _neighbour_layers({n: p for n, p in plans.items() if p.resolution == res}, tiles)
-        say(f"Prefetch at {res:g} m: {', '.join(dict.fromkeys(entry[1] for entry in layers))}")
         grid = plan.grid
         if across:
             grid = copy.copy(plan.grid)
             grid.area_shape = reach_shape(plan.grid.area_shape, plan.grid, partner_reach(plan))
+        groups.append((res, layers, grid))
+    return groups
+
+
+def prefetch_bytes(groups: Sequence[Tuple[float, list, object]], cache_dir: str) -> int:
+    """The bytes the prefetch (_prefetch_groups) would still download into the cache, as its layers estimate them
+    (Layer.estimate on the grids the prefetch fetches: the tiles not cached yet times their size, the copies of a
+    source's mirror too), each tile once over the resolutions (the water mask and the neighbours' tiles are the
+    same tiles on every band's grid). The indexes are asked (each layer's at once, as download_layers asks
+    them), no tile is downloaded."""
+    import sources as src
+    sizes: Dict[str, float] = {}
+    for _, entries, grid in groups:
+        grids: Dict[int, object] = {}
+        for entry in entries:
+            grids.setdefault(id(entry[0]), entry[2] if len(entry) > 2 else grid)
+        layers = list({id(entry[0]): entry[0] for entry in entries}.values())
+        found = src.layer.each_layer(layers, lambda layer: (layer.estimate(grids[id(layer)], cache_dir, None),
+                                                            layer.missing(grids[id(layer)], cache_dir, None)))
+        for layer, ((_, todo, mb), missing) in zip(layers, found):
+            each = mb * 1e6 / todo if todo else 0.0
+            for tile in missing:
+                sizes.setdefault(layer.tile_path(cache_dir, tile), each)
+    return int(sum(sizes.values()))
+
+
+def _prefetch(plans: Dict, say, across: bool = False, tiles: Optional[Dict[str, Sequence]] = None,
+              groups: Optional[Sequence[Tuple[float, list, object]]] = None):
+    """The data over the whole country into the cache before the workers start (_prefetch_groups, or the groups
+    given: what _run's free-disk check estimated), sources.download_layers per resolution, the neighbours' layers
+    in the same pool: otherwise each border tile downloads them in its step 1, block by block under the host
+    slots (BEV allows 2 connections), its count waiting; the blocks of big remote files in squares of
+    PREFETCH_GROUP_M, each file read once per square. The fallbacks' data stay with the tiles."""
+    import sources as src
+    if groups is None:
+        groups = _prefetch_groups(plans, across, tiles)
+    cache_dir = next(iter(plans.values())).paths.cache
+    for res, layers, grid in groups:
+        say(f"Prefetch at {res:g} m: {', '.join(dict.fromkeys(entry[1] for entry in layers))}")
         try:
-            src.download_layers(layers, grid, plan.paths.cache, None, group_m=PREFETCH_GROUP_M)
+            src.download_layers(layers, grid, cache_dir, None, group_m=PREFETCH_GROUP_M)
         except RuntimeError as e:
             say(f"WARNING: the prefetch failed ({cache.clean_error(e)}): the tiles download what they need")
 
@@ -1501,8 +1541,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         elif max_tiles is not None or todo:
             k = max(1, min(k, todo, max_tiles if max_tiles is not None else todo))
         k_eff = max(1, k)  # the processes counting at once (0: this one)
-        need = k_eff * disk + DISK_SPARE
-        free = shutil.disk_usage(data_dir).free
+        need = k_eff * disk + DISK_SPARE  # the work folders
+        free = shutil.disk_usage(data_dir).free  # the cache's drive too (<data>/cache)
         for band in country.bands:
             c = counts.get(band.name, {})
             say(f"Band {band.name} {band.lengths[0]:g}-{band.lengths[1]:g} m at {band.resolution:g} m "
@@ -1513,9 +1553,18 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
             + (f" (at most {max_tiles} now)" if max_tiles is not None else "")
             + (f"; {k} worker processes, about {per / 2 ** 30:.1f} GiB of memory each" if k else
                "; in this process"))
-        if todo and free < need:
+        groups, download = None, 0
+        if todo:  # what the prefetch will download into the cache, before any download (the indexes are asked)
+            pending = {(r["band"], r["name"]) for r in manifest.rows() if r["status"] == "pending"}
+            groups = _prefetch_groups({n: plans[n] for n in selected}, across=not country.study,
+                                      tiles={n: [t for t in band_tiles[n] if (n, t.name) in pending] for n in selected})
+            download = prefetch_bytes(groups, plans[selected[0]].paths.cache)
+            say(f"The prefetch downloads about {download / 2 ** 30:.1f} GiB into the cache (the tiles not cached yet, "
+                f"as their layers estimate them)")
+        if todo and free < need + download:
             say(f"Not enough free disk in {data_dir}: {free / 2 ** 30:.1f} GiB, the work folders need about "
-                f"{need / 2 ** 30:.1f} GiB. Free some, or use fewer --processes.")
+                f"{need / 2 ** 30:.1f} GiB and the prefetch about {download / 2 ** 30:.1f} GiB in the cache "
+                f"({(need + download) / 2 ** 30:.1f} GiB in all). Free some, or use fewer --processes.")
             return 1
         if todo and not yes and not _ask("Start? [y/N] "):
             say("Not started (--yes skips this question)")
@@ -1523,10 +1572,8 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         started = time.time()
         if todo:
             _set_weights(manifest, selected, plans, say)
-            pending = {(r["band"], r["name"]) for r in manifest.rows() if r["status"] == "pending"}
             with progress.bars():
-                _prefetch({n: plans[n] for n in selected}, say, across=not country.study,
-                          tiles={n: [t for t in band_tiles[n] if (n, t.name) in pending] for n in selected})
+                _prefetch({n: plans[n] for n in selected}, say, groups=groups)
                 if k:
                     _warm_up(country, {n: plans[n] for n in selected}, folder, data_dir, say)
             manifest.set_run(selected, max_tiles, k_eff)
