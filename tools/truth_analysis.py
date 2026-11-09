@@ -119,7 +119,10 @@ distances, the wall angles (on the capture's elevation at the found pixels) and 
 candidates, whether any of them is a group's representative ("rep_any") and "within_base".
 
 analyse writes <out>/<cluster>/analysis.json and <out>/analysis.json (every cluster's records); a
-cluster whose search failed (capture.json's status "failed", or no grid.json) is listed, not counted.
+cluster whose search failed (capture.json's status "failed", or no grid.json) is listed, not counted,
+with its search's error code and message (capture.json's "error" and "message" as "search_error" and
+"search_message"; report reads them from capture.json for an analysis.json written before), each in
+study.md's "Failed searches".
 report writes <out>/study.json, study.md and pictures/ (a hillshade per place: the found lines grey,
 the known lines coloured by outcome; a profile chip per miss): per country, source, SlackMap length
 bin and resolution, every count as the total and per type (highline, midline): recall (matched /
@@ -355,6 +358,19 @@ def capture_state(cluster_folder: str) -> Dict:
 
 def capture_status(cluster_folder: str) -> Optional[str]:
     return capture_state(cluster_folder).get("status")
+
+
+def search_failure(cluster_folder: str) -> Dict:
+    """The error code and message of a cluster's failed search (capture.json's "error" and "message",
+    as tools/truth_study.py run writes them) as {"search_error", "search_message"}; {} when its search
+    did not fail (or capture.json cannot be read)."""
+    try:
+        state = capture_state(cluster_folder)
+    except (OSError, ValueError):
+        return {}
+    if state.get("status") != "failed":
+        return {}
+    return {"search_error": state.get("error"), "search_message": state.get("message")}
 
 
 def run_folder(cluster_folder: str, state: Optional[Dict] = None) -> Optional[str]:
@@ -1084,7 +1100,7 @@ def analyse_cluster(folder: str, profiles: bool = False, cache_dir: Optional[str
         known = load_known(folder)
         result = {"cluster": name, "status": status or "failed", "analysed": False, "error": str(e),
                   "known": len(known), "known_by_type": dict(collections.Counter(k.type for k in known)),
-                  "records": []}
+                  **search_failure(folder), "records": []}
         _write_json(os.path.join(folder, "analysis.json"), result)
         return result
     cands = candidates(c.known, c.found, c.grid)
@@ -1265,6 +1281,30 @@ def _zone_cell(s: Dict, name: str, j: int, k: int, types: Sequence[str]) -> str:
     return f"{found['all']} (" + " / ".join(str(found[t]) for t in types) + ")"
 
 
+def _code_span(text, width: int = 400) -> str:
+    """A text as a markdown code span on one line (its whitespace collapsed, at most width characters,
+    backticks made quotes): an error's message may hold an HTML page or a "|"."""
+    text = " ".join(str(text).split()).replace("`", "'")
+    return f"`{text if len(text) <= width else text[:width - 3] + '...'}`"
+
+
+def _failure_cause(s: Dict) -> str:
+    """A place not analysed, in short: "search failed: <code>" (its search's error code, "no code" without
+    one), else "not analysed"."""
+    if s.get("status") == "failed":
+        return f"search failed: {s.get('search_error') or 'no code'}"
+    return "not analysed"
+
+
+def _failure_line(s: Dict) -> str:
+    """study.md's line of a place not analysed: its known lines, its search's error and message, or why the
+    analysis could not read its capture."""
+    n = s["known"]
+    text = (_code_span(s["search_message"]) if s.get("status") == "failed" and s.get("search_message")
+            else "no message" if s.get("status") == "failed" else _code_span(s.get("error") or s.get("status")))
+    return f"- {s['cluster']} ({n} known line{'' if n == 1 else 's'}): {_failure_cause(s)}; {text}"
+
+
 def _miss_entry(n: int, r: Dict) -> Dict:
     """What study.json keeps of a miss (record r, the n-th known line of its place: the number of its
     picture) for its line in study.md (_miss_line)."""
@@ -1372,7 +1412,10 @@ def report(out: str, pictures: bool = True) -> str:
     records, clusters = analysis["records"], analysis["clusters"]
     types = types_of(records)
     analysed = [s for s in clusters if s.get("analysed")]
-    failed = [s for s in clusters if not s.get("analysed")]
+    # a failed search's error and message: capture.json's when an analysis.json of before lacks them
+    failed = [s if s.get("status") != "failed" or "search_error" in s
+              else {**s, **search_failure(os.path.join(out, s["cluster"]))}
+              for s in clusters if not s.get("analysed")]
     by = {}
     for dimension in DIMENSIONS:
         groups = collections.defaultdict(list)
@@ -1547,7 +1590,19 @@ def markdown(study: Dict) -> List[str]:
         md.append(f"| {s['cluster']} | {s['source']} | {s['resolution']:g} | {s['found_lines']} | {s['found_spots']} | "
                   f"{s['spots_without_known']} | {known} | {hits} |")
     for s in study["failed"]:
-        md.append(f"| {s['cluster']} | not analysed: {s.get('error', s.get('status'))} | | | | | {s['known']} | |")
+        md.append(f"| {s['cluster']} | {_failure_cause(s)} | | | | | {s['known']} | |")
+    if study["failed"]:
+        causes = collections.Counter(_failure_cause(s) for s in study["failed"])
+        places_out, known_out = len(study["failed"]), sum(s["known"] for s in study["failed"])
+        md += ["", "## Failed searches", "",
+               f"{places_out} place{'' if places_out == 1 else 's'} not analysed, {known_out} known "
+               f"line{'' if known_out == 1 else 's'} left out; by "
+               "cause: " + ", ".join(f"{cause} {count}" for cause, count in
+                                     sorted(causes.items(), key=lambda kv: (-kv[1], kv[0])))
+               + ". A failed search's error is the coded error's code (no code: an error without one), its message "
+               "the error's text or the last line the search wrote to stderr (capture.json; the whole output in "
+               "the place's output.log).", ""]
+        md += [_failure_line(s) for s in study["failed"]]
     names = {os.path.basename(p) for p in study["pictures"]}
     md += ["", "## Misses by place", ""]
     for s in study["places"]:

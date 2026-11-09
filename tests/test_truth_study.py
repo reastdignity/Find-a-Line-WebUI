@@ -2,11 +2,15 @@
 rules, midlines clustered with highlines), the sources chosen offline, the places against a copy of
 tests/regression.json, the delegation to tools/truth_analysis.py, the one data folder of a run (its cache
 linked once, unlinked afterwards, also after an interruption; a cluster searched again keeps only its new
-run; each child's own work folder removed), run --parallel with a stand-in child process (three at once,
-a failure, one without lines, a timeout, Ctrl+C: the children's trees killed), cluster --extra, and a run of
-the Żabi Koń clip offline with the formula and with the sag model (a search with lines, one without, a resumed
-pass; both at once giving the same captures) with the capture's files as the analysis reads them (the found
-anchors back on their pixels, their clearances evaluated again; analyse --profiles on the saved run).
+run; each child's own work folder removed; a saved run slimmed to its run.json unless keep_runs), run
+--parallel with a stand-in child process (three at once, a failure, one without lines, a timeout, Ctrl+C:
+the children's trees killed), a failed search's error and message (from result.json, else the last line of
+the child's stderr, which output.log holds after its stdout), run --failed, --status and --ids @FILE,
+cluster --extra, and a run of the Żabi Koń clip offline with the formula and with the sag model (a search with
+lines, one without, a resumed pass; both at once giving the same captures) with the capture's files as the
+analysis reads them (the found anchors back on their pixels, their clearances evaluated again; analyse
+--profiles on the saved run's run.json alone), and the real child's errors there (a source that cannot serve
+the place, an option findaline.py refuses).
 Synthetic lines only: invented ids and coordinates (no SlackMap data in the repository)."""
 
 import gzip
@@ -324,6 +328,14 @@ if named("HANG"):
 code, result = 0, None
 if named("FAIL"):
     code = 3  # no capture: a failed search
+elif named("STDERR"):  # a crash before result.json: its text on stderr only, the key of a URL to mask
+    sys.stderr.write("a warning\nHTTPError: 503 for url: https://x.example/a?apikey=SECRET\n\n")
+    sys.stderr.flush()
+    code = 1
+elif named("CODED"):  # what search-child writes for a coded error, its text on stderr as well
+    print("Download failed: HTTP 503", file=sys.stderr, flush=True)
+    code, result = 1, {"complete": False, "lines": None, "error": "download_failed",
+                       "message": "Download failed: HTTP 503", "run": None}
 elif named("NO_LINES"):
     code, result = 1, {"complete": True, "lines": 0, "error": "no_lines", "message": "No lines found", "run": None}
 else:
@@ -331,6 +343,9 @@ else:
     os.makedirs(run)
     with open(os.path.join(run, "run.json"), "w", encoding="utf-8") as f:
         json.dump({"id": os.path.basename(run)}, f)
+    for file in ("map.html", "data.js", "lines.js", "lines.csv", "lines.geojson", "ATTRIBUTION.txt", "notes.txt"):
+        with open(os.path.join(run, file), "w", encoding="utf-8") as f:
+            f.write(file)
     result = {"complete": True, "lines": 3, "error": None, "run": run}
 if result is not None:
     os.makedirs(capture)
@@ -345,7 +360,8 @@ sys.exit(code)
 def stand_in(monkeypatch, tmp_path, **behaviour):
     """search-child replaced by STAND_IN, a real child process (so the run's processes, their kill and their work
     folders are real); returns the folder of its records. behaviour: the STANDIN_<KEY> variables (barrier: wait
-    until that many children have started, at most 30 s; hang, fail, no_lines: the clusters named, by commas)."""
+    until that many children have started, at most 30 s; hang, fail, stderr, coded, no_lines: the clusters named,
+    by commas). A search that ends well saves a run with run.json, the line files and a notes.txt."""
     script = tmp_path / "stand_in.py"
     script.write_text(STAND_IN, encoding="utf-8")
     log = tmp_path / "records"
@@ -396,18 +412,23 @@ def test_run_shares_one_data_folder(monkeypatch, tmp_path):
     assert [found[n]["status"] for n in ("c1", "c2")] == ["done", "done"]
     runs = {r["name"]: os.path.basename(r["run"]) for r in records(log, "end")}
     assert found["c1"]["run"] == f"data/runs/{runs['c1']}" and (out / found["c1"]["run"] / "run.json").exists()
+    for name in ("c1", "c2"):  # each run without its line files once its capture is written: run.json kept
+        assert sorted(os.listdir(out / found[name]["run"])) == ["notes.txt", "run.json"]
     assert not (out / "c1" / "data").exists()  # no data folder per cluster
     assert len({r["work_id"] for r in seen}) == 2 and all(r["work_id"].startswith("truth-") for r in seen)
     assert os.listdir(out / "data" / "work") == []  # the work folders the searches left removed
-    assert (out / "c1" / "output.log").read_text(encoding="utf-8") == "stand-in c1: started\n"
+    assert (out / "c1" / "output.log").read_text(encoding="utf-8") == "stand-in c1: started\n"  # no stderr
+    assert sorted(os.listdir(out / "c1")) == ["capture", "capture.json", "known.json", "output.log"]
 
     ts.run(str(out), items, str(cache_dir), say=quiet)  # captured already: nothing searched, nothing linked
     assert len(records(log)) == 2 and not os.path.lexists(out / "data" / "cache")
 
-    found = ts.run(str(out), items[:1], str(cache_dir), again=True, say=quiet)  # c1 again: its old run removed
+    found = ts.run(str(out), items[:1], str(cache_dir), again=True, say=quiet,  # c1 again: its old run removed
+                   keep_runs=True)
     again = records(log, "end")[-1]
     assert again["name"] == "c1" and found["c1"]["run"] == "data/runs/" + os.path.basename(again["run"])
     assert sorted(os.listdir(out / "data" / "runs")) == sorted([os.path.basename(again["run"]), runs["c2"]])
+    assert sorted(os.listdir(again["run"])) == sorted([*ts.RUN_FILES, "notes.txt", "run.json"])  # --keep-runs
 
     (out / "data" / "work" / "another").mkdir()  # not left by a search of this run: kept
     monkeypatch.setenv("STANDIN_HANG", "c2")
@@ -531,6 +552,99 @@ def test_run_parallel_interrupted(monkeypatch, tmp_path):
     assert os.listdir(out / "data" / "work") == []
 
 
+def test_run_errors_seen(monkeypatch, tmp_path):
+    """A failed search's error and message in capture.json and its progress line: a child that writes to stderr
+    and exits 1 without result.json gives the last line of its stderr as the message (a key in a URL masked), a
+    child that reports a coded error (result.json, as search-child writes it) its code and text; the stderr
+    follows the stdout in output.log under the marker, the stderr file gone; a search that ends well writes no
+    marker."""
+    stand_in(monkeypatch, tmp_path, stderr="plain", coded="coded")
+    out = tmp_path / "out"
+    items = [{"id": name, "options": "--lat 50 --lon 20", "known": []} for name in ("plain", "coded", "good")]
+    said = []
+    found = ts.run(str(out), items, None, say=said.append)
+    plain, coded, good = (found[name] for name in ("plain", "coded", "good"))
+    assert (plain["status"], plain["error"], plain["returncode"]) == ("failed", None, 1)
+    assert plain["message"] == "HTTPError: 503 for url: https://x.example/a?..."
+    assert (coded["status"], coded["error"], coded["message"]) == ("failed", "download_failed",
+                                                                   "Download failed: HTTP 503")
+    assert good["status"] == "done" and good["error"] is None and good["message"] is None
+    assert (out / "plain" / "output.log").read_text(encoding="utf-8") == (
+        "stand-in plain: started\n\n--- stderr ---\na warning\nHTTPError: 503 for url: "
+        "https://x.example/a?apikey=SECRET\n\n")  # the whole stderr in the log, as written
+    assert (out / "coded" / "output.log").read_text(encoding="utf-8").endswith(
+        "\n--- stderr ---\nDownload failed: HTTP 503\n")
+    assert ts.STDERR_MARK not in (out / "good" / "output.log").read_text(encoding="utf-8")
+    assert not any((out / name / ts.STDERR_FILE).exists() for name in ("plain", "coded", "good"))
+    assert re.fullmatch(r"\[1/3\] plain: failed, - lines, \d+ s \(HTTPError: 503 for url: https://x\.example/a\?\.\.\.\)",
+                        said[1])
+    assert re.fullmatch(r"\[2/3\] coded: failed, - lines, \d+ s \(download_failed: Download failed: HTTP 503\)",
+                        said[3])
+    long = {"status": "failed", "lines": None, "seconds": 1.0, "error": None, "message": "x\n" * 300}
+    assert ts._outcome(long).endswith("...)") and len(ts._outcome(long)) < 240  # on one line, shortened
+
+
+def test_run_failed_and_status(monkeypatch, tmp_path, capsys):
+    """run --failed searches again only the clusters whose capture.json says failed (the others kept, a cluster
+    never searched left out); --status failed,no_lines those of the statuses, captured or not; --max-clusters
+    then counts those; --ids @FILE the ids of a file (a BOM, a comment and a blank line skipped); wrong values
+    refused."""
+    import cache
+    cache_dir = tmp_path / "cache"
+    cache.check_layout(str(cache_dir))
+    log = stand_in(monkeypatch, tmp_path, fail="c2", no_lines="c3")
+    out = tmp_path / "out"
+    clusters = [{"id": f"c{k}", "country": "PL", "source": "geoportal", "national": True,
+                 "options": f"--lat 50 --lon {20 + k}", "known": [], "lines": []} for k in range(1, 5)]
+    out.mkdir()
+    (out / "clusters.json").write_text(json.dumps({"clusters": clusters}), encoding="utf-8")
+    base =["run", "--out", str(out), "--cache", str(cache_dir)]
+
+    def searched():
+        return [r["name"] for r in records(log)]
+
+    def states():
+        return {f"c{k}": (out / f"c{k}" / "capture.json").read_text(encoding="utf-8")
+                for k in range(1, 5) if (out / f"c{k}" / "capture.json").exists()}
+
+    assert ts.main([*base, "--ids", "c1", "c2", "c3"]) == 1
+    assert searched() == ["c1", "c2", "c3"]
+    first = states()
+    assert [json.loads(first[f"c{k}"])["status"] for k in (1, 2, 3)] == ["done", "failed", "no_lines"]
+    capsys.readouterr()
+
+    assert ts.main([*base, "--failed"]) == 1  # c2 failing again; c1 and c3 kept, c4 (never searched) left out
+    printed = capsys.readouterr().out
+    assert searched() == ["c1", "c2", "c3", "c2"]
+    assert "1 of 4 searches with the status failed: searched again" in printed
+    assert "\n1 searches: 0 done, 0 no_lines, 1 failed\n" in printed
+    assert {k: v for k, v in states().items() if k != "c2"} == {k: v for k, v in first.items() if k != "c2"}
+
+    assert ts.main([*base, "--status", "failed,no_lines"]) == 1  # c3 searched again though captured
+    printed = capsys.readouterr().out
+    assert searched()[4:] == ["c2", "c3"] and "2 of 4 searches with the status failed or no_lines" in printed
+    assert states()["c1"] == first["c1"]
+
+    ids = tmp_path / "ids.txt"
+    ids.write_bytes("﻿# the clusters to search\nc4\n\n c1 \n".encode("utf-8"))
+    assert ts.ids_of(["c2", f"@{ids}", "c4"]) == ["c2", "c4", "c1"]
+    assert ts.main([*base, "--ids", f"@{ids}"]) == 0  # c4 searched, c1 captured already
+    assert searched()[6:] == ["c4"] and "c1: captured already (done)" in capsys.readouterr().out
+
+    assert ts.main([*base, "--status", "done", "--max-clusters", "1"]) == 0  # c1 and c4 done: c1 first by id
+    assert searched()[7:] == ["c1"] and "1 of 4 searches with the status done" in capsys.readouterr().out
+
+    assert ts.main([*base, "--status", "done", "bogus"]) == 1 and "error: --status bogus" in capsys.readouterr().err
+    empty = tmp_path / "empty.txt"
+    empty.write_text("# nothing\n", encoding="utf-8")
+    assert ts.main([*base, "--ids", f"@{empty}"]) == 1 and "no cluster ids" in capsys.readouterr().err
+    assert ts.main([*base, "--ids", f"@{tmp_path / 'missing.txt'}"]) == 1
+    with pytest.raises(SystemExit):  # --again, --failed and --status exclude each other
+        ts.main([*base, "--failed", "--again"])
+    assert searched()[8:] == []
+    assert ts.statuses_of(["failed", "no_lines,failed"]) == ("failed", "no_lines")
+
+
 def test_split_options_and_status():
     assert ts.split_options(r'--elevation-file C:\data\a b.tif --name "two words"') == \
         ["--elevation-file", r"C:\data\a", "b.tif", "--name", "two words"]
@@ -640,6 +754,8 @@ def test_run_zabi_kon_clip(tmp_path, model):
     assert back == known
     runs = list((out / "data" / "runs").glob("*/run.json"))  # the saved runs of every place: one data folder
     assert len(runs) == 1 and state["run"] == "data/runs/" + runs[0].parent.name
+    assert not any((runs[0].parent / name).exists() for name in ts.RUN_FILES)  # run.json alone kept
+    assert (out / "data" / "runs" / "runs.js").exists()
     assert not (out / "zk" / "data").exists() and (out / "data" / "runs" / "_viewer").is_dir()
     assert (out / "data" / "cache").is_dir() and not _is_link(out / "data" / "cache")  # --no-cache-link: its own
     assert not os.listdir(out / "data" / "work")  # also the one findaline.py leaves after no lines (Windows)
@@ -661,6 +777,8 @@ def test_run_zabi_kon_clip(tmp_path, model):
     state = json.loads((out / "zk-none" / "capture.json").read_text(encoding="utf-8"))
     assert state["status"] == "no_lines" and state["error"] == "no_lines" and state["lines"] == 0
     assert state["run"] is None  # no run saved without lines
+    assert state["message"].startswith("No lines found")  # the SearchError's text, also on the child's stderr
+    assert state["message"] in (out / "zk-none" / "output.log").read_text(encoding="utf-8").split(ts.STDERR_MARK)[1]
     grid_none, lines_none, _ = check_capture(out / "zk-none", tuple(grid["shape"]), model)
     assert all(len(v) == 0 for v in lines_none.values())
 
@@ -711,3 +829,42 @@ def test_run_zabi_kon_clip(tmp_path, model):
     for k in np.linspace(0, len(c.found) - 1, 40).astype(int):
         lo, hi = sorted([studylib.to_pixel(grid, *c.found.a1[k]), studylib.to_pixel(grid, *c.found.a2[k])])
         assert ta._evaluate(c, lo, hi)[3] == c.found.clearance[k]
+
+
+def test_child_reports_its_error(tmp_path):
+    """The real search-child at the Żabi Koń place offline, two impossible searches: a source that cannot serve
+    it (Slovakia's tiles without a copy set up: a SearchError "no_source" before any download) gives capture.json
+    the error's code and text, the text also the last line of output.log (the child's stderr after its stdout,
+    under the marker) and in the progress line; an option findaline.py refuses (argparse's exit 2, no text of the
+    child's own) gives the last line of the child's stderr as the message."""
+    mirror = tmp_path / "no-mirror"  # FINDALINE_MIRROR without the Slovak tiles
+    mirror.mkdir()
+    where = "--northing 254608 --easting 553966 --radius 290"
+    out = tmp_path / "out"
+    command = [sys.executable, os.path.join("tools", "truth_study.py"), "run", "--out", str(out),
+               "--place", f"zk-source={where} --source slovakia", "--place", f"zk-option={where} --no-such-option",
+               "--no-cache-link"]
+    env = {**os.environ, **OFFLINE_ENV, "FINDALINE_MIRROR": str(mirror)}
+    result = subprocess.run(command, cwd=REPO, env=env, capture_output=True, text=True, encoding="utf-8",
+                            timeout=600)
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "2 searches: 0 done, 0 no_lines, 2 failed" in result.stdout
+
+    source = json.loads((out / "zk-source" / "capture.json").read_text(encoding="utf-8"))
+    assert (source["status"], source["error"], source["returncode"]) == ("failed", "no_source", 1)
+    assert "no copy of the tiles is set up" in source["message"] and source["run"] is None
+    stdout, stderr = (out / "zk-source" / "output.log").read_text(encoding="utf-8").split(f"\n{ts.STDERR_MARK}\n")
+    assert stdout.rstrip().splitlines()[-1].startswith("truth_study: exit 1, no lines captured into")
+    assert stderr.rstrip().splitlines()[-1] == source["message"]
+    assert re.search(r"\[1/2\] zk-source: failed, - lines, \d+ s \(no_source: .*no copy of the tiles is set up",
+                     result.stdout)
+    assert json.loads((out / "zk-source" / "capture" / "result.json").read_text(encoding="utf-8"))["error"] == \
+        "no_source"
+
+    option = json.loads((out / "zk-option" / "capture.json").read_text(encoding="utf-8"))
+    assert (option["status"], option["error"], option["returncode"]) == ("failed", None, 1)
+    assert option["message"].endswith("error: unrecognized arguments: --no-such-option")
+    log = (out / "zk-option" / "output.log").read_text(encoding="utf-8")
+    assert "truth_study: findaline.py ended with exit code 2" in log.split(ts.STDERR_MARK)[0]
+    assert log.rstrip().endswith(option["message"])
+    assert not os.listdir(out / "data" / "work")

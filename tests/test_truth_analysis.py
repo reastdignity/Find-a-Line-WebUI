@@ -132,9 +132,13 @@ def known_lines():
     ]
 
 
-def write_capture(folder, cases, status="done", model="formula"):
+FAILED_MESSAGE = "Download failed: HTTP 503: <html><body>\nNo server | is `free`</body></html>\n"
+
+
+def write_capture(folder, cases, status="done", model="formula", state=None):
     """A cluster folder of the contract's capture format (truth_study.py run's); model "sag": the sag
-    estimator with RIGGING (grid.json as truth_study.write_grid writes it, the lines found with its table)."""
+    estimator with RIGGING (grid.json as truth_study.write_grid writes it, the lines found with its table);
+    state: more keys of capture.json (a failed search's error and message)."""
     z, surface, filled, water, mask = terrain()
     anchors = anchors_of(z, filled, mask)
     cap = os.path.join(folder, "capture")
@@ -156,7 +160,7 @@ def write_capture(folder, cases, status="done", model="formula"):
     with open(os.path.join(folder, "known.json"), "w", encoding="utf-8") as f:
         json.dump([dataclasses.asdict(line) for line, *_ in cases], f)
     with open(os.path.join(folder, "capture.json"), "w") as f:
-        json.dump({"status": status, "seconds": 1.0, "options": "--lat 0 --lon 0"}, f)
+        json.dump({"status": status, "seconds": 1.0, "options": "--lat 0 --lon 0", **(state or {})}, f)
     return folder
 
 
@@ -165,7 +169,8 @@ def study(tmp_path_factory):
     out = tmp_path_factory.mktemp("truth")
     cases = known_lines()
     write_capture(str(out / "testland-001"), cases)
-    write_capture(str(out / "testland-002"), cases[:1], status="failed")  # listed, not counted
+    write_capture(str(out / "testland-002"), cases[:1], status="failed",  # listed, not counted
+                  state={"error": "download_failed", "message": FAILED_MESSAGE})
     return str(out), cases
 
 
@@ -419,6 +424,9 @@ def test_analyse_and_report(study):
     assert os.path.exists(os.path.join(out, "analysis.json"))
     places = {s["cluster"]: s for s in data["clusters"]}
     assert places["testland-002"]["analysed"] is False and places["testland-002"]["known"] == 1
+    assert (places["testland-002"]["search_error"], places["testland-002"]["search_message"]) == \
+        ("download_failed", FAILED_MESSAGE)  # the search's own, from capture.json
+    assert "search_error" not in places["testland-001"]
     one = places["testland-001"]
     assert one["known"] == len(cases) and one["matched"] == 3 and one["source"] == "testland"
     assert 0 < one["spots_without_known"] < one["found_spots"]
@@ -478,6 +486,24 @@ def test_analyse_and_report(study):
     assert "pictures/testland-001-map.png" in text
     ta.report(out, pictures=False)  # without pictures: the same tables
     assert json.load(open(os.path.join(out, "study.json"), encoding="utf-8"))["pictures"] == []
+    # the failed search listed with its error and message (one line, a code span: the HTML and "|" kept as text)
+    failure = ("- testland-002 (1 known line): search failed: download_failed; `Download failed: HTTP 503: "
+               "<html><body> No server | is 'free'</body></html>`")
+    assert "\n## Failed searches\n" in text and failure in text.splitlines()
+    assert "1 place not analysed, 1 known line left out; by cause: search failed: download_failed 1." in text
+    assert "| testland-002 | search failed: download_failed | | | | | 1 | |" in text
+    path = os.path.join(out, "analysis.json")  # an analysis.json of before: report reads capture.json
+    kept = open(path, encoding="utf-8").read()
+    old = json.loads(kept)
+    for s in old["clusters"]:
+        s.pop("search_error", None), s.pop("search_message", None)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(old, f)
+    try:
+        assert failure in ta.report(out, pictures=False).splitlines()
+    finally:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(kept)
 
 
 def test_sag_model(sag_study, monkeypatch):
