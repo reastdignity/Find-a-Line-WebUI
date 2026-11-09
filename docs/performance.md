@@ -2689,6 +2689,26 @@ by one (`_group_values` yields them): 1.50 GB, the same 1311 MB in 192 requests.
 about 0.9 GB and GDAL's cache, about 10.5 GB, well within the 45-50 GB of either machine (docs/country-precompute.md,
 4.1); the prefetch runs before the country's workers start.
 
+#### The group size follows the files' pixels (2026-11-08, branch `adf-downloader`)
+
+`tools/area_download.py` downloaded Luxembourg and Scotland (0.5 m float64 COGs) at the app's minimum resolution of
+1 m with groups of 10 km, and the passes were OOM-killed at 17-49 GB on a server of 62 GB without swap (Luxembourg
+11 times, Scotland 7, New Zealand 6, Wales 2): a group's window is read on the files' own pixels, whatever the grid's
+resolution, so a 10 km group of 0.5 m data holds four times the pixels of the measurement above. Measured on
+Luxembourg's MNT (`perf_window_reads.py --radius 3600 --resolution 1`, the circle at the centre of a 10 km square, one
+thread, 64 blocks; the macOS peak, bytes not KB, after the tool's fix):
+
+| One thread, 64 blocks of 1 km | Downloaded MB | GET | Seconds | Peak memory |
+| --- | ---: | ---: | ---: | ---: |
+| Groups of 5 km (4 squares) | 639 | 306 | 76 | 1.78 GB |
+| Groups of 10 km (1 square, its window 8 x 8 km) | 627 | 149 | 40 | 4.46 GB |
+
+The 10 km group saves 2 % of the bytes and half the requests at 2.5 times the memory (a full square would hold
+10 x 10 km: about 7 GB). `tools/area_download.py` now sizes the groups by the finest native resolution of the plan's
+grouped layers (`_group_m`: `country.PREFETCH_GROUP_M` times it, 5 km for 0.5 m files, 20 km for ArcticDEM's 2 m),
+sets `GDAL_CACHEMAX` 512 MB per pass (GDAL's default is 5 % of the memory for every pass at once) and starts a pass
+again when it passes `--max-memory-gb` (a quarter of the machine's memory by default).
+
 ## Loading a run in the browser (2026-11-04, branch `run-loading-progress`)
 
 A large run opened with no feedback: the result page said "Loading the run…" while data.js came in as a

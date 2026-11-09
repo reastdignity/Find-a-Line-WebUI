@@ -9,6 +9,7 @@ and its shape for the maps and the orthophoto cache.
 """
 
 import math
+import os
 from typing import Dict, Optional, Tuple
 
 import numpy as np
@@ -370,6 +371,48 @@ def from_spec(spec: str, buffer: float, within: str, cache_dir: str, reach: floa
 def size_km2(geometry) -> float:
     """Area of a WGS84 geometry in km²."""
     return project(geometry, "EPSG:4326", _metric(geometry)).area / 1e6
+
+
+KM_PER_DEGREE = 111.2  # of latitude; of longitude times the cosine of the latitude
+
+
+def rough_km2(geometry) -> float:
+    """About the km² of a WGS84 geometry of any extent (the parts of a country's outline left out of a
+    download: a UTM zone of the whole would distort it): each part's area in square degrees times
+    KM_PER_DEGREE² and the cosine of its latitude."""
+    return float(sum(part.area * KM_PER_DEGREE ** 2 * math.cos(math.radians(part.centroid.y))
+                     for part in shapely.get_parts(geometry)))
+
+
+def clip_to_boxes(geometry, boxes: list):
+    """A WGS84 geometry cut to the union of boxes (south, north, west, east): the part inside them and
+    about the km² left out (rough_km2). No boxes: the geometry as it is and 0."""
+    if not boxes:
+        return geometry, 0.0
+    cover = shapely.union_all([shapely.box(west, south, east, north) for south, north, west, east in boxes])
+    dropped = geometry.difference(cover)
+    return geometry.intersection(cover), 0.0 if dropped.is_empty else rough_km2(dropped)
+
+
+def clip_outline_file(path: str, boxes: list, out_path: str) -> Tuple[str, float]:
+    """The GeoJSON Feature of an outline (WGS84) clipped to boxes (clip_to_boxes) and written as a Feature
+    to out_path (its folder made): that path and the km² left out; without boxes, or with nothing left
+    out, `path` itself and 0 (nothing written)."""
+    import json
+    from shapely.geometry import shape
+    with open(path, encoding="utf-8") as f:
+        feature = json.load(f)
+    geometry = shape(feature["geometry"] if feature.get("type") == "Feature" else feature)
+    clipped, dropped = clip_to_boxes(geometry, boxes)
+    if not boxes or dropped == 0.0:
+        return path, 0.0
+    if clipped.is_empty:  # a tool run by hand (tools/area_download.py): no code of the message catalogue
+        raise ValueError("the area lies entirely outside the source's coverage boxes")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    properties = dict(feature.get("properties") or {}, clipped_km2=round(dropped, 1))
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump({"type": "Feature", "properties": properties, "geometry": mapping(clipped)}, f)
+    return out_path, dropped
 
 
 OUTLINE_TOLERANCE_M = 50.0  # simplification of the outline of a search kept with its job (outline_geojson),

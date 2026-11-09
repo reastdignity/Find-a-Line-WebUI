@@ -17,7 +17,7 @@ Where a country publishes airborne LiDAR data, the tool uses it: a terrain model
 | Spain, incl. the Balearic and Canary Islands | IGN MDT05 / MDS05 (PNOA-LiDAR) | 5 m |
 | Switzerland, Liechtenstein | swisstopo swissALTI3D / swissSURFACE3D Raster | 0.5 m (terrain also 2 m) |
 | Slovakia | ÚGKK SR DMR 5.0 / DMP 1.0 (our own tiles, see *Data*: needs a local copy for now) | 1 m |
-| USA, Puerto Rico, US Virgin Islands | USGS 3DEP 1 m DEM (lidar; terrain only, no surface model yet) | 1 m |
+| USA with Hawaii, Puerto Rico, US Virgin Islands | USGS 3DEP 1 m DEM (lidar; terrain only, no surface model yet) | 1 m |
 | Alaska | USGS 3DEP IfSAR DTM (radar; terrain only) | 5 m |
 | Austria | BEV ALS DTM / DSM (national edition) | 1 m |
 | United Kingdom: England | Environment Agency LIDAR Composite DTM / first-return DSM 2022 | 1 m |
@@ -97,7 +97,7 @@ Anchors are taken at ground level, as with the formula. With the default values 
 | `spain` | Spain (peninsula, Balearic Islands) | ES | IGN MDT05, PNOA-LiDAR 5 m | IGN MDS05, 5 m | PNOA (IGN) | 5 m | `france` at the border, then `europe` |
 | `alaska` | Alaska, where it has 1 m data | US | USGS 3DEP 1 m DEM | – | – (USGS's Alaska imagery: licence restrictions) | 1 m | `canada`, `british_columbia` at the border, then `alaska_ifsar`, then `usgs10m` |
 | `alaska_ifsar` | Alaska | – | USGS 3DEP IfSAR DTM, 5 m (radar, 2012–2019) | – | – (USGS's Alaska imagery: licence restrictions) | 5 m | `canada`, `british_columbia` at the border, then `usgs10m` |
-| `usa` | USA, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `canada`, `british_columbia` at the border, then `usgs10m` |
+| `usa` | USA with Hawaii, Puerto Rico, US Virgin Islands | US, PR, VI | USGS 3DEP 1 m DEM (lidar), newest project first | – | USGS Imagery (NAIP, up to zoom 16) | 1 m | `canada`, `british_columbia` at the border, then `usgs10m` |
 | `usgs10m` | USA and its territories | – | USGS 3DEP seamless 1/3 arc-second DEM (about 10 m) | – | USGS Imagery | 10 m | `europe` |
 | `greenland` | Greenland | GL | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | – (no open orthophoto service) | 2 m | `copernicus` |
 | `svalbard` | Svalbard and Jan Mayen (NO) | NO | ArcticDEM v4.1 mosaic, 2 m (a surface model) | – | Norwegian Polar Institute orthophoto (Svalbard) | 2 m | `copernicus` |

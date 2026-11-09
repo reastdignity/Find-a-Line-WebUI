@@ -102,17 +102,28 @@ class Incomplete(RuntimeError):
     """A read that GDAL could not complete although it returned values (net.gdal_errors)."""
 
 
+class WrongCrs(RuntimeError):
+    """A listed file in another CRS than its block's (_same_crs): not used for the block. The block's other
+    files may still serve it (the USA's 1 m DEM lists a project's files of the neighbouring zone too); a
+    block none of whose files could be read for this reason is a failure, never "missing" (a PROJ that
+    does not resolve the files' CRS would otherwise lose a whole layer in silence: ArcticDEM over Jan Mayen,
+    "0 of 1252 tiles", 2026-11-08)."""
+
+    def __init__(self, what: str, name: str, found: str, expected: str):
+        super().__init__(f"{what}: {name} is in {found}, not {expected}")
+        self.name, self.found, self.expected = name, found, expected
+
+
 def _read_file(url: str, crs: str, transform: Affine, shape: Tuple[int, int], name: str,
-               what: str) -> Optional[np.ndarray]:
-    """The values of one file on a block's pixels (_read_window); None if the file is in another
-    CRS. Raises Incomplete when GDAL signalled an error while opening or reading it: values it
-    could not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
+               what: str) -> np.ndarray:
+    """The values of one file on a block's pixels (_read_window). Raises WrongCrs when the file is in
+    another CRS, Incomplete when GDAL signalled an error while opening or reading it: values it could
+    not fetch come back as nodata or zeros without an exception (net.gdal_errors)."""
     with net.gdal_errors() as errors:
         src = rio.open(_remote(url))
     with src:
         if src.crs is not None and not _same_crs(src.crs, crs):
-            print(f"{what}: {name} is in {src.crs.to_string()}, not {crs}; not used")
-            return None
+            raise WrongCrs(what, name, src.crs.to_string(), crs)
         with net.gdal_errors() as reading:
             values = _read_window(src, transform, shape)
     if errors or reading:
@@ -134,10 +145,13 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
 
     With geoid (heights above the ellipsoid: ArcticDEM), the block is saved as h - N, heights above that geoid
     (tag "vertical": its name); N is computed first, so a missing grid (GeoidMissing) asks no file. serial: the
-    ranges one after another through GDAL's cache of ranges (net._gdal_http)."""
+    ranges one after another through GDAL's cache of ranges (net._gdal_http). A file in another CRS is not
+    used (said); when no file of the block could be read for that reason, the block raises (WrongCrs)."""
     undulation = geoid.undulation(crs, transform, shape) if geoid is not None and files else None
     block = np.full(shape, np.nan, dtype=np.float32)
     used, years = [], []
+    wrong: List[WrongCrs] = []
+    read = 0  # files read for the block, in its CRS (with or without data there)
     with _gdal_http(serial):
         for name, url, year in files:
             for attempt in range(net.RETRIES):
@@ -146,6 +160,12 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                 with servicecounts.request(url) as counted:
                     try:
                         values = _read_file(url, crs, transform, shape, name, what)
+                        read += 1
+                        break
+                    except WrongCrs as e:
+                        print(f"{e}; not used")
+                        wrong.append(e)
+                        values = None
                         break
                     except rio.errors.RasterioIOError as e:
                         _forget(url)
@@ -164,6 +184,8 @@ def _read_block(files: Sequence[Tuple[str, str, int]], crs: str, transform: Affi
                 net._sleep(attempt)
             if _apply(block, values, used, years, name, year):
                 break
+    if wrong and not read:
+        raise RuntimeError(f"{wrong[0]}; no file of this block could be read in its CRS")
     url = files[0][1] if files else None
     tags = _finish(block, used, years, undulation, geoid)
     if tags is None:
@@ -289,14 +311,17 @@ def read_group(blocks: Sequence[BlockRequest], what: str,
     h - N), reading each file once for the blocks that need it: one window through our own range requests
     (ranges.open_remote: every answer checked whole), sliced into the blocks (_group_values). The blocks are
     those of one CRS. Returns (values, tags) per block, (None, None) where no file has data. A file of another
-    CRS is not used and a missing one (404) skipped, as there; anything else raises RuntimeError (the caller
-    then reads the group's blocks one by one)."""
+    CRS is not used (said) and a missing one (404) skipped, as there; a block none of whose files could be read
+    for its CRS, and anything else, raises RuntimeError (the caller then reads the group's blocks one by one,
+    where such a block fails alone)."""
     from . import ranges
     state = [[np.full(r.shape, np.nan, dtype=np.float32), [], [], None, not r.files] for r in blocks]
     for s, r in zip(state, blocks):
         if geoid is not None and r.files:
             s[3] = geoid.undulation(r.crs, r.transform, r.shape)
     opened: Dict[str, Optional[tuple]] = {}
+    wrong: Dict[str, WrongCrs] = {}  # the files in another CRS, by URL
+    read = [False] * len(blocks)     # whether a file was read for the block
     with contextlib.ExitStack() as stack:
         for k in range(max((len(r.files) for r in blocks), default=0)):
             need: Dict[Tuple[str, str, int], List[int]] = {}
@@ -305,7 +330,11 @@ def read_group(blocks: Sequence[BlockRequest], what: str,
                     need.setdefault(tuple(r.files[k]), []).append(b)
             for (name, url, year), members in need.items():
                 if url not in opened:
-                    opened[url] = _open_for_group(stack, ranges, url, blocks[members[0]].crs, name, what)
+                    try:
+                        opened[url] = _open_for_group(stack, ranges, url, blocks[members[0]].crs, name, what)
+                    except WrongCrs as e:
+                        print(f"{e}; not used")
+                        wrong[url], opened[url] = e, None
                 if opened[url] is None:
                     continue
                 src, file = opened[url]
@@ -314,17 +343,22 @@ def read_group(blocks: Sequence[BlockRequest], what: str,
                         for m, v in _group_values(src, [blocks[b] for b in members], file):
                             s = state[members[m]]
                             s[4] = _apply(s[0], v, s[1], s[2], name, year)
+                            read[members[m]] = True
                     except rio.errors.RasterioIOError as e:
                         raise RuntimeError(f"Could not read {what} {name}: {cache.clean_error(file.error or e)}") from e
                 if errors or file.error is not None:
                     raise RuntimeError(f"Could not read {what} {name} completely: "
                                        f"{cache.clean_error(file.error or '; '.join(dict.fromkeys(errors)))}")
+    unserved = [next(wrong[url] for _, url, _ in r.files if url in wrong) for b, r in enumerate(blocks)
+                if not read[b] and any(url in wrong for _, url, _ in r.files)]
+    if unserved:
+        raise RuntimeError(f"{unserved[0]}; no file of {len(unserved)} blocks could be read in its CRS")
     return [((s[0], tags) if (tags := _finish(s[0], s[1], s[2], s[3], geoid)) else (None, None)) for s in state]
 
 
 def _open_for_group(stack: contextlib.ExitStack, ranges, url: str, crs: str, name: str, what: str):
-    """A file of a group opened through ranges.open_remote (a local path as it is), or None when it is missing
-    or in another CRS (said, as _read_file says it)."""
+    """A file of a group opened through ranges.open_remote (a local path as it is), or None when it is missing;
+    WrongCrs when it is in another CRS (as _read_file raises it)."""
     try:
         with net.gdal_errors() as errors:
             if re.match(r"https?://", url):
@@ -339,8 +373,7 @@ def _open_for_group(stack: contextlib.ExitStack, ranges, url: str, crs: str, nam
         raise RuntimeError(f"Could not open {what} {name} completely: "
                            f"{cache.clean_error((file and file.error) or '; '.join(dict.fromkeys(errors)))}")
     if src.crs is not None and not _same_crs(src.crs, crs):
-        print(f"{what}: {name} is in {src.crs.to_string()}, not {crs}; not used")
-        return None
+        raise WrongCrs(what, name, src.crs.to_string(), crs)
     return src, file or _LocalFile()
 
 

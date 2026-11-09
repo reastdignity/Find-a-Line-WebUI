@@ -19,7 +19,8 @@ class WcsTiles(ComposedLayer):
     GetCoverage (see WcsReader). edge_px: pixels dropped at the edges of the data, for a
     service whose edge pixels are wrong (see WcsReader). key_params: (query parameter, secret of
     settings.ServiceKeys) put into every request, the layer unavailable without them; version:
-    the WCS version the service speaks, "2.0.1" or "1.0.0" (see WcsReader).
+    the WCS version the service speaks, "2.0.1" or "1.0.0"; split_on_error: a tile the service
+    answers with an HTTP 5xx is asked again in pieces (see WcsReader).
     """
 
     def __init__(self, description: str, url: str, coverage: str, crs: str, folder: str,
@@ -28,7 +29,8 @@ class WcsTiles(ComposedLayer):
                  interpolation: Optional[str] = None, zero_is_nodata: bool = False,
                  bytes_per_px: float = 4, shift: Tuple[float, float] = (0.0, 0.0),
                  origin: Tuple[float, float] = (0.0, 0.0), params: Tuple[Tuple[str, str], ...] = (),
-                 edge_px: int = 0, key_params: Tuple[Tuple[str, str], ...] = (), version: str = "2.0.1"):
+                 edge_px: int = 0, key_params: Tuple[Tuple[str, str], ...] = (), version: str = "2.0.1",
+                 split_on_error: bool = False):
         self.description, self.url, self.coverage, self.crs = description, url, coverage, crs
         self.folder, self.native_res, self.tile_px, self.fmt = folder, native_res, tile_px, fmt
         self.axes, self.fetch_res, self.interpolation = axes, fetch_res, interpolation
@@ -37,7 +39,7 @@ class WcsTiles(ComposedLayer):
         self._bytes = tile_px ** 2 * bytes_per_px
         self.index = WcsTiling(crs, folder, tile_px, fmt, fetch_res, shift, origin, edge_px)
         self.reader = WcsReader(description, url, coverage, crs, native_res, tile_px, fmt, axes, interpolation,
-                                zero_is_nodata, origin, params, edge_px, key_params, version)
+                                zero_is_nodata, origin, params, edge_px, key_params, version, split_on_error)
 
     def coverage_extent(self) -> Optional[tuple]:
         """(left, bottom, right, top) of the coverage in the service CRS, or None if unknown."""

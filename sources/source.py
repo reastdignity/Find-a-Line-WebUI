@@ -166,12 +166,21 @@ class Source:
         south, north, west, east = self.bbox
         return south <= lat <= north and west <= lon <= east
 
+    def coverage_boxes(self) -> List[Tuple[float, float, float, float]]:
+        """Where the source has data, roughly, as (south, north, west, east) boxes: its offline boxes
+        and its bbox, without the border boxes, which may hold a neighbour's land. The download of a
+        whole area (tools/area_download.py plan_of) clips its outline to them: the USA's outline holds
+        Hawaii and the islands far off the 1 m DEM's boxes, where every tile would be asked for and
+        found missing; a neighbour's land inside a border box would be asked for the same way. [] for
+        a source without any: nothing clipped."""
+        return [box for _, box in self.offline] + ([self.bbox] if self.bbox else [])
+
     def rough_boxes(self) -> List[Tuple[float, float, float, float]]:
         """Where the source may have data, roughly, as (south, north, west, east) boxes: its offline
         boxes, its bbox and its border boxes. A border gap of a neighbour's grid asks this source
         only inside them (filling.neighbour_window); [] for a source without any, which may fill
         any border gap."""
-        return [box for _, box in self.offline] + ([self.bbox] if self.bbox else []) + list(self.border_boxes)
+        return self.coverage_boxes() + list(self.border_boxes)
 
     def working_crs(self, lat: float, lon: float) -> str:
         return self.crs or self.local_crs(lat, lon)

@@ -320,6 +320,32 @@ def test_the_command_is_the_one_by_hand(settings, monkeypatch):
     assert "--number" in passes
 
 
+def test_the_memory_budget_of_a_target_and_a_row(tmp_path):
+    """The row's setting over the target's; without either the command names none and `run` takes its default."""
+    targets = {"cache": {"data_dir": str(tmp_path / "app")}, "NAS": {"data_dir": str(tmp_path / "x"), "max_memory_gb": 12}}
+    settings = ar.load_settings(_write(tmp_path, targets=targets, rows={"austria": {"max_memory_gb": 8}}))
+    rows = ar.rows_of(settings)
+    austria, czechia = _row(rows, "austria"), _row(rows, "czechia")
+    assert austria.max_memory_gb == 8.0 and czechia.max_memory_gb is None
+
+    def budget(row, target):
+        command = ar.command_of(row, settings.targets[target], settings)
+        return command[command.index("--max-memory-gb") + 1] if "--max-memory-gb" in command else None
+    assert budget(austria, "NAS") == "8" and budget(austria, "cache") == "8"
+    assert budget(czechia, "NAS") == "12" and budget(czechia, "cache") is None
+
+
+@pytest.mark.parametrize("contact", ["someone@example.org", "https://example.org/about", "http://example.org"])
+def test_a_contact_a_provider_can_use(tmp_path, contact):
+    assert ar.load_settings(_write(tmp_path, contact=contact)).contact == contact
+
+
+@pytest.mark.parametrize("contact", ["someone", "someone@localhost", "example.org", "ftp://example.org", "a @b.c"])
+def test_a_contact_that_is_neither_an_address_nor_a_link(tmp_path, contact):
+    with pytest.raises(ar.SettingsError, match="e-mail address"):
+        ar.load_settings(_write(tmp_path, contact=contact))
+
+
 def test_the_contact_stays_out_of_the_command(tmp_path):
     """A command line can be read by anyone on the machine, and lands in logs."""
     settings = ar.load_settings(_write(tmp_path, contact="someone@example.org"))

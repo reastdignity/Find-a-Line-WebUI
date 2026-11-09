@@ -362,7 +362,9 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
     bytes and requests.
 
     The first task to fail stops the others. With on_error it gets (the layer, the task's tiles, the error) instead
-    and the others go on (tools/area_download.py: weeks of tiles); what it raises stops them.
+    and the others go on (tools/area_download.py: weeks of tiles); what it raises stops them, after the layers'
+    `downloaded` (the older surveys of the tiles that did come are pruned: a pass stopped at its 50th failure in a
+    row has downloaded thousands) and is then raised from here.
 
     Last, the tiles of the layers over the grid that are cached in the old encoding (Layer.rewrites,
     old_encoding) are written again in the current one (reencode_paths), so nothing that reads the cache after
@@ -377,6 +379,7 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
         grids.setdefault(id(layer), own)
     layers = [(layer, label) for layer, label, _ in entries]
     distinct = list({id(layer): layer for layer, _ in layers}.values())
+    stopped: Optional[Exception] = None
     listed = each_layer(distinct, lambda layer: layer.to_download(grids[id(layer)], cache_dir, update))
     roles = {id(layer): servicecounts.role_of(label) for layer, label in reversed(layers)}  # the first label's
     todo = []
@@ -407,14 +410,21 @@ def download_layers(layers: Sequence[Tuple], grid: Grid, cache_dir: str,
                 except Exception as e:
                     if on_error is None:
                         raise
-                    on_error(layer, tiles, e)
+                    try:
+                        on_error(layer, tiles, e)
+                    except Exception as stop:  # what on_error raises stops the others, after the prune below
+                        stopped = stop
+                        break
                     continue
                 progress.download.update(len(tiles), MB=f"{received / 1e6:.0f}")
         finally:
             pool.shutdown(cancel_futures=True)  # after an error: the tiles not started yet are not
-        progress.download.finish(f"{received / 1e6:.0f} MB")
+        if stopped is None:
+            progress.download.finish(f"{received / 1e6:.0f} MB")
     for layer, _ in layers:
         layer.downloaded(grids[id(layer)], cache_dir)
+    if stopped is not None:
+        raise stopped
     if reencode_cached:
         fetched = {layer.tile_path(cache_dir, tile) for layer, tile in todo}  # written in the current encoding
         paths = [p for layer in distinct if layer.rewrites for p in layer.files(grids[id(layer)], cache_dir)

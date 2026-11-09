@@ -516,6 +516,24 @@ def states(cache_dir: str, paths: Iterable[str], processing: int = 1) -> List[Op
     return answers
 
 
+def count_missing(cache_dir: str, paths: Iterable[str]) -> int:
+    """How many of the files (the tiles of a layer) the service has no data for: the rows "missing", one query
+    per top-level folder (tools/area_download.py counts a whole area's at the end of a pass)."""
+    by_top: Dict[str, set] = {}
+    for path in paths:
+        top, inner = _split(cache_dir, path)
+        by_top.setdefault(top, set()).add(inner)
+    count = 0
+    for top, inners in by_top.items():
+        db = _connect(cache_dir, top)
+        try:
+            rows = db.execute("SELECT path FROM files WHERE status = 'missing'")
+            count += sum(1 for (inner,) in rows if inner in inners)
+        finally:
+            db.close()
+    return count
+
+
 def touch(cache_dir: str, paths: Iterable[str]) -> Dict[str, Optional[str]]:
     """Mark files as used now; return the range of their fetch times (oldest, newest)."""
     by_top: Dict[str, List[str]] = {}
