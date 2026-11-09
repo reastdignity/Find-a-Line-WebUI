@@ -194,9 +194,10 @@ class Country:
     bands: Tuple[Band, ...] = PROFILE.bands  # the profile's (PROFILE) unless a study area (or a test) has its own
     tension: Tuple[Tuple[float, float], ...] = PROFILE.tension  # T(L): (span m, pretension kN), sag.tension_at
     rig: Dict[str, float] = field(default_factory=lambda: dict(PROFILE.rig))  # SearchParams' webbing fields
-    # nmpt, water, coastline, fill_gaps; within: a box S,W,N,E clipping the area (tools/band_study.py's
-    # squares); elevation_file, surface_file: tests
-    options: Dict[str, str] = field(default_factory=dict)
+    # nmpt, water, coastline, fill_gaps; end_zone, anchor_lift (metres, numbers: every band's search takes
+    # them, form_params); within: a box S,W,N,E clipping the area (tools/band_study.py's squares);
+    # elevation_file, surface_file: tests
+    options: Dict[str, object] = field(default_factory=dict)
 
     def config(self) -> Dict:
         """The configuration as JSON values (country.json), the profile's bands, tension and rig with it."""
@@ -231,8 +232,11 @@ class Country:
 COUNTRIES = {
     "slovakia": Country(
         id="slovakia", name="Slovakia", source="slovakia", area="osm:Slovensko",
-        # The pilot runs without the DSM (the user's decision of 2026-11-02)
-        options={"nmpt": "off", "water": "fill", "coastline": "copernicus", "fill_gaps": "on"}),
+        # The recount (the user's decisions of 2026-11-07/08): the surface model marks the lines over trees and
+        # buildings (the pilot of 2026-11-02 ran without it), and the no-fall zone of 5 m with A-frames of 2 m,
+        # the superset a search with smaller ones filters (Country.options, form_params)
+        options={"nmpt": "mark", "water": "fill", "coastline": "copernicus", "fill_gaps": "on",
+                 "end_zone": 5, "anchor_lift": 2}),
 }
 
 # The cube of each source the catalogue names as some source's neighbour (Source.neighbours): the id of the

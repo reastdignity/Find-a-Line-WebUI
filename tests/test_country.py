@@ -1210,3 +1210,47 @@ def test_prefetch_holds_every_neighbour_window(monkeypatch, tmp_path):
     country._prefetch({"S": plan}, said.append, across=False, tiles={"S": tiles})  # a study area: its own only
     assert [entry[1] for entry in calls[0][0]] == ["terrain", "water mask"]
 
+
+def test_slovakia_counted_with_the_recount_options():
+    """Slovakia's options for the recount (the user's decisions of 2026-11-07/08): the surface model marking the
+    lines over trees and buildings, the no-fall zone of 5 m and A-frames of 2 m; every band's search takes them
+    (form_params), and the configuration's hash follows them (the tiles of the pilot are counted again)."""
+    import country
+    slovakia = country.COUNTRIES["slovakia"]
+    assert slovakia.options == {"nmpt": "mark", "water": "fill", "coastline": "copernicus", "fill_gaps": "on",
+                                "end_zone": 5, "anchor_lift": 2}
+    assert not slovakia.study and slovakia.bands == country.PROFILE.bands
+    for band in slovakia.bands:
+        params = country.form_params(slovakia, band)
+        assert (params["nmpt"], params["end_zone"], params["anchor_lift"]) == ("mark", 5, 2)
+    pilot = {**slovakia.config(), "options": {"nmpt": "off", "water": "fill", "coastline": "copernicus",
+                                              "fill_gaps": "on"}}
+    assert country.config_hash(slovakia.config(), "a") != country.config_hash(pilot, "a")
+
+
+def test_end_zone_reaches_the_pair_search(env, tmp_path, monkeypatch):
+    """A country's end_zone and anchor_lift go from country.json through the band's plan into its tiles' line
+    search (search._pair_search: find_valid_lines with the zone's buckets), as Slovakia's recount takes them."""
+    import shutil
+    import country
+    import linesearch
+    import search
+    config = {**env["config"], "options": {**env["config"]["options"], "end_zone": 5, "anchor_lift": 2}}
+    data = str(tmp_path / "data")
+    folder = os.path.join(data, "countries", ID)
+    os.makedirs(folder)
+    shutil.copyfile(config["area"], os.path.join(folder, "area.geojson"))
+    c = country.Country.from_config(config)
+    band = c.band("S")
+    plan = country.band_plan(c, band, folder, data)
+    assert (plan.end_zone, plan.lift) == (5.0, 2.0)
+    os.makedirs(plan.paths.work, exist_ok=True)
+    seen = {}
+
+    def find_valid_lines(*args, **kwargs):
+        seen.update(kwargs)
+        return None
+    monkeypatch.setattr(linesearch, "find_valid_lines", find_valid_lines)
+    search.count_tile(plan, search.prepare_data(plan, statistics=False, shore="none"), None, lambda part: None,
+                      country.tension_table(c, band, plan))
+    assert (seen["end_zone"], seen["lift"], seen["zones"]) == (5.0, 2.0, (0.0, 5.0))
