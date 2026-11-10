@@ -43,9 +43,13 @@ command's process tree every POLL, writes it to its row (entries.rss_bytes) and 
 `history` (peak_bytes). A shared or heavy command whose expected peak is known (--memory GB, else
 the largest peak of the same command's last runs, else the 90th percentile of its kind's, as the
 times) starts only when it fits the budget: of the available memory less RAM_MARGIN and of
-RAM_SHARE (the user's setting `ram-share`, read at every look) of all memory less what is used, the smaller, less what the running commands with a
-known peak may still grow by (their peak less their RSS now) and the peaks of those admitted
-before it. One that does not fit waits "for memory" (counted toward --wait) with a reservation
+the share of all memory less what is used, the smaller (`memory_limit`), less what the running
+commands with a known peak may still grow by (their peak less their RSS now) and the peaks of
+those admitted before it. The share is the user's setting: RAM_SHARE (0.8) unless `ram-share`
+(or the page's "RAM limit" choice) sets another between SHARE_MIN and SHARE_MAX; it is stored in
+the queue's table `settings` and read at every look, so a change reaches the waiting wrappers
+at once (`ram-share` prints it, `ram-share 90` sets it, `ram-share --reset` clears it). `status`
+and the page show the limit, what the running commands may still grow by, and the budget. One that does not fit waits "for memory" (counted toward --wait) with a reservation
 from the running shared and heavy ones with a known peak: a later shared one passes it when it
 fits itself, a later heavy or exclusive one it conflicts with only by its estimate. Exclusive
 commands and those without a known peak are not guarded.
