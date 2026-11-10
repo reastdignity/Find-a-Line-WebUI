@@ -56,6 +56,10 @@ report gathers the places into <out>/study.json and <out>/study.md and draws (un
 a hillshade, and a profile chip of each diagnosed line:
 
     uv run tools/end_zone_study.py report <out> <scratch>/study/zabi-kon-45 <scratch>/study/zabi-kon-35
+
+The helpers shared with the other studies (the data folder with its cache linked, the pixels of a
+capture's grid, slopes, a line's margins, the profile chips) live in tools/studylib.py since
+2026-11-08 and are imported here under their old names.
 """
 
 import argparse
@@ -83,6 +87,9 @@ import numpy as np  # noqa: E402
 import helpers as sh  # noqa: E402
 import linesearch as ls  # noqa: E402
 import perf_line_funnel as plf  # noqa: E402
+# moved to studylib (2026-11-08), imported under their old names: other tools and the tests use them from here
+from studylib import (_unlink, disc, linked_data_folder, margins, pixels_wgs84, profile_chip,  # noqa: E402,F401
+                      slope_degrees, to_pixel)
 
 ZONES = (0.0, 5.0, 10.0, 20.0)  # metres: the ladder of end zones
 LIFTS = (0.0, 1.0, 2.0)         # metres: the A-frames' heights
@@ -103,38 +110,21 @@ class StudyError(RuntimeError):
 # ---------------------------------------------------------------------------------------------
 # capture
 
-def _unlink(path: str):
-    """Remove a directory link (a junction on Windows, a symlink elsewhere), never its target."""
-    if os.path.islink(path):
-        os.unlink(path)
-    elif hasattr(os.path, "isjunction") and os.path.isjunction(path):
-        os.rmdir(path)  # the junction only
-
-
 def capture(place: str, out: str, search_args: List[str], cache_dir: Optional[str]) -> int:
     """The search of a place in a child process (capture_child) with <out>/<place>/data as its
-    data folder, data/cache a link to cache_dir (none: a fresh cache), removed afterwards."""
-    import regression
-
+    data folder, data/cache a link to cache_dir (none: a fresh cache), removed afterwards
+    (studylib.linked_data_folder)."""
     folder = os.path.join(os.path.abspath(out), place)
-    data = os.path.join(folder, "data")
-    link = os.path.join(data, "cache")
     if os.path.exists(folder):
-        _unlink(link)  # the link only, never the cache behind it
+        _unlink(os.path.join(folder, "data", "cache"))  # the link only, never the cache behind it
         shutil.rmtree(folder)
-    os.makedirs(data)
-    if cache_dir:
-        regression.link(os.path.abspath(cache_dir), link)
-    env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
-    started = time.time()
-    try:
+    with linked_data_folder(folder, cache_dir) as data:
+        env = {**os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8"}
+        started = time.time()
         with open(os.path.join(folder, "output.log"), "w", encoding="utf-8") as log:
             result = subprocess.run([sys.executable, os.path.abspath(__file__), "capture-child", "--out",
                                      os.path.join(folder, "capture"), "--", *search_args, "--data-dir", data],
                                     cwd=HERE, env=env, stdout=log, stderr=subprocess.STDOUT)
-    finally:
-        if cache_dir:
-            _unlink(link)
     with open(os.path.join(folder, "capture.json"), "w") as f:
         json.dump({"place": place, "args": search_args, "seconds": time.time() - started,
                    "returncode": result.returncode, "cache_linked": bool(cache_dir)}, f, indent=1)
@@ -435,52 +425,7 @@ def variants(folder: str, zones, lifts, cap: float, end_clearance: float, thread
 
 
 # ---------------------------------------------------------------------------------------------
-# the margins of a line (diagnose and the profile chips)
-
-def margins(z: np.ndarray, p, q, res: float, sag_table, surface: Optional[np.ndarray] = None):
-    """The strict margins of the line p -> q (pixels, p the lower index): helpers.evaluate_line's
-    pixels and helpers.max_safe_elevation (terrain, and the surface or None), steps, length."""
-    r1, c1, r2, c2 = int(p[0]), int(p[1]), int(q[0]), int(q[1])
-    dr, dc = r2 - r1, c2 - c1
-    steps = max(abs(dr), abs(dc))
-    if steps < 2:
-        return None
-    t = np.arange(1, steps) / steps
-    rows = r1 + np.rint(dr * t).astype(np.intp)
-    cols = c1 + np.rint(dc * t).astype(np.intp)
-    length = float(np.hypot(dr, dc)) * res
-    limit = sh.max_safe_elevation(t, length, float(z[r1, c1]), float(z[r2, c2]), sag_table)
-    s = None if surface is None else limit - surface[rows, cols]
-    return limit - z[rows, cols], s, steps, length
-
-
-# ---------------------------------------------------------------------------------------------
-# diagnose
-
-def slope_degrees(z: np.ndarray, res: float) -> np.ndarray:
-    """The slope of helpers.find_significant_slopes (float32, np.gradient)."""
-    gy, gx = np.gradient(np.asarray(z, dtype=np.float32), res)
-    return np.degrees(np.arctan(np.hypot(gx, gy)))
-
-
-def to_pixel(grid: Dict, lat: float, lon: float):
-    """The pixel (row, col) of a WGS84 point on a capture's grid, and its offset in metres."""
-    from pyproj import Transformer
-    x, y = Transformer.from_crs("EPSG:4326", grid["crs"], always_xy=True).transform(lon, lat)
-    col, row = (x - grid["left"]) / grid["res"] - 0.5, (grid["top"] - y) / grid["res"] - 0.5
-    return int(round(row)), int(round(col))
-
-
-def disc(z: np.ndarray, centre, radius_px: float) -> np.ndarray:
-    """The pixels within radius_px of centre, inside the grid."""
-    r0, c0 = centre
-    k = int(math.floor(radius_px))
-    rr, cc = np.mgrid[r0 - k:r0 + k + 1, c0 - k:c0 + k + 1]
-    rr, cc = rr.ravel(), cc.ravel()
-    inside = ((rr - r0) ** 2 + (cc - c0) ** 2 <= radius_px ** 2) & (rr >= 0) & (cc >= 0) & \
-             (rr < z.shape[0]) & (cc < z.shape[1])
-    return np.column_stack([rr[inside], cc[inside]])
-
+# diagnose (the margins of a line, the slopes and the pixels of a capture's grid: studylib)
 
 def buckets_of(a: SimpleNamespace, lo, hi, zones: Sequence[float], cap: float) -> np.ndarray:
     """The smallest strict terrain margin per ladder bucket of the line lo -> hi (helpers.evaluate_line
@@ -722,17 +667,6 @@ def examples(folder: str, v: Dict, count: int = EXAMPLES) -> List[Dict]:
     return out
 
 
-def pixels_wgs84(grid: Dict, pixels) -> List[List[float]]:
-    """[lat, lon] of pixel centres of a capture's grid."""
-    from pyproj import Transformer
-    t = Transformer.from_crs(grid["crs"], "EPSG:4326", always_xy=True)
-    out = []
-    for r, c in pixels:
-        lon, lat = t.transform(grid["left"] + (int(c) + 0.5) * grid["res"], grid["top"] - (int(r) + 0.5) * grid["res"])
-        out.append([round(lat, 7), round(lon, 7)])
-    return out
-
-
 def examples_markdown(v: Dict, chosen: List[Dict]) -> List[str]:
     if not v.get("long"):
         return []
@@ -750,36 +684,6 @@ def examples_markdown(v: Dict, chosen: List[Dict]) -> List[str]:
         md.append(f"| {n} | {ends} | {e['length']:.1f} m | {e['clearance']:.2f} m | ({e['first_valid'][0]:g} m, "
                   f"{e['first_valid'][1]:g} m) | {fail} | " + " / ".join(fmt(s["lift"]) for s in e["staircase"]) + " |")
     return md + [""]
-
-
-def profile_chip(a: SimpleNamespace, lo, hi, delta: float, title: str, path: str, zone: float = 0.0,
-                 cap: float = CAP):
-    """The terrain along a line with today's limit and the limit moved up by delta, the zone of
-    `zone` metres shaded."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    m = margins(a.z, lo, hi, a.res, a.sag_table)
-    steps, length = m[2], m[3]
-    t = np.arange(steps + 1) / steps
-    r1, c1 = int(lo[0]), int(lo[1])
-    dr, dc = int(hi[0]) - r1, int(hi[1]) - c1
-    ground = a.z[r1 + np.rint(dr * t).astype(int), c1 + np.rint(dc * t).astype(int)]
-    limit = sh.max_safe_elevation(t, length, float(ground[0]), float(ground[-1]), a.sag_table)
-    fig, ax = plt.subplots(figsize=(8, 3.2))
-    if zone > 0:
-        kz = sh.zone_steps(steps, length, zone, cap)
-        for x0, x1 in ((0, kz * length / steps), (length - kz * length / steps, length)):
-            ax.axvspan(x0, x1, color="#fde68a", alpha=0.5, lw=0)
-    ax.plot(t * length, ground, color="#555", label="terrain")
-    ax.plot(t * length, limit, color="#2b6cb0", label="limit (today)")
-    ax.plot(t * length, limit + delta, color="#2b6cb0", ls=":", label="limit + delta (in a zone)")
-    ax.set_title(title, fontsize=8)
-    ax.set_xlabel("m from a1")
-    ax.legend(fontsize=7)
-    fig.tight_layout()
-    fig.savefig(path, dpi=110)
-    plt.close(fig)
 
 
 def pictures(folder: str, v: Dict, d: Optional[Dict], out: str, chosen: Sequence[Dict] = ()) -> List[str]:
