@@ -43,7 +43,7 @@ command's process tree every POLL, writes it to its row (entries.rss_bytes) and 
 `history` (peak_bytes). A shared or heavy command whose expected peak is known (--memory GB, else
 the largest peak of the same command's last runs, else the 90th percentile of its kind's, as the
 times) starts only when it fits the budget: of the available memory less RAM_MARGIN and of
-RAM_SHARE of all memory less what is used, the smaller, less what the running commands with a
+RAM_SHARE (the user's setting `ram-share`, read at every look) of all memory less what is used, the smaller, less what the running commands with a
 known peak may still grow by (their peak less their RSS now) and the peaks of those admitted
 before it. One that does not fit waits "for memory" (counted toward --wait) with a reservation
 from the running shared and heavy ones with a known peak: a later shared one passes it when it
@@ -126,6 +126,7 @@ WAIT = 4 * 3600                                                 # default --wait
 GB = 2 ** 30          # --memory is in GiB
 RAM_SHARE = 0.8       # the RAM guard: the share of all memory the PC may use with the lock's commands,
 RAM_MARGIN = 2 * GB   # and the bytes left available whatever the share (binds on a PC under 10 GiB)
+SHARE_MIN, SHARE_MAX = 0.5, 0.98   # what `ram-share` and the page accept (the user's setting, read at every look)
 TREE_EVERY = 10.0     # seconds between listings of a command's process tree (75 ms with 600 processes on
                       # Windows); its known processes' RSS is read at every look (microseconds)
 SAME_RUNS = 5         # an estimate: the longest of the last runs of the same command,
@@ -161,7 +162,8 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE INDEX IF NOT EXISTS history_key ON history (key);
 CREATE INDEX IF NOT EXISTS history_kind ON history (kind);
 CREATE TABLE IF NOT EXISTS state (
-    key TEXT PRIMARY KEY, value TEXT NOT NULL, since REAL NOT NULL, until REAL, after TEXT, note TEXT)"""
+    key TEXT PRIMARY KEY, value TEXT NOT NULL, since REAL NOT NULL, until REAL, after TEXT, note TEXT);
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value REAL NOT NULL)"""
 ENTRY_COLUMNS = (("expect", "REAL"), ("first", "INTEGER"), ("stop", "REAL"), ("memory", "INTEGER"),
                  ("tamed", "INTEGER"), ("rss_bytes", "INTEGER"))   # added to `entries` in this order
 HISTORY_COLUMNS = (("peak_bytes", "INTEGER"),)                       # added to `history`
@@ -222,6 +224,13 @@ def untamed(entry: Entry, state: str) -> bool:
     return entry.mode == "heavy" and entry.started is not None and not entry.tamed and state in ("heavy-ok", "busy")
 
 
+def memory_limit(memory: tuple, share: float = RAM_SHARE, margin: float = RAM_MARGIN) -> float:
+    """The bytes the lock's commands may still take before the running ones' growth is counted:
+    of the available memory less `margin` and of `share` of all memory less what is used, the smaller."""
+    available, total = memory
+    return min(available - margin, share * total - (total - available))
+
+
 def memory_budget(entries: Sequence[Entry], memory: Optional[tuple], peak: Optional[Peak],
                   share: float = RAM_SHARE, margin: float = RAM_MARGIN) -> Optional[float]:
     """The bytes the waiting commands may still take (the RAM guard): of the available memory less
@@ -231,8 +240,7 @@ def memory_budget(entries: Sequence[Entry], memory: Optional[tuple], peak: Optio
     `peak` is None: nothing is guarded."""
     if memory is None or peak is None:
         return None
-    available, total = memory
-    budget = min(available - margin, share * total - (total - available))
+    budget = memory_limit(memory, share, margin)
     for entry in entries:
         if entry.started is not None:
             expected = peak(entry)
@@ -609,9 +617,11 @@ class Queue:
                 peaks[entry.id] = self.peak(entry)
             return peaks[entry.id]
 
+        share = self.ram_share()
+
         def admit(memory: Optional[tuple], room: Optional[dict] = None) -> Set[int]:
             return startable(entries, now, estimate, passing=lambda e: estimate(e, True), state=state,
-                             memory=memory, peak=peak, room=room)
+                             memory=memory, peak=peak, share=share, room=room)
 
         room: Dict[int, tuple] = {}
         admitted = admit(memory, room)
@@ -651,7 +661,7 @@ class Queue:
             else:
                 hold = holds[entry.id]
                 if hold == "memory":
-                    self.room = (*room[entry.id], *memory)
+                    self.room = (*room[entry.id], *memory, self.ram_share())
                 result = False, blockers(entry, entries, state, self.peak if hold == "memory" else None), hold
         except BaseException:
             if self.db.in_transaction:
@@ -662,6 +672,23 @@ class Queue:
 
     def remove(self, token: str) -> None:
         self.db.execute("DELETE FROM entries WHERE token = ?", (token,))
+
+    def ram_share(self) -> float:
+        """The share of all memory the RAM guard allows (the user's setting, else RAM_SHARE), read
+        at every look: a change takes effect for the waiting wrappers at once."""
+        row = self.db.execute("SELECT value FROM settings WHERE key = 'ram_share'").fetchone()
+        return RAM_SHARE if row is None or not SHARE_MIN <= row[0] <= SHARE_MAX else row[0]
+
+    def set_ram_share(self, share: Optional[float]) -> float:
+        """Sets the RAM guard's share (SHARE_MIN to SHARE_MAX; None: the default RAM_SHARE again)
+        and returns it. ValueError for one outside."""
+        if share is None:
+            self.db.execute("DELETE FROM settings WHERE key = 'ram_share'")
+        else:
+            if isinstance(share, bool) or not SHARE_MIN <= share <= SHARE_MAX:
+                raise ValueError(f"the share of memory: {SHARE_MIN * 100:.0f} to {SHARE_MAX * 100:.0f} %")
+            self.db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('ram_share', ?)", (float(share),))
+        return self.ram_share()
 
     def user_state(self, now: Optional[float] = None) -> UserState:
         """The user's state now (resolve_state)."""
@@ -786,9 +813,9 @@ def _describe(entry: Entry, now: float, expected: Optional[float] = None, hold: 
 
 def _room_text(room: tuple) -> str:
     """What the RAM guard holds a command by: its expected peak, the budget left for it, the use."""
-    need, budget, available, total = room
+    need, budget, available, total, share = room
     return (f"needs ~{need / GB:.1f} GB, {max(0.0, budget) / GB:.1f} GB free for it (RAM "
-            f"{(total - available) / GB:.1f} of {total / GB:.1f} GB used, limit {RAM_SHARE * 100:.0f} %)")
+            f"{(total - available) / GB:.1f} of {total / GB:.1f} GB used, limit {share * 100:.0f} %)")
 
 
 def _tamed_threads() -> int:
@@ -945,11 +972,12 @@ def status(_args) -> int:
         state = queue.user_state(now)
         memory = _memory()
         _, holds, _ = queue.admission(entries, now, state.value, memory)
-        budget = memory_budget(entries, memory, queue.peak)
+        share = queue.ram_share()
+        budget = memory_budget(entries, memory, queue.peak, share)
     finally:
         queue.db.execute("COMMIT")
     print(f"User: {describe_state(state, now)}")
-    print(ram_line(memory, budget))
+    print(ram_line(memory, budget, share))
     print(f"{queue.folder} ({SLOTS} shared slots, {datetime.now():%H:%M:%S})")
     for entry in entries:
         print(f"  {_describe(entry, now, queue.estimate(entry), holds.get(entry.id), queue.peak(entry), state.value)}")
@@ -958,12 +986,41 @@ def status(_args) -> int:
     return 0
 
 
-def ram_line(memory: Optional[tuple], budget: Optional[float]) -> str:
-    """'RAM: 31.2 GB free of 64.0, budget for the lock 7.3 GB' (memory_budget), or unknown."""
+def ram_line(memory: Optional[tuple], budget: Optional[float], share: float = RAM_SHARE) -> str:
+    """'RAM: 31.2 GB free of 64.0, limit 80 % leaves 12.2 GB, running commands may still grow by
+    5.0 GB, budget for the lock 7.2 GB' (memory_limit, memory_budget), or unknown."""
     if memory is None:
         return "RAM: unknown (no psutil)"
     available, total = memory
-    return f"RAM: {available / GB:.1f} GB free of {total / GB:.1f}, budget for the lock {max(0.0, budget) / GB:.1f} GB"
+    limit = memory_limit(memory, share)
+    return (f"RAM: {available / GB:.1f} GB free of {total / GB:.1f}, limit {share * 100:.0f} % leaves "
+            f"{max(0.0, limit) / GB:.1f} GB, running commands may still grow by "
+            f"{max(0.0, limit - budget) / GB:.1f} GB, budget for the lock {max(0.0, budget) / GB:.1f} GB")
+
+
+def parse_share(text: str) -> float:
+    """The share of `ram-share`: 90, 90% or 0.9."""
+    try:
+        value = float(text.strip().rstrip("%"))
+    except ValueError:
+        raise ValueError(f"not a share: {text!r} (90, 90% or 0.9)") from None
+    return value / 100 if value > 1 else value
+
+
+def ram_share_command(args, parser: argparse.ArgumentParser) -> int:
+    """Prints the RAM guard's share, or sets it (at once for every waiting command) or resets it."""
+    queue = Queue(lock_dir())
+    try:
+        if args.reset:
+            share = queue.set_ram_share(None)
+        elif args.value is not None:
+            share = queue.set_ram_share(parse_share(args.value))
+        else:
+            share = queue.ram_share()
+    except ValueError as error:
+        parser.error(str(error))
+    print(f"RAM guard: {share * 100:.0f} % of all memory" + (" (the default)" if share == RAM_SHARE else ""))
+    return 0
 
 
 def state_command(args, parser: argparse.ArgumentParser) -> int:
@@ -1030,7 +1087,15 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                                                      "'YYYY-MM-DD HH:MM', or from now: +2h, +90m")
     stater.add_argument("--after", choices=STATES, help="the state once --until has passed (default free)")
     stater.add_argument("--note", help="a note shown with the state")
+    sharer = commands.add_parser(
+        "ram-share", help="the share of all memory the RAM guard allows: print it, or set it",
+        description=f"Takes effect at once for every waiting command. {SHARE_MIN * 100:.0f} to "
+                    f"{SHARE_MAX * 100:.0f} %, default {RAM_SHARE * 100:.0f} %.")
+    sharer.add_argument("value", nargs="?", help="90, 90% or 0.9 (none: print it)")
+    sharer.add_argument("--reset", action="store_true", help=f"the default, {RAM_SHARE * 100:.0f} %% again")
     args = parser.parse_args(argv)
+    if args.action == "ram-share":
+        return ram_share_command(args, sharer)
     if args.action == "status":
         return status(args)
     if args.action == "state":
