@@ -5,7 +5,8 @@ cluster of known lines (the production path, as the regression set), the known l
 and every miss diagnosed on the search's own grid with one reason. It measures recall (SlackMap holds known positives
 only) per type, source, country, length and resolution, the reasons of the misses, and how many of them a no-fall
 zone or A-frames would recover. Built on 2026-11-08 (the task `truth-check`); the first full pass ran on the evening
-of 2026-11-08 and was analysed on 2026-11-09.
+of 2026-11-08 and was analysed on 2026-11-09; the searches that had failed were repeated on 2026-11-10, and the
+numbers below hold them.
 
 The tools (all run by hand, none shipped in the image):
 
@@ -170,67 +171,68 @@ So the check measures recall. The report's "spots without a known line" (found s
 candidate of a known line of a good geometry) is a precision proxy only, and a weak one: a good line may be unrigged,
 unreported, out of reach or on private land; the circles are drawn around known lines, so the places are not a sample
 of anything; and each search's length range runs up to 1.1 × its longest known line, so it finds spots at every scale
-between. In the first pass 41 869 of the 43 471 spots found (96 %) have no known line.
+between. In the first pass 44 559 of the 46 272 spots found (96 %) have no known line.
 
-## 3. Results of the first pass (2026-11-08/09)
+## 3. Results of the first pass (2026-11-08 to 2026-11-10)
 
 The sag model, SlackMap's data of 2026-11-08, the searches by the code of a4a514d (the search and the capture are
-the same in 75b4a69), the analysis by 75b4a69's. 1 024 searches: 553 found lines, 432 none (310 "no lines", 122 "no
-steep terrain"), 39 failed (below). 1 826 known lines in the 985 places analysed; the 86 known lines of the failed
-places are left out. Counts are given as total (highline / midline).
+the same in 75b4a69), the analysis by 75b4a69's. 1 024 searches: 583 found lines, 438 none (316 "no lines", 122 "no
+steep terrain"), 3 failed (below; 39 on the first evening, 36 of them searched again with success on 2026-11-09 and
+2026-11-10). 1 906 known lines in the 1 021 places analysed; the 6 known lines of the failed places are left out.
+Counts are given as total (highline / midline).
 
-- **Recall**: highline 41 % (491 of 1 194), midline 11 % (56 of 526), all 32 % (547 of 1 720). Without the 30 m
-  fallback (which matched none): highline 45 % (491 of 1 083), all 35 % (547 of 1 551).
-- **Both ends on terrain** (no structure at either end): highline 45 % (277 of 621), midline 18 % (37 of 208), all
-  38 % (314 of 829).
-- **Misses at a structure** (`structure_anchor`): 444 (222 / 222), 35 % of the misses.
-- **Clearance at the anchors** (`clearance_near_anchor`): 390 (269 / 121), 30 % of the misses; one fails mid-span. With
-  a 5 m no-fall zone and no A-frames 230 of the 391 clearance misses have a valid pair, with a 5 m zone and 2 m
-  A-frames 298.
-- **Shown as a spot**: 33 of the 547 matched lines are their group's representative (the line the map shows); 338 have
+- **Recall**: highline 43 % (536 of 1 261), midline 11 % (56 of 532), all 33 % (592 of 1 793). Without the 30 m
+  fallback (which matched none): highline 47 % (536 of 1 150), all 36 % (592 of 1 624).
+- **Both ends on terrain** (no structure at either end): highline 47 % (322 of 688), midline 17 % (37 of 214), all
+  40 % (359 of 902).
+- **Misses at a structure** (`structure_anchor`): 444 (222 / 222), 34 % of the misses.
+- **Clearance at the anchors** (`clearance_near_anchor`): 411 (286 / 125), 31 % of the misses; one fails mid-span. With
+  a 5 m no-fall zone and no A-frames 239 of the 412 clearance misses have a valid pair, with a 5 m zone and 2 m
+  A-frames 310.
+- **Shown as a spot**: 34 of the 592 matched lines are their group's representative (the line the map shows); 361 have
   a representative among their candidates.
 
 ### Overall
 
 | | highline | midline | all |
 | --- | ---: | ---: | ---: |
-| known | 1258 | 568 | 1826 |
-| verifiable | 1194 | 526 | 1720 |
-| matched | 491 | 56 | 547 |
-| recall | 41% | 11% | 32% |
-| clean geometry: known | 1151 | 521 | 1672 |
-| clean geometry: matched | 448 | 51 | 499 |
-| clean recall | 39% | 10% | 30% |
-| both ends on terrain: known | 649 | 229 | 878 |
-| both ends on terrain: verifiable | 621 | 208 | 829 |
-| both ends on terrain: matched | 277 | 37 | 314 |
-| terrain recall | 45% | 18% | 38% |
-| matched with a doubtful geometry | 43 | 5 | 48 |
-| matched: shown as a spot (the nearest match a representative) | 26 | 7 | 33 |
-| matched: a representative among the candidates | 296 | 42 | 338 |
-| matched: over trees (best match) | 37% | 36% | 37% |
-| matched: clearance p10 / p50 / p90 (m, best match) | 0.59 / 3.54 / 12.79 | 0.26 / 1.32 / 3.15 | 0.54 / 3.07 / 12.05 |
-| matched: wall angle p10 / p50 / p90 (deg, nearest match) | 16.52 / 42.54 / 75.05 | 15.9 / 33.9 / 59.62 | 16.38 / 41.85 / 73.66 |
+| known | 1332 | 574 | 1906 |
+| verifiable | 1261 | 532 | 1793 |
+| matched | 536 | 56 | 592 |
+| recall | 43% | 11% | 33% |
+| clean geometry: known | 1212 | 527 | 1739 |
+| clean geometry: matched | 487 | 51 | 538 |
+| clean recall | 40% | 10% | 31% |
+| both ends on terrain: known | 723 | 235 | 958 |
+| both ends on terrain: verifiable | 688 | 214 | 902 |
+| both ends on terrain: matched | 322 | 37 | 359 |
+| terrain recall | 47% | 17% | 40% |
+| matched with a doubtful geometry | 49 | 5 | 54 |
+| matched: shown as a spot (the nearest match a representative) | 27 | 7 | 34 |
+| matched: a representative among the candidates | 319 | 42 | 361 |
+| matched: over trees (best match) | 34% | 36% | 34% |
+| matched: clearance p10 / p50 / p90 (m, best match) | 0.6 / 3.55 / 12.65 | 0.26 / 1.32 / 3.15 | 0.54 / 3.17 / 11.94 |
+| matched: wall angle p10 / p50 / p90 (deg, nearest match) | 16.94 / 42.66 / 75.59 | 15.9 / 33.9 / 59.62 | 16.64 / 42.02 / 74.56 |
 
 The clearance quantiles and the over-trees share are those of each matched line's best match, the wall angles those
-of its nearest match (the walls at the known anchors). 48 matches have a doubtful geometry (43 / 5), 34 of them with
+of its nearest match (the walls at the known anchors). 54 matches have a doubtful geometry (49 / 5), 37 of them with
 the nearest match within the base tolerance as well.
 
 ### The reasons of the misses
 
 | reason | highline | midline | all | share |
 | --- | ---: | ---: | ---: | ---: |
-| unverifiable | 64 | 42 | 106 | 8% |
+| unverifiable | 71 | 42 | 113 | 9% |
 | outside_area | 0 | 0 | 0 | 0% |
 | no_data | 0 | 0 | 0 | 0% |
 | seam_pixel | 0 | 0 | 0 | 0% |
 | water_pixel | 15 | 13 | 28 | 2% |
-| structure_anchor | 222 | 222 | 444 | 35% |
-| no_steep_pixel | 136 | 96 | 232 | 18% |
+| structure_anchor | 222 | 222 | 444 | 34% |
+| no_steep_pixel | 137 | 98 | 235 | 18% |
 | anchor_filtered | 0 | 0 | 0 | 0% |
 | length_range | 2 | 3 | 5 | 0% |
-| height_difference | 58 | 15 | 73 | 6% |
-| clearance_near_anchor | 269 | 121 | 390 | 30% |
+| height_difference | 62 | 15 | 77 | 6% |
+| clearance_near_anchor | 286 | 125 | 411 | 31% |
 | clearance_mid | 1 | 0 | 1 | 0% |
 | surface_obstacle | 0 | 0 | 0 | 0% |
 | wall_angle | 0 | 0 | 0 | 0% |
@@ -238,35 +240,35 @@ the nearest match within the base tolerance as well.
 
 ### Clearance misses with a no-fall zone or A-frames
 
-Both clearance reasons (391 misses: 270 / 121); a cell counts the misses some pair of which is valid at that end zone
+Both clearance reasons (412 misses: 287 / 125); a cell counts the misses some pair of which is valid at that end zone
 (rows) and A-frame lift (columns), total (highline / midline):
 
 | zone \ lift | 0 m | 1 m | 2 m | 3 m |
 | --- | ---: | ---: | ---: | ---: |
-| 0 m | 0 (0 / 0) | 92 (68 / 24) | 228 (161 / 67) | 312 (210 / 102) |
-| 5 m | 230 (165 / 65) | 275 (189 / 86) | 298 (203 / 95) | 322 (217 / 105) |
-| 10 m | 262 (185 / 77) | 291 (199 / 92) | 312 (212 / 100) | 334 (224 / 110) |
-| 20 m | 270 (190 / 80) | 299 (204 / 95) | 319 (216 / 103) | 339 (227 / 112) |
+| 0 m | 0 (0 / 0) | 98 (74 / 24) | 239 (171 / 68) | 325 (220 / 105) |
+| 5 m | 239 (174 / 65) | 286 (199 / 87) | 310 (213 / 97) | 335 (227 / 108) |
+| 10 m | 273 (195 / 78) | 302 (209 / 93) | 324 (222 / 102) | 349 (236 / 113) |
+| 20 m | 281 (200 / 81) | 312 (216 / 96) | 334 (229 / 105) | 356 (241 / 115) |
 
 ### By length (SlackMap's length bins)
 
 | length | known | verifiable | matched | recall | clean recall | terrain recall | clearance p50 | over trees | wall angle p50 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0-30 | 386 (244 / 142) | 372 (240 / 132) | 103 (90 / 13) | 28% (38% / 10%) | 26% (35% / 9%) | 41% (50% / 19%) | 2.64 | 33% | 40.46 |
-| 30-50 | 467 (281 / 186) | 437 (267 / 170) | 118 (102 / 16) | 27% (38% / 9%) | 25% (36% / 9%) | 34% (41% / 18%) | 2.65 | 37% | 43.81 |
-| 50-100 | 586 (406 / 180) | 546 (378 / 168) | 181 (163 / 18) | 33% (43% / 11%) | 31% (41% / 9%) | 35% (42% / 15%) | 3.21 | 36% | 40.28 |
-| 100-200 | 263 (216 / 47) | 247 (204 / 43) | 89 (82 / 7) | 36% (40% / 16%) | 34% (38% / 16%) | 40% (43% / 25%) | 3.73 | 44% | 40.88 |
-| 200-500 | 110 (100 / 10) | 104 (94 / 10) | 45 (45 / 0) | 43% (48% / 0%) | 40% (44% / 0%) | 48% (53% / 0%) | 5.42 | 36% | 46.73 |
+| 0-30 | 392 (249 / 143) | 378 (245 / 133) | 107 (94 / 13) | 28% (38% / 10%) | 26% (36% / 9%) | 42% (51% / 19%) | 2.64 | 32% | 40.46 |
+| 30-50 | 479 (291 / 188) | 447 (275 / 172) | 124 (108 / 16) | 28% (39% / 9%) | 26% (37% / 9%) | 35% (43% / 18%) | 2.63 | 35% | 42.3 |
+| 50-100 | 624 (441 / 183) | 582 (411 / 171) | 198 (180 / 18) | 34% (44% / 11%) | 32% (42% / 9%) | 36% (43% / 14%) | 3.25 | 33% | 41.03 |
+| 100-200 | 280 (233 / 47) | 261 (218 / 43) | 100 (93 / 7) | 38% (43% / 16%) | 36% (40% / 16%) | 44% (47% / 25%) | 3.86 | 39% | 41.48 |
+| 200-500 | 117 (107 / 10) | 111 (101 / 10) | 52 (52 / 0) | 47% (51% / 0%) | 44% (48% / 0%) | 54% (58% / 0%) | 5.13 | 31% | 47.44 |
 | 500+ | 14 (11 / 3) | 14 (11 / 3) | 11 (9 / 2) | 79% (82% / 67%) | 75% (78% / 67%) | 67% (71% / 50%) | 2.82 | 36% | 32.14 |
 
 Reasons of the misses by length, total (highline / midline):
 
 | length | unverifiable | water_pixel | structure_anchor | no_steep_pixel | length_range | height_difference | clearance_near_anchor | clearance_mid |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 0-30 | 14 (4 / 10) | 4 (1 / 3) | 129 (67 / 62) | 49 (20 / 29) | 1 (1 / 0) | 9 (6 / 3) | 77 (55 / 22) | 0 (0 / 0) |
-| 30-50 | 30 (14 / 16) | 7 (4 / 3) | 132 (55 / 77) | 69 (38 / 31) | 4 (1 / 3) | 9 (6 / 3) | 98 (61 / 37) | 0 (0 / 0) |
-| 50-100 | 40 (28 / 12) | 13 (6 / 7) | 131 (60 / 71) | 72 (46 / 26) | 0 (0 / 0) | 32 (26 / 6) | 116 (76 / 40) | 1 (1 / 0) |
-| 100-200 | 16 (12 / 4) | 2 (2 / 0) | 39 (29 / 10) | 32 (24 / 8) | 0 (0 / 0) | 18 (15 / 3) | 67 (52 / 15) | 0 (0 / 0) |
+| 0-30 | 14 (4 / 10) | 4 (1 / 3) | 129 (67 / 62) | 49 (20 / 29) | 1 (1 / 0) | 9 (6 / 3) | 79 (56 / 23) | 0 (0 / 0) |
+| 30-50 | 32 (16 / 16) | 7 (4 / 3) | 132 (55 / 77) | 69 (38 / 31) | 4 (1 / 3) | 9 (6 / 3) | 102 (63 / 39) | 0 (0 / 0) |
+| 50-100 | 42 (30 / 12) | 13 (6 / 7) | 131 (60 / 71) | 75 (47 / 28) | 0 (0 / 0) | 35 (29 / 6) | 129 (88 / 41) | 1 (1 / 0) |
+| 100-200 | 19 (15 / 4) | 2 (2 / 0) | 39 (29 / 10) | 32 (24 / 8) | 0 (0 / 0) | 19 (16 / 3) | 69 (54 / 15) | 0 (0 / 0) |
 | 200-500 | 6 (6 / 0) | 2 (2 / 0) | 13 (11 / 2) | 10 (8 / 2) | 0 (0 / 0) | 5 (5 / 0) | 29 (23 / 6) | 0 (0 / 0) |
 | 500+ | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 3 (2 / 1) | 0 (0 / 0) |
 
@@ -274,7 +276,7 @@ Reasons of the misses by length, total (highline / midline):
 
 | resolution | known | verifiable | matched | recall | clean recall | terrain recall | clearance p50 | over trees | wall angle p50 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 m | 1317 (890 / 427) | 1239 (840 / 399) | 419 (375 / 44) | 34% (45% / 11%) | 32% (42% / 10%) | 37% (45% / 17%) | 2.65 | 40% | 40.57 |
+| 1 m | 1397 (964 / 433) | 1312 (907 / 405) | 464 (420 / 44) | 35% (46% / 11%) | 33% (44% / 10%) | 40% (48% / 16%) | 2.74 | 36% | 40.8 |
 | 2 m | 35 (27 / 8) | 35 (27 / 8) | 12 (11 / 1) | 34% (41% / 12%) | 32% (41% / 0%) | 50% (50% / 50%) | 5.75 | 58% | 47.96 |
 | 2.5 m | 3 (3 / 0) | 3 (3 / 0) | 2 (2 / 0) | 67% (67% / -) | 67% (67% / -) | 100% (100% / -) | 3.81 | 50% | 67.32 |
 | 5 m | 288 (220 / 68) | 274 (213 / 61) | 114 (103 / 11) | 42% (48% / 18%) | 40% (47% / 18%) | 53% (57% / 32%) | 5.13 | 24% | 45.8 |
@@ -284,7 +286,7 @@ Reasons of the misses by resolution, total (highline / midline):
 
 | resolution | unverifiable | water_pixel | structure_anchor | no_steep_pixel | length_range | height_difference | clearance_near_anchor | clearance_mid |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1 m | 78 (50 / 28) | 22 (12 / 10) | 257 (107 / 150) | 129 (64 / 65) | 5 (2 / 3) | 53 (40 / 13) | 354 (240 / 114) | 0 (0 / 0) |
+| 1 m | 85 (57 / 28) | 22 (12 / 10) | 257 (107 / 150) | 132 (65 / 67) | 5 (2 / 3) | 57 (44 / 13) | 375 (257 / 118) | 0 (0 / 0) |
 | 2 m | 0 (0 / 0) | 0 (0 / 0) | 14 (9 / 5) | 0 (0 / 0) | 0 (0 / 0) | 1 (1 / 0) | 8 (6 / 2) | 0 (0 / 0) |
 | 2.5 m | 0 (0 / 0) | 0 (0 / 0) | 1 (1 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) |
 | 5 m | 14 (7 / 7) | 3 (1 / 2) | 58 (33 / 25) | 52 (36 / 16) | 0 (0 / 0) | 18 (16 / 2) | 28 (23 / 5) | 1 (1 / 0) |
@@ -299,10 +301,11 @@ Reasons of the misses by resolution, total (highline / midline):
 | france | 206 (134 / 72) | 200 (129 / 71) | 95 (82 / 13) | 48% (64% / 18%) | 45% (62% / 15%) | 51% (58% / 29%) | 3.74 | 58% | 47.29 |
 | spain | 191 (141 / 50) | 180 (136 / 44) | 58 (54 / 4) | 32% (40% / 9%) | 31% (38% / 9%) | 43% (50% / 16%) | 5.13 | 14% | 39.19 |
 | europe | 183 (118 / 65) | 169 (111 / 58) | 0 (0 / 0) | 0% (0% / 0%) | 0% (0% / 0%) | 0% (0% / 0%) | - | - | - |
-| england | 123 (73 / 50) | 119 (71 / 48) | 49 (45 / 4) | 41% (63% / 8%) | 40% (62% / 8%) | 51% (64% / 13%) | 2.23 | 22% | 43.45 |
+| england | 124 (74 / 50) | 120 (72 / 48) | 49 (45 / 4) | 41% (62% / 8%) | 39% (61% / 8%) | 50% (63% / 13%) | 2.23 | 22% | 43.45 |
 | swisstopo | 115 (63 / 52) | 105 (56 / 49) | 32 (31 / 1) | 30% (55% / 2%) | 28% (52% / 2%) | 31% (50% / 0%) | 4.34 | 59% | 45.48 |
 | spain_canarias | 97 (79 / 18) | 94 (77 / 17) | 56 (49 / 7) | 60% (64% / 41%) | 58% (62% / 41%) | 67% (67% / 67%) | 5.06 | 34% | 53.65 |
 | new_zealand | 90 (76 / 14) | 86 (73 / 13) | 25 (22 / 3) | 29% (30% / 23%) | 24% (24% / 23%) | 24% (25% / 22%) | 1.63 | 40% | 39.27 |
+| slovenia | 80 (73 / 7) | 73 (66 / 7) | 46 (45 / 1) | 63% (68% / 14%) | 60% (65% / 14%) | 63% (68% / 14%) | 3.61 | 0% | 49.53 |
 | wales | 43 (36 / 7) | 43 (36 / 7) | 32 (27 / 5) | 74% (75% / 71%) | 74% (74% / 71%) | 77% (77% / 75%) | 2.32 | 31% | 31.36 |
 | austria | 34 (31 / 3) | 28 (25 / 3) | 13 (13 / 0) | 46% (52% / 0%) | 44% (50% / 0%) | 67% (67% / -) | 3.36 | 69% | 35.75 |
 | czechia | 32 (26 / 6) | 32 (26 / 6) | 11 (11 / 0) | 34% (42% / 0%) | 34% (42% / 0%) | 60% (60% / -) | 6.75 | 64% | 50.17 |
@@ -326,7 +329,6 @@ Reasons of the misses by resolution, total (highline / midline):
 | finland | 1 (0 / 1) | 1 (0 / 1) | 1 (0 / 1) | 100% (- / 100%) | - (- / -) | 100% (- / 100%) | 1.51 | 0% | 11.82 |
 | hesse | 1 (0 / 1) | 1 (0 / 1) | 0 (0 / 0) | 0% (- / 0%) | 0% (- / 0%) | - (- / -) | - | - | - |
 | rhineland_palatinate | 1 (0 / 1) | 1 (0 / 1) | 0 (0 / 0) | 0% (- / 0%) | 0% (- / 0%) | - (- / -) | - | - | - |
-| slovenia | 1 (0 / 1) | 1 (0 / 1) | 1 (0 / 1) | 100% (- / 100%) | 100% (- / 100%) | 100% (- / 100%) | 1.06 | 0% | 72.68 |
 
 Reasons of the misses by source, total (highline / midline):
 
@@ -337,10 +339,11 @@ Reasons of the misses by source, total (highline / midline):
 | france | 6 (5 / 1) | 1 (0 / 1) | 38 (3 / 35) | 4 (2 / 2) | 0 (0 / 0) | 5 (3 / 2) | 57 (39 / 18) | 0 (0 / 0) |
 | spain | 11 (5 / 6) | 0 (0 / 0) | 53 (30 / 23) | 42 (28 / 14) | 0 (0 / 0) | 13 (12 / 1) | 14 (12 / 2) | 0 (0 / 0) |
 | europe | 14 (7 / 7) | 3 (2 / 1) | 114 (72 / 42) | 51 (36 / 15) | 0 (0 / 0) | 1 (1 / 0) | 0 (0 / 0) | 0 (0 / 0) |
-| england | 4 (2 / 2) | 12 (10 / 2) | 22 (2 / 20) | 4 (2 / 2) | 0 (0 / 0) | 4 (1 / 3) | 28 (11 / 17) | 0 (0 / 0) |
+| england | 4 (2 / 2) | 12 (10 / 2) | 22 (2 / 20) | 5 (3 / 2) | 0 (0 / 0) | 4 (1 / 3) | 28 (11 / 17) | 0 (0 / 0) |
 | swisstopo | 10 (7 / 3) | 0 (0 / 0) | 15 (2 / 13) | 2 (0 / 2) | 1 (0 / 1) | 11 (6 / 5) | 44 (17 / 27) | 0 (0 / 0) |
 | spain_canarias | 3 (2 / 1) | 3 (1 / 2) | 5 (3 / 2) | 10 (8 / 2) | 0 (0 / 0) | 5 (4 / 1) | 14 (11 / 3) | 1 (1 / 0) |
 | new_zealand | 4 (3 / 1) | 0 (0 / 0) | 4 (2 / 2) | 18 (14 / 4) | 0 (0 / 0) | 9 (9 / 0) | 30 (26 / 4) | 0 (0 / 0) |
+| slovenia | 7 (7 / 0) | 0 (0 / 0) | 0 (0 / 0) | 2 (0 / 2) | 0 (0 / 0) | 4 (4 / 0) | 21 (17 / 4) | 0 (0 / 0) |
 | wales | 0 (0 / 0) | 0 (0 / 0) | 2 (1 / 1) | 0 (0 / 0) | 0 (0 / 0) | 2 (2 / 0) | 7 (6 / 1) | 0 (0 / 0) |
 | austria | 6 (6 / 0) | 0 (0 / 0) | 5 (4 / 1) | 0 (0 / 0) | 0 (0 / 0) | 1 (1 / 0) | 9 (7 / 2) | 0 (0 / 0) |
 | czechia | 0 (0 / 0) | 0 (0 / 0) | 14 (9 / 5) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 7 (6 / 1) | 0 (0 / 0) |
@@ -364,7 +367,6 @@ Reasons of the misses by source, total (highline / midline):
 | finland | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) |
 | hesse | 0 (0 / 0) | 0 (0 / 0) | 1 (0 / 1) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) |
 | rhineland_palatinate | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 1 (0 / 1) | 0 (0 / 0) |
-| slovenia | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) | 0 (0 / 0) |
 
 ### By country
 
@@ -374,11 +376,12 @@ Reasons of the misses by source, total (highline / midline):
 | US | 273 (172 / 101) | 250 (164 / 86) | 73 (60 / 13) | 29% (37% / 15%) | 26% (32% / 14%) | 29% (37% / 15%) | 1.93 | 0% | 40.46 |
 | PL | 233 (175 / 58) | 223 (168 / 55) | 46 (44 / 2) | 21% (26% / 4%) | 20% (25% / 4%) | 43% (48% / 0%) | 2.76 | 43% | 33.11 |
 | FR | 206 (134 / 72) | 200 (129 / 71) | 95 (82 / 13) | 48% (64% / 18%) | 45% (62% / 15%) | 51% (58% / 29%) | 3.74 | 58% | 47.29 |
-| GB | 171 (112 / 59) | 166 (109 / 57) | 82 (73 / 9) | 49% (67% / 16%) | 48% (66% / 16%) | 59% (68% / 26%) | 2.31 | 26% | 35.47 |
+| GB | 172 (113 / 59) | 167 (110 / 57) | 82 (73 / 9) | 49% (66% / 16%) | 48% (65% / 16%) | 58% (67% / 26%) | 2.31 | 26% | 35.47 |
 | IT | 149 (94 / 55) | 136 (88 / 48) | 2 (2 / 0) | 1% (2% / 0%) | 1% (2% / 0%) | 2% (3% / 0%) | 3.81 | 50% | 67.32 |
 | CH | 115 (63 / 52) | 105 (56 / 49) | 32 (31 / 1) | 30% (55% / 2%) | 28% (52% / 2%) | 31% (50% / 0%) | 4.34 | 59% | 45.48 |
 | DE | 101 (48 / 53) | 96 (45 / 51) | 19 (18 / 1) | 20% (40% / 2%) | 20% (40% / 2%) | 33% (56% / 0%) | 5.06 | 68% | 48.51 |
 | NZ | 90 (76 / 14) | 86 (73 / 13) | 25 (22 / 3) | 29% (30% / 23%) | 24% (24% / 23%) | 24% (25% / 22%) | 1.63 | 40% | 39.27 |
+| SI | 80 (73 / 7) | 73 (66 / 7) | 46 (45 / 1) | 63% (68% / 14%) | 60% (65% / 14%) | 63% (68% / 14%) | 3.61 | 0% | 49.53 |
 | AU | 46 (41 / 5) | 45 (40 / 5) | 5 (5 / 0) | 11% (12% / 0%) | 11% (12% / 0%) | 20% (24% / 0%) | 3.37 | 0% | 37.88 |
 | AT | 34 (31 / 3) | 28 (25 / 3) | 13 (13 / 0) | 46% (52% / 0%) | 44% (50% / 0%) | 67% (67% / -) | 3.36 | 69% | 35.75 |
 | CZ | 32 (26 / 6) | 32 (26 / 6) | 11 (11 / 0) | 34% (42% / 0%) | 34% (42% / 0%) | 60% (60% / -) | 6.75 | 64% | 50.17 |
@@ -389,66 +392,67 @@ Reasons of the misses by source, total (highline / midline):
 | DK | 5 (0 / 5) | 5 (0 / 5) | 0 (0 / 0) | 0% (- / 0%) | 0% (- / 0%) | - (- / -) | - | - | - |
 | FI | 1 (0 / 1) | 1 (0 / 1) | 1 (0 / 1) | 100% (- / 100%) | - (- / -) | 100% (- / 100%) | 1.51 | 0% | 11.82 |
 | PR | 1 (1 / 0) | 1 (1 / 0) | 0 (0 / 0) | 0% (0% / -) | 0% (0% / -) | 0% (0% / -) | - | - | - |
-| SI | 1 (0 / 1) | 1 (0 / 1) | 1 (0 / 1) | 100% (- / 100%) | 100% (- / 100%) | 100% (- / 100%) | 1.06 | 0% | 72.68 |
 
 ### The failed searches
 
-39 places (86 known lines: 75 / 11) were not analysed; their searches stopped with a download or read error:
+On the evening of 2026-11-08 the searches of 39 places (86 known lines: 75 / 11) stopped with a download or read
+error:
 
-| cause | places | known lines |
-| --- | ---: | ---: |
-| ARSO's server for Slovenia's DMR 1 m sheets answered HTTP 503 ("No server is available to handle this request") on the evening of 2026-11-08, and again at 01:00 on 2026-11-09 | 35 | 79 |
-| three Polish XYZ sheets begin with a UTF-8 byte order mark, which `np.loadtxt` in `sources/readers/sheetfile.py` reads as part of the first number ("could not convert string 'ï»¿6426840.00'"): a production bug, open | 3 | 6 |
-| the Environment Agency's WCS answered HTTP 500 for one tile of its DSM | 1 | 1 |
+| cause | places | known lines | searched again |
+| --- | ---: | ---: | --- |
+| ARSO's server for Slovenia's DMR 1 m sheets answered HTTP 503 ("No server is available to handle this request") on the evening of 2026-11-08, and again in the night of 2026-11-09 | 35 | 79 | 2026-11-10, when the server answered again: 29 found lines, 6 none |
+| three Polish XYZ sheets begin with a UTF-8 byte order mark, which `np.loadtxt` in `sources/readers/sheetfile.py` reads as part of the first number ("could not convert string 'ï»¿6426840.00'"): a production bug, open | 3 | 6 | failed again on 2026-11-09 and 2026-11-10 |
+| the Environment Agency's WCS answered HTTP 500 for one tile of its DSM | 1 | 1 | 2026-11-09: found lines |
 
-`run --failed` searches them again (started 2026-11-09 01:08; by 01:27 the first nine had failed again, eight on
-ARSO's 503 and one Polish sheet on its byte order mark); the Polish three fail until the reader is fixed.
+`run --failed` searched them again (2026-11-09 from 01:08, when ARSO still answered 503, and 2026-11-10 with
+`--parallel 2`; one Slovenian search the first repeat had left without a capture was searched by its id). Left out
+of every number above: the 3 Polish places (6 known lines: 1 / 5), which fail until the reader is fixed.
 
 ### Reading the numbers
 
-- **More than half of the misses are places without any line**: 715 of the 1 279 misses lie in the 432 places whose
+- **More than half of the misses are places without any line**: 721 of the 1 314 misses lie in the 438 places whose
   search found no line at all.
-- **Structures as anchors**: 444 misses (35 %) have an end on a building, a tower or a tree, where the search, which
-  anchors on steep terrain only, never looks; 43 % of the midline misses (222 of 512) and 29 % of the highline misses
-  (222 of 767). Only 878 of the 1 826 known lines (48 %) stand on terrain at both ends as far as the surface models
-  tell; on them the recall is 38 % (highline 45 %). Poland's misses are mostly structures (125 of 187). Two caveats:
+- **Structures as anchors**: 444 misses (34 %) have an end on a building, a tower or a tree, where the search, which
+  anchors on steep terrain only, never looks; 43 % of the midline misses (222 of 518) and 28 % of the highline misses
+  (222 of 796). Only 958 of the 1 906 known lines (50 %) stand on terrain at both ends as far as the surface models
+  tell; on them the recall is 40 % (highline 47 %). Poland's misses are mostly structures (125 of 187). Two caveats:
   a source without a surface model sees no structure, so the USA's lines on structures count as `no_steep_pixel` (63
   of its misses, 39 of them midlines) and its terrain recall equals its recall (likewise Queensland, Tasmania,
   Finland and Slovenia, which have no surface model either); and at 30 m the "structure" is the coarse surface
   model's forest (114 of the fallback's misses).
-- **The clearance rule at the anchors**: 390 misses have anchors within the tolerance at both ends, of the known
+- **The clearance rule at the anchors**: 411 misses have anchors within the tolerance at both ends, of the known
   length and height difference, and every such pair fails the clearance within max(10 m, 10 %) of an end (the fall
   zone below the webbing cuts into the rim right at the anchor); one fails mid-span. A no-fall zone recovers most of
-  them: with 5 m and no A-frames 230 of the 391 clearance misses have a valid pair (59 %), with 20 m 270; A-frames
-  alone 92 at 1 m, 228 at 2 m, 312 at 3 m; a 5 m zone with 2 m A-frames 298 (76 %). Each of them would be a candidate,
-  so the recall would be about 45 % with a 5 m zone (547 + 230 of 1 720) and about 49 % with a 5 m zone and 2 m
+  them: with 5 m and no A-frames 239 of the 412 clearance misses have a valid pair (58 %), with 20 m 281; A-frames
+  alone 98 at 1 m, 239 at 2 m, 325 at 3 m; a 5 m zone with 2 m A-frames 310 (75 %). Each of them would be a candidate,
+  so the recall would be about 46 % with a 5 m zone (592 + 239 of 1 793) and about 50 % with a 5 m zone and 2 m
   A-frames: an estimate from the analysis' funnel (at most 400 anchors per end, 3 000 pairs), not a search.
 - **The 30 m fallback finds nothing**: 183 known lines lie where only FABDEM + Copernicus DEM (30 m) covers (Italy
   outside Trento and South Tyrol, Australia outside Queensland and Tasmania, the German Länder without a source of
   their own): none matched. A highline's anchor is a few metres of rock, which a 30 m pixel does not see (51
   `no_steep_pixel`, 114 `structure_anchor`). A known line there tells about the data, not the search.
-- **Per source**, the highline recall: Wales 75 %, the Canaries 64 %, France 64 %, England 63 %, Switzerland 55 %,
+- **Per source**, the highline recall: Wales 75 %, Slovenia 68 %, the Canaries 64 %, France 64 %, England 63 %, Switzerland 55 %,
   Austria 52 %, Bavaria 50 %, Czechia 42 %, Spain (5 m) 40 %, the USA 36 %, New Zealand 30 %, Queensland 29 %,
   Poland 26 % (48 % on terrain). The USA's misses are mostly the clearance at the anchors (97) and `no_steep_pixel`
   (63, structures among them); Spain's at 5 m hold 42 `no_steep_pixel` and 53 structures, New Zealand's 18
-  `no_steep_pixel`; Brandenburg (0 of 20) and North Rhine-Westphalia (0 of 8) hold mostly midlines on structures and
-  flat land.
+  `no_steep_pixel`, Slovenia's mostly the clearance at the anchors (21 of 34); Brandenburg (0 of 20) and North
+  Rhine-Westphalia (0 of 8) hold mostly midlines on structures and flat land.
   Few lines per source make most of these rough: a source with fewer than about 30 verifiable lines moves by 3 % or more
   per line.
-- **By resolution**: 1 m 34 %, 2 m 34 %, 5 m 42 % (all of it Spain), 30 m 0 %. The 5 m and 1 m places are different
+- **By resolution**: 1 m 35 %, 2 m 34 %, 5 m 42 % (all of it Spain), 30 m 0 %. The 5 m and 1 m places are different
   places: no comparison of resolutions on the same lines.
-- **By length** the recall grows with the length: 28 % below 30 m, 27 % at 30-50 m, 33 % at 50-100 m, 36 % at
-  100-200 m, 43 % at 200-500 m, 79 % above 500 m (14 lines). Short lines are more often on structures (129 of the
-  misses below 30 m). 386 known lines are shorter than 30 m, which the search's default `--min-length` 30 leaves out;
+- **By length** the recall grows with the length: 28 % below 30 m, 28 % at 30-50 m, 34 % at 50-100 m, 38 % at
+  100-200 m, 47 % at 200-500 m, 79 % above 500 m (14 lines). Short lines are more often on structures (129 of the
+  misses below 30 m). 392 known lines are shorter than 30 m, which the search's default `--min-length` 30 leaves out;
   the study's searches set their own range.
-- **Height difference**: 73 misses (58 / 15) have no pair within the search's limit of 5 % of the length (at most
+- **Height difference**: 77 misses (62 / 15) have no pair within the search's limit of 5 % of the length (at most
   50 m): rigged lines with steeper ends exist; a hint for `--max-anchor-diff`.
-- **The matched lines**: their best match has a median clearance of 3.1 m (highline 3.5 m), and 37 % of them are
+- **The matched lines**: their best match has a median clearance of 3.2 m (highline 3.5 m), and 34 % of them are
   marked over trees or buildings: the mark fires on more than a third of the lines people rig (trees within the fall
-  allowance below a real line, or the obstacle rule marking rock: to look at with `tools/obstacle_study.py`). Only 33 of
-  the 547 are the representative of their group, so the map shows a spot there but mostly another of its lines. The
-  wall angles at the known anchors: p10 16°, median 42°.
-- **Midlines** hang below the fall allowance by construction; 56 of 526 matched under the sag model, where a short
+  allowance below a real line, or the obstacle rule marking rock: to look at with `tools/obstacle_study.py`). Only 34 of
+  the 592 are the representative of their group, so the map shows a spot there but mostly another of its lines. The
+  wall angles at the known anchors: p10 17°, median 42°.
+- **Midlines** hang below the fall allowance by construction; 56 of 532 matched under the sag model, where a short
   line's sag is small.
 
 ### The formula model against the sag model
@@ -457,7 +461,7 @@ The first 55 clusters of the same list (the most known lines first) were searche
 user's switch to the sag model (the 56th was interrupted by the stop; three Slovenian places failed on ARSO's 503
 and one English place on the Environment Agency's 500, which the sag pass then searched). `analyse` and `report` of
 those captures (2026-11-09, 23 s and 1 s) against the sag pass's records of the same 51 places, every known line the
-same:
+same (the repeats of 2026-11-10 touch none of them):
 
 | 51 places, 389 known lines (351 / 38) | formula | sag |
 | --- | ---: | ---: |
@@ -504,6 +508,7 @@ one data folder per study.
 | the captures | 7.5 GB for 1 024 places: `lines.npz` 4.1 GB (20 million lines found), `grids.npz` 3.4 GB, `anchors.npy` 0.15 GB; the pictures 288 MB |
 | `analyse` | 630 s summed over the places (median 0.56 s a place, 0.35 s a known line) |
 | `report` | about 1 s without pictures (the formula pass's 56 places) |
+| `run --failed --parallel 2` on 2026-11-10 (a shared slot) | 37 searches, 34 of them Slovenian with their sheets downloaded, in about 13 min: 1 457 s of searches, 11 s a Slovenian place in the median, four of them 230-280 s |
 
 The plan's estimates were 4-8 h for the pass, about 20 GB of new cache and 20-25 min for the analysis.
 
@@ -554,8 +559,8 @@ The outputs:
 
 ## 5. Open
 
-- **The failed searches**: 39 places, searched again with `run --failed` from 2026-11-09 01:08; ARSO still answered
-  503 at 01:27. Their 86 known lines (75 / 11) can move the tables by that much at most.
+- **The failed searches**: 3 Polish places (6 known lines: 1 / 5) fail on the byte order mark of their sheets until
+  `sources/readers/sheetfile.py` is fixed; then `run --failed`, `analyse`, `report`.
 - **The ISA's answer**: whether the aggregate statistics may stay published, the overlay, a copy of the lines, the
   details' heights. Until then everything of section 1 holds.
 - **The details** (`slackmap_data.py details`) of the misses and a sample of the matches are not fetched yet: their
@@ -571,6 +576,6 @@ The outputs:
   byte order mark as a number with three stray characters and fails (three Polish sheets); `helpers.zone_steps`
   rounds the 25 % cap of the end zone up one step on slightly diagonal lines (`ceil` of 15.000000000000002 gives 16
   steps).
-- **Decisions the numbers prepare** (none taken): structures as anchors (35 % of the misses), the default end zone
+- **Decisions the numbers prepare** (none taken): structures as anchors (34 % of the misses), the default end zone
   and A-frames, `--max-anchor-diff`, the 30 m fallback where it is all a search has, the obstacle mark on more than a
   third of the matched lines.
