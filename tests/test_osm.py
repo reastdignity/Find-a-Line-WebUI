@@ -8,6 +8,8 @@ import sys
 import threading
 import time
 
+import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import osmextract  # noqa: E402
 
@@ -663,3 +665,17 @@ def test_update_takes_a_missing_extract_theme_again(tmp_path, monkeypatch):
         json.dump(data, f)
     os.utime(themes, (1, 1))
     assert osmextract.update(cache_dir, "island", pbf) and finished == ["island"]
+
+
+def test_tiles_across_the_antimeridian():
+    """A box with west > east crosses 180° (transform_bounds of a grid spanning it): the 0.25° tiles of
+    both sides, in osm.tiles' order (a row south to north, the west side's tiles first), nothing else;
+    the edges stay inclusive."""
+    import osm
+    both = osm.tiles(170, 50, -170, 55)
+    west_side = [(lat, lon) for lat in np.arange(50, 55.01, 0.25) for lon in np.arange(170, 179.76, 0.25)]
+    east_side = [(lat, lon) for lat in np.arange(50, 55.01, 0.25) for lon in np.arange(-180, -169.99, 0.25)]
+    assert set(both) == set(west_side) | set(east_side) and len(both) == len(west_side) + len(east_side)
+    assert both[:40] == west_side[:40] and both[40:81] == east_side[:41] and both[81] == (50.25, 170.0)
+    assert all(-180 <= lon < 180 for _, lon in both)
+    assert osm.tiles(0, 0, 0.25, 0.25) == [(0.0, 0.0), (0.0, 0.25), (0.25, 0.0), (0.25, 0.25)]

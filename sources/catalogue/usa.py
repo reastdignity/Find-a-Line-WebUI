@@ -71,15 +71,18 @@ SOURCES: List[Source] = [
         sample=(58.3093, -134.3890)),
     Source(
         id="usa", name="USGS 3DEP (1 m DEM)",
-        description="USGS 3DEP (USA, Puerto Rico, US Virgin Islands): 1 m lidar DEM, newest survey first, "
-                    "NAD83 / UTM, NAVD88; gaps from the 1/3 arc-second DEM",
+        description="USGS 3DEP (USA with Hawaii, Puerto Rico, US Virgin Islands): 1 m lidar DEM, newest survey "
+                    "first, NAD83 / UTM, NAVD88; gaps from the 1/3 arc-second DEM",
         # 10 km files of 10-450 MB per project: blocks of 1 km read by HTTP range requests
         nmt=USGS_1M, countries=("us", "pr", "vi"), local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
         fallback="usgs10m", credits=(USGS_1M_CREDIT,), note=USA_NOTE, neighbours=("canada", "british_columbia"),
-        listing=ReadmeRow("USA, Puerto Rico, US Virgin Islands",
+        listing=ReadmeRow("USA with Hawaii, Puerto Rico, US Virgin Islands",
                         "USGS 3DEP 1 m DEM (lidar), newest project first", "–",
                         "USGS Imagery (NAIP, up to zoom 16)"),
-        offline=(("us", (24.4, 49.4, -125.0, -66.9)), ("pr", (17.8, 18.6, -67.4, -65.2))),
+        # Hawaii: TNM lists 1 m DEM files over every main island (checked 2026-11-08: Hawaiʻi Island NOAA 2017,
+        # Maui and Oʻahu NOAA 2020, Kauaʻi FEMA 2019; 360 files in the box)
+        offline=(("us", (24.4, 49.4, -125.0, -66.9)), ("us", (18.8, 22.3, -160.3, -154.7)),
+                 ("pr", (17.8, 18.6, -67.4, -65.2))),
         sample=(38.5610, -109.5680),
         coverage=Coverage(provider="USGS", added="2026-10-30", survey="projects")),
     Source(

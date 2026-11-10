@@ -238,6 +238,76 @@ def test_prepared_outline_keeps_the_tiles():
     assert not shapely.is_prepared(outline)
 
 
+def test_tilings_per_part_as_the_whole_box():
+    """cells_under (MetricTiling, FileBlockTiling, TenthDegreeTiling, WcsTiling with an outline) gives exactly
+    the tiles a loop over every cell of the whole box tests against the outline, in each class's order, for an
+    outline of two parts far apart (nothing between them visited) and one of many small parts, in strips of a
+    few cells; the memo answers the same grid again (a copy) and another grid anew."""
+    import math
+    from rasterio.warp import transform_bounds
+    from shapely.geometry import MultiPolygon, Polygon, box
+
+    from area import project
+    from grid import Grid
+    from sources.indexes import tilings
+    from sources.indexes.tilings import FileBlockTiling, MetricTiling, TenthDegreeTiling, WcsTiling
+    crs = "EPSG:32634"
+    x, y = 500_000.0, 5_000_000.0
+    rng = np.random.default_rng(5)
+    far = MultiPolygon([box(x, y, x + 7000, y + 5000),
+                        Polygon([(x + 60_000, y + 50_000), (x + 75_000, y + 52_000), (x + 66_000, y + 68_000)])])
+    many = MultiPolygon([box(x + a, y + b, x + a + 900, y + b + 700)
+                         for a, b in zip(rng.integers(0, 80_000, 60), rng.integers(0, 80_000, 60))]).buffer(0)
+
+    def brute(index, grid, edges, cell_range, order):
+        shape = project(grid.area_shape, grid.crs, index.crs)
+        left, bottom, right, top = transform_bounds(grid.crs, index.crs, *grid.bounds)
+        (i0, j0), (i1, j1) = cell_range(left, bottom), cell_range(right, top)
+        found = [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1) if shape.intersects(box(*edges(i, j)))]
+        return sorted(found, key=order)
+    metric = MetricTiling(crs, "f", 4000, origin=(1000.0, 0.0))
+    blocks = FileBlockTiling(crs, "f", 1.0, 3000, lambda i, j: [])
+    tenth = TenthDegreeTiling("EPSG:4326", "f", 3600, lambda name: name)
+    wcs = WcsTiling(crs, "f", 1000, "image/tiff", 2.5, shift=(3.0, -2.0), origin=(1.25, 1.25))
+    size = 1000 * 2.5
+    wx, wy = -wcs.shift[0] - wcs.origin[0], -wcs.shift[1] - wcs.origin[1]
+    cases = [
+        (metric, lambda i, j: metric.edges((i, j)),
+         lambda a, b: (math.floor((a - 1000.0) / 4000), math.floor(b / 4000)), lambda c: (c[1], c[0])),
+        (blocks, lambda i, j: blocks._edges(i, j),
+         lambda a, b: (math.floor(a / 3000), math.floor(b / 3000)), lambda c: (c[1], c[0])),
+        (tenth, lambda i, j: (i / 10, j / 10, (i + 1) / 10, (j + 1) / 10),
+         lambda a, b: (math.floor(a * 10), math.floor(b * 10)), lambda c: (c[1], c[0])),
+        (wcs, lambda i, j: (i * size - wx, j * size - wy, (i + 1) * size - wx, (j + 1) * size - wy),
+         lambda a, b: (math.floor((a + wx) / size), math.floor((b + wy) / size)), lambda c: c),
+    ]
+    for outline in (far, many):
+        left, bottom, right, top = outline.bounds
+        grid = Grid(crs=crs, left=left - 500, top=top + 500, width=int((right - left) / 100) + 10,
+                    height=int((top - bottom) / 100) + 10, res=100.0)
+        grid.area_shape = outline
+        for index, edges, cell_range, order in cases:
+            for strip in (tilings.STRIP_CELLS, 7):
+                index._memo = None
+                tilings.STRIP_CELLS = strip
+                try:
+                    tiles = index.tiles(grid)
+                finally:
+                    tilings.STRIP_CELLS = 250_000
+                expected = brute(index, grid, edges, cell_range, order)
+                if index is wcs:
+                    expected = [(2.5, i, j) for i, j in expected]
+                assert tiles == expected and len(tiles) >= 4, (index, outline is far, strip)
+            again = index.tiles(grid)
+            assert again == tiles and again is not tiles
+            again.append("x")
+            assert index.tiles(grid) == tiles
+            other = Grid(crs=crs, left=grid.left, top=grid.top, width=grid.width, height=grid.height, res=grid.res)
+            other.area_shape = box(x, y, x + 100, y + 100)
+            assert len(index.tiles(other)) < len(tiles) and index.tiles(grid) == tiles
+    assert tilings.STRIP_CELLS == 250_000
+
+
 def test_update_checks(tmp_path):
     """Live tiles are checked after their interval, releases never; --bbox limits the checks."""
     spain = src.SOURCES["spain"].nmt
@@ -1491,7 +1561,7 @@ def _place_before(src_file, grid, mosaic, categorical=False, shift=(0.0, 0.0)):
     from rasterio.warp import Resampling, reproject, transform_bounds
     from rasterio.windows import from_bounds
     from sources.layer import _clean
-    from sources.mosaic import WARP_THREADS
+    from sources.mosaic import WARP_KWARGS  # the threads only: the same values (sources.mosaic)
     clean = (lambda band: band.astype(np.float32)) if categorical else _clean
     grid_crs = rio.crs.CRS.from_user_input(grid.crs)
     src_crs = src_file.crs or grid_crs
@@ -1535,7 +1605,7 @@ def _place_before(src_file, grid, mosaic, categorical=False, shift=(0.0, 0.0)):
     band = src_file.read(1, window=window, masked=True).astype(np.float32).filled(np.nan)
     reproject(clean(band), values, src_transform=moved @ src_file.window_transform(window), src_crs=src_crs,
               dst_transform=window_transform, dst_crs=grid.crs,
-              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, num_threads=WARP_THREADS)
+              src_nodata=np.nan, dst_nodata=np.nan, resampling=resampling, **WARP_KWARGS)
     target = mosaic[r0:r1, c0:c1]
     mosaic[r0:r1, c0:c1] = np.where(np.isnan(target), values, target)
 
@@ -2162,6 +2232,59 @@ def test_mosaic_resampling_methods(tmp_path):
         mosaic("coarse", coarse, 499987, 300321, 5, "lanczos")
     with pytest.raises(ValueError, match="resampling"):
         mosaic("coarse", coarse.astype(np.uint8), 499987, 300321, 5, "nearest", categorical=True)
+
+
+def test_mosaic_warps_without_a_thread_per_chunk(tmp_path, monkeypatch):
+    """build_mosaic reprojects with mosaic.WARP_KWARGS: rasterio's num_threads=1 (ChunkAndWarpImage: no thread
+    per chunk, whose race in GDAL before 3.14 on Windows freed a thread's record twice, 0xC0000374, at the
+    stitches of two degree tiles that a strip's chunks split small) with GDAL's kernel on WARP_THREADS threads
+    of its pool (the warp option NUM_THREADS); the kernel's threads change no value: the mosaics of two
+    rasters in EPSG:4326, each covering part of the grid, equal those of a kernel on one thread."""
+    import rasterio as rio
+    from rasterio.transform import from_origin
+    from rasterio.warp import transform_bounds
+    rng = np.random.default_rng(12)
+    grid = gd.make_grid((500000, 300000, 500600, 300400), 2, "EPSG:2180")
+    west, south, east, north = transform_bounds("EPSG:2180", "EPSG:4326", *grid.bounds)
+    step, middle = 1 / 3600, round((west + east) / 2 * 3600) / 3600
+    rows, cols = int((north - south) / step) + 8, int((middle - west) / step) + 4
+
+    def tif(name, band, left):
+        path = str(tmp_path / f"{name}.tif")
+        with rio.open(path, "w", driver="GTiff", width=band.shape[1], height=band.shape[0], count=1,
+                      dtype=band.dtype, crs="EPSG:4326", nodata=None if band.dtype == np.uint8 else np.nan,
+                      transform=from_origin(left, north + 2 * step, step, step)) as dst:
+            dst.write(band, 1)
+        return path
+
+    pairs = {"heights": [tif(f"h{k}", (200 + rng.normal(0, 30, (rows, cols))).astype(np.float32), left)
+                         for k, left in enumerate((middle - cols * step, middle))],
+             "categories": [tif(f"c{k}", rng.integers(0, 4, (rows, cols)).astype(np.uint8), left)
+                            for k, left in enumerate((middle - cols * step, middle))]}
+    calls = []
+    original = src.mosaic.reproject
+
+    def recorded(*args, **kwargs):
+        calls.append({k: kwargs.get(k) for k in ("num_threads", "NUM_THREADS")})
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(src.mosaic, "reproject", recorded)
+    # GDAL gives a chunk of fewer than 65536 pixels per thread to one thread: split this small grid's rows too
+    monkeypatch.setenv("WARP_THREAD_CHUNK_SIZE", "0")
+    assert src.mosaic.WARP_KWARGS == {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS}
+    for name, files in pairs.items():
+        categorical = name == "categories"
+        for rows_ in (None, 50):
+            calls.clear()
+            got = np.array(src.build_mosaic(files, grid, str(tmp_path / "m.npy"), "test", categorical=categorical,
+                                            rows=rows_))
+            assert calls and all(c == {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS} for c in calls)
+            assert (got != src.mosaic.NODATA).all() if categorical else np.isfinite(got).mean() > 0.99
+            monkeypatch.setattr(src.mosaic, "WARP_KWARGS", {"num_threads": 1, "NUM_THREADS": 1})
+            one = np.array(src.build_mosaic(files, grid, str(tmp_path / "one.npy"), "test", categorical=categorical,
+                                            rows=rows_))
+            monkeypatch.setattr(src.mosaic, "WARP_KWARGS", {"num_threads": 1, "NUM_THREADS": src.mosaic.WARP_THREADS})
+            assert np.array_equal(got.view(np.uint8), one.view(np.uint8))
 
 
 def test_mosaic_rows_as_whole(tmp_path):

@@ -266,25 +266,63 @@ def test_tile_downloaded(http_server, tmp_path):
     assert cache.state(cache_dir, path) == "ok"
 
 
-def test_stale_link_reads_the_index_again(http_server, tmp_path, no_sleep):
-    """An outdated link answers an HTML page: an error at once (not tried again), nothing cached, and the kept
-    index and its 0.25° answers forgotten, so the next search asks the index again."""
+STALE = {"dgm1_32_425_6005_1_sh_2025.xyz", "dgm1_32_426_6005_1_sh_2025.xyz"}
+
+
+def test_stale_link_with_the_same_link_is_no_data(http_server, tmp_path, no_sleep, capsys):
+    """An outdated link answers an HTML page (not tried again, nothing cached): the kept index and its 0.25°
+    answers are forgotten and the index read again at once; when it still names the same link, the server
+    has no such file (LVermGeo SH's five tiles of 2007 in the outer Flensburg Fjord, 2026-11-08): the tile is
+    recorded as missing, so the next search asks neither the file nor the index again; the index is read
+    once for every stale tile of the pass."""
     _serve_index(http_server)
-    _serve_files(http_server, {}, stale={"dgm1_32_426_6005_1_sh_2025.xyz"})
+    _serve_files(http_server, {}, stale=STALE)
+    cache_dir = str(tmp_path / "cache")
+    layer = _sh_layer(http_server)
+    grid = make_grid((425990, 6005990, 426010, 6006000), 1.0, "EPSG:25832")  # two tiles, both stale
+    layer._use(cache_dir)
+    assert sorted(t.godlo for t in layer.tiles(grid)) == ["425_6005", "426_6005"]
+    kept = os.path.join(cache_dir, "test_sh", "geojson", "dgm1.json.gz")
+    layer.download(grid, cache_dir, None, "terrain")
+    assert len(http_server.requests("/gaialight-sh/")) == 2            # each file asked once
+    assert len(http_server.requests("/sh/")) == 2                      # the index read once, then once again
+    assert layer.files(grid, cache_dir) == [] and os.path.exists(kept)
+    for tile in layer.tiles(grid):
+        assert cache.state(cache_dir, layer.tile_path(cache_dir, tile)) == "missing"
+    out = capsys.readouterr().out
+    assert out.count("the index names a file the server no longer has") == 2 and "veraltet" in out
+    # The next search: nothing asked
+    layer.download(grid, cache_dir, None, "terrain")
+    assert len(http_server.requests("/gaialight-sh/")) == 2 and len(http_server.requests("/sh/")) == 2
+
+
+def test_stale_link_with_another_link_is_an_error(http_server, tmp_path, no_sleep):
+    """When the index read again names another file for the tile (a newer survey replaced it), the tile is an
+    error as before, nothing cached, and the next fetch gets the new file."""
+    _serve_index(http_server)
+    _serve_files(http_server, {"dgm1_32_426_6005_1_sh_2026.xyz": _xyz(426, 6005)},
+                 stale={"dgm1_32_426_6005_1_sh_2025.xyz"})
     cache_dir = str(tmp_path / "cache")
     layer = _sh_layer(http_server)
     layer._use(cache_dir)
     grid = make_grid((426000, 6005990, 426010, 6006000), 1.0, "EPSG:25832")
     (tile,) = layer.tiles(grid)
+    assert tile.year == 2025
     path = layer.tile_path(cache_dir, tile)
-    with pytest.raises(RuntimeError, match="veraltet.*index is read again"):
+    # The provider's index names the 2026 file now
+    _serve_index(http_server, _body("001-sh-dgm1.geojson").replace(b"dgm1_32_426_6005_1_sh_2025.xyz",
+                                                                   b"dgm1_32_426_6005_1_sh_2026.xyz"))
+    with pytest.raises(RuntimeError, match="veraltet.*index now names another file"):
         layer.download_tile(tile, path)
     assert len(http_server.requests("/gaialight-sh/")) == 1 and not os.path.exists(path)
-    assert not os.path.exists(os.path.join(cache_dir, "test_sh", "geojson", "dgm1.json.gz"))
     assert not glob.glob(os.path.join(cache_dir, "test_sh", "sheet-index", "dgm1", "*.json"))
     assert cache.state(cache_dir, path) is None
-    layer.index.answers(cache_dir, 54.0, 7.75)
+    (newer,) = layer.tiles(grid)
+    assert newer.year == 2026 and "file=dgm1_32_426_6005_1_sh_2026.xyz" in newer.url and newer.key != tile.key
+    assert layer.download_tile(newer, layer.tile_path(cache_dir, newer)).received > 0
     assert len(http_server.requests("/sh/")) == 2
+    with rio.open(layer.tile_path(cache_dir, newer)) as saved:
+        assert saved.read(1)[0, 0] == np.float32(0.25)
 
 
 def test_file_answers(http_server, tmp_path, no_sleep):

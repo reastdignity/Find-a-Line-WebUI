@@ -124,7 +124,9 @@ DISK_SPARE = 1 << 30       # free disk kept besides the work folders
 # each file once per square (sources.download_layers(group_m=)). 10 km (the user, 2026-11-04): the tiles at a
 # square's edges read twice add 11 % to the files' bytes (5 km: 22 %, blocks of 1 km: 128 %), and a square of 1 m
 # data takes about 0.9 GB (its window, the window's mask and the blocks: 9 bytes a pixel), about 10.5 GB with the
-# pool's 8 threads and GDAL's block cache (measured; docs/performance.md, "Window reads")
+# pool's 8 threads and GDAL's block cache (measured; docs/performance.md, "Window reads"). Sized for 1 m data:
+# tools/area_download.py scales it by the layers' native resolution (5 km for 0.5 m files), so a group holds the
+# same pixels; a group's window is read on the files' own pixels, whatever the grid's resolution
 PREFETCH_GROUP_M = 10000
 RESPAWNS_PER_WORKER = 2    # workers that stopped abnormally are started again at most this often (on average)
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -1140,8 +1142,12 @@ def _worker_env() -> Dict[str, str]:
     step 1 between the kernels, so a tile's threads take cores from the other workers and its CPU
     seconds count the spinning. With PASSIVE sk-sulov's four layer bands took 19 % fewer CPU seconds
     and 6 % fewer tile seconds, Slovakia's first all-bands run 5.4 % fewer CPU seconds at a wall within
-    the spread of equal runs, the counts the same (2026-11-07, docs/performance.md "Round 5")."""
-    return {"OMP_WAIT_POLICY": "PASSIVE", **os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
+    the spread of equal runs, the counts the same (2026-11-07, docs/performance.md "Round 5").
+
+    PYTHONFAULTHANDLER=1 unless the caller's environment sets it: a worker that dies of a fatal error
+    writes the Python stack of its threads into its log (the heap corruptions of GDAL's warper,
+    0xC0000374, left a log that stopped mid-tile without a word: CLAUDE.md, "GDAL's warper on Windows")."""
+    return {"OMP_WAIT_POLICY": "PASSIVE", "PYTHONFAULTHANDLER": "1", **os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
             "PYTHONUNBUFFERED": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
 
 

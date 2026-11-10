@@ -7,6 +7,7 @@ import json
 import math
 import os
 import re
+import sqlite3
 import sys
 from types import SimpleNamespace
 
@@ -52,6 +53,12 @@ def fake_get(url, params=None, **kwargs):
     (left, right), (bottom, top) = boxes["E"], boxes["N"]
     if left < EXTENT[0] or bottom < EXTENT[1] or right > EXTENT[2] or top > EXTENT[3]:
         return None
+    return FakeResponse(_geotiff((left, bottom, right, top)))
+
+
+def _geotiff(box) -> bytes:
+    """The fake coverage (height) over a box (left, bottom, right, top) as a GeoTIFF of 1 m pixels."""
+    left, bottom, right, top = box
     width, rows = round(right - left), round(top - bottom)
     ys, xs = np.mgrid[0:rows, 0:width]
     band = height(left + xs + 0.5, top - ys - 0.5).astype(np.float32)
@@ -59,7 +66,17 @@ def fake_get(url, params=None, **kwargs):
         with memfile.open(driver="GTiff", width=width, height=rows, count=1, dtype="float32",
                           crs="EPSG:32633", transform=from_origin(left, top, 1, 1)) as dst:
             dst.write(band, 1)
-        return FakeResponse(memfile.read())
+        return memfile.read()
+
+
+def _subset_box(query) -> tuple:
+    """(left, bottom, right, top) of the SUBSET parameters of a GetCoverage query (pairs)."""
+    boxes = {}
+    for key, value in query:
+        if key == "SUBSET":
+            axis, low, high = re.fullmatch(r"(\w+)\(([^,]+),([^)]+)\)", value).groups()
+            boxes[axis] = (float(low), float(high))
+    return boxes["E"][0], boxes["N"][0], boxes["E"][1], boxes["N"][1]
 
 
 def fake_describe(url, params=None, **kwargs):
@@ -128,6 +145,137 @@ def test_error_outside_the_coverage(monkeypatch, tmp_path):
     monkeypatch.setattr(src.net, "_get", failing)
     with pytest.raises(RuntimeError, match="Could not download"):
         layer.download_tile((1.0, -1, -1), str(tmp_path / "d.tif"))
+
+
+EA_500 = b'{"message":"Internal server error","statusCode":500,"code":"internal_error"}'
+
+
+def _wcs_service(server, path: str, fails, extent=(-1e6, -1e6, 1e6, 1e6)):
+    """A WCS 2.0.1 on the local server at path: GetCoverage of any box as a GeoTIFF of the fake coverage, or
+    the Environment Agency's HTTP 500 for a box `fails(box)`; DescribeCoverage with `extent`."""
+    def answer(request):
+        if dict(request.query).get("REQUEST") == "DescribeCoverage":
+            body = (f'<gml:Envelope axisLabels="E N"><gml:lowerCorner>{extent[0]} {extent[1]}</gml:lowerCorner>'
+                    f'<gml:upperCorner>{extent[2]} {extent[3]}</gml:upperCorner></gml:Envelope>')
+            return Answer(200, body.encode(), {"Content-Type": "text/xml"})
+        box = _subset_box(request.query)
+        if fails(box):
+            return Answer(500, EA_500, {"Content-Type": "application/json"})
+        return Answer(200, _geotiff(box), {"Content-Type": "image/tiff"})
+    server.route(path, answer)
+
+
+def _wcs_layer(server, path: str, tile_px: int, **kwargs):
+    return src.WcsTiles("Fake DTM", server.url(path), "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                        tile_px=tile_px, fetch_res=1.0, axes=("E", "N"), **kwargs)
+
+
+def _asked_widths(server, path: str):
+    """The width in pixels of every GetCoverage box asked of the service at path."""
+    return [round(b[2] - b[0]) for b in (_subset_box(r.query) for r in server.requests(path)
+                                        if dict(r.query).get("REQUEST") == "GetCoverage")]
+
+
+def test_split_on_error(http_server, tmp_path, monkeypatch, capsys):
+    """split_on_error (the Environment Agency's WCS answers HTTP 500 for a box not wholly covered by its
+    granules, also for a 2 km tile of real land at the Welsh border): a tile answered 500 is asked again as a
+    quadtree of pieces down to SPLIT_MIN_PX, composed on the tile's pixels, a piece failing at the floor left
+    without data; a tile none of whose pieces answered is an error, never missing; a reader without the flag
+    fails as before."""
+    from sources.readers.wcsreader import SPLIT_MIN_PX
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    # Any box reaching the NE corner of 250 m fails: the tile, its NE quarter and the quarter's NE piece
+    _wcs_service(http_server, "/corner", lambda box: box[2] > 750 and box[3] > 750)
+    layer = _wcs_layer(http_server, "/corner", 1000, split_on_error=True)
+    path = str(tmp_path / "split.tif")
+    fetched = layer.download_tile((1.0, 0, 0), path)
+    assert fetched.received > 0 and fetched.url == http_server.url("/corner")
+    with rio.open(path) as tile:
+        assert tile.transform == from_origin(0, 1000, 1, 1)
+        band = tile.read(1)
+    ys, xs = np.mgrid[0:1000, 0:1000]
+    truth = height(xs + 0.5, 1000 - ys - 0.5).astype(np.float32)
+    assert np.isnan(band[:250, 750:]).all()                      # the piece that failed at the floor
+    valid = np.isfinite(band)
+    assert valid.sum() == 1000 * 1000 - 250 * 250 and np.array_equal(band[valid], truth[valid])
+    # The whole tile net.RETRIES times, then the four quarters and the four pieces of the failing quarter once each
+    widths = _asked_widths(http_server, "/corner")
+    r = src.net.RETRIES
+    assert sorted(widths) == [250] * 4 + [500] * 4 + [1000] * r
+    assert min(widths) == SPLIT_MIN_PX == 250
+    out = capsys.readouterr().out
+    assert "tile 0_0: asked in 7 pieces down to 250 px, 1 failed" in out  # 6 answered, 1 left without data
+
+    # Every box fails (tile_px 500: the tile and its four pieces of 250 px): an error, nothing written
+    _wcs_service(http_server, "/all", lambda box: True)
+    layer = _wcs_layer(http_server, "/all", 500, split_on_error=True)
+    path = str(tmp_path / "all.tif")
+    with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: its 4 pieces .*failed too: HTTP 500"):
+        layer.download_tile((1.0, 0, 0), path)
+    assert not os.path.exists(path)
+    assert sorted(_asked_widths(http_server, "/all")) == [250] * 4 + [500] * r  # each piece once
+
+    # Without the flag: the error as before, one box asked
+    layer = _wcs_layer(http_server, "/corner", 1000)
+    before = len(_asked_widths(http_server, "/corner"))
+    with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: HTTP 500"):
+        layer.download_tile((1.0, 0, 0), str(tmp_path / "plain.tif"))
+    assert _asked_widths(http_server, "/corner")[before:] == [1000] * r
+    assert not os.path.exists(tmp_path / "plain.tif")
+
+
+def test_split_pieces_asked_once(http_server, tmp_path, monkeypatch):
+    """A 2 km tile wholly beyond the granules (every box answers 500): the whole tile keeps net._get's attempts
+    with the backoff, then the 4 + 16 + 64 pieces of the quadtree are asked once each with no sleep between
+    them (1 + 4 + 16 + 64 = 85 boxes, 84 + net.RETRIES requests), an error at the end, nothing written: about
+    half a minute under the Environment Agency's rate instead of ten minutes with three attempts a piece."""
+    sleeps = []
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: sleeps.append(attempt))
+    _wcs_service(http_server, "/sea", lambda box: True)
+    layer = _wcs_layer(http_server, "/sea", 2000, split_on_error=True)
+    path = str(tmp_path / "sea.tif")
+    with pytest.raises(RuntimeError, match=r"Could not download .*tile 0_0: its 64 pieces .*failed too: HTTP 500"):
+        layer.download_tile((1.0, 0, 0), path)
+    assert not os.path.exists(path)
+    widths = _asked_widths(http_server, "/sea")
+    r = src.net.RETRIES
+    assert sorted(widths) == [250] * 64 + [500] * 16 + [1000] * 4 + [2000] * r
+    assert len(widths) == 84 + r and len(sleeps) == r               # the backoff for the whole tile only
+    assert widths[:r] == [2000] * r and widths[r:r + 4] == [1000] * 4  # the whole first, then the quadtree
+
+
+def test_failed_request_clipped_to_the_extent(http_server, tmp_path, monkeypatch):
+    """A request that fails (not only a 404) for a box straddling the coverage extent's edge is asked again
+    clipped to the extent, with any reader; with split_on_error the clipped box failing too is asked in
+    pieces."""
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    # The extent ends at N 600; the service fails for a box reaching beyond it, as the Environment Agency's does
+    _wcs_service(http_server, "/edge", lambda box: box[3] > 600, extent=(-1e6, -1e6, 1e6, 600))
+    layer = _wcs_layer(http_server, "/edge", 1000)
+    path = str(tmp_path / "edge.tif")
+    assert layer.download_tile((1.0, 0, 0), path).received > 0
+    with rio.open(path) as tile:
+        assert tile.transform == from_origin(0, 1000, 1, 1)
+        band = tile.read(1)
+    assert np.isnan(band[:400]).all() and np.isfinite(band[400:]).all()
+    ys, xs = np.mgrid[400:1000, 0:1000]
+    assert np.array_equal(band[400:], height(xs + 0.5, 1000 - ys - 0.5).astype(np.float32))
+    heights = [round(b[3] - b[1]) for b in (_subset_box(r.query) for r in http_server.requests("/edge")
+                                           if dict(r.query).get("REQUEST") == "GetCoverage")]
+    assert heights == [1000] * src.net.RETRIES + [600]
+
+    # The clipped box fails too (the NE corner of the inner part): pieces of the inner part
+    _wcs_service(http_server, "/inner", lambda box: box[3] > 600 or (box[2] > 750 and box[3] > 350),
+                 extent=(-1e6, -1e6, 1e6, 600))
+    layer = _wcs_layer(http_server, "/inner", 1000, split_on_error=True)
+    path = str(tmp_path / "inner.tif")
+    assert layer.download_tile((1.0, 0, 0), path).received > 0
+    with rio.open(path) as tile:
+        band = tile.read(1)
+    assert np.isnan(band[:400]).all()
+    # The inner box is 1000 x 600 px: halved once each way (300 px rows cannot be halved again), its NE piece
+    # of 500 x 300 fails and is halved along its columns only, the 250 x 300 piece at the corner fails at the floor
+    assert np.isnan(band[400:700, 750:]).all() and np.isfinite(band[700:]).all() and np.isfinite(band[400:, :750]).all()
 
 
 def blended(x, y):
@@ -220,6 +368,34 @@ def test_edge_pixels_not_at_tile_borders(monkeypatch, tmp_path):
             r0, c0 = (-1 - j) * 100, i * 100
             assert tile.transform == from_origin(c0, -r0, 1, 1)
             assert same_tile(tile.read(1), whole[r0:r0 + 100, c0:c0 + 100], 2 * TILE_EPS)  # tiles written apart
+
+
+def test_wcs_tiles_of_a_tall_area():
+    """The tiles of an area under a WCS tiling scan the whole box of the grid: an outline one tile wide and
+    three tall lists all three (until 2026-11-08 the loop over the rows used half the grid's width as its
+    reach, written for circles, so a tall area lost its top and bottom rows: Norway's mainland was missed
+    entirely); a wide one as before; a circle's tiles stay those reaching into the circle."""
+    import grid as gd
+    from shapely.geometry import box
+    layer = src.WcsTiles("Fake DTM", "https://wcs.example/ows", "dtm", "EPSG:32633", "fake/dtm/1", native_res=1.0,
+                         tile_px=100, fetch_res=1.0, axes=("E", "N"))
+    tall = box(10, 10, 90, 290)
+    grid = gd.make_grid(tall.bounds, 1.0, "EPSG:32633")
+    grid.area_shape = tall
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 0, 1), (1.0, 0, 2)]
+    wide = box(10, 10, 290, 90)
+    grid = gd.make_grid(wide.bounds, 1.0, "EPSG:32633")
+    grid.area_shape = wide
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 1, 0), (1.0, 2, 0)]
+    circle = gd.make_grid((0, 0, 300, 300), 1.0, "EPSG:32633")  # the 9 tiles of the box and the 2 touching the
+    assert layer.tiles(circle) == [(1.0, i, j) for i in range(4) for j in range(4)  # circle at the top and right
+                                   if (i < 3 and j < 3) or (i, j) in ((1, 3), (3, 1))]
+    # The memo: the same grid answers again, a copy; another grid anew
+    first = layer.tiles(grid)
+    first.append("changed")
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 1, 0), (1.0, 2, 0)]
+    grid.area_shape = box(10, 10, 190, 90)
+    assert layer.tiles(grid) == [(1.0, 0, 0), (1.0, 1, 0)]
 
 
 def test_tiles_from_an_origin(monkeypatch, tmp_path):
@@ -376,11 +552,12 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
     assert layer.download_tile(empty, str(tmp_path / "empty.tif")).received == 0
     assert not (tmp_path / "empty.tif").exists()
 
-    # A tile not cut yet is an error, never "missing"; a damaged file is refused
-    later = (1.0, math.floor(left / 2000), math.floor(top / 2000) + 3)
-    assert f"{later[1]}_{later[2]}" not in index
-    with pytest.raises(RuntimeError, match="not in .* yet"):
-        layer.download_tile(later, str(tmp_path / "later.tif"))
+    # A tile beyond the index's extent is outside the data as a null one (test_slovak_tiles_beyond_the_index); a
+    # damaged file is refused
+    beyond = (1.0, math.floor(left / 2000), math.floor(top / 2000) + 3)
+    assert f"{beyond[1]}_{beyond[2]}" not in index
+    assert layer.download_tile(beyond, str(tmp_path / "beyond.tif")).received == 0
+    assert not (tmp_path / "beyond.tif").exists()
     key = next(k for k, v in index.items() if v)
     tile = tuple(map(int, key.split("_")))
     with open(root / src.grid_tile_name(*tile), "ab") as f:
@@ -389,11 +566,83 @@ def test_slovak_tiles_from_the_local_mirror(tmp_path, monkeypatch):
         layer.download_tile((1.0, *tile), str(tmp_path / "damaged.tif"))
 
 
+def test_slovak_tiles_beyond_the_index(tmp_path, monkeypatch):
+    """A grid reaching beyond the extent of a mirror's index.json (the rectangle of its keys: tools/sk_tiles.py lists
+    every tile of the raster's extent) gets those tiles as missing, as the tiles the index lists as null, without a
+    request to the URLs after the mirror: the layer's download goes on (a country layer's border footprint reaches
+    such tiles). A tile not in the index while the index says "partial" (sk_tiles still cutting), or in a hole
+    inside the rectangle, is not cut yet: looked for further, an error without another base."""
+    import grid as gd
+    import cache
+    mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
+    asked = []
+    monkeypatch.setattr(src.net, "_get", lambda url, *a, **k: asked.append(url))
+    monkeypatch.setenv(src.MIRROR_ENV, str(mirror))
+    layer = src.GridTiles("Test DSM", ["https://hf.example/test/1m"], "EPSG:8353", "slovakia/test/1m", 2000, 1.0,
+                          6e6, mirror="slovakia/test/1m")
+    index = json.loads((root / "index.json").read_text(encoding="utf-8"))
+    assert "partial" not in index  # the cut is complete
+    keys = [tuple(map(int, k.split("_"))) for k in index["tiles"]]
+    i0, j0 = min(i for i, _ in keys), min(j for _, j in keys)
+    i1, j1 = max(i for i, _ in keys), max(j for _, j in keys)
+    assert len(keys) == (i1 - i0 + 1) * (j1 - j0 + 1)  # every tile of the extent, null where no data
+    # 1 km west of the raster (its western tiles null) and 4 km north of it (beyond the index)
+    grid = gd.make_grid((left - 1000, top - 2800, left + 4600, top + 4100), 1.0, "EPSG:8353")
+    cache_dir = str(tmp_path / "cache")
+    tiles = layer.tiles(grid)
+    beyond = [t for t in tiles if not (i0 <= t[1] <= i1 and j0 <= t[2] <= j1)]
+    null = [t for t in tiles if index["tiles"].get(f"{t[1]}_{t[2]}", "x") is None]
+    data = [t for t in tiles if index["tiles"].get(f"{t[1]}_{t[2]}")]
+    assert beyond and null and data and len(beyond) + len(null) + len(data) == len(tiles)
+    assert layer.estimate(grid, cache_dir, None) == (len(tiles), len(tiles), len(tiles) * 6e6 / 1e6)
+    layer.download(grid, cache_dir, None, "test")
+    states = {t: cache.state(cache_dir, layer.tile_path(cache_dir, t)) for t in tiles}
+    assert {states[t] for t in beyond} == {states[t] for t in null} == {"missing"}
+    assert {states[t] for t in data} == {"ok"}
+    assert layer.estimate(grid, cache_dir, None) == (len(tiles), 0, 0.0)
+    assert not asked  # nothing beyond the mirror asked from the URLs
+    mosaic = src.build_mosaic(layer.files(grid, cache_dir), grid, str(tmp_path / "m.npy"), "test")
+    assert np.isfinite(mosaic).any() and not np.isfinite(mosaic[:4000]).any()  # the 4 km north: no data
+
+    # Not cut yet: every tile it does not list while the index says "partial", a hole inside the rectangle
+    alone = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
+    (root / "index.json").write_text(json.dumps({**index, "partial": True}), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="not in .* yet"):
+        alone.download_tile(beyond[0], str(tmp_path / "later.tif"))
+    hole = data[0]
+    tiles_left = {k: v for k, v in index["tiles"].items() if k != f"{hole[1]}_{hole[2]}"}
+    (root / "index.json").write_text(json.dumps({**index, "tiles": tiles_left}), encoding="utf-8")
+    alone = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
+    with pytest.raises(RuntimeError, match="not in .* yet"):
+        alone.download_tile(hole, str(tmp_path / "hole.tif"))
+    assert alone.download_tile(beyond[0], str(tmp_path / "beyond.tif")).received == 0
+    assert not asked
+
+
+def test_slovak_tiles_partial_while_cut(tmp_path, monkeypatch):
+    """tools/sk_tiles.py's index.json says "partial" while rows of the raster's extent are still to be cut (a cut
+    stopped after its first row), not once the cut is complete; average likewise for its tiles."""
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
+    import sk_tiles
+    work, band, left, top = _synthetic_zip(tmp_path)
+    monkeypatch.setitem(sk_tiles.PRODUCTS, "test", {"zip": "https://example.org/test.zip", "member": "t.tif",
+                                                   "title": "test"})
+    out = tmp_path / "mirror" / "slovakia"
+    sk_tiles.cut("test", str(work), str(out), rows_limit=1)
+    index_path = out / "test" / "1m" / "index.json"
+    assert json.loads(index_path.read_text(encoding="utf-8"))["partial"] is True
+    sk_tiles.cut("test", str(work), str(out))
+    assert "partial" not in json.loads(index_path.read_text(encoding="utf-8"))
+    sk_tiles.average("test", str(out), factors=(2,))
+    assert "partial" not in json.loads((out / "test" / "2m" / "index.json").read_text(encoding="utf-8"))
+
+
 def test_slovak_tiles_averaged(tmp_path, monkeypatch):
     """tools/sk_tiles.py average writes the 1 m tiles at 2 m and 5 m (the block mean of the valid 1 m
-    pixels, Download(average=)'s rule, byte for byte) next to them; GridTiles reads them for a grid of
-    exactly that resolution, giving the mosaic of the 1 m tiles averaged by GDAL (byte for byte at 2 m),
-    the 1 m tiles for any other grid and where the averaged folder is not there."""
+    pixels, Download(average=)'s rule, byte for byte) next to them, losslessly in ZSTD with the floating point
+    predictor (sk_tiles.AVERAGED_PROFILE); GridTiles reads them for a grid of exactly that resolution, giving
+    the mosaic of the 1 m tiles averaged by GDAL (byte for byte at 2 m), the 1 m tiles for any other grid and
+    where the averaged folder is not there."""
     import grid as gd
     import sk_tiles
     from sources.readers.download import Download, _block_means
@@ -409,6 +658,7 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
         with open(folder / "index.json", encoding="utf-8") as f:
             index = json.load(f)
         assert index["resolution"] == factor and index["tiles"].keys() == fine.keys()
+        assert index["encoding"] == sk_tiles.averaged_encoding(factor) and "ZSTD" in index["encoding"]
         assert {k for k, v in index["tiles"].items() if v is None} == {k for k, v in fine.items() if v is None}
         for key, sha in index["tiles"].items():
             if sha is None:
@@ -424,7 +674,11 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
                     str(root / src.grid_tile_name(i, j)), str(reference), "test")
             with rio.open(path) as a, rio.open(reference) as b:
                 assert a.transform == b.transform and a.crs == b.crs and a.shape == b.shape == (2000 // factor,) * 2
-                assert np.array_equal(a.read(1).view(np.uint32), b.read(1).view(np.uint32))
+                assert np.array_equal(a.read(1).view(np.uint32), b.read(1).view(np.uint32))  # lossless
+                # the mirror's profile: ZSTD, the floating point predictor, 256 px tiles, NaN for no data
+                assert a.tags(ns="IMAGE_STRUCTURE") == {"COMPRESSION": "ZSTD", "INTERLEAVE": "BAND", "PREDICTOR": "3"}
+                assert a.block_shapes == [(256, 256)] and np.isnan(a.nodata) and a.overviews(1) == []
+                assert b.tags(ns="IMAGE_STRUCTURE")["COMPRESSION"] == "DEFLATE"
     # Run again: nothing to do (resumable), the indexes as they were
     before = (root.parent / "2m" / "index.json").read_bytes()
     sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
@@ -510,6 +764,125 @@ def test_slovak_averaged_tiles_over_http(tmp_path, monkeypatch):
     both = np.isfinite(expected)
     assert np.array_equal(np.isfinite(mosaic), both) and np.nanmax(np.abs(mosaic[both] - expected[both])) <= 0.005
     assert layer.tile_url((5.0, 0, 0)) == "https://hf.example/test/5m"
+
+
+def test_slovak_averaged_tiles_recompressed(tmp_path, monkeypatch):
+    """tools/sk_tiles.py recompress writes averaged tiles made before (deflate, until 2026-11-08) in ZSTD: the same
+    bits, the very bytes average writes now, the mirror's index.json and dataset card and a cache's index rows
+    made to match the new files (the rows' times kept); a second run skips them all; a tile that would differ, a
+    LERC tile and a tile that cannot be replaced are listed and left as they were, with no .part behind."""
+    import shutil
+    import grid as gd
+    import sk_tiles
+    from sources.layer import _write_tile
+
+    def tifs(folder):
+        return sorted(p for p in folder.rglob("*.tif"))
+
+    def values(path):
+        with rio.open(path) as f:
+            return f.read(1).view(np.uint32).copy(), f.transform, f.crs
+
+    def deflate(path, band, crs, transform):  # the averaged tiles as written until 2026-11-08
+        _write_tile(path, band, crs, transform, max_z_error=None)
+
+    def rows():
+        db = sqlite3.connect(os.path.join(cache_dir, "slovakia", "index.sqlite"))
+        try:
+            return {r[0]: r[1:] for r in db.execute("SELECT path, fetched_at, checked_at, last_used_at, url, status, "
+                                                    "processing FROM files")}
+        finally:
+            db.close()
+
+    mirror, root, band, left, top = _cut(tmp_path, monkeypatch)
+    fresh = tmp_path / "fresh" / "slovakia"  # what average writes now
+    shutil.copytree(root, fresh / "test" / "1m")
+    sk_tiles.average("test", str(fresh), (2, 5))
+    with monkeypatch.context() as old:  # the mirror as made on 2026-11-04
+        old.setattr(sk_tiles, "_write_averaged", deflate)
+        sk_tiles.average("test", str(mirror / "slovakia"), (2, 5))
+    for factor in (2, 5):  # and its indexes' text of then
+        index = json.loads((root.parent / f"{factor}m" / "index.json").read_text(encoding="utf-8"))
+        index["encoding"] = (f"GeoTIFF float32 deflate: the mean of the valid 1 m pixels of each {factor} x {factor} "
+                             "block (sources.readers.download._block_means)")
+        (root.parent / f"{factor}m" / "index.json").write_text(json.dumps(index), encoding="utf-8")
+    (mirror / "slovakia" / "README.md").write_text("the card of before", encoding="utf-8")
+    # the cache's copies of the deflate tiles, made by GridTiles as a search makes them
+    monkeypatch.setattr(src.net, "_get", lambda *a, **k: pytest.fail("no network with a mirror"))
+    monkeypatch.setenv(src.MIRROR_ENV, str(mirror))
+    layer = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m",
+                          averaged=(2, 5))
+    cache_dir = str(tmp_path / "data" / "cache")
+    cache.check_layout(cache_dir)
+    bounds = (left + 500, top - 2800, left + 4600, top - 100)
+    for res in (2.0, 5.0):
+        layer.download(gd.make_grid(bounds, res, "EPSG:8353"), cache_dir, None, "test")
+    cached = {f: tmp_path / "data" / "cache" / "slovakia" / "test" / f"{f}m" for f in (2, 5)}
+    rows_before = rows()
+    assert len(tifs(cached[2])) > 1 and len(tifs(cached[5])) > 1
+
+    for factor in (2, 5):
+        folder = root.parent / f"{factor}m"
+        old_index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        paths = tifs(folder)
+        bits = {p: values(p) for p in paths}
+        assert paths and not any(sk_tiles.is_zstd(p) for p in paths)
+        result = sk_tiles.recompress(str(folder), threads=2)
+        assert [result[k] for k in ("files", "rewritten", "skipped", "failed")] == [len(paths), len(paths), 0, 0]
+        index = json.loads((folder / "index.json").read_text(encoding="utf-8"))
+        new = json.loads((fresh / "test" / f"{factor}m" / "index.json").read_text(encoding="utf-8"))
+        assert index["tiles"] == new["tiles"]  # every tile the very bytes average writes now
+        assert index["encoding"] == new["encoding"] == sk_tiles.averaged_encoding(factor) != old_index["encoding"]
+        assert {k: v for k, v in index.items() if k not in ("tiles", "encoding")} == \
+            {k: v for k, v in old_index.items() if k not in ("tiles", "encoding")}
+        for p in paths:
+            assert sk_tiles.is_zstd(p) and values(p)[1:] == bits[p][1:]
+            assert np.array_equal(values(p)[0], bits[p][0])  # lossless
+            assert hashlib.sha256(p.read_bytes()).hexdigest() == index["tiles"][p.stem]
+        before = (folder / "index.json").read_bytes()
+        again = sk_tiles.recompress(str(folder), threads=2)
+        assert [again[k] for k in ("rewritten", "skipped", "corrected")] == [0, len(paths), 0]
+        assert (folder / "index.json").read_bytes() == before
+    assert (mirror / "slovakia" / "README.md").read_text(encoding="utf-8") == sk_tiles.CARD
+
+    # The cache's copies: the same bytes as the mirror's now, the rows' sha256 those of the new files, nothing else
+    for factor in (2, 5):
+        paths = tifs(cached[factor])
+        result = sk_tiles.recompress(str(cached[factor]), threads=2)
+        assert [result[k] for k in ("rewritten", "failed")] == [len(paths), 0]
+        index = json.loads((root.parent / f"{factor}m" / "index.json").read_text(encoding="utf-8"))
+        for p in paths:
+            sha = hashlib.sha256(p.read_bytes()).hexdigest()
+            assert sha == index["tiles"][p.stem] == cache.info(cache_dir, str(p))["sha256"]
+    assert rows() == rows_before
+    for res in (2.0, 5.0):  # cached: nothing to copy again (a copy checks the mirror's sha256)
+        assert layer.missing(gd.make_grid(bounds, res, "EPSG:8353"), cache_dir, None) == []
+    assert not list(tmp_path.rglob("*.part"))
+
+    # A LERC tile, a tile that would differ and one that cannot be replaced: listed and left
+    odd = tmp_path / "odd"
+    with pytest.raises(ValueError, match="not an averaged folder"):  # the mirror's 1 m folder: refused whole
+        sk_tiles.recompress(str(fresh / "test" / "1m"))
+    shutil.copytree(fresh / "test" / "1m", odd / "lerc", ignore=shutil.ignore_patterns("index.json"))  # the 1 m tiles
+    shutil.copytree(cached[5], odd / "zstd")
+    with monkeypatch.context() as old:
+        old.setattr(sk_tiles, "_write_averaged", deflate)
+        sk_tiles.average("test", str(fresh), (4,))
+    shutil.copytree(fresh / "test" / "4m", odd / "deflate")
+    shas = {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in tifs(odd)}
+    result = sk_tiles.recompress(str(odd / "lerc"), threads=2)
+    assert result["failed"] == len(tifs(odd / "lerc")) and all("LERC" in e for e in result["failures"].values())
+    with monkeypatch.context() as broken:
+        broken.setattr(sk_tiles, "_same_tile", lambda a, b, band: False)
+        result = sk_tiles.recompress(str(odd / "deflate"), threads=2)
+        assert result["failed"] == len(tifs(odd / "deflate")) and all("differs" in e for e in result["failures"].values())
+        assert sk_tiles.recompress(str(odd / "zstd"), threads=2)["skipped"] == len(tifs(odd / "zstd"))
+    with monkeypatch.context() as held:
+        held.setattr(sk_tiles, "REPLACE_SECONDS", 0.1)
+        held.setattr(sk_tiles.os, "replace", lambda a, b: (_ for _ in ()).throw(PermissionError(13, "open")))
+        assert sk_tiles.recompress(str(odd / "deflate"), threads=2)["failed"] == len(tifs(odd / "deflate"))
+    assert {p: hashlib.sha256(p.read_bytes()).hexdigest() for p in tifs(odd)} == shas
+    assert not list(tmp_path.rglob("*.part"))
 
 
 

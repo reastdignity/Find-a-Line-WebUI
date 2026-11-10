@@ -183,7 +183,8 @@ def peak_memory() -> int:
     if hasattr(info, "peak_wset"):
         return info.peak_wset
     import resource
-    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return peak if sys.platform == "darwin" else peak * 1024  # macOS gives bytes, Linux KB
 
 
 def measure_layer(layer, grid, cache_dir: str, mode: Dict, lib=None, predict: bool = True) -> Dict:

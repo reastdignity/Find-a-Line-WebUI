@@ -534,7 +534,7 @@ def warp_max(fine: np.ndarray, fine_on, grid, out: np.ndarray, minus: Optional[n
                   src_crs=fine_on.crs, dst_transform=Affine(grid.res, 0, grid.left, 0, -grid.res,
                                                             grid.top - r0 * grid.res),
                   dst_crs=grid.crs, src_nodata=np.nan, dst_nodata=np.nan, resampling=getattr(Resampling, resampling),
-                  num_threads=mosaic.WARP_THREADS)
+                  **mosaic.WARP_KWARGS)
         out[r0:r1] = values
     return out
 

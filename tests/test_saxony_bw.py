@@ -169,9 +169,11 @@ def test_geotiff_member_crs_forced_and_nodata(http_server, tmp_path):
     assert np.isnan(band[:, :5]).all() and same_tile(band[:, 5:], z[:, 5:])
 
 
-def test_missing_and_errors(http_server, tmp_path, monkeypatch):
-    """A tile the server does not have (404) is missing, no file; what is not a ZIP of the expected members
-    (an HTML page with status 200, a ZIP without them, one over the byte caps) is an error, never data."""
+def test_missing_and_errors(http_server, tmp_path, monkeypatch, capsys):
+    """A tile the server does not have (404) is missing, no file, and so is a ZIP without any raster (LGL's
+    DOM1 ZIPs of three tiles on Baden-Württemberg's border hold two CSV lines of metadata, the licence PDF
+    and a Meta-...txt, 2026-11-08), said in a note; what is not a ZIP of the expected members (an HTML page
+    with status 200, a ZIP with a raster of another name, one over the byte caps) is an error, never data."""
     monkeypatch.setattr(net, "_sleep", lambda attempt: None)
     layer = _layer(http_server, "e", r"\.xyz$")
     path = layer.tile_path(str(tmp_path), (0, 0))
@@ -180,8 +182,17 @@ def test_missing_and_errors(http_server, tmp_path, monkeypatch):
     http_server.add("/data/t_1000_0.zip", b"<html>Wartungsarbeiten</html>", "text/html")
     with pytest.raises(RuntimeError, match="not a ZIP"):
         layer.download_tile((0, 0), path)
+    metadata = [("dom1_32_573_5358_2_bw.csv", b"Kachelname;Aktualitaet;Erfassungsmethode\n573_5358;2022;ALS\n"),
+                ("dom1_32_573_5359_2_bw.csv", b"Kachelname;Aktualitaet;Erfassungsmethode\n573_5359;2022;ALS\n"),
+                ("Lizenz.pdf", b"%PDF-1.4 ..."), ("Meta-ATKIS_DOM1_ALS2.txt", b"Metadaten\n")]
+    http_server.add("/data/t_1000_0.zip", _zip(metadata), "application/zip")
+    fetched = layer.download_tile((0, 0), path)
+    assert fetched.received == 0 and fetched.url == http_server.url("/data/t_1000_0.zip") and not os.path.exists(path)
+    assert "sheet t_1000_0.zip: no raster in the file, only ['dom1_32_573_5358_2_bw.csv'" in capsys.readouterr().out
     http_server.add("/data/t_1000_0.zip", _zip([("readme.txt", b"x")]), "application/zip")
-    with pytest.raises(RuntimeError, match="no member"):
+    assert layer.download_tile((0, 0), path).received == 0 and not os.path.exists(path)
+    http_server.add("/data/t_1000_0.zip", _zip([("readme.txt", b"x"), ("other.tif", b"II*\x00")]), "application/zip")
+    with pytest.raises(RuntimeError, match=r"no member like .* in \['readme.txt', 'other.tif'\]"):
         layer.download_tile((0, 0), path)
     big = _zip([("a.xyz", b"0" * 5000)])
     http_server.add("/data/t_1000_0.zip", big, "application/zip")
