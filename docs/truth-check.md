@@ -501,11 +501,11 @@ one data folder per study.
 | `fetch` | the two files, 374 KB on the wire: seconds |
 | `cluster --country-from-lines` | about 5 min (Nominatim for the regions of countries with regional sources only; the agent's note, not timed) |
 | `places` | seconds |
-| `run`, 1 024 searches one at a time (a shared slot of the test lock), the tiles downloaded on the way | 4 h 20 min from the first capture to the last (15:56-20:17 UTC); 15 478 s of searches: done 553 (median 9.6 s), no_lines 432 (median 7.2 s), failed 38 (median 123 s: ARSO's retries); 8.8 s per cluster in the median, 23 s at p90, 169 s at most |
+| `run`, 1 024 searches one at a time (a shared slot of the test lock), the tiles downloaded on the way | 4 h 20 min from the first capture to the last (15:56-20:17 UTC); 15 478 s of searches: done 553 (median 9.6 s), no_lines 432 (median 7.2 s), failed 39 (median 123 s: ARSO's retries); 8.8 s per cluster in the median, 23 s at p90, 169 s at most |
 | the slowest sources (median per cluster) | swisstopo 36 s (its 36 requests a minute), British Columbia 33 s, Norway 17 s, geoportal 14 s, England 13 s, Spain 10 s, the USA 9 s, the 30 m fallback 2 s |
 | the cache | about 45 GB more (read off the disk after the pass) |
 | the saved runs | 31 GB of line files before `run` deleted them after each capture (`--keep-runs` keeps them); the runs' folder 14 MB afterwards (run.json and the viewer) |
-| the captures | 7.5 GB for 1 024 places: `lines.npz` 4.1 GB (20 million lines found), `grids.npz` 3.4 GB, `anchors.npy` 0.15 GB; the pictures 288 MB |
+| the captures | 7.5 GB for 1 024 places: `lines.npz` 4.1 GB (20 million lines found that evening; 21.1 million in the 1 021 places analysed after the repeats of 2026-11-10), `grids.npz` 3.4 GB, `anchors.npy` 0.15 GB; the pictures 288 MB |
 | `analyse` | 630 s summed over the places (median 0.56 s a place, 0.35 s a known line) |
 | `report` | about 1 s without pictures (the formula pass's 56 places) |
 | `run --failed --parallel 2` on 2026-11-10 (a shared slot) | 37 searches, 34 of them Slovenian with their sheets downloaded, in about 13 min: 1 457 s of searches, 11 s a Slovenian place in the median, four of them 230-280 s |
