@@ -80,6 +80,17 @@ Rules for every step:
    - *To do*: a default threshold from the resolution (a rule like the first version's, or measured on more
      places and on FABDEM itself), the form's hint for coarse sources, and perhaps longer default lines at 30 m;
      the regression set's 30 m rows (R11, R12) re-baselined in the same commit.
+3. **"Nothing found" is the commonest failed search on the public site** (seen 2026-11-10 while measuring the
+   opposite problem, too many lines; a task of its own, the user's word: into the roadmap).
+   - *What is seen*: of the 33 failed jobs of the site's first 55 (2026-10-29 to 2026-11-08, 7 users), 25 found
+     nothing: 17 `no_lines` (4 users), 2 `no_steep_terrain`, and 6 with the older texts for the same ("Not enough
+     steep terrain", "No lines found matching elevation requirements"); 15 of the failures came on one day
+     (2026-11-03). Only 2 failed for too many lines.
+   - *Not known*: which settings and places they were (the numbers are aggregates of `jobs.sqlite`; the requests
+     were not read), and how many came from the same person trying again.
+   - *To do*: read the failed requests' settings by class (`tools/job_stats.py` could list failed jobs by code
+     and class), then what the form could offer when a search finds nothing (the message names the settings to
+     widen today), and whether the slope threshold of priority 2 is part of it.
 
 ## Done: the no-fall zone at the ends and the A-frames (2026-11-06/07, branch `end-zone`)
 
@@ -1020,6 +1031,25 @@ These apply from stage 3 on, the local version included. *Not yet* marks what st
 - **No shell anywhere**: the worker calls `run_search()` directly.
 
 ## To check
+- **Data faults met while measuring the line counts** (2026-11-10, the line-volume session; none checked further):
+  - *Bełchatów's pit*: a straight north-south step of 20-30 m, one pixel wide and about 1.5 km long, along
+    easting 510 904 (EPSG:2180); heights across one pixel 19 → 38 m, 10 → 31 m, 2 → 31 m. The 25 best spots of a
+    2.5 km window of the saved run of 2026-10-25 all end on it. Probably a seam between survey sheets of different
+    years in an active mine (not confirmed); a run of October's code.
+  - *The quarry lake at 49.80640, 19.57644* is stored as terrain (flat at 305.9 m) and is not in the water mask,
+    so lines over it count no metres over water.
+  - *Malta's heights are whole metres*: 78 % of the anchors of a 1 km circle at Il-Bahrija are one-metre steps
+    (field terraces, rubble walls), each a "wall" for the slope test.
+  - *The same search five days apart differs by 127 lines* (Mała Gańkowa, 2026-11-05 and 2026-11-10: lines valid
+    without the no-fall zone that the earlier run lacks); the cache's re-encoding of 2026-11-06 (5 mm bound) lies
+    between them and is the likely cause, not confirmed.
+  - *Two searches of the public site (USA, 3DEP 1 m) counted again locally differ by 344 of 2 065 286 and 20 of
+    1 248 674 lines*; three others (Poland, Malta) are equal to the line. Candidates not tested: other data or
+    cache state on the server, and one of the two running in 2 tiles there against one grid here.
+- **The test lock behind a long heavy run** (seen 2026-11-10): a waiting exclusive command holds every later shared
+  one; behind a heavy run whose estimate is far too short (0.6 min for a country run of more than four hours)
+  that queue stood for 22 minutes until the exclusive entry was withdrawn. Should a heavy run that has outlived
+  its estimate many times stop counting as "about to end" for the commands behind it?
 - **"Over trees/buildings" on bare rock**: done 2026-11-02 (*Done: the surface model above the terrain on steep rock*).
 - **Slovenia's LSS DMR service** (2026-11-08): gis.arso.gov.si/lidar answered 503 (HAProxy's, and a maintenance notice on the portal) for every path on 2026-11-08: is it back, or has the LSS DMR moved to GURS (clss.si offers the 2023-2025 CLSS as LAZ per sheet, no 1 m raster)? No code change until then (`slovenia` in the catalogue as it is).
 - **The Environment Agency's 0.0 without a nodata tag** (2026-11-08): where its granules exist but hold nothing (open sea 20 km off Northumberland, Cardiff) the WCS answers 0.0 without a nodata tag; `_england` keeps `zero_is_nodata=False`: at sea `fill_water` takes them as water, and over Wales the neighbour fill from `wales` applies only where the grid has no England data, so a search on England's grid reaching into Wales keeps those zeros as land at 0 m. Check a border search (Hay-on-Wye, Chepstow) for lines ending on such zeros before changing the flag (zero_is_nodata would also drop real heights of 0.0 on the coast).
