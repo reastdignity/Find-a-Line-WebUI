@@ -36,3 +36,32 @@ monotonic time; macOS stops that clock in sleep. On 2026-11-08 a full `pytest` r
 server broke in sleep (`tests/test_windows.py`'s cut-short answers, waiting in GDAL with no socket timeout) and the
 wrapper's 40 minutes never ran out. Run long suites under `caffeinate -i` on a Mac, or keep the lid open. A fix
 would compare wall-clock time in the wrapper's poll and give the range reads a socket timeout.
+
+## A search without lines cannot delete its work folder on Windows
+
+Seen 2026-11-08 by the truth check (docs/truth-check.md), also on the Żabi Koń clip: `findaline.py` on Windows
+prints "Could not delete the work folder" after a search that stops without lines (no anchors, no lines). The
+memory-mapped grids of step 1 are still referenced by the exception in flight when the folder is removed, and
+Windows refuses to delete a file with an open mapping. The search's result is right; `work/<id>/` stays on the disk
+with its grids (tens to hundreds of MB a search) until someone removes it. `tools/truth_study.py run` removes the
+folders its children leave; the command line and the web worker do not (the worker's housekeeping removes old work
+folders later). A fix would release the grids (drop the references, close the views) before the removal, or remove
+the folder after the exception has been handled.
+
+## An XYZ sheet beginning with a UTF-8 byte order mark fails the search
+
+Seen 2026-11-08 to 2026-11-10 by the truth check: `sources/readers/sheetfile.py` `_xyz_grid` reads an XYZ sheet
+with `np.loadtxt`, which takes a UTF-8 byte order mark for part of the first number
+(`ValueError: could not convert string 'ï»¿640160.00'`), so the tile's download fails and the search with it.
+Three of geoportal.gov.pl's sheets begin with one; the 3 places of the truth check over them (6 known lines) failed
+on every repeat and stay out of its numbers. A fix would open the text as `utf-8-sig` (or skip the three bytes
+EF BB BF); afterwards `tools/truth_study.py run --failed`, `analyse` and `report` on the pass bring those places in.
+
+## The end zone's 25 % cap is one step too long on some diagonal lines
+
+Seen 2026-11-08 by the truth check: `helpers.zone_steps` takes the `ceil` of `min(end_zone, ZONE_CAP·L)·steps/L`.
+On a slightly diagonal line under the cap the product is 15.000000000000002 for an exact 15, so the zone gets 16
+steps, one more than 25 % of the line. Its twins repeat the arithmetic (`linesearch._zone_steps`, the viewer's
+`endzone.ts` `zoneSteps`), so the three agree with each other and the tests comparing them pass. A fix changes all
+three together and the results of searches with a no-fall zone (the relaxed test reaches one pixel less at each
+end), so it needs the checks of CLAUDE.md, "Things that must stay in sync", for the end zone.
