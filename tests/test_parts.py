@@ -420,6 +420,51 @@ def test_index_tiles_of_a_grid():
     assert {lon for _, lon in both} == {179.75, -180.0} and {lat for lat, _ in both} == {59.75, 60.0}
 
 
+def test_index_tiles_within_the_grids_box(tmp_path):
+    """A grid smaller than its outline (a tile of the country layer carries the whole country's) asks the
+    tiles of its own box only: inside the outline every tile of the box, as before 2026-11-08 (osm.tiles of
+    the box); across the outline's edge those of the box under it (the margin kept), in osm.tiles' order;
+    outside the outline none; and a versions policy asks exactly those and finds the box's files."""
+    import osm
+    from rasterio.warp import transform_bounds
+    from shapely.geometry import box
+
+    from area import project
+    from sources.indexes.cached import INDEX_MARGIN_DEG, CachedIndex, index_tiles
+    from sources.indexes.versions import NewestPerSheet
+    # Two parts in Poland's CS92: a square of 150 km and one of 3 km, 220 km away
+    big, small = box(300000, 400000, 450000, 550000), box(670000, 700000, 673000, 703000)
+
+    def tile_grid(left, bottom, side):
+        grid = Grid(left=left, top=bottom + side, res=100.0, height=int(side / 100), width=int(side / 100),
+                    crs="EPSG:2180")
+        grid.area_shape = big.union(small)
+        return grid
+    inside, across, outside = (tile_grid(360000, 460000, 30000), tile_grid(435000, 470000, 40000),
+                               tile_grid(560000, 600000, 30000))
+    assert index_tiles(inside) == _box_tiles(inside) and len(_box_tiles(inside)) >= 4
+    shape = project(across.area_shape, "EPSG:2180", "EPSG:4326")
+    m = INDEX_MARGIN_DEG
+    expected = [(lat, lon) for lat, lon in _box_tiles(across)
+                if shape.intersects(box(lon - m, lat - m, lon + osm.TILE_DEG + m, lat + osm.TILE_DEG + m))]
+    found = index_tiles(across)
+    assert found == expected and 0 < len(found) < len(_box_tiles(across))
+    assert index_tiles(outside) == []
+    # NewestPerSheet asks those tiles only, and keeps the sheets over the grid's box under the outline
+
+    def extent(lat, lon):
+        left, bottom, right, top = transform_bounds("EPSG:4326", "EPSG:2180", lon, lat, lon + 0.25, lat + 0.25)
+        return [left, bottom, right, top]
+    for k, grid in enumerate((inside, across, outside)):
+        listing, asked = _counting(lambda lat, lon: [
+            {"year": 2020, "godlo": f"{lat}_{lon}", "url": f"https://x.example/{lat}_{lon}/A.asc",
+             "crs": "EPSG:2180", "res": 1.0, "extent": extent(lat, lon)}])
+        index = CachedIndex("test", listing, NewestPerSheet("t/sheets", "EPSG:2180", 1.0), "n", "t")
+        index.use(str(tmp_path / f"cache{k}"), None)
+        sheets = index.tiles(grid)
+        assert asked == index_tiles(grid) and (len(sheets) > 0) is (grid is not outside)
+
+
 def _counting(items_of):
     """A Listing counting the tiles asked, answering items_of(lat, lon)."""
     from sources.indexes.cached import Listing

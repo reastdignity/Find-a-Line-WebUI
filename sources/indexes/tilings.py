@@ -35,24 +35,33 @@ STRIP_CELLS = 250_000  # cells tested at once by cells_under (a strip of rows)
 
 
 def cells_under(shape, cell: Callable[[float, float], Tuple[int, int]],
-                edges: Callable[[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
-                ) -> List[Tuple[int, int]]:
-    """The cells (i, j) of a fixed tiling whose boxes intersect a prepared outline, row by row (j, then i
-    ascending: the order of the loops over the whole box they replace). `cell(x, y)` is the cell holding a
-    point, `edges(ii, jj)` the (left, bottom, right, top) of arrays of cells, both as the tiling computes
-    them (its own origin and arithmetic, so a cell touching the outline's edge is decided as before).
+                edges: Callable[[np.ndarray, np.ndarray], Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]],
+                within: Tuple[int, int, int, int]) -> List[Tuple[int, int]]:
+    """The cells (i, j) of a fixed tiling within the cell ranges `within` (i0, j0, i1, j1, both ends
+    inclusive: those of the grid's box, as the tiling's loop over it computed them) whose boxes intersect a
+    prepared outline, row by row (j, then i ascending: the order of the loops over the box they replace).
+    `cell(x, y)` is the cell holding a point, `edges(ii, jj)` the (left, bottom, right, top) of arrays of
+    cells, both as the tiling computes them (its own origin and arithmetic, so a cell touching the outline's
+    edge is decided as before).
 
     Per part of the outline (shapely.get_parts: a country's islands), the cells of the part's own bounds
-    only, tested in strips of about STRIP_CELLS cells by shapely 2's vectorised intersects against the
-    prepared whole: the same cells as a test of every cell of the whole box (a cell intersecting the
+    within the box only, tested in strips of about STRIP_CELLS cells by shapely 2's vectorised intersects
+    against the prepared whole: the same cells as a test of every cell of the box (a cell intersecting the
     outline meets a part whose bounds hold the cell), without the loop over the millions of cells between
-    the parts (Canada's box at 1 km: 25 million, one Python test each)."""
+    the parts (Canada's box at 1 km: 25 million, one Python test each). The box matters for a grid smaller
+    than its outline (a tile of the country layer carries the whole country's): from 2026-11-08 to 11-11
+    the parts were not clipped to it, and every tile of Slovakia listed the 12 715 files of the whole
+    country instead of its 16, each opened by the mosaic."""
     import shapely
+    b_i0, b_j0, b_i1, b_j1 = within
     found = set()
     for part in shapely.get_parts(shape):
         left, bottom, right, top = part.bounds
         (i0, j0), (i1, j1) = cell(left, bottom), cell(right, top)
-        i0, j0, i1, j1 = i0 - 1, j0 - 1, i1 + 1, j1 + 1  # a cell only touching the part's edge intersects it too
+        # a cell only touching the part's edge intersects it too; none outside the grid's box
+        i0, j0, i1, j1 = max(i0 - 1, b_i0), max(j0 - 1, b_j0), min(i1 + 1, b_i1), min(j1 + 1, b_j1)
+        if i0 > i1 or j0 > j1:
+            continue
         ii = np.arange(i0, i1 + 1)
         rows = max(1, STRIP_CELLS // max(1, len(ii)))
         for j_from in range(j0, j1 + 1, rows):
@@ -99,13 +108,15 @@ class MetricTiling(Index):
     def _tiles(self, grid: Grid):
         ox, oy = self.origin
         size = self.tile_m
-        shape = _outline(grid, self.crs)
-        if shape is not None:  # the tiles under the outline, part by part
-            return cells_under(shape, lambda x, y: (math.floor((x - ox) / size), math.floor((y - oy) / size)),
-                               lambda ii, jj: (ii * size + ox, jj * size + oy, (ii + 1) * size + ox, (jj + 1) * size + oy))
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        return [(i, j) for j in range(math.floor((bottom - oy) / size), math.floor((top - oy) / size) + 1)
-                for i in range(math.floor((left - ox) / size), math.floor((right - ox) / size) + 1)]
+        i0, i1 = math.floor((left - ox) / size), math.floor((right - ox) / size)
+        j0, j1 = math.floor((bottom - oy) / size), math.floor((top - oy) / size)
+        shape = _outline(grid, self.crs)
+        if shape is not None:  # the tiles of the grid's box under the outline, part by part
+            return cells_under(shape, lambda x, y: (math.floor((x - ox) / size), math.floor((y - oy) / size)),
+                               lambda ii, jj: (ii * size + ox, jj * size + oy, (ii + 1) * size + ox, (jj + 1) * size + oy),
+                               (i0, j0, i1, j1))
+        return [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1)]
 
     def path(self, cache_dir: str, tile) -> str:
         return os.path.join(cache_dir, self.folder, grid_tile_name(*tile))
@@ -148,13 +159,14 @@ class TenthDegreeTiling(Index):
         return remembered(self, grid, lambda: self._tiles(grid))
 
     def _tiles(self, grid: Grid) -> list:
-        shape = _outline(grid, self.crs)
-        if shape is not None:  # the blocks under the outline, part by part
-            return cells_under(shape, lambda x, y: (math.floor(x * 10), math.floor(y * 10)),
-                               lambda ii, jj: (ii / 10, jj / 10, (ii + 1) / 10, (jj + 1) / 10))
         west, south, east, north = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        return [(i, j) for j in range(math.floor(south * 10), math.floor(north * 10) + 1)
-                for i in range(math.floor(west * 10), math.floor(east * 10) + 1)]
+        i0, i1 = math.floor(west * 10), math.floor(east * 10)
+        j0, j1 = math.floor(south * 10), math.floor(north * 10)
+        shape = _outline(grid, self.crs)
+        if shape is not None:  # the blocks of the grid's box under the outline, part by part
+            return cells_under(shape, lambda x, y: (math.floor(x * 10), math.floor(y * 10)),
+                               lambda ii, jj: (ii / 10, jj / 10, (ii + 1) / 10, (jj + 1) / 10), (i0, j0, i1, j1))
+        return [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1)]
 
     def path(self, cache_dir: str, tile) -> str:
         return os.path.join(cache_dir, self.folder, degree_tile_name(*tile), f"{tile[0]}_{tile[1]}.tif")
@@ -230,13 +242,15 @@ class FileBlockTiling(Index):
     def _tiles(self, grid: Grid) -> list:
         ox, oy = self.origin
         size = self.block_m
-        shape = _outline(grid, self.crs)
-        if shape is not None:  # the blocks under the outline, part by part
-            return cells_under(shape, lambda x, y: (math.floor((x - ox) / size), math.floor((y - oy) / size)),
-                               lambda ii, jj: (ii * size + ox, jj * size + oy, (ii + 1) * size + ox, (jj + 1) * size + oy))
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        return [(i, j) for j in range(math.floor((bottom - oy) / size), math.floor((top - oy) / size) + 1)
-                for i in range(math.floor((left - ox) / size), math.floor((right - ox) / size) + 1)]
+        i0, i1 = math.floor((left - ox) / size), math.floor((right - ox) / size)
+        j0, j1 = math.floor((bottom - oy) / size), math.floor((top - oy) / size)
+        shape = _outline(grid, self.crs)
+        if shape is not None:  # the blocks of the grid's box under the outline, part by part
+            return cells_under(shape, lambda x, y: (math.floor((x - ox) / size), math.floor((y - oy) / size)),
+                               lambda ii, jj: (ii * size + ox, jj * size + oy, (ii + 1) * size + ox, (jj + 1) * size + oy),
+                               (i0, j0, i1, j1))
+        return [(i, j) for j in range(j0, j1 + 1) for i in range(i0, i1 + 1)]
 
     def path(self, cache_dir: str, tile) -> str:
         i, j = tile
@@ -299,18 +313,21 @@ class WcsTiling(Index):
         # the centre is counted from the tiling's origin
         ox, oy = self.origin
         dx, dy = -self.shift[0] - ox, -self.shift[1] - oy
+        left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        cx, cy = (left + right) / 2 + dx, (bottom + top) / 2 + dy
+        radius = (right - left) / 2
         shape = _outline(grid, self.crs)
-        if shape is not None:  # any area: the tiles under its outline, part by part, i then j
+        if shape is not None:  # any area: the tiles of the grid's whole box under its outline, part by part, i then j
             import shapely
             from shapely.affinity import translate
             shape = translate(shape, dx, dy)
             shapely.prepare(shape)
+            half = (top - bottom) / 2  # the box's own height (the circle's reach was its width's)
+            within = (math.floor((cx - radius) / size), math.floor((cy - half) / size),
+                      math.floor((cx + radius) / size), math.floor((cy + half) / size))
             cells = cells_under(shape, lambda x, y: (math.floor(x / size), math.floor(y / size)),
-                                lambda ii, jj: (ii * size, jj * size, (ii + 1) * size, (jj + 1) * size))
+                                lambda ii, jj: (ii * size, jj * size, (ii + 1) * size, (jj + 1) * size), within)
             return [(res, i, j) for i, j in sorted(cells)]
-        left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
-        cx, cy = (left + right) / 2 + dx, (bottom + top) / 2 + dy
-        radius = (right - left) / 2
         tiles = []
         for i in range(math.floor((cx - radius) / size), math.floor((cx + radius) / size) + 1):
             for j in range(math.floor((cy - radius) / size), math.floor((cy + radius) / size) + 1):

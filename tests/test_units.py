@@ -308,6 +308,97 @@ def test_tilings_per_part_as_the_whole_box():
     assert tilings.STRIP_CELLS == 250_000
 
 
+def test_tilings_within_the_grids_box(monkeypatch):
+    """A grid smaller than its outline (a tile of the country layer carries the whole country's) gets the
+    tiles of its own box under the outline, exactly the list and order of the loops before 2026-11-08's
+    cells_under (the box's cells one by one against the outline; WcsTiling i then j over the whole box):
+    inside the outline every cell of the box, across its edge those under it, wholly outside none; an outline
+    of two parts, a grid over both and one between them; each of the four tilings, also a tall grid. A grid
+    over the whole outline tests only the cells of the parts' own boxes, none of those between the parts."""
+    import math
+    import shapely
+    from rasterio.warp import transform_bounds
+    from shapely.affinity import translate
+    from shapely.geometry import MultiPolygon, Polygon, box
+
+    from area import project
+    from grid import Grid
+    from sources.indexes.tilings import FileBlockTiling, MetricTiling, TenthDegreeTiling, WcsTiling
+    crs = "EPSG:32634"
+    x, y = 500_000.0, 5_000_000.0
+    big = Polygon([(x, y), (x + 90_000, y + 4000), (x + 84_000, y + 70_000), (x + 30_000, y + 81_000),
+                   (x + 3000, y + 52_000)])
+    small = box(x + 150_000, y + 10_000, x + 158_000, y + 19_000)
+    outline = MultiPolygon([big, small])
+    metric = MetricTiling(crs, "f", 2000, origin=(1000.0, 0.0))
+    blocks = FileBlockTiling(crs, "f", 1.0, 3000, lambda i, j: [], origin=(0.5, 0.5))
+    tenth = TenthDegreeTiling("EPSG:4326", "f", 3600, lambda name: name)
+    wcs = WcsTiling(crs, "f", 1000, "image/tiff", 2.5, shift=(3.0, -2.0), origin=(1.25, 1.25))
+
+    def before(index, grid):
+        """The tiles as the loops before 2026-11-08 listed them for a grid with an outline (WcsTiling: rows
+        over the box's height, as 2026-11-08 meant, the circle's reach before)."""
+        shape = project(grid.area_shape, grid.crs, index.crs)
+        left, bottom, right, top = transform_bounds(grid.crs, index.crs, *grid.bounds)
+        if index is tenth:
+            return [(i, j) for j in range(math.floor(bottom * 10), math.floor(top * 10) + 1)
+                    for i in range(math.floor(left * 10), math.floor(right * 10) + 1)
+                    if shape.intersects(box(i / 10, j / 10, (i + 1) / 10, (j + 1) / 10))]
+        if index is wcs:
+            size, (ox, oy) = 1000 * 2.5, wcs.origin
+            cx, cy = (left + right) / 2 - wcs.shift[0] - ox, (bottom + top) / 2 - wcs.shift[1] - oy
+            radius, half = (right - left) / 2, (top - bottom) / 2
+            moved = translate(shape, -wcs.shift[0] - ox, -wcs.shift[1] - oy)
+            return [(2.5, i, j) for i in range(math.floor((cx - radius) / size), math.floor((cx + radius) / size) + 1)
+                    for j in range(math.floor((cy - half) / size), math.floor((cy + half) / size) + 1)
+                    if moved.intersects(box(i * size, j * size, (i + 1) * size, (j + 1) * size))]
+        (ox, oy), size = index.origin, (index.tile_m if index is metric else index.block_m)
+        edges = (lambda i, j: metric.edges((i, j))) if index is metric else blocks._edges
+        return [(i, j) for j in range(math.floor((bottom - oy) / size), math.floor((top - oy) / size) + 1)
+                for i in range(math.floor((left - ox) / size), math.floor((right - ox) / size) + 1)
+                if shape.intersects(box(*edges(i, j)))]
+
+    def grid_of(left, bottom, width, height, res=10.0):
+        grid = Grid(crs=crs, left=x + left, top=y + bottom + height * res, width=width, height=height, res=res)
+        grid.area_shape = outline
+        return grid
+    inside = grid_of(30_000, 30_000, 900, 900)              # a tile well inside the big part
+    across = grid_of(-2_000, 20_000, 1100, 1100)            # across the big part's western edge
+    outside = grid_of(110_000, 40_000, 800, 800)            # between the parts, far from both
+    both = grid_of(80_000, 5_000, 7000, 700, res=12.5)      # over the edges of both parts
+    tall = grid_of(40_000, 1_000, 300, 7000)                # a narrow tall grid down the big part
+    for index in (metric, blocks, tenth, wcs):
+        for name, grid in (("inside", inside), ("across", across), ("outside", outside), ("both", both),
+                           ("tall", tall)):
+            index._memo = None
+            tiles = index.tiles(grid)
+            assert tiles == before(index, grid), (index, name)
+            if name == "outside":
+                assert tiles == []
+            elif name == "inside" and index is not wcs:  # every cell of the box: as without an outline
+                plain = Grid(crs=crs, left=grid.left, top=grid.top, width=grid.width, height=grid.height, res=10.0)
+                index._memo = None
+                assert len(tiles) >= 4 and index.tiles(plain) == tiles, index
+            else:
+                assert tiles, (index, name)
+        # The grid of the whole outline: only the cells of the parts' own boxes are tested
+        left, bottom, right, top = outline.bounds
+        whole = Grid(crs=crs, left=left - 500, top=top + 500, width=int((right - left) / 100) + 10,
+                     height=int((top - bottom) / 100) + 10, res=100.0)
+        whole.area_shape = outline
+        tested = []
+        real = shapely.intersects
+        monkeypatch.setattr(shapely, "intersects", lambda a, b: (tested.append(np.size(b)), real(a, b))[1])
+        index._memo = None
+        tiles = index.tiles(whole)
+        monkeypatch.setattr(shapely, "intersects", real)
+        assert tiles == before(index, whole), index
+        w, s, e, n = transform_bounds(crs, index.crs, *whole.bounds)
+        cell = {metric: 2000, blocks: 3000, wcs: 2500, tenth: 0.1}[index]
+        box_cells = (math.floor((e - w) / cell) + 1) * (math.floor((n - s) / cell) + 1)
+        assert 0 < sum(tested) < 0.75 * box_cells, (index, sum(tested), box_cells)
+
+
 def test_update_checks(tmp_path):
     """Live tiles are checked after their interval, releases never; --bbox limits the checks."""
     spain = src.SOURCES["spain"].nmt
