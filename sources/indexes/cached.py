@@ -1,6 +1,7 @@
 """CachedIndex: the answers of an index service cached per 0.25° tile, and a policy for the versions they list."""
 
 import json
+import math
 import os
 from typing import Dict, List, Optional, Tuple
 
@@ -27,9 +28,13 @@ INDEX_MARGIN_DEG = 0.01
 def index_tiles(grid: Grid) -> List[Tuple[float, float]]:
     """The 0.25° tiles (south-west corners, in osm.tiles' order) an index must answer for a grid.
     Without an outline (a circle) the tiles of the grid's box, as before. With one (grid.area_shape,
-    an area), the tiles under the outline only: for each part of it (shapely.get_parts: the islands
-    of a country, the pieces of a coast) the tiles of the part's own box grown by INDEX_MARGIN_DEG,
-    kept where the tile's box grown by the margin intersects the outline.
+    an area), the tiles of the grid's box under the outline only: for each part of it
+    (shapely.get_parts: the islands of a country, the pieces of a coast) the tiles of the part's own
+    box grown by INDEX_MARGIN_DEG that are tiles of the grid's box, kept where the tile's box grown by
+    the margin intersects the outline. The grid's box matters for a grid smaller than its outline (a
+    tile of the country layer carries the whole country's): from 2026-11-08 to 11-11 such a grid asked
+    the index for every tile under the whole outline, and the versions kept only the files over the
+    grid's box anyway.
 
     This gives the same files as the whole box did, with far fewer requests: a versions policy keeps
     only the files under the outline (NewestPerSheet, ShaPerTile: a listed extent intersecting it;
@@ -48,14 +53,23 @@ def index_tiles(grid: Grid) -> List[Tuple[float, float]]:
     from area import project
     shape = project(grid.area_shape, grid.crs, "EPSG:4326")
     shapely.prepare(shape)
-    margin = INDEX_MARGIN_DEG
+    margin, size = INDEX_MARGIN_DEG, osm.TILE_DEG
+    # The grid's box in tile numbers, as osm.tiles counts them: rows, and one or (across 180°) two runs of columns
+    rows = math.floor(south / size), math.floor(north / size)
+    columns = ([(math.floor(west / size), math.floor(east / size))] if west <= east else
+               [(math.floor(west / size), math.floor((180 - size) / size)),
+                (math.floor(-180 / size), math.floor(east / size))])
     found = set()
     for part in shapely.get_parts(shape):
         p_west, p_south, p_east, p_north = part.bounds
         if p_east - p_west > 180:  # across 180°
             corners = osm.tiles(west, max(south, p_south - margin), east, min(north, p_north + margin))
-        else:
-            corners = osm.tiles(p_west - margin, p_south - margin, p_east + margin, p_north + margin)
+        else:  # osm.tiles of the part's grown box, those of the grid's box only
+            r0 = max(math.floor((p_south - margin) / size), rows[0])
+            r1 = min(math.floor((p_north + margin) / size), rows[1])
+            c0, c1 = math.floor((p_west - margin) / size), math.floor((p_east + margin) / size)
+            lons = [c for first, last in columns for c in range(max(c0, first), min(c1, last) + 1)]
+            corners = [(r * size, c * size) for r in range(r0, r1 + 1) for c in lons]
         if not corners:
             continue
         lats = np.array([lat for lat, _ in corners])
