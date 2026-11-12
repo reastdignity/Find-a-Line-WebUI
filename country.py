@@ -1715,26 +1715,29 @@ def _border_tiles(plan, tiles) -> set:
 
 def _requeue_border_tiles(manifest: Manifest, country: Country, plans: Dict, band_tiles: Dict[str, Sequence],
                           folder: str, neighbours_sha: Optional[str], say) -> int:
-    """The done tiles whose meta's "neighbours_sha256" is not what this run gives them, back to pending: the
-    sha256 of neighbours.geojson for a country's tile at its border (decided from the tile's grid by the
-    predicate that gives it partners, _border_tiles: never from what an old meta holds), None for a tile inside
-    the outline and for every tile of a study area. So a new neighbours.geojson counts the border tiles again
-    and only them, as does a border tile counted before the territories (no such key); the config hash and
-    countcube.VERSION stay. A tile file that cannot be read is left to `build`. Returns how many."""
+    """The done border tiles whose meta's "neighbours_sha256" is not the sha256 of neighbours.geojson, back to
+    pending: a country's tile at its border is decided from the tile's grid by the predicate that gives it
+    partners (_border_tiles), never from what an old meta holds. So a new neighbours.geojson counts the border
+    tiles again and only them, as does a border tile counted before the territories (no such key); the config
+    hash and countcube.VERSION stay. Only the border tiles' meta is read (3435 metas took 22 s cold on Slovakia's
+    lead folder): a tile inside the outline is expected to hold None and nothing of an unchanged outline gives it
+    a sha256, and a study area has no file and no partners; `build` checks every tile. A tile file that cannot be
+    read is left to `build`. Returns how many."""
     total = 0
+    if country.study or neighbours_sha is None:
+        return total
     for band in country.bands:
         done = sorted(r["name"] for r in manifest.rows(band.name) if r["status"] == "done")
         if not done:
             continue
-        border = set() if country.study or neighbours_sha is None else _border_tiles(plans[band.name],
-                                                                                     band_tiles[band.name])
+        border = _border_tiles(plans[band.name], band_tiles[band.name])
         stale = []
-        for name in done:
+        for name in (n for n in done if n in border):
             try:
                 found = _tile_meta(os.path.join(folder, "tiles", band.name, f"{name}.npz")).get("neighbours_sha256")
             except (OSError, ValueError, KeyError):
                 continue
-            if found != (neighbours_sha if name in border else None):
+            if found != neighbours_sha:
                 stale.append(name)
         if stale:
             n = manifest.requeue(band.name, stale)
