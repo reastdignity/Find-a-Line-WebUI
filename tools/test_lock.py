@@ -1095,7 +1095,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "ram-share", help="the share of all memory the RAM guard allows: print it, or set it",
         description=f"Takes effect at once for every waiting command. {SHARE_MIN * 100:.0f} to "
                     f"{SHARE_MAX * 100:.0f} %, default {RAM_SHARE * 100:.0f} %.")
-    sharer.add_argument("value", nargs="?", help="90, 90% or 0.9 (none: print it)")
+    sharer.add_argument("value", nargs="?", help="90, 90%% or 0.9 (none: print it)")
     sharer.add_argument("--reset", action="store_true", help=f"the default, {RAM_SHARE * 100:.0f} %% again")
     args = parser.parse_args(argv)
     if args.action == "ram-share":
