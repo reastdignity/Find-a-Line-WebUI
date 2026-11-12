@@ -55,7 +55,7 @@ Each agent works only in its own worktree and branch, which the lead has created
 | E | 2 | `country-precompute-e` | `country-precompute-e` | `web.py`, `tests/test_country_web.py` (new), `tools/ui_shots.py` |
 
 - Nobody else edits these files. Any other file needs the lead first.
-- The lead writes the shared documents: `CLAUDE.md`, `README.md`, `docs/**` (this contract too) and
+- The lead writes the shared documents: `CLAUDE.md`, `.claude/rules/**`, `README.md`, `docs/**` (this contract too) and
   `docs/roadmap.md`. An agent puts the text it wants there (a code-map row, a README row) into its
   report.
 - Not allowed:
@@ -1134,6 +1134,6 @@ measured (the key's growth, the transforms' time, the border tiles' time).
 2. Tests: the commands and their results (passed, skipped and why), and the full suite's result.
 3. Deviations from this contract: there should be none. If one was unavoidable, why, and what the
    other agents must know.
-4. Text for the lead's documents: CLAUDE.md's code-map row(s) and "Things that must stay in sync",
+4. Text for the lead's documents: the code map's entries (docs/code-map/) and the area's rule (`.claude/rules/`, "Must stay in sync"),
    README rows, roadmap items.
 5. Open questions and risks.

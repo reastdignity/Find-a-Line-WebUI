@@ -1,5 +1,5 @@
 """
-Screenshots of the app for a visual review of a UI change (CLAUDE.md, "Verifying changes"): every page of
+Screenshots of the app for a visual review of a UI change (.claude/rules/viewer.md, "Verifying changes"): every page of
 PAGES on a desktop (Chromium, 1400 × 900) and on two phones (Playwright's device profiles: iPhone 13 on
 WebKit, Safari's engine; Pixel 7 on Chromium), each with its viewport, pixel ratio, touch and user agent,
 in the light theme and optionally the dark one.

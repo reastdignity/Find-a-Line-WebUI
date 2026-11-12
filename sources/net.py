@@ -106,6 +106,11 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # access or use of the API"; LidarBC's pages and catalogue records, read 2026-11-03, give no numbers); a
     # provincial server shared with other ministries' buckets: courtesy
     "nrs.objectstore.gov.bc.ca": 4,
+    # SlackMap's GeoJSON files and its API of a line's details (tools/slackmap_data.py, the truth check, not the
+    # catalogue; read 2026-11-08: no terms or numbers on slackmap.com, its repositories or the ISA's pages): no
+    # published limit: a courtesy cap
+    "data.slackmap.com": 2,
+    "api.slackmap.com": 1,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)

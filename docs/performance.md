@@ -2893,7 +2893,7 @@ The mosaic's own choice is bilinear here.
 Where the run's own data do not hide it, bilinear loses 25-42 % of the neighbour's lines and 31-43 %
 of its spots, and 4-11 % of the reference's spots have no match; cubic recovers about half;
 **nearest finds 96-108 % of the lines and 98.3-99.5 % of the reference's spots**, with at most 1.7
-points fewer of its own spots present in the reference than bilinear's. It is the half-pixel pitfall of CLAUDE.md again: at the same resolution a bilinear
+points fewer of its own spots present in the reference than bilinear's. It is the half-pixel pitfall of `.claude/rules/sources.md` again: at the same resolution a bilinear
 reprojection is a smoothing of every cliff edge. The lines across the border are the same for every
 method, but for one line, in three of the four directions (the run's own data reach farther beyond the border than the
 band's longest line, 300 m); on Austria's grid, whose data stop sooner, they rise from 6 993 to

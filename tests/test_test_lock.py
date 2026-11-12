@@ -911,7 +911,8 @@ def test_memory_declared_too_large(runs):
     runs.wait_for(lambda: runs.started("b"))
     status = runs.status()
     assert re.search(r"shared waiting \d+ min \(~100000\.0 GB\) \(held: not enough free memory\) owner=a ", status)
-    assert re.search(r"^RAM: \d+\.\d GB free of \d+\.\d, budget for the lock \d+\.\d GB$", status, re.M), status
+    assert re.search(r"^RAM: \d+\.\d GB free of \d+\.\d, limit \d+ % leaves \d+\.\d GB, running commands may "
+                     r"still grow by \d+\.\d GB, budget for the lock \d+\.\d GB$", status, re.M), status
     assert a.wait(timeout=60) == 75 and not runs.started("a")
     stderr = a.stderr.read()
     assert re.search(r"test lock: shared waits for memory: needs ~100000\.0 GB, \d+\.\d GB free for it \(RAM "
@@ -970,5 +971,38 @@ def test_without_psutil(tmp_path, monkeypatch):
     queue = tl.Queue(str(tmp_path / "locks"))
     try:
         assert queue.db.execute("SELECT code, peak_bytes FROM history").fetchall() == [(0, None)]
+    finally:
+        queue.db.close()
+
+
+def test_ram_share_setting(tmp_path):
+    """The share is the user's setting in the queue, read at every look: `ram-share` prints, sets and
+    resets it, a value outside is refused, and a wrapper already waiting for memory starts at once
+    when the share is raised."""
+    env = dict(os.environ, FINDALINE_TEST_LOCK_DIR=str(tmp_path))
+
+    def tool(*args):
+        return subprocess.run([sys.executable, TOOL, *args], env=env, capture_output=True, text=True,
+                              encoding="utf-8", timeout=60)
+
+    assert tool("ram-share").stdout.strip() == "RAM guard: 80 % of all memory (the default)"
+    assert tool("ram-share", "90%").stdout.strip() == "RAM guard: 90 % of all memory"
+    assert tool("ram-share", "0.95").stdout.strip() == "RAM guard: 95 % of all memory"
+    for bad in ("30", "99", "lots"):
+        assert tool("ram-share", bad).returncode == 2, bad
+    assert tool("ram-share").stdout.strip() == "RAM guard: 95 % of all memory"
+    queue = tl.Queue(str(tmp_path))
+    try:
+        assert queue.ram_share() == 0.95
+        assert queue.set_ram_share(None) == tl.RAM_SHARE
+        with pytest.raises(ValueError):
+            queue.set_ram_share(True)
+        # The line of `status`: the limit of the share, what the running ones may still grow by, the budget
+        memory = (24.5 * G, 61.6 * G)
+        assert tl.memory_limit(memory, 0.8) == pytest.approx(12.18 * G, abs=0.01 * G)
+        line = tl.ram_line(memory, 0.0, 0.8)
+        assert line.startswith("RAM: 24.5 GB free of 61.6, limit 80 % leaves 12.2 GB, running commands may still "
+                               "grow by 12.2 GB, budget for the lock 0.0 GB"), line
+        assert tl.memory_limit(memory, 0.9) > tl.memory_limit(memory, 0.8)
     finally:
         queue.db.close()

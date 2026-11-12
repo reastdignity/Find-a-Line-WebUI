@@ -164,7 +164,7 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
    - the CRS and units read from each file;
    - blocks in the file's CRS, resampled onto the working grid when it differs.
 2. Recorded TNM answers for the tests.
-3. The data checks of CLAUDE.md for a new source:
+3. The data checks of `.claude/rules/sources.md` ("Verifying changes") for a new source:
    - georeference against Copernicus (shift search);
    - share of valid pixels at 5 m;
    - a few tiles against the files.
@@ -231,7 +231,7 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
 **Sync.**
 - README's sources table and the note `USA_NOTE` ("no surface model for the USA yet") change.
 - The privacy and about pages are built from `SOURCES`.
-- `docs/deployment.md` if the image needs a system library: no, if laspy/lazrs are chosen. Check with `ldd` as CLAUDE.md asks after a dependency change.
+- `docs/deployment.md` if the image needs a system library: no, if laspy/lazrs are chosen. Check with `ldd` as `.claude/rules/deploy.md` asks after a dependency change.
 
 **Verification.**
 - R65: the same lines as without the surface, over-trees counts as in the trial (about 27 % formula).

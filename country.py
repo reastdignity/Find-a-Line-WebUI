@@ -1627,7 +1627,7 @@ def _worker_env() -> Dict[str, str]:
 
     PYTHONFAULTHANDLER=1 unless the caller's environment sets it: a worker that dies of a fatal error
     writes the Python stack of its threads into its log (the heap corruptions of GDAL's warper,
-    0xC0000374, left a log that stopped mid-tile without a word: CLAUDE.md, "GDAL's warper on Windows")."""
+    0xC0000374, left a log that stopped mid-tile without a word: .claude/rules/sources.md, "GDAL's warper on Windows")."""
     return {"OMP_WAIT_POLICY": "PASSIVE", "PYTHONFAULTHANDLER": "1", **os.environ, "FINDALINE_PROGRESS": "text", "PYTHONIOENCODING": "utf-8",
             "PYTHONUNBUFFERED": "1", "OPENBLAS_NUM_THREADS": "1", "MKL_NUM_THREADS": "1"}
 
