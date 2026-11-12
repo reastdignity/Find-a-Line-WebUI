@@ -2494,6 +2494,333 @@ types of the kernels, both warm-ups, the indexing measured again) and groups tha
 grid over its tiles' footprint, not over its cores' box, so no all-gap corner), and the water mask's constant
 category decided per tile window again.
 
+### The recount: two profiles of Slovakia (wave 17, 2026-11-10/11)
+
+Slovakia counted whole on cube v2 with each of two band profiles, to choose the layer's profile (R7 of
+docs/country-precompute/contract.md, section 6): the code of `cube-v2` (bdb1b78), the user profile's last part on
+1c036e8 (the tilings fix below); Slovakia's recount options in both (the surface model marked, `nmpt: mark`, the
+no-fall zone of 5 m and A-frames of 2 m, `fill_gaps: on`), every band in the layer. The user's state in the lock was
+free (untamed) through both runs; the lead run had 8 workers (the lock's memory budget at the time), the user run 11.
+The user run was stopped for the PC's restart after 723 tiles and resumed without `--redo`. The runs, logs and
+scripts: `local/country-perf-2026-11-07/stage3/R2/`.
+
+| Profile | Band | Lengths, m | Grid | Model, anchors | Tile core | Tiles |
+| --- | --- | --- | --- | --- | --- | ---: |
+| lead | S | 30-300 | 1 m | sag, 60° | 5 km | 2122 |
+| lead | M | 300-1000 | 2 m | sag, 60° | 10 km | 575 |
+| lead | L1 | 1000-2000 | 3 m | sag, 55° | 10 km | 575 |
+| lead | L2 | 2000-5000 | 5 m | sag, 45° | 20 km | 163 |
+| user | S | 30-1000 | 1 m | sag, 60° | 5 km | 2122 |
+| user | M | 1000-3000 | 2 m | sag, 60° | 10 km | 575 |
+| user | L | 3000-5000 | 3 m | sag, 55° | 10 km | 575 |
+
+| | Tiles | Tile h | CPU h | Step 1 h (CPU h), measured | Step 1 h (CPU h) without the whole-country lists, *est.* | Steps 2-3 h (CPU h) | Counting wall | Workers | Private max a tile / all workers, GiB | Downloads |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- | ---: | ---: | --- |
+| lead S 30-300, 1 m | 2122 | 26.06 | 28.86 | 23.89 (24.08) | 2.40 (2.89) | 2.23 (4.78) | | | 1.72 | |
+| lead M 300-1000, 2 m | 575 | 7.79 | 10.92 | 5.93 (5.88) | 1.16 (1.42) | 1.88 (5.04) | | | 1.44 | |
+| lead L1 1-2 km, 3 m | 575 | 7.66 | 11.90 | 5.97 (6.93) | 1.82 (2.74) | 1.70 (4.97) | | | 1.38 | |
+| lead L2 2-5 km, 5 m | 163 | 3.19 | 5.56 | 1.76 (1.62) | 0.70 (0.81) | 1.43 (3.95) | | | 1.34 | |
+| **lead** | **3435** | **44.70** | **57.24** | **37.55 (38.50)** | **6.07 (7.85)** | **7.24 (18.74)** | 5 h 37 min (6 h 04 min with prefetch and build), free (untamed) | 8 | 1.72 / 8.5 | 112.2 GB (its prefetch) |
+| user S 30-1000, 1 m | 2122 | 90.40 | 196.67 | 13.54 (13.18) | 6.26 (6.86) | 77.00 (183.49) | | | 2.92 | |
+| user M 1-3 km, 2 m | 575 | 24.18 | 42.56 | 6.34 (6.28) | 3.20 (3.58) | 17.89 (36.28) | | | 2.25 | |
+| user L 3-5 km, 3 m | 575 | 12.37 | 17.75 | 7.52 (8.71) | 4.93 (6.48) | 4.88 (9.03) | | | 1.27 | |
+| **user** | **3272** | **126.95** | **256.97** | **27.40 (28.18)** | **14.38 (16.91)** | **99.77 (228.80)** | 14 h 25 min (10 h 36 + 3 h 49), free (untamed) | 11 | 2.92 / 16.4 | 0 |
+| v1 pilot, ALL (stage 2, 318b9a2, no DSM, no superset) | 3435 | 9.33 | 16.20 (8.7 without M2) | | | | 52 min | 12 | 1.24 / 8.7 | 0 |
+| SPLIT estimate (*est.*) | lead / user | | 21 / 66.7 | | | | 68 min at 12 / 3.6 h | | | |
+
+- **The cubes**: lead 4 600 979 326 lines and 9 767 110 spots, 4.88 GB of `.npy`, 69.9 M key rows at level 1; user
+  30 542 672 693 lines and 11 570 300 spots, 8.57 GB, 127.6 M key rows (v1's cube: 0.013 GB). `totals.border`: lead
+  lines owned 12 824 257 and partner 51 222 409, spots owned 58 193 and partner 308 717; user lines owned 40 271 700
+  and partner 225 287 634, spots owned 62 129 and partner 238 836. No failed tile, no worker crash in either run.
+- **Steps 2-3**, the fair measure of what a profile's pair searches cost: user 228.8 CPU h against lead 18.7,
+  12.2×. Of the user's, S takes 183.5 CPU h, and its three heaviest Tatras tiles alone took 86.1 CPU h (their whole
+  CPU), as much as 47 % of S's steps 2-3; the lead's heaviest S tile, the same E-340000_N-1185000 at 30-300 m,
+  took 2431 CPU s.
+- **Against the estimates**: SPLIT's 66.7 CPU h and 3.6 h for the user profile (*est.*) against 257 CPU h (3.9×) and
+  14 h 25 min of counting measured; the lead's 21 CPU h (*est.*) against 57 (2.7×; 26.6 *est.* without the
+  regression below: 1.27×). The user run's first attempt at its heaviest Tatras tile was lost to the restart, about
+  27 CPU h (*est.*).
+
+The yield per length range (the cubes' level 1 and the merged spots; spots per range are upper bounds where a spot
+merges lines of several ranges):
+
+| Range | lead lines | user lines | lead lines not over trees | user lines not over trees | lead spots | user spots | lead spots, a line not over trees | user spots, a line not over trees |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 30-300 | 1 649 621 067 | 1 649 621 067 | 832 815 915 | 832 815 915 | 1 582 303 | 1 582 303 | 455 330 | 455 364 |
+| 300-1000 | 1 357 216 660 | 24 552 937 178 | 1 100 388 304 | 18 315 172 506 | 1 731 314 | 4 919 127 | 931 772 | 1 678 116 |
+| 1000-2000 | 1 050 217 026 | 2 572 652 867 | 939 927 241 | 2 284 630 833 | 2 401 054 | 2 509 876 | 1 628 448 | 1 632 297 |
+| 2000-3000 | 302 093 158 | 1 334 929 530 | 257 249 757 | 1 188 227 535 | 2 251 044 | 1 558 203 | 1 511 932 | 1 049 528 |
+| 3000-5000 | 241 831 415 | 432 532 051 | 196 448 808 | 376 744 080 | 2 066 528 | 1 339 884 | 1 310 718 | 884 230 |
+| all | 4 600 979 326 | 30 542 672 693 | 3 326 830 025 | 22 997 590 869 | 9 767 110 | 11 570 300 | 5 649 761 | 5 496 491 |
+
+- **The spots matched** (`tools/band_study.py` `matched`, TOLERANCE (2, 1) clusters at both ends, the whole
+  country): on 30-300 m all 1 582 303 spots of each profile have their match in the other; at 300-1000 m 1 174 556 of
+  the user's 4 919 127 spots have none in the lead's; at 2000-3000 m 134 860 of the lead's 2 251 044 and at
+  3000-5000 m 152 514 of its 2 066 528 have none in the user's. The cells where one profile has more spots lie in the
+  Tatras, the Fatras and the Slovak Paradise.
+- **Repeatability**: the 30-300 m range is one search in both profiles (the S band's 30-300 m). 2096 of its 2122 tiles
+  hold exactly the same line keys and counts, all 2122 the same spot ids, and the totals are equal (1 649 621 067
+  lines). Of the 26 others, 17 differ in the water flag and the metres-over-water bin and 7 in that bin only (the
+  user's tile grids are larger, 7604 px against 6204, so the water filling at the grid's edge differs), one in two
+  lines' cells, and one, E-565000_N-1205000 in Záhorie at the Czech border, in the partner of 234 lines across the
+  border: Poland in the lead's tile, Czechia in the user's (the partner rule of the next section).
+- **Against v1** (the cube of 2026-11-04: both anchors inside, no surface model, no superset, S formula), with
+  `border=own`: lead 4 549 756 917 lines (3.84×) and 9 458 393 spots (2.57×), user 30 317 385 059 (25.6×) and
+  11 331 464 (3.08×), against v1's 1 183 773 337 and 3 679 609. The superset, the sag model in S and the surface
+  model's marks together multiply the 30-300 m lines by 934 and their spots by 46, the same search in both profiles;
+  above 300 m the lead's multipliers are 1.5-3.0 for lines and 1.7-2.7 for spots, the user's 2.7-53 and 1.5-7.6.
+
+How they compare: on 30-300 m the two profiles are one search and give the same 1.65 G lines and 1.58 M spots. At
+300-1000 m the user's 1 m grid finds 2.8× the lead's spots (4.92 M against 1.73 M, nearly all of the lead's among
+them) and 18× its lines. At 1-2 km the two find nearly the same spots (2.51 M against 2.40 M). At 2-5 km the lead's
+5 m 45° band finds about 1.5× the user's spots (4.32 M against 2.90 M, nearly all of the user's among them) with
+fewer lines. The user's profile cost 257 CPU h against 57 (*est.* 246 against 27 without the whole-country lists),
+12× in steps 2-3, almost all of it in the 1 m band's Tatras tiles, and its cube is 8.6 GB against 4.9 GB.
+
+**The user's choice of 2026-11-12: the `lead` profile** (S 30-300 m at 1 m, M 300-1000 m at 2 m, L1 1000-2000 m at
+3 m, L2 2000-5000 m at 5 m), `country.PROFILE` since 5dcab11 (branch `cube-v2-partners`). Slovakia's config hash
+stays ff82cd75… (`tests/test_country.py::test_profile_is_the_chosen_one`), so the lead run's tiles are the code's as
+they are.
+
+**The tilings regression this run found.** The lead run's step 1 took 37.55 of its 44.70 tile hours, 32.05 of them
+stitching, about 48 times ALL's rate. The cause was main's 04e91b0 (in cube v2 too): `sources/indexes/tilings.py`
+`MetricTiling._tiles` with an outline took the cells under each part of the outline's own bounds and never clipped
+them to the grid's box, and a country tile's grid carries the whole country's outline, so every interior tile (the
+lead's S: 1755 of 2122) listed all 12 715 files of the DMR folder and all 12 715 of the DMP; `build_mosaic` opened
+each, about 1.6 ms a file on one core, about 20-30 s per product per tile (ALL, 318b9a2, before 04e91b0, listed 16
+files for the same tile). Fixed by e06fd4d on main (1c036e8 on the branch, the same patch).
+
+| Part | Band | Tiles (whole lists) | terrain s/Mpx | surface s/Mpx | whole-list tiles, both, s/Mpx | others, both, s/Mpx | Step 1 s/Mpx | RAM available mean / least GiB | Disks written GB (min) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| ALL (318b9a2, no DSM) | S | 2122 (0) | 0.010 | | | 0.010 | 0.053 | 24.6 / 18.0 | 17 (52) |
+| lead | S | 2122 (1755) | 0.494 | 0.494 | 1.052 | 0.008 | 1.119 | 26.4 / 7.9 | 808 (336) |
+| lead | M | 575 (389) | 0.443 | 0.446 | 0.936 | 0.014 | 1.025 | 26.4 / 7.9 | 808 (336) |
+| lead | L1 (3 m) | 575 (379) | 0.851 | 0.856 | 1.780 | 0.137 | 1.912 | 26.4 / 7.9 | 808 (336) |
+| lead | L2 (5 m) | 163 (71) | 0.065 | 0.059 | 1.104 | 0.062 | 1.057 | 26.4 / 7.9 | 808 (336) |
+| user part 1, until 06:30 UTC (pressure) | S | 79 (62) | 0.415 | 0.414 | 0.842 | 0.009 | 0.943 | 10.5 / 6.6 | 19 (527) |
+| user part 2a (bdb1b78, free PC) | S | 166 (147) | 0.500 | 0.499 | 1.017 | 0.013 | 1.144 | 33.5 / 25.3 | 18 (36) |
+| user part 2b (1c036e8) | S | 1615 (0) | 0.009 | 0.009 | | 0.019 | 0.109 | 30.4 / 21.2 | 45 (76) |
+
+- **Not the memory**: on bdb1b78 the whole-list tiles stitched at the same rate with 6.6-10.5 GiB available (S 0.84
+  s/Mpx for both products) as with 23.7-33.5 GiB (0.90, 1.02, the lead's 1.05), and the border tiles of the same runs,
+  which listed 18-400 files, stitched 100 times faster under the same RAM. After the fix every tile stitches at
+  ALL's rate: S 0.009 s/Mpx a product against ALL's 0.010.
+- **The disk writes**: the lead run wrote 809 GB (518 GB read), while the user's parts wrote 18-45 GB each with the
+  same regression. The lead's 3435 short tiles (46 s median) each wrote their memory-mapped grids, up to 1.2 GiB a
+  tile; *est.*: the grids' pages were paged out under memory pressure before the folder was deleted. Not measured
+  further; the next section's recount writes 0.021 GB a tile.
+- **The lead run's interior tiles carry the regression in their times**: without the whole-country lists its step 1
+  would have taken 6.07 h (7.85 CPU h) instead of 37.55 (38.50), the run 13.22 tile h and 26.59 CPU h against 44.70
+  and 57.24 measured (*est.*: the measured step 1, less the whole-list tiles' stitching and other, plus their Mpx at
+  the rates of the user's part 2b). The user run's ten light workers moved to 1c036e8 mid-run: an S interior tile's
+  median 72.7 s → 7.4 s, its stitching 58.9 s → 1.1 s.
+
+### The border recount: partners by territory (wave 19, 2026-11-12)
+
+The rule as built on `cube-v2-partners` (0e082e4): a pixel that carries a partner at all (the owner's own data or a
+neighbour's fill within the band's zone, unchanged) gets the declared neighbour (of `Source.neighbours`) of the
+smallest territory holding its centre, of two equal territories the one declared first, 7 where no declared
+territory holds it; which pixels carry a partner, and so the anchors and lines, stay as they were, only the key's
+partner field moves. The territories are `countries/<id>/neighbours.geojson` (each declared neighbour's outline
+within `reach_m` of the country's: 8071.07 m for Slovakia's profile; Slovakia's file 1.69 MB, fetched once through
+three Nominatim requests), its sha256 in every border tile's meta and in cube.json; `run` sends a border tile counted
+with another file, or with none, back to pending. On step 1 of eleven border tiles (Záhorie's and ten at the five
+tripoints) the old rule had given Czech land Poland's or Austria's index, Hungarian land Austria's and Ukrainian
+land Poland's, 1.3 to 2.7 M pixels a tile in every S tile checked, and 0.24-5.1 % of the pixels a neighbour filled in
+the L2 tiles lie in another country than the filler's.
+
+The count: on 52e6798, the lead folder's 841 border tiles (sent back to pending by that check) and an interior
+sample of 124 (each band's 5 tiles of most lines and every 25th of the rest), 965 tiles; 9 workers,
+`--heavy --memory 20.5`, **tamed** (below the normal priority, 16 threads) under the user's state `heavy-ok`, beside
+the user's work. Counting 16:17:19 to 17:32:03 (74.7 min), the cube built at 17:34:12; 0 failed tiles, 0 respawns.
+Nominatim was asked nothing: the outlines' file was copied in from wave 19's scratch folder. The runs, scripts and
+logs: `local/country-perf-2026-11-07/stage3/P/` ("Stage B" at the end of `results.md`).
+
+- **The border tiles**: in all 841 the line keys with the partner masked and their counts are equal, and the spots
+  with the partner masked out of their identity; 840 are identical byte for byte. The one other, S
+  E-565000_N-1205000 (Záhorie), moved its 234 lines and their 6 spots from partner 1 (Poland) to 3 (Czechia), nothing
+  else. Nearly all lines across the border cross into Poland (the Tatras, the Pieniny); the pixels the old rule
+  mislabelled at the Czech, Austrian, Hungarian and Ukrainian tripoints hold almost no line.
+- **The interior sample**: keys, counts, spot ids and records identical byte for byte in all 124: the lead profile's
+  interior tiles on the fixed tilings repeat the lead run exactly.
+- **The cube**: before and after 4 600 979 326 lines and 9 767 110 spots, `totals.border` lines owned 12 824 257 and
+  partner 51 222 409, spots owned 58 193 and partner 308 717, the key rows of every level equal; cube.json now holds
+  `neighbours_sha256`.
+
+| Band | Lines across the border, partner old → new: 1 → 1 | 1 → 3 | 2 → 2 | 3 → 3 | 7 → 7 | Spots across the border by partner, before → after |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| S | 7 888 729 | 234 | | | 59 | 1: 6 048 → 6 042; 3: 0 → 6; 7: 12 → 12 |
+| M | 9 375 487 | | | | 744 | 1: 18 834; 7: 19 (unchanged) |
+| L1 | 6 350 347 | | | | | 1: 35 028 (unchanged) |
+| L2 | 40 429 544 | | 1 163 | 228 | 131 | 1: 313 069; 2: 28; 3: 15; 7: 28 (unchanged) |
+
+The measurements (this run tamed, the lead run untamed: below):
+
+| Band | Tiles | Tile h: this run / lead run | CPU h | Step 1 h | Steps 2-3 h (CPU h) | Stitching s/Mpx a product (median): this run / lead / round 5's ALL | "partner territories" s median / max | Private peak (tile) / budget, GiB |
+| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
+| S border | 367 | 1.66 / 1.16 | 2.41 / 1.94 | 1.12 / 0.77 | 0.53 (0.93) / 0.38 (0.88) | 0.0059 / 0.0040 | 0.14 / 0.25 | 1.63 (E-345000_N-1185000) / 2.22 |
+| S sample | 75 | 0.91 / 1.58 | 1.55 / 2.38 | 0.07 / 0.99 | 0.84 (1.46) / 0.58 (1.41) | **0.0107 / 0.512 / 0.010** | | 1.72 (E-340000_N-1185000) / 2.22 |
+| M border | 186 | 2.20 / 1.71 | 4.09 / 3.76 | 0.95 / 0.70 | 1.24 (2.90) / 1.00 (2.83) | 0.0127 / 0.0070 | 0.13 / 0.25 | 1.50 (E-350000_N-1190000) / 2.28 |
+| M sample | 21 | 0.86 / 1.09 | 1.79 / 2.02 | 0.02 / 0.43 | 0.84 (1.76) / 0.66 (1.73) | **0.0194 / 0.473 / 0.015-0.017** | | 1.07 / 2.28 |
+| L1 border | 196 | 2.18 / 1.70 | 4.58 / 4.17 | 0.96 / 0.71 | 1.21 (3.19) / 0.99 (3.08) | 0.1005 / 0.0684 | 0.09 / 0.54 | 1.38 (E-350000_N-1190000) / 1.56 |
+| L1 sample | 20 | 0.81 / 0.92 | 1.75 / 1.96 | 0.05 / 0.32 | 0.76 (1.66) / 0.60 (1.64) | **0.153 / 0.875 / 0.164 (R2's part 2b, 3 m)** | | 0.99 / 1.56 |
+| L2 border | 92 | 2.20 / 1.72 | 4.28 / 4.02 | 0.72 / 0.55 | 1.48 (3.45) / 1.17 (3.36) | 0.0409 / 0.0308 | 0.12 / 0.22 | 1.27 (E-360000_N-1200000) / 2.18 |
+| L2 sample | 8 | 0.29 / 0.42 | 0.47 / 0.56 | 0.02 / 0.23 | 0.28 (0.45) / 0.19 (0.44) | **0.065 / 0.673 / 0.054** | | 0.75 / 2.18 |
+| all | 965 | 11.10 / 10.30 | 20.92 / 20.81 | | | | | |
+
+- **The interior sample stitches at the all-bands rate again** (the fixed tilings): S 0.0107 s/Mpx a product against
+  the lead run's 0.512 and ALL's 0.010; the sample's step 1 fell from 1.97 to 0.16 tile h. The disks: 20.4 GB written
+  over the run, 0.021 GB a tile against the lead run's 0.24; 117 GB read.
+- **The workers' budget with a surface model** (cda28ba): `country.COUNT_SURFACE_PIXEL_BYTES` 48 when the bands use a
+  surface model, `COUNT_PIXEL_BYTES` 32 without one (a worker of the all-bands run 2.28 GiB instead of 1.68). From the
+  meta of all 6707 tiles of both profiles, the steepest tile of each band needs at most 44.8 B/px over `WORKER_BASE`,
+  so every measured tile fits at 48, against four over at 32. A tile's peak follows its anchors, not its pixels
+  (Spearman 0.62-0.76 with the anchors among each band's tenth of most anchors, -0.12 to -0.05 with the pixels): the
+  steep share of a country's steepest tile sets the figure, and a steeper country may need more. In this run the
+  workers' private bytes reached 8.9 GiB at most in all, every tile under its budget, the closest L1's
+  E-350000_N-1190000 at 1.38 GiB of 1.56 (88 %).
+- **Slower than the lead run on the same work**: the border tiles took +31 % tile h and +11 % CPU h, their step 1
+  +31-45 %, steps 2-3 +22-39 % in tile h at +2-6 % CPU h. The conditions differed: this run was tamed (below the
+  normal priority, 16 threads for its numba kernels) beside the user's work (the machine at 84 % CPU on average,
+  10.5 GiB of RAM available at the least), the lead run untamed. The new resolve step is not it: 0.09-0.14 s a tile
+  in the median, 0.54 s at most, 0.01 h in all of S. Against wave 19's plan (*est.*): 20.9 CPU h against 19.3
+  (+8 %), 11.1 tile h against 8.5 (+31 %), 74.7 min of counting against 45-75.
+- **The whole profile's cost on the fixed code, re-derived** (*est.*: the border tiles as measured here; the interior
+  ones the 5 of most lines as measured plus each band's every-25th times 25.0, 24.0, 24.9 and 22.0): 30.7 CPU h and
+  17.9 tile h, against the recount's estimate of 26.6 CPU h (*est.*) and 13.2 tile h: 15 % more CPU and 35 % more
+  tile hours. That estimate kept the lead run's steps 2-3 and replaced only the stitching, and this run's tamed
+  conditions slowed the same tiles' steps 2-3 too, so part of the gap is the conditions, not the estimate.
+  `country profile` over all 3435 tiles still holds the old interior tiles' whole-list stitching (S's stitching 19.5
+  of 25.9 h).
+
+### The explorer on the v2 cube (wave 20, 2026-11-12)
+
+The Highline Explorer (`#layer`; `web.Countries`, `countcube.Cube`) on a copy of the lead cube (10 files, 4.877 GB of
+`.npy`) and on the user cube (8.575 GB), the app as `findaline.py web --no-browser --no-worker` at 1c036e8; no code
+changed. **Every timing is from the shared lock (below the normal priority) with the user at the PC (`heavy-ok`), so
+all of them are provisional**: the exclusive pass was queued and never started. Memory is the process tree's
+private bytes and working set (psutil every 50 ms) and the OS's peak private. The runs, scripts, data and pictures:
+`local/country-perf-2026-11-07/stage3/E/`.
+
+**It works on both cubes**: every whole-country total equals cube.json (lead: 4 600 979 326 lines and 9 767 110
+spots with `border=all`, 4 549 756 917 and 9 458 393 with `border=own`; user: 30 542 672 693 and 11 570 300), every
+histogram's total the rows of /cells for the same query, the length bins the bands' lines summed from the tile files
+(lead S 1 649 621 067, M 1 357 216 660, L1 1 050 217 026, L2 543 924 573); of the lead's 439 requests 356 answered
+200 and the 83 answered 400 were all expected; the page answered every step without a "too many cells". It is slow
+and memory-hungry, not broken.
+
+The lead cube, cold (each array's first request, a /cells of a box of one or two cells; process start to the first
+answer 1.58 s, the tree at rest private 0.58 GB):
+
+| First request touching | Seconds | Private after (GB) | Working set after (GB) | Peak private during (GB) |
+| --- | ---: | ---: | ---: | ---: |
+| spots_8 (also the outline's cuts of every level) | 0.97 | 0.68 | 0.24 | 0.71 |
+| spots_4 | 0.04 | 0.74 | 0.31 | 0.75 |
+| spots_2 | 0.04 | 0.83 | 0.39 | 0.83 |
+| spots_1 | 0.05 | 0.92 | 0.49 | 0.92 |
+| lines_8 (686 MB file) | 0.44 | 1.61 | 1.17 | 2.30 |
+| lines_4 (942 MB) | 0.49 | 2.56 | 2.12 | 3.50 |
+| lines_2 (1 259 MB) | 0.58 | 3.82 | 3.38 | 5.08 |
+| lines_1 (1 676 MB) | 0.80 | 5.50 | 5.06 | 7.18 |
+
+All eight arrays loaded: private +4.92 GB for 4.877 GB of files. Every load peaks at the level before plus twice the
+file (lines_1: 3.82 + 3.35 = 7.18 GB): the array is held twice while it loads.
+
+The lead cube, warm (min / median of 10 in seconds; country = no bbox, tatras = 19.75-20.35 E, 49.10-49.30 N,
+degree = 19.6-20.6 E, 48.7-49.7 N; no filter and `border=all` but in "all 3": length 300-1000 m, not over trees,
+clearance ≥ 20 m, the median of its lines histogram):
+
+| View | Level | lines cells | lines histogram | spots cells | spots histogram | lines histogram, all 3 | lines /cells bytes | spots /cells bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| country | 8 | 0.95 / 1.00 | 5.59 / 5.66 | 0.09 / 0.10 | 1.60 / 1.62 | 5.47 | 214 934 / 52 275 | 212 773 / 50 921 |
+| country | 4 | 1.25 / 1.27 | 7.84 / 8.42 | 0.12 / 0.12 | 2.12 / 2.13 | 7.71 | 388 930 / 77 744 | 383 660 / 73 393 |
+| tatras | 8 | 0.40 / 0.43 | 2.84 / 2.91 | 0.03 / 0.03 | 1.25 / 1.26 | 2.79 | 21 198 / 4 731 | 21 095 / 4 665 |
+| tatras | 4 | 0.58 / 0.61 | 4.08 / 4.16 | 0.04 / 0.04 | 1.76 / 1.77 | 4.07 | 38 126 / 8 067 | 37 963 / 7 897 |
+| tatras | 2 | 0.85 / 0.90 | 5.84 / 5.96 | 0.05 / 0.05 | 2.42 / 2.43 | 5.91 | 68 654 / 13 847 | 68 246 / 13 457 |
+| tatras | 1 | 1.36 / 1.40 | 8.54 / 8.73 | 0.06 / 0.07 | 3.31 / 3.33 | 7.83 | 136 004 / 25 515 | 135 368 / 24 372 |
+| degree | 2 | 1.18 / 1.24 | 8.04 / 8.26 | 0.08 / 0.08 | 3.41 / 3.58 | 7.34 | 192 416 / 35 849 | 189 990 / 33 981 |
+| degree | 1 | 1.62 / 1.71 | 11.05 / 11.45 | 0.10 / 0.12 | 4.69 / 4.80 | 9.91 | 426 604 / 75 018 | 420 777 / 69 796 |
+
+- **The user cube** (1.71-1.83 times the rows): all levels loaded, private +8.62 GB for 8.575 GB of files, the peak
+  while lines_1 loads 12.27 GB; warm (levels 8 and 4 only, private 3.63 GB) the country view's lines histogram
+  9.65 / 9.71 s at level 8 and 14.70 / 15.03 s at level 4. Time and memory follow the rows: the country histogram at
+  level 8 9.71 / 5.66 s = 1.72 for 1.71 times the rows, at level 4 15.03 / 8.42 = 1.78 for 1.75 times.
+- **The page** (Playwright, Chromium 1400 × 900 and Pixel 7): it waits visibly on every pan and zoom for the
+  histograms, 4-9 s from the first view down to zoom 12 (the map is drawn from the page's cache of the padded box
+  while the right panel says "Counting…"); on the first open for the cells, 1.8 s warm and 4.5 s on a fresh server;
+  at each new level for the cells, 2.1-3.0 s; the selected cell's card about 1 s. The browser is never the cost: 0-2
+  long tasks per step (at most 164 ms), a JS heap of 7-40 MB.
+- **A quick zoom piles up work**: the page aborts its fetch on every move, but `run_in_threadpool`'s thread runs to
+  its end. The histograms of four zoom steps at once took 11.2 / 11.3 s (min / median) and +6.03 GB of private bytes
+  above the settled level, against 23.2 / 23.4 s and +2.09 GB one after the other.
+
+Where the time and the memory go: a histogram makes about 80 passes over every row of the view's whole column strips
+(19 `select` calls each re-deriving every active filter, 15 field extractions, 16 `bincount`s over gathered copies,
+the length bins' 9 passes, two `_slice` copies and two `np.unique` sorts for `reaching`), and a level-8 cell holds
+about 24 600 rows on the lead cube, so the country view's 28.6 M rows cost 7.3 s and 2.1 GB of temporaries; /cells
+costs 1.1-1.6 s, half of it copying the slice and a stable argsort of every row for the border's sides; the memory is
+the arrays as loaded (the whole cube 4.92 GB private, the page's first views only lines_8 and spots_8: 0.75 GB), each
+held twice while it loads, plus 1.3-3.2 GB of temporaries per request that add up when requests overlap. The disk is
+not the cost on this PC: 3.1 GB/s read without the OS cache.
+
+The alternatives, each in a process of its own on the real arrays, the requests through `web.Countries` in a
+session's order ("first" includes loading what the request is the first to touch; warm = median of 5). "lean" is
+`Cube.histogram` and `Cube.cells` rewritten in plain numpy (no numba: the web process must not import it) with
+exactly the same answers (10 requests of the lead cube and 35 more queries: 0 different): a cell index, `reaching` as
+a range of cells, each filter's mask once per chunk of 2^20 rows. "mmap" is `np.load(mmap_mode="r")`. The lead cube,
+seconds first / warm:
+
+| Request | today | lean | lean x4 threads | mmap-today | mmap-lean | mmap-lean x8 threads |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| page open: cells lines L8 (padded box) | 1.55 / 0.91 | 1.29 / 0.53 | 1.07 / 0.56 | 1.39 / 1.00 | 0.96 / 0.55 | 0.95 / 0.55 |
+| **page open: histogram lines L8 (country view)** | 6.38 / 6.90 | 4.03 / 3.83 | 1.79 / 1.77 | 6.93 / 6.77 | 4.15 / 4.01 | 1.70 / 1.70 |
+| **page zoom 9: histogram lines L8 (Tatras view)** | 4.06 / 4.00 | 2.31 / 2.26 | 1.11 / 1.10 | 4.30 / 4.20 | 2.37 / 2.34 | 1.03 / 1.04 |
+| **section 1: histogram lines L4, whole country** | 8.77 / 8.90 | 6.01 / 5.27 | 2.99 / 2.45 | 8.64 / 8.29 | 5.85 / 5.49 | 2.58 / 2.27 |
+| page spots: histogram spots L8 (zoom 9) | 2.15 / 2.29 | 0.42 / 0.42 | 0.32 / 0.32 | 1.79 / 1.84 | 0.47 / 0.43 | 0.36 / 0.36 |
+| page cell: histogram of the picked cell | 0.66 / 0.68 | 0.09 / 0.07 | 0.06 / 0.06 | 0.54 / 0.55 | 0.07 / 0.07 | 0.06 / 0.07 |
+| section 1: cells lines L4, whole country | 1.89 / 1.46 | 0.79 / 0.71 | 0.72 / 0.66 | 1.29 / 1.39 | 0.78 / 0.74 | 0.77 / 0.71 |
+| private at the end (GB; base 0.56) | 2.37 | 2.36 | (with the reference copy) | 0.60 | 0.60 | 0.60 |
+| **OS peak private (GB)** | 5.55 | 3.22 | | 3.78 | **0.88** | 1.11 |
+
+Memory-mapping alone takes the arrays out of the private bytes (0.60 GB at the end against 2.37) but not the
+temporaries (peak 3.78 GB) and not the time; the lean code alone halves the country histograms and makes spots and
+cell queries 5-12 times faster; both together: the lean code's time, private 0.60 GB at the end and 0.88-0.89 GB at
+the peak on either cube (the user cube: 0.89 GB against 9.18 today). Threads (4 or 8) halve the lean histograms again
+on this 12-core PC, not on the VPS's one core. A smaller row (a cell index, the record in one int64, the count in a
+uint32: 12 bytes a row instead of 24) would hold the lead cube in 2.44 GB instead of 4.88 and the user cube in 4.29
+instead of 8.58, with a new key layout and `countcube.VERSION`.
+
+**What Windows does to a mapped file** (a child process maps a copy of spots_8.npy, this process does what
+`countcube.build` does): `os.replace` of a new file over the mapped name (how `build` writes every array) fails with
+PermissionError [WinError 5], `os.remove` and `os.rename` of the mapped file with [WinError 32]; versioned names work
+(the new build writes `spots_8.b2.npy` beside the mapped `b1`, cube.json replaced last; the reader sees the new
+cube.json's mtime, drops its map and maps `b2` in 0.18 s; `b1` is deleted once unmapped). Closing the maps on
+cube.json's change with today's build order still fails: the reader has no new cube.json to react to before the
+arrays are replaced. So memory-mapping needs versioned file names (or a folder per build) with cube.json written last;
+today's `np.load` copies are why a build can replace the files while the app runs.
+
+**Other countries and the VPS** (*est.*, from Slovakia's rows and the steep terrain of
+`docs/country-precompute/relief.json` and the lines of `estimate.json`): Poland's cube 1.0-1.5 GB with the lead
+profile and 1.7-2.6 GB with the user's, Czechia's 0.5-1.5 GB and 0.9-2.6 GB (a guess: no relief or line figure
+exists for Czechia); three countries in memory with today's code and every level touched 6.4-7.9 GB of arrays plus
+2-3 GB of temporaries per request in flight; Switzerland a cube of 25-220 GB, which no in-memory design holds. On
+the public VPS (the `web` container's `mem_limit` 1g, one core) today's code would be killed for memory at 1 GB on
+Slovakia's first view (0.75 GB of arrays plus the process plus 2.1-2.3 GB of temporaries), and the 6-8 GB Slovakia
+needs would come from the worker's 20 GB; with memory-mapping and the lean code the private bytes are the process
+plus chunks of about 2^20 rows (0.1-0.2 GB), and it fits 1 GB, a histogram on one core about the lean single-thread
+3.8-4.0 s plus the reads of evicted pages. Not measured: disk-cold loads, the VPS (Linux, one core, 1 GB), the user
+cube's levels 2 and 1 under requests, the page on the user cube, several tabs at once, WebKit.
+
+**The recommendation, proposed, the user's decision pending on 2026-11-12**: first the lean histogram and cells with
+a bound on the work in flight (a cancel check between chunks, or one request per cube at a time): the histograms
+6.9 → 3.8 s on the country view and 4.0 → 2.3 s at zoom 9, spots and a selected cell 5-12 times faster, with answers
+a test compares bit for bit with today's; then memory-mapping with versioned file names, before a second country,
+the user profile's cube or the VPS (0.9 GB private at the peak on either cube instead of 5.5-12 GB); the smaller row
+with the next cube version (key v3 of docs/country-precompute/contract.md, section 6), not a version of its own.
+Pages on a real cube read badly too (billions as "4.6 G", log-scale bars all at 85-100 % of their height, a tooltip's
+"353,414,803 lines · 39,231,482 per km²", most Tatras cells in the darkest class at zoom 10, the desktop map 380 px
+wide between the panels): docs/roadmap.md, "Country layer".
+
 ### Lessons
 
 - **Two interpreters**: the main checkout's venv is Python 3.13.7, every worktree's (`uv sync --frozen`) 3.15.2. C3's
@@ -2512,6 +2839,15 @@ category decided per tile window again.
 - **The contract and the code**: `--processes 16` was not refused (W2: only `worker_count`'s default stops at the
   physical cores); no complete mountain box of Poland was on Z: (13 606 of 86 446 sheets when the download stopped),
   so I1 took the Opole box.
+- **A tamed or shared run is no timing**: the border recount ran tamed beside the user's work and took +31 % tile
+  hours on the same tiles as the untamed lead run, its steps 2-3 too (wave 19); every timing of the explorer is
+  provisional for the same reason (wave 20). The counts and their equalities hold whatever the load.
+- **An exclusive command may never start**: queued while the user's state was `heavy-ok`, the explorer's exclusive
+  pass waited three hours and never ran, and the time held does not count toward `--wait`, so its wrapper did not
+  give up by itself (wave 20).
+- **A slow stage against its base before the memory is blamed**: the lead profile's stitching, about 48 times
+  ALL's rate, looked like memory pressure and was the tilings regression (04e91b0): the same rate with 6.6-10.5
+  and with 23.7-33.5 GiB available, a hundred times faster at the border tiles of the same runs (wave 17).
 
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 

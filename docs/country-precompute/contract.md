@@ -8,6 +8,11 @@ not a decision of an agent: stop that part and report it.
 
 ## What is built
 
+This section is the pilot as built in waves 1 and 2 (cube v1). Cube v2 (section 6, built on the branches
+`cube-v2` and `cube-v2-partners` on 2026-11-07/12, tag `history/cube-v2`) changed the bands (the profile,
+R7), the cells (one global lattice, R4), the lines across borders (R3) and the key; Slovakia's recount
+used the surface model (`nmpt: mark`).
+
 The whole of a country is searched offline in fixed tiles. Each tile keeps only **counts**, never
 the lines. The counts are kept in a sparse **counter cube**: for each 1 km cell of the country's
 CRS and each combination of filter bins, the lines and the spots. The cube is summed into 2, 4 and
@@ -39,7 +44,8 @@ Lines are searched in length **bands**, each on its own grid:
 - Spot: a pair of 50 m anchor clusters with at least one line (below). It is coarser than the app's
   groups and is counted on the fly, without grouping.
 - Only lines with both anchors inside the country are counted: anchors come from the area mask.
-  Lines across a border are left for a later layer of several countries.
+  Lines across a border are left for a later layer of several countries (counted since cube v2:
+  section 6, "The borders").
 
 ## Ownership
 
@@ -702,7 +708,8 @@ a region is rejected (R6: resampling every pixel; the measured difference of 2-1
 the half-pixel pitfall). These, and the eight new parameters of docs/country-precompute.md section
 6.3, change the key and the origin of the cube, so they go into **one `countcube.VERSION` and one
 recount**, after the band study has landed in `main` (its bands become the profile). This section is
-the contract of that work; nothing of it is coded yet. The waves start from the `main` that holds the
+the contract of that work, built on the branches `cube-v2` (waves A to C, 2026-11-07/08) and
+`cube-v2-partners` (2026-11-12), tag `history/cube-v2`. The waves start from the `main` that holds the
 band study, in their own worktrees, as section "Ownership" says.
 
 ### Step 0, before the code of R3: the resampling of the partner's data, measured (2026-11-05)
@@ -954,9 +961,9 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   already (`Plan.border`). Cost: the partner strip's anchors in step 2 and the cross-border pairs in
   step 3: +3-6 % of the tiles' time (est.); RAM, downloads unchanged; the tiles' files +3 % (est.).
 - **cube.json.** `neighbours: [cube ids]`, `neighbours_sha256` (the sha256 of `neighbours.geojson` its
-  border tiles were counted with; null for a study area; since 2026-11-12, not yet in `CountryCube` of
-  `viewer/src/app/api.ts`), `totals.border: {owned, partner}` for lines and spots, `notes` for the hard
-  borders. `countcube.build` sums as today; the border field is part of the key.
+  border tiles were counted with; null for a study area; since 2026-11-12, also in `CountryCube` of
+  `viewer/src/app/api.ts`, absent in older cubes), `totals.border: {owned, partner}` for lines and spots,
+  `notes` for the hard borders. `countcube.build` sums as today; the border field is part of the key.
 - **The web.** `/api/countries` lists every cube; `/cells` and `/histogram` take `border=own|all`
   (default `all`: interior + owned + partner lines whose partner is unknown (7) or has no cube in
   this data folder;
@@ -980,7 +987,7 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   passes it; the page sums only the cubes of the profile of the first country listed and shows the
   others apart with a note (`layerState.ts activeCubes`); the surface model may differ (today's note).
 - **Chosen (the user, 2026-11-12)** after two profiles were counted on all of Slovakia (round 5's wave
-  17; the tables in docs/performance.md, "Round 5", written at the round's closing): S 30-300 m at 1 m,
+  17; the tables in docs/performance.md, "Round 5", "The recount: two profiles of Slovakia"): S 30-300 m at 1 m,
   M 300-1000 m at 2 m (60°, cores of 5 and 10 km), L1 1-2 km at 3 m (55°, 10 km), L2 2-5 km at 5 m (45°,
   20 km), all sag and in the layer, no control band; T(L) and Silk 99 as the pilot's. `country compare`
   needs a control band, which only a study area or a test has now.
@@ -1016,10 +1023,10 @@ classes AA/BB/AB on the same code (its sink keeps its own `TileCounter`s).
 | Wave | Agent | Files |
 | --- | --- | --- |
 | 0 | done 2026-11-06, measured, decided by the user and built (tag `history/partner-resampling`) | `sources/mosaic.py` and `sources/filling.py` (the resampling option), `tools/border_study.py` (`--resampling`, `boxes`), `sources/layers/gridtiles.py`, the runs at four places, the numbers in step 0 above and docs/performance.md |
-| A | key, lattice, spots | `countcube.py`, `tests/test_countcube.py` |
-| B | anchors, kernel, counter, driver | `linesearch.py` (`partner`), `search.py` (`_anchors`, `Data.partner`, `count_tile`), `sources/filling.py` (the source mask), `country.py` (`PROFILE`, `NEIGHBOUR_CUBES`, the origin, cube.json's fields), `tests/test_count_mode.py`, `tests/test_country.py`, `tests/test_border_study.py` |
-| C | web and page | `web.py`, `viewer/src/app/api.ts`, `viewer/src/app/c/*`, `viewer/src/ui/Gallery.tsx`, `locales/en.json`, `tests/test_country_web.py`, `tools/ui_shots.py` |
-| lead | docs, the recount | this file, docs/country-precompute.md, docs/roadmap.md, CLAUDE.md, README; Slovakia counted again (1-1.5 h plus the band study's bands, est.), the comparison with the v1 cube |
+| A | done 2026-11-07 (f9ab017, tag `history/cube-v2`): key, lattice, spots | `countcube.py`, `tests/test_countcube.py` |
+| B | done 2026-11-08 (d5a6d7d, tag `history/cube-v2`): anchors, kernel, counter, driver | `linesearch.py` (`partner`), `search.py` (`_anchors`, `Data.partner`, `count_tile`), `sources/filling.py` (the source mask), `country.py` (`PROFILE`, `NEIGHBOUR_CUBES`, the origin, cube.json's fields), `tests/test_count_mode.py`, `tests/test_country.py`, `tests/test_border_study.py` |
+| C | done 2026-11-08 (509046b, a0b682e, tag `history/cube-v2`): web and page | `web.py`, `viewer/src/app/api.ts`, `viewer/src/app/c/*`, `viewer/src/ui/Gallery.tsx`, `locales/en.json`, `tests/test_country_web.py`, `tools/ui_shots.py` |
+| lead | docs, the recount (Slovakia counted again on 2026-11-10/12: docs/performance.md, "Round 5") | this file, docs/country-precompute.md, docs/roadmap.md, CLAUDE.md, README; Slovakia counted again (1-1.5 h plus the band study's bands, est.), the comparison with the v1 cube |
 
 A and B share `countcube.TileCounter`'s input (the parts' columns): A owns the counter, B hands it the
 columns `elev_a1`, `elev_a2`, `drop1`, `drop2`, `height_mean`, `high_pct`, `partner` (per line, the
