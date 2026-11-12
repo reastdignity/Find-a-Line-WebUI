@@ -102,17 +102,22 @@ class GridTiles(ComposedLayer):
     reads them (a mosaic of them is the native tiles' averaged by GDAL, byte for byte: the
     pixels of a 2 km tile divide into whole blocks, and a working grid's edges lie on
     multiples of its resolution), any other grid the native tiles as before; a resolution the
-    mirror or a URL does not have yet falls back to the native tiles too.
+    mirror or a URL does not have yet falls back to the native tiles too. averaged_bytes: the size of
+    a tile at each of those resolutions, for estimate (bytes_per_tile is the native tiles'; an
+    averaged tile without one counts as a native one).
     """
 
     def __init__(self, description: str, urls: List[str], crs: str, folder: str, tile_m: float,
                  native_res: float, bytes_per_tile: float, mirror: Optional[str] = None,
-                 averaged: Sequence[int] = ()):
+                 averaged: Sequence[int] = (), averaged_bytes: Sequence[float] = ()):
         self.description, self.urls, self.crs, self.folder = description, urls, crs, folder
         self.tile_m, self.native_res, self._bytes, self.mirror = tile_m, native_res, bytes_per_tile, mirror
         self.averaged = tuple(averaged)
         if any(not isinstance(f, int) or f < 2 for f in self.averaged):
             raise ValueError(f"averaged must be integer factors above 1, not {averaged!r}")
+        if averaged_bytes and len(averaged_bytes) != len(self.averaged):
+            raise ValueError(f"averaged_bytes must give a size for each of the factors {self.averaged}")
+        self._sizes = {native_res * f: float(b) for f, b in zip(self.averaged, averaged_bytes)}
         resolutions = [native_res] + [native_res * f for f in self.averaged]
         folders, readers = {}, {}
         for res in resolutions:
@@ -131,3 +136,8 @@ class GridTiles(ComposedLayer):
         """The resolution of the tiles a grid of grid_res reads (the native, or an averaged one;
         a grid of another CRS than the tiles' always the native)."""
         return self.index.resolution(grid_res, grid_crs)
+
+    def estimate(self, grid: Grid, cache_dir: str, update: Optional[str]) -> Tuple[int, int, float]:
+        """(tiles, tiles to download, MB), the averaged tiles at their own size (averaged_bytes)."""
+        tiles, todo, _ = super().estimate(grid, cache_dir, update)
+        return tiles, todo, todo * self._sizes.get(self.resolution(grid.res, grid.crs), self._bytes) / 1e6

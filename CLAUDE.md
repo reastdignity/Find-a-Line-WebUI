@@ -47,7 +47,7 @@ Read the section you need, not the whole file (several are over 200 KB).
 | Metrics, monitoring | `metrics.py`, `servicecounts.py`, `deploy/monitoring/` | metrics | web.md, deploy.md |
 | Viewer (TypeScript, Preact, Leaflet), 3D view | `viewer/src/`, `viewer/dist/` (committed) | viewer, view3d, browser-tests | viewer.md |
 | Coverage map | `viewer/src/coverage/`, `tools/coverage_*.py` | coverage-map | viewer.md, tools.md |
-| Country layer | `country.py`, `countcube.py`, `relief.py` | country-layer | country.md |
+| Country layer | `country.py`, `countcube.py`, `countkernels.py`, `relief.py` | country-layer | country.md |
 | Docker, the VPS, CI | `Dockerfile`, `compose.yaml`, `deploy/`, `.github/workflows/ci.yml` | deploy | deploy.md |
 | Tools run by hand | `tools/` (each tool's docstring says what it does) | the rule of its area | tools.md |
 

@@ -115,7 +115,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   `mosaic.WARP_KWARGS`, 2026-11-08). Never pass `num_threads > 1` to `reproject`: `num_threads=1` with the warp option
   `NUM_THREADS=N` keeps the kernel's N threads (`mosaic.WARP_KWARGS`). `faulthandler` sees a heap corruption: it
   prints `Windows fatal exception: code 0xc0000374` and each thread's Python stack, never a C stack (checked with a
-  double free of ucrtbase's and in the warper's stress); the country workers have it on (`country._worker_env`).
+  double free of ucrtbase's and in the warper's stress); the country workers have it on (`country._worker_env`);
+  re-measured when a release carries #15451: docs/roadmap.md, "To check".
 - **Heights above the ellipsoid** (ArcticDEM: the sea at 27-32 m in Greenland and Svalbard): a layer of them names its
   geoid (`FileBlocks(geoid=EGM2008)`) and caches its blocks above it, so the water filling, the sea at 0 m and the
   heights shown stay as for every other model. Never PROJ for the geoid: pyproj's transformation to EGM2008 heights

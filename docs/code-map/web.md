@@ -21,11 +21,18 @@ rename/move (POST `/<id>`), delete with what is in it; audit `favourite`, `favou
 the highline layer of a country (`Countries`: one `countcube.Cube` per version of
 `<data>/countries/<id>/cube/cube.json`, its folder and mtime, ids `COUNTRY_ID` only; `GET /api/countries` (cube.json
 without `config` and `origin`), `/api/countries/<id>/cells` (mode, `bbox` = Leaflet's `toBBoxString()`, else the
-cube's bounds; `level=auto` → `Cube.auto_level`, an explicit level over `COUNTRY_CELLS_MAX` (20000) cells in view a
-400 "too many cells"; the filters of `countcube.Filters.parse`; rows `[i, j, count, lat, lon of SW, SE, NE, NW]`
-rounded to `COUNTRY_DECIMALS`, `total`, `max`, `cut`: the rows' cells the outline cuts, by `"i,j"`, `Cube.cut`),
-`/api/countries/<id>/histogram` (the query of cells through `Countries._view`: `Cube.histogram` of the cells reaching
-the bbox (`view=`, corners rounded to `COUNTRY_DECIMALS`) with `level` and `cell_m`), `/api/countries/<id>/outline`
+cube's bounds grown by the layer's reach (`Cube.reach_m`: the partner lines' cells beyond the outline); `level=auto` →
+`Cube.auto_level`, an explicit level over `COUNTRY_CELLS_MAX` (20000) cells in view a 400 "too many cells"; the
+filters of `countcube.Filters.parse` with `border=all|own` (all by default: the interior, owned and partner lines;
+own: interior and owned) and `Countries.replaced` (the partners of cube.json's `neighbours` whose own cube is in the
+data folder: readable, no study area, the same `profile`; their own lines replace this cube's partner lines); a row
+per cell and side `[i, j, count, lat, lon of SW, SE, NE, NW, side]` (`Cube.cells(sides=True)`: side 0 the country's
+own lines, 1-7 the partner index of its partner lines, so a cell the border cuts gives two rows) rounded to
+`COUNTRY_DECIMALS`, `total`, `max`, `cut`: `"i,j"` a side-0 row's part inside the outline (`Cube.cut`), `"i,j,out"` a
+partner row's part beyond it within the layer's reach (`Cube.cut_outside`), none for a whole cell),
+`/api/countries/<id>/histogram` (the query of cells through `Countries._view`: `Cube.histogram(summary=True)` of the
+cells reaching the bbox (`view=`, corners rounded to `COUNTRY_DECIMALS`) with `level` and `cell_deg`: each dimension's
+bins, both modes' `totals` and the lines' `border` split, interior, owned, partner), `/api/countries/<id>/outline`
 (`Cube.outline_simplified`; 404 also without its area.geojson), `/api/countries/<id>/request`
 (`countcube.cell_request`), all `require_admin`, the work in `run_in_threadpool`; a ValueError a 400 with its text, a
 country without a readable cube 404; only countcube imported), the requests the page may send, SSE events

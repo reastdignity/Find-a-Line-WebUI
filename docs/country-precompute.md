@@ -788,8 +788,8 @@ What it takes, none of it done yet:
 - **The key.** Eight fields of 3 bits are 24 bits, and the int64 key has 10 free (53 of 63 used), so
   the key needs a second int64: 24 B a row of the cube instead of 16.
 - **One count of every tile.** The layout changes, so `countcube.VERSION` changes. It belongs in the
-  same count as the band study's bands and, if taken, step 1 per group of tiles: about 1-1.5 h of this
-  PC for Slovakia (est.).
+  same count as the band study's bands (step 1 per group of tiles, B3, was measured on 2026-11-08 and not taken:
+  docs/performance.md, round 5): about 1-1.5 h of this PC for Slovakia (est.).
 - **The bins,** chosen by measuring (a guess would fix them for every country), since other edges change the sizes.
 - **The spots.** `merge_spots` takes each new field as a filter passes: the largest bin of a floor
   (drop, heights, the stronger prominence), the smallest of a ceiling (the height difference, the

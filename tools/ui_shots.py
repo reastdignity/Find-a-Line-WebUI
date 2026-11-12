@@ -80,6 +80,10 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
                   "const init = {bubbles: true, clientX: x, clientY: y}, e = document.elementFromPoint(x, y); "
                   "e.dispatchEvent(new MouseEvent('mousemove', init)); e.dispatchEvent(new MouseEvent('click', init)); })()")
 MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
+# The highline layer's selected cell at the top of its panel, the notes under it ("c-layer-border")
+BORDER_CARD_SHOWN = "document.querySelector('.c-layer-cell')?.scrollIntoView({block: 'start'})"
+# The highline layer's fold "More filters" in view ("c-layer-chips", "c-layer-fold")
+FOLD_SHOWN = "document.querySelector('.c-layer-more')?.scrollIntoView({block: 'start'})"
 # The 3D view drawn (its terrain and the found line's profile: view3d/main.ts) and its imagery loaded
 VIEW3D_READY = ("wait:document.getElementById('view3d')?.dataset.ready === '1' && "
                 "(document.querySelector('.v3-activity')?.classList.contains('v3-hidden') !== false || "
@@ -144,6 +148,13 @@ PAGES = {
     "c-layer-world": ("c", "#layer&view=49.42,19.66,8", None),  # both sample cubes in view (Slovakia, Testland)
     "c-layer-study": ("c", "#layer&country=sk-part", None),  # the study area, alone
     "c-layer-end": ("c", "#layer", "scroll:.c-mappage-3"),  # phones: the histograms at the end of the column
+    "c-layer-collapsed": ("c", "#layer", None),   # the left panel collapsed to its rail (LAYER_LAYOUTS)
+    # two filters of the fold "More filters" set: the closed fold names them as chips; opened
+    "c-layer-chips": ("c", "#layer&drop=60&elevation_low=1000", "js:" + FOLD_SHOWN),
+    "c-layer-fold": ("c", "#layer&drop=60&elevation_low=1000", [".c-layer-more > summary", "js:" + FOLD_SHOWN]),
+    # a cell the border cuts selected at the map's centre (its part inside the country), the card and the notes in view
+    "c-layer-border": ("c", "{border}", ["js:" + CELL_AT_CENTRE, "wait:document.querySelector('.c-layer-search-hint')",
+                                         "js:" + BORDER_CARD_SHOWN]),
     "map": ("map", "", None),
     "map-line": ("map", "", ".r-rows .r-row"),  # a spot selected: its details and profile
     "map-shared": ("shared", "", None),
@@ -221,6 +232,12 @@ LOWEST = """(sel) => {
   e.setAttribute("data-shot-low", "");
 }"""
 
+# The highline layer's side panels kept in localStorage ("findaline.layer.layout", result/view/layout.ts) for a page;
+# every other page starts from none (the defaults)
+LAYER_LAYOUTS = {
+    "c-layer-collapsed": {"v": 1, "left": {"w": 400, "open": False}, "right": {"w": 620, "open": True}},
+}
+
 INTROS = ("search", "result")  # the intros of ui/Intro.tsx (localStorage "findaline.intro.<name>")
 
 DESKTOP = {"viewport": {"width": 1400, "height": 900}, "device_scale_factor": 1}
@@ -288,6 +305,28 @@ def with_credits(path: str):
         json.dump(meta, f, ensure_ascii=False, indent=1)
 
 
+def border_view(data: str) -> str:
+    """#layer at 30" cells centred on the part inside Slovakia of one of the sample cube's cells the border cuts that
+    has a row of partner lines too (the cell of the most lines among those cut to about half)."""
+    import countcube as cc
+    cube = cc.Cube(os.path.join(data, "countries", "slovakia", "cube"))
+    i, j, side, n = cube.cells("lines", 1, None, cc.Filters(replaced=(2,)), sides=True)
+    sides, counts = {}, {}
+    for a, b, s, c in zip(i.tolist(), j.tolist(), side.tolist(), n.tolist()):
+        sides.setdefault((a, b), set()).add(s)
+        counts[a, b] = counts.get((a, b), 0) + c
+    cut = cube.cut(1)
+    whole = {key: cube.cell_km2(1, [key[1]])[0] for key in cut}
+    found = [key for key in cut if {0, 1} <= sides.get(key, set()) and 0.3 < cut[key]["km2"] / whole[key] < 0.7]
+    if not found:
+        return "#layer"
+    key = max(found, key=lambda k: counts[k])
+    import shapely
+    part = shapely.MultiPolygon([shapely.Polygon([(lon, lat) for lat, lon in polygon[0]]) for polygon in cut[key]["shape"]])
+    point = part.representative_point()
+    return f"#layer&view={point.y:.5f},{point.x:.5f},14&level=1"
+
+
 def certificate(folder: str):
     """A self-signed certificate of localhost for this run: (certificate file, key file)."""
     from datetime import datetime, timedelta, timezone
@@ -351,7 +390,7 @@ def serve(data: str, run_folder: str | None = None):
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from test_country_web import OUTLINE2, OUTLINE_STUDY, sample_cube
     sample_cube(data)  # the highline layer's pages (#layer): two cubes, as tests/test_country_web.py's fixture
-    sample_cube(data, "testland", "Testland", seed=3, outline=OUTLINE2)
+    sample_cube(data, "testland", "Testland", seed=3, outline=OUTLINE2, neighbours=("slovakia",))
     sample_cube(data, "sk-part", "High Tatras", seed=5, outline=OUTLINE_STUDY, study=True)
     jobs.add_run(run, admin.id, 1)
     share = "ui-shots-share-" + "x" * 30
@@ -396,6 +435,7 @@ def main():
     site, cookies, run, share, stop = serve(data, args.run)
     line = args.line or first_line(data, run)
     also = ";".join(first_line(data, run, k) for k in (40, 200))  # two other lines of the run ("view3d-others")
+    border = border_view(data)  # a cell of the sample cube the border cuts at the map's centre ("c-layer-border")
     wanted = [w for w in args.only.split(",") if w]
     pages = {n: p for n, p in PAGES.items() if not wanted or any(w in n for w in wanted)}
     themes = ["light", "dark"] if args.dark else ["light"]
@@ -427,13 +467,15 @@ def main():
                                                   "domain": "localhost", "path": "/", "secure": True,
                                                   "httpOnly": True, "sameSite": "Lax"}])
                         page = context.new_page()  # a fresh page each: no menu or route of the one before
-                        kept = LAYOUTS.get(name)
+                        kept, layer = LAYOUTS.get(name), LAYER_LAYOUTS.get(name)
                         page.add_init_script("try { " + (
                             f"localStorage.setItem('findaline.layout', {json.dumps(json.dumps(kept))}); " if kept
-                            else "localStorage.removeItem('findaline.layout'); ") + "} catch (e) {}")
+                            else "localStorage.removeItem('findaline.layout'); ") + (
+                            f"localStorage.setItem('findaline.layer.layout', {json.dumps(json.dumps(layer))}); " if layer
+                            else "localStorage.removeItem('findaline.layer.layout'); ") + "} catch (e) {}")
                         start = {"map": f"/runs/{run}/map.html", "shared": f"/s/{share}/map.html"}.get(
                             ui, ui if ui.startswith("/") else f"/?ui={ui}")
-                        page.goto(f"{site}{start}{hash_.format(run=run, line=line, also=also)}")
+                        page.goto(f"{site}{start}{hash_.format(run=run, line=line, also=also, border=border)}")
                         page.wait_for_timeout(2500)  # the event stream stays open: no "network idle"
                         try:  # the maps' tiles (OpenTopoMap can be slow): an empty map is no finding
                             page.wait_for_function("!document.querySelector('.leaflet-tile:not(.leaflet-tile-loaded)')",

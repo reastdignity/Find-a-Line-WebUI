@@ -27,64 +27,84 @@ removed on 2026-11-04, so `?ui=` chooses only the kits and a stale `b` or `d` gi
 gives no `?ui=`; the old app with tabs was removed on 2026-10-30; docs/roadmap.md, "UI prototypes B, C and D"): `ui/`
 tokens, icons and components under a `.ui` root (`components.tsx` `Splitter`: a draggable, focusable separator,
 WAI-ARIA's window splitter, our own (react-resizable-panels would need preact/compat, split.js is unmaintained);
-`Sheet` the phones' bottom sheet (peek, half, full); no Rail, Toast or Tabs since B went; `Hint.tsx` the "?" of a
-field and its bubble, the site's bounds added by `search/SearchPanel.tsx` from `hint.bounds.*`; `Intro.tsx` an intro
-dialog shown once per browser (localStorage `findaline.intro.<name>`, `IntroLink` opens it again); `choice.ts` the
-switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in, privacy and about pages of `web.py`; `logo/`
-the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css` (`Logo`/`LogoMark` in `icons.tsx` bundle them as
-text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs` (`web.LOGO_SVG` reads `dist/logo.svg`; the
-standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts` `loadRun`/`loadRunFrom` its `data.js`: over
-http(s) downloaded by `download.ts` (XMLHttpRequest: its progress counts the decoded bytes, against `SIZE_HEADER` =
-`web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops Content-Length; the 3D view's patch too) and read by
-`parseRunScript` (JSON.parse, about 30 % faster than the script), a file it refuses (NaN, Infinity) and every load
-from disk as a script, `LoadProgress` to `RunLoading.tsx` (the phases and a bar; `model.ts buildModel` builds the
-model after a paint, `paint.ts nextPaint`), `orthoForApp` its orthophoto's cache for the app's page; `model.ts`
-`ResultModel`: filters → groups → rows, selection, next/previous spot, favourites; `ResultMap.ts` its Leaflet layer
-(one canvas, no line interactive: a second canvas took every click of the map; a click takes the nearest line within
-`REACH_MOUSE`, a finger's within `REACH_TOUCH`, known by the last pointerdown since WebKit's click after a tap is a
-"mouse" one; spots within `TIE_*` of the nearest go to `onChoose`, the workspace's `view/LineChooser.tsx`); `view/`
-the panel pieces (`ResultColumns.tsx`: C's result, shared by `app/c/ResultPage.tsx` and `map.html`: a header, the list
-and the details as side panels (`Splitter` edges, a collapse tab beside each, 36 px rails, forced rails "auto" in a
-narrow window, never kept), the map between them with `ProfileCard.tsx` over its bottom (`ProfileDock` in fill mode
-with a compact head and a fold button; height by its top edge, width by its side edges; folded in a map lower than 420
-px, nothing kept from there), the corners above the card only where it covers them (`corners.ts`
-`useCornersAboveCard`), the run's data credits folded behind *Data credits* while the card is shown; on phones the
-sheet; `layout.ts` the kept layout (localStorage `findaline.layout`, `sanitize`, `fitColumns`, `cardInsets`,
-`moveCardEdge`, `LIMITS`) and `useLayout.ts` its state; `credits.ts` `useRunCredits`), `view/ResultIntro.tsx` "How to
-read the result" (mounted by `FilterBar.tsx`), demo `?ui=kit-result`), `search/` the new search panel (`useSearch`:
-modes, presets, live estimate; `PlaceBox.tsx` the place-name box; `SearchIntro.tsx` "How a search works" with the
-user's limits from `/api/usage`; demo `?ui=kit-search`), `app/useJobs.ts`, `app/request.ts` (the search's request),
-`app/areas.ts` and `app/files.ts` (areas of drawn shapes, area files) shared by the shells, `app/BetaNotice.tsx` (the
-notice after a sign-in: the cookie `web.WELCOME_COOKIE`) and `app/ReportDialog.tsx` with `report.ts` (Report a
-problem, opened by a window event from anywhere; both mounted by `app.tsx`), `app/c/` the app's shell (`AppC.tsx`: the
-header, the pages and the phones' bottom navigation; hash routes in `route.ts`; `ResultPage.tsx` wraps
-`result/view/ResultColumns.tsx`; `NewSearch.tsx` the search, whose panel `search/SearchPanel.tsx` has one layout since
-its variant of B went (the demo `?ui=kit-search` shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages;
-`LayerPage.tsx` the highline layer (`#layer`; the local app and administrators, from the account menu; three columns,
-`MapPage` with an `aside`: the filters, legend, level and selected cell on the left, the map, the histograms of the
-counts in view on the right (`LayerHistograms.tsx`: a bar per bin, a click sets the length range or a threshold);
-every country's cube whose box reaches the view at once, a study area (`CountryCube.study`) only alone
-(`layerState.ts` `activeCubes`, `countriesFirst`; `LayerSource`: `countries`, `cells`, `histogram`, `outline`), the
-level chosen by the client (`layerState.ts` `autoLevel`: at most `CELLS_FIRST` cells at first, then finer below
-`CELLS_FINER`, coarser above `CELLS_COARSER`, and coarser while a cube's request would pass `REQUEST_CELLS_MAX`), the
-cells of a padded box asked once and kept while the view stays inside it (no `/cells` request, the fitted breaks
-kept), fetched 300 ms after a change and aborted; the right panel a second Preact tree rendered into the aside (never
-`preact/compat`'s portal); `cellsLayer.ts` the cells on a `SafeCanvas`, each drawn and divided by its part inside the
-country (`cellShape`, `cellKm2`: the server's `cut`), coloured by the density per km² in log classes (fixed
-`CLASS_BREAKS`, or fitted to the padded box's 2nd-98th percentile, `quantileBreaks`, eased over `EASE_MS`; tokens
-`--layer-1..5` of `ui/tokens.css`), the countries' outlines below `OUTLINE_MPP`; the view and every filter in the hash
-(`layerState.ts` `parseState`/`stateParams`, written in place, `ShellC` ignores changes within `#layer`); "Search
-here" opens `#new&cell=<id>:<band>:<level>:<i>:<j>`, `NewSearch` with `api.countryRequest` as its `initial`; demo
-`?ui=kit-layer`: `ui/Gallery.tsx` `KitLayer`, two canned cubes); `FavouritesPage.tsx` the favourites in folders, drag
-and drop with Pragmatic drag and drop), `result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/`
-the coverage map: `types.ts` (coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own
-catalogue `locales/coverage/`, `metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the
-colours of the page, the layer and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend
-with three scales, list of the areas), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`:
-`window.FAL_MEDIA`; built only by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's
-*Data coverage*; `translator.ts` the `translator` of both catalogues (so coverage.js holds only its own);
-`ui/fonts.css` Barlow Condensed (woff2 of weights 500-700, latin and latin-ext, flat hashed files in dist:
-`install_viewer` copies dist file by file)
+`Sheet` the phones' bottom sheet (peek, half, full); `SidePanel.tsx` a side panel beside a map (its edge, collapse tab
+and rail, `useWidthOf`; `sidepanel.css`: the result's and the highline layer's); no Rail, Toast or Tabs since B went;
+`Hint.tsx` the "?" of a field and its bubble, the site's bounds added by `search/SearchPanel.tsx` from
+`hint.bounds.*`; `Intro.tsx` an intro dialog shown once per browser (localStorage `findaline.intro.<name>`,
+`IntroLink` opens it again); `choice.ts` the switch, `Gallery.tsx` `?ui=kit`; `pages.css` the server-rendered sign-in,
+privacy and about pages of `web.py`; `logo/` the logo: `logo.svg` and `mark.svg` coloured by classes of `ui.css`
+(`Logo`/`LogoMark` in `icons.tsx` bundle them as text), `logo.svg` and `favicon.svg` copied to `dist/` by `build.mjs`
+(`web.LOGO_SVG` reads `dist/logo.svg`; the standalone files in `docs/logo/`)), `result/` a run in the app (`load.ts`
+`loadRun`/`loadRunFrom` its `data.js`: over http(s) downloaded by `download.ts` (XMLHttpRequest: its progress counts
+the decoded bytes, against `SIZE_HEADER` = `web.SIZE_HEADER`, which `web.RunFiles` sets: nginx's gzip drops
+Content-Length; the 3D view's patch too) and read by `parseRunScript` (JSON.parse, about 30 % faster than the script),
+a file it refuses (NaN, Infinity) and every load from disk as a script, `LoadProgress` to `RunLoading.tsx` (the phases
+and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`), `orthoForApp` its orthophoto's
+cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows, selection, next/previous spot,
+favourites; `ResultMap.ts` its Leaflet layer (one canvas, no line interactive: a second canvas took every click of the
+map; a click takes the nearest line within `REACH_MOUSE`, a finger's within `REACH_TOUCH`, known by the last
+pointerdown since WebKit's click after a tap is a "mouse" one; spots within `TIE_*` of the nearest go to `onChoose`,
+the workspace's `view/LineChooser.tsx`); `view/` the panel pieces (`ResultColumns.tsx`: C's result, shared by
+`app/c/ResultPage.tsx` and `map.html`: a header, the list and the details as side panels (`ui/SidePanel.tsx`, shared
+with the highline layer: `Splitter` edges, a collapse tab beside each, 36 px rails, forced rails "auto" in a narrow
+window, never kept), the map between them with `ProfileCard.tsx` over its bottom (`ProfileDock` in fill mode with a
+compact head and a fold button; height by its top edge, width by its side edges; folded in a map lower than 420 px,
+nothing kept from there), the corners above the card only where it covers them (`corners.ts` `useCornersAboveCard`),
+the run's data credits folded behind *Data credits* while the card is shown; on phones the sheet; `layout.ts` the kept
+layout (localStorage `findaline.layout`, `sanitize`, `fitColumns` and `maxColumnWidth` on the two panels'
+`fitPanels`/`maxPanelWidth`, which the highline layer's panels share with their own `LAYER_LIMITS` and kept value,
+`sanitizeLayer`, `findaline.layer.layout`; `cardInsets`, `moveCardEdge`, `LIMITS`) and `useLayout.ts` its state;
+`credits.ts` `useRunCredits`), `view/ResultIntro.tsx` "How to read the result" (mounted by `FilterBar.tsx`), demo
+`?ui=kit-result`), `search/` the new search panel (`useSearch`: modes, presets, live estimate; `PlaceBox.tsx` the
+place-name box; `SearchIntro.tsx` "How a search works" with the user's limits from `/api/usage`; demo
+`?ui=kit-search`), `app/useJobs.ts`, `app/request.ts` (the search's request), `app/areas.ts` and `app/files.ts` (areas
+of drawn shapes, area files) shared by the shells, `app/BetaNotice.tsx` (the notice after a sign-in: the cookie
+`web.WELCOME_COOKIE`) and `app/ReportDialog.tsx` with `report.ts` (Report a problem, opened by a window event from
+anywhere; both mounted by `app.tsx`), `app/c/` the app's shell (`AppC.tsx`: the header, the pages and the phones'
+bottom navigation; hash routes in `route.ts`; `ResultPage.tsx` wraps `result/view/ResultColumns.tsx`; `NewSearch.tsx`
+the search, whose panel `search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search`
+shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
+app and administrators, from the account menu; `MapPage` with an `aside`: two side panels as the result's
+(`ui/SidePanel.tsx`; `layout.ts` `fitPanels` with `LAYER_LIMITS`: left 320-560 px, right 300-640, the map at least
+360; kept under `findaline.layer.layout`), each one's content in a scroll box, the rails' labels from the page
+(`MapPageExtras`), a panel's change restarting the automatic level; phones one scrolling column, no edges; on the left
+the filters (today's seven open, the cube's other dimensions of `kinds` in the fold "More filters" by topic, a closed
+fold naming its set filters as chips; the A-frame pair disabled for a cube counted without the no-fall zone and the
+A-frames, the clearance over trees without a surface model, each with its note), the legend (the partner cells'
+hatched swatch), the totals in view of both modes with the lines across the border (`/histogram`'s `totals` and
+`border`), the border switch (`border=all|own`: "All" and "Inside <country> only"), the levels 30″/1′/2′/4′ with their
+sizes at the view's latitude, the selected cell (kept by its base cell across levels; its own counts by one
+`/histogram` of a box inside it; "Search here" with the hint of a cut or a partner cell naming the neighbour by a
+row's side) and the notes ("Across the borders" from cube.json's `neighbours`: a neighbour's own layer shown, or this
+country's data until it has one), the map in the middle, on the right the sixteen histograms of the counts in view
+(`LayerHistograms.tsx`: by topic, `layerState.ts` `TOPICS`, The line, Anchors and terrain, Rigging, the fold's order
+too; a bar per bin, a click sets the length range or the limit by the dimension's kind; two a row while the panel's
+content holds two of 220 px, a container query on its scroll box; the chart of the filter changed last ringed and
+scrolled to, on phones a swiped strip per topic with that chart enlarged); every country's cube whose box reaches the
+view at once, a study area (`CountryCube.study`) or a country of another layer profile (`profile`, R7) only alone
+(`layerState.ts` `activeCubes`, `summedWith`, `countriesFirst`; `LayerSource`: `countries`, `cells`, `histogram`,
+`outline`), the level chosen by the client in cells of `cell_deg` (`layerState.ts` `autoLevel`: at most `CELLS_FIRST`
+cells at first and after a panel's change, then finer below `CELLS_FINER`, coarser above `CELLS_COARSER`, and coarser
+while a cube's request would pass `REQUEST_CELLS_MAX`), the cells of a padded box asked once and kept while the view
+stays inside it (no `/cells` request, the fitted breaks kept), fetched 300 ms after a change and aborted; the right
+panel a second Preact tree rendered into the aside (never `preact/compat`'s portal); `cellsLayer.ts` the rows on a
+`SafeCanvas`, each drawn and divided by its part of its cell (`cellShape`, `cellKm2`: the server's `cut` by `cutKey`,
+else the lon/lat rectangle's km², `layerState.ts` `rectKm2`), the partner rows hatched (a canvas pattern) and left out
+of the fitted scale, coloured by the density per km² in log classes (fixed `CLASS_BREAKS`, or fitted to the padded
+box's 2nd-98th percentile, `quantileBreaks`, eased over `EASE_MS`; tokens `--layer-1..5` of `ui/tokens.css`), the
+countries' outlines below `OUTLINE_MPP`; the view and every filter in the hash (`layerState.ts`
+`parseState`/`stateParams`: each dimension by its name, `border`; written in place, `ShellC` ignores changes within
+`#layer`); "Search here" opens `#new&cell=<id>:<band>:<level>:<i>:<j>`, `NewSearch` with `api.countryRequest` as its
+`initial`; demo `?ui=kit-layer`: `ui/Gallery.tsx` `KitLayer`, two canned v2 cubes, `?pick=border` a cut cell);
+`FavouritesPage.tsx` the favourites in folders, drag and drop with Pragmatic drag and drop),
+`result/view/FavouritePicker.tsx` the favourite button's folders; `coverage/` the coverage map: `types.ts`
+(coverage.json, the outlines, contrast.json), `data.ts`, `i18n.ts` (`ct` of its own catalogue `locales/coverage/`,
+`metres` with the language's decimal sign, `areaName`, `noteText`), `palette.ts` (the colours of the page, the layer
+and the canvas), `page/` the page /coverage (flat d3 map, Leaflet, globe; card, legend with three scales, list of the
+areas), `draw/` and `media/` the canvas of the animations and images (`media/main.ts`: `window.FAL_MEDIA`; built only
+by `node build.mjs --media`, never in dist); `app/coverageLayer.ts` the place map's *Data coverage*; `translator.ts`
+the `translator` of both catalogues (so coverage.js holds only its own); `ui/fonts.css` Barlow Condensed (woff2 of
+weights 500-700, latin and latin-ext, flat hashed files in dist: `install_viewer` copies dist file by file)
 
 ## `viewer/src/view3d/`
 

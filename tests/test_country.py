@@ -19,6 +19,11 @@ OFFLINE_ENV = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.
                "FINDALINE_PROGRESS": "text"}
 SQUARE = {"type": "Polygon", "coordinates": [[[19.7522, 50.1546], [19.7590, 50.1546], [19.7590, 50.1580],
                                               [19.7522, 50.1580], [19.7522, 50.1546]]]}
+# Testland: the clip west of the tower's meridian (tests/test_border_study.py's BORDER_LON), so its lines from the
+# tower to the rocks west of it cross the border; the clip's own data east of it are the partners (partner 7), and
+# a strip west of it (the clip reprojected to EPSG:8353 reaches beyond the outline's west edge)
+WEST = {"type": "Polygon", "coordinates": [[[19.7505, 50.1530], [19.7561, 50.1530], [19.7561, 50.1595],
+                                            [19.7505, 50.1595], [19.7505, 50.1530]]]}
 ID = "testland"
 
 
@@ -47,7 +52,7 @@ def env(tmp_path_factory):
     os.environ.update(OFFLINE_ENV)
     base = tmp_path_factory.mktemp("country")
     area = base / "square.geojson"
-    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": SQUARE}))
+    area.write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": WEST}))
     config = {"id": ID, "name": "Testland", "source": "files", "area": str(area),
               "bands": [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula",
                          "slope_threshold": 45, "core_m": 200, "layer": True},
@@ -104,7 +109,9 @@ def _assert_same_cube(a: dict, b: dict):
 @pytest.fixture(scope="module")
 def full(env):
     """A whole run in this process, and the counts of one grid per layer band (count_tile with
-    core=None and a TileCounter over the band's whole grid) built into a cube."""
+    core=None and a TileCounter over the band's whole grid, with the partner anchors beyond the
+    outline as a border tile has them: the square lies inside the clip) built into a cube."""
+    import dataclasses
     import country
     import countcube
     import search
@@ -119,7 +126,7 @@ def full(env):
     for band in c.bands:
         if not band.layer:
             continue
-        plan = country.band_plan(c, band, folder, data)
+        plan = dataclasses.replace(country.band_plan(c, band, folder, data), partners=float(band.lengths[1]))
         os.makedirs(plan.paths.work, exist_ok=True)
         counter = countcube.TileCounter(plan.grid, tuple(state["origin"]), None, band.lengths, False)
         search.count_tile(plan, search.prepare_data(plan), None, counter, country.tension_table(c, band, plan))
@@ -137,9 +144,15 @@ def _cube_folder(folder: str) -> dict:
 
 def test_cube_equals_one_grid(env, full):
     """The cube of the tiles equals the counts of one grid, in a CRS of negative coordinates, with
-    at least 2 x 2 tiles; cube.json as the contract gives it."""
+    at least 2 x 2 tiles, the lines across the border too; cube.json as the contract gives it."""
+    import country
+    import countcube
     data, state = full["data"], full["state"]
-    assert state["crs"] == "EPSG:8353" and state["origin"][0] < 0 and state["origin"][1] < 0
+    assert state["crs"] == "EPSG:8353" and state["cube_version"] == countcube.VERSION
+    # the origin in cells of the global lattice (cube v2): south-west of the outline by its longest line
+    west, south = state["bounds_wgs84"][:2]
+    assert all(isinstance(v, int) and v % 8 == 0 for v in state["origin"])
+    assert 0 < west * 120 - state["origin"][0] < 8 + 2 and 0 < south * 120 - state["origin"][1] < 8 + 2
     rows = _manifest(data)
     assert sum(r[0] == "S" for r in rows) >= 4 and sum(r[0] == "M" for r in rows) >= 2
     assert all(r[2] == "done" for r in rows)
@@ -152,6 +165,24 @@ def test_cube_equals_one_grid(env, full):
     assert info["totals"]["lines"] > 100 and info["totals"]["spots"] > 10
     assert info["partial"] is False and info["dsm"] is False and info["water"] is False and info["study"] is False
     assert info["config"] == state["hash"] and info["origin"] == state["origin"]
+    # across the border (the file's own data beyond the outline, partner 7): owned lines (a partner east of the
+    # outline) and the partner's (one west of it), no neighbour of an elevation file, the profile's sha256, the
+    # notes on the borders
+    border = info["totals"]["border"]
+    assert border["lines"]["owned"] > 0 and border["lines"]["partner"] > 0 and border["spots"]["owned"] > 0
+    assert border["lines"]["owned"] + border["lines"]["partner"] < info["totals"]["lines"]
+    assert info["neighbours"] == [] and info["profile"] == country.Country.from_config(state["config"]).profile.sha256
+    # an elevation file has no declared neighbour: a neighbours.geojson without features (nothing fetched), its
+    # sha256 in cube.json and in every border tile's meta, every partner 7
+    with open(os.path.join(folder, country.NEIGHBOURS_FILE), encoding="utf-8") as f:
+        assert json.load(f)["features"] == []
+    neighbours_sha = country._sha256_file(os.path.join(folder, country.NEIGHBOURS_FILE))
+    assert info["neighbours_sha256"] == state["neighbours_sha256"] == neighbours_sha
+    assert any(n.startswith("Lines across the border are counted too") for n in info["notes"])
+    # the square lies in Poland, far from its borders: no hard border (Poland is its own, not a neighbour)
+    assert not any(n.startswith("No data of the neighbours") for n in info["notes"])
+    keys = countcube.unpack_keys(countcube.Cube(os.path.join(folder, "cube")).array("lines", 1)[:, :2])
+    assert set(keys["partner"][keys["border"] > 0].tolist()) == {7} and not keys["partner"][keys["border"] == 0].any()
     assert [b["name"] for b in info["bands"]] == ["S", "M", "C"] and [b["layer"] for b in info["bands"]] == \
         [True, True, False]
     m = info["bands"][1]
@@ -166,6 +197,8 @@ def test_cube_equals_one_grid(env, full):
     path = os.path.join(folder, "tiles", "S", rows[0][1] + ".npz")
     counts, meta = countcube.load_tile(path)
     assert meta["config"] == state["hash"] and meta["origin"] == state["origin"] and meta["band"] == "S"
+    assert meta["profile"] == info["profile"] and meta["partners"] == 150.0  # a border tile of S (30-150 m)
+    assert meta["neighbours_sha256"] == info["neighbours_sha256"]
     assert meta["lines"] == counts.lines and meta["spots"] == len(counts.spot_ids) and "dropped" in meta
     assert meta["seconds"]["count"] >= 0 and meta["threads"] >= 1 and meta["data"] and "peak_memory" in meta
     # its profile (`country profile`): seconds and CPU per stage, the counter, the memory, the file reads
@@ -315,13 +348,24 @@ def test_failing_tiles(env, full, monkeypatch, capsys):
 
 def test_worker_count(monkeypatch):
     """The processes of a run from the measured memory of a count (WORKER_BASE plus
-    COUNT_PIXEL_BYTES per pixel of the largest tile), at most the physical cores, at least one."""
+    COUNT_PIXEL_BYTES per pixel of the largest tile, COUNT_SURFACE_PIXEL_BYTES with a surface model), at
+    most the physical cores, at least one; with a surface model every tile of Slovakia's two profiles of
+    round 5 under its budget (the largest private peak of each band, its tiles' pixels: wave 19's A3)."""
     import country
     monkeypatch.setattr(country.psutil, "cpu_count", lambda logical=True: 24 if logical else 12)
     per = country.WORKER_BASE + country.COUNT_PIXEL_BYTES * 38_500_000
     assert country.worker_count(38_500_000, 10 * 2 ** 30) == (6, per)  # Slovakia's S tiles, 10 GiB free
     assert country.worker_count(38_500_000, 100 * 2 ** 30)[0] == 12
     assert country.worker_count(38_500_000, 2 ** 30)[0] == 1
+    surface = country.WORKER_BASE + country.COUNT_SURFACE_PIXEL_BYTES * 38_500_000
+    assert country.worker_count(38_500_000, 10 * 2 ** 30, surface=True) == (4, surface)
+    measured = {"lead S": (38_489_616, 1_849_704_448), "lead M": (39_740_416, 1_551_441_920),
+                "lead L1": (23_736_384, 1_486_688_256), "lead L2": (37_503_376, 1_434_279_936),
+                "user S": (57_820_816, 3_130_118_144), "user M": (68_956_416, 2_413_436_928),
+                "user L": (47_224_384, 1_368_125_440)}  # the pixels of the band's largest tile, its largest peak (B)
+    for band, (px, peak) in measured.items():
+        assert country.worker_count(px, 2 ** 40, surface=True)[1] > peak, band
+    assert country.worker_count(57_820_816, 2 ** 40)[1] < 3_130_118_144  # 32 B/px left it over
 
 
 def test_worker_env_keeps_blas_to_one_thread(monkeypatch):
@@ -353,19 +397,52 @@ def test_worker_env_dumps_a_fatal_error(monkeypatch):
 
 
 def test_config_hash_follows_the_obstacle_rule(monkeypatch):
-    """Without the surface model the hash is the one of before (Slovakia's tiles keep theirs); with
-    it, another obstacle rule gives another hash, so its tiles are counted again."""
+    """The hash of the configuration, its profile's sha256 and the outline's; with the surface model
+    another obstacle rule gives another hash, so its tiles are counted again."""
     import hashlib
     import country
     import obstacles
     config = {"id": "x", "options": {"nmpt": "off"}}
-    before = hashlib.sha256(json.dumps({"config": config, "area_sha256": "a"}, sort_keys=True).encode("utf-8"))
-    assert country.config_hash(config, "a") == before.hexdigest()
+    value = {"config": config, "profile": country.PROFILE.sha256, "area_sha256": "a"}
+    assert country.config_hash(config, "a") == hashlib.sha256(json.dumps(value, sort_keys=True).encode("utf-8")).hexdigest()
     marked = {"id": "x", "options": {"nmpt": "mark"}}
     first = country.config_hash(marked, "a")
     assert first != country.config_hash({"id": "x", "options": {"nmpt": "off"}}, "a")
     monkeypatch.setattr(obstacles, "RULE", {"radius": 3, "min_height": 1.0})
     assert country.config_hash(marked, "a") != first
+
+
+def test_border_notes(tmp_path):
+    """cube.json's notes on the borders: a country's name none of its neighbours (the page #layer writes a
+    sentence per neighbour of "neighbours" itself) and list the borders no neighbour's source covers (the
+    coverage map's outline of Slovakia: Hungary and Ukraine, never Slovakia itself) by the countries'
+    English names, two joined by "and", more by commas and "and"; a source without countries (an elevation
+    file) counts the country holding its outline as its own; a study area keeps its sentence."""
+    import country
+    with open(country.SHAPES, encoding="utf-8") as f:
+        sk = next(ft for ft in json.load(f)["features"] if ft["properties"]["id"] == "sk")
+    (tmp_path / "area.geojson").write_text(json.dumps({"type": "Feature", "properties": {}, "geometry": sk["geometry"]}))
+    slovakia = country.Country(id="slovakia", name="Slovakia", source="slovakia", area="osm:Slovensko")
+    notes = country._border_notes(slovakia, str(tmp_path))
+    assert len(notes) == 2 and notes[0].startswith("Lines across the border are counted too: one anchor in Slovakia")
+    assert not any(name in notes[0] for name in ("poland", "austria", "czechia", "Neighbours"))
+    assert notes[1] == ("No data of the neighbours across the border with Hungary and Ukraine (no source here): "
+                        "lines cross it only where Slovakia's own data reach beyond the border."), notes
+    files = country.Country(id="testland", name="Testland", source="files", area="x")
+    assert country._hard_borders(files, str(tmp_path)) == ["AT", "CZ", "HU", "PL", "UA"]
+    assert country._names_text(["HU"]) == "Hungary"
+    assert country._names_text(["UA", "AT", "HU"]) == "Austria, Hungary and Ukraine"
+    assert country._names_text(["HU", "XX"]) == "Hungary and XX"  # a code without a name as it is
+    # the odd names of tzdata's table replaced by the page's (Intl.DisplayNames): every one a code of the table
+    assert country._names_text(["GB", "CZ", "TR"]) == "Czechia, Türkiye and United Kingdom"
+    from importlib import resources
+    table = resources.files("tzdata").joinpath("zoneinfo", "iso3166.tab").read_text(encoding="utf-8")
+    codes = {line.split("\t")[0] for line in table.splitlines() if line and not line.startswith("#")}
+    assert set(country.COUNTRY_NAMES) <= codes
+    assert all(country._country_names()[code] == name for code, name in country.COUNTRY_NAMES.items())
+    study = country.Country(id="sk-part", name="Part", source="slovakia", area="osm:Slovensko",
+                            options={"within": "48.5,19,49,19.5"})
+    assert country._border_notes(study, str(tmp_path)) == ["Only lines with both anchors inside Part are counted."]
 
 
 def test_outline_within_a_box(tmp_path):
@@ -922,21 +999,21 @@ def test_tile_in_strips_as_plain(env, full):
     finally:
         db.close()
     core = tuple(json.loads(core))
-    res = plan.resolution
-    grid = search.tile_grid(plan.grid, core, search._overlap(plan.params, res), res, plan.source.grid_origin)
     results, grids = {}, {}
     for mode in ("plain", "strips"):
         work = os.path.join(data, "work", f"strips-test-{mode}")
         os.makedirs(work, exist_ok=True)
-        tile_plan = dataclasses.replace(plan, grid=grid, paths=search.Paths(data, work), tiles=None, funnel={},
-                                        search_grid=plan.grid, border=country._at_border(grid))
+        tile_plan = country.tile_plan(c, plan, core, search.Paths(data, work))
+        grid = tile_plan.grid
+        assert tile_plan.border and tile_plan.partners == 150.0
         tile = search.prepare_data(tile_plan, statistics=False, strips=mode == "strips")
-        for field in ("elevation", "surface", "water", "filled", "slope", "joined", "covered"):
+        for field in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "partner"):
             array = getattr(tile, field)
             if array is not None:
                 assert isinstance(array, np.memmap) and not array.flags.writeable, (mode, field)
         grids[mode] = {f: None if getattr(tile, f) is None else np.array(getattr(tile, f))
-                       for f in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "mask")}
+                       for f in ("elevation", "surface", "water", "filled", "slope", "joined", "covered", "mask",
+                                 "partner")}
         counter = countcube.TileCounter(grid, tuple(state["origin"]), core, band.lengths, False)
         search.count_tile(tile_plan, tile, core, counter, country.tension_table(c, band, plan))
         results[mode] = counter.result()
@@ -955,3 +1032,583 @@ def test_tile_in_strips_as_plain(env, full):
     assert saved.lines == plain.lines and np.array_equal(saved.line_keys, plain.line_keys)
     assert np.array_equal(saved.line_counts, plain.line_counts) and np.array_equal(saved.spot_ids, plain.spot_ids)
     assert np.array_equal(saved.spot_records, plain.spot_records)
+
+
+def test_neighbour_cubes():
+    """NEIGHBOUR_CUBES names a cube for every source the catalogue declares as a neighbour (no source
+    declares more than six: the partner indices 1-6), a country of COUNTRIES its own id; a source's
+    cube.json neighbours in the order of Source.neighbours; none for an elevation file."""
+    import country
+    import sources as src
+    named = {n for s in src.SOURCES.values() for n in (s.neighbours or ())}
+    assert named == set(country.NEIGHBOUR_CUBES)
+    assert max(len(s.neighbours or ()) for s in src.SOURCES.values()) <= 6
+    assert all(country.ID_PATTERN.match(cube) for cube in country.NEIGHBOUR_CUBES.values())
+    for c in country.COUNTRIES.values():
+        assert country.NEIGHBOUR_CUBES.get(c.source, c.id) == c.id
+    assert country.neighbour_cubes("slovakia") == ["poland", "austria", "czechia"]
+    assert country.neighbour_cubes("files") == []
+
+
+def test_territory_specs():
+    """Every cube a source's neighbour names has the outline it would be cut by (country.territory_specs: the map
+    areas of its sources, sources.AREA_NAMES), each spec once; a country of COUNTRIES is cut by its own area, so
+    its territory as a neighbour is the outline its own cube has."""
+    import country
+    for cube in set(country.NEIGHBOUR_CUBES.values()):
+        specs = country.territory_specs(cube)
+        assert specs and all(s.startswith("osm:") for s in specs) and len(set(specs)) == len(specs), cube
+    assert country.territory_specs("poland") == ["osm:Polska"] and country.territory_specs("czechia") == ["osm:Česko"]
+    assert country.territory_specs("austria") == ["osm:Österreich"]
+    assert country.territory_specs("brandenburg") == ["osm:Brandenburg, Deutschland", "osm:Berlin"]
+    assert country.territory_specs("alaska") == ["osm:Alaska"]  # alaska_ifsar, the same cube, has no areas
+    assert country.territory_specs("nowhere") == []
+    for c in country.COUNTRIES.values():
+        assert country.territory_specs(country.NEIGHBOUR_CUBES.get(c.source, c.id)) == [c.area]
+
+
+def test_territory_reach_holds_the_zone_corner(tmp_path):
+    """neighbours.geojson keeps the territories farther from the outline than any partner pixel of a band can lie:
+    a tile's partner zone is near()'s square, so the pixel diagonally off the outline's corner lies sqrt(2) times
+    the band's longest line away, beyond L itself, and within territory_reach."""
+    import shapely
+    from shapely.geometry import box
+    import country
+    import grid as gd
+    import sources.filling as filling
+    from country import Band
+    band = Band("X", (300, 1000), 2.0, "sag", 60, 10000, True)
+    g = gd.make_grid((0.0, 0.0, 4000.0, 4000.0), band.resolution, "EPSG:2180")
+    outline = box(1000.0, 1000.0, 2000.0, 2000.0)
+    r, c = np.mgrid[:g.height, :g.width]
+    x, y = g.pixel_to_xy(r, c)
+    mask = shapely.contains_xy(outline, x, y)
+    zone = filling.partner_zone(mask, band.lengths[1], band.resolution)
+    far = shapely.distance(outline, shapely.points(x[zone], y[zone])).max()
+    assert band.lengths[1] < far <= country.territory_reach([band]) - country.TERRITORY_MARGIN_M
+    corner = (x[zone] < 1000.0) & (y[zone] < 1000.0)
+    assert np.isclose(far, shapely.distance(outline, shapely.points(x[zone][corner], y[zone][corner])).max())
+    assert country.territory_reach([band, Band("Y", (30, 300), 1.0, "sag", 60, 5000, True)]) == \
+        country.territory_reach([band])
+
+
+def _outlines(boxes):
+    """A stand-in for country._neighbour_outline: the box (west, south, east, north) of each spec, nothing fetched."""
+    from shapely.geometry import box
+
+    def outline_of(spec, cache_dir):
+        if spec not in boxes:
+            raise RuntimeError(f"Nominatim did not answer for {spec}")
+        return box(*boxes[spec])
+    return outline_of
+
+
+# Slovakia's neighbours (Source.neighbours: geoportal, austria, czechia) around Testland's outline (WEST): Poland
+# east of it (the clip's own data there, the lines' far anchors, 19.7562-19.7575 E, 50.1553-50.1561 N) and north of
+# 50.1559, Austria east of it and south of 50.1600 (larger: Poland where both hold a pixel), Czechia far away
+NEAR_BOXES = {"osm:Polska": (19.7561, 50.1559, 19.7570, 50.20), "osm:Österreich": (19.7561, 50.10, 19.7570, 50.1600),
+              "osm:Česko": (15.0, 49.0, 15.1, 49.1)}
+
+
+def _slovak_testland(env, name: str) -> tuple:
+    """A data folder of Testland counted with Slovakia's source as its own (so with Slovakia's three declared
+    neighbours; its tiles read the clip, an elevation file)."""
+    config = {**env["config"], "source": "slovakia"}
+    data = env["base"] / name
+    folder = data / "countries" / ID
+    folder.mkdir(parents=True)
+    (folder / "country.json").write_text(json.dumps({"config": config}))
+    return str(data), str(folder)
+
+
+def test_neighbours_file_written_and_kept(env, tmp_path, monkeypatch):
+    """write_neighbours without network (the outlines given): a feature per declared neighbour in their order with
+    its index, source, cube, specs and km², the territory clipped within the reach of the outline (null where none
+    lies), its vertices inside that reach as fetched; ensure_neighbours keeps a file that fits (nothing fetched) and
+    writes again one of another reach; a failed fetch stops with the neighbour named, before any file is written."""
+    import shutil
+    import shapely
+    import country
+    folder = tmp_path / "countries" / ID
+    folder.mkdir(parents=True)
+    shutil.copyfile(env["config"]["area"], folder / "area.geojson")
+    land = country.Country.from_config({**env["config"], "source": "slovakia"})
+    reach = country.territory_reach(land.bands)
+    fetched = []
+    outline_of = _outlines(NEAR_BOXES)
+    monkeypatch.setattr(country, "_neighbour_outline", lambda spec, cache_dir: (fetched.append(spec),
+                                                                               outline_of(spec, cache_dir))[1])
+    sha = country.ensure_neighbours(land, str(folder), str(tmp_path / "cache"), "EPSG:8353", lambda text: None)
+    assert fetched == ["osm:Polska", "osm:Österreich", "osm:Česko"]
+    with open(folder / country.NEIGHBOURS_FILE, encoding="utf-8") as f:
+        collection = json.load(f)
+    assert sha == country._sha256_file(str(folder / country.NEIGHBOURS_FILE))
+    assert (collection["country"], collection["source"], collection["crs"], collection["reach_m"]) == \
+        (ID, "slovakia", "EPSG:8353", reach)
+    props = [f["properties"] for f in collection["features"]]
+    assert [(p["index"], p["source"], p["cube"], p["areas"]) for p in props] == [
+        (1, "geoportal", "poland", ["osm:Polska"]), (2, "austria", "austria", ["osm:Österreich"]),
+        (3, "czechia", "czechia", ["osm:Česko"])]
+    assert props[0]["km2"] < props[1]["km2"] and 0.2 < props[0]["km2"] < 0.5  # on the ellipsoid, the whole box
+    assert collection["features"][2]["geometry"] is None  # Czechia lies beyond the reach
+    poland = shapely.geometry.shape(collection["features"][0]["geometry"])
+    whole = shapely.geometry.box(*NEAR_BOXES["osm:Polska"])
+    assert poland.within(whole.buffer(1e-12)) and poland.bounds[3] < NEAR_BOXES["osm:Polska"][3]  # cut at the reach
+    assert {(19.7561, 50.1559), (19.757, 50.1559)} <= set(map(tuple, shapely.get_coordinates(poland)))
+    sha, territories = country.load_territories(str(folder), "EPSG:8353")
+    assert [(t.index, t.shape is None) for t in territories] == [(1, False), (2, False), (3, True)]
+    # a file that fits is kept, nothing asked; another reach (or source, CRS, neighbours) is written again
+    fetched.clear()
+    assert country.ensure_neighbours(land, str(folder), "", "EPSG:8353", lambda text: None) == sha
+    assert fetched == []
+    collection["reach_m"] = reach - 1.0
+    with open(folder / country.NEIGHBOURS_FILE, "w", encoding="utf-8") as f:
+        json.dump(collection, f)
+    assert country.ensure_neighbours(land, str(folder), "", "EPSG:8353", lambda text: None) == sha
+    assert fetched == ["osm:Polska", "osm:Österreich", "osm:Česko"]
+    # an outline that cannot be fetched: the neighbour named, nothing written (never 7 everywhere by accident)
+    os.remove(folder / country.NEIGHBOURS_FILE)
+    monkeypatch.setattr(country, "_neighbour_outline", _outlines({"osm:Polska": NEAR_BOXES["osm:Polska"]}))
+    with pytest.raises(country.CountryError, match="BEV.*Österreich.*partner 2.*Nominatim did not answer"):
+        country.ensure_neighbours(land, str(folder), "", "EPSG:8353", lambda text: None)
+    assert not os.path.exists(folder / country.NEIGHBOURS_FILE)
+    # a study area: no file, nothing asked
+    study = country.Country.from_config({**land.config(),
+                                         "options": {**land.options, "within": "50.15,19.75,50.16,19.76"}})
+    assert country.ensure_neighbours(study, str(folder), "", "EPSG:8353", lambda text: None) is None
+    assert not os.path.exists(folder / country.NEIGHBOURS_FILE)
+
+
+def test_run_stops_when_an_outline_cannot_be_fetched(env, monkeypatch, capsys):
+    """`run` stops with the neighbour named when one territory cannot be fetched, before the prefetch and any tile."""
+    import country
+    data, folder = _slovak_testland(env, "no-outline")
+    monkeypatch.setattr(country, "_neighbour_outline", _outlines({}))
+    capsys.readouterr()
+    assert country.run(ID, data, processes=0, yes=True) == 1
+    out = capsys.readouterr().out
+    assert "The outline of geoportal.gov.pl (osm:Polska, the territory of partner 1) could not be fetched" in out
+    assert not os.path.exists(os.path.join(folder, "tiles"))
+    assert not os.path.exists(os.path.join(folder, "manifest.sqlite"))
+
+
+def _metas(folder: str) -> dict:
+    import country
+    return {(band, name[:-4]): country._tile_meta(os.path.join(folder, "tiles", band, name))
+            for band in sorted(os.listdir(os.path.join(folder, "tiles")))
+            for name in sorted(os.listdir(os.path.join(folder, "tiles", band)))}
+
+
+def _statuses(data: str) -> dict:
+    return {(band, name): status for band, name, status, _, _ in _manifest(data)}
+
+
+def _with_interior(monkeypatch, env, data: str, folder: str):
+    """country._at_border with the S tiles of the westernmost grids counted as inside the outline (Testland is too
+    small for an interior tile; the predicate of tile_plan's Plan.border and of the re-count alike)."""
+    import shutil
+    import country
+    import search
+    shutil.copyfile(env["config"]["area"], os.path.join(folder, "area.geojson"))
+    land = country.Country.from_config({**env["config"], "source": "slovakia"})
+    s = land.band("S")
+    west = min(t.grid.left for t in search.fixed_tiles(country.band_plan(land, s, folder, data), s.core_m))
+    real = country._at_border
+
+    def at_border(grid, outline=None):
+        return real(grid, outline) and not (grid.res == s.resolution and grid.left == west)
+    monkeypatch.setattr(country, "_at_border", at_border)
+
+
+def test_border_tiles_counted_by_territory(env, monkeypatch, capsys):
+    """A run of Testland with Slovakia's neighbours: neighbours.geojson written once (outlines given), every border
+    tile's meta and cube.json carry its sha256, the lines across the border the partners of the territories (1, 2
+    and 7: Poland, Austria, neither) and cube.json their cube ids. Then the re-count: a changed file sends the border
+    tiles back to pending and not those inside (decided from their grids, as Plan.border); tile files of before the
+    territories (no such key at all) the same; once counted, a second run sends none back; build refuses a border
+    tile of another file."""
+    import countcube
+    import country
+    monkeypatch.setattr(country, "_neighbour_outline", _outlines(NEAR_BOXES))
+    data, folder = _slovak_testland(env, "territories")
+    _with_interior(monkeypatch, env, data, folder)
+    assert country.run(ID, data, processes=0, bands=["S", "M"], yes=True) == 0
+    sha = country._sha256_file(os.path.join(folder, country.NEIGHBOURS_FILE))
+    with open(os.path.join(folder, "country.json"), encoding="utf-8") as f:
+        assert json.load(f)["neighbours_sha256"] == sha
+    with open(os.path.join(folder, "cube", "cube.json"), encoding="utf-8") as f:
+        info = json.load(f)
+    assert info["neighbours"] == ["poland", "austria", "czechia"] and info["neighbours_sha256"] == sha
+    keys = countcube.unpack_keys(countcube.Cube(os.path.join(folder, "cube")).array("lines", 1)[:, :2])
+    assert set(keys["partner"][keys["border"] > 0].tolist()) == {1, 2, 7}
+    metas = _metas(folder)
+    inside = {k for k, m in metas.items() if m["partners"] is None}
+    border = set(metas) - inside
+    assert inside and border and all(k[0] == "S" for k in inside)
+    assert all(metas[k]["neighbours_sha256"] == sha for k in border)
+    assert all(metas[k]["neighbours_sha256"] is None for k in inside)
+
+    def rerun_without_counting():
+        capsys.readouterr()
+        assert country.run(ID, data, processes=0, bands=["S", "M"], max_tiles=0, yes=True) == 0
+        return capsys.readouterr().out
+
+    # counted, nothing changed: none goes back
+    out = rerun_without_counting()
+    assert "pending again" not in out and set(_statuses(data).values()) <= {"done", "pending"}
+    assert all(s == "done" for (band, _), s in _statuses(data).items() if band in ("S", "M"))
+    # the file changed (a larger reach still fits it, nothing fetched): the border tiles go back, not those inside
+    path = os.path.join(folder, country.NEIGHBOURS_FILE)
+    with open(path, encoding="utf-8") as f:
+        collection = json.load(f)
+    collection["reach_m"] += 1.0
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(collection, f)
+    monkeypatch.setattr(country, "_neighbour_outline", _outlines({}))  # a fetch would fail
+    capsys.readouterr()
+    assert country.build(ID, data) == 1
+    assert "other territories of the neighbours" in capsys.readouterr().out
+    out = rerun_without_counting()
+    assert "border tiles counted with other territories" in out
+    statuses = _statuses(data)
+    assert {k for k, s in statuses.items() if s == "pending" and k[0] in ("S", "M")} == border
+    assert all(statuses[k] == "done" for k in inside)
+    assert country.run(ID, data, processes=0, bands=["S", "M"], yes=True) == 0
+    assert "pending again" not in rerun_without_counting()
+    new = country._sha256_file(path)
+    assert all(m["neighbours_sha256"] == (new if k in border else None) for k, m in _metas(folder).items())
+    # tile files counted before the territories (the lead profile's of round 5: no key at all): the border tiles
+    # go back by their grids, those inside stay
+    for (band, name), meta in _metas(folder).items():
+        tile = os.path.join(folder, "tiles", band, f"{name}.npz")
+        counts, _ = countcube.load_tile(tile)
+        countcube.save_tile(tile, counts, {k: v for k, v in meta.items() if k != "neighbours_sha256"})
+    rerun_without_counting()
+    statuses = _statuses(data)
+    assert {k for k, s in statuses.items() if s == "pending" and k[0] in ("S", "M")} == border
+    assert all(statuses[k] == "done" for k in inside)
+
+
+def test_study_area_tiles_stay_counted(env, tmp_path, capsys):
+    """A study area has no neighbours.geojson and no partners: every tile's sha256 is None, so a second run sends
+    none back."""
+    import country
+    data = tmp_path / "data"
+    folder = data / "countries" / ID
+    folder.mkdir(parents=True)
+    config = {**env["config"], "options": {**env["config"]["options"], "within": "50.1530,19.7505,50.1595,19.7561"}}
+    (folder / "country.json").write_text(json.dumps({"config": config}))
+    assert country.run(ID, str(data), processes=0, bands=["M"], yes=True) == 0
+    assert not os.path.exists(folder / country.NEIGHBOURS_FILE)
+    assert all(m["neighbours_sha256"] is None and m["partners"] is None for m in _metas(str(folder)).values())
+    capsys.readouterr()
+    assert country.run(ID, str(data), processes=0, bands=["M"], max_tiles=0, yes=True) == 0
+    assert "pending again" not in capsys.readouterr().out
+    assert all(s == "done" for (band, _), s in _statuses(str(data)).items() if band == "M")
+
+
+def test_profile_of_a_country_and_of_a_study_area():
+    """A country without bands of its own has the profile's (PROFILE: its bands, T(L) and rig); a study
+    area (or a test) may override them, which gives another profile sha256 and config hash; config()
+    and from_config keep either; the profile's sha256 is that of its JSON."""
+    import hashlib
+    import country
+    plain = country.Country(id="land", name="Land", source="slovakia", area="osm:Land")
+    assert plain.bands == country.PROFILE.bands and plain.tension == country.PROFILE.tension
+    assert plain.rig == country.PROFILE.rig and plain.profile.sha256 == country.PROFILE.sha256
+    assert country.COUNTRIES["slovakia"].profile.sha256 == country.PROFILE.sha256
+    config = {"id": "land", "name": "Land", "source": "slovakia", "area": "osm:Land", "options": {}}
+    assert country.Country.from_config(config) == plain and country.Country.from_config(plain.config()) == plain
+    text = json.dumps(country.PROFILE.config(), sort_keys=True).encode("utf-8")
+    assert country.PROFILE.sha256 == hashlib.sha256(text).hexdigest()
+    bands = [{"name": "S", "lengths": [30, 150], "resolution": 1.0, "model": "formula", "slope_threshold": 45,
+              "core_m": 200, "layer": True}]
+    study = country.Country.from_config({**config, "id": "box", "bands": bands, "tension": [[30, 2.5]],
+                                         "options": {"within": "49.0,19.0,49.1,19.1"}})
+    assert study.study and [b.name for b in study.bands] == ["S"] and study.tension == ((30, 2.5),)
+    assert study.rig == country.PROFILE.rig  # the profile's where it has none
+    assert study.profile.sha256 != country.PROFILE.sha256
+    assert country.Country.from_config(study.config()) == study
+    assert country.config_hash(study.config(), "a") != country.config_hash({**study.config(), "bands": []}, "a")
+
+
+def test_build_refuses_a_tile_of_another_profile(env, full, tmp_path, capsys):
+    """build refuses a tile counted with another profile of the layer (its meta's "profile"), as it
+    refuses another configuration or origin."""
+    import shutil
+    import countcube
+    data = str(tmp_path / "data")
+    shutil.copytree(os.path.join(full["data"], "countries"), os.path.join(data, "countries"))
+    folder = os.path.join(data, "countries", ID, "tiles", "S")
+    name = sorted(os.listdir(folder))[0]
+    counts, meta = countcube.load_tile(os.path.join(folder, name))
+    countcube.save_tile(os.path.join(folder, name), counts, {**meta, "profile": "another"})
+    capsys.readouterr()
+    assert _country("build", ID, "--data-dir", data) == 1
+    assert "another profile" in capsys.readouterr().out
+
+
+# The prefetch of the neighbours' windows (country.neighbour_boxes, _neighbour_layers, _prefetch)
+
+NEIGHBOUR_CRS = "EPSG:2180"
+
+
+def _box_wgs84(left, bottom, right, top):
+    """(south, north, west, east) of a box of NEIGHBOUR_CRS, as Source.offline holds them."""
+    from rasterio.warp import transform_bounds
+    west, south, east, north = transform_bounds(NEIGHBOUR_CRS, "EPSG:4326", left, bottom, right, top)
+    return south, north, west, east
+
+
+def _tiled(folder):
+    """A neighbour's layer of 250 m tiles (indexes/tilings.MetricTiling)."""
+    import sources as src
+    from sources.indexes.tilings import MetricTiling
+
+    class Tiled(src.composed.ComposedLayer):
+        description, native_res, _bytes = f"tiled {folder}", 10.0, 0
+
+        def __init__(self):
+            self.folder = folder
+            self.index, self.reader = MetricTiling(NEIGHBOUR_CRS, folder, 250.0), src.composed.Reader()
+    return Tiled()
+
+
+def _neighbour_country(monkeypatch):
+    """A country (an outline with its north-eastern corner cut off) whose source has four neighbours: "east" and
+    "north" with rough boxes over their side of the border (east with a surface model), "far" with a box far
+    away, "any" without boxes (it may fill any border gap); a band's plan of 10 m and 300 m lines, its tiles of
+    1 km on the band's grid."""
+    from types import SimpleNamespace
+    import grid as gd
+    import search
+    import sources as src
+    from shapely.geometry import Polygon
+    credit = src.Credit("data", "© test", "CC BY 4.0", "https://example.org")
+
+    def source(sid, offline, surface=False, **kwargs):
+        made = src.Source(id=sid, name=f"{sid} name", description=sid, nmt=_tiled(f"test/{sid}"),
+                          nmpt=_tiled(f"test/{sid}-dsm") if surface else None, credits=(credit,),
+                          offline=offline, **kwargs)
+        monkeypatch.setitem(src.SOURCES, sid, made)
+        return made
+    source("east", (("xe", _box_wgs84(503500, 299000, 506000, 305000)),), surface=True)
+    source("north", (("xn", _box_wgs84(499000, 303500, 506000, 305000)),))
+    source("far", (("xf", (40.0, 41.0, 0.0, 1.0)),))
+    source("any", ())
+    own = source("own", (), neighbours=("east", "north", "far", "any"))
+    outline = Polygon([(500000, 300000), (504000, 300000), (504000, 302500), (502500, 304000), (500000, 304000)])
+    res, max_length = 10.0, 300.0
+    grid = gd.make_grid((499600, 299600, 504400, 304400), res, NEIGHBOUR_CRS)
+    grid.area_shape = outline
+    plan = SimpleNamespace(resolution=res, crs=NEIGHBOUR_CRS, grid=grid, source=own, nmpt=None,
+                           params=SimpleNamespace(max_length=max_length, water="off", fill_gaps="on"),
+                           layers=[own.nmt], paths=SimpleNamespace(cache="unused"))
+    overlap = max_length + 50 + 2 * res
+    tiles = [search.FixedTile(f"E{i}_N{j}", core, search.tile_grid(grid, core, overlap, res, (0.0, 0.0)))
+             for j in range(303000, 299999, -1000) for i in range(500000, 504000, 1000)
+             for core in [(i, j, i + 1000, j + 1000)]]
+    return plan, outline, tiles
+
+
+def test_prefetch_holds_every_neighbour_window(monkeypatch, tmp_path):
+    """The boxes of the prefetch (neighbour_boxes) hold every window a border tile's step 1 asks a neighbour to fill
+    (sources.filling.neighbour_window of its border gaps on its footprint, as TileWork's plan has it: the source's
+    own data cover the outline, reach a little beyond it in the south-west, and leave a hole inside it), and the
+    tiles of the neighbour's layer over each window's sub-grid are among those of the prefetch's grid for it
+    (_neighbour_layers, the neighbour's surface model too where the bands have one); a neighbour whose boxes reach
+    no border gap gets no box and is not asked; _prefetch hands them to sources.download_layers with the source's
+    own layers, in one call per resolution."""
+    import copy
+    import shapely
+    import country
+    import sources as src
+    from shapely.geometry import box
+    plan, outline, tiles = _neighbour_country(monkeypatch)
+    reach = country.partner_reach(plan)
+    data_shape = outline.union(outline.buffer(80).intersection(box(500000, 299000, 502000, 301000))).difference(
+        box(501400, 301400, 501600, 301600))
+    boxes = {n: dict(found) for n, found in
+             country.neighbour_boxes(plan, tiles, country.reach_shape(outline, plan.grid, reach)).items()}
+    assert set(boxes) == {"east", "north", "far", "any"} and boxes["far"] == {}
+    plan.nmpt = "mark"
+    layers = country._neighbour_layers({"S": plan}, {"S": tiles})
+    grids = {id(layer): grid for layer, _, grid in layers}
+    assert [(label, layer.folder) for layer, label, _ in layers] == [
+        ("gap fill (east name)", "test/east"), ("gap fill (east name)", "test/east-dsm"),
+        ("gap fill (north name)", "test/north"), ("gap fill (any name)", "test/any")]
+    windows = {n: 0 for n in boxes}
+    for tile in tiles:
+        if not country._at_border(tile.grid):
+            assert all(tile.name not in found for found in boxes.values())
+            continue
+        g = copy.copy(tile.grid)
+        g.area_shape = country.reach_shape(outline, g, reach)  # as country.tile_plan gives a border tile
+        cols, rows = np.meshgrid(np.arange(g.width), np.arange(g.height))
+        inside = shapely.contains_xy(data_shape, g.left + (cols + 0.5) * g.res, g.top - (rows + 0.5) * g.res)
+        path = str(tmp_path / f"{tile.name}.npy")
+        np.save(path, np.where(inside, 100.0, np.nan).astype(np.float32))
+        gaps = src.filling.border_gaps(path, None, g)
+        for n in boxes:
+            neighbour = src.SOURCES[n]
+            window = src.filling.neighbour_window(neighbour, g, gaps)
+            if window is None:
+                continue
+            windows[n] += 1
+            r, c = window
+            left, top = g.left + c.start * g.res, g.top - r.start * g.res
+            right, bottom = g.left + c.stop * g.res, g.top - r.stop * g.res
+            b_left, b_bottom, b_right, b_top = boxes[n][tile.name]
+            eps = 1e-6
+            assert b_left - eps <= left and b_bottom - eps <= bottom and right <= b_right + eps and top <= b_top + eps
+            sub = src.filling._subgrid(g, window)
+            for layer in (neighbour.nmt, neighbour.nmpt):
+                if layer is not None:
+                    assert set(layer.tiles(sub)) <= set(layer.tiles(grids[id(layer)])), (n, tile.name)
+    assert windows["far"] == 0 and min(windows["east"], windows["north"], windows["any"]) >= 2
+    # One call of download_layers per resolution: the source's own layers over the footprint, the neighbours'
+    # over their grids, the blocks of big files in squares of PREFETCH_GROUP_M
+    calls = []
+    monkeypatch.setattr(src, "download_layers", lambda layers, grid, cache_dir, update, group_m=None: calls.append(
+        (layers, grid, group_m)))
+    said = []
+    country._prefetch({"S": plan}, said.append, across=True, tiles={"S": tiles})
+    [(passed, grid, group_m)] = calls
+    assert group_m == country.PREFETCH_GROUP_M
+    assert passed[:2] == [(plan.source.nmt, "terrain"), (src.WATER_MASK, "water mask")]
+    assert [(layer.folder, label) for layer, label, _ in passed[2:]] == [
+        (layer.folder, label) for layer, label, _ in layers]
+    assert grid.area_shape.equals(country.reach_shape(outline, plan.grid, reach))
+    assert said == ["Prefetch at 10 m: terrain, water mask, gap fill (east name), gap fill (north name), "
+                    "gap fill (any name)"]
+    calls.clear()
+    country._prefetch({"S": plan}, said.append, across=False, tiles={"S": tiles})  # a study area: its own only
+    assert [entry[1] for entry in calls[0][0]] == ["terrain", "water mask"]
+
+
+def test_slovakia_counted_with_the_recount_options():
+    """Slovakia's options for the recount (the user's decisions of 2026-11-07/08): the surface model marking the
+    lines over trees and buildings, the no-fall zone of 5 m and A-frames of 2 m; every band's search takes them
+    (form_params), and the configuration's hash follows them (the tiles of the pilot are counted again)."""
+    import country
+    slovakia = country.COUNTRIES["slovakia"]
+    assert slovakia.options == {"nmpt": "mark", "water": "fill", "coastline": "copernicus", "fill_gaps": "on",
+                                "end_zone": 5, "anchor_lift": 2}
+    assert not slovakia.study and slovakia.bands == country.PROFILE.bands
+    for band in slovakia.bands:
+        params = country.form_params(slovakia, band)
+        assert (params["nmpt"], params["end_zone"], params["anchor_lift"]) == ("mark", 5, 2)
+    pilot = {**slovakia.config(), "options": {"nmpt": "off", "water": "fill", "coastline": "copernicus",
+                                              "fill_gaps": "on"}}
+    assert country.config_hash(slovakia.config(), "a") != country.config_hash(pilot, "a")
+
+
+# The sha256 of the outline (area.geojson) Slovakia's two profiles were counted with in round 5 (C:\fal-data\lead and
+# C:\fal-data\user, 2026-11-10/11), and the config hash the tiles of the profile chosen on 2026-11-12 carry
+LEAD_AREA_SHA256 = "548f7c2a2a7f3e16aa9e8ee20003d69a4352d66c918ec2b3a7efd440b117a92e"
+LEAD_CONFIG_HASH = "ff82cd754b961fc44ee99b6bb386924ad519501a40759936d84714265c9d1503"
+
+
+def test_profile_is_the_chosen_one():
+    """PROFILE is the profile the user chose on 2026-11-12: S 30-300 m at 1 m, M 300-1000 m at 2 m, L1 1-2 km at 3 m
+    and L2 2-5 km at 5 m, all sag and in the layer, no control band; Slovakia's configuration with it has the config
+    hash of the tiles counted with that profile (so they are used as they are: a change of the profile, of
+    Slovakia's options or of obstacles.RULE fails here and counts the country again)."""
+    import country
+    assert [(b.name, b.lengths, b.resolution, b.model, b.slope_threshold, b.core_m, b.layer)
+            for b in country.PROFILE.bands] == [("S", (30, 300), 1.0, "sag", 60, 5000, True),
+                                                ("M", (300, 1000), 2.0, "sag", 60, 10000, True),
+                                                ("L1", (1000, 2000), 3.0, "sag", 55, 10000, True),
+                                                ("L2", (2000, 5000), 5.0, "sag", 45, 20000, True)]
+    assert country.PROFILE.tension == ((300, 2.5), (1500, 6.0), (5000, 15.0))
+    assert country.PROFILE.rig == {"webbing_weight": 41.0, "stretch": 2.1}
+    assert country.config_hash(country.COUNTRIES["slovakia"].config(), LEAD_AREA_SHA256) == LEAD_CONFIG_HASH
+
+
+def test_compare_without_a_control_band(env, full, tmp_path, capsys):
+    """compare of a country whose bands are all in the layer (the profile's since 2026-11-12): a plain message,
+    exit code 1, no compare.json; a control band given or found takes the layer band holding its lengths."""
+    import shutil
+    import country
+    data = str(tmp_path / "data")
+    folder = os.path.join(data, "countries", ID)
+    shutil.copytree(os.path.join(full["data"], "countries", ID), folder)
+    path = os.path.join(folder, "country.json")
+    with open(path, encoding="utf-8") as f:
+        state = json.load(f)
+    state["config"]["bands"] = [b for b in state["config"]["bands"] if b["layer"]]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    if os.path.exists(os.path.join(folder, "compare.json")):  # test_status_and_compare's
+        os.remove(os.path.join(folder, "compare.json"))
+    capsys.readouterr()
+    assert _country("compare", ID, "--data-dir", data) == 1
+    assert "has no control band" in capsys.readouterr().out
+    assert not os.path.exists(os.path.join(folder, "compare.json"))
+    c = country.Country.from_config(env["config"])
+    assert [b.name for b in country._compared_bands(c, None, None)] == ["C", "S"]
+    assert [b.name for b in country._compared_bands(c, "C", "M")] == ["C", "M"]
+    with pytest.raises(country.CountryError, match="holds the lengths"):
+        country._compared_bands(c, "M", None)  # a layer band given as the control: no other layer band holds it
+
+
+def test_end_zone_reaches_the_pair_search(env, tmp_path, monkeypatch):
+    """A country's end_zone and anchor_lift go from country.json through the band's plan into its tiles' line
+    search (search._pair_search: find_valid_lines with the zone's buckets), as Slovakia's recount takes them."""
+    import shutil
+    import country
+    import linesearch
+    import search
+    config = {**env["config"], "options": {**env["config"]["options"], "end_zone": 5, "anchor_lift": 2}}
+    data = str(tmp_path / "data")
+    folder = os.path.join(data, "countries", ID)
+    os.makedirs(folder)
+    shutil.copyfile(config["area"], os.path.join(folder, "area.geojson"))
+    c = country.Country.from_config(config)
+    band = c.band("S")
+    plan = country.band_plan(c, band, folder, data)
+    assert (plan.end_zone, plan.lift) == (5.0, 2.0)
+    os.makedirs(plan.paths.work, exist_ok=True)
+    seen = {}
+
+    def find_valid_lines(*args, **kwargs):
+        seen.update(kwargs)
+        return None
+    monkeypatch.setattr(linesearch, "find_valid_lines", find_valid_lines)
+    search.count_tile(plan, search.prepare_data(plan, statistics=False, shore="none"), None, lambda part: None,
+                      country.tension_table(c, band, plan))
+    assert (seen["end_zone"], seen["lift"], seen["zones"]) == (5.0, 2.0, (0.0, 5.0))
+
+
+def test_disk_check_counts_the_prefetch(env, monkeypatch, capsys):
+    """_run's free-disk check counts what the prefetch would download into the cache (prefetch_bytes: the layers'
+    estimate on the grids the prefetch fetches) besides the work folders: a layer with more still to download than
+    the disk has free is refused before any download, the message naming both parts; a cached one passes (the run
+    goes on to the prefetch)."""
+    import re
+    from types import SimpleNamespace
+    import country
+    import sources as src
+
+    class Reached(Exception):
+        pass
+
+    def prefetch(*args, **kwargs):
+        raise Reached
+    monkeypatch.setattr(country, "_prefetch", prefetch)
+    free = 2 << 30
+    monkeypatch.setattr(country.shutil, "disk_usage", lambda path: SimpleNamespace(total=10 * free, used=9 * free,
+                                                                                   free=free))
+    data = _data_dir(env, "disk-check")
+    with monkeypatch.context() as m:  # the elevation file as a layer of 5 GB not cached yet
+        m.setattr(src.FileLayer, "missing", lambda self, grid, cache_dir, update: self.tiles(grid))
+        m.setattr(src.FileLayer, "bytes_per_tile", lambda self: 5e9)
+        capsys.readouterr()
+        assert country.run(ID, data, processes=0, yes=True) == 1
+    out = capsys.readouterr().out
+    assert "The prefetch downloads about 4.7 GiB into the cache" in out
+    assert "Not enough free disk" in out
+    assert re.search(r"the work folders need about [\d.]+ GiB and the prefetch about 4\.7 GiB in the cache", out)
+    with pytest.raises(Reached):  # cached: nothing to download, the work folders fit
+        country.run(ID, data, processes=0, yes=True)
+    assert "The prefetch downloads about 0.0 GiB" in capsys.readouterr().out

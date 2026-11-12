@@ -1001,6 +1001,39 @@ def test_pairs_match_reference(model, first, strong, wall, max_dh, max_length):
 
 
 @pytest.mark.parametrize("model", ["formula", "sag"])
+@pytest.mark.parametrize("first, strong, wall", [(False, False, False), (True, False, True), (True, True, False)])
+def test_pairs_with_partners_match_reference(model, first, strong, wall):
+    """linesearch._pairs with the count mode's partner array (search.count_tile across a border): the pairs
+    found are the frozen reference's (ref_pairs) less those whose anchors are both marked, in the
+    reference's order, each anchor's count of lines likewise, a marked pair never a candidate or checked;
+    an array of zeros changes nothing (every count, every pair), with and without a tile's first mask."""
+    import linesearch as ls
+    plf, a = _reference_case(model, first, strong, wall)
+    marks = (np.random.default_rng(13).random(len(a.anchors)) < 0.4).astype(np.uint8)
+    useful, rows, slot = plf.production_directions(a)
+    args = (a.z, a.anchors, a.elev, useful, rows, slot, a.first, a.res, a.min_length, a.max_length, a.max_dh_ratio,
+            a.max_dh, a.down, a.cos_limit, a.strong, a.use_sag, a.log_spans, a.ratios, a.table, a.fall_zone)
+    todo_all, head, tail = ls.pair_arguments(*args)
+    _, zero_head, zero_tail = ls.pair_arguments(*args, partner=np.zeros(len(a.anchors), dtype=np.uint8))
+    _, marked_head, marked_tail = ls.pair_arguments(*args, partner=marks)
+    removed = 0
+    for todo in plf.chunks_of(todo_all) + [todo_all]:
+        ref_counts, ref_out = plf.two_passes(plf.K.ref_pairs, a, todo)
+        counts, out = ls.pair_chunk(head, todo, tail)
+        zero_counts, zero_out = ls.pair_chunk(zero_head, todo, zero_tail)
+        assert np.array_equal(zero_counts, counts) and np.array_equal(zero_out, out)
+        assert np.array_equal(out, ref_out)
+        got_counts, got = ls.pair_chunk(marked_head, todo, marked_tail)
+        both = (marks[ref_out[:, 0]] != 0) & (marks[ref_out[:, 1]] != 0)
+        assert np.array_equal(got, ref_out[~both])  # the reference's order
+        owner = np.repeat(np.arange(len(todo)), ref_counts[:, 2])
+        assert np.array_equal(got_counts[:, 2], np.bincount(owner[~both], minlength=len(todo)))
+        assert (got_counts[:, :2] <= counts[:, :2]).all()
+        removed += int(both.sum())
+    assert removed > 5 and len(got) > 5
+
+
+@pytest.mark.parametrize("model", ["formula", "sag"])
 def test_line_ok_matches_reference(model):
     """linesearch._line_ok (bit-reversal order for lines of LINE_ORDER_SPLIT to LINE_ORDER_MAX
     steps) decides as the frozen ref_line_ok on lines of every length class."""

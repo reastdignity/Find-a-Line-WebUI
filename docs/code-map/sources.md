@@ -21,12 +21,13 @@ mirror's copies; `old_encoding`: a one-band float GeoTIFF that is not LERC, from
 `tile_lock`, the replace tried `REPLACE_SECONDS` where another process has the file open on Windows, then left;
 `reencode_paths` with a memo per process, called at the end of `download_layers` (not with `reencode_cached=False`:
 `tools/area_download.py`) and by `relief.fetch_relief_tiles`) and `download_layers` (the tiles of all layers of a
-search in one pool of `DOWNLOAD_THREADS`, the layers' indexes asked at once (`each_layer`; `estimate_layers` the same
-for `Layer.estimate`); a `serial` layer's tiles in `squares` of `SERIAL_SQUARE` blocks, one task each, its tiles one
-after another (GDAL's cache of ranges finds the tiles neighbours share); `group_m` (the country prefetch): the layers
-whose `groups` is true in squares of group_m, `ComposedLayer._download_group` each (the reader's `fetch_group` under
-one host slot and no lock, then each tile under its `tile_lock` if still due, recorded as `_download_and_record`
-records it; a group that cannot be read: its tiles one by one), each under `tile_lock` and a `host_slot`); `source.py`
+search in one pool of `DOWNLOAD_THREADS`, an entry (layer, label, grid) a layer over a grid of its own (the country
+prefetch's neighbours), the layers' indexes asked at once (`each_layer`; `estimate_layers` the same for
+`Layer.estimate`); a `serial` layer's tiles in `squares` of `SERIAL_SQUARE` blocks, one task each, its tiles one after
+another (GDAL's cache of ranges finds the tiles neighbours share); `group_m` (the country prefetch): the layers whose
+`groups` is true in squares of group_m, `ComposedLayer._download_group` each (the reader's `fetch_group` under one
+host slot and no lock, then each tile under its `tile_lock` if still due, recorded as `_download_and_record` records
+it; a group that cannot be read: its tiles one by one), each under `tile_lock` and a `host_slot`); `source.py`
 `Source`, `OrthoService` and `Coverage` (how the coverage map shows a source: provider, `added`, areas, `partial`,
 `rest` resolutions, `level`, survey, trees, `min_length`, note codes; `box` splits a country's uncovered rest off its
 outline; `Source.coverage_boxes`: the `offline` boxes and `bbox`, without `border_boxes`, which may hold a neighbour's
@@ -176,35 +177,36 @@ catalogue uses: `wcs.py` `WcsTiles` (`WcsTiling` + `WcsReader`), `degree.py` `De
 index.json's keys (tools/sk_tiles.py lists every tile of the raster's extent) is missing as a null entry, without a
 request (a country layer's border footprint reaches such tiles), unless the index says `partial` (sk_tiles still
 cutting or averaging: not cut yet, looked for further); `averaged`: the factors (2, 5) the dataset also keeps the
-tiles at, `GridResolutions` one tiling per resolution and `ResolutionBases` one `TileBases` per resolution, a tile
-`(res, i, j)`: a grid of the tiles' CRS at exactly an averaged resolution whose folder the mirror or a URL has reads
-it (the cache folder, mirror and URL named by `renamed`: `-1m-` → `-2m-`, `/1m` → `/2m`), any other grid the native
-tiles, also a grid of another CRS at 2 m or 5 m (a neighbour's: the mosaic would reproject the averaged tiles
-bilinearly on top; `resolution(grid_res, grid_crs)`)), `blocks.py` `DegreeBlocks` (`TenthDegreeTiling` + `Windows`:
-USGS 3DEP's 1/3″ DEM), `fileblocks.py` `FileBlocks` (`FileBlockTiling` + `Windows`: Austria's 50 km COGs; Wales and
-Luxembourg next; `serial` passed to `Windows`; `geoid`: files of heights above the ellipsoid cached as heights above
-that geoid, h - N in `_read_block`, the folder named `-<tag>`, the grid made ready before the tile's lock: ArcticDEM),
-`tnm.py` `TnmBlocks` (`TnmProducts`, `ComposedBlocks`, `Windows`: its 1 m DEM and Alaska's IfSAR), `files.py` (a local
-raster), `wmsr.py` `WmsrTiles` (`ResolutionTiling`: one `WcsTiling` per fetch resolution, the coarsest not coarser
-than the grid, + `WmsrReader`: France), `imageserver.py` `ImageServerTiles` (`WcsTiling` at `native_res` with an
-`origin` + `ImageServerReader`: Czechia; `zones`: a service that reprojects on request asked in the working grid's
-CRS, `ZonedTiling`/`ZonedReader`, a tile `(crs, (res, i, j))`, `readers` per CRS: Queensland's MGA 54-56), `zipped.py`
-`ZippedTiles` (`ZipTiling`: a `MetricTiling` with an `origin`, the ZIP at `url(left, bottom)` (None: no file, missing
-without a request), `tile_of`; + `SheetFile` with members: Saxony's and Baden-Württemberg's 2 km ZIPs; without
-members, plain files: Trento's ASCII grids, Slovenia's `x;y;z` text), `metalink.py` `MetalinkTiles` (`MetalinkFiles` +
-`ShaPerTile` + `Download` with SHA-256: Bavaria, Rhineland-Palatinate), `s3blocks.py` `S3Blocks` (`S3Objects`,
-`ComposedBlocks` newest collection first, `Windows`; `collections` (prefix, year), `names`/`extent` callables, the
-ETag in an item's name: Scotland), `geojson.py` `GeoJsonTiles` (`GeoJsonFiles` + `XyzPerTile` + `XyzFile`: plain XYZ
-files, `text/plain` only, a byte cap; an outdated link's HTML page (`StaleLink`) makes the index be read again at once
-(`_stale`, once per `STALE_REREAD_SECONDS` for every stale link of a pass): the tile is missing when the index still
-names the same link (LVermGeo SH answers the page also for files it no longer has: five tiles of 2007 in the outer
-Flensburg Fjord, 2026-11-08) and an error when it names another, used by the next search: Schleswig-Holstein),
-`zipmembers.py` `ZipMemberTiles` (members of remote district ZIPs, `ZipDirectories` + `ZipPerTile` + `ZipMember`,
-`floor`/`ring`; `_renew` forgets the 0.25° answers and reads the directories again: Saarland), `lidarbc.py`
-`LidarBcBlocks` (an `S3Blocks`: `LidarBcFiles` asks the FeatureServer `LiDAR_BC_S3_Public` (DEM layers 6 and 5, DSM 3
-and 1), then lists the bucket under each (sheet, survey folder) it names and keeps the listed keys only (the index
-lists LAZ files as `.tif` and paths that answer 404), the ETag in an item's name; each file's CRS from its name
-(`_utmNN`), its `projection` or its footprint (`file_crs`); `bc_utm_crs`: British Columbia)
+tiles at (`averaged_bytes` their tiles' sizes for `estimate`: the mirror's, 1.8/0.34 MB DMR and 2.0/0.37 MB DMP
+against 4.8 and 5.7 MB at 1 m), `GridResolutions` one tiling per resolution and `ResolutionBases` one `TileBases` per
+resolution, a tile `(res, i, j)`: a grid of the tiles' CRS at exactly an averaged resolution whose folder the mirror
+or a URL has reads it (the cache folder, mirror and URL named by `renamed`: `-1m-` → `-2m-`, `/1m` → `/2m`), any other
+grid the native tiles, also a grid of another CRS at 2 m or 5 m (a neighbour's: the mosaic would reproject the
+averaged tiles bilinearly on top; `resolution(grid_res, grid_crs)`)), `blocks.py` `DegreeBlocks` (`TenthDegreeTiling` +
+`Windows`: USGS 3DEP's 1/3″ DEM), `fileblocks.py` `FileBlocks` (`FileBlockTiling` + `Windows`: Austria's 50 km COGs;
+Wales and Luxembourg next; `serial` passed to `Windows`; `geoid`: files of heights above the ellipsoid cached as
+heights above that geoid, h - N in `_read_block`, the folder named `-<tag>`, the grid made ready before the tile's
+lock: ArcticDEM), `tnm.py` `TnmBlocks` (`TnmProducts`, `ComposedBlocks`, `Windows`: its 1 m DEM and Alaska's IfSAR),
+`files.py` (a local raster), `wmsr.py` `WmsrTiles` (`ResolutionTiling`: one `WcsTiling` per fetch resolution, the
+coarsest not coarser than the grid, + `WmsrReader`: France), `imageserver.py` `ImageServerTiles` (`WcsTiling` at
+`native_res` with an `origin` + `ImageServerReader`: Czechia; `zones`: a service that reprojects on request asked in
+the working grid's CRS, `ZonedTiling`/`ZonedReader`, a tile `(crs, (res, i, j))`, `readers` per CRS: Queensland's MGA
+54-56), `zipped.py` `ZippedTiles` (`ZipTiling`: a `MetricTiling` with an `origin`, the ZIP at `url(left, bottom)`
+(None: no file, missing without a request), `tile_of`; + `SheetFile` with members: Saxony's and Baden-Württemberg's 2
+km ZIPs; without members, plain files: Trento's ASCII grids, Slovenia's `x;y;z` text), `metalink.py` `MetalinkTiles`
+(`MetalinkFiles` + `ShaPerTile` + `Download` with SHA-256: Bavaria, Rhineland-Palatinate), `s3blocks.py` `S3Blocks`
+(`S3Objects`, `ComposedBlocks` newest collection first, `Windows`; `collections` (prefix, year), `names`/`extent`
+callables, the ETag in an item's name: Scotland), `geojson.py` `GeoJsonTiles` (`GeoJsonFiles` + `XyzPerTile` +
+`XyzFile`: plain XYZ files, `text/plain` only, a byte cap; an outdated link's HTML page (`StaleLink`) makes the index
+be read again at once (`_stale`, once per `STALE_REREAD_SECONDS` for every stale link of a pass): the tile is missing
+when the index still names the same link (LVermGeo SH answers the page also for files it no longer has: five tiles of
+2007 in the outer Flensburg Fjord, 2026-11-08) and an error when it names another, used by the next search:
+Schleswig-Holstein), `zipmembers.py` `ZipMemberTiles` (members of remote district ZIPs, `ZipDirectories` +
+`ZipPerTile` + `ZipMember`, `floor`/`ring`; `_renew` forgets the 0.25° answers and reads the directories again:
+Saarland), `lidarbc.py` `LidarBcBlocks` (an `S3Blocks`: `LidarBcFiles` asks the FeatureServer `LiDAR_BC_S3_Public`
+(DEM layers 6 and 5, DSM 3 and 1), then lists the bucket under each (sheet, survey folder) it names and keeps the
+listed keys only (the index lists LAZ files as `.tif` and paths that answer 404), the ETag in an item's name; each
+file's CRS from its name (`_utmNN`), its `projection` or its footprint (`file_crs`); `bc_utm_crs`: British Columbia)
 
 ## `sources/catalogue/`
 
@@ -252,7 +254,9 @@ Greenland and Nunavut's), `iceland` (the source `iceland` on ArcticDEM's layer, 
 `FileBlocks`, also a source by hand), then `copernicus`; the orthophoto Grunnkort - Loftmynd from the institute's
 mapcache, a WMS in EPSG:3857), `world`: FABDEM, Copernicus DEM (also the source `copernicus`, GLO-30 alone: the open
 gap filler of the Arctic), NASADEM and the water mask), each with its services, credits, orthophotos and a list
-`SOURCES`; `__init__.py` joins them in `FAMILIES` (the order `--source auto` tries them) into `SOURCES`
+`SOURCES`; `__init__.py` joins them in `FAMILIES` (the order `--source auto` tries them) into `SOURCES` and holds
+`AREA_NAMES` (each area of the coverage map, `Source.map_areas`, by its name for Nominatim: the area downloads'
+outlines and the country layer's territories)
 
 ## `sources/choose.py`, `mosaic.py`, `filling.py`
 
@@ -304,38 +308,45 @@ the growth, under `SHORE_MIN_M` left out of the list: `{rim_min, segments: [{kin
 `fill_gaps_chain`: `Source.more_fallbacks` in turn; `fill_from_neighbours` before them: `Source.neighbours` where
 `border_gaps` (gaps on land reaching the edge of the search footprint, at least 2500 m²) lie in the neighbour's rough
 boxes (`Source.rough_boxes`: its `offline` boxes, its `bbox` and its `border_boxes`, the border strips its offline
-boxes keep off; `neighbour_window`), fetched on a sub-grid around those gaps, credited only when it filled pixels;
-`border_gaps` computed once, not before a neighbour whose rough boxes reach the grid (`_box_ranges` not empty: none at
-a border without a neighbour's data), again only after a neighbour wrote pixels into either grid (`fill_gaps` returns
-`(path, terrain pixels filled, pixels written)`) or failed midway; no neighbours: nothing done; a neighbour's rasters
-at the grid's own resolution are reprojected by `NEIGHBOUR_SAME_RESOLUTION`, nearest (bilinear at one resolution
-smooths every cliff edge: 25-42 % of the neighbour's lines lost in the Tatras and the Wetterstein, nearest 0-4 %;
-finer data stay averaged, coarser ones bilinear: nearest makes a wall of every step between two coarse pixels, South
-Tyrol's 2.5 m data gave 73 867 lines on Austria's 1 m grid where their own grid finds 28, so `SAME` lies between the
-measured 1.0 and 1.25; docs/performance.md, "The resampling of a neighbour's data"), all of them by
-`NEIGHBOUR_RESAMPLING` when set (`tools/border_study.py run --resampling`, to measure the methods); the fallbacks keep
-the mosaic's choice (`tests/test_neighbours.py::test_neighbours_resampled_as_set`); `_fill` (the offsets of the gaps)
-computes its slopes in place and releases the gradients, `tests/test_units.py::test_gap_fill_as_before` keeps the code
-of before as the reference; `prepare_layer(quiet=True)` for them: no "tiles without data" line); every operation of
-step 1 takes `rows` (None: the whole grid at once, today's code; a number: strips of that many rows, `STRIP_PX`,
-`strip_rows`, `strips`, with a halo of its reach, for the area of a tiled search): `near_rows`, `fill_water`
-(`_fill_water_rows`; `bare_path`: the pixels filled, obstacles.py's bare; a dry strip, no sea zone and no lake within
-`SHORE_BUFFER`, left out of both passes: `test_fill_water_rows_dry_strips`), `fill_gaps`/`_fill` (`_fill_rows`: the
-matched pixels in `both.npy`, the overall offset an exact selection on the float32 bit patterns of the differences
-read strip by strip, `_keys`, `_median_of`, `_select`, np.median's value (the two middle values of an even count in
-the same passes while they share a bin, `_select(pair=True)`; the keys compared as int32, `_keys32`:
-`test_select_pair_as_two_selections`, `test_keys32_as_keys_before`); the ring pixels collected for `ndimage.median`
-(the dilation only over the columns within `GAP_RING` of a gap, strips without one skipped); one int32 array of
-labels), `fill_gaps_chain`, `border_gaps` (`_border_gaps_rows`: the footprint burned into `footprint.npy`),
-`neighbour_window`, `fill_from_neighbours`, `water_body_mask`; the masks `new_mask`/`remove_grid` (a new mask is all
-False: `_gaps_rows`, `near_rows`, `_fill_water_rows`, `_border_gaps_rows` and `coast.sea_mask_rows` inland write only
-the strips with a pixel to mark, and `_fill_water_rows` labels nothing without a lake to fill); `mosaic.flush_grid` a
-grid that is done (flushed, or its view kept in `HELD_GRIDS`, the list of a `country worker`); `rasterize_into` burns
-geometries into a memory-mapped mask whole (GDAL's all_touched burn is not the same strip by strip; also the area mask
-and coast.py's); `build_mosaic(rows=)` warps a raster covering more rows than that in destination strips (`_warp`): a
-raster of the grid's CRS is bit for bit the whole mosaic's, a cross-CRS warp (FABDEM, the water mask) differs within
-GDAL's approximate transformer, as a tile's extent made it differ before; each strip version equals the whole-grid
-function (`tests/test_units.py::test_near_rows_as_near`, `test_fill_rows_as_before`, `test_fill_water_rows_as_before`,
+boxes keep off; `neighbour_window`), fetched on a sub-grid around those gaps, credited only when it filled pixels; the
+count mode across a border (`search.prepare_data` with `Plan.partners`): `partner_zone` (the pixels beyond the outline
+within reach, `near`'s square), `partner_grid` (`PARTNER_OWN` on the source's own data there before any filling),
+`fill_from_neighbours(partner=)` marking where a neighbour filled terrain, `resolve_partners` after the filling (0
+outside the zone and on a fallback's pixels, water or no data; the source's own data and a neighbour's fill alike the
+declared neighbour of the smallest `Territory` holding the pixel's centre, `territory_grid`, else `PARTNER_UNKNOWN` 7:
+by territory since 2026-11-12, never by which file filled it or by the tile's grid,
+`tests/test_count_mode.py::test_partners_by_territory`); `border_gaps` computed once, not before a neighbour whose
+rough boxes reach the grid (`_box_ranges` not empty: none at a border without a neighbour's data), again only after a
+neighbour wrote pixels into either grid (`fill_gaps` returns `(path, terrain pixels filled, pixels written)`) or
+failed midway; no neighbours: nothing done; a neighbour's rasters at the grid's own resolution are reprojected by
+`NEIGHBOUR_SAME_RESOLUTION`, nearest (bilinear at one resolution smooths every cliff edge: 25-42 % of the neighbour's
+lines lost in the Tatras and the Wetterstein, nearest 0-4 %; finer data stay averaged, coarser ones bilinear: nearest
+makes a wall of every step between two coarse pixels, South Tyrol's 2.5 m data gave 73 867 lines on Austria's 1 m grid
+where their own grid finds 28, so `SAME` lies between the measured 1.0 and 1.25; docs/performance.md, "The resampling
+of a neighbour's data"), all of them by `NEIGHBOUR_RESAMPLING` when set (`tools/border_study.py run --resampling`, to
+measure the methods); the fallbacks keep the mosaic's choice
+(`tests/test_neighbours.py::test_neighbours_resampled_as_set`); `_fill` (the offsets of the gaps) computes its slopes
+in place and releases the gradients, `tests/test_units.py::test_gap_fill_as_before` keeps the code of before as the
+reference; `prepare_layer(quiet=True)` for them: no "tiles without data" line); every operation of step 1 takes `rows`
+(None: the whole grid at once, today's code; a number: strips of that many rows, `STRIP_PX`, `strip_rows`, `strips`,
+with a halo of its reach, for the area of a tiled search): `near_rows`, `fill_water` (`_fill_water_rows`; `bare_path`:
+the pixels filled, obstacles.py's bare; a dry strip, no sea zone and no lake within `SHORE_BUFFER`, left out of both
+passes: `test_fill_water_rows_dry_strips`), `fill_gaps`/`_fill` (`_fill_rows`: the matched pixels in `both.npy`, the
+overall offset an exact selection on the float32 bit patterns of the differences read strip by strip, `_keys`,
+`_median_of`, `_select`, np.median's value (the two middle values of an even count in the same passes while they share
+a bin, `_select(pair=True)`; the keys compared as int32, `_keys32`: `test_select_pair_as_two_selections`,
+`test_keys32_as_keys_before`); the ring pixels collected for `ndimage.median` (the dilation only over the columns
+within `GAP_RING` of a gap, strips without one skipped); one int32 array of labels), `fill_gaps_chain`, `border_gaps`
+(`_border_gaps_rows`: the footprint burned into `footprint.npy`), `neighbour_window`, `fill_from_neighbours`,
+`water_body_mask`; the masks `new_mask`/`remove_grid` (a new mask is all False: `_gaps_rows`, `near_rows`,
+`_fill_water_rows`, `_border_gaps_rows` and `coast.sea_mask_rows` inland write only the strips with a pixel to mark,
+and `_fill_water_rows` labels nothing without a lake to fill); `mosaic.flush_grid` a grid that is done (flushed, or
+its view kept in `HELD_GRIDS`, the list of a `country worker`); `rasterize_into` burns geometries into a memory-mapped
+mask whole (GDAL's all_touched burn is not the same strip by strip; also the area mask and coast.py's);
+`build_mosaic(rows=)` warps a raster covering more rows than that in destination strips (`_warp`): a raster of the
+grid's CRS is bit for bit the whole mosaic's, a cross-CRS warp (FABDEM, the water mask) differs within GDAL's
+approximate transformer, as a tile's extent made it differ before; each strip version equals the whole-grid function
+(`tests/test_units.py::test_near_rows_as_near`, `test_fill_rows_as_before`, `test_fill_water_rows_as_before`,
 `test_border_gaps_rows_as_whole`, `test_rasterize_into_as_whole`, `test_median_of_rows_is_np_median`,
 `test_mosaic_rows_as_whole`)
 

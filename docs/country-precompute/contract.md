@@ -8,6 +8,11 @@ not a decision of an agent: stop that part and report it.
 
 ## What is built
 
+This section is the pilot as built in waves 1 and 2 (cube v1). Cube v2 (section 6, built on the branches
+`cube-v2` and `cube-v2-partners` on 2026-11-07/12, tag `history/cube-v2`) changed the bands (the profile,
+R7), the cells (one global lattice, R4), the lines across borders (R3) and the key; Slovakia's recount
+used the surface model (`nmpt: mark`).
+
 The whole of a country is searched offline in fixed tiles. Each tile keeps only **counts**, never
 the lines. The counts are kept in a sparse **counter cube**: for each 1 km cell of the country's
 CRS and each combination of filter bins, the lines and the spots. The cube is summed into 2, 4 and
@@ -39,7 +44,8 @@ Lines are searched in length **bands**, each on its own grid:
 - Spot: a pair of 50 m anchor clusters with at least one line (below). It is coarser than the app's
   groups and is counted on the fly, without grouping.
 - Only lines with both anchors inside the country are counted: anchors come from the area mask.
-  Lines across a border are left for a later layer of several countries.
+  Lines across a border are left for a later layer of several countries (counted since cube v2:
+  section 6, "The borders").
 
 ## Ownership
 
@@ -702,7 +708,8 @@ a region is rejected (R6: resampling every pixel; the measured difference of 2-1
 the half-pixel pitfall). These, and the eight new parameters of docs/country-precompute.md section
 6.3, change the key and the origin of the cube, so they go into **one `countcube.VERSION` and one
 recount**, after the band study has landed in `main` (its bands become the profile). This section is
-the contract of that work; nothing of it is coded yet. The waves start from the `main` that holds the
+the contract of that work, built on the branches `cube-v2` (waves A to C, 2026-11-07/08) and
+`cube-v2-partners` (2026-11-12), tag `history/cube-v2`. The waves start from the `main` that holds the
 band study, in their own worktrees, as section "Ownership" says.
 
 ### Step 0, before the code of R3: the resampling of the partner's data, measured (2026-11-05)
@@ -804,28 +811,34 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 | A 0-15 | as the key of section 2: water (0-1), trees (2-3), height (4-6), clearance (7-9), wall (10-12), prominence of the weaker anchor (13-15) |
 | A 16-24 | length mask, as section 2 |
 | A 25-26 | border: 0 interior (both anchors in the country), 1 across the border and owned, 2 across the border and the partner's (see "The borders") |
-| A 27-29 | partner: 0 none, 1-6 the index into cube.json's `neighbours` (the partner's cube id), 7 unknown (the owner's data beyond the outline where no declared neighbour's boxes reach) |
+| A 27-29 | partner: 0 none, 1-6 the index into cube.json's `neighbours` (the partner's cube id), 7 unknown (beyond the outline where no declared neighbour's territory holds the pixel; rough boxes until 2026-11-12, see "The borders") |
 | A 30-45 | cell row `j` (16 bits, from the origin) |
 | A 46-61 | cell column `i` (16 bits) |
 | B 0-2 | metres over water: `water_px × res`, edges (0, 5, 20, 50, 100) |
-| B 3-5 | height of the lower anchor: `min(elev_a1, elev_a2)`, edges (0, 500, 1000, 1500, 2000) |
+| B 3-5 | height of the lower anchor: `min(elev_a1, elev_a2)`, edges (0, 500, 1000, 2000, 3000) |
 | B 6-8 | height of the upper anchor: `max(elev_a1, elev_a2)`, the same edges |
-| B 9-11 | mean height of the webbing: `height_mean`, edges (0, 10, 20, 50, 100) |
+| B 9-11 | mean height of the webbing: `height_mean`, edges (0, 20, 50, 100, 200) |
 | B 12-14 | prominence of the stronger anchor: `max(prom1, prom2)`, edges (0, 5, 10, 20, 50) |
-| B 15-17 | drop below both anchors: `min(drop1, drop2)`, edges (0, 20, 50, 100, 200) |
-| B 18-20 | share of the line high above the terrain: `high_pct`, edges (0, 25, 50, 75, 90) |
-| B 21-23 | height difference of the anchors: `|elev_a1 - elev_a2|`, edges (0, 5, 10, 20, 50) |
-| B 24-26 | clearance over trees and buildings: `clearance_nmpt`, edges as the clearance's; UNKNOWN without a surface model |
+| B 15-17 | drop below both anchors: `min(drop1, drop2)`, edges (0, 40, 60, 80, 100) |
+| B 18-20 | share of the line high above the terrain: `high_pct`, edges (0, 75, 90, 95, 98) |
+| B 21-23 | height difference of the anchors: `|elev_a1 - elev_a2|`, edges (0, 2, 5, 10, 25) |
+| B 24-26 | clearance over trees and buildings: `clearance_nmpt`, edges (0, 1, 2, 5, 10); UNKNOWN without a surface model |
 | B 27-29 | A-frame needed with the no-fall zone: `lift_needed` (the smallest lift at both ends that validates the line with the country's `end_zone`), edges (0, 0.5, 1, 1.5, 2); a ceiling (a filter "needs at most h"); bin 0 is a line that stands without A-frames; UNKNOWN for a country counted without the options |
 | B 30-32 | A-frame needed without the zone: `lift_no_zone`, the same edges; a line of a bin above the last edge needs the zone whatever the A-frame |
 | B 33-62 | reserved (0) |
 
-- The edges of word B are **working values**: those the measurement of 2026-11-05 used to count the
-  keys' growth (`local/country-perf-2026-11-04/cube-params/`, section 6.3's table: the cube about
-  152 MB of arrays with all eight, 229 MB with the wider key, est.), not chosen ones. Section 6.3
-  asks for edges from a measurement and the growth checked on a second country: wave A measures the
-  edges on Slovakia's tiles (the keys per edge set, the bins' shares) and proposes them to the user
-  before the recount; a change of an edge is a change of this table.
+- The edges of word B are **chosen** (the user, 2026-11-08): wave A's recommendation of its second round
+  (`local/country-perf-2026-11-07/stage3/A/sk-r2/analysis.md`), measured on 58 tiles of Slovakia's layer
+  bands (185 M lines) for each bin's share of the lines and spots and the keys each set adds; the
+  measurement of 2026-11-05 (section 6.3's table) had used working values (the lower anchor's and the
+  upper anchor's heights 0, 500, 1000, 1500, 2000; the mean height 0, 10, 20, 50, 100; the drop 0, 20,
+  50, 100, 200; the high share 0, 25, 50, 75, 90; the height difference 0, 5, 10, 20, 50; the
+  clearance over trees as the clearance's), which left bins empty or overfull. The sample's arrays at
+  all levels: 91.9 MB at these edges against 40.3 MB at the working values (24 B a row); Slovakia's
+  cube about 775 MB (*est.*: that ratio applied to the working values' about 340 MB, without the
+  growth of the clearance over trees and of the A-frame fields, which the sample did not hold). The
+  growth is still to be checked on a second country. A change of an edge is a change of this table
+  and a recount.
 - `merge_spots` on word B, as section 6.3's rule (a filter passes when some line of the spot does):
   a floor's field (metres over water, the lower anchor's height, the mean height, the stronger
   prominence, the drop, the high share, the clearance over trees) takes the largest bin, a ceiling's
@@ -898,11 +911,38 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   `max_length` of it and on pixels of a neighbour's source or of the owner's own source (step 0:
   the owner's data reach beyond the border, and every S line across it ends on them); never on
   the fallback's pixels. `Data.partner` is a uint8 grid in the work folder, 0 inside the outline
-  and on the fallback's pixels, else the partner index of the pixel: for a pixel a neighbour
-  filled, that neighbour's (`fill_from_neighbours` writes it), for a pixel of the owner's source
-  the first neighbour of `Source.neighbours` whose rough boxes hold it, else 7, "unknown" (a border
-  with a country without a source in the catalogue). The first-anchor mask of the kernel
-  (`find_valid_lines(first=)`) is (core ∩ outline) ∪ partner anchors.
+  and on the fallback's pixels, else the partner index of the pixel: the declared neighbour (of
+  `Source.neighbours`) in whose territory the pixel lies, for the owner's own data and for a
+  pixel a neighbour filled alike (`fill_from_neighbours` only marks that a neighbour filled it),
+  else 7, "unknown" (a border with a country without a source in the catalogue: for Slovakia
+  Hungary and Ukraine). The first-anchor mask of the kernel (`find_valid_lines(first=)`) is
+  (core ∩ outline) ∪ partner anchors.
+- **Partners by territory (decided by the lead 2026-11-12, wave 19; built on `cube-v2-partners`).** Until
+  then an own pixel took the neighbour whose fill lay nearest, else the first whose rough boxes held it:
+  rough boxes are not outlines, and the label depended on the tile's grid. Slovakia's S tile
+  E-565000_N-1205000 (Záhorie, at the Czech border) gave its 234 lines across the border Poland in the
+  lead profile's run and Czechia in the user profile's, whose larger grid held a pixel Czechia filled; in
+  the real-data check of wave 19 (step 1 of border tiles at the five tripoints) the old rule also named
+  Austria for Czech land at the AT-CZ-SK tripoint and Austria or Poland for Hungarian and Ukrainian land.
+  The rule now: a line across a border belongs to the border it crosses, whatever filled the pixel and
+  whatever the tile's grid, band or profile (the neighbour's own cube, which replaces these lines once it
+  exists, is cut by that territory). A territory is the outline the neighbour's own cube would be cut
+  by: `country.territory_specs` (the map areas of the neighbour's sources, named for Nominatim by
+  `sources.AREA_NAMES`) through `area.from_spec(whole=True)`, fetched once per country folder at `run`'s
+  set-up into `neighbours.geojson` (a feature per declared neighbour: index, source, cube, specs, the km²
+  of the whole outline; the geometry within `country.territory_reach` of the outline: the largest
+  band's zone corner, sqrt(2) times its longest line, and 1 km), read once per worker. Of two
+  territories holding a pixel (a region inside its country: Alaska in the USA) the smaller wins, of two
+  equal ones the one declared first; a nested region the source does not declare takes its parent's
+  index. A pixel lies in a territory when its centre does (the burn of the area mask): Slovakia's outline
+  and its neighbours' share OSM's border vertices, which the cut keeps (wave 19: 24 965 of Slovakia's
+  43 216 vertices shared, none of the others within 50 m of a territory but one at the AT-HU-SK tripoint,
+  3 m off). The file's sha256 is in each border tile's meta and in cube.json (`neighbours_sha256`): `run`
+  sends a done border tile (by `_at_border` on its grid) of another sha256, or of none, back to pending,
+  and `build` refuses a mix; the config hash and `countcube.VERSION` stay (no v2 cube was released).
+  Tests: `tests/test_count_mode.py::test_partner_grid_and_its_last_pass`, `test_partners_by_territory`,
+  `test_count_tile_partners_by_territory`; `tests/test_country.py::test_border_tiles_counted_by_territory`,
+  `test_neighbours_file_written_and_kept`, `test_territory_reach_holds_the_zone_corner`.
 - **Kernel.** `linesearch._pairs` takes one more optional uint8 array, `partner`: when the first
   anchor is a partner, a partner as the other end is skipped before the rings and the pixel test
   (partner-partner pairs are the neighbour's own lines: in the Tatras 194 M against 836 M of SK's).
@@ -920,7 +960,9 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   core, which holds every partner within `max_length`; the border tiles ask the neighbour today
   already (`Plan.border`). Cost: the partner strip's anchors in step 2 and the cross-border pairs in
   step 3: +3-6 % of the tiles' time (est.); RAM, downloads unchanged; the tiles' files +3 % (est.).
-- **cube.json.** `neighbours: [cube ids]`, `totals.border: {owned, partner}` for lines and spots,
+- **cube.json.** `neighbours: [cube ids]`, `neighbours_sha256` (the sha256 of `neighbours.geojson` its
+  border tiles were counted with; null for a study area; since 2026-11-12, also in `CountryCube` of
+  `viewer/src/app/api.ts`, absent in older cubes), `totals.border: {owned, partner}` for lines and spots,
   `notes` for the hard borders. `countcube.build` sums as today; the border field is part of the key.
 - **The web.** `/api/countries` lists every cube; `/cells` and `/histogram` take `border=own|all`
   (default `all`: interior + owned + partner lines whose partner is unknown (7) or has no cube in
@@ -944,6 +986,11 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 - cube.json: `profile`: the sha256 of the profile's JSON; `config_hash` covers it. `/api/countries`
   passes it; the page sums only the cubes of the profile of the first country listed and shows the
   others apart with a note (`layerState.ts activeCubes`); the surface model may differ (today's note).
+- **Chosen (the user, 2026-11-12)** after two profiles were counted on all of Slovakia (round 5's wave
+  17; the tables in docs/performance.md, "Round 5", "The recount: two profiles of Slovakia"): S 30-300 m at 1 m,
+  M 300-1000 m at 2 m (60°, cores of 5 and 10 km), L1 1-2 km at 3 m (55°, 10 km), L2 2-5 km at 5 m (45°,
+  20 km), all sag and in the layer, no control band; T(L) and Silk 99 as the pilot's. `country compare`
+  needs a control band, which only a study area or a test has now.
 
 ### What stays byte for byte
 
@@ -976,10 +1023,10 @@ classes AA/BB/AB on the same code (its sink keeps its own `TileCounter`s).
 | Wave | Agent | Files |
 | --- | --- | --- |
 | 0 | done 2026-11-06, measured, decided by the user and built (tag `history/partner-resampling`) | `sources/mosaic.py` and `sources/filling.py` (the resampling option), `tools/border_study.py` (`--resampling`, `boxes`), `sources/layers/gridtiles.py`, the runs at four places, the numbers in step 0 above and docs/performance.md |
-| A | key, lattice, spots | `countcube.py`, `tests/test_countcube.py` |
-| B | anchors, kernel, counter, driver | `linesearch.py` (`partner`), `search.py` (`_anchors`, `Data.partner`, `count_tile`), `sources/filling.py` (the source mask), `country.py` (`PROFILE`, `NEIGHBOUR_CUBES`, the origin, cube.json's fields), `tests/test_count_mode.py`, `tests/test_country.py`, `tests/test_border_study.py` |
-| C | web and page | `web.py`, `viewer/src/app/api.ts`, `viewer/src/app/c/*`, `viewer/src/ui/Gallery.tsx`, `locales/en.json`, `tests/test_country_web.py`, `tools/ui_shots.py` |
-| lead | docs, the recount | this file, docs/country-precompute.md, docs/roadmap.md, CLAUDE.md, README; Slovakia counted again (1-1.5 h plus the band study's bands, est.), the comparison with the v1 cube |
+| A | done 2026-11-07 (f9ab017, tag `history/cube-v2`): key, lattice, spots | `countcube.py`, `tests/test_countcube.py` |
+| B | done 2026-11-08 (d5a6d7d, tag `history/cube-v2`): anchors, kernel, counter, driver | `linesearch.py` (`partner`), `search.py` (`_anchors`, `Data.partner`, `count_tile`), `sources/filling.py` (the source mask), `country.py` (`PROFILE`, `NEIGHBOUR_CUBES`, the origin, cube.json's fields), `tests/test_count_mode.py`, `tests/test_country.py`, `tests/test_border_study.py` |
+| C | done 2026-11-08 (509046b, a0b682e, tag `history/cube-v2`): web and page | `web.py`, `viewer/src/app/api.ts`, `viewer/src/app/c/*`, `viewer/src/ui/Gallery.tsx`, `locales/en.json`, `tests/test_country_web.py`, `tools/ui_shots.py` |
+| lead | docs, the recount (Slovakia counted again on 2026-11-10/12: docs/performance.md, "Round 5") | this file, docs/country-precompute.md, docs/roadmap.md, CLAUDE.md, README; Slovakia counted again (1-1.5 h plus the band study's bands, est.), the comparison with the v1 cube |
 
 A and B share `countcube.TileCounter`'s input (the parts' columns): A owns the counter, B hands it the
 columns `elev_a1`, `elev_a2`, `drop1`, `drop2`, `height_mean`, `high_pct`, `partner` (per line, the

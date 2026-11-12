@@ -691,6 +691,15 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
     plain = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
     cache_dir = str(tmp_path / "cache")
     bounds = (left + 500, top - 2800, left + 4600, top - 100)
+    # Their estimate: each resolution's tiles at their own size (averaged_bytes), the native size without one
+    sized = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m",
+                          averaged=(2, 5), averaged_bytes=(2e6, 4e5))
+    for res, size in ((1.0, 6e6), (2.0, 2e6), (5.0, 4e5)):
+        tiles, todo, mb = sized.estimate(gd.make_grid(bounds, res, "EPSG:8353"), str(tmp_path / "empty"), None)
+        assert tiles == todo > 0 and mb == pytest.approx(todo * size / 1e6)
+        assert layer.estimate(gd.make_grid(bounds, res, "EPSG:8353"), str(tmp_path / "empty"), None)[2] ==             pytest.approx(todo * 6e6 / 1e6)
+    with pytest.raises(ValueError, match="averaged_bytes"):
+        src.GridTiles("x", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, averaged=(2, 5), averaged_bytes=(1e6,))
     for res in (2.0, 5.0):
         grid = gd.make_grid(bounds, res, "EPSG:8353")
         assert layer.resolution(res) == res

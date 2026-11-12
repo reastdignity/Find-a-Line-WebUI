@@ -125,6 +125,54 @@ console.log(JSON.stringify({
     assert out["unchanged"] == DEFAULT
 
 
+def test_fit_panels_of_the_layer(tmp_path):
+    """The generalised fitting (fitPanels, maxPanelWidth: two panels with their own limits) gives the result's columns
+    as fitColumns did, and the highline layer's panels (LAYER_LIMITS: left 320-560, right 300-640, the map 360): shrunk
+    in proportion, then the right collapsed, then the left; `prefer` the other first. The layer's kept value under its
+    own key, made safe as the result's."""
+    out = run_layout(tmp_path, """
+const R = m.DEFAULT_LAYOUT, L = m.DEFAULT_LAYER_LAYOUT, LIM = m.LAYER_LIMITS;
+const result = {left: m.LIMITS.list, right: m.LIMITS.details, rail: m.LIMITS.rail, map: m.LIMITS.map};
+const same = [400, 600, 700, 900, 1000, 1400].every((w) => [null, "list", "details"].every((prefer) => {
+  const old = m.fitColumns(R, w, prefer);
+  const now = m.fitPanels(R.list, R.details, result, w, prefer === "list" ? "left" : prefer === "details" ? "right" : null);
+  return JSON.stringify(old) === JSON.stringify({list: now.left, details: now.right})
+    && m.maxColumnWidth("list", w, old) === m.maxPanelWidth("left", w, now, result)
+    && m.maxColumnWidth("details", w, old) === m.maxPanelWidth("right", w, now, result);
+}));
+const fit = (w, prefer = null, layout = L) => m.fitPanels(layout.left, layout.right, LIM, w, prefer);
+const store = {};
+globalThis.localStorage = {getItem: (k) => k in store ? store[k] : null, setItem: (k, v) => { store[k] = String(v); }};
+const empty = m.loadLayerLayout();
+m.saveLayerLayout({v: 1, left: {w: 999, open: false}, right: {w: 450, open: true}});
+const keys = Object.keys(store), back = m.loadLayerLayout();
+console.log(JSON.stringify({
+  same, defaults: L, limits: LIM, w1440: fit(1440), w1280: fit(1280), w1000: fit(1000), w750: fit(750),
+  prefer: fit(1000, "right"), closed: fit(1000, null, {v: 1, left: {w: 400, open: false}, right: {w: 620, open: true}}),
+  max: {left1440: m.maxPanelWidth("left", 1440, fit(1440), LIM), right1440: m.maxPanelWidth("right", 1440, fit(1440), LIM),
+        leftRail: m.maxPanelWidth("left", 1440, fit(1440, null, {v: 1, left: {w: 400, open: true}, right: {w: 620, open: false}}), LIM)},
+  bad: [null, {v: 2}, "x"].map((v) => m.sanitizeLayer(v)),
+  clamped: m.sanitizeLayer({v: 1, left: {w: 100, open: "no"}, right: {w: 9999, open: false}}),
+  empty, keys, back,
+}));""")
+    col = lambda open, width, forced=False: {"open": open, "width": width, "forced": forced}  # noqa: E731
+    assert out["same"] is True
+    assert out["defaults"] == {"v": 1, "left": {"w": 400, "open": True}, "right": {"w": 620, "open": True}}
+    assert out["limits"] == {"left": [320, 560], "right": [300, 640], "rail": 36, "map": 360}
+    assert out["w1440"] == {"left": col(True, 400), "right": col(True, 620)}  # the map 420 px
+    # 1280 px: 100 too much, 80 + 320 to shrink: 20 and 80 off
+    assert out["w1280"] == {"left": col(True, 380), "right": col(True, 540)}
+    # 1000 px: 380 too much, 400 spare: both near their least; 750 px: the right collapses, the left 750 - 360 - 36
+    assert out["w1000"] == {"left": col(True, 324), "right": col(True, 316)}
+    assert out["w750"] == {"left": col(True, 354), "right": col(False, 620, True)}
+    assert out["prefer"] == out["w1000"] and out["closed"] == {"left": col(False, 400), "right": col(True, 604)}
+    assert out["max"] == {"left1440": 460, "right1440": 640, "leftRail": 560}
+    assert out["bad"] == [out["defaults"]] * 3
+    assert out["clamped"] == {"v": 1, "left": {"w": 320, "open": True}, "right": {"w": 640, "open": False}}
+    assert out["empty"] == out["defaults"] and out["keys"] == ["findaline.layer.layout"]
+    assert out["back"] == {"v": 1, "left": {"w": 560, "open": False}, "right": {"w": 450, "open": True}}
+
+
 def test_card_insets_height_and_edges(tmp_path):
     """The card's insets (narrowed in proportion, not kept, in a narrow map), its height within its limits, and
     moving one edge keeps the other where it was."""

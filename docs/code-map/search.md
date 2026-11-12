@@ -82,24 +82,32 @@ leaves the bars and the step alone) and joins the tiles' lines column by column 
 layer (docs/country-precompute/contract.md): `plan_search(tiled=False)` (an area without tiles), step 2 as `_anchors`
 (`Anchors`) and step 3's arguments as `_pair_search`, both shared by `_lines` and `count_tile` (steps 2-3 into a sink,
 each part with `water_px`; no step 4, no "no lines" errors, no `_early_check`/`_check_lines`; no "lines" funnel count,
-the sink's `TileCounter.lines` instead), `fixed_tiles`/`FixedTile` (cores at multiples of `core_m` in the plan's CRS,
-named `E<left>_N<bottom>`), `tile_grid` the grid of a tile for `_tiles` and `fixed_tiles` and sums their histograms
-(`tiles/<k>.terrain.npz`, `TERRAIN_FILE`: saved before the tile file, loaded with it on resuming; a finished tile
-without one makes the run's terrain None); `save_run` writes `meta["terrain"]` and prints "Terrain of the search area:
-..."; the uncertain shore (`sources.filling.shore_segments`): `prepare_data(shore="segments")` into `Data.shore` after
-the water filling (the bar "uncertain shore"; a `messages.Note` `shore_uncertain` from `SHORE_WARN_M`), `Lines.shore`
-(`find_lines`; `search_lines` keeps the area's in the run folder's `SHORE_FILE` for a resumed search), `meta["shore"]`
-of run.json and data.js; `shore="kinds"` for the 3D view's patch (`Data.shore_kinds`, `work/shore.npy`),
-`shore="none"` for a profile and the country layer's tiles; `--min-elevation`/`--max-elevation` keep the anchors
-within the band in `_anchors` right after they are found (float32 heights; before `ANCHORS_MAX`, the prominence and
-the drop, so the funnel's `anchors_kept` counts it; `no_anchors_in_elevation_range`), `_search_hash` drops them when
-unset; the no-fall zone and the A-frames (`Plan.end_zone`, `Plan.lift`, printed as "Ends: ..."): `_pair_search` hands
-them to `find_valid_lines` (with `zones=(0, end_zone)`, whose bucket minima `zone_margins` become
-`lift_needed`/`lift_no_zone` through `helpers.lift_values` and are dropped from the table, in count mode from each
-part before the sink gets it), `_fixed_order` sorts exactly tied lines by their anchors' pixels only when one of them
-is set (tiles then give one grid's rows in one order), `_run_values` reads a run's pair from run.json (0/0 for runs
-before) for `profile_of_line`, `reach_of_anchor` and `patch_of_line` (`_end_keys` in the meta), `_search_hash` drops
-them at 0
+the sink's `TileCounter.lines` instead; across a border, `Plan.partners` (the metres beyond the outline within which a
+country's border tile pairs anchors on a neighbour's or its source's own data with those inside: `country.tile_plan`):
+`Data.partner` (uint8 memory-mapped: `sources.filling.partner_zone`/`partner_grid` before the filling,
+`fill_from_neighbours(partner=)` during it, `resolve_partners` with `Plan.territories` after it), `_anchors` takes the
+anchors where it is not 0 too (`_with_partners`), `_pair_search` adds them to the first-anchor mask and marks them and
+the country's anchors outside the core (`find_valid_lines(partner=)`: a partner pairs only with the core's anchors in
+the country, so one tile finds a line across), `count_tile` adds each part's `partner` (uint8: at the anchor beyond
+the outline, 0 inside) and `border` (int8: 0 inside, 1 the anchor in the country first by (lon, lat), else 2) by
+`_BorderSides`, through countcube's transformer as `TileCounter` takes the first anchor), `fixed_tiles`/`FixedTile`
+(cores at multiples of `core_m` in the plan's CRS, named `E<left>_N<bottom>`), `tile_grid` the grid of a tile for
+`_tiles` and `fixed_tiles` and sums their histograms (`tiles/<k>.terrain.npz`, `TERRAIN_FILE`: saved before the tile
+file, loaded with it on resuming; a finished tile without one makes the run's terrain None); `save_run` writes
+`meta["terrain"]` and prints "Terrain of the search area: ..."; the uncertain shore
+(`sources.filling.shore_segments`): `prepare_data(shore="segments")` into `Data.shore` after the water filling (the
+bar "uncertain shore"; a `messages.Note` `shore_uncertain` from `SHORE_WARN_M`), `Lines.shore` (`find_lines`;
+`search_lines` keeps the area's in the run folder's `SHORE_FILE` for a resumed search), `meta["shore"]` of run.json
+and data.js; `shore="kinds"` for the 3D view's patch (`Data.shore_kinds`, `work/shore.npy`), `shore="none"` for a
+profile and the country layer's tiles; `--min-elevation`/`--max-elevation` keep the anchors within the band in
+`_anchors` right after they are found (float32 heights; before `ANCHORS_MAX`, the prominence and the drop, so the
+funnel's `anchors_kept` counts it; `no_anchors_in_elevation_range`), `_search_hash` drops them when unset; the no-fall
+zone and the A-frames (`Plan.end_zone`, `Plan.lift`, printed as "Ends: ..."): `_pair_search` hands them to
+`find_valid_lines` (with `zones=(0, end_zone)`, whose bucket minima `zone_margins` become `lift_needed`/`lift_no_zone`
+through `helpers.lift_values` and are dropped from the table, in count mode from each part before the sink gets it),
+`_fixed_order` sorts exactly tied lines by their anchors' pixels only when one of them is set (tiles then give one
+grid's rows in one order), `_run_values` reads a run's pair from run.json (0/0 for runs before) for `profile_of_line`,
+`reach_of_anchor` and `patch_of_line` (`_end_keys` in the meta), `_search_hash` drops them at 0
 
 ## `area.py`
 
@@ -177,9 +185,12 @@ open sectors (`_cell_sectors`: the sectors of a cell's corners with one of margi
 open for `smallest_need` towards the anchor (`_cell_open` of `pair_arguments`, a uint64 per cell) the partners whose
 need exceeds the anchor's largest ring in their cell's sectors and those with no sector open for `smallest_need`
 towards their cell's sectors (`_open_masks`, a uint64 per useful anchor), all skipped before the candidates are
-counted), early-exit line check (`_line_ok`: the comparison `strict = −EPS − lift`, `lenient = −EPS − lift − δ` inside
-the zone (`_zone_steps`, `_margin_at`: helpers.end_zone_rule; with a zone the first strict step at each end is tested
-first), the limit's arithmetic untouched, so at 0/0 today's bits; `_free_rings` takes
+counted; the count mode across a border: the optional uint8 `partner` per anchor, the tail's last element
+(`pair_arguments(partner=)`, `find_valid_lines(partner=)`), a pair of two marked anchors skipped before every other
+test, empty the pairs of before bit for bit: `tests/test_units.py::test_pairs_with_partners_match_reference`),
+early-exit line check (`_line_ok`: the comparison `strict = −EPS − lift`, `lenient = −EPS − lift − δ` inside the zone
+(`_zone_steps`, `_margin_at`: helpers.end_zone_rule; with a zone the first strict step at each end is tested first),
+the limit's arithmetic untouched, so at 0/0 today's bits; `_free_rings` takes
 `ring_offsets(offset, res, kmax, end_zone, lift, delta)`, a ring k relaxed by δ iff `(k−1)·res < end_zone`, all less
 the lift: sound, never too little; from both ends inwards, the middle of lines of more than `LINE_ORDER_SPLIT` and at
 most `LINE_ORDER_MAX` steps in bit-reversal order); `find_valid_lines(stats=)` adds the funnel's counts of a call
@@ -270,8 +281,8 @@ labelled "" for the rest of the process, which a listener that follows the bars 
 `tests/test_entry_points.py`); `update(n, part=...)` names the part of a bar of a few steps that runs next (step 1:
 `sources.filling._fill` slopes/rings/medians, `fill_water` sea/lakes/levels), which `tools/perf_profile.py` lists per
 part; step 1's other bars: "area coverage", "sea mask (world file|coastline)", "shore zone", "terrain statistics",
-"border gaps (<neighbour>)", "gap filling (<source>): terrain|surface", "surface coverage" (none of them in
-`jobs.STAGE_KEYS`)
+"border gaps (<neighbour>)", "gap filling (<source>): terrain|surface", "surface coverage", "partner zone" and
+"partner territories" (the count mode across a border only) (none of them in `jobs.STAGE_KEYS`)
 
 ## `warmup.py`
 

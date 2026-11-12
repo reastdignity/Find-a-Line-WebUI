@@ -53,10 +53,12 @@ Run by hand: screenshots of the app's pages for a visual review (Playwright, gro
 public site of a scratch data folder (a temporary one is removed at the end) with an administrator signed in (and a
 run's `map.html`, also by its share link) (the `-limited` pages: an approved user with the site's limits; HTTPS with a
 certificate of the run: WebKit sends no Secure cookie to http://localhost); the pages `c-layer`, `c-layer-world` (both
-cubes in view), `c-layer-study` (the study area alone), `c-layer-end` (the phones' column at its histograms) and
-`c-layer-cell` (a cell selected) over three cubes; `--run <folder> --line <lat1,lon1,lat2,lon2>` shows a saved run
-(copied into the shots' data folder) with that line open: the pages `c-result-rigging` (the rigging filter) and
-`c-line-profile` (the profile card), with `c-line` and `view3d` of made-up counts of
+cubes in view), `c-layer-study` (the study area alone), `c-layer-end` (the phones' column at its histograms),
+`c-layer-cell` (a cell selected), `c-layer-collapsed` (the left panel a rail, `LAYER_LAYOUTS`), `c-layer-chips` and
+`c-layer-fold` (two filters of the fold set: its chips, then opened) and `c-layer-border` (a cell the border cuts
+selected, its card and the notes: `border_view`) over three cubes v2; `--run <folder> --line <lat1,lon1,lat2,lon2>`
+shows a saved run (copied into the shots' data folder) with that line open: the pages `c-result-rigging` (the rigging
+filter) and `c-line-profile` (the profile card), with `c-line` and `view3d` of made-up counts of
 `tests/test_country_web.py::sample_cube` (`slovakia` and `testland`, as its fixture, and the study area `sk-part`)
 
 ## `tools/perf_*.py`
@@ -305,23 +307,23 @@ work over a share) and the tile folders symbolic links to it; `tui --settings <f
 The window of the area download (`area_download.py tui --settings <file>`, Textual, the group `tui`: not in a plain
 `uv sync` nor in the image; `area_download.py` imports it only for that command): the coverage map's areas
 (`area_rows.catalogue`: `coverage.json`, continents and km² from `shapes.json`, a region takes its country's
-continent; `COUNTRIES` the titles, `OSM_NAMES` each area's Nominatim name, each checked once against the outlines: an
-administrative boundary of the area, larger on a coast by the territorial waters) plus the settings' `extra`, grouped
-by continent (`Collapsible`s of rows of `Checkbox` subclasses: a `DataTable`'s first click only moves its cursor, a
-`SelectionList` has no cell to click for the target). A checkbox only chooses; Start and Stop ask first (`Confirm`,
-the focus on Cancel). A row's name is its name in the state folder (`slug` of the title: `poland`, `czechia`, as the
-downloads started by hand). The settings (a JSON file outside the repository: the docstring of `area_rows.py`) name
-the state folder, a contact (`FINDALINE_CONTACT` of what starts, never on a command line; an e-mail address with a
-dotted domain or an http(s) address, `contact_ok`, else a `SettingsError`), the targets (`data_dir`, `min_free_gb`,
-`max_memory_gb`, `tiles`: the folder on a share) and rows' targets, `host_slots` and `max_memory_gb` (the row's over
-the target's, as `--max-memory-gb` of `command_of`; neither: the downloader's default); the target chosen in the
-window is kept in `tui-targets.json` of the state folder. Start: `links_of` (a share's tile folders, `Layer.folder`,
-as links from the data folder's cache; a real folder with tiles stops that row), `make_links` (LAYOUT first, or a new
-cache with links in it is refused as another layout; `os.symlink`, else one UAC window on Windows without Developer
-Mode: `_elevated`, a script with its BOM for PowerShell 5.1), then `start`: `area_download.py run` detached
-(`_detached`: a hidden console of its own on Windows, a new session on Linux, so it outlives the window and its
-terminal). State from the state folder (`ad.areas`), as `status`. Everything has a key (a text console has no mouse);
-`tests/test_area_rows.py`, `tests/test_area_download_tui.py`
+continent; `COUNTRIES` the titles, `sources.AREA_NAMES` each area's Nominatim name (also the country layer's
+territories), each checked once against the outlines: an administrative boundary of the area, larger on a coast by the
+territorial waters) plus the settings' `extra`, grouped by continent (`Collapsible`s of rows of `Checkbox` subclasses:
+a `DataTable`'s first click only moves its cursor, a `SelectionList` has no cell to click for the target). A checkbox
+only chooses; Start and Stop ask first (`Confirm`, the focus on Cancel). A row's name is its name in the state folder
+(`slug` of the title: `poland`, `czechia`, as the downloads started by hand). The settings (a JSON file outside the
+repository: the docstring of `area_rows.py`) name the state folder, a contact (`FINDALINE_CONTACT` of what starts,
+never on a command line; an e-mail address with a dotted domain or an http(s) address, `contact_ok`, else a
+`SettingsError`), the targets (`data_dir`, `min_free_gb`, `max_memory_gb`, `tiles`: the folder on a share) and rows'
+targets, `host_slots` and `max_memory_gb` (the row's over the target's, as `--max-memory-gb` of `command_of`; neither:
+the downloader's default); the target chosen in the window is kept in `tui-targets.json` of the state folder. Start:
+`links_of` (a share's tile folders, `Layer.folder`, as links from the data folder's cache; a real folder with tiles
+stops that row), `make_links` (LAYOUT first, or a new cache with links in it is refused as another layout;
+`os.symlink`, else one UAC window on Windows without Developer Mode: `_elevated`, a script with its BOM for PowerShell
+5.1), then `start`: `area_download.py run` detached (`_detached`: a hidden console of its own on Windows, a new
+session on Linux, so it outlives the window and its terminal). State from the state folder (`ad.areas`), as `status`.
+Everything has a key (a text console has no mouse); `tests/test_area_rows.py`, `tests/test_area_download_tui.py`
 
 ## `tools/job_stats.py`
 
