@@ -141,12 +141,14 @@ export type DimensionKind = "floor" | "below" | "at_most";
 export interface BorderTotals { owned: number; partner: number }
 /** /api/countries: a country's counter cube v2 (cube.json without "config" and "origin"; countcube.build): cells of
  *  `cell_deg` degrees (30″) on one global lattice, `edges` of the length and of every dimension of `kinds`,
- *  `neighbours` the cube ids of its partner indices 1-6, `profile` the layer profile's hash (R7: absent before it);
+ *  `neighbours` the cube ids of its partner indices 1-6, `profile` the layer profile's hash (R7: absent before it),
+ *  `neighbours_sha256` the sha256 of the neighbours' territories its border tiles were counted with
+ *  (neighbours.geojson; null for a study area, absent in cubes built before the territories);
  *  `study`: a study area, a box of a country (cubes built before 2026-11-05 have no such field: none was one). */
 export interface CountryCube { id: string; name: string; crs: string; study?: boolean; version?: number; cell_deg: number;
                                levels: number[]; clusters_per_cell?: number; bounds_wgs84: [number, number, number, number];
                                edges: Record<string, number[]>; kinds: Record<string, DimensionKind>;
-                               neighbours?: string[]; profile?: string | null;
+                               neighbours?: string[]; profile?: string | null; neighbours_sha256?: string | null;
                                bands: CountryBand[]; dsm: boolean; water: boolean; partial: boolean;
                                totals: {lines: number; spots: number; border?: {lines: BorderTotals; spots: BorderTotals}};
                                built: string; credits: Credit[]; notes: string[] }
