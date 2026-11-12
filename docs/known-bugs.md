@@ -64,4 +64,4 @@ On a slightly diagonal line under the cap the product is 15.000000000000002 for 
 steps, one more than 25 % of the line. Its twins repeat the arithmetic (`linesearch._zone_steps`, the viewer's
 `endzone.ts` `zoneSteps`), so the three agree with each other and the tests comparing them pass. A fix changes all
 three together and the results of searches with a no-fall zone (the relaxed test reaches one pixel less at each
-end), so it needs the checks of CLAUDE.md, "Things that must stay in sync", for the end zone.
+end), so it needs the checks of `.claude/rules/line-test.md`, "Must stay in sync", for the end zone.
