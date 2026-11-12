@@ -253,6 +253,10 @@ class Plan:
     # neighbour's data or the source's own data pair with the anchors inside (Data.partner); None: off, every
     # anchor inside the outline (the search, a study area, a tile inside the country)
     partners: Optional[float] = None
+    # The declared neighbours' territories in the plan's CRS (sources.filling.Territory: country.py's
+    # neighbours.geojson, read once per worker): which one a partner pixel lies in names its partner
+    # (resolve_partners); None or []: every partner PARTNER_UNKNOWN (a source without neighbours)
+    territories: Optional[List] = None
 
     @property
     def end_zone(self) -> float:
@@ -1068,8 +1072,11 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
                                  f"from {fallback.name}")
         if partner_path:
-            src.filling.resolve_partners(partner, zone, [src.SOURCES[n] for n in source.neighbours], grid,
-                                         rows or grid.height)
+            progress.compute.start("partner territories", 1, unit="step")
+            src.filling.resolve_partners(partner, zone, plan.territories or [], grid, rows or grid.height,
+                                         temporary("territory.npy") if rows is not None else None)
+            progress.compute.update(1)
+            progress.compute.finish()
             del zone, partner  # closed before the zone's file is removed (Windows); Data reads the grid again
             if rows is not None:
                 src.filling.remove_grid(temporary("zone.npy"))

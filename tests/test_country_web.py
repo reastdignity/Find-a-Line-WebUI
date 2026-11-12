@@ -43,8 +43,10 @@ OWNED_NEAR = 0.03     # degrees inside the outline where some of its lines are o
 
 
 def partner_of(lon, lat, outline, neighbours) -> np.ndarray:
-    """The sample's partner index of points beyond (or near) an outline: west of its western fifth the second
-    neighbour, else north of its middle the first, else 7 (unknown); an index past the neighbours given is 7."""
+    """The sample's partner index of points beyond (or near) an outline by where they lie only, as
+    sources.filling.resolve_partners names a partner by the territory holding the pixel: made-up territories,
+    west of its western fifth the second neighbour, else north of its middle the first, else 7 (unknown); an
+    index past the neighbours given is 7."""
     west, south, east, north = outline.bounds
     p = np.where(lon < west + (east - west) / 5, 2, np.where(lat > (south + north) / 2, 1, 7))
     return np.where(p <= len(neighbours), p, 7).astype(np.int64)

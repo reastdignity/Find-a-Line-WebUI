@@ -804,7 +804,7 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 | A 0-15 | as the key of section 2: water (0-1), trees (2-3), height (4-6), clearance (7-9), wall (10-12), prominence of the weaker anchor (13-15) |
 | A 16-24 | length mask, as section 2 |
 | A 25-26 | border: 0 interior (both anchors in the country), 1 across the border and owned, 2 across the border and the partner's (see "The borders") |
-| A 27-29 | partner: 0 none, 1-6 the index into cube.json's `neighbours` (the partner's cube id), 7 unknown (the owner's data beyond the outline where no declared neighbour's boxes reach) |
+| A 27-29 | partner: 0 none, 1-6 the index into cube.json's `neighbours` (the partner's cube id), 7 unknown (beyond the outline where no declared neighbour's territory holds the pixel; rough boxes until 2026-11-12, see "The borders") |
 | A 30-45 | cell row `j` (16 bits, from the origin) |
 | A 46-61 | cell column `i` (16 bits) |
 | B 0-2 | metres over water: `water_px × res`, edges (0, 5, 20, 50, 100) |
@@ -904,11 +904,38 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   `max_length` of it and on pixels of a neighbour's source or of the owner's own source (step 0:
   the owner's data reach beyond the border, and every S line across it ends on them); never on
   the fallback's pixels. `Data.partner` is a uint8 grid in the work folder, 0 inside the outline
-  and on the fallback's pixels, else the partner index of the pixel: for a pixel a neighbour
-  filled, that neighbour's (`fill_from_neighbours` writes it), for a pixel of the owner's source
-  the first neighbour of `Source.neighbours` whose rough boxes hold it, else 7, "unknown" (a border
-  with a country without a source in the catalogue). The first-anchor mask of the kernel
-  (`find_valid_lines(first=)`) is (core ∩ outline) ∪ partner anchors.
+  and on the fallback's pixels, else the partner index of the pixel: the declared neighbour (of
+  `Source.neighbours`) in whose territory the pixel lies, for the owner's own data and for a
+  pixel a neighbour filled alike (`fill_from_neighbours` only marks that a neighbour filled it),
+  else 7, "unknown" (a border with a country without a source in the catalogue: for Slovakia
+  Hungary and Ukraine). The first-anchor mask of the kernel (`find_valid_lines(first=)`) is
+  (core ∩ outline) ∪ partner anchors.
+- **Partners by territory (decided by the lead 2026-11-12, wave 19; built on `cube-v2-partners`).** Until
+  then an own pixel took the neighbour whose fill lay nearest, else the first whose rough boxes held it:
+  rough boxes are not outlines, and the label depended on the tile's grid. Slovakia's S tile
+  E-565000_N-1205000 (Záhorie, at the Czech border) gave its 234 lines across the border Poland in the
+  lead profile's run and Czechia in the user profile's, whose larger grid held a pixel Czechia filled; in
+  the real-data check of wave 19 (step 1 of border tiles at the five tripoints) the old rule also named
+  Austria for Czech land at the AT-CZ-SK tripoint and Austria or Poland for Hungarian and Ukrainian land.
+  The rule now: a line across a border belongs to the border it crosses, whatever filled the pixel and
+  whatever the tile's grid, band or profile (the neighbour's own cube, which replaces these lines once it
+  exists, is cut by that territory). A territory is the outline the neighbour's own cube would be cut
+  by: `country.territory_specs` (the map areas of the neighbour's sources, named for Nominatim by
+  `sources.AREA_NAMES`) through `area.from_spec(whole=True)`, fetched once per country folder at `run`'s
+  set-up into `neighbours.geojson` (a feature per declared neighbour: index, source, cube, specs, the km²
+  of the whole outline; the geometry within `country.territory_reach` of the outline: the largest
+  band's zone corner, sqrt(2) times its longest line, and 1 km), read once per worker. Of two
+  territories holding a pixel (a region inside its country: Alaska in the USA) the smaller wins, of two
+  equal ones the one declared first; a nested region the source does not declare takes its parent's
+  index. A pixel lies in a territory when its centre does (the burn of the area mask): Slovakia's outline
+  and its neighbours' share OSM's border vertices, which the cut keeps (wave 19: 24 965 of Slovakia's
+  43 216 vertices shared, none of the others within 50 m of a territory but one at the AT-HU-SK tripoint,
+  3 m off). The file's sha256 is in each border tile's meta and in cube.json (`neighbours_sha256`): `run`
+  sends a done border tile (by `_at_border` on its grid) of another sha256, or of none, back to pending,
+  and `build` refuses a mix; the config hash and `countcube.VERSION` stay (no v2 cube was released).
+  Tests: `tests/test_count_mode.py::test_partner_grid_and_its_last_pass`, `test_partners_by_territory`,
+  `test_count_tile_partners_by_territory`; `tests/test_country.py::test_border_tiles_counted_by_territory`,
+  `test_neighbours_file_written_and_kept`, `test_territory_reach_holds_the_zone_corner`.
 - **Kernel.** `linesearch._pairs` takes one more optional uint8 array, `partner`: when the first
   anchor is a partner, a partner as the other end is skipped before the rings and the pixel test
   (partner-partner pairs are the neighbour's own lines: in the Tatras 194 M against 836 M of SK's).
@@ -926,8 +953,10 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
   core, which holds every partner within `max_length`; the border tiles ask the neighbour today
   already (`Plan.border`). Cost: the partner strip's anchors in step 2 and the cross-border pairs in
   step 3: +3-6 % of the tiles' time (est.); RAM, downloads unchanged; the tiles' files +3 % (est.).
-- **cube.json.** `neighbours: [cube ids]`, `totals.border: {owned, partner}` for lines and spots,
-  `notes` for the hard borders. `countcube.build` sums as today; the border field is part of the key.
+- **cube.json.** `neighbours: [cube ids]`, `neighbours_sha256` (the sha256 of `neighbours.geojson` its
+  border tiles were counted with; null for a study area; since 2026-11-12, not yet in `CountryCube` of
+  `viewer/src/app/api.ts`), `totals.border: {owned, partner}` for lines and spots, `notes` for the hard
+  borders. `countcube.build` sums as today; the border field is part of the key.
 - **The web.** `/api/countries` lists every cube; `/cells` and `/histogram` take `border=own|all`
   (default `all`: interior + owned + partner lines whose partner is unknown (7) or has no cube in
   this data folder;

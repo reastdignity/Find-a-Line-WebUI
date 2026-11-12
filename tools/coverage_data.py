@@ -44,8 +44,8 @@ def level_of(res: float) -> int:
 
 
 def areas_of(source) -> List[str]:
-    """The areas of a source on the map: its coverage's, else its regions, else its countries."""
-    return list(source.coverage.areas or source.regions or source.countries)
+    """The areas of a source on the map: its coverage's, else its regions, else its countries (Source.map_areas)."""
+    return list(source.map_areas())
 
 
 def country_of(area: str) -> str:

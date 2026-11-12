@@ -1,6 +1,7 @@
 """Water and gaps: the water body mask, water filled to the surface level, gaps from fallback sources."""
 
 import math
+from dataclasses import dataclass
 import os
 import shutil
 from typing import Callable, Iterable, List, Optional, Tuple
@@ -1179,7 +1180,8 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     data of its own under the gaps leaves them as they were). The neighbours' rasters are
     reprojected as NEIGHBOUR_SAME_RESOLUTION and NEIGHBOUR_RESAMPLING say.
     partner: a uint8 grid (memory-mapped, or in memory) the index n + 1 of neighbours[n] is written
-    into wherever it filled terrain pixels (the count mode across a border: partner_grid)."""
+    into wherever it filled terrain pixels (the count mode across a border: partner_grid): only the mark
+    "a neighbour filled this pixel", whose partner resolve_partners takes from the territory it lies in."""
     from .choose import source_unavailable
 
     if not neighbours:
@@ -1247,11 +1249,24 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
 # The count mode across a border (search.prepare_data with Plan.partners; docs/country-precompute/contract.md,
 # section 6, "The borders"): a uint8 grid of the partner of every pixel outside the area's outline within reach
 # of it, the anchors there pairing with those inside only. 0 inside the outline, beyond the reach and on the
-# pixels of no partner (a fallback's, water filled, no data); 1-6 the neighbour (Source.neighbours, n + 1) that
-# filled the pixel, or for the source's own data beyond the outline the first neighbour whose rough boxes hold it;
-# PARTNER_UNKNOWN for the source's own data where no declared neighbour's boxes reach (a country without a source)
+# pixels of no partner (a fallback's, water filled, no data); on the source's own data and on a neighbour's fill
+# 1-6 the declared neighbour (Source.neighbours, n + 1) in whose territory the pixel lies (resolve_partners), so
+# a line across a border belongs to the border it crosses whatever filled the pixel and whatever the tile's
+# grid; PARTNER_UNKNOWN where no declared neighbour's territory holds it (a country without a source: for
+# Slovakia Hungary and Ukraine)
 PARTNER_UNKNOWN = 7
 PARTNER_OWN = 255  # the source's own data in the zone until resolve_partners names its neighbour
+
+
+@dataclass(frozen=True)
+class Territory:
+    """A declared neighbour's territory for the partner grid (resolve_partners): its index (n + 1 in
+    Source.neighbours), the km² of its whole outline (which of two nested ones a pixel takes) and its outline in
+    the CRS of the grids it is burned into (country.py's neighbours.geojson: clipped to what the country's tiles
+    can reach; None when nothing of it lies there)."""
+    index: int
+    km2: float
+    shape: object = None
 
 
 def partner_zone(mask: np.ndarray, metres: float, res: float, out: Optional[np.ndarray] = None,
@@ -1295,71 +1310,74 @@ def _mark_rows(out: np.ndarray, mask_path: str, value: int, rows: int):
     del mask
 
 
-PARTNER_BLOCKS = 1024  # the nearest neighbour's fill is looked up on a lattice of at most this many blocks a side
+def territory_grid(territories: Iterable[Territory], grid: Grid, out: np.ndarray) -> np.ndarray:
+    """The index of the territory holding each pixel's centre, 0 where none: the territories (their shapes in the
+    grid's CRS) burned into out, a uint8 grid of the grid all 0 (memory-mapped, or in memory), whole, as the area
+    mask is burned (rasterio's centre rule: a pixel lies in the territory holding its centre, so two outlines that
+    share their border vertices give each pixel one of them), each first clipped to the grid grown by two pixels
+    (the burn's work follows the edges it is given; the edges within the grid stay as they are). The largest km²
+    first, of equal km² the later declared first, so a pixel takes the declared neighbour of the smallest territory
+    holding it (a region inside its country: Alaska, British Columbia), and of two equal ones the one declared
+    first (Alaska before Alaska's IfSAR)."""
+    import shapely
+    from rasterio.features import rasterize
+    from shapely.geometry import mapping
+    left, bottom, right, top = grid.bounds
+    pad = 2 * grid.res
+    shapes = []
+    for t in sorted(territories, key=lambda t: (-t.km2, -t.index)):
+        if t.shape is None:
+            continue
+        part = shapely.clip_by_rect(t.shape, left - pad, bottom - pad, right + pad, top + pad)
+        if not part.is_empty:
+            shapes.append((mapping(part), t.index))
+    if shapes:
+        rasterize(shapes, out=out, transform=grid.transform, all_touched=False)
+    return out
 
 
-def _nearest_fill(partner: np.ndarray, height: int, width: int) -> Optional[Tuple[np.ndarray, int]]:
-    """For every block of a coarse lattice (blocks of f x f pixels, at most PARTNER_BLOCKS a side) the index
-    (1-6) of the neighbour whose filled pixels lie in the nearest block holding any (scipy's Euclidean
-    distance transform on the blocks; in a block of several, the largest index), and f; None when no
-    neighbour filled a pixel of the grid."""
-    from scipy import ndimage
-    f = max(1, math.ceil(max(height, width) / PARTNER_BLOCKS))
-    bh, bw = -(-height // f), -(-width // f)
-    coarse = np.zeros((bh, bw), dtype=np.uint8)
-    for b in range(bh):
-        block = np.array(partner[b * f:min(height, (b + 1) * f)])
-        block[block > PARTNER_UNKNOWN - 1] = 0  # own data (PARTNER_OWN), nothing filled
-        if block.any():
-            padded = np.zeros((block.shape[0], bw * f), dtype=np.uint8)
-            padded[:, :width] = block
-            coarse[b] = padded.reshape(block.shape[0], bw, f).max(axis=(0, 2))
-    if not coarse.any():
-        return None
-    index = ndimage.distance_transform_edt(coarse == 0, return_distances=False, return_indices=True)
-    return coarse[index[0], index[1]], f
-
-
-def resolve_partners(partner: np.ndarray, zone: np.ndarray, neighbours: List[Source], grid: Grid, rows: int):
-    """The partner grid's last pass, after the gap filling, strip by strip: 0 outside the zone (inside
-    the outline, beyond the reach); a neighbour's pixels keep its index (fill_from_neighbours); the
-    source's own data (PARTNER_OWN) take the index of the neighbour whose fill lies nearest to them
-    (_nearest_fill, on blocks of the grid) when its rough boxes hold them, else that of the first of
-    neighbours (n + 1) whose rough boxes hold them (_box_ranges, as neighbour_window asks them; a
-    neighbour without boxes holds every pixel), else PARTNER_UNKNOWN; the rest of the zone (a fallback's
-    pixels, water, no data) 0. The nearest fill first: rough boxes overlap (Poland's one box holds the
-    north of Czechia and a corner of Ukraine), and the source's own data beyond a border reach the
-    neighbour's data, which fill the gap after them."""
-    nearest = _nearest_fill(partner, grid.height, grid.width)
-    ranges = [_box_ranges(n, grid) for n in neighbours]
+def resolve_partners(partner: np.ndarray, zone: np.ndarray, territories: List[Territory], grid: Grid, rows: int,
+                     scratch: Optional[str] = None):
+    """The partner grid's last pass, after the gap filling, strip by strip: 0 outside the zone (inside the
+    outline, beyond the reach); every other pixel that carries a partner at all, the source's own data
+    (PARTNER_OWN) and a neighbour's fill (fill_from_neighbours' mark n + 1, which only says that a neighbour
+    filled it), takes the index of the declared neighbour in whose territory it lies (territory_grid: the
+    smallest territory holding its centre), else PARTNER_UNKNOWN; the rest of the zone (a fallback's pixels, water,
+    no data) stays 0. So a pixel's partner depends on where it lies only, never on the tile's grid, band or
+    profile, nor on which neighbour's file filled it (a line across a border belongs to the border it crosses: the
+    neighbour's own cube, which replaces it once it exists, is cut by that territory). Before 2026-11-12 an own
+    pixel took the neighbour whose fill lay nearest, else the first whose rough boxes held it: the lead profile's
+    S tile E-565000_N-1205000 at the Czech border gave its 234 lines across Poland, the user profile's larger
+    grid, which held a pixel Czechia filled, Czechia (tests/test_count_mode.py::test_partners_by_territory).
+    The rule's limit: the smallest-territory rule only tells declared neighbours apart, so a region inside a
+    declared neighbour that the source does not declare itself takes its parent's index.
+    territories: [] gives every such pixel PARTNER_UNKNOWN (a source without neighbours: an elevation file).
+    scratch: the path of the territories' grid in strips (memory-mapped there and removed after), else in
+    memory."""
+    known_any = False
+    for r0, r1, _, _ in strips(grid.height, rows):
+        if (np.asarray(partner[r0:r1]) != 0).any():
+            known_any = True
+            break
+    t = None
+    if known_any and territories:
+        shape = (grid.height, grid.width)
+        t = (np.lib.format.open_memmap(scratch, mode="w+", dtype=np.uint8, shape=shape) if scratch
+             else np.zeros(shape, dtype=np.uint8))
+        territory_grid(territories, grid, t)
     for r0, r1, _, _ in strips(grid.height, rows):
         p = np.array(partner[r0:r1])
         p[~np.asarray(zone[r0:r1], dtype=bool)] = 0
-        own = p == PARTNER_OWN
-        if own.any():
-            held_by = []
-            for boxes in ranges:
-                if boxes is None:
-                    held = np.ones_like(own)
-                else:
-                    held = np.zeros_like(own)
-                    for b0, b1, c0, c1 in boxes:
-                        a, b = max(r0, b0), min(r1, b1)
-                        if a < b:
-                            held[a - r0:b - r0, c0:c1] = True
-                held_by.append(held)
-            if nearest is not None:
-                labels, f = nearest
-                near = labels[np.arange(r0, r1) // f][:, np.arange(grid.width) // f]
-                for k, held in enumerate(held_by):
-                    take = own & held & (near == k + 1)
-                    p[take] = k + 1
-                    own &= ~take
-            for k, held in enumerate(held_by):
-                take = own & held
-                p[take] = k + 1
-                own &= ~take
-            p[own] = PARTNER_UNKNOWN
+        known = p != 0
+        if known.any():
+            index = np.full(int(known.sum()), PARTNER_UNKNOWN, dtype=np.uint8)
+            if t is not None:
+                found = np.asarray(t[r0:r1])[known]
+                index[found != 0] = found[found != 0]
+            p[known] = index
         partner[r0:r1] = p
+    if scratch and t is not None:
+        del t
+        remove_grid(scratch)
     if isinstance(partner, np.memmap):
         flush_grid(partner)

@@ -42,11 +42,13 @@ def _row(rows, name):
 
 
 def test_every_area_of_the_map_is_a_row():
-    """A new source's area without a name here fails: it would be missing from the window."""
+    """A new source's area without a name for Nominatim (sources.AREA_NAMES, which the country layer's territories
+    read too) fails: it would be missing from the window."""
+    import sources as src
     with open(os.path.join(ar.COVERAGE, "coverage.json"), encoding="utf-8") as f:
         areas = json.load(f)["areas"]
     rows = ar.catalogue()
-    assert set(ar.OSM_NAMES) == set(areas)
+    assert set(src.AREA_NAMES) == set(areas)
     assert len(rows) == len(areas)
     assert len({row.name for row in rows}) == len(rows)
     for row in rows:

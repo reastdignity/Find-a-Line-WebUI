@@ -736,13 +736,21 @@ def test_border_lines_over_fixed_tiles(tmp_path, offline, engine):
         assert set(found["partner"][found["border"] > 0].tolist()) == {7}, side
 
 
+def _territory(index, km2, *boxes):
+    """A sources.filling.Territory of boxes (left, bottom, right, top) in the grid's CRS."""
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    from sources.filling import Territory
+    return Territory(index, km2, unary_union([box(*b) for b in boxes]))
+
+
 def test_partner_grid_and_its_last_pass(tmp_path):
     """sources.filling's partner grid: the zone beyond the outline within reach (near()'s square, in strips
-    as whole), the source's own data in it marked before the filling, a neighbour's index where it filled,
-    and the last pass: 0 outside the zone; own data the neighbour whose fill lies nearest when its rough
-    boxes hold them, else the first neighbour whose boxes hold them (a neighbour without boxes holds every
-    pixel), else 7."""
-    from types import SimpleNamespace
+    as whole), the source's own data in it marked before the filling, a neighbour's fill marked by
+    fill_from_neighbours, and the last pass (resolve_partners): 0 outside the zone and where nothing has data
+    (a fallback's pixels); every other pixel, own data and a neighbour's fill alike (its mark says only that a
+    neighbour filled it), the declared neighbour of the smallest territory holding its centre, of two equal
+    ones the one declared first, 7 where none holds it; the same in strips through a scratch file as in memory."""
     import sources.filling as filling
     from grid import Grid
     grid = Grid(left=19.0, top=50.0, res=0.01, width=12, height=10, crs="EPSG:4326")
@@ -757,27 +765,111 @@ def test_partner_grid_and_its_last_pass(tmp_path):
     np.save(tmp_path / "nmt.npy", z)
     partner = filling.partner_grid(str(tmp_path / "nmt.npy"), whole, str(tmp_path / "partner.npy"), 4)
     assert (partner[:, 4:6] == filling.PARTNER_OWN).all() and not partner[:, :4].any() and not partner[:, 6:].any()
-    north = SimpleNamespace(rough_boxes=lambda: [(49.95, 50.0, 18.0, 20.0)])  # the top five rows
-    everywhere = SimpleNamespace(rough_boxes=lambda: [(49.0, 51.0, 18.0, 20.0)])
-    nowhere = SimpleNamespace(rough_boxes=lambda: [(10.0, 11.0, 0.0, 1.0)])
+    filled = np.zeros((10, 12), dtype=bool)
+    filled[:5, 6:9] = True  # neighbour 3 filled the top rows of column 6 (in the zone) and of 7-8 (beyond it)
+    np.save(tmp_path / "filled.npy", filled)
+    marked = np.array(partner)
+    filling._mark_rows(marked, str(tmp_path / "filled.npy"), 3, 4)
+    assert (marked[:5, 6:9] == 3).all()
+    # Pixel centres: column c at x = 19.005 + 0.01 c, row r at y = 49.995 - 0.01 r
+    north = _territory(1, 50.0, (19.04, 49.95, 19.2, 50.0))      # rows 0-4
+    country = _territory(2, 1000.0, (19.04, 49.9, 19.2, 50.0))   # every row: holds north
+    twin = _territory(3, 50.0, (19.04, 49.95, 19.06, 50.0))      # north's km² in its first two columns: north first
 
-    def resolved(start, neighbours):
+    def resolved(start, territories, scratch=None):
         out = np.array(start)
-        filling.resolve_partners(out, whole, neighbours, grid, 3)
+        filling.resolve_partners(out, whole, territories, grid, 3, scratch)
         return out
 
-    p = resolved(partner, [north, everywhere])  # nothing filled: the first whose boxes hold them
-    assert (p[:5, 4:6] == 1).all() and (p[5:, 4:6] == 2).all() and not p[:, 6:].any() and not p[:, :4].any()
-    assert (resolved(partner, [nowhere])[:, 4:6] == filling.PARTNER_UNKNOWN).all()
-    assert (resolved(partner, [nowhere, SimpleNamespace(rough_boxes=lambda: [])])[:, 4:6] == 2).all()
-    assert (resolved(partner, [])[:, 4:6] == filling.PARTNER_UNKNOWN).all()
-    np.save(tmp_path / "filled.npy", np.isnan(z) & (np.arange(12) >= 6))  # a neighbour filled the rest
-    second = np.array(partner)
-    filling._mark_rows(second, str(tmp_path / "filled.npy"), 2, 4)
-    assert (second[:, 6:] == 2).all()
-    p = resolved(second, [north, everywhere])  # the nearest fill (everywhere's) first: its boxes hold them all
-    assert (p[:, 4:6] == 2).all() and (p[:, 6] == 2).all() and not p[:, 7:].any()  # beyond the reach: 0
-    first = np.array(partner)
-    filling._mark_rows(first, str(tmp_path / "filled.npy"), 1, 4)
-    p = resolved(first, [north, everywhere])  # north's fill nearest, but its boxes hold the top rows only
-    assert (p[:5, 4:6] == 1).all() and (p[5:, 4:6] == 2).all()
+    p = resolved(marked, [north, country, twin])
+    assert (p[:5, 4:7] == 1).all() and (p[5:, 4:6] == 2).all()  # own data and the fill alike, the smaller first
+    assert not p[5:, 6].any() and not p[:, 7:].any() and not p[:, :4].any()  # nothing there; beyond the zone: 0
+    assert np.array_equal(resolved(marked, [twin, country, north]), p)  # the order given does not matter
+    assert np.array_equal(resolved(marked, [north, country, twin], str(tmp_path / "territory.npy")), p)
+    assert not os.path.exists(tmp_path / "territory.npy")
+    p = resolved(marked, [north])  # no declared territory holds the south rows: 7
+    assert (p[:5, 4:7] == 1).all() and (p[5:, 4:6] == filling.PARTNER_UNKNOWN).all()
+    p = resolved(marked, [_territory(1, 50.0, (19.0, 49.0, 19.04, 50.0)), filling.Territory(2, 9.0, None)])
+    assert (p[:5, 4:7] == filling.PARTNER_UNKNOWN).all() and (p[5:, 4:6] == filling.PARTNER_UNKNOWN).all()
+    assert (resolved(marked, [])[:5, 4:7] == filling.PARTNER_UNKNOWN).all()  # a source without neighbours
+    # a pixel's partner follows its centre: a territory edge between two columns' centres splits them
+    p = resolved(marked, [_territory(1, 5.0, (19.04, 49.9, 19.05, 50.0)),
+                          _territory(2, 6.0, (19.05, 49.9, 19.2, 50.0))])
+    assert (p[:, 4] == 1).all() and (p[:, 5] == 2).all() and (p[:5, 6] == 2).all()
+
+
+def test_partners_by_territory(tmp_path):
+    """The property that failed in round 5 (the lead profile's S tile E-565000_N-1205000 at the Czech border gave
+    its 234 lines across Poland, the user profile's larger grid, which held a pixel Czechia filled, Czechia): a
+    pixel's partner follows where it lies, never the tile's grid. Two grids of different extent and resolution
+    whose pixels share some centres, the larger with pixels a neighbour filled (marked as neighbour 2) beyond the
+    smaller one's data, give every common pixel with a partner the same index, the territory holding its centre
+    (the smaller first)."""
+    import shapely
+    import sources.filling as filling
+    from grid import Grid
+    north = _territory(1, 40.0, (100.0, 150.0, 400.0, 600.0))
+    south = _territory(2, 90.0, (100.0, -300.0, 400.0, 200.0))  # holds north's part below 200 m: north there
+    small = Grid(left=0.0, top=300.0, res=1.0, width=300, height=300, crs="EPSG:2180")
+    large = Grid(left=-150.0, top=450.0, res=3.0, width=200, height=200, crs="EPSG:2180")
+    results = {}
+    for name, grid in (("small", small), ("large", large)):
+        r, c = np.mgrid[:grid.height, :grid.width]
+        x, y = grid.pixel_to_xy(r, c)
+        mask = x < 100.0  # the country west of x = 100
+        zone = filling.partner_zone(mask, 120.0, grid.res)
+        z = np.where(x < (150.0 if name == "large" else 1e9), 100.0, np.nan).astype(np.float32)
+        np.save(tmp_path / f"{name}-nmt.npy", z)
+        partner = filling.partner_grid(str(tmp_path / f"{name}-nmt.npy"), zone, str(tmp_path / f"{name}-p.npy"), 64)
+        if name == "large":  # the neighbour's fill beyond the own data (the user profile's grid)
+            np.save(tmp_path / "fill.npy", np.isnan(z))
+            filling._mark_rows(partner, str(tmp_path / "fill.npy"), 2, 64)
+        p = np.array(partner)
+        filling.resolve_partners(p, zone, [south, north], grid, 64)
+        expected = np.where(shapely.contains_xy(north.shape, x, y), 1,
+                            np.where(shapely.contains_xy(south.shape, x, y), 2, filling.PARTNER_UNKNOWN))
+        has = p != 0
+        assert np.array_equal(has, zone & (np.isfinite(z) | (name == "large")))  # which carry a partner: as before
+        assert np.array_equal(p[has], expected[has])
+        results[name] = {(float(a), float(b)): int(v) for a, b, v in zip(x[has], y[has], p[has])}
+        assert set(p[has].tolist()) == {1, 2}
+    common = set(results["small"]) & set(results["large"])
+    assert len(common) > 100 and any(x >= 150.0 for x, _ in common)  # also where the large grid's fill lies
+    assert all(results["small"][k] == results["large"][k] for k in common)
+
+
+def test_count_tile_partners_by_territory(tmp_path, offline):
+    """count_tile across a border with territories (Plan.territories, as country.tile_plan gives a border tile):
+    the same lines as without them, only "partner" differs: the index of the smallest territory holding the
+    centre of the line's anchor beyond the outline (two nested ones and a strip of the clip's own data beyond
+    both, 7), the territories given in WGS84 and projected as country.load_territories projects them."""
+    import area as ar
+    import shapely
+    import search
+    from shapely.geometry import box
+    from sources.filling import PARTNER_UNKNOWN, Territory
+    _, cut = _split(tmp_path, "west")
+    plain_plan = dataclasses.replace(cut, partners=150.0, funnel={})
+    plain = []
+    search.count_tile(plain_plan, search.prepare_data(plain_plan), None, plain.append)
+    # the lines' far anchors lie at 19.7562-19.7575 E, 50.1553-50.1561 N: north of 50.1559 in 1 (and in 2, which is
+    # larger), south of it in 2, east of 19.7570 in neither (7)
+    wgs84 = {1: box(SPLIT_LON, 50.1559, 19.7570, 50.161), 2: box(SPLIT_LON, 50.152, 19.7570, 50.1600)}
+    territories = [Territory(1, 5.0, ar.project(wgs84[1], "EPSG:4326", cut.crs)),
+                   Territory(2, 10.0, ar.project(wgs84[2], "EPSG:4326", cut.crs))]
+    plan = dataclasses.replace(cut, partners=150.0, funnel={}, territories=territories,
+                               paths=search.Paths(cut.paths.data, str(tmp_path / "territories")))
+    data = search.prepare_data(plan)
+    counted = []
+    search.count_tile(plan, data, None, counted.append)
+    before, got = _sorted(_joined(plain)), _sorted(_joined(counted))
+    assert set(before["partner"].tolist()) == {0, PARTNER_UNKNOWN}
+    assert np.array_equal(got["partner"] != 0, before["partner"] != 0)
+    _assert_same({k: v for k, v in before.items() if k != "partner"}, {k: v for k, v in got.items() if k != "partner"})
+    across = got["partner"] != 0
+    outside = np.where(data.mask[got["a1"][:, 0], got["a1"][:, 1]][:, None], got["a2"], got["a1"])[across]
+    x, y = plan.grid.pixel_to_xy(outside[:, 0], outside[:, 1])
+    t1, t2 = territories[0].shape, territories[1].shape
+    expected = np.where(shapely.contains_xy(t1, x, y), 1, np.where(shapely.contains_xy(t2, x, y), 2, PARTNER_UNKNOWN))
+    assert np.array_equal(got["partner"][across], expected)
+    assert set(expected.tolist()) == {1, 2, PARTNER_UNKNOWN}

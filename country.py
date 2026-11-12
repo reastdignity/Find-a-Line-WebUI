@@ -23,6 +23,9 @@ the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
     country.json   the configuration (Country as JSON), the sha256 of the outline and of both
                    (the config hash every tile file records), the CRS and the cube's origin
     area.geojson   the outline (WGS84), fetched once (osm:<name> through Nominatim)
+    neighbours.geojson  the declared neighbours' territories near the outline (WGS84), fetched once
+                   (ensure_neighbours): which one a pixel beyond the outline lies in names the partner of a
+                   line across the border; its sha256 in every border tile's meta and in cube.json
     manifest.sqlite  the tiles (schema v2, cache.migrate; WAL, claims in BEGIN IMMEDIATE, the
                    heaviest first: their weight from the lines of the tiles done already, or from
                    the relief of Copernicus GLO-30 while a tile lies under none)
@@ -281,6 +284,162 @@ def neighbour_cubes(source_id: str) -> List[str]:
     import sources as src
     source = src.SOURCES.get(source_id)
     return [NEIGHBOUR_CUBES[n] for n in (source.neighbours or ())] if source is not None else []
+
+
+# The declared neighbours' territories (docs/country-precompute/contract.md section 6, "The borders"): which one a
+# partner pixel lies in names the partner of a line across the border (sources.filling.resolve_partners). Fetched
+# once per country folder at `run`'s set-up, as area.geojson is, and kept clipped to what the tiles can reach
+NEIGHBOURS_FILE = "neighbours.geojson"
+TERRITORY_MARGIN_M = 1000.0  # beyond the farthest partner pixel a band's zone can hold (territory_reach)
+
+
+def territory_specs(cube_id: str) -> List[str]:
+    """The area specs (osm:<name>) of a neighbour's territory: the outline its own cube would be cut by, made of
+    the map areas (Source.map_areas, named by sources.AREA_NAMES) of every catalogue source whose cube
+    (NEIGHBOUR_CUBES) is cube_id, each once, in the catalogue's order: brandenburg Brandenburg and Berlin, usa the
+    United States, Puerto Rico and the U.S. Virgin Islands, alaska Alaska (also for alaska_ifsar, which has no
+    areas of its own). [] for a cube no source names."""
+    import sources as src
+    specs: List[str] = []
+    for source in src.SOURCES.values():
+        if NEIGHBOUR_CUBES.get(source.id) == cube_id:
+            for area in source.map_areas():
+                spec = f"osm:{src.AREA_NAMES[area]}"
+                if spec not in specs:
+                    specs.append(spec)
+    return specs
+
+
+def territory_reach(bands: Sequence[Band]) -> float:
+    """How far beyond the outline the territories are kept (neighbours.geojson's "reach_m"): the farthest a
+    partner pixel's centre may lie from it in any band, plus TERRITORY_MARGIN_M. A tile's partner zone
+    (sources.filling.partner_zone, Plan.partners = the band's longest line L) is near()'s square of ceil(L / res)
+    pixels around the outline's pixels, whose centres lie inside it: its corner lies sqrt(2) times that away."""
+    return max(math.sqrt(2) * math.ceil(b.lengths[1] / b.resolution) * b.resolution for b in bands) \
+        + TERRITORY_MARGIN_M
+
+
+def _neighbour_outline(spec: str, cache_dir: str):
+    """The outline (WGS84) of an area spec as a country's own is fetched (area.from_spec(whole=True): never
+    simplified, Nominatim's answer cached in the data folder's cache)."""
+    import area as ar
+    return ar.from_spec(spec, 0.0, None, cache_dir, whole=True).geometry
+
+
+def write_neighbours(country: Country, folder: str, cache_dir: str, crs: str, reach: float, say=print,
+                     outline_of: Optional[Callable] = None) -> str:
+    """neighbours.geojson of a country (not a study area): a FeatureCollection in WGS84 with the country's id,
+    source, CRS and "reach_m", and a feature per declared neighbour (Source.neighbours, in their order) with its
+    partner index (n + 1), source, cube (NEIGHBOUR_CUBES), area specs (territory_specs), the km² of its whole
+    outline on the ellipsoid (resolve_partners: of two territories holding a pixel the smaller wins) and its
+    geometry: the territory within `reach` of the country's outline (area.geojson grown in its CRS and taken back
+    to WGS84), null when none of it lies there. The territory is cut there by GEOS in WGS84, which keeps the
+    vertices of the border it shares with the country's outline as they are: the tiles project both alike
+    (area.project) and burn both by the pixels' centres, so the border leaves no sliver to neither. A source
+    outside the catalogue (an elevation file): no features. An outline that cannot be fetched stops with a
+    CountryError naming the neighbour, before anything is written. outline_of(spec, cache_dir): the outline of a
+    spec (_neighbour_outline). Returns the path."""
+    import pyproj
+    import area as ar
+    import sources as src
+    from shapely.geometry import mapping
+    from shapely.ops import unary_union
+    from shapely.validation import make_valid
+    outline_of = outline_of or _neighbour_outline
+    source = src.SOURCES.get(country.source)
+    names = list(source.neighbours or ()) if source is not None else []
+    clip = None
+    if names:
+        clip = ar.project(ar.project(_read_outline(folder), "EPSG:4326", crs).buffer(reach), crs, "EPSG:4326")
+    geod = pyproj.Geod(ellps="WGS84")
+    fetched: Dict[str, object] = {}
+    features = []
+    for k, name in enumerate(names, 1):
+        neighbour, cube = src.SOURCES[name], NEIGHBOUR_CUBES[name]
+        specs = territory_specs(cube)
+        if not specs:
+            raise CountryError(f"No territory is known for {neighbour.name} (cube {cube}, partner {k}): its source "
+                               f"has no area of the coverage map")
+        parts = []
+        for spec in specs:
+            if spec not in fetched:
+                say(f"Territory of {neighbour.name} (partner {k}): {spec}")
+                try:
+                    fetched[spec] = outline_of(spec, cache_dir)
+                except Exception as e:  # Nominatim down, no such name, no network: never 7 everywhere by accident
+                    raise CountryError(f"The outline of {neighbour.name} ({spec}, the territory of partner {k}) could "
+                                       f"not be fetched: {cache.clean_error(e)}. Nothing was counted: run again "
+                                       f"when it can be") from e
+            parts.append(fetched[spec])
+        whole = parts[0] if len(parts) == 1 else unary_union(parts)
+        whole = whole if whole.is_valid else make_valid(whole)
+        km2 = abs(geod.geometry_area_perimeter(whole)[0]) / 1e6
+        near = whole.intersection(clip)
+        features.append({"type": "Feature",
+                         "properties": {"index": k, "source": name, "cube": cube, "areas": specs, "km2": round(km2, 3)},
+                         "geometry": None if near.is_empty else mapping(near)})
+    path = os.path.join(folder, NEIGHBOURS_FILE)
+    _write_json(path, {"type": "FeatureCollection", "country": country.id, "source": country.source, "crs": crs,
+                       "reach_m": reach, "features": features})
+    return path
+
+
+def _neighbours_fit(collection: Dict, country: Country, crs: str, reach: float) -> bool:
+    """Whether a neighbours.geojson serves the country as it is configured: its id, source and CRS, a feature per
+    declared neighbour in their order, kept at least `reach` beyond the outline."""
+    import sources as src
+    source = src.SOURCES.get(country.source)
+    names = list(source.neighbours or ()) if source is not None else []
+    try:
+        return (collection.get("country") == country.id and collection.get("source") == country.source
+                and collection.get("crs") == crs and float(collection.get("reach_m", 0.0)) >= reach - 1e-6
+                and [(f["properties"]["index"], f["properties"]["source"]) for f in collection.get("features", [])]
+                == list(enumerate(names, 1)))
+    except (AttributeError, KeyError, TypeError, ValueError):  # not such a file
+        return False
+
+
+def ensure_neighbours(country: Country, folder: str, cache_dir: str, crs: str, say=print) -> Optional[str]:
+    """`run`'s set-up: the sha256 of neighbours.geojson, written first when it is missing or does not serve the
+    country (_neighbours_fit: another source, CRS or list of neighbours, a reach too short for the bands); a file
+    that serves it is used as it is and nothing is fetched. None for a study area (no partners, no file)."""
+    if country.study:
+        return None
+    path = os.path.join(folder, NEIGHBOURS_FILE)
+    reach = territory_reach(country.bands)
+    collection = None
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                collection = json.load(f)
+        except ValueError:  # cut short: written again
+            collection = {}
+    if collection is None or not _neighbours_fit(collection, country, crs, reach):
+        say(f"The neighbours' territories of {country.name} within {reach / 1000:.1f} km of its outline "
+            f"({NEIGHBOURS_FILE}" + (", written again: it no longer fits the configuration)" if collection else ")"))
+        write_neighbours(country, folder, cache_dir, crs, reach, say)
+    return _sha256_file(path)
+
+
+def load_territories(folder: str, crs: str) -> Tuple[str, List]:
+    """The sha256 of neighbours.geojson and its territories (sources.filling.Territory) in the CRS of the tiles'
+    grids, projected as the area mask projects the outline (area.project, vertex by vertex): once per worker
+    process (TileWork), never per tile. CountryError when the file is missing."""
+    import area as ar
+    from shapely.geometry import shape
+    from sources.filling import Territory
+    path = os.path.join(folder, NEIGHBOURS_FILE)
+    if not os.path.exists(path):
+        raise CountryError(f"{folder} has no {NEIGHBOURS_FILE} (the neighbours' territories, which name the partner "
+                           f"of a line across the border): `findaline.py country run` writes it before its workers")
+    with open(path, encoding="utf-8") as f:
+        collection = json.load(f)
+    territories = []
+    for feature in collection["features"]:
+        geometry = feature["geometry"]
+        territories.append(Territory(int(feature["properties"]["index"]), float(feature["properties"]["km2"]),
+                                     None if geometry is None else ar.project(shape(geometry), "EPSG:4326", crs)))
+    return _sha256_file(path), territories
 
 
 class CountryError(Exception):
@@ -655,6 +814,13 @@ class Manifest:
             "UPDATE tiles SET weight = ? WHERE band = ? AND name = ? AND status = 'pending'",
             [(w, band, name) for (band, name), w in weights.items()]))
 
+    def requeue(self, band: str, names: Sequence[str]) -> int:
+        """Done tiles back to pending, to be counted again (_requeue_border_tiles): no attempt taken; their
+        lines and seconds of before stay in the row until the new count replaces them."""
+        return self._write(lambda db: sum(db.execute(
+            "UPDATE tiles SET status = 'pending', attempts = 0, worker = NULL, started_at = NULL, error = NULL "
+            "WHERE band = ? AND name = ? AND status = 'done'", (band, name)).rowcount for name in names))
+
     def done(self, band: str, name: str, seconds: float, lines: int, spots: int):
         self._write(lambda db: db.execute(
             "UPDATE tiles SET status = 'done', finished_at = ?, seconds = ?, lines = ?, spots = ?, error = NULL "
@@ -926,6 +1092,9 @@ class TileWork:
         self.tables: Dict[str, object] = {}
         self.commit = _commit()
         self.cores = os.cpu_count() or 1
+        # The neighbours' territories, read and projected once per process (a study area has none)
+        self.neighbours_sha, self.territories = ((None, None) if self.country.study
+                                                 else load_territories(folder, self.state["crs"]))
 
     def _band(self, name: str):
         band = self.country.band(name)
@@ -952,7 +1121,7 @@ class TileWork:
         shutil.rmtree(work, ignore_errors=True)
         os.makedirs(work, exist_ok=True)
         tile_plan_ = tile_plan(self.country, plan, core, search.Paths(self.data_dir, work), threads,
-                               tile_label=f"{band.name} {name} · ", emit=_print_event)
+                               territories=self.territories, tile_label=f"{band.name} {name} · ", emit=_print_event)
         grid, partners = tile_plan_.grid, tile_plan_.partners
         print(f"\n--- Band {band.name}, tile {name} ({grid.width} x {grid.height} px, {threads} threads) ---",
               flush=True)
@@ -990,6 +1159,7 @@ class TileWork:
         meta = {"version": countcube.VERSION, "config": self.state["hash"], "profile": self.country.profile.sha256,
                 "origin": list(self.origin), "country": self.country.id, "band": band.name, "tile": name,
                 "core": list(core), "partners": partners,
+                "neighbours_sha256": self.neighbours_sha if partners is not None else None,
                 "grid": {"width": grid.width, "height": grid.height, "res": res, "left": grid.left, "top": grid.top},
                 "lines": counts.lines, "spots": int(len(counts.spot_ids)), "dropped": counts.dropped,
                 "funnel": dict(funnel), "seconds": {"prepare": round(t1 - t0, 3), "count": round(t2 - t1, 3)},
@@ -1064,14 +1234,16 @@ def partner_reach(plan) -> float:
     return math.ceil(float(plan.params.max_length) / res) * res + 2 * res
 
 
-def tile_plan(country: Country, plan, core: Tuple[float, ...], paths, threads: Optional[int] = None, **changes):
+def tile_plan(country: Country, plan, core: Tuple[float, ...], paths, threads: Optional[int] = None,
+              territories: Optional[List] = None, **changes):
     """The plan of a tile of a band (TileWork.count): its grid (search.tile_grid: the core with the band's
     overlap, within the band's grid), the band's grid as its search grid (as search_lines gives its tiles:
     the world file's water polygons read once per band, coast.sea_mask's extent), Plan.border from
     _at_border, and at a country's border (not a study area's) the partner anchors within the band's
     longest line beyond the outline (Plan.partners; docs/country-precompute/contract.md section 6, "The
     borders") on the footprint grown by partner_reach (reach_shape: the source's own data beyond the outline,
-    the neighbours' fill). changes: other fields of the plan."""
+    the neighbours' fill), with the territories that name a partner pixel's neighbour (load_territories; None:
+    every partner 7, a source without neighbours). changes: other fields of the plan."""
     import search
     res = plan.resolution
     overlap = search._overlap(plan.params, res)
@@ -1083,15 +1255,18 @@ def tile_plan(country: Country, plan, core: Tuple[float, ...], paths, threads: O
         grid.area_shape = reach_shape(plan.grid.area_shape, grid, partner_reach(plan))
     params = plan.params if threads is None else plan.params.model_copy(update={"threads": threads})
     return dataclasses.replace(plan, params=params, grid=grid, paths=paths, tiles=None, funnel={},
-                               search_grid=plan.grid, border=border, partners=partners, **changes)
+                               search_grid=plan.grid, border=border, partners=partners,
+                               territories=territories if partners is not None else None, **changes)
 
 
-def _at_border(grid) -> bool:
+def _at_border(grid, outline=None) -> bool:
     """Whether a tile's grid may hold a border of the country's data: False when it lies inside
-    the outline (grid.area_shape, in the grid's CRS), where no neighbour has data to fill a gap
-    with (the border gaps and the neighbours' attempts cost about 1.7 s per tile otherwise)."""
+    the outline (grid.area_shape, in the grid's CRS; or the outline given: the same shape prepared
+    for many tiles, _border_tiles), where no neighbour has data to fill a gap with (the border gaps
+    and the neighbours' attempts cost about 1.7 s per tile otherwise). A country's tile at its border
+    counts the lines across it (tile_plan: Plan.border and Plan.partners)."""
     from shapely.geometry import box
-    outline = getattr(grid, "area_shape", None)
+    outline = getattr(grid, "area_shape", None) if outline is None else outline
     return outline is None or not box(*grid.bounds).within(outline)
 
 
@@ -1204,9 +1379,9 @@ def _duration(seconds: float) -> str:
 def _disk_bytes(plan, across: bool = False) -> int:
     """The bytes per pixel a tile's work folder holds at most: the grids step 1 writes for the
     band's plan and its temporaries in strips; across (a country's border tile): the partner grid
-    (uint8) and its zone (bool, a temporary)."""
+    (uint8), its zone (bool) and the territories' grid (uint8; both temporaries)."""
     import search
-    return search.work_bytes(plan) + search.AREA_TEMP_BYTES + (2 if across else 0)
+    return search.work_bytes(plan) + search.AREA_TEMP_BYTES + (3 if across else 0)
 
 
 def worker_count(largest_px: int, available: Optional[int] = None, surface: bool = False) -> Tuple[int, float]:
@@ -1526,6 +1701,49 @@ def _set_weights(manifest: Manifest, bands: Sequence[str], plans: Dict, say):
                                                      f"{unknown} lie under no done tile"))
 
 
+def _border_tiles(plan, tiles) -> set:
+    """The names of the tiles at the country's border (_at_border, the predicate of tile_plan's Plan.border and
+    Plan.partners), the band's outline prepared once for all of them (a copy: the plan's own stays as it is)."""
+    import copy
+    import shapely
+    outline = getattr(plan.grid, "area_shape", None)
+    if outline is not None:
+        outline = copy.copy(outline)
+        shapely.prepare(outline)
+    return {t.name for t in tiles if _at_border(t.grid, outline)}
+
+
+def _requeue_border_tiles(manifest: Manifest, country: Country, plans: Dict, band_tiles: Dict[str, Sequence],
+                          folder: str, neighbours_sha: Optional[str], say) -> int:
+    """The done tiles whose meta's "neighbours_sha256" is not what this run gives them, back to pending: the
+    sha256 of neighbours.geojson for a country's tile at its border (decided from the tile's grid by the
+    predicate that gives it partners, _border_tiles: never from what an old meta holds), None for a tile inside
+    the outline and for every tile of a study area. So a new neighbours.geojson counts the border tiles again
+    and only them, as does a border tile counted before the territories (no such key); the config hash and
+    countcube.VERSION stay. A tile file that cannot be read is left to `build`. Returns how many."""
+    total = 0
+    for band in country.bands:
+        done = sorted(r["name"] for r in manifest.rows(band.name) if r["status"] == "done")
+        if not done:
+            continue
+        border = set() if country.study or neighbours_sha is None else _border_tiles(plans[band.name],
+                                                                                     band_tiles[band.name])
+        stale = []
+        for name in done:
+            try:
+                found = _tile_meta(os.path.join(folder, "tiles", band.name, f"{name}.npz")).get("neighbours_sha256")
+            except (OSError, ValueError, KeyError):
+                continue
+            if found != (neighbours_sha if name in border else None):
+                stale.append(name)
+        if stale:
+            n = manifest.requeue(band.name, stale)
+            total += n
+            say(f"Band {band.name}: {n} border tiles counted with other territories of the neighbours (or before "
+                f"them) are pending again")
+    return total
+
+
 def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, say) -> int:
     import search
     from progress import progress
@@ -1537,6 +1755,12 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
     for name in selected:
         country.band(name)
     plans = {b.name: band_plan(country, b, folder, data_dir) for b in country.bands}
+    first = next(iter(plans.values()))
+    neighbours_sha = ensure_neighbours(country, folder, first.paths.cache, first.crs, say)
+    if neighbours_sha is None:
+        state.pop("neighbours_sha256", None)
+    else:
+        state["neighbours_sha256"] = neighbours_sha
     _finish_state(state, folder, plans)
     manifest = Manifest(folder)
     try:
@@ -1552,6 +1776,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         stale = manifest.release_running()
         if stale:
             say(f"{stale} tiles of an interrupted run are pending again")
+        _requeue_border_tiles(manifest, country, plans, band_tiles, folder, neighbours_sha, say)
         shutil.rmtree(os.path.join(data_dir, "work", f"country-{country.id}"), ignore_errors=True)
         counts = manifest.counts()
         todo = sum(counts.get(b, {}).get("pending", 0) for b in selected)
@@ -2037,6 +2262,14 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
         return 1
     origin = [float(v) for v in state["origin"]]
     profile = country.profile.sha256
+    neighbours_sha = None
+    if not country.study:
+        neighbours_path = os.path.join(folder, NEIGHBOURS_FILE)
+        if not os.path.exists(neighbours_path):
+            say(f"{country_id} has no {NEIGHBOURS_FILE}: `findaline.py country run {country_id}` writes it and counts "
+                f"the border tiles with it")
+            return 1
+        neighbours_sha = _sha256_file(neighbours_path)
     for path in paths:
         try:
             meta = _tile_meta(path)
@@ -2051,6 +2284,10 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
             say(f"{path} was counted with another configuration or origin: count it again "
                 f"(`country run {country_id} --redo` counts everything again)")
             return 1
+        if meta.get("neighbours_sha256") != (neighbours_sha if meta.get("partners") is not None else None):
+            say(f"{path} was counted with other territories of the neighbours than {NEIGHBOURS_FILE}'s (or before "
+                f"them): `country run {country_id}` counts the border tiles again")
+            return 1
         metas.append(meta)
     year = datetime.now().year
     dsm = country.options.get("nmpt", "off") != "off"
@@ -2062,7 +2299,7 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
     if missing:
         notes.append(f"Partial: {total - missing} of {total} tiles of the layer bands.")
     info = {"id": country.id, "name": country.name, "crs": state["crs"], "origin": origin, "study": country.study,
-            "profile": profile, "neighbours": neighbours,
+            "profile": profile, "neighbours": neighbours, "neighbours_sha256": neighbours_sha,
             "bounds_wgs84": state["bounds_wgs84"], "bands": bands_info, "dsm": dsm,
             "water": country.options.get("water") == "fill", "partial": bool(missing), "config": state["hash"],
             "credits": _credits(metas, country.area, year), "notes": notes}
