@@ -9,6 +9,7 @@ paths:
   - "tools/perf_country.py"
   - "tests/test_country*.py"
   - "tests/test_count_mode.py"
+  - "tests/test_countcube.py"
   - "viewer/src/app/c/LayerPage.tsx"
   - "viewer/src/app/c/LayerHistograms.tsx"
   - "viewer/src/app/c/layerState.ts"

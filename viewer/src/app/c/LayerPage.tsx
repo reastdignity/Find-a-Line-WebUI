@@ -19,7 +19,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import L from "leaflet";
 import { Button, DESKTOP, Field, Segmented, useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
-import { ApiError, api, user, type CountryCells, type CountryCube, type CountryHistogram, type CountryOutline } from "../api";
+import { ApiError, api, user, type CountryBand, type CountryCells, type CountryCube, type CountryHistogram,
+         type CountryOutline } from "../api";
 import type { PlaceMap } from "../PlaceMap";
 import { creditsHtml } from "../../layers";
 import { t } from "../../i18n";
@@ -108,6 +109,15 @@ function neighbourName(id: string, cubes: CountryCube[]): string {
 function partnerName(cube: CountryCube, side: number, cubes: CountryCube[]): string | null {
   const id = side >= 1 && side <= 6 ? cube.neighbours?.[side - 1] : undefined;
   return id ? neighbourName(id, cubes) : null;
+}
+
+/** The longest line of each layer band of a cube, as the border's search hint names them: the page's lengths
+ *  (`short` in metres, as a band's search button writes it), "300 m, 1000 m, 2000 m or 5000 m". From cube.json's
+ *  bands, so the hint follows the layer's profile. */
+function longestLines(bands: CountryBand[]): string {
+  const ends = [...new Set(bands.map((b) => b.lengths[1]))].sort((a, b) => a - b).map((m) => `${short(m)} m`);
+  return ends.length > 1
+    ? t("ui.layer.lengths_or", {lengths: ends.slice(0, -1).join(", "), last: ends[ends.length - 1]}) : ends.join("");
 }
 
 /** Whether a cube was counted with the no-fall zone or the A-frames (its layer bands' params): only then are the
@@ -580,7 +590,9 @@ function Explorer({place, aside, source, cubes, params, pick, extras}:
       return name ? t("ui.layer.search_partner", {country: pickedCube.name, name}) : t("ui.layer.search_partner_any", {country: pickedCube.name});
     }
     if (picked.km2 >= picked.whole * 0.999) return null;
-    return cutNeighbour ? t("ui.layer.search_border", {name: cutNeighbour}) : t("ui.layer.search_border_any");
+    const lengths = longestLines(pickedBands);
+    return cutNeighbour ? t("ui.layer.search_border", {name: cutNeighbour, lengths})
+      : t("ui.layer.search_border_any", {lengths});
   })();
   const otherInCell = summary && summary.key === pickedKey && summary.totals && picked
     && (cells.find((c) => c.country === picked.country)?.data.cells.filter((r) => r[0] === picked.i && r[1] === picked.j).length ?? 0) === 1
