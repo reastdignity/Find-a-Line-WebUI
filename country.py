@@ -2,11 +2,11 @@
 The country layer's driver (docs/country-precompute/contract.md, section 3): a whole country
 searched offline in fixed tiles that keep only counts (countcube.py), then summed into its cube.
 
-    findaline.py country run <id> [--processes K] [--bands S,M,L,M2] [--max-tiles N] [--redo] [--yes]
+    findaline.py country run <id> [--processes K] [--bands S,M,L1,L2] [--max-tiles N] [--redo] [--yes]
     findaline.py country status <id>
     findaline.py country profile <id>
     findaline.py country build <id> [--partial]
-    findaline.py country compare <id> [--control M2] [--against L]
+    findaline.py country compare <id> [--control C] [--against S]   (a country with a control band)
     findaline.py country worker <id> --slot K      (started by run, one per process)
 
 Lines are searched in length bands (Band), each on its own grid and in its own fixed tiles
@@ -174,15 +174,19 @@ class Profile:
         return cls(bands, tension, rig)
 
 
-# The profile of every country: the pilot's bands (S, M, L in the layer, M2 a control band of L's
-# [1000, 2000)), T(L) and Silk 99 (the other rigging fields at their defaults), until the user decides on
-# the band study's result: a change of the profile is a change of this value, and every country is
-# counted again (the config hash)
+# The profile of every country, chosen by the user on 2026-11-12 (round 5's wave 17: two profiles counted on all
+# of Slovakia and compared; the tables go into docs/performance.md, "Round 5 (2026-11-07/08): the country layer,
+# continued", section "The recount: two profiles of Slovakia", written at the round's closing; until then
+# local/country-perf-2026-11-07/stage3/R2/results.md): four bands, all in the layer, no control band, every one with the
+# sag model; T(L) and Silk 99 (the other rigging fields at their defaults) as the pilot's. Against the profile of
+# a 1 m band up to 1000 m it found 1.5 times the spots of 2-5 km and the same of 1-2 km, a third of those of
+# 300-1000 m, at about a twelfth of the pair searches' CPU hours (18.7 against 228.8). A change of the profile is a
+# change of this value, and every country is counted again (the config hash)
 PROFILE = Profile(
-    bands=(Band("S", (30, 300), 1.0, "formula", 60, 5000, True),
+    bands=(Band("S", (30, 300), 1.0, "sag", 60, 5000, True),
            Band("M", (300, 1000), 2.0, "sag", 60, 10000, True),
-           Band("L", (1000, 5000), 5.0, "sag", 45, 20000, True),
-           Band("M2", (1000, 2000), 2.0, "sag", 60, 10000, False)),
+           Band("L1", (1000, 2000), 3.0, "sag", 55, 10000, True),
+           Band("L2", (2000, 5000), 5.0, "sag", 45, 20000, True)),
     tension=((300, 2.5), (1500, 6.0), (5000, 15.0)),
     rig={"webbing_weight": 41.0, "stretch": 2.1})
 
@@ -2093,16 +2097,41 @@ def _per_cell(keys, n, ids, level: int) -> Tuple[Dict[int, int], Dict[int, int]]
     return dict(zip(cells.tolist(), counts.tolist())), dict(zip(spot_cells.tolist(), spot_counts.tolist()))
 
 
-def compare(country_id: str, data_dir: str, control: str = "M2", against: str = "L") -> int:
+def _compared_bands(country: Country, control: Optional[str], against: Optional[str]) -> Tuple[Band, Band]:
+    """The bands `compare` takes: the control band given, else the country's first band outside the layer
+    (Band.layer False); the band given to compare it with, else the layer band whose lengths hold the
+    control's. CountryError when there is none: PROFILE has no control band since 2026-11-12, a study area
+    or a test may have one."""
+    if control is None:
+        controls = [b for b in country.bands if not b.layer]
+        if not controls:
+            raise CountryError(f"{country.id} has no control band (a band outside the layer: its bands "
+                               f"{', '.join(b.name for b in country.bands)} are all in the layer): nothing to compare")
+        control = controls[0].name
+    c_band = country.band(control)
+    if against is None:
+        lo, hi = c_band.lengths
+        holding = [b for b in country.bands
+                   if b.layer and b.name != control and b.lengths[0] <= lo and hi <= b.lengths[1]]
+        if not holding:
+            raise CountryError(f"No layer band of {country.id} holds the lengths of {control} "
+                               f"({lo:g}-{hi:g} m): give --against")
+        against = holding[0].name
+    return c_band, country.band(against)
+
+
+def compare(country_id: str, data_dir: str, control: Optional[str] = None, against: Optional[str] = None) -> int:
     """`country compare`: the control band against its lengths' part of the other band, per cell of
     1 and 4 km (lines, spots, their ratio, the Spearman correlation of spots per cell over the cells
     with a line of either, zeros included, and "lost": the share of the control's cells with a spot
-    where the other has none), with the seconds of both bands' tiles; compare.json."""
+    where the other has none), with the seconds of both bands' tiles; compare.json. The bands as
+    _compared_bands takes them (a country without a control band: a message, exit code 1)."""
     from scipy.stats import spearmanr
     folder = folder_of(data_dir, country_id)
     state = read_state(folder)
     country = Country.from_config(state["config"])
-    c_band, a_band = country.band(control), country.band(against)
+    c_band, a_band = _compared_bands(country, control, against)
+    control, against = c_band.name, a_band.name
     lo, hi = c_band.lengths
     try:
         mask = countcube.Filters(length=(lo, hi)).length_mask()
@@ -2184,9 +2213,11 @@ def main(argv: List[str]) -> int:
                                         "stage, and the last run's timeline")
     b = commands.add_parser("build", help="the cube of the layer bands' tiles")
     b.add_argument("--partial", action="store_true", help="build while tiles are missing")
-    c = commands.add_parser("compare", help="a control band against the same lengths of another band")
-    c.add_argument("--control", default="M2", help="the control band (default M2)")
-    c.add_argument("--against", default="L", help="the band it is compared with (default L)")
+    c = commands.add_parser("compare", help="a control band (outside the layer) against the same lengths of a layer "
+                                            "band; the layer's profile has none since 2026-11-12, a study area may")
+    c.add_argument("--control", help="the control band (default: the country's first band outside the layer)")
+    c.add_argument("--against", help="the band it is compared with (default: the layer band holding the control's "
+                                     "lengths)")
     w = commands.add_parser("worker", help="a worker process of a run (started by run)")
     w.add_argument("--slot", type=int, required=True, help="the worker's number")
     for sub in commands.choices.values():

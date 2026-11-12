@@ -950,6 +950,11 @@ covers both: a spot's record is the pair. `pack_keys`/`unpack_keys` and `select`
 - cube.json: `profile`: the sha256 of the profile's JSON; `config_hash` covers it. `/api/countries`
   passes it; the page sums only the cubes of the profile of the first country listed and shows the
   others apart with a note (`layerState.ts activeCubes`); the surface model may differ (today's note).
+- **Chosen (the user, 2026-11-12)** after two profiles were counted on all of Slovakia (round 5's wave
+  17; the tables in docs/performance.md, "Round 5", written at the round's closing): S 30-300 m at 1 m,
+  M 300-1000 m at 2 m (60°, cores of 5 and 10 km), L1 1-2 km at 3 m (55°, 10 km), L2 2-5 km at 5 m (45°,
+  20 km), all sag and in the layer, no control band; T(L) and Silk 99 as the pilot's. `country compare`
+  needs a control band, which only a study area or a test has now.
 
 ### What stays byte for byte
 

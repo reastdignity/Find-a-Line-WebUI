@@ -4,8 +4,10 @@ length range of the country layer needs, measured before the world is counted (t
 
 Each study area is a country of its own (countries/<id>/, counted by `findaline.py country run <id>`):
 a square of a source's country (its area spec within a box), with the surface model marking lines
-over trees and buildings, every band of BANDS on it and the current layer's bands as its layer (its
-cube shows the layer as it is). A variant is compared with the reference of its lengths (PAIRS) by
+over trees and buildings, every band of BANDS on it and the pilot's layer bands as its layer (its
+cube shows the pilot's layer; the profile the study led to, country.PROFILE of 2026-11-12, is S, M, L1 and
+L2: BANDS' S1m60 counted with the sag model, M2m60, L1-3m55 and L2-5m45). BANDS stay as they were counted: a
+change makes setup refuse the areas counted already. A variant is compared with the reference of its lengths (PAIRS) by
 where its spots and lines lie, never by their numbers alone: a coarser grid makes other spots.
 
     uv run python tools/band_study.py setup [AREA ...] [--data-dir D] [--reset]
@@ -66,19 +68,19 @@ AREAS = {a.id: a for a in (
 )}
 
 # Every area counts every band: the reference of each length range (the finest grid at 60°), the
-# current layer (layer=True: S, M and L split at 2 km, so that each part has its own cost) and the
+# pilot's layer (layer=True: S, M and L split at 2 km, so that each part has its own cost) and the
 # variants. Band edges lie on the cube's length edges.
 BANDS = (
-    Band("S1m60", (30, 300), 1.0, "formula", 60, 5000, True),      # the layer's S and its reference
+    Band("S1m60", (30, 300), 1.0, "formula", 60, 5000, True),      # the pilot's S and its reference
     Band("S2m60", (30, 300), 2.0, "formula", 60, 10000, False),    # sources of 2 m
     Band("M1m60", (300, 1000), 1.0, "sag", 60, 5000, False),       # the reference of 300-1000 m
-    Band("M2m60", (300, 1000), 2.0, "sag", 60, 10000, True),       # the layer's M
+    Band("M2m60", (300, 1000), 2.0, "sag", 60, 10000, True),       # the pilot's M (PROFILE's M)
     Band("L1-2m60", (1000, 2000), 2.0, "sag", 60, 10000, False),   # the reference of 1-2 km (the pilot's M2)
-    Band("L1-3m55", (1000, 2000), 3.0, "sag", 55, 10000, False),
-    Band("L1-5m45", (1000, 2000), 5.0, "sag", 45, 20000, True),    # the layer's L up to 2 km
+    Band("L1-3m55", (1000, 2000), 3.0, "sag", 55, 10000, False),   # PROFILE's L1
+    Band("L1-5m45", (1000, 2000), 5.0, "sag", 45, 20000, True),    # the pilot's L up to 2 km
     Band("L1-5m50", (1000, 2000), 5.0, "sag", 50, 20000, False),
     Band("L1-5m55", (1000, 2000), 5.0, "sag", 55, 20000, False),
-    Band("L2-5m45", (2000, 5000), 5.0, "sag", 45, 20000, True),    # the layer's L from 2 km and its reference
+    Band("L2-5m45", (2000, 5000), 5.0, "sag", 45, 20000, True),    # the pilot's L from 2 km, its reference (PROFILE's L2)
     Band("L2-10m45", (2000, 5000), 10.0, "sag", 45, 20000, False),
 )
 PAIRS = (("S2m60", "S1m60"), ("M2m60", "M1m60"), ("L1-5m45", "L1-2m60"), ("L1-5m50", "L1-2m60"),

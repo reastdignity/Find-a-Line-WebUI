@@ -1228,6 +1228,55 @@ def test_slovakia_counted_with_the_recount_options():
     assert country.config_hash(slovakia.config(), "a") != country.config_hash(pilot, "a")
 
 
+# The sha256 of the outline (area.geojson) Slovakia's two profiles were counted with in round 5 (C:\fal-data\lead and
+# C:\fal-data\user, 2026-11-10/11), and the config hash the tiles of the profile chosen on 2026-11-12 carry
+LEAD_AREA_SHA256 = "548f7c2a2a7f3e16aa9e8ee20003d69a4352d66c918ec2b3a7efd440b117a92e"
+LEAD_CONFIG_HASH = "ff82cd754b961fc44ee99b6bb386924ad519501a40759936d84714265c9d1503"
+
+
+def test_profile_is_the_chosen_one():
+    """PROFILE is the profile the user chose on 2026-11-12: S 30-300 m at 1 m, M 300-1000 m at 2 m, L1 1-2 km at 3 m
+    and L2 2-5 km at 5 m, all sag and in the layer, no control band; Slovakia's configuration with it has the config
+    hash of the tiles counted with that profile (so they are used as they are: a change of the profile, of
+    Slovakia's options or of obstacles.RULE fails here and counts the country again)."""
+    import country
+    assert [(b.name, b.lengths, b.resolution, b.model, b.slope_threshold, b.core_m, b.layer)
+            for b in country.PROFILE.bands] == [("S", (30, 300), 1.0, "sag", 60, 5000, True),
+                                                ("M", (300, 1000), 2.0, "sag", 60, 10000, True),
+                                                ("L1", (1000, 2000), 3.0, "sag", 55, 10000, True),
+                                                ("L2", (2000, 5000), 5.0, "sag", 45, 20000, True)]
+    assert country.PROFILE.tension == ((300, 2.5), (1500, 6.0), (5000, 15.0))
+    assert country.PROFILE.rig == {"webbing_weight": 41.0, "stretch": 2.1}
+    assert country.config_hash(country.COUNTRIES["slovakia"].config(), LEAD_AREA_SHA256) == LEAD_CONFIG_HASH
+
+
+def test_compare_without_a_control_band(env, full, tmp_path, capsys):
+    """compare of a country whose bands are all in the layer (the profile's since 2026-11-12): a plain message,
+    exit code 1, no compare.json; a control band given or found takes the layer band holding its lengths."""
+    import shutil
+    import country
+    data = str(tmp_path / "data")
+    folder = os.path.join(data, "countries", ID)
+    shutil.copytree(os.path.join(full["data"], "countries", ID), folder)
+    path = os.path.join(folder, "country.json")
+    with open(path, encoding="utf-8") as f:
+        state = json.load(f)
+    state["config"]["bands"] = [b for b in state["config"]["bands"] if b["layer"]]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(state, f)
+    if os.path.exists(os.path.join(folder, "compare.json")):  # test_status_and_compare's
+        os.remove(os.path.join(folder, "compare.json"))
+    capsys.readouterr()
+    assert _country("compare", ID, "--data-dir", data) == 1
+    assert "has no control band" in capsys.readouterr().out
+    assert not os.path.exists(os.path.join(folder, "compare.json"))
+    c = country.Country.from_config(env["config"])
+    assert [b.name for b in country._compared_bands(c, None, None)] == ["C", "S"]
+    assert [b.name for b in country._compared_bands(c, "C", "M")] == ["C", "M"]
+    with pytest.raises(country.CountryError, match="holds the lengths"):
+        country._compared_bands(c, "M", None)  # a layer band given as the control: no other layer band holds it
+
+
 def test_end_zone_reaches_the_pair_search(env, tmp_path, monkeypatch):
     """A country's end_zone and anchor_lift go from country.json through the band's plan into its tiles' line
     search (search._pair_search: find_valid_lines with the zone's buckets), as Slovakia's recount takes them."""
