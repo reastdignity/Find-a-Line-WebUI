@@ -77,7 +77,20 @@ ATTEMPTS = 2               # a tile that fails goes back to pending once, then s
 # strips a tile's gap filling peaked at 45-94 B/px, and every worker's private bytes also held about
 # 1.5 GiB that OpenBLAS reserved and never touched (_worker_env). Not search.memory_needed: a count
 # holds no table of lines, no profiles and no step 4, and that model follows the app's.
+# With a surface model COUNT_SURFACE_PIXEL_BYTES instead (wave 19, 2026-11-12, from the meta of every tile of
+# Slovakia's two profiles of round 5, all counted with the surface model marking and the no-fall zone of 5 m with
+# A-frames of 2 m: local/country-perf-2026-11-07/stage3/P/results.md, A3): a tile's private peak lies in steps 2-3
+# and follows its anchors, not its pixels (Spearman 0.62-0.76 with the anchors among a band's tenth of most, -0.12
+# to -0.05 with the pixels over a band: its tiles have nearly one grid size), about 0.4 GiB and 350-1050 B per anchor
+# at the heaviest; step 1 stays under 0.71 GiB (11-27 B/px with the worker's base). At 32 B/px four tiles were over:
+# the user profile's S tile of the Tatras held 2.92 GiB against 2.22 (5.5 M anchors, 3.3 G lines), the lead
+# profile's L1 tile 1.38 against 1.21 and its S tile 1.72 against 1.65; the steepest tile per band
+# needs at most 45 B/px over WORKER_BASE (the user's S; the lead's L1 40, S 34, M 25, L2 24), so 48 keeps every
+# measured tile under its budget. The share of steep pixels of a country's steepest tile sets that figure (about a
+# tenth at 1 m in the Tatras): a steeper country may need more. Without a surface model no tile of these runs was
+# measured: 32 stays.
 COUNT_PIXEL_BYTES = 32
+COUNT_SURFACE_PIXEL_BYTES = 48
 WORKER_BASE = 512 << 20
 RETHREAD_SECONDS = 10      # between the looks of a counting tile at the workers still busy (_Rethreading)
 # A tile is heavy when its weight (_weights: the lines of the done tiles under its core) reaches
@@ -1196,9 +1209,10 @@ def _disk_bytes(plan, across: bool = False) -> int:
     return search.work_bytes(plan) + search.AREA_TEMP_BYTES + (2 if across else 0)
 
 
-def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int, float]:
+def worker_count(largest_px: int, available: Optional[int] = None, surface: bool = False) -> Tuple[int, float]:
     """The processes of a run (at most the physical cores, each with the memory of the largest
-    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel) and the bytes each needs. No cap below the
+    tile: WORKER_BASE plus COUNT_PIXEL_BYTES per pixel, COUNT_SURFACE_PIXEL_BYTES with a surface model)
+    and the bytes each needs. No cap below the
     physical cores: on this PC (12 physical, 24 logical cores) Slovakia's M2 band took 31.7, 32.1
     and 32.5-32.7 min at 8, 10 and 12 workers (LIGHT_CORES 1; 33.5, 33.7 and 34.3-34.4 with 2), its
     L band 17.8, 18.2 and 18.3 at 8, 10 and 12 (2026-11-05, docs/performance.md "Round 4", W1): the
@@ -1207,7 +1221,7 @@ def worker_count(largest_px: int, available: Optional[int] = None) -> Tuple[int,
     every worker it gets: the S band (every tile under 40 s) 29.3 min at 12 workers, 32.6 at 8 (the
     machine at 80 and 62 %)."""
     import search
-    per = WORKER_BASE + COUNT_PIXEL_BYTES * largest_px
+    per = WORKER_BASE + (COUNT_SURFACE_PIXEL_BYTES if surface else COUNT_PIXEL_BYTES) * largest_px
     available = search.available_memory() if available is None else available
     cores = psutil.cpu_count(logical=False) or os.cpu_count() or 1
     return max(1, min(cores, int(available // per))), per
@@ -1541,7 +1555,7 @@ def _run(country_id, data_dir, folder, processes, bands, max_tiles, redo, yes, s
         shutil.rmtree(os.path.join(data_dir, "work", f"country-{country.id}"), ignore_errors=True)
         counts = manifest.counts()
         todo = sum(counts.get(b, {}).get("pending", 0) for b in selected)
-        k, per = worker_count(largest)
+        k, per = worker_count(largest, surface=any(plans[n].nmpt for n in selected))
         if processes is not None:
             k = processes
         elif max_tiles is not None or todo:

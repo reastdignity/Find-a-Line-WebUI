@@ -341,13 +341,24 @@ def test_failing_tiles(env, full, monkeypatch, capsys):
 
 def test_worker_count(monkeypatch):
     """The processes of a run from the measured memory of a count (WORKER_BASE plus
-    COUNT_PIXEL_BYTES per pixel of the largest tile), at most the physical cores, at least one."""
+    COUNT_PIXEL_BYTES per pixel of the largest tile, COUNT_SURFACE_PIXEL_BYTES with a surface model), at
+    most the physical cores, at least one; with a surface model every tile of Slovakia's two profiles of
+    round 5 under its budget (the largest private peak of each band, its tiles' pixels: wave 19's A3)."""
     import country
     monkeypatch.setattr(country.psutil, "cpu_count", lambda logical=True: 24 if logical else 12)
     per = country.WORKER_BASE + country.COUNT_PIXEL_BYTES * 38_500_000
     assert country.worker_count(38_500_000, 10 * 2 ** 30) == (6, per)  # Slovakia's S tiles, 10 GiB free
     assert country.worker_count(38_500_000, 100 * 2 ** 30)[0] == 12
     assert country.worker_count(38_500_000, 2 ** 30)[0] == 1
+    surface = country.WORKER_BASE + country.COUNT_SURFACE_PIXEL_BYTES * 38_500_000
+    assert country.worker_count(38_500_000, 10 * 2 ** 30, surface=True) == (4, surface)
+    measured = {"lead S": (38_489_616, 1_849_704_448), "lead M": (39_740_416, 1_551_441_920),
+                "lead L1": (23_736_384, 1_486_688_256), "lead L2": (37_503_376, 1_434_279_936),
+                "user S": (57_820_816, 3_130_118_144), "user M": (68_956_416, 2_413_436_928),
+                "user L": (47_224_384, 1_368_125_440)}  # the pixels of the band's largest tile, its largest peak (B)
+    for band, (px, peak) in measured.items():
+        assert country.worker_count(px, 2 ** 40, surface=True)[1] > peak, band
+    assert country.worker_count(57_820_816, 2 ** 40)[1] < 3_130_118_144  # 32 B/px left it over
 
 
 def test_worker_env_keeps_blas_to_one_thread(monkeypatch):
