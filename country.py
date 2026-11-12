@@ -191,13 +191,12 @@ class Profile:
 
 
 # The profile of every country, chosen by the user on 2026-11-12 (round 5's wave 17: two profiles counted on all
-# of Slovakia and compared; the tables go into docs/performance.md, "Round 5 (2026-11-07/08): the country layer,
-# continued", section "The recount: two profiles of Slovakia", written at the round's closing; until then
-# local/country-perf-2026-11-07/stage3/R2/results.md): four bands, all in the layer, no control band, every one with the
-# sag model; T(L) and Silk 99 (the other rigging fields at their defaults) as the pilot's. Against the profile of
-# a 1 m band up to 1000 m it found 1.5 times the spots of 2-5 km and the same of 1-2 km, a third of those of
-# 300-1000 m, at about a twelfth of the pair searches' CPU hours (18.7 against 228.8). A change of the profile is a
-# change of this value, and every country is counted again (the config hash)
+# of Slovakia and compared; the tables are in docs/performance.md, "Round 5 (2026-11-07/08): the country layer,
+# continued", section "The recount: two profiles of Slovakia"): four bands, all in the layer, no control band,
+# every one with the sag model; T(L) and Silk 99 (the other rigging fields at their defaults) as the pilot's.
+# Against the profile of a 1 m band up to 1000 m it found 1.5 times the spots of 2-5 km and the same of 1-2 km, a
+# third of those of 300-1000 m, at about a twelfth of the pair searches' CPU hours (18.7 against 228.8). A change
+# of the profile is a change of this value, and every country is counted again (the config hash)
 PROFILE = Profile(
     bands=(Band("S", (30, 300), 1.0, "sag", 60, 5000, True),
            Band("M", (300, 1000), 2.0, "sag", 60, 10000, True),
