@@ -2849,6 +2849,95 @@ wide between the panels): docs/roadmap.md, "Country layer".
   ALL's rate, looked like memory pressure and was the tilings regression (04e91b0): the same rate with 6.6-10.5
   and with 23.7-33.5 GiB available, a hundred times faster at the border tiles of the same runs (wave 17).
 
+## The explorer's speed (2026-11-13, branch `explorer-speed`)
+
+The user's decision of 2026-11-13 on wave 20's recommendation ("Round 5", "The explorer on the v2 cube"): the lean
+code first, then memory-mapping. Stage 1, done: `countcube.Cube.histogram` and `Cube.cells` in plain numpy (no numba,
+no new dependency, no change of `countcube.VERSION`, the files or any answer) and a bound on the work in flight
+(`web.LayerSlots`). Measured on a copy of the real lead cube (4.877 GB of `.npy`), `main` b45b950 ("today") against
+the branch, both on Python 3.15.2 and numpy 2.5.4 (a detached base worktree with its own venv). **Every timing is
+provisional**: the shared lock (below the normal priority) with other sessions' runs beside; before and after
+interleaved in the same hour, min / median of the runs of two rounds (5 each). The runs, scripts and data:
+`local/explorer-speed-2026-11-13/`.
+
+What changed:
+
+- **2cf935b, the lean code**: the rows of a view by two binary searches on word A per column (the rows are sorted by
+  cell), nothing between read; `reaching` as a range of columns and a range of rows (a cell's rounded corners span its
+  rectangle), no `np.unique`; one pass in chunks of `CHUNK_ROWS` (65 536) rows: each condition's mask once, the masks
+  of all conditions but one only for the active ones, the dimensions without a filter in runs of up to four adjacent
+  3-bit fields counted by one `bincount` of their 4 096 combinations and summed out at the end; cells by runs of
+  cells, the few partner rows apart, int64 sums. The answers: `tests/cube_oracle.py` (b45b950's code frozen) against
+  the new code over a grid of queries (1 888 answers, every dimension on and off, both modes, every level, the border
+  modes, views; chunks across cells) and the web's answers on the sample (400); on the real cube **0 of 454** HTTP
+  answers (wave 20's 439 checks and the page's requests) and **0 of 45** in-process answers differ from today's, byte
+  for byte.
+- **8eb113b, the arrays held once**: the keys and counts views of the (n, 3) rows (copies of the columns held each
+  array twice while it loaded), one array read at a time.
+- **7851dc7, the bound**: at most `COUNTRY_SLOTS` (2) computations at once, the others waiting without a thread
+  (`COUNTRY_WAIT_MAX` 30 s, then 503), each stopped between two chunks when its client goes away (a task awaiting
+  `http.disconnect`: the page aborts its fetch on every move) or after `COUNTRY_SECONDS_MAX` (120 s, 504).
+- **c702692, after the review**: the thread runs through anyio's `to_thread.run_sync(abandon_on_cancel=True)`, so a
+  request cancelled while it computes also stops at its next chunk (Starlette's middleware cancels through an anyio
+  scope, which `run_in_threadpool` held until the thread's end: all 200 chunks of a test ran). The table below is
+  7851dc7's; the 454 answers were compared again on c702692, 0 different.
+
+The chunk (in-process, the ten requests of wave 20's alternatives, n = 3): 65 536 rows was the fastest of 4 096 /
+16 384 / 65 536 / 262 144 / 1 048 576 on every request (the country view's histogram 0.65 / 0.53 / 0.50 / 0.83 / 0.88
+s): small enough for a chunk's temporaries to stay in the CPU's caches, large enough for numpy's cost per call.
+
+### Step by step
+
+The app of each worktree, wave 20's `probe.py` phases (cold, warm, replay of the page's requests, the pair, the
+quick zoom), interleaved today, lean, bound, today, lean, bound between 10:28 and 11:36; seconds warm min / median of
+the two rounds pooled (n = 10; the page's open requests 20, its desktop and Pixel 7 views); memory the process tree's
+(psutil every 50 ms) and the OS's peak private. Provisional (shared lock).
+
+| Measure | today (b45b950) | lean (8eb113b) | lean with the bound (7851dc7) |
+| --- | ---: | ---: | ---: |
+| the page's first view: /histogram L8 | 6.63 / 7.20 | 0.49 / 0.52 | 0.50 / 0.54 |
+| the page's first view: /cells L8 (the padded box) | 0.94 / 1.12 | 0.09 / 0.10 | 0.10 / 0.11 |
+| zoom 7 / zoom 9: /histogram L8 | 6.57 / 7.00, 3.96 / 4.31 | 0.49 / 0.51, 0.30 / 0.31 | 0.49 / 0.53, 0.30 / 0.33 |
+| spots: /histogram; the picked cell's /histogram | 1.77 / 2.05; 0.54 / 0.61 | 0.11 / 0.12; 0.02 / 0.02 | 0.11 / 0.12; 0.02 / 0.03 |
+| the whole country at level 4: /histogram; /cells | 8.63 / 8.90; 1.30 / 1.46 | 0.68 / 0.71; 0.14 / 0.16 | 0.67 / 0.72; 0.13 / 0.16 |
+| the degree square at level 1: /histogram (wave 20's slowest) | 11.03 / 11.29 | 0.80 / 0.83 | 0.81 / 0.90 |
+| cold: lines_1's first request (two rounds) | 1.31; 0.77 | 0.32; 0.47 | 0.34; 0.42 |
+| private at rest; every level loaded (GB) | 0.54; 5.12 | 0.54; 5.13 | 0.54; 5.13 |
+| peak private while lines_1 loads (GB) | 6.69 | 5.13 | 5.13 |
+| **OS peak private over the pass (GB, two rounds)** | **11.41; 11.25** | **5.14; 5.14** | **5.13; 5.14** |
+| the first view's /cells and /histogram at once: wall; private above the settled level | 6.97-7.66 s; +3.47 GB | 0.53-0.61 s; +0.01 GB | 0.56-0.61 s; +0.01 GB |
+| quick zoom, four histograms at once (wave 20's measure): wall; private above | 11.12-11.65 s; +6.12 GB | 0.74-0.96 s; +0.02 GB | 1.08-1.47 s; +0.01 GB |
+| quick zoom the page's way, steps 0.5 s apart (each abandoned at the next): wall to the last answer; private above; CPU | 9.03-9.47 s; +5.18 GB; 35-37 s | 1.81-1.84 s; +0.01 GB; 1.7-2.0 s | 1.81-1.85 s; +0.01 GB; 1.7-1.8 s |
+| the same, steps 0.15 s apart (abandoned while they compute) | 7.93-8.77 s; +6.06-6.70 GB; 35-37 s, busy 3.1 s after the last answer | 1.05-1.07 s; +0.01 GB; 2.5-2.7 s | **0.77-0.79 s; +0.01 GB; 0.8 s** |
+| the page (Chromium 1400 × 900, warm): open, cells / histograms shown (ms) | 2 030-2 173 / 8 698-8 889 | (not run) | 864-874 / 1 280-1 292 |
+| the page: zoom 7, 8, 9, histograms shown (ms) | 8 383-8 583, 6 513-6 556, 5 028-5 283 | (not run) | 1 082-1 192, 912-944, 812-852 |
+| the page: Pixel 7 open, cells / histograms (ms) | 2 134-2 424 / 8 798-9 285 | (not run) | 803-839 / 1 274-1 376 |
+
+(The quick zoom and the page: medians of each round; the page's times include its 300 ms debounce.) Over wave 20's
+whole warm table, median against median, the histograms are 7.7-25.8 times faster and /cells 3.0-11.5 times. A
+request's temporaries are a chunk's: the pass's peak is the loaded arrays plus 0.01 GB, the pair and the bursts
++0.01-0.02 GB above the settled level; the load holds an array once. The lean code alone removed the memory of a quick
+zoom and most of its time; with steps 0.5 s apart every request ends before the next step, so the bound has nothing to
+cut; with steps 0.15 s apart (a slower server, the VPS's one core, a larger cube) it stops the abandoned requests
+(CPU 2.5-2.7 → 0.8 s). Its cost: four requests at once that nobody abandons run two by two. The page's first open on a
+fresh server still waits about 2 s for its cells (the outline's cuts of every level and lines_8's load).
+
+**Stage 0, libraries** (the user's rule: a library looked at first; the brief bounded it): DuckDB 2.0.0 and Polars
+2.1.0 on the three slow requests (the country view and the Tatras at level 8, the whole country at level 4), every
+answer today's. Single-threaded, what the VPS's one core gives, the lean numpy code is the fastest: 0.52 s for the
+country view against 2.5-3.2 s (Polars) and 4.4-4.8 s (DuckDB); with 24 threads Polars on the loaded arrays 0.29 s,
+DuckDB on its own file 0.72 s (0.36 s on a file it had just written), Polars on mapped IPC files 0.43 s. DuckDB's file
+holds the four arrays in 0.47 GB instead of 1.76 GB (3.7 s to convert), 0.46-0.64 GB private at the peak; Polars needs
+a copy of the arrays (3.56 GB) or IPC files (1.07-1.33 GB). They add a 15-25 MB (DuckDB) or 55 MB (Polars) wheel and
+0.1-0.4 s of import; numpy stays, DuckDB's compressed file is worth a second look only when cubes outgrow
+memory-mapping. Threads (not built): the chunks are independent exact partial sums, so a pool per process could take
+them, with the slots counting threads; no gain on the VPS's one core.
+
+The bound needs the page to abort its fetches (it does: `LayerPage.tsx`); behind nginx a client's abort reaches the
+app only if nginx closes the upstream connection (its default, `proxy_ignore_client_abort off`; not measured on the
+VPS). Next (stage 2, on the lead's word): the arrays memory-mapped with each build in a folder of its own; the chunked
+code needs nothing more from a mapped array (no whole-array copy, binary searches on the mapped column).
+
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
 The viewer's percentile filters need the heights of each search area's land (docs/roadmap.md,

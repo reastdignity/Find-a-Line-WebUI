@@ -678,17 +678,18 @@ class Countries:
         """The side of a level's cell in degrees (cube v2's lattice of cell_deg, 30″)."""
         return level * float(cube.info["cell_deg"])
 
-    def cells(self, cube, query) -> Dict:
+    def cells(self, cube, query, check=None) -> Dict:
         """The answer of /api/countries/<id>/cells for its query (_view): the level and its cell size, the
         rows of the cells passing the filters, [i, j, count, lat, lon of SW, SE, NE, NW, side], a row per
         cell and side (countcube's Cube.cells(sides=True): side 0 the country's own lines, 1-7 the partner
         index of its partner lines, so a cell the border cuts may give two rows), the total and the
         largest count of a row; `cut` the parts to draw and divide by: "i,j" a side-0 row's part inside
         the outline (Cube.cut), "i,j,out" a partner row's part beyond it within the layer's reach
-        (Cube.cut_outside); a row without its key is its whole cell."""
+        (Cube.cut_outside); a row without its key is its whole cell. `check` is called between the
+        chunks of rows (it raises to stop the work: LayerSlots)."""
         import numpy as np
         mode, level, box, filters = Countries._view(cube, query, self.replaced(cube))
-        i, j, side, count = cube.cells(mode, level, box, filters, sides=True)
+        i, j, side, count = cube.cells(mode, level, box, filters, sides=True, check=check)
         corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
         cut = cube.cut(level)
         cells = list(zip(i.tolist(), j.tolist(), side.tolist()))
@@ -704,17 +705,18 @@ class Countries:
                 "cells": [[a, b, int(c), *xy, s] for (a, b, s), c, xy in zip(cells, count, corners)],
                 "cut": shapes}
 
-    def histogram(self, cube, query) -> Dict:
+    def histogram(self, cube, query, check=None) -> Dict:
         """The answer of /api/countries/<id>/histogram for the query of /cells: countcube's Cube.histogram
         of the view (the counts per bin of each dimension, each under every filter but its own, with
         "totals" of both modes and the lines' "border" split: interior, owned, partner) with the level and
         its cell size as /cells gives them. With a bbox only the cells reaching it, by their corners as
-        /cells rounds them (Cube.reaching): the cells the page counts as in view."""
+        /cells rounds them (Cube.reaching): the cells the page counts as in view. `check` as cells'."""
         mode, level, box, filters = Countries._view(cube, query, self.replaced(cube))
         text = query.get("bbox") or ""
         view = tuple(float(v) for v in text.split(",")) if text else None  # checked by _view
         return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
-                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS, summary=True)}
+                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS, summary=True,
+                                 check=check)}
 
     @staticmethod
     def outline(cube) -> Dict:
@@ -731,6 +733,72 @@ class Countries:
         except ValueError:
             raise ValueError("level, i and j must be whole numbers") from None
         return cc.cell_request(cube, query.get("band") or "", level, i, j)
+
+
+COUNTRY_SLOTS = 2             # the highline layer's computations (cells, histograms) at once in the web process
+COUNTRY_WAIT_MAX = 30.0       # seconds a request of the layer waits for a slot (then 503)
+COUNTRY_SECONDS_MAX = 120.0   # seconds one computation may take, checked between its chunks of rows (then 504)
+COUNTRY_POLL = 0.05           # seconds between two looks at the slots
+
+
+class LayerStopped(Exception):
+    """A computation of the layer stopped between two chunks of rows: its client went away ("gone"), or its
+    time ran out ("time")."""
+
+
+class LayerSlots:
+    """The bound on the highline layer's work in the web process. The page asks /cells and /histogram on every
+    move and aborts them at the next, but a thread of run_in_threadpool runs to its end (four quick zoom steps
+    held four histograms at once: docs/performance.md, "The explorer's speed"). So: at most `slots`
+    computations at once, the others wait without a thread (COUNTRY_WAIT_MAX at most: 503); each stops between
+    two chunks of rows (countcube.CHUNK_ROWS, the `check` it is given) when its client goes away (a task
+    awaiting http.disconnect: Request.is_disconnected never sees it behind the guard middleware) or after
+    COUNTRY_SECONDS_MAX (504), so an abandoned request costs a chunk more at most. Every user alike."""
+
+    def __init__(self, slots: Optional[int] = None):
+        self.slots, self.running = COUNTRY_SLOTS if slots is None else slots, 0
+
+    async def run(self, client, work: Callable, *args):
+        """work(*args, check) in a thread within the bounds; its answer."""
+        import functools
+
+        import anyio
+        from fastapi import HTTPException
+        gone = asyncio.ensure_future(_disconnect(client.receive))
+        stop = threading.Event()
+        gone.add_done_callback(lambda _: stop.set())
+        try:
+            started = time.monotonic()
+            while self.running >= self.slots:  # the event loop's thread alone counts: no lock
+                if gone.done():
+                    raise HTTPException(503, "the client went away")  # nobody reads it
+                if time.monotonic() - started > COUNTRY_WAIT_MAX:
+                    raise HTTPException(503, f"the layer is busy: no answer within {COUNTRY_WAIT_MAX:g} s, try again")
+                await asyncio.sleep(COUNTRY_POLL)
+            self.running += 1
+            deadline = time.monotonic() + COUNTRY_SECONDS_MAX
+
+            def check():
+                if stop.is_set():
+                    raise LayerStopped("gone")
+                if time.monotonic() > deadline:
+                    raise LayerStopped("time")
+            try:
+                # abandon_on_cancel: a request cancelled while its thread computes returns at once (run_in_threadpool's
+                # anyio.to_thread.run_sync without it holds a cancel of an anyio scope, as Starlette's middleware task
+                # group's, until the thread ends: the thread ran all its chunks), so the `finally` below stops it
+                return await anyio.to_thread.run_sync(functools.partial(work, *args, check), abandon_on_cancel=True)
+            except LayerStopped as e:
+                if str(e) == "gone":
+                    raise HTTPException(503, "the client went away")
+                raise HTTPException(504, f"no answer within {COUNTRY_SECONDS_MAX:g} s: zoom in, or try again later")
+            finally:
+                self.running -= 1
+        finally:
+            # the thread of a request cancelled while it computes (abandoned above, not awaited) stops at its next
+            # chunk; a client gone has set `stop` already, through `gone`'s callback
+            stop.set()
+            gone.cancel()
 
 
 def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, start_scheduler: bool = True,
@@ -1716,6 +1784,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     # --- The highline layer of a country (countcube.py; the local app and administrators) ---
 
     countries = Countries(data_dir)
+    layer = app.state.layer = LayerSlots()  # the bound on the layer's work in flight
 
     async def country_cube(country: str):
         cube = await run_in_threadpool(countries.cube, country)
@@ -1733,7 +1802,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The cells of the layer in view passing the filters (Countries.cells), with their corners."""
         cube = await country_cube(country)
         try:
-            return await run_in_threadpool(countries.cells, cube, request.query_params)
+            return await layer.run(request, countries.cells, cube, request.query_params)
         except ValueError as e:
             raise HTTPException(400, str(e))
 
@@ -1742,7 +1811,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         """The counts of the layer in view per bin of each filter dimension (Countries.histogram)."""
         cube = await country_cube(country)
         try:
-            return await run_in_threadpool(countries.histogram, cube, request.query_params)
+            return await layer.run(request, countries.histogram, cube, request.query_params)
         except ValueError as e:
             raise HTTPException(400, str(e))
 

@@ -31,10 +31,11 @@ imports this module, so it never imports numba, linesearch, search or country.
 import json
 import math
 import os
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Mapping, Optional, Tuple
 
 import numpy as np
 import shapely
@@ -256,13 +257,6 @@ def unpack_keys(keys: np.ndarray) -> Dict[str, np.ndarray]:
     out.update({name: (a >> shift) & 7 for name, shift in SHIFT.items()})
     out.update({name: (b >> shift) & 7 for name, shift in B_SHIFT.items()})
     return out
-
-
-def _field(keys: np.ndarray, name: str) -> np.ndarray:
-    """The 3-bit bin of a dimension in keys or records ((n, 2))."""
-    if name in SHIFT:
-        return (keys[:, 0] >> SHIFT[name]) & 7
-    return (keys[:, 1] >> B_SHIFT[name]) & 7
 
 
 def _metres_per_degree(lat: float) -> Tuple[float, float]:
@@ -932,16 +926,83 @@ class Filters:
 DIMENSIONS = ("length",) + tuple(KINDS)  # the dimensions a histogram counts
 
 
+def _border_kept(a: np.ndarray, filters: Filters) -> Optional[np.ndarray]:
+    """border_kept of word A's column."""
+    if filters.border == "all" and not filters.replaced:
+        return None
+    partner_line = ((a >> BORDER_SHIFT) & 3) == 2
+    if filters.border == "own":
+        return ~partner_line
+    replaced = sum(1 << p for p in set(filters.replaced))  # the partners as bits: a test of 3 operations, no isin
+    return ~(partner_line & (((replaced >> ((a >> PARTNER_SHIFT) & 7)) & 1) != 0))
+
+
 def border_kept(keys: np.ndarray, filters: Filters) -> Optional[np.ndarray]:
     """A boolean mask of the keys ((n, 2)) the filters' border keeps (Filters.border, Filters.replaced),
     or None when it keeps every key."""
     if filters.border == "all" and not filters.replaced:
         return None
-    a = np.asarray(keys, dtype=np.int64).reshape(-1, 2)[:, 0]
-    partner_line = ((a >> BORDER_SHIFT) & 3) == 2
-    if filters.border == "own":
-        return ~partner_line
-    return ~(partner_line & np.isin((a >> PARTNER_SHIFT) & 7, np.asarray(filters.replaced, dtype=np.int64)))
+    return _border_kept(np.asarray(keys, dtype=np.int64).reshape(-1, 2)[:, 0], filters)
+
+
+def _conditions(a: np.ndarray, b: np.ndarray, filters: Filters, bits: Optional[np.ndarray] = None,
+                fields: Optional[Dict[str, np.ndarray]] = None) -> Tuple[Dict[str, np.ndarray], Optional[np.ndarray]]:
+    """The pass masks of rows (their words A and B) under the filters: {"length": the length mask's (on
+    `bits`, the rows' length masks, when given), every active dimension of KINDS: its condition} and the
+    mask of the flags (trees, water, the border: never skipped), None when they keep every row. An
+    UNKNOWN bin (7) fails every active condition: a floor's tests it, a ceiling's index is at most 5.
+    `fields` gets the bins of the active dimensions."""
+    out = {"length": (((a >> LENGTH_SHIFT) if bits is None else bits) & filters.length_mask()) != 0}
+    for name, kind in KINDS.items():
+        if not filters.active(name):
+            continue
+        field = (a >> SHIFT[name]) & 7 if name in SHIFT else (b >> B_SHIFT[name]) & 7
+        index = EDGES[name].index(getattr(filters, name))
+        if kind == "floor":
+            out[name] = (field >= index) & (field != UNKNOWN)
+        elif kind == "below":
+            out[name] = field < index
+        else:
+            out[name] = field <= index
+        if fields is not None:
+            fields[name] = field
+    flags = None
+    if filters.trees != "all":
+        flags = (a & (1 << (TREES_BIT + (filters.trees == "only")))) != 0
+    if filters.water != "all":
+        wet = (a & (1 << (WATER_BIT + (filters.water == "water")))) != 0
+        flags = wet if flags is None else flags & wet
+    kept = _border_kept(a, filters)
+    if kept is not None:
+        flags = kept if flags is None else flags & kept
+    return out, flags
+
+
+def _passing(conditions: Dict[str, np.ndarray], flags: Optional[np.ndarray], n: int,
+             skip: Optional[str] = None) -> np.ndarray:
+    """The rows passing every condition but `skip`'s, and the flags."""
+    mask = flags
+    for name, ok in conditions.items():
+        if name != skip:
+            mask = ok if mask is None else mask & ok
+    return np.ones(n, dtype=bool) if mask is None else mask
+
+
+def _all_but_one(conditions: Dict[str, np.ndarray], flags: Optional[np.ndarray]
+                 ) -> Tuple[np.ndarray, Dict[str, Optional[np.ndarray]]]:
+    """The rows passing everything, and for each condition those passing all the others (None: every row),
+    by the products of the conditions before and after it (3 × k operations, not k²)."""
+    names = list(conditions)
+    before: List[Optional[np.ndarray]] = [flags]
+    for name in names[:-1]:
+        before.append(conditions[name] if before[-1] is None else before[-1] & conditions[name])
+    others, after = {}, None
+    for k in range(len(names) - 1, -1, -1):
+        b, name = before[k], names[k]
+        others[name] = b if after is None else (after if b is None else b & after)
+        after = conditions[name] if after is None else after & conditions[name]
+    every = after if flags is None else after & flags
+    return every, others
 
 
 def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np.ndarray:
@@ -951,30 +1012,37 @@ def select(keys: np.ndarray, filters: Filters, skip: Optional[str] = None) -> np
     if skip is not None and skip not in DIMENSIONS:
         raise ValueError(f"skip must be one of {', '.join(DIMENSIONS)}")
     keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)
-    a = keys[:, 0]
-    if skip == "length":
-        mask = np.ones(len(keys), dtype=bool)
-    else:
-        mask = ((a >> LENGTH_SHIFT) & filters.length_mask()) != 0
-    for name, kind in KINDS.items():
-        if name == skip or not filters.active(name):
-            continue
-        b = _field(keys, name)
-        index = EDGES[name].index(getattr(filters, name))
-        if kind == "floor":
-            mask &= (b != UNKNOWN) & (b >= index)
-        elif kind == "below":
-            mask &= (b != UNKNOWN) & (b < index)
-        else:
-            mask &= (b != UNKNOWN) & (b <= index)
-    if filters.trees != "all":
-        mask &= (a & (1 << (TREES_BIT + (filters.trees == "only")))) != 0
-    if filters.water != "all":
-        mask &= (a & (1 << (WATER_BIT + (filters.water == "water")))) != 0
-    kept = border_kept(keys, filters)
-    if kept is not None:
-        mask &= kept
-    return mask
+    conditions, flags = _conditions(keys[:, 0], keys[:, 1], filters)
+    return _passing(conditions, flags, len(keys), skip)
+
+
+def _groups() -> Tuple[Tuple[int, int, Tuple[str, ...]], ...]:
+    """The 3-bit dimensions of each word in runs of at most four adjacent fields: (word, first bit, the
+    dimensions from the lowest bits up); a histogram counts a run by one bincount of 8^k bins."""
+    out = []
+    for word, shifts in ((0, SHIFT), (1, B_SHIFT)):
+        run: List[Tuple[str, int]] = []
+        for name, shift in sorted(shifts.items(), key=lambda item: item[1]):
+            if run and (shift != run[-1][1] + 3 or len(run) == 4):
+                out.append((word, run[0][1], tuple(n for n, _ in run)))
+                run = []
+            run.append((name, shift))
+        if run:
+            out.append((word, run[0][1], tuple(n for n, _ in run)))
+    return tuple(out)
+
+
+GROUPS = _groups()  # word A's four dimensions, word B's eleven in runs of 4, 4 and 3
+LENGTH_ALL = (1 << LENGTH_BINS) - 1
+CHUNK_ROWS = 1 << 16  # rows Cube.cells and Cube.histogram handle at once: their temporaries, within the CPU's caches
+
+
+def _sums(groups: np.ndarray, counts: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """The distinct groups (sorted) and the sum of the counts of each (int64)."""
+    order = np.argsort(groups, kind="stable")
+    groups, counts = groups[order], counts[order]
+    starts = np.flatnonzero(np.concatenate(([True], groups[1:] != groups[:-1])))
+    return groups[starts], np.add.reduceat(counts, starts)
 
 
 def _authalic(lat: np.ndarray) -> np.ndarray:
@@ -1023,6 +1091,7 @@ class Cube:
         self.crs = self.info.get("crs")
         self.levels = tuple(self.info.get("levels", LEVELS))
         self._arrays: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        self._loading = threading.Lock()  # one array read at a time (_rows)
         self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
         self._cuts: Optional[Dict[int, Dict[Tuple[int, int], Dict]]] = None  # cut's cells per level
         self._pieces: Dict[int, Dict[Tuple[int, int], object]] = {}  # their exact parts inside the outline
@@ -1035,16 +1104,22 @@ class Cube:
         return np.column_stack([keys, counts])
 
     def _rows(self, mode: str, level: int) -> Tuple[np.ndarray, np.ndarray]:
-        """The keys ((n, 2), C-contiguous) and counts of a mode and level, read once."""
+        """The keys ((n, 2)) and counts of a mode and level: views of the (n, 3) rows read once, by one
+        thread at a time (the page's /cells and /histogram of its first view ask the same array at once),
+        so the file's bytes are held once, also while it loads (copies of the columns held it twice)."""
         if mode not in ("lines", "spots"):
             raise ValueError("mode must be lines or spots")
         if level not in self.levels:
             raise ValueError(f"level must be one of {', '.join(map(str, self.levels))}")
         name = f"{mode}_{level}"
-        if name not in self._arrays:
-            rows = np.load(os.path.join(self.folder, name + ".npy")).reshape(-1, 3)
-            self._arrays[name] = (np.ascontiguousarray(rows[:, :2]), np.ascontiguousarray(rows[:, 2]))
-        return self._arrays[name]
+        found = self._arrays.get(name)
+        if found is None:
+            with self._loading:
+                found = self._arrays.get(name)
+                if found is None:
+                    rows = np.load(os.path.join(self.folder, name + ".npy")).reshape(-1, 3)
+                    found = self._arrays[name] = (rows[:, :2], rows[:, 2])
+        return found
 
     def box(self, west: float, south: float, east: float, north: float) -> Box:
         """A WGS84 box clipped to the country's bounds_wgs84 with a margin of a degree, so a view of
@@ -1087,52 +1162,110 @@ class Cube:
         i0, i1, j0, j1 = self._range(level, box)
         return max(i1 - i0 + 1, 0) * max(j1 - j0 + 1, 0)
 
-    def _slice(self, mode: str, level: int, box: Optional[Box]) -> Tuple[np.ndarray, np.ndarray]:
-        """The keys ((n, 2), sorted) and counts of the level's rows in the cells touching box (None:
-        all): the columns' range by searchsorted on word A, the rows' by a mask."""
-        keys, counts = self._rows(mode, level)
-        empty = np.zeros(0, dtype=np.int64)
+    def _cells_of(self, level: int, box: Optional[Box], view: Optional[Tuple[float, float, float, float]] = None,
+                  decimals: Optional[int] = None) -> Optional[Tuple[int, int, int, int]]:
+        """The columns and rows (i0, i1, j0, j1, inclusive) of the level's cells a request reads: those
+        touching box (None: all); with `view` (the WGS84 box that gave box) those of box grown by a cell
+        that reach the view (reaching), a rectangle of cells too. None when there are none."""
+        if view is not None and box is not None and box[0] <= box[2] and box[1] <= box[3]:
+            size = level * CELL_DEG
+            box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
         if box is None:
-            return keys, counts
-        i0, i1, j0, j1 = self._range(level, box)
-        i0, j0 = max(i0, 0), max(j0, 0)
-        i1, j1 = min(i1, CELL_MASK), min(j1, CELL_MASK)
+            i0, i1, j0, j1 = 0, CELL_MASK, 0, CELL_MASK
+        else:
+            i0, i1, j0, j1 = self._range(level, box)
+            i0, j0 = max(i0, 0), max(j0, 0)
+            i1, j1 = min(i1, CELL_MASK), min(j1, CELL_MASK)
         if i0 > i1 or j0 > j1:
-            return empty.reshape(0, 2), empty
-        a = keys[:, 0]
-        lo = int(np.searchsorted(a, i0 << COL_SHIFT, side="left"))
-        hi = int(np.searchsorted(a, (i1 + 1) << COL_SHIFT, side="left"))
-        keys, counts = keys[lo:hi], counts[lo:hi]
-        j = (keys[:, 0] >> ROW_SHIFT) & CELL_MASK
-        mask = (j >= j0) & (j <= j1)
-        return keys[mask], counts[mask]
+            return None
+        if view is None:
+            return i0, i1, j0, j1
+        ok_i, ok_j = self._reach(level, i0, i1, j0, j1, view, decimals)
+        if not ok_i.any() or not ok_j.any():
+            return None
+        ok_i, ok_j = np.flatnonzero(ok_i), np.flatnonzero(ok_j)  # each a run: its bounds are monotonic
+        return i0 + int(ok_i[0]), i0 + int(ok_i[-1]), j0 + int(ok_j[0]), j0 + int(ok_j[-1])
 
-    def cells(self, mode: str, level: int, box: Optional[Box], filters: Filters, sides: bool = False
-              ) -> Tuple[np.ndarray, ...]:
+    def _reach(self, level: int, i0: int, i1: int, j0: int, j1: int, view: Tuple[float, float, float, float],
+               decimals: Optional[int]) -> Tuple[np.ndarray, np.ndarray]:
+        """Whether each column i0..i1 and each row j0..j1 of the level reaches a WGS84 view (west, south,
+        east, north): the box of a cell's corners (as `corners` gives them, rounded to `decimals`) is its
+        rectangle, so a cell reaches the view exactly when its column and its row do."""
+        west, south, east, north = view
+        i = np.arange(i0, i1 + 1, dtype=np.int64)
+        j = np.arange(j0, j1 + 1, dtype=np.int64)
+        w = (self.origin[0] + i * level) / CELLS_PER_DEGREE
+        e = (self.origin[0] + (i + 1) * level) / CELLS_PER_DEGREE
+        s = (self.origin[1] + j * level) / CELLS_PER_DEGREE
+        n = (self.origin[1] + (j + 1) * level) / CELLS_PER_DEGREE
+        if decimals is not None:
+            w, e, s, n = (np.round(x, decimals) for x in (w, e, s, n))
+        return (e >= west) & (w <= east), (n >= south) & (s <= north)
+
+    def _ranges(self, mode: str, level: int, cells: Optional[Tuple[int, int, int, int]]) -> List[Tuple[int, int]]:
+        """The rows [lo, hi) of a mode's and level's array in the cells (i0, i1, j0, j1) (None: none),
+        adjacent ones joined: the rows are sorted by cell (column, then row), so each column's rows j0..j1
+        are two binary searches on word A, and nothing between is read."""
+        keys, _ = self._rows(mode, level)
+        if cells is None or not len(keys):
+            return []
+        a = keys[:, 0]
+        i0, i1, j0, j1 = cells
+        i0, i1 = max(i0, int(a[0]) >> COL_SHIFT), min(i1, int(a[-1]) >> COL_SHIFT)  # the columns with rows
+        if i0 > i1:
+            return []
+        column = np.arange(i0, i1 + 1, dtype=np.int64) << COL_SHIFT
+        lo = np.searchsorted(a, column + (j0 << ROW_SHIFT), side="left")
+        hi = np.searchsorted(a, column + ((j1 + 1) << ROW_SHIFT), side="left")  # row 65536: the next column
+        some = hi > lo
+        lo, hi = lo[some], hi[some]
+        if not len(lo):
+            return []
+        breaks = np.flatnonzero(lo[1:] != hi[:-1]) + 1  # a range starting where the one before ends goes on
+        first = np.concatenate(([0], breaks))
+        last = np.concatenate((breaks - 1, [len(lo) - 1]))
+        return list(zip(lo[first].tolist(), hi[last].tolist()))
+
+    def _chunks(self, mode: str, level: int, ranges: List[Tuple[int, int]], check: Optional[Callable[[], None]]):
+        """The rows of the ranges as (word A, word B, counts) in chunks of at most CHUNK_ROWS rows, so a
+        request's temporaries are a chunk's whatever its view; `check` is called before each chunk (it
+        raises to stop the work: web.py, a client gone or a request's time run out)."""
+        keys, counts = self._rows(mode, level)
+        for lo, hi in ranges:
+            for start in range(lo, hi, CHUNK_ROWS):
+                if check is not None:
+                    check()
+                end = min(hi, start + CHUNK_ROWS)
+                yield keys[start:end, 0], keys[start:end, 1], counts[start:end]
+
+    def cells(self, mode: str, level: int, box: Optional[Box], filters: Filters, sides: bool = False,
+              check: Optional[Callable[[], None]] = None) -> Tuple[np.ndarray, ...]:
         """i, j and count of the level's cells inside box (None: all) passing filters, count > 0. With
         `sides`, i, j, side and count of a row per cell and side: side 0 the country's own lines
         (border 0 and 1), else the partner index (1-7) of its partner lines (border 2), in the order of
-        the cells, then the sides: a cell the border cuts may have both."""
+        the cells, then the sides: a cell the border cuts may have both. Read in chunks (`check` before
+        each, _chunks): the side 0 rows summed by runs of cells (the rows are sorted by cell), the few
+        partner rows by their group, the chunks' pieces of a cell joined at the end."""
         empty = np.zeros(0, dtype=np.int64)
-        keys, counts = self._slice(mode, level, box)
-        if not len(keys):
+        groups, totals = [], []
+        for a, b, c in self._chunks(mode, level, self._ranges(mode, level, self._cells_of(level, box)), check):
+            conditions, flags = _conditions(a, b, filters)
+            kept = _passing(conditions, flags, len(a))
+            cell = a >> ROW_SHIFT
+            if sides:
+                partner = ((a >> BORDER_SHIFT) & 3) == 2
+                theirs = np.flatnonzero(kept & partner)
+                if len(theirs):
+                    group, total = _sums((cell[theirs] << 3) | ((a[theirs] >> PARTNER_SHIFT) & 7), c[theirs])
+                    groups.append(group)
+                    totals.append(total)
+                    kept = kept & ~partner
+            starts = np.flatnonzero(np.concatenate(([True], cell[1:] != cell[:-1])))
+            groups.append(cell[starts] << 3 if sides else cell[starts])
+            totals.append(np.add.reduceat(np.where(kept, c, 0), starts))
+        if not groups:
             return (empty,) * (4 if sides else 3)
-        mask = select(keys, filters)
-        a = keys[:, 0][mask]
-        cell = a >> ROW_SHIFT  # sorted, as the keys are
-        counts = counts[mask]
-        if not len(cell):
-            return (empty,) * (4 if sides else 3)
-        if sides:
-            side = np.where(((a >> BORDER_SHIFT) & 3) == 2, (a >> PARTNER_SHIFT) & 7, 0)
-            group = (cell << 3) | side
-            order = np.argsort(group, kind="stable")
-            group, counts = group[order], counts[order]
-        else:
-            group = cell
-        starts = np.flatnonzero(np.concatenate(([True], group[1:] != group[:-1])))
-        total = np.add.reduceat(counts, starts)
-        group = group[starts]
+        group, total = _sums(np.concatenate(groups), np.concatenate(totals))
         keep = total > 0
         group, total = group[keep], total[keep]
         if not sides:
@@ -1145,35 +1278,31 @@ class Cube:
         """A mask of the keys ((n, 2)) whose cell reaches a WGS84 view (west, south, east, north): the
         box of the cell's corners (rounded to `decimals`, as /api/countries/<id>/cells gives them)
         intersects the view, edges included, as Leaflet's LatLngBounds.intersects: the page's total
-        in view."""
-        west, south, east, north = view
+        in view. By column and row (_reach)."""
         keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)
-        cell = keys[:, 0] >> ROW_SHIFT
-        if not len(cell):
+        if not len(keys):
             return np.zeros(0, dtype=bool)
-        unique, inverse = np.unique(cell, return_inverse=True)
-        corners = self.corners(level, unique >> (COL_SHIFT - ROW_SHIFT), unique & CELL_MASK)
-        if decimals is not None:
-            corners = np.round(corners, decimals)
-        lat, lon = corners[:, :, 0], corners[:, :, 1]
-        ok = (lat.max(1) >= south) & (lat.min(1) <= north) & (lon.max(1) >= west) & (lon.min(1) <= east)
-        return ok[inverse.reshape(-1)]
+        i, j = keys[:, 0] >> COL_SHIFT, (keys[:, 0] >> ROW_SHIFT) & CELL_MASK
+        i0, j0 = int(i.min()), int(j.min())
+        ok_i, ok_j = self._reach(level, i0, int(i.max()), j0, int(j.max()), view, decimals)
+        return ok_i[i - i0] & ok_j[j - j0]
 
-    def _view_rows(self, mode: str, level: int, box: Optional[Box], view: Optional[Tuple[float, float, float, float]],
-                   decimals: Optional[int]) -> Tuple[np.ndarray, np.ndarray]:
-        """The keys and counts of histogram's cells: over box (None: all), with `view` those reaching it."""
-        if view is not None and box is not None and box[0] <= box[2] and box[1] <= box[3]:
-            size = level * CELL_DEG
-            box = (box[0] - size, box[1] - size, box[2] + size, box[3] + size)
-        keys, counts = self._slice(mode, level, box)
-        if view is not None and len(keys):
-            near = self.reaching(level, keys, view, decimals)
-            keys, counts = keys[near], counts[near]
-        return keys, counts
+    def _totals(self, mode: str, level: int, cells: Optional[Tuple[int, int, int, int]], filters: Filters,
+                border: bool, check: Optional[Callable[[], None]]) -> Tuple[int, np.ndarray]:
+        """A mode's total under all filters over the cells, and with `border` the split of it by the rows'
+        border field (0, 1, 2)."""
+        total, split = 0, np.zeros(4)
+        for a, b, c in self._chunks(mode, level, self._ranges(mode, level, cells), check):
+            conditions, flags = _conditions(a, b, filters)
+            kept = np.where(_passing(conditions, flags, len(a)), c, 0)
+            total += int(kept.sum())
+            if border:
+                split += np.bincount((a >> BORDER_SHIFT) & 3, weights=kept.astype(np.float64), minlength=4)
+        return total, split
 
     def histogram(self, mode: str, level: int, box: Optional[Box], filters: Filters,
                   view: Optional[Tuple[float, float, float, float]] = None, decimals: Optional[int] = None,
-                  summary: bool = False) -> Dict:
+                  summary: bool = False, check: Optional[Callable[[], None]] = None) -> Dict:
         """The counts over box (None: all) per bin of each dimension, each dimension counted under every
         filter but its own (select(skip=)): {"total": the sum under all filters, "length": [9 ints, one
         per length bin], every dimension of KINDS: [the bins 0 .. bins_of(name) - 1, then UNKNOWN]: 6
@@ -1184,33 +1313,55 @@ class Cube:
         lines (merge_spots), so a spot counts in every bin of its lines: per-bin spot counts are upper
         bounds and may sum above the total. With `summary` also "totals": {"lines", "spots"} (both
         modes' totals under all filters over the same cells) and "border": {"interior", "owned",
-        "partner"} (the lines of those totals by their border field: 0, 1, 2)."""
-        keys, counts = self._view_rows(mode, level, box, view, decimals)
-        out: Dict = {"total": int(counts[select(keys, filters)].sum()) if len(keys) else 0}
+        "partner"} (the lines of those totals by their border field: 0, 1, 2).
+
+        One pass in chunks (_chunks, `check` before each): each condition's mask once, the masks of
+        all conditions but one (_all_but_one) only for the active ones; the dimensions without a filter
+        share the mask of all, so each run of adjacent fields (GROUPS) is one bincount of its 8^k
+        combinations, summed out at the end; an active dimension and the length mask a bincount each;
+        the weights are float64 counts, exact below 2^53."""
+        cells = self._cells_of(level, box, view, decimals)
+        length = np.zeros(1 << LENGTH_BINS)
+        groups = [np.zeros(8 ** len(names)) for _, _, names in GROUPS]
+        dims = {name: np.zeros(8) for name in KINDS if filters.active(name)}
+        split = np.zeros(4)
+        border = summary and mode == "lines"
+        for a, b, c in self._chunks(mode, level, self._ranges(mode, level, cells), check):
+            w = c.astype(np.float64)
+            bits = (a >> LENGTH_SHIFT) & LENGTH_ALL
+            fields: Dict[str, np.ndarray] = {}
+            conditions, flags = _conditions(a, b, filters, bits, fields)
+            every, others = _all_but_one(conditions, flags)
+            counted = w * every
+            some = others["length"]
+            length += np.bincount(bits, weights=w if some is None else w * some, minlength=len(length))
+            for k, (word, shift, names) in enumerate(GROUPS):
+                code = ((a if word == 0 else b) >> shift) & ((1 << (3 * len(names))) - 1)
+                groups[k] += np.bincount(code, weights=counted, minlength=len(groups[k]))
+            for name in dims:
+                some = others[name]
+                dims[name] += np.bincount(fields[name], weights=w if some is None else w * some, minlength=8)
+            if border:
+                split += np.bincount((a >> BORDER_SHIFT) & 3, weights=counted, minlength=4)
+        bins = dict(dims)
+        for (_, _, names), h in zip(GROUPS, groups):
+            h = h.reshape((8,) * len(names))  # the lowest field the last axis
+            for m, name in enumerate(names):
+                if name not in bins:
+                    bins[name] = h.sum(axis=tuple(x for x in range(len(names)) if x != len(names) - 1 - m))
+        out: Dict = {"total": int(round(groups[0].sum()))}
         if summary:
-            out["totals"] = {mode: out["total"]}
-            for other in ("lines", "spots"):
-                if other == mode:
-                    continue
-                k, n = self._view_rows(other, level, box, view, decimals)
-                out["totals"][other] = int(n[select(k, filters)].sum()) if len(k) else 0
-            out["totals"] = {m: out["totals"][m] for m in ("lines", "spots")}
-            k, n = (keys, counts) if mode == "lines" else self._view_rows("lines", level, box, view, decimals)
-            mask = select(k, filters) if len(k) else np.zeros(0, dtype=bool)
-            split = np.bincount((k[:, 0][mask] >> BORDER_SHIFT) & 3, weights=n[mask].astype(np.float64), minlength=3)
+            other = "spots" if mode == "lines" else "lines"
+            total, other_split = self._totals(other, level, cells, filters, other == "lines", check)
+            totals = {mode: out["total"], other: total}
+            out["totals"] = {m: totals[m] for m in ("lines", "spots")}
+            if mode != "lines":
+                split = other_split
             out["border"] = {name: int(round(split[b])) for b, name in enumerate(("interior", "owned", "partner"))}
-        if not len(keys):
-            out["length"] = [0] * LENGTH_BINS
-            for name in KINDS:
-                out[name] = [0] * (bins_of(name) + 1)
-            return out
-        weights = counts.astype(np.float64)  # exact below 2^53
-        mask = select(keys, filters, skip="length")
-        bits = (keys[:, 0] >> LENGTH_SHIFT)[mask]
-        out["length"] = [int(round(weights[mask][(bits & (1 << k)) != 0].sum())) for k in range(LENGTH_BINS)]
+        masks = np.arange(1 << LENGTH_BINS)
+        out["length"] = [int(round(length[(masks & (1 << k)) != 0].sum())) for k in range(LENGTH_BINS)]
         for name in KINDS:
-            mask = select(keys, filters, skip=name)
-            h = np.bincount(_field(keys, name)[mask], weights=weights[mask], minlength=8)
+            h = bins[name]
             out[name] = [int(round(v)) for v in (*h[:bins_of(name)], h[UNKNOWN])]
         return out
 

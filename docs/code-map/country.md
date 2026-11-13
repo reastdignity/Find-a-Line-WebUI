@@ -25,13 +25,20 @@ the reference), `save_tile`/`load_tile` (npz, `VERSION` 2), `build` (lines summe
 bands, the levels, `lines_<L>.npy`/`spots_<L>.npy` [key_a, key_b, count] sorted, `cube.json` last: `cell_deg`,
 `edges`, `kinds`, `neighbours`, `totals.border`), `Filters` (+ `parse` of the web's query; `border` all or own and
 `replaced`, the partners whose own cube replaces their partner lines: `border_kept`) and `select` (`skip=` one of
-`DIMENSIONS` leaves that dimension's condition out, never the border's), `Cube` (arrays read into memory when first
-used, not mapped: Windows would refuse the next build's replacing them; lon/lat rectangles without pyproj: `box`,
-`auto_level`, `cell_count`, `_slice` the rows of a view, `cells` (`sides=True`: a row per cell and side, 0 the
-country's own lines, else the partner index of its partner lines), `histogram` (the counts per bin of each dimension,
-each under every filter but its own: a line's one length bit partitions the total, a spot's ORed bits make its bins
-upper bounds; `view=` only the cells reaching a WGS84 view, `reaching`: their rounded corners' box intersects it, as
-the page counts its total in view; `summary=True` adds both modes' `totals` and the lines' `border` split), `corners`,
+`DIMENSIONS` leaves that dimension's condition out, never the border's; `_conditions` each condition's mask of rows,
+the flags' apart), `Cube` (arrays read into memory when first used, once: keys and counts views of the (n, 3) rows,
+one array read at a time; not mapped: Windows would refuse the next build's replacing them; lon/lat rectangles without
+pyproj: `box`, `auto_level`, `cell_count`, `_cells_of` a request's cells (a rectangle: the box's; with a view those
+reaching it, `_reach` by column and row), `_ranges` their rows (two binary searches on word A per column: the rows
+are sorted by cell), `_chunks` (`CHUNK_ROWS` rows at a time, a request's `check` called before each: where
+`web.LayerSlots` stops it), `cells` (`sides=True`: a row per cell and side, 0 the country's own lines, else the
+partner index of its partner lines; the side 0 rows summed by runs of cells), `histogram` (the counts per bin of each
+dimension, each under every filter but its own: a line's one length bit partitions the total, a spot's ORed bits make
+its bins upper bounds; one pass in chunks, the masks of all conditions but one only for the active ones,
+`_all_but_one`, the dimensions without a filter by `GROUPS` of up to four adjacent fields in one bincount each;
+`view=` only the cells reaching a WGS84 view, `reaching`: their rounded corners' box intersects it, as the page counts
+its total in view; `summary=True` adds both modes' `totals` and the lines' `border` split; their answers are those of
+`tests/cube_oracle.py`, the code of b45b950 frozen as the tests' oracle), `corners`,
 `cell_km2` (`lattice_km2`: a whole cell's on the ellipsoid), `outline_simplified` (the outline for a map at
 `OUTLINE_TOLERANCE`, coordinates of `OUTLINE_DECIMALS`, with the original's km², kept per tolerance), `cut` (the
 level's cells the outline cuts: the km² inside, from the exact outline, and that part as polygons of rings of [lat,

@@ -347,6 +347,202 @@ def test_histogram_as_the_cube_gives_it(client, sample):
     assert _histogram(client, "testland", level="8")["total"] != whole["total"]
 
 
+ORACLE_VIEWS = (None, VIEW, "19.5,49.0,19.8,49.2", "20.55,49.25,20.7,49.4", "100,10,101,11", "20.08,49.17,20.09,49.18",
+                "19.9583333333,49.1,20.0416666667,49.15")  # whole, inside, cut by the outline, far, a cell, the lattice
+ORACLE_FILTERS = ({}, {"length": "60-1000"}, {"prominence": "10", "wall": "60"}, {"water": "land", "trees": "no"},
+                  {"height": "50", "clearance": "5"}, {"drop": "60", "elevation_low": "1000", "height_diff": "10"},
+                  {"water_m": "5", "height_mean": "20", "prominence_high": "20", "high_pct": "75"},
+                  {"elevation_high": "2000", "clearance_trees": "1", "lift_needed": "1", "lift_no_zone": "0.5"},
+                  {"length": "300-5000", "wall": "0"}, {"trees": "only"})
+
+
+def test_answers_equal_the_oracle(sample, monkeypatch):
+    """The web's answers (Countries.cells and Countries.histogram, as JSON) of the lean code equal those of today's code
+    (tests/cube_oracle.py, b45b950 frozen) over a grid of queries on the sample: every level and auto, both modes,
+    border all (testland's partner lines replaced) and own, views inside, cut by the outline, the whole country, far
+    away, a cell, on the lattice's lines, filters of every topic; chunks of 61 rows."""
+    import cube_oracle as oracle
+    monkeypatch.setattr(cc, "CHUNK_ROWS", 61)
+    folder = os.path.join(sample, "countries", "slovakia", "cube")
+    lean, today = cc.Cube(folder), oracle.OracleCube(folder)
+    countries = web.Countries(str(sample))
+    compared = filled = 0
+    for level in ("auto", "1", "2", "4", "8"):
+        for mode in ("lines", "spots"):
+            for border in ("all", "own"):
+                for k, f in enumerate(ORACLE_FILTERS):
+                    view = ORACLE_VIEWS[(k + compared // 7) % len(ORACLE_VIEWS)]
+                    query = {"mode": mode, "level": level, "border": border, **f, **({"bbox": view} if view else {})}
+                    for answer in (countries.cells, countries.histogram):
+                        got = answer(lean, query)
+                        assert json.dumps(got) == json.dumps(answer(today, query)), (answer, query)
+                        compared += 1
+                        filled += got["total"] > 0
+    assert compared == 400 and filled > 150  # counts compared, not only zeros
+
+
+def test_layer_work_bounded(sample, monkeypatch):
+    """The bound on the layer's work in flight (web.LayerSlots), on a real server, the chunks of rows counted (a few
+    rows each, 20 ms each): a request whose client goes away stops at its next chunk, long before its end, and its slot
+    is free again; beyond COUNTRY_SLOTS a request waits for a slot, gets it when one ends, and after COUNTRY_WAIT_MAX
+    gets 503; a computation longer than COUNTRY_SECONDS_MAX stops with 504. An administrator's request alike (locally
+    the one user is one). Every wait is for an event, with a deadline, never a fixed pause: the suite runs on a loaded
+    PC."""
+    import socket
+    import threading
+    import time
+
+    import requests
+    from test_web import _server
+    ran = []
+    plain = cc.Cube._chunks
+
+    def counted(self, mode, level, ranges, check):
+        for chunk in plain(self, mode, level, ranges, check):
+            ran.append(level)
+            time.sleep(0.02)
+            yield chunk
+    monkeypatch.setattr(cc, "CHUNK_ROWS", 16)
+    cube = _slovakia(sample)
+
+    def chunks_of(level, bbox=None):  # a histogram's chunks: the lines' and the summary's spots
+        view = tuple(map(float, bbox.split(","))) if bbox else None
+        cells = cube._cells_of(level, cube.box(*view) if view else None, view, 6)
+        return sum(-(-(hi - lo) // 16) for mode in ("lines", "spots") for lo, hi in cube._ranges(mode, level, cells))
+    chunks = chunks_of(1)
+    assert chunks > 500  # the whole country at level 1: over 10 s of chunks
+    level, near = next((k, f"{20.08 - d},{49.17 - d},{20.08 + d},{49.17 + d}") for d in (0.005, 0.01, 0.02, 0.04, 0.08)
+                       for k in (1, 2, 4, 8) if 30 <= chunks_of(k, f"{20.08 - d},{49.17 - d},{20.08 + d},{49.17 + d}") <= 150)
+    monkeypatch.setattr(cc.Cube, "_chunks", counted)
+    monkeypatch.setattr(web, "COUNTRY_SLOTS", 1)
+    monkeypatch.setattr(web, "COUNTRY_WAIT_MAX", 0.6)
+    slow = "/api/countries/slovakia/histogram?mode=lines&level=1"
+    short = "/api/countries/slovakia/histogram?mode=lines&level=8&bbox=20.08,49.17,20.09,49.18"
+
+    def opened(port):  # a request whose client keeps the connection until it closes it
+        s = socket.create_connection(("127.0.0.1", port))
+        s.sendall(f"GET {slow} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
+        return s
+
+    def until(condition, seconds=10.0):  # waits for an event: True when it came, False at the deadline
+        deadline = time.monotonic() + seconds
+        while not condition():
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.01)
+        return True
+
+    def still(quiet=1.0, seconds=10.0):  # waits until no chunk ran for `quiet` s; False when chunks ran on to the deadline
+        deadline = time.monotonic() + seconds
+        count, since = len(ran), time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(0.02)
+            if len(ran) != count:
+                count, since = len(ran), time.monotonic()
+            elif time.monotonic() - since >= quiet:
+                return True
+        return False
+
+    with _server(sample) as port:
+        base = f"http://127.0.0.1:{port}"
+        assert requests.get(base + short, timeout=30).status_code == 200
+        ran.clear()
+        client = opened(port)
+        assert until(lambda: ran), "the slow request never computed"  # it holds the one slot
+        busy = requests.get(base + short, timeout=30)  # the one slot is taken: it waits, then 503
+        assert busy.status_code == 503 and "busy" in busy.text, busy.text
+        client.close()  # the client goes away (the page aborts its fetch)
+        assert still(), (len(ran), chunks)  # it stopped: it ran on to the deadline without the check
+        assert 0 < len(ran) < chunks / 5, (len(ran), chunks)  # long before its end (over 30 s of chunks)
+        assert requests.get(base + short, timeout=30).status_code == 200  # its slot is free again
+        # a request waiting for the slot gets it when the one before ends: its chunks after all of the first's
+        monkeypatch.setattr(web, "COUNTRY_WAIT_MAX", 60)
+        ran.clear()
+        ended = {}
+
+        def ask(name, path):
+            answer = requests.get(base + path, timeout=90)
+            ended[name] = (time.monotonic(), answer.status_code)
+        other = level * 2 if level < 8 else 4  # the second's level: its chunks told from the first's
+        first = threading.Thread(target=ask, args=("first", f"/api/countries/slovakia/histogram?level={level}&bbox={near}"))
+        first.start()
+        assert until(lambda: ran), "the first request never computed"  # it holds the slot, 29 chunks or more to go
+        ask("second", short.replace("level=8", f"level={other}"))
+        first.join(90)
+        assert ended["first"][1] == ended["second"][1] == 200 and ended["second"][0] >= ended["first"][0], ended
+        k = ran.index(other)
+        assert k >= 30 and set(ran[:k]) == {level} and set(ran[k:]) == {other}, ran  # the first's chunks, then the second's
+        # a computation over its time
+        monkeypatch.setattr(web, "COUNTRY_SECONDS_MAX", 1.0)
+        ran.clear()
+        late = requests.get(base + slow, timeout=30)
+        assert late.status_code == 504 and "no answer within 1 s" in late.text, late.text
+        assert still() and 0 < len(ran) < chunks / 5, (len(ran), chunks)  # stopped, far fewer than all
+
+
+def test_layer_work_stops_when_its_request_is_cancelled():
+    """A request of the layer cancelled while its thread computes, not by its client going away (its receive never says
+    http.disconnect): by asyncio's task.cancel() and by an anyio cancel scope (Starlette's middleware runs the app in an
+    anyio task group; run_in_threadpool held such a cancel until the thread's end, and the thread ran all its chunks).
+    The request ends before its thread is done, its slot is free, and its thread stops at its next chunk: the chunks
+    counted (20 ms each, 200 if nobody stops it), every wait for an event with a deadline."""
+    import asyncio
+    import time
+
+    import anyio
+
+    class Client:  # never goes away
+        async def receive(self):
+            await asyncio.sleep(3600)
+
+    async def case(how):
+        ran, ended = [], []
+
+        def work(check):
+            for _ in range(200):
+                check()
+                ran.append(1)
+                time.sleep(0.02)
+
+        slots = web.LayerSlots(1)
+
+        async def request():
+            try:
+                await slots.run(Client(), work)
+            finally:
+                ended.append(len(ran))
+
+        async def computing():  # the thread has run a chunk (deadline 10 s)
+            deadline = time.monotonic() + 10
+            while not ran and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            assert ran, "the work never ran"
+
+        if how == "asyncio":
+            task = asyncio.ensure_future(request())
+            await computing()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        else:
+            async with anyio.create_task_group() as group:
+                group.start_soon(request)
+                await computing()
+                group.cancel_scope.cancel()
+        deadline, count, since = time.monotonic() + 10, len(ran), time.monotonic()
+        while time.monotonic() < deadline and time.monotonic() - since < 0.5:  # until no chunk ran for 0.5 s
+            await asyncio.sleep(0.02)
+            if len(ran) != count:
+                count, since = len(ran), time.monotonic()
+        return ended[0], len(ran), time.monotonic() - since >= 0.5, slots.running
+
+    for how in ("asyncio", "anyio"):
+        at_end, total, stopped, running = asyncio.run(case(how))
+        assert at_end < 100 and stopped and total < 100 and running == 0, (how, at_end, total, stopped, running)
+
+
 def _brute_border(cube, level, filters_all, mode="lines"):
     """The counts of a cube's rows of a level by (i, j, side) under filters, from its arrays: side 0 for border 0
     and 1, the partner index for border 2."""
