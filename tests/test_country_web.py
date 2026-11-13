@@ -702,21 +702,75 @@ def test_cell_request(client, sample):
 
 
 def test_cube_built_again_is_read_again(tmp_path):
-    """One Cube per version of cube.json: a cube built again (another mtime) answers with its new counts,
-    and a cube being built (no cube.json) is no layer."""
+    """One Cube per version of cube.json: a cube built again (another mtime) answers with its new counts at the next
+    request, its first build gone after it (the builder removed what the app had not mapped; on Windows the app's
+    mapped lines_8.npy stayed, and the app removed it once it had moved to the new build and dropped the old maps);
+    a cube without cube.json is no layer."""
     sample_cube(tmp_path, seed=1)
     with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
         before = _cells(client, level="8")["total"]
         assert _cells(client, level="8")["total"] == before  # the cached cube
         path = tmp_path / "countries" / "slovakia" / "cube" / "cube.json"
+        first = cc.arrays_folder(str(path.parent))
         stamp = path.stat().st_mtime_ns
         sample_cube(tmp_path, seed=2)
         os.utime(path, ns=(stamp + 10 ** 9, stamp + 10 ** 9))  # a coarse clock may give the same mtime
+        assert cc.arrays_folder(str(path.parent)) != first
+        if os.name == "nt":  # the one array the app maps (/cells reads the lines) stays for it
+            assert os.listdir(first) == ["lines_8.npy"]
+        else:
+            assert not os.path.exists(first)
         after = _cells(client, level="8")["total"]
         assert after != before and after == int(cc.Cube(str(path.parent)).cells("lines", 8, None, cc.Filters())[2].sum())
+        assert not os.path.exists(first)
+        assert sorted(os.listdir(path.parent)) == sorted(["area.geojson", "cube.json", os.path.basename(
+            cc.arrays_folder(str(path.parent)))])
         path.unlink()
         assert client.get("/api/countries/slovakia/cells").status_code == 404
         assert client.get("/api/countries").json() == {"countries": []}
+
+
+def test_a_request_in_flight_when_the_cube_is_built_again(tmp_path, monkeypatch):
+    """A request that took the cube before it was built again, whose array went away under it before it was mapped
+    (the old build removed by the builder: another process on the server; here the build in this process, the app
+    having mapped nothing of the first build), answers from the new build, not 500. An array gone while cube.json is
+    unchanged answers 503 with Retry-After (try again). Waits for events with deadlines, no fixed pause."""
+    import threading
+    sample_cube(tmp_path, seed=1)
+    folder = tmp_path / "countries" / "slovakia" / "cube"
+    first = cc.arrays_folder(str(folder))
+    started, go, cubes = threading.Event(), threading.Event(), []
+    plain = web.Countries.histogram
+
+    def held(self, cube, query, check=None):  # the first call waits until the cube is built again
+        cubes.append(cube)
+        if len(cubes) == 1:
+            started.set()
+            assert go.wait(60), "never released"
+        return plain(self, cube, query, check)
+    monkeypatch.setattr(web.Countries, "histogram", held)
+    with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as client:
+        answers = {}
+        request = threading.Thread(target=lambda: answers.update(
+            got=client.get("/api/countries/slovakia/histogram", params={"level": "8"})))
+        request.start()
+        assert started.wait(60), "the request never computed"
+        stamp = (folder / "cube.json").stat().st_mtime_ns
+        sample_cube(tmp_path, seed=2)
+        os.utime(folder / "cube.json", ns=(stamp + 10 ** 9, stamp + 10 ** 9))  # a coarse clock may give the same mtime
+        assert not os.path.exists(first)  # the builder removed the first build: nothing of it was mapped
+        go.set()
+        request.join(60)
+        got = answers["got"]
+        assert got.status_code == 200, got.text
+        assert len(cubes) == 2 and cubes[0] is not cubes[1] and cubes[1].arrays != first
+        new = cc.Cube(str(folder))
+        assert got.json() == json.loads(json.dumps(plain(web.Countries(str(tmp_path)), new, {"level": "8"})))
+        # an array gone, cube.json unchanged (removed by hand): no newer build to answer from
+        os.remove(os.path.join(new.arrays, "lines_4.npy"))
+        gone = client.get("/api/countries/slovakia/histogram", params={"level": "4"})
+        assert gone.status_code == 503 and gone.headers["retry-after"] == "1" and "try again" in gone.text, gone.text
+        assert len(cubes) == 3 and cubes[2] is cubes[1]  # asked once: the same cube after it, no newer one
 
 
 def test_administrators_only(tmp_path, monkeypatch):

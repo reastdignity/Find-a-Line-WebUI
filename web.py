@@ -575,12 +575,18 @@ COUNTRY_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 class Countries:
     """The highline layers of the data folder: the cubes under <data>/countries/<id>/cube/ (countcube.py,
     built by `findaline.py country build`), each read once per version of its cube.json (the folder and
-    its mtime), so a new build is seen at the next request. Only countcube is imported (numpy, pyproj,
-    shapely): never country, search or numba. Its methods block (files, numpy): call them in a thread."""
+    its mtime), so a new build is seen at the next request; its arrays memory-mapped (countcube.Cube).
+    When a newer build replaces a cube, the old Cube is closed, and once no computation holds a map of
+    it the old build's files are removed (countcube.remove_stale, also at a folder's first cube in this
+    process); what another process still maps stays for the next build or move. Only countcube is
+    imported (numpy, pyproj, shapely): never country, search or numba. Its methods block (files,
+    numpy): call them in a thread."""
 
     def __init__(self, data_dir: str):
         self.root = os.path.join(data_dir, "countries")
         self._cubes: Dict[str, Tuple[int, object]] = {}
+        self._retired: Dict[str, List[object]] = {}  # per cube folder: the closed Cubes of builds before
+        self._due: set = set()                       # cube folders whose stale builds are to be removed (_tidy)
         self._lock = threading.Lock()
 
     def cube(self, country: str):
@@ -595,15 +601,40 @@ class Countries:
             return None
         with self._lock:
             found = self._cubes.get(folder)
-            if found and found[0] == mtime:
-                return found[1]
-        try:
-            cube = cc.Cube(folder)
-        except (OSError, ValueError, KeyError, TypeError):  # half written, another version
-            return None
-        with self._lock:
-            self._cubes[folder] = (mtime, cube)
+            cube = found[1] if found and found[0] == mtime else None
+        if cube is None:
+            try:
+                cube = cc.Cube(folder)
+            except (OSError, ValueError, KeyError, TypeError):  # half written, another version
+                return None
+            with self._lock:
+                found = self._cubes.get(folder)
+                if found and found[0] == mtime:
+                    cube = found[1]  # another thread read it first (this one has mapped nothing)
+                else:
+                    if found:
+                        found[1].close()
+                        self._retired.setdefault(folder, []).append(found[1])
+                    self._cubes[folder] = (mtime, cube)
+                    self._due.add(folder)
+        self._tidy(folder)
         return cube
+
+    def _tidy(self, folder: str) -> None:
+        """countcube.remove_stale of a cube folder once due (a newer build read, or the folder's first) and no
+        computation of this process holds a map of its closed Cubes any more: in the caller's thread (cube() runs
+        in the thread pool, never in the event loop), once per move; never raises (what stays goes at the next
+        build or move), logs nothing."""
+        import countcube as cc
+        with self._lock:
+            if folder not in self._due or any(old.mapped() for old in self._retired.get(folder, ())):
+                return
+            self._due.discard(folder)
+            self._retired.pop(folder, None)
+        try:
+            cc.remove_stale(folder)
+        except Exception:  # noqa: BLE001 - a cube folder's tidying never fails a request
+            pass
 
     def listing(self) -> List[Dict]:
         """cube.json of every country with a cube, without "config" and "origin", by id."""
@@ -1792,6 +1823,25 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             raise HTTPException(404, "no such country, or its layer is not built")
         return cube
 
+    async def layer_answer(country: str, request: Request, work: Callable):
+        """work's answer (Countries.cells or .histogram) on the country's cube within the layer's slots. A cube built
+        again while the request computed, whose old build lost an array the request had not mapped yet (removed by
+        the builder, or its Cube closed here: countcube.CubeChanged), answers from the new build, once; 503 with
+        Retry-After when no newer build is there (yet)."""
+        import countcube as cc
+        cube = await country_cube(country)
+        for attempt in range(2):
+            try:
+                return await layer.run(request, work, cube, request.query_params)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            except cc.CubeChanged:
+                newer = await country_cube(country)
+                if attempt or newer is cube:
+                    raise HTTPException(503, "the layer was built again while it answered: try again",
+                                        headers={"Retry-After": "1"})
+                cube = newer
+
     @app.get("/api/countries")
     async def country_list(user: ac.User = Depends(require_admin)):
         """The countries with a highline layer: their cube.json without "config" and "origin"."""
@@ -1800,20 +1850,12 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     @app.get("/api/countries/{country}/cells")
     async def country_cells(country: str, request: Request, user: ac.User = Depends(require_admin)):
         """The cells of the layer in view passing the filters (Countries.cells), with their corners."""
-        cube = await country_cube(country)
-        try:
-            return await layer.run(request, countries.cells, cube, request.query_params)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        return await layer_answer(country, request, countries.cells)
 
     @app.get("/api/countries/{country}/histogram")
     async def country_histogram(country: str, request: Request, user: ac.User = Depends(require_admin)):
         """The counts of the layer in view per bin of each filter dimension (Countries.histogram)."""
-        cube = await country_cube(country)
-        try:
-            return await layer.run(request, countries.histogram, cube, request.query_params)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        return await layer_answer(country, request, countries.histogram)
 
     @app.get("/api/countries/{country}/outline")
     async def country_outline(country: str, user: ac.User = Depends(require_admin)):
