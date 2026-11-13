@@ -2893,25 +2893,29 @@ quick zoom), interleaved today, lean, bound, today, lean, bound between 10:28 an
 the two rounds pooled (n = 10; the page's open requests 20, its desktop and Pixel 7 views); memory the process tree's
 (psutil every 50 ms) and the OS's peak private. Provisional (shared lock).
 
-| Measure | today (b45b950) | lean (8eb113b) | lean with the bound (7851dc7) |
-| --- | ---: | ---: | ---: |
-| the page's first view: /histogram L8 | 6.63 / 7.20 | 0.49 / 0.52 | 0.50 / 0.54 |
-| the page's first view: /cells L8 (the padded box) | 0.94 / 1.12 | 0.09 / 0.10 | 0.10 / 0.11 |
-| zoom 7 / zoom 9: /histogram L8 | 6.57 / 7.00, 3.96 / 4.31 | 0.49 / 0.51, 0.30 / 0.31 | 0.49 / 0.53, 0.30 / 0.33 |
-| spots: /histogram; the picked cell's /histogram | 1.77 / 2.05; 0.54 / 0.61 | 0.11 / 0.12; 0.02 / 0.02 | 0.11 / 0.12; 0.02 / 0.03 |
-| the whole country at level 4: /histogram; /cells | 8.63 / 8.90; 1.30 / 1.46 | 0.68 / 0.71; 0.14 / 0.16 | 0.67 / 0.72; 0.13 / 0.16 |
-| the degree square at level 1: /histogram (wave 20's slowest) | 11.03 / 11.29 | 0.80 / 0.83 | 0.81 / 0.90 |
-| cold: lines_1's first request (two rounds) | 1.31; 0.77 | 0.32; 0.47 | 0.34; 0.42 |
-| private at rest; every level loaded (GB) | 0.54; 5.12 | 0.54; 5.13 | 0.54; 5.13 |
-| peak private while lines_1 loads (GB) | 6.69 | 5.13 | 5.13 |
-| **OS peak private over the pass (GB, two rounds)** | **11.41; 11.25** | **5.14; 5.14** | **5.13; 5.14** |
-| the first view's /cells and /histogram at once: wall; private above the settled level | 6.97-7.66 s; +3.47 GB | 0.53-0.61 s; +0.01 GB | 0.56-0.61 s; +0.01 GB |
-| quick zoom, four histograms at once (wave 20's measure): wall; private above | 11.12-11.65 s; +6.12 GB | 0.74-0.96 s; +0.02 GB | 1.08-1.47 s; +0.01 GB |
-| quick zoom the page's way, steps 0.5 s apart (each abandoned at the next): wall to the last answer; private above; CPU | 9.03-9.47 s; +5.18 GB; 35-37 s | 1.81-1.84 s; +0.01 GB; 1.7-2.0 s | 1.81-1.85 s; +0.01 GB; 1.7-1.8 s |
-| the same, steps 0.15 s apart (abandoned while they compute) | 7.93-8.77 s; +6.06-6.70 GB; 35-37 s, busy 3.1 s after the last answer | 1.05-1.07 s; +0.01 GB; 2.5-2.7 s | **0.77-0.79 s; +0.01 GB; 0.8 s** |
-| the page (Chromium 1400 × 900, warm): open, cells / histograms shown (ms) | 2 030-2 173 / 8 698-8 889 | (not run) | 864-874 / 1 280-1 292 |
-| the page: zoom 7, 8, 9, histograms shown (ms) | 8 383-8 583, 6 513-6 556, 5 028-5 283 | (not run) | 1 082-1 192, 912-944, 812-852 |
-| the page: Pixel 7 open, cells / histograms (ms) | 2 134-2 424 / 8 798-9 285 | (not run) | 803-839 / 1 274-1 376 |
+| Measure | today (b45b950) | lean (8eb113b) | lean with the bound (7851dc7) | mapped, stage 2 (`explorer-mmap`; in brackets stage 1, 255410a, interleaved with it in the afternoon) |
+| --- | ---: | ---: | ---: | ---: |
+| the page's first view: /histogram L8 | 6.63 / 7.20 | 0.49 / 0.52 | 0.50 / 0.54 | 0.60 / 0.67 (0.56 / 0.62) |
+| the page's first view: /cells L8 (the padded box) | 0.94 / 1.12 | 0.09 / 0.10 | 0.10 / 0.11 | 0.11 / 0.15 (0.12 / 0.16) |
+| zoom 7 / zoom 9: /histogram L8 | 6.57 / 7.00, 3.96 / 4.31 | 0.49 / 0.51, 0.30 / 0.31 | 0.49 / 0.53, 0.30 / 0.33 | 0.61 / 0.66, 0.38 / 0.45 (0.56 / 0.60, 0.35 / 0.38) |
+| spots: /histogram; the picked cell's /histogram | 1.77 / 2.05; 0.54 / 0.61 | 0.11 / 0.12; 0.02 / 0.02 | 0.11 / 0.12; 0.02 / 0.03 | 0.14 / 0.14; 0.03 / 0.03 (0.13 / 0.14; 0.03 / 0.03) |
+| the whole country at level 4: /histogram; /cells | 8.63 / 8.90; 1.30 / 1.46 | 0.68 / 0.71; 0.14 / 0.16 | 0.67 / 0.72; 0.13 / 0.16 | 0.94 / 1.34; 0.22 / 0.79 (0.70 / 0.85; 0.16 / 0.21) |
+| the degree square at level 1: /histogram (wave 20's slowest) | 11.03 / 11.29 | 0.80 / 0.83 | 0.81 / 0.90 | 0.97 / 1.77 (0.83 / 1.02) |
+| the same requests in one process, mapped against read into memory, alternating (min, n = 7): the country L8, L4, the degree square L1 | | | | 0.695, 0.810, 1.070 against 0.661, 0.783, 1.068 s |
+| cold: lines_1's first request (two rounds; stage 2 five starts) | 1.31; 0.77 | 0.32; 0.47 | 0.34; 0.42 | 0.01-0.02 (0.56-1.35) |
+| private at rest; every level loaded (GB) | 0.54; 5.12 | 0.54; 5.13 | 0.54; 5.13 | 0.54; **0.58** (0.54; 5.13) |
+| peak private while lines_1 loads (GB) | 6.69 | 5.13 | 5.13 | 0.58 (5.13) |
+| **OS peak private over the pass (GB, two rounds)** | **11.41; 11.25** | **5.14; 5.14** | **5.13; 5.14** | **0.63; 0.63** (5.15; 5.14) |
+| working set with every level read (GB; mapped pages are file-backed, not private) | | | | 3.71 (4.71) |
+| the first view's /cells and /histogram at once: wall; private above the settled level | 6.97-7.66 s; +3.47 GB | 0.53-0.61 s; +0.01 GB | 0.56-0.61 s; +0.01 GB | 0.74 / 0.76 and 0.62 / 0.72 s; +0.01 GB (0.65 / 0.67 and 1.02 / 1.12 s; +0.01 GB) |
+| quick zoom, four histograms at once (wave 20's measure): wall; private above | 11.12-11.65 s; +6.12 GB | 0.74-0.96 s; +0.02 GB | 1.08-1.47 s; +0.01 GB | 1.50 / 1.67 and 1.56 / 1.71 s; +0.01 GB (1.30 / 1.45 and 2.09 / 4.40 s) |
+| quick zoom the page's way, steps 0.5 s apart (each abandoned at the next): wall to the last answer; private above; CPU | 9.03-9.47 s; +5.18 GB; 35-37 s | 1.81-1.84 s; +0.01 GB; 1.7-2.0 s | 1.81-1.85 s; +0.01 GB; 1.7-1.8 s | (not run) |
+| the same, steps 0.15 s apart (abandoned while they compute) | 7.93-8.77 s; +6.06-6.70 GB; 35-37 s, busy 3.1 s after the last answer | 1.05-1.07 s; +0.01 GB; 2.5-2.7 s | **0.77-0.79 s; +0.01 GB; 0.8 s** | 0.84 / 0.88 and 0.90 / 0.96 s; +0.01-0.02 GB; 0.9 s (0.79 / 0.82 and 0.84 / 0.93 s; +0.02 GB; 0.8 s) |
+| the page (Chromium 1400 × 900), a fresh server: open, cells / histograms shown (ms; stage 2 min / median of 5 rounds) | | | | 2 659 / 3 251; 1 547 / 1 954 (3 314 / 3 776; 2 409 / 2 709) |
+| the page (Chromium 1400 × 900, warm): open, cells / histograms shown (ms) | 2 030-2 173 / 8 698-8 889 | (not run) | 864-874 / 1 280-1 292 | 1 104 / 1 851; 1 676 / 2 997 (844 / 1 000; 1 347 / 1 560) |
+| the page: zoom 7, 8, 9, histograms shown (ms) | 8 383-8 583, 6 513-6 556, 5 028-5 283 | (not run) | 1 082-1 192, 912-944, 812-852 | medians 1 236, 1 047, 940 (1 104, 1 054, 898) |
+| the page: Pixel 7 open, cells / histograms (ms) | 2 134-2 424 / 8 798-9 285 | (not run) | 803-839 / 1 274-1 376 | 848 / 1 506; 1 318 / 2 532 (872 / 1 470; 1 354 / 2 847) |
+| the page's sessions: the server's OS peak private (GB) | | | | 0.63 (1.33) |
 
 (The quick zoom and the page: medians of each round; the page's times include its 300 ms debounce.) Over wave 20's
 whole warm table, median against median, the histograms are 7.7-25.8 times faster and /cells 3.0-11.5 times. A
@@ -2937,6 +2941,30 @@ The bound needs the page to abort its fetches (it does: `LayerPage.tsx`); behind
 app only if nginx closes the upstream connection (its default, `proxy_ignore_client_abort off`; not measured on the
 VPS). Next (stage 2, on the lead's word): the arrays memory-mapped with each build in a folder of its own; the chunked
 code needs nothing more from a mapped array (no whole-array copy, binary searches on the mapped column).
+
+**Stage 2, the arrays mapped (2026-11-13, branch `explorer-mmap`).** `countcube.build` writes each build's arrays into a
+folder of its own (`cube/build-<UTC start>-<random>/`, the names inside as before) and `cube.json` last, naming it;
+`Cube` maps them read-only (`np.load(mmap_mode="r")`), a cube built before (the fixed names beside cube.json) where it
+is; `remove_stale` (the builder at its end, `web.Countries` once it dropped an old build's maps) removes the earlier
+builds, what another process maps on Windows staying for the next attempt. The answers: 0 of the 454 HTTP answers on
+the real cube differ from b45b950's, mapped where it is. Measured on the same copy of the lead cube against stage 1
+(255410a), both on Python 3.15.2, interleaved 16:10-16:44 (probes in two rounds of 5, cold starts 5 each, the page 5
+rounds each), the column above; **provisional**: the shared lock, other sessions' heavy runs beside, so the warm
+requests moved with the load (the branch 5-80 % slower by the medians, 0-35 % by the mins), while in one process,
+alternating, the mapped arrays are 0-6 % slower by the min (wave 20's 3-5 %). The memory is the gain: every level
+touched 0.58 GB private instead of 5.13, the OS peak 0.63 GB instead of 5.15 (the mapped pages, 3.71 GB in the working
+set once read, are file-backed: the OS cache's, shared and dropped first when memory is short), the page's sessions
+0.63 GB instead of 1.33; an array's first request maps it (0.01-0.06 s) instead of copying it (0.18-1.35 s), so the
+page's first open on a fresh server shows its cells and histograms 0.5-0.8 s sooner (medians). One step stayed slower
+on the branch in all five rounds, the page's warm open (its /cells median 0.98 s against 0.42 s in the browser's
+timing; the probe's replay of the same request measured alike on both): not explained, to look at on an idle PC or the
+VPS. A disk-cold first request is not measured (emptying the OS cache needs administrator rights on this PC). In a
+container with the web service's limits (1 GB, no swap, one CPU), the local app on a read-only bind mount of the cube:
+every one of the page's 17 requests answered 200 twice, the 21 one-degree boxes at level 1 too (every row of lines_1,
+1.68 GB of file under the 1 GB limit), no OOM kill; the process's private 0.18 GB, its file-backed resident at most
+0.89 GB (`docker stats` 0.10 → 0.34 GB); slow through the Windows bind mount (the first /cells 25 s, the Tatras box at
+level 1 29-33 s), and the cgroup's own figures were not read (Docker Desktop's VM is cgroup v1 here; two attempts, the
+brief's bound). The runs, scripts and data: `local/explorer-mmap-2026-11-13/`.
 
 ## The terrain statistics of step 1 (2026-11-03, branch `elevation-filter`)
 
