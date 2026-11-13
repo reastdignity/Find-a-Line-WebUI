@@ -682,15 +682,11 @@ def test_event_stream_per_user(tmp_path, settings, account_settings, providers, 
 @pytest.fixture(scope="module")
 def clip_run(tmp_path_factory):
     """The folder of a run of the Żabi Koń clip (computed once, offline), to copy into data folders."""
-    import subprocess
-    data = tmp_path_factory.mktemp("clip")
-    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
-    result = subprocess.run(
-        [sys.executable, "findaline.py", "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
-         "--northing", "254608", "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off",
-         "--no-plot", "--yes", "--ortho", "never", "--nmpt", "off", "--data-dir", str(data)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
-    assert result.returncode == 0, result.stdout + result.stderr
+    import clip_runs  # the search once per session, this module's own copy
+    data = clip_runs.data_copy(tmp_path_factory, "clip", [
+        "--elevation-file", os.path.join(DATA, "zabi_kon_nmt.tif"),
+        "--northing", "254608", "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off",
+        "--no-plot", "--yes", "--ortho", "never", "--nmpt", "off"])
     runs = data / "runs"
     return next(runs / d for d in os.listdir(runs) if (runs / d / "run.json").is_file())
 
