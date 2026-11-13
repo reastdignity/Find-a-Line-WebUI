@@ -2877,6 +2877,10 @@ What changed:
 - **7851dc7, the bound**: at most `COUNTRY_SLOTS` (2) computations at once, the others waiting without a thread
   (`COUNTRY_WAIT_MAX` 30 s, then 503), each stopped between two chunks when its client goes away (a task awaiting
   `http.disconnect`: the page aborts its fetch on every move) or after `COUNTRY_SECONDS_MAX` (120 s, 504).
+- **c702692, after the review**: the thread runs through anyio's `to_thread.run_sync(abandon_on_cancel=True)`, so a
+  request cancelled while it computes also stops at its next chunk (Starlette's middleware cancels through an anyio
+  scope, which `run_in_threadpool` held until the thread's end: all 200 chunks of a test ran). The table below is
+  7851dc7's; the 454 answers were compared again on c702692, 0 different.
 
 The chunk (in-process, the ten requests of wave 20's alternatives, n = 3): 65 536 rows was the fastest of 4 096 /
 16 384 / 65 536 / 262 144 / 1 048 576 on every request (the country view's histogram 0.65 / 0.53 / 0.50 / 0.83 / 0.88
