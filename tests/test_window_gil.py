@@ -298,3 +298,46 @@ def test_perf_window_reads_tile_sizes(tools_served, small_tiles):
         remote = pw.predicted(remote_layer, tiles)
     assert watchdog.gap < STALL_S
     assert remote == pw.predicted(layer(str(small_tiles)), tiles) and remote["file_tiles"] > 0
+
+
+def _far_block(where):
+    """predicted's layer over a file of small_tiles' kind, and the tiles of one block of 20 px at its far end."""
+    from sources.layers.fileblocks import FileBlocks
+    import grid as gd
+    layer = FileBlocks("Test tiles", "test/tiles/1", CRS, 1.0, 20, where, bytes_per_tile=1e3)
+    return layer, layer.tiles(gd.Grid(left=LEFT + 2000.5, top=TOP - 2000.5, res=1.0, height=19, width=19, crs=CRS))
+
+
+def test_perf_window_reads_size_not_read(tools_served, small_tiles):
+    """A tile size GDAL could not read (every range beyond the header cut short: its array's bytes) raises with
+    GDAL's error, naming the file and the tile; before, predicted summed it as 0 without a word."""
+    tools_served.add("/f/cut.tif", small_tiles.read_bytes(), "image/tiff")
+    tools_served.fault("/f/cut.tif", "truncate", lambda n, r: int(r.split("=")[1].split("-")[0]) >= 16384)
+    url = tools_served.url("/f/cut.tif")
+    rasterio.cache.invalidate(url)
+    layer, tiles = _far_block(url)
+    with pytest.raises(RuntimeError, match=r"cut\.tif: the size of its tile \d+, \d+ not read: .*strile"):
+        pw.predicted(layer, tiles)
+
+
+@pytest.fixture(scope="module")
+def sparse_tiles(tmp_path_factory):
+    """small_tiles' layout with only a few tiles written (SPARSE_OK): the others hold no bytes."""
+    path = tmp_path_factory.mktemp("sparse") / "sparse.tif"
+    data = np.full((2048, 2048), -9999, np.float32)
+    data[2000:2010, 2000:2010] = 5
+    with rio.open(path, "w", driver="GTiff", width=2048, height=2048, count=1, dtype="float32", crs=CRS,
+                  transform=from_origin(LEFT, TOP, 1, 1), tiled=True, blockxsize=16, blockysize=16, nodata=-9999,
+                  compress="deflate", sparse_ok=True) as dst:
+        dst.write(data, 1)
+    return path
+
+
+def test_perf_window_reads_sparse_tiles(tools_served, sparse_tiles):
+    """A tile without bytes (sparse) still counts 0, without an error: the numbers equal a local read's."""
+    tools_served.add("/f/sparse.tif", sparse_tiles.read_bytes(), "image/tiff")
+    url = tools_served.url("/f/sparse.tif")
+    rasterio.cache.invalidate(url)
+    remote = pw.predicted(*_far_block(url))
+    assert remote == pw.predicted(*_far_block(str(sparse_tiles)))
+    assert 0 < remote["each_tile_once"] and remote["file_tiles"] == 4
