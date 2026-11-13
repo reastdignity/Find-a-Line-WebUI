@@ -8,7 +8,7 @@ The command line (fixed for the study):
 
     python tools/prune_study.py <table folder> --rule <name> [--param k=v ...] [--rules-file F]
         [--radius M] [--known DIR] [--pictures] --out <folder>
-        [--cache DIR | --no-cache] [--threads N] [--picture-places N]
+        [--cache DIR | --no-cache] [--threads N] [--picture-places N] [--terrain F.npz]
 
 <table folder>: a run's folder with lines.csv and run.json as a search saves them (read only). The
 columns are parsed once and kept as .npz under --cache (default: prune_study_cache in the system's
@@ -48,6 +48,34 @@ lift_no_zone (only runs with a no-fall zone or A-frames), over_obstacles (bool),
 height_max, height_mean, high_pct; per anchor (1, 2): lat, lon, elev_a, y (northing), x (easting),
 angle, prom, drop (lat1 ... drop2). The names are helpers.LineTable's, the anchors' coordinates
 apart. Values are what lines.csv holds: rounded as a user reads them.
+
+The terrain under the anchors, for rules that judge an anchor by the ground around it:
+table.terrain is None when the table has none, else a Terrain: z (the elevation as the search used
+it: float32, rows from north to south, NaN without data), water (bool like z, or None), res (metres
+per pixel), left and top (the x of the grid's west edge and the y of its north edge, in the
+coordinates of x1 y1 x2 y2: the pixel (row, col) holds the points with top - (row + 1) * res < y <=
+top - row * res and left + col * res <= x < left + (col + 1) * res), shape, and pixels(table, k):
+the (row, col) of every anchor k (1 or 2) of the table as two int64 arrays (ValueError when an
+anchor lies outside the grid; inside(table, k) tells which do, pixels(table, k, clip=True) gives
+the nearest pixel for those outside). A rule that uses it:
+
+    @rule("anchors_above", title="Both anchors above a height (example)")
+    def anchors_above(table, height=1000.0):
+        t = table.terrain
+        if t is None:                                # a table without terrain: keep every line
+            return np.ones(len(table), dtype=bool)
+        (r1, c1), (r2, c2) = t.pixels(table, 1), t.pixels(table, 2)
+        return (t.z[r1, c1] >= height) & (t.z[r2, c2] >= height)
+
+A run's table has no terrain unless --terrain F.npz attaches one (in Python: table.terrain =
+ps.load_terrain(F), or a Terrain made by hand): an .npz with the keys z (2-D), res, left, top and,
+optionally, water (2-D like z); Terrain(z, res, left, top, water).save(F) writes it. Under --known
+every capture's table has the capture's own grids (the terrain and the water the truth check saved
+beside the found lines), read only when the rule asks for table.terrain; a capture without grids
+has None. So one rule works on a run's table and on the captures alike. The audit's outputs say
+nothing of a terrain unless one was used: audit.json's "table" gets "terrain" (shape, res) when
+the run's table has one, its "known" gets "terrain" (the captures with and without grids) when the
+rule read table.terrain there.
 
 Places come from production's grouping, never from a copy of it: before the rule they are the
 table's saved places (the `group` column, when the run was grouped at the app's default distance,
@@ -247,6 +275,85 @@ def apply_rule(a_rule: Rule, table: "Table", params: Dict) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------------------------
+# the terrain under a table's anchors
+
+class Terrain:
+    """The grid a table's anchors sit on (the module docstring): z (float32, rows from north to south,
+    NaN without data), water (bool like z, or None), res (metres per pixel), left and top (the x of
+    the west edge and the y of the north edge, in the table's coordinates). The arrays are read-only.
+    """
+
+    def __init__(self, z: np.ndarray, res: float, left: float, top: float, water: Optional[np.ndarray] = None):
+        self.z = np.ascontiguousarray(z, dtype=np.float32)
+        if self.z.ndim != 2:
+            raise ValueError(f"a terrain's z has two dimensions, not {self.z.ndim}")
+        self.water = None if water is None else np.ascontiguousarray(water).astype(bool, copy=False)
+        if self.water is not None and self.water.shape != self.z.shape:
+            raise ValueError(f"a terrain's water has the shape of z {self.z.shape}, not {self.water.shape}")
+        self.res, self.left, self.top = float(res), float(left), float(top)
+        if not self.res > 0:
+            raise ValueError("a terrain's res is more than 0")
+        for array in (self.z, self.water):
+            if array is not None:
+                array.setflags(write=False)
+
+    @property
+    def shape(self):
+        return self.z.shape
+
+    def _pixels(self, table: "Table", anchor: int):
+        if anchor not in (1, 2):
+            raise ValueError("anchor 1 or 2")
+        row = np.floor((self.top - table[f"y{anchor}"]) / self.res).astype(np.int64)
+        col = np.floor((table[f"x{anchor}"] - self.left) / self.res).astype(np.int64)
+        return row, col, (row >= 0) & (row < self.z.shape[0]) & (col >= 0) & (col < self.z.shape[1])
+
+    def inside(self, table: "Table", anchor: int) -> np.ndarray:
+        """Which lines of the table have their anchor 1 or 2 on the grid."""
+        return self._pixels(table, anchor)[2]
+
+    def pixels(self, table: "Table", anchor: int, clip: bool = False):
+        """The pixel (row, col) of every anchor 1 or 2 of the table: two int64 arrays for z[row, col].
+        An anchor outside the grid is a ValueError; with clip=True it gets the nearest pixel of the
+        grid's edge instead (inside tells which)."""
+        row, col, inside = self._pixels(table, anchor)
+        if not clip and not inside.all():
+            raise ValueError(f"{int((~inside).sum())} of {len(row)} anchors lie outside the terrain's grid")
+        return np.clip(row, 0, self.z.shape[0] - 1), np.clip(col, 0, self.z.shape[1] - 1)
+
+    def save(self, path: str):
+        """The terrain as the .npz that --terrain and load_terrain read."""
+        arrays = {"z": self.z, "res": self.res, "left": self.left, "top": self.top}
+        if self.water is not None:
+            arrays["water"] = self.water
+        np.savez_compressed(path, **arrays)
+
+
+def load_terrain(path: str) -> Terrain:
+    """A Terrain from an .npz with the keys z, res, left, top and, optionally, water (--terrain)."""
+    with np.load(path) as f:
+        missing = [k for k in ("z", "res", "left", "top") if k not in f.files]
+        if missing:
+            raise ValueError(f"{path}: no key {', '.join(missing)} (a terrain has z, res, left, top; water)")
+        return Terrain(f["z"], float(f["res"]), float(f["left"]), float(f["top"]),
+                       f["water"] if "water" in f.files else None)
+
+
+def capture_terrain(cluster_folder: str) -> Optional[Terrain]:
+    """The terrain of one of the truth check's captures: the elevation and the water of its grids.npz on
+    the grid of its grid.json; None when the capture has no such grids."""
+    capture = os.path.join(cluster_folder, "capture")
+    try:
+        with open(os.path.join(capture, "grid.json"), encoding="utf-8") as f:
+            grid = json.load(f)
+        with np.load(os.path.join(capture, "grids.npz")) as f:  # only these two of its grids are read
+            return Terrain(f["elevation"], grid["res"], grid["left"], grid["top"],
+                           (f["water"] > 0) if "water" in f.files else None)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+# ---------------------------------------------------------------------------------------------
 # the table
 
 class Table:
@@ -255,6 +362,8 @@ class Table:
     table[name] gives a column (KeyError when the table has none: `name in table`, table.get(name)).
     meta: the run's run.json ({} without one); name: the run's name; source: what the grouping
     reads ("lines.js", "lines.csv" or "capture"). A rule reads the table and never writes into it.
+    terrain: the grid under the anchors (a Terrain; None: the table has none), read when first asked
+    for (terrain_read tells that a rule asked).
     """
 
     def __init__(self, columns: Dict[str, np.ndarray], meta: Optional[Dict] = None, name: str = "",
@@ -270,6 +379,9 @@ class Table:
         self._saved = None
         self._grouped = {}
         self._rank = {}
+        self._terrain = None
+        self._terrain_loader = None  # a function that reads the terrain when a rule first asks for it
+        self.terrain_read = False
         self._check = None
         self._tag = None
         self._cache = None
@@ -287,6 +399,19 @@ class Table:
 
     def get(self, name: str, default=None):
         return self.columns.get(name, default)
+
+    @property
+    def terrain(self) -> Optional[Terrain]:
+        self.terrain_read = True
+        if self._terrain_loader is not None:
+            self._terrain, self._terrain_loader = self._terrain_loader(), None
+        return self._terrain
+
+    @terrain.setter
+    def terrain(self, value: Optional[Terrain]):
+        if value is not None and not isinstance(value, Terrain):
+            raise ValueError("a table's terrain is a Terrain or None")
+        self._terrain, self._terrain_loader = value, None
 
     @property
     def params(self) -> Dict:
@@ -445,7 +570,8 @@ def load_table(folder: str, cache=None) -> Table:
 def capture_table(cluster_folder: str) -> Table:
     """The found lines of one of the truth check's captures (<cluster>/capture/lines.npz with grid.json)
     as a table: the search's own unrounded values in its order. Its name and path are left empty: a
-    cluster's folder is named by its coordinates."""
+    cluster's folder is named by its coordinates. Its terrain (capture_terrain) is read when a rule
+    first asks for it."""
     capture = os.path.join(cluster_folder, "capture")
     with open(os.path.join(capture, "grid.json"), encoding="utf-8") as f:
         grid = json.load(f)
@@ -460,7 +586,9 @@ def capture_table(cluster_folder: str) -> Table:
     for name, values in data.items():
         columns[CAPTURE_COLUMNS.get(name, name)] = np.ascontiguousarray(values)
     meta = {"params": grid.get("params") or {}, "crs": grid.get("crs"), "res": grid.get("res")}
-    return Table(columns, meta, name="capture", source="capture")
+    table = Table(columns, meta, name="capture", source="capture")
+    table._terrain_loader = lambda: capture_terrain(cluster_folder)
+    return table
 
 
 # ---------------------------------------------------------------------------------------------
@@ -870,7 +998,8 @@ def _candidates(a, b, tol: float, lengths: Sequence[float], xy1: np.ndarray, xy2
 def known_lines(folder: str, a_rule: Rule, params: Dict, radius: float = RADIUS) -> Dict:
     """The known lines of a truth-check pass folder under a rule (the module docstring): counts per type
     of line, nothing that tells a line or a place. A rule that cannot run on the captures' tables (a
-    column they lack) gives {"error": ...}."""
+    column they lack) gives {"error": ...}. "terrain" (the captures with and without grids) is there
+    only when the rule read table.terrain."""
     from pyproj import Transformer
     blank = lambda: {"matched_before": 0, "within_tolerance_after": 0, "matched_line_kept": 0,  # noqa: E731
                      "kept_line_within_radius_of_matched": 0}
@@ -907,6 +1036,9 @@ def known_lines(folder: str, a_rule: Rule, params: Dict, radius: float = RADIUS)
         except Exception as e:  # noqa: BLE001  (the text of an error may hold values of a capture: its type only)
             return {"error": f"the rule failed on a capture's table: {type(e).__name__}"}
         out["captures"] += 1
+        if table.terrain_read:  # the rule asked for the terrain: said in the output, with the captures without
+            terrain = out.setdefault("terrain", {"captures_with_terrain": 0, "captures_without_terrain": 0})
+            terrain["captures_without_terrain" if table._terrain is None else "captures_with_terrain"] += 1
         out["found_lines"] += len(table)
         out["found_lines_kept"] += int(keep.sum())
         length = np.where(np.isfinite(table["length"]), table["length"], np.hypot(*(xy2 - xy1).T))
@@ -1017,6 +1149,10 @@ class Audit:
         if known and "error" in known:
             rows.append(("Known lines", "not measured", known["error"]))
         elif known:
+            if "terrain" in known:
+                rows.append(("Known lines: captures with terrain for the rule / without",
+                             f"{_number(known['terrain']['captures_with_terrain'])} / "
+                             f"{_number(known['terrain']['captures_without_terrain'])}", ""))
             for name, v in [("all", known["all"])] + list(known["types"].items()):
                 m = v["matched_before"]
                 rows += [(f"Known lines ({name}) with a found line within tolerance before", m, ""),
@@ -1109,6 +1245,9 @@ def audit(table: Table, a_rule, params: Optional[Dict] = None, radius: float = R
                    "emptied": int(emptied.sum()), "representatives_dropped": int((~keep[before.rep]).sum()),
                    "after_grouped_again": len(after), "grouping_reads": table.source, "check": check},
         "keepers": keeper_summary, "never_prune": never, "known": None}
+    if table._terrain is not None:  # a terrain attached to the table (--terrain): said, nothing otherwise
+        summary["table"]["terrain"] = {"shape": list(table._terrain.shape), "res": table._terrain.res,
+                                       "water": table._terrain.water is not None}
     if known:
         summary["known"] = known_lines(known, a_rule, params, radius)
         lap("known lines")
@@ -1273,6 +1412,8 @@ def main(argv=None) -> int:
                                                        f"{CACHE_FOLDER} in the temporary folder)")
     parser.add_argument("--no-cache", action="store_true", help="parse lines.csv every time, keep nothing")
     parser.add_argument("--threads", type=int, help="numba's threads (the results do not depend on them)")
+    parser.add_argument("--terrain", metavar="F.npz", help="the grid under the table's anchors for rules that read "
+                                                           "table.terrain: an .npz with z, res, left, top (water)")
     args = parser.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
@@ -1285,11 +1426,14 @@ def main(argv=None) -> int:
         if args.rule not in RULES:
             raise ValueError(f"no rule named {args.rule} (registered: {', '.join(sorted(RULES))})")
         params = RULES[args.rule].parameters(parse_params(args.param))
+        terrain = load_terrain(args.terrain) if args.terrain else None
     except (ValueError, OSError) as e:
         print(f"prune_study: {e}", file=sys.stderr)
         return 2
     start = time.perf_counter()
     table = load_table(args.table, cache=False if args.no_cache else args.cache)
+    if terrain is not None:
+        table.terrain = terrain
     timings = {"table": round(time.perf_counter() - start, 2)}
     result = audit(table, args.rule, params, radius=args.radius, known=args.known, timings=timings)
     start = time.perf_counter()

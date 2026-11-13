@@ -446,9 +446,11 @@ def test_sort_keys_are_the_result_pages():
     assert [(key, label, largest) for key, label, _, largest in ps.SORT_KEYS] == theirs[:-1]
 
 
-def known_folder(folder):
-    """A made-up pass folder of the truth check: one capture with four found lines and three known
-    lines (two matched). Returns the texts that must never appear in an output."""
+def known_folder(folder, second=False):
+    """A made-up pass folder of the truth check: one capture with four found lines, three known lines
+    (two matched) and its grids (the terrain 200 m high from northing 250 000 southwards, 100 m north
+    of it); second: also a capture of one found line and its known line that has no grids. Returns
+    the texts that must never appear in an output."""
     from pyproj import Transformer
     to_wgs = Transformer.from_crs("EPSG:2180", "EPSG:4326", always_xy=True).transform
     latlon = lambda x, y: list(to_wgs(x, y))[::-1]  # noqa: E731
@@ -467,7 +469,31 @@ def known_folder(folder):
              high_pct=np.full(n, 10.0), water_m=np.arange(n, dtype=np.float64),
              filled_m=np.array([1.0, 0.0, 1.0, 0.0]))  # the test rule drops found lines 0 and 2
     with open(os.path.join(cluster, "capture", "grid.json"), "w", encoding="utf-8") as f:
-        json.dump({"crs": "EPSG:2180", "res": 1.0, "left": 499000.0, "top": 251000.0, "params": {}}, f)
+        json.dump({"crs": "EPSG:2180", "res": 1.0, "left": 499000.0, "top": 251000.0, "params": {},
+                   "shape": [1100, 1200]}, f)
+    elevation = np.full((1100, 1200), 100.0, dtype=np.float32)
+    elevation[1000:] = 200.0  # the rows of northing 250 000 and less
+    water = np.zeros((1100, 1200), dtype=np.uint8)
+    water[:5] = 1
+    np.savez_compressed(os.path.join(cluster, "capture", "grids.npz"), elevation=elevation, water=water,
+                        mask=np.ones((1100, 1200), dtype=np.uint8))
+    if second:
+        other = os.path.join(folder, "xx-51.000n20.000e")
+        os.makedirs(os.path.join(other, "capture"))
+        np.savez(os.path.join(other, "capture", "lines.npz"), a1=np.array([latlon(600000, 350000)]),
+                 a2=np.array([latlon(600100, 350000)]), a1_xy=np.array([[600000.0, 350000.0]]),
+                 a2_xy=np.array([[600100.0, 350000.0]]), length=np.array([100.0]), clearance=np.array([4.0]),
+                 clearance_nmpt=np.array([np.nan]), over=np.zeros(1, dtype=bool), rep=np.ones(1, dtype=bool),
+                 group=np.zeros(1, dtype=np.int64), elev_a1=np.array([300.0]), elev_a2=np.array([300.0]),
+                 height_max=np.array([20.0]), high_pct=np.array([10.0]), water_m=np.zeros(1), filled_m=np.zeros(1))
+        with open(os.path.join(other, "capture", "grid.json"), "w", encoding="utf-8") as f:
+            json.dump({"crs": "EPSG:2180", "res": 1.0, "left": 599000.0, "top": 351000.0, "params": {}}, f)
+        with open(os.path.join(other, "known.json"), "w", encoding="utf-8") as f:
+            json.dump([{"id": "secret-line-4", "a": latlon(600000, 350001), "b": latlon(600100, 350001),
+                        "stated_m": 100.0, "geodesic_m": 100.0, "type": "highline"}], f)
+        with open(os.path.join(other, "analysis.json"), "w", encoding="utf-8") as f:
+            json.dump({"status": "done", "records": [{"id": "secret-line-4", "type": "highline", "tol": 10.0,
+                                                      "match": {"index": 0, "candidates": 1}}]}, f)
     known = [{"id": "secret-line-1", "a": latlon(500000, 250000), "b": latlon(500100, 250000), "stated_m": 100.0,
               "geodesic_m": 100.0, "type": "highline"},
              {"id": "secret-line-2", "a": latlon(500000, 250031), "b": latlon(500100, 250031), "stated_m": None,
@@ -487,7 +513,7 @@ def known_folder(folder):
             json.dump({"status": status, "records": []}, f)
     with open(os.path.join(folder, "analysis.json"), "w", encoding="utf-8") as f:  # the pass's own files are skipped
         json.dump({"clusters": 3}, f)
-    return ["secret-line", "xx-49", "49.99", "50000", "2500"]
+    return ["secret-line", "xx-49", "xx-51", "49.99", "50000", "2500", "35000", "60000"]
 
 
 def test_known_lines_counts_only(tmp_path):
@@ -530,6 +556,114 @@ def test_known_lines_counts_only(tmp_path):
     known = ps.audit(table, "needs_lift", known=str(tmp_path / "pass")).summary["known"]
     assert known == {"error": "the rule cannot run on the captures' tables: they have no column 'lift_no_zone'"}
     assert "| Known lines | not measured |" in ps.audit(table, "needs_lift", known=str(tmp_path / "pass")).markdown()
+
+
+@ps.rule("anchors_above", title="Both anchors above a height (test)", idea="T-01")
+def anchors_above(table, height=150.0):
+    t = table.terrain
+    if t is None:
+        return np.ones(len(table), dtype=bool)
+    (r1, c1), (r2, c2) = t.pixels(table, 1), t.pixels(table, 2)
+    return (t.z[r1, c1] >= height) & (t.z[r2, c2] >= height)
+
+
+def test_terrain_under_the_anchors(tmp_path):
+    folder, _ = save(tmp_path / "run", PLACES)
+    table = ps.load_table(folder, cache=False)
+    k = rows_of(table)
+    assert table.terrain is None  # a run's table has none by itself
+    # a grid of 2 m pixels whose north-west corner is (-10, 120): rows run south, columns east
+    z = np.arange(70 * 1600, dtype=np.float64).reshape(70, 1600)
+    terrain = ps.Terrain(z, 2.0, -10.0, 120.0, water=np.zeros((70, 1600), dtype=np.uint8))
+    assert terrain.z.dtype == np.float32 and terrain.water.dtype == bool and terrain.shape == (70, 1600)
+    assert (terrain.res, terrain.left, terrain.top) == (2.0, -10.0, 120.0)
+    with pytest.raises(ValueError):
+        terrain.z[0, 0] = 1.0
+    row, col = terrain.pixels(table, 1)
+    assert row.dtype == col.dtype == np.int64
+    # line 0 starts at (0, 0): 120 m south of the top edge, 10 m east of the left edge; line 4 at (1001, 1)
+    assert (row[k[0]], col[k[0]]) == (60, 5) and (row[k[4]], col[k[4]]) == (59, 505)
+    row, col = terrain.pixels(table, 2)
+    assert (row[k[3]], col[k[3]]) == (10, 505)  # line 3 ends at (1000, 100): a pixel's northern edge is its own
+    assert terrain.inside(table, 1).all() and terrain.inside(table, 2).all()
+    with pytest.raises(ValueError, match="anchor 1 or 2"):
+        terrain.pixels(table, 3)
+    # a grid that does not hold every anchor: said, or the nearest pixel on request
+    small = ps.Terrain(z[:, :100], 2.0, -10.0, 120.0)
+    assert small.water is None and small.inside(table, 1).sum() == 3
+    with pytest.raises(ValueError, match="3 of 6 anchors lie outside"):
+        small.pixels(table, 1)
+    row, col = small.pixels(table, 1, clip=True)
+    assert (row[k[5]], col[k[5]]) == (60, 99)
+    for wrong in (lambda: ps.Terrain(z[0], 1.0, 0.0, 0.0), lambda: ps.Terrain(z, 0.0, 0.0, 0.0),
+                  lambda: ps.Terrain(z, 1.0, 0.0, 0.0, water=np.zeros((2, 2), dtype=bool))):
+        with pytest.raises(ValueError):
+            wrong()
+    # the file of --terrain: z, res, left, top and water
+    file = str(tmp_path / "terrain.npz")
+    terrain.save(file)
+    again = ps.load_terrain(file)
+    assert np.array_equal(again.z, terrain.z) and np.array_equal(again.water, terrain.water)
+    assert (again.res, again.left, again.top) == (2.0, -10.0, 120.0)
+    np.savez(str(tmp_path / "bare.npz"), z=z, res=2.0, left=-10.0, top=120.0)
+    assert ps.load_terrain(str(tmp_path / "bare.npz")).water is None
+    np.savez(str(tmp_path / "wrong.npz"), z=z, res=2.0)
+    with pytest.raises(ValueError, match="no key left, top"):
+        ps.load_terrain(str(tmp_path / "wrong.npz"))
+    # a rule that reads it: without a terrain it keeps every line and the outputs say nothing of a terrain
+    result = ps.audit(table, "anchors_above", {"height": 96000.0})
+    assert result.keep.all() and "terrain" not in result.summary["table"] and table.terrain_read
+    plain = ps.audit(ps.load_table(folder, cache=False), "marked")
+    assert "terrain" not in plain.summary["table"] and not plain.table.terrain_read
+    # with it: z[row, col] = row * 1600 + col, so 59 * 1600 asks for both ends in the rows 59 and below
+    table.terrain = terrain
+    result = ps.audit(table, "anchors_above", {"height": 59 * 1600.0})
+    assert sorted(table["water_m"][result.keep].astype(int).tolist()) == [0, 1, 5]
+    assert result.summary["table"]["terrain"] == {"shape": [70, 1600], "res": 2.0, "water": True}
+    with pytest.raises(ValueError):
+        table.terrain = z
+    table.terrain = None
+    assert table.terrain is None
+
+
+def test_known_lines_with_the_captures_terrain(tmp_path):
+    folder, _ = save(tmp_path / "run", PLACES)
+    table = ps.load_table(folder, cache=False)
+    secrets = known_folder(str(tmp_path / "pass"), second=True)
+    # the capture's own grids as its table's terrain, read when asked for
+    capture = ps.capture_table(os.path.join(str(tmp_path / "pass"), "xx-49.999n19.000e"))
+    assert not capture.terrain_read
+    terrain = capture.terrain
+    assert capture.terrain_read and terrain.z.dtype == np.float32 and terrain.shape == (1100, 1200)
+    assert terrain.water.dtype == bool and terrain.water.sum() == 5 * 1200
+    assert (terrain.res, terrain.left, terrain.top) == (1.0, 499000.0, 251000.0)
+    row, col = terrain.pixels(capture, 1)
+    assert row.tolist() == [1000, 997, 970, 1002] and col.tolist() == [1001, 1005, 1000, 1102]
+    assert terrain.z[row, col].tolist() == [200.0, 100.0, 100.0, 200.0]
+    assert ps.capture_table(os.path.join(str(tmp_path / "pass"), "xx-51.000n20.000e")).terrain is None
+    # the rule keeps the found lines 0 and 3 of the first capture (both ends on the 200 m ground) and, without a
+    # terrain, the one line of the second
+    result = ps.audit(table, "anchors_above", known=str(tmp_path / "pass"))
+    assert result.keep.all() and "terrain" not in result.summary["table"]  # the run's table has no terrain
+    assert result.summary["known"] == {
+        "radius_m": 8.0, "captures": 2, "captures_unreadable": 0,
+        "terrain": {"captures_with_terrain": 1, "captures_without_terrain": 1}, "found_lines": 5,
+        "found_lines_kept": 3, "matching_as_the_truth_check": 3,
+        "all": {"matched_before": 3, "within_tolerance_after": 2, "matched_line_kept": 2,
+                "kept_line_within_radius_of_matched": 2},
+        "types": {"highline": {"matched_before": 2, "within_tolerance_after": 2, "matched_line_kept": 2,
+                               "kept_line_within_radius_of_matched": 2},
+                  "midline": {"matched_before": 1, "within_tolerance_after": 0, "matched_line_kept": 0,
+                              "kept_line_within_radius_of_matched": 0}}}
+    files = result.write(str(tmp_path / "out"))
+    text = "".join(open(f, encoding="utf-8").read() for f in files)
+    assert "| Known lines: captures with terrain for the rule / without | 1 / 1 |  |" in text
+    assert not [s for s in secrets if s in text]
+    # a rule that does not ask for the terrain: nothing of it in the output, as before
+    known = ps.audit(table, "marked", known=str(tmp_path / "pass")).summary["known"]
+    assert "terrain" not in known and known["captures"] == 2 and known["all"]["matched_before"] == 3
+    assert list(known) == ["radius_m", "captures", "captures_unreadable", "found_lines", "found_lines_kept",
+                           "matching_as_the_truth_check", "all", "types"]
 
 
 def test_pictures(tmp_path):
@@ -584,3 +718,29 @@ def test_command_line_with_a_rules_file(tmp_path):
     done = run("--rule", "longer_than", "--param", "length=5", "--out", str(tmp_path / "none"))
     assert done.returncode == 2 and "no parameter length" in done.stderr
     assert not os.path.exists(tmp_path / "none")
+    # --terrain: the grid under the run's anchors for a rule that reads table.terrain
+    rules.write_text('import numpy as np\nfrom prune_study import rule\n\n\n'
+                     '@rule("first_anchor_above")\n'
+                     'def first_anchor_above(table, height=0.0):\n'
+                     '    t = table.terrain\n'
+                     '    if t is None:\n'
+                     '        return np.ones(len(table), dtype=bool)\n'
+                     '    row, col = t.pixels(table, 1)\n'
+                     '    return t.z[row, col] >= height\n', encoding="utf-8")
+    z = np.zeros((300, 3200), dtype=np.float32)
+    z[:, 1000:] = 50.0  # the ground east of easting 990
+    ps.Terrain(z, 1.0, -10.0, 200.0).save(str(tmp_path / "terrain.npz"))
+    done = run("--rule", "first_anchor_above", "--param", "height=10", "--out", str(tmp_path / "with"),
+               "--terrain", str(tmp_path / "terrain.npz"))
+    assert done.returncode == 0, done.stderr
+    with open(tmp_path / "with" / "audit.json", encoding="utf-8") as f:
+        summary = json.load(f)
+    assert summary["lines"] == {"before": 6, "kept": 3, "dropped": 3}  # the lines of places B and C
+    assert summary["table"]["terrain"] == {"shape": [300, 3200], "res": 1.0, "water": False}
+    done = run("--rule", "first_anchor_above", "--param", "height=10", "--out", str(tmp_path / "without"))
+    assert done.returncode == 0, done.stderr
+    with open(tmp_path / "without" / "audit.json", encoding="utf-8") as f:
+        summary = json.load(f)
+    assert summary["lines"]["kept"] == 6 and "terrain" not in summary["table"]
+    done = run("--rule", "first_anchor_above", "--out", str(tmp_path / "none"), "--terrain", str(rules))
+    assert done.returncode == 2 and "prune_study:" in done.stderr
