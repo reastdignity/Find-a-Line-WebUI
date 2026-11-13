@@ -950,6 +950,23 @@ def test_quota_race(tmp_path):
     jobs.add({"params": {}}, "no limits", 7, check=jobs.admission(7, limits, False))
 
 
+def _hold_rate_clock(monkeypatch):
+    """The per-user rates' time (web.within_rate: limits' SlidingWindowCounterRateLimiter on MemoryStorage, its windows
+    clock minutes and hours) held one second into the current minute: the counter counts the previous window's
+    requests as floor(weight), so a refusal a test expects lets one more through when a window begins between its
+    requests (test_time_zone's fifth time zone, test_problem_reports' fourth report)."""
+    import limits.storage.memory
+    import limits.strategies
+
+    class Clock:
+        now = time.time() // 60 * 60 + 1
+
+        def time(self):
+            return self.now
+    monkeypatch.setattr(limits.storage.memory, "time", Clock())
+    monkeypatch.setattr(limits.strategies, "time", Clock())
+
+
 def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monkeypatch):
     """A user has the request limits, the quotas and the rates of the site, and no nasadem; a user
     without limits has none of them (the resource fields too, malta2012 among the sources) but no admin rights
@@ -959,6 +976,7 @@ def test_tiers_and_quotas(tmp_path, settings, account_settings, providers, monke
     from settings import Limits
     point = {"lat": 50.1, "lon": 19.7, "radius": 100}
     request = {"params": point, "geometry": None}
+    _hold_rate_clock(monkeypatch)
     limits = Limits.load(public=True).model_copy(update={"jobs_day_max": 4, "estimate_rate": "2/minute"})
     app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
     people = _clients(app, tmp_path, account_settings)
@@ -1139,10 +1157,11 @@ def test_worker_notes_the_area_and_country(tmp_path, monkeypatch):
     monkeypatch.setattr(osm, "BEFORE_REQUEST", None)
 
 
-def test_patches_of_the_public_site(run_people, tmp_path):
+def test_patches_of_the_public_site(run_people, tmp_path, monkeypatch):
     """/api/patch on the public site: another user's run 404, the header, the line, the bounds of the
     profiles with the patch's codes (also for administrators), the rate of a limited user (10 a minute
     by default); /view3d for approved users only, with its CSP and no-store, the app's keep theirs."""
+    _hold_rate_clock(monkeypatch)
     a, b, admin, pending = run_people["a"], run_people["b"], run_people["admin"], run_people["pending"]
     meta = json.loads((tmp_path / "runs" / RUN_A / "run.json").read_text("utf-8"))
     lat, lon, ml = meta["area"]["lat"], meta["area"]["lon"], meta["params"]["max_length"]
@@ -1376,6 +1395,7 @@ def test_problem_reports(run_people, tmp_path, monkeypatch):
     them with names, mark them done and delete them; the audit log has no text."""
     import audit
     import jobs as jb
+    _hold_rate_clock(monkeypatch)
     a, b, admin = run_people["a"], run_people["b"], run_people["admin"]
     ids = run_people["ids"]
     body = {"category": "water", "text": "  The lake is 3 m too high.\nSee the second line.  ",
@@ -2064,13 +2084,14 @@ def test_country_of_time_zone():
         assert ac.country_of_zone(zone) is None, zone
 
 
-def test_time_zone(tmp_path, settings, account_settings, providers):
+def test_time_zone(tmp_path, settings, account_settings, providers, monkeypatch):
     """POST /api/me/time-zone: the country of the browser's zone is stored with the account and
     recorded in the audit log only when it changed; an unknown zone stores nothing; a wrong body is
     400; only approved users (the route's access rule), within the rate of a limited user; locally
     nothing is stored. /api/usage gives the account's country."""
     import audit
     from settings import Limits
+    _hold_rate_clock(monkeypatch)
     limits = Limits.load(public=True).model_copy(update={"time_zone_rate": "4/minute"})
     app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
     people = _clients(app, tmp_path, account_settings, ("a", "admin"))
@@ -2203,10 +2224,11 @@ def test_public_time_limits_and_one_waiting_estimate(tmp_path, settings, account
         client.close()
 
 
-def test_place_lookup(tmp_path, settings, account_settings, providers):
+def test_place_lookup(tmp_path, settings, account_settings, providers, monkeypatch):
     """/api/place: signed-in users only, a name of 1 to PLACE_CHARS_MAX characters, the place rate of a
     limited user; answered by the worker's quick lane (503 without one)."""
     from settings import Limits
+    _hold_rate_clock(monkeypatch)
     limits = Limits.load(public=True).model_copy(update={"place_rate": "2/minute"})
     app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
     with TestClient(app, base_url=URL) as visitor:
@@ -2228,6 +2250,7 @@ def test_new_jobs_rate_and_quota_before_validation(tmp_path, settings, account_s
     costs time; review B, poc_geometry_cost), and limits the rate of a user's requests."""
     import jobs as jb
     from settings import Limits
+    _hold_rate_clock(monkeypatch)
     limits = Limits.load(public=True).model_copy(update={"jobs_active_max": 1, "job_rate": "3/minute"})
     app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
     people = _clients(app, tmp_path, account_settings, ("a", "b", "unlimited"))
@@ -2252,6 +2275,7 @@ def test_refusals_in_the_audit_log_once_per_window(tmp_path, settings, account_s
     after the window says how many were not recorded (review A, 5)."""
     import audit
     from settings import Limits
+    _hold_rate_clock(monkeypatch)
     limits = Limits.load(public=True).model_copy(update={"estimate_rate": "1/hour"})
     app = _public_app(tmp_path, settings, account_settings, providers, limits=limits)
     people = _clients(app, tmp_path, account_settings, ("a", "b"))
