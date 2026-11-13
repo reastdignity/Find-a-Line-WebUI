@@ -108,9 +108,11 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
 - **No HTTP request holding the GIL**: rasterio 1.5.2 asks the mask flags on every `read()` with the GIL held, and
   GTiff's first such call scans the file's directories: a request when they are not in GDAL's cache (non-COG files,
   Alaska's IfSAR; any file after `_forget`), every Python thread waits, an in-process server never answers (2026-11-13:
-  one test 496 s, once 2 h). `windows._read_masked` runs the scan first in a downsampled `src._read` (GIL released);
-  a `/vsicurl/` read elsewhere has the same wait. After updating rasterio or GDAL, `tests/test_window_gil.py` must
-  pass (no stall; the same requests and bytes per block with and without the scan).
+  one test 496 s, once 2 h). `windows._read_masked` runs the scan first in a downsampled `src._read` (GIL released).
+  Also GIL-held: `reproject` from `rio.band` (the warper's initialisation scans; `obstacle_study._scan_footprint`
+  first) and `get_tag_item` (tile arrays loaded on demand; `perf_window_reads._TiffTags` by ctypes). A `WarpedVRT`
+  is safe (made under nogil; `check_source._read_source`). A new `/vsicurl/` read takes one of these ways. After
+  updating rasterio or GDAL, `tests/test_window_gil.py` must pass (no stall; equal requests and bytes per block).
 - **GDAL's warper on Windows** (GDAL up to 3.13; rasterio 1.5.2's wheels hold 3.12.2): `reproject(num_threads > 1)` is
   GDAL's `ChunkAndWarpMulti`, one joinable thread per chunk, and `CPLCreateJoinableThread`'s race (OSGeo/gdal#15452,
   fixed on GDAL's master by #15451, in no 3.12 or 3.13 release) frees a thread's record twice when the thread ends

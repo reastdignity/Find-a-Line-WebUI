@@ -296,11 +296,38 @@ def worldcover_urls(grid: Dict) -> List[str]:
     return urls
 
 
+def _scan_footprint(src, grid: Dict, transform, shape: Tuple[int, int]):
+    """GDAL's scan of a remote file's directories run before reproject warps it, with the GIL released
+    (sources.readers.windows._scan_directories) over the grid's footprint in the file (the tiles the warp reads
+    next, then found in GDAL's block cache; a pixel at its corner when they do not meet): rasterio's reproject
+    initialises GDAL's warper holding the GIL (rasterio 1.5.2), and that runs the scan, an HTTP request whenever
+    the directories are not in GDAL's cache (a file that is not a COG; any file after rasterio.cache.invalidate)."""
+    from rasterio.warp import transform_bounds
+    from rasterio.windows import Window, from_bounds
+
+    from sources.readers import windows
+
+    if not src.name.startswith("/vsicurl/"):
+        return
+    window = Window(0, 0, 1, 1)
+    if src.crs is not None:
+        left, top = transform.c, transform.f
+        right, bottom = left + shape[1] * transform.a, top + shape[0] * transform.e
+        box = from_bounds(*transform_bounds(grid["crs"], src.crs, left, bottom, right, top), src.transform)
+        c1, r1 = max(math.floor(box.col_off), 0), max(math.floor(box.row_off), 0)
+        c2 = min(math.ceil(box.col_off + box.width), src.width)
+        r2 = min(math.ceil(box.row_off + box.height), src.height)
+        if c1 < c2 and r1 < r2:
+            window = Window(c1, r1, c2 - c1, r2 - r1)
+    windows._scan_directories(src, window)
+
+
 def on_grid(urls: List[str], grid: Dict, resampling) -> Optional[np.ndarray]:
     """Remote rasters warped onto the grid's pixels (float32, NaN where none has data); None
     when none of them exists. Inside sources.net's GDAL settings, a read during which GDAL
     signalled an error is made again (net.gdal_errors: values it could not fetch come back as
-    zeros), as sources/readers/windows.py does."""
+    zeros), as sources/readers/windows.py does. No HTTP request is made holding the GIL
+    (_scan_footprint before each warp)."""
     import rasterio as rio
     import rasterio.cache
     from affine import Affine
@@ -318,6 +345,7 @@ def on_grid(urls: List[str], grid: Dict, resampling) -> Optional[np.ndarray]:
                 try:
                     with net.gdal_errors() as errors:
                         with rio.open(net._remote(url)) as src:
+                            _scan_footprint(src, grid, transform, shape)
                             reproject(rio.band(src, 1), part, src_transform=src.transform, src_crs=src.crs,
                                       src_nodata=src.nodata, dst_transform=transform, dst_crs=grid["crs"],
                                       dst_nodata=np.nan, resampling=resampling)
