@@ -68,6 +68,49 @@ def _same_crs(a, b) -> bool:
         for k, v in pa.items())
 
 
+def _scan_directories(src, window: Window):
+    """Make GDAL read a remote file's directories (its overviews and masks) in a call that releases the GIL, before
+    src.read(..., masked=True) reads window. rasterio (1.5.2) asks the mask flags on every read, masked or not,
+    holding the GIL (GDALGetMaskFlags, not under nogil), and GTiff's first such call on a dataset runs its deferred
+    scan of the directories: HTTP requests whenever their bytes are not in GDAL's cache (a file that is not a COG,
+    whose directories lie beyond the bytes the open fetched: Alaska's IfSAR files, 3 requests and 0.6 s a block; or
+    any file once another thread's failure dropped the cache, _forget). Every other Python thread of the process
+    then waits on that request; a server in the same process (the tests') cannot answer at all, and the read waited
+    GDAL_HTTP_TIMEOUT 120 s times its retries (test_answers_cut_short_every_time, 2026-11-13).
+
+    The scan is run here by a downsampled read of the whole window at factor at most 1.5 (sides ceil(n / 1.5); at
+    least 3 px each way, kept inside the raster) through rasterio's private DatasetReaderBase._read, which releases the
+    GIL and asks no flags: GTiff's IRasterIO asks the overview count for a downsampled read, which scans the
+    directories. No overview is used: GDAL 3.12.2 takes one for a nearest read only when its factor is below 1.2 times
+    the asked one plus 0.1 (GDALBandGetBestOverviewLevel2, GDAL_OVERVIEW_OVERSAMPLING_THRESHOLD unset), 1.9 at most
+    here, and a file's first overview is about 2. Its tiles stay in GDAL's block cache, where the read finds them:
+    the same requests and bytes per block as the read alone (measured on COGs and on a file with its directories at
+    the end, multi-range and serial), and the same values (the read is rasterio's own; this one's are thrown away).
+    A GDAL error here is the read's own error (inside its gdal_errors; a failure raises RasterioIOError as the read
+    would). Relies on rasterio 1.5.2 and GDAL 3.12.2 (checked 2026-11-13); without a _read of that form the read goes
+    on as before, and tests/test_window_gil.py fails."""
+    read = getattr(src, "_read", None)
+    width, height = min(max(int(window.width), 3), src.width), min(max(int(window.height), 3), src.height)
+    if read is None or width < 2 or height < 2:
+        return
+    col = max(min(int(window.col_off), src.width - width), 0)
+    row = max(min(int(window.row_off), src.height - height), 0)
+    sides = [max(1, min(n - 1, math.ceil(n / 1.5))) for n in (height, width)]  # factor at most 1.5
+    out = np.empty((1, *sides), dtype=src.dtypes[0])
+    try:
+        read([1], out, Window(col, row, width, height), src.dtypes[0])
+    except TypeError:  # another rasterio: not of this form
+        return
+
+
+def _read_masked(src, window: Window) -> np.ma.MaskedArray:
+    """src.read(1, window=window, masked=True), with no HTTP request made holding the GIL for a remote file
+    (/vsicurl/: _scan_directories first)."""
+    if src.name.startswith("/vsicurl/"):
+        _scan_directories(src, window)
+    return src.read(1, window=window, masked=True)
+
+
 def _read_window(src, transform: Affine, shape: Tuple[int, int]) -> np.ndarray:
     """The values of an open raster on the pixels of transform and shape (in its CRS), NaN
     where it has none: read as they are when the pixels coincide (the usual case: the
@@ -80,7 +123,7 @@ def _read_window(src, transform: Affine, shape: Tuple[int, int]) -> np.ndarray:
         r1, c1 = max(r0, 0), max(c0, 0)
         r2, c2 = min(r0 + shape[0], src.height), min(c0 + shape[1], src.width)
         if r1 < r2 and c1 < c2:
-            part = src.read(1, window=Window(c1, r1, c2 - c1, r2 - r1), masked=True)
+            part = _read_masked(src, Window(c1, r1, c2 - c1, r2 - r1))
             out[r1 - r0:r2 - r0, c1 - c0:c2 - c0] = _clean(part.astype(np.float32).filled(np.nan))
         return out
     left, top = transform.c, transform.f
@@ -91,7 +134,7 @@ def _read_window(src, transform: Affine, shape: Tuple[int, int]) -> np.ndarray:
     r2 = min(math.ceil((bottom - t.f) / t.e) + 2, src.height)
     if r1 < r2 and c1 < c2:
         window = Window(c1, r1, c2 - c1, r2 - r1)
-        band = _clean(src.read(1, window=window, masked=True).astype(np.float32).filled(np.nan))
+        band = _clean(_read_masked(src, window).astype(np.float32).filled(np.nan))
         reproject(band, out, src_transform=src.window_transform(window), src_crs=src.crs,
                   dst_transform=transform, dst_crs=src.crs, src_nodata=np.nan, dst_nodata=np.nan,
                   resampling=Resampling.bilinear)
