@@ -19,7 +19,10 @@ monitoring of the VPS and the app (phases 1 to 4 built: `deploy/monitoring/`, `m
 
 ## Environment and tests
 
-- Python 3.12+ (scipy 1.18 needs it). Dependencies in `pyproject.toml`, pinned in `uv.lock` (`uv sync`,
+- Python 3.12+ (scipy 1.18 needs it); `.python-version` names 3.15, the version CI and the image run, so uv builds
+  a new `.venv` on it and rebuilds one made on another version at its next `uv sync` or `uv run` (another
+  interpreter: `--python <version>`; a worktree reads its own copy of the file, never the main checkout's).
+  Dependencies in `pyproject.toml`, pinned in `uv.lock` (`uv sync`,
   `uv run findaline.py ...`; the user's `.venv` is git-ignored). For a session environment outside the repo:
   `UV_PROJECT_ENVIRONMENT=<dir> uv sync --frozen` (uv itself can be pip-installed into any venv: `python -m uv`).
   After changing dependencies run `uv lock` and the full regression set.
