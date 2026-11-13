@@ -271,8 +271,8 @@ class Filters:
 def select(keys: np.ndarray, filters: Filters) -> np.ndarray   # a boolean mask of the keys passing
 
 class Cube:
-    def __init__(self, folder: str): ...   # cube.json; each .npy read into memory when first used (not mapped:
-                                           # Windows would refuse the next build's replacing a mapped file)
+    def __init__(self, folder: str): ...   # cube.json; each .npy of the build folder it names memory-mapped
+                                           # read-only when first used (since 2026-11-13; read into memory before)
     info: Dict                             # cube.json
     def box(self, west: float, south: float, east: float, north: float) -> Tuple[float, float, float, float]  # WGS84 → CRS (densified)
     def auto_level(self, box: Tuple[float, float, float, float], most: int = 4000) -> int  # the finest level with at most `most` cells over box
@@ -294,8 +294,14 @@ def cell_request(cube: Cube, band: str, level: int, i: int, j: int) -> Dict   # 
     two tiles or two bands is counted once), then counted per key.
   - Then the levels 2, 4, 8, summed from level 1.
   - Writes `out_dir/lines_<L>.npy` and `spots_<L>.npy`: (n, 2) int64 `[key, count]`, sorted by key.
+    (Since 2026-11-13, branch `explorer-mmap`: into a new build folder `out_dir/build-<UTC start to the µs>-<8 hex>/`
+    (`countcube.BUILD_PATTERN`), never over a mapped file; the names inside as before.)
   - Writes `cube.json` last, with `info` plus `version`, `edges`, `levels`, `cell_m`, `cluster_m`,
-    `totals` (`lines`, `spots`, the keys of each file) and `built` (UTC ISO).
+    `totals` (`lines`, `spots`, the keys of each file) and `built` (UTC ISO). (Since 2026-11-13 also `arrays`, the
+    build folder's name; cube.json is replaced atomically, not removed first, so the cube before is read until then;
+    then `remove_stale` removes the build folders older than the named one and the fixed-name arrays of a cube built
+    before, what another process maps staying for the next build or the web. A cube.json without `arrays` (a cube
+    built before) is read where it is: no `VERSION` change, no rebuild.)
 - **`Cube.cells`:** the keys of the cells inside `box` (the CRS rectangle), passing `filters`,
   summed per cell. Columns with `i` in range are one contiguous range of the sorted keys.
 - **`cell_request`:**
@@ -432,6 +438,10 @@ findaline.py country worker <id> --slot K [--data-dir D]      # started by run, 
                         tiles/<band>/<name>.npz, cube/{lines,spots}_<L>.npy, cube/area.geojson, cube/cube.json, compare.json
 <data>/work/country-<id>/<band>-<name>/    a tile's grids, removed after the tile
 ```
+  Since 2026-11-13 (`explorer-mmap`): `cube/build-<UTC start>-<random>/{lines,spots}_<L>.npy`, the folder cube.json
+  names (`arrays`); `cube/area.geojson` and `cube/cube.json` stay beside it (the outline is the country's, the same
+  for every build, read once into memory and never mapped). No migration: a cube with the arrays beside cube.json is
+  read where it is; code older than this does not find the arrays of a cube built since.
 - `/countries/` goes into `.gitignore` (the data folder defaults to the repository). In
   `.dockerignore`, only if its allowlist would not leave it out already.
 - **Tests of D** (`tests/test_country.py`, offline):
@@ -448,13 +458,16 @@ findaline.py country worker <id> --slot K [--data-dir D]      # started by run, 
 ## 4. The web endpoints (agent E, wave 2): `web.py`
 
 Every endpoint depends on `require_admin` (locally the user is `LOCAL`, an administrator). The cube
-of a request is cached per process (`Cube` keyed by the folder and the mtime of cube.json). The
+of a request is cached per process (`Cube` keyed by the folder and the mtime of cube.json; since 2026-11-13 a newer
+build's Cube replaces the old one, which is closed, and once no computation maps it the old build is removed;
+a request whose old build lost an array before it was mapped answers from the new build, else 503). The
 work runs in `run_in_threadpool`. The web process imports `countcube` only, never `country`,
 `search` or numba.
 
 ```
 GET /api/countries
-  → {"countries": [<cube.json without "config" and "origin">, ...]}   (the cubes under <data>/countries/*/cube/)
+  → {"countries": [<cube.json without "config" and "origin">, ...]}   (the cubes under <data>/countries/*/cube/;
+                                                                      since 2026-11-13 also without "arrays")
 GET /api/countries/{id}/cells?mode=lines|spots&bbox=<west>,<south>,<east>,<north>&level=auto|1|2|4|8
                              &length=<lo>-<hi>&prominence=<p>&wall=<w>&clearance=<c>&height=<h>&trees=all|no|only&water=all|land|water
   → {"level": 2, "cell_m": 2000, "total": 12345, "max": 678, "cells": [[i, j, count, lat_sw, lon_sw, lat_se, lon_se,
@@ -1060,11 +1073,13 @@ measured (the key's growth, the transforms' time, the border tiles' time).
 - As in section 2, plus `pack_keys`, `unpack_keys`, `line_records`, `length_bin`, `spot_ids`,
   `spot_cells`, `sum_keys`, `count_keys`, `Filters.length_mask()`, `Cube.array(mode, level)`
   (ValueError for an unknown mode or level), `Cube.cell_count(level, box)` and `Cube.outline()`.
-- `Cube` reads each array into memory when first used (not mapped).
+- `Cube` reads each array into memory when first used (not mapped). Since 2026-11-13: memory-mapped read-only, from
+  the build folder cube.json names (or beside cube.json for a cube built before the build folders).
 - `Cube.box` clips the view to `bounds_wgs84` widened by 1°. Away from the country it returns an
   empty box (left > right): no cells.
 - `Filters.parse` ignores keys it does not know and empty values.
-- `build` removes `cube.json` first and writes it last. It does **not** check that the tiles share
+- `build` removes `cube.json` first and writes it last (since 2026-11-13: the arrays into a new build folder and
+  `cube.json` replaced atomically, last, never removed first). It does **not** check that the tiles share
   one origin or config.
 - In cube.json, `cell_m` and `cluster_m` are floats.
 

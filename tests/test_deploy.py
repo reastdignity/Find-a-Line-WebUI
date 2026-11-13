@@ -497,3 +497,82 @@ def test_push_cube_script(tmp_path):
     missing = run("host", "nowhere", str(tmp_path))
     assert missing.returncode == 1 and "no cube" in missing.stderr
     assert "ssh was called" not in bad.stderr + missing.stderr
+
+
+def _tree(folder) -> dict:
+    """The files under a folder by their path relative to it (with /), and their bytes."""
+    out = {}
+    for root, _, names in os.walk(folder):
+        for name in names:
+            path = os.path.join(root, name)
+            with open(path, "rb") as f:
+                out[os.path.relpath(path, folder).replace(os.sep, "/")] = f.read()
+    return out
+
+
+def test_push_cube_copies_the_named_build(tmp_path):
+    """deploy/push-cube.sh against a stand-in server (a fake ssh that runs the remote command here, with /data/countries
+    a folder of the test, and a fake docker that runs what `docker exec` is given): it copies cube.json, area.geojson
+    and the build folder cube.json names, not an earlier build, a half-written one or a stray file; swaps the folder
+    in (a second push replaces the first: no file of the first stays); compares the sums of every file copied; a cube
+    built before the build folders (the fixed-name arrays beside cube.json) still goes; a cube.json naming no build
+    folder, or one that is not there, is refused before any connection."""
+    sys.path.insert(0, ROOT)
+    import countcube as cc
+    bash = _bash()
+    if bash is None:
+        pytest.skip("no bash")
+    data, server, fakes = tmp_path / "data", tmp_path / "server", tmp_path / "bin"
+    fakes.mkdir()
+    (fakes / "ssh").write_text('#!/bin/sh\nfor last; do :; done\n'  # the remote command: the last argument
+                               'exec sh -c "$(printf "%s" "$last" | sed "s#/data/countries#$FAKE_ROOT#g")"\n',
+                               newline="\n")
+    (fakes / "docker").write_text('#!/bin/sh\n[ "$1" = exec ] || exit 98\nshift\n[ "$1" = -i ] && shift\nshift\n'
+                                  'exec "$@"\n', newline="\n")
+    for name in ("ssh", "docker"):
+        (fakes / name).chmod(0o755)
+    env = {**os.environ, "SSH": (fakes / "ssh").as_posix(), "FAKE_ROOT": (server / "countries").as_posix(),
+           "PATH": str(fakes) + os.pathsep + os.environ["PATH"]}
+    script = os.path.join(DEPLOY, "push-cube.sh")
+
+    def push():
+        return subprocess.run([bash, script, "host", "testland", str(data)], env=env, capture_output=True, text=True,
+                              timeout=120)
+    cube = data / "countries" / "testland" / "cube"
+    cc.build([], str(cube), {"origin": [1, 2]})
+    built = cc.build([], str(cube), {"origin": [1, 2], "id": "testland"})  # the build before it removed
+    (cube / "area.geojson").write_text('{"type": "Polygon", "coordinates": []}')
+    for stale in ("build-20200101T000000.000000Z-0123abcd", "build-29990101T000000.000000Z-0123abcd"):
+        (cube / stale).mkdir()  # an earlier build left behind, a half-written one
+        (cube / stale / "lines_1.npy").write_bytes(b"stale")
+    (cube / "notes.txt").write_text("not a cube's")
+    done = push()
+    assert done.returncode == 0, done.stdout + done.stderr
+    assert "Done: 10 files, sha256 identical." in done.stdout
+    wanted = {"cube.json", "area.geojson", *(f"{built['arrays']}/{n}" for n in cc.ARRAY_FILES)}
+    local = _tree(cube)
+    there = _tree(server / "countries" / "testland" / "cube")
+    assert set(there) == wanted and all(there[k] == local[k] for k in wanted)
+    assert sorted(os.listdir(server / "countries" / "testland")) == ["cube"]  # swapped in, nothing beside
+    # a cube built before the build folders: the fixed names beside cube.json
+    for name in cc.ARRAY_FILES:
+        os.replace(cube / built["arrays"] / name, cube / name)
+    info = json.loads((cube / "cube.json").read_text())
+    del info["arrays"]
+    (cube / "cube.json").write_text(json.dumps(info))
+    done = push()
+    assert done.returncode == 0, done.stdout + done.stderr
+    there = _tree(server / "countries" / "testland" / "cube")
+    assert set(there) == {"cube.json", "area.geojson", *cc.ARRAY_FILES}  # the first push's build folder is gone
+    assert all(there[k] == _tree(cube)[k] for k in there)
+    # refused before any connection: a name off the pattern, a build folder that is not there
+    for arrays in ("../../etc", "build-20200101T000000.000000Z-0123abcd"):
+        (cube / "cube.json").write_text(json.dumps({**info, "arrays": arrays}))
+        if arrays.startswith("build"):
+            for name in cc.ARRAY_FILES:
+                os.remove(cube / name)
+            os.rename(cube / arrays, tmp_path / "gone")
+        refused = push()
+        assert refused.returncode == 1 and ("no build folder" in refused.stderr or "no arrays" in refused.stderr), \
+            refused.stdout + refused.stderr
+        assert "Copying" not in refused.stdout

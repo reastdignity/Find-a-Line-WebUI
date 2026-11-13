@@ -19,8 +19,11 @@ rename/move (POST `/<id>`), delete with what is in it; audit `favourite`, `favou
 `/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; the Admin page is
 `viewer/src/app/c/AdminC.tsx` (public site only), the OSM extracts `app/c/OsmC.tsx` (locally and for administrators)),
 the highline layer of a country (`Countries`: one `countcube.Cube` per version of
-`<data>/countries/<id>/cube/cube.json`, its folder and mtime, ids `COUNTRY_ID` only; `GET /api/countries` (cube.json
-without `config` and `origin`), `/api/countries/<id>/cells` (mode, `bbox` = Leaflet's `toBBoxString()`, else the
+`<data>/countries/<id>/cube/cube.json`, its folder and mtime, ids `COUNTRY_ID` only, the arrays memory-mapped; a newer
+build's Cube replaces the old one, which is closed (`Cube.close`) and kept in `_retired` until no computation maps it
+(`Cube.mapped`), then `_tidy` runs `countcube.remove_stale` in the caller's thread of the pool (also at a folder's
+first cube in the process), never raising, logging nothing; `GET /api/countries` (cube.json
+without `config`, `origin` and `arrays`), `/api/countries/<id>/cells` (mode, `bbox` = Leaflet's `toBBoxString()`, else the
 cube's bounds grown by the layer's reach (`Cube.reach_m`: the partner lines' cells beyond the outline); `level=auto` →
 `Cube.auto_level`, an explicit level over `COUNTRY_CELLS_MAX` (20000) cells in view a 400 "too many cells"; the
 filters of `countcube.Filters.parse` with `border=all|own` (all by default: the interior, owned and partner lines;
@@ -38,7 +41,9 @@ bins, both modes' `totals` and the lines' `border` split, interior, owned, partn
 `LayerSlots` (at most `COUNTRY_SLOTS` at once, the others waiting without a thread `COUNTRY_WAIT_MAX` at most: 503;
 `COUNTRY_SECONDS_MAX` each: 504; stopped between two chunks of rows when the client goes away, a task awaiting
 `http.disconnect`: the page aborts its fetch on every move; the thread by `anyio.to_thread.run_sync(abandon_on_cancel=True)`,
-so a request cancelled while it computes returns at once and its thread stops at its next chunk; every user alike); a
+so a request cancelled while it computes returns at once and its thread stops at its next chunk; every user alike;
+`layer_answer`: a `countcube.CubeChanged` (the cube built again while the request computed, its old build's array not
+mapped yet gone) answers from the new build once, 503 with `Retry-After` when no newer build is there); a
 ValueError a 400 with its text, a
 country without a readable cube 404; only countcube imported), the requests the page may send, SSE events
 (`sse-starlette`: keep-alive, send timeout; `EventHub`: one poller per process, while a stream is open, reads the new

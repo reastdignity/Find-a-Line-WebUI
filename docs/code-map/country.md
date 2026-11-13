@@ -22,12 +22,23 @@ skipping the core's test in both engines, `countkernels.select(border=)`: `count
 anchor in the country lies in the core; the parts' optional `partner` and `border` columns, absent 0; each anchor
 pixel through pyproj once; `ENGINE` numba, the hash tables of `countkernels.py` imported at its first part, or numpy,
 the reference), `save_tile`/`load_tile` (npz, `VERSION` 2), `build` (lines summed, spots merged over all tiles and
-bands, the levels, `lines_<L>.npy`/`spots_<L>.npy` [key_a, key_b, count] sorted, `cube.json` last: `cell_deg`,
-`edges`, `kinds`, `neighbours`, `totals.border`), `Filters` (+ `parse` of the web's query; `border` all or own and
+bands, the levels, `lines_<L>.npy`/`spots_<L>.npy` [key_a, key_b, count] sorted into a new build folder of the cube
+folder (`_new_build`: `BUILD_PATTERN` `build-<UTC start, µs>-<8 hex>`, made by `os.mkdir`, so never shared; a cube's
+arrays are never replaced in place), `cube.json` last, naming it (`arrays`), replaced atomically, so the cube before
+answers until then: `cell_deg`, `edges`, `kinds`, `neighbours`, `totals.border`; then `remove_stale`, what stays said
+once through `say`), `arrays_folder` (the build folder cube.json names, or the cube folder for a cube built before
+the build folders: no `arrays`, the fixed names beside cube.json; a name off the pattern refused), `remove_stale`
+(once cube.json names a build folder: the build folders older than it and the fixed-name `ARRAY_FILES` of a cube built
+before; never a newer build folder (a build being written), a link, another name or anything outside the folder; a
+file Windows refuses to remove (mapped or open in another process) stays and is returned; called by `build` and by
+`web.Countries`), `Filters` (+ `parse` of the web's query; `border` all or own and
 `replaced`, the partners whose own cube replaces their partner lines: `border_kept`) and `select` (`skip=` one of
 `DIMENSIONS` leaves that dimension's condition out, never the border's; `_conditions` each condition's mask of rows,
-the flags' apart), `Cube` (arrays read into memory when first used, once: keys and counts views of the (n, 3) rows,
-one array read at a time; not mapped: Windows would refuse the next build's replacing them; lon/lat rectangles without
+the flags' apart), `Cube` (the arrays of `arrays_folder` memory-mapped read-only when first used
+(`np.load(mmap_mode="r")`), once, one at a time: keys and counts views of the (n, 3) rows, `array` the rows themselves
+(no copy anywhere: the chunks are views); `close` (web.Countries, a newer build read: its own maps dropped, an array
+not mapped yet never mapped) and `mapped` (a map still alive in the process); `CubeChanged` for an array gone (the
+old build removed) or a closed Cube; lon/lat rectangles without
 pyproj: `box`, `auto_level`, `cell_count`, `_cells_of` a request's cells (a rectangle: the box's; with a view those
 reaching it, `_reach` by column and row), `_ranges` their rows (two binary searches on word A per column: the rows
 are sorted by cell), `_chunks` (`CHUNK_ROWS` rows at a time, a request's `check` called before each: where

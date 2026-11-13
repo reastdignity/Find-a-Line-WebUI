@@ -91,3 +91,10 @@ docs/country-precompute/contract.md; the measurements: docs/country-precompute.m
 - `tests/cube_oracle.py` is `Cube.cells`/`Cube.histogram` of b45b950 frozen, the oracle the lean code's answers are
   compared with (`test_lean_answers_equal_the_oracle`, `test_answers_equal_the_oracle`): a change of what an answer
   means (the filters' semantics, the key) changes it in the same commit, a change of speed or memory never does.
+- A cube's arrays are never replaced in place (`Cube` maps them; Windows refuses to replace or remove a mapped file,
+  and on Linux a file overwritten or truncated under its map kills the web process, SIGBUS: copy a cube by hand only
+  into a new folder):
+  `countcube.build` writes each build into a new folder of `BUILD_PATTERN` and `cube.json`, naming it (`arrays`), last;
+  `remove_stale` (the builder at its end, `web.Countries` once it dropped an old build's maps) removes only build
+  folders older than the named one and a cube built before's `ARRAY_FILES`, never a link; `deploy/push-cube.sh` copies
+  the named build by the same pattern (`tests/test_deploy.py::test_push_cube_copies_the_named_build`).

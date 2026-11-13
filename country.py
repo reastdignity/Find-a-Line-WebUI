@@ -32,7 +32,8 @@ the tiles' work folders <data>/work/country-<id>/<band>-<name>/):
     run.lock       held by `run` (one run at a time; workers stop when it is free)
     logs/          run.log, worker-<k>.log, samples-<start>.csv (a run's timeline)
     tiles/<band>/<name>.npz   the counts of a tile (countcube.VERSION)
-    cube/          the cube (countcube.build) and a copy of area.geojson
+    cube/          the cube (countcube.build): cube.json, a copy of area.geojson and the build folder
+                   cube.json names (build-<UTC start>-<random>/, its lines_<L>.npy and spots_<L>.npy)
     compare.json   `compare`'s result
 """
 
@@ -2307,10 +2308,12 @@ def build(country_id: str, data_dir: str, partial: bool = False, say=print) -> i
             "credits": _credits(metas, country.area, year), "notes": notes}
     out = os.path.join(folder, "cube")
     os.makedirs(out, exist_ok=True)
+    # the outline beside cube.json, not in the build's folder: the country's (fixed at its set-up; --redo removes
+    # the whole cube), the same for every build, read once into memory and never mapped, so replaced in place
     with cache.replacing(os.path.join(out, "area.geojson")) as f, \
             open(os.path.join(folder, "area.geojson"), "rb") as source:
         shutil.copyfileobj(source, f)
-    cube = countcube.build(paths, out, info)
+    cube = countcube.build(paths, out, info, say=say)
     say(f"Cube of {country.name} built in {out}" + (" (partial)" if missing else "")
         + f": {cube['totals']['lines']:,} lines, {cube['totals']['spots']:,} spots")
     return 0

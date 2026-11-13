@@ -550,7 +550,7 @@ def _build(tmp_path, tables, name="cube"):
 
 
 def _rows(out, mode, level):
-    rows = np.load(out / f"{mode}_{level}.npy")
+    rows = np.load(os.path.join(cc.arrays_folder(str(out)), f"{mode}_{level}.npy"))
     assert rows.dtype == np.int64 and rows.shape[1] == 3
     return rows
 
@@ -630,6 +630,215 @@ def test_build_of_interior_tiles_has_zero_border_totals(tmp_path):
     assert cube["totals"]["border"] == {"lines": {"owned": 0, "partner": 0}, "spots": {"owned": 0, "partner": 0}}
     empty = cc.build([], str(tmp_path / "empty"), {"origin": [1, 2]})
     assert empty["totals"]["lines"] == 0 and _rows(tmp_path / "empty", "lines", 1).shape == (0, 3)
+    nothing = cc.Cube(str(tmp_path / "empty"))  # empty arrays map too
+    assert nothing.array("lines", 1).shape == (0, 3) and all(len(v) == 0 for v in nothing.cells("spots", 8, None, cc.Filters()))
+
+
+def _mapped(a) -> bool:
+    """Whether an array is a view of a memory-mapped file (np.memmap somewhere down its bases)."""
+    while a is not None:
+        if isinstance(a, np.memmap):
+            return True
+        a = a.base
+    return False
+
+
+def _answers(cube):
+    """Every level's and mode's cells and histogram of the whole cube, no filter, as JSON text."""
+    out = {}
+    for mode in ("lines", "spots"):
+        for level in cc.LEVELS:
+            out[f"{mode}_{level}"] = json.dumps([[a.tolist() for a in cube.cells(mode, level, None, cc.Filters(), sides=True)],
+                                                 cube.histogram(mode, level, None, cc.Filters(), summary=True)])
+    return out
+
+
+def _builds(out):
+    return sorted(n for n in os.listdir(out) if cc.BUILD_PATTERN.fullmatch(n))
+
+
+def test_a_second_build_beside_a_mapped_cube(tmp_path):
+    """Each build writes its arrays into a new folder (BUILD_PATTERN) that cube.json, written last, names; a Cube maps
+    them read-only. A second build into the same folder while a Cube of the first is alive and has every array
+    mapped: it succeeds and names its own folder, the first Cube still answers as before; the first build's files
+    stay where the OS refuses to remove a mapped file (Windows: all eight, said once through `say`), elsewhere the
+    builder removes them and the maps stay readable. Once that Cube is dropped, remove_stale takes what stayed."""
+    import gc
+    rng = np.random.default_rng(61)
+    grid = _grid()
+    out, cube = _build(tmp_path, [(grid, _lines(rng, grid, 3000, lengths=(30, 5000), borders=True), None)])
+    first = cube["arrays"]
+    assert cc.BUILD_PATTERN.fullmatch(first) and sorted(os.listdir(out)) == sorted(["area.geojson", "cube.json", first])
+    assert sorted(os.listdir(out / first)) == sorted(cc.ARRAY_FILES)
+    old = cc.Cube(str(out))
+    assert old.arrays == str(out / first)
+    before = _answers(old)  # every array mapped
+    for mode in ("lines", "spots"):
+        for level in cc.LEVELS:
+            rows = old.array(mode, level)
+            assert _mapped(rows) and not rows.flags.writeable and rows.shape[1] == 3
+            assert np.array_equal(rows, np.load(out / first / f"{mode}_{level}.npy"))
+            keys, counts = old._rows(mode, level)
+            assert np.shares_memory(keys, rows) and np.shares_memory(counts, rows)
+    assert old.mapped()
+    said = []
+    paths = []
+    for k, (lo, hi) in enumerate(((30, 300), (300, 5000))):  # other counts: a new cube
+        paths.append(str(tmp_path / f"second{k}.npz"))
+        cc.save_tile(paths[-1], _counts(grid, _lines(rng, grid, 2000, lengths=(lo, hi)), None, (lo, hi)), {})
+    info = {k: v for k, v in cube.items() if k in ("id", "name", "crs", "origin", "bounds_wgs84", "bands")}
+    second = cc.build(paths, str(out), info, say=said.append)
+    assert second["arrays"] != first and json.loads((out / "cube.json").read_text())["arrays"] == second["arrays"]
+    assert sorted(os.listdir(out / second["arrays"])) == sorted(cc.ARRAY_FILES)
+    new = cc.Cube(str(out))
+    assert new.arrays == str(out / second["arrays"]) and _answers(new) != before
+    assert new.array("lines", 1)[:, 2].sum() == second["totals"]["lines"]
+    assert _answers(old) == before  # the first Cube still answers from its maps
+    if os.name == "nt":  # every file of the first build is mapped: Windows refuses to remove them
+        assert sorted(os.listdir(out / first)) == sorted(cc.ARRAY_FILES)
+        assert len(said) == 1 and said[0].startswith("8 files of earlier builds stay") and first in said[0]
+        assert cc.remove_stale(str(out)) == sorted(f"{first}/{n}" for n in cc.ARRAY_FILES)  # still mapped: stays
+    else:  # removed; the maps keep the data until they go
+        assert not (out / first).exists() and said == []
+    del old, rows, keys, counts
+    gc.collect()
+    assert cc.remove_stale(str(out)) == []
+    assert not (out / first).exists() and _builds(out) == [second["arrays"]]
+    assert sorted(os.listdir(out)) == sorted(["area.geojson", "cube.json", second["arrays"]])
+    assert _answers(new) == _answers(cc.Cube(str(out)))
+
+
+def test_a_build_that_died_half_written(tmp_path, monkeypatch):
+    """A build that dies after some arrays: cube.json still names the build before, which a Cube reads as before; the
+    dead folder is never read and stays until the next build (the web's removal keeps a build folder newer than the
+    one named: a build being written looks the same), which removes it with the build before."""
+    import gc
+    rng = np.random.default_rng(67)
+    grid = _grid()
+    out, cube = _build(tmp_path, [(grid, _lines(rng, grid, 2000, lengths=(30, 5000)), None)])
+    before = _answers(cc.Cube(str(out)))
+    meta = (out / "cube.json").read_bytes()
+    plain, saved = cc._save_npy, []
+
+    def dying(path, keys, counts):
+        if len(saved) == 3:
+            raise OSError("the disk is full")
+        saved.append(path)
+        plain(path, keys, counts)
+    monkeypatch.setattr(cc, "_save_npy", dying)
+    info = {k: v for k, v in cube.items() if k in ("id", "name", "crs", "origin", "bounds_wgs84", "bands")}
+    with pytest.raises(OSError, match="disk is full"):
+        cc.build([str(tmp_path / "tile0.npz")], str(out), info)
+    monkeypatch.setattr(cc, "_save_npy", plain)
+    dead = [n for n in _builds(out) if n != cube["arrays"]]
+    assert len(dead) == 1 and dead[0] > cube["arrays"] and len(os.listdir(out / dead[0])) == 3
+    assert (out / "cube.json").read_bytes() == meta
+    again = cc.Cube(str(out))
+    assert again.arrays == str(out / cube["arrays"]) and _answers(again) == before
+    assert cc.remove_stale(str(out)) == [] and _builds(out) == sorted([cube["arrays"], dead[0]])
+    del again
+    gc.collect()
+    third = cc.build([str(tmp_path / "tile0.npz")], str(out), info)
+    assert _builds(out) == [third["arrays"]] and third["arrays"] > dead[0]
+    assert _answers(cc.Cube(str(out))) == before  # the same tile: the same answers
+
+
+def test_a_cube_built_before_is_read_where_it_is(tmp_path):
+    """A cube built before the build folders (the fixed-name arrays beside cube.json, no "arrays"): read and mapped
+    where it is, the answers of the same cube in a build folder; remove_stale removes nothing while cube.json names no
+    build folder; the next build names its folder, and the fixed-name arrays go then (the outline stays)."""
+    import gc
+    rng = np.random.default_rng(71)
+    grid = _grid()
+    out, cube = _build(tmp_path, [(grid, _lines(rng, grid, 3000, lengths=(30, 5000), borders=True), None)])
+    before = _answers(cc.Cube(str(out)))
+    gc.collect()
+    for name in cc.ARRAY_FILES:  # the layout of before: the arrays beside cube.json, no "arrays" in it
+        os.replace(out / cube["arrays"] / name, out / name)
+    os.rmdir(out / cube["arrays"])
+    info = json.loads((out / "cube.json").read_text())
+    del info["arrays"]
+    (out / "cube.json").write_text(json.dumps(info, indent=1))
+    old = cc.Cube(str(out))
+    assert old.arrays == str(out) and cc.arrays_folder(str(out)) == str(out)
+    assert _answers(old) == before
+    assert all(_mapped(old.array(m, level)) for m in ("lines", "spots") for level in cc.LEVELS)
+    assert cc.remove_stale(str(out)) == [] and sorted(os.listdir(out)) == sorted(["area.geojson", "cube.json", *cc.ARRAY_FILES])
+    del old
+    gc.collect()
+    info = {k: v for k, v in cube.items() if k in ("id", "name", "crs", "origin", "bounds_wgs84", "bands")}
+    new = cc.build([str(tmp_path / "tile0.npz")], str(out), info)
+    assert sorted(os.listdir(out)) == sorted(["area.geojson", "cube.json", new["arrays"]])
+    assert _answers(cc.Cube(str(out))) == before
+    for name in ("../elsewhere", "build-x", 7):  # a name off the pattern: refused, nothing outside the folder read
+        (out / "cube.json").write_text(json.dumps({**new, "arrays": name}))
+        with pytest.raises(ValueError, match="no build folder"):
+            cc.Cube(str(out))
+        assert cc.remove_stale(str(out)) == [] and (out / new["arrays"]).is_dir()
+
+
+def _link(target, link) -> bool:
+    """A directory link (a junction on Windows: no privilege needed; a symlink elsewhere); False where none can be made."""
+    try:
+        if os.name == "nt":
+            import _winapi
+            _winapi.CreateJunction(str(target), str(link))
+        else:
+            os.symlink(target, link, target_is_directory=True)
+    except (OSError, AttributeError, NotImplementedError):
+        return False
+    return True
+
+
+def test_removal_is_narrow(tmp_path):
+    """remove_stale takes only what point 4 of the design names: build folders older than the one cube.json names and
+    the fixed-name arrays of LEVELS beside cube.json. Strays stay: other files and folders, names off the pattern, a
+    folder named like an array, a newer build folder, a link named like an older build (neither followed nor
+    removed: its target's file stays), anything outside the cube folder; an older build folder's entry that is not a
+    plain file stays (and so the folder, reported). Without "arrays" in cube.json, or without cube.json, nothing goes."""
+    rng = np.random.default_rng(73)
+    grid = _grid()
+    out, cube = _build(tmp_path, [(grid, _lines(rng, grid, 500, lengths=(30, 300)), None)])
+    named = cube["arrays"]
+    older = "build-20200101T000000.000000Z-0123abcd"
+    older2 = "build-20200102T000000.000000Z-89abcdef"
+    newer = "build-29990101T000000.000000Z-0123abcd"
+    for folder in (older, older2, newer, "build-old", "build-20200101T000000.000000Z-0123abcg", "notes", "lines_2.npy"):
+        (out / folder).mkdir()
+        (out / folder / "lines_1.npy").write_bytes(b"x")
+    (out / older2 / "inner").mkdir()  # not a build's: stays, and the folder with it
+    for name in ("stray.txt", "lines_3.npy", "lines_1.npy.bak", "spots_8.npy", "lines_1.npy", "spots_16.npy"):
+        (out / name).write_bytes(b"x")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.npy").write_bytes(b"x")
+    link = out / "build-20200103T000000.000000Z-0123abcd"
+    linked = _link(outside, link)
+    try:
+        (tmp_path / "lines_4.npy").write_bytes(b"x")  # beside the cube folder: never touched
+        without = json.loads((out / "cube.json").read_text())
+        del without["arrays"]
+        (out / "cube.json").write_text(json.dumps(without))
+        listing = sorted(os.listdir(out))
+        assert cc.remove_stale(str(out)) == [] and sorted(os.listdir(out)) == listing  # names no build: nothing goes
+        (out / "cube.json").write_text(json.dumps(cube))
+        left = cc.remove_stale(str(out))
+        assert left == [f"{older2}/inner"]
+        expected = {"area.geojson", "cube.json", named, older2, newer, "build-old",
+                    "build-20200101T000000.000000Z-0123abcg", "notes", "lines_2.npy", "stray.txt", "lines_3.npy",
+                    "lines_1.npy.bak", "spots_16.npy"} | ({link.name} if linked else set())
+        assert set(os.listdir(out)) == expected
+        assert os.listdir(out / older2) == ["inner"] and sorted(os.listdir(out / named)) == sorted(cc.ARRAY_FILES)
+        assert (out / newer / "lines_1.npy").exists() and (out / "notes" / "lines_1.npy").exists()
+        assert (out / "lines_2.npy" / "lines_1.npy").exists()
+        assert (outside / "keep.npy").exists() and (tmp_path / "lines_4.npy").exists()
+        (out / "cube.json").unlink()
+        assert cc.remove_stale(str(out)) == [] and set(os.listdir(out)) == expected - {"cube.json"}
+        assert cc.remove_stale(str(tmp_path / "nowhere")) == []
+    finally:
+        if linked:  # the link itself (never its target): no link left under the suite's folder
+            os.rmdir(link) if os.name == "nt" else os.unlink(link)
+    assert (outside / "keep.npy").exists()
 
 
 def _random_filters(rng):
