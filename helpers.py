@@ -492,6 +492,65 @@ def find_significant_slopes(elevation: np.ndarray, res: float, slope_threshold: 
     return np.concatenate(anchors) if anchors else np.empty((0, 2), dtype=np.int32)
 
 
+# --- Prototypes of the line-volume study (phase 3, 2026-11-13): measuring code behind settings that are off
+# by default (SearchParams.slope_baseline, lip_anchors). Plain numpy; nothing here runs when they are off. ---
+
+# The 8 neighbours in the order the steepest ascent tries them (the first of equal rises wins)
+_NEIGHBOURS = ((-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1))
+
+
+def baseline_steep(elevation: np.ndarray, res: float, slope_threshold: float, pixels: np.ndarray,
+                   baseline: int) -> np.ndarray:
+    """PROTOTYPE ('A guard for whole-metre heights', K-30). Which of `pixels` ([row, col]) are steep over a
+    baseline of `baseline` pixels (odd: 3 or 5): per axis the mean of the two height differences over
+    `baseline` pixels that straddle the pixel, (z[c+k] + z[c+k-1] - z[c-k+1] - z[c-k]) / (2 baseline res) with
+    k = (baseline + 1) / 2, and the squared gradient at least tan(threshold) squared. So a step lower than about
+    `baseline` metres (at 45 degrees) is not steep, a face is. Float64 and basic operations only: a pixel gets
+    the same answer in every tile. Indices are clipped at the grid's edges; a pixel whose long slope cannot be
+    computed (a missing height) counts as steep (the guard only removes what it can judge)."""
+    h, w = elevation.shape
+    rows, cols = pixels[:, 0].astype(np.int64), pixels[:, 1].astype(np.int64)
+    k = (int(baseline) + 1) // 2
+    z = lambda r, c: np.asarray(elevation[np.clip(r, 0, h - 1), np.clip(c, 0, w - 1)], dtype=np.float64)  # noqa: E731
+    scale = 2.0 * int(baseline) * res
+    gx = (z(rows, cols + k) + z(rows, cols + k - 1) - z(rows, cols - k + 1) - z(rows, cols - k)) / scale
+    gy = (z(rows + k, cols) + z(rows + k - 1, cols) - z(rows - k + 1, cols) - z(rows - k, cols)) / scale
+    limit = math.tan(math.radians(slope_threshold)) ** 2 * (1.0 - 1e-9)  # a slope of exactly the threshold passes
+    return ~((gx * gx + gy * gy) < limit)  # NaN: not judged, stays
+
+
+def lip_pixels(elevation: np.ndarray, res: float, steep: np.ndarray, area_mask: np.ndarray) -> np.ndarray:
+    """PROTOTYPE ('Rim anchors: the lip, steep pixel or not', K-26). The lip of every wall: for each steep pixel
+    (`steep`: [row, col], every steep pixel of the grid) whose steepest ascent (the 8-neighbour of the largest
+    rise per metre) leads to a pixel that is not steep, that pixel; for a steep pixel with no higher neighbour,
+    the pixel itself. So the lip is the pixel just above the top steep pixel of a wall, steep or not: a line one
+    pixel wide along each rim. Decided from the 5 x 5 pixels around a lip, so tiles agree. Returns the lips
+    inside the search area as [row, col] (int32), in row-major order."""
+    h, w = elevation.shape
+    rows, cols = steep[:, 0].astype(np.int64), steep[:, 1].astype(np.int64)
+    is_steep = np.zeros((h, w), dtype=bool)
+    is_steep[rows, cols] = True
+    here = np.asarray(elevation[rows, cols], dtype=np.float32)
+    best = np.zeros(len(rows), dtype=np.float32)
+    up_r, up_c = rows.copy(), cols.copy()
+    for dr, dc in _NEIGHBOURS:
+        r, c = rows + dr, cols + dc
+        inside = (r >= 0) & (r < h) & (c >= 0) & (c < w)
+        there = np.full(len(rows), np.nan, dtype=np.float32)
+        there[inside] = elevation[r[inside], c[inside]]
+        with np.errstate(invalid="ignore"):
+            rise = (there - here) / np.float32(res * math.hypot(dr, dc))
+            better = rise > best  # NaN (no data, outside): never
+        best[better] = rise[better]
+        up_r[better], up_c[better] = r[better], c[better]
+    top = (up_r == rows) & (up_c == cols)  # nothing higher around: the wall's top is its own lip
+    lip = top | ~is_steep[up_r, up_c]
+    flat = np.unique(up_r[lip] * w + up_c[lip])
+    lr, lc = flat // w, flat % w
+    inside = np.asarray(area_mask[lr, lc], dtype=bool)
+    return np.column_stack([lr[inside], lc[inside]]).astype(np.int32)
+
+
 def max_safe_elevation(t: np.ndarray, length: float, elev_a1: float, elev_a2: float,
                        sag_table=None) -> np.ndarray:
     """Highest allowed terrain/obstacle elevation at fractions t of a line.

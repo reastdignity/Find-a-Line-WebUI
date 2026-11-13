@@ -1263,6 +1263,36 @@ def _anchor_values(plan: Plan, data: Data, anchors: np.ndarray, crop: bool = Fal
     return prom, drop
 
 
+def _prototype_anchors(plan: Plan, data: Data, anchors: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """PROTOTYPES of the line-volume study (phase 3; measuring code, off by default): the anchors of step 2
+    under --slope-baseline ('A guard for whole-metre heights', K-30: an anchor must also be steep over a
+    longer baseline, helpers.baseline_steep) and --lip-anchors ('Rim anchors: the lip, steep pixel or not',
+    K-26: helpers.lip_pixels of the steep pixels the guard leaves; "only" instead of the steep pixels, "add"
+    with them). Both are decided from a few pixels around each anchor, so tiles give one grid's anchors."""
+    p, emit = plan.params, plan.emit
+    if p.slope_baseline:
+        anchors = anchors[sh.baseline_steep(data.elevation, plan.resolution, p.slope_threshold, anchors,
+                                            p.slope_baseline)]
+        emit("info", f"Anchors steep over a baseline of {p.slope_baseline} pixels too: {len(anchors)}")
+    if p.lip_anchors != "off":
+        # every steep pixel of the grid (a wall's top steep pixel may lie just outside the area)
+        steep = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
+                                           np.broadcast_to(True, data.elevation.shape), data.slope,
+                                           threads=line_threads(p))
+        if p.slope_baseline:
+            steep = steep[sh.baseline_steep(data.elevation, plan.resolution, p.slope_threshold, steep,
+                                            p.slope_baseline)]
+        lips = sh.lip_pixels(data.elevation, plan.resolution, steep, mask)
+        emit("info", f"Lip pixels: {len(lips)}")
+        if p.lip_anchors == "add":  # with the steep pixels, in row-major order as step 2 gives them
+            width = data.elevation.shape[1]
+            flat = np.unique(np.concatenate([anchors[:, 0].astype(np.int64) * width + anchors[:, 1],
+                                             lips[:, 0].astype(np.int64) * width + lips[:, 1]]))
+            lips = np.column_stack([flat // width, flat % width]).astype(np.int32)
+        anchors = lips
+    return anchors
+
+
 def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False) -> Optional[Anchors]:
     """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
     data) within the elevation band (--min/--max-elevation), with their prominence and drop and
@@ -1272,9 +1302,11 @@ def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False
     one with lines are in none; _pair_search computes those of the lines' anchors)."""
     p, grid, emit = plan.params, plan.grid, plan.emit
     _step(plan, 2, "finding significant slopes")
-    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope,
+    mask = plan.area.mask(grid) if data.mask is None else data.mask
+    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold, mask, data.slope,
                                          threads=line_threads(p))
+    if p.slope_baseline or p.lip_anchors != "off":  # prototypes of the line-volume study: off by default
+        anchors = _prototype_anchors(plan, data, anchors, mask)
     for seams in (data.filled, data.joined):
         if seams is not None:  # slopes across the edge of a filled gap mix two surveys: not reliable anchors there
             anchors = anchors[~at_seams(seams, anchors)]
@@ -1523,6 +1555,9 @@ def _search_hash(plan: Plan) -> str:
             del p[name]
     for name in ("end_zone", "anchor_lift"):  # 0: the hash of before
         if p[name] == 0:
+            del p[name]
+    for name, off in (("slope_baseline", 0), ("lip_anchors", "off")):  # the study's prototypes: off, the hash of before
+        if p[name] == off:
             del p[name]
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
@@ -1825,6 +1860,10 @@ def _run_params(plan: Plan) -> Dict:
         params["end_zone"] = p.end_zone
     if plan.lift:
         params["anchor_lift"] = p.anchor_lift
+    if p.slope_baseline:  # the line-volume study's prototypes, only when set: run.json of before
+        params["slope_baseline"] = p.slope_baseline
+    if p.lip_anchors != "off":
+        params["lip_anchors"] = p.lip_anchors
     return params
 
 

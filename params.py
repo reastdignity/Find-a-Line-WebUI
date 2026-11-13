@@ -141,6 +141,15 @@ class SearchParams(BaseModel):
     min_drop: Optional[float] = field(None, "keep only lines whose anchors are both at least this many metres "
                                             "above the lowest terrain within --drop-radius", "search")
     drop_radius: float = field(50, "metres around an anchor in which its drop is measured", "search")
+    # Prototypes of the line-volume study (phase 3, 2026-11-13): measuring code, command line only, off by default
+    slope_baseline: int = field(
+        0, "PROTOTYPE (line-volume study, K-30, a guard for whole-metre heights): an anchor must also be steep "
+           "over a baseline of this many pixels (3 or 5; 0: off), so a step of 1-2 m is no anchor", "search",
+        cli_only=True)
+    lip_anchors: Literal["off", "only", "add"] = field(
+        "off", "PROTOTYPE (line-volume study, K-26, rim anchors): anchors on the lip of each wall, the pixel just "
+               "above its top steep pixel, steep or not: 'only' instead of the steep pixels, 'add' with them",
+        "search", cli_only=True)
     threads: Optional[int] = field(None, "number of threads for the line search (default: CPU count - 1, "
                                          "at most a container's CPU quota); from 2, the files of a large run are "
                                          "written by processes of their own (2 and 3: two, 4 and more: four)",
@@ -286,6 +295,8 @@ class SearchParams(BaseModel):
             raise UserError(f"--end-zone is 0 to {END_ZONE_MAX:g} m", "end_zone_range", max=END_ZONE_MAX)
         if not 0 <= self.anchor_lift <= ANCHOR_LIFT_MAX:
             raise UserError(f"--anchor-lift is 0 to {ANCHOR_LIFT_MAX:g} m", "anchor_lift_range", max=ANCHOR_LIFT_MAX)
+        if self.slope_baseline not in (0, 3, 5):  # prototype (command line only)
+            raise ValueError("--slope-baseline is 0, 3 or 5 pixels")
         return self
 
 
