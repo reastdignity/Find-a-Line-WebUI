@@ -181,7 +181,8 @@ def test_the_wrapper_runs_a_full_pytest_in_parallel(tmp_path):
     out.mkdir()
     env = dict(os.environ, FINDALINE_TEST_LOCK_DIR=str(tmp_path / "locks"), FINDALINE_TEST_LOCK_POLL="0.05",
                OUT=str(out))
-    env.pop("PYTEST_ADDOPTS", None)
+    for name in ("PYTEST_ADDOPTS", "PYTEST_XDIST_WORKER", "PYTEST_XDIST_WORKER_COUNT"):  # not this run's own,
+        env.pop(name, None)                                                               # when it is a worker
     command = [sys.executable, TOOL, "run", "--expect", "60", "--", sys.executable, "-m", "pytest", "-q",
                "-p", "no:cacheprovider"]
     result = subprocess.run(command, cwd=project, env=env, capture_output=True, text=True, encoding="utf-8",
