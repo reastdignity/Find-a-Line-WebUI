@@ -88,3 +88,6 @@ docs/country-precompute/contract.md; the measurements: docs/country-precompute.m
   country: the page counts `layerState.ts` `activeCubes`, and `_partition` neither cuts it nor cuts by it;
   `area.geojson` is written once, so `_partition` reaches only a country set up after its neighbour (a country set up
   before keeps its outline, and `_say_overlaps` warns).
+- `tests/cube_oracle.py` is `Cube.cells`/`Cube.histogram` of b45b950 frozen, the oracle the lean code's answers are
+  compared with (`test_lean_answers_equal_the_oracle`, `test_answers_equal_the_oracle`): a change of what an answer
+  means (the filters' semantics, the key) changes it in the same commit, a change of speed or memory never does.
