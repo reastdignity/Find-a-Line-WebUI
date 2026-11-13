@@ -23,7 +23,7 @@ the highline layer of a country (`Countries`: one `countcube.Cube` per version o
 build's Cube replaces the old one, which is closed (`Cube.close`) and kept in `_retired` until no computation maps it
 (`Cube.mapped`), then `_tidy` runs `countcube.remove_stale` in the caller's thread of the pool (also at a folder's
 first cube in the process), never raising, logging nothing; `GET /api/countries` (cube.json
-without `config` and `origin`), `/api/countries/<id>/cells` (mode, `bbox` = Leaflet's `toBBoxString()`, else the
+without `config`, `origin` and `arrays`), `/api/countries/<id>/cells` (mode, `bbox` = Leaflet's `toBBoxString()`, else the
 cube's bounds grown by the layer's reach (`Cube.reach_m`: the partner lines' cells beyond the outline); `level=auto` →
 `Cube.auto_level`, an explicit level over `COUNTRY_CELLS_MAX` (20000) cells in view a 400 "too many cells"; the
 filters of `countcube.Filters.parse` with `border=all|own` (all by default: the interior, owned and partner lines;

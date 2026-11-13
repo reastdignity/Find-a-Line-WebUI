@@ -466,7 +466,8 @@ work runs in `run_in_threadpool`. The web process imports `countcube` only, neve
 
 ```
 GET /api/countries
-  → {"countries": [<cube.json without "config" and "origin">, ...]}   (the cubes under <data>/countries/*/cube/)
+  → {"countries": [<cube.json without "config" and "origin">, ...]}   (the cubes under <data>/countries/*/cube/;
+                                                                      since 2026-11-13 also without "arrays")
 GET /api/countries/{id}/cells?mode=lines|spots&bbox=<west>,<south>,<east>,<north>&level=auto|1|2|4|8
                              &length=<lo>-<hi>&prominence=<p>&wall=<w>&clearance=<c>&height=<h>&trees=all|no|only&water=all|land|water
   → {"level": 2, "cell_m": 2000, "total": 12345, "max": 678, "cells": [[i, j, count, lat_sw, lon_sw, lat_se, lon_se,

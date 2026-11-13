@@ -637,7 +637,8 @@ class Countries:
             pass
 
     def listing(self) -> List[Dict]:
-        """cube.json of every country with a cube, without "config" and "origin", by id."""
+        """cube.json of every country with a cube, without "config", "origin" and "arrays" (the build folder's
+        name: how the cube is stored, the same answer for a cube built before the build folders), by id."""
         try:
             names = sorted(os.listdir(self.root))
         except OSError:
@@ -646,7 +647,7 @@ class Countries:
         for name in names:
             cube = self.cube(name)
             if cube is not None:
-                out.append({k: v for k, v in cube.info.items() if k not in ("config", "origin")})
+                out.append({k: v for k, v in cube.info.items() if k not in ("config", "origin", "arrays")})
         return out
 
     def replaced(self, cube) -> Tuple[int, ...]:
@@ -1844,7 +1845,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
 
     @app.get("/api/countries")
     async def country_list(user: ac.User = Depends(require_admin)):
-        """The countries with a highline layer: their cube.json without "config" and "origin"."""
+        """The countries with a highline layer: their cube.json without "config", "origin" and "arrays"."""
         return {"countries": await run_in_threadpool(countries.listing)}
 
     @app.get("/api/countries/{country}/cells")

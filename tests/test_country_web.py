@@ -183,8 +183,8 @@ def client(sample):
 
 
 def test_countries_listed(client, sample, tmp_path):
-    """cube.json of each built country without "config" and "origin"; a country without a cube, or a cube
-    that cannot be read, is left out; an empty data folder lists none."""
+    """cube.json of each built country without "config", "origin" and "arrays" (the build folder: how the cube is
+    stored); a country without a cube, or a cube that cannot be read, is left out; an empty data folder lists none."""
     found = client.get("/api/countries")
     assert found.status_code == 200, found.text
     countries = found.json()["countries"]
@@ -192,8 +192,8 @@ def test_countries_listed(client, sample, tmp_path):
     slovakia = next(c for c in countries if c["id"] == "slovakia")
     with open(os.path.join(sample, "countries", "slovakia", "cube", "cube.json"), encoding="utf-8") as f:
         info = json.load(f)
-    assert slovakia == {k: v for k, v in info.items() if k not in ("config", "origin")}
-    assert "config" not in slovakia and "origin" not in slovakia
+    assert slovakia == {k: v for k, v in info.items() if k not in ("config", "origin", "arrays")}
+    assert "config" not in slovakia and "origin" not in slovakia and "arrays" not in slovakia and "arrays" in info
     assert {"bands", "edges", "levels", "cell_deg", "totals", "built", "credits", "dsm", "kinds"} <= set(slovakia)
     assert "cell_m" not in slovakia and slovakia["version"] == cc.VERSION == 2
 
