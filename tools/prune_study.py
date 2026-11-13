@@ -53,9 +53,13 @@ Places come from production's grouping, never from a copy of it: before the rule
 table's saved places (the `group` column, when the run was grouped at the app's default distance,
 max(20 m, 2 pixels), by clearance); the kept lines are grouped again by mapping.group_lines. With
 lines.js beside the table its unrounded values and the search's order of the lines are used, as
-the search itself would group; without it (a table of lines.csv and run.json alone) the grouping
-reads lines.csv's rounded values in its order, where lines that tie may group differently: the
-audit states which, and always gives the check "every line grouped again: N places, saved: M".
+the search itself would group: exact. Without it (a table of lines.csv and run.json alone) the
+lines are grouped in the order the file's rows imply (Table.file_rank): every line together gives
+the saved places again, but the kept lines of a rule may group differently than in the search
+where lines of different places tie in the rounded clearance (four audits of two tables of the
+study, 0.9 and 3.1 million lines: the same number of places as with lines.js three times, 3 501
+against 3 499 once). The audit states which was read, and always gives the check "every line
+grouped again: N places, saved: M".
 
 The audit of one rule on one table (Audit.summary, audit.json):
 - lines kept and dropped; places before, emptied (no line kept), places whose shown line (the
@@ -122,6 +126,7 @@ VIOLATIONS_MAX = 100_000  # rows of violations.csv at most (audit.json holds the
 PICTURE_PLACES = 4    # --pictures: the largest places drawn
 PICTURE_LINES = 20_000  # lines drawn per picture and kind at most (an even sample beyond)
 CACHE_VERSION = 1     # of the cached columns: raised when load_table reads a file differently
+GROUPING_VERSION = 2  # of grouping_check's cached result: raised when places_of groups a table differently
 CACHE_FOLDER = "prune_study_cache"
 
 # lines.csv's columns (runs.FIELDS, runs.END_FIELDS) and the table's names for them
@@ -253,7 +258,7 @@ class Table:
     """
 
     def __init__(self, columns: Dict[str, np.ndarray], meta: Optional[Dict] = None, name: str = "",
-                 path: Optional[str] = None, source: str = "lines.csv", order: Optional[np.ndarray] = None,
+                 path: Optional[str] = None, source: str = "table", order: Optional[np.ndarray] = None,
                  exact: Optional[Dict[str, np.ndarray]] = None):
         self.columns = columns
         self.meta = meta or {}
@@ -264,6 +269,7 @@ class Table:
         self.exact = exact or {}  # unrounded values of the grouping, by the table's rows
         self._saved = None
         self._grouped = {}
+        self._rank = {}
         self._check = None
         self._tag = None
         self._cache = None
@@ -293,6 +299,30 @@ class Table:
         if not resolution:  # an automatic resolution is not recorded: the run's own distance, when it has one
             return float(self.params.get("group_distance") or APP_DISTANCE)
         return max(APP_DISTANCE, 2.0 * float(resolution))
+
+    def file_rank(self, by: str) -> Optional[np.ndarray]:
+        """For a table of lines.csv alone: each row's position in the search's order of the lines (best
+        first by `by`), as far as the file tells it; None for any other table, or when the run was
+        grouped by another rule.
+
+        lines.csv is written place by place, the best place first, each place's lines best first
+        (runs.row_order). So three things are known of the search's order: a line of a larger rounded
+        value (the clearance of "clearance") comes first; the lines of one place stand in their order;
+        the places' representatives stand in theirs. The rows sorted by the rounded value alone, equal
+        ones as the file has them, keep all three (sorting by the rounded length too would not). Every
+        line grouped in that order gives the saved places again; a part of the lines may still group
+        differently than in the search where lines of different places tie in the rounded value.
+        """
+        first = {"clearance": "clearance", "longest": "length", "height": "height_max"}.get(by)
+        if (self.source != "lines.csv" or self.order is not None or "group" not in self or first not in self
+                or self.params.get("group_by", "clearance") != by):
+            return None
+        if by not in self._rank:
+            order = np.argsort(-self[first], kind="stable")
+            rank = np.empty(len(order), dtype=np.int64)
+            rank[order] = np.arange(len(order), dtype=np.int64)
+            self._rank[by] = rank
+        return self._rank[by]
 
     def saved_places(self, distance: float, by: str) -> bool:
         """Whether the table's `group` column holds production's places at this distance and rule."""
@@ -461,8 +491,8 @@ def places_of(table: Table, keep: Optional[np.ndarray] = None, distance: Optiona
     Without `keep` and with saved=True the table's own places are returned when the run saved them at
     that distance and rule (production's result as it stands in lines.csv). Otherwise the lines are
     grouped here by mapping.group_lines: in the search's order with lines.js's unrounded values when the
-    table has them (Table.source "lines.js", or a capture), else in lines.csv's order with its rounded
-    values.
+    table has them (Table.source "lines.js", or a capture), else in the order that lines.csv's rows
+    imply (Table.file_rank: exact for every line together, an estimate for a part of them).
     """
     distance = table.distance if distance is None else float(distance)
     n = len(table)
@@ -478,9 +508,9 @@ def places_of(table: Table, keep: Optional[np.ndarray] = None, distance: Optiona
             return Places(table._saved[0], table._saved[1], "saved", distance)
     import helpers
     import mapping
-    whole = keep is None
-    if whole and (distance, by) in table._grouped:
-        return table._grouped[distance, by]
+    whole, key = keep is None, (distance, by)
+    if whole and key in table._grouped:
+        return table._grouped[key]
     keep = np.ones(n, dtype=bool) if whole else np.asarray(keep, dtype=bool)
     rows = np.flatnonzero(keep) if table.order is None else table.order[keep[table.order]]
     place = np.full(n, -1, dtype=np.int64)
@@ -494,12 +524,16 @@ def places_of(table: Table, keep: Optional[np.ndarray] = None, distance: Optiona
                "clearance": value("clearance"), "length": value("length")}
     if "height_max" in table:
         columns["height_max"] = value("height_max")
+    rank = table.file_rank(by)
+    if rank is not None:  # lines.csv alone: its rows' order of the search, as the one value production sorts by
+        columns.update(clearance=-rank[rows].astype(np.float64), length=np.zeros(len(rows)))
+        by = "clearance"
     with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):  # its bar
         groups = mapping.group_lines(helpers.LineTable(columns), distance, by)
     place[rows[groups.members]] = np.repeat(np.arange(len(groups), dtype=np.int64), groups.sizes())
     places = Places(place, rows[groups.rep], "grouped", distance)
     if whole:
-        table._grouped[distance, by] = places
+        table._grouped[key] = places
     return places
 
 
@@ -522,7 +556,8 @@ def grouping_check(table: Table) -> Optional[Dict]:
     saved = places_of(table)
     if saved.source != "saved":
         return None
-    file = os.path.join(table._cache, f"check_{table._tag}_{saved.distance:g}.json") if table._cache else None
+    file = (os.path.join(table._cache, f"check_{table._tag}_{saved.distance:g}_{GROUPING_VERSION}.json")
+            if table._cache else None)
     if file and os.path.exists(file):
         with open(file, encoding="utf-8") as f:
             table._check = json.load(f)
@@ -531,6 +566,7 @@ def grouping_check(table: Table) -> Optional[Dict]:
     table._check = {"saved": len(saved), "grouped_again": len(again), "lines": len(table),
                     "lines_in_the_same_place": same_places(saved.place, again.place)}
     if file:
+        os.makedirs(table._cache, exist_ok=True)
         with open(file, "w", encoding="utf-8") as f:
             json.dump(table._check, f)
     return table._check
@@ -924,8 +960,7 @@ class Audit:
 
     @property
     def title(self) -> str:
-        params = ", ".join(f"{k} {v:g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else f"{k} {v}"
-                           for k, v in self.params.items())
+        params = ", ".join(f"{k} {v:.12g}" if isinstance(v, float) else f"{k} {v}" for k, v in self.params.items())
         return self.rule.label + (f", {params}" if params else "")
 
     def markdown(self) -> str:
@@ -999,7 +1034,7 @@ class Audit:
         text += ["", "One row for a table of cases:", "",
                  "| Table | Rule | Lines | Kept | Places | Emptied | Shown line dropped | Places after | "
                  f"No kept line within {radius} | Best clearance lost | Stack tops lost | Sectors lost | "
-                 "Valid without zone and A-frames dropped |", "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+                 "Valid without zone and A-frames dropped |", "|---|---|" + "---:|" * 11,
                  f"| {s['table']['name']} | {self.title} | {_number(n)} | {_number(lines['kept'])} "
                  f"({_share(lines['kept'], n)}) | {_number(places['before'])} | {_number(places['emptied'])} | "
                  f"{_number(places['representatives_dropped'])} | {_number(places['after_grouped_again'])} | "
@@ -1091,10 +1126,17 @@ def _sample(rows: np.ndarray, limit: int = PICTURE_LINES) -> np.ndarray:
     return rows if len(rows) <= limit else rows[np.linspace(0, len(rows) - 1, limit).round().astype(np.int64)]
 
 
+def _points(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """The different points (x, y), one row each."""
+    return np.unique(np.column_stack([x, y]), axis=0) if len(x) else np.zeros((0, 2))
+
+
 def draw_places(result: Audit, out: str, count: int = PICTURE_PLACES) -> List[str]:
-    """Plan views of the `count` largest places (by their lines before the rule): the place before, and
-    after with the kept lines over the dropped ones; metres from the place's middle, north up. The
-    pictures show the run's own places: they belong beside the audit, never in the repository."""
+    """Plan views of the `count` largest places (by their lines before the rule), one picture each: the
+    upper row before the rule, the lower row after it; left the whole place (the lines), then both
+    ends enlarged (the anchors as points: after the rule those that keep a line and those that lose
+    all of theirs). Metres from the place's middle, north up. The pictures show the run's own places:
+    they belong beside the audit, never in the repository."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -1105,48 +1147,81 @@ def draw_places(result: Audit, out: str, count: int = PICTURE_PLACES) -> List[st
     sizes = places.sizes()
     files = []
     for rank, p in enumerate(np.argsort(-sizes, kind="stable")[:count].tolist(), 1):
-        rows = np.flatnonzero(places.place == p)
-        x = np.concatenate([t["x1"][rows], t["x2"][rows]])
-        y = np.concatenate([t["y1"][rows], t["y2"][rows]])
-        mx, my = (x.min() + x.max()) / 2, (y.min() + y.max()) / 2
-        segments = lambda r: np.stack([np.column_stack([t["x1"][r] - mx, t["y1"][r] - my]),  # noqa: E731
-                                       np.column_stack([t["x2"][r] - mx, t["y2"][r] - my])], axis=1)
-        kept, dropped = rows[keep[rows]], rows[~keep[rows]]
-        alpha = lambda k: float(np.clip(30.0 / max(k, 1) ** 0.5, 0.04, 0.9))  # noqa: E731
-        fig, axes = plt.subplots(1, 2, figsize=(15, 7.6), dpi=110, sharex=True, sharey=True, facecolor=SURFACE)
-        shown = int(places.rep[p])
-        for ax, parts, head in (
-                (axes[0], [(rows, MUTED, f"all lines ({_number(len(rows))})")],
-                 f"Before: {_number(len(rows))} lines"),
-                (axes[1], [(dropped, DROPPED_COLOUR, f"dropped ({_number(len(dropped))})"),
-                           (kept, KEPT_COLOUR, f"kept ({_number(len(kept))})")],
-                 f"After: {_number(len(kept))} kept, {_number(len(dropped))} dropped")):
+        rows, shown = np.flatnonzero(places.place == p), int(places.rep[p])
+        x1, y1, x2, y2 = (t[c][rows] for c in ("x1", "y1", "x2", "y2"))
+        # every line turned as the shown line lies: end A near its first anchor
+        sx1, sy1, sx2, sy2 = (t[c][shown] for c in ("x1", "y1", "x2", "y2"))
+        turn = (np.hypot(x1 - sx1, y1 - sy1) + np.hypot(x2 - sx2, y2 - sy2)
+                > np.hypot(x1 - sx2, y1 - sy2) + np.hypot(x2 - sx1, y2 - sy1))
+        mx, my = (min(x1.min(), x2.min()) + max(x1.max(), x2.max())) / 2, (min(y1.min(), y2.min())
+                                                                             + max(y1.max(), y2.max())) / 2
+        ax_, ay_ = np.where(turn, x2, x1) - mx, np.where(turn, y2, y1) - my
+        bx_, by_ = np.where(turn, x1, x2) - mx, np.where(turn, y1, y2) - my
+        kept = keep[rows]
+        at = int(np.flatnonzero(rows == shown)[0])
+        fig, axes = plt.subplots(2, 3, figsize=(17, 10.5), dpi=100, facecolor=SURFACE)
+        for row, after in ((0, False), (1, True)):
+            ax = axes[row, 0]
+            parts = ([(~kept, DROPPED_COLOUR, "dropped lines"), (kept, KEPT_COLOUR, "kept lines")] if after
+                     else [(np.ones(len(rows), dtype=bool), MUTED, "all lines")])
             handles = []
-            for part, colour, label in parts:
-                drawn = _sample(part)
-                ax.add_collection(LineCollection(segments(drawn), colors=colour, linewidths=0.6,
-                                                 alpha=alpha(len(drawn))))
-                handles.append(Line2D([], [], color=colour, lw=2, label=label + (
-                    f", {_number(len(drawn))} drawn" if len(drawn) < len(part) else "")))
-            state = "" if ax is axes[0] else " (kept)" if keep[shown] else " (dropped)"
-            ax.plot([t["x1"][shown] - mx, t["x2"][shown] - mx], [t["y1"][shown] - my, t["y2"][shown] - my],
-                    color=INK, lw=1.6, ls=(0, (5, 3)))
-            handles.append(Line2D([], [], color=INK, lw=1.6, ls=(0, (5, 3)),
+            for mask, colour, label in parts:
+                drawn = _sample(np.flatnonzero(mask))
+                segments = np.stack([np.column_stack([ax_[drawn], ay_[drawn]]),
+                                     np.column_stack([bx_[drawn], by_[drawn]])], axis=1)
+                ax.add_collection(LineCollection(segments, colors=colour, linewidths=0.6,
+                                                 alpha=float(np.clip(600.0 / max(len(drawn), 1), 0.05, 0.8))))
+                handles.append(Line2D([], [], color=colour, lw=2, label=f"{label} ({_number(int(mask.sum()))}"
+                               + (f", {_number(len(drawn))} drawn)" if len(drawn) < mask.sum() else ")")))
+            state = "" if not after else " (kept)" if keep[shown] else " (dropped)"
+            ax.plot([ax_[at], bx_[at]], [ay_[at], by_[at]], color=INK, lw=1.4, ls=(0, (5, 3)))
+            handles.append(Line2D([], [], color=INK, lw=1.4, ls=(0, (5, 3)),
                                   label="the line shown for the place today" + state))
-            ax.set_facecolor(SURFACE)
-            ax.set_aspect("equal")
-            ax.set_title(head, color=INK, fontsize=12, loc="left")
-            ax.set_xlabel("metres east of the place's middle", color=MUTED)
-            ax.grid(color="#e4e3df", lw=0.6)
-            ax.tick_params(colors=MUTED)
-            for spine in ax.spines.values():
-                spine.set_color("#c9c8c3")
-            ax.legend(handles=handles, loc="upper left", frameon=True, facecolor=SURFACE, edgecolor="#c9c8c3",
-                      labelcolor=INK, fontsize=9)
-        axes[0].set_ylabel("metres north", color=MUTED)
-        pad = 0.04 * max(x.max() - x.min(), y.max() - y.min(), 1.0)
-        axes[0].set_xlim(x.min() - mx - pad, x.max() - mx + pad)
-        axes[0].set_ylim(y.min() - my - pad, y.max() - my + pad)
+            xs, ys = np.concatenate([ax_, bx_]), np.concatenate([ay_, by_])
+            pad = 0.05 * max(xs.max() - xs.min(), ys.max() - ys.min(), 1.0)
+            ax.set_xlim(xs.min() - pad, xs.max() + pad)
+            ax.set_ylim(ys.min() - pad, ys.max() + pad)
+            ax.set_title(f"After: {_number(int(kept.sum()))} lines kept, {_number(int((~kept).sum()))} dropped"
+                         if after else f"Before: {_number(len(rows))} lines", color=INK, fontsize=12, loc="left")
+            falling = (bx_[at] - ax_[at]) * (by_[at] - ay_[at]) < 0  # the lines run from the upper left corner
+            ax.legend(handles=handles, loc="upper right" if falling else "upper left", frameon=True,
+                      facecolor=SURFACE, edgecolor="#c9c8c3", labelcolor=INK, fontsize=9)
+            ax.set_ylabel("metres north of the place's middle", color=MUTED)
+            for column, (ex, ey, name) in enumerate(((ax_, ay_, "A"), (bx_, by_, "B")), 1):
+                ax = axes[row, column]
+                every, left = _points(ex, ey), _points(ex[kept], ey[kept])
+                if after:
+                    lost = _points(ex[~kept], ey[~kept])
+                    if len(left) and len(lost):  # the anchors that lose every line: not among the kept ones
+                        codes = lambda v: (np.round(v[:, 0] * 100).astype(np.int64) * 10 ** 9  # noqa: E731
+                                           + np.round(v[:, 1] * 100).astype(np.int64))
+                        lost = lost[~np.isin(codes(lost), codes(left))]
+                    ax.scatter(lost[:, 0], lost[:, 1], s=9, color=DROPPED_COLOUR, linewidths=0,
+                               label=f"anchors that lose all their lines ({_number(len(lost))})")
+                    ax.scatter(left[:, 0], left[:, 1], s=14, color=KEPT_COLOUR, linewidths=0,
+                               label=f"anchors with a kept line ({_number(len(left))})")
+                else:
+                    ax.scatter(every[:, 0], every[:, 1], s=9, color=MUTED, linewidths=0,
+                               label=f"anchors ({_number(len(every))})")
+                ax.scatter([ex[at]], [ey[at]], s=90, facecolors="none", edgecolors=INK, linewidths=1.4,
+                           label="the shown line's anchor")
+                span = max(every[:, 0].max() - every[:, 0].min(), every[:, 1].max() - every[:, 1].min(), 10.0)
+                cx, cy = (every[:, 0].max() + every[:, 0].min()) / 2, (every[:, 1].max() + every[:, 1].min()) / 2
+                ax.set_xlim(cx - 0.56 * span, cx + 0.56 * span)
+                ax.set_ylim(cy - 0.56 * span, cy + 0.9 * span)  # room for the legend above the anchors
+                ax.set_title(f"End {name}, enlarged", color=INK, fontsize=12, loc="left")
+                ax.legend(loc="upper left", frameon=True, facecolor=SURFACE, edgecolor="#c9c8c3", labelcolor=INK,
+                          fontsize=9)
+            for ax in axes[row]:
+                ax.set_facecolor(SURFACE)
+                ax.set_aspect("equal")
+                ax.grid(color="#e4e3df", lw=0.6)
+                ax.tick_params(colors=MUTED)
+                ax.set_axisbelow(True)
+                for spine in ax.spines.values():
+                    spine.set_color("#c9c8c3")
+                if after:
+                    ax.set_xlabel("metres east of the place's middle", color=MUTED)
         fig.suptitle(f"{t.name}: place {p + 1} of {_number(len(places))} (number {rank} by size). {result.title}",
                      color=INK, fontsize=12, x=0.01, ha="left")
         fig.tight_layout(rect=(0, 0, 1, 0.96))

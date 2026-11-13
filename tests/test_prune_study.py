@@ -111,61 +111,106 @@ def test_table_as_the_search_saves_it(tmp_path):
     assert ps.grouping_check(table) == {"saved": 3, "grouped_again": 3, "lines": 6, "lines_in_the_same_place": 6}
 
 
-def test_places_of_kept_lines_are_productions(tmp_path):
-    rng = np.random.default_rng(5)
+def clustered(clearance, n=400, seed=5):
+    """Made-up lines in clusters of near-identical ones; clearance(k, rng) gives line k's."""
+    rng = np.random.default_rng(seed)
     rows = []
-    for k in range(400):  # clusters of near-identical lines
+    for k in range(n):
         cx, cy = rng.integers(0, 6, 2) * 60.0
         x1, y1 = cx + rng.integers(0, 30), cy + rng.integers(0, 30)
         rows.append(line(k, x1, y1, x1 + 80 + rng.integers(0, 30), y1 + rng.integers(0, 30),
-                         clearance=float(rng.integers(1, 40)) / 4, over_obstacles=bool(k % 7 == 0)))
-    folder, groups = save(tmp_path / "run", rows)
+                         clearance=clearance(k, rng), over_obstacles=bool(k % 7 == 0)))
+    return rows
+
+
+def searched(rows, kept):
+    """The places the search itself gives the lines `kept` (their numbers): production's grouping of
+    the unrounded lines in the search's order, as (representative, set of members) per place."""
+    part = [row for row in rows if int(row["water_m"]) in kept]
+    groups = mapping.group_lines(helpers.LineTable.from_rows(part), 20.0, "clearance")
+    number = lambda i: int(part[i]["water_m"])  # noqa: E731
+    return [(number(r), {number(i) for i in groups.of(g)}) for g, r in enumerate(groups.rep.tolist())]
+
+
+def found(table, places):
+    numbers = table["water_m"].astype(int)
+    return [(int(numbers[r]), set(numbers[places.place == g].tolist())) for g, r in enumerate(places.rep.tolist())]
+
+
+def test_places_of_kept_lines_are_the_searchs(tmp_path):
+    # unrounded clearances with many near-ties: lines.js beside the table gives the search's own places
+    rows = clustered(lambda k, rng: float(rng.integers(1, 40)) / 4 + float(rng.integers(0, 9)) / 1000)
+    folder, groups = save(tmp_path / "js", rows, lines_js=True)
     table = ps.load_table(folder, cache=False)
-    assert len(ps.places_of(table)) == len(groups)
-    keep = rng.random(len(table)) < 0.5
+    assert table.source == "lines.js" and len(ps.places_of(table)) == len(groups)
+    keep = np.random.default_rng(1).random(len(table)) < 0.5
     places = ps.places_of(table, keep)
-    # production's grouping called by hand on the kept rows of the table
-    kept = np.flatnonzero(keep)
-    columns = {"a1_xy": np.column_stack([table["x1"], table["y1"]])[kept],
-               "a2_xy": np.column_stack([table["x2"], table["y2"]])[kept],
-               "over_obstacles": table["over_obstacles"][kept], "clearance": table["clearance"][kept],
-               "length": table["length"][kept], "height_max": table["height_max"][kept]}
-    expected = mapping.group_lines(helpers.LineTable(columns), 20.0, "clearance")
-    assert len(places) == len(expected) and np.array_equal(places.rep, kept[expected.rep])
-    assert (places.place[~keep] == -1).all()
-    for g in range(len(expected)):
-        assert set(np.flatnonzero(places.place == g)) == set(kept[expected.of(g)])
+    assert found(table, places) == searched(rows, set(table["water_m"][keep].astype(int).tolist()))
+    assert (places.place[~keep] == -1).all() and (places.place[keep] >= 0).all()
+    assert ps.grouping_check(table)["lines_in_the_same_place"] == len(table)
     assert len(ps.places_of(table, np.zeros(len(table), dtype=bool))) == 0
     assert len(ps.places_of(table, distance=5.0)) > len(groups)  # another distance: grouped here
+    assert found(table, ps.places_of(table, distance=5.0)) == found_at(rows, 5.0)
+    # the same lines as lines.csv alone: every line together gives the saved places, in spite of the ties
+    folder, groups = save(tmp_path / "csv", rows)
+    table = ps.load_table(folder, cache=False)
+    assert table.source == "lines.csv"
+    assert ps.grouping_check(table) == {"saved": len(groups), "grouped_again": len(groups), "lines": len(table),
+                                        "lines_in_the_same_place": len(table)}
+    # lines.csv alone and no two clearances that round to the same value: the kept lines group as in the search
+    rows = clustered(lambda k, rng: 1.0 + ((k * 37) % 400) / 100)
+    folder, groups = save(tmp_path / "distinct", rows)
+    table = ps.load_table(folder, cache=False)
+    keep = np.random.default_rng(2).random(len(table)) < 0.5
+    assert found(table, ps.places_of(table, keep)) == searched(rows, set(table["water_m"][keep].astype(int).tolist()))
 
 
-def test_lines_js_gives_the_searchs_values_and_order(tmp_path):
-    # Line 1 lies within 20 m of lines 0 and 2, which are 30 m apart. The search ranks 2 first (clearance
-    # 10.004 against 10.001) and gives it line 1; lines.csv rounds both to 10.0, where the longer line 0
-    # comes first and takes line 1
-    rows = [line(0, 0, 0, 100, 0, clearance=10.001, length=100.0), line(1, 0, 15, 100, 15, clearance=5.0),
-            line(2, 0, 30, 99, 30, clearance=10.004, length=99.0)]
+def found_at(rows, distance):
+    groups = mapping.group_lines(helpers.LineTable.from_rows(rows), distance, "clearance")
+    return [(int(rows[r]["water_m"]), {int(rows[i]["water_m"]) for i in groups.of(g)})
+            for g, r in enumerate(groups.rep.tolist())]
+
+
+def test_grouping_reads_lines_js_or_the_files_order(tmp_path):
+    # Four lines 100 m long, side by side: line 0 (18 m south of line 1), line 1, line 2 (15 m north of it),
+    # line 3 (15 m further). The search ranks them 0 (10.006), 3 (10.004), 1 (10.001), 2: line 0 takes line
+    # 1, line 3 takes line 2. lines.csv rounds the clearances of lines 1 and 3 to 10.0
+    rows = [line(0, 0, -18, 100, -18, clearance=10.006), line(1, 0, 0, 100, 0, clearance=10.001),
+            line(2, 0, 15, 100, 15, clearance=5.0), line(3, 0, 30, 100, 30, clearance=10.004)]
     folder, groups = save(tmp_path / "csv", rows)
     table = ps.load_table(folder, cache=False)
     k = rows_of(table)
+    assert table["water_m"].astype(int).tolist() == [0, 1, 3, 2] and table.source == "lines.csv"
     saved = ps.places_of(table)
-    assert saved.place[k[1]] == saved.place[k[2]] != saved.place[k[0]]
-    rounded = ps.places_of(table, saved=False)
-    assert rounded.place[k[1]] == rounded.place[k[0]]
-    assert ps.grouping_check(table) == {"saved": 2, "grouped_again": 2, "lines": 3, "lines_in_the_same_place": 0}
+    assert saved.place.tolist() == [0, 0, 1, 1]
+    # lines.csv alone: every line grouped again in the order of its rows gives the saved places
+    assert table.file_rank("clearance").tolist() == [0, 1, 2, 3] and table.file_rank("longest") is None
+    assert np.array_equal(ps.places_of(table, saved=False).place, saved.place)
+    assert ps.grouping_check(table) == {"saved": 2, "grouped_again": 2, "lines": 4, "lines_in_the_same_place": 4}
+    # without line 0 the search would rank line 3 (10.004) before line 1 (10.001) and give it line 2; the
+    # file cannot tell which of the two comes first, and takes line 1: an estimate
+    keep = table["water_m"] != 0
+    estimate = ps.places_of(table, keep)
+    assert len(estimate) == 2 and estimate.place[k[0]] == -1
+    assert estimate.place[k[2]] == estimate.place[k[1]] != estimate.place[k[3]]
     # with lines.js beside the table the grouping is the search's
     folder, groups = save(tmp_path / "js", rows, lines_js=True)
     table = ps.load_table(folder, cache=str(tmp_path / "cache"))
-    assert table.source == "lines.js" and table.exact["clearance"][rows_of(table)[2]] == 10.004
-    assert [int(table["water_m"][r]) for r in table.order] == [0, 1, 2]
-    again = ps.places_of(table, saved=False)
-    assert np.array_equal(again.place, ps.places_of(table).place)
-    assert ps.grouping_check(table)["lines_in_the_same_place"] == 3
+    assert table.source == "lines.js" and table.exact["clearance"][k[3]] == 10.004
+    assert table.file_rank("clearance") is None
+    assert [int(table["water_m"][r]) for r in table.order] == [0, 1, 2, 3]
+    assert np.array_equal(ps.places_of(table, saved=False).place, ps.places_of(table).place)
+    assert ps.grouping_check(table)["lines_in_the_same_place"] == 4
+    exact = ps.places_of(table, keep)
+    assert len(exact) == 2 and exact.place[k[2]] == exact.place[k[3]] != exact.place[k[1]]
+    assert [int(table["water_m"][r]) for r in exact.rep] == [3, 1]
     cached = ps.load_table(folder, cache=str(tmp_path / "cache"))
     assert cached.source == "lines.js" and np.array_equal(cached.order, table.order)
+    assert np.array_equal(ps.places_of(cached, keep).place, exact.place)
     # a lines.js of other lines is not taken
     with open(os.path.join(folder, "lines.js"), encoding="utf-8") as f:
         text = f.read()
+    assert ",15.0," in text
     with open(os.path.join(folder, "lines.js"), "w", encoding="utf-8") as f:
         f.write(text.replace(",15.0,", ",16.0,"))
     assert ps.load_table(folder, cache=False).source == "lines.csv"
@@ -202,7 +247,8 @@ def test_higher_wins(tmp_path):
         line(5, 300, 0, 400, 0, elev_a1=50.0, elev_a2=50.0), line(6, 301, 0, 401, 0, elev_a1=41.0, elev_a2=41.0)]
     folder, _ = save(tmp_path / "run", rows)
     table = ps.load_table(folder, cache=False)
-    kept = lambda **params: sorted(table["water_m"][ps.higher_wins(table, **params)].astype(int).tolist())  # noqa: E731
+    def kept(**params):
+        return sorted(table["water_m"][ps.higher_wins(table, **params)].astype(int).tolist())
     assert kept() == [0, 1, 5, 6]  # within 10 m of the highest: 100 and 95; 90 is 10 m lower: dropped
     assert kept(step=20) == [0, 1, 2, 5, 6]
     assert kept(step=9) == [0, 1, 5]
@@ -220,7 +266,8 @@ def test_best_per_cell_pair(tmp_path):
             line(4, 20, 20, 70, 20, clearance=3.0, length=50.0), line(5, 21, 20, 71, 20, clearance=3.0, length=50.0)]
     folder, _ = save(tmp_path / "run", rows)
     table = ps.load_table(folder, cache=False)
-    kept = lambda **params: sorted(table["water_m"][ps.best_per_cell_pair(table, **params)].astype(int).tolist())  # noqa: E731
+    def kept(**params):
+        return sorted(table["water_m"][ps.best_per_cell_pair(table, **params)].astype(int).tolist())
     assert kept() == [2, 3, 4]  # clearance, then length, then height; exact ties by the coordinates
     assert kept(cell=10.0) == [2, 4]
     assert kept(cell=5.0, x0=1.5) == [0, 2, 3, 4]  # the lattice moved: line 0 starts in a cell of its own
@@ -510,8 +557,9 @@ def test_command_line_with_a_rules_file(tmp_path):
     command = [sys.executable, os.path.join(REPO, "tools", "prune_study.py"), folder, "--rules-file", str(rules),
                "--cache", str(tmp_path / "cache")]
     env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
-    run = lambda *more: subprocess.run(command + list(more), capture_output=True, text=True, encoding="utf-8",  # noqa: E731
-                                       cwd=str(tmp_path), env=env, timeout=600)
+    def run(*more):
+        return subprocess.run(command + list(more), capture_output=True, text=True, encoding="utf-8",
+                              cwd=str(tmp_path), env=env, timeout=600)
     done = run("--rule", "longer_than", "--param", "limit=99", "--out", str(tmp_path / "out"), "--threads", "2")
     assert done.returncode == 0, done.stderr
     assert "### 'Only lines longer than a limit' (X-00), limit 99 on Made-up place (6 lines)" in done.stdout
