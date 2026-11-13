@@ -31,6 +31,7 @@ imports this module, so it never imports numba, linesearch, search or country.
 import json
 import math
 import os
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1090,6 +1091,7 @@ class Cube:
         self.crs = self.info.get("crs")
         self.levels = tuple(self.info.get("levels", LEVELS))
         self._arrays: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
+        self._loading = threading.Lock()  # one array read at a time (_rows)
         self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
         self._cuts: Optional[Dict[int, Dict[Tuple[int, int], Dict]]] = None  # cut's cells per level
         self._pieces: Dict[int, Dict[Tuple[int, int], object]] = {}  # their exact parts inside the outline
@@ -1102,16 +1104,22 @@ class Cube:
         return np.column_stack([keys, counts])
 
     def _rows(self, mode: str, level: int) -> Tuple[np.ndarray, np.ndarray]:
-        """The keys ((n, 2)) and counts of a mode and level, read once."""
+        """The keys ((n, 2)) and counts of a mode and level: views of the (n, 3) rows read once, by one
+        thread at a time (the page's /cells and /histogram of its first view ask the same array at once),
+        so the file's bytes are held once, also while it loads (copies of the columns held it twice)."""
         if mode not in ("lines", "spots"):
             raise ValueError("mode must be lines or spots")
         if level not in self.levels:
             raise ValueError(f"level must be one of {', '.join(map(str, self.levels))}")
         name = f"{mode}_{level}"
-        if name not in self._arrays:
-            rows = np.load(os.path.join(self.folder, name + ".npy")).reshape(-1, 3)
-            self._arrays[name] = (np.ascontiguousarray(rows[:, :2]), np.ascontiguousarray(rows[:, 2]))
-        return self._arrays[name]
+        found = self._arrays.get(name)
+        if found is None:
+            with self._loading:
+                found = self._arrays.get(name)
+                if found is None:
+                    rows = np.load(os.path.join(self.folder, name + ".npy")).reshape(-1, 3)
+                    found = self._arrays[name] = (rows[:, :2], rows[:, 2])
+        return found
 
     def box(self, west: float, south: float, east: float, north: float) -> Box:
         """A WGS84 box clipped to the country's bounds_wgs84 with a margin of a degree, so a view of
