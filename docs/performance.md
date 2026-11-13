@@ -2947,7 +2947,10 @@ folder of its own (`cube/build-<UTC start>-<random>/`, the names inside as befor
 `Cube` maps them read-only (`np.load(mmap_mode="r")`), a cube built before (the fixed names beside cube.json) where it
 is; `remove_stale` (the builder at its end, `web.Countries` once it dropped an old build's maps) removes the earlier
 builds, what another process maps on Windows staying for the next attempt. The answers: 0 of the 454 HTTP answers on
-the real cube differ from b45b950's, mapped where it is. Measured on the same copy of the lead cube against stage 1
+the real cube differ from b45b950's, mapped where it is. The writer at real size, once (`country build slovakia` of
+the lead run's 3435 tiles into a scratch folder, `--heavy`): 131 s and an OS peak of 15.6 GB private, the eight arrays
+byte for byte the lead cube's (0 of 8 sha256 differ), and on that build 453 of the 454 answers identical, the one
+left, `/api/countries`, by cube.json's `built` time alone (it now leaves out the new `arrays`). Measured on the same copy of the lead cube against stage 1
 (255410a), both on Python 3.15.2, interleaved 16:10-16:44 (probes in two rounds of 5, cold starts 5 each, the page 5
 rounds each), the column above; **provisional**: the shared lock, other sessions' heavy runs beside, so the warm
 requests moved with the load (the branch 5-80 % slower by the medians, 0-35 % by the mins), while in one process,
