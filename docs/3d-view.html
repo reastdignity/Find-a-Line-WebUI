@@ -110,18 +110,18 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <div class="eyebrow">Research · 1 November 2026 · branch line-3d-view · not merged</div>
   <h1>3D view of a line</h1>
   <p class="lead">Can Find-a-Line show a selected highline over a Google-Earth-like 3D landscape, with the webbing
-  sagging under a slackliner and anchors you can drag? Yes, but not with Google's 3D tiles, which are closed to European
+  sagging under an athlete and anchors you can drag? Yes, but not with Google's 3D tiles, which are closed to European
   projects. This page compares what is left: services, licences, cost and legality.</p>
   <p class="prose"><b>Status, 2 November 2026: built</b> on branch <code>line-3d-view</code> (not yet in
   <code>main</code>), as decided below: a "3D view" button in the line's details opens the run's own terrain around
   the line with its orthophoto, Esri's imagery (with a key), the terrain shaded or "Edges" (paper with silhouettes,
-  creases and the mesh's edges), the webbing sagging under a slackliner who can walk, anchors dragged on the desktop,
+  creases and the mesh's edges), the webbing sagging under an athlete who can walk, anchors dragged on the desktop,
   and a simpler level for phones. One open takes 2.5–3.2 MB on a desktop and 0.75–1.2 MB on a phone (measured at Dolina
   Bolechowicka and Lauterbrunnen). The ring of terrain from Mapterhorn waits, switched off, for its maintainer's
   answer; the test on an iPhone comes next.</p>
   <nav class="toc" aria-label="Contents">
     <a href="#decisions">Decided</a><a href="#answer">The answer</a><a href="#gates">Gates</a><a href="#variants">Variants</a>
-    <a href="#editing">Editing and slackliner</a><a href="#heights">Heights</a><a href="#library">Library</a>
+    <a href="#editing">Editing and athlete</a><a href="#heights">Heights</a><a href="#library">Library</a>
     <a href="#size">Size and phones</a><a href="#privacy">Privacy</a><a href="#legal">Legal</a>
     <a href="#effort">Effort and money</a><a href="#checks">Checks</a><a href="#sources">Sources</a>
   </nav>
@@ -129,7 +129,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 
 <figure class="profile">
   <svg viewBox="0 0 800 250" role="img" aria-labelledby="profile-title">
-    <title id="profile-title">Schematic profile: two cliffs, the webbing sagging under a slackliner</title>
+    <title id="profile-title">Schematic profile: two cliffs, the webbing sagging under an athlete</title>
     <path class="svg-rock" d="M0 250 L0 62 L70 58 L118 66 L132 112 L150 170 L176 214 L210 236 L240 250 Z"/>
     <path class="svg-rock" d="M800 250 L800 60 L735 58 L692 66 L678 110 L660 166 L632 214 L592 240 L560 250 Z"/>
     <path class="svg-ground" d="M230 250 L250 236 L300 230 L380 236 L460 232 L540 238 L580 246 L590 250 Z"/>
@@ -147,7 +147,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <text class="svg-label" x="300" y="26">100 m span</text>
   </svg>
   <figcaption>What the view would draw, as a schematic: our sag model (<code>sag.ts</code>) gives a 100 m line
-  between anchors at one height, at the default rigging, a largest sag of 5.5 m with an 80 kg slackliner and 0.34 m
+  between anchors at one height, at the default rigging, a largest sag of 5.5 m with an 80 kg athlete and 0.34 m
   without (dashed).</figcaption>
 </figure>
 
@@ -161,7 +161,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <tbody>
       <tr><td>Path</td><td><span class="chip ok">B + C now</span> our own 3D view with Esri layers; A (KML) and D (Google) not planned</td></tr>
       <tr><td>Library</td><td>three.js + 3DTilesRendererJS: our DEM near the line, a coarse ring of terrain around it</td></tr>
-      <tr><td>Phones</td><td>simplified (view, slackliner slider and walk), full editing on the desktop</td></tr>
+      <tr><td>Phones</td><td>simplified (view, athlete slider and walk), full editing on the desktop</td></tr>
       <tr><td>Orthophoto</td><td>our cache first, then the service from the browser, as the 2D map</td></tr>
       <tr><td>Mesh</td><td>built in the browser (martini, copied into the repository)</td></tr>
       <tr><td>Ring terrain</td><td>Mapterhorn, after asking its maintainer about the public endpoint; it logs IP and referrer for 30 days</td></tr>
@@ -199,7 +199,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     </article>
     <article class="card">
       <div class="card-head"><span class="letter">D</span><h3>Google 3D Maps</h3><span class="chip warn">Optional, later</span></div>
-      <p>Google's photorealistic 3D in a web component, our line and slackliner on top. Closest to the mock.</p>
+      <p>Google's photorealistic 3D in a web component, our line and athlete on top. Closest to the mock.</p>
       <dl><dt>Works in</dt><dd>public site; local app with the user's billed key</dd><dt>Money</dt><dd>0 within 5,000 loads, card</dd>
       <dt>Effort</dt><dd>high</dd><dt>Legal</dt><dd>heavy</dd></dl>
     </article>
@@ -208,9 +208,9 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
     <div>
       <h3>Recommendation</h3>
       <ol class="steps">
-        <li><strong>A first.</strong> A KML of the line (sag curve at absolute heights, anchors, the slackliner's spot,
+        <li><strong>A first.</strong> A KML of the line (sag curve at absolute heights, anchors, the athlete's spot,
         credits) and links to Google Earth, swisstopo's 3D viewer and Google Maps' satellite view. The Google look of
-        the mock today, free, no key, no consent gate. No editing, no animated slackliner.</li>
+        the mock today, free, no key, no consent gate. No editing, no animated athlete.</li>
         <li><strong>B with C as an add-on</strong> as the view inside the app. It meets every requirement and keeps
         the line on the heights the search used. With three.js it runs under today's CSP; CesiumJS only if the far
         field is a must.</li>
@@ -267,7 +267,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
       <h3>A · KML and Google Earth</h3>
       <ul class="plain">
         <li>Built in the browser from the line: the webbing as a line at absolute heights, both anchors, the
-        slackliner's spot, the credits. Links: Google Earth Web at the line, swisstopo's 3D viewer for Swiss lines,
+        athlete's spot, the credits. Links: Google Earth Web at the line, swisstopo's 3D viewer for Swiss lines,
         Google Maps' satellite view on phones.</li>
         <li>Earth Web opens a local KML "even if you're not signed in": lines, placemarks, simple tours; no 3D
         models. Earth Pro has models and tours but "will no longer be available for download beginning June 25,
@@ -315,14 +315,14 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
 </section>
 
 <section id="editing">
-  <h2>Editing and the slackliner</h2>
+  <h2>Editing and the athlete</h2>
   <div class="two">
     <div>
       <ul class="plain">
         <li><strong>The webbing</strong> comes from <code>sag.ts</code>: <code>estimate(span, dh, rigging)</code>
-        for the envelope, <code>athlete(x)</code> for the loaded webbing with the slackliner at x (61 points,
+        for the envelope, <code>athlete(x)</code> for the loaded webbing with the athlete at x (61 points,
         warm-started). Each point maps to 3D between the anchors.</li>
-        <li><strong>The slackliner</strong> starts where the sag is largest, follows a drag along the line and walks
+        <li><strong>The athlete</strong> starts where the sag is largest, follows a drag along the line and walks
         from anchor to anchor on request; a 1.7 m low-poly mannequin.</li>
       </ul>
     </div>
@@ -393,7 +393,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
   <h2>Rendering library</h2>
   <p class="prose">B and C need one library to draw the scene (D brings Google's). Each candidate was bundled with
   our build settings, and the two finalists ran a test scene in headless Edge under the site's real headers: the
-  Żabi Koń DEM, our cached orthophoto, a sagging line updated live, a glTF slackliner, picking.</p>
+  Żabi Koń DEM, our cached orthophoto, a sagging line updated live, a glTF athlete, picking.</p>
   <div class="table-wrap">
   <table>
     <thead><tr><th></th><th>three.js</th><th>CesiumJS (CesiumWidget)</th><th>Giro3D</th><th>iTowns</th><th>MapLibre</th></tr></thead>
@@ -524,7 +524,7 @@ footer { font-size: 13px; color: var(--muted); border-top: 1px solid var(--line)
         <tr><td>Geoid offset at the line</td><td>A, D</td><td>low–medium</td></tr>
         <tr><td>3D button, route, lazy bundle, vendor folder</td><td>B C D</td><td>medium</td></tr>
         <tr><td>The 3D page's own CSP</td><td>B C D</td><td>low · D: medium</td></tr>
-        <tr><td>Webbing and slackliner in 3D</td><td>B C D</td><td>low</td></tr>
+        <tr><td>Webbing and athlete in 3D</td><td>B C D</td><td>low</td></tr>
         <tr><td>Anchor editing, profile on release</td><td>B C · D: click</td><td>medium</td></tr>
         <tr><td>DEM patch in the quick lane</td><td>B C D</td><td>medium</td></tr>
         <tr><td>Library: three.js (own controls, mesh)</td><td>B C</td><td>medium</td></tr>

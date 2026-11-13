@@ -75,14 +75,14 @@ CHECKLIST = """\
     b. orbit (one finger), zoom (pinch), pan (two fingers): smooth, nothing jumps or disappears;
     c. every imagery kind of the control: the orthophoto, Esri (only with ESRI_API_KEY set at the
        server's start), Shaded, Edges: each draws, the credits change with it;
-    d. the slackliner: drag its slider end to end, then Walk (smooth? the speed control; Stop);
-    e. the slackliner's views, Slackliner's eyes and Behind the slackliner (the switch's eye and figure): one finger
+    d. the athlete: drag its slider end to end, then Walk (smooth? the speed control; Stop);
+    e. the views Athlete's eyes and Behind the athlete (the switch's eye and figure): one finger
        looks around (never upside down); the slider and Walk carry the camera along the line, the sag
        moving it as walking would; Orbit gives back the camera as it was;
-    f. the zoom in both slackliner's views: a pinch and the - / + beside the switch; the indicator shows the
-       eyes' factor (x1 is 60 degrees wide) and the distance behind the slackliner in metres; the slider stays
+    f. the zoom in both athlete's views: a pinch and the - / + beside the switch; the indicator shows the
+       eyes' factor (x1 is 60 degrees wide) and the distance behind the athlete in metres; the slider stays
        wide enough to drag; each view keeps its zoom;
-    g. Phone motion (in a slackliner's view): iOS asks for the motion's permission inside the button's tap;
+    g. Phone motion (in an athlete's view): iOS asks for the motion's permission inside the button's tap;
        allowed, turning the phone turns the gaze, upright and in landscape, a finger's drag adds to it;
        denied, the note "No phone motion: drag to look around." shows. With this server's self-signed
        certificate iOS may refuse the sensors (no question, or the note): write it down, it is not a
