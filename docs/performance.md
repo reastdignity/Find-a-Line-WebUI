@@ -2958,10 +2958,15 @@ alternating, the mapped arrays are 0-6 % slower by the min (wave 20's 3-5 %). Th
 touched 0.58 GB private instead of 5.13, the OS peak 0.63 GB instead of 5.15 (the mapped pages, 3.71 GB in the working
 set once read, are file-backed: the OS cache's, shared and dropped first when memory is short), the page's sessions
 0.63 GB instead of 1.33; an array's first request maps it (0.01-0.06 s) instead of copying it (0.18-1.35 s), so the
-page's first open on a fresh server shows its cells and histograms 0.5-0.8 s sooner (medians). One step stayed slower
-on the branch in all five rounds, the page's warm open (its /cells median 0.98 s against 0.42 s in the browser's
-timing; the probe's replay of the same request measured alike on both): not explained, to look at on an idle PC or the
-VPS. A disk-cold first request is not measured (emptying the OS cache needs administrator rights on this PC). In a
+page's first open on a fresh server shows its cells and histograms 0.5-0.8 s sooner (medians). One step was slower
+on the branch in four of the five rounds and faster in one: the page's warm open (its /cells in the browser's timing
+1.15, 1.03, 0.50, 0.98, 0.61 s against 0.42, 0.47, 1.51, 0.32, 0.41 s). The phone session's open, the same requests on
+the same server a minute later, shows no such difference (the branch faster in three of five), the probe's replay of
+the request measured alike on both, and the server's working set stood still through every run (0.86-0.92 GB: no
+mapped page left it); the server ran below the normal priority beside other sessions' heavy runs, and the request
+took 0.3-1.5 s on either code. Not shown to be an effect of the mapping (the lead's reading of the rounds); an idle PC
+or the VPS would tell. A disk-cold first request is not measured (emptying the OS cache needs administrator rights on
+this PC). In a
 container with the web service's limits (1 GB, no swap, one CPU), the local app on a read-only bind mount of the cube:
 every one of the page's 17 requests answered 200 twice, the 21 one-degree boxes at level 1 too (every row of lines_1,
 1.68 GB of file under the 1 GB limit), no OOM kill; the process's private 0.18 GB, its file-backed resident at most
