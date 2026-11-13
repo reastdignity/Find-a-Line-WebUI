@@ -1376,6 +1376,18 @@ def test_problem_reports(run_people, tmp_path, monkeypatch):
     them with names, mark them done and delete them; the audit log has no text."""
     import audit
     import jobs as jb
+    import limits.storage.memory
+    import limits.strategies
+
+    class Clock:
+        """The report rate's time, held inside one clock minute: its sliding window counts the previous minute's
+        reports as floor(weight), so the four reports below let a fourth through when a minute begins between them."""
+        now = time.time() // 60 * 60 + 1
+
+        def time(self):
+            return self.now
+    monkeypatch.setattr(limits.storage.memory, "time", Clock())
+    monkeypatch.setattr(limits.strategies, "time", Clock())
     a, b, admin = run_people["a"], run_people["b"], run_people["admin"]
     ids = run_people["ids"]
     body = {"category": "water", "text": "  The lake is 3 m too high.\nSee the second line.  ",
