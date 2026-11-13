@@ -21,7 +21,9 @@ webroot, redirect, 444 for other names), `nginx/findaline.conf` (port 443: limit
 log, HSTS at the server level, handshake refused for other names), `fail2ban/` (filter and jail, `jail.d/`),
 `firewall/ufw-after.rules` (`DOCKER-USER`, also the monitoring's `br-fal-mon`) and `ufw-before.rules`,
 `secrets.example/` (empty secret files), `push-cube.sh` (a built country cube to the data volume over `ssh`, for the
-highline explorer; no address or key in it; docs/deployment.md, section 10), `backup.sh` (`sqlite3 .backup` as uid
+highline explorer: cube.json, area.geojson and the build folder cube.json names (`arrays`, checked against
+`countcube.BUILD_PATTERN`; a cube built before: the fixed-name arrays beside cube.json), extracted beside the old cube,
+swapped in, every copied file's sha256 compared; no address or key in it; docs/deployment.md, section 10), `backup.sh` (`sqlite3 .backup` as uid
 10001 + restic; at every end, also a failed one, `backup.json` and the healthchecks.io ping from an exit trap;
 docs/deployment.md, "Backups"); `tests/test_deploy.py` checks the filter, the masking with Python's `re`, the
 published ports, the metrics log format and groups, the firewall's bridges and the monitoring's units;
