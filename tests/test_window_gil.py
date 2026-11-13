@@ -1,4 +1,5 @@
-"""The window reader makes no HTTP request while holding the GIL (windows._scan_directories), at no extra request.
+"""The window reader makes no HTTP request while holding the GIL (windows._scan_directories), at no extra request;
+nor do the tools' remote reads (check_source's WarpedVRT, obstacle_study's reproject, perf_window_reads' tile sizes).
 
 The server of these tests (tests/http_server.py) lives in this process and answers only when it gets the GIL: a
 request GDAL makes with the GIL held waits for curl's timeout (5 s here, no retries), and a watchdog thread stands
@@ -23,7 +24,12 @@ from affine import Affine
 from rasterio.transform import from_origin
 from rasterio.windows import Window
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO)
+sys.path.insert(0, os.path.join(REPO, "tools"))
+import check_source  # noqa: E402
+import obstacle_study  # noqa: E402
+import perf_window_reads as pw  # noqa: E402
 import sources as src  # noqa: E402
 from http_server import _ranges  # noqa: E402
 from sources.readers import windows  # noqa: E402
@@ -195,3 +201,100 @@ def test_the_scan_without_rasterios_private_read():
 
     windows._scan_directories(Missing(), window)
     windows._scan_directories(Changed(), window)
+
+
+# The tools' remote reads (tools/check_source.py, obstacle_study.py, perf_window_reads.py)
+
+class _ShortEnv(rio.Env):
+    """rio.Env with GDAL's HTTP timeout 5 s and no retries wherever the code asks for a timeout (the tools open their
+    own: check_source's, net._gdal_http's)."""
+
+    def __init__(self, *args, **options):
+        if "GDAL_HTTP_TIMEOUT" in options:
+            options.update(GDAL_HTTP_TIMEOUT="5", GDAL_HTTP_MAX_RETRY="0")
+        super().__init__(*args, **options)
+
+
+@pytest.fixture
+def tools_served(http_server, folder, monkeypatch):
+    http_server.add_folder("/f", str(folder))
+    monkeypatch.setattr(rio, "Env", _ShortEnv)
+    monkeypatch.setattr(src.net, "_sleep", lambda attempt: None)
+    return http_server
+
+
+@pytest.mark.parametrize("name", ["far.tif", "plain.tif"])
+def test_check_source_warped_vrt(tools_served, folder, name, monkeypatch):
+    """check_source._read_source (a WarpedVRT over /vsicurl/) needs no change: rasterio makes the VRT under nogil,
+    which runs the scan, and the VRT's own mask flags never reach the source. Guarded here, plain.tif with GDAL's
+    cache dropped right before vrt.read."""
+    url = tools_served.url(f"/f/{name}")
+
+    class Dropped(check_source.WarpedVRT):
+        def read(self, *args, **kwargs):
+            rasterio.cache.invalidate(url)
+            return super().read(*args, **kwargs)
+    if name == "plain.tif":
+        monkeypatch.setattr(check_source, "WarpedVRT", Dropped)
+    profile = {"crs": CRS, "transform": Affine(1, 0, LEFT + 100, 0, -1, TOP - 100), "width": 300, "height": 300}
+    rasterio.cache.invalidate(url)
+    with Watchdog() as watchdog:
+        remote = check_source._read_source(url, profile)
+    assert watchdog.gap < STALL_S
+    assert np.array_equal(remote, check_source._read_source(str(folder / name), profile), equal_nan=True)
+
+
+@pytest.mark.parametrize("name", ["far.tif", "plain.tif"])
+def test_obstacle_study_warp(tools_served, folder, name, monkeypatch):
+    """obstacle_study.on_grid: rasterio's reproject initialises GDAL's warper holding the GIL, which scans the
+    source's directories: _scan_footprint scans them first. plain.tif with GDAL's cache dropped right before the
+    warp; values against a local read."""
+    import rasterio.warp
+    url = tools_served.url(f"/f/{name}")
+    original = rasterio.warp.reproject
+
+    def dropped(*args, **kwargs):
+        rasterio.cache.invalidate(url)
+        return original(*args, **kwargs)
+    if name == "plain.tif":
+        monkeypatch.setattr(rasterio.warp, "reproject", dropped)
+    grid = {"crs": CRS, "res": 2.0, "left": LEFT + 100.5, "top": TOP - 100.5, "width": 150, "height": 150}
+    rasterio.cache.invalidate(url)
+    with Watchdog() as watchdog:
+        remote = obstacle_study.on_grid([url], grid, rasterio.warp.Resampling.max)
+    assert watchdog.gap < STALL_S
+    local = obstacle_study.on_grid([str(folder / name)], grid, rasterio.warp.Resampling.max)
+    assert np.array_equal(remote, local, equal_nan=True)
+
+
+@pytest.fixture(scope="module")
+def small_tiles(tmp_path_factory):
+    """2048 x 2048 px in tiles of 16 px: the arrays of the tiles' offsets and sizes lie beyond the header."""
+    path = tmp_path_factory.mktemp("tiles") / "small.tif"
+    band = (np.arange(2048 * 2048, dtype=np.float32).reshape(2048, 2048) % 5000) + 100
+    with rio.open(path, "w", driver="GTiff", width=2048, height=2048, count=1, dtype="float32", crs=CRS,
+                  transform=from_origin(LEFT, TOP, 1, 1), tiled=True, blockxsize=16, blockysize=16,
+                  compress="deflate") as dst:
+        dst.write(band, 1)
+    return path
+
+
+def test_perf_window_reads_tile_sizes(tools_served, small_tiles):
+    """perf_window_reads.predicted reads the tiles' sizes through GDAL's C API by ctypes (_TiffTags): rasterio's
+    get_tag_item would load the arrays of tile sizes holding the GIL. A block at the file's far end; the numbers
+    equal those of a local read."""
+    from sources.layers.fileblocks import FileBlocks
+    import grid as gd
+    tools_served.add("/f/small.tif", small_tiles.read_bytes(), "image/tiff")
+    url = tools_served.url("/f/small.tif")
+    g = gd.Grid(left=LEFT + 2000.5, top=TOP - 2000.5, res=1.0, height=19, width=19, crs=CRS)
+
+    def layer(where):
+        return FileBlocks("Test tiles", "test/tiles/1", CRS, 1.0, 20, where, bytes_per_tile=1e3)
+    rasterio.cache.invalidate(url)
+    remote_layer = layer(url)
+    tiles = remote_layer.tiles(g)
+    with Watchdog() as watchdog:
+        remote = pw.predicted(remote_layer, tiles)
+    assert watchdog.gap < STALL_S
+    assert remote == pw.predicted(layer(str(small_tiles)), tiles) and remote["file_tiles"] > 0
