@@ -205,7 +205,7 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
 - `sources/catalogue/usa.py` (`nmpt=` of `usa`).
 - `obstacles.py` (unchanged rule), `search.prepare_data` (the surface is prepared like other layers).
 - `net.HOST_SLOTS_OF`/`HOST_RATES_OF` for the AWS host.
-- `pyproject.toml`/`uv.lock` (laspy, lazrs), the Dockerfile (wheels up to cp314; the image is 3.13).
+- `pyproject.toml`/`uv.lock` (laspy, lazrs), the Dockerfile (lazrs 0.8.2's wheels go up to cp314, while the image runs 3.15 since 2026-11-13 and takes wheels only: a cp315 wheel first).
 
 **Decisions for the user.**
 1. **The library.** laspy 2.7.0 + lazrs 0.8.2 (pure pip, wheels up to cp314, no OSV advisories), or PDAL (needs the native library: conda or a system package; it has `readers.ept` and filters ready)? The CLAUDE.md rule "libraries first" asks for the comparison: laspy reads the nodes, and our code walks the EPT hierarchy (about 60 lines in the trial).

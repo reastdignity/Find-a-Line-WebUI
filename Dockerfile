@@ -3,12 +3,12 @@
 #
 # Base images are pinned by tag and digest (the digest of the multi-platform index). To update
 # them: pick the new tags, look up their digests with
-#   docker buildx imagetools inspect python:3.13.<n>-slim-trixie
+#   docker buildx imagetools inspect python:3.15.<n>-slim-trixie
 #   docker buildx imagetools inspect ghcr.io/astral-sh/uv:<version>
 # (the "Digest:" line), change both ARGs below, then `docker compose build --pull` and run the
 # CI job (`docker` in .github/workflows/ci.yml). Both stages use the same Python image, so the
 # virtual environment built in the first one runs unchanged in the second.
-ARG PYTHON_IMAGE=python:3.13.18-slim-trixie@sha256:1151df520c42ebd86b3b81ad2929a8cf2a01ef0d7745eb72322bf48b26c82d78
+ARG PYTHON_IMAGE=python:3.15.2-slim-trixie@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.13.6@sha256:af22a52f5eafef3d78e551599d405c02df61919d18028f0cea8eda93bc9986d0
 
 FROM ${UV_IMAGE} AS uv
