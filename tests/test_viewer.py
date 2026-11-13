@@ -1268,8 +1268,8 @@ const state = () => {{
   await im.set("esri");
   state();
   mode = "ok";
-  scene.noticeAction.onClick();  // Try again
-  await wait(300);
+  scene.noticeAction.onClick();  // Try again: the loading it starts ends with the clear of the pill's count
+  for (const t0 = Date.now(); !activity.some((e) => e[0] === "clear" && e[1] === "imagery") && Date.now() - t0 < 10000;) await wait(5);
   out.again = state();
   mode = "one"; bad = null;
   await im.set("esri");
