@@ -386,7 +386,8 @@ def test_layer_work_bounded(sample, monkeypatch):
     rows each, 20 ms each): a request whose client goes away stops at its next chunk, long before its end, and its slot
     is free again; beyond COUNTRY_SLOTS a request waits for a slot, gets it when one ends, and after COUNTRY_WAIT_MAX
     gets 503; a computation longer than COUNTRY_SECONDS_MAX stops with 504. An administrator's request alike (locally
-    the one user is one)."""
+    the one user is one). Every wait is for an event, with a deadline, never a fixed pause: the suite runs on a loaded
+    PC."""
     import socket
     import threading
     import time
@@ -423,19 +424,36 @@ def test_layer_work_bounded(sample, monkeypatch):
         s.sendall(f"GET {slow} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n".encode())
         return s
 
+    def until(condition, seconds=10.0):  # waits for an event: True when it came, False at the deadline
+        deadline = time.monotonic() + seconds
+        while not condition():
+            if time.monotonic() > deadline:
+                return False
+            time.sleep(0.01)
+        return True
+
+    def still(quiet=1.0, seconds=10.0):  # waits until no chunk ran for `quiet` s; False when chunks ran on to the deadline
+        deadline = time.monotonic() + seconds
+        count, since = len(ran), time.monotonic()
+        while time.monotonic() < deadline:
+            time.sleep(0.02)
+            if len(ran) != count:
+                count, since = len(ran), time.monotonic()
+            elif time.monotonic() - since >= quiet:
+                return True
+        return False
+
     with _server(sample) as port:
         base = f"http://127.0.0.1:{port}"
         assert requests.get(base + short, timeout=30).status_code == 200
         ran.clear()
         client = opened(port)
-        time.sleep(0.5)
+        assert until(lambda: ran), "the slow request never computed"  # it holds the one slot
         busy = requests.get(base + short, timeout=30)  # the one slot is taken: it waits, then 503
         assert busy.status_code == 503 and "busy" in busy.text, busy.text
         client.close()  # the client goes away (the page aborts its fetch)
-        time.sleep(0.3)
-        stopped = len(ran)
-        time.sleep(1.0)
-        assert len(ran) - stopped <= 1 and 0 < stopped < chunks / 5, (stopped, len(ran), chunks)
+        assert still(), (len(ran), chunks)  # it stopped: it ran on to the deadline without the check
+        assert 0 < len(ran) < chunks / 5, (len(ran), chunks)  # long before its end (over 30 s of chunks)
         assert requests.get(base + short, timeout=30).status_code == 200  # its slot is free again
         # a request waiting for the slot gets it when the one before ends: its chunks after all of the first's
         monkeypatch.setattr(web, "COUNTRY_WAIT_MAX", 60)
@@ -448,18 +466,18 @@ def test_layer_work_bounded(sample, monkeypatch):
         other = level * 2 if level < 8 else 4  # the second's level: its chunks told from the first's
         first = threading.Thread(target=ask, args=("first", f"/api/countries/slovakia/histogram?level={level}&bbox={near}"))
         first.start()
-        time.sleep(0.3)
+        assert until(lambda: ran), "the first request never computed"  # it holds the slot, 29 chunks or more to go
         ask("second", short.replace("level=8", f"level={other}"))
         first.join(90)
         assert ended["first"][1] == ended["second"][1] == 200 and ended["second"][0] >= ended["first"][0], ended
         k = ran.index(other)
         assert k >= 30 and set(ran[:k]) == {level} and set(ran[k:]) == {other}, ran  # the first's chunks, then the second's
         # a computation over its time
-        monkeypatch.setattr(web, "COUNTRY_SECONDS_MAX", 0.3)
+        monkeypatch.setattr(web, "COUNTRY_SECONDS_MAX", 1.0)
         ran.clear()
         late = requests.get(base + slow, timeout=30)
-        assert late.status_code == 504 and "no answer within 0.3 s" in late.text, late.text
-        assert 5 < len(ran) < chunks / 5
+        assert late.status_code == 504 and "no answer within 1 s" in late.text, late.text
+        assert still() and 0 < len(ran) < chunks / 5, (len(ran), chunks)  # stopped, far fewer than all
 
 
 def _brute_border(cube, level, filters_all, mode="lines"):
