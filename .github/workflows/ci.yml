@@ -67,9 +67,17 @@ jobs:
           npm run check
 
       # Headless Edge tests run where Edge is installed (windows-latest) and are skipped elsewhere; the slowest
-      # tests are listed at the end (where the job's time goes)
+      # tests are listed at the end (where the job's time goes). The files run in 4 processes (pytest-xdist, a
+      # file whole on one worker: the hosted runners have 4 cores), each with 2 threads of numba, OpenMP, BLAS and
+      # GDAL (one process took about 45 min on Windows on 2026-11-13, 4 x 3 locally about 11 min)
       - name: Tests
-        run: uv run --frozen pytest -q --durations=25
+        env:
+          NUMBA_NUM_THREADS: "2"
+          OMP_NUM_THREADS: "2"
+          OPENBLAS_NUM_THREADS: "2"
+          MKL_NUM_THREADS: "2"
+          GDAL_NUM_THREADS: "2"
+        run: uv run --frozen pytest -q --durations=25 -n 4 --dist loadfile
 
   audit:
     runs-on: ubuntu-latest

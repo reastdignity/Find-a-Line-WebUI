@@ -23,12 +23,23 @@ monitoring of the VPS and the app (phases 1 to 4 built: `deploy/monitoring/`, `m
   `uv run findaline.py ...`; the user's `.venv` is git-ignored). For a session environment outside the repo:
   `UV_PROJECT_ENVIRONMENT=<dir> uv sync --frozen` (uv itself can be pip-installed into any venv: `python -m uv`).
   After changing dependencies run `uv lock` and the full regression set.
-- Tests: `pytest` (offline, ~30 s: synthetic canyon + Żabi Koń clip in `tests/data`, units, the viewer against Python,
-  the web app) and `python tests/regression.py` (real searches, see docs/regression-tests.md; its temporary folder is
-  removed unless a test differs or `--keep`). `tests/test_viewer.py` is skipped without Node and `npm install` in
-  `viewer/`, `tests/test_area_download_tui.py` without the group `tui` (`uv sync --group tui`; CI has it). Failures
-  that are known and not a regression (five float-exact kernel and warp tests on macOS):
+- Tests: `pytest` (offline: synthetic canyon + Żabi Koń clip in `tests/data`, units, the viewer against Python, the
+  web app; about 1780 tests, 36-48 min in one process on this PC, measured 2026-11-13) and
+  `python tests/regression.py` (real searches, see docs/regression-tests.md; its temporary folder is removed unless a
+  test differs or `--keep`). `tests/test_viewer.py` is skipped without Node and `npm install` in `viewer/`,
+  `tests/test_area_download_tui.py` without the group `tui` (`uv sync --group tui`; CI has it), five tests without the
+  group `ui`. Failures that are known and not a regression (five float-exact kernel and warp tests on macOS):
   [docs/known-bugs.md](docs/known-bugs.md).
+- The suite in parallel processes (pytest-xdist, a dev dependency): `pytest -n 8 --dist loadfile` runs each test file
+  whole on one worker, in its order, so module fixtures are built once per file as in one process. Under the test lock
+  (`tools/test_lock.py run -- <venv python> -m pytest`) a full run gets this by itself: 4 workers in shared mode, 8
+  with `--heavy` or `--exclusive`, 3 threads of numba, OpenMP, BLAS and GDAL each; the lock prints a line saying so,
+  `-n 0` asks for a serial full run, an own `-n` is kept, and a pytest of chosen files stays serial. Its kind in the
+  lock's history and the lock monitor is `pytest-all-xdist` (serial full runs stay `pytest-all`). Measured on
+  2026-11-13 (24 cores, not exclusive): 4 x 3 about 640 s and 8 GB, 8 x 3 304-368 s and 9.4-9.8 GB, against 2870 s
+  serial; at 8 workers and more `tests/test_web.py` alone (250-310 s) sets the floor. CI runs `-n 4` with 2 threads.
+  `tools/test_times.py` reads the JUnit files of runs (`--junitxml`): seconds per file and test, and `compare A B` id
+  by id (a serial and a parallel run write the same ids).
 - Before adding a dependency, check the current docs of the version that gets installed (Starlette 1.x: no
   `add_event_handler`, use `lifespan`; its TestClient wants `httpx2`, not `httpx`) and run the tests with deprecation
   warnings visible.
