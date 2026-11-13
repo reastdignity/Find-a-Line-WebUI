@@ -347,6 +347,40 @@ def test_histogram_as_the_cube_gives_it(client, sample):
     assert _histogram(client, "testland", level="8")["total"] != whole["total"]
 
 
+ORACLE_VIEWS = (None, VIEW, "19.5,49.0,19.8,49.2", "20.55,49.25,20.7,49.4", "100,10,101,11", "20.08,49.17,20.09,49.18",
+                "19.9583333333,49.1,20.0416666667,49.15")  # whole, inside, cut by the outline, far, a cell, the lattice
+ORACLE_FILTERS = ({}, {"length": "60-1000"}, {"prominence": "10", "wall": "60"}, {"water": "land", "trees": "no"},
+                  {"height": "50", "clearance": "5"}, {"drop": "60", "elevation_low": "1000", "height_diff": "10"},
+                  {"water_m": "5", "height_mean": "20", "prominence_high": "20", "high_pct": "75"},
+                  {"elevation_high": "2000", "clearance_trees": "1", "lift_needed": "1", "lift_no_zone": "0.5"},
+                  {"length": "300-5000", "wall": "0"}, {"trees": "only"})
+
+
+def test_answers_equal_the_oracle(sample, monkeypatch):
+    """The web's answers (Countries.cells and Countries.histogram, as JSON) of the lean code equal those of today's code
+    (tests/cube_oracle.py, b45b950 frozen) over a grid of queries on the sample: every level and auto, both modes,
+    border all (testland's partner lines replaced) and own, views inside, cut by the outline, the whole country, far
+    away, a cell, on the lattice's lines, filters of every topic; chunks of 61 rows."""
+    import cube_oracle as oracle
+    monkeypatch.setattr(cc, "CHUNK_ROWS", 61)
+    folder = os.path.join(sample, "countries", "slovakia", "cube")
+    lean, today = cc.Cube(folder), oracle.OracleCube(folder)
+    countries = web.Countries(str(sample))
+    compared = filled = 0
+    for level in ("auto", "1", "2", "4", "8"):
+        for mode in ("lines", "spots"):
+            for border in ("all", "own"):
+                for k, f in enumerate(ORACLE_FILTERS):
+                    view = ORACLE_VIEWS[(k + compared // 7) % len(ORACLE_VIEWS)]
+                    query = {"mode": mode, "level": level, "border": border, **f, **({"bbox": view} if view else {})}
+                    for answer in (countries.cells, countries.histogram):
+                        got = answer(lean, query)
+                        assert json.dumps(got) == json.dumps(answer(today, query)), (answer, query)
+                        compared += 1
+                        filled += got["total"] > 0
+    assert compared == 400 and filled > 150  # counts compared, not only zeros
+
+
 def _brute_border(cube, level, filters_all, mode="lines"):
     """The counts of a cube's rows of a level by (i, j, side) under filters, from its arrays: side 0 for border 0
     and 1, the partner index for border 2."""

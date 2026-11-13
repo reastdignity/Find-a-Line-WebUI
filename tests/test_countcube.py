@@ -953,6 +953,78 @@ def test_cube_cells_by_side_and_the_histogram_summary(tmp_path):
     assert all(len(v) == 0 for v in cube.cells("lines", 1, (0.0, 0.0, 1.0, 1.0), cc.Filters(), sides=True))
 
 
+def _oracle_filters():
+    """The filters of the oracle's grid: none; each of the sixteen dimensions alone at every value that turns it on
+    (the length at ranges of both ends and the middle); the flags; combinations (_random_filters)."""
+    out = [cc.Filters()]
+    out += [cc.Filters(length=r) for r in ((30, 60), (60, 1000), (150, 300), (300, 5000), (30, 3000), (3000, 5000))]
+    for name in cc.KINDS:
+        out += [f for f in (cc.Filters(**{name: edge}) for edge in cc.EDGES[name]) if f.active(name)]
+    out += [cc.Filters(trees="no"), cc.Filters(trees="only"), cc.Filters(water="land"), cc.Filters(water="water")]
+    rng = np.random.default_rng(53)
+    return out + [_random_filters(rng) for _ in range(24)]
+
+
+ORACLE_BORDERS = ({"border": "all"}, {"border": "own"}, {"border": "all", "replaced": (1, 2)},
+                  {"border": "own", "replaced": (3,)}, {"border": "all", "replaced": (1, 2, 3, 4, 5, 6)})
+
+
+def test_lean_answers_equal_the_oracle(tmp_path, monkeypatch):
+    """Cube.cells and Cube.histogram (the lean code: the rows of a view by binary searches per column, chunks, one
+    pass) give the answers of today's code (tests/cube_oracle.py: b45b950 frozen) over a grid of queries: no filter,
+    each of the sixteen dimensions alone at every value that turns it on, the flags, combinations; border all and own
+    with and without replaced partners; both modes, every level; the whole cube, boxes that cut it, a box of one or
+    two cells, a box on the lattice's lines, a box away from the cube (empty), each as a view for reaching too and a
+    view without a box; with and without sides and the summary: equal arrays (and dtypes), equal dicts and equal JSON.
+    Chunks of 97 rows (ranges and cells across chunks), the default chunk for a part; select and reaching too."""
+    import cube_oracle as oracle
+    rng = np.random.default_rng(59)
+    grid = _grid()
+    out, _ = _build(tmp_path, [(grid, _lines(rng, grid, 3000, lengths=(30, 5000), borders=True), None)])
+    cube = cc.Cube(str(out))
+    west, south, east, north = cube.info["bounds_wgs84"]
+    lon, lat = (west + east) / 2, (south + north) / 2
+    on_lattice = ((ORIGIN[0] + 9) / 120, (ORIGIN[1] + 13) / 120, (ORIGIN[0] + 17) / 120, (ORIGIN[1] + 21) / 120)
+    views = [(west + 0.01, south + 0.005, lon, lat), (lon, lat, lon + 0.004, lat + 0.003), on_lattice, (0.0, 0.0, 1.0, 1.0)]
+    cases = [(None, None), (None, (lon - 0.02, lat - 0.01, lon + 0.01, lat + 0.02))]
+    cases += [(cube.box(*v), None) for v in views] + [(cube.box(*v), v) for v in views]
+    filters = _oracle_filters()
+    compared = filled = 0
+    for chunk in (97, cc.CHUNK_ROWS):
+        monkeypatch.setattr(cc, "CHUNK_ROWS", chunk)
+        for mode in ("lines", "spots"):
+            for li, level in enumerate(cc.LEVELS):
+                for k, f in enumerate(filters if chunk == 97 else filters[::5]):
+                    f = cc.Filters(**{**f.__dict__, **ORACLE_BORDERS[(k + li) % len(ORACLE_BORDERS)]})
+                    box, view = cases[(k + 3 * li) % len(cases)]
+                    sides = k % 2 == 0
+                    want = oracle.cells(cube, mode, level, box, f, sides)
+                    got = cube.cells(mode, level, box, f, sides)
+                    assert len(got) == len(want) and all(np.array_equal(g, w) and g.dtype == w.dtype
+                                                         for g, w in zip(got, want)), (mode, level, box, f, sides)
+                    summary = k % 3 != 1
+                    want = oracle.histogram(cube, mode, level, box, f, view, 6, summary)
+                    got = cube.histogram(mode, level, box, f, view, 6, summary)
+                    assert got == want and json.dumps(got) == json.dumps(want), (mode, level, box, view, f, summary)
+                    compared += 2
+                    filled += got["total"] > 0
+    assert compared == 2 * 8 * (len(filters) + len(filters[::5]))
+    assert filled > compared / 6  # the grid compares counts, not only zeros
+    keys = cube.array("lines", 1)[:, :2]
+    for k, f in enumerate(filters):
+        f = cc.Filters(**{**f.__dict__, **ORACLE_BORDERS[k % len(ORACLE_BORDERS)]})
+        for skip in (None,) + cc.DIMENSIONS:
+            assert (cc.select(keys, f, skip) == oracle.select(keys, f, skip)).all(), (f, skip)
+        kept = cc.border_kept(keys, f)
+        assert (kept is None) == (oracle.border_kept(keys, f) is None)
+        assert kept is None or (kept == oracle.border_kept(keys, f)).all()
+    for level in cc.LEVELS:
+        keys = cube.array("spots", level)[:, :2]
+        for view in views + [cases[1][1]]:
+            assert (cube.reaching(level, keys, view, 6) == oracle.reaching(cube, level, keys, view, 6)).all()
+            assert (cube.reaching(level, keys, view) == oracle.reaching(cube, level, keys, view)).all()
+
+
 def test_outline_simplified(tmp_path):
     """The outline for a map: valid, fewer coordinates than the original, within the country's bounds (plus
     the tolerance), the original's km² on the ellipsoid, kept per tolerance."""
