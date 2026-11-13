@@ -124,18 +124,18 @@ to one `WALL_DROP` higher; `agreement` with the data's kinds: on Ta' Cenc every 
 also knows the faces from the surface model), `edges.ts` the Edges look (a screen-space pass of silhouettes and
 creases, the mesh's feature edges, paper; the walls' edges, both faces steeper than `WALL_SLOPE`, drawn apart at
 `WALL_OPACITY` 0.35: the user's choice), `line.ts`/`webbing.ts`/`geometry.ts` the webbing with `sag.ts` (the loaded
-curve also drawn faintly through the terrain), `walker.ts`/`walk.ts`/`pin.ts` the walker, its walk and the pin over
-it, `views.ts`/`look.ts` the views Orbit, Walker's eyes and Behind the walker (the camera's pose from the walker's,
-the gaze dragged or turned by the phone: `DeviceOrientationEvent`, iOS's `requestPermission` inside the tap; the zoom:
-Eyes' horizontal angle, 60° by default, from about 110° to ×8, Behind's distance 1.5-30 m),
+curve also drawn faintly through the terrain), `walker.ts`/`walk.ts`/`pin.ts` the slackliner, its walk and the pin over
+it, `views.ts`/`look.ts` the views Orbit, Slackliner's eyes and Behind the slackliner (the camera's pose from the
+slackliner's, the gaze dragged or turned by the phone: `DeviceOrientationEvent`, iOS's `requestPermission` inside the
+tap; the zoom: Eyes' horizontal angle, 60° by default, from about 110° to ×8, Behind's distance 1.5-30 m),
 `edit.ts`/`interact.ts`/`screen.ts` the anchors' editing at level full (a DOM overlay over the canvas, three-mesh-bvh
 raycasts, `/api/profile` after a release), `ring.ts`/`ringmath.ts` the coarse ring of terrain (3d-tiles-renderer's
 `TerrariumMeshPlugin`, behind `FINDALINE_3D_RING`; it clamps the plugin's private `_maxSourceLevel` of 0.5.3: check it
 on an upgrade). Round 2 (2026-11-05; docs/3d-view-contract.md, "Round 2"): `chrome.ts` the activity pill and the tool
 strip over the stage (`Scene3D.activity`, `Scene3D.tools`; the tools' ids and order in the contract), the card's slot
-under the credits (`Scene3D.card`; opening the card folds the data credits, `Credits.fold`); `pin.ts` the walker's pin
-over the unloaded webbing with a leader (`interact.ts` `pinPlacement`); `profilecard.tsx` the 2D result's
-`Profile.tsx` in that card (a second Preact tree by `render` of `preact`), its cursor and the walker following each
+under the credits (`Scene3D.card`; opening the card folds the data credits, `Credits.fold`); `pin.ts` the slackliner's
+pin over the unloaded webbing with a leader (`interact.ts` `pinPlacement`); `profilecard.tsx` the 2D result's
+`Profile.tsx` in that card (a second Preact tree by `render` of `preact`), its cursor and the slackliner following each
 other; `save.ts` the key of the line shown (`canonicalKey`: the 2D result's `keys.lineCoords`; `LineView.key` for a
 line taken from outside) and saving it into the favourites; `reach.ts`/`overlay.ts` "Only valid lines" (the reach of
 the staying anchor from `/api/reach` as `Scene3D.setOverlay`'s picture, a dragged handle on valid samples only;

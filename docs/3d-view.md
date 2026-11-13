@@ -1,7 +1,7 @@
 # 3D view of a line
 
 Research of 2026-11-01 for a Google-Earth-like 3D view of one selected line: the webbing drawn with its sag over the
-terrain, a walker on it, and anchors the user can drag. This report was the basis for the decision; what was built
+terrain, a slackliner on it, and anchors the user can drag. This report was the basis for the decision; what was built
 since is in the status below. It lives on branch `line-3d-view` (from `main` 983d148) and is not merged into `main`
 until the work on the idea ends. Code references of the research point to that commit.
 
@@ -10,7 +10,7 @@ contract of its waves and every later decision: [3d-view-contract.md](3d-view-co
 in the app (interfaces C and D) have a "3D view" button opening `/view3d`: the run's own elevation model around the line
 (`/api/patch`, a patch of at least 1.5 km), its imagery (the run's orthophoto composed as the 2D map's cache
 composes it, Esri's satellite imagery with a key, the terrain shaded, or "Edges": paper with silhouettes, creases
-and the mesh's feature edges), the webbing sagging under a walker (a slider, dragging and a walk at ×1/×4), the
+and the mesh's feature edges), the webbing sagging under a slackliner (a slider, dragging and a walk at ×1/×4), the
 anchors dragged on the desktop with the server's profile on release, and a simpler level for phones. Data of one
 open, measured with `tools/device_page.py measure`: R2 (Dolina Bolechowicka, 1 m, geoportal.gov.pl's orthophoto)
 2.5-2.6 MB on the desktop and 1.2 MB on a phone; R19 (Lauterbrunnen, 2 m, SWISSIMAGE) 3.1-3.2 MB and 0.75-0.85 MB.
@@ -34,7 +34,7 @@ EEA billing address. Four variants remain.
 
 | | Variant | What you see | Works in | Money a month at ≤ 1000 opens | Hard stop | Effort | Legal load | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A | **KML + links**: "Open in Google Earth" | Google's own 3D (mesh where Google has one), the line and the walker's spot | Google Earth Web/Pro, any site or app; no editing | 0 | not needed | low | very light | **do first** |
+| A | **KML + links**: "Open in Google Earth" | Google's own 3D (mesh where Google has one), the line and the slackliner's spot | Google Earth Web/Pro, any site or app; no editing | 0 | not needed | low | very light | **do first** |
 | B | **Our own data**: the run's DEM around the line + our orthophoto, in our 3D page | exact heights (1 m, 0.5 m in CH), orthophoto draped: cliff walls smeared | public site and local app, no key | 0 outside; about 3 GB a month from our server | not needed | high | light | **the embedded view** |
 | C | **Esri**: Terrain 3D + World Imagery, in the same 3D page | national orthophoto on Esri's ~1.5 m ground | public site (operator key); local app only with the user's key | 0 within 2M tiles (shared with the 2D satellite layer) | yes (pay-as-you-go off) | low–medium on top of B | medium (terms to pass on) | **add-on to B** |
 | D | **Google 3D Maps** (`Map3DElement`) | Google's photorealistic mesh where it exists, satellite on terrain elsewhere | public site (operator key); local app only with the user's own billed key | 0 within 5,000 loads (card on file) | yes (per-day quota) | high | heavy (consent gate, terms page, high-risk clause) | **optional, later** |
@@ -44,11 +44,11 @@ no hard stop), Mapbox (no cap), MapTiler (non-commercial plan, 30 m terrain), Az
 Sentinel-2, Esri's resold Google 3D (internal use only). Details: [Gates](#gates).
 
 **Recommendation.**
-1. **A first** (low effort): a KML of the line (the sag curve at absolute heights, both anchors, the walker's spot,
+1. **A first** (low effort): a KML of the line (the sag curve at absolute heights, both anchors, the slackliner's spot,
    the credits) and links to Google Earth, to swisstopo's 3D viewer for Swiss lines and to Google Maps' satellite
    view on phones. It shows exactly the Google look of the mock, today, at no cost, with no key, consent or terms
-   page. It cannot edit anchors or animate the walker, and it leaves our app.
-2. **B, with C as an add-on**, as the 3D view inside the app: it meets every requirement (editing, walker, public
+   page. It cannot edit anchors or animate the slackliner, and it leaves our app.
+2. **B, with C as an add-on**, as the 3D view inside the app: it meets every requirement (editing, slackliner, public
    site and local app, hard stop, no new account) and keeps the line on the very heights the search used. Drawn
    with three.js it runs under the site's current CSP unchanged (measured) and costs about 3 MB per open from our
    server; CesiumJS instead only if the view must show the far field (see [Rendering library](#rendering-library)).
@@ -78,7 +78,7 @@ Taken by the user after reading the report:
 | --- | --- |
 | Path | **B + C now**: our own 3D view with Esri layers. A (KML) and D (Google 3D Maps) are not planned. |
 | Library | **three.js + 3DTilesRendererJS**: the patch of our DEM near the line, a coarse ring of terrain around it. |
-| Phones | **Simplified on phones** (view, walker slider and walk; no anchor dragging), full on the desktop. |
+| Phones | **Simplified on phones** (view, slackliner slider and walk; no anchor dragging), full on the desktop. |
 | Orthophoto | **Our cache first, then the service** from the browser, as the 2D map does. |
 | Mesh | **In the browser** (`@mapbox/martini`, copied into the repository: 2 KB, unchanged since 2020). |
 | Ring terrain | **Mapterhorn** (terrarium tiles); its maintainer is asked about the public endpoint first (no e-mail published: a GitHub Discussion). Its privacy policy: requests to `tiles.mapterhorn.com` are logged with the source IP and the referrer for up to 30 days, which the privacy sentence will name. |
@@ -95,9 +95,9 @@ Taken by the user after reading the report:
 Fixed with the user on 2026-11-01:
 - The view of a found line **plus anchor editing**: while an anchor is dragged, length and sag are computed live in
   the browser; on release the server computes the profile from our DEM like *Measure*. The edit is not saved.
-- **The walker** starts at the lowest point, can be dragged along the line, and can walk from anchor to anchor.
+- **The slackliner** starts at the lowest point, can be dragged along the line, and can walk from anchor to anchor.
 - A "3D" button among the line's actions opens a full-window view with a way back. The first version shows the
-  sagging line, the walker and the editing (not the mock's values panel, webbing length or height inputs, minimap,
+  sagging line, the slackliner and the editing (not the mock's values panel, webbing length or height inputs, minimap,
   compass or readout).
 - **Where**: the public site (signed-in users) and the local app; not share links, not `map.html` from disk.
 - **Fidelity**: compare a photorealistic mesh with our orthophoto draped on our DEM.
@@ -135,14 +135,14 @@ permitted use (non-commercial, donations), keys, then the terms that shape the d
 
 ### A. KML and links ("Open in Google Earth")
 - **What it gives.** A KML file built in the browser from the selected line: the unloaded webbing (51 points of
-  `sag.ts`) as a `LineString` at absolute heights, both anchors as placemarks, the walker's spot (the lowest point of
-  the envelope) as a placemark, the data credits in `<description>`. Plus links: Google Earth Web at the line, for a
+  `sag.ts`) as a `LineString` at absolute heights, both anchors as placemarks, the slackliner's spot (the lowest point
+  of the envelope) as a placemark, the data credits in `<description>`. Plus links: Google Earth Web at the line, for a
   Swiss line swisstopo's 3D viewer, on phones Google Maps' satellite view (opens the app).
 - **What Google Earth does with it.** Earth Web opens a local KML "even if you're not signed in" and shows lines,
   placemarks, ground overlays and simple tours, not 3D models; Earth Pro shows COLLADA models and tours, but
   "will no longer be available for download beginning June 25, 2027" (installed copies keep working). KML "absolute"
   is "above sea level", which the OGC standard defines as the EGM96 geoid (see [Height alignment](#height-alignment)).
-- **Limits.** No anchor editing, no animated walker (Earth Web's simple tours fly the camera only; a moving
+- **Limits.** No anchor editing, no animated slackliner (Earth Web's simple tours fly the camera only; a moving
   placemark needs Earth Pro), outside our app. The `earth.google.com/web/@lat,lon,…` camera link (Google documents
   sharing a view by link, not its syntax) and swisstopo's `3d`/`camera` parameters (in its code, not its docs) are
   undocumented and were not tried here; there is no documented way to load a KML by URL.
@@ -154,10 +154,10 @@ permitted use (non-commercial, donations), keys, then the terms that shape the d
 
 ### B. Our own data
 - **What it gives.** The run's DEM around the line (the same 1 m grid the search used; 0.5 m data in Switzerland
-  averaged to 1 m) as a terrain mesh, our orthophoto draped on it, the webbing and the walker on the very heights of
+  averaged to 1 m) as a terrain mesh, our orthophoto draped on it, the webbing and the slackliner on the very heights of
   the search: no datum conversion, no misalignment. Nadir orthophotos stretch over vertical walls: cliffs look
   smeared where the mock shows textured rock.
-- **Data.** A DEM patch from a new quick-lane request (see [Anchor editing](#anchor-editing-and-the-walker)).
+- **Data.** A DEM patch from a new quick-lane request (see [Anchor editing](#anchor-editing-and-the-slackliner)).
   Textures from our cached tiles (`/cache/<folder>/wm256/…`, same origin: z10-16 over the whole search, z17-21 only
   30 m around the best groups) and from the national orthophoto services directly: all 20 probed services answer
   with `Access-Control-Allow-Origin`, which WebGL textures need (only Saxony-Anhalt's sends none to `http://127.0.0.1`,
@@ -193,14 +193,14 @@ permitted use (non-commercial, donations), keys, then the terms that shape the d
 ### D. Google 3D Maps
 - **What it gives.** Google's 3D map in a web component: the photorealistic mesh where Google has "3D surface data"
   (a coverage map in Google's docs, updated daily), satellite imagery on terrain elsewhere. Our line as a
-  `Polyline3DElement`, the walker as a `Model3DElement` (`.glb` with "No extensions": no Draco), camera flights with
+  `Polyline3DElement`, the slackliner as a `Model3DElement` (`.glb` with "No extensions": no Draco), camera flights with
   `flyCameraTo`/`flyCameraAround`.
 - **Status.** In the weekly (default) channel since 23 Oct 2025; no 3D page carries a pre-GA tag; Maps JavaScript
   API is a GA core service: GA in practice. Alpha or beta features (e.g. `autofitsCamera`) must stay out: the EEA
   terms forbid "Pre-GA Offerings with or near a non-Google Map", and our app is full of Leaflet maps.
 - **Editing is weaker.** The map reports clicks with lat/lng/altitude ("at coarser levels, less accurate data"), but
   has no screen-to-ground method and no drag events on the ground: an anchor is moved by clicking its new spot, or
-  by our own controls; the walker moves with a slider or its animation. Heights must come from our patch: "terrain
+  by our own controls; the slackliner moves with a slider or its animation. Heights must come from our patch: "terrain
   data" is Google content, which may not be extracted.
 - **Money and hard stop.** Billed as "Immersive Maps" per map load, 5,000 free a month, then $7.00 per 1,000. A
   per-day quota is the documented hard cap; Google's rule (free cap ÷ 31) gives 161 a day, so about 150 a day leaves
@@ -238,12 +238,12 @@ permitted use (non-commercial, donations), keys, then the terms that shape the d
   Edge with a software WebGL renderer; the 3D page's headers in `tests/test_public.py`; a visual review with
   `tools/ui_shots.py` on the desktop and both phones.
 
-## Anchor editing and the walker
+## Anchor editing and the slackliner
 - **The webbing in 3D.** `viewer/src/sag.ts` already solves it: `estimate(span, dh, rigging)` (span = horizontal
   distance, dh = e1 − e2) gives the unloaded webbing (51 points) and the envelope (sag at 42 positions);
-  `athlete(x)` gives the loaded webbing with the walker at x (61 points, warm-started from the nearest envelope
+  `athlete(x)` gives the loaded webbing with the slackliner at x (61 points, warm-started from the nearest envelope
   solution). Each point (x, drop) maps to 3D as A1 + (x / span)·(A2 − A1) horizontally and e1 − drop vertically.
-- **The walker** starts where the envelope's sag is largest, follows a drag along the line (the pointer projected on
+- **The slackliner** starts where the envelope's sag is largest, follows a drag along the line (the pointer projected on
   the span gives x, one `athlete(x)` per animation frame) and walks from A1 to A2 when asked (x growing at walking
   pace; still under `prefers-reduced-motion`). The figure: a low-poly mannequin of 1.7 m standing on the webbing at
   x, facing along the line (a CC0 glTF or our own few hundred triangles; for D a `.glb` without extensions).
@@ -326,7 +326,7 @@ recorded in the code, and pyproj is used for 2D only (PROJ's network is off).
 ## Rendering library
 B and C need one library to draw the scene (D brings Google's). Each candidate was bundled with our esbuild settings
 (IIFE, es2020) and the two finalists ran a test scene in headless Edge under our real headers: a 1025 px tile of the
-Żabi Koń DEM, our cached orthophoto tiles, a sagging polyline updated live, a glTF walker and picking.
+Żabi Koń DEM, our cached orthophoto tiles, a sagging polyline updated live, a glTF slackliner and picking.
 
 | | three.js (+ 3DTilesRendererJS) | CesiumJS (`CesiumWidget`, no ion) | Giro3D | iTowns | MapLibre GL JS |
 | --- | --- | --- | --- | --- | --- |
@@ -458,7 +458,7 @@ address."
 | Geoid offset at the line (pyproj with shipped grids) | A (metre-true), D | low–medium |
 | 3D button, hash route, lazy bundle, vendor folder | B, C, D | medium |
 | The 3D page's own CSP and its tests | B, C, D (D: per-request nonce) | low (B, C) – medium (D) |
-| Webbing and walker in 3D (drag, animation), tested in Node | B, C, D | low |
+| Webbing and slackliner in 3D (drag, animation), tested in Node | B, C, D | low |
 | Anchor editing: picking, live sag, profile on release | B, C (D: click-to-place) | medium |
 | DEM patch in the quick lane (rate, checks, affine, encoding) | B, C, D | medium |
 | Textures: cached tiles + orthophoto services; optional fill of z18–19 on the server | B | medium (high with the fill) |
@@ -542,7 +542,7 @@ lines in one view therefore means a **chosen** set, and the question is who choo
   drawn where the terrain is; lines wholly inside are the simple case. A patch grown to hold a set of lines is
   possible (the bounding square of their anchors plus 500 m) up to `MAX_MEASURED_PX` (6000 px a side: 6 km at 1 m),
   at the cost of the budgets of one open (about 1 to 1.5 MB of heights per 1.5 km at 1 m; four times that at 3 km).
-- *Drawing.* One active line as today (walker, readout, handles, profile); the others as their unloaded webbing
+- *Drawing.* One active line as today (slackliner, readout, handles, profile); the others as their unloaded webbing
   only, thinner and in their stored verdict's colour (the favourite's `clr` and `over`, no `/api/profile`), with a
   small label. A click on one makes it the active line: its profile is asked for then.
 - *Limits.* A cap on the lines drawn (about 20) keeps the scene readable and the overlay's labels apart.
