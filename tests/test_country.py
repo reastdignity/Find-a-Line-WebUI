@@ -44,6 +44,20 @@ def _krovak_clip(folder) -> str:
     return out
 
 
+@pytest.fixture(scope="module", autouse=True)
+def no_backoff():
+    """No backoff pauses between the retries of sources.net._get: a country run asks GLO-30 for the relief
+    (country._set_weights) through the dead proxy, fails as offline and keeps its tiles in their order; the
+    same requests fail the same way with the same warning, only the pauses go (103 s of this file and
+    test_band_study.py together, 2026-11-13). Module-scoped
+    and autouse so the module fixtures (`full`) run under it too; no test here counts net's sleeps or times
+    a retry (a test that does patches `_sleep` itself: its patch is undone to this one)."""
+    from sources import net
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(net, "_sleep", lambda attempt: None)
+        yield
+
+
 @pytest.fixture(scope="module")
 def env(tmp_path_factory):
     """The offline environment (also of the worker processes) and the test country's config: bands S
