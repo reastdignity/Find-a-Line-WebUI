@@ -125,7 +125,9 @@ class _TiffTags:
     """A file's GDAL dataset opened through GDAL's C API (ctypes: every call releases the GIL) for its items of the
     TIFF domain (BLOCK_SIZE_x_y): GTiff loads its arrays of tile sizes on demand, an HTTP request for a tile beyond
     the bytes fetched so far, which rasterio's get_tag_item (GDALGetMetadataItem, rasterio 1.5.2) would make holding
-    the GIL. The same GDAL function, so the same values; a lookup GDAL cannot answer gives None, as there."""
+    the GIL. The same GDAL function, so the same values: None for a tile without bytes (sparse) or outside the file,
+    and None with an error GDAL signals (net.gdal_errors sees it: its handler is rasterio's) when the array's bytes
+    could not be fetched (a timeout, an answer cut short; a later lookup asks again)."""
 
     def __init__(self, lib: ctypes.CDLL, path: str):
         lib.GDALOpenEx.restype = ctypes.c_void_p
@@ -155,8 +157,11 @@ class _TiffTags:
 def predicted(layer, tiles: Sequence) -> Dict:
     """The bytes the files' internal tiles predict for the blocks (first file of each): summed per block
     and each tile once, from the files' headers (requests of their own: after the measurement), the tiles' sizes
-    read with the GIL released (_TiffTags)."""
+    read with the GIL released (_TiffTags). A size GDAL could not read (it signalled an error: the bytes of its
+    array not fetched) raises RuntimeError naming the file and the tile, never a 0 in the sum (the child process
+    fails, as when the measurement fails: no table); a tile without bytes or outside the file counts 0 as ever."""
     import numpy as np
+    import cache
     import rasterio as rio
     from rasterio.windows import from_bounds
     from sources import net
@@ -186,7 +191,12 @@ def predicted(layer, tiles: Sequence) -> Dict:
                 for ty in range(r1 // bh, (r2 - 1) // bh + 1):
                     for tx in range(c1 // bw, (c2 - 1) // bw + 1):
                         if (url, tx, ty) not in union:
-                            union[(url, tx, ty)] = int(tags[url].item(f"BLOCK_SIZE_{tx}_{ty}") or 0)
+                            with net.gdal_errors() as errors:
+                                size = tags[url].item(f"BLOCK_SIZE_{tx}_{ty}")
+                            if errors:
+                                raise RuntimeError(f"{cache.clean_url(url)}: the size of its tile {tx}, {ty} not read: "
+                                                   f"{cache.clean_error('; '.join(dict.fromkeys(errors)))}")
+                            union[(url, tx, ty)] = int(size or 0)
                         per_block += union[(url, tx, ty)]
         finally:
             for src in opened.values():
