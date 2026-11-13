@@ -237,7 +237,19 @@ def save(work: str, run_path: str, lines: sh.LineTable, groups: mp.Groups, meta:
         hand_over(folder, lines, groups, meta, heads)
         write_files(folder, run_path, children, len(lines), between)
     finally:
+        _remove(folder)
+
+
+def _remove(folder: str):
+    """The hand-over folder deleted, asked again for about 2 s while it is still there, then left as it is: on
+    Windows a child killed after another failed (write_files) still holds the arrays it memory-mapped for a moment
+    after its wait() returned (13-51 ms in 30 of 30 tries, none after a child that ended by itself; 2026-11-13)."""
+    for pause in (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0):
         shutil.rmtree(folder, ignore_errors=True)
+        if not os.path.exists(folder):
+            return
+        time.sleep(pause)
+    shutil.rmtree(folder, ignore_errors=True)
 
 
 def main(argv: List[str]):
