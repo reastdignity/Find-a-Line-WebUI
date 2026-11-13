@@ -180,7 +180,7 @@ def test_view3d_draws_the_line(clip_data, tmp_path, monkeypatch, level):
     assert 0 < result["vertices"] <= (300_000 if level == "full" else 130_000)
     assert result["filled"] == "1" and result["profileError"] is None, result
     assert "m long" in result["readout"] and "m clear of the terrain" in result["readout"]
-    assert "m of sag with the walker" in result["readout"]
+    assert "m of sag with the athlete" in result["readout"]
     assert result["toolbar"] == 1 and result["note"].startswith("A visual preview")
     assert "v3-hidden" in result["status"]
     assert _violations(dom) == []
@@ -689,7 +689,7 @@ def test_view3d_walker_views(clip_data, tmp_path, monkeypatch, level):
     print(level, result)
     assert result["ready"], result
     assert result["errors"] == [], result["errors"]
-    assert result["labels"] == ["Orbit", "Walker's eyes", "Behind the walker"]
+    assert result["labels"] == ["Orbit", "Athlete's eyes", "Behind the athlete"]
     cam = {k: [float(v) for v in result[k]["camera"].split(",")] for k in ("orbit", "eyes", "dragged", "walked",
                                                                           "behind", "back")}
     orbit, eyes, dragged, walked, behind, back = (result[k] for k in ("orbit", "eyes", "dragged", "walked", "behind",
