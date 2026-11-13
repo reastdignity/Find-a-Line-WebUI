@@ -24,15 +24,20 @@ exactly when some line of it does, and several filters as an upper bound. The bo
 partner are a spot's identity, not merged: a spot with lines of two border values is two spots.
 
 TileCounter counts the lines search.count_tile hands it, save_tile/load_tile keep a tile's counts,
-build sums the tiles into the cube (levels of 1, 2, 4 and 8 cells), Cube reads it for the web's
-layer, cell_request gives the search of one cell. Pure numpy, pyproj and shapely: the web process
-imports this module, so it never imports numba, linesearch, search or country.
+build sums the tiles into the cube (levels of 1, 2, 4 and 8 cells), each build's arrays in a
+folder of its own that cube.json names, Cube maps them for the web's layer, remove_stale removes
+the builds no cube.json names, cell_request gives the search of one cell. Pure numpy, pyproj and
+shapely: the web process imports this module, so it never imports numba, linesearch, search or
+country.
 """
 import json
 import math
 import os
+import re
+import secrets
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -755,22 +760,135 @@ def _save_npy(path: str, keys: np.ndarray, counts: np.ndarray) -> None:
         np.save(f, np.column_stack([keys.reshape(-1, 2), counts]).astype(np.int64))
 
 
+# A build's folder inside the cube folder: "build-" and the UTC time it started to the microsecond, then 8 random hex
+# digits. Nothing else in a cube folder has such a name (cube.json, area.geojson, the arrays of a cube built before,
+# cache.replacing's "<name>.<random>.part"), so remove_stale goes by it; the times order the builds.
+BUILD_PATTERN = re.compile(r"build-(\d{8}T\d{6}\.\d{6}Z)-[0-9a-f]{8}")
+ARRAY_FILES = tuple(f"{mode}_{level}.npy" for mode in ("lines", "spots") for level in LEVELS)  # in a build's folder
+
+
+def _new_build(out_dir: str) -> str:
+    """A new, empty build folder in out_dir; its name (BUILD_PATTERN). os.mkdir refuses a name that exists, so two
+    builds never share one."""
+    while True:
+        name = f"build-{datetime.now(timezone.utc):%Y%m%dT%H%M%S.%fZ}-{secrets.token_hex(4)}"
+        try:
+            os.mkdir(os.path.join(out_dir, name))
+            return name
+        except FileExistsError:
+            continue
+
+
+def arrays_folder(folder: str, info: Optional[Dict] = None) -> str:
+    """The folder holding a cube's arrays: the build folder its cube.json (`info`, read from `folder` when not
+    given) names as "arrays", or the cube folder itself for a cube built before the build folders (no "arrays":
+    the fixed names beside cube.json, read where they are). ValueError for a name off BUILD_PATTERN (nothing
+    outside the cube folder is ever read)."""
+    if info is None:
+        with open(os.path.join(folder, "cube.json"), encoding="utf-8") as f:
+            info = json.load(f)
+    name = info.get("arrays")
+    if name is None:
+        return folder
+    if not isinstance(name, str) or not BUILD_PATTERN.fullmatch(name):
+        raise ValueError(f"{folder}: cube.json names no build folder: {name!r}")
+    return os.path.join(folder, name)
+
+
+def _is_link(entry: os.DirEntry) -> bool:
+    return entry.is_symlink() or entry.is_junction()
+
+
+def _remove_file(path: str) -> bool:
+    """Removes a file; False when it could not go (Windows: another process has it mapped or open), True when it
+    is gone (also when someone else removed it first)."""
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    return True
+
+
+def _remove_build_folder(folder: str, name: str) -> List[str]:
+    """A build folder's files and then the folder; what stays (relative to the cube folder). Its entries that are
+    not plain files (a link, a folder: never a build's) stay, never followed."""
+    left = []
+    try:
+        entries = list(os.scandir(os.path.join(folder, name)))
+    except FileNotFoundError:
+        return []
+    except OSError:
+        return [name]
+    for entry in sorted(entries, key=lambda e: e.name):
+        if _is_link(entry) or not entry.is_file(follow_symlinks=False) or not _remove_file(entry.path):
+            left.append(f"{name}/{entry.name}")
+    try:
+        os.rmdir(os.path.join(folder, name))
+    except FileNotFoundError:
+        pass
+    except OSError:
+        if not left:
+            left.append(name)
+    return left
+
+
+def remove_stale(folder: str) -> List[str]:
+    """Removes from a cube folder what its cube.json does not name, once it names a build folder: the build
+    folders older than that one (earlier builds, and builds that died half-written before it) and the arrays of a
+    cube built before the build folders (ARRAY_FILES beside cube.json). Nothing else: no entry whose name is not
+    BUILD_PATTERN or one of ARRAY_FILES, never a newer build folder (a build being written: it names itself when
+    it ends), never a link (neither followed nor removed), nothing outside the folder; nothing at all while
+    cube.json names no build folder (a cube built before, or none). Tolerant: what cannot go (Windows refuses to
+    remove a file another process has mapped or open) stays for the next attempt; returns those entries (relative
+    to the folder). Called by build at its end and by the web (web.Countries) once it has dropped an old build's
+    maps; never raises for a file."""
+    try:
+        with open(os.path.join(folder, "cube.json"), encoding="utf-8") as f:
+            named = json.load(f).get("arrays")
+    except (OSError, ValueError, AttributeError):
+        return []
+    found = BUILD_PATTERN.fullmatch(named) if isinstance(named, str) else None
+    if found is None:
+        return []
+    started = found.group(1)
+    try:
+        entries = list(os.scandir(folder))
+    except OSError:
+        return []
+    left = []
+    for entry in sorted(entries, key=lambda e: e.name):
+        build = BUILD_PATTERN.fullmatch(entry.name)
+        if _is_link(entry):
+            continue
+        if build is not None:
+            if build.group(1) < started and entry.is_dir(follow_symlinks=False):
+                left += _remove_build_folder(folder, entry.name)
+        elif entry.name in ARRAY_FILES and entry.is_file(follow_symlinks=False) and not _remove_file(entry.path):
+            left.append(entry.name)
+    return left
+
+
 def _border_totals(keys: np.ndarray, counts: np.ndarray) -> Dict[str, int]:
     border = (keys[:, 0] >> BORDER_SHIFT) & 3 if len(keys) else np.zeros(0, dtype=np.int64)
     return {"owned": int(counts[border == 1].sum()), "partner": int(counts[border == 2].sum())}
 
 
-def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
+def build(tiles: Iterable[str], out_dir: str, info: Dict, say: Optional[Callable[[str], None]] = None) -> Dict:
     """The cube of the tile files given (the caller picks the layer bands' tiles): lines summed per
     key, spots merged per (id, border, partner) over all tiles and bands and then counted per key,
-    the levels 2, 4 and 8 summed from level 1; writes out_dir/lines_<L>.npy and spots_<L>.npy
-    ((n, 3) int64 [key_a, key_b, count], sorted by key) and cube.json last (removed first, so a
-    half-built cube is never read). info's "origin" is the country's (I0, J0) in cells. Returns
-    cube.json's content."""
+    the levels 2, 4 and 8 summed from level 1; writes lines_<L>.npy and spots_<L>.npy ((n, 3) int64
+    [key_a, key_b, count], sorted by key) into a new build folder of out_dir (_new_build), then
+    cube.json naming it ("arrays"), replaced atomically and last: a half-written build is a folder
+    no cube.json names, and the cube before stays readable (the web keeps answering from it) until
+    the new cube.json is in place. A cube's arrays are never replaced in place (a process may map
+    them: Windows refuses). At the end remove_stale removes the earlier builds; what another process
+    still holds stays, said once through `say`. info's "origin" is the country's (I0, J0) in cells.
+    Returns cube.json's content."""
     os.makedirs(out_dir, exist_ok=True)
     meta_path = os.path.join(out_dir, "cube.json")
-    if os.path.exists(meta_path):
-        os.remove(meta_path)
+    name = _new_build(out_dir)
     lines, spots = _Reducer(sum_keys), _Reducer(merge_spots)
     for path in tiles:
         counts, _ = load_tile(path)
@@ -790,9 +908,9 @@ def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
     for mode, keys, counts in (("lines", line_keys, line_counts), ("spots", spot_keys, spot_counts)):
         for level in LEVELS:
             k, n = _level_keys(keys, counts, level)
-            _save_npy(os.path.join(out_dir, f"{mode}_{level}.npy"), k, n)
+            _save_npy(os.path.join(out_dir, name, f"{mode}_{level}.npy"), k, n)
             keys_total[f"{mode}_{level}"] = int(len(k))
-    cube = {**info, "version": VERSION, "cell_deg": CELL_DEG, "levels": list(LEVELS),
+    cube = {**info, "version": VERSION, "arrays": name, "cell_deg": CELL_DEG, "levels": list(LEVELS),
             "clusters_per_cell": CLUSTERS_PER_CELL,
             "edges": {"length": list(LENGTH_EDGES), **{k: list(v) for k, v in EDGES.items()}},
             "kinds": dict(KINDS), "neighbours": list(info.get("neighbours", [])),
@@ -804,6 +922,11 @@ def build(tiles: Iterable[str], out_dir: str, info: Dict) -> Dict:
         cube["origin"] = [int(round(float(v))) for v in info["origin"]]
     with cache.replacing(meta_path, "w", encoding="utf-8") as f:
         json.dump(cube, f, indent=1)
+    left = remove_stale(out_dir)
+    if left and say is not None:
+        say(f"{len(left)} file{'s' if len(left) != 1 else ''} of earlier builds stay in {out_dir} ({', '.join(left[:4])}"
+            f"{', ...' if len(left) > 4 else ''}): another process has them open, the app showing the layer "
+            f"perhaps; the next build, or the app once it has moved to this one, removes them")
     return cube
 
 
@@ -1075,11 +1198,20 @@ CUT_FULL = 1 - 1e-9        # a cell with this share of it inside the outline is 
 RANGE_EPSILON = 1e-4       # cells: more than the corners' rounding to CUT_DECIMALS (1e-6°: 1.2e-4 of a 30" cell)
 
 
+class CubeChanged(Exception):
+    """An array of a Cube is gone: the cube was built again and its old build removed (by the builder, another
+    process), or the Cube was closed (web.Countries moved to a new build). A newer Cube of the folder answers."""
+
+
 class Cube:
-    """A built cube: cube.json and the .npy files, each read into memory when first used (not
-    memory-mapped: a mapped file stays open, and Windows would refuse the next build's replacing
-    it while the app shows the layer). Its cells are the lattice's: lon/lat rectangles of
-    level / 120 degrees from the origin (I0, J0) in cells, so nothing of it needs pyproj."""
+    """A built cube: cube.json and the .npy files of the build folder it names (arrays_folder; a cube
+    built before the build folders: the fixed names beside cube.json), each memory-mapped read-only
+    when first used: its pages are the system's file cache, not the process's private memory, and
+    nothing copies a whole array (the chunks of _chunks are views). A build never replaces a mapped
+    file (Windows refuses): it writes a new folder, and remove_stale takes the old one (on Windows
+    once no process maps it; elsewhere at once, a map staying readable until it goes). Its cells
+    are the lattice's: lon/lat rectangles of level / 120 degrees from the
+    origin (I0, J0) in cells, so nothing of it needs pyproj."""
 
     def __init__(self, folder: str):
         self.folder = folder
@@ -1087,11 +1219,17 @@ class Cube:
             self.info: Dict = json.load(f)
         if self.info.get("version") != VERSION:
             raise ValueError(f"{folder}: a cube of version {self.info.get('version')}, not {VERSION}: build it again")
+        self.arrays = arrays_folder(folder, self.info)
+        if not os.path.isdir(self.arrays):
+            raise FileNotFoundError(f"{self.arrays}: the build folder cube.json names is missing")
         self.origin = (int(self.info["origin"][0]), int(self.info["origin"][1]))
         self.crs = self.info.get("crs")
         self.levels = tuple(self.info.get("levels", LEVELS))
         self._arrays: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
-        self._loading = threading.Lock()  # one array read at a time (_rows)
+        self._whole: Dict[str, np.ndarray] = {}  # the (n, 3) rows the views of _arrays come from (array)
+        self._maps: List[weakref.ref] = []  # each mapped file's np.memmap, alive while a view of it is (mapped)
+        self._closed = False
+        self._loading = threading.Lock()  # one array mapped at a time (_rows), close
         self._outlines: Dict[float, Dict] = {}  # outline_simplified per tolerance
         self._cuts: Optional[Dict[int, Dict[Tuple[int, int], Dict]]] = None  # cut's cells per level
         self._pieces: Dict[int, Dict[Tuple[int, int], object]] = {}  # their exact parts inside the outline
@@ -1099,14 +1237,17 @@ class Cube:
         self._outside: Dict[Tuple[int, int, int], Optional[Dict]] = {}  # cut_outside's cells, by (level, i, j)
 
     def array(self, mode: str, level: int) -> np.ndarray:
-        """The (n, 3) [key_a, key_b, count] rows of a mode ("lines" or "spots") and level."""
+        """The (n, 3) [key_a, key_b, count] rows of a mode ("lines" or "spots") and level: the mapped
+        rows themselves, read-only, no copy."""
         keys, counts = self._rows(mode, level)
-        return np.column_stack([keys, counts])
+        whole = self._whole.get(f"{mode}_{level}")
+        return whole if whole is not None else np.column_stack([keys, counts])
 
     def _rows(self, mode: str, level: int) -> Tuple[np.ndarray, np.ndarray]:
-        """The keys ((n, 2)) and counts of a mode and level: views of the (n, 3) rows read once, by one
-        thread at a time (the page's /cells and /histogram of its first view ask the same array at once),
-        so the file's bytes are held once, also while it loads (copies of the columns held it twice)."""
+        """The keys ((n, 2)) and counts of a mode and level: views of the (n, 3) rows of its file, mapped
+        read-only once, by one thread at a time (the page's /cells and /histogram of its first view ask
+        the same array at once). CubeChanged when the file is gone (the cube was built again and the old
+        build removed) or the Cube was closed."""
         if mode not in ("lines", "spots"):
             raise ValueError("mode must be lines or spots")
         if level not in self.levels:
@@ -1115,11 +1256,33 @@ class Cube:
         found = self._arrays.get(name)
         if found is None:
             with self._loading:
+                if self._closed:
+                    raise CubeChanged(f"{self.folder}: this cube was closed (built again)")
                 found = self._arrays.get(name)
                 if found is None:
-                    rows = np.load(os.path.join(self.folder, name + ".npy")).reshape(-1, 3)
+                    path = os.path.join(self.arrays, name + ".npy")
+                    try:
+                        mapped = np.load(path, mmap_mode="r")
+                    except FileNotFoundError as e:
+                        raise CubeChanged(f"{path} is gone: the cube was built again") from e
+                    self._maps.append(weakref.ref(mapped))
+                    rows = self._whole[name] = mapped.view(np.ndarray).reshape(-1, 3)
                     found = self._arrays[name] = (rows[:, :2], rows[:, 2])
         return found
+
+    def close(self) -> None:
+        """Drops the cube's own references to its maps (web.Countries, when a newer build replaced it): a
+        map goes once no computation holds a view of it (mapped), and an array not mapped yet is never
+        mapped (CubeChanged), so its files can be removed."""
+        with self._loading:
+            self._closed = True
+            self._arrays.clear()
+            self._whole.clear()
+
+    def mapped(self) -> bool:
+        """Whether a file of this cube is still mapped in this process (by the cube, or by a view a
+        computation still holds)."""
+        return any(ref() is not None for ref in self._maps)
 
     def box(self, west: float, south: float, east: float, north: float) -> Box:
         """A WGS84 box clipped to the country's bounds_wgs84 with a margin of a degree, so a view of

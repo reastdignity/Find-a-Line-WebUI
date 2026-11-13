@@ -86,8 +86,7 @@ def _country(*args) -> int:
 
 
 def _cube(data: str) -> dict:
-    folder = os.path.join(data, "countries", ID, "cube")
-    out = {name: np.load(os.path.join(folder, name)) for name in os.listdir(folder) if name.endswith(".npy")}
+    out = _cube_folder(os.path.join(data, "countries", ID, "cube"))
     assert len(out) == 8
     return out
 
@@ -139,7 +138,10 @@ def full(env):
 
 
 def _cube_folder(folder: str) -> dict:
-    return {name: np.load(os.path.join(folder, name)) for name in os.listdir(folder) if name.endswith(".npy")}
+    """The arrays of a cube folder (those of the build folder its cube.json names), by file name."""
+    import countcube
+    arrays = countcube.arrays_folder(folder)
+    return {name: np.load(os.path.join(arrays, name)) for name in os.listdir(arrays) if name.endswith(".npy")}
 
 
 def test_cube_equals_one_grid(env, full):
