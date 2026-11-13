@@ -480,6 +480,69 @@ def test_layer_work_bounded(sample, monkeypatch):
         assert still() and 0 < len(ran) < chunks / 5, (len(ran), chunks)  # stopped, far fewer than all
 
 
+def test_layer_work_stops_when_its_request_is_cancelled():
+    """A request of the layer cancelled while its thread computes, not by its client going away (its receive never says
+    http.disconnect): by asyncio's task.cancel() and by an anyio cancel scope (Starlette's middleware runs the app in an
+    anyio task group; run_in_threadpool held such a cancel until the thread's end, and the thread ran all its chunks).
+    The request ends before its thread is done, its slot is free, and its thread stops at its next chunk: the chunks
+    counted (20 ms each, 200 if nobody stops it), every wait for an event with a deadline."""
+    import asyncio
+    import time
+
+    import anyio
+
+    class Client:  # never goes away
+        async def receive(self):
+            await asyncio.sleep(3600)
+
+    async def case(how):
+        ran, ended = [], []
+
+        def work(check):
+            for _ in range(200):
+                check()
+                ran.append(1)
+                time.sleep(0.02)
+
+        slots = web.LayerSlots(1)
+
+        async def request():
+            try:
+                await slots.run(Client(), work)
+            finally:
+                ended.append(len(ran))
+
+        async def computing():  # the thread has run a chunk (deadline 10 s)
+            deadline = time.monotonic() + 10
+            while not ran and time.monotonic() < deadline:
+                await asyncio.sleep(0.01)
+            assert ran, "the work never ran"
+
+        if how == "asyncio":
+            task = asyncio.ensure_future(request())
+            await computing()
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        else:
+            async with anyio.create_task_group() as group:
+                group.start_soon(request)
+                await computing()
+                group.cancel_scope.cancel()
+        deadline, count, since = time.monotonic() + 10, len(ran), time.monotonic()
+        while time.monotonic() < deadline and time.monotonic() - since < 0.5:  # until no chunk ran for 0.5 s
+            await asyncio.sleep(0.02)
+            if len(ran) != count:
+                count, since = len(ran), time.monotonic()
+        return ended[0], len(ran), time.monotonic() - since >= 0.5, slots.running
+
+    for how in ("asyncio", "anyio"):
+        at_end, total, stopped, running = asyncio.run(case(how))
+        assert at_end < 100 and stopped and total < 100 and running == 0, (how, at_end, total, stopped, running)
+
+
 def _brute_border(cube, level, filters_all, mode="lines"):
     """The counts of a cube's rows of a level by (i, j, side) under filters, from its arrays: side 0 for border 0
     and 1, the partner index for border 2."""

@@ -37,7 +37,9 @@ bins, both modes' `totals` and the lines' `border` split, interior, owned, partn
 (`countcube.cell_request`), all `require_admin`, the work in `run_in_threadpool`, cells and histograms through
 `LayerSlots` (at most `COUNTRY_SLOTS` at once, the others waiting without a thread `COUNTRY_WAIT_MAX` at most: 503;
 `COUNTRY_SECONDS_MAX` each: 504; stopped between two chunks of rows when the client goes away, a task awaiting
-`http.disconnect`: the page aborts its fetch on every move; every user alike); a ValueError a 400 with its text, a
+`http.disconnect`: the page aborts its fetch on every move; the thread by `anyio.to_thread.run_sync(abandon_on_cancel=True)`,
+so a request cancelled while it computes returns at once and its thread stops at its next chunk; every user alike); a
+ValueError a 400 with its text, a
 country without a readable cube 404; only countcube imported), the requests the page may send, SSE events
 (`sse-starlette`: keep-alive, send timeout; `EventHub`: one poller per process, while a stream is open, reads the new
 events of all jobs with their owners (`Jobs.owned_events`) and `worker_alive` once per `TICK` and hands each stream

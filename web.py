@@ -760,8 +760,10 @@ class LayerSlots:
 
     async def run(self, client, work: Callable, *args):
         """work(*args, check) in a thread within the bounds; its answer."""
+        import functools
+
+        import anyio
         from fastapi import HTTPException
-        from fastapi.concurrency import run_in_threadpool
         gone = asyncio.ensure_future(_disconnect(client.receive))
         stop = threading.Event()
         gone.add_done_callback(lambda _: stop.set())
@@ -782,7 +784,10 @@ class LayerSlots:
                 if time.monotonic() > deadline:
                     raise LayerStopped("time")
             try:
-                return await run_in_threadpool(work, *args, check)
+                # abandon_on_cancel: a request cancelled while its thread computes returns at once (run_in_threadpool's
+                # anyio.to_thread.run_sync without it holds a cancel of an anyio scope, as Starlette's middleware task
+                # group's, until the thread ends: the thread ran all its chunks), so the `finally` below stops it
+                return await anyio.to_thread.run_sync(functools.partial(work, *args, check), abandon_on_cancel=True)
             except LayerStopped as e:
                 if str(e) == "gone":
                     raise HTTPException(503, "the client went away")
@@ -790,7 +795,9 @@ class LayerSlots:
             finally:
                 self.running -= 1
         finally:
-            stop.set()  # a request cancelled while its thread runs: the thread stops at its next chunk
+            # the thread of a request cancelled while it computes (abandoned above, not awaited) stops at its next
+            # chunk; a client gone has set `stop` already, through `gone`'s callback
+            stop.set()
             gone.cancel()
 
 
