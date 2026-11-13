@@ -48,14 +48,11 @@ def _offline_env() -> dict:
 @pytest.fixture(scope="module")
 def clip_data(tmp_path_factory):
     """A data folder with a run of the clip (computed once, offline) and its run.json."""
-    import subprocess
-    data = tmp_path_factory.mktemp("patch")
-    result = subprocess.run(
-        [sys.executable, "findaline.py", "--elevation-file", TIF, "--northing", "254608", "--easting", "553966",
-         "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never",
-         "--nmpt", "off", "--model", "sag", "--data-dir", str(data)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=_offline_env())
-    assert result.returncode == 0, result.stdout + result.stderr
+    import clip_runs  # the search once per session, this module's own copy
+    data = clip_runs.data_copy(tmp_path_factory, "patch", [
+        "--elevation-file", TIF, "--northing", "254608", "--easting", "553966",
+        "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never",
+        "--nmpt", "off", "--model", "sag"])
     run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
     meta = json.loads((data / "runs" / run / "run.json").read_text("utf-8"))
     return data, meta
