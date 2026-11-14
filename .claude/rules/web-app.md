@@ -32,6 +32,10 @@ tests that start Edge).
   as a literal, a conditional of literals, or `f"rate_{kind}"`/`f"quota_use_{kind}"`, whose kinds it lists); a text
   the web page shows goes through a code, never a text with `--option`. `error_info` holds no personal data (a code
   and the values of the request or the search; redacted on the public site as `error`).
+- The advice of a refusal for too many lines (`too_many_lines*`): `messages.line_advice` (which changes, the measured
+  order) and `advice_text` render it as `viewer/src/i18n.ts` `adviceText` does, from the `error.advice.*` texts
+  (`tests/test_viewer.py::test_error_texts_match_python`); a new advice needs its key in all three and in
+  `messages._ADVICE_CLI`.
 - `settings.Limits` (fields, `PUBLIC`, `BOUNDS`), the table "Limits of the web app" in README.md and the form:
   `web.schema(limits)` gives the form `min`/`max` and leaves out what `not_allowed` forbids, `search/SearchPanel.tsx`
   puts them on its inputs (`Setting`, the ranges of radius, buffer and the key fields). A new limit on a request value

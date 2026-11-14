@@ -21,14 +21,23 @@ export const label = (field: string): string => t(`field.${field}.label`);
 export interface ErrorInfo { code: string; params?: Record<string, unknown> }
 
 /** The text of a coded error ("error.<code>") in the page's language, as messages.Coded.web_text: a
- *  parameter "field" gives the label ("label"). `fallback` (the server's English text) when the
- *  catalogue has no such code (a newer server). */
+ *  parameter "field" gives the label ("label"), "advice" the text "advice_text". `fallback` (the
+ *  server's English text) when the catalogue has no such code (a newer server). */
 export function errorText(info: ErrorInfo, fallback?: string): string {
   const key = `error.${info.code}`;
   const params: Record<string, unknown> = {...(info.params || {})};
   if (typeof params.field === "string" && params.label === undefined) params.label = label(params.field);
+  if (params.advice_text === undefined) params.advice_text = adviceText(params.advice);
   const text = t(key, params);
   return text === key && fallback ? fallback : text;
+}
+
+/** The advice of a refusal for too many lines (messages.advice_text): its items ({key, values}) in
+ *  "error.advice.list", or "error.advice.none" without any. */
+function adviceText(advice: unknown): string {
+  const items = Array.isArray(advice) ? advice as Record<string, unknown>[] : [];
+  if (!items.length) return t("error.advice.none");
+  return t("error.advice.list", {items: items.map(({key, ...values}) => t(`error.advice.${key}`, values)).join("; ")});
 }
 
 /** A value of a field with its unit as the texts write it (messages.quantity): "2000 m", "45°", "50". */
