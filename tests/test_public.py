@@ -3039,6 +3039,7 @@ def test_search_limits_of_anchors_and_lines(tmp_path):
         if code != "too_many_anchors":
             assert error.value.params["advice"] == messages.line_advice(plan.params), error.value.params
             assert ("--end-zone 0" in str(error.value)) == bool(extra), error.value
+            assert "the strongest first: --same-line-square 5;" in str(error.value), error.value
         import gc
         gc.collect()
 

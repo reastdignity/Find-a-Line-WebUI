@@ -677,8 +677,8 @@ def test_error_texts_match_python(tmp_path):
                {"message": "A newer server's text", "code": "no_such_code", "params": {}},
                "a plain text", None]
     # a refusal for too many lines with its advice (values whole and not), and one stored before the advice
-    advice = [{"key": "zone_lift_off"}, {"key": "formula"}, {"key": "anchor_diff_half", "value": 2.5, "percent": 2},
-              {"key": "slope", "value": 55.0}]
+    advice = [{"key": "same_line_square", "value": 5}, {"key": "formula"},
+              {"key": "anchor_diff_half", "value": 2.5, "percent": 2}, {"key": "slope", "value": 55.0}]
     refusals = [messages.UserError.web("too_many_lines_early", n=9, max=5, advice=advice).detail(),
                 messages.UserError.web("too_many_lines", n=9, max=5).detail()]
     found = run_ts(tmp_path, "i18n", f"""
@@ -689,6 +689,7 @@ console.log(JSON.stringify({json.dumps(details + refusals)}.map((d) => m.detailM
     assert found[2].startswith("1 part of the coast is 200–400 m")
     assert found[6:] == [r["message"] for r in refusals], found[6:]
     assert "to 2.5 m and Anchor height difference, % of length to 2 %; Anchor steepness to 55°." in found[6]
+    assert "the strongest first: One line per pair of anchor squares to 5 m; Clearance model" in found[6]
 
 
 def test_area_searched_by_local_day(tmp_path):

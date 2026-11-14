@@ -400,6 +400,7 @@ def test_limits_count_kept_lines(tmp_path, monkeypatch):
     with pytest.raises(search.SearchError) as error:
         _search(tmp_path, "without", limits=Limits(lines_max=pairs), **point)
     assert error.value.code == "too_many_lines_early"
+    assert error.value.params["advice"][0] == {"key": "same_line_square", "value": 5}  # off: offered first
     gc.collect()
     monkeypatch.setattr(samelines, "CHECK_ROWS", 1)
     for early, code, text in ((False, "too_many_lines", f"{pairs} lines, at most {pairs - 1}"),
@@ -410,6 +411,9 @@ def test_limits_count_kept_lines(tmp_path, monkeypatch):
         assert error.value.code == code and text in str(error.value), error.value
         assert error.value.params["max"] == pairs - 1 and pairs - 1 < error.value.params["n"] <= pairs
         assert error.value.params["advice"] == messages.line_advice(plan.params)
+        # the square rule is on: the advice does not name it again
+        assert "same_line_square" not in [a["key"] for a in error.value.params["advice"]]
+        assert "--same-line-square" not in str(error.value), error.value
         gc.collect()
     # the memory: the grids and the kept lines fit, one line fewer does not
     pixels = plan.grid.width * plan.grid.height
