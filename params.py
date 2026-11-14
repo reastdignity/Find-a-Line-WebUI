@@ -10,6 +10,7 @@ fields (a drawn geometry) are set by the web app's server, not by its form or th
 """
 
 import argparse
+import math
 import os
 import typing
 import unicodedata
@@ -290,16 +291,46 @@ class SearchParams(BaseModel):
             if getattr(self, name) < 0:
                 raise UserError("--max-anchor-diff and --max-anchor-diff-m cannot be negative", "not_negative",
                                 field=name)
-        for name in ("pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"):
-            value = getattr(self, name)
-            if value < 0 or (value == 0 and name in ("pretension", "stretch")):
-                raise UserError("rigging values must be positive", "positive" if value <= 0 and name in (
-                    "pretension", "stretch") else "not_negative", field=name)
-        if not 0 <= self.end_zone <= END_ZONE_MAX:
-            raise UserError(f"--end-zone is 0 to {END_ZONE_MAX:g} m", "end_zone_range", max=END_ZONE_MAX)
-        if not 0 <= self.anchor_lift <= ANCHOR_LIFT_MAX:
-            raise UserError(f"--anchor-lift is 0 to {ANCHOR_LIFT_MAX:g} m", "anchor_lift_range", max=ANCHOR_LIFT_MAX)
+        _check_rigging({name: getattr(self, name) for name in RIG_FIELDS})
         return self
+
+
+# The values of a rig (the web app's saved rigs, jobs.Jobs.rigs): the sag model's rigging, in the order of the
+# form; kN, %, g/m, kg, m, m, m
+RIG_FIELDS = ("pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone", "end_zone", "anchor_lift")
+
+
+def _check_rigging(values: dict):
+    """The bounds of the rigging values (SearchParams.check, check_rig): UserError with their codes."""
+    for name in ("pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"):
+        value = values[name]
+        if value < 0 or (value == 0 and name in ("pretension", "stretch")):
+            raise UserError("rigging values must be positive", "positive" if value <= 0 and name in (
+                "pretension", "stretch") else "not_negative", field=name)
+    if not 0 <= values["end_zone"] <= END_ZONE_MAX:
+        raise UserError(f"--end-zone is 0 to {END_ZONE_MAX:g} m", "end_zone_range", max=END_ZONE_MAX)
+    if not 0 <= values["anchor_lift"] <= ANCHOR_LIFT_MAX:
+        raise UserError(f"--anchor-lift is 0 to {ANCHOR_LIFT_MAX:g} m", "anchor_lift_range", max=ANCHOR_LIFT_MAX)
+
+
+def check_rig(values) -> dict:
+    """The seven values of a saved rig (RIG_FIELDS: all of them, nothing else, finite numbers) with
+    SearchParams' bounds and codes; returns them as floats. ValueError for another shape, UserError for a
+    value out of bounds (the same code SearchParams gives it)."""
+    if not isinstance(values, dict) or set(values) != set(RIG_FIELDS):
+        raise ValueError(f"values: an object of {', '.join(RIG_FIELDS)}")
+    found = {}
+    for name in RIG_FIELDS:
+        value = values[name]
+        try:
+            number = None if isinstance(value, bool) or not isinstance(value, (int, float)) else float(value)
+        except OverflowError:  # an integer beyond a float's range
+            number = None
+        if number is None or not math.isfinite(number):
+            raise ValueError(f"values: {name} is a number")
+        found[name] = number
+    _check_rigging(found)
+    return found
 
 
 # --- What the web form shows (web.schema): the fields by topic (the form's "More settings") and presets

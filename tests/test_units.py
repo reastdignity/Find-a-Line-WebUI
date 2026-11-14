@@ -2967,6 +2967,36 @@ def test_coded_errors():
     assert messages.quantity("slope_threshold", 45.0) == "45°" and messages.quantity("ortho_detail", 5) == "5"
 
 
+def test_check_rig_as_search_params():
+    """A saved rig's values (params.check_rig): the seven rigging values, nothing else, finite numbers;
+    a value out of bounds is refused with the code and parameters SearchParams gives it, and a value
+    SearchParams takes check_rig takes too."""
+    import messages
+    from pydantic import ValidationError
+    rig = {"pretension": 2.5, "stretch": 5, "webbing_weight": 70, "athlete_mass": 80, "fall_zone": 6, "end_zone": 5,
+           "anchor_lift": 0}
+    assert pm.check_rig(rig) == {k: float(v) for k, v in rig.items()} and set(pm.RIG_FIELDS) == set(rig)
+    assert all(type(v) is float for v in pm.check_rig(rig).values())
+    for name, value in (("pretension", 0), ("pretension", -1), ("stretch", 0), ("webbing_weight", -0.1),
+                        ("athlete_mass", -1), ("fall_zone", -1), ("end_zone", -1), ("end_zone", pm.END_ZONE_MAX + 0.1),
+                        ("anchor_lift", -0.5), ("anchor_lift", pm.ANCHOR_LIFT_MAX + 0.1)):
+        with pytest.raises(ValidationError) as searched:
+            pm.SearchParams(lat=50, lon=19, model="sag", **{**rig, name: value})
+        with pytest.raises(messages.UserError) as saved:
+            pm.check_rig({**rig, name: value})
+        assert saved.value.detail() == messages.user_error(searched.value).detail(), (name, value)
+    for name, value in (("webbing_weight", 0), ("athlete_mass", 0), ("fall_zone", 0), ("end_zone", pm.END_ZONE_MAX),
+                        ("anchor_lift", pm.ANCHOR_LIFT_MAX), ("pretension", 30)):
+        pm.SearchParams(lat=50, lon=19, model="sag", **{**rig, name: value})
+        assert pm.check_rig({**rig, name: value})[name] == value
+    for wrong in (None, [], {**rig, "model": "sag"}, {k: v for k, v in rig.items() if k != "end_zone"},
+                  {**rig, "stretch": "5"}, {**rig, "stretch": True}, {**rig, "stretch": None},
+                  {**rig, "stretch": float("nan")}, {**rig, "stretch": float("inf")}, {**rig, "stretch": 10 ** 400}):
+        with pytest.raises(ValueError) as error:
+            pm.check_rig(wrong)
+        assert not isinstance(error.value, messages.UserError), wrong
+
+
 def test_refusal_advice_follows_the_settings():
     """The advice of a refusal for too many lines names only the changes that apply to the search, in
     the measured order (the square rule while it is off, zone and A-frames off, zone off, the formula,

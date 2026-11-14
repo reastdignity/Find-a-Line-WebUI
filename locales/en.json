@@ -347,6 +347,9 @@
   "error.need_osm_name": "Type the name of an OpenStreetMap area.",
   "error.check_settings": "Check the settings.",
   "error.folders_max": "Folders: at most {{max}}. Delete some first.",
+  "error.rigs_max": "You can keep {{max}} rigs. Delete one first.",
+  "error.rig_name": "Give the rig a name of 1 to {{max}} characters.",
+  "error.rig_name_taken": "You already have a rig of that name.",
 
   "intro.dont_show": "Do not show again",
   "intro.got_it": "Got it",

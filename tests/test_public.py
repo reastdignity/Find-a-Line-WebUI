@@ -1887,6 +1887,97 @@ def test_jobs_database_gets_folders(tmp_path):
     db.close()
 
 
+RIG = {"pretension": 2.5, "stretch": 5.0, "webbing_weight": 70.0, "athlete_mass": 80.0, "fall_zone": 6.0,
+       "end_zone": 5.0, "anchor_lift": 0.0}  # the Basic form's starting rig
+
+
+def test_jobs_database_gets_rigs(tmp_path):
+    """jobs.sqlite of version 17 gets the table of saved rigs (migration 18, an empty table); its jobs,
+    runs, favourites and folders stay. A rig's name is once per user compared casefolded (the local
+    user's, NULL, too), at most RIGS_MAX per user."""
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:17])
+    db.execute("INSERT INTO jobs (id, created, status, request, title, user_id) "
+               "VALUES ('old', '', 'done', '{\"params\": {}}', 'Old', 3)")
+    db.execute("INSERT INTO runs (run_id, user_id) VALUES ('run', 3)")
+    db.execute("INSERT INTO favourite_folders (id, user_id, name) VALUES (5, 3, 'Trips')")
+    db.execute("INSERT INTO favourites (user_id, run_id, line, data, created, folder_id) "
+               "VALUES (3, 'run', '1,2,3,4', '{}', '', 5)")
+    db.commit()
+    db.close()
+    jobs = jb.Jobs(str(tmp_path))
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 18
+    assert db.execute("SELECT COUNT(*) FROM rigs").fetchone()[0] == 0
+    db.close()
+    assert [(j["id"], j["title"], j["user_id"]) for j in jobs.all()] == [("old", "Old", 3)]
+    assert json.loads(jobs.get("old")["request"]) == {"params": {}}
+    assert jobs.run("run")["user_id"] == 3 and jobs.favourites(3)[0]["folder_id"] == 5
+    assert [f["name"] for f in jobs.folders(3)] == ["Trips"]
+
+    for user in (3, None):
+        first = jobs.add_rig(user, "My rig", RIG)
+        with pytest.raises(jb.UserError) as taken:
+            jobs.add_rig(user, "MY RIG", RIG)
+        assert taken.value.code == "rig_name_taken"
+        second = jobs.add_rig(user, "Rig 2", {**RIG, "end_zone": 0.0})
+        assert jobs.rigs(user) == [{"id": first, "name": "My rig", "values": RIG},
+                                   {"id": second, "name": "Rig 2", "values": {**RIG, "end_zone": 0.0}}]
+        jobs.change_rig(user, second, name="rig 2")  # its own name in another case
+        with pytest.raises(jb.UserError):
+            jobs.change_rig(user, second, name="my RIG")
+        jobs.change_rig(user, second, values=RIG)
+        assert jobs.rigs(user)[1] == {"id": second, "name": "rig 2", "values": RIG}
+        jobs.delete_rig(user, second)
+        assert [r["id"] for r in jobs.rigs(user)] == [first]
+    assert jobs.add_rig(4, "My rig", RIG)  # another user's name
+    for wrong in ((4, first), (None, 999)):
+        with pytest.raises(KeyError):
+            jobs.change_rig(*wrong, name="x")
+        with pytest.raises(KeyError):
+            jobs.delete_rig(*wrong)
+    for k in range(jb.RIGS_MAX - 1):
+        jobs.add_rig(3, f"Rig {k + 2}", RIG)
+    with pytest.raises(jb.QuotaExceeded) as full:
+        jobs.add_rig(3, "One more", RIG)
+    assert (full.value.status, full.value.code, full.value.params) == (409, "rigs_max", {"max": jb.RIGS_MAX})
+    assert len(jobs.rigs(3)) == jb.RIGS_MAX
+
+
+def test_rig_names():
+    """A rig's name: whitespace collapsed and stripped, 1 to RIG_NAME_MAX characters, no control
+    characters; the error never holds the name."""
+    import jobs as jb
+    assert jb.rig_name("  My    rig ") == "My rig" and jb.rig_name("x" * jb.RIG_NAME_MAX) == "x" * jb.RIG_NAME_MAX
+    assert jb.rig_name("Łódź rig") == "Łódź rig"
+    for wrong in ("", "   ", "x" * (jb.RIG_NAME_MAX + 1), "a\nb", "a\tb", "a\x00b", "a\x85b", 5, None, ["a"]):
+        with pytest.raises(jb.UserError) as error:
+            jb.rig_name(wrong)
+        assert error.value.code == "rig_name" and error.value.params == {"max": jb.RIG_NAME_MAX}
+        assert "a\nb" not in str(error.value)
+
+
+def test_adopt_runs_gives_rigs(tmp_path):
+    """When the local app's data folder goes public, the first administrator gets the local user's rigs
+    while it holds fewer than RIGS_MAX and none of the name (casefolded); the others stay the local
+    user's."""
+    import jobs as jb
+    jobs = jb.Jobs(str(tmp_path))
+    for k in range(jb.RIGS_MAX - 2):
+        jobs.add_rig(7, f"Admin {k}", RIG)
+    jobs.add_rig(7, "My rig", RIG)
+    local = [jobs.add_rig(None, name, RIG) for name in ("MY RIG", "Light", "Heavy", "Spare")]
+    jobs.adopt_runs(str(tmp_path / "runs"), 7)
+    assert [r["name"] for r in jobs.rigs(7)][-1:] == ["Light"] and len(jobs.rigs(7)) == jb.RIGS_MAX
+    assert [r["id"] for r in jobs.rigs(None)] == [local[0], local[2], local[3]]
+    jobs.adopt_runs(str(tmp_path / "runs"), None)  # without an administrator nothing moves
+    assert len(jobs.rigs(None)) == 3
+
+
 def test_jobs_database_gets_reports(tmp_path):
     """jobs.sqlite of version 9 gets the table of problem reports; its favourites stay."""
     import sqlite3
