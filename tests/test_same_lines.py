@@ -423,3 +423,71 @@ def test_limits_count_kept_lines(tmp_path, monkeypatch):
                     early_stop=early, same_line_square=5, **point)
         assert error.value.code == code and error.value.params["max"] == pairs - 1, error.value
         gc.collect()
+
+
+# --- the web app: the Advanced form's field ---
+
+def test_form_field_round_trip(tmp_path, monkeypatch):
+    """The field of the Advanced form: in the schema with the page's words (topic "lines"), also on the
+    public site; a request keeps its value through the queue ("search again", the form's edit) into
+    run.json; a value outside 0 or 2 to 20 is refused for everyone, with the catalogue's text."""
+    pytest.importorskip("httpx2")
+    import time
+    from fastapi.testclient import TestClient
+    import messages
+    import web
+    from jobs import Jobs, Scheduler
+    from settings import Limits
+    public = Limits.load(public=True)
+    for limits in (None, public):
+        field = {f["name"]: f for f in web.schema(limits)}["same_line_square"]
+        assert (field["type"], field["default"], field["topic"], field["unit"]) == ("number", 0, "lines", "m")
+        assert field["label"] == messages.text("field.same_line_square.label") and "0: off" in field["help"]
+        assert not field["optional"] and (field["min"], field["max"]) == (None, None)
+    point = {"lat": 50.1, "lon": 19.7}
+    for limits in (None, public):
+        for value in (0, 2, 5, 20, "5"):
+            web.checked_request({"params": {**point, "same_line_square": value}}, limits)
+        for value in (1, 1.9, 21, -5, 1e9, "x"):
+            with pytest.raises(ValueError) as error:
+                web.checked_request({"params": {**point, "same_line_square": value}}, limits)
+            if value != "x":
+                assert "One line per pair of anchor squares is 0 (off) or 2 to 20 m." in str(web.error_detail(error.value))
+    # the page's request, kept by the queue and given back for "search again" and the form's edit
+    token, local = "test-token", "http://127.0.0.1:8765"
+    app = web.create_app(str(tmp_path), token=token, start_scheduler=False)
+    headers = {"x-findaline-token": token}
+    with TestClient(app, base_url=local) as client:
+        assert "same_line_square" in {f["name"] for f in client.get("/api/schema").json()["fields"]}
+        request = {"params": {**point, "radius": 300, "same_line_square": 5}}
+        job = client.post("/api/jobs", json=request, headers=headers).json()["id"]
+        assert client.get(f"/api/jobs/{job}").json()["request"]["params"]["same_line_square"] == 5
+        answer = client.post("/api/jobs", json={"params": {**point, "same_line_square": 1}}, headers=headers)
+        assert answer.status_code == 400 and "0 (off) or 2 to 20 m" in answer.text
+        jobs = Jobs(str(tmp_path))
+        jobs.set(job, "failed", error="interrupted")
+        again = client.post(f"/api/jobs/{job}/again", headers=headers).json()["id"]
+        assert json.loads(jobs.get(again)["request"])["params"]["same_line_square"] == 5
+        for waiting in (job, again):
+            jobs.set(waiting, "cancelled")
+    # a job through the worker: the run knows the option, the side and the lines found
+    for key, value in {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}.items():
+        monkeypatch.setenv(key, value)
+    params = {"elevation_file": os.path.join(DATA, "zabi_kon_nmt.tif"), "northing": 254608, "easting": 553966,
+              "radius": 150, "water": "off", "fill_gaps": "off", "name": "Clip", "ortho": "never",
+              "same_line_square": 5}
+    job = jobs.add({"params": params, "geometry": None}, "clip")
+    scheduler = Scheduler(jobs)
+    scheduler.start()
+    try:
+        deadline = time.time() + 300
+        while jobs.get(job)["status"] not in ("done", "failed") and time.time() < deadline:
+            time.sleep(0.5)
+    finally:
+        scheduler.stop()
+    result = jobs.get(job)
+    assert result["status"] == "done", result["error"]
+    meta = json.loads(_read(str(tmp_path / "runs" / result["run_id"]), "run.json"))
+    assert meta["params"]["same_line_square"] == 5 and meta["params"]["same_line_side"] == 5
+    assert meta["summary"]["found"] > 2 * meta["summary"]["lines"] > 0
+    assert any("Square rule:" in str(e["data"]) for e in jobs.events(0, job) if e["kind"] == "info")
