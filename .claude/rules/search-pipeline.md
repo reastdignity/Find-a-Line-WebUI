@@ -3,6 +3,7 @@ paths:
   - "findaline.py"
   - "params.py"
   - "search.py"
+  - "samelines.py"
   - "area.py"
   - "grid.py"
   - "progress.py"
@@ -72,6 +73,16 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   again with it. `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the
   profile points: a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change
   both together.
+- The square rule (`--same-line-square`, `samelines.py`; off by default): with it off no file of a run, no tile file
+  and no hash changes by a byte (`tests/test_same_lines.py` pins `lines.csv` of two clip searches); with it on, the
+  order of a pair's lines must stay total and the same for every part, tile and thread ("first of a key" and "sum of
+  a key" are all the reducer and `reduce_table` do), a tile's reducer takes only the lines of its core
+  (`line_coordinates`' test), and the limits count kept lines (`_early_check` through the reducer's check,
+  `_check_lines` on the table; a tiled search counts its tiles' kept lines, held until the join: the Gozo coast 503 718
+  against 503 651 after it). The option, the side and the lines found go into run.json only when set (`_run_params`,
+  `summary.found`); a new column of the lines must pass the reducer's `LineTable.join` and `reorder` like the others.
+  `linesearch.find_valid_lines` takes a sink or a check, not both: a search the reducer's check stops adds no funnel
+  counts for that grid. The country layer's count mode never uses the rule (`count_tile` has its own sink).
 
 ## Pitfalls
 
