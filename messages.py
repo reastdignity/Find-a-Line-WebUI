@@ -67,11 +67,78 @@ def render(texts: Dict[str, str], key: str, **params) -> str:
 # label ("label") in the page's language. ---
 
 def web_params(params: Dict, language: str = LANGUAGE) -> Dict:
-    """`params` with the label of their "field" added (as the page's errorText does)."""
+    """`params` with the label of their "field" added, and "advice_text", the text of their "advice"
+    (none: only the smaller area; a refusal stored before the advice had none), as the page's
+    errorText does. Texts without these placeholders ignore them."""
     field = params.get("field")
     if field and "label" not in params:
         params = {**params, "label": text(f"field.{field}.label", language)}
+    if "advice_text" not in params:
+        params = {**params, "advice_text": advice_text(params.get("advice"), language)}
     return params
+
+
+# --- The advice of a refusal for too many lines (the codes too_many_lines*): the changes that find
+# fewer lines, measured each alone on 15 refused searches (2026-11-13, docs/roadmap.md "Decisions"),
+# ranked by how many of them ended within the limits, then by the share of lines kept: the no-fall
+# zone and the A-frames both off (9 of 15, 8 % kept), the zone off (7, 17 %), the formula instead of
+# sag (6, 40 %), the anchors' height difference 5 m (5, 39 %) or halved (5, 52 %), the A-frames off
+# (4, 54 %), the anchor steepness +10° (4, 61 %); then a smaller area or shorter lines. A higher
+# prominence of one anchor helped most but kept 4 % and was not judged: not offered; the highest
+# point and the drop (1 of 15, 96-100 % kept) no longer. Before all of them, while it is off, the
+# square rule at 5 (--same-line-square, one line per pair of anchor squares; the user's decision of
+# 2026-11-14): measured in the line-volume study it keeps 1.5 to 4.2 % of the lines, and the Gozo
+# coast in the target rig ends with 503 651 kept of 24 480 100 found; no other change comes near. ---
+
+ADVICE_MAX = 4  # changes named, the strongest first; the smaller area always closes the list
+SLOPE_ADVICE_MAX = 85.0  # the anchor steepness the advice raises to at most (as measured)
+SQUARE_ADVICE = 5  # the square rule's side the advice names (m; on data coarser than 1 m, pixels)
+_ADVICE_CLI = {"same_line_square": "--same-line-square {value}",
+               "zone_lift_off": "--end-zone 0 --anchor-lift 0", "zone_off": "--end-zone 0",
+               "formula": "--model formula", "anchor_diff_m": "--max-anchor-diff-m {value}",
+               "anchor_diff_half": "--max-anchor-diff-m {value} --max-anchor-diff {percent}",
+               "lift_off": "--anchor-lift 0", "slope": "--slope-threshold {value}"}
+
+
+def line_advice(p) -> list:
+    """The changes advised to a search with the settings `p` (params.SearchParams) refused for too
+    many lines: only those that change something in it, in the measured order, at most ADVICE_MAX,
+    as {"key": the text "error.advice.<key>", and its values}."""
+    advice = []
+    if not p.same_line_square:
+        advice.append({"key": "same_line_square", "value": SQUARE_ADVICE})
+    if p.end_zone and p.anchor_lift:
+        advice.append({"key": "zone_lift_off"})
+    if p.end_zone:
+        advice.append({"key": "zone_off"})
+    if p.model == "sag":
+        advice.append({"key": "formula"})
+    if p.max_anchor_diff_m > 5:
+        advice.append({"key": "anchor_diff_m", "value": 5})
+    elif p.max_anchor_diff_m > 0:
+        advice.append({"key": "anchor_diff_half", "value": p.max_anchor_diff_m / 2, "percent": p.max_anchor_diff / 2})
+    if p.anchor_lift:
+        advice.append({"key": "lift_off"})
+    if p.slope_threshold < SLOPE_ADVICE_MAX:
+        advice.append({"key": "slope", "value": min(SLOPE_ADVICE_MAX, p.slope_threshold + 10)})
+    return advice[:ADVICE_MAX]
+
+
+def advice_cli(advice: list) -> str:
+    """The advice for the command line, with the options' names."""
+    steps = [_ADVICE_CLI[a["key"]].format(**{k: _string(v) for k, v in a.items()}) for a in advice]
+    smaller = "a smaller area or a lower --max-length"
+    return f"fewer lines with, the strongest first: {'; '.join(steps)}; or {smaller}" if steps else \
+        f"fewer lines with {smaller}"
+
+
+def advice_text(advice: Optional[list], language: str = LANGUAGE) -> str:
+    """The advice for the web page ("error.advice.list" of its items, or "error.advice.none")."""
+    if not advice:
+        return text("error.advice.none", language)
+    items = "; ".join(text(f"error.advice.{a['key']}", language, **{k: v for k, v in a.items() if k != "key"})
+                      for a in advice)
+    return text("error.advice.list", language, items=items)
 
 
 class Coded:

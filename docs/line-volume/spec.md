@@ -1,0 +1,237 @@
+# Line volume: the implementation specification
+
+2026-11-14. The specification of what the line-volume task decided and did not build: the search finds far more
+lines in the rig people really use than the site can keep, send or show, and these are the measures against it.
+The bar: "complete enough that a later session's agents implement it without new decisions"; where a decision is
+still missing, it is listed in section 6, never hidden.
+
+## 1. How to read it
+| File | Covers |
+|---|---|
+| `spec.md` (this file) | where the task stands, the path to the goal case, every solution, the order of building, the open choices, phase 4's findings |
+| [spec-search.md](spec-search.md) | before and during the search: the Basic form with 'My rig' and goals, the size from a sample, the access mark, the lip anchors' measurement, findings, decided items |
+| [spec-store.md](spec-store.md) | stored and sent: the Arrow store (the one schema of a run's lines), old runs, the ranges of a kept line, what is sent, renaming a run |
+| [spec-view.md](spec-view.md) | shown: today's page ranked by mean height with the tight mark, the result view of mock-up 2, the audit's reading choices |
+
+Every solution has eleven headings, in this order: 1 Decision (the gate's id and title, the user's words, the
+tier); 2 Behaviour; 3 Data (with the stored-data decision, "automatic migration" or "none"); 4 Interfaces; 5 Files and
+pairs (the "must stay in step" pairs of `.claude/rules/<area>.md`, by their words); 6 Screens; 7 Tests;
+8 Acceptance; 9 Waves; 10 Risks and rollout; 11 Needs the user's word. Short solutions join some headings.
+
+**Sources and how they are named.** The task's study (2026-11-10 to 2026-11-14) is not in the repository; its
+numbers stand here with the part that measured them: parts E1-E6 (the evidence of phase 1), P1-P7 (the measurements
+and the two mock-ups of phase 3), W2-W4 (phase 4's builds). A number with a part's name is measured there; "(estimate)"
+marks the authors' arithmetic; seconds are indicative unless measured under the exclusive lock. The user's decisions
+are quoted verbatim with their date. Three gates: gate 1 (2026-11-10: the effects, ids A1-E8 and N1-N2, and the
+targets T1-T10), gate 2 (2026-11-13: decisions D-01 to D-14, needs N-01 to N-06), gate 3 (2026-11-14: G-01 to G-14).
+Idea ids (F-, K-, O-, S-, T-, V-) are the study's idea board's and come with their title. Mock-up 1 is the Basic
+search form (version 3 accepted on 2026-11-13); mock-up 2 is how a result is organised (version 7 accepted on
+2026-11-14); both are described in words in the part that uses them. Effort is Claude effort: low, medium or high.
+
+## 2. Where the task stands
+
+### What phase 4 built (2026-11-14)
+| Item | What | The record |
+|---|---|---|
+| Fall zone 6 m | The sag model's leash fall space (`--fall-zone`) defaults to 6 m (3 m before); stored sag requests without the value keep 3 m (migration 17 of `jobs.sqlite`) | `docs/roadmap.md` "Sag model's fall zone (2026-11-14)"; `docs/truth-check.md` "The fall zone of 6 m" |
+| Refusal advice | The four `too_many_lines*` refusals name only the changes that apply, at most four, in the measured order; when the square rule is off they offer it first (`--same-line-square 5`; the user's closing answer "7. a)") | `docs/roadmap.md` "Advice of a refusal for too many lines (2026-11-14)" |
+| The square rule | `--same-line-square M` (`SearchParams.same_line_square`, 0 = off, else 2 to 20; `params.same_line_side` in `run.json`); module `samelines.py` (`BestPerSquarePair`, `reduce_table`, `side`); per line `stands_for`, the last column of `lines.csv`; `summary.found`; the line limit counts kept lines; regression entry R65 | `docs/roadmap.md` "The same line: the square rule (2026-11-14)"; `docs/truth-check.md` "The square rule" |
+| The audit tool | `tools/prune_study.py`: what a pruning rule keeps of a saved table of lines and what it drops (rules `higher_wins`, `best_per_cell_pair`) | `docs/code-map/tools.md` |
+
+The names `--same-line-square` and `stands_for` are final (the user, 2026-11-14: "name is ok"). The square rule keeps
+per pair of anchor squares the line that needs the least rigging (no no-fall zone and no A-frames, then no A-frames),
+then the highest mean height, the longest, a fixed order of the anchors (G-02 a). An independent review checked it on
+R65's search (60 002 found, 3 491 kept): a reference written from the rule's words alone gave the same kept lines and
+counts (0 differences on unrounded values); one thread and 25 tiles gave the same `lines.csv`; with the option off
+`lines.csv` is byte-equal to the code before the rule. The truth check at the 6 m fall zone: recall 17 % with the
+option off, 16 % at 5 (306 and 283 known lines matched).
+
+### The target rig and the reference cases
+The target rig (the study's C4): the sag model, leash fall space 6 m, a no-fall zone of 5 m at the ends, A-frames of
+2 m (of the goal case with the no-fall zone, the user: "that's the way we hang the lines"). Lines found in it
+(part P1, measured; the public line limit is 1.5 M lines):
+
+| Case | What it is | Lines in the target rig |
+|---|---|---:|
+| GZ1 | the goal case: the Gozo coast, sea cliffs | 24 480 100 (503 651 kept at `--same-line-square 5`) |
+| GZ2 | the Gozo coast, a 100 m band, mean height at least 40 m | 12 294 564 |
+| GZp | a 0.187 km² part of GZ2: sea cliffs | 2 226 934 |
+| MG | Mała Gańkowa, an alpine area of 2.5 km² | 18 323 986 (467 866 kept at 5) |
+| MG0 / MG5 | MG as first saved (41 377 lines) / a saved MG run of 3 057 204 lines, which crashes today's page | – |
+| MGp | a 0.137 km² part of MG: alpine walls and ridges | 3 525 979 |
+| BAH | Il-Bahrija, Malta, a 1 km circle (949 160 lines as saved, formula with zone and A-frames) | 2 010 351 |
+| STR | Strelecka kotlina, a control | 9 833 076 |
+| KOB | Kobylanka, Poland, a 1 km circle, a control | 605 729 |
+| MLT | the Malta coast | 16 412 174 |
+| BEL | Bełchatów, a quarry area | 1 543 686 |
+| DOL | valleys near Kraków | 3 558 706 |
+| SCH | Schneewigi | 86 363 830 |
+| V1 / V2 | USA: an area of 9 km² / a circle of 2.45 km | 65 853 889 / 134 916 275 |
+| V3 | Slovakia, 2 m data | 66 141 198 |
+| V4 / V5 | Poland, a 300 m circle / Malta, a 1.1 km circle | 28 915 / 1 116 324 |
+
+Without the square rule 3 of these 16 pass the public limits (KOB, V4, V5).
+
+## 3. The path to the goal case
+GZ1 in the target rig. "M" = measured (the part named), "E" = estimate. The store's and the view's steps change
+nothing before saving: the search's seconds and memory stay those of row 2.
+
+| Step | Lines | Search | Folder | Sent before usable | Opens | Kind |
+|---|---|---|---|---|---|---|
+| 1. Before phase 4 | 24 480 100 | count 77 s, peak 2 889 MB | – | – | refused on the public site (1.5 M lines); cannot be saved or opened (gate 1, T10) | M (P1) |
+| 2. Square rule, `--same-line-square 5` (built) | 503 651 kept of 24 480 100, 8 269 spots | 89.8 s, peak 2 911 MB | 865 MB (`data.js` 137 MB) | `data.js` 137 MB raw; compressed not measured | under the browser's string limit and the public line limit; opening not measured | M (W4) |
+| 3. + store waves 1-2: columns in the page, the store beside today's files | the same | the same | about 920 MB | about 19-26 MB of the store (nginx gzip) | desktop: about 1 s after the download; Pixel 7 profile ×4 about 2.5-3.5 s | E |
+| 4. + store wave 4: text files and `file://` end; old runs removed on the user's word | the same | the same | about 60 MB | as step 3 | through the app only (`findaline.py view`) | E |
+| 5. + store wave 6: brotli once at saving, immutable caching | the same | the same | about 75-80 MB | 17-23 MB br (2.7-3.7 s at 50 Mbit/s, 14-18 s at 10); a reopen sends nothing | as step 3 | E |
+| 6. + view wave B1: spots, sectors, top level, the view's order in the store | the same | the same | about 80-85 MB | about 19-27 MB | as step 3 | E |
+| 7. + store wave 7: the ranges of six values of a kept line (store U1 b) | the same | the same | about 115-120 MB | about 27-37 MB (4.3-5.9 s at 50 Mbit/s) | as step 3 | E |
+| 8. + view waves B2-B5: the result view | the same | the same | as step 6 or 7 | as step 6 or 7 | at most 5 000 strokes drawn; no grouping at load; a filter change on 503 651 lines not measured | E (mock-up 2) |
+
+So T10 (the goal case opens on a desktop) is met by step 3 (estimate); T3 (a folder within the public limits at most
+300 MB) by step 4; T4 (10-20 MB sent) only without ranges and only at the low end of the estimates: with the six
+ranges the user chose (step 7) the goal case sends about 27-37 MB (estimate), above that guide. Sources: step 2
+from W4; steps 3-7 from `spec-store.md` sections 4 and 6 (parts P5 and E2); step 3's gzip is br × 1.13, part P5's
+gzip-6 to br-5 ratio on MG5 (estimate); step 7 adds 49 B a line raw and 8-10 MB sent (estimate, `spec-store.md` 3.3).
+
+## 4. All solutions
+| Solution | Decision | Tier | Where | Depends on | Effort |
+|---|---|---|---|---|---|
+| Basic form with 'My rig' and goals | G-11 a; D-10 a; N-01 | next | search 1 | the square rule (built); count 5.5 a; the rigs' migration (next free number) | medium (server), high (page) |
+| The size of a search from a sample | G-04 a; N-02, N-05 | next | search 2 | measurement 5.5 b for searches with the square rule (search U-6) | high |
+| Access mark of three states | G-09 a; D-08 c | next | search 3 | a mock-up of where it shows; search U-9, U-11 | high |
+| Lip anchors against the known lines | G-07 a; search U-12 (98 %) | a measurement first | search 4 | the PC free | medium |
+| The memory constant `LINE_BYTES` | G-05 (finding) | next | search 5.1 | exclusive runs when the PC is free | medium |
+| `count_tile`'s sag table per tile | finding | next | search 5.2 | – | low |
+| 'Sea cliffs' without its wall-angle limit | G-11 a | next | search 5.4 | count 5.5 a; search U-2 | low |
+| Owed counts: goals with the rule; a sample of kept lines | G-11, G-04 | a measurement first | search 5.5 | 5.3 | medium each |
+| Columns in the page from `data.js` | G-06 a; D-05 c | structural | store 1 (wave 1) | – | high |
+| The Arrow store beside today's files | G-06 a; D-04 a | structural | store 1 (wave 2) | pyarrow as a new dependency | medium ×2 |
+| Exports made per download, none kept | G-06 a; store U4 | structural | store 1 (wave 3) | wave 2 | medium |
+| Text files and `file://` end; `view`; the reader of `data.js` goes | G-06 a; D-04 a | structural | store 1 (wave 4) | wave 3; view B1 | high |
+| Old runs removed, not converted (a step of store wave 4) | G-06 a; store U5 | structural | store 2 | the user's word at that time, after a `--dry-run` list | in wave 4 |
+| What is sent: brotli at saving, immutable, size, warning | G-06 a; F-10, F-12, F-30, T-34; store U12 | structural | store 4 (wave 6) | wave 2; the brotli packages compared and one confirmed by the user; a small mock-up | medium |
+| The ranges of six values of a kept line | G-03 b; store U1 b | structural | store 3 (wave 7) | wave 2 | medium |
+| Renaming a run | the user, 2026-11-13 | next | store 5 (wave 8) | a small mock-up | low |
+| "Best" by mean height, tight mark, headline | gate 3 settled list; G-10 a | next | view A | view A-1 | low ("kept") or medium |
+| The result view of mock-up 2 | D-11 d, D-12 a, N-04, N-06; G-08 a, G-12 a; view B-1 (K-17) | structural | view B | store wave 2 | B1 medium, B2 high, B3-B5 medium |
+
+## 5. The order of building
+| Step | Work (part, wave) | Waits for | Parallel with | Effort |
+|---|---|---|---|---|
+| 0a | search 5.3, then 5.5 a: every goal with the square rule on 16 cases, 'Sea cliffs' variants | – | 0b, 1a | medium |
+| 0b | search 5.5 b: an estimator of kept lines from a sample | – | 0a, 1a | medium |
+| 0c | search 4: four truth-check passes with and without lip anchors; the bar is 98 % (search U-12) | the PC free | anything that does not measure | medium |
+| 1a | view A: best by mean height, tight mark, headline | view A-1 (or the planner's default) | all of step 1 | low / medium |
+| 1b | search 1, waves 1-2: the rigs' server, then the Basic page | 0a reported to the user before the review (wave 3) | 1a, 1d, 2a | medium, high |
+| 1c | search 2: the sample in the worker | 0b (for Basic searches; without the square rule it may go first) | 1a, 1b | high |
+| 1d | search 3: `access.py`, the search and files; the page after its mock-up | search U-9, U-11; a mock-up | 1a, 1b | high |
+| 1e | search 5.1 (exclusive, the PC free), 5.2, 5.4 (after 0a); phase 4's findings (section 7) | as named | any | low-medium |
+| 2a | store wave 1: columns in the page | – | store wave 2's Python half | high |
+| 2b | store wave 2: Python store (B) at once; the page's reader (C) after 2a | 2a for C | 2a (B) | medium ×2 |
+| 2c | store wave 3 (exports per download), then wave 4 (text files and the reader of `data.js` end; old runs removed in two deploys, `spec-store.md` section 2) | 2b; wave 4 also 3a and the user's word on each host after the `--dry-run` list | 2d, 2e; wave 3 with 3a | medium, high |
+| 2d | store wave 6: what is sent, brotli at saving | 2b; the brotli packages compared, one confirmed by the user; its mock-up | 2c, 2e | medium |
+| 2e | store wave 7: ranges of six values | 2b; store U2's mock-up for the page | 2c, 2d | medium |
+| 2f | – (was store wave 5, old runs converted: the user chose removal, a step of 2c's wave 4) | – | – | – |
+| 2g | store wave 8: renaming a run | its mock-up | anything | low |
+| 3a | view B1: spots, sectors, `top` (K-17), `by_spot` into the store | 2b | 2c (wave 3), 2d, 2e | medium |
+| 3b | view B2 (map core) and B3 (list, details, fan) | 3a; B3 once B2's model interface is fixed | each other | high, medium |
+| 3c | view B4: today's features joined | 3b | 2g | medium |
+| 3d | view B5: ported checks, `tools/ui_shots.py`, `viewer/dist` | 3c | – | medium |
+
+Steps 0 and 1 hold the next tier; steps 2 and 3 the structural one. Tests and searches run one after another under
+`tools/test_lock.py`; measurements that read seconds or memory wait until the user says the PC is free.
+
+## 6. The user's choices
+Classes: **before** = decide before building that work; **mock-up** = decided at that task's mock-up; **measure** =
+decided by a measurement first; **planner** = taken as recommended by the planner unless the user objects.
+
+### 6.1 Decided by the user's closing answers (2026-11-14)
+The planner offered ten closing choices after phases 4 and 5; the user answered, verbatim: "1. c) 2. a) . Add a note
+on it - it might be useful for increasing % of lines found from slack map 3. old runs removed - both on server and on
+this pc 4. a) 5. c) - how does it work with regressions? 6. a) 7. a) 8. a) 9. a) 10. a)". The planner's list had its
+own letters; its readings, told to the user, are these:
+
+| Id | Decided | Where it is applied |
+|---|---|---|
+| store U1 | (b) a kept line carries the ranges of six values: length, clearance, highest point, A-frames needed with and without the no-fall zone, and the mean height (+49 B a line, estimate) | `spec-store.md` 3, 6, 8; section 3 step 7 |
+| view B-1 | K-17 'Higher wins on a face' is the top-level flag, as the accepted mock-up. The user's note: K-18 'Higher wins unless clearance loses' kept 590 of the 592 matched known lines against K-17's 589 (part P3b), so it "might be useful for increasing % of lines found from slack map": a candidate to measure when the share of known lines found is worked on | `spec-view.md` B.3, B.11, E; `docs/roadmap.md` |
+| store U5 | Old runs are **removed, not converted**, on the public site and on the PC, when the text files end; the removal deletes the user's data and runs only on the user's word at that time, after a `--dry-run` list; until then every run opens as today | `spec-store.md` 1.2, 1.3, 1.9, 2; sections 3, 4, 5 |
+| store U12 | Brotli at saving; a new package: the building task compares the brotli packages first, as the project's rule on dependencies asks, and the user confirms the package | `spec-store.md` 4, 8 |
+| store U4 | An export (CSV, GeoJSON) is made for each download, none kept. The regression set never uses a kept file: `tests/regression.py` takes the sha256 of the CSV text the export makes from the run's store (the same bytes as today's `lines.csv`, so every checksum stays), and until the text files end it checks the export against the `lines.csv` the same run still writes, on every regression entry | `spec-store.md` 1.2, 1.4, 1.7, 1.10 |
+| search U-12 | Lip anchors become an option only if they keep at least 98 % of the matched known lines | `spec-search.md` 4 |
+| – | The refusal advice offers the square rule first when it is off: built now | section 2 |
+| – | The tiled line limit's 0.2 % stays a known finding, with its fix written down | section 7; `docs/known-bugs.md` |
+| – | The fall zone stays 6 m after the recall finding (17 % against 33 % at 3 m, sag alone, `docs/truth-check.md` "The fall zone of 6 m") | section 7 |
+| – | The task is closed: the roadmap, the known bugs, one squash commit into `main` | `docs/roadmap.md` "Line volume" |
+
+### 6.2 Taken as recommended (class "planner")
+The user was offered the list of these 21 choices on 2026-11-14 and did not go through it: they stay taken as
+recommended.
+
+| Id | The question | Taken | Blocks |
+|---|---|---|---|
+| search U-1 | "Tension grows with the length" in the rig's window | (a) left out until an option exists | search 1 |
+| search U-3 | Texts changed from mock-up 1 | 1.2's texts; "Can be very large: slow, may not open on a phone." on "Everything" | search 1 |
+| search U-4 | The access row in Basic before the mark exists | (a) left out | search 1 |
+| search U-5 | Where the rig in use is kept | per browser | search 1 |
+| search U-7 | Who samples | (a) the web worker only | search 2 |
+| search U-8 | The access mark's switch | (a) an option, on in the web form | search 3 |
+| search U-10 | Where the access mark shows | a mock-up before code | search 3's page |
+| store U3 | Water and filled metres in the ranges | (a) left out now | store wave 7 |
+| store U6 | Circles' profiles of every line | (a) kept now | store wave 4 |
+| store U7 | Light view, tiers, nested results (F-31, F-24, K-33) | (a) parked | – |
+| store U8 | The phone warning's threshold | (a) none until a real-device test | store wave 6 |
+| store U9 | Who may export | (a) owner, administrator, demo | store wave 3 |
+| store U10 | `--html` after `file://` ends | (a) accepted one release | store wave 4 |
+| store U11 | Filtered exports, GeoPackage, KML (F-32) | (b) parked | – |
+| view A-1 | Does "best" change the spots or only the line shown | (a) only the line | view A |
+| view A-2 | "Highest on average" in "Show per spot" | add it first | view A |
+| view A-3 | The tight words without A-frames | without the A-frame clause | view A |
+| view B-3 | A favourite in a spot | today's rule | view B4 |
+| view B-4 | Other runs (Compare) in the view | drawn apart | view B4 |
+| view B-5 | "Open spot" before the cards' mock-up | hidden | view B3 |
+| view B-6 | A number for T9 (local density) | none; the 5 000 limit and Best 10 stand in | – |
+
+Decided by the planner (no question): "Top level only" comes with the result view (G-08 a); the top-level flag and
+the sectors are computed in Python at saving.
+
+### 6.3 Still open
+| Id | The question | Options | Recommendation | Blocks | Class |
+|---|---|---|---|---|---|
+| search U-2 | 'Sea cliffs' wall-angle limit | (a) none; (b) a wide one from the count | (a) | search 5.4 | measure (5.5 a) |
+| search U-6 | The sample for searches with the square rule | (a) only searches without it; (b) found estimate × kept share | on 5.5 b's numbers | search 2 | measure (5.5 b) |
+| search U-9 | The alpine variant of the access measure | (a) in; (b) out | (a) | search 3 | before |
+| search U-11 | The access study's pictures | the user looks at them first | look first | search 3 | before |
+| store U2 | A line that passes only by its ranges; where ranges show | (a) drawn as any line, ranges in details; (b) a mark of its own | (a), with a details mock-up | store wave 7's page | mock-up |
+| store U12's package | Which brotli package | after the comparison of the maintained packages | – | store wave 6 | before |
+| store U5's removal | The removal of old runs on each host (the PC, the VPS) | yes after the `--dry-run` list; not yet | – | store wave 4's second deploy | before |
+
+## 7. Findings of phase 4 to fix later
+Each is also an entry of `docs/known-bugs.md` (the "Line volume" entries) unless it is a measurement.
+- **The fall zone's migration and unfinished jobs:** an unfinished tiled sag job of the web app starts over after
+  migration 17: the int 3 against the float 3.0 in the search's hash (`_search_hash`), so the hash differs.
+- **The fall zone stays 6 m** after the recall finding: the truth check at 6 m matched 306 known lines against 592 at
+  3 m (recall 17 % against 33 %, sag alone, without the no-fall zone and A-frames; `docs/truth-check.md` "The fall
+  zone of 6 m"); the user's closing answer "9. a)" keeps the default.
+- **The early check of the square rule:** a search stopped early by it writes no funnel counts for that grid.
+- **The truth check's analysis:** `tools/truth_analysis.py` has no reason for a line the rule dropped (20 known lines
+  read `unexplained` in the square rule's pass).
+- **The memory constant** `search.LINE_BYTES` (450 B; a reducer row 216 B, counted, not measured): `spec-search.md`
+  5.1. **`count_tile`'s sag table**, built per tile: `spec-search.md` 5.2.
+- **A tiled search's line limit counts twice** (kept as a known finding: the user's closing answer "8. a)"): it
+  counts the lines the tiles kept before the join, so a pair of squares with lines of two tiles counts twice until
+  then: R65 searched as an area in 400 m tiles 3 497 against 3 491 after the join, and a limit of exactly 3 491
+  refused the tiled search and accepted the one-grid search (confirmed by a run); the Gozo coast 503 718 against
+  503 651. A search within about 0.2 % under the limit can be refused when tiled, and the refusal shows the larger
+  count. The memory check is right to count those lines (they are held until the join). Fix: count distinct pairs of
+  squares across the tiles for the line limit (keep each tile's keys); the memory check unchanged.
+- **Squares on grids not exact in binary** (latent): on a grid whose resolution or origin is not exact in binary (an
+  own elevation file with 1.2 m pixels, for example) a tile's pixel coordinates and the whole grid's are not
+  bit-identical, so an anchor can fall into another square in a tile than in one grid (3 408 of the centres on such a
+  test grid); on grids of 1, 2, 2.5 and 3 m none differ. Not reachable today because of the next finding. Fix: the
+  squares from coordinates rounded to the millimetre, or from whole-lattice pixel indices.
+- **Outside the task, older than the square rule:** a tiled area on such a grid crashes ("the tile … lies outside
+  the grid" from `search._tile_window`: the clipped right edge is rounded up one pixel). In `docs/known-bugs.md`.
+- Done at the task's close: CLAUDE.md's table names `samelines.py`; `helpers.LineTable`'s docstring names the
+  column `stands_for`; `tools/prune_study.py` reads a `lines.csv` with `stands_for` (it reads only the columns it
+  names, so the extra column is skipped; it audits the kept lines and does not weigh them by `stands_for`).

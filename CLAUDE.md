@@ -39,7 +39,7 @@ Read the section you need, not the whole file (several are over 200 KB).
 ## Where things are
 | Area | Files | Rule | Detail in docs/code-map/ |
 | --- | --- | --- | --- |
-| The search (steps 1-5), options, areas, grids | `findaline.py`, `params.py`, `search.py`, `area.py`, `grid.py`, `progress.py`, `warmup.py` | search-pipeline | search.md |
+| The search (steps 1-5), options, areas, grids | `findaline.py`, `params.py`, `search.py`, `area.py`, `grid.py`, `progress.py`, `warmup.py`, `samelines.py` | search-pipeline | search.md |
 | Anchors and the line test (numba kernels) | `helpers.py`, `linesearch.py`, `lineprofiles.py`, `terrain.py`, `obstacles.py`, `sag.py` | line-test | search.md |
 | A run's files, grouping, terrain statistics | `mapping.py`, `grouping.py`, `runs.py`, `saving.py`, `hypsometry.py` | run-files | search.md |
 | Data sources, cache, mosaic, filling | `sources/`, `cache.py`, `update.py`, `orthophoto.py` | sources, providers | sources.md |

@@ -133,7 +133,9 @@ def test_to_line_with_and_without_ends(tmp_path):
     """toLine reads rows of data.js and lines.js of a run without the end zone (the rows of before) and of a
     run with it (the A-frame heights its head's "ends" names before the profile), by that list or by
     END_VALUES without it; favouriteData sends the heights only for a line that has them (a favourite of
-    before keeps its values) and favouriteLine reads them back, null when missing."""
+    before keeps its values) and favouriteLine reads them back, null when missing. A run made with the square
+    rule names "stands_for" last in "ends" (alone, or after the A-frame heights): the line's count, never sent
+    with a favourite."""
     base = [50.1, 19.7, 50.2, 19.8, 1.0, 2.0, 3.0, 4.0, 120.5, 1.25, None, 330.0, 328.5, False, 0.0, 0.0, 15.0,
             9.5, 20.0, 12.0, 30.0, 3.1, None, 30.0, None]
     profile = {"d": [0, 120.5], "z": [330, 328.5], "min": [60, 1.25], "water_m": 0, "filled_m": 0}
@@ -150,9 +152,15 @@ const back = m.favouriteLine({{run_id: "r", run_name: "", run_created: "", creat
                                line: "50.1,19.7,50.2,19.8", data: ends}});
 const old = m.favouriteLine({{run_id: "r", run_name: "", run_created: "", created: "", folder_id: null,
                               line: "50.1,19.7,50.2,19.8", data: plain}});
+const count = (row, names) => {{ const l = t.toLine(row, undefined, null, names); return [l.stands_for, l.lift_needed, l.prof && l.prof.min]; }};
+const counted = [count(base.concat([37, profile]), ["stands_for"]), count(base.concat([37]), ["stands_for"]),
+                 count(base.concat([0.75, 3.5, 1, null]), ["lift_needed", "lift_no_zone", "stands_for"]),
+                 count(base.concat([profile]), ["stands_for"]), [lines[3].stands_for]];
+const kept = m.favouriteData(t.toLine(base.concat([37, profile]), undefined, null, ["stands_for"]));
 console.log(JSON.stringify({{lines: lines.map(pick), swapped: pick(swapped), plain: Object.keys(plain),
                             ends: [ends.lift_needed, ends.lift_no_zone], back: pick(back), old: pick(old),
-                            names: t.END_VALUES}}));""", bundles={"types": "types"})
+                            names: t.END_VALUES, counted, kept: Object.keys(kept), column: t.STANDS_FOR}}));""",
+                   bundles={"types": "types"})
     assert found["lines"] == [[120.5, None, None, None, [60, 1.25]], [120.5, None, None, None, None],
                               [120.5, None, None, None, None], [120.5, None, 0.75, 3.5, [60, 1.25]],
                               [120.5, None, 0.75, 3.5, None], [120.5, None, 0, 1.5, None]]
@@ -160,6 +168,10 @@ console.log(JSON.stringify({{lines: lines.map(pick), swapped: pick(swapped), pla
     assert "lift_needed" not in found["plain"] and found["ends"] == [0.75, 3.5]
     assert found["back"] == [120.5, None, 0.75, 3.5, None] and found["old"] == [120.5, None, None, None, None]
     assert found["names"] == list(helpers.END_VALUES)
+    assert found["counted"] == [[37, None, [60, 1.25]], [37, None, None], [1, 0.75, None], [None, None, [60, 1.25]],
+                                [None]]
+    import runs
+    assert found["column"] == runs.STANDS_FOR and found["kept"] == found["plain"]
 
 
 def test_run_being_saved(tmp_path):
@@ -664,12 +676,20 @@ def test_error_texts_match_python(tmp_path):
                messages.Note("x", "coast_pieces_left_out", count=1, near=200, far=400, lat=1, lon=2).info(),
                {"message": "A newer server's text", "code": "no_such_code", "params": {}},
                "a plain text", None]
+    # a refusal for too many lines with its advice (values whole and not), and one stored before the advice
+    advice = [{"key": "same_line_square", "value": 5}, {"key": "formula"},
+              {"key": "anchor_diff_half", "value": 2.5, "percent": 2}, {"key": "slope", "value": 55.0}]
+    refusals = [messages.UserError.web("too_many_lines_early", n=9, max=5, advice=advice).detail(),
+                messages.UserError.web("too_many_lines", n=9, max=5).detail()]
     found = run_ts(tmp_path, "i18n", f"""
-console.log(JSON.stringify({json.dumps(details)}.map((d) => m.detailMessage(d, "fallback"))));""")
-    assert found == ["Search radius must be more than 0.", "Longest line: at most 2000 m on this site.",
-                     messages.Note("x", "coast_pieces_left_out", count=1, near=200, far=400, lat=1, lon=2).web_text(),
-                     "A newer server's text", "a plain text", "fallback"]
+console.log(JSON.stringify({json.dumps(details + refusals)}.map((d) => m.detailMessage(d, "fallback"))));""")
+    assert found[:6] == ["Search radius must be more than 0.", "Longest line: at most 2000 m on this site.",
+                         messages.Note("x", "coast_pieces_left_out", count=1, near=200, far=400, lat=1, lon=2).web_text(),
+                         "A newer server's text", "a plain text", "fallback"]
     assert found[2].startswith("1 part of the coast is 200–400 m")
+    assert found[6:] == [r["message"] for r in refusals], found[6:]
+    assert "to 2.5 m and Anchor height difference, % of length to 2 %; Anchor steepness to 55°." in found[6]
+    assert "the strongest first: One line per pair of anchor squares to 5 m; Clearance model" in found[6]
 
 
 def test_area_searched_by_local_day(tmp_path):

@@ -50,6 +50,52 @@ def test_params_defaults_and_cli():
     assert pm.SearchParams(lat=50, lon=19).nmpt_mode == "mark"
 
 
+def test_fall_zone_default():
+    """The sag model's fall zone is 6 m by default (the user's decision of 2026-11-14; 3 m before), in the
+    schema, on the command line and in sag.Rigging, which the tools and tests build without values."""
+    import sag
+    [params], _ = pm.parse_cli(["--lat", "50", "--lon", "19", "--model", "sag"])
+    assert params.fall_zone == pm.SearchParams(lat=50, lon=19).fall_zone == sag.Rigging().fall_zone == 6
+
+
+def test_old_runs_keep_their_fall_zone():
+    """A run keeps the fall zone it was searched with: run.json's params.rigging holds every field of
+    sag.Rigging (since the sag model came, 2026-10-23), and the profiles and the 3D patch of its lines
+    (search._run_values) take that rigging, never today's default."""
+    import dataclasses
+
+    import sag
+    import search
+    rigging = dataclasses.asdict(sag.Rigging(fall_zone=3.0))
+    assert set(rigging) >= {"pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"}
+    meta = {"params": {"resolution": 1.0, "min_length": 30, "max_length": 300, "max_anchor_diff": 5,
+                       "max_anchor_diff_m": 50, "slope_threshold": 45, "water": "fill", "coastline": "overpass",
+                       "shore_buffer": 20, "fill_gaps": "on", "model": "sag", "nmpt": "mark", "rigging": rigging},
+            "source": {"id": "geoportal"}}
+    values = search._run_values(meta)
+    params = pm.SearchParams(lat=50, lon=19, **values)
+    assert params.fall_zone == 3.0 and params.model == "sag"
+
+
+def test_search_hash_keeps_formula_searches():
+    """The hash of a tiled search (to resume it): a formula search at the default fall zone keeps the hash of
+    before the default went from 3 to 6 m (pinned: computed on the code of before, from the web's request and
+    from the command line), as the formula never reads it; a sag search at 3 m and at 6 m are two searches."""
+    from types import SimpleNamespace
+
+    import search
+    plan = lambda p: SimpleNamespace(params=p, source=SimpleNamespace(id="geoportal"), resolution=2.0, owner=None)
+    area = ["--area", "coast", "--within", "osm:Gozo"]
+    web_request = pm.SearchParams(area="coast", within="osm:Gozo")
+    [command_line], _ = pm.parse_cli(area)
+    assert search._search_hash(plan(web_request)) == "c2815824f4b9a796"
+    assert search._search_hash(plan(command_line)) == "31c28f8c91eecd44"
+    [sag3], _ = pm.parse_cli(area + ["--model", "sag", "--fall-zone", "3"])
+    [sag6], _ = pm.parse_cli(area + ["--model", "sag"])
+    assert search._search_hash(plan(sag3)) == "173c1c5395ba26b5"  # as before, given explicitly
+    assert search._search_hash(plan(sag6)) != search._search_hash(plan(sag3))
+
+
 def test_points():
     searches, _ = pm.parse_cli(["--point", "50.1,19.7,Żabi Koń, Kobylany", "--point", "35.85,14.38",
                                 "--radius", "500"])
@@ -2921,6 +2967,73 @@ def test_coded_errors():
     assert messages.quantity("slope_threshold", 45.0) == "45°" and messages.quantity("ortho_detail", 5) == "5"
 
 
+def test_refusal_advice_follows_the_settings():
+    """The advice of a refusal for too many lines names only the changes that apply to the search, in
+    the measured order (the square rule while it is off, zone and A-frames off, zone off, the formula,
+    the anchors' height difference, A-frames off, steeper anchors), at most four, never the highest
+    point or the drop; each text uses its field's label in the page and the option's name on the
+    command line."""
+    import messages
+    import params as pm
+
+    def keys(**values):
+        values = {"same_line_square": 5, **values}  # the square rule on: the other advice's order
+        return [a["key"] for a in messages.line_advice(pm.SearchParams(lat=50, lon=19, **values))]
+
+    # the square rule off (the default): offered first, at 5, the others behind it, four in all
+    assert keys(same_line_square=0, model="sag", end_zone=5, anchor_lift=2) == ["same_line_square", "zone_lift_off",
+                                                                                "zone_off", "formula"]
+    assert keys(same_line_square=0) == ["same_line_square", "anchor_diff_m", "slope"]
+    assert keys(same_line_square=0, max_anchor_diff_m=0, slope_threshold=85) == ["same_line_square"]
+    assert messages.line_advice(pm.SearchParams(lat=50, lon=19))[0] == {"key": "same_line_square", "value": 5}
+    # the square rule on (any side): never offered again
+    for square in (2, 5, 20):
+        assert "same_line_square" not in keys(same_line_square=square, model="sag", end_zone=5)
+    assert keys(model="sag", end_zone=5, anchor_lift=2) == ["zone_lift_off", "zone_off", "formula", "anchor_diff_m"]
+    assert keys(model="sag", end_zone=5) == ["zone_off", "formula", "anchor_diff_m", "slope"]
+    assert keys(model="sag", anchor_lift=2) == ["formula", "anchor_diff_m", "lift_off", "slope"]
+    assert keys() == ["anchor_diff_m", "slope"]  # a formula search without a zone: neither is named
+    assert keys(max_anchor_diff_m=4, max_anchor_diff=3, slope_threshold=85) == ["anchor_diff_half"]
+    half = messages.line_advice(pm.SearchParams(lat=50, lon=19, same_line_square=5, max_anchor_diff_m=4,
+                                                max_anchor_diff=3))[0]
+    assert half == {"key": "anchor_diff_half", "value": 2, "percent": 1.5}
+    assert messages.line_advice(pm.SearchParams(lat=50, lon=19, slope_threshold=80))[-1] == {"key": "slope",
+                                                                                           "value": 85}
+    assert keys(max_anchor_diff_m=0, slope_threshold=85) == []
+    texts = messages.catalogue()
+    for key, fields in {"same_line_square": ["same_line_square"],
+                        "zone_lift_off": ["end_zone", "anchor_lift"], "zone_off": ["end_zone"],
+                        "anchor_diff_m": ["max_anchor_diff_m"], "anchor_diff_half": ["max_anchor_diff"],
+                        "lift_off": ["anchor_lift"], "slope": ["slope_threshold"], "formula": ["model"]}.items():
+        for field in fields:
+            assert texts[f"field.{field}.label"] in texts[f"error.advice.{key}"], (key, field)
+    assert texts["choice.model.formula"] in texts["error.advice.formula"]
+    off = messages.line_advice(pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2))
+    assert messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5, "advice": off})) == (
+        "9 lines found, limit 5. To find fewer lines, set one of these, the strongest first: One line per pair of "
+        "anchor squares to 5 m; No-fall zone at the ends and A-frame height both to 0; No-fall zone at the ends to 0; "
+        "Clearance model to Simple formula. Or search a smaller area or shorter lines.")
+    assert messages.advice_cli(off) == ("fewer lines with, the strongest first: --same-line-square 5; --end-zone 0 "
+                                        "--anchor-lift 0; --end-zone 0; --model formula; or a smaller area or a lower "
+                                        "--max-length")
+    advice = messages.line_advice(pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2,
+                                                  same_line_square=5))
+    web = messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5, "advice": advice}))
+    assert web == ("9 lines found, limit 5. To find fewer lines, set one of these, the strongest first: No-fall zone "
+                   "at the ends and A-frame height both to 0; No-fall zone at the ends to 0; Clearance model to Simple "
+                   "formula; Anchor height difference to 5 m. Or search a smaller area or shorter lines.")
+    for text in [web] + [messages.text(f"error.{c}", **messages.web_params({"n": 9, "max": 5, "advice": advice}))
+                         for c in ("too_many_lines_memory", "too_many_lines_early", "too_many_lines_memory_early")]:
+        assert "Highest point" not in text and "Drop below" not in text and "{{" not in text, text
+    assert messages.advice_cli(advice) == ("fewer lines with, the strongest first: --end-zone 0 --anchor-lift 0; "
+                                           "--end-zone 0; --model formula; --max-anchor-diff-m 5; or a smaller area "
+                                           "or a lower --max-length")
+    # a refusal stored before the advice (no "advice") and one with nothing to advise
+    assert messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5})) == \
+        "9 lines found, limit 5. To find fewer lines, search a smaller area or shorter lines."
+    assert messages.advice_cli([]) == "fewer lines with a smaller area or a lower --max-length"
+
+
 def test_elevation_band_validation():
     """--min-elevation/--max-elevation: either bound alone, or both in order (equal is a band of one
     height); a lower bound above the upper one is refused with its code."""
@@ -2999,9 +3112,11 @@ def _old_csv_and_features(lines, groups):
             "anchor2_lat": round(lat2, 7), "anchor2_lon": round(lon2, 7), "anchor2_elev_m": round(r["elev_a2"], 2),
             "anchor2_northing": round(y2, 2), "anchor2_easting": round(x2, 2),
             "anchor2_wall_angle": round(r["angle2"], 1),
-            "anchor2_prominence_m": rn.rounded(r["prom2"], 1), "anchor2_drop_m": rn.rounded(r["drop2"], 1)})
+            "anchor2_prominence_m": rn.rounded(r["prom2"], 1), "anchor2_drop_m": rn.rounded(r["drop2"], 1),
+            # a run with the square rule (--same-line-square): the found lines each line stands for, the last column
+            **({"stands_for": r["stands_for"]} if "stands_for" in r else {})})
     table = io.StringIO(newline="")
-    fields = list(rows[0]) if ends else rn.FIELDS
+    fields = list(rows[0]) if ends or "stands_for" in lines.columns else rn.FIELDS
     writer = csv.DictWriter(table, fieldnames=fields)
     writer.writeheader()
     writer.writerows(rows)
@@ -3025,19 +3140,24 @@ def _old_map_rows(lines, profiles: bool):
                rn.rounded(r["drop2"], 1)]
         if "lift_needed" in r:  # wave 2b: the head's "ends", before the profile
             row += [round(r["lift_needed"], 2), round(r["lift_no_zone"], 2)]
+        if "stands_for" in r:  # the square rule: the last of the head's "ends"
+            row.append(r["stands_for"])
         if profiles:
             row.append(lines.profiles.get(k))
         rows.append(row)
     return rows
 
 
-@pytest.mark.parametrize("ends", [False, True], ids=["plain", "end-zone"])
-def test_saved_text_as_before(tmp_path, monkeypatch, ends):
+@pytest.mark.parametrize("ends, square", [(False, False), (True, False), (False, True), (True, True)],
+                         ids=["plain", "end-zone", "square", "end-zone-square"])
+def test_saved_text_as_before(tmp_path, monkeypatch, ends, square):
     """lines.csv, lines.geojson, data.js and lines.js built column by column: the same text as
     csv.DictWriter and json.dumps of the rows of Python values wrote, for values hard to round
     (halves, negative zero, NaN, infinities, very large and small), a missing clearance and
     non-ASCII names; with an end zone and A-frames (ends) also the two A-frame heights (after
-    clearance_nmpt_m, before the profile) and the heads' "ends"."""
+    clearance_nmpt_m, before the profile) and the heads' "ends"; with the square rule (square) the found
+    lines each line stands for (the last column, the last value before the profile and of "ends") and the
+    heads' "square" and "found"."""
     import json
     from shapely.geometry import Point
     import mapping as mp
@@ -3061,12 +3181,17 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends):
         lines.columns[name] = np.column_stack([np.roll(hard, 3 * shift + 1), np.roll(hard, -3 * shift - 2)])
     if ends:
         lines.columns["lift_needed"], lines.columns["lift_no_zone"] = np.roll(hard, 5), np.roll(hard, -7)
+    if square:
+        lines.columns["stands_for"] = np.array([1, 2, 10 ** 12] + [7] * (n - 3), dtype=np.int64)
     lines.profiles[2] = {"d": [0.0, -0.0, 1e300], "z": [float("nan"), None], "name": "Żabi"}
     groups = mp.Groups(np.array([4, 0]), np.array([4, *range(5, n), 3, 0, 1, 2]), np.array([0, n - 4, n]))
     meta = {"name": "Żabi Koń „ß”", "summary": {"lines": n}}
     run = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00"}
     if ends:
         run["params"] = {"end_zone": 5, "anchor_lift": 2}
+    if square:
+        run.setdefault("params", {})["same_line_side"] = 10
+        run["summary"] = {"lines": n, "found": int(lines.columns["stands_for"].sum())}
     monkeypatch.setattr(rn, "LINES_CHUNK", 5)
     monkeypatch.setattr(mp, "LINES_CHUNK", 5)
     rn.save_results(str(tmp_path), lines, groups, meta)
@@ -3082,11 +3207,14 @@ def test_saved_text_as_before(tmp_path, monkeypatch, ends):
         expected = json.dumps(_old_map_rows(lines, profiles), separators=(",", ":"))
         assert text[text.index('"lines":[') + len('"lines":'):] == expected + "};\n"
         head = json.loads(text[text.index(" = {") + 3:text.index(',"lines":[')] + "}")
-        assert head.get("ends") == (["lift_needed", "lift_no_zone"] if ends else None), name
+        names = (["lift_needed", "lift_no_zone"] if ends else []) + (["stands_for"] if square else [])
+        assert head.get("ends") == (names or None), name
+        assert (head.get("square"), head.get("found")) == ((10, 10 ** 12 + 3 + 7 * (n - 3)) if square else (None, None))
     assert '"name":"\\u017babi Ko\\u0144' in (tmp_path / "data.js").read_text(encoding="utf-8")
     header = (tmp_path / "lines.csv").read_text(encoding="utf-8-sig").splitlines()[0].split(",")
     assert ("lift_needed_m" in header) == ends and header[6:8] == (["lift_needed_m", "lift_no_zone_m"] if ends else
                                                                    ["over_trees_buildings", "water_m"])
+    assert ("stands_for" in header) == square and (header[-1] == "stands_for") == square
     import helpers as sh
     assert rn.END_COLUMNS == sh.END_VALUES  # runs repeats them (the web process imports runs, not helpers)
 
@@ -3350,7 +3478,8 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     """saving.py: the line files of a run written by child processes (one per file, or the
     results' apart from the map's) are byte for byte those save_results and save_map write in
     one process, for 50 000 lines with the profiles of a batch, of a batch with an end zone and
-    a lift ("zone", "lift"), the A-frame heights of a run with those options, profiles that
+    a lift ("zone", "lift"), the A-frame heights of a run with those options, the found lines each
+    line stands for of a run with the square rule (an int64 column), profiles that
     are dicts, lines without one and values hard to round; the children's progress reaches the Compute bars
     "saving results" and "saving the map" with the lines as their totals; the hand-over folder is
     removed; a failing child raises RuntimeError naming its file."""
@@ -3379,6 +3508,7 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     lines.columns["lift_needed"] = np.round(rng.random(n) * 2, 3)
     lines.columns["lift_no_zone"] = lines.columns["lift_needed"] + rng.random(n) * 5
     lines.columns["lift_no_zone"][:len(hard)] = np.roll(hard, 3)
+    lines.columns["stands_for"] = np.random.default_rng(8).integers(1, 5000, n).astype(np.int64)  # --same-line-square
     batch = _batch_profiles(n, rng)
     zoned = _batch_profiles(n, rng)  # a search with --end-zone and --anchor-lift: the zone of each line, the lift
     zoned.zone, zoned.lift = np.round(np.minimum(5.0, rng.random(n) * 30), 1), 2.0
@@ -3390,8 +3520,10 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
     rep = np.array([members[rng.integers(a, b)] if b > a else n + g for g, (a, b) in enumerate(zip(start[:-1], start[1:]))],
                    dtype=np.int64)
     groups = mp.Groups(rep, members, start)
-    meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00", "summary": {"lines": n},
-            "attribution": [], "source": {"id": "files"}, "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2},
+    meta = {"id": "r", "name": "Żabi Koń „ß”", "created": "2026-10-31T10:00:00+00:00",
+            "summary": {"lines": n, "found": int(lines.columns["stands_for"].sum())},
+            "attribution": [], "source": {"id": "files"},
+            "params": {"x": 1.5, "end_zone": 5, "anchor_lift": 2, "same_line_side": 5},
             "data": [{"file": "C:/a/b.tif"}]}
     one = tmp_path / "one"
     one.mkdir()
@@ -3416,7 +3548,8 @@ def test_saved_by_children_as_in_process(tmp_path, monkeypatch):
         for name in files:
             assert (folder / name).read_bytes() == (one / name).read_bytes(), (count, name)
         assert b"lift_no_zone_m" in (folder / "lines.csv").read_bytes()
-        assert b'"ends":["lift_needed","lift_no_zone"]' in (folder / "lines.js").read_bytes()
+        assert b'"ends":["lift_needed","lift_no_zone","stands_for"]' in (folder / "lines.js").read_bytes()
+        assert (folder / "lines.csv").read_bytes().splitlines()[0].endswith(b",stands_for")
         assert sorted(os.listdir(folder)) == sorted(files) and not (work / saving.FOLDER).exists()
         # by the stage: after a test's progress.bars() the Compute bar's label is "" (its finally)
         bars = [(s["stage"], s["count"], s["total"], s["done"]) for s in states if s["stage"].startswith("saving")]

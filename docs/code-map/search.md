@@ -13,7 +13,8 @@ Command line only: options from `params.py`, messages, questions, the list of sp
 
 `SearchParams` (pydantic: fields, help, groups, validation) and `CliOptions`; argparse is generated from them; the
 topic "rigging" holds `end_zone` (0-`END_ZONE_MAX` 20 m) and `anchor_lift` (0-`ANCHOR_LIFT_MAX` 3 m), both 0 by
-default
+default; the topic "lines" `same_line_square` (the square rule: 0, or `SAME_LINE_SQUARE_MIN` 2 to
+`SAME_LINE_SQUARE_MAX` 20; `same_line_square_range`)
 
 ## `search.py`
 
@@ -112,7 +113,13 @@ zone and the A-frames (`Plan.end_zone`, `Plan.lift`, printed as "Ends: ..."): `_
 through `helpers.lift_values` and are dropped from the table, in count mode from each part before the sink gets it),
 `_fixed_order` sorts exactly tied lines by their anchors' pixels only when one of them is set (tiles then give one
 grid's rows in one order), `_run_values` reads a run's pair from run.json (0/0 for runs before) for `profile_of_line`,
-`reach_of_anchor` and `patch_of_line` (`_end_keys` in the meta), `_search_hash` drops them at 0
+`reach_of_anchor` and `patch_of_line` (`_end_keys` in the meta), `_search_hash` drops them at 0; the square rule
+(`Plan.square`: `samelines.side` of `--same-line-square` on the plan's resolution, 0: off): `_pair_search` gives
+`find_valid_lines` a `samelines.BestPerSquarePair` as its sink (never in count mode) with the tile's core and
+`_early_check`'s check, and returns its table (the column `stands_for`), longest first; `search_lines` reduces the
+join of the tiles (`samelines.reduce_table`); `_check_lines` and the early check count kept lines; `_run_params`
+(`same_line_square`, `same_line_side`) and `_search_hash` hold the option only when set, `save_run` adds
+`summary.found`
 
 ## `area.py`
 
@@ -215,6 +222,17 @@ heaviest tiles finds, so they need no writing pass; the search path keeps `PAIR_
 `EVAL_PART` are pending, parts of at most `SINK_PART` handed to the sink, nothing joined, sorted or kept (returns
 None; not with `check`); `covered_pixels` (int64: the pixels of `covered_metres` set in a mask)
 
+## `samelines.py`
+
+The square rule (`--same-line-square`): one line per pair of anchor squares, kept while the pair search runs.
+`side` (the option's metres, on data coarser than 1 m as many pixels), `square_keys` (a lattice with a corner at
+(0, 0) of the grid's CRS; the key is the two squares without order), `BestPerSquarePair` (the sink of
+`linesearch.find_valid_lines`: per key the first line of the order "needs neither the no-fall zone nor A-frames,
+needs no A-frames, highest mean height, longest, the anchors' coordinates" and the number of the key's lines,
+`COLUMN` = `stands_for`; reduced parts wait and are merged into the kept lines every `MERGE_ROWS` rows or as many as
+are kept; with a check, asked after each merge about the kept lines, and about the rows held once `CHECK_ROWS` wait),
+`reduce_table` (the same on a table with coordinates: a tiled search's join). Plain numpy
+
 ## `lineprofiles.py`
 
 The profiles of many lines at once (numba, `prange` over the lines): `line_profiles` gives `helpers.line_profile` of
@@ -239,7 +257,8 @@ run's (its orthophoto entry `ortho_entry`, also the 3D view's patch meta) `map.h
 viewer, chunk by chunk from the columns (`files=` which of the three; `map_heads` the scripts' texts before the lines,
 `write_map_scripts` the lines of `data.js` and/or `lines.js` from them: what the children of `saving.py` run; the
 run's `terrain` in the heads of both scripts; `end_zone`, `lift` and `"ends": ["lift_needed", "lift_no_zone"]` in them
-only when the run has the options, `map_rows` putting those values before the profile)
+only when the run has the options, `map_rows` putting those values before the profile; a run made with the square
+rule has `square`, `found` and `stands_for` as the last name of `ends`, each row's count before the profile)
 
 ## `grouping.py`
 
@@ -256,7 +275,8 @@ the public worker clears; `viewer=False` when the run's map installed the viewer
 `save_results` writes `lines.csv` and `lines.geojson` `LINES_CHUNK` rows at a time, each part's rows in their order
 computed alone (`row_order(groups, lo, hi, at)` with `rep_positions`); `files=` which of its four files;
 `END_FIELDS`/`END_COLUMNS` (`lift_needed_m`, `lift_no_zone_m` after `clearance_nmpt_m`, in `lines.csv` and
-`lines.geojson` only when the run has the options: `fields_of`, `feature_template`) (the children of `saving.py` write
+`lines.geojson` only when the run has the options: `fields_of`, `feature_template`), `STANDS_FOR` (`stands_for`, the
+last column and property, only in a run made with the square rule) (the children of `saving.py` write
 the line files apart, `_rows(csv=, geojson=)` skips the join of the file not wanted)
 
 ## `saving.py`

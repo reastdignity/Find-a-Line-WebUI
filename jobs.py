@@ -165,6 +165,10 @@ MIGRATIONS = [
                                 cpu_seconds REAL NOT NULL, PRIMARY KEY (job_id, stage));
        CREATE TABLE job_funnel (job_id TEXT NOT NULL, step TEXT NOT NULL, count INTEGER NOT NULL,
                                 PRIMARY KEY (job_id, step));""",
+    # 17: the sag model's fall zone went from 3 to 6 m by default (2026-11-14); a request keeps only the values
+    # the form changed, so a sag request of before without one gets the 3 m it was made with ("search again",
+    # a job still waiting, the form's edit); formula requests stay as they are (the formula never reads it)
+    lambda db: _sag_fall_zone(db),
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
 PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
@@ -264,6 +268,26 @@ def _outline_column(db: sqlite3.Connection):
         if outline is not None:
             found.append((outline, rowid))
     db.executemany("UPDATE jobs SET area_outline = ? WHERE rowid = ?", found)
+
+
+FALL_ZONE_BEFORE = 3  # metres: the sag model's default fall zone until 2026-11-14 (migration 17)
+
+
+def _sag_fall_zone(db: sqlite3.Connection):
+    """Migration 17: every stored request of the sag model without a fall zone gets FALL_ZONE_BEFORE; the
+    others (the formula, a fall zone given, an OSM extract, a request that is no JSON object) stay byte for
+    byte."""
+    changed = []
+    for rowid, text in db.execute("SELECT rowid, request FROM jobs").fetchall():
+        try:
+            request = json.loads(text)
+        except (TypeError, ValueError):
+            continue
+        params = request.get("params") if isinstance(request, dict) else None
+        if isinstance(params, dict) and params.get("model") == "sag" and "fall_zone" not in params:
+            params["fall_zone"] = FALL_ZONE_BEFORE
+            changed.append((json.dumps(request), rowid))
+    db.executemany("UPDATE jobs SET request = ? WHERE rowid = ?", changed)
 
 
 FAVOURITES_MAX = 10000  # favourite lines of a user (a safeguard of the database, the same for everyone)

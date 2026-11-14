@@ -189,6 +189,8 @@ def test_patch_is_patch_of_lines_square(clip):
     """build_patch's grid and anchors are the patch search.patch_of_line gives; the surface follows the rule."""
     import search
     out, data, meta, a1, a2 = clip
+    # the fall zone of 3 m (the default until 2026-11-14): valid lines on the lattice of 4 from the anchor
+    meta = {**meta, "params": {**meta["params"], "rigging": {**meta["params"]["rigging"], "fall_zone": 3.0}}}
     patch = pr.build_patch(meta, data, str(out / "work" / "a"), a1, a2, side_m=pr.CLIP_SIDE_M)
     try:
         paths = search.Paths(data, str(out / "work" / "b"))

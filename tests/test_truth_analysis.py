@@ -29,6 +29,7 @@ PARAMS = {"resolution": RES, "min_length": 20.0, "max_length": 120.0, "max_ancho
           "nmpt": "reject", "model": "formula"}
 RIGGING = {"pretension": 2.5, "stretch": 5.0, "webbing_weight": 70.0, "athlete_mass": 80.0, "fall_zone": 3.0}
 SAG_PARAMS = {**PARAMS, "model": "sag", "rigging": RIGGING}  # the sag estimator, findaline.py's default rigging
+# until 2026-11-14 (the fall zone 6 m since): a capture of the passes made then
 # The regions of the synthetic canyon (rows): a known line across the middle of each
 R_MATCHED, R_NEAR, R_MID, R_FILTERED, R_SEAM, R_WATER, R_SURFACE, R_HEIGHT = (range(30 * k, 30 * k + 30)
                                                                               for k in range(8))

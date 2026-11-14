@@ -165,12 +165,19 @@ FIELDS = ["group", "representative", "group_size", "length_m", "clearance_m",
 # clearance_nmpt_m; a run without the options has none of them (the FIELDS of before)
 END_FIELDS = ["lift_needed_m", "lift_no_zone_m"]
 END_COLUMNS = ("lift_needed", "lift_no_zone")  # helpers.END_VALUES (runs is imported without helpers)
+# The found lines each line stands for, of a run made with --same-line-square (the square rule: samelines.COLUMN;
+# runs is imported without samelines): the last column of lines.csv, the last property of a feature of
+# lines.geojson and, in data.js and lines.js, the last value before the profile (their heads' "ends" names it);
+# a run without the option has none of them (the FIELDS and the rows of before)
+STANDS_FOR = "stands_for"
 
 
 def fields_of(lines) -> List[str]:
     """The columns of lines.csv (and properties of lines.geojson) of lines (a helpers.LineTable):
-    FIELDS, with END_FIELDS after clearance_nmpt_m when the lines have the A-frame heights."""
-    return _with_ends(FIELDS) if END_COLUMNS[0] in lines.columns else FIELDS
+    FIELDS, with END_FIELDS after clearance_nmpt_m when the lines have the A-frame heights and
+    STANDS_FOR at the end when they have the count of the square rule."""
+    fields = _with_ends(FIELDS) if END_COLUMNS[0] in lines.columns else FIELDS
+    return fields + [STANDS_FOR] if STANDS_FOR in lines.columns else fields
 
 
 def _with_ends(fields: List[str]) -> List[str]:
@@ -285,8 +292,7 @@ def feature_template(fields: List[str]) -> str:
             '"properties": {' + ", ".join(f"{json.dumps(name)}: %s" for name in fields) + "}}")
 
 
-FEATURE = feature_template(FIELDS)
-END_FEATURE = feature_template(_with_ends(FIELDS))
+_TEMPLATES: Dict[tuple, str] = {}  # feature_template of the lists of fields met (fields_of: at most four)
 
 
 def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size: np.ndarray,
@@ -307,21 +313,23 @@ def _rows(lines, order: np.ndarray, number: np.ndarray, is_rep: np.ndarray, size
         column_texts(pick("water_m")), column_texts(pick("filled_m")),
         column_texts(pick("height_max"), 2), column_texts(pick("height_mean"), 2),
         column_texts(pick("high_pct"), 1)]
+    count = [column_texts(pick(STANDS_FOR))] if STANDS_FOR in c else []  # after the anchors' columns
     for a, xy, elev, angle, prom, drop in (("anchor1", "a1_xy", "elev_a1", "angle1", "prom1", "drop1"),
                                            ("anchor2", "a2_xy", "elev_a2", "angle2", "prom2", "drop2")):
         columns += [column_texts(pick(a, 0), 7), column_texts(pick(a, 1), 7), column_texts(pick(elev), 2),
                     column_texts(pick(xy, 1), 2), column_texts(pick(xy, 0), 2), column_texts(pick(angle), 1),
                     column_texts(pick(prom), 1, empty_nan=True), column_texts(pick(drop), 1, empty_nan=True)]
+    columns += count
     if not len(order):
         return "", ""
     table = "\r\n".join(map(",".join, zip(*(t for t, _ in columns)))) + "\r\n" if csv else ""
     if not geojson:
         return table, ""
     values = [j for _, j in columns]
-    fields = _with_ends(FIELDS) if ends else FIELDS
+    fields = fields_of(lines)
     lat1, lon1, lat2, lon2 = (values[fields.index(name)] for name in
                               ("anchor1_lat", "anchor1_lon", "anchor2_lat", "anchor2_lon"))
-    template = END_FEATURE if ends else FEATURE
+    template = _TEMPLATES.get(tuple(fields)) or _TEMPLATES.setdefault(tuple(fields), feature_template(fields))
     features = ", ".join(template % row for row in zip(lon1, lat1, lon2, lat2, *values))
     return table, features
 
@@ -456,6 +464,8 @@ def params_summary(meta: Dict) -> str:
         text += f", no-fall zone {p['end_zone']:g} m at the ends"
     if p.get("anchor_lift"):
         text += f", A-frames {p['anchor_lift']:g} m"
+    if p.get("same_line_side"):
+        text += f", one line per pair of {p['same_line_side']:g} m anchor squares"
     return text
 
 
