@@ -725,6 +725,74 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert test_web._violations(dom) == []
 
 
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shore_chip_in_edge(tmp_path):
+    """shoreLayer.ts with the app's CSS in headless Edge: on the phone layout (under 768 px) the control starts
+    folded into a chip (the kinds' swatches, "Uncertain shore", the total in view), unfolds into the box and folds
+    again from its title, stays unfolded across a map move, hides with no shore in view, and the opened box with
+    its "?" text keeps within the map (scrolling inside); from 768 px up the box as before, no chip, also kept
+    within the map."""
+    import re
+    import test_web  # the app on a real server, its CSP stubs
+    folder = tmp_path / "runs" / "shore-test"
+    folder.mkdir(parents=True)
+    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/shore_page.ts'], "
+                                  "bundle: true, format: 'iife', target: 'es2020', "
+                                  "loader: {'.png': 'dataurl', '.woff2': 'empty', '.woff': 'empty'}, "
+                                  f"outdir: {json.dumps(str(folder))}}})"], cwd=VIEWER, check=True)
+    (folder / "csp_stub.js").write_text(test_web.CSP_STUB, encoding="utf-8")
+    (folder / "shore_test.html").write_text(
+        '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+        '<link rel="stylesheet" href="shore_page.css"><script src="csp_stub.js"></script></head>'
+        '<body><script src="shore_page.js"></script></body></html>', encoding="utf-8")
+
+    def page(size: str, profile: str) -> dict:
+        dom = test_web._edge_page(tmp_path, "runs/shore-test/shore_test.html", size=size, profile=profile)
+        found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+        assert found, dom[-2000:]
+        out = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+        assert "error" not in out, out["error"]
+        assert test_web._violations(dom) == []
+        return out
+
+    phone = page("600,900", "edge-phone")
+    assert phone["phone"] is True
+    assert phone["totals"] == ["3.0 km", "820 m", "999 m", "1.0 km", "1.0 km"]
+    closed = {"holder": True, "chip": True, "box": False, "fold": False, "title": False}
+    opened = {"holder": True, "chip": False, "box": True, "fold": True, "title": False}
+    start = phone["start"]
+    assert {k: start[k] for k in closed} == closed  # every map starts folded
+    assert start["text"] == "Uncertain shore3.0 km" and start["swatches"] == ["surface", "sea"]
+    assert start["label"] == "Uncertain shore in view, 3.0 km. Show the details" and start["expanded"] == "false"
+    unfolded = phone["unfolded"]
+    assert {k: unfolded[k] for k in opened} == opened and unfolded["expanded"] == "true" and unfolded["focus"] is True
+    assert "1200 m: the foot of the cliff" in unfolded["text"] and "1800 m: the sea" in unfolded["text"]
+    moved = phone["moved"]  # still unfolded, its metres updated, the chip's total and swatches too
+    assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
+    assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
+    hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
+    assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
+    assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    assert hint["textUp"] is True and hint["titleTop"] <= 1
+    # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
+    assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
+    folded = phone["folded"]
+    assert {k: folded[k] for k in closed} == closed and folded["expanded"] == "false" and folded["focus"] is True
+    assert folded["helpClosed"] is True
+    assert phone["away"]["holder"] is False and not phone["away"]["chip"] and not phone["away"]["box"]
+    assert phone["back"] == closed
+
+    desktop = page("1000,900", "edge-desktop")  # from 768 px up: the box, always open, no chip, no fold button
+    assert desktop["phone"] is False
+    always = {"holder": True, "chip": False, "box": True, "fold": False, "title": True}
+    for step in ("start", "unfolded", "moved", "folded", "back"):
+        assert {k: desktop[step][k] for k in always} == always, step
+    hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
+    assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
+    assert desktop["away"]["holder"] is False
+
+
 def test_messages_match_python(tmp_path):
     """messages.py formats the catalogue as the page's i18next does: interpolation (numbers, values not
     given stay as {{name}}, spaces in the braces) and plural forms (_zero, _one, _other), the key for an unknown one."""

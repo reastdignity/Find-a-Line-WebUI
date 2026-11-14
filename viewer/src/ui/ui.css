@@ -241,6 +241,33 @@
 .ui .u-shore-surface { border-top-style: dashed; }
 .ui .u-shore-sea { border-top-color: #c43d2f; }
 .ui .u-shore-more { margin: 6px 0 0; color: var(--ink-2); }
+/* On the phone layout (under 768 px, components.tsx DESKTOP) the shore's control starts folded into a one-line chip
+   (shoreLayer.ts .u-shore-ctl): the chip unfolds the box, the box's title (a button there) folds it. From 768 px up
+   the box, no chip, no fold button. On both the opened box keeps within the map (its max-height set by shoreLayer.ts):
+   a longer text scrolls inside it under its title, which stays in sight (sticky, the box's width, the box's colour). */
+.ui .u-shore-ctl .u-shore { overflow-y: auto; overscroll-behavior: contain; padding-top: 0; background: var(--surface); }
+.ui .u-shore-ctl .u-shore-head { position: sticky; top: 0; z-index: 1; margin: 0 -10px; padding: 6px 10px 2px;
+  background: var(--surface); }
+.ui .u-shore-chip, .ui .u-shore-fold { display: none; }
+.ui .u-shore-chip { position: relative; align-items: center; gap: 6px; min-height: 30px; padding: 0 10px; border-radius: 15px;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) 92%, transparent); box-shadow: var(--shadow);
+  color: var(--ink); font: 12.5px/1 var(--font); cursor: pointer; white-space: nowrap; }
+.ui .u-shore-chip::after { content: ""; position: absolute; inset: -7px -4px; }  /* a 44 px target */
+.ui .u-shore-chip:focus-visible { box-shadow: var(--shadow), var(--focus); }
+.ui .u-shore-chip-sw { display: inline-flex; gap: 3px; }
+.ui .u-shore-chip .u-shore-swatch { width: 13px; }
+.ui .u-shore-chip b { font-weight: 600; }
+.ui .u-shore-chip-m { font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.ui .u-shore-chev { flex: none; width: 10px; height: 10px; color: var(--muted); }
+.ui .u-shore-fold { flex: 1 1 auto; align-items: center; gap: 6px; border: 0; background: none; padding: 2px 0; text-align: left;
+  font-weight: 700; cursor: pointer; border-radius: 4px; }
+@media (max-width: 767px) {
+  .ui .u-shore-chip { display: inline-flex; }
+  .ui .u-shore-fold { display: flex; }
+  .ui .u-shore-ctl .u-shore-title { display: none; }
+  .ui .u-shore-ctl:not(.u-shore-folded) .u-shore-chip, .ui .u-shore-folded .u-shore { display: none; }
+}
+@media (max-width: 600px) { .ui .u-shore-ctl .u-shore-head { margin: 0 -8px; padding: 4px 8px 2px; } }
 /* The coarser terrain (coarserLayer.ts): its regions hatched with a dashed outline (a later fallback's solid), its
    box's swatch the same; colours from --coarse, overriding Leaflet's attributes */
 .ui .u-coarse-area { stroke: var(--coarse-map); }
