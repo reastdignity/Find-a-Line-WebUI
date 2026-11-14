@@ -1,0 +1,304 @@
+// The Basic search form's rules (docs/line-volume/spec-search.md 1.2), pure functions for useSearch and the
+// panel: what a goal and a rig set, what Basic sends, whether values fit a goal and the rig in use
+// (matchGoal, notInBasic, basicGoalOf), the line above Start (receiptParts), the size word (sizeOf), the rig's
+// words and checks, and where "Sea cliffs" moves the search. The goals' values come from the server
+// (params.PRESETS through /api/schema's presets), the defaults from the schema's fields.
+
+import type { Field, Preset } from "../app/api";
+import { PLACE_FIELDS } from "../app/request";
+import { label, t } from "../i18n";
+
+/** The fields a goal sets (params.GOAL_FIELDS): values "fit a goal" when all of them equal it. */
+export const GOAL_FIELDS = ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
+                            "min_height", "min_mean_height", "min_high_share", "max_wall_angle", "min_drop"];
+/** The seven values of a rig (params.RIG_FIELDS). */
+export const RIG_FIELDS = ["pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone", "end_zone",
+                           "anchor_lift"] as const;
+export type RigField = typeof RIG_FIELDS[number];
+export type RigValues = Record<RigField, number>;
+
+/** The rig Basic uses until one is saved (never stored): sag, a no-fall zone of 5 m, no A-frames, a leash fall
+ *  space of 6 m, 2.5 kN, 5 %, 70 g/m, 80 kg. */
+export const STARTING_RIG: RigValues = {pretension: 2.5, stretch: 5, webbing_weight: 70, athlete_mass: 80, fall_zone: 6,
+                                        end_zone: 5, anchor_lift: 0};
+export const BASIC_SQUARE = 5;   // the square rule of every Basic search (same_line_square)
+export const BASIC_RADIUS = 500; // the radius a new search starts with, in both tabs (SearchParams.radius stays 1000)
+export const FIRST_GOAL = "best";
+/** What every Basic request carries explicitly, also at the default: a stored request keeps its meaning when a
+ *  default moves. */
+export const EXPLICIT = ["model", ...RIG_FIELDS, "same_line_square"];
+
+/** A saved rig (/api/rigs). */
+export interface Rig { id: number; name: string; values: RigValues }
+
+export type Values = Record<string, unknown>;
+
+/** Two values of a field alike (null and undefined: no value). */
+export const same = (a: unknown, b: unknown) => a === b || (a == null && b == null);
+
+/** The default of every field but Where's (the schema's): the fields Basic and Advanced compare. */
+export function defaultsOf(byName: Record<string, Field>): Values {
+  return Object.fromEntries(Object.values(byName).filter((f) => !PLACE_FIELDS.has(f.name)).map((f) => [f.name, f.default]));
+}
+
+/** The values a goal sets, for every field of GOAL_FIELDS (its value, else the default); {} for "custom". */
+export function goalValues(preset: Preset | undefined, defaults: Values): Values {
+  if (!preset?.values) return {};
+  return Object.fromEntries(GOAL_FIELDS.map((k) => [k, k in preset.values! ? preset.values![k] : defaults[k]]));
+}
+
+export const rigOf = (values: Values): RigValues =>
+  Object.fromEntries(RIG_FIELDS.map((k) => [k, values[k]])) as RigValues;
+export const sameRig = (a: RigValues, b: RigValues) => RIG_FIELDS.every((k) => same(a[k], b[k]));
+
+/** Basic's values: every field, at its default except the goal's eleven, the rig's seven, the sag model and the
+ *  square rule of 5. */
+export function basicValues(goal: Preset | undefined, rig: RigValues, defaults: Values): Values {
+  return {...defaults, ...goalValues(goal, defaults), ...rig, model: "sag", same_line_square: BASIC_SQUARE};
+}
+
+/** The values that differ from the defaults (what the form keeps and an ordinary request sends). */
+export function changedOf(values: Values, defaults: Values): Values {
+  return Object.fromEntries(Object.entries(values).filter(([k, v]) => k in defaults && !same(v, defaults[k])));
+}
+
+/** The parameters of a Basic request without the place: the goal's values that differ from the defaults, and the
+ *  model, the rig's seven values and the square rule explicitly. */
+export function basicRequestValues(goal: Preset | undefined, rig: RigValues, defaults: Values): Values {
+  const all = basicValues(goal, rig, defaults);
+  return {...changedOf(all, defaults), ...Object.fromEntries(EXPLICIT.map((k) => [k, all[k]]))};
+}
+
+/** The goal whose eleven values these are (every field resolved), or null. */
+export function matchGoal(values: Values, presets: Preset[], defaults: Values): string | null {
+  for (const p of presets) {
+    if (!p.values) continue;
+    const goal = goalValues(p, defaults);
+    if (GOAL_FIELDS.every((k) => same(values[k], goal[k]))) return p.id;
+  }
+  return null;
+}
+
+/** The fields whose value Basic cannot show with this goal and rig (every field resolved): those that differ
+ *  from Basic's values. */
+export function notInBasic(values: Values, goal: Preset | undefined, rig: RigValues, defaults: Values): string[] {
+  const base = basicValues(goal, rig, defaults);
+  return Object.keys(defaults).filter((k) => !same(values[k], base[k]));
+}
+
+/** The goal Basic shows these values with (they fit a goal and the rig in use), or null: Advanced. */
+export function basicGoalOf(values: Values, presets: Preset[], rig: RigValues, defaults: Values): string | null {
+  const goal = matchGoal(values, presets, defaults);
+  if (!goal) return null;
+  return notInBasic(values, presets.find((p) => p.id === goal), rig, defaults).length ? null : goal;
+}
+
+export type Tab = "basic" | "advanced";
+
+/** The tab and Basic's goal a form opens with: a new search (`changed` null) Basic with the first goal; a request
+ *  to edit (its values changed from the defaults) Basic when it fits a goal and the rig in use (spec-search 1.2:
+ *  all eleven goal fields, the seven rig values, the square rule of 5, every other field at its default), else
+ *  Advanced with the goal its values match (or the first): a request made before the form has no square rule, so
+ *  it never fits. */
+export function openingTab(changed: Values | null, presets: Preset[], rig: RigValues, defaults: Values): {tab: Tab; goal: string} {
+  if (!changed) return {tab: "basic", goal: FIRST_GOAL};
+  const resolved = {...defaults, ...changed};
+  const goal = basicGoalOf(resolved, presets, rig, defaults);
+  return goal ? {tab: "basic", goal} : {tab: "advanced", goal: matchGoal(resolved, presets, defaults) ?? FIRST_GOAL};
+}
+
+/** Advanced's dots: the fields whose value (every field resolved) differs from Basic's. */
+export const differing = (values: Values, base: Values) => Object.keys(base).filter((k) => !same(values[k], base[k]));
+
+/** Advanced's "reset": the changed values with `name` at Basic's value (left out when that is its default). */
+export function withBasicValue(changed: Values, name: string, base: Values, defaults: Values): Values {
+  const next = {...changed};
+  if (same(base[name], defaults[name])) delete next[name]; else next[name] = base[name];
+  return next;
+}
+
+// ---- the rig in use, kept per browser (spec-search 1.3, U-5) ------------------------------------------------
+
+export const RIG_KEY = "findaline.rig";
+
+/** The id of the rig in use this browser keeps, or null (none, or no storage). */
+export function storedRigId(): number | null {
+  try {
+    const text = globalThis.localStorage.getItem(RIG_KEY);
+    return text && /^\d+$/.test(text) ? Number(text) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep the rig in use (null: forget it); a browser that refuses keeps nothing. */
+export function storeRigId(id: number | null) {
+  try {
+    if (id === null) globalThis.localStorage.removeItem(RIG_KEY);
+    else globalThis.localStorage.setItem(RIG_KEY, String(id));
+  } catch { /* a private window, blocked storage: the first rig next time */ }
+}
+
+/** The rig in use: the stored id's, else the first; null without rigs (the starting rig). */
+export function rigInUse(rigs: Rig[], stored: number | null): Rig | null {
+  return rigs.find((r) => r.id === stored) ?? rigs[0] ?? null;
+}
+
+// ---- words -------------------------------------------------------------------------------------------
+
+/** A number as the form writes it: at most two decimals ("2.5", "6"). */
+export const num = (v: unknown) => String(+(+(v as number)).toFixed(2));
+
+/** "sag · no-fall zone 5 m · A-frames 2 m" (`sep` between the parts). */
+export function rigSummary(rig: RigValues, sag = true, sep = " · "): string {
+  return [sag ? t("rig.sum.sag") : t("rig.sum.formula"),
+          rig.end_zone > 0 ? t("rig.sum.zone", {value: num(rig.end_zone)}) : t("rig.sum.no_zone"),
+          rig.anchor_lift > 0 ? t("rig.sum.lift", {value: num(rig.anchor_lift)}) : t("rig.sum.no_lift")].join(sep);
+}
+
+/** "2.5 kN pretension, 5 % stretch at 10 kN, 70 g/m webbing, athlete 80 kg, 6 m leash fall space". */
+export function rigDetail(rig: RigValues): string {
+  return t("rig.detail", {pretension: num(rig.pretension), stretch: num(rig.stretch), weight: num(rig.webbing_weight),
+                          mass: num(rig.athlete_mass), fall: num(rig.fall_zone)});
+}
+
+/** The name the rigging of these values goes by: the rig in use's name when they are its values, "Rig" (the
+ *  starting rig, no rig saved), else "Rig for this search". */
+export function rigNameOf(values: Values, inUse: Rig | null): string {
+  const rig = rigOf(values);
+  if (inUse) return sameRig(rig, inUse.values) ? inUse.name : t("rig.name.search");
+  return sameRig(rig, STARTING_RIG) ? t("rig.name.starting") : t("rig.name.search");
+}
+
+/** A rig's name as the server keeps it (rig_name): composed (NFC), whitespace collapsed, stripped. */
+export const cleanName = (name: string) => name.normalize("NFC").replace(/\s+/g, " ").trim();
+/** The key names are compared by (the server's casefold, near enough: the server decides). */
+export const nameKey = (name: string) => cleanName(name).toLowerCase().normalize("NFC");
+
+/** Whether another rig than `except` has this name. */
+export const nameTaken = (rigs: Rig[], name: string, except: number | null = null) =>
+  rigs.some((r) => r.id !== except && nameKey(r.name) === nameKey(name));
+
+/** The name a new rig is offered: "My rig" for the first, then the first free "Rig 2", "Rig 3" …. */
+export function nextRigName(rigs: Rig[]): string {
+  if (!rigs.length) return t("rig.name.first");
+  for (let n = 2; ; n++) if (!nameTaken(rigs, t("rig.name.next", {n}))) return t("rig.name.next", {n});
+}
+
+/** What is wrong with a rig's values, in the words of the search's own errors (params._check_rigging's order and
+ *  bounds), or "". */
+export function rigProblem(rig: Record<string, number>): string {
+  for (const k of RIG_FIELDS) {
+    if (typeof rig[k] !== "number" || !Number.isFinite(rig[k])) return t("error.not_a_number", {label: label(k)});
+  }
+  for (const k of ["pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"] as const) {
+    const positive = k === "pretension" || k === "stretch";
+    if (rig[k] < 0 || (positive && rig[k] === 0)) {
+      return t(positive ? "error.positive" : "error.not_negative", {label: label(k)});
+    }
+  }
+  if (!(rig.end_zone >= 0 && rig.end_zone <= 20)) return t("error.end_zone_range", {max: 20});
+  if (!(rig.anchor_lift >= 0 && rig.anchor_lift <= 3)) return t("error.anchor_lift_range", {max: 3});
+  return "";
+}
+
+/** A field's value in words for the list of what Basic cannot show: "Pretension 4 kN", "Drop below both
+ *  anchors 50 m", "Trees and buildings: Do not check", "Skip the interactive map: yes", "…: default". */
+export function valueText(field: Field, value: unknown): string {
+  const name = field.label.replace(/, at (least|most)$/, "");
+  if (field.type === "boolean") return `${field.label}: ${t(value ? "basic.value_yes" : "basic.value_no")}`;
+  if (value == null || value === "") return `${name}: ${t("basic.value_default")}`;
+  if (field.type === "choice") {
+    return `${field.label}: ${(field.choice_labels?.[String(value)] ?? String(value)).replace(/ \(.*\)$/, "")}`;
+  }
+  if (typeof value !== "number") return `${name} ${value}`;
+  return `${name} ${field.unit === "°" ? `${num(value)}°` : field.unit ? `${num(value)} ${field.unit}` : num(value)}`;
+}
+
+// ---- the line above Start (the receipt) and the phone's short line -----------------------------------
+
+/** A part of the receipt: its words and the field it opens in Advanced ("more": More settings, "name": the
+ *  search's name); `wide`: shown on a desktop only. */
+export interface ReceiptPart { text: string; field: string; wide?: boolean }
+
+/** The receipt of these values (every field resolved): lengths, anchors, trees, the goal's other limits, the
+ *  rig, "+ N more settings" (other fields off the default, the square rule at Basic's 5 counting as covered) and
+ *  the search's name. */
+export function receiptParts(values: Values, defaults: Values, inUse: Rig | null, name: string): ReceiptPart[] {
+  const v = values;
+  const covered = new Set<string>(["min_length", "max_length", "max_anchor_diff_m", "nmpt", "model", ...RIG_FIELDS]);
+  if (same(v.same_line_square, BASIC_SQUARE)) covered.add("same_line_square");
+  const parts: ReceiptPart[] = [
+    {text: t("basic.receipt.lengths", {min: num(v.min_length), max: num(v.max_length)}), field: "min_length"},
+    {text: t("basic.receipt.anchors", {value: num(v.max_anchor_diff_m)}), field: "max_anchor_diff_m"},
+  ];
+  parts.push(v.nmpt === "mark" ? {text: t("basic.receipt.trees_mark"), field: "nmpt", wide: true}
+    : {text: t(v.nmpt === "reject" ? "basic.receipt.trees_reject" : "basic.receipt.trees_off"), field: "nmpt"});
+  if (v.min_height != null) {
+    parts.push({text: t("basic.receipt.min_height", {value: num(v.min_height)}), field: "min_height"});
+    covered.add("min_height");
+  }
+  if (v.min_high_share != null) {
+    parts.push({text: t("basic.receipt.high_share", {share: num(v.min_high_share), above: num(v.high_above)}),
+                field: "min_high_share"});
+    covered.add("min_high_share").add("high_above");
+  }
+  if (v.max_wall_angle != null) {
+    parts.push({text: t("basic.receipt.wall_angle", {value: num(v.max_wall_angle)}), field: "max_wall_angle"});
+    covered.add("max_wall_angle");
+  }
+  if (v.min_drop != null) {
+    parts.push({text: t("basic.receipt.drop", {value: num(v.min_drop)}), field: "min_drop"});
+    covered.add("min_drop");
+  }
+  const sag = v.model === "sag";
+  parts.push({text: t("basic.receipt.rig", {name: rigNameOf(v, inUse), summary: rigSummary(rigOf(v), sag, ", ")}),
+              field: sag ? "end_zone" : "model"});
+  const more = Object.keys(defaults).filter((k) => !covered.has(k) && !same(v[k], defaults[k])).length;
+  if (more) parts.push({text: t("basic.receipt.more", {count: more}), field: "more"});
+  if (name.trim()) parts.push({text: t("basic.receipt.named", {name: name.trim()}), field: "name"});
+  return parts;
+}
+
+/** The compact phone bar's one line: "<goal or Custom> · <lengths> · <rig>". */
+export function receiptShort(values: Values, goalTitle: string | null, inUse: Rig | null): string {
+  return [goalTitle ?? t("preset.custom"), t("basic.receipt.lengths", {min: num(values.min_length), max: num(values.max_length)}),
+          rigNameOf(values, inUse)].join(" · ");
+}
+
+// ---- the size word ---------------------------------------------------------------------------------------
+
+export const SIZE_WORDS = ["basic.size.light", "basic.size.heavier", "basic.size.heavy", "basic.size.very"];
+
+/** The size word (spec-search 1.2, N-05): one step each for sag, a no-fall zone and A-frames, one for lines
+ *  spanning 900 m or more, else for an area above 3.2 km²; at most "Very heavy". `causes` name the steps,
+ *  `lighter`: at "Very heavy" with sag the simple formula is offered. */
+export function sizeOf(values: Values, km2: number | null): {level: number; word: string; causes: string[]; lighter: boolean} {
+  const v = values, causes: string[] = [];
+  const sag = v.model === "sag";
+  if (sag) causes.push(t("basic.size.sag"));
+  if (Number(v.end_zone) > 0) causes.push(t("basic.size.zone", {value: num(v.end_zone)}));
+  if (Number(v.anchor_lift) > 0) causes.push(t("basic.size.lift", {value: num(v.anchor_lift)}));
+  if (Number(v.max_length) - Number(v.min_length) >= 900) causes.push(t("basic.size.long", {value: num(v.max_length)}));
+  else if (km2 !== null && km2 > 3.2) causes.push(t("basic.size.area", {value: num(km2.toFixed(1))}));
+  const level = Math.min(causes.length, 3);
+  return {level, word: t(SIZE_WORDS[level]), causes, lighter: level === 3 && sag};
+}
+
+// ---- where "Sea cliffs" moves the search ------------------------------------------------------------------
+
+export type WhereMode = "point" | "area" | "cliffs" | "file";
+export type CoastKind = "cliffs" | "coast";
+/** Where's mode, the kind of Along cliffs, the band width and what "Sea cliffs" replaced (null: nothing). */
+export interface WhereState { mode: WhereMode; coastKind: CoastKind; buffer: number;
+                              before: {mode: WhereMode; coastKind: CoastKind} | null }
+
+/** "Sea cliffs" switches Where to Along cliffs → Coast with a band of 100 m and remembers the mode before;
+ *  another goal puts that mode back (a mode chosen by hand meanwhile forgets it: the caller clears `before`). */
+export function whereForGoal(goal: string, w: WhereState): WhereState {
+  if (goal === "sea") {
+    const before = w.before ?? (w.mode === "cliffs" && w.coastKind === "coast" ? null : {mode: w.mode, coastKind: w.coastKind});
+    return {mode: "cliffs", coastKind: "coast", buffer: 100, before};
+  }
+  return w.before ? {...w, mode: w.before.mode, coastKind: w.before.coastKind, before: null} : w;
+}

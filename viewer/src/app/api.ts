@@ -23,14 +23,17 @@ export interface Field {
   choice_labels: Record<string, string> | null;  // labels of the choices (the sources: their names)
 }
 
-/** A preset of the kind of lines (params.PRESETS, web.presets). */
+/** A goal of the form ("preset": params.PRESETS, web.presets): its values of the eleven GOAL_FIELDS. */
 export interface Preset {
   id: string;
   label: string;
-  values: Record<string, number> | null;  // null: "custom", the values stay as they are
-  available: boolean;                     // false: a value is outside the user's bounds
+  values: Record<string, unknown> | null;  // null: "custom", the values stay as they are
+  available: boolean;                      // false: a value is outside the user's bounds
   reason: string | null;
 }
+
+/** A saved rig of the user (/api/rigs): its name and the seven values of params.RIG_FIELDS. */
+export interface SavedRig { id: number; name: string; values: Record<string, number> }
 
 /** /api/schema: the fields, the form's topics and the presets. */
 export interface Schema {
@@ -253,6 +256,12 @@ export const api = {
   deleteFolder: (id: number) => call<{folders: number; favourites: number}>("DELETE", `/api/favourites/folders/${id}`),
   unfavourite: (run: string, line: string) =>
     call<{ok: boolean}>("POST", `/api/runs/${encodeURIComponent(run)}/favourites`, {line, favourite: false}),
+  /** The user's saved rigs (the Basic form's "Rigged as") and how many one may keep. */
+  rigs: () => call<{rigs: SavedRig[]; max: number}>("GET", "/api/rigs"),
+  addRig: (name: string, values: Record<string, number>) => call<{id: number}>("POST", "/api/rigs", {name, values}),
+  changeRig: (id: number, change: {name?: string; values?: Record<string, number>}) =>
+    call<{ok: boolean}>("POST", `/api/rigs/${id}`, change),
+  deleteRig: (id: number) => call<{ok: boolean}>("DELETE", `/api/rigs/${id}`),
   osm: (lat: number, lon: number) => call<OsmState>("GET", `/api/osm?lat=${lat}&lon=${lon}`),
   osmJob: (action: "download" | "update", region: string) =>
     call<{id: string}>("POST", "/api/osm", {action, region}),

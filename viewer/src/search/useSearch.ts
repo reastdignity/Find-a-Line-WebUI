@@ -1,21 +1,27 @@
-// The state of a new search in the new interfaces: where (four modes), the parameters with the
-// presets, the live estimate and the start. useSearch() holds it, so a shell can show the panel
-// (SearchPanel) and the estimate with the start (EstimateBar) in different places; useUsage() is
-// the user's use of the quotas (/api/usage). The request is built by app/request.ts.
+// The state of a new search in the new interfaces: where (four modes), the two tabs (Basic: a goal and the
+// rig in use; Advanced: every parameter, its goal cards and the dots of the values that differ from Basic's),
+// the live estimate and the start. useSearch() holds it, so a shell can show the panel (SearchPanel) and the
+// estimate with the start (EstimateBar) in different places; useUsage() is the user's use of the quotas
+// (/api/usage). The request is built by app/request.ts, Basic's values by basic.ts.
 
 import type { FeatureCollection } from "geojson";
 import { useCallback, useEffect, useMemo, useRef, useState } from "preact/hooks";
-import { api, ApiError, type Estimate, type Field, type Schema, type SearchRequest, type Usage } from "../app/api";
+import { api, ApiError, type Estimate, type Field, type Preset, type Schema, type SearchRequest, type Usage } from "../app/api";
 import { countAreas } from "../app/areas";
 import { COUNTRY_EVENT } from "../app/timeZone";
 import { readAreaFile } from "../app/files";
 import type { Mode, PlaceMap } from "../app/PlaceMap";
 import { buildRequest, fromRequest, valueProblem, withValue, type AreaFile, type Place } from "../app/request";
 import { t } from "../i18n";
+import {
+  basicGoalOf, basicRequestValues, basicValues, BASIC_RADIUS, changedOf, defaultsOf, GOAL_FIELDS, matchGoal, notInBasic,
+  openingTab, same, whereForGoal, type CoastKind, type Tab, type Values, type WhereMode, type WhereState,
+} from "./basic";
+import type { RigsState } from "./useRigs";
 
-export type SearchMode = "point" | "area" | "cliffs" | "file";
+export type SearchMode = WhereMode;
 export type AreaKind = "draw" | "osm";       // the Area mode: drawn on the map, or a named OSM area
-export type CoastKind = "cliffs" | "coast";  // the Along cliffs mode
+export type { CoastKind, Tab };               // the Along cliffs mode; the form's tabs
 
 /** The key fields under the presets (the presets set the first three). */
 export const KEY_FIELDS = ["min_length", "max_length", "max_anchor_diff_m", "source"];
@@ -167,17 +173,38 @@ export function fmt(value: number): string {
 export interface SearchOptions {
   place: PlaceMap;
   schema: Schema;
+  rigs: RigsState;                 // the saved rigs and the rig in use (loaded: the tab of a request to edit needs it)
   onStarted(jobId: string): void;
-  initial?: SearchRequest | null;  // a search to edit and run again
-  preset?: string;                 // the preset a new search starts with (not one to edit); none: the defaults
+  initial?: SearchRequest | null;  // a search to edit and run again (or a cell's of the highline layer)
 }
+
+/** What going back to Basic would lose: the dialog's list (fields, in Advanced's values) and the goal it resets to. */
+export interface ReturnAsk { fields: string[]; goal: string }
 
 export interface SearchState {
   place: PlaceMap;
   schema: Schema;
   byName: Record<string, Field>;
+  tab: Tab;
+  /** To Advanced, filled with Basic's values when it comes from Basic; `field`: open and focus it ("more": More
+   *  settings, "name": the search's name). */
+  toAdvanced(field?: string): void;
+  /** To Basic: silently when the values fit a goal and the rig in use (null), else what the dialog lists. */
+  toBasic(): ReturnAsk | null;
+  /** Back to Basic with Basic's values of `goal` (the dialog's "Reset them to Basic's values"). */
+  resetToBasic(goal: string): void;
+  focus: {field: string; n: number} | null;  // a field Advanced is asked to open and focus
+  goal: string;                        // Basic's goal (Advanced's dots compare with it)
+  goalOf(id: string): Preset | undefined;
+  chooseGoal(id: string): void;        // a goal card of Basic
+  rigs: RigsState;
+  defaults: Values;                    // every field's default (but Where's)
+  base: Values;                        // Basic's values now (the goal and the rig in use), every field
+  resolved: Values;                    // every field's value now
+  differs(name: string): boolean;      // Advanced's dot: the value differs from Basic's
   mode: SearchMode;
   setMode(mode: SearchMode): void;
+  seaBefore: WhereState["before"];     // the mode "Sea cliffs" replaced (another goal brings it back)
   areaKind: AreaKind;
   setAreaKind(kind: AreaKind): void;
   coastKind: CoastKind;
@@ -198,13 +225,13 @@ export interface SearchState {
   readFile(input: HTMLInputElement): Promise<void>;
   shapes: number;                      // drawn shapes or shapes of the file
   areas: number;                       // separate areas of them (overlapping or touching shapes are one)
-  values: Record<string, unknown>;     // the parameters changed from their defaults
+  values: Record<string, unknown>;     // the parameters changed from their defaults (Basic's: the goal's and the rig's)
   value(name: string): unknown;        // a parameter's value (its default when unchanged)
-  setValue(name: string, value: unknown): void;
-  setValues(values: Record<string, unknown>): void;
+  setValue(name: string, value: unknown): void;     // Advanced's
+  setValues(values: Record<string, unknown>): void; // Advanced's
   problems: Record<string, string>;    // values outside the site's bounds, by field
-  preset: string;                      // the preset the values match ("custom" if none)
-  applyPreset(id: string): void;
+  preset: string;                      // the goal card of Advanced the values match ("custom" if none)
+  applyPreset(id: string): void;       // a goal card of Advanced: its eleven fields and Basic's goal
   request: SearchRequest | string;     // the request, or what is missing
   estimate: EstimateState;
   km2: number | null;                  // the area of the search: the estimate's, or a circle's (π r²)
@@ -222,35 +249,47 @@ function mapMode(mode: SearchMode, areaKind: AreaKind): Mode {
 }
 
 /** A new search: the state of the panel, its request, the live estimate and the start. */
-export function useSearch({place, schema, onStarted, initial, preset: preset0}: SearchOptions): SearchState {
+export function useSearch({place, schema, rigs, onStarted, initial}: SearchOptions): SearchState {
   const byName = useMemo(() => Object.fromEntries(schema.fields.map((f) => [f.name, f])), [schema]);
+  const defaults = useMemo(() => defaultsOf(byName), [byName]);
+  const presets = schema.presets;
+  const goalOf = (id: string) => presets.find((p) => p.id === id);
   const start0 = useMemo(() => {
     const found = fromRequest(initial, byName);
-    const chosen = !initial && schema.presets.find((p) => p.id === preset0);
-    if (chosen && chosen.available && chosen.values) {
-      for (const [key, v] of Object.entries(chosen.values)) {
-        if (byName[key]) found.values = withValue(found.values, byName[key], v);
-      }
-    }
-    return found;
+    return {...found, radius: initial ? found.radius : BASIC_RADIUS,
+            ...openingTab(initial ? found.values : null, presets, rigs.values, defaults)};
   }, []);
-  const [mode, setMode] = useState<SearchMode>(start0.mode === "point" ? "point" : start0.mode === "file" ? "file"
-    : start0.mode === "draw" || start0.preset === "osm" ? "area" : "cliffs");
+  const [tab, setTab] = useState<Tab>(start0.tab);
+  const [goal, setGoal] = useState(start0.goal);
+  const [focus, setFocus] = useState<{field: string; n: number} | null>(null);
+  const [where, setWhere] = useState<WhereState>({
+    mode: start0.mode === "point" ? "point" : start0.mode === "file" ? "file"
+      : start0.mode === "draw" || start0.preset === "osm" ? "area" : "cliffs",
+    coastKind: start0.preset === "coast" ? "coast" : "cliffs", buffer: start0.buffer, before: null});
+  const {mode, coastKind, buffer} = where;
+  // A mode or kind chosen by hand forgets what "Sea cliffs" replaced (choosing the coast keeps it)
+  const setMode = (m: SearchMode) => setWhere((w) => ({...w, mode: m, before: null}));
+  const setCoastKind = (k: CoastKind) => setWhere((w) => ({...w, coastKind: k, before: k === "coast" ? w.before : null}));
+  const setBuffer = (b: number) => setWhere((w) => ({...w, buffer: b}));
   const [areaKind, setAreaKind] = useState<AreaKind>(start0.mode === "preset" && start0.preset === "osm" ? "osm" : "draw");
-  const [coastKind, setCoastKind] = useState<CoastKind>(start0.preset === "coast" ? "coast" : "cliffs");
   const [point, setPoint] = useState(start0.point);
   const [radius, setRadius] = useState(start0.radius);
-  const [buffer, setBuffer] = useState(start0.buffer);
   const [osmName, setOsmName] = useState(start0.osmName);
   const [within, setWithin] = useState(start0.within);
   const [name, setName] = useState(start0.name);
   const [file, setFile] = useState<AreaFile | null>(null);
   const [fileKey, setFileKey] = useState(0);
   const [drawn, setDrawn] = useState(0);  // changes when the drawn areas change
-  const [values, setValues] = useState<Record<string, unknown>>(start0.values);
-  const [custom, setCustom] = useState(false);  // "Custom" chosen while the values match a preset
+  // Advanced's values (changed from the defaults); Basic's follow from its goal and the rig in use
+  const [advValues, setAdvValues] = useState<Record<string, unknown>>(start0.tab === "advanced" ? start0.values : {});
+  const [custom, setCustom] = useState(false);  // "Custom" chosen while the values match a goal
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  const base = useMemo(() => basicValues(goalOf(goal), rigs.values, defaults), [goal, rigs.values, defaults, presets]);
+  const basicChanged = useMemo(() => changedOf(base, defaults), [base, defaults]);
+  const values = tab === "basic" ? basicChanged : advValues;
+  const resolved = useMemo(() => ({...defaults, ...values}), [defaults, values]);
 
   useEffect(() => {
     place.onPoint = (lat, lon) => setPoint([lat, lon]);
@@ -281,30 +320,71 @@ export function useSearch({place, schema, onStarted, initial, preset: preset0}: 
     return found;
   }, [values, byName]);
 
-  const matching = schema.presets.find((p) => p.values && Object.entries(p.values).every(([k, v]) => value(k) === v));
-  const preset = custom || !matching ? (schema.presets.some((p) => p.id === "custom") ? "custom" : "") : matching.id;
+  const matching = matchGoal(resolved, presets, defaults);
+  const preset = custom || !matching ? (presets.some((p) => p.id === "custom") ? "custom" : "") : matching;
+  /** A goal moves Where for "Sea cliffs" (and back for another goal). */
+  const whereFor = (id: string) => setWhere((w) => whereForGoal(id, w));
   const applyPreset = (id: string) => {
-    const chosen = schema.presets.find((p) => p.id === id);
+    const chosen = goalOf(id);
     if (!chosen || !chosen.available) return;
     if (!chosen.values) { setCustom(true); return; }
     setCustom(false);
-    let next = values;
-    for (const [key, v] of Object.entries(chosen.values)) if (byName[key]) next = withValue(next, byName[key], v);
-    setValues(next);
+    setGoal(id);
+    setAdvValues((now) => {
+      let next = now;
+      for (const key of GOAL_FIELDS) {
+        if (byName[key]) next = withValue(next, byName[key], key in chosen.values! ? chosen.values![key] : byName[key].default);
+      }
+      return next;
+    });
+    whereFor(id);
+  };
+  const chooseGoal = (id: string) => {
+    const chosen = goalOf(id);
+    if (!chosen?.values || !chosen.available) return;
+    setGoal(id);
+    setCustom(false);
+    whereFor(id);
+  };
+
+  const toAdvanced = (field?: string) => {
+    if (tab === "basic") { setAdvValues(basicChanged); setCustom(false); }
+    setTab("advanced");
+    if (field) setFocus((f) => ({field, n: (f?.n ?? 0) + 1}));
+  };
+  const toBasic = (): ReturnAsk | null => {
+    if (tab === "basic") return null;
+    const fits = basicGoalOf(resolved, presets, rigs.values, defaults);
+    if (fits) {
+      setGoal(fits);
+      setCustom(false);
+      setTab("basic");
+      return null;
+    }
+    const at = matching ?? goal;
+    return {goal: at, fields: notInBasic(resolved, goalOf(at), rigs.values, defaults)};
+  };
+  const resetToBasic = (id: string) => {
+    setGoal(id);
+    setCustom(false);
+    setTab("basic");
   };
 
   const request = useMemo((): SearchRequest | string => {
     const placed: Place = {mode: mapMode(mode, areaKind), point, radius, buffer,
                            preset: mode === "area" ? "osm" : coastKind, osmName,
                            within: mode === "cliffs" ? within : "", name};
-    const built = buildRequest(placed, values, drawnAreas, file);
+    // Basic sends the model, the rig's seven values and the square rule also at their defaults
+    const sent = tab === "basic" ? basicRequestValues(goalOf(goal), rigs.values, defaults) : values;
+    const built = buildRequest(placed, sent, drawnAreas, file);
     if (typeof built === "string") return built;
     const wrong = Object.entries(problems);
     if (wrong.length) {
       return [t("error.check_settings"), ...wrong.map(([, p]) => p)].join(" ");
     }
     return built;
-  }, [mode, areaKind, coastKind, point, radius, buffer, osmName, within, name, values, drawnAreas, file, problems]);
+  }, [mode, areaKind, coastKind, point, radius, buffer, osmName, within, name, values, drawnAreas, file, problems,
+      tab, goal, rigs.values, defaults]);
 
   const estimate = useEstimate(request, place);
   const canStart = typeof request !== "string" && estimate.status !== "refused" && !busy;
@@ -350,9 +430,12 @@ export function useSearch({place, schema, onStarted, initial, preset: preset0}: 
   };
 
   return {
-    place, schema, byName, mode, setMode, areaKind, setAreaKind, coastKind, setCoastKind, point, radius, setRadius,
+    place, schema, byName, tab, toAdvanced, toBasic, resetToBasic, focus, goal, goalOf, chooseGoal, rigs, defaults, base,
+    resolved,
+    differs: (key) => key in base && !same(resolved[key], base[key]),  // basic.differing, per field
+    mode, setMode, seaBefore: where.before, areaKind, setAreaKind, coastKind, setCoastKind, point, radius, setRadius,
     buffer, setBuffer, osmName, setOsmName, within, setWithin, name, setName, file, fileKey, readFile, shapes, areas,
-    values, value, setValue: (key, v) => { if (byName[key]) setValues((now) => withValue(now, byName[key], v)); },
-    setValues, problems, preset, applyPreset, request, estimate, km2, canStart, busy, error, start, clear,
+    values, value, setValue: (key, v) => { if (byName[key]) setAdvValues((now) => withValue(now, byName[key], v)); },
+    setValues: setAdvValues, problems, preset, applyPreset, request, estimate, km2, canStart, busy, error, start, clear,
   };
 }

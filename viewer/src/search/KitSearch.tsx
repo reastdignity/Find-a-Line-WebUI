@@ -11,6 +11,7 @@ import { jobProgress, useJobs, type JobsState, type JobView } from "../app/useJo
 import { storedTheme } from "../ui/choice";
 import { DESKTOP, Panel, Progress, Screen, StatusChip, useMedia, type Theme } from "../ui/components";
 import { EstimateBar, SearchPanel, UsageMeters } from "./SearchPanel";
+import { useRigs, type RigsState } from "./useRigs";
 import { useSearch, useUsage, type UsageState } from "./useSearch";
 
 function JobCard({job}: {job: JobView}) {
@@ -36,12 +37,12 @@ function Searches({jobs, usage}: {jobs: JobsState; usage: UsageState}) {
 
 /** Everything around the map, once the map and the schema are there. The grid of .s-kit places the
  *  form's column (s-c-form), the overlay of the map (s-kit-over, desktops) and the bar (s-c-bar). */
-function Demo({place, schema}: {place: PlaceMap; schema: Schema}) {
+function Demo({place, schema, rigs}: {place: PlaceMap; schema: Schema; rigs: RigsState}) {
   const wide = useMedia(DESKTOP);
   const jobs = useJobs();
   const usage = useUsage();
   const [started, setStarted] = useState("");
-  const search = useSearch({place, schema, onStarted: (id) => {
+  const search = useSearch({place, schema, rigs, onStarted: (id) => {
     setStarted(id);
     jobs.refresh();
     usage.refresh();
@@ -59,7 +60,7 @@ function Demo({place, schema}: {place: PlaceMap; schema: Schema}) {
     {wide && <div class="s-kit-over">
       <aside class="s-kit-jobs"><Panel title="Your searches"><Searches jobs={jobs} usage={usage} /></Panel></aside>
     </div>}
-    <footer class="s-c-bar"><EstimateBar search={search} usage={usage.usage} /></footer>
+    <footer class="s-c-bar"><EstimateBar search={search} usage={usage.usage} phone={!wide} /></footer>
   </>;
 }
 
@@ -72,6 +73,7 @@ export function KitSearch() {
   const [place, setPlace] = useState<PlaceMap | null>(null);
   const [schema, setSchema] = useState<Schema | null>(null);
   const [error, setError] = useState("");
+  const rigs = useRigs();
 
   useEffect(() => {
     const placeMap = new PlaceMap(mapRef.current!, {controls: "bottomright"});
@@ -86,6 +88,6 @@ export function KitSearch() {
   return <Screen theme={theme} class={`s-kit${wide ? "" : " s-narrow"}`}>
     <div class="s-kit-map" ref={mapRef} />
     {error && <p class="s-problem s-kit-error">{error}</p>}
-    {place && schema && <Demo place={place} schema={schema} />}
+    {place && schema && rigs.loaded && <Demo place={place} schema={schema} rigs={rigs} />}
   </Screen>;
 }
