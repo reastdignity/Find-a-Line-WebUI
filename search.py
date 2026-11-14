@@ -1532,7 +1532,8 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
     anchors, first mask (core), line limits and arguments as _lines; no step 4 (the sink decides
     which first anchors lie in core), no "no steep terrain"/"no lines" errors (an empty grid hands
     the sink nothing), no _early_check or _check_lines (limits.anchors_max stays). The model "sag"
-    uses sag_table, or an EnvelopeTable of plan.rigging when None. Returns plan.funnel with this
+    uses sag_table, or when None the EnvelopeTable of plan.rigging and the lengths built once per
+    process (_sag_table, as _lines': 1-3 s a tile before 2026-11-15). Returns plan.funnel with this
     call's counts added.
 
     With Data.partner (Plan.partners: a border tile of a country) the anchors of the zone beyond the
@@ -1552,8 +1553,10 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
     if p.model != "sag":
         sag_table = None
     elif sag_table is None:
-        emit("info", "Precomputing the sag estimator for all line lengths...")
-        sag_table = sg.EnvelopeTable(plan.rigging, p.min_length, p.max_length)
+        key = (dataclasses.astuple(plan.rigging), p.min_length, p.max_length)
+        if key not in _SAG_TABLES:
+            emit("info", "Precomputing the sag estimator for all line lengths...")
+        sag_table = _sag_table(*key)
     water = data.water
     sides = _BorderSides(plan.grid, data.partner) if data.partner is not None else None
 
