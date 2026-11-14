@@ -4,7 +4,7 @@ import math
 from dataclasses import dataclass
 import os
 import shutil
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -38,6 +38,12 @@ SHORE_RIM_MIN = 5.0  # m
 SHORE_SIMPLIFY = 2.0  # pixels: the tolerance the segments' outlines are simplified with (shore_segments)
 SHORE_BAND = 2  # pixels: the shore's pixels grown by this much each way before they are outlined (shore_segments)
 SHORE_MIN_M = 10  # m: a segment shorter than this is left out of the run's list (counted in its totals)
+# The regions of the search area's land filled from a fallback (terrain_origins): their outlines simplified by
+# this many pixels; a region smaller than FALLBACK_MIN_M2 (or a hole in one) is left out of the run's list
+# (counted in its totals); at most FALLBACK_REGIONS_MAX regions, the largest first
+FALLBACK_SIMPLIFY = 2.0
+FALLBACK_MIN_M2 = 2500.0
+FALLBACK_REGIONS_MAX = 200
 # A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
@@ -388,6 +394,101 @@ def shore_segments(elevation_path: str, water_path: str, face_path: Optional[str
     totals = {f"{name}_m": sum(s["m"] for s in segments if s["kind"] == name) for name in names.values()}
     totals.update({f"{name}_px": pixels[kind] for kind, name in names.items()})
     return {"rim_min": rim_min, "segments": segments, "totals": totals}
+
+
+def terrain_origins(elevation_path: str, area: np.ndarray, grid: Grid, source: Tuple[str, float],
+                    joined_path: Optional[str], neighbours: List[str], fallback_paths: List[str],
+                    fallbacks: List[Tuple[str, float]], wbm: Optional[np.ndarray] = None,
+                    sea_zone: Optional[np.ndarray] = None, sea_value: Optional[float] = None,
+                    rows: Optional[int] = None) -> Dict:
+    """Where the terrain of a search area's land came from, after the neighbours' and the fallbacks'
+    filling (fill_from_neighbours, fill_gaps_chain) and before the water's (run.json and data.js
+    "terrain_sources"). The land takes the terrain statistics' rule (hypsometry.py) after the filling:
+    the area's pixels with data, less water_with_data (so the source's own share is the statistics'
+    land, counted before the filling). Its pixels are counted by origin: the source's own data, the
+    neighbours' (joined_path; one entry naming those that filled pixels: equal data, never weak) and
+    each fallback's. fallback_paths are fill_gaps_chain's `steps`: the first all the fallbacks'
+    pixels, each later one its fallback's own. The fallbacks' regions on the land are outlined as
+    shore_segments outlines the shore (8-connected, strip by strip, joined, simplified by
+    FALLBACK_SIMPLIFY pixels), with their holes; regions and holes under FALLBACK_MIN_M2 are left
+    out, at most FALLBACK_REGIONS_MAX regions (the largest first); the totals count every pixel.
+    source, fallbacks: (name, resolution in metres). rows: in strips of that many rows.
+    {"land_km2", "fallback_share", "layers": [{"role": "source"|"neighbour"|"fallback", "name",
+    "resolution", "share"}], "regions": [{"layer": index in layers, "km2", "rings": [[[lon, lat],
+    ...], ...]}] (the outline first, then its holes), "totals": {"fallback_km2", "listed_km2"}}."""
+    from pyproj import Transformer
+    from rasterio.features import shapes
+    from rasterio.transform import Affine
+    from shapely import normalize
+    from shapely.geometry import Polygon, shape
+    from shapely.ops import unary_union
+
+    elevation = np.load(elevation_path, mmap_mode="r")
+    joined = np.load(joined_path, mmap_mode="r") if joined_path else None
+    masks = [np.load(p, mmap_mode="r") if p and os.path.exists(p) else None for p in fallback_paths]
+    height = elevation.shape[0]
+    land_px = joined_px = 0
+    fallback_px = [0] * len(fallbacks)
+    polygons: List[list] = [[] for _ in fallbacks]
+    for r0, r1, _, _ in strips(height, rows or height):
+        z = elevation[r0:r1]
+        land = np.asarray(area[r0:r1], dtype=bool) & np.isfinite(z)
+        land &= ~water_with_data(z, None if wbm is None else wbm[r0:r1],
+                                 None if sea_zone is None else sea_zone[r0:r1], sea_value)
+        land_px += int(land.sum())
+        if joined is not None:
+            joined_px += int((joined[r0:r1] & land).sum())
+        later = np.zeros(land.shape, bool)  # the later fallbacks' pixels: the first's are the union less these
+        own = []
+        for k in range(len(fallbacks) - 1, -1, -1):
+            if masks[k] is None:
+                own.append(None)
+                continue
+            mine = masks[k][r0:r1] & land
+            if k == 0:
+                mine &= ~later
+            else:
+                later |= masks[k][r0:r1]
+            own.append(mine)
+        own.reverse()
+        transform = grid.transform @ Affine.translation(0, r0)
+        for k, mine in enumerate(own):
+            if mine is None or not mine.any():
+                continue
+            fallback_px[k] += int(mine.sum())
+            for geometry, _ in shapes(mine.astype(np.uint8), mask=mine, transform=transform, connectivity=8):
+                polygons[k].append(shape(geometry))
+    px_km2 = grid.res ** 2 / 1e6
+    share = lambda px: round(px / land_px, 4) if land_px else 0.0
+    own_px = land_px - joined_px - sum(fallback_px)
+    layers = [{"role": "source", "name": source[0], "resolution": source[1], "share": share(own_px)}]
+    if joined_px:
+        layers.append({"role": "neighbour", "name": ", ".join(neighbours), "resolution": None, "share": share(joined_px)})
+    to_wgs = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform
+    lonlat = lambda coords: [[round(lon, 6), round(lat, 6)] for lon, lat in (to_wgs(x, y) for x, y in coords)]
+    regions = []
+    for k, (name, resolution) in enumerate(fallbacks):
+        if not fallback_px[k]:
+            continue
+        layers.append({"role": "fallback", "name": name, "resolution": resolution, "share": share(fallback_px[k])})
+        if not polygons[k]:
+            continue
+        joined_k = normalize(unary_union(polygons[k]))  # the strips' pieces of one region joined, canonical
+        for polygon in (joined_k.geoms if hasattr(joined_k, "geoms") else [joined_k]):
+            if polygon.area < FALLBACK_MIN_M2:
+                continue
+            holes = [h for h in polygon.interiors if Polygon(h).area >= FALLBACK_MIN_M2]
+            outline = Polygon(polygon.exterior, holes)
+            simple = outline.simplify(FALLBACK_SIMPLIFY * grid.res, preserve_topology=True)
+            if simple.is_empty or simple.geom_type != "Polygon":
+                simple = outline
+            regions.append({"layer": len(layers) - 1, "km2": round(polygon.area / 1e6, 4),
+                            "rings": [lonlat(simple.exterior.coords)] + [lonlat(h.coords) for h in simple.interiors]})
+    regions.sort(key=lambda r: -r["km2"])
+    regions = regions[:FALLBACK_REGIONS_MAX]
+    return {"land_km2": round(land_px * px_km2, 4), "fallback_share": share(sum(fallback_px)), "layers": layers,
+            "regions": regions, "totals": {"fallback_km2": round(sum(fallback_px) * px_km2, 4),
+                                           "listed_km2": round(sum(r["km2"] for r in regions), 4)}}
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
@@ -993,17 +1094,23 @@ def _or_rows(out_path: str, more_path: str, rows: int):
 
 def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid, fallbacks: List["Source"],
                     cache_dir: str, out_path: str, update: Optional[str] = None,
-                    exclude: Optional[np.ndarray] = None, rows: Optional[int] = None) -> Tuple[str, List[Tuple["Source", int]]]:
+                    exclude: Optional[np.ndarray] = None, rows: Optional[int] = None,
+                    steps: Optional[List[str]] = None) -> Tuple[str, List[Tuple["Source", int]]]:
     """Fill the gaps on land from each fallback in turn (fill_gaps), each only what the ones
     before it left (most sources have one; Alaska: its IfSAR, then the 1/3″ DEM). Saves the
     mask of all filled pixels to out_path; returns (out_path, [(fallback, filled pixels)]).
-    rows: in strips (fill_gaps), the masks joined strip by strip."""
+    rows: in strips (fill_gaps), the masks joined strip by strip.
+    steps: a list the masks' paths are appended to, one per fallback: the first is out_path (all
+    the fallbacks' pixels once the chain is done), each later one that fallback's own pixels (the
+    fallbacks fill disjoint pixels: terrain_origins tells the first's from the union less the rest)."""
     filled, counts = None, []
     for n, fallback in enumerate(fallbacks):
         step = out_path if n == 0 else f"{os.path.splitext(out_path)[0]}{n}.npy"
         _, pixels, _ = fill_gaps(elevation_path, surface_path, grid, fallback, cache_dir, step, update,
                                  exclude=exclude, name="gap" if n == 0 else f"gap{n}", rows=rows)
         counts.append((fallback, pixels))
+        if steps is not None:
+            steps.append(step)
         if rows is not None:
             if n and pixels:
                 _or_rows(out_path, step, rows)

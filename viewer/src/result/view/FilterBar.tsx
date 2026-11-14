@@ -12,6 +12,7 @@ import { t } from "../../i18n";
 import { active, liftNeed, NO_FILTERS, type Filters } from "../../filters";
 import { liftChoices, shortMetres } from "../../endzone";
 import { COLORS } from "../../style";
+import { sharesText } from "../../coarser";
 import type { ResultModel } from "../model";
 import { Limit, Swatch, num, useModel } from "./common";
 import { ResultIntro } from "./ResultIntro";
@@ -239,6 +240,8 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
       {terrain && <div class="u-small r-terrain">
         Terrain of the search area: {num(terrain.quantiles[0])}–{num(terrain.quantiles[100])} m, mean {num(terrain.mean)} m
         {model.others.size > 0 && <><br />Other runs: against their own areas</>}</div>}
+      {model.data.terrain_sources && <div class="u-small r-terrain r-shares">
+        {t("ui.coarse.shares", {shares: sharesText(model.data.terrain_sources)})}</div>}
       {limit("Lower anchor's percentile at least", "pctMin", r.pct, 1, "min", "%")}
       {limit("Upper anchor's percentile at most", "pctMax", r.pct, 1, "max", "%")}
       {limit("Angle to the wall at most", "angleMax", r.angle, 1, "max", "°")}

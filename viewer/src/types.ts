@@ -136,6 +136,19 @@ export interface Shore {
   totals: Record<string, number>;  // surface_m, sea_m, surface_px, sea_px
 }
 
+/** Where the terrain of a run's land came from (sources.filling.terrain_origins, coarser.ts): each layer's share of
+ *  the land (the source's own data, the neighbours', each fallback's) and the regions the fallbacks filled, each an
+ *  outline with its holes as lon, lat (`layer` its index in `layers`). */
+export interface TerrainLayer { role: "source" | "neighbour" | "fallback"; name: string; resolution: number | null; share: number }
+export interface CoarserRegion { layer: number; km2: number; rings: [number, number][][] }
+export interface TerrainSources {
+  land_km2: number;
+  fallback_share: number;  // the fallbacks' share of the land
+  layers: TerrainLayer[];
+  regions: CoarserRegion[];  // the largest first, the small ones left out (counted in totals)
+  totals: {fallback_km2: number; listed_km2: number};
+}
+
 export interface RunData {
   run: RunInfo;
   center: [number, number];
@@ -153,6 +166,7 @@ export interface RunData {
   max_zoom: number;
   terrain?: Terrain | null;       // runs saved before 2026-11-03 have none
   shore?: Shore | null;           // the uncertain shore; runs saved before 2026-11-05 have none
+  terrain_sources?: TerrainSources;  // where the land's terrain came from; only when something was filled
   end_zone?: number;              // m: the run's no-fall zone at the ends (none: off)
   lift?: number;                  // m: the run's A-frame height (none: off)
   ends?: string[];                // the names of the rows' values before the profile (END_VALUES); none: no such

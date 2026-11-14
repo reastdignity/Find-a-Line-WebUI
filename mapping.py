@@ -400,6 +400,8 @@ def map_heads(area, path: str, run: Dict, crs: str, group_distance: float = 20, 
         "shore": run.get("shore"),  # the uncertain shore (sources.filling.shore_segments), None when not known
         "lines": None,
     }
+    if run.get("terrain_sources"):  # where the area's terrain came from (sources.filling.terrain_origins), when known
+        data = {**{k: v for k, v in data.items() if k != "lines"}, "terrain_sources": run["terrain_sources"], "lines": None}
     target = f"(window.FINDALINE_LINES = window.FINDALINE_LINES || {{}})[{json.dumps(run['id'])}]"
     return (_script_head("window.FINDALINE_RUN", data),
             _script_head(target, {"crs": crs, "area": data["area"], "terrain": data["terrain"], **ends,

@@ -241,6 +241,13 @@
 .ui .u-shore-surface { border-top-style: dashed; }
 .ui .u-shore-sea { border-top-color: #c43d2f; }
 .ui .u-shore-more { margin: 6px 0 0; color: var(--ink-2); }
+/* The coarser terrain (coarserLayer.ts): its regions hatched with a dashed outline (a later fallback's solid), its
+   box's swatch the same; colours from --coarse, overriding Leaflet's attributes */
+.ui .u-coarse-area { stroke: var(--coarse-map); }
+.ui .u-coarse-hatch { stroke: var(--coarse-map); stroke-width: 2; stroke-opacity: .6; }
+.ui .u-coarse-swatch { flex: none; width: 18px; height: 12px; border: 1.5px dashed var(--coarse); border-radius: 2px;
+  background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--coarse) 55%, transparent) 0 1.5px, transparent 1.5px 5px); }
+.ui .u-coarse-swatch.u-coarse-later { border-style: solid; }
 @media (max-width: 600px) { .ui .u-shore { max-width: min(240px, calc(100vw - 80px)); font-size: 12px; padding: 4px 8px; } }
 .ui .leaflet-control-attribution a { color: var(--accent); }
 /* Phones: the credits (data, the note that they were processed, the tiles) compact but in sight (corners.ts) */

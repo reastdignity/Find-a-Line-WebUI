@@ -336,3 +336,92 @@ def test_constant_water_mask_as_built(tmp_path, monkeypatch):
     finally:
         filling.progress.unsubscribe(listener)
     assert ("stitching water mask", True) in bars
+
+
+def _origins_scene(tmp_path):
+    """A 40 x 40 grid of 10 m pixels after the gap filling: terrain (100 m) in rows 0-29, the sea without
+    data below; the area all but columns 0-1; a lake with data (rows 22-23, columns 30-33, 50 m); the
+    neighbour's pixels rows 0-4, columns 0-19; the first fallback rows 10-19 (less the second's) and two
+    pixels in row 25, the second fallback rows 15-19, columns 20-39. The fallbacks' masks as
+    fill_gaps_chain leaves them: the first all the fallbacks' pixels, the second its own."""
+    h = w = 40
+    z = np.full((h, w), np.nan, np.float32)
+    z[:30] = 100.0
+    z[22:24, 30:34] = 50.0
+    wbm = np.zeros((h, w), np.uint8)
+    wbm[22:24, 30:34] = filling.LAKE
+    zone = np.zeros((h, w), bool)
+    zone[28:] = True
+    area = np.ones((h, w), bool)
+    area[:, :2] = False
+    joined = np.zeros((h, w), bool)
+    joined[:5, :20] = True
+    union = np.zeros((h, w), bool)
+    union[10:20] = True
+    union[25, 5:7] = True
+    second = np.zeros((h, w), bool)
+    second[15:20, 20:] = True
+    paths = {}
+    for name, a in (("nmt", z), ("joined", joined), ("filled", union), ("filled1", second)):
+        paths[name] = str(tmp_path / f"{name}.npy")
+        np.save(paths[name], a)
+    grid = Grid(left=500000.0, top=5500000.0, res=10.0, height=h, width=w, crs="EPSG:32633")
+    return paths, grid, area, wbm, zone
+
+
+def test_terrain_origins(tmp_path):
+    """The land of the area by origin (the source's own, the neighbours', each fallback's), the water with
+    data left out; the fallbacks' regions outlined, a small one counted but not listed; strips as one."""
+    paths, grid, area, wbm, zone = _origins_scene(tmp_path)
+    origins = filling.terrain_origins(paths["nmt"], area, grid, ("Own 1 m", 1.0), paths["joined"], ["Next door"],
+                                      [paths["filled"], paths["filled1"]], [("Coarse 5 m", 5.0), ("Coarser 10 m", 10.0)],
+                                      wbm=wbm, sea_zone=zone)
+    # Land: rows 0-29 x columns 2-39 (1140 px) less the lake's 8; neighbour 5 x 18; the first fallback an L of
+    # 190 + 90 px and 2 more in row 25; the second 5 x 20
+    land, neighbour, first, second = 1132, 90, 282, 100
+    own = land - neighbour - first - second
+    assert origins["land_km2"] == round(land * 100 / 1e6, 4)
+    assert origins["fallback_share"] == round((first + second) / land, 4)
+    assert origins["layers"] == [
+        {"role": "source", "name": "Own 1 m", "resolution": 1.0, "share": round(own / land, 4)},
+        {"role": "neighbour", "name": "Next door", "resolution": None, "share": round(neighbour / land, 4)},
+        {"role": "fallback", "name": "Coarse 5 m", "resolution": 5.0, "share": round(first / land, 4)},
+        {"role": "fallback", "name": "Coarser 10 m", "resolution": 10.0, "share": round(second / land, 4)}]
+    # The L of the first fallback (28 000 m²) and the second's block (10 000 m²), the largest first; the two
+    # pixels of row 25 (200 m², under FALLBACK_MIN_M2) only in the totals
+    assert [(r["layer"], r["km2"]) for r in origins["regions"]] == [(2, 0.028), (3, 0.01)]
+    assert origins["totals"] == {"fallback_km2": round((first + second) * 100 / 1e6, 4), "listed_km2": 0.038}
+    ring = origins["regions"][1]["rings"][0]
+    assert ring[0] == ring[-1] and len(origins["regions"][1]["rings"]) == 1
+    from pyproj import Transformer
+    lon, lat = Transformer.from_crs("EPSG:32633", "EPSG:4326", always_xy=True).transform(500200.0, 5499850.0)
+    assert [round(lon, 6), round(lat, 6)] in ring  # the second's block: its corner at column 20, row 15
+    assert filling.terrain_origins(paths["nmt"], area, grid, ("Own 1 m", 1.0), paths["joined"], ["Next door"],
+                                   [paths["filled"], paths["filled1"]], [("Coarse 5 m", 5.0), ("Coarser 10 m", 10.0)],
+                                   wbm=wbm, sea_zone=zone, rows=7) == origins
+
+
+def test_terrain_origins_holes_and_cap(tmp_path, monkeypatch):
+    """A region's holes of the source's own data: a large one kept as a ring, a small one dropped; at most
+    FALLBACK_REGIONS_MAX regions; no neighbour: no neighbour entry."""
+    h = w = 40
+    z = np.full((h, w), 100.0, np.float32)
+    union = np.zeros((h, w), bool)
+    union[2:30, 2:30] = True
+    union[8:18, 8:18] = False  # a hole of 100 px (10 000 m²): kept
+    union[24:26, 24:26] = False  # a hole of 4 px (400 m²): dropped
+    union[34:38, 2:8] = True  # a second region of 24 px (2400 m²): under FALLBACK_MIN_M2
+    union[34:38, 20:30] = True  # a third of 40 px (4000 m²)
+    np.save(tmp_path / "nmt.npy", z)
+    np.save(tmp_path / "filled.npy", union)
+    grid = Grid(left=500000.0, top=5500000.0, res=10.0, height=h, width=w, crs="EPSG:32633")
+    area = np.ones((h, w), bool)
+    run = lambda: filling.terrain_origins(str(tmp_path / "nmt.npy"), area, grid, ("Own", 1.0), None, [],  # noqa: E731
+                                          [str(tmp_path / "filled.npy")], [("Coarse", 10.0)])
+    origins = run()
+    assert [layer["role"] for layer in origins["layers"]] == ["source", "fallback"]
+    assert [len(r["rings"]) for r in origins["regions"]] == [2, 1]  # the outline and its large hole; the third
+    assert origins["regions"][0]["km2"] == round((28 * 28 - 100 - 4) * 100 / 1e6, 4)
+    monkeypatch.setattr(filling, "FALLBACK_REGIONS_MAX", 1)
+    capped = run()
+    assert len(capped["regions"]) == 1 and capped["totals"]["fallback_km2"] == origins["totals"]["fallback_km2"]

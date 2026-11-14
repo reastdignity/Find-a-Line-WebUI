@@ -3629,3 +3629,20 @@ the last bullet.
 - Exclusive (nothing else running, 2026-11-14, the task's merged code, 1818 tests): serial (`-n 0`, 8 threads)
   **1778 s**, CPU 2026 s, 1.14 cores busy, 3.55 GB; 8 × 3 **276 s**, CPU 1962 s, 7.11 cores busy, 9.86 GB; the
   same ids and outcomes in both (1814 passed, 4 skipped). The slowest worker held `tests/test_web.py`, 270 s of it.
+
+## Where the land's terrain came from (2026-11-14, tag `history/fallback-share`)
+
+Task 1 of docs/tasks-usa.md adds one stage to step 1 of a run's search: `sources.filling.terrain_origins`
+("terrain origins": the area's land counted by origin in strips, the fallbacks' regions outlined with rasterio's
+`shapes`). Measured with `tools/perf_profile.py --cores 7` under the exclusive lock on cached data, the base
+(8f4fee7, a detached worktree, the same Python 3.15.2) and the branch interleaved base, new, base, new; the first
+pair also compiled numba, so the second pair counts:
+
+| Search | Grid | Whole run, base → branch | The new stage | Peak RSS, base → branch |
+| --- | --- | --- | --- | --- |
+| The Gozo coast (`--area coast --buffer 100 --within osm:Gozo --slope-threshold 60 --tile-size 5000`; 99.8 % Malta 2018, 0.2 % FABDEM) | 126 Mpx at 1 m, in strips | 40.5 → 41.3 s | 1.0 s, peak 1.1 GB | 2 870 → 2 848 MB (step 1's gap filling) |
+| The Oregon cove as `usa` (`--radius 2500 --resolution 1`; all the land from the 1/3" DEM) | 31 Mpx at 1 m | 6.8 → 6.9 s | 0.4 s | 976 → 903 MB |
+
+The stage holds a strip's masks at a time, so it never sets the peak; `search.PIXEL_BYTES` stays. The Gozo
+coast's lines.csv was byte for byte the same in all four runs; the cove finds no line at 1 m in any (as `usgs10m`
+on its own 10 m grid: 529 lines in 119 spots at its default radius).
