@@ -7,7 +7,9 @@ A-frames (`anchor_lift`) of 2 m. The square rule (built in phase 4): `--same-lin
 (`SearchParams.same_line_square`; 0 = off, the default, else 2 to 20) keeps one line per pair of anchor squares of
 M × max(1, resolution) m (`samelines.side`); the side really used is `params.same_line_side` in `run.json`; a kept line
 carries `stands_for` (the found lines it stands for, itself included) and the run `summary.found`. Items that need the
-user's word: U-1 to U-12 (cited from the other files as "search U-n").
+user's word: U-1 to U-12 (cited from the other files as "search U-n"). The user's closing answers (2026-11-14) set
+U-12 (lip anchors become an option only at 98 % of the matched known lines kept); the items of class "planner" are
+taken as recommended (`spec.md` section 6).
 
 ## 1. The Basic search form with 'My rig' and goals
 
@@ -377,15 +379,18 @@ the fall zone at its default of 6 m: P-A today's anchors; P-B `--lip-anchors onl
 **Compared** per type (highline, midline, all): known lines matched, recall, terrain recall, the reasons of P-B's new
 misses, lines found. By count too (part P3a's route): lips with the square rule on BAH, GZ2, MG, DOL (lips alone
 131 641, 527 901, 1 022 189, 195 324: part P3b).
-**The number that decides** is the user's (U-12). For scale, of 592 known lines matched in the first pass's setting:
+**The number that decides** is the user's (U-12, decided 2026-11-14, "6. a)"): lip anchors become an option only if
+P-B and P-D keep at least 98 % of P-A's and P-C's matched known lines; else they go to the roadmap as measured and
+not taken. For scale, of 592 known lines matched in the first pass's setting:
 the square rule keeps 581 (G-02), the whole-metre guard 580, a 3 m thinning 499, both ends on a rim 338 (part P3b).
 **Privacy:** counts only, through the project's tools; outputs outside the repository (the main checkout's
 git-ignored private folder), never committed; docs get aggregates only (`docs/truth-check.md` section 1). **Cost:**
 from the cache 5-8 min with 4 at once, about 40 min one at a time, per pass (`docs/truth-check.md` section 4). Files:
 none in `main`; tests: none. **Waves:** one agent (Opus, medium), when the PC is free; the planner reviews. **Risk:**
 the prototype's files conflict with phase 4 and with the branch `structure-anchors` (part P3b's review).
-- **U-12 The bar.** Rec.: lip anchors become an option only if P-B and P-D keep at least 98 % of P-A's and P-C's
-  matched known lines (the share the square rule keeps: 581 of 592); else they go to the roadmap.
+- **U-12 The bar: decided** (the user, 2026-11-14, "6. a)", the recommendation): lip anchors become an option only
+  if P-B and P-D keep at least 98 % of P-A's and P-C's matched known lines (the share the square rule keeps: 581 of
+  592); else they go to the roadmap.
 
 ## 5. Findings to fix
 

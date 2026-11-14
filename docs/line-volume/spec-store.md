@@ -5,6 +5,8 @@
 found lines it stands for, itself included; the last column of `lines.csv`); `summary.found` in `run.json`: their sum.
 Sections: 1 the store (its waves cover the whole part), 2 old runs, 3 the ranges of a kept line, 4 what is sent,
 5 renaming a run, 6 the goal case, 7 contradictions, 8 the user's word (U1-U12, elsewhere cited as "store U1" …).
+The user's closing answers of 2026-11-14 settle U1 (six ranges), U4 (exports per download), U5 (old runs removed)
+and U12 (brotli); the choices of class "planner" are taken as recommended (section 8).
 
 ## 1. One store of a run's lines, columns in the page, text files on request
 
@@ -26,7 +28,8 @@ file:// opening", "If binary table is used also on client side, than it is no lo
   typed-array columns in the page'). Filters and grouping read the columns. Nothing loads in stages (F-20 parked).
   Later, on demand, only what is on demand today: `/api/profile` for a line without a saved profile, the 3D view,
   and the exports below.
-- **Old runs** open through the same columns: the page parses `data.js` into columns and drops the rows (section 2).
+- **Old runs** open through the same columns until wave 4: the page parses `data.js` into columns and drops the rows
+  (wave 1). Wave 4 removes them on the user's word and the page's reader of `data.js` goes with them (section 2).
 - **The files of a run** after all waves:
 
 | File | Command line | Local app | Public site |
@@ -37,7 +40,7 @@ file:// opening", "If binary table is used also on client side, than it is no lo
 | `map.html` (the entry page, also of share links) | written | written | written |
 | `ATTRIBUTION.txt` | written | written | written |
 | `data.js`, `lines.js` | gone | gone | gone |
-| `lines.csv`, `lines.geojson` | on request (`export`) | on request | on request |
+| `lines.csv`, `lines.geojson` | made by `export` where `--out` says, never in the run folder | made per download, not kept | made per download, not kept |
 | `runs/runs.js` | written as today | written as today (Compare, thumbnails) | not written (generated per user) |
 | `runs/index.html`, the data folder's `findaline_map.html` | gone | gone | not written today |
 
@@ -48,12 +51,15 @@ file:// opening", "If binary table is used also on client side, than it is no lo
   `app/c/ResultPage.tsx`). RUN: a run id, a run folder, or nothing for the latest run. A search ends by printing
   `View it: findaline.py view <id>` instead of the two paths it prints today (`findaline.py:main`).
 - **`findaline.py export RUN --format csv|geojson [--out PATH]`** writes the text from the store, byte for byte what
-  `runs.save_results` writes today (default: into the run folder as `lines.csv` / `lines.geojson`).
+  `runs.save_results` writes today (default `--out`: `<run id>.csv` / `<run id>.geojson` in the current folder;
+  nothing is written into the run folder, so no run keeps an export: U4).
 - **In the app**, "Download CSV" and "Download GeoJSON" (`RunActions.tsx`) ask the worker for the file (quick lane,
-  kind `export`), show "Preparing the file…", then download `/runs/<id>/lines.csv`; a file once made is served as
-  today (kept or not: U4).
+  kind `export`) and show "Preparing the file…". The worker writes it into `work/exports/` under a random name; the
+  browser downloads it once from the route of 1.4, which deletes it after sending. **An export is made for each
+  download and none is kept** (U4, the user, 2026-11-14: "5. c)"): a second download makes it again.
 - **Limits.** Unchanged (public 1.5 M lines). No string limit in the page: none found on a desktop up to 10 M lines
-  (part P5); a phone's is unknown until the real-device test. No "off": old runs keep their files.
+  (part P5); a phone's is unknown until the real-device test. No "off". Old runs open as today until wave 4, which
+  removes them (section 2).
 
 ### 1.3 Data
 `lines.arrow`: an Arrow IPC **file** (not stream), uncompressed, **one record batch** (so each column is one typed
@@ -107,10 +113,12 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
   <of lines.arrow, first 16 hex>}`; the sha256 versions the URL (section 4).
 - **Bytes** (part P5): 105-107 B a line on BAH and MG5, 158 on MG0 (more profiles per line); MG5 327.2 MB against
   713.6 MB of `data.js`. `stands_for` adds 4 B (estimate), the view's columns about 9 B.
-- **Stored data:** waves 1-4 and view B1 "none" (new files and columns; old runs open as they are; jobs.sqlite,
-  favourites, share links unchanged); wave 5 migrates old runs (U5). Favourites stay valid: an int32 of 1e-7 degree
-  divided by 1e7 is the same double as today's parsed 7-decimal text, so `keys.lineCoords` gives the same key (a test
-  asserts it). `file://` ends with wave 4.
+- **Stored data:** waves 1-3 and view B1 "none" (new files and columns; old runs open as they are; jobs.sqlite,
+  favourites, share links unchanged). Wave 4 "none" for the format, and old runs are **removed, not migrated** (U5,
+  section 2): the removal is a command run on the user's word, and that wave's commit message says so. Favourites of
+  new runs: an int32 of 1e-7 degree divided by 1e7 is the same double as today's parsed 7-decimal text, so
+  `keys.lineCoords` gives the same key from the store as from `data.js` (a test asserts it). `file://` ends with
+  wave 4.
 
 ### 1.4 Interfaces
 - **Command line:** `findaline.py view [RUN]`, `findaline.py export RUN --format csv|geojson [--out PATH]`;
@@ -118,11 +126,15 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
   No new `SearchParams` field; the search hash and `run.json`'s params do not change.
 - **Routes:** `POST /api/runs/{run}/export` with `{"format": "csv"|"geojson"}`; access `run_access` (owner,
   administrator, demo run); queued in the quick lane as kind `export`, waited for as `web.quick` waits (at most
-  `QUICK_WAIT_MAX`); answers `{"url": "/runs/<id>/lines.csv"}`, 503 without a worker; audit event `run_export` on
-  the public site; who may export and how often: U9. `web.RUN_FILES` gains `lines.arrow`, `profiles.arrow`;
-  `web.SIZED_FILES` gains both (the decoded size in `X-Findaline-Bytes`). Media type
-  `application/vnd.apache.arrow.file` for both (also `mimetypes` locally).
-- **Files of a run:** the table of 1.2. The `runs` row's `bytes` is updated after an export is written.
+  `QUICK_WAIT_MAX`); the worker writes `work/exports/<run id>-<token>.<csv|geojson>` (token: 16 random bytes,
+  URL-safe) and answers `{"url": "/api/runs/<id>/export/<token>.<ext>"}`; 503 without a worker; audit event
+  `run_export` on the public site; who may export and how often: U9 (the owner, an administrator, a demo run's
+  visitors; not share links). `GET /api/runs/{run}/export/{name}` (access `run_access`) sends the file with
+  `Content-Disposition: attachment; filename="<run name>.<ext>"` and deletes it when sent; the worker deletes
+  files of `work/exports/` older than one hour at its start and before each export (a download never fetched).
+  `web.RUN_FILES` gains `lines.arrow`, `profiles.arrow`; `web.SIZED_FILES` gains both (the decoded size in
+  `X-Findaline-Bytes`). Media type `application/vnd.apache.arrow.file` for both (also `mimetypes` locally).
+- **Files of a run:** the table of 1.2. An export never counts in the `runs` row's `bytes` (none is kept).
 - **Texts** (`locales/en.json`, plain words): `ui.result.export_preparing` "Preparing the file…";
   `error.export_failed` "The file could not be made. Try again in a moment."; `map.html`'s paragraph "This map opens
   through Find-a-Line. Run: findaline.py view {run}" (in the HTML, so it shows without the bundle).
@@ -134,12 +146,13 @@ wave that adds it (waves: 1.9; "view B1" is the first wave of the result view, `
   the web process needs no pyarrow). Precompression `write_br` (section 4).
 - **Python:** `search.save_run` (the store instead of the scripts and text files); `saving.py` (text files only, kept
   for exports of more than 100 000 lines if wave 3's timing asks for it); `mapping.save_map` (map.html only),
-  `mapping.map_heads` (the head, into the store); `runs.list_runs` (`has_lines`: `lines.arrow` or `lines.js`),
-  `runs.write_index` (no `index.html`); `findaline.py` (`view`, `export`, the last lines); `jobs.py` (quick kind
-  `export`, `runs.bytes`); `web.py` (`RUN_FILES`, `SIZED_FILES`, the route, section 4); `pyproject.toml`, `uv.lock`.
+  `mapping.map_heads` (the head, into the store); `runs.list_runs` (`has_lines`: `lines.arrow`, or `lines.js` until
+  wave 4), `runs.write_index` (no `index.html`); `findaline.py` (`view`, `export`, `runs remove-old`, the last
+  lines); `jobs.py` (quick kind `export`, the clean-up of `work/exports/`); `web.py` (`RUN_FILES`, `SIZED_FILES`, the
+  two export routes, section 4); `pyproject.toml`, `uv.lock`.
 - **Viewer:** `types.ts` (the columns, `toLine` from columns), `result/load.ts` (the store reader; `data.js` filling
-  columns; no script-tag fallback over http), `result/model.ts`, `filters.ts`, `grouping.ts`, `others.ts` and
-  `app/c/Thumb.tsx` (Compare, thumbnails), `RunActions.tsx`, `package.json` (apache-arrow 21.2.0, Apache-2.0, 50 KB
+  columns until wave 4, then gone; no script-tag fallback over http), `result/model.ts`, `filters.ts`,
+  `grouping.ts`, `others.ts` and `app/c/Thumb.tsx` (Compare, thumbnails), `RunActions.tsx`, `package.json` (apache-arrow 21.2.0, Apache-2.0, 50 KB
   gzip, part P5), `viewer/dist` with `THIRD-PARTY-LICENSES.txt`.
 - **Tests, tools, docs:** `tests/regression.py`, `test_units.py`, `test_offline.py`, `test_viewer.py`, `test_web.py`,
   `test_public.py`, `test_shell_c.py`; `tools/ui_shots.py`, `perf_run_load.py`, `device_page.py`, `perf_reach.py`,
@@ -172,12 +185,15 @@ the warning before a heavy run (section 4) get a small mock-up first.
   `test_public.py`: the store to the owner only, `X-Findaline-Bytes`, the export route's access rule, audit event,
   503 without a worker. `test_web.py`: the disk page shows the notice and loads nothing (replaces
   `test_run_map_from_disk`); `view` opens `/#run=<id>`.
-- Regression: `measure` takes the sha256 of the CSV text that `linestore.export` makes from the run's store, which is
-  the same bytes as today's `lines.csv`, so **every checksum in `tests/regression.json` stays as it is** (R65, the
-  square rule's entry, included); wave 2 adds a check that this export equals the `lines.csv` the same run still
-  writes (both exist until wave 4). `check_map`: store rows = CSV rows; profiles one per spot, or every line for a
-  circle with `summary.profiles` "all"; the `lines.js` check goes. `same_as` compares exported texts. `--browser`
-  opens the run through the local app over http.
+- **Regression, with exports per download** (the user asked, 2026-11-14: "how does it work with regressions?").
+  The regression set never reads a kept export, since none exists. `tests/regression.py` `measure` takes the sha256
+  of the CSV text that `linestore.export` makes from the run's store into memory (or a scratch file), which is the
+  same bytes as today's `lines.csv`, so **every checksum in `tests/regression.json` stays as it is** (R65, the
+  square rule's entry, included). From wave 2 until wave 4 every run still writes its `lines.csv` too: on every
+  regression entry `measure` then also checks that the export equals that `lines.csv` byte for byte, so a slip of
+  the store (decimals, `negative_zero`) shows before wave 4 ends the text files. `check_map`: store rows = CSV rows;
+  profiles one per spot, or every line for a circle with `summary.profiles` "all"; the `lines.js` check goes.
+  `same_as` compares exported texts. `--browser` opens the run through the local app over http.
 
 ### 1.8 Acceptance (targets of gate 1; measured with `tools/perf_run_load.py` and the page's `fal:run:*` marks,
 exclusive mode only when the user says the PC is free)
@@ -197,15 +213,16 @@ T5 and T6 depend on grouping and drawing from columns (not measured in part P5):
 |---|---|---|---|---|
 | 1 | Columns in the page from today's `data.js` (F-19, first, as the user asked); an empty body over http shows "This result is too large for this browser" instead of the script-tag fallback that crashes (part E2); measures T5/T6 on BAH and a 2.29 M cut and reports | A: `types.ts`, `result/load.ts`, `result/model.ts`, `filters.ts`, `grouping.ts`, `list.ts`, `result/view/*`, `favourites.ts`, `test_viewer.py`, `test_shell_c.py`, `viewer/dist` | – | high |
 | 2 | The store written beside today's files; the page prefers it | B (Python): `linestore.py`, `search.save_run`, `mapping.map_heads`, `runs.list_runs`, `web.RUN_FILES`/`SIZED_FILES`, `pyproject.toml`, `uv.lock`, the unit and public tests, `regression.py` (export = `lines.csv`); C (page): the store reader in `load.ts`, `package.json`, `viewer/dist` | B: –, in parallel with 1; C: 1 | medium each |
-| 3 | Exports on request; regression's checksum from the export | D: `jobs.py` (kind `export`), `web.py` (route), `RunActions.tsx`, `findaline.py export`, `locales/en.json`, `regression.py`, tests | 2 | medium |
-| 4 | Text files and `file://` end; `view`; Compare and thumbnails from the store | E: `search.save_run`, `saving.py`, `mapping.save_map`, `runs.write_index`, `findaline.py`, tools, README, setup guide, CLAUDE.md, rules, `docs/`; F: `others.ts`, `Thumb.tsx`, the disk notice, `test_web.py` | 3 | high |
-| 5 | Old runs converted (section 2) | G: `findaline.py runs migrate`, `docs/deployment.md`, `deploy/vps.sh` (if U5 says automatic) | 4 | medium |
-| 6 | What is sent (section 4) | H: `web.RunFiles`, `web.cache_control`, `linestore.write_br`, `deploy/nginx/findaline.conf`, `tests/nginx_check.sh`, `docs/deployment.md`, Home's size and the warning (after their mock-up) | 2 | medium |
-| 7 | The ranges of a kept line (section 3) | I: `samelines.py`, `linestore.py`, `filters.ts`, `LineDetails.tsx`, tests | 2 | medium |
+| 3 | Exports per download, none kept; regression's checksum from the export | D: `jobs.py` (kind `export`, the clean-up), `web.py` (the two routes), `RunActions.tsx`, `findaline.py export`, `locales/en.json`, `regression.py`, tests | 2 | medium |
+| 4 | Text files and `file://` end; `view`; Compare and thumbnails from the store; the reader of `data.js` goes; old runs removed on the user's word (section 2) | E: `search.save_run`, `saving.py`, `mapping.save_map`, `runs.write_index`, `findaline.py` (`view`, `runs remove-old`), `docs/deployment.md`, tools, README, setup guide, CLAUDE.md, rules, `docs/`; F: `result/load.ts`, `others.ts`, `Thumb.tsx`, the disk notice, `test_web.py` | 3 and view B1 | high |
+| 5 | – (was: old runs converted; the user chose removal, which is a step of wave 4) | – | – | – |
+| 6 | What is sent (section 4), brotli at saving | H: `web.RunFiles`, `web.cache_control`, `linestore.write_br`, `pyproject.toml`, `uv.lock` (the brotli package, after the comparison and the user's yes), `deploy/nginx/findaline.conf`, `tests/nginx_check.sh`, `docs/deployment.md`, Home's size and the warning (after their mock-up) | 2 | medium |
+| 7 | The ranges of six values of a kept line (section 3) | I: `samelines.py`, `linestore.py`, `filters.ts`, `LineDetails.tsx`, tests | 2 | medium |
 | 8 | Renaming a run (section 5) | J: `web.py`, `runs.py`, `RunActions.tsx` or Home, tests | – (simplest after 4) | low |
 
 The view's columns (`spot`, `top`, `by_spot`, the head's `sectors`, `box`, `lengths`) come with view B1, after wave 2.
-A run converted by wave 5 after view B1 gets them too; one converted before gets them by a second `runs migrate`.
+Wave 4 waits for view B1, so that from wave 4 on every new run carries them; a run saved between wave 2 and view B1
+has a store without them and counts as an old run (section 2). Nothing converts a run.
 
 ### 1.10 Risks and rollout
 - **The dependency.** pyarrow 26.0.1 (Apache-2.0) is about 89 MB installed (part P5); nanoarrow 0.9.0 (1.8 MB) has no
@@ -221,81 +238,126 @@ A run converted by wave 5 after view B1 gets them too; one converted before gets
   groups and `lines.csv` the same bytes whatever the input's row order: not checked; view B1 checks it first and
   keeps `by_spot` if not.
 - **Exports in the quick lane** (120 s on the public site): MG5's CSV took 12.5 s plus 2.3 s of grouping (part P5);
-  GeoJSON about 1.3 times the CSV's seconds (BAH 5.47 against 4.29 s, part P5). A kept GeoJSON of a 1.5 M-line run is
-  about 1.3 GB (estimate at 880 B a line, part E5).
+  GeoJSON about 1.3 times the CSV's seconds (BAH 5.47 against 4.29 s, part P5). Every download costs these seconds
+  again (none kept): two downloads of one file cost the worker twice. A GeoJSON of a 1.5 M-line run is about
+  1.3 GB in `work/exports/` while it is sent (estimate at 880 B a line, part E5): the export refuses below
+  `free_disk_gb_min` as a search does.
 - **Disk and quotas.** `runs_gb_max` (5 GB) counts the folder; about 107 B a line instead of 1.5 KB (parts E1,
-  P5): a quota holds about 14 times the lines (estimate); exports kept count too (U4). No limit changes.
+  P5): a quota holds about 14 times the lines (estimate); exports never count (none kept). No limit changes.
 - **Rollout on the VPS:** wave by wave with `deploy/vps.sh update`; wave 6's nginx files by `docs/deployment.md`
-  section 4 before the code that sends `Content-Encoding: br`; wave 5's migration after wave 4 (U5). Old runs open
-  at every step (section 2). A browser with an old viewer revalidates it (`cache_control`: "no-cache").
+  section 4 before the code that sends `Content-Encoding: br`. Old runs open at every step until wave 4; wave 4's
+  removal runs on the user's word after its `--dry-run` listing (section 2). A browser with an old viewer
+  revalidates it (`cache_control`: "no-cache").
 
 ### 1.11 Needs the user's word
-U4 (exports kept), U6 (circles' profiles), U9 (who may export), U10 (`--html`), U11 (exports' formats), U12: section 8.
-## 2. Old runs
+U4 and U12 are decided (section 8); U6, U9, U10, U11 are taken as recommended. The brotli package itself waits for
+the user's yes after wave 6's comparison.
+## 2. Old runs: removed, not converted
 
 ### 2.1 Decision
-G-06 a (as 1.1); CLAUDE.md: every change decides "automatic migration" or "none"; phase 4: "Old runs must open".
+G-06 a (as 1.1) and the user's closing answer on U5 (2026-11-14), verbatim: "3. old runs removed - both on server
+and on this pc". Old runs are **removed** when the text files end, on the public site and on the user's PC; nothing
+converts them. So there is no `runs migrate` and no reader of `data.js` once the text files end. The removal deletes
+the user's data: it is a step of wave 4, run **only on the user's word at that time**, after a `--dry-run` listing
+the user has seen. Nothing is deleted before. Until then every run opens as today, and wave 1's columns from
+`data.js` stay the first step of this part. CLAUDE.md asks every change of stored data to say "automatic migration"
+or "none": the removal is neither, and wave 4's commit message says "Stored data: old runs removed on the user's
+word, no migration".
 
 ### 2.2 Behaviour
-| Kind of run on disk today (where) | Opens | Converted (wave 5, U5) | Cost | Never lost |
-|---|---|---|---|---|
-| A run with `data.js`, `lines.js`, `lines.csv`, `lines.geojson` (local and VPS; most runs) | as it is: `data.js` → columns (wave 1) | store from `data.js` (lossless for what it holds, part P5), then the export compared with `lines.csv`'s sha256; on equality `data.js`, `lines.js`, `lines.geojson`, `lines.csv` deleted | folder −93 % (BAH 1 437.6 → 99.6 MB, part P5); seconds: BAH about 10 s, MG5 about 40 s (estimate: part P5's 4.3-12.5 s per CSV plus the parse) | lines, values, profiles, favourites' keys, share links, owners, `run.json` |
-| Its `map.html` loads `data.js` by a script tag (before 2026-11-04, `main.tsx`) | as it is | `map.html` rewritten to today's template | none | the same |
-| Variants of the first row: no terrain statistics (before 2026-11-03), shore (before 2026-11-05) or `terrain_sources`; `ends` (zone, A-frames); NaN or Infinity in `data.js`; every line's profile (circles); `stands_for` (phase 4) | as it is (the script tag over http only for a non-empty body) | the head keeps what `data.js` had; `ends` → named columns; Python's `json` reads NaN; all profiles; `stands_for`, `square`, `found` kept | none | the same |
-| Larger than Chromium's string (MG5, 3.06 M lines; `data.js` over 536 870 888 characters, part E2) | "too large for this browser" (wave 1) | as the first row; then it opens (part P5: MG5's Arrow file loads in 0.35 s on a desktop; 0.40 s is part P5's plain-columns variant) | Python's parse of a 714 MB `data.js` needs several GB (estimate): one run at a time | the same |
-| Saved with `--no-html` (no `data.js`, `lines.js`, `map.html`) | not in the app today (`has_map` false) | **not converted**: `lines.csv` lacks the unrounded x/y and the profiles; listed as "kept as it is" | none | `lines.csv` |
-| A tiled run with `tiles/`, `progress.json`, `shore.json` left (part E5) | as it is | the store only; work state untouched (its clean-up is a roadmap item) | none | the same |
-| A run being saved, or a search running in its folder | – | skipped (no `run.json`, or `progress.json` "running"); under `cache.runs_lock` | none | – |
-| Demo and shared runs (VPS) | as they are | as their kind above; rows in `runs` untouched | none | links (`map.html` stays) |
+- **Until wave 4** every run opens as it does today: through wave 1's columns parsed from `data.js`, and from wave 2
+  on through the store when the run has one. Phase 4's demand "old runs must open" holds until then.
+- **An old run** at wave 4 is every run folder with a `run.json` and no `lines.arrow` of the current `format` with
+  the view's columns: the runs with `data.js` (all runs saved before wave 2, also those over Chromium's string limit,
+  such as MG5), the runs saved with `--no-html` (only `lines.csv`, `has_map` false), tiled runs with their work state
+  (`tiles/`, `progress.json`, `shore.json`), and the runs saved between wave 2 and view B1 (a store without `spot`,
+  `top`, `by_spot`). Skipped: a folder without `run.json` (being saved) and a run whose `progress.json` says
+  "running"; the whole removal holds `cache.runs_lock`.
+- **The command:** `findaline.py runs remove-old --dry-run` lists every old run (id, created, lines, size on disk;
+  on the public site also the owner's user id, never a name or an e-mail; shared or not; demo or not; how many
+  favourite lines point into it) and the totals, and deletes nothing. `findaline.py runs remove-old --yes` deletes
+  the same list. On a data folder with a `jobs.sqlite` (the local app, the public site) each run goes through
+  `jobs.Jobs.delete_run` (the folder, then its `runs` row, then every favourite line in it), so the database never
+  keeps a row of a missing run; on a plain runs folder (the command line alone) only the folders go. Locally
+  `runs.write_index` then rewrites `runs.js`. On the VPS it runs in the worker's container, as `cache migrate` does
+  (`docs/deployment.md`).
+- **The order, so that runs open until the user's word:** wave 4 ships in two deploys. First the code that writes
+  no text files for new runs and carries `runs remove-old`, while the page still reads `data.js`. Then, after the
+  user's word and the removal on that host, the code without the reader of `data.js` (`result/load.ts`, the
+  script-tag fallback, `others.ts`' `lines.js`). If the user does not give the word on a host, the second deploy
+  waits there. The PC and the VPS are asked separately ("both on server and on this pc").
 
-- The VPS on 2026-11-10: 21 runs in 7.95 GB, one of 2.07 M lines (gate 1, B3 and A5). After conversion about
-  0.6-2.2 GB (estimate: −72 to −93 %, part P5's folders without the two text files and with the store alone).
-- A conversion that fails (export ≠ `lines.csv`) deletes nothing and is listed; a run then opens as it is.
-- Once view B1 is built, a conversion also writes the view's columns (1.3), so an old run opens in the result view.
+**What happens to everything that refers to a run** (read from the code after phase 4):
+| What | Where it lives (code) | What the removal does | Lost or kept |
+|---|---|---|---|
+| The run's lines, values, profiles, `map.html`, credits, `lines.csv`, `lines.geojson` | the run folder; `search.save_run`, `runs.save_results` | deleted | **lost**; the job's request can make the run again (below) |
+| Owner, demo flag, share link, size | `jobs.sqlite` table `runs` (`user_id`, `visibility`, `share_hash`, `bytes`); `Jobs.delete_run` | the row deleted | **lost** with the run |
+| Share links `/s/<token>/…` | `Jobs.shared_run` finds the run by `share_hash` | answer 404 (no row) | **lost**; the owner makes a new link on a new run |
+| Favourite lines in the run (their key and the values the map sent) | table `favourites` (`run_id`, `line`, `data`); `Jobs.delete_run` deletes them | deleted | **lost**. Before the removal a user can save them with the existing "Export for the trip" (GeoJSON, CSV: `Trip.tsx`, `favourites.exportFavourites`); the dry run counts them per run. Rows left behind would be hidden (`web.all_favourites` lists only runs it finds) yet count toward `FAVOURITES_MAX`, so they are deleted |
+| Folders of favourites | table `favourite_folders` | untouched | kept (a folder may become empty) |
+| The demo run(s) | `runs.visibility` "demo"; the sign-in page's `web.demo_list`, `jobs.demo_runs` | deleted with the row | **lost**; the page shows no demo until an administrator runs the demo search again with the new code and marks the new run (`POST /api/runs/<id>/demo`): a step of the VPS rollout |
+| Jobs | table `jobs` (`request`, `run_id`) | untouched | kept: the card on Home stays without its result (`Home.cardsOf` finds no run); "search again" makes a new run with a new id, by the code of that day (results may differ from the removed run) |
+| `runs.js` and Compare ("Other runs", `others.ts`), thumbnails (`Thumb.tsx`), the 3D view's `&also=` lines | `runs.write_index` locally; `web.runs_js` per user on the public site, both from the folders | rewritten locally; nothing to do on the public site | the removed runs drop out of the lists |
+| Problem reports with a run in their context | table `reports` | untouched | kept; their run link leads nowhere |
+| Audit events naming the run | `audit` (kept `audit.KEEP_DAYS`) | untouched | kept |
+| Usage and quotas | table `usage`; `runs_gb_max` counts folders | untouched | km² used stay used; the disk quota is freed |
+| The tile cache, orthophotos, accounts | `cache/`, `accounts.sqlite` | untouched | kept |
+| The regression set's and the truth check's runs | made again by their tools each time, outside the data folder | untouched | – |
+
+- **Sizes:** the VPS on 2026-11-10 held 21 runs in 7.95 GB, one of 2.07 M lines (gate 1, B3 and A5); the removal
+  frees all of it. The user's PC: not counted in the sources.
 
 ### 2.3-2.10
-- **Data:** the store of 1.3; `run.json` gains `store` and `"converted": "<date>"`. Stored data: U5.
-- **Interfaces:** `findaline.py runs migrate [--dry-run] [--keep-text]` and `runs status`, as `cache migrate` /
-  `cache status` (`docs/deployment.md`, "The cache's tile encoding"). **Files and pairs:** `runs.py`, `findaline.py`,
-  `update.py`; "web.RUN_FILES and what save_map writes" (old files stay in `RUN_FILES` until no run has them).
-- **Tests:** a run made by today's code, converted: the text files gone, the export equal to the old `lines.csv`,
-  the page's columns equal; a `--no-html` run and a running run untouched; a second migrate does nothing (or adds
-  only the view's columns). **Acceptance:** on a copy of the user's runs folder every converted run's export equals
-  its old `lines.csv` (sha256), and MG5 opens on a desktop. Wave 5, medium. Risk: deleting text files the user
-  copied elsewhere by habit: `--keep-text` and the README say so. **Needs the user's word:** U5.
+- **Data:** nothing new; Stored data: old runs removed on the user's word, no migration (2.1).
+- **Interfaces:** `findaline.py runs remove-old (--dry-run | --yes) [--data-dir DIR]`; the text of the list in plain
+  words. **Files and pairs:** `runs.py` (finding old runs), `findaline.py`, `jobs.Jobs.delete_run` (reused, not
+  changed), `docs/deployment.md` (the two deploys); `web-app.md`'s "web.RUN_FILES and what save_map writes": the old
+  files leave `RUN_FILES` with the second deploy; `run-files.md`'s favourites pair: "a change of how mapping.save_map
+  rounds the anchors loses everyone's favourites (decide their migration)": here the favourites of old runs are lost
+  by the user's decision, not by a rounding.
+- **Tests:** on a scratch data folder with a run of each kind of 2.2, a running run and a new run: `--dry-run`
+  deletes nothing and lists exactly the old ones; `--yes` deletes those folders, their `runs` rows and favourites,
+  keeps folders of favourites, jobs, reports and the new run; locally `runs.js` no longer lists them; a second run
+  finds nothing. No personal data in the listing.
+- **Acceptance:** the dry run on a copy of the user's runs folder lists every run without a current store and none
+  with one. Wave 4, part of its effort.
+- **Risks:** the user's own copies of `lines.csv` or of favourites: the dry run's list and the README say what goes
+  and how to keep favourites first. A demo missing on the sign-in page until it is made again.
 
 ## 3. The ranges of a kept line
 
 ### 3.1 Decision
 G-03 b, "The count and the ranges" (the user, gate 3, 2026-11-14; not the recommended a; tier: "specified, structural
 (with the new store)"). The option's words: "176 B a line. Filters answer from the ranges and never miss a line."
-Phase 4 built the count (`stands_for`) only.
+Phase 4 built the count (`stands_for`) only. Which ranges (U1), the user's closing answer (2026-11-14): "1. c)" of
+the planner's list, read as the specification's option b: **six values**, length, clearance, highest point, A-frames
+needed with and without the no-fall zone, and the mean height, by which "best" is ranked.
 
 ### 3.2 Behaviour
 - While the pair search runs, the square rule's reducer (`samelines.BestPerSquarePair`) keeps per pair of squares,
   beside the kept line and `stands_for`, the least and the most of each ranged value over every found line of the
   pair. Min and max are commutative and associative like the count: tiles give one grid's result, threads do not
   matter, no found line is held beyond its part.
-- **The ranged values** (which of them: U1) are read as `filters.ts` reads them, per found line: `length`,
-  `clearance`, `clearance_nmpt`, `height_max`, `height_mean`, `high_pct`, `lift_needed`, `lift_no_zone`, and derived
-  `dh` = |e1 − e2|, lower anchor = min(e1, e2), upper anchor = max(e1, e2), wall angle = max(angle1, angle2),
-  prominence of the more and of the less prominent anchor, drop = min(drop1, drop2). All are in the evaluated parts
-  (`helpers.LINE_VALUES`, `END_VALUES`). NaN is skipped; all NaN gives null. `over_obstacles` is `clearance_nmpt <= 0`
-  in mark mode (`mapping.coordify`), so it follows from that range. `water_m` and `filled_m` are not in the parts:
-  they are computed after the join for the kept lines only (`search.line_coordinates` → `linesearch.covered_metres`):
-  U3.
+- **The ranged values** (U1 b, decided): `length`, `clearance`, `height_max`, `lift_needed`, `lift_no_zone` and
+  `height_mean`, read as `filters.ts` reads them, per found line; the two lift values only in a run with the no-fall
+  zone or the A-frames. All six are in the evaluated parts (`helpers.LINE_VALUES`, `END_VALUES`). NaN is skipped;
+  all NaN gives null. Every other filter tests the kept line itself: `clearance_nmpt`, `high_pct`, `dh`, the anchors'
+  heights, the wall angle, prominence, drop, `over_obstacles`; and `water_m`, `filled_m`, which are not in the parts
+  (computed after the join for the kept lines only, `search.line_coordinates` → `linesearch.covered_metres`: U3).
+  The other values the earlier draft listed (fifteen in all) stay a later option (U1 c).
 - **The page:** a kept line passes a filter when some line it stands for could pass it by the range (`lenMin <=
-  len_hi`, `lenMax >= len_lo`, `clrMin <= clr_hi`, the percentiles through `percentileRank` of the lower and upper
-  ranges); `clrN`: also when some copy has no surface value. A filter without a range tests the kept line. So
-  combined filters never miss and name 1-17 % too many on their worst filter (part P3a). Group sizes count kept
-  lines (as phase 4). How such a line is drawn and where the ranges show: U2 (no mock-up shows ranges). Runs
-  without the square rule have no ranges; runs made with it before this wave: `stands_for` only.
+  len_hi`, `lenMax >= len_lo`, `clrMin <= clr_hi`, and so on for the six). A filter without a range tests the kept
+  line. So the ranged filters never miss and name 1-17 % too many on their worst filter (part P3a, measured on five
+  ranges; the mean height's range was not counted there). Group sizes count kept lines (as phase 4). How such a
+  line is drawn and where the ranges show: U2 (no mock-up shows ranges). Runs without the square rule have no
+  ranges; runs made with it before this wave: `stands_for` only.
 
 ### 3.3 Data
 Per ranged value two float32 columns in `lines.arrow`, `<name>_lo` and `<name>_hi`, cast with `lo` rounded toward
 −∞ and `hi` toward +∞ (a range never shrinks by the cast, so a filter never misses), null when all copies are NaN;
-plus `copy_flags` uint8 (bit 0: some copy has no `clearance_nmpt`; bits 1-2 for water and filled if U3 says so).
-8 B per ranged value + 1 B a line: 41 B for part P3a's five, 121 B for all fifteen (estimate, part P3a's model).
+plus `copy_flags` uint8 (reserved: bit 0 for "some copy has no `clearance_nmpt`" and bits 1-2 for water and filled,
+if later ranges need them). 8 B per ranged value + 1 B a line: **49 B for the six chosen** (estimate, part P3a's
+model; 41 B for five, 121 B for fifteen).
 Exports (CSV, GeoJSON) carry no range columns, so the checksum of the square rule's regression entry (R65) stays.
 Stored data: none (new columns in new runs only).
 
@@ -305,17 +367,19 @@ Stored data: none (new columns in new runs only).
   `np.add.reduceat`; the ranges carried with the helper columns `_KEYS`; `reduce_table` for the join of tiles),
   `linestore.py`, `filters.ts`, `types.ts`, `result/view/LineDetails.tsx`. Pairs: `search-pipeline.md`'s tiles equal
   one grid and results independent of threads (CLAUDE.md "Always"); `run-files.md`'s store ↔ `types.ts`. Memory:
-  each waiting and kept row carries 8 B more per ranged value (`samelines.MERGE_ROWS`, 1 M waiting rows: 40-120 MB
-  more at the peak, estimate); the memory constant of a kept line (`spec-search.md` 5.1) grows by the same.
+  each waiting and kept row carries 8 B more per ranged value, 48 B for the six (`samelines.MERGE_ROWS`, 1 M waiting
+  rows: about 48 MB more at the peak, estimate); the memory constant of a kept line (`spec-search.md` 5.1) grows by
+  the same.
 - **Tests:** ranges equal a plain reference (min and max per pair of squares over the full table) on a small table;
-  any order of parts, any tile split, 1 and many threads give equal ranges; for random filters every found line
-  that passes has its kept line shown.
-- **Acceptance:** on part P1's six tables at 5 m (BAH, GZp, MGp, KOB, BEL, DOL) and part P3a's combined filters: no
-  found line missed; the share named too many within part P3a's 0-17 %; the goal case's bytes as section 6 says.
-  Measured with `tools/prune_study.py` given a "ranges" report (new in wave 7).
-- **Waves:** wave 7 (1.9), medium. **Risks:** bytes sent (section 6: all fifteen ranges break T4 on the goal case,
-  estimate); the reducer's memory.
-- **Needs the user's word:** U1, U2, U3.
+  any order of parts, any tile split, 1 and many threads give equal ranges; for random filters on the six ranged
+  values every found line that passes has its kept line shown.
+- **Acceptance:** on part P1's six tables at 5 m (BAH, GZp, MGp, KOB, BEL, DOL) and part P3a's combined filters with
+  the mean height added: no found line missed on a ranged filter; the share named too many reported beside part
+  P3a's 0-17 %; the goal case's bytes as section 6 says. Measured with `tools/prune_study.py` given a "ranges"
+  report (new in wave 7).
+- **Waves:** wave 7 (1.9), medium. **Risks:** bytes sent (section 6: with the six ranges the goal case sends more
+  than T4's 20 MB, estimate); the reducer's memory.
+- **Needs the user's word:** U1 decided (b); U2 at the details' mock-up; U3 taken as recommended (a).
 
 ## 4. What is sent
 
@@ -342,8 +406,11 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
 0.31 s Pixel 7 ×4, 0.41 s iPhone 13 (part P5); with grouping about 5 s and 2.5 s (estimate, part E2's ratios).
 
 - **Compression once at saving (F-10):** the public worker writes `lines.arrow.br` and `profiles.arrow.br` after the
-  store (which method: U12). `web.RunFiles` answers a request with `Accept-Encoding: br` from the `.br` file with
-  `Content-Encoding: br`, `Vary: Accept-Encoding` and the decoded size in `X-Findaline-Bytes`; nginx leaves a
+  store, brotli at quality 5 (U12, the user, 2026-11-14: "4. a)"). Brotli is a new package: the building agent first
+  compares the maintained brotli packages for Python (for example `brotli` and `brotlicffi`: licence, wheels for
+  Python 3.15 on Windows and Linux, size, maintenance, speed on BAH's store), as CLAUDE.md's rule on dependencies asks,
+  and the user confirms the package before it enters `pyproject.toml`. `web.RunFiles` answers a request with
+  `Accept-Encoding: br` from the `.br` file with `Content-Encoding: br`, `Vary: Accept-Encoding` and the decoded size in `X-Findaline-Bytes`; nginx leaves a
   response that has a Content-Encoding alone. `deploy/nginx/findaline.conf`: `application/vnd.apache.arrow.file`
   joins `gzip_types` for clients without br. The local app sends the files as they are (loopback).
 - **Caching (F-12):** the page asks for `lines.arrow?v=<run.json store.sha256>`; `web.cache_control` answers such a
@@ -358,9 +425,10 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
   Home; `deploy/nginx/findaline.conf` with `tests/nginx_check.sh` and `docs/deployment.md` (the deploy rule keeps the
   three in step). Stored data: none. **Tests:** `test_public.py` (br with and without `Accept-Encoding`, `Vary`, the
   decoded size, immutable only on a versioned URL); `nginx_check.sh` (br passed through, gzip otherwise).
-- **Acceptance:** T4 ≤ 20 MB sent for the goal case (section 6), the response's bytes; a reopen of BAH sends no data
-  bytes. Wave 6, medium. **Risks:** a cache entry refused for its size (a 200 again, no harm); br's CPU at saving.
-- **Needs the user's word:** U7, U8, U12.
+- **Acceptance:** the goal case's bytes sent measured against T4's 10-20 MB (section 6: about 25-33 MB expected with
+  the six ranges), the response's bytes; a reopen of BAH sends no data bytes. Wave 6, medium. **Risks:** a cache
+  entry refused for its size (a 200 again, no harm); br's CPU at saving (BAH 1.6 s, part P5).
+- **Needs the user's word:** U12 decided (brotli; the package after the comparison); U7, U8 taken as recommended.
 
 ## 5. Renaming a run (short)
 - **Decision:** the user, on mock-up 1's open point 10 (2026-11-13): "ok, add option to rename a run". Not found in
@@ -385,25 +453,30 @@ With the store: loading BAH 0.18 s, MG5 0.35 s (part P5, the Arrow file) plus gr
 The Gozo coast (GZ1) in the target rig with `--same-line-square 5` (phase 4, measured): 24 480 100 lines found,
 503 651 kept in 8 269 spots, 89.8 s, peak 2 911 MB, folder 865 MB, `data.js` 137 MB. The store changes nothing before
 saving: the seconds and the memory of the search stay.
-| Quantity | Without ranges | With five ranges (U1 a) | With fifteen (U1 c) | Kind |
-|---|---:|---:|---:|---|
-| Store, raw | 55-56 MB (105-107 B + 4 B `stands_for` a line); +4.5 MB with the view's columns | +21 MB | +61 MB | estimate (part P5's B a line) |
-| Folder (store, br copy, small files) | about 75-80 MB | about 105 MB | about 160 MB | estimate |
-| Sent, br-5 | 17-23 MB (34-46 B a line, part P5's BAH and MG5); about 19-27 MB with the view's columns | 24-32 MB | 37-49 MB | estimate (ranges compressing as the columns, 0.33-0.42) |
-| Download at 50 / 10 Mbit/s | 2.7-3.7 / 14-18 s | 3.8-5.1 / 19-26 s | 5.9-7.8 / 30-39 s | arithmetic |
-| Desktop, after the download | about 1 s (loading 0.06 s scaled from part P5's 0.17 s at 1.5 M; grouping 0.5-0.7 s from part E2's GZ2 and GZ1) | about the same | about the same | estimate |
-| Pixel 7 profile ×4 | about 2.5-3.5 s | – | – | estimate (part P5 loading; part E2's ×4 ratio) |
-| iPhone 13 profile | about 1-1.5 s | – | – | estimate (part P5 loading; part E2's ratio 1.6-1.8) |
+| Quantity | Without ranges | With the six ranges (U1 b, chosen) | Kind |
+|---|---:|---:|---|
+| Store, raw | 55-56 MB (105-107 B + 4 B `stands_for` a line); +4.5 MB with the view's columns | +25 MB (49 B a line) | estimate (part P5's B a line; 3.3) |
+| Folder (store, br copy, small files) | about 75-80 MB; 80-85 MB with the view's columns | about 110-115 MB; 115-120 MB with the view's columns | estimate |
+| Sent, br-5 | 17-23 MB (34-46 B a line, part P5's BAH and MG5); about 19-27 MB with the view's columns | 25-33 MB; about 27-37 MB with the view's columns | estimate (ranges compressing as the columns, 0.33-0.42: +8-10 MB) |
+| Download at 50 / 10 Mbit/s | 2.7-3.7 / 14-18 s | 4.0-5.3 / 20-26 s (without the view's columns) | arithmetic |
+| Desktop, after the download | about 1 s (loading 0.06 s scaled from part P5's 0.17 s at 1.5 M; grouping 0.5-0.7 s from part E2's GZ2 and GZ1) | about the same | estimate |
+| Pixel 7 profile ×4 | about 2.5-3.5 s | – | estimate (part P5 loading; part E2's ×4 ratio) |
+| iPhone 13 profile | about 1-1.5 s | – | estimate (part P5 loading; part E2's ratio 1.6-1.8) |
 
-So T10 (opens on a desktop) is met by wave 2 (estimate); T3 (≤ 300 MB) by wave 4; T4 (10-20 MB) only without
-ranges, at the low end of the estimate. A further saving: F-36 'Anchors as grid pixels' (parked: most of the 32 B of
-x/y, part P5's estimate). A real phone's memory per tab is unknown.
+For comparison (estimates of the earlier draft): five ranges sent 24-32 MB, fifteen 37-49 MB. So T10 (opens on a
+desktop) is met by wave 2 (estimate); T3 (≤ 300 MB) by wave 4; T4 (10-20 MB) only without ranges, at the low end of
+the estimate: with the six ranges the user chose, the goal case sends about 25-33 MB (estimate), above T4, which the
+user set as a guide ("10-20MB sounds good as a target"). A further saving: F-36 'Anchors as grid pixels' (parked:
+most of the 32 B of x/y, part P5's estimate). A real phone's memory per tab is unknown.
 
 ## 7. Contradictions found, and what is not covered
 - **G-03 b's "176 B a line"** is part P3a's model of five ranges *and* per end a bitmap of the square's pixels and
   the anchors' height range, which option c names as its own; G-03's evidence says "the range of every value a filter
   reads". Without the patches a record is about 152 B with five ranges, 232 B with fifteen (estimate).
-- **"Never miss a line"** (G-03 b) holds only for the values that have a range: not water and filled metres (U3).
+- **"Never miss a line"** (G-03 b) holds only for the six values that have a range (U1 b); every other filter tests
+  the kept line, water and filled metres included (U3).
+- **Phase 4's "old runs must open"** holds until wave 4; the user's U5 ends it there (section 2). A run saved
+  between wave 2 and view B1 counts as old by the rule of 2.2: the dry run shows those runs before the user decides.
 - **G-06's "lines.csv … byte-equal"** holds only with the sign of -0.0 kept (1.3 keeps it).
 - **D-04's evidence** "about 40-45 bytes per line" (F-05 'One binary columnar store per run', an estimate) against
   part P5's measured 105-107 B: part P5 holds. Part E5's "the viewer must still open a run from file://": D-04 a and
@@ -416,34 +489,34 @@ x/y, part P5's estimate). A real phone's memory per tab is unknown.
 - **Not covered:** grouping and drawing from columns (wave 1 measures); a real phone; the country layer (G-06: "not
   concerned"); exclusive timings.
 
-## 8. Needs the user's word
-- **U1, which ranges.** (a) part P3a's five: length, clearance, largest height, A-frame needed with and without the
-  zone (+41 B a line); (b) the five and the mean height, by which "best" is ranked (+49 B); (c) every value a filter
-  reads, fifteen (+121 B). Measured: combined filters never miss and name 1-17 % too many (part P3a); the goal case
-  sends 24-32 MB with (a), 37-49 MB with (c) (estimate). Rec.: (b): nearest T4; other filters test the kept line.
+## 8. The user's word
+**Decided by the user's closing answers (2026-11-14,** quoted in `spec.md` section 6**):**
+- **U1, which ranges: (b)**, "1. c)" of the planner's list: the six values of section 3 (+49 B a line). Measured for
+  five ranges: the ranged filters never miss and name 1-17 % too many (part P3a). The goal case sends about 25-33 MB
+  (estimate, section 6). Left as later options: (a) five (+41 B), (c) fifteen (+121 B).
+- **U4, exports: made for each download, none kept** ("5. c) - how does it work with regressions?"): 1.2, 1.4; the
+  regression set: 1.7.
+- **U5, old runs: removed, not converted**, "both on server and on this pc": section 2, on the user's word at wave 4.
+- **U12, compression at saving: brotli** ("4. a)"), br-5 (BAH's store 32.4 MB, 1.6 s, part P5; the others measured
+  there: gzip-6 36.0 MB, 3.6 s; zstd-3 35.9 MB, 0.4 s), a new package compared first and confirmed by the user
+  (section 4).
+
+**Taken as recommended** (class "planner": the user was offered the list on 2026-11-14 and did not go through it):
+- **U3** water and filled metres: (a) left out of the ranges; (b) per found line after a measurement on the goal case.
+- **U6** circles' profiles of every line (up to 500 MB a run, `search.CIRCLE_PROFILES_BYTES`): (a) kept now;
+  representatives only as a task of its own.
+- **U7** F-31 'Light view for share links and phones', F-24 'Tiered result for tens of millions of lines', K-33 'Three
+  nested results by rigging': (a) parked with F-20 (columns hold 10 M lines on a desktop, part P5).
+- **U8** the phone warning's threshold: (a) none until the real-device test; the size always shown (F-30).
+- **U9** who may export: (a) the owner, an administrator, a demo run's visitors, not share links, within the quick
+  lane's rates.
+- **U10** `--html` after `file://` ends: (a) accepted for one release, prints the `view` command.
+- **U11** filtered exports, GeoPackage, KML (F-32 'Exports people can open'): (b) parked until wave 3 shows how
+  exports are used.
+
+**Still open:**
 - **U2, a line that passes only by its ranges.** (a) drawn as any line, its details say "a line it stands for
   passes: clearance up to 6.2 m"; (b) a mark of its own; ranges in the details as "length 180-210 m · mean height
-  31-44 m". Not in mock-up 2. Rec.: (a), with the ranges in the details; a mock-up of the details first.
-- **U3, water and filled metres in the ranges.** (a) left out (those filters test the kept line); (b) computed per
-  found line in the reducer (cost not measured). Rec.: (a) now; (b) after a measurement on the goal case.
-- **U4, an export once made.** (a) kept and counted in the quota (a 1.5 M-line GeoJSON about 1.3 GB, estimate);
-  (b) made per download into `work/` and deleted. Rec.: (a) for CSV, (b) for GeoJSON.
-- **U5, old runs.** (a) automatic: `runs migrate` by `deploy/vps.sh update` after the services start, as `cache
-  migrate`; (b) by hand; (c) none. Measured: −93 % of BAH's folder (part P5); each conversion checked by the CSV's
-  sha256 before a file is deleted. Rec.: (a) on the VPS, (b) on the PC (the user's MG5 and test runs).
-- **U6, circles' profiles of every line** (up to 500 MB a run, `search.CIRCLE_PROFILES_BYTES`, kept only because a
-  disk map cannot compute one). (a) kept; (b) representatives only, the rest from `/api/profile` (changes
-  `check_map`'s rule, not a checksum). Rec.: (a) now, (b) as its own task.
-- **U7, F-31, F-24, K-33** (each a partial or staged loading). (a) parked with F-20; (b) a further wave. Rec.: (a):
-  columns hold 10 M lines on a desktop (part P5).
-- **U8, the phone warning's threshold.** (a) none until the real-device test, the size always shown (F-30); (b) a
-  provisional one (part P5's estimate: about 5 M lines in Chromium, 2-3 M in Safari at 1 GB a tab). Rec.: (a).
-- **U9, who may export.** (a) the owner, an administrator, a demo run's visitors, not share links, within the quick
-  lane's rates; (b) share links too. Rec.: (a).
-- **U10, `--html`** after `file://` ends. (a) accepted for one release, prints the `view` command; (b) removed.
-  Rec.: (a).
-- **U11, filtered exports, GeoPackage, KML** (F-32 'Exports people can open'). (a) a wave after wave 3 (pyogrio is a
-  dependency already); (b) parked. Rec.: (b) until wave 3 shows how exports are used.
-- **U12, compression at saving.** (a) br-5 with `brotli` (new dependency; BAH's store 32.4 MB, 1.6 s); (b) gzip-6,
-  standard library (36.0 MB, 3.6 s); (c) zstd-3, Python's `compression.zstd` (35.9 MB, 0.4 s; Safari's support not
-  known); (d) none, nginx gzip-5 as today (part P5). Rec.: (a), after the libraries' comparison goes to the user.
+  31-44 m". Not in mock-up 2. Rec.: (a), with the ranges in the details; decided on a mock-up of the details first.
+- **The brotli package** (U12): which one, after wave 6's comparison.
+- **The removal itself** (U5): on each host, after its `--dry-run` list, at wave 4.

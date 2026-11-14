@@ -7,6 +7,8 @@ stated here in words. Its open point 5 is stale: the kept line of a pair of squa
 the mean height), as built in phase 4. Parts: **A** today's page, next tier; **B** the result view (structural), with
 what it reads from the store; **C** the audit's reading choices; **D** the evidence of parts E2 and E3, answered or
 not; **E** contradictions. Items for the user: A-1 to A-3, B-1, B-3 to B-6 (cited from the other files as "view A-n").
+The user's closing answers (2026-11-14) set B-1 (the top-level flag is K-17, with a note on K-18); A-1 to A-3 and
+B-3 to B-6 are of class "planner" and taken as recommended (`spec.md` section 6).
 
 ## A. Today's page, the next tier
 
@@ -274,10 +276,11 @@ the mock-up's data was made): the spots (`mapping.group_lines`, item A-1); the o
 sectors: Ward clustering (scipy) of each spot's shown line's ends into at most 10 sectors, west end first; numbered by
 their best spot's mean height; the word by 8 directions from the run's centre to the mean of the shown lines' middles,
 "centre" within min(150 m, 12 % of the lines' extent); the spots numbered by their first line's mean height; `top` by
-the rule of item B-1 (as accepted on the mock-up, K-17 'Higher wins on a face', `tools/prune_study.py`'s rule
+the rule of item B-1 (decided: K-17 'Higher wins on a face', as the accepted mock-up; `tools/prune_study.py`'s rule
 `higher_wins`: plan buckets of 8 m cells from (0, 0), both ends; a bucket whose mean anchor elevations span 10 m or
 more keeps only the lines within 10 m of its highest). One new function `mapping.view_columns` gives them to
-`linestore.write`, called by `search.save_run` and by the conversion of old runs (`spec-store.md` section 2).
+`linestore.write`, called by `search.save_run` (old runs are not converted: they are removed at store wave 4,
+`spec-store.md` section 2).
 In the browser, at every filter or view change: the shown line per spot (its first passing line), not beaten, in
 view, best N, squares, picks, numbers, the fan, the table of spots.
 Pairs (`.claude/rules/run-files.md`): "`mapping.group_lines` … and `groupLines` …: the browser must produce the same
@@ -351,14 +354,17 @@ Python: sectors and `top` equal `tools/prune_study.py`'s rule on a made-up table
 - The real map's projection and overlays (more controls, numbers with fewer free positions: on a phone 1 to 10 of 10
   numbers showed in the mock-up).
 - A real long press and WebKit were never tested on the mock-up; a real phone test is the user's gate-1 "yes, later".
-- Rollout with the store: old runs through its conversion (which writes the view's columns, `spec-store.md` 2.2); the
-  old page stays until every run opens in the new one.
+- Rollout with the store: a run without the view's columns (every run before view B1) opens in today's page; store
+  wave 4 removes such runs on the user's word (`spec-store.md` section 2) and drops the reader of `data.js`. Today's
+  page, which reads the store from store wave 2, stays until the result view is complete (B5).
 
 ### B.11 Needs the user's word
-- **B-1. Which rule is the top-level flag?** The mock-up and part P3b's count for V-20 'Top level only: switch and
-  height slider' use K-17 'Higher wins on a face' (BAH 70.6 % kept); G-08's evidence names K-18 'Higher wins unless
-  clearance loses' (70.7 %, 590 of 592 known lines, against 589 for K-17: part P3b). Recommendation: K-17, as
-  accepted on the mock-up.
+- **B-1. Which rule is the top-level flag: decided, K-17 'Higher wins on a face'** (the user, 2026-11-14: "2. a) .
+  Add a note on it - it might be useful for increasing % of lines found from slack map"), as on the accepted mock-up
+  and in part P3b's count for V-20 'Top level only: switch and height slider' (BAH 70.6 % kept). **The user's note:**
+  K-18 'Higher wins unless clearance loses' kept 590 of the 592 matched known lines against K-17's 589 (part P3b;
+  BAH 70.7 % kept), so it "might be useful for increasing % of lines found from slack map": a candidate to measure
+  when the share of known lines found is worked on (a line in `docs/roadmap.md`), not a change of this view.
 - **B-3. A favourite in a spot:** today it is the spot's shown line (`shownOf`); the mock-up has no favourites.
   Options: keep that; or the best line stays shown and the favourite is marked. Recommendation: keep today's rule.
 - **B-4. Other runs (Compare):** their lines in the levels, the squares and best N, or drawn apart. Not measured
@@ -414,7 +420,7 @@ here: name the tree's groups "sectors" and the tool's "direction sectors" in the
 
 ## E. Contradictions found between the sources
 - G-08's evidence names K-18 for "Top level only"; the mock-up computes K-17, as does part P3b's count for V-20
-  (70.6 % at BAH = K-17's). Item B-1.
+  (70.6 % at BAH = K-17's). Settled by the user on 2026-11-14: K-17 (item B-1), K-18 kept as a note.
 - The mock-up's lines are kept by K-01 (the most clearance per pair of 5 m squares); gate 3's G-02 a, as built, keeps
   the least rigging, then the mean height. Every mock-up count (tight 2 622, top level 6 831, strokes) is therefore of
   other lines than the app's; the behaviour holds, the numbers are recounted on runs made with `--same-line-square`.
