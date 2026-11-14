@@ -262,6 +262,16 @@ the helpers moved from `tools/end_zone_study.py` (`to_pixel`, `pixels_wgs84`, `d
 with `--parallel` and the sag model), `tests/test_truth_analysis.py` (synthetic captures whose lines are
 `find_valid_lines`' on the same grid)
 
+## `tools/prune_study.py`
+
+Run by hand: what a pruning rule keeps of a saved table of lines and an audit of what it drops (line-volume study,
+K-49), offline, nothing written beside the run: `<run folder> --rule <name> [--param k=v] [--rules-file F.py]
+[--radius M] [--known <truth-check pass folder>] [--terrain F.npz] [--pictures] --out <folder>`; rules are functions
+from the table to a mask of kept lines, registered with `rule` (`higher_wins`, `best_per_cell_pair` shipped);
+`table.terrain` the grid under the anchors for rules that judge an anchor by the ground; places by
+`mapping.group_lines`; `audit.json`, `audit.md`, `violations.csv`, the same on every run and number of threads; known
+lines as counts only; `tests/test_prune_study.py`
+
 ## `tools/area_download.py`
 
 Run by hand: the elevation models of a whole area into a data folder's cache, nothing else (`country run` then finds
