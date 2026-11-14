@@ -10,6 +10,7 @@
   --map-bg: #ecebdf; --water: #93c3e3; --rock: #8a7b63;
   --clear: #e10fd6; --trees: #ef8300; --fav: #f0c400; --halo: #ffffff;
   --terrain: #bba680; --tree-fill: #80ae6b; --limit: #d62728;
+  --coarse: #3b3f5c;  /* the coarser terrain's hatch and outline (coarserLayer.ts) */
   --layer-1: #86b6ef; --layer-2: #3987e5; --layer-3: #256abf; --layer-4: #184f95; --layer-5: #0d366b;  /* the highline layer's density classes (app/c/LayerPage.tsx) */
   --shadow: 0 1px 2px rgb(20 30 25 / .08), 0 8px 24px rgb(20 30 25 / .10);
   --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
@@ -28,7 +29,7 @@
     --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
     --map-bg: #1a201c; --water: #24475e; --rock: #948a72;
     --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
-    --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b;
+    --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
     --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
     --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
     color-scheme: dark;
@@ -40,7 +41,7 @@
   --ok: #62c78e; --ok-soft: #163023; --warn: #e6a94f; --warn-soft: #382a12; --bad: #ff8a80; --bad-soft: #3a1a18;
   --map-bg: #1a201c; --water: #24475e; --rock: #948a72;
   --clear: #ff4cf4; --trees: #ff9f30; --fav: #ffd84a; --halo: #0e1311;
-  --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b;
+  --terrain: #6e5f44; --tree-fill: #3f6b36; --limit: #ff6b6b; --coarse: #c9cdf0;
   --layer-1: #9ec5f4; --layer-2: #6da7ec; --layer-3: #3987e5; --layer-4: #256abf; --layer-5: #184f95;
   --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px rgb(0 0 0 / .35);
   color-scheme: dark;

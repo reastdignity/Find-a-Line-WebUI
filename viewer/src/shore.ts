@@ -22,7 +22,8 @@ export function segmentBox(s: ShoreSegment): LatLngBox {
   return {south, west, north, east};
 }
 
-function overlaps(a: LatLngBox, b: LatLngBox): boolean {
+/** Two boxes meet (touching at an edge or a corner counts). */
+export function overlaps(a: LatLngBox, b: LatLngBox): boolean {
   return a.south <= b.north && a.north >= b.south && a.west <= b.east && a.east >= b.west;
 }
 

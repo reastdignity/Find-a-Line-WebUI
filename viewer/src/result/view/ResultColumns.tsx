@@ -21,6 +21,7 @@ import { SidePanel, useWidthOf } from "../../ui/SidePanel";
 import { Icon, type IconName } from "../../ui/icons";
 import { baseLayers } from "../../baselayers";
 import { addShore } from "../../shoreLayer";
+import { addCoarser } from "../../coarserLayer";
 import type { Line, Ortho, RunData } from "../../types";
 import { when } from "../../time";
 import { loadRun, type LoadProgress } from "../load";
@@ -100,6 +101,8 @@ function useResultMap(model: ResultModel, data: RunData, ortho: ResultColumnsPro
     Object.values(layers)[0].addTo(leaflet);
     const overlays: Record<string, L.Layer> = {};
     addShore(leaflet, data.shore, overlays);  // the uncertain shore: its overlay, its metres in view
+    // The coarser terrain (the fallbacks' regions): its overlay, its km² in view, under the shore's box
+    model.setCoarserFit(addCoarser(leaflet, data.terrain_sources, overlays)?.fit ?? null);
     L.control.layers(layers, Object.keys(overlays).length ? overlays : undefined, {position: "topright"}).addTo(leaflet);
     L.control.scale({position: "bottomleft"}).addTo(leaflet);
     const resultMap = new ResultMap(leaflet, model, {onChoose: (choices, at) => {
@@ -115,6 +118,7 @@ function useResultMap(model: ResultModel, data: RunData, ortho: ResultColumnsPro
     observer.observe(ref.current!);
     return () => {
       observer.disconnect();
+      model.setCoarserFit(null);
       resultMap.destroy();
       if ((window as any).FINDALINE_RESULT?.model === model) delete (window as any).FINDALINE_RESULT;
       leaflet.remove();
