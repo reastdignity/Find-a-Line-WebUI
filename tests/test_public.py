@@ -1795,6 +1795,7 @@ def test_jobs_database_gets_owners(tmp_path):
     p = plan.params.model_dump(exclude={"name", "update", "no_html", "ortho", "ortho_detail", "threads",
                                         "opentopo_key", "tile_size", "group_distance", "group_by",
                                         "min_elevation", "max_elevation", "end_zone", "anchor_lift"})
+    p["fall_zone"] = 3  # the default until 2026-11-14, which the hash of a formula search keeps
     before = hl.sha1(json.dumps({"params": p, "source": plan.source.id, "resolution": plan.resolution},
                                 sort_keys=True).encode()).hexdigest()[:16]
     assert search._search_hash(plan) == before

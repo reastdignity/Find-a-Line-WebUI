@@ -1036,7 +1036,9 @@ def _lines_of(tmp_path, run_id):
 
 def test_profile_on_demand(tmp_path, monkeypatch):
     """A profile computed again from the cache equals the one the search saved."""
-    run_id = _clip_run(tmp_path, monkeypatch)
+    # the fall zone of 3 m (the default until 2026-11-14): the first line, whose short piece the envelope's
+    # table gives within 5 cm of the solver's own
+    run_id = _clip_run(tmp_path, monkeypatch, "--fall-zone", "3")
     rows = _lines_of(tmp_path, run_id)
     app = web.create_app(str(tmp_path), token=TOKEN)  # profiles come from the worker's quick lane
     with TestClient(app, base_url=LOCAL) as client:
@@ -1112,6 +1114,47 @@ def test_run_again_and_edit(client, tmp_path):
     jobs.set(osm_job, "done")
     copy = client.post(f"/api/jobs/{osm_job}/again", headers=headers).json()["id"]
     assert json.loads(jobs.get(copy)["request"]) == {"osm": {"action": "download", "region": "malta"}}
+
+
+def test_sag_requests_keep_their_fall_zone(tmp_path):
+    """jobs.sqlite of version 16 gets migration 17: a sag request without a fall zone (the form leaves out a
+    value equal to the default) gets the 3 m it was made with, before the default became 6 m (2026-11-14), so
+    "search again" and a waiting job search it as before; a sag request with its own value, a formula request,
+    an OSM extract and a request that is no JSON stay byte for byte."""
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    import params as pm
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:16])
+    point = {"lat": 50.1, "lon": 19.7, "radius": 300}
+    texts = {"sag": json.dumps({"params": {**point, "model": "sag"}, "geometry": None}),
+             "sag 4": json.dumps({"params": {**point, "model": "sag", "fall_zone": 4}, "geometry": None}),
+             "formula": json.dumps({"params": point, "geometry": None}),
+             "extract": json.dumps({"osm": {"action": "download", "region": "malta"}}),
+             "broken": "{not json"}
+    for name, text in texts.items():
+        db.execute("INSERT INTO jobs (id, created, status, request, title) VALUES (?, '2026-10-01T10:00:00+00:00', "
+                   "'done', ?, ?)", (name, text, name))
+    db.commit()
+    db.close()
+    jobs = Jobs(str(tmp_path))
+    stored = {name: jobs.get(name)["request"] for name in texts}
+    assert json.loads(stored["sag"]) == {"params": {**point, "model": "sag", "fall_zone": 3}, "geometry": None}
+    assert all(stored[name] == texts[name] for name in ("sag 4", "formula", "extract", "broken"))
+    assert pm.SearchParams(**point).fall_zone == 6
+    assert jb.search_params(json.loads(stored["sag"])).fall_zone == 3
+    assert jb.search_params(json.loads(stored["sag 4"])).fall_zone == 4
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 17
+    jb._sag_fall_zone(db)  # the step once more: nothing changes
+    assert dict(db.execute("SELECT id, request FROM jobs")) == stored
+    db.close()
+    app = web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False)
+    with TestClient(app, base_url=LOCAL) as client:
+        again = client.post("/api/jobs/sag/again", headers={"x-findaline-token": TOKEN}).json()["id"]
+    assert jb.search_params(json.loads(jobs.get(again)["request"])).fall_zone == 3
 
 
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"

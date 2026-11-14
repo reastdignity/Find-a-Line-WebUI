@@ -50,6 +50,52 @@ def test_params_defaults_and_cli():
     assert pm.SearchParams(lat=50, lon=19).nmpt_mode == "mark"
 
 
+def test_fall_zone_default():
+    """The sag model's fall zone is 6 m by default (the user's decision of 2026-11-14; 3 m before), in the
+    schema, on the command line and in sag.Rigging, which the tools and tests build without values."""
+    import sag
+    [params], _ = pm.parse_cli(["--lat", "50", "--lon", "19", "--model", "sag"])
+    assert params.fall_zone == pm.SearchParams(lat=50, lon=19).fall_zone == sag.Rigging().fall_zone == 6
+
+
+def test_old_runs_keep_their_fall_zone():
+    """A run keeps the fall zone it was searched with: run.json's params.rigging holds every field of
+    sag.Rigging (since the sag model came, 2026-10-23), and the profiles and the 3D patch of its lines
+    (search._run_values) take that rigging, never today's default."""
+    import dataclasses
+
+    import sag
+    import search
+    rigging = dataclasses.asdict(sag.Rigging(fall_zone=3.0))
+    assert set(rigging) >= {"pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"}
+    meta = {"params": {"resolution": 1.0, "min_length": 30, "max_length": 300, "max_anchor_diff": 5,
+                       "max_anchor_diff_m": 50, "slope_threshold": 45, "water": "fill", "coastline": "overpass",
+                       "shore_buffer": 20, "fill_gaps": "on", "model": "sag", "nmpt": "mark", "rigging": rigging},
+            "source": {"id": "geoportal"}}
+    values = search._run_values(meta)
+    params = pm.SearchParams(lat=50, lon=19, **values)
+    assert params.fall_zone == 3.0 and params.model == "sag"
+
+
+def test_search_hash_keeps_formula_searches():
+    """The hash of a tiled search (to resume it): a formula search at the default fall zone keeps the hash of
+    before the default went from 3 to 6 m (pinned: computed on the code of before, from the web's request and
+    from the command line), as the formula never reads it; a sag search at 3 m and at 6 m are two searches."""
+    from types import SimpleNamespace
+
+    import search
+    plan = lambda p: SimpleNamespace(params=p, source=SimpleNamespace(id="geoportal"), resolution=2.0, owner=None)
+    area = ["--area", "coast", "--within", "osm:Gozo"]
+    web_request = pm.SearchParams(area="coast", within="osm:Gozo")
+    [command_line], _ = pm.parse_cli(area)
+    assert search._search_hash(plan(web_request)) == "c2815824f4b9a796"
+    assert search._search_hash(plan(command_line)) == "31c28f8c91eecd44"
+    [sag3], _ = pm.parse_cli(area + ["--model", "sag", "--fall-zone", "3"])
+    [sag6], _ = pm.parse_cli(area + ["--model", "sag"])
+    assert search._search_hash(plan(sag3)) == "173c1c5395ba26b5"  # as before, given explicitly
+    assert search._search_hash(plan(sag6)) != search._search_hash(plan(sag3))
+
+
 def test_points():
     searches, _ = pm.parse_cli(["--point", "50.1,19.7,Żabi Koń, Kobylany", "--point", "35.85,14.38",
                                 "--radius", "500"])

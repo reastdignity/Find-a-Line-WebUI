@@ -1674,6 +1674,11 @@ def _search_hash(plan: Plan) -> str:
     for name in ("end_zone", "anchor_lift"):  # 0: the hash of before
         if p[name] == 0:
             del p[name]
+    # The formula never reads fall_zone (its lines, profiles and limits take the leash fall; only the rigging
+    # saved for the map's estimator holds it): at the default, 6 m since 2026-11-14, its search keeps the hash of
+    # before, made with 3 (an int when a web request left it out, a float from the command line), so it resumes
+    if p["model"] != "sag" and p["fall_zone"] == 6:
+        p["fall_zone"] = type(p["fall_zone"])(3)
     key = {"params": p, "source": plan.source.id, "resolution": plan.resolution}
     if plan.owner is not None:  # a user resumes only their own search (locally the hash of before)
         key["owner"] = plan.owner

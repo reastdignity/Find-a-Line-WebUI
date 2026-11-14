@@ -32,7 +32,7 @@ class Rigging:
     stretch: float = 5.0         # % at 10 kN
     webbing_weight: float = 70   # g/m
     athlete_mass: float = 80     # kg
-    fall_zone: float = 3.0       # m below the sagged webbing that must stay free
+    fall_zone: float = 6.0       # m below the sagged webbing that must stay free (3 until 2026-11-14)
 
     @property
     def H0(self) -> float:

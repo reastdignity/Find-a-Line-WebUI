@@ -66,7 +66,7 @@ Instead of the formula above, lines can be checked against a physical estimate o
 - the athlete (`--athlete-mass`, kg) is a point load. For every position of the athlete along the line the webbing shape is solved, which gives the *sag envelope*: how low the webbing is under the athlete at each point;
 - below the envelope a *fall zone* (`--fall-zone`, m) must stay free of terrain (and of trees/buildings with NMPT).
 
-Anchors are taken at ground level, as with the formula. With the default values (2.5 kN, 5% @ 10 kN, 70 g/m, 80 kg, 3 m) the estimator is less strict than the formula for most lengths, so it finds many more lines; tune the values to your setup. The interactive map always shows the estimator in the line profile, whichever model was used for the search.
+Anchors are taken at ground level, as with the formula. With the default values (2.5 kN, 5% @ 10 kN, 70 g/m, 80 kg, 6 m) the estimator is less strict than the formula for most lengths, so it finds more lines (two to three times as many in the Polish valleys of the regression tests R2–R5; with a fall zone of 3 m, the default until 2026-11-14, 27 to 36 times as many); tune the values to your setup. The interactive map always shows the estimator in the line profile, whichever model was used for the search.
 
 ## Algorithm Breakdown
 - Elevation data for a circle around the given point is downloaded in tiles from the data source (see *Data sources*) and resampled to the working resolution (`--resolution`). Tiles are cached, so a second run over the same area does not download anything.
@@ -366,7 +366,7 @@ The web service publishes its ports on the host's loopback only: the site's (`12
 | `--model` | `formula` | Clearance model for the search: `formula` or `sag` (see *Sag Estimator*) |
 | `--pretension` / `--stretch` | 2.5 / 5 | Pretension in kN / webbing stretch at 10 kN in % |
 | `--webbing-weight` / `--athlete-mass` | 70 / 80 | Webbing weight in g/m / athlete mass in kg |
-| `--fall-zone` | 3 | Height below the sagged webbing that must stay free, in metres |
+| `--fall-zone` | 6 | Height below the sagged webbing that must stay free, in metres (3 until 2026-11-14) |
 | `--end-zone` / `--anchor-lift` | 0 / 0 | No-fall zone at both ends: within this many metres of each anchor (at most a quarter of the line's length) the terrain need only stay below the loaded webbing, not the fall zone or leash fall below it, 0 to 20 m / height of an A-frame at both anchors, the webbing that much above each anchor, 0 to 3 m; 0: off. Either finds many more lines and takes longer |
 | `--data-dir` | `FINDALINE_DATA`, else the folder of the script | Folder holding `cache/` (downloaded data), `runs/` (saved runs) and `work/` (working grids of a search, deleted when it ends) |
 | `--update` | | `stale` or `all`: check the cached data of the search area before the search (see *Keeping the cache up to date*) |

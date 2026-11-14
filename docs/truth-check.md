@@ -159,7 +159,9 @@ the verdict: the verdict stays the run's rule, no zone and no lift by default.
 
 The searches use the sag model (`--model sag`, the sag estimator with its default rigging: pretension 2.5 kN,
 stretch 5 % at 10 kN, webbing 70 g/m, athlete 80 kg, a fall zone of 3 m below the sagged webbing): the user's
-decision of 2026-11-08, after the pilot. The analysis evaluates with the run's envelope table and fall zone. The
+decision of 2026-11-08, after the pilot. The default fall zone is 6 m since 2026-11-14 (the line-volume task): the
+figures of section 3 were measured at 3 m, those at 6 m are in "The fall zone of 6 m" there; a pass at 3 m today needs
+`--extra "--model sag --fall-zone 3"`. The analysis evaluates with the run's envelope table and fall zone. The
 formula model (the search's default, with a fall allowance of 6 m) is the comparison: the first 55 clusters were
 searched with it before the switch (section 3, "The formula model against the sag model").
 
@@ -486,6 +488,30 @@ Every line the formula model matched is matched under the sag model too; the sag
 `clearance_near_anchor` misses, its 2 `clearance_mid` and 5 lines of a doubtful geometry. The reasons before the
 clearance (structures, steep pixels, height difference) do not depend on the model. The sag model finds 21 times the
 lines and 3.4 times the spots in these places.
+
+### The fall zone of 6 m (2026-11-14)
+
+The same 1 024 clusters (`clusters.json` of the first pass) searched again from the cache with the default fall zone
+of 6 m (the line-volume task's branch `line-volume-w2`; `run --parallel 4` under the heavy lane, 4 096 s of searches,
+about 20 min from start to end, not timed exactly), `analyse` and `report`; the same 3 Polish places failed (the byte order mark). Against the first pass
+at 3 m:
+
+| | 3 m (first pass) | 6 m |
+| --- | ---: | ---: |
+| searches with lines / without | 583 / 438 | 399 / 622 |
+| lines found | 21.1 million | 2.4 million |
+| verifiable | 1 793 (1 261 / 532) | 1 771 (1 242 / 529) |
+| matched | 592 (536 / 56) | 306 (299 / 7) |
+| recall | 33 % (43 % / 11 %) | 17 % (24 % / 1 %) |
+| terrain recall | 40 % (47 % / 17 %) | 21 % (27 % / 2 %) |
+| `clearance_near_anchor` | 411 (286 / 125) | 672 (503 / 169) |
+| clearance misses valid with a 5 m zone, no A-frames / with 2 m A-frames | 239 / 310 of 412 | 312 / 438 of 676 |
+
+The reasons before the clearance do not move (`structure_anchor` 444, `no_steep_pixel` 235, `water_pixel` 28,
+`height_difference` 77, `length_range` 5); the 286 lines matched at 3 m and not at 6 m are clearance misses now
+(`clearance_near_anchor` +261, `clearance_mid` 1 → 4) or of a doubtful geometry no longer matched (`unverifiable`
+113 → 135). With the no-fall zone of 5 m and A-frames of 2 m, 438 of the 676 clearance misses at 6 m have a valid
+pair.
 
 ### The pilot
 
