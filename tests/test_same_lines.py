@@ -389,6 +389,8 @@ def test_limits_count_kept_lines(tmp_path, monkeypatch):
     import messages
     import search
     from settings import Limits
+    monkeypatch.setattr(search, "REFUSE_FACTOR", float("inf"))  # the checks of the search's own pairs (the
+    # estimate before them, of a small sample of this small search: tests/test_sample_estimate.py)
     point = {"northing": 254608, "easting": 553966, "radius": 150}
     _, full, _ = _search(tmp_path, "off", **point)
     _, kept, plan = _search(tmp_path, "on", same_line_square=5, **point)

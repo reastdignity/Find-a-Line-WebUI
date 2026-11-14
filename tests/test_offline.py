@@ -1138,7 +1138,7 @@ def test_funnel_of_the_line_search(tmp_path, monkeypatch):
     funnel = _funnel(tmp_path / "clip", monkeypatch, elevation_file=os.path.join(DATA, "zabi_kon_nmt.tif"),
                      surface_file=os.path.join(DATA, "zabi_kon_nmpt.tif"), northing=254608, easting=553966,
                      radius=290)
-    assert set(funnel) - {"found_lines"} == set(jb.FUNNEL_STEPS)
+    assert set(funnel) - {"found_lines"} == set(jb.FUNNEL_STEPS) - {"estimate"}  # the command line never samples
     assert {k: funnel[k] for k in ("grids", "anchors", "open", "checked", "lines")} == {
         "grids": 1, "anchors": ZABI_KON["anchors"], "open": ZABI_KON["open"], "checked": ZABI_KON["checked"],
         "lines": ZABI_KON["lines"]}
