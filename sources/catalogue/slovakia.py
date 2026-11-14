@@ -29,12 +29,13 @@ SOURCES: List[Source] = [
         # (tools/sk_tiles.py), on the national grid, pixel edges on whole metres; also kept
         # averaged to 2 m and 5 m (dmr5/2m, dmr5/5m: tools/sk_tiles.py average), read by a grid
         # of exactly that resolution (the country layer's bands M and L)
+        # (the averaged tiles' sizes: the mirror's 2m and 5m folders over their 12 827 tiles, 2026-11-09)
         nmt=GridTiles("DMR 5.0 (terrain)", [f"{base}/dmr5/1m" for base in SLOVAK_TILES], "EPSG:8353",
                       "slovakia/dmr5/5.0/epsg8353-1m-2km", 2000, 1.0, 4.8e6, mirror="slovakia/dmr5/1m",
-                      averaged=AVERAGED),
+                      averaged=AVERAGED, averaged_bytes=(1.8e6, 0.34e6)),
         nmpt=GridTiles("DMP 1.0 (trees, buildings)", [f"{base}/dmp1/1m" for base in SLOVAK_TILES], "EPSG:8353",
                        "slovakia/dmp1/1.0/epsg8353-1m-2km", 2000, 1.0, 5.7e6, mirror="slovakia/dmp1/1m",
-                       averaged=AVERAGED),
+                       averaged=AVERAGED, averaged_bytes=(2.0e6, 0.37e6)),
         countries=("sk",), crs="EPSG:8353", ortho=ZBGIS_ORTHO, credits=(UGKK_CREDIT,),
         neighbours=("geoportal", "austria", "czechia"),
         listing=ReadmeRow("Slovakia", "ÚGKK SR DMR 5.0, ALS 1 m (2017–2023)", "ÚGKK SR DMP 1.0, 1 m",

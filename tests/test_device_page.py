@@ -25,14 +25,11 @@ OFFLINE = {"HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:
 @pytest.fixture(scope="module")
 def clip_data(tmp_path_factory):
     """A data folder with a run of the clip (computed once, offline)."""
-    import subprocess
-    data = tmp_path_factory.mktemp("device")
-    result = subprocess.run(
-        [sys.executable, "findaline.py", "--elevation-file", TIF, "--northing", "254608", "--easting", "553966",
-         "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never",
-         "--nmpt", "off", "--model", "sag", "--data-dir", str(data)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env={**os.environ, **OFFLINE})
-    assert result.returncode == 0, result.stdout + result.stderr
+    import clip_runs  # the search once per session, this module's own copy
+    data = clip_runs.data_copy(tmp_path_factory, "device", [
+        "--elevation-file", TIF, "--northing", "254608", "--easting", "553966",
+        "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never",
+        "--nmpt", "off", "--model", "sag"])
     return str(data)
 
 

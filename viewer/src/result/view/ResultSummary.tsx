@@ -4,6 +4,8 @@
 import { Button } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { COLORS } from "../../style";
+import { t } from "../../i18n";
+import { fallbacks, layerName, percent, warns } from "../../coarser";
 import type { ResultModel } from "../model";
 import { Swatch, useModel } from "./common";
 
@@ -27,6 +29,21 @@ export function ResultNote({model}: {model: ResultModel}) {
   </div>;
 }
 
+/** The head's note when the fallbacks gave FALLBACK_WARN_SHARE of the land or more (coarser.warns): their share,
+ *  their names, and "Show on map" while the map can show their regions. */
+export function CoarserNote({model}: {model: ResultModel}) {
+  useModel(model);
+  const sources = model.data.terrain_sources;
+  if (!warns(sources)) return null;
+  const source = sources.layers.find((l) => l.role === "source");
+  return <div class="r-note r-coarse" role="status"><Icon name="info" />
+    <span class="u-grow">{t("ui.coarse.head", {percent: percent(sources.fallback_share),
+                                                 fallback: fallbacks(sources).map(layerName).join(" and "),
+                                                 source: source ? source.name : ""})}</span>
+    {model.coarserFit && <Button kind="ghost" onClick={() => model.coarserFit?.()}>{t("ui.coarse.show")}</Button>}
+  </div>;
+}
+
 export function ResultSummary({model, legend = true, note = true}: ResultSummaryProps) {
   useModel(model);
   const {spots, lines} = model.shown, total = model.all.length, hidden = total - lines;
@@ -44,6 +61,7 @@ export function ResultSummary({model, legend = true, note = true}: ResultSummary
       {Array.from(model.others.values()).map((r) =>
         <span key={r.info.id} title={r.info.description}><Swatch color={r.color} />{r.info.name}</span>)}
     </div>}
+    <CoarserNote model={model} />
     {note && <ResultNote model={model} />}
   </div>;
 }

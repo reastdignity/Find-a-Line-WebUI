@@ -141,6 +141,9 @@ export class ResultModel {
   measuredLink: string | null = null;
   /** The profile of the selected line was closed (ProfileDock); selecting again, or another line, shows it. */
   profileClosed = false;
+  /** Shows every region of coarser terrain on the map (coarserLayer.addCoarser, the head's "Show on map"); null
+   *  without a map or without such regions. */
+  coarserFit: (() => void) | null = null;
 
   // Runs of hundreds of thousands of lines: what goes through every line (keys are strings built
   // from the coordinates) is done only when it changes, and lines are known by the objects
@@ -567,6 +570,11 @@ export class ResultModel {
 
   setNote(note: Note | null) {
     this.note = note;
+    this.notify();
+  }
+
+  setCoarserFit(fit: (() => void) | null) {
+    this.coarserFit = fit;
     this.notify();
   }
 

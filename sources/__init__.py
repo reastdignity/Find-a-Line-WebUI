@@ -87,13 +87,13 @@ from .catalogue.poland import GUGIK_CREDIT
 from .catalogue.malta import MALTA_CREDITS
 from .catalogue.usa import USGS_1M
 from .catalogue.world import COPERNICUS_DISCLAIMER, FABDEM_CREDIT, WATER_MASK, WATER_MASK_CREDIT
-from .catalogue import SOURCES
+from .catalogue import AREA_NAMES, SOURCES
 from .choose import OFFLINE_BOXES, choose_source, source_unavailable
 from .mosaic import build_mosaic, load_slope_file, prepare_layer, used_data
 from .filling import (LAKE, OCEAN, SHORE_BUFFER, fill_gaps, fill_gaps_chain, fill_shore_from_surface, fill_water, near,
                       shore_rows, shore_segments, water_body_mask)
 
-__all__ = ["SOURCES", "MIN_RESOLUTION", "Source", "Coverage", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
+__all__ = ["SOURCES", "AREA_NAMES", "MIN_RESOLUTION", "Source", "Coverage", "OrthoService", "Credit", "CC_BY", "OSM_CREDIT", "Layer",
            "Fetched", "download_layers", "HOST_SLOTS_OF", "host_slot", "tile_lock", "WcsTiles", "ImageServerTiles", "GridTiles",
            "MIRROR_ENV", "grid_tile_name", "DegreeTiles", "OpenTopographyTiles", "IndexedTiles", "Sheet",
            "SheetTiles", "StacTiles", "DegreeBlocks", "FileBlocks", "Block", "TnmBlocks", "Usgs1mBlocks",

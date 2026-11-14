@@ -691,6 +691,15 @@ def test_slovak_tiles_averaged(tmp_path, monkeypatch):
     plain = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m")
     cache_dir = str(tmp_path / "cache")
     bounds = (left + 500, top - 2800, left + 4600, top - 100)
+    # Their estimate: each resolution's tiles at their own size (averaged_bytes), the native size without one
+    sized = src.GridTiles("Test DSM", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, mirror="slovakia/test/1m",
+                          averaged=(2, 5), averaged_bytes=(2e6, 4e5))
+    for res, size in ((1.0, 6e6), (2.0, 2e6), (5.0, 4e5)):
+        tiles, todo, mb = sized.estimate(gd.make_grid(bounds, res, "EPSG:8353"), str(tmp_path / "empty"), None)
+        assert tiles == todo > 0 and mb == pytest.approx(todo * size / 1e6)
+        assert layer.estimate(gd.make_grid(bounds, res, "EPSG:8353"), str(tmp_path / "empty"), None)[2] ==             pytest.approx(todo * 6e6 / 1e6)
+    with pytest.raises(ValueError, match="averaged_bytes"):
+        src.GridTiles("x", [], "EPSG:8353", "slovakia/test/1m", 2000, 1.0, 6e6, averaged=(2, 5), averaged_bytes=(1e6,))
     for res in (2.0, 5.0):
         grid = gd.make_grid(bounds, res, "EPSG:8353")
         assert layer.resolution(res) == res
@@ -1278,19 +1287,26 @@ def test_degree_blocks(tmp_path):
 
 
 def test_usa_chosen_by_country_and_data(tmp_path, monkeypatch):
-    """--source auto: the USA (also Puerto Rico) takes the 1 m DEM; Alaska too where it has
-    1 m data near the centre, else its IfSAR; the working CRS is NAD83 / UTM."""
+    """--source auto: the USA (also Puerto Rico) takes the 1 m DEM where it has 1 m data near the
+    centre, else the 1/3″ DEM (the Oregon cove of docs/tasks-usa.md); Alaska too, else its IfSAR;
+    the working CRS is NAD83 / UTM."""
     import grid as gd
     codes = {}
     monkeypatch.setattr(src.choose, "country_code", lambda lat, lon, cache_dir: codes[(lat, lon)])
-    codes.update({(37.73, -119.64): "us", (18.2, -66.5): "pr", (58.3, -134.4): "us", (61.2, -149.9): "us"})
-    near = {(58.3, -134.4): False, (61.2, -149.9): True}
+    codes.update({(37.73, -119.64): "us", (18.2, -66.5): "pr", (58.3, -134.4): "us", (61.2, -149.9): "us",
+                  (44.77, -124.07): "us"})
+    near = {(58.3, -134.4): False, (61.2, -149.9): True, (37.73, -119.64): True, (18.2, -66.5): True,
+            (44.77, -124.07): False}
     monkeypatch.setattr(src.USGS_1M, "has_data_near", lambda lat, lon, cache_dir: near[(lat, lon)])
     assert src.choose_source("auto", 37.73, -119.64, str(tmp_path))[0].id == "usa"
     assert src.choose_source("auto", 18.2, -66.5, str(tmp_path))[0].id == "usa"
     source, reason = src.choose_source("auto", 58.3, -134.4, str(tmp_path))
     assert source.id == "alaska_ifsar" and "no terrain data near it" in reason and source.default_resolution == 5
     assert src.choose_source("auto", 61.2, -149.9, str(tmp_path))[0].id == "alaska"
+    source, reason = src.choose_source("auto", 44.77, -124.07, str(tmp_path))
+    assert source.id == "usgs10m" and "usa has no terrain data near it" in reason and source.default_resolution == 10
+    near[(44.77, -124.07)] = None  # the index not known (offline): the 1 m DEM as before
+    assert src.choose_source("auto", 44.77, -124.07, str(tmp_path))[0].id == "usa"
     assert src.SOURCES["alaska"].fallbacks == ["alaska_ifsar", "usgs10m"]
     assert src.SOURCES["usa"].working_crs(37.73, -119.64) == "EPSG:26911"
     assert src.SOURCES["europe"].working_crs(37.73, -119.64) == "EPSG:32611"

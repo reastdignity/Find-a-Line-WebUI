@@ -17,7 +17,9 @@ open as an Edge app window (`msedge --app=http://127.0.0.1:8771/`):
   exits 125, and the run never goes into the estimates), and the waiting ones with what holds
   them (the state, the RAM guard with what it needs and what is free for it, the commands they
   wait for, the slots);
-- the slots in use and the PC's memory: free, total, and the RAM guard's budget for the lock;
+- the slots in use and the PC's memory: free, total, the RAM guard's limit and its budget for the
+  lock, with a choice of the guard's share of all memory (80 to 95 %), which takes effect at once
+  for every waiting command;
 - refreshed every 3 s, the browser's clock corrected by the server's.
 
     python tools/test_lock_page.py serve [--port N] [--verbose]
@@ -32,9 +34,10 @@ registry's App Paths; without Edge a plain `start` of the address); uninstall re
 --dry-run prints what either would do and changes nothing.
 
 Routes: GET / (the page), /page.css, /page.js, /api/state ({state, now, slots, memory, entries}: memory
-{available, total, budget, share} or null without psutil; each entry's held_by busy, quiet, memory
+{available, total, limit, budget, share} or null without psutil; each entry's held_by busy, quiet, memory
 or null, tamed, untamed, memory (declared bytes), rss, peak (expected bytes));
-POST /api/state ({value, until, after, note}: until in epoch seconds or null), POST /api/stop
+POST /api/state ({value, until, after, note}: until in epoch seconds or null), POST /api/ram-share
+({share}: 0.5 to 0.98, or null for the default), POST /api/stop
 ({id} of a running entry, else 404). A POST needs the header X-Test-Lock: 1 and an Origin that is
 absent or the page's own (a page of another site can send neither), else 403; a Host other than
 127.0.0.1 or localhost at the port is refused (DNS rebinding); other methods 405, other paths 404.
@@ -156,7 +159,8 @@ def snapshot(folder: str) -> dict:
             state = queue.user_state(now)
             memory = tl._memory()
             admitted, holds, room = queue.admission(entries, now, state.value, memory)
-            budget = tl.memory_budget(entries, memory, queue.peak)
+            share = queue.ram_share()
+            budget = tl.memory_budget(entries, memory, queue.peak, share)
         finally:
             queue.db.execute("COMMIT")
         rows = []
@@ -178,7 +182,7 @@ def snapshot(folder: str) -> dict:
     finally:
         queue.db.close()
     ram = None if memory is None else {"available": memory[0], "total": memory[1], "budget": budget,
-                                       "share": tl.RAM_SHARE}
+                                       "limit": tl.memory_limit(memory, share), "share": share}
     return {"state": state_json(state, now), "now": now, "slots": tl.SLOTS, "memory": ram, "entries": rows}
 
 
@@ -343,6 +347,20 @@ def _post_state(handler: Handler) -> None:
     handler._json({"state": state_json(state, now)})
 
 
+def _post_ram_share(handler: Handler) -> None:
+    share = handler.json_body().get("share")
+    if share is not None and not _number(share):
+        raise BadRequest("share: a number from 0.5 to 0.98 or null")
+    queue = tl.Queue(handler.server.folder)
+    try:
+        share = queue.set_ram_share(share)
+    except ValueError as error:
+        raise BadRequest(str(error)) from None
+    finally:
+        queue.db.close()
+    handler._json({"share": share})
+
+
 def _post_stop(handler: Handler) -> None:
     id = handler.json_body().get("id")
     if not isinstance(id, int) or isinstance(id, bool):
@@ -362,6 +380,7 @@ ROUTES: Dict[str, Dict[str, Callable[[Handler], None]]] = {
     "/page.css": {"GET": _css},
     "/page.js": {"GET": _js},
     "/api/state": {"GET": _get_state, "POST": _post_state},
+    "/api/ram-share": {"POST": _post_ram_share},
     "/api/stop": {"POST": _post_stop},
 }
 
@@ -581,6 +600,7 @@ PAGE_HTML = """<!doctype html>
     <div class="facts">
       <span id="slots" class="muted"></span>
       <span id="ram" class="muted"></span>
+      <label class="muted">RAM limit <select id="share" aria-label="Share of all memory the RAM guard allows"></select></label>
     </div>
   </header>
   <p id="error" class="error" hidden></p>
@@ -722,7 +742,7 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px s
 .until { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .pick.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
 .pick-time, .then { display: inline-flex; align-items: center; gap: 4px; }
-.pick-time input, .then select { background: var(--button); border: 1px solid var(--line); border-radius: 7px;
+.pick-time input, .then select, .facts select { background: var(--button); border: 1px solid var(--line); border-radius: 7px;
                                   padding: 5px 6px; }
 .pick-time.on input { border-color: var(--accent); }
 .note { width: 100%; background: var(--button); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px; }
@@ -841,6 +861,29 @@ PAGE_JS = r""""use strict";
     }
   }
 
+  function showShare(share) {
+    const select = $("share");
+    const percent = String(Math.round(share * 100));
+    for (const value of ["80", "85", "90", "95", percent].filter((v, i, all) => all.indexOf(v) === i)) {
+      if (![...select.options].some((o) => o.value === value)) {
+        const option = new Option(value + " %", value);
+        const at = [...select.options].findIndex((o) => Number(o.value) > Number(value));
+        select.add(option, at < 0 ? null : select.options[at]);
+      }
+    }
+    if (document.activeElement !== select) select.value = percent;
+  }
+
+  async function setShare() {
+    try {
+      await call("POST", "/api/ram-share", {share: Number($("share").value) / 100});
+      await refresh();
+    } catch (e) {
+      showError("The RAM limit was not set: " + e.message);
+      await refresh();
+    }
+  }
+
   async function stop(entry) {
     const what = entry.kind || entry.short;
     if (!window.confirm("Stop #" + entry.id + " " + what + " of owner " + entry.owner +
@@ -945,7 +988,11 @@ PAGE_JS = r""""use strict";
       (heavy ? " \u00b7 a heavy command runs" + (heavy.tamed ? " (tamed)" : "") : "");
     const ram = data.memory;
     $("ram").textContent = ram ? "RAM " + gb(ram.available) + " free of " + gb(ram.total) +
-                                 " \u00b7 budget for the lock " + gb(ram.budget) : "RAM unknown (no psutil)";
+      " \u00b7 limit leaves " + gb(Math.max(0, ram.limit)) + ", running commands may still grow by " +
+      gb(Math.max(0, ram.limit - ram.budget)) + " \u00b7 budget for the lock " + gb(ram.budget)
+      : "RAM unknown (no psutil)";
+    $("share").parentElement.hidden = !ram;
+    if (ram) showShare(ram.share);
     fill($("running"), running, runningItem, "Nothing runs.", now);
     fill($("waiting"), waiting, waitingItem, "Nothing waits.", now);
   }
@@ -969,6 +1016,7 @@ PAGE_JS = r""""use strict";
   for (const button of document.querySelectorAll(".pick")) {
     button.addEventListener("click", () => { pick = button.dataset.pick; render(); });
   }
+  $("share").addEventListener("change", setShare);
   $("at").addEventListener("input", () => { pick = $("at").value ? "time" : "none"; render(); });
   render();
   refresh();

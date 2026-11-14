@@ -953,6 +953,12 @@ def test_area_in_tiles_with_water_and_gaps(tmp_path, monkeypatch):
     one, tiled = (json.loads(read(name, "run.json")) for name in ("one", "tiled"))
     assert one["terrain"] == tiled["terrain"] and one["summary"]["lines"] == tiled["summary"]["lines"]
     assert len(glob.glob(os.path.join(runs["tiled"], "tiles", "*.table.pkl.gz"))) > 1
+    # Where the land's terrain came from: the same counted once on the whole grid in strips; the two gaps
+    # filled from the fallback, a small share (no warning), in the head of data.js too
+    origins = one["terrain_sources"]
+    assert origins == tiled["terrain_sources"] and 0 < origins["fallback_share"] < search.FALLBACK_WARN_SHARE
+    assert [layer["role"] for layer in origins["layers"]] == ["source", "fallback"]
+    assert '"terrain_sources":' in read("tiled", "data.js").decode("utf-8")
 
 
 def _fake_orthophoto(http_server, monkeypatch, folder: str = "fake/ortho/live"):
@@ -1186,3 +1192,37 @@ def test_run_saved_by_children_as_in_process(tmp_path, monkeypatch):
                              "ATTRIBUTION.txt"}
     assert saved[4] == saved[1] and saved[2] == saved[1]
     assert saved[1]["data.js"].count(b"null]") == 0  # a circle: every line with its profile
+
+
+def test_terrain_fallback_warning(monkeypatch):
+    """The warning terrain_fallback from FALLBACK_WARN_SHARE of the land filled from fallbacks, never below;
+    nothing counted when nothing was filled."""
+    from types import SimpleNamespace
+    import search
+    import sources as src
+    from messages import Note
+    shares = {"share": 0.0}
+
+    def origins(*args, **kwargs):
+        share = shares["share"]
+        return {"land_km2": 1.0, "fallback_share": share, "regions": [], "totals": {},
+                "layers": [{"role": "source", "name": "Fine 1 m", "resolution": 1.0, "share": 1 - share},
+                           {"role": "fallback", "name": "Coarse 10 m", "resolution": 10.0, "share": share}]}
+    monkeypatch.setattr(src.filling, "terrain_origins", origins)
+    source = SimpleNamespace(name="Fine 1 m", nmt=SimpleNamespace(native_res=1.0), sea_fill=None)
+    fallback = SimpleNamespace(name="Coarse 10 m", nmt=SimpleNamespace(native_res=10.0))
+    for share, warned in ((0.0999, False), (0.10, True), (1.0, True)):
+        events = []
+        plan = SimpleNamespace(source=source, grid=None, emit=lambda kind, text: events.append((kind, text)))
+        shares["share"] = share
+        search._terrain_sources(plan, "nmt.npy", None, None, [], ["filled.npy"], [(fallback, 5)], None, None, None)
+        notes = [text for kind, text in events if kind == "warning"]
+        assert bool(notes) == warned, share
+        if warned:
+            assert isinstance(notes[0], Note) and notes[0].code == "terrain_fallback"
+            assert notes[0].params == {"percent": round(100 * share), "source": "Fine 1 m", "fallback": "Coarse 10 m"}
+        assert any(kind == "info" and text.startswith("Terrain of the search area's land: ") for kind, text in events)
+    events = []
+    plan = SimpleNamespace(source=source, grid=None, emit=lambda kind, text: events.append((kind, text)))
+    assert search._terrain_sources(plan, "nmt.npy", None, None, [], ["filled.npy"], [(fallback, 0)],
+                                   None, None, None) is None and not events

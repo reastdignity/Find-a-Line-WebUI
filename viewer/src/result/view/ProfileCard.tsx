@@ -157,6 +157,6 @@ export function ProfileCard({model, view, measured, onCloseMeasured, layout, onL
     {side("l")}
     {side("r")}
     <ProfileDock model={model} view={view} measured={measured} onCloseMeasured={onCloseMeasured} fill
-                 folded={folded} onFold={setFolded} />
+                 folded={folded} onFold={setFolded} onContent={() => redraw((n) => n + 1)} />
   </div>;
 }

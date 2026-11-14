@@ -1,9 +1,10 @@
 """Water and gaps: the water body mask, water filled to the surface level, gaps from fallback sources."""
 
 import math
+from dataclasses import dataclass
 import os
 import shutil
-from typing import Callable, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import requests
@@ -37,6 +38,12 @@ SHORE_RIM_MIN = 5.0  # m
 SHORE_SIMPLIFY = 2.0  # pixels: the tolerance the segments' outlines are simplified with (shore_segments)
 SHORE_BAND = 2  # pixels: the shore's pixels grown by this much each way before they are outlined (shore_segments)
 SHORE_MIN_M = 10  # m: a segment shorter than this is left out of the run's list (counted in its totals)
+# The regions of the search area's land filled from a fallback (terrain_origins): their outlines simplified by
+# this many pixels; a region smaller than FALLBACK_MIN_M2 (or a hole in one) is left out of the run's list
+# (counted in its totals); at most FALLBACK_REGIONS_MAX regions, the largest first
+FALLBACK_SIMPLIFY = 2.0
+FALLBACK_MIN_M2 = 2500.0
+FALLBACK_REGIONS_MAX = 200
 # A neighbour (Source.neighbours) fills gaps reaching the edge of the search's footprint at
 # least this large (a sliver of another country at the edge is left to the fallback)
 NEIGHBOUR_MIN_GAP_M2 = 2500
@@ -387,6 +394,101 @@ def shore_segments(elevation_path: str, water_path: str, face_path: Optional[str
     totals = {f"{name}_m": sum(s["m"] for s in segments if s["kind"] == name) for name in names.values()}
     totals.update({f"{name}_px": pixels[kind] for kind, name in names.items()})
     return {"rim_min": rim_min, "segments": segments, "totals": totals}
+
+
+def terrain_origins(elevation_path: str, area: np.ndarray, grid: Grid, source: Tuple[str, float],
+                    joined_path: Optional[str], neighbours: List[str], fallback_paths: List[str],
+                    fallbacks: List[Tuple[str, float]], wbm: Optional[np.ndarray] = None,
+                    sea_zone: Optional[np.ndarray] = None, sea_value: Optional[float] = None,
+                    rows: Optional[int] = None) -> Dict:
+    """Where the terrain of a search area's land came from, after the neighbours' and the fallbacks'
+    filling (fill_from_neighbours, fill_gaps_chain) and before the water's (run.json and data.js
+    "terrain_sources"). The land takes the terrain statistics' rule (hypsometry.py) after the filling:
+    the area's pixels with data, less water_with_data (so the source's own share is the statistics'
+    land, counted before the filling). Its pixels are counted by origin: the source's own data, the
+    neighbours' (joined_path; one entry naming those that filled pixels: equal data, never weak) and
+    each fallback's. fallback_paths are fill_gaps_chain's `steps`: the first all the fallbacks'
+    pixels, each later one its fallback's own. The fallbacks' regions on the land are outlined as
+    shore_segments outlines the shore (8-connected, strip by strip, joined, simplified by
+    FALLBACK_SIMPLIFY pixels), with their holes; regions and holes under FALLBACK_MIN_M2 are left
+    out, at most FALLBACK_REGIONS_MAX regions (the largest first); the totals count every pixel.
+    source, fallbacks: (name, resolution in metres). rows: in strips of that many rows.
+    {"land_km2", "fallback_share", "layers": [{"role": "source"|"neighbour"|"fallback", "name",
+    "resolution", "share"}], "regions": [{"layer": index in layers, "km2", "rings": [[[lon, lat],
+    ...], ...]}] (the outline first, then its holes), "totals": {"fallback_km2", "listed_km2"}}."""
+    from pyproj import Transformer
+    from rasterio.features import shapes
+    from rasterio.transform import Affine
+    from shapely import normalize
+    from shapely.geometry import Polygon, shape
+    from shapely.ops import unary_union
+
+    elevation = np.load(elevation_path, mmap_mode="r")
+    joined = np.load(joined_path, mmap_mode="r") if joined_path else None
+    masks = [np.load(p, mmap_mode="r") if p and os.path.exists(p) else None for p in fallback_paths]
+    height = elevation.shape[0]
+    land_px = joined_px = 0
+    fallback_px = [0] * len(fallbacks)
+    polygons: List[list] = [[] for _ in fallbacks]
+    for r0, r1, _, _ in strips(height, rows or height):
+        z = elevation[r0:r1]
+        land = np.asarray(area[r0:r1], dtype=bool) & np.isfinite(z)
+        land &= ~water_with_data(z, None if wbm is None else wbm[r0:r1],
+                                 None if sea_zone is None else sea_zone[r0:r1], sea_value)
+        land_px += int(land.sum())
+        if joined is not None:
+            joined_px += int((joined[r0:r1] & land).sum())
+        later = np.zeros(land.shape, bool)  # the later fallbacks' pixels: the first's are the union less these
+        own = []
+        for k in range(len(fallbacks) - 1, -1, -1):
+            if masks[k] is None:
+                own.append(None)
+                continue
+            mine = masks[k][r0:r1] & land
+            if k == 0:
+                mine &= ~later
+            else:
+                later |= masks[k][r0:r1]
+            own.append(mine)
+        own.reverse()
+        transform = grid.transform @ Affine.translation(0, r0)
+        for k, mine in enumerate(own):
+            if mine is None or not mine.any():
+                continue
+            fallback_px[k] += int(mine.sum())
+            for geometry, _ in shapes(mine.astype(np.uint8), mask=mine, transform=transform, connectivity=8):
+                polygons[k].append(shape(geometry))
+    px_km2 = grid.res ** 2 / 1e6
+    share = lambda px: round(px / land_px, 4) if land_px else 0.0
+    own_px = land_px - joined_px - sum(fallback_px)
+    layers = [{"role": "source", "name": source[0], "resolution": source[1], "share": share(own_px)}]
+    if joined_px:
+        layers.append({"role": "neighbour", "name": ", ".join(neighbours), "resolution": None, "share": share(joined_px)})
+    to_wgs = Transformer.from_crs(grid.crs, "EPSG:4326", always_xy=True).transform
+    lonlat = lambda coords: [[round(lon, 6), round(lat, 6)] for lon, lat in (to_wgs(x, y) for x, y in coords)]
+    regions = []
+    for k, (name, resolution) in enumerate(fallbacks):
+        if not fallback_px[k]:
+            continue
+        layers.append({"role": "fallback", "name": name, "resolution": resolution, "share": share(fallback_px[k])})
+        if not polygons[k]:
+            continue
+        joined_k = normalize(unary_union(polygons[k]))  # the strips' pieces of one region joined, canonical
+        for polygon in (joined_k.geoms if hasattr(joined_k, "geoms") else [joined_k]):
+            if polygon.area < FALLBACK_MIN_M2:
+                continue
+            holes = [h for h in polygon.interiors if Polygon(h).area >= FALLBACK_MIN_M2]
+            outline = Polygon(polygon.exterior, holes)
+            simple = outline.simplify(FALLBACK_SIMPLIFY * grid.res, preserve_topology=True)
+            if simple.is_empty or simple.geom_type != "Polygon":
+                simple = outline
+            regions.append({"layer": len(layers) - 1, "km2": round(polygon.area / 1e6, 4),
+                            "rings": [lonlat(simple.exterior.coords)] + [lonlat(h.coords) for h in simple.interiors]})
+    regions.sort(key=lambda r: -r["km2"])
+    regions = regions[:FALLBACK_REGIONS_MAX]
+    return {"land_km2": round(land_px * px_km2, 4), "fallback_share": share(sum(fallback_px)), "layers": layers,
+            "regions": regions, "totals": {"fallback_km2": round(sum(fallback_px) * px_km2, 4),
+                                           "listed_km2": round(sum(r["km2"] for r in regions), 4)}}
 
 
 def fill_water(elevation_path: str, surface_path: Optional[str], grid: Grid, wbm: np.ndarray,
@@ -992,17 +1094,23 @@ def _or_rows(out_path: str, more_path: str, rows: int):
 
 def fill_gaps_chain(elevation_path: str, surface_path: Optional[str], grid: Grid, fallbacks: List["Source"],
                     cache_dir: str, out_path: str, update: Optional[str] = None,
-                    exclude: Optional[np.ndarray] = None, rows: Optional[int] = None) -> Tuple[str, List[Tuple["Source", int]]]:
+                    exclude: Optional[np.ndarray] = None, rows: Optional[int] = None,
+                    steps: Optional[List[str]] = None) -> Tuple[str, List[Tuple["Source", int]]]:
     """Fill the gaps on land from each fallback in turn (fill_gaps), each only what the ones
     before it left (most sources have one; Alaska: its IfSAR, then the 1/3″ DEM). Saves the
     mask of all filled pixels to out_path; returns (out_path, [(fallback, filled pixels)]).
-    rows: in strips (fill_gaps), the masks joined strip by strip."""
+    rows: in strips (fill_gaps), the masks joined strip by strip.
+    steps: a list the masks' paths are appended to, one per fallback: the first is out_path (all
+    the fallbacks' pixels once the chain is done), each later one that fallback's own pixels (the
+    fallbacks fill disjoint pixels: terrain_origins tells the first's from the union less the rest)."""
     filled, counts = None, []
     for n, fallback in enumerate(fallbacks):
         step = out_path if n == 0 else f"{os.path.splitext(out_path)[0]}{n}.npy"
         _, pixels, _ = fill_gaps(elevation_path, surface_path, grid, fallback, cache_dir, step, update,
                                  exclude=exclude, name="gap" if n == 0 else f"gap{n}", rows=rows)
         counts.append((fallback, pixels))
+        if steps is not None:
+            steps.append(step)
         if rows is not None:
             if n and pixels:
                 _or_rows(out_path, step, rows)
@@ -1164,7 +1272,8 @@ def neighbour_window(neighbour: Source, grid: Grid, gaps: np.ndarray,
 def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid: Grid, neighbours: List[Source],
                          cache_dir: str, out_path: str, update: Optional[str] = None,
                          exclude: Optional[np.ndarray] = None,
-                         rows: Optional[int] = None) -> Tuple[Optional[str], List[Tuple[Source, int]]]:
+                         rows: Optional[int] = None,
+                         partner: Optional[np.ndarray] = None) -> Tuple[Optional[str], List[Tuple[Source, int]]]:
     """Fill the gaps on land at a border from the national data of the neighbours, in turn,
     before the fallbacks (fill_gaps_chain): each only what the ones before it left, the same
     offset per gap as fill_gaps, its surface gaps from its surface model only. A neighbour
@@ -1176,7 +1285,10 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     meanwhile, the masks joined strip by strip). The border gaps are found once, and again only
     after a neighbour wrote pixels into either grid or failed midway (an attempt that found no
     data of its own under the gaps leaves them as they were). The neighbours' rasters are
-    reprojected as NEIGHBOUR_SAME_RESOLUTION and NEIGHBOUR_RESAMPLING say."""
+    reprojected as NEIGHBOUR_SAME_RESOLUTION and NEIGHBOUR_RESAMPLING say.
+    partner: a uint8 grid (memory-mapped, or in memory) the index n + 1 of neighbours[n] is written
+    into wherever it filled terrain pixels (the count mode across a border: partner_grid): only the mark
+    "a neighbour filled this pixel", whose partner resolve_partners takes from the territory it lies in."""
     from .choose import source_unavailable
 
     if not neighbours:
@@ -1220,6 +1332,8 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
         if written:
             gaps = None  # its terrain or surface pixels were filled: the border gaps again for the next one
         counts.append((neighbour, pixels))
+        if pixels and partner is not None:
+            _mark_rows(partner, step, n + 1, rows or grid.height)
         if pixels:
             if rows is not None:
                 if joined is None:
@@ -1237,3 +1351,140 @@ def fill_from_neighbours(elevation_path: str, surface_path: Optional[str], grid:
     if rows is None:
         np.save(out_path, joined)
     return out_path, counts
+
+
+# The count mode across a border (search.prepare_data with Plan.partners; docs/country-precompute/contract.md,
+# section 6, "The borders"): a uint8 grid of the partner of every pixel outside the area's outline within reach
+# of it, the anchors there pairing with those inside only. 0 inside the outline, beyond the reach and on the
+# pixels of no partner (a fallback's, water filled, no data); on the source's own data and on a neighbour's fill
+# 1-6 the declared neighbour (Source.neighbours, n + 1) in whose territory the pixel lies (resolve_partners), so
+# a line across a border belongs to the border it crosses whatever filled the pixel and whatever the tile's
+# grid; PARTNER_UNKNOWN where no declared neighbour's territory holds it (a country without a source: for
+# Slovakia Hungary and Ukraine)
+PARTNER_UNKNOWN = 7
+PARTNER_OWN = 255  # the source's own data in the zone until resolve_partners names its neighbour
+
+
+@dataclass(frozen=True)
+class Territory:
+    """A declared neighbour's territory for the partner grid (resolve_partners): its index (n + 1 in
+    Source.neighbours), the km² of its whole outline (which of two nested ones a pixel takes) and its outline in
+    the CRS of the grids it is burned into (country.py's neighbours.geojson: clipped to what the country's tiles
+    can reach; None when nothing of it lies there)."""
+    index: int
+    km2: float
+    shape: object = None
+
+
+def partner_zone(mask: np.ndarray, metres: float, res: float, out: Optional[np.ndarray] = None,
+                 rows: Optional[int] = None) -> np.ndarray:
+    """The pixels outside mask (the area's outline on the grid) within `metres` of it: near()'s square
+    neighbourhood, which holds the disc every partner of a line of at most that length lies in. rows: in
+    strips of that many rows into out (a new boolean grid, memory-mapped, all False), the same pixels."""
+    if rows is None:
+        return near(mask, metres, res) & ~np.asarray(mask, dtype=bool)
+    near_rows(lambda r0, r1: mask[r0:r1], metres, res, out, rows)
+    for r0, r1, _, _ in strips(out.shape[0], rows):
+        block = np.asarray(out[r0:r1])
+        if block.any():
+            out[r0:r1] = block & ~np.asarray(mask[r0:r1], dtype=bool)
+    return out
+
+
+def partner_grid(elevation_path: str, zone: np.ndarray, out_path: str, rows: int) -> np.ndarray:
+    """The partner grid before any filling: PARTNER_OWN where the zone holds the source's own terrain
+    data (finite heights of its mosaic), 0 elsewhere; a uint8 grid memory-mapped at out_path, written
+    in strips of `rows` rows."""
+    z = np.load(elevation_path, mmap_mode="r")
+    out = np.lib.format.open_memmap(out_path, mode="w+", dtype=np.uint8, shape=z.shape)
+    for r0, r1, _, _ in strips(z.shape[0], rows):
+        inside = np.asarray(zone[r0:r1], dtype=bool)
+        if inside.any():
+            out[r0:r1] = np.where(inside & np.isfinite(z[r0:r1]), PARTNER_OWN, 0).astype(np.uint8)
+    del z
+    return out
+
+
+def _mark_rows(out: np.ndarray, mask_path: str, value: int, rows: int):
+    """out[mask] = value, the boolean grid at mask_path read strip by strip."""
+    mask = np.load(mask_path, mmap_mode="r")
+    for r0, r1, _, _ in strips(mask.shape[0], rows):
+        block = np.asarray(mask[r0:r1])
+        if block.any():
+            part = np.array(out[r0:r1])
+            part[block] = value
+            out[r0:r1] = part
+    del mask
+
+
+def territory_grid(territories: Iterable[Territory], grid: Grid, out: np.ndarray) -> np.ndarray:
+    """The index of the territory holding each pixel's centre, 0 where none: the territories (their shapes in the
+    grid's CRS) burned into out, a uint8 grid of the grid all 0 (memory-mapped, or in memory), whole, as the area
+    mask is burned (rasterio's centre rule: a pixel lies in the territory holding its centre, so two outlines that
+    share their border vertices give each pixel one of them), each first clipped to the grid grown by two pixels
+    (the burn's work follows the edges it is given; the edges within the grid stay as they are). The largest km²
+    first, of equal km² the later declared first, so a pixel takes the declared neighbour of the smallest territory
+    holding it (a region inside its country: Alaska, British Columbia), and of two equal ones the one declared
+    first (Alaska before Alaska's IfSAR)."""
+    import shapely
+    from rasterio.features import rasterize
+    from shapely.geometry import mapping
+    left, bottom, right, top = grid.bounds
+    pad = 2 * grid.res
+    shapes = []
+    for t in sorted(territories, key=lambda t: (-t.km2, -t.index)):
+        if t.shape is None:
+            continue
+        part = shapely.clip_by_rect(t.shape, left - pad, bottom - pad, right + pad, top + pad)
+        if not part.is_empty:
+            shapes.append((mapping(part), t.index))
+    if shapes:
+        rasterize(shapes, out=out, transform=grid.transform, all_touched=False)
+    return out
+
+
+def resolve_partners(partner: np.ndarray, zone: np.ndarray, territories: List[Territory], grid: Grid, rows: int,
+                     scratch: Optional[str] = None):
+    """The partner grid's last pass, after the gap filling, strip by strip: 0 outside the zone (inside the
+    outline, beyond the reach); every other pixel that carries a partner at all, the source's own data
+    (PARTNER_OWN) and a neighbour's fill (fill_from_neighbours' mark n + 1, which only says that a neighbour
+    filled it), takes the index of the declared neighbour in whose territory it lies (territory_grid: the
+    smallest territory holding its centre), else PARTNER_UNKNOWN; the rest of the zone (a fallback's pixels, water,
+    no data) stays 0. So a pixel's partner depends on where it lies only, never on the tile's grid, band or
+    profile, nor on which neighbour's file filled it (a line across a border belongs to the border it crosses: the
+    neighbour's own cube, which replaces it once it exists, is cut by that territory). Before 2026-11-12 an own
+    pixel took the neighbour whose fill lay nearest, else the first whose rough boxes held it: the lead profile's
+    S tile E-565000_N-1205000 at the Czech border gave its 234 lines across Poland, the user profile's larger
+    grid, which held a pixel Czechia filled, Czechia (tests/test_count_mode.py::test_partners_by_territory).
+    The rule's limit: the smallest-territory rule only tells declared neighbours apart, so a region inside a
+    declared neighbour that the source does not declare itself takes its parent's index.
+    territories: [] gives every such pixel PARTNER_UNKNOWN (a source without neighbours: an elevation file).
+    scratch: the path of the territories' grid in strips (memory-mapped there and removed after), else in
+    memory."""
+    known_any = False
+    for r0, r1, _, _ in strips(grid.height, rows):
+        if (np.asarray(partner[r0:r1]) != 0).any():
+            known_any = True
+            break
+    t = None
+    if known_any and territories:
+        shape = (grid.height, grid.width)
+        t = (np.lib.format.open_memmap(scratch, mode="w+", dtype=np.uint8, shape=shape) if scratch
+             else np.zeros(shape, dtype=np.uint8))
+        territory_grid(territories, grid, t)
+    for r0, r1, _, _ in strips(grid.height, rows):
+        p = np.array(partner[r0:r1])
+        p[~np.asarray(zone[r0:r1], dtype=bool)] = 0
+        known = p != 0
+        if known.any():
+            index = np.full(int(known.sum()), PARTNER_UNKNOWN, dtype=np.uint8)
+            if t is not None:
+                found = np.asarray(t[r0:r1])[known]
+                index[found != 0] = found[found != 0]
+            p[known] = index
+        partner[r0:r1] = p
+    if scratch and t is not None:
+        del t
+        remove_grid(scratch)
+    if isinstance(partner, np.memmap):
+        flush_grid(partner)

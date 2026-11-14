@@ -420,6 +420,51 @@ def test_index_tiles_of_a_grid():
     assert {lon for _, lon in both} == {179.75, -180.0} and {lat for lat, _ in both} == {59.75, 60.0}
 
 
+def test_index_tiles_within_the_grids_box(tmp_path):
+    """A grid smaller than its outline (a tile of the country layer carries the whole country's) asks the
+    tiles of its own box only: inside the outline every tile of the box, as before 2026-11-08 (osm.tiles of
+    the box); across the outline's edge those of the box under it (the margin kept), in osm.tiles' order;
+    outside the outline none; and a versions policy asks exactly those and finds the box's files."""
+    import osm
+    from rasterio.warp import transform_bounds
+    from shapely.geometry import box
+
+    from area import project
+    from sources.indexes.cached import INDEX_MARGIN_DEG, CachedIndex, index_tiles
+    from sources.indexes.versions import NewestPerSheet
+    # Two parts in Poland's CS92: a square of 150 km and one of 3 km, 220 km away
+    big, small = box(300000, 400000, 450000, 550000), box(670000, 700000, 673000, 703000)
+
+    def tile_grid(left, bottom, side):
+        grid = Grid(left=left, top=bottom + side, res=100.0, height=int(side / 100), width=int(side / 100),
+                    crs="EPSG:2180")
+        grid.area_shape = big.union(small)
+        return grid
+    inside, across, outside = (tile_grid(360000, 460000, 30000), tile_grid(435000, 470000, 40000),
+                               tile_grid(560000, 600000, 30000))
+    assert index_tiles(inside) == _box_tiles(inside) and len(_box_tiles(inside)) >= 4
+    shape = project(across.area_shape, "EPSG:2180", "EPSG:4326")
+    m = INDEX_MARGIN_DEG
+    expected = [(lat, lon) for lat, lon in _box_tiles(across)
+                if shape.intersects(box(lon - m, lat - m, lon + osm.TILE_DEG + m, lat + osm.TILE_DEG + m))]
+    found = index_tiles(across)
+    assert found == expected and 0 < len(found) < len(_box_tiles(across))
+    assert index_tiles(outside) == []
+    # NewestPerSheet asks those tiles only, and keeps the sheets over the grid's box under the outline
+
+    def extent(lat, lon):
+        left, bottom, right, top = transform_bounds("EPSG:4326", "EPSG:2180", lon, lat, lon + 0.25, lat + 0.25)
+        return [left, bottom, right, top]
+    for k, grid in enumerate((inside, across, outside)):
+        listing, asked = _counting(lambda lat, lon: [
+            {"year": 2020, "godlo": f"{lat}_{lon}", "url": f"https://x.example/{lat}_{lon}/A.asc",
+             "crs": "EPSG:2180", "res": 1.0, "extent": extent(lat, lon)}])
+        index = CachedIndex("test", listing, NewestPerSheet("t/sheets", "EPSG:2180", 1.0), "n", "t")
+        index.use(str(tmp_path / f"cache{k}"), None)
+        sheets = index.tiles(grid)
+        assert asked == index_tiles(grid) and (len(sheets) > 0) is (grid is not outside)
+
+
 def _counting(items_of):
     """A Listing counting the tiles asked, answering items_of(lat, lon)."""
     from sources.indexes.cached import Listing
@@ -599,6 +644,32 @@ def test_composed_layer(tmp_path, capsys):
     layer.reader.fetched.clear()
     src.download_layers([(layer, "fake")], None, cache_dir)
     assert layer.reader.fetched == []  # all cached or missing
+
+
+class GridLayer(FakeLayer):
+    """A fake layer whose tiles are those of its grid: the tiles 0..grid-1, in a folder of its own; it records the
+    grids it was asked about."""
+
+    def __init__(self, name):
+        super().__init__(0)
+        self.folder, self.asked, self.done = f"fake/{name}", [], []
+        self.index.tiles = lambda grid: self.asked.append(grid) or list(range(grid))
+        self.index.path = lambda cache_dir, tile: os.path.join(cache_dir, "fake", name, f"{tile}.bin")
+
+    def downloaded(self, grid, cache_dir):
+        self.done.append(grid)
+
+
+def test_download_layers_with_a_grid_per_layer(tmp_path, capsys):
+    """An entry (layer, label, grid) downloads that layer over its own grid in the same pool (the country
+    prefetch's neighbours); the others over the call's grid; a layer named twice keeps its first grid."""
+    own, other = GridLayer("own"), GridLayer("other")
+    src.download_layers([(own, "terrain"), (other, "gap fill (other)", 2), (other, "surface", 5)], 3, str(tmp_path))
+    assert sorted(own.reader.fetched) == [0, 1, 2] and sorted(other.reader.fetched) == [0, 1]
+    assert set(own.asked) == {3} and set(other.asked) == {2}
+    assert (own.done, other.done) == ([3], [2, 2])  # Layer.downloaded once per entry, as before
+    out = capsys.readouterr().out
+    assert "Fake: 3 tiles (0 cached, 3 to download)" in out and "Fake: 2 tiles (0 cached, 2 to download)" in out
 
 
 def test_prune_asks_a_folder_once(tmp_path, monkeypatch):

@@ -29,7 +29,7 @@ Asia). Decisions taken from it go into the roadmap.
   scripts), the regression test and the documentation, more than the code.
 - **Lists kept by hand**, which grow with every source: the help of `--source` in `params.py` (names the
   countries), README's "Data sources" table, the `--source` row of the options table and "Data", the
-  `OFFLINE_BOXES`, CLAUDE.md's code map, `setup-for-regular-folk.md`. The about page is already generated from
+  `OFFLINE_BOXES`, the code map (docs/code-map/sources.md), `setup-for-regular-folk.md`. The about page is already generated from
   `SOURCES`.
 - **At run time**: one source per search; `--source auto` picks by ISO 3166-1 country code and a box; the gaps
   are filled from `fallback` and `more_fallbacks` in turn. Regions inside a country are only possible through

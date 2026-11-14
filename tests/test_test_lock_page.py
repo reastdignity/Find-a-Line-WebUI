@@ -109,7 +109,7 @@ def test_heavy_and_memory_on_the_page(runs, server):
     if answer["memory"] is None:                      # no psutil: nothing guarded
         assert waiting["held_by"] is None
     else:
-        assert set(answer["memory"]) == {"available", "total", "budget", "share"}
+        assert set(answer["memory"]) == {"available", "total", "limit", "budget", "share"}
         assert 0 < answer["memory"]["available"] <= answer["memory"]["total"]
         assert waiting["held_by"] == "memory"
         assert re.fullmatch(r"held: not enough free memory \(needs ~100000\.0 GB, \d+\.\d GB free for it\)",
@@ -274,5 +274,19 @@ def test_page_in_edge(runs, server, tmp_path):
     assert '<span class="badge heavy">heavy</span>' in running and '<span class="muted">h</span>' in running
     assert '<span class="untamed">running untamed: all threads, normal priority</span>' in running
     assert f"1 of {tl.SLOTS} shared slots in use · a heavy command runs</span>" in dom
-    assert re.search(r'<span id="ram" class="muted">(RAM \d+\.\d GB free of \d+\.\d GB · budget for the lock '
+    assert re.search(r'<span id="ram" class="muted">(RAM \d+\.\d GB free of \d+\.\d GB · limit leaves \d+\.\d GB, '
+                     r'running commands may still grow by \d+\.\d GB · budget for the lock '
                      r'\d+\.\d GB|RAM unknown \(no psutil\))</span>', dom), dom
+
+
+def test_set_the_ram_share(server):
+    """POST /api/ram-share with the page's header sets the guard's share at once (the next look of
+    the page and of every wrapper sees it); null resets it; a value outside is 400, no header 403."""
+    assert call(server, "POST", "/api/ram-share", {"share": 0.9}, {"Content-Type": "application/json"})[0] == 403
+    status, _, answer = call(server, "POST", "/api/ram-share", {"share": 0.9}, WRITE)
+    assert (status, answer) == (200, {"share": 0.9})
+    memory = call(server, "GET", "/api/state")[2]["memory"]
+    assert memory is None or memory["share"] == 0.9
+    for bad in ({"share": 0.2}, {"share": 1.0}, {"share": "90"}, {"share": True}):
+        assert call(server, "POST", "/api/ram-share", bad, WRITE)[0] == 400, bad
+    assert call(server, "POST", "/api/ram-share", {"share": None}, WRITE)[2] == {"share": tl.RAM_SHARE}

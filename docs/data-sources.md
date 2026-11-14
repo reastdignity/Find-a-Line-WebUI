@@ -119,7 +119,8 @@ Rules of thumb:
   whole tiles): look at the sea pixels far from the shore (their distinct values, second differences), not at the
   shore's strip, and set `Source.sea_fill` when the constant is above `SEA_LEVEL_TOLERANCE`.
 - Pick a regression centre where the steep pixels are (an anchor map, or a quick search with a small radius): the
-  research's Rüdersdorf point lay 1 km from the quarry's walls, Tibrogargan's dome gave 9 lines.
+  research's Rüdersdorf point lay 1 km from the quarry's walls, Tibrogargan's dome gave 9 lines. Where highlines
+  are rigged: `tools/truth_study.py places` (docs/truth-check.md).
 - Heights above the ellipsoid (ArcticDEM; the sea lies at 27-32 m there) go into the cache above a geoid
   (`FileBlocks(geoid=...)`, `sources/vertical.py`). Never let PROJ do it: pyproj's transformation to EGM2008 heights
   gives N = 0 without a word when its grid is missing. Check N against GeographicLib's GeoidEval at a few points, and

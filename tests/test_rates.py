@@ -214,18 +214,25 @@ def test_published_limits():
                                  "geodaten.schleswig-holstein.de": 4, "gis.arso.gov.si": 2,
                                  "spatial-img.information.qld.gov.au": 4, "geodata.npolar.no": 4,
                                  "ftp.natt.is": 4, "gis.natt.is": 4,
-                                 "www.shop.lvgl.saarland.de": 2, "nrs.objectstore.gov.bc.ca": 4}
+                                 "www.shop.lvgl.saarland.de": 2, "nrs.objectstore.gov.bc.ca": 4,
+                                 "data.slackmap.com": 2, "api.slackmap.com": 1}
     assert all(n < net.HOST_SLOTS for n in net.HOST_SLOTS_OF.values())
 
 
 def test_catalogue_hosts_named():
     """Every host with a rate or a cap is one the catalogue names (a renamed host would lose its
-    limit); of Funet's two names of the same servers, one is enough."""
+    limit); of Funet's two names of the same servers, one is enough. SlackMap's hosts are those of
+    tools/slackmap_data.py (the truth check), not the catalogue's."""
     import inspect
     import sources.catalogue as catalogue
     text = "".join(inspect.getsource(m) for m in catalogue.FAMILIES)
     funet = {"www.nic.funet.fi", "mirrors.nic.funet.fi"}
-    for host in set(net.HOST_RATES_OF) | set(net.HOST_SLOTS_OF) - funet:
+    tools = {"data.slackmap.com", "api.slackmap.com"}
+    with open(os.path.join(REPO, "tools", "slackmap_data.py"), encoding="utf-8") as f:
+        tool = f.read()
+    for host in tools:
+        assert re.search(rf"//{re.escape(host)}\b", tool), host
+    for host in set(net.HOST_RATES_OF) | set(net.HOST_SLOTS_OF) - funet - tools:
         assert re.search(rf"//{re.escape(host)}\b", text), host
     assert any(re.search(rf"//{re.escape(host)}\b", text) for host in funet)
 

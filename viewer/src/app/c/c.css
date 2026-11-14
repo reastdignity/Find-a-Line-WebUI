@@ -183,14 +183,17 @@
   border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
 .ui .c-osm { display: flex; flex-direction: column; gap: 10px; }
 .ui .c-mappage .c-newmap { flex: 1; }
-/* three columns (MapPage with `aside`): the panel, the map, the right panel (the highline layer's histograms) */
-.ui .c-mappage-3 { display: grid; grid-template-columns: 400px minmax(0, 1fr) 320px; grid-template-rows: minmax(0, 1fr); }
-.ui .c-mappage-3 .c-sidepanel { width: auto; min-height: 0; }
-.ui .c-mappage-3 .c-newmap { min-width: 0; min-height: 0; }
-.ui .c-sidepanel-right { border-right: 0; border-left: 1px solid var(--line); padding: 16px 16px; }
+/* Two side panels and the map between them (MapPage with `aside`: the highline layer's filters and histograms): the
+   side panels of ui/SidePanel.tsx (sidepanel.css: their widths, edges and rails), each one's content in a scroll box;
+   the right one's a container (layer-right) for the charts' grid (LayerHistograms) */
+.ui .c-mappage-3 { min-height: 0; }
+.ui .c-mappage-3 > .c-newmap { flex: 1; min-width: 0; min-height: 0; }
+.ui .c-col-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+.ui .c-col-right > .c-col-scroll { padding: 16px; container: layer-right / inline-size; }
 
-/* The highline layer (LayerPage.tsx): the panel's filters, the legend of the density classes (the tokens
-   --layer-1 … --layer-5 of ui/tokens.css, as the cells on the map), the view and the selected cell */
+/* The highline layer (LayerPage.tsx): the panel's filters (today's seven, the others in the fold "More filters"), the
+   legend of the density classes (the tokens --layer-1 … --layer-5 of ui/tokens.css, as the cells on the map; the
+   hatched swatch of the partner cells), the view with the border switch, the selected cell and the notes */
 .ui .c-layer { display: flex; flex-direction: column; gap: 14px; }
 .ui .c-layer-head { display: flex; flex-direction: column; gap: 2px; }
 .ui .c-layer-name { font-size: 16px; }
@@ -198,6 +201,22 @@
 .ui .c-layer-filters > .u-field:first-child, .ui .c-layer-filters > .c-layer-note { grid-column: 1 / -1; }
 .ui .c-layer-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .ui .c-layer-note { margin: 0; }
+.ui .c-layer-more { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ui .c-layer-more > summary { list-style: none; display: flex; align-items: center; gap: 8px; min-height: var(--touch); padding: 0 12px;
+  cursor: pointer; font-weight: 500; border-radius: 10px; }
+.ui .c-layer-more > summary::-webkit-details-marker { display: none; }
+.ui .c-layer-more > summary .u-ic { margin-left: auto; transition: transform .15s; color: var(--ink-2); }
+.ui .c-layer-more[open] > summary .u-ic { transform: rotate(180deg); }
+.ui .c-layer-more-set { font-size: 12px; font-weight: 500; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 8px; }
+.ui .c-layer-more-body { padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+.ui .c-layer-fold-topic { display: flex; flex-direction: column; gap: 8px; }
+.ui .c-layer-fold > .c-layer-wide { grid-column: 1 / -1; }
+.ui .c-layer-more-chips { margin-top: -6px; }
+.ui .c-layer-more-chips .u-chip { min-height: 28px; font-size: 12.5px; }
+/* a topic's name with a rule after it: the fold's and the charts' */
+.ui .c-layer-topic-name { font: 600 12.5px/1.2 var(--display); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-2);
+  margin: 4px 0 0; display: flex; align-items: center; gap: 8px; }
+.ui .c-layer-topic-name::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 /* on --surface: the class colours were checked against it (the dataviz skill's validator) */
 .ui .c-layer-legend, .ui .c-layer-cell { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line);
   border-radius: 10px; background: var(--surface); }
@@ -210,8 +229,19 @@
 .ui .c-layer-k3 { background: var(--layer-3); }
 .ui .c-layer-k4 { background: var(--layer-4); }
 .ui .c-layer-k5 { background: var(--layer-5); }
+/* the partner cells' swatch: a class colour with the map's hatching (cellsLayer.ts hatchPattern) */
+.ui .c-layer-hatch { width: 30px; flex: none;
+  background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--ink) 55%, transparent) 0 1.3px, transparent 1.3px 5px), var(--layer-2); }
+.ui .c-layer-legend-extra { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--ink-2); }
 .ui .c-layer-view { display: flex; flex-direction: column; gap: 8px; }
-.ui .c-layer-total { min-height: 20px; }
+.ui .c-layer-total { min-height: 20px; font-variant-numeric: tabular-nums; }
+.ui .c-layer-split { color: var(--ink-2); font-size: 12.5px; }
+.ui .c-layer-border-hint { margin: -2px 0 0; }
+.ui .c-layer-cell-border { font-size: 12.5px; color: var(--ink-2); }
+.ui .c-layer-search-hint { font-size: 12px; color: var(--ink-2); background: var(--surface-2); border-radius: 8px; padding: 7px 9px;
+  margin: 0; display: flex; gap: 7px; }
+.ui .c-layer-search-hint .u-ic { width: 15px; height: 15px; margin-top: 1px; color: var(--accent); flex: none; }
+.ui .c-layer-notes-sub { font-weight: 600; color: var(--ink-2); margin-top: 6px; list-style: none; margin-left: -18px; }
 .ui .c-layer-search { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
 .ui .c-layer-notes ul { margin: 6px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .ui .c-layer-warn { color: var(--warn); font-weight: 500; }
@@ -220,8 +250,19 @@
 .ui .c-layer-outline-label { background: color-mix(in srgb, var(--surface) 88%, transparent); color: var(--ink); border: 1px solid var(--line);
   border-radius: 6px; padding: 2px 6px; font-size: 12px; font-weight: 600; box-shadow: none; }
 .ui .c-layer-outline-label::before { display: none; }
-/* The right panel (LayerHistograms.tsx): the total in view, the histogram by length, four small ones in two columns */
+/* The right panel (LayerHistograms.tsx): the totals in view, then the charts of every dimension by topic: on a desktop
+   two a row while the panel's content holds two of 220 px (a container query on its scroll box: the drag changes it
+   live), else one a row, the open filter's chart ringed; on phones a swiped strip per topic, that chart enlarged */
 .ui .c-layer-right { display: flex; flex-direction: column; gap: 16px; }
+.ui .c-layer-topic { display: flex; flex-direction: column; gap: 10px; }
+.ui .c-layer-charts { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px 12px; align-items: start; }
+@container layer-right (min-width: 452px) { .ui .c-layer-charts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.ui .c-layer-hist-open { box-shadow: 0 0 0 2px var(--accent); padding: 6px; margin: -6px; border-radius: 8px; }
+.ui .c-layer-hist-name { display: block; max-width: 100%; border: 0; border-radius: 4px; padding: 0; background: none; font: inherit;
+  color: inherit; letter-spacing: inherit; text-transform: inherit; text-align: left; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; cursor: pointer; }
+.ui .c-layer-inview-more { font-size: 12.5px; color: var(--ink-2); font-variant-numeric: tabular-nums; margin-top: 4px; }
+.ui .c-layer-inview-more b { color: var(--ink); }
 .ui .c-layer-hist-title { font: 600 13px/1.2 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); margin: 0 0 6px; }
 .ui .c-layer-inview { display: flex; flex-direction: column; }
 .ui .c-layer-inview p { margin: 0; }
@@ -230,11 +271,8 @@
 .ui .c-layer-stat-u { color: var(--muted); font-size: 12px; }
 .ui .c-layer-hist { display: flex; flex-direction: column; min-width: 0; }
 .ui .c-layer-hist p { margin: 6px 0 0; }
-.ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 150px;
+.ui .c-layer-hist-bars { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 2px; align-items: end; height: 120px;
   border-bottom: 1px solid var(--line); }
-.ui .c-layer-hist-small .c-layer-hist-bars { height: 72px; }
-.ui .c-layer-hist-small .c-layer-bar { padding: 0; }
-.ui .c-layer-hist-small .c-layer-bar-n { font-size: 8px; letter-spacing: -.02em; }
 .ui .c-layer-bar { display: flex; flex-direction: column; justify-content: flex-end; align-items: stretch; height: 100%; min-width: 0; min-height: 0;
   margin: 0; padding: 0 1px; border: 0; border-radius: 0; background: none; color: var(--ink-2); font: inherit; cursor: pointer; }
 .ui .c-layer-bar-off { cursor: default; }
@@ -251,7 +289,6 @@
 .ui .c-layer-hist-axis span { overflow: hidden; white-space: nowrap; }
 .ui .c-layer-hist-edges { display: flex; justify-content: space-between; }
 .ui .c-layer-hist-edges span { flex: 0 0 auto; }
-.ui .c-layer-smalls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
 .ui .c-layer-waiting .c-layer-stat, .ui .c-layer-waiting .c-layer-hist-bars { opacity: .55; }
 
 /* Phones */
@@ -278,11 +315,29 @@
 .ui.c-narrow .c-mappage { flex-direction: column; overflow: hidden; }
 .ui.c-narrow .c-mappage .c-newmap { order: -1; flex: none; height: 34vh; border-bottom: 1px solid var(--line); }
 .ui.c-narrow .c-sidepanel { width: auto; flex: 1; min-height: 0; border-right: 0; overflow-y: auto; }
-/* three columns on a phone: the map on top, then the panel, then the right panel in one scrolling column */
-.ui.c-narrow .c-mappage-3 { display: flex; overflow-y: auto; }
-.ui.c-narrow .c-mappage-3 .c-newmap { flex: none; }
-.ui.c-narrow .c-mappage-3 .c-sidepanel { flex: none; overflow: visible; }
-.ui.c-narrow .c-mappage-3 .c-sidepanel-right { border-left: 0; border-top: 1px solid var(--line); }
+/* phones: the map on top, then the panel, then the histograms, in one scrolling column (no edges, no rails) */
+.ui.c-narrow .c-mappage-3 { overflow-y: auto; }
+.ui.c-narrow .c-mappage-3 > .c-newmap { flex: none; }
+.ui.c-narrow .c-mappage-3 > .c-col-side { width: auto; flex: none; border: 0; }
+.ui.c-narrow .c-mappage-3 .c-col-scroll { flex: none; overflow: visible; padding: 16px; }
+.ui.c-narrow .c-mappage-3 > .c-col-right { border-top: 1px solid var(--line); }
+.ui.c-narrow .c-mappage-3 .c-split, .ui.c-narrow .c-mappage-3 .c-col-tab { display: none; }
+/* the charts: a swiped strip of small multiples per topic, the open one enlarged in place and ringed */
+.ui.c-narrow .c-layer-charts { display: flex; align-items: flex-end; gap: 12px; overflow-x: auto; padding: 8px 16px 10px; margin: 0 -16px;
+  scroll-snap-type: x proximity; scroll-padding-inline: 16px; }
+.ui.c-narrow .c-layer-hist { flex: none; width: 148px; scroll-snap-align: start; }
+.ui.c-narrow .c-layer-hist[data-hist="length"] { width: 236px; }
+.ui.c-narrow .c-layer-hist-open { width: 272px; box-shadow: none; padding: 0; margin: 0; outline: 2px solid var(--accent); outline-offset: 4px;
+  border-radius: 4px; }
+.ui.c-narrow .c-layer-hist-open[data-hist="length"] { width: 300px; }
+.ui.c-narrow .c-layer-hist .c-layer-hist-bars { height: 64px; }
+.ui.c-narrow .c-layer-hist-open .c-layer-hist-bars { height: 108px; }
+.ui.c-narrow .c-layer-hist .c-layer-bar-n { font-size: 8px; }
+.ui.c-narrow .c-layer-hist-open .c-layer-bar-n { font-size: 9.5px; }
+.ui.c-narrow .c-layer-hist .c-layer-hist-axis { font-size: 9px; }
+.ui.c-narrow .c-layer-hist-open .c-layer-hist-axis { font-size: 10px; }
+.ui.c-narrow .c-layer-hist .c-layer-hist-title { font-size: 11.5px; margin-bottom: 4px; }
+.ui.c-narrow .c-layer-hist-open .c-layer-hist-title { font-size: 13px; color: var(--ink); }
 
 /* Problem reports on the admin page */
 .ui .c-report-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; }

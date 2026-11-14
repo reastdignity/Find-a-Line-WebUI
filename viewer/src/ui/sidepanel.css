@@ -1,0 +1,26 @@
+/* A side panel beside a map (SidePanel.tsx: C's result and the highline layer): its width (--c-w) set from the
+   kept layout fitted to the window (result/view/layout.ts fitPanels); above the map's column (which holds its panes
+   in a stacking context of its own), so its edge and tab reach over the map. Collapsed: a rail, one button (its
+   icon, the vertical label, the arrow tab at its middle, "auto" when the window collapsed it); the content stays
+   drawn, hidden. */
+.ui .c-col-side { position: relative; z-index: 1; width: var(--c-w); flex: none; display: flex; flex-direction: column; min-height: 0;
+  background: var(--surface); }
+.ui .c-col-left { border-right: 1px solid var(--line); }
+.ui .c-col-right { border-left: 1px solid var(--line); }
+/* The edge (Splitter) over the map's edge, and the collapse tab at the middle of the edge (beside it) */
+.ui .c-col-left > .c-split { right: calc(var(--u-split) / -2); }
+.ui .c-col-right > .c-split { left: calc(var(--u-split) / -2); }
+.ui .c-col-side > .c-col-tab { left: auto; transform: translateY(-50%); z-index: 9; }
+.ui .c-col-left > .c-col-tab { right: -11px; }
+.ui .c-col-right > .c-col-tab { left: -11px; }
+.ui .c-collapsed > :not(.c-rail) { display: none; }
+.ui .c-rail { position: relative; flex: 1; width: 100%; min-height: 0; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  padding: 14px 0; border: 0; background: var(--surface); color: var(--ink-2); cursor: pointer; overflow: hidden; }
+.ui .c-rail:hover { background: var(--surface-2); }
+.ui .c-rail:hover .c-rail-tab { color: var(--accent); border-color: var(--accent); }
+.ui .c-rail .u-ic { flex: none; }
+.ui .c-rail-text { writing-mode: vertical-rl; font: 500 11.5px var(--mono); letter-spacing: .07em; text-transform: uppercase; white-space: nowrap;
+  min-height: 0; overflow: hidden; text-overflow: ellipsis; }
+.ui .c-forced > .c-rail { padding-bottom: 34px; }  /* room for "auto" below the label */
+.ui .c-rail-auto { position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; font: 600 9.5px var(--mono); letter-spacing: .05em;
+  text-transform: uppercase; color: var(--warn); }

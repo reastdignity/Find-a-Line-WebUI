@@ -142,6 +142,9 @@ PATCH_NO_DATA = -32768  # the int16 value of a sample without data
 # The uncertain shore (sources.filling.shore_segments) of a search this long or longer gets a warning
 SHORE_WARN_M = 100
 SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_lines: resuming keeps it)
+# The fallbacks' share of the search area's land (sources.filling.terrain_origins) from which a search warns
+FALLBACK_WARN_SHARE = 0.10
+ORIGINS_FILE = "terrain_sources.json"  # a tiled search's terrain_origins in its run folder (as SHORE_FILE)
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The reach of a fixed anchor (reach_of_anchor, docs/3d-view-contract.md, "/api/reach"): every sample of the
 # patch is a target while at most REACH_FULL_TARGETS lie within the run's limits, else every second one;
@@ -248,6 +251,15 @@ class Plan:
     # whose area mask is then full without burning the outline and whose coverage is not counted
     # (prepare_data in strips)
     border: bool = True
+    # The count mode across a border (the country layer's border tiles, count_tile; docs/country-precompute/
+    # contract.md section 6, "The borders"): the metres beyond the area's outline within which anchors on a
+    # neighbour's data or the source's own data pair with the anchors inside (Data.partner); None: off, every
+    # anchor inside the outline (the search, a study area, a tile inside the country)
+    partners: Optional[float] = None
+    # The declared neighbours' territories in the plan's CRS (sources.filling.Territory: country.py's
+    # neighbours.geojson, read once per worker): which one a partner pixel lies in names its partner
+    # (resolve_partners); None or []: every partner PARTNER_UNKNOWN (a source without neighbours)
+    territories: Optional[List] = None
 
     @property
     def end_zone(self) -> float:
@@ -308,6 +320,14 @@ class Data:
     # (shore="kinds", uint8 memory-mapped); None without water filling or when not asked
     shore: Optional[Dict] = None
     shore_kinds: Optional[np.ndarray] = None
+    # Where the terrain of the search area's land came from (sources.filling.terrain_origins): the source's
+    # own data, the neighbours', the fallbacks' with their regions; None when nothing was filled or not counted
+    terrain_sources: Optional[Dict] = None
+    # The count mode across a border (Plan.partners): the partner of each pixel, uint8 memory-mapped
+    # (sources.filling.resolve_partners: 0 inside the outline, beyond the reach and on the pixels of no
+    # partner, 1-6 a neighbour of Source.neighbours, 7 the source's own data where none's boxes reach);
+    # the anchors where it is not 0 pair only with the anchors inside. None: Plan.partners off
+    partner: Optional[np.ndarray] = None
 
 
 @dataclass
@@ -319,6 +339,8 @@ class Lines:
     terrain: Optional[Dict] = None
     # The uncertain shore of the whole search area (sources.filling.shore_segments), None when not known
     shore: Optional[Dict] = None
+    # Where the terrain of the search area's land came from (sources.filling.terrain_origins), None when not known
+    terrain_sources: Optional[Dict] = None
 
 
 @dataclass
@@ -928,6 +950,34 @@ def _share_rows(numerator: Callable[[int, int], np.ndarray], denominator: Callab
     return above / below if below else 0.0
 
 
+def _terrain_sources(plan: Plan, elevation_path: str, mask, joined_path: Optional[str], joined: list,
+                     steps: List[str], filled: list, wbm, sea_zone, rows: Optional[int]) -> Optional[Dict]:
+    """Where the terrain of the search area's land came from after the gap filling
+    (sources.filling.terrain_origins), with an info line of the shares and a warning
+    (terrain_fallback) when the fallbacks gave FALLBACK_WARN_SHARE of it or more; None when nothing
+    was filled."""
+    if not any(px for _, px in joined + filled):
+        return None
+    source = plan.source
+    progress.compute.start("terrain origins", 1, unit="step")
+    origins = src.filling.terrain_origins(
+        elevation_path, mask, plan.grid, (source.name, source.nmt.native_res), joined_path,
+        [n.name for n, px in joined if px], steps, [(f.name, f.nmt.native_res) for f, _ in filled],
+        wbm=wbm, sea_zone=sea_zone, sea_value=source.sea_fill, rows=rows)
+    progress.compute.update(1)
+    progress.compute.finish()
+    plan.emit("info", "Terrain of the search area's land: " + ", ".join(
+        f"{100 * layer['share']:.1f}% {layer['name']}" for layer in origins["layers"]))
+    share = origins["fallback_share"]
+    if share >= FALLBACK_WARN_SHARE:
+        names = " and ".join(layer["name"] for layer in origins["layers"] if layer["role"] == "fallback")
+        plan.emit("warning", messages.Note(
+            f"{100 * share:.0f}% of the land in the search area has no {source.name} data; its heights come from "
+            f"{names}, which is coarser.\nLines there are less exact, and some may be missing.",
+            "terrain_fallback", percent=round(100 * share), source=source.name, fallback=names))
+    return origins
+
+
 def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True, strips: bool = False,
                  shore: str = "segments") -> Data:
     """Step 1: download what is missing and build the grids (terrain, surface, water, gaps).
@@ -967,12 +1017,25 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
         progress.compute.finish()
         if with_data is not None:
             emit("info", f"Elevation data: {100 * with_data:.2f}% of the search area from {source.name}")
+        # The count mode across a border: the zone beyond the outline within reach, its pixels of the source's
+        # own data marked before any filling (the neighbours' marked as they fill, resolved after the filling)
+        zone = partner = partner_path = None
+        if plan.partners and plan.border:
+            progress.compute.start("partner zone", 1, unit="step")
+            zone = src.filling.partner_zone(mask, plan.partners, grid.res,
+                                            src.filling.new_mask(temporary("zone.npy"), (grid.height, grid.width))
+                                            if rows is not None else None, rows)
+            partner_path = os.path.join(work, "partner.npy")
+            partner = src.filling.partner_grid(elevation_path, zone, partner_path, rows or grid.height)
+            progress.compute.update(1)
+            progress.compute.finish()
         surface_path = None
         if plan.nmpt:
             surface_path = src.prepare_layer(source.nmpt, grid, cache_dir, os.path.join(work, "nmpt.npy"), "surface",
                                              p.update, download=False, rows=rows)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
         water_path = filled_path = covered_path = joined_path = sea_zone = wbm = terrain = tile_terrain = None
+        terrain_sources = None
         face_path = shore_segments = shore_kinds_path = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False,
@@ -1033,17 +1096,30 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
             # The neighbours' national data at a border first, then the fallbacks
             joined_path, joined = src.filling.fill_from_neighbours(
                 elevation_path, surface_path, grid, [src.SOURCES[n] for n in source.neighbours] if plan.border else [],
-                cache_dir, os.path.join(work, "joined.npy"), p.update, exclude=sea_zone, rows=rows)
-            filled = []
+                cache_dir, os.path.join(work, "joined.npy"), p.update, exclude=sea_zone, rows=rows,
+                partner=partner)
+            filled, steps = [], []
             if source.fallback:
                 filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
                                                           [src.SOURCES[f] for f in source.fallbacks], cache_dir,
                                                           os.path.join(work, "filled.npy"), p.update, exclude=sea_zone,
-                                                          rows=rows)
+                                                          rows=rows, steps=steps)
             for fallback, filled_px in joined + filled:
                 if filled_px:
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
                                  f"from {fallback.name}")
+            if with_data is not None and shore == "segments":  # a run's search (not a country's tile, a profile)
+                terrain_sources = _terrain_sources(plan, elevation_path, mask, joined_path, joined, steps, filled,
+                                                   wbm, sea_zone, rows)
+        if partner_path:
+            progress.compute.start("partner territories", 1, unit="step")
+            src.filling.resolve_partners(partner, zone, plan.territories or [], grid, rows or grid.height,
+                                         temporary("territory.npy") if rows is not None else None)
+            progress.compute.update(1)
+            progress.compute.finish()
+            del zone, partner  # closed before the zone's file is removed (Windows); Data reads the grid again
+            if rows is not None:
+                src.filling.remove_grid(temporary("zone.npy"))
         bare = bare_path = None
         if p.water == "fill":
             if surface_path:
@@ -1147,13 +1223,14 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 np.load(filled_path, mmap_mode="r") if filled_path else None, slope,
                 np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain, tile_terrain,
                 covered=np.load(covered_path, mmap_mode="r") if covered_path else None, shore=shore_segments,
-                shore_kinds=np.load(shore_kinds_path, mmap_mode="r") if shore_kinds_path else None)
+                shore_kinds=np.load(shore_kinds_path, mmap_mode="r") if shore_kinds_path else None,
+                partner=np.load(partner_path, mmap_mode="r") if partner_path else None, terrain_sources=terrain_sources)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
     """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
-    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore)
+    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore, data.terrain_sources)
 
 
 def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0) -> Tuple[sh.LineTable, mp.Groups]:
@@ -1263,18 +1340,32 @@ def _anchor_values(plan: Plan, data: Data, anchors: np.ndarray, crop: bool = Fal
     return prom, drop
 
 
+def _with_partners(mask: np.ndarray, partner: np.ndarray) -> np.ndarray:
+    """The area mask with the pixels of a partner (Data.partner not 0): where a count across a border
+    takes its anchors, a boolean array of the grid built strip by strip."""
+    out = np.empty(mask.shape, dtype=bool)
+    for r0, r1, _, _ in src.filling.strips(mask.shape[0], src.filling.strip_rows(mask.shape[1])):
+        out[r0:r1] = np.asarray(mask[r0:r1], dtype=bool) | (np.asarray(partner[r0:r1]) != 0)
+    return out
+
+
 def _anchors(plan: Plan, data: Data, quiet: bool = False, deferred: bool = False) -> Optional[Anchors]:
     """Step 2: the steep pixels of the area (not at the seams of filled gaps or a neighbour's
     data) within the elevation band (--min/--max-elevation), with their prominence and drop and
-    the limits on them. Too few anchors: None when quiet (a tile, a count), else SearchError.
-    limits.anchors_max refuses too many either way. deferred: prominence and drop left to the
+    the limits on them; with Data.partner (the count mode across a border) also those of the zone
+    beyond the outline where it is not 0 (the partner anchors: the same values, seams and limits).
+    Too few anchors: None when quiet (a tile, a count), else SearchError. limits.anchors_max
+    refuses too many either way. deferred: prominence and drop left to the
     lines when no limit needs them (a count: most tiles of a country have no line, and most anchors of
     one with lines are in none; _pair_search computes those of the lines' anchors)."""
     p, grid, emit = plan.params, plan.grid, plan.emit
     _step(plan, 2, "finding significant slopes")
-    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold,
-                                         plan.area.mask(grid) if data.mask is None else data.mask, data.slope,
+    area = plan.area.mask(grid) if data.mask is None else data.mask
+    if data.partner is not None:  # the count mode across a border: the partner anchors beyond the outline too
+        area = _with_partners(area, data.partner)
+    anchors = sh.find_significant_slopes(data.elevation, plan.resolution, p.slope_threshold, area, data.slope,
                                          threads=line_threads(p))
+    del area
     for seams in (data.filled, data.joined):
         if seams is not None:  # slopes across the edge of a filled gap mix two surveys: not reliable anchors there
             anchors = anchors[~at_seams(seams, anchors)]
@@ -1334,7 +1425,11 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
                  check: Optional[Callable[[int], None]] = None,
                  sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
     """Step 3's line search (linesearch.find_valid_lines) with the arguments of the plan: with
-    core (bounds), pairs only from the anchors in it (the overlap is for partners)."""
+    core (bounds), pairs only from the anchors in it (the overlap is for partners). With Data.partner
+    (the count mode across a border) the pairs also start from the partner anchors (the first-anchor
+    mask: the core's anchors and the partners), and find_valid_lines' partner marks the partners and
+    the country's anchors outside the core: a partner pairs only with the country's anchors in the
+    core, so the tile whose core holds a line's anchor in the country finds it, once."""
     import linesearch as ls
 
     p, grid = plan.params, plan.grid
@@ -1344,6 +1439,13 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
         left, bottom, right, top = core
         x, y = grid.pixel_to_xy(anchors[:, 0], anchors[:, 1])
         first = (left <= x) & (x < right) & (bottom <= y) & (y < top)
+    marked = None
+    if data.partner is not None:
+        partners = np.asarray(data.partner[anchors[:, 0], anchors[:, 1]]) != 0
+        if partners.any():
+            marked = partners if first is None else partners | ~first
+            first = None if first is None else first | partners
+            marked = marked.astype(np.uint8)
     _count(plan, "grids", 1)
     _count(plan, "anchors_kept", len(anchors))  # what the line search gets
     # Deferred (the count mode): the values of the anchors of each part's lines, then of every useful
@@ -1377,7 +1479,7 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
                                                             p.min_high_share, p.max_wall_angle),
                                 values, found.strong, stats=plan.funnel, check=check,
                                 sink=ended if ends and sink is not None else sink,
-                                end_zone=plan.end_zone, lift=plan.lift, zones=zones)
+                                end_zone=plan.end_zone, lift=plan.lift, zones=zones, partner=marked)
     if ends and sink is None:
         end_values(lines)
     return lines
@@ -1393,7 +1495,15 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
     which first anchors lie in core), no "no steep terrain"/"no lines" errors (an empty grid hands
     the sink nothing), no _early_check or _check_lines (limits.anchors_max stays). The model "sag"
     uses sag_table, or an EnvelopeTable of plan.rigging when None. Returns plan.funnel with this
-    call's counts added."""
+    call's counts added.
+
+    With Data.partner (Plan.partners: a border tile of a country) the anchors of the zone beyond the
+    outline pair with those inside (_anchors, _pair_search), and a line across the border is found
+    only by the tile whose core holds its anchor in the country (the sink keeps it whatever its first
+    anchor in pixel order: countcube.TileCounter skips the core's test of a line with a border); each
+    part then also has "partner" (uint8: Data.partner at the anchor outside the outline, 0 for a line
+    inside) and "border" (int8: 0 inside, 1 when the anchor in the country is the first by (lon, lat),
+    the line's cell, else 2: _BorderSides)."""
     import linesearch as ls
 
     p, emit = plan.params, plan.emit
@@ -1407,13 +1517,53 @@ def count_tile(plan: Plan, data: Data, core: Optional[tuple], sink: Callable[[sh
         emit("info", "Precomputing the sag estimator for all line lengths...")
         sag_table = sg.EnvelopeTable(plan.rigging, p.min_length, p.max_length)
     water = data.water
+    sides = _BorderSides(plan.grid, data.partner) if data.partner is not None else None
 
     def with_water(part: sh.LineTable):
         part.columns["water_px"] = ls.covered_pixels(part.columns["a1"], part.columns["a2"], water)
+        if sides is not None:
+            sides(part)
         sink(part)
 
     _pair_search(plan, data, found, core, sag_table, sink=with_water)
     return plan.funnel
+
+
+class _BorderSides:
+    """The columns "partner" and "border" of a count's part across a border (count_tile with
+    Data.partner): partner the value of Data.partner at the anchor outside the outline (a partner never
+    pairs with a partner, so one anchor of a line is inside; 0 for a line inside), border 0 for a line
+    inside, 1 when the anchor in the country is the first by (lon, lat) (the smaller lon, then lat: the
+    line's cell, as countcube.TileCounter takes it), else 2. The anchors of the lines across go to WGS84
+    as the counter takes them (grid.pixel_to_xy, countcube's transformer of the CRS: a point's values do
+    not depend on the batch), so both pick the same first anchor."""
+
+    def __init__(self, grid, partner: np.ndarray):
+        import countcube
+        self.grid, self.partner = grid, partner
+        self.transformer = countcube._to_wgs84(grid.crs)
+
+    def __call__(self, part: sh.LineTable):
+        c = part.columns
+        a1, a2 = np.asarray(c["a1"]), np.asarray(c["a2"])
+        p1 = np.asarray(self.partner[a1[:, 0], a1[:, 1]])
+        p2 = np.asarray(self.partner[a2[:, 0], a2[:, 1]])
+        side = np.maximum(p1, p2)
+        border = np.zeros(len(a1), dtype=np.int8)
+        across = np.flatnonzero(side)
+        if len(across):
+            w = self.grid.width
+            codes = np.concatenate([a1[across, 0].astype(np.int64) * w + a1[across, 1],
+                                    a2[across, 0].astype(np.int64) * w + a2[across, 1]])
+            unique, inverse = np.unique(codes, return_inverse=True)
+            x, y = self.grid.pixel_to_xy(unique // w, unique % w)
+            lon, lat = self.transformer.transform(x, y)
+            inverse = inverse.reshape(-1)
+            lon, lat = np.asarray(lon, dtype=np.float64)[inverse], np.asarray(lat, dtype=np.float64)[inverse]
+            k = len(across)
+            first = (lon[:k] < lon[k:]) | ((lon[:k] == lon[k:]) & (lat[:k] <= lat[k:]))
+            border[across] = np.where(first == (p1[across] == 0), 1, 2)  # a1 in the country and first, or neither
+        c["partner"], c["border"] = side, border
 
 
 def line_coordinates(lines: sh.LineTable, grid, nmpt: Optional[str], res: float, water: Optional[np.ndarray],
@@ -1691,6 +1841,10 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:
             json.dump(area.shore, f, separators=(",", ":"))
+    origins_path = os.path.join(run["path"], ORIGINS_FILE)  # where the area's terrain came from, as the shore
+    if area is not None and area.terrain_sources is not None:
+        with open(origins_path, "w", encoding="utf-8") as f:
+            json.dump(area.terrain_sources, f, separators=(",", ":"))
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
@@ -1749,11 +1903,14 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         progress.compute.finish()
         src.used_data[:] = used
     progress.set_step("")
-    shore = None
+    shore = origins = None
     if os.path.isfile(shore_path):
         with open(shore_path, encoding="utf-8") as f:
             shore = json.load(f)
-    return Lines(results, groups, hy.statistics(terrain, plan.resolution), shore), run
+    if os.path.isfile(origins_path):
+        with open(origins_path, encoding="utf-8") as f:
+            origins = json.load(f)
+    return Lines(results, groups, hy.statistics(terrain, plan.resolution), shore, origins), run
 
 
 def _merged_data() -> List[Dict]:
@@ -1869,6 +2026,8 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
                     "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
         "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
         "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
+        # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
+        "terrain_sources": lines.terrain_sources,
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map

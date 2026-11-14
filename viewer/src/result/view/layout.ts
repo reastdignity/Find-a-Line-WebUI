@@ -75,39 +75,103 @@ export function saveLayout(layout: Layout): void {
  *  collapsed, for its splitter's value), and whether the window collapsed it (`forced`: never kept). */
 export interface Column { open: boolean; width: number; forced: boolean }
 
+/** Two side panels' limits: each one's least and greatest width, a rail's width, the map's least width. */
+export interface PanelLimits { left: [number, number]; right: [number, number]; rail: number; map: number }
+/** A side panel as kept: its width and whether it is open. */
+export interface PanelState { w: number; open: boolean }
+export type PanelSide = "left" | "right";
+
+/** Two panels a window `width` px wide allows (the left and the right of a map): when the map would get less
+ *  than `limits.map`, the open panels shrink in proportion to what each has above its least width, then the
+ *  right one collapses, then the left; `prefer` (the panel just expanded) collapses the other one first.
+ *  Nothing of it is kept. */
+export function fitPanels(left: PanelState, right: PanelState, limits: PanelLimits, width: number,
+                          prefer: PanelSide | null): {left: Column; right: Column} {
+  let leftOpen = left.open, rightOpen = right.open, leftForced = false, rightForced = false;
+  const order: PanelSide[] = prefer === "right" ? ["left", "right"] : ["right", "left"];
+  const result = (lw: number, rw: number) => ({left: {open: leftOpen, width: lw, forced: leftForced},
+                                               right: {open: rightOpen, width: rw, forced: rightForced}});
+  for (let guard = 0; guard < 3; guard++) {
+    const room = width - limits.map - (leftOpen ? 0 : limits.rail) - (rightOpen ? 0 : limits.rail);
+    let lw = left.w, rw = right.w;
+    const need = (leftOpen ? lw : 0) + (rightOpen ? rw : 0);
+    if (need <= room) return result(lw, rw);
+    const spareLeft = leftOpen ? lw - limits.left[0] : 0, spareRight = rightOpen ? rw - limits.right[0] : 0;
+    const cut = need - room, spare = spareLeft + spareRight;
+    if (cut <= spare) {
+      if (spare > 0) { lw -= cut * spareLeft / spare; rw -= cut * spareRight / spare; }
+      return result(Math.floor(lw), Math.floor(rw));
+    }
+    const side = order.find((s) => s === "left" ? leftOpen : rightOpen);
+    if (!side) break;
+    if (side === "left") { leftOpen = false; leftForced = true; } else { rightOpen = false; rightForced = true; }
+  }
+  return result(left.w, right.w);
+}
+
+/** The widest a panel may be dragged in a window `width` px wide, beside the other as `fit` has it. */
+export function maxPanelWidth(side: PanelSide, width: number, fit: {left: Column; right: Column},
+                              limits: PanelLimits): number {
+  const other = side === "left" ? fit.right : fit.left;
+  return Math.max(limits[side][0], Math.min(limits[side][1], width - limits.map - (other.open ? other.width : limits.rail)));
+}
+
+/** The result's panels as fitPanels' left and right. */
+const RESULT_LIMITS: PanelLimits = {left: LIMITS.list, right: LIMITS.details, rail: LIMITS.rail, map: LIMITS.map};
+
 /** The panels a window `width` px wide allows: when the map would get less than LIMITS.map, the open
  *  panels shrink in proportion to what each has above its minimum, then the details collapse, then the
  *  list; `prefer` (the panel just expanded) collapses the other one first. Nothing of it is kept. */
 export function fitColumns(layout: Layout, width: number,
                            prefer: "list" | "details" | null): {list: Column; details: Column} {
-  let listOpen = layout.list.open, detailsOpen = layout.details.open, listForced = false, detailsForced = false;
-  const order: ("list" | "details")[] = prefer === "details" ? ["list", "details"] : ["details", "list"];
-  const result = (lw: number, dw: number) => ({list: {open: listOpen, width: lw, forced: listForced},
-                                               details: {open: detailsOpen, width: dw, forced: detailsForced}});
-  for (let guard = 0; guard < 3; guard++) {
-    const room = width - LIMITS.map - (listOpen ? 0 : LIMITS.rail) - (detailsOpen ? 0 : LIMITS.rail);
-    let lw = layout.list.w, dw = layout.details.w;
-    const need = (listOpen ? lw : 0) + (detailsOpen ? dw : 0);
-    if (need <= room) return result(lw, dw);
-    const spareList = listOpen ? lw - LIMITS.list[0] : 0, spareDetails = detailsOpen ? dw - LIMITS.details[0] : 0;
-    const cut = need - room, spare = spareList + spareDetails;
-    if (cut <= spare) {
-      if (spare > 0) { lw -= cut * spareList / spare; dw -= cut * spareDetails / spare; }
-      return result(Math.floor(lw), Math.floor(dw));
-    }
-    const side = order.find((s) => s === "list" ? listOpen : detailsOpen);
-    if (!side) break;
-    if (side === "list") { listOpen = false; listForced = true; } else { detailsOpen = false; detailsForced = true; }
-  }
-  return result(layout.list.w, layout.details.w);
+  const fit = fitPanels(layout.list, layout.details, RESULT_LIMITS, width,
+                        prefer === "list" ? "left" : prefer === "details" ? "right" : null);
+  return {list: fit.left, details: fit.right};
 }
 
 /** The widest a panel may be dragged in a window `width` px wide, beside the other as `fit` has it. */
 export function maxColumnWidth(side: "list" | "details", width: number,
                                fit: {list: Column; details: Column}): number {
-  const other = side === "list" ? (fit.details.open ? fit.details.width : LIMITS.rail)
-    : (fit.list.open ? fit.list.width : LIMITS.rail);
-  return Math.max(LIMITS[side][0], Math.min(LIMITS[side][1], width - LIMITS.map - other));
+  return maxPanelWidth(side === "list" ? "left" : "right", width, {left: fit.list, right: fit.details}, RESULT_LIMITS);
+}
+
+// The highline layer's panels (app/c/LayerPage: the filters on the left, the histograms on the right of the map):
+// their own limits and kept value, under their own key; the same fitting
+
+/** What the layer keeps (localStorage "findaline.layer.layout"): each panel's width and whether it is open. */
+export interface LayerLayout { v: 1; left: PanelState; right: PanelState }
+/** left: 320-560 px (the filters' two columns fit from 320); right: 300-640 (620 holds two charts of 288 px a row). */
+export const LAYER_LIMITS: PanelLimits = {left: [320, 560], right: [300, 640], rail: 36, map: 360};
+export const DEFAULT_LAYER_LAYOUT: LayerLayout = {v: 1, left: {w: 400, open: true}, right: {w: 620, open: true}};
+export const LAYER_LAYOUT_KEY = "findaline.layer.layout";
+
+/** A kept value of the layer's panels made safe (as sanitize). */
+export function sanitizeLayer(value: unknown): LayerLayout {
+  const d: LayerLayout = {v: 1, left: {...DEFAULT_LAYER_LAYOUT.left}, right: {...DEFAULT_LAYER_LAYOUT.right}};
+  const v = value as any;
+  if (!v || typeof v !== "object" || v.v !== 1) return d;
+  for (const side of ["left", "right"] as const) {
+    const part = v[side] && typeof v[side] === "object" ? v[side] : {};
+    const [lo, hi] = LAYER_LIMITS[side];
+    if (typeof part.w === "number" && isFinite(part.w)) d[side].w = clamp(Math.round(part.w), lo, hi);
+    d[side].open = part.open !== false;
+  }
+  return d;
+}
+
+/** The layer's kept panels, or the defaults. */
+export function loadLayerLayout(): LayerLayout {
+  try {
+    const text = localStorage.getItem(LAYER_LAYOUT_KEY);
+    return sanitizeLayer(text === null ? null : JSON.parse(text));
+  } catch {
+    return sanitizeLayer(null);
+  }
+}
+
+/** Keeps the layer's panels (nothing happens without storage). */
+export function saveLayerLayout(layout: LayerLayout): void {
+  try { localStorage.setItem(LAYER_LAYOUT_KEY, JSON.stringify(sanitizeLayer(layout))); } catch { /* not kept */ }
 }
 
 /** The card's least width in a map `mapWidth` px wide. */

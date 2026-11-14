@@ -6,7 +6,7 @@
 // profile is compact: the line's facts in the bar (the full title for screen readers and tests in
 // .fal-profile-title, visually hidden), the legend and the 1:1 scale under "Rigging and layers".
 
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useState } from "preact/hooks";
 import { useMedia } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { ProfilePanel } from "../../Profile";
@@ -33,6 +33,10 @@ export interface ProfileDockProps {
   folded?: boolean;
   /** Given: a fold button (▾/▴) beside the ×, which then stays in the bar (the panel's own is hidden). */
   onFold?(folded: boolean): void;
+  /** The dock's own state changed its content's height ("Rigging and layers", the chart replacing "Computing…"),
+   *  told in a layout effect: a card measures its height again without a frame (no ResizeObserver report there);
+   *  a change inside ProfilePanel (Profile.tsx) is not told. */
+  onContent?(): void;
   class?: string;
 }
 
@@ -46,7 +50,7 @@ export function profileShown(model: ResultModel, measured?: Line | null, line?: 
   return !!(measured || (target && !(line === undefined && model.profileClosed)));
 }
 
-export function ProfileDock({model, view, line, measured, onCloseMeasured, onClose, fill, folded, onFold,
+export function ProfileDock({model, view, line, measured, onCloseMeasured, onClose, fill, folded, onFold, onContent,
                              class: cls}: ProfileDockProps) {
   useModel(model);
   const target = line === undefined ? model.selected?.line || null : line;
@@ -64,6 +68,7 @@ export function ProfileDock({model, view, line, measured, onCloseMeasured, onClo
                                (e) => { if (live) setState({line: target, status: "error", error: e.message}); });
     return () => { live = false; };
   }, [target]);
+  useLayoutEffect(() => { onContent?.(); }, [rigging, state?.status]);
   useEffect(() => () => view?.hoverAt(null), [view]);
   // The point of the chart goes with its line (a new line, none, closed)
   useEffect(() => { view?.hoverAt(null); }, [target, measured, model.profileClosed]);

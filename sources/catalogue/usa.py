@@ -76,6 +76,8 @@ SOURCES: List[Source] = [
         # 10 km files of 10-450 MB per project: blocks of 1 km read by HTTP range requests
         nmt=USGS_1M, countries=("us", "pr", "vi"), local_crs=nad83_utm_crs, ortho=USGS_ORTHO,
         fallback="usgs10m", credits=(USGS_1M_CREDIT,), note=USA_NOTE, neighbours=("canada", "british_columbia"),
+        # No 1 m DEM within 2 km (western Oregon's coast, tribal lands): named as the 1/3″ DEM it would be filled from
+        instead_without_data="usgs10m",
         listing=ReadmeRow("USA with Hawaii, Puerto Rico, US Virgin Islands",
                         "USGS 3DEP 1 m DEM (lidar), newest project first", "–",
                         "USGS Imagery (NAIP, up to zoom 16)"),

@@ -182,6 +182,13 @@ class Source:
         any border gap."""
         return self.coverage_boxes() + list(self.border_boxes)
 
+    def map_areas(self) -> Tuple[str, ...]:
+        """Its areas on the coverage map (ISO 3166-1 alpha-2 or 3166-2, lower case; catalogue.AREA_NAMES names
+        each for Nominatim): its coverage's, else its regions, else its countries (tools/coverage_data.py; the
+        territory of its layer, country.territory_specs). () for a gap filler without countries."""
+        own = self.coverage.areas if self.coverage is not None else ()
+        return tuple(own or self.regions or self.countries)
+
     def working_crs(self, lat: float, lon: float) -> str:
         return self.crs or self.local_crs(lat, lon)
 

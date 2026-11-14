@@ -626,16 +626,22 @@ in `.env` and `docker compose up -d`. The worker sees it read-only at `/mirror`;
 **Country cubes (the highline explorer).** The page `#layer` (administrators only on the public
 site) reads `/data/countries/<id>/cube/` of the data volume. The server never counts countries
 (`findaline.py country run` is a job for a strong PC), so copy a built cube from the machine that
-counted it, a few MB to tens of MB, after each build:
+counted it (Slovakia's 4.9 GB with the layer's profile) after each build:
 
     deploy/push-cube.sh <ssh-target> slovakia [<data folder>]
 
 The script holds no address, user or key: `<ssh-target>` is whatever your `ssh` takes (a `Host`
 of `~/.ssh/config`), with your agent; on Windows with Git Bash `SSH=/c/Windows/System32/OpenSSH/ssh.exe`
-uses the OpenSSH that has the agent. It copies only `cube/` into the worker's container (uid
-10001, `FINDALINE_CONTAINER`), swaps it in next to the old one and compares every file's sha256
-(exit 1 with a diff otherwise). The web service loads a cube when its `cube.json` changes: no
-restart. `backup.sh` does not include `countries/` (the PC that counted it is the original): a
+uses the OpenSSH that has the agent. It copies `cube.json`, `area.geojson` and the build folder
+`cube.json` names (each build writes its arrays into a folder of its own, `build-<UTC start>-<random>/`;
+an earlier build's folder still on the PC stays there), or for a cube built before the build
+folders the `lines_<L>.npy` and `spots_<L>.npy` beside `cube.json`, into the worker's container
+(uid 10001, `FINDALINE_CONTAINER`), swaps them in next to the old cube and compares the sha256 of
+every file it copied (exit 1 with a diff otherwise). The web service memory-maps the arrays and
+loads a cube when its `cube.json` changes: no restart (a request computing on the old cube answers
+from the new one). **Code from before the build folders (2026-11-13) does not find the arrays of a
+cube built since: its explorer answers errors, so update the server (section 13) before pushing
+such a cube.** `backup.sh` does not include `countries/` (the PC that counted it is the original): a
 lost cube is copied again.
 
 ## 11. Backups

@@ -16,6 +16,15 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
 
 ## Task 1: say when the terrain came from a fallback
 
+**Done 2026-11-14** (tag `history/fallback-share`). The decisions: the warning `terrain_fallback` from 10 % of the
+search area's land filled from fallbacks (neighbours' national data never count); the shares and the fallbacks'
+regions in run.json and data.js (`terrain_sources`); the result's head says it from 10 % with "Show on map", the
+map has a "Coarser terrain" layer with the km² in view and the shares stand under More filters; `usa` names
+`usgs10m` where its 1 m DEM has no data within 2 km (`instead_without_data`, as `alaska`). Measured at the Oregon
+cove: as `usa` (a 1 m grid interpolated from the 10 m fallback) 0 lines; as `usgs10m` on its own 10 m grid 529
+lines in 119 spots (roadmap, "To check": interpolating to a finer grid lowers the number of lines). The text
+below is the task as it was handed over.
+
 **Goal.** A user sees, in the run's messages, `run.json` and the map, when most of the search area's terrain comes from a coarser fallback layer, not from the source the run names.
 
 **Why.**
@@ -164,7 +173,7 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
    - the CRS and units read from each file;
    - blocks in the file's CRS, resampled onto the working grid when it differs.
 2. Recorded TNM answers for the tests.
-3. The data checks of CLAUDE.md for a new source:
+3. The data checks of `.claude/rules/sources.md` ("Verifying changes") for a new source:
    - georeference against Copernicus (shift search);
    - share of valid pixels at 5 m;
    - a few tiles against the files.
@@ -205,7 +214,7 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
 - `sources/catalogue/usa.py` (`nmpt=` of `usa`).
 - `obstacles.py` (unchanged rule), `search.prepare_data` (the surface is prepared like other layers).
 - `net.HOST_SLOTS_OF`/`HOST_RATES_OF` for the AWS host.
-- `pyproject.toml`/`uv.lock` (laspy, lazrs), the Dockerfile (wheels up to cp314; the image is 3.13).
+- `pyproject.toml`/`uv.lock` (laspy, lazrs), the Dockerfile (lazrs 0.8.2's wheels go up to cp314, while the image runs 3.15 since 2026-11-13 and takes wheels only: a cp315 wheel first).
 
 **Decisions for the user.**
 1. **The library.** laspy 2.7.0 + lazrs 0.8.2 (pure pip, wheels up to cp314, no OSV advisories), or PDAL (needs the native library: conda or a system package; it has `readers.ept` and filters ready)? The CLAUDE.md rule "libraries first" asks for the comparison: laspy reads the nodes, and our code walks the EPT hierarchy (about 60 lines in the trial).
@@ -231,7 +240,7 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
 **Sync.**
 - README's sources table and the note `USA_NOTE` ("no surface model for the USA yet") change.
 - The privacy and about pages are built from `SOURCES`.
-- `docs/deployment.md` if the image needs a system library: no, if laspy/lazrs are chosen. Check with `ldd` as CLAUDE.md asks after a dependency change.
+- `docs/deployment.md` if the image needs a system library: no, if laspy/lazrs are chosen. Check with `ldd` as `.claude/rules/deploy.md` asks after a dependency change.
 
 **Verification.**
 - R65: the same lines as without the surface, over-trees counts as in the trial (about 27 % formula).

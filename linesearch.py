@@ -487,7 +487,7 @@ def _cell_open(rows, need, order, starts, slot):
 @njit(parallel=True, cache=True)
 def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, open_mask, cell, cells_x, res,
            min_length, max_length, max_dh_ratio, max_dh, d0, far2, kmax, down, cos_limit, strong,
-           use_sag, log_spans, ratios, table, fall_zone, first_only, end_zone, lift, delta, zone_cap,
+           use_sag, log_spans, ratios, table, fall_zone, first_only, end_zone, lift, delta, zone_cap, partner,
            offsets, out, buf, counts):
     """Partners of the anchors in todo that pass all tests: only partners with a higher index,
     or with first_only those for which the anchor is the first (smaller x, then y; a tile
@@ -515,6 +515,12 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, 
 
     end_zone, lift, delta, zone_cap: the rule of _line_ok (helpers.end_zone_rule).
 
+    partner: uint8 per anchor, or empty (none): a partner of an anchor whose value is not 0 is
+    skipped when its own value is not 0 either, before every other test (the count mode across a
+    border: search.count_tile marks the partner anchors outside the country and the country's anchors
+    outside the tile's core, so a partner-partner pair, the neighbour's own line, and a partner's
+    line owned by another tile are never tested). Empty: the pairs of before, bit for bit.
+
     counts[q] = [candidate pairs, pairs checked, lines] for todo[q]. With offsets None, the
     first buf.shape[1] pairs of todo[q] are written to buf[q] (the count goes on past them);
     otherwise all of them to out from offsets[q] on.
@@ -530,6 +536,7 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, 
         ei = elev[i]
         slot_i = slot[i]
         ri_max = rmax[slot_i]
+        marked = partner.size > 0 and partner[i] != 0  # its marked partners are skipped
         span = 2 * np.int64(ri_max) + 1 if ri_max < kmax else np.int64(1) << 40  # Chebyshev reach
         candidates, checked, found = 0, 0, 0
         gy0 = max(max(0, cy - reach), max(0, ri - span) // cell)
@@ -584,6 +591,8 @@ def _pairs(z, anchors, elev, rings, slot, rmax, todo, order, starts, cell_open, 
                     if first_only:
                         if anchors[j, 1] < ci or (anchors[j, 1] == ci and anchors[j, 0] >= ri):
                             continue
+                    if marked and partner[j] != 0:
+                        continue
                     if not (strong[i] or strong[j]):
                         continue
                     if abs(elev[j] - ei) > d0:  # the height test below at the longest length
@@ -630,12 +639,14 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful:
                    slot: np.ndarray, first: Optional[np.ndarray], res: float, min_length: float, max_length: float,
                    max_dh_ratio: float, max_dh: float, down: np.ndarray, cos_limit: float,
                    strong: Optional[np.ndarray], use_sag: bool, log_spans, ratios, table, fall_zone: float,
-                   end_zone: float = 0.0, lift: float = 0.0, delta: float = 0.0, zone_cap: float = sh.ZONE_CAP):
+                   end_zone: float = 0.0, lift: float = 0.0, delta: float = 0.0, zone_cap: float = sh.ZONE_CAP,
+                   partner: Optional[np.ndarray] = None):
     """The anchors pairs are searched from (the useful ones; with first, those of a tile's
     core) and _pairs' arguments before and after todo, with the useful anchors (the only
     partners) bucketed into cells of a quarter of max_length and the open sectors of every
     cell and of every useful anchor (_cell_open, _open_masks: for F8c). useful, rings, slot:
-    those of free_directions; end_zone, lift, delta, zone_cap: the rule (at the tail's end)."""
+    those of free_directions; end_zone, lift, delta, zone_cap: the rule, and partner (uint8 per
+    anchor, or None: _pairs' marked anchors), at the tail's end."""
     todo_all = useful if first is None else useful[np.asarray(first)[useful]]
     cell = max(1, int(max_length / res) // 4)
     cells_x = z.shape[1] // cell + 1
@@ -654,7 +665,8 @@ def pair_arguments(z: np.ndarray, anchors: np.ndarray, elev: np.ndarray, useful:
             float(max_dh_ratio), float(max_dh), d0, far2, kmax, down, cos_limit,
             np.ones(len(anchors), dtype=np.bool_) if strong is None else np.asarray(strong, dtype=np.bool_),
             use_sag, log_spans, ratios, table, float(fall_zone), first is not None,
-            float(end_zone), float(lift), float(delta), float(zone_cap))
+            float(end_zone), float(lift), float(delta), float(zone_cap),
+            np.zeros(0, dtype=np.uint8) if partner is None else np.ascontiguousarray(partner, dtype=np.uint8))
     return todo_all, head, tail
 
 
@@ -1083,7 +1095,8 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
                      check: Optional[Callable[[int], None]] = None,
                      sink: Optional[Callable[[sh.LineTable], None]] = None,
                      end_zone: float = 0.0, lift: float = 0.0, end_clearance: float = 0.0,
-                     zone_cap: float = sh.ZONE_CAP, zones=()) -> Optional[sh.LineTable]:
+                     zone_cap: float = sh.ZONE_CAP, zones=(),
+                     partner: Optional[np.ndarray] = None) -> Optional[sh.LineTable]:
     """Finds valid lines between anchors.
 
     Args:
@@ -1126,6 +1139,10 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
         zones: Optional ladder of end zones (ascending from 0): the lines get their bucket minima
             ("zone_margins", "zone_margins_nmpt"), from which helpers.valid_at decides at any
             ladder zone and lift up to the call's
+        partner: Optional uint8 per anchor: a pair whose anchors are both marked (not 0) is
+            skipped before any test (_pairs; the count mode across a border, search.count_tile:
+            the partner anchors outside the country, which pair with the country's only, and the
+            country's anchors outside the tile's core). None: the search of before, bit for bit
 
     Returns:
         Valid lines, longest first; None with a sink
@@ -1165,7 +1182,7 @@ def find_valid_lines(elevation: np.ndarray, surface: Optional[np.ndarray], ancho
     cos_limit = -2.0 if max_angle >= 180 else math.cos(math.radians(max_angle))
     todo_all, args, tail = pair_arguments(z, anchors, elev, useful, rings, slot, first, res, min_length, max_length,
                                           max_dh_ratio, max_dh, down, cos_limit, strong, use_sag, log_spans,
-                                          ratios, table, fall_zone, end_zone, lift, delta, zone_cap)
+                                          ratios, table, fall_zone, end_zone, lift, delta, zone_cap, partner)
     if sink is not None:
         if isinstance(anchor_values, LazyAnchorValues):
             anchor_values.rest, anchor_values.rows = useful, anchors[:, 0]

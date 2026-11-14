@@ -257,7 +257,7 @@ Poland"). The e-mail below asks whether they prefer a wording.
 
 No rule, limit or etiquette statement found: opendata.geoportal.gov.pl has no robots.txt (404 "plik
 nie istnieje: /robots.txt"), its landing page is empty, the Regulamin is silent, no request limits
-are published (as noted in CLAUDE.md). GUGiK's statements point the other way ("without any
+are published (as noted in `.claude/rules/providers.md`). GUGiK's statements point the other way ("without any
 limitations", "dowolnego wykorzystania", its own bulk plugin). A Uniwersytet Zielonogórski document
 reportedly describes a scripted download of about 7 TB of LIDAR data for one voivodeship (seen only
 in a search summary, not opened; not an official source). Courtesy measures: a User-Agent with a

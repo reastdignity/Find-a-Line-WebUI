@@ -19,6 +19,7 @@ export const ICONS = {
   next: '<path d="M9 5l7 7-7 7"/>',
   down: '<path d="M6 9l6 6 6-6"/>',
   filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  bars: '<path d="M4 20h16"/><path d="M6.5 17v-4M10.5 17V7M14.5 17v-6M18.5 17v-9"/>',
   ruler: '<path d="M4 16L16 4l4 4L8 20z"/><path d="M8 12l2 2M11 9l2 2M14 6l2 2"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c1-4 4.5-6 8-6s7 2 8 6"/>',
   close: '<path d="M6 6l12 12M18 6L6 18"/>',

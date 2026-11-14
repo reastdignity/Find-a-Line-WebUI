@@ -220,16 +220,13 @@ def test_ortho_attribution_url(tmp_path):
 def clip_data(tmp_path_factory):
     """data.js of a run of the Żabi Koń clip with the surface model (clear lines and lines over trees),
     computed once, offline: (its JSON text, the value)."""
-    data = tmp_path_factory.mktemp("clip")
-    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
+    import clip_runs  # the search once per session, this module's own copy
     tests_data = os.path.join(REPO, "tests", "data")
-    result = subprocess.run(
-        [sys.executable, "findaline.py", "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
-         "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
-         "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
-         "--ortho", "never", "--data-dir", str(data)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
-    assert result.returncode == 0, result.stdout + result.stderr
+    data = clip_runs.data_copy(tmp_path_factory, "clip", [
+        "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
+        "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
+        "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
+        "--ortho", "never"])
     path = next((data / "runs").glob("*/data.js"))
     text = path.read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";")
     return text, json.loads(text)
@@ -612,6 +609,12 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert "90 m: the sea" in out["shore"]["text"] and "0 m: the foot" in out["shore"]["text"]
     assert out["shore"]["help"] == [True, True, "true"]  # the explanation closed at first, opened by the "?"
     assert out["shoreAway"] is True
+    # The coarser terrain (coarserLayer.ts): its overlay and box, hidden away or with the overlay off, fit shows it
+    coarse = out["coarse"]
+    assert coarse["overlays"] == ["Coarser terrain"] and coarse["shown"] is True and coarse["pattern"] is True
+    assert "about 0.40 km²: 10 m data (Coarse)" in coarse["text"] and coarse["none"] is True
+    assert out["coarseOff"] is True and out["coarseAway"] is True
+    assert out["coarseFit"] == {"back": True, "holds": True, "shown": True}
     assert test_web._violations(dom) == []
 
 
@@ -756,6 +759,40 @@ console.log(JSON.stringify({{
     assert found["touching"] == {"surface": 120, "sea": 0}  # a box touching at its corner counts
     assert found["none"] == {"surface": 0, "sea": 0}
     assert found["has"] == [True, False, False]
+
+
+def test_coarser_in_view(tmp_path):
+    """coarser.ts: a region's box, the km² of each fallback among the regions a view's box reaches, the warning from
+    FALLBACK_WARN_SHARE (search's), the shares as text (search's info line's percentages)."""
+    import search
+    sources = {"land_km2": 2.0, "fallback_share": 0.3, "totals": {"fallback_km2": 0.6, "listed_km2": 0.55},
+               "layers": [{"role": "source", "name": "Own", "resolution": 1.0, "share": 0.65},
+                          {"role": "neighbour", "name": "Next", "resolution": None, "share": 0.05},
+                          {"role": "fallback", "name": "Coarse", "resolution": 5.0, "share": 0.2},
+                          {"role": "fallback", "name": "Coarser", "resolution": 10.0, "share": 0.1}],
+               "regions": [{"layer": 2, "km2": 0.4, "rings": [[[14.24, 36.01], [14.25, 36.01], [14.25, 36.02], [14.24, 36.01]],
+                                                             [[14.244, 36.012], [14.246, 36.012], [14.246, 36.014], [14.244, 36.012]]]},
+                           {"layer": 3, "km2": 0.15, "rings": [[[14.30, 36.05], [14.31, 36.05], [14.31, 36.06], [14.30, 36.05]]]}]}
+    found = run_ts(tmp_path, "coarser", f"""
+const s = {json.dumps(sources)};
+const low = {{...s, fallback_share: 0.0999}}, edge = {{...s, fallback_share: 0.1}};
+console.log(JSON.stringify({{
+  box: m.regionBox(s.regions[0]), all: m.regionsBox(s), empty: m.regionsBox({{...s, regions: []}}),
+  every: m.km2InView(s, {{south: 36.0, west: 14.2, north: 36.1, east: 14.4}}),
+  first: m.km2InView(s, {{south: 36.0, west: 14.2, north: 36.012, east: 14.242}}),
+  none: m.km2InView(s, {{south: 35.9, west: 14.0, north: 35.95, east: 14.1}}),
+  has: [m.hasCoarser(s), m.hasCoarser(null), m.hasCoarser({{...s, regions: []}})],
+  warns: [m.warns(s), m.warns(low), m.warns(edge), m.warns(undefined)], limit: m.FALLBACK_WARN_SHARE,
+  shares: m.sharesText(s), pct: [m.percent(0.9764), m.percent(1), m.percent(0.0236), m.percent(0)],
+  km2: [m.km2Text(0.4), m.km2Text(0.0186), m.km2Text(0.0004)]}}));""")
+    assert found["box"] == {"south": 36.01, "west": 14.24, "north": 36.02, "east": 14.25}  # the outline, not its hole
+    assert found["all"] == {"south": 36.01, "west": 14.24, "north": 36.06, "east": 14.31} and found["empty"] is None
+    assert found["every"] == [0, 0, 0.4, 0.15] and found["first"] == [0, 0, 0.4, 0] and found["none"] == [0, 0, 0, 0]
+    assert found["has"] == [True, False, False]
+    assert found["warns"] == [True, False, True, False] and found["limit"] == search.FALLBACK_WARN_SHARE
+    assert found["shares"] == "65 % Own (1 m) · 5 % Next · 20 % Coarse (5 m) · 10 % Coarser (10 m)"
+    assert found["pct"] == ["97.6", "100", "2.4", "0"]
+    assert found["km2"] == ["0.40", "0.019", "under 0.001"]
 
 
 def test_shore_hatching_and_walls(tmp_path):
@@ -1268,8 +1305,8 @@ const state = () => {{
   await im.set("esri");
   state();
   mode = "ok";
-  scene.noticeAction.onClick();  // Try again
-  await wait(300);
+  scene.noticeAction.onClick();  // Try again: the loading it starts ends with the clear of the pill's count
+  for (const t0 = Date.now(); !activity.some((e) => e[0] === "clear" && e[1] === "imagery") && Date.now() - t0 < 10000;) await wait(5);
   out.again = state();
   mode = "one"; bad = null;
   await im.set("esri");

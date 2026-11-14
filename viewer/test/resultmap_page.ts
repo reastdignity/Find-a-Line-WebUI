@@ -8,7 +8,8 @@ import { loadRun } from "../src/result/load";
 import { ResultModel } from "../src/result/model";
 import { ResultMap } from "../src/result/ResultMap";
 import { addShore } from "../src/shoreLayer";
-import type { Line, Shore } from "../src/types";
+import { addCoarser } from "../src/coarserLayer";
+import type { Line, Shore, TerrainSources } from "../src/types";
 
 const out: Record<string, unknown> = {};
 const finish = () => {
@@ -63,6 +64,30 @@ const runId = decodeURIComponent(location.pathname.split("/")[2]);
     out.shoreAway = !!shoreEl && shoreEl.hidden;
     shoreBox?.remove();
     Object.values(overlays).forEach((layer) => map.removeLayer(layer));
+    // The coarser terrain (coarserLayer.ts): its overlay hatched by a pattern of its SVG, the control with the km²
+    // while the view holds a region, hidden away from it and while the overlay is off; fit shows every region
+    const sources: TerrainSources = {land_km2: 1, fallback_share: 0.4, totals: {fallback_km2: 0.4, listed_km2: 0.4},
+      layers: [{role: "source", name: "Own", resolution: 1, share: 0.6}, {role: "fallback", name: "Coarse", resolution: 10, share: 0.4}],
+      regions: [{layer: 1, km2: 0.4, rings: [ring]}]};
+    const coarseOverlays: Record<string, L.Layer> = {};
+    map.setView([lat, lon], 17, {animate: false});
+    const coarse = addCoarser(map, sources, coarseOverlays)!;
+    const coarseEl = div.querySelector<HTMLElement>(".u-coarse");
+    const fill = div.querySelector<SVGPathElement>("path.u-coarse-area")?.getAttribute("fill") ?? "";
+    const patternId = fill.match(/^url\(#(.+)\)$/)?.[1] ?? "";
+    out.coarse = {overlays: Object.keys(coarseOverlays), shown: !!coarseEl && !coarseEl.hidden, text: coarseEl?.textContent ?? "",
+                  pattern: !!patternId && !!div.querySelector(`pattern[id="${patternId}"] line.u-coarse-hatch`),
+                  none: addCoarser(map, {...sources, regions: []}, {}) === null};
+    map.removeLayer(Object.values(coarseOverlays)[0]);
+    out.coarseOff = !!coarseEl && coarseEl.hidden;
+    map.setView([lat + 0.05, lon], 17, {animate: false});
+    await new Promise((done) => { map.once("moveend", done); coarse.fit(); });
+    const b = map.getBounds();
+    out.coarseFit = {back: map.hasLayer(Object.values(coarseOverlays)[0]), holds: b.contains([lat, lon]), shown: !!coarseEl && !coarseEl.hidden};
+    map.setView([lat + 0.05, lon], 17, {animate: false});
+    out.coarseAway = !!coarseEl && coarseEl.hidden;
+    coarse.control.remove();
+    Object.values(coarseOverlays).forEach((layer) => map.removeLayer(layer));
     view.fitArea();
     // Selecting a group: its line, halo, anchors and variants drawn on top
     const group = model.groups.find((g) => g.members.length > 2)!;

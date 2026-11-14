@@ -97,6 +97,20 @@ def test_the_whole_list_by_continent(settings):
     _drive(app, body)
 
 
+def test_a_tick_after_the_window_closed_does_nothing(settings):
+    """The intervals and the free-space thread can call in after the screen's widgets were removed (a loaded CI runner
+    hit the state interval so: NoMatches '#summary'); each of them is called here once the window is gone."""
+    app, _ = _app(settings)
+
+    async def body(pilot):
+        assert app.query_one("#summary").render()
+    _drive(app, body)
+    assert not app.area_rows()   # what the CI runner saw: the rows already removed
+    app.refresh_states()
+    app.refresh_summary()
+    app._set_free({"cache": 10.0, "NAS": None})
+
+
 def test_a_click_ticks_a_row_and_the_counts_follow(settings):
     app, _ = _app(settings)
 

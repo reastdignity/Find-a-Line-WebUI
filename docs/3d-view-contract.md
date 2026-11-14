@@ -91,13 +91,13 @@ Reference implementation and fixture: `tests/data/make_patch_fixture.py` (`encod
   before `getMesh`).
 - **Webbing**: `geometry.ts` (pure, tested in Node): from the two anchors `(x, y, h)` and the meta's rigging,
   `span = hypot(Δx, Δy)`, `dh = h1 − h2`; `sag.ts` `estimate(span, dh, rigging)`, `athlete(x)`; a point at distance
-  `s` along the span with drop `d` is `(x1 + Δx·s/span, y1 + Δy·s/span, h1 − d)`. The walker starts at the largest
+  `s` along the span with drop `d` is `(x1 + Δx·s/span, y1 + Δy·s/span, h1 − d)`. The athlete starts at the largest
   sag of the envelope (`f`, `sag`).
 - **No-fall zone and A-frames** (2026-11-06, the end-zone task): the meta has `end_zone` and `lift` (metres) only for
   a run searched with them (`search._end_keys`; a run without: neither key, everything as before). `anchors` stay the
   ground's heights; the page raises both by `lift` for every webbing it draws (`geometry.ts` `raised`: the found
-  line, the other lines, the lines from a point), so the webbing, the walker and the pin start on the A-frames' tops,
-  and draws an A-frame at each anchor (`aFrame`: two legs half the height apart along the line). The handles, the
+  line, the other lines, the lines from a point), so the webbing, the athlete and the pin start on the A-frames'
+  tops, and draws an A-frame at each anchor (`aFrame`: two legs half the height apart along the line). The handles, the
   reach and the profile requests keep the ground's points: the server applies the run's rule itself, so a dragged
   anchor's webbing starts at `heightAt + lift`. The zone is not drawn in 3D; the profile card's chart shows both.
 - **Lat/lon**: grid metres → lon/lat with the meta's affine; lon/lat → Web Mercator for texture UVs.
@@ -139,7 +139,7 @@ Until the terrain is drawn the status over the stage names the stage with a bar 
 - **Page (V1):** `main.ts`, `page.ts`, `decode.ts`, `terrain.ts`, `view.ts`, `geometry.ts`, `martini.ts`,
   `view3d.css`; Martini's error 0.5 m desktop, 1.5 m phone (to tune within the budgets); only chunk (0, 0) drawn
   so far, no skirts, no forced vertices, `meta.sha256` not checked in the browser yet (wave 2). On a level line
-  the envelope has two equal maxima: either is the walker's start.
+  the envelope has two equal maxima: either is the athlete's start.
 
 ## Wave 2
 Two agents in parallel on the page; the shared types are in `viewer/src/view3d/scene-api.ts` (`Scene3D`, `Chunk`,
@@ -148,7 +148,7 @@ signature): change neither signature without the coordinator.
 
 | Agent | Owns |
 | --- | --- |
-| V2a scene core | `main.ts`, `view.ts`, `terrain.ts`, `page.ts`, `geometry.ts`, `view3d.css`, new `scene.ts` (implements `Scene3D`), new modules for the webbing and the walker, the Node tests it adds to `tests/test_viewer.py`, new `tests/test_view3d.py` (Edge) |
+| V2a scene core | `main.ts`, `view.ts`, `terrain.ts`, `page.ts`, `geometry.ts`, `view3d.css`, new `scene.ts` (implements `Scene3D`), new modules for the webbing and the athlete, the Node tests it adds to `tests/test_viewer.py`, new `tests/test_view3d.py` (Edge) |
 | V2b imagery | `imagery.ts` (replaces the stub), new `tiles.ts` (tile URLs, coverage, UVs) and `credits.ts` (the credits' HTML), pure helpers split out of `viewer/src/layers.ts` if needed (`PROCESSED_NOTE` stays defined in `layers.ts`, a test reads it there), new `tests/test_view3d_tiles.py` (Node tests through `test_viewer.run_ts`) |
 
 Both rebuild `viewer/dist`; at the merge the coordinator rebuilds it again.
@@ -167,8 +167,8 @@ Both rebuild `viewer/dist`; at the merge the coordinator rebuilds it again.
   `viewer/src/ui/tokens.css`), the readout (`ui.view3d.length`, `.sag`, `.clearance`, `.over_trees`); until it
   answers, a neutral colour and `ui.view3d.loading_profile`.
 - The webbing: `Line2` (`three/examples/jsm/lines`) whose 61 points are written in place (no new buffer per change),
-  the loaded curve with the walker at s (`geometry.ts` `loadedAt`), the unloaded one faint.
-- The walker: a 1.7 m mannequin of three.js primitives standing on the webbing at s, facing along the line; it
+  the loaded curve with the athlete at s (`geometry.ts` `loadedAt`), the unloaded one faint.
+- The athlete: a 1.7 m mannequin of three.js primitives standing on the webbing at s, facing along the line; it
   starts at the envelope's largest sag; a slider (`ui.view3d.walker_position`) in `scene.toolbar` moves it. The
   walk itself and dragging come in wave 3.
 - The camera: an oblique view across the line framing it, orbit/pan/zoom (`OrbitControls` or `MapControls`),
@@ -176,10 +176,10 @@ Both rebuild `viewer/dist`; at the merge the coordinator rebuilds it again.
 - Calls `createImagery(scene, {runId, esriKey})` once the terrain is drawn; `esriKey` from
   `<meta name="findaline-esri-key">` or null. Shows `ui.view3d.preview_note` in the page.
 - Phone level: step 2 (already in `page.ts`), the coarser error, no anchor dragging later.
-- Tests: Node tests of the pure parts (chunks, skirts, forced vertices, the walker's placement); `tests/test_view3d.py`:
-  the local app with a run of the clip (the fixtures of `tests/test_patch.py`), `/view3d#run=…&line=…` in headless
-  Edge (`--disable-gpu`), a ready marker set by the page, triangles drawn, no CSP violation (the `CSP_STUB` way of
-  `tests/test_web.py`), the readout filled from `/api/profile`.
+- Tests: Node tests of the pure parts (chunks, skirts, forced vertices, the athlete's placement);
+  `tests/test_view3d.py`: the local app with a run of the clip (the fixtures of `tests/test_patch.py`),
+  `/view3d#run=…&line=…` in headless Edge (`--disable-gpu`), a ready marker set by the page, triangles drawn, no CSP
+  violation (the `CSP_STUB` way of `tests/test_web.py`), the readout filled from `/api/profile`.
 
 **V2b, the imagery**
 - `createImagery`: the kinds available (`ortho` when `meta.ortho`, `esri` when a key, `shaded` always; default the
@@ -221,7 +221,7 @@ visual review on the desktop and both phones, and the privacy/About wording prop
   the view's width (on a Pixel 7 held upright both anchors were cut off); `tools/ui_shots.py` pages `d-line`,
   `view3d`, `view3d-shaded`, `view3d-phone`, `view3d-full` (a `wait:` step, the `{line}` placeholder). WebGL works in
   Playwright on Windows, WebKit too.
-- **Visual review, for wave 3:** the walker is hard to find at the framing distance (about 6 px tall at 190 m;
+- **Visual review, for wave 3:** the athlete is hard to find at the framing distance (about 6 px tall at 190 m;
   invisible on phones); on phones the bar below the canvas takes about 40 % of the screen (the readout on two
   lines, the slider, the imagery control and two notes on rows of their own); the sky is the page's flat
   background (kept).
@@ -248,9 +248,9 @@ The approved texts go in word for word (English, as below); nothing else on thes
     attribution).
   - Their privacy policy (https://mapterhorn.com/privacy-policy/, updated 2026-07-07, read 2026-11-02) logs the
     source IP, referrer, user agent and more for up to 30 days; no usage policy or limit is published.
-- **The walker:** always at true scale; when it is smaller than about 20 px on the screen, a contrasting marker
+- **The athlete:** always at true scale; when it is smaller than about 20 px on the screen, a contrasting marker
   (a pin) shows above it, gone again when the camera comes closer.
-- **The phone bar** (the coordinator's default, not objected to): the readout on one line, the walker's slider and
+- **The phone bar** (the coordinator's default, not objected to): the readout on one line, the athlete's slider and
   the imagery control in one row, the notes in small type.
 
 ## Wave 3
@@ -303,13 +303,13 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
   answer (e.g. 429) shows its message (`detailMessage`) and the line stays neutral. `ui.view3d.reset` ("Back to
   the found line") brings back the found anchors and their profile, kept from the start (not asked again);
   `ui.view3d.edit_hint` says how. Nothing is saved.
-- The walker: dragged along the line at level `full` (from the pointer to the nearest point of the span); the slider
-  on both levels. The walk: a `ui.view3d.walk` / `ui.view3d.stop` button, from the walker's place towards the second
+- The athlete: dragged along the line at level `full` (from the pointer to the nearest point of the span); the slider
+  on both levels. The walk: a `ui.view3d.walk` / `ui.view3d.stop` button, from the athlete's place towards the second
   anchor at 1 m/s along the span, `ui.view3d.speed` switching ×1/×4 (`ui.view3d.speed_value`), stopping at the
   end; Walk at the end starts again from the first anchor. `keepDrawing("walk", …)` only while it walks, `onFrame`
   seconds advance it. Under `prefers-reduced-motion: reduce` no walk: `ui.view3d.reduced_motion` instead; the slider
   stays.
-- The pin (approved): the walker always at true scale; while its height on the screen is under 20 CSS px a
+- The pin (approved): the athlete always at true scale; while its height on the screen is under 20 CSS px a
   contrasting pin shows above it (a sprite with `sizeAttenuation: false`, or a DOM marker moved each frame drawn:
   no style attributes, the CSSOM only), gone when it is larger; readable over imagery, shaded terrain, light and
   dark.
@@ -368,7 +368,7 @@ imagery when `ringUrl()` gives a URL, disposed on `pagehide`.
 
 ## After wave 3 (2026-11-02)
 - **V3a** (`edit.ts`, `walk.ts`, `pin.ts`, `interact.ts` pure and Node-tested, `screen.ts` the overlay): handles on
-  a DOM overlay over the canvas, the pin and the walker's grip there too; `SceneCore.stage`, `View.setControls`;
+  a DOM overlay over the canvas, the pin and the athlete's grip there too; `SceneCore.stage`, `View.setControls`;
   the root's `data-edit`, `data-walk`, `data-pin`, the readout's `data-verdict`, `data-colour` for tests. A line's
   verdict (`webbing.ts` `verdictOf`): `fits` (`--clear`), `terrain_only` (`--trees`), `no_fit` (`--bad`, the new
   text `ui.view3d.does_not_fit`: a moved anchor can give a negative clearance).
@@ -406,7 +406,7 @@ https://claude.ai/artifact/G9VFV9yjC3mNNZ4ojWAE5z):
   token of the page), lit as `shaded`;
 - bold lines from a screen-space pass (silhouettes: the distance from the camera jumps, relative 0.012–0.035;
   creases: the normals differ, 1 − dot 0.10–0.28; creases at 0.75 strength) in `--ink` (dark on light, light on dark),
-  over the terrain alone (a layer of the chunks; the webbing, walker and overlay never make edges);
+  over the terrain alone (a layer of the chunks; the webbing, athlete and overlay never make edges);
 - thin feature edges of the mesh (`EdgesGeometry`, faces turning by more than 28°) in `--muted`, made when the look is
   first chosen and hidden in the other kinds;
 - the ring (when on) takes the same look: its tiles on the terrain's layer, on paper, without an overlay.
@@ -433,7 +433,7 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   run, line and step (anything else 404), `/cache/` read-only from the data folder, an index page of the recorded
   lines with links for both levels; `ESRI_API_KEY` put into the page when set (never into a file); GET only, no
   accounts, nothing else of the app. A checklist for the user's iPhone in its docstring (and printed at start): the
-  certificate warning, Windows' firewall prompt, open/orbit/zoom, the walker's slider and the walk, both levels,
+  certificate warning, Windows' firewall prompt, open/orbit/zoom, the athlete's slider and the walk, both levels,
   imagery kinds incl. Edges once wave E is in, five minutes without a reload, rotate the phone. It also reports the
   data per open of each recorded line: the patch's bytes per step, the profile's, and the imagery's tiles counted
   by `tiles.ts`' plan with their bytes (cached tiles measured, service tiles sampled): R2 and R19, desktop and phone.
@@ -482,17 +482,17 @@ CSP violation, back to Shaded removes the pass; the ring's Edge test once with E
   the 2D map's Edges (roadmap). When the user ends the idea: the tag `history/line-3d-view` and one squash commit
   into `main` (CLAUDE.md, conventions).
 
-## Wave F: the walker's view (2026-11-02, the user's decisions)
+## Wave F: the athlete's view (2026-11-02, the user's decisions)
 Two camera views besides the orbit one, chosen with a switch in the bar (`ui.view3d.view_orbit` "Orbit",
-`view_eyes` "Walker's eyes", `view_behind` "Behind the walker"; the orbit stays the default and the only view
+`view_eyes` "Athlete's eyes", `view_behind` "Behind the athlete"; the orbit stays the default and the only view
 where anchors are dragged):
-- **Eyes**: the camera at the walker's eyes (its feet on the loaded webbing + 1.6 m), looking along the line
+- **Eyes**: the camera at the athlete's eyes (its feet on the loaded webbing + 1.6 m), looking along the line
   towards anchor 2 and a little down at first; the mannequin, its pin and grip hidden; a wider field of view
-  (about 70°). **Behind**: the camera a few metres behind and above the walker, the mannequin in view, looking
-  ahead along the line. Both follow the walker: the slider, dragging it in the orbit view and the walk (the
+  (about 70°). **Behind**: the camera a few metres behind and above the athlete, the mannequin in view, looking
+  ahead along the line. Both follow the athlete: the slider, dragging it in the orbit view and the walk (the
   webbing's sag moves the camera, as walking would); leaving either view gives back the orbit camera as it was.
 - **Looking around by dragging** (mouse or finger) in both views: yaw and pitch of the gaze (eyes) or of the
-  camera around the walker (behind), the orbit controls off meanwhile; the pitch clamped (never upside down).
+  camera around the athlete (behind), the orbit controls off meanwhile; the pitch clamped (never upside down).
 - **Phone motion** on top (the user's choice; tested later on the user's iPhone): a button (`ui.view3d.motion`
   "Phone motion") shown where `DeviceOrientationEvent` exists; iOS asks for permission
   (`DeviceOrientationEvent.requestPermission()`) inside the button's click; turning the phone turns the gaze,
@@ -504,23 +504,23 @@ where anchors are dragged):
   sensors' readings never leave the browser: nothing stored or sent, so the privacy page stays as it is.
 - One agent (VF) on `l3d-wF-walkerview`; it owns `viewer/src/view3d/` modules of the views (new, e.g. `views.ts`,
   `look.ts`, `motion.ts`), `view.ts` (switching the controls), `walker.ts`, `main.ts`, `walk.ts`, `pin.ts`,
-  `edit.ts` (only to stay out of the walker views), `view3d.css`, `scene-api.ts` (what it needs), new `ui.view3d.*`
+  `edit.ts` (only to stay out of the athlete views), `view3d.css`, `scene-api.ts` (what it needs), new `ui.view3d.*`
   texts in `locales/en.json`, the `Permissions-Policy` of `/view3d` in `web.py`, the tests of all that
-  (`tests/test_viewer.py` Node tests of the pure parts: the camera poses from a walker pose, the gaze from a drag
+  (`tests/test_viewer.py` Node tests of the pure parts: the camera poses from an athlete pose, the gaze from a drag
   and from device angles; `tests/test_view3d.py` an Edge check of each view, `data-view`, no CSP violation;
   `tests/test_public.py` or `tests/test_web.py` the header). Not `edges.ts`, not the feature lines of `scene.ts`
   (the coordinator changes the Edges look in parallel), not `imagery.ts`, `ring.ts`, `tiles.ts`.
 
-## Wave F2: zoom in the walker's views (2026-11-02, the user's decisions)
+## Wave F2: zoom in the athlete's views (2026-11-02, the user's decisions)
 - **Eyes' field of view as a horizontal angle**, the same on every screen: 60° by default (the user's choice: the
   perspective closest to judging distances on the spot; 70° vertical had made about 106° horizontal on a desktop,
   about 52° on an upright phone). The camera's vertical angle follows from the canvas's aspect
   (2·atan(tan(h/2)/aspect)), again on every resize.
 - **Zoom**: Eyes narrows the horizontal angle like binoculars, from about 110° (wide) to about 8° (×8 of the
   default; the indicator shows the factor against 60°, e.g. "×2"); Behind moves the camera nearer or farther
-  along its line to the walker, 1.5 to 30 m (default 5 m; the indicator in metres, the camera still at least 1 m
+  along its line to the athlete, 1.5 to 30 m (default 5 m; the indicator in metres, the camera still at least 1 m
   above the terrain). Mouse wheel, two-finger pinch, and +/− buttons with the indicator beside the view switch
-  (shown in the walker's views only); each view keeps its zoom while the page is open; the orbit view unchanged.
+  (shown in the athlete's views only); each view keeps its zoom while the page is open; the orbit view unchanged.
 - One agent (VF2) on `l3d-wF2-zoom`; it owns `look.ts`, `views.ts`, `view.ts` (only what the zoom needs),
   `view3d.css`, new `ui.view3d.*` texts (`zoom_in`, `zoom_out`, the indicators), the tests of all that (Node:
   the vertical angle from a horizontal one and an aspect, the zoom's clamps and steps, the pinch's factor; Edge:
@@ -530,7 +530,7 @@ where anchors are dragged):
 ## After waves F and F2 (2026-11-02/03)
 - **VF** (`look.ts` pure and Node-tested, `views.ts` the switch, the drag and the motion): the view switch first
   in the bar (icons, their names from 600 px on; under 600 px on a row of its own with the phone's motion); the
-  eyes 1.6 m over the walker's feet on the loaded webbing (its mannequin, pin and grip hidden), behind 5 m back
+  eyes 1.6 m over the athlete's feet on the loaded webbing (its mannequin, pin and grip hidden), behind 5 m back
   from its chest along the gaze, never under the terrain; both placed before every frame, so they draw on demand
   as the rest; leaving them gives back the orbit's camera (`View.setOrbit`, `place`). The phone's motion is a
   toggle where `DeviceOrientationEvent` exists and the pointer is coarse; a note when denied or silent for 2 s;
@@ -539,12 +539,12 @@ where anchors are dragged):
   as decided; the privacy page unchanged (the readings stay in the page).
 - **VF2**: `look.ts` `zoomRange`, `zoomStep`, `zoomBy`, `wheelFactor`, `pinchFactor`, `eyesAngle`,
   `behindDistance`, `verticalFov`, `cameraFov`, `zoomLabel`; the eyes from 110° to ×8 of 60° (about 8.3°); the
-  wheel kept from the page in the walker's views only; a pinch turns nothing until every finger is lifted; a drag
+  wheel kept from the page in the athlete's views only; a pinch turns nothing until every finger is lifted; a drag
   in the eyes turns by the camera's vertical angle per stage height, so the world follows the finger at every
   zoom; `data-camera` adds the horizontal angle and the distance to the point looked at.
 - **At the merges**: the Edges' walls back at 35 % (`WALL_OPACITY`, the user's choice from the orbit videos);
-  `test_view3d_interaction[full]` failed once under load (wave P); the walker's slider about 95 px on a Pixel 7
-  in the walker's views (wave P).
+  `test_view3d_interaction[full]` failed once under load (wave P); the athlete's slider about 95 px on a Pixel 7
+  in the athlete's views (wave P).
 - **`main` merged into the branch on 2026-11-03** (1056134: new sources batch 2, obstacles on rock, performance
   round 3's wave 1): the ring's orthophoto origins 13 → 21 (`RING_ORIGINS`), `tests/test_patch.py::
   test_patch_loads_no_numba` (the quick lane never loads numba, the patch neither); the profile of a run saved
@@ -556,15 +556,15 @@ where anchors are dragged):
 ## Wave P: polish after wave F2 (2026-11-03)
 The coordinator merges `main` into the branch meanwhile (new sources, obstacles on rock, performance round 3; none
 of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
-- **The phone bar in the walker's views**: since F2 the walker's slider is about 95 px wide at 412 px (Pixel 7)
+- **The phone bar in the athlete's views**: since F2 the athlete's slider is about 95 px wide at 412 px (Pixel 7)
   beside the zoom's −, indicator and +. Give it back at least the width it had in those views before F2 (measure
   at eaea8fd), keeping the user's decision (the zoom's buttons and indicator beside the view switch, in the
-  walker's views only), at 390-412 px without a horizontal scroll; the orbit view's bar and the desktop's as they
+  athlete's views only), at 390-412 px without a horizontal scroll; the orbit view's bar and the desktop's as they
   are.
 - **The look hint names the zoom**: `ui.view3d.look_hint` becomes "Drag to look around, scroll to zoom." and a new
   `ui.view3d.look_hint_touch` "Drag to look around, pinch to zoom." is shown where the pointer is coarse (the test
   the page's level uses); `motion_denied` stays.
-- **The iPhone checklist** (`tools/device_page.py` `CHECKLIST`): the walker's views (Eyes and Behind, dragging to
+- **The iPhone checklist** (`tools/device_page.py` `CHECKLIST`): the athlete's views (Eyes and Behind, dragging to
   look, the slider and the walk carrying the camera), Phone motion (iOS asks inside the button's tap; turning the
   phone turns the gaze, in landscape too; a denial shows the note; with the self-signed certificate iOS may refuse
   the sensors: to be noted, not a failure of the page), the zoom (pinch and +/− in both views, the indicator), and
@@ -582,18 +582,18 @@ of this wave's files) and writes the docs. One agent (VP) on `l3d-wP-polish`:
 
 ## After wave P (2026-11-03)
 - **VP** (52edd35): under 600 px a break before the views' switch (`.v3-toolbar::before`, the rows' gap as margins,
-  so it adds no height); the walker's slider at 412 px (Pixel 7) 73.7 px before F2 and at e340305 (the switch
-  shared its row, F2 had not shrunk it), 187.7 px in the walker's views after; at 390 px (iPhone 13, WebKit) 159.7
+  so it adds no height); the athlete's slider at 412 px (Pixel 7) 73.7 px before F2 and at e340305 (the switch
+  shared its row, F2 had not shrunk it), 187.7 px in the athlete's views after; at 390 px (iPhone 13, WebKit) 159.7
   px throughout. The look hint names the zoom (`look_hint`, `look_hint_touch` where the pointer is coarse).
   `tools/device_page.py` served `/view3d` with every page's Permissions-Policy, which turned the motion sensors
-  off: now `web.PAGE_PERMISSIONS` (its test checks it); its checklist has the walker's views, Phone motion and the
+  off: now `web.PAGE_PERMISSIONS` (its test checks it); its checklist has the athlete's views, Phone motion and the
   zoom. `test_view3d_interaction` was not reproduced under load (12/12 and 24/24 with CPU burners); its script
   polled with plain timers, under which headless Edge draws no frame unless something loads (the canvas's redraw
   after the readout fills in places the handles it drags): it polls with a small fetch and drags once no frame
   came for a second (15 s limit, `settled` asserted).
 - **At the merge (fbed384, the coordinator)**: the break in the orbit too (its slider 74 px at 412 px beside the
-  switch; now as wide as in the walker's views, the bar as high in every view); the look hint at the phone level
-  as well, in place of its note (`v3-phone-note`, hidden in the walker's views as the anchors' hint is), so the
+  switch; now as wide as in the athlete's views, the bar as high in every view); the look hint at the phone level
+  as well, in place of its note (`v3-phone-note`, hidden in the athlete's views as the anchors' hint is), so the
   bar keeps its height when the view changes.
 - **To watch on the iPhone** (checklist item h): in Playwright's WebKit a bar 4 px higher after a view switch left
   the canvas blank while frames were counted (fixed by the constant height); a resize of the canvas, e.g. turning
@@ -619,7 +619,7 @@ gis.natt.is serves Web Mercator only, and answers PNG when JPEG is asked). The 3
 ## The iPhone test (2026-11-03)
 The user opened the device page (`tools/device_page.py serve`, at 1428dfe) on their iPhone (iOS 18) over the
 home network: 15 lines recorded from five runs (Dolina Bolechowicka, Gryffenbach, Mürren's rim, Kozie Czuby,
-Serra de Bernia), each at the levels phone and full, with the checklist of wave P (the walker's views, Phone
+Serra de Bernia), each at the levels phone and full, with the checklist of wave P (the athlete's views, Phone
 motion, the zoom, the phone turned, five minutes open). The user's verdict: "Looks good. Everything works."
 
 ## Round 2 (2026-11-05, the user's nine points)
@@ -630,10 +630,10 @@ lock (no new dependency is expected: report a need), and merges. The mock-up the
 https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
 
 **Decisions (the user's, 2026-11-05: the recommendations of the mock-up)**
-1. *The walker's marker*: the pin's tip stands above the straight (unloaded) webbing at the walker's place, about
-   14 px over it (over the walker's head where that is higher), with a thin half-transparent leader from the head
-   to the tip; shown as before (while the walker is under 20 px high, never in the walker's eyes); the unloaded
-   webbing's opacity 0.4 → 0.25.
+1. *The athlete's marker*: the pin's tip stands above the straight (unloaded) webbing at the athlete's place,
+   about 14 px over it (over the head where that is higher), with a thin half-transparent leader from the
+   head to the tip; shown as before (while the athlete is under 20 px high, never in the Eyes view); the
+   unloaded webbing's opacity 0.4 → 0.25.
 2. *The imagery's counter*: in the activity pill at the top's middle of the stage (a spinner, "Imagery 12 / 84", a
    small bar), no longer a text of the toolbar. The same pill shows the other waits of round 2.
 3. *"Only valid lines"*: a switch; with it on, the reach of the fixed anchor (where the other anchor may stand) is
@@ -642,7 +642,7 @@ https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
    length and height difference; none of the search's anchor rules (slope, prominence, drop, wall angle). Computed
    by the server (`/api/reach`); its engine is chosen after agent M's measurement.
 4. *The profile*: the 2D result's chart (`viewer/src/Profile.tsx`) in a card over the stage's bottom, folded by
-   default, its state kept in the browser; the chart's cursor and the walker follow each other.
+   default, its state kept in the browser; the chart's cursor and the athlete follow each other.
 5. *Saving a line*: into the favourites at once, no folder asked; the found line is the 2D result's own
    favourite, a moved line a favourite of its new anchors; the 2D result opens a favourite that is not among the
    run's lines as a measured line; "Back to the map" and "Copy link" carry the moved anchors.
@@ -657,7 +657,7 @@ https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
    fan of webbings to the representatives and their list (length, clearance, height difference, over trees); the
    representatives are the 2D result's spots (`grouping.ts`); level `full` only.
 0. *Where the new controls stand*: a tool strip at the stage's top left (`Scene3D.tools`), icons alone at the phone
-   level and under 600 px; the bar below keeps the walker, the walk, the imagery and the views.
+   level and under 600 px; the bar below keeps the athlete, the walk, the imagery and the views.
 
 **In the base already (the coordinator, before wave 1)**
 - `scene-api.ts`: `Scene3D.activity` (`set(id, text, fraction?)`, `clear(id)`: the entry set last shows),
@@ -682,8 +682,8 @@ https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
 | U2 | `v3r2-profile` | 4, 5 | new `viewer/src/view3d/profilecard.tsx`, `save.ts` and a stylesheet of their own imported by them (not `view3d.css`); `viewer/src/view3d/main.ts`, `page.ts`, `decode.ts` (`PatchMeta`); `viewer/src/Profile.tsx`; `viewer/src/result/model.ts` and a new module for `measuredLine`; the profile's rules of `viewer/src/result/view/result.css` moved to a stylesheet both bundles import; `viewer/src/app/c/` where the 2D result opens a favourite; `search.py` (`patch_of_line`'s meta only); `tests/test_patch.py`, a new `tests/test_view3d_profile.py`, `tests/test_shell_c.py` |
 | M | `v3r2-reach-measure` | 3, 9 | new `tools/perf_reach.py`, `tests/test_perf_reach.py` (a measurement, nothing of the product) |
 
-- *U1, the marker*: a pure function of `interact.ts` gives the pin's tip from the screen points of the walker's
-  head and of the unloaded webbing above the walker (Node-tested); the leader is an element of the overlay placed
+- *U1, the marker*: a pure function of `interact.ts` gives the pin's tip from the screen points of the athlete's
+  head and of the unloaded webbing above the athlete (Node-tested); the leader is an element of the overlay placed
   through the CSSOM; `data-pin` as before.
 - *U1, the pill*: `imagery.ts` reports its tiles through `scene.activity.set("imagery", t("ui.view3d.activity_imagery",
   …), done / total)` (at most every `COUNT_MS`) and clears it when done or stopped; `.v3-imagery-status` goes.
@@ -698,9 +698,9 @@ https://claude.ai/artifact/R7B3LuhJyj9pboyDk5JeXX.
   not touched.
 - *U2, the card*: `ProfilePanel` rendered into `scene.card` with `render` of `preact` (never `preact/compat`),
   `compact`, behind the tool `profile`; a `Line` for it from the profile and the anchors through the moved
-  `measuredLine`; its hover sets the walker (`line.setWalker`) and the walker's moves set its cursor (a new optional
-  prop of `ProfilePanel`; the 2D result's chart unchanged without it); a new profile (`line.onProfile`) redraws it,
-  between a move and its profile it shows `ui.view3d.profile_waiting`. Folded by default, kept in `localStorage`
+  `measuredLine`; its hover sets the athlete (`line.setWalker`), whose moves set its cursor (a new
+  optional prop of `ProfilePanel`; the 2D result's chart unchanged without it); a new profile (`line.onProfile`) redraws
+  it, between a move and its profile it shows `ui.view3d.profile_waiting`. Folded by default, kept in `localStorage`
   (`findaline.view3d.profile`). The 2D result must look as before: its chart's rules only move files.
 - *U2, saving*: the tool `save`; the token from `GET /api/runs/<run>/favourites` (`favourites.ts`
   `loadRunFavourites`), the POST through `saveFavourite`; the found line's key is the page's `line` exactly as the
@@ -835,7 +835,7 @@ as well (1 of 3 runs): not this round's.
 - The address's lines show from the start. The tool `others` (order 4, a switch, `ui.view3d.others`) shows and
   hides the favourites; offered when the run has another favourite; on with none of them in the patch: the note
   `ui.view3d.others_none`. Its state is not kept.
-- A click on a label makes that line the active one: `edit.setAnchors(anchors, key)` (the walker, the handles, the
+- A click on a label makes that line the active one: `edit.setAnchors(anchors, key)` (the athlete, the handles, the
   profile of that key; saving shows it saved when it is a favourite). The line that was active, when it has a key
   (the found line's is the page's `line`, else `line.key`), is drawn among the others from then on; "Back to the
   found line" works as before.

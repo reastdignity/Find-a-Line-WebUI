@@ -4,9 +4,12 @@
 // phones. The Admin page (AdminC) is a
 // page of panels; the OSM page (OsmC) a panel next to the map it needs (the regions around its centre).
 
-import { useEffect, useRef, useState } from "preact/hooks";
-import type { ComponentChildren } from "preact";
-import { Button, Segmented, type Theme } from "../../ui/components";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import type { ComponentChildren, RefObject } from "preact";
+import { Button, DESKTOP, Segmented, useMedia, type Theme } from "../../ui/components";
+import { SidePanel, useWidthOf } from "../../ui/SidePanel";
+import { DEFAULT_LAYER_LAYOUT, LAYER_LIMITS, fitPanels, loadLayerLayout, maxPanelWidth, saveLayerLayout, type Column,
+         type LayerLayout, type PanelSide } from "../../result/view/layout";
 import { Icon } from "../../ui/icons";
 import { storeTheme } from "../../ui/choice";
 import { Popover } from "../../result/view";
@@ -62,14 +65,67 @@ export function AccountMenu({theme, setTheme, usage}:
   </Popover>;
 }
 
+/** What MapPage gives the children of a page with `aside`: `panels` changes whenever a side panel's width or open
+ *  state changes the map's width (LayerPage restarts its automatic level then), `setRails` the collapsed panels'
+ *  labels (left, right). */
+export interface MapPageExtras { panels: string; setRails(left: string, right: string): void }
+
+/** The highline layer's side panels: their kept layout (layout.ts loadLayerLayout, LAYER_LIMITS) fitted to the
+ *  window, the edges, the rails and the focus moved on a collapse (to the rail) and an expand (to the edge), as the
+ *  result's (ResultColumns.tsx); on phones open and without edges (one scrolling column, c.css). */
+function useLayerPanels(wide: boolean, cols: RefObject<HTMLDivElement | null>) {
+  const [layout, setLayout] = useState<LayerLayout>(loadLayerLayout);
+  const latest = useRef(layout);
+  latest.current = layout;
+  const [prefer, setPrefer] = useState<PanelSide | null>(null);
+  const width = useWidthOf(cols);
+  const change = (next: LayerLayout, commit: boolean) => {
+    latest.current = next;
+    setLayout(next);
+    if (commit) saveLayerLayout(next);
+  };
+  const open = (side: PanelSide): Column => ({open: true, width: layout[side].w, forced: false});
+  const fit = !wide ? {left: open("left"), right: open("right")}
+    : width ? fitPanels(layout.left, layout.right, LAYER_LIMITS, width, prefer)
+    : {left: {...open("left"), open: layout.left.open}, right: {...open("right"), open: layout.right.open}};
+  const focus = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    if (!focus.current) return;
+    cols.current?.querySelector<HTMLElement>(focus.current)?.focus();
+    focus.current = null;
+  });
+  const props = (side: PanelSide) => ({
+    side, column: fit[side], min: LAYER_LIMITS[side][0], max: maxPanelWidth(side, width, fit, LAYER_LIMITS),
+    railWidth: LAYER_LIMITS.rail,
+    onWidth: (w: number) => change({...latest.current, [side]: {...latest.current[side], w}}, false),
+    onCommit: () => saveLayerLayout(latest.current),
+    onReset: () => change({...latest.current, [side]: {...latest.current[side], w: DEFAULT_LAYER_LAYOUT[side].w}}, true),
+    onOpen: (now: boolean) => {
+      change({...latest.current, [side]: {...latest.current[side], open: now}}, true);
+      if (now) setPrefer(side);  // in a narrow window the other panel collapses
+      focus.current = `.c-col-${side} > ${now ? ".c-split" : ".c-rail"}`;
+    },
+  });
+  const panels = `${fit.left.open ? fit.left.width : 0},${fit.right.open ? fit.right.width : 0}`;
+  return {fit, props, panels};
+}
+
 /** A page with a panel on the left and the map it uses on the right (on phones the map on top, the panel scrolling
- *  under it); `aside` (its label) adds a third column on the right, an element the children fill (a portal:
- *  LayerPage), under the panel on phones. */
+ *  under it); `aside` (its label) adds a panel on the right, an element the children fill (LayerPage renders a
+ *  second tree into it), under the panel on phones. With `aside` both panels are side panels as the result's
+ *  (ui/SidePanel.tsx: dragged edges, collapsed to rails, the layout kept), their content in a scroll box each. */
 export function MapPage({title, aside, children}:
-                        {title: string; aside?: string; children: (place: PlaceMap, aside: HTMLElement | null) => ComponentChildren}) {
+                        {title: string; aside?: string;
+                         children: (place: PlaceMap, aside: HTMLElement | null, extras: MapPageExtras) => ComponentChildren}) {
   const ref = useRef<HTMLDivElement>(null);
+  const cols = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<PlaceMap | null>(null);
   const [right, setRight] = useState<HTMLElement | null>(null);
+  const [rails, setRailsState] = useState<[string, string]>(["", ""]);
+  const wide = useMedia(DESKTOP);
+  const {fit, props, panels} = useLayerPanels(wide, cols);
+  const extras = useRef<MapPageExtras>({panels, setRails: () => {}});
+  extras.current = {panels, setRails: (l, r) => setRailsState((now) => now[0] === l && now[1] === r ? now : [l, r])};
   useEffect(() => {
     const placeMap = new PlaceMap(ref.current!, {controls: "bottomright"});
     placeMap.setSearchVisible(false);
@@ -79,13 +135,28 @@ export function MapPage({title, aside, children}:
     observer.observe(ref.current!);
     return () => { observer.disconnect(); placeMap.map.remove(); };
   }, []);
-  return <div class={aside ? "c-mappage c-mappage-3" : "c-mappage"}>
-    <aside class="c-sidepanel" aria-label={title}>
-      <h1 class="u-h">{title}</h1>
-      {place && (!aside || right) && children(place, right)}
-    </aside>
+  // The map's size follows the panels at once (also where no frame is drawn, so no ResizeObserver reports)
+  useLayoutEffect(() => { place?.map.invalidateSize(); }, [place, panels]);
+  if (!aside) {
+    return <div class="c-mappage">
+      <aside class="c-sidepanel" aria-label={title}>
+        <h1 class="u-h">{title}</h1>
+        {place && children(place, null, extras.current)}
+      </aside>
+      <div class="c-newmap" ref={ref} />
+    </div>;
+  }
+  return <div class="c-mappage c-mappage-3" ref={cols}>
+    <SidePanel {...props("left")} name="filters" label={title} rail={{icon: "filter", text: rails[0] || title}}>
+      <div class="c-col-scroll" data-scroll="left">
+        <h1 class="u-h">{title}</h1>
+        {place && right && children(place, right, extras.current)}
+      </div>
+    </SidePanel>
     <div class="c-newmap" ref={ref} />
-    {aside && <aside class="c-sidepanel c-sidepanel-right" aria-label={aside} ref={setRight} />}
+    <SidePanel {...props("right")} name="histograms" label={aside} rail={{icon: "bars", text: rails[1] || aside}}>
+      <div class="c-col-scroll" data-scroll="right" ref={setRight} />
+    </SidePanel>
   </div>;
 }
 

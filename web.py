@@ -575,12 +575,18 @@ COUNTRY_ID = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 class Countries:
     """The highline layers of the data folder: the cubes under <data>/countries/<id>/cube/ (countcube.py,
     built by `findaline.py country build`), each read once per version of its cube.json (the folder and
-    its mtime), so a new build is seen at the next request. Only countcube is imported (numpy, pyproj,
-    shapely): never country, search or numba. Its methods block (files, numpy): call them in a thread."""
+    its mtime), so a new build is seen at the next request; its arrays memory-mapped (countcube.Cube).
+    When a newer build replaces a cube, the old Cube is closed, and once no computation holds a map of
+    it the old build's files are removed (countcube.remove_stale, also at a folder's first cube in this
+    process); what another process still maps stays for the next build or move. Only countcube is
+    imported (numpy, pyproj, shapely): never country, search or numba. Its methods block (files,
+    numpy): call them in a thread."""
 
     def __init__(self, data_dir: str):
         self.root = os.path.join(data_dir, "countries")
         self._cubes: Dict[str, Tuple[int, object]] = {}
+        self._retired: Dict[str, List[object]] = {}  # per cube folder: the closed Cubes of builds before
+        self._due: set = set()                       # cube folders whose stale builds are to be removed (_tidy)
         self._lock = threading.Lock()
 
     def cube(self, country: str):
@@ -595,18 +601,44 @@ class Countries:
             return None
         with self._lock:
             found = self._cubes.get(folder)
-            if found and found[0] == mtime:
-                return found[1]
-        try:
-            cube = cc.Cube(folder)
-        except (OSError, ValueError, KeyError, TypeError):  # half written, another version
-            return None
-        with self._lock:
-            self._cubes[folder] = (mtime, cube)
+            cube = found[1] if found and found[0] == mtime else None
+        if cube is None:
+            try:
+                cube = cc.Cube(folder)
+            except (OSError, ValueError, KeyError, TypeError):  # half written, another version
+                return None
+            with self._lock:
+                found = self._cubes.get(folder)
+                if found and found[0] == mtime:
+                    cube = found[1]  # another thread read it first (this one has mapped nothing)
+                else:
+                    if found:
+                        found[1].close()
+                        self._retired.setdefault(folder, []).append(found[1])
+                    self._cubes[folder] = (mtime, cube)
+                    self._due.add(folder)
+        self._tidy(folder)
         return cube
 
+    def _tidy(self, folder: str) -> None:
+        """countcube.remove_stale of a cube folder once due (a newer build read, or the folder's first) and no
+        computation of this process holds a map of its closed Cubes any more: in the caller's thread (cube() runs
+        in the thread pool, never in the event loop), once per move; never raises (what stays goes at the next
+        build or move), logs nothing."""
+        import countcube as cc
+        with self._lock:
+            if folder not in self._due or any(old.mapped() for old in self._retired.get(folder, ())):
+                return
+            self._due.discard(folder)
+            self._retired.pop(folder, None)
+        try:
+            cc.remove_stale(folder)
+        except Exception:  # noqa: BLE001 - a cube folder's tidying never fails a request
+            pass
+
     def listing(self) -> List[Dict]:
-        """cube.json of every country with a cube, without "config" and "origin", by id."""
+        """cube.json of every country with a cube, without "config", "origin" and "arrays" (the build folder's
+        name: how the cube is stored, the same answer for a cube built before the build folders), by id."""
         try:
             names = sorted(os.listdir(self.root))
         except OSError:
@@ -615,16 +647,35 @@ class Countries:
         for name in names:
             cube = self.cube(name)
             if cube is not None:
-                out.append({k: v for k, v in cube.info.items() if k not in ("config", "origin")})
+                out.append({k: v for k, v in cube.info.items() if k not in ("config", "origin", "arrays")})
         return out
 
+    def replaced(self, cube) -> Tuple[int, ...]:
+        """The partners (indices 1-6 of cube.json's neighbours) whose own cube is shown with this one: built
+        in this data folder, readable, no study area, of the same profile (cube.json's "profile", None for
+        both before R7). Under border=all their own lines take the place of this cube's partner lines
+        (docs/country-precompute/contract.md, "The borders")."""
+        out = []
+        own = cube.info.get("id")
+        for k, neighbour in enumerate(cube.info.get("neighbours") or [], 1):
+            if k > 6 or not isinstance(neighbour, str) or neighbour == own:
+                continue
+            other = self.cube(neighbour)
+            if other is not None and not other.info.get("study") and other.info.get("profile") == cube.info.get("profile"):
+                out.append(k)
+        return tuple(out)
+
     @staticmethod
-    def _view(cube, query) -> Tuple[str, int, Optional[tuple], object]:
+    def _view(cube, query, replaced: Tuple[int, ...] = ()) -> Tuple[str, int, Optional[tuple], object]:
         """What a query of the layer asks: (mode, level, box, filters) from its mode, bbox, level (auto:
         countcube's Cube.auto_level; an explicit level over COUNTRY_CELLS_MAX cells in view refused) and
-        the filters of countcube.Filters.parse; ValueError with a plain message for a value it cannot take."""
+        the filters of countcube.Filters.parse (border=all|own, all by default) with the partners `replaced`
+        (Countries.replaced); ValueError with a plain message for a value it cannot take."""
+        import dataclasses
         import countcube as cc
         filters = cc.Filters.parse(query)
+        if replaced:
+            filters = dataclasses.replace(filters, replaced=tuple(replaced))
         mode = query.get("mode") or "lines"
         if mode not in ("lines", "spots"):
             raise ValueError("mode must be lines or spots")
@@ -634,8 +685,11 @@ class Countries:
                 west, south, east, north = (float(v) for v in text.split(","))
             except ValueError:
                 raise ValueError("bbox must be west,south,east,north in degrees") from None
-        else:
+        else:  # the cube's bounds grown by the layer's reach: the partner lines' cells beyond the outline too
             west, south, east, north = cube.info["bounds_wgs84"]
+            reach = (cube.reach_m() or 0.0) / 110_000.0  # degrees of latitude, a little more than the metres
+            wide = reach / max(math.cos(math.radians(min(max(abs(south), abs(north)), 89.0))), 0.01)
+            west, south, east, north = west - wide, south - reach, east + wide, north + reach
         box = cube.box(west, south, east, north)
         text = query.get("level") or "auto"
         if text == "auto":
@@ -652,37 +706,49 @@ class Countries:
         return mode, level, box, filters
 
     @staticmethod
-    def _cell_m(cube, level: int):
-        import countcube as cc
-        size = level * cube.info.get("cell_m", cc.CELL_M)
-        return int(size) if float(size).is_integer() else size
+    def _cell_deg(cube, level: int) -> float:
+        """The side of a level's cell in degrees (cube v2's lattice of cell_deg, 30″)."""
+        return level * float(cube.info["cell_deg"])
 
-    @staticmethod
-    def cells(cube, query) -> Dict:
+    def cells(self, cube, query, check=None) -> Dict:
         """The answer of /api/countries/<id>/cells for its query (_view): the level and its cell size, the
-        cells passing the filters with their corners, the total and the largest count; `cut` those of them
-        the country's outline cuts, by "i,j" (countcube's Cube.cut: the km² inside and the shape to draw)."""
+        rows of the cells passing the filters, [i, j, count, lat, lon of SW, SE, NE, NW, side], a row per
+        cell and side (countcube's Cube.cells(sides=True): side 0 the country's own lines, 1-7 the partner
+        index of its partner lines, so a cell the border cuts may give two rows), the total and the
+        largest count of a row; `cut` the parts to draw and divide by: "i,j" a side-0 row's part inside
+        the outline (Cube.cut), "i,j,out" a partner row's part beyond it within the layer's reach
+        (Cube.cut_outside); a row without its key is its whole cell. `check` is called between the
+        chunks of rows (it raises to stop the work: LayerSlots)."""
         import numpy as np
-        mode, level, box, filters = Countries._view(cube, query)
-        i, j, count = cube.cells(mode, level, box, filters)
+        mode, level, box, filters = Countries._view(cube, query, self.replaced(cube))
+        i, j, side, count = cube.cells(mode, level, box, filters, sides=True, check=check)
         corners = np.round(cube.corners(level, i, j), COUNTRY_DECIMALS).reshape(len(i), 8).tolist()
         cut = cube.cut(level)
-        return {"level": level, "cell_m": Countries._cell_m(cube, level),
+        cells = list(zip(i.tolist(), j.tolist(), side.tolist()))
+        outside = cube.cut_outside(level, {(a, b) for a, b, s in cells if s}) if side.any() else {}
+        shapes = {}
+        for a, b, s in cells:
+            if not s and (a, b) in cut:
+                shapes[f"{a},{b}"] = cut[a, b]
+            elif s and (a, b) in outside:
+                shapes[f"{a},{b},out"] = outside[a, b]
+        return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
                 "total": int(count.sum()), "max": int(count.max()) if len(count) else 0,
-                "cells": [[int(a), int(b), int(c), *xy] for a, b, c, xy in zip(i, j, count, corners)],
-                "cut": {f"{a},{b}": cut[a, b] for a, b in zip(i.tolist(), j.tolist()) if (a, b) in cut}}
+                "cells": [[a, b, int(c), *xy, s] for (a, b, s), c, xy in zip(cells, count, corners)],
+                "cut": shapes}
 
-    @staticmethod
-    def histogram(cube, query) -> Dict:
+    def histogram(self, cube, query, check=None) -> Dict:
         """The answer of /api/countries/<id>/histogram for the query of /cells: countcube's Cube.histogram
-        of the view (the counts per bin of each dimension, each under every filter but its own) with the
-        level and its cell size as /cells gives them. With a bbox only the cells reaching it, by their
-        corners as /cells rounds them (Cube.reaching): the cells the page counts as in view."""
-        mode, level, box, filters = Countries._view(cube, query)
+        of the view (the counts per bin of each dimension, each under every filter but its own, with
+        "totals" of both modes and the lines' "border" split: interior, owned, partner) with the level and
+        its cell size as /cells gives them. With a bbox only the cells reaching it, by their corners as
+        /cells rounds them (Cube.reaching): the cells the page counts as in view. `check` as cells'."""
+        mode, level, box, filters = Countries._view(cube, query, self.replaced(cube))
         text = query.get("bbox") or ""
         view = tuple(float(v) for v in text.split(",")) if text else None  # checked by _view
-        return {"level": level, "cell_m": Countries._cell_m(cube, level),
-                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS)}
+        return {"level": level, "cell_deg": Countries._cell_deg(cube, level),
+                **cube.histogram(mode, level, box, filters, view=view, decimals=COUNTRY_DECIMALS, summary=True,
+                                 check=check)}
 
     @staticmethod
     def outline(cube) -> Dict:
@@ -699,6 +765,72 @@ class Countries:
         except ValueError:
             raise ValueError("level, i and j must be whole numbers") from None
         return cc.cell_request(cube, query.get("band") or "", level, i, j)
+
+
+COUNTRY_SLOTS = 2             # the highline layer's computations (cells, histograms) at once in the web process
+COUNTRY_WAIT_MAX = 30.0       # seconds a request of the layer waits for a slot (then 503)
+COUNTRY_SECONDS_MAX = 120.0   # seconds one computation may take, checked between its chunks of rows (then 504)
+COUNTRY_POLL = 0.05           # seconds between two looks at the slots
+
+
+class LayerStopped(Exception):
+    """A computation of the layer stopped between two chunks of rows: its client went away ("gone"), or its
+    time ran out ("time")."""
+
+
+class LayerSlots:
+    """The bound on the highline layer's work in the web process. The page asks /cells and /histogram on every
+    move and aborts them at the next, but a thread of run_in_threadpool runs to its end (four quick zoom steps
+    held four histograms at once: docs/performance.md, "The explorer's speed"). So: at most `slots`
+    computations at once, the others wait without a thread (COUNTRY_WAIT_MAX at most: 503); each stops between
+    two chunks of rows (countcube.CHUNK_ROWS, the `check` it is given) when its client goes away (a task
+    awaiting http.disconnect: Request.is_disconnected never sees it behind the guard middleware) or after
+    COUNTRY_SECONDS_MAX (504), so an abandoned request costs a chunk more at most. Every user alike."""
+
+    def __init__(self, slots: Optional[int] = None):
+        self.slots, self.running = COUNTRY_SLOTS if slots is None else slots, 0
+
+    async def run(self, client, work: Callable, *args):
+        """work(*args, check) in a thread within the bounds; its answer."""
+        import functools
+
+        import anyio
+        from fastapi import HTTPException
+        gone = asyncio.ensure_future(_disconnect(client.receive))
+        stop = threading.Event()
+        gone.add_done_callback(lambda _: stop.set())
+        try:
+            started = time.monotonic()
+            while self.running >= self.slots:  # the event loop's thread alone counts: no lock
+                if gone.done():
+                    raise HTTPException(503, "the client went away")  # nobody reads it
+                if time.monotonic() - started > COUNTRY_WAIT_MAX:
+                    raise HTTPException(503, f"the layer is busy: no answer within {COUNTRY_WAIT_MAX:g} s, try again")
+                await asyncio.sleep(COUNTRY_POLL)
+            self.running += 1
+            deadline = time.monotonic() + COUNTRY_SECONDS_MAX
+
+            def check():
+                if stop.is_set():
+                    raise LayerStopped("gone")
+                if time.monotonic() > deadline:
+                    raise LayerStopped("time")
+            try:
+                # abandon_on_cancel: a request cancelled while its thread computes returns at once (run_in_threadpool's
+                # anyio.to_thread.run_sync without it holds a cancel of an anyio scope, as Starlette's middleware task
+                # group's, until the thread ends: the thread ran all its chunks), so the `finally` below stops it
+                return await anyio.to_thread.run_sync(functools.partial(work, *args, check), abandon_on_cancel=True)
+            except LayerStopped as e:
+                if str(e) == "gone":
+                    raise HTTPException(503, "the client went away")
+                raise HTTPException(504, f"no answer within {COUNTRY_SECONDS_MAX:g} s: zoom in, or try again later")
+            finally:
+                self.running -= 1
+        finally:
+            # the thread of a request cancelled while it computes (abandoned above, not awaited) stops at its next
+            # chunk; a client gone has set `stop` already, through `gone`'s callback
+            stop.set()
+            gone.cancel()
 
 
 def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, start_scheduler: bool = True,
@@ -1684,6 +1816,7 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
     # --- The highline layer of a country (countcube.py; the local app and administrators) ---
 
     countries = Countries(data_dir)
+    layer = app.state.layer = LayerSlots()  # the bound on the layer's work in flight
 
     async def country_cube(country: str):
         cube = await run_in_threadpool(countries.cube, country)
@@ -1691,28 +1824,39 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
             raise HTTPException(404, "no such country, or its layer is not built")
         return cube
 
+    async def layer_answer(country: str, request: Request, work: Callable):
+        """work's answer (Countries.cells or .histogram) on the country's cube within the layer's slots. A cube built
+        again while the request computed, whose old build lost an array the request had not mapped yet (removed by
+        the builder, or its Cube closed here: countcube.CubeChanged), answers from the new build, once; 503 with
+        Retry-After when no newer build is there (yet)."""
+        import countcube as cc
+        cube = await country_cube(country)
+        for attempt in range(2):
+            try:
+                return await layer.run(request, work, cube, request.query_params)
+            except ValueError as e:
+                raise HTTPException(400, str(e))
+            except cc.CubeChanged:
+                newer = await country_cube(country)
+                if attempt or newer is cube:
+                    raise HTTPException(503, "the layer was built again while it answered: try again",
+                                        headers={"Retry-After": "1"})
+                cube = newer
+
     @app.get("/api/countries")
     async def country_list(user: ac.User = Depends(require_admin)):
-        """The countries with a highline layer: their cube.json without "config" and "origin"."""
+        """The countries with a highline layer: their cube.json without "config", "origin" and "arrays"."""
         return {"countries": await run_in_threadpool(countries.listing)}
 
     @app.get("/api/countries/{country}/cells")
     async def country_cells(country: str, request: Request, user: ac.User = Depends(require_admin)):
         """The cells of the layer in view passing the filters (Countries.cells), with their corners."""
-        cube = await country_cube(country)
-        try:
-            return await run_in_threadpool(Countries.cells, cube, request.query_params)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        return await layer_answer(country, request, countries.cells)
 
     @app.get("/api/countries/{country}/histogram")
     async def country_histogram(country: str, request: Request, user: ac.User = Depends(require_admin)):
         """The counts of the layer in view per bin of each filter dimension (Countries.histogram)."""
-        cube = await country_cube(country)
-        try:
-            return await run_in_threadpool(Countries.histogram, cube, request.query_params)
-        except ValueError as e:
-            raise HTTPException(400, str(e))
+        return await layer_answer(country, request, countries.histogram)
 
     @app.get("/api/countries/{country}/outline")
     async def country_outline(country: str, user: ac.User = Depends(require_admin)):

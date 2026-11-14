@@ -44,6 +44,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8",
+    "pytest-xdist>=3.8.0",  # the suite's files in parallel processes (tools/test_lock.py, CI: -n N --dist loadfile)
     "pyyaml>=6.0.3",  # tests/test_monitoring.py reads the compose file and Grafana's provisioning
 ]
 tools = [

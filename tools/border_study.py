@@ -26,13 +26,14 @@ reprojected onto the primary's grid with that method instead of the mosaic's own
 (sources.filling.NEIGHBOUR_RESAMPLING), into <out>/<place>-<primary>-<method>/: the report compares
 each run with the run of the other primary, whose grid holds that side's data as they are
 (docs/country-precompute/contract.md, section 6, step 0). exposure reads a built cube
-(countries/<id>/cube) and counts its lines and spots whose first anchor's 1 km cell lies within reach
-of each neighbour's border (a bin's longest line plus half a cell's diagonal): the most a layer
-across borders could add there. report writes study.json, study.md and pictures/<run>.png: per band
+(countries/<id>/cube) and counts its lines and spots whose first anchor's cell (the lattice's 30")
+lies within reach of each neighbour's border (a bin's longest line plus half the cell's diagonal, both
+from the cell's centre projected to the metric CRS): the most a layer across borders could add there. report writes study.json, study.md and pictures/<run>.png: per band
 and length bin the lines of each class, the share across the border, the same within reach of the
 border and per km of it, the spots of each class, where each side's data came from, the agreement of
-a place's two primaries (spots across the border matched within TOLERANCE clusters after
-reprojection), the resampling methods of a place (the spots of the resampled side and those across
+a place's two primaries (spots across the border matched within TOLERANCE clusters: cube v2's clusters
+lie on one lattice for every CRS, so a spot of one run is a spot of the other's frame by the origins'
+offset alone), the resampling methods of a place (the spots of the resampled side and those across
 the border against the other primary's, with each run's seconds, CPU seconds and memory), and with
 exposure.json the estimate for its cube (the place's lines across the
 border per line of A within reach of the border, times the cube's lines within reach of B's border).
@@ -65,10 +66,12 @@ import countcube as cc  # noqa: E402
 import country  # noqa: E402
 
 CLASSES = ("aa", "bb", "ab", "other")  # both anchors in A, both in B, one in each, any other
-PART_COLUMNS = ("a1", "a2") + cc.RECORD_COLUMNS  # what a TileCounter reads of a part
-CELL_HALF_DIAGONAL = cc.CELL_M / math.sqrt(2)  # a line's first anchor lies this far from its cell's centre at most
+# What a TileCounter reads of a part (and countcube.OPTIONAL_COLUMNS when a part holds them)
+PART_COLUMNS = ("a1", "a2") + cc.RECORD_COLUMNS
 BORDER_SNAP_M = 200.0  # a piece of one outline within this of the other's is their common border
-TOLERANCE = 1  # clusters (CLUSTER_M) an end of a spot may lie off its match after reprojection
+# Clusters an end of a spot may lie off its match, east-west and north-south: the lattice's 1.5" clusters
+# (30 x 46 m at 49°) at (2, 1) keep about the +-50 m of cube v1's 50 m clusters (band_study.TOLERANCE)
+TOLERANCE = (2, 1)
 SEGMENT_M = 200.0  # edges densified to this before an outline or a box changes its CRS
 
 
@@ -134,11 +137,13 @@ def counted_box(place: Place, crs: str) -> Tuple[float, float, float, float]:
     return tuple(float(v) for v in _project(box_polygon(place.box), "EPSG:4326", crs).bounds)
 
 
-def study_origin(counted: Tuple[float, ...], config: country.Country) -> Tuple[float, float]:
-    """One origin for every band of a run (spots merge over the bands): the counted box grown by
-    twice the longest line of the layer, floored to countcube.ALIGN_M, below every anchor."""
+def study_origin(counted: Tuple[float, ...], crs: str, config: country.Country) -> Tuple[int, int]:
+    """One origin for every band of a run (spots merge over the bands), in cells of the lattice: the
+    counted box (in crs) grown by twice the longest line of the layer (countcube.origin_of), below
+    every anchor."""
+    from shapely.geometry import box
     grow = 2 * max(b.lengths[1] for b in config.bands)
-    return cc.origin_of((counted[0] - grow, counted[1] - grow, counted[2], counted[3]))
+    return cc.origin_of(_project(box(*counted), crs, "EPSG:4326").bounds, grow)
 
 
 def line_classes(k1: np.ndarray, k2: np.ndarray) -> np.ndarray:
@@ -172,7 +177,8 @@ class BorderSink:
             if n == len(a1):
                 self.counters[name](part)
             elif n:
-                self.counters[name](SimpleNamespace(columns={key: np.asarray(c[key])[chosen] for key in PART_COLUMNS}))
+                self.counters[name](SimpleNamespace(columns={key: np.asarray(c[key])[chosen]
+                                                             for key in PART_COLUMNS + cc.OPTIONAL_COLUMNS if key in c}))
 
 
 def fill_check(data, inside: Dict[str, np.ndarray], window: Tuple[slice, slice]) -> Dict[str, Dict[str, int]]:
@@ -308,7 +314,7 @@ def _run_place(place: Place, primary: str, out: str, data_dir: str, bands: Optio
     crs = source.working_crs(lat, lon)
     counted = counted_box(place, crs)
     definition = {"place": dataclasses.asdict(place), "primary": primary, "crs": crs, "counted": list(counted),
-                  "origin": list(study_origin(counted, config)), "config": config.config()}
+                  "origin": list(study_origin(counted, crs, config)), "config": config.config()}
     if resampling:  # a run without one keeps the definition of the runs before the option
         definition["resampling"] = resampling
     path = os.path.join(folder, "study.json")
@@ -405,9 +411,26 @@ def _bins() -> List[Tuple[int, int]]:
     return [(edges[k], edges[k + 1]) for k in range(cc.LENGTH_BINS)]
 
 
-def _cell_centres(keys: np.ndarray, origin: Tuple[float, float]) -> np.ndarray:
-    i, j = keys >> cc.COL_SHIFT, (keys >> cc.ROW_SHIFT) & cc.CELL_MASK
-    return np.column_stack([origin[0] + (i + 0.5) * cc.CELL_M, origin[1] + (j + 0.5) * cc.CELL_M])
+def _cell_geometry(keys: np.ndarray, origin: Tuple[int, int], crs: str) -> Tuple[np.ndarray, np.ndarray]:
+    """The level-1 cells of keys ((n, 2), or word A alone) in a metric CRS: their centres (n, 2) and half
+    their diagonal (the farthest corner from the centre), both from the lattice's lon/lat rectangle
+    projected to crs: a line's first anchor lies at most that far from its cell's centre."""
+    from pyproj import Transformer
+    a = np.asarray(keys, dtype=np.int64)
+    a = a[:, 0] if a.ndim == 2 else a
+    i = (a >> cc.COL_SHIFT).astype(np.float64) + origin[0]
+    j = ((a >> cc.ROW_SHIFT) & cc.CELL_MASK).astype(np.float64) + origin[1]
+    to = Transformer.from_crs("EPSG:4326", crs, always_xy=True)
+    lon = np.stack([i + 0.5, i, i + 1, i + 1, i], axis=1) / cc.CELLS_PER_DEGREE
+    lat = np.stack([j + 0.5, j, j, j + 1, j + 1], axis=1) / cc.CELLS_PER_DEGREE
+    x, y = (np.asarray(v).reshape(-1, 5) for v in to.transform(lon.ravel(), lat.ravel()))
+    half = np.hypot(x[:, 1:] - x[:, :1], y[:, 1:] - y[:, :1]).max(axis=1)
+    return np.column_stack([x[:, 0], y[:, 0]]), half
+
+
+def _cell_centres(keys: np.ndarray, origin: Tuple[int, int], crs: str) -> np.ndarray:
+    """The centres in a metric CRS of the level-1 cells of keys (_cell_geometry)."""
+    return _cell_geometry(keys, origin, crs)[0]
 
 
 def border_pieces(own, others: Dict[str, object]) -> Dict[str, object]:
@@ -416,14 +439,16 @@ def border_pieces(own, others: Dict[str, object]) -> Dict[str, object]:
     return {name: own.boundary.intersection(other.buffer(BORDER_SNAP_M)) for name, other in others.items()}
 
 
-def near_border(keys: np.ndarray, counts: np.ndarray, origin: Tuple[float, float],
-                pieces: Dict[str, object]) -> Dict:
-    """The counts of keys (lines or spots) per length bin, and of those whose cell's centre lies within
-    reach of a border piece (the bin's longest line plus CELL_HALF_DIAGONAL), each to its nearest piece."""
+def near_border(keys: np.ndarray, counts: np.ndarray, origin: Tuple[int, int],
+                pieces: Dict[str, object], crs: str) -> Dict:
+    """The counts of keys ((n, 2): lines or spots) per length bin, and of those whose cell's centre lies
+    within reach of a border piece (in crs: the bin's longest line plus half the cell's diagonal,
+    _cell_geometry), each to its nearest piece."""
     import shapely
+    keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)[:, 0]
     unique, inverse = np.unique(keys >> cc.ROW_SHIFT, return_inverse=True)
     inverse = inverse.ravel()
-    centres = _cell_centres(unique << cc.ROW_SHIFT, origin)
+    centres, half = _cell_geometry(unique << cc.ROW_SHIFT, origin, crs)
     points = shapely.points(centres)
     names = list(pieces)
     distance = np.full((len(names), len(unique)), np.inf)
@@ -434,17 +459,17 @@ def near_border(keys: np.ndarray, counts: np.ndarray, origin: Tuple[float, float
     lowest = distance.min(axis=0) if names else np.full(len(unique), np.inf)
     lengths = (keys >> cc.LENGTH_SHIFT) & ((1 << cc.LENGTH_BINS) - 1)
     out = []
+    margin = lowest[inverse] - half[inverse]  # the distance less half the cell's diagonal
     for k, (lo, hi) in enumerate(_bins()):
         in_bin = (lengths & (1 << k)) != 0
-        reach = hi + CELL_HALF_DIAGONAL
-        close = in_bin & (lowest[inverse] <= reach)
-        entry = {"lengths": [lo, hi], "reach": round(reach), "all": int(counts[in_bin].sum()),
+        close = in_bin & (margin <= hi)
+        entry = {"lengths": [lo, hi], "reach": round(hi + float(half.max()) if len(half) else hi),
+                 "all": int(counts[in_bin].sum()),
                  "near": {name: int(counts[close & (nearest[inverse] == n)].sum()) for n, name in enumerate(names)}}
         out.append(entry)
     # Each key once, within the reach of its longest length bin (a spot may have lines of several)
     longest = np.frexp(np.maximum(lengths, 1).astype(np.float64))[1] - 1
-    reach = np.array([hi for _, hi in _bins()], dtype=np.float64)[longest] + CELL_HALF_DIAGONAL
-    close = lowest[inverse] <= reach
+    close = margin <= np.array([hi for _, hi in _bins()], dtype=np.float64)[longest]
     return {"bins": out, "total": int(counts.sum()),
             "near_total": {name: int(counts[close & (nearest[inverse] == n)].sum()) for n, name in enumerate(names)}}
 
@@ -471,7 +496,7 @@ def exposure(cube_dir: str, neighbours: Dict[str, str], cache_dir: str) -> Dict:
               "boundary_km": round(own.boundary.length / 1000, 1), "km2": round(own.area / 1e6)}
     for mode in ("lines", "spots"):
         rows = cube.array(mode, 1)
-        result[mode] = near_border(rows[:, 0], rows[:, 1], cube.origin, pieces)
+        result[mode] = near_border(rows[:, :2], rows[:, 2], cube.origin, pieces, cube.crs)
     return result
 
 
@@ -490,8 +515,8 @@ def _merged(paths: List[str]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
     """Line keys and counts summed, spot ids and records merged, over tile files."""
     loaded = [cc.load_tile(p)[0] for p in paths]
     if not loaded:
-        empty = np.zeros(0, dtype=np.int64)
-        return empty, empty, empty, empty
+        empty, pairs = np.zeros(0, dtype=np.int64), np.zeros((0, 2), dtype=np.int64)
+        return pairs, empty, empty, pairs
     keys, counts = cc.sum_keys(np.concatenate([c.line_keys for c in loaded]),
                                np.concatenate([c.line_counts for c in loaded]))
     ids, records = cc.merge_spots(np.concatenate([c.spot_ids for c in loaded]),
@@ -500,39 +525,38 @@ def _merged(paths: List[str]) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
 
 
 def _length_counts(keys: np.ndarray, counts: np.ndarray) -> List[int]:
-    lengths = (keys >> cc.LENGTH_SHIFT) & ((1 << cc.LENGTH_BINS) - 1)
+    lengths = (keys[:, 0] >> cc.LENGTH_SHIFT) & ((1 << cc.LENGTH_BINS) - 1)
     return [int(counts[(lengths & (1 << k)) != 0].sum()) for k in range(cc.LENGTH_BINS)]
 
 
-def spot_points(ids: np.ndarray, origin: Tuple[float, float]) -> Tuple[np.ndarray, ...]:
-    """The centres (x1, y1, x2, y2) of both clusters of spots."""
-    ids = np.asarray(ids, dtype=np.int64)
-    px = ids >> cc.SPOT_CX_SHIFT
-    py = (ids >> cc.SPOT_CY_SHIFT) & ((1 << cc.SPOT_CY_BITS) - 1)
-    qx, qy = px + ((ids >> 8) & 0xFF), py + (ids & 0xFF) - 128
-    half = cc.CLUSTER_M / 2
-    return (origin[0] + px * cc.CLUSTER_M + half, origin[1] + py * cc.CLUSTER_M + half,
-            origin[0] + qx * cc.CLUSTER_M + half, origin[1] + qy * cc.CLUSTER_M + half)
+def _spot_clusters(ids: np.ndarray) -> Tuple[np.ndarray, ...]:
+    """The clusters (cx1, cy1, cx2, cy2) of both ends of spots, from their origin."""
+    import band_study as bs
+    return bs._ends(ids)
 
 
-def reframed_spots(ids: np.ndarray, origin: Tuple[float, float], crs: str, to_origin: Tuple[float, float],
+def spot_points(ids: np.ndarray, origin: Tuple[int, int]) -> Tuple[np.ndarray, ...]:
+    """The centres (lon1, lat1, lon2, lat2) of both clusters of spots (the lattice's: origin in cells)."""
+    px, py, qx, qy = _spot_clusters(ids)
+    n = cc.CLUSTERS_PER_CELL
+    return tuple((v + n * o + 0.5) / cc.CLUSTERS_PER_DEGREE
+                 for v, o in ((px, origin[0]), (py, origin[1]), (qx, origin[0]), (qy, origin[1])))
+
+
+def reframed_spots(ids: np.ndarray, origin: Tuple[int, int], crs: str, to_origin: Tuple[int, int],
                    to_crs: str, within=None) -> np.ndarray:
-    """Spots of one run as spot ids of another run's CRS and origin (their clusters' centres moved),
-    only those with both ends inside within (a WGS84 geometry) when given."""
+    """Spots of one run as spot ids of another run's origin, only those with both ends inside within (a
+    WGS84 geometry) when given. Cube v2's clusters lie on one lattice whatever the CRS, so a spot moves by
+    the origins' offset alone (crs and to_crs, the runs' grids, change nothing)."""
     import shapely
-    from pyproj import Transformer
-    x1, y1, x2, y2 = spot_points(ids, origin)
+    px, py, qx, qy = _spot_clusters(ids)
     if within is not None:
-        back = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
-        lon1, lat1 = back.transform(x1, y1)
-        lon2, lat2 = back.transform(x2, y2)
+        lon1, lat1, lon2, lat2 = spot_points(ids, origin)
         keep = shapely.contains_xy(within, lon1, lat1) & shapely.contains_xy(within, lon2, lat2)
-        x1, y1, x2, y2 = x1[keep], y1[keep], x2[keep], y2[keep]
-    if crs != to_crs:
-        move = Transformer.from_crs(crs, to_crs, always_xy=True)
-        x1, y1 = move.transform(x1, y1)
-        x2, y2 = move.transform(x2, y2)
-    return cc.spot_ids(np.asarray(x1), np.asarray(y1), np.asarray(x2), np.asarray(y2), to_origin)
+        px, py, qx, qy = px[keep], py[keep], qx[keep], qy[keep]
+    n = cc.CLUSTERS_PER_CELL
+    dx, dy = n * (int(origin[0]) - int(to_origin[0])), n * (int(origin[1]) - int(to_origin[1]))
+    return cc.cluster_spot_ids(px + dx, py + dy, qx + dx, qy + dy)
 
 
 def _shrunk_box(place: Dict, metres: float):
@@ -556,7 +580,7 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
     region = box(*counted)
     whole = border_pieces(outlines["a"], {"b": outlines["b"]})["b"]
     # The border within reach of the box: a cell at the box's edge may lie nearer the border outside it
-    piece = whole.intersection(region.buffer(cc.LENGTH_EDGES[-1] + CELL_HALF_DIAGONAL))
+    piece = whole.intersection(region.buffer(cc.LENGTH_EDGES[-1] + 1000.0))  # 1 km: more than half a cell's diagonal
     border_km = whole.intersection(region).length / 1000
     result = {"run": os.path.basename(folder), "place": place.id, "name": place.name, "primary": d["primary"],
               "resampling": d.get("resampling"), "a": place.a.name, "b": place.b.name, "a_source": place.a.source, "a_area": place.a.area,
@@ -588,7 +612,7 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
             paths = _class_tiles(folder, band, name)
             every[name] += paths
             keys, counts, ids, records = _merged(paths)
-            near = near_border(keys, counts, origin, {"b": piece})["bins"] if len(keys) else None
+            near = near_border(keys, counts, origin, {"b": piece}, crs)["bins"] if len(keys) else None
             classes[name] = {"lines": int(counts.sum()), "spots": int(len(ids)),
                              "bins": _length_counts(keys, counts),
                              "near": [b["near"]["b"] for b in near] if near else [0] * cc.LENGTH_BINS}
@@ -599,48 +623,65 @@ def analyse_run(folder: str, cache_dir: str) -> Dict:
         _, _, ids, records = _merged(every[name])
         result["spots"][name] = int(len(ids))
         result["spots_near"][name] = (near_border(spot_keys(ids, records), np.ones(len(ids), dtype=np.int64), origin,
-                                                  {"b": piece})["near_total"]["b"] if len(ids) else 0)
+                                                  {"b": piece}, crs)["near_total"]["b"] if len(ids) else 0)
     return result
+
+
+def _cells_inside(origin: Tuple[int, int], crs: str, counted: Sequence[float], margin: float) -> set:
+    """The level-1 cells (i, j from origin) of the lattice whose rectangle, its corners projected to crs,
+    lies at least margin metres inside the counted box on every side."""
+    from pyproj import Transformer
+    from shapely.geometry import box
+    west, south, east, north = _project(box(*counted), crs, "EPSG:4326").bounds
+    i = np.arange(math.floor(west * cc.CELLS_PER_DEGREE), math.floor(east * cc.CELLS_PER_DEGREE) + 1) - origin[0]
+    j = np.arange(math.floor(south * cc.CELLS_PER_DEGREE), math.floor(north * cc.CELLS_PER_DEGREE) + 1) - origin[1]
+    i, j = (v.ravel() for v in np.meshgrid(i, j, indexing="ij"))
+    lon = (np.stack([i, i + 1, i + 1, i], axis=1) + origin[0]) / cc.CELLS_PER_DEGREE
+    lat = (np.stack([j, j, j + 1, j + 1], axis=1) + origin[1]) / cc.CELLS_PER_DEGREE
+    x, y = (np.asarray(v).reshape(-1, 4) for v in
+            Transformer.from_crs("EPSG:4326", crs, always_xy=True).transform(lon.ravel(), lat.ravel()))
+    left, bottom, right, top = counted
+    ok = ((x.min(1) >= left + margin) & (x.max(1) <= right - margin) & (y.min(1) >= bottom + margin)
+          & (y.max(1) <= top - margin))
+    return set(zip(i[ok].tolist(), j[ok].tolist()))
 
 
 def check_against_cube(folder: str, cube_dir: str) -> Optional[Dict]:
     """A run's lines of A against the cube of A (counted with the same bands and data) in the cells
-    whose whole square lies deeper in the counted box than each bin's longest line (nearer its edge
-    the box misses partners the cube has): the lines per length bin of both; None in another CRS or
-    on cells of another lattice."""
+    of the lattice whose whole rectangle lies deeper in the counted box than each bin's longest line
+    (nearer its edge the box misses partners the cube has): the lines per length bin of both; None
+    in another CRS (another grid and data). The run's cells and the cube's are one lattice: the
+    origins' offset in cells moves one to the other."""
     state = _read_json(os.path.join(folder, "study.json"))
     d = state["definition"]
     cube = cc.Cube(cube_dir)
-    offset = ((d["origin"][0] - cube.origin[0]) / cc.CELL_M, (d["origin"][1] - cube.origin[1]) / cc.CELL_M)
-    if cube.crs != d["crs"] or any(abs(v - round(v)) > 1e-9 for v in offset):
+    if cube.crs != d["crs"]:
         return None
-    di, dj = int(round(offset[0])), int(round(offset[1]))
+    origin = (int(d["origin"][0]), int(d["origin"][1]))
+    di, dj = origin[0] - cube.origin[0], origin[1] - cube.origin[1]
     rows = cube.array("lines", 1)
-    cube_keys, cube_counts = rows[:, 0], rows[:, 1]
-    left, bottom, right, top = d["counted"]
+    cube_keys, cube_counts = rows[:, 0], rows[:, 2]
     out = []
     for band in state.get("bands", {}):
         keys, counts, _, _ = _merged(_class_tiles(folder, band, "aa"))
+        keys = keys[:, 0]
         for k, (lo, hi) in enumerate(_bins()):
             lengths = state["bands"][band]["lengths"]
             if not (lengths[0] <= lo and hi <= lengths[1]):
                 continue
-            # the cells (of the run's origin) at least hi metres inside the box on every side
-            i0 = math.ceil((left + hi - d["origin"][0]) / cc.CELL_M)
-            i1 = math.floor((right - hi - d["origin"][0]) / cc.CELL_M)  # exclusive
-            j0 = math.ceil((bottom + hi - d["origin"][1]) / cc.CELL_M)
-            j1 = math.floor((top - hi - d["origin"][1]) / cc.CELL_M)
-            if i0 >= i1 or j0 >= j1:
+            cells = _cells_inside(origin, d["crs"], d["counted"], hi)  # of the run's origin
+            if not cells:
                 continue
+            wanted = np.array(sorted((i << cc.CELL_BITS) | j for i, j in cells), dtype=np.int64)
 
             def inside(ks, shift_i, shift_j):
-                i, j = (ks >> cc.COL_SHIFT) - shift_i, ((ks >> cc.ROW_SHIFT) & cc.CELL_MASK) - shift_j
+                i, j = (ks >> cc.COL_SHIFT) + shift_i, ((ks >> cc.ROW_SHIFT) & cc.CELL_MASK) + shift_j
                 bit = ((ks >> cc.LENGTH_SHIFT) & (1 << k)) != 0
-                return bit & (i >= i0) & (i < i1) & (j >= j0) & (j < j1)
+                return bit & np.isin((i << cc.CELL_BITS) | j, wanted)
 
             ours = int(counts[inside(keys, 0, 0)].sum())
-            theirs = int(cube_counts[inside(cube_keys, di, dj)].sum())
-            out.append({"band": band, "lengths": [lo, hi], "cells": (i1 - i0) * (j1 - j0), "run": ours, "cube": theirs})
+            theirs = int(cube_counts[inside(cube_keys, -di, -dj)].sum())
+            out.append({"band": band, "lengths": [lo, hi], "cells": len(cells), "run": ours, "cube": theirs})
     return {"cube": cube.info.get("id"), "bins": out}
 
 
@@ -699,18 +740,20 @@ def resampling_rows(runs: List[Dict], folders: Dict[str, str]) -> List[Dict]:
 MIN_NEAR = 1000  # a place's ratio is carried over only from a bin with at least this many lines of A near the border
 
 
-def _outside_near(keys: np.ndarray, counts: np.ndarray, origin: Tuple[float, float], piece,
-                  boxes: List[Sequence[float]]) -> np.ndarray:
-    """The counts of keys within reach of a border piece (their longest bin's) whose cell's centre
-    lies in none of boxes, per length bin (a key in each bin of its mask)."""
+def _outside_near(keys: np.ndarray, counts: np.ndarray, origin: Tuple[int, int], piece,
+                  boxes: List[Sequence[float]], crs: str) -> np.ndarray:
+    """The counts of keys ((n, 2)) within reach of a border piece (their longest bin's, plus half the
+    cell's diagonal) whose cell's centre (in crs) lies in none of boxes, per length bin (a key in each
+    bin of its mask)."""
     import shapely
+    keys = np.asarray(keys, dtype=np.int64).reshape(-1, 2)[:, 0]
     unique, inverse = np.unique(keys >> cc.ROW_SHIFT, return_inverse=True)
     inverse = inverse.ravel()
-    centres = _cell_centres(unique << cc.ROW_SHIFT, origin)
-    distance = shapely.distance(piece, shapely.points(centres))[inverse]
+    centres, half = _cell_geometry(unique << cc.ROW_SHIFT, origin, crs)
+    distance = (shapely.distance(piece, shapely.points(centres)) - half)[inverse]
     lengths = (keys >> cc.LENGTH_SHIFT) & ((1 << cc.LENGTH_BINS) - 1)
     longest = np.frexp(np.maximum(lengths, 1).astype(np.float64))[1] - 1
-    reach = np.array([hi for _, hi in _bins()], dtype=np.float64)[longest] + CELL_HALF_DIAGONAL
+    reach = np.array([hi for _, hi in _bins()], dtype=np.float64)[longest]
     keep = distance <= reach
     x, y = centres[inverse, 0], centres[inverse, 1]
     for left, bottom, right, top in boxes:
@@ -735,7 +778,7 @@ def estimate(run: Dict, measured: List[Dict], exposed: Dict, cube_dir: str, cach
     piece = border_pieces(own, {"b": other})["b"]
     boxes = [m["counted"] for m in measured if m["crs"] == cube.crs]
     rows = cube.array("lines", 1)
-    rest = _outside_near(rows[:, 0], rows[:, 1], cube.origin, piece, boxes)
+    rest = _outside_near(rows[:, :2], rows[:, 2], cube.origin, piece, boxes, cube.crs)
     bins = []
     for k, (lo, hi) in enumerate(_bins()):
         ab = sum(e["classes"]["ab"]["bins"][k] for e in run["bands"].values())
@@ -746,16 +789,16 @@ def estimate(run: Dict, measured: List[Dict], exposed: Dict, cube_dir: str, cach
                      "rest": int(rest[k]), "estimate": known + (round(ratio * rest[k]) if ratio is not None else 0),
                      "carried": ratio is not None})
     srows = cube.array("spots", 1)
-    spots_rest = int(_outside_near(srows[:, 0], srows[:, 1], cube.origin, piece, boxes)[-1])
+    spots_rest = int(_outside_near(srows[:, :2], srows[:, 2], cube.origin, piece, boxes, cube.crs)[-1])
     aa_spots_near = run["spots_near"]["aa"]
     spots_ratio = run["spots"]["ab"] / aa_spots_near if aa_spots_near and aa_spots_near >= MIN_NEAR else None
     spots_known = sum(m["spots"]["ab"] for m in measured)
     spots = {"ab": run["spots"]["ab"], "aa_near": aa_spots_near, "ratio": spots_ratio, "measured": spots_known,
-             "rest": spots_rest, "cube": int(srows[:, 1].sum()),
+             "rest": spots_rest, "cube": int(srows[:, 2].sum()),
              "estimate": spots_known + (round(spots_ratio * spots_rest) if spots_ratio is not None else 0)}
     return {"neighbour": neighbour, "bins": bins, "estimate": sum(b["estimate"] for b in bins),
             "measured": sum(b["measured"] for b in bins), "rest": int(rest[-1]),
-            "cube_lines": int(rows[:, 1].sum()), "boxes": [m["run"] for m in measured], "spots": spots}
+            "cube_lines": int(rows[:, 2].sum()), "boxes": [m["run"] for m in measured], "spots": spots}
 
 
 def _pct(part: float, whole: float) -> str:
@@ -766,6 +809,14 @@ def _gib(value: Optional[int]) -> str:
     return f"{value / 2 ** 30:.2f}" if value else "-"
 
 
+def _tolerance_text() -> str:
+    """TOLERANCE in clusters and metres at 49° (the lattice's 1.5" clusters)."""
+    tx, ty = TOLERANCE
+    ew, ns = cc.cluster_size_m(49.0)
+    return (f"{tx} clusters east-west and {ty} north-south (1.5\" each: about {tx * ew:.0f} x {ty * ns:.0f} m at "
+            "49°)")
+
+
 def _resampling_report(rows: List[Dict]) -> List[str]:
     """The report's section of the resampling methods (resampling_rows)."""
     out = ["## The resampling of the neighbour's data", "",
@@ -773,7 +824,7 @@ def _resampling_report(rows: List[Dict]) -> List[str]:
            "lines with both anchors on the reference's side, which the run finds on that side's data resampled onto "
            "its grid and the reference on the data themselves. *Across*: the lines across the border (each run has "
            "one side resampled). Spots with both ends in the box (less 100 m); found: within "
-           f"{TOLERANCE} cluster ({cc.CLUSTER_M:g} m) at both ends after reprojection. Method *own*: the mosaic's "
+           f"{_tolerance_text()} at both ends. Method *own*: the mosaic's "
            "choice (the average of finer data, bilinear otherwise).", "",
            "| Place | Band | Run | Method | Class | Lines: run / reference | Spots: run / reference | "
            "Reference's spots the run has | Run's spots the reference has |",
@@ -809,9 +860,10 @@ def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], es
     out = ["# The border study", "",
            "Each line whose first anchor lies in a place's box, by the countries holding its anchors: A-A (what "
            "A's layer counts today), B-B (what B's would count), A-B (one anchor in each: what both lose today), "
-           "other (an anchor in neither outline or in both). *Near*: the lines whose first anchor's 1 km cell lies "
-           "within reach of the border (the bin's longest line plus half a cell's diagonal). The other side's data "
-           "come from its national source, as a neighbour fills a border gap.", ""]
+           "other (an anchor in neither outline or in both). *Near*: the lines whose first anchor's cell (the cube's "
+           "lattice, 30\": about 0.6 x 0.9 km at 49°) lies within reach of the border (the bin's longest line plus "
+           "half the cell's diagonal, from its centre). The other side's data come from its national source, as a "
+           "neighbour fills a border gap.", ""]
     for run in runs:
         out += [f"## {run['name']} ({run['run']})", "",
                 f"Primary {run['primary']}, {run['crs']}" +
@@ -850,7 +902,7 @@ def report(runs: List[Dict], agreements: List[Dict], exposed: Optional[Dict], es
     if agreements:
         out += ["## The two primaries of a place", "",
                 f"The spots across the border with both ends in the box (less 100 m) that the other run has within "
-                f"{TOLERANCE} cluster ({cc.CLUSTER_M:g} m) at both ends, after reprojection.", "",
+                f"{_tolerance_text()} at both ends (one lattice: no reprojection).", "",
                 "| Place | Band | Spots (each primary) | Matched of the first | Matched of the second |",
                 "| --- | --- | --- | ---: | ---: |"]
         for a in agreements:
@@ -960,8 +1012,9 @@ INK, MUTED = "#222222", "#8a8a8a"
 
 
 def picture(folder: str, run: Dict, cache_dir: str, path: str) -> Optional[str]:
-    """The run's 1 km cells: the lines counted today (A-A or B-B) and those across the border (A-B),
-    with the border and the counted box, on one log scale; returns the path (None without lines)."""
+    """The run's cells of the lattice (30"): the lines counted today (A-A or B-B) and those across the
+    border (A-B), with the border and the counted box (drawn in cells, east-west shrunk by the latitude's
+    cosine), on one log scale; returns the path (None without lines)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -976,11 +1029,15 @@ def picture(folder: str, run: Dict, cache_dir: str, path: str) -> Optional[str]:
     for group, names in groups.items():
         paths = [p for band in bands for name in names for p in _class_tiles(folder, band, name)]
         keys, counts, _, _ = _merged(paths)
-        cells[group] = cc.sum_keys(keys >> cc.ROW_SHIFT, counts) if len(keys) else (keys, counts)
+        cells[group] = cc.sum_keys(keys[:, 0] >> cc.ROW_SHIFT, counts) if len(keys) else (keys[:, 0], counts)
     if not any(len(c[0]) for c in cells.values()):
         return None
-    i0, j0 = int((counted[0] - x0) // cc.CELL_M), int((counted[1] - y0) // cc.CELL_M)
-    i1, j1 = int((counted[2] - x0) // cc.CELL_M) + 1, int((counted[3] - y0) // cc.CELL_M) + 1
+    crs = d["crs"]
+    counted_wgs84 = _project(box(*counted), crs, "EPSG:4326")
+    west, south, east, north = counted_wgs84.bounds
+    i0, j0 = math.floor(west * cc.CELLS_PER_DEGREE) - x0, math.floor(south * cc.CELLS_PER_DEGREE) - y0
+    i1, j1 = math.floor(east * cc.CELLS_PER_DEGREE) - x0 + 1, math.floor(north * cc.CELLS_PER_DEGREE) - y0 + 1
+    aspect = 1 / math.cos(math.radians((south + north) / 2))
     images = {}
     for group, (cell, n) in cells.items():
         image = np.full((j1 - j0, i1 - i0), np.nan)
@@ -992,12 +1049,11 @@ def picture(folder: str, run: Dict, cache_dir: str, path: str) -> Optional[str]:
     top = max(np.nanmax(v) if np.isfinite(v).any() else 1 for v in images.values())
     norm = LogNorm(vmin=1, vmax=max(top, 10))
     cmap = LinearSegmentedColormap.from_list("ramp", RAMP)
-    crs = d["crs"]
     a = _project(outline_of(Side(**d["place"]["a"]), cache_dir), "EPSG:4326", crs)
     b = _project(outline_of(Side(**d["place"]["b"]), cache_dir), "EPSG:4326", crs)
-    piece = border_pieces(a, {"b": b})["b"].intersection(box(*counted).buffer(cc.CELL_M))
+    piece = _project(border_pieces(a, {"b": b})["b"].intersection(box(*counted).buffer(1000.0)), crs, "EPSG:4326")
     panel = 6.5  # inches of a panel's width; the height follows the box's shape
-    fig, axes = plt.subplots(1, 2, figsize=(2 * panel, panel * (j1 - j0) / max(1, i1 - i0) + 1.4), dpi=120,
+    fig, axes = plt.subplots(1, 2, figsize=(2 * panel, panel * aspect * (j1 - j0) / max(1, i1 - i0) + 1.4), dpi=120,
                              layout="constrained")
     titles = {"today": f"Counted today (A-A, B-B): {run_total(run, groups['today']):,} lines",
               "across": f"Across the border (A-B): {run_total(run, groups['across']):,} lines"}
@@ -1009,21 +1065,23 @@ def picture(folder: str, run: Dict, cache_dir: str, path: str) -> Optional[str]:
             if g.is_empty or not hasattr(g, "xy"):
                 continue
             xs, ys = g.xy
-            ax.plot((np.asarray(xs) - x0) / cc.CELL_M, (np.asarray(ys) - y0) / cc.CELL_M, color=INK, linewidth=1.6)
-        bx = (np.array([counted[0], counted[2], counted[2], counted[0], counted[0]]) - x0) / cc.CELL_M
-        by = (np.array([counted[1], counted[1], counted[3], counted[3], counted[1]]) - y0) / cc.CELL_M
-        ax.plot(bx, by, color=MUTED, linewidth=0.8)
+            ax.plot(np.asarray(xs) * cc.CELLS_PER_DEGREE - x0, np.asarray(ys) * cc.CELLS_PER_DEGREE - y0, color=INK,
+                    linewidth=1.6)
+        bx, by = counted_wgs84.exterior.xy
+        ax.plot(np.asarray(bx) * cc.CELLS_PER_DEGREE - x0, np.asarray(by) * cc.CELLS_PER_DEGREE - y0, color=MUTED,
+                linewidth=0.8)
         ax.set_xlim(i0, i1)
         ax.set_ylim(j0, j1)
         ax.set_title(titles[group], fontsize=9, color=INK)
         ax.set_xticks([])
         ax.set_yticks([])
-        ax.set_aspect("equal")
+        ax.set_aspect(aspect)
         for spine in ax.spines.values():
             spine.set_visible(False)
     bar = fig.colorbar(shown, ax=axes, orientation="horizontal", fraction=0.06, shrink=0.5, aspect=40)
-    bar.set_label("lines per 1 km cell (log scale); the black line is the border, the grey box the counted area",
-                  fontsize=8, color=INK)
+    ew, ns = cc.cell_size_km(1, (south + north) / 2)
+    bar.set_label(f"lines per 30\" cell ({ew:.2f} x {ns:.2f} km; log scale); the black line is the border, the grey "
+                  "box the counted area", fontsize=8, color=INK)
     bar.outline.set_visible(False)
     fig.suptitle(f"{run['name']}: {run['a']} (A) and {run['b']} (B), data and grid of {run['primary']}",
                  fontsize=10, color=INK)

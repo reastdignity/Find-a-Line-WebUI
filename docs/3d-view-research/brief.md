@@ -10,7 +10,7 @@ question needs a decision, write it down as an open question.
 Find-a-Line finds highlines (two anchors on cliffs, webbing between them) in elevation data and shows them on a
 Leaflet map (Preact + TypeScript, esbuild IIFE bundles, `viewer/dist` committed). New idea: a "3D" button on a
 selected line opens a full-window 3D view (Google-Earth-like): the webbing drawn as its sag curve (our
-`viewer/src/sag.ts`), a walker figure (starts at the lowest point, can be dragged along the line, plus an animated
+`viewer/src/sag.ts`), an athlete figure (starts at the lowest point, can be dragged along the line, plus an animated
 walk from anchor to anchor), and anchor editing (drag an anchor: length and sag recomputed live in the browser;
 on release the server recomputes the profile from our DEM, like the existing "Measure" through `/api/profile`).
 - Where: the public site findaline.lukawski.org (signed-in users; operator = a private person in Poland, EEA) and
@@ -90,7 +90,7 @@ on release the server recomputes the profile from our DEM, like the existing "Me
    pre-GA feature be used on a public site?); whether a 3D map load also bills Dynamic Maps; altitude modes
    (ABSOLUTE? relative to what: ellipsoid or geoid/sea level?), `Polyline3DElement`, `Model3DElement` (glTF; size
    limits), `Marker3DElement`, camera animation (`flyCameraTo`, `flyCameraAround`), events (click; anything usable
-   for dragging an anchor or the walker; `gmp-click` payload with position and altitude?), performance settings
+   for dragging an anchor or the athlete; `gmp-click` payload with position and altitude?), performance settings
    (`maxMemoryMegabytes`, `qualityMode`), mobile support, browser requirements (WebGL2?).
 2. Terms (global and EEA; read raw HTML): attribution/logo, caching and storing, extracting data (may we read
    heights or positions from the 3D map and use them, e.g. for the live sag while dragging?), overlays of our own

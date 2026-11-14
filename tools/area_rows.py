@@ -60,20 +60,6 @@ COUNTRIES = {
     "no": "Norway", "nz": "New Zealand", "pl": "Poland", "pr": "Puerto Rico", "si": "Slovenia", "sk": "Slovakia",
     "us": "United States", "vi": "U.S. Virgin Islands"}
 
-# Each area's name for Nominatim (`osm:<name>`), checked against the coverage map's outlines
-OSM_NAMES = {
-    "at": "Österreich", "au-qld": "Queensland", "au-tas": "Tasmania", "ax": "Åland", "ca": "Canada",
-    "ca-bc": "British Columbia", "ca-nu": "Nunavut", "ch": "Schweiz", "cz": "Česko",
-    "de-bb": "Brandenburg, Deutschland", "de-be": "Berlin", "de-bw": "Baden-Württemberg", "de-by": "Bayern",
-    "de-he": "Hessen", "de-mv": "Mecklenburg-Vorpommern", "de-ni": "Niedersachsen", "de-nw": "Nordrhein-Westfalen",
-    "de-rp": "Rheinland-Pfalz", "de-sh": "Schleswig-Holstein", "de-sl": "Saarland", "de-sn": "Sachsen",
-    "de-st": "Sachsen-Anhalt", "dk": "Danmark", "es": "España", "es-cn": "Canarias", "fi": "Suomi", "fr": "France",
-    "gb-eng": "England", "gb-sct": "Scotland", "gb-wls": "Wales", "gl": "Kalaallit Nunaat", "is": "Ísland",
-    "it-bz": "Provincia autonoma di Bolzano", "it-tn": "Provincia autonoma di Trento", "li": "Liechtenstein",
-    "lu": "Luxembourg", "mt": "Malta", "no": "Norge", "no-21": "Svalbard", "no-22": "Jan Mayen", "nz": "New Zealand",
-    "pl": "Polska", "pr": "Puerto Rico", "si": "Slovenija", "sk": "Slovensko", "us": "United States",
-    "us-ak": "Alaska", "vi": "United States Virgin Islands"}
-
 
 class SettingsError(ValueError):
     """A settings file that cannot be used: its text is shown as it is."""
@@ -160,7 +146,8 @@ def _shapes() -> Tuple[Dict[str, str], Dict[str, float]]:
 
 
 def catalogue() -> List[Row]:
-    """A row for every area of the coverage map, each with its source's default resolution."""
+    """A row for every area of the coverage map, each with its source's default resolution and its name for
+    Nominatim (sources.AREA_NAMES, which the country layer reads too)."""
     import sources as src
     areas = _read_json(os.path.join(COVERAGE, "coverage.json"))["areas"]
     regions = _read_json(os.path.join(REPO, "locales", "coverage", "en.json"))
@@ -170,7 +157,7 @@ def catalogue() -> List[Row]:
         country = area.split("-")[0]
         title = COUNTRIES[country] if area == country else f"{COUNTRIES[country]}: {regions[f'region.{area}']}"
         source = src.SOURCES[facts["source"]]
-        rows.append(Row(slug(title), title, continents[country], f"osm:{OSM_NAMES[area]}", source.id,
+        rows.append(Row(slug(title), title, continents[country], f"osm:{src.AREA_NAMES[area]}", source.id,
                         source.default_resolution, source.nmpt is not None, round(sizes[area])))
     return rows
 

@@ -42,13 +42,11 @@ def clip_data(tmp_path_factory):
     """A data folder with a run of the clip (computed once, offline: the sag model, no surface model),
     its run.json and the busiest anchor of its lines with the other end of one of its lines: (data, meta,
     (lat, lon) of the anchor, (lat, lon) of the other end)."""
-    data = tmp_path_factory.mktemp("reach")
-    result = subprocess.run(
-        [sys.executable, "findaline.py", "--elevation-file", TIF, "--northing", "254608", "--easting", "553966",
-         "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never",
-         "--nmpt", "off", "--model", "sag", "--data-dir", str(data)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=offline_env())
-    assert result.returncode == 0, result.stdout + result.stderr
+    import clip_runs  # the search once per session, this module's own copy
+    data = clip_runs.data_copy(tmp_path_factory, "reach", [
+        "--elevation-file", TIF, "--northing", "254608", "--easting", "553966",
+        "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes", "--ortho", "never",
+        "--nmpt", "off", "--model", "sag"])
     run = next(d for d in os.listdir(data / "runs") if (data / "runs" / d / "run.json").is_file())
     meta = json.loads((data / "runs" / run / "run.json").read_text("utf-8"))
     with open(data / "runs" / run / "lines.csv", encoding="utf-8-sig", newline="") as f:
