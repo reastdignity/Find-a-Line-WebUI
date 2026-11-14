@@ -17,6 +17,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.content import Content
+from textual.css.query import NoMatches
 from textual.screen import ModalScreen
 from textual.widgets import Button, Checkbox, Collapsible, Footer, Input, Static
 
@@ -284,11 +285,21 @@ class Downloads(App):
         self.free = free
         self.show_free()
 
+    def _static(self, selector: str) -> Optional[Static]:
+        """The widget, or None once the app is shutting down: the intervals and the free-space thread can still call
+        in after the screen's widgets were removed (seen on a loaded CI runner)."""
+        try:
+            return self.query_one(selector, Static)
+        except NoMatches:
+            return None
+
     def show_free(self):
         parts = [f"{named(label)} " + ("?" if self.free.get(label) is None else f"{self.free[label]:.0f} GB")
                  for label in self.settings.targets]
         contact = "set" if self.settings.contact or os.environ.get("FINDALINE_CONTACT") else "none"
-        self.query_one("#top-free", Static).update("free  " + "   ".join(parts) + f"   contact: {contact}")
+        top = self._static("#top-free")
+        if top is not None:
+            top.update("free  " + "   ".join(parts) + f"   contact: {contact}")
 
     def refresh_states(self):
         states = ar.states(self.settings)
@@ -301,14 +312,19 @@ class Downloads(App):
         self.refresh_summary()
 
     def refresh_summary(self):
+        summary = self._static("#summary")
+        if summary is None:
+            return
         rows = self.area_rows()
         ticked = [row for row in rows if row.ticked]
         running = sum(is_live(row.state) for row in rows)
         size = sum(row.row.km2 for row in ticked)
         chosen = f"{len(ticked)} ticked ({km2_text(size)})" if size else f"{len(ticked)} ticked"
-        self.query_one("#summary", Static).update(f"{areas_word(len(rows))}, {chosen}, {running} downloading")
+        summary.update(f"{areas_word(len(rows))}, {chosen}, {running} downloading")
         for group in self.query(Collapsible):
             members = list(group.query(AreaRow))
+            if not members:   # its rows already removed while shutting down
+                continue
             group.title = self._group_title(members[0].row.continent, len(members),
                                             sum(row.ticked for row in members))
 

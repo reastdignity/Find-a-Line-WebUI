@@ -31,9 +31,10 @@ run them from PowerShell (CLAUDE.md, "This PC").
   span one of the browser's own animation frames while a small file keeps loading (which holds the virtual time) and a
   1 virtual-ms guard timer bounds what leaks between two loads, so a wait counts frames and never virtual time (a
   pause of t ms is t / 100 frames; the page's and a poll's frame callbacks run in the same frame), with
-  `VIRTUAL_BUDGET` only a ceiling and `EDGE_SECONDS` the real-time hang guard; "settled" means ten polls with no frame
-  drawn and none pending. (3) A `--user-data-dir` under a long path (pytest's `--basetemp` in a deep scratchpad) makes
-  Edge exit in 0.1 s with an empty DOM (the profile passes MAX_PATH): keep `--basetemp` short (`C:\fal\<name>`). (4) A
+  `VIRTUAL_BUDGET` only a ceiling and `EDGE_SECONDS` the real-time hang guard (`FINDALINE_EDGE_SECONDS`: CI's own per
+  job); "settled" means ten polls with no frame drawn and none pending. (3) A `--user-data-dir` under a long path
+  (pytest's `--basetemp` in a deep scratchpad) makes Edge exit in 0.1 s with an empty DOM (the profile passes
+  MAX_PATH): keep `--basetemp` short (`C:\fal\<name>`). (4) A
   test that measures a rate limiter takes the time each granted permit carries (`SQLiteBucket.put`,
   `tests/test_rates.py`), never a clock read after the call returned (a descheduled thread read 164 ms for 100 ms
   turns), and `net.rate_turn`/`osm._nominatim_turn` keep `timeout=0`; a limiter whose keys expire on the real clock

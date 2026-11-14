@@ -15,7 +15,9 @@ loads with `deploy/monitoring/` too.
 
 ## Running it
 
-- CI: `.github/workflows/ci.yml` (GitHub Actions: `pytest` on Linux and Windows (on Linux the runner's unused SDKs
+- CI: `.github/workflows/ci.yml` (GitHub Actions: `pytest` on Linux and Windows (Windows in three jobs: the 3D page
+  tests serially, the ring's alone, the rest on 4 workers; a new `tests/test_view3d*.py` file joins the serial job by
+  its name; never on workers there: 18 of 31 ran into 900 s on 4, 2026-11-14; on Linux the runner's unused SDKs
   removed first: `tests/test_public.py` needs the public limits' 20 GB free; `--durations=25` lists the slowest
   tests), `pip-audit` and `npm audit`, and `docker`: the image built, a search and both services run in it,
   `docker compose config`, the source address of the published port, nginx and fail2ban through

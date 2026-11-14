@@ -16,15 +16,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Windows in three parts on three runners (2 cores, 4 threads each). Its 3D view page tests (tests/test_view3d*.py,
+  # headless Edge drawing WebGL in software) run one at a time: on 2026-11-14 they took 40 min serially and over 64 min
+  # on 4 workers, the ring's three of them about 32 min of the 40 (one past 900 s), all else 4-105 s each; the rest of
+  # the suite on 4 workers about 25 min. Linux runs the whole suite on 4 workers (it has no Edge: those tests skip)
   tests:
-    name: tests (${{ matrix.os }})
+    name: ${{ matrix.part }} (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            part: tests
+            pytest: -n 4 --dist loadfile
+            timeout: 45
+          - os: windows-latest
+            part: tests
+            pytest: -n 4 --dist loadfile --ignore-glob=tests/test_view3d*.py
+            timeout: 45
+          - os: windows-latest
+            part: view3d
+            pytest: -n 0 -o python_files=test_view3d*.py --ignore=tests/test_view3d_ring.py
+            edge_seconds: 300
+            timeout: 30
+          - os: windows-latest
+            part: view3d ring
+            pytest: -n 0 tests/test_view3d_ring.py
+            edge_seconds: 1500
+            timeout: 60
     runs-on: ${{ matrix.os }}
-    # Windows ran 89 % of the tests in 29.5 min on 2026-11-04 (Linux takes about half of that)
-    timeout-minutes: 45
+    timeout-minutes: ${{ matrix.timeout }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -67,9 +88,12 @@ jobs:
           npm run check
 
       # Headless Edge tests run where Edge is installed (windows-latest) and are skipped elsewhere; the slowest
-      # tests are listed at the end (where the job's time goes). The files run in 4 processes (pytest-xdist, a
-      # file whole on one worker: the hosted runners have 4 cores), each with 2 threads of numba, OpenMP, BLAS and
-      # GDAL (one process took about 45 min on Windows on 2026-11-13, 4 x 3 locally about 11 min)
+      # tests are listed at the end (where the job's time goes). The tests parts run the files in 4 processes
+      # (pytest-xdist, a file whole on one worker: the hosted runners have 4 threads), each with 2 threads of numba,
+      # OpenMP, BLAS and GDAL (one process took about 45 min on Windows on 2026-11-13, 4 x 3 locally about 11 min).
+      # FINDALINE_EDGE_SECONDS: the real-time ceiling of one 3D page test's Edge run (tests/test_view3d.py), so a run
+      # that never ends costs minutes, not the job: view3d 300 (its slowest took 105 s), the ring 1500 (476 and 517 s,
+      # the third past 900 s)
       - name: Tests
         env:
           NUMBA_NUM_THREADS: "2"
@@ -77,7 +101,8 @@ jobs:
           OPENBLAS_NUM_THREADS: "2"
           MKL_NUM_THREADS: "2"
           GDAL_NUM_THREADS: "2"
-        run: uv run --frozen pytest -q --durations=25 -n 4 --dist loadfile
+          FINDALINE_EDGE_SECONDS: ${{ matrix.edge_seconds || '900' }}
+        run: uv run --frozen pytest -q --durations=25 ${{ matrix.pytest }}
 
   audit:
     runs-on: ubuntu-latest

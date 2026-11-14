@@ -71,8 +71,10 @@ UNTIL_JS = """
 # first frame at 6 copies and 14 CPU burners, about 2 s for each frame drawn; the ring's draws many more)
 VIRTUAL_BUDGET = 3_600_000
 # The real seconds an Edge run of these tests may take: the waits count frames, which a starved machine draws
-# slowly (the ring's at level full took up to 331 s at 6 copies of the tests and 14 CPU burners)
-EDGE_SECONDS = 900
+# slowly (the ring's at level full took up to 331 s at 6 copies of the tests and 14 CPU burners). FINDALINE_EDGE_SECONDS
+# sets another ceiling: CI's, so that a run which never ends costs minutes, not the job (four ran into 900 s at once on
+# windows-latest on 2026-11-14)
+EDGE_SECONDS = int(os.environ.get("FINDALINE_EDGE_SECONDS", "900"))
 
 
 def _with_until(script: str) -> str:

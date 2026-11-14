@@ -40,7 +40,8 @@ monitoring of the VPS and the app (phases 1 to 4 built: `deploy/monitoring/`, `m
   `-n 0` asks for a serial full run, an own `-n` is kept, and a pytest of chosen files stays serial. Its kind in the
   lock's history and the lock monitor is `pytest-all-xdist` (serial full runs stay `pytest-all`). Measured on
   2026-11-13 (24 cores, not exclusive): 4 x 3 about 640 s and 8 GB, 8 x 3 304-368 s and 9.4-9.8 GB, against 2870 s
-  serial; at 8 workers and more `tests/test_web.py` alone (250-310 s) sets the floor. CI runs `-n 4` with 2 threads.
+  serial; at 8 workers and more `tests/test_web.py` alone (250-310 s) sets the floor. CI runs `-n 4` with 2 threads;
+  on Windows the 3D page tests (`tests/test_view3d*.py`) run serially in two jobs of their own (ci.yml's comment).
   `tools/test_times.py` reads the JUnit files of runs (`--junitxml`): seconds per file and test, and `compare A B` id
   by id (a serial and a parallel run write the same ids).
 - Before adding a dependency, check the current docs of the version that gets installed (Starlette 1.x: no
