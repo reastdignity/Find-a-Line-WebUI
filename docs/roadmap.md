@@ -25,10 +25,20 @@ Planned features and the decisions already made for them. Nothing here is implem
 | Own code or library (stage 4) | Popular, maintained libraries first (table under "Stage 4"); the job queue and the Nominatim cache stay our own. |
 | Shore faces (2026-11-04) | Where the terrain model has no data on a sea cliff's face and the surface model has, the face takes the surface model's heights, reached from the terrain's data edge downwards (`FACE_TOLERANCE` 1.5 m), and the surface model's sea surface is the exact shoreline (A + C of the analysis; not a guessed slope, not FABDEM, not a new source); ships, moles and boulders stay at 0 m; such pixels are filled data, not water. |
 | Monitoring (2026-10-31) | Telegraf (a container with the host's network) → VictoriaMetrics → Grafana (opened through an SSH tunnel only), alerts to ntfy, statistics kept without a time limit, aggregates only; users by country from the browser's time zone and from the searched areas; the area searched shown to each user and its total on the sign-in page ([monitoring.md](monitoring.md)). |
-| Advice of a refusal for too many lines (2026-11-14) | The four refusals (`too_many_lines*`) name only the changes that apply to the refused search, at most four, in the measured order (no-fall zone and A-frames off, no-fall zone off, the formula instead of sag, anchor height difference 5 m or halved, A-frames off, anchor steepness +10°), then a smaller area or shorter lines; the highest point and the drop are no longer offered, a higher prominence is not offered (strong but blunt, not judged). Measured on 15 refused searches, each change alone (line-volume P4): ended within the limits / median lines kept: zone and A-frames off 9 / 8 %, zone off 7 / 17 %, formula 6 / 40 %, height difference 5 m 5 / 39 %, halved 5 / 52 %, A-frames off 4 / 54 %, steepness +10° 4 / 61 %, longest line halved 3 / 45 %, half the area 2 / 72 %, highest point 20 m and drop 20 m 1 each with 96-100 % kept. No heavy lane for now: no lane holds the goal case (one slot about 4.0 M lines of a circle, 1.3 M of a tiled area), the square rule does (decided at the same gate, built next). |
+| Advice of a refusal for too many lines (2026-11-14) | The four refusals (`too_many_lines*`) name only the changes that apply to the refused search, at most four, in the measured order (no-fall zone and A-frames off, no-fall zone off, the formula instead of sag, anchor height difference 5 m or halved, A-frames off, anchor steepness +10°), then a smaller area or shorter lines; the highest point and the drop are no longer offered, a higher prominence is not offered (strong but blunt, not judged). Measured on 15 refused searches, each change alone (line-volume P4): ended within the limits / median lines kept: zone and A-frames off 9 / 8 %, zone off 7 / 17 %, formula 6 / 40 %, height difference 5 m 5 / 39 %, halved 5 / 52 %, A-frames off 4 / 54 %, steepness +10° 4 / 61 %, longest line halved 3 / 45 %, half the area 2 / 72 %, highest point 20 m and drop 20 m 1 each with 96-100 % kept. No heavy lane for now: no lane holds the goal case (one slot about 4.0 M lines of a circle, 1.3 M of a tiled area), the square rule does (built in the same task). When the refused search has the square rule off, the advice offers it first (`--same-line-square 5`; the user's closing answer of the line-volume task, 2026-11-14). |
 | Country layer (2026-11-12) | The layer's profile is the `lead` profile (S 30-300 m at 1 m, M 300-1000 m at 2 m, L1 1000-2000 m at 3 m, L2 2000-5000 m at 5 m), chosen by the user after both profiles were counted on all of Slovakia (docs/performance.md, "Round 5", "The recount: two profiles of Slovakia"). Cube v2 is finished as planned. Slovakia's v2 cube is interim: correct for today's search, counted again when the line-volume task's rules land. No further country is counted (Czechia's first band included) until that task's anchor and identity decisions are made. |
 | The same line: the square rule (2026-11-14) | `--same-line-square M` (off by default; the Advanced form's "One line per pair of anchor squares"): while the pair search runs, of all valid lines between the same two anchor squares one is kept: the one that needs the least rigging (no no-fall zone and no A-frames, then no A-frames), then the highest mean height, the longest, a fixed order of the anchors. The squares are M pixels wide and at least M metres (5: 5 m at 1 m, 10 m at 2 m), a lattice from (0, 0) of the grid's CRS; a kept line knows how many found lines it stands for (`stands_for`), the run how many were found; the line limit and the memory check count kept lines. The user's decisions at the line-volume task's gate 3 (G-01 a, G-02 a, G-03, G-14 a). Measured in the target rig (sag, fall zone 6 m, no-fall zone 5 m, A-frames 2 m; line-volume P3a): squares of 5 m keep 1.2-4.2 % of the lines of 1 m searches, and the goal case, the whole Gozo coast, finishes with 503 651 of 24 480 100 lines in 90 s and 2.9 GB (refused before); the price at 5 m is 3-7 % of the spots without a line of their own (each with a kept line within 8 m), a spot's best-clearance line dropped in 15-24 % of the spots (more when the mean height decides inside a pair) and 11-14 of 592 known highlines losing their match within tolerance (the truth check's first pass; its pass at the fall zone of 6 m with the rule on: 283 matched against 306, recall 16 % against 17 %, docs/truth-check.md "The square rule"). Open, specified and not built: the ranges of a kept line's copies (G-03 b, with the new store), a second step after the grouping that respects the spot (2 m squares in the search, then 5 m with the spot: two thirds fewer emptied spots, does not fit the country count), the rule always on in the Basic form (G-11 a), an estimate before the search, the country layer's use of the rule (its count mode has a sink of its own: a running best per key and a merge of the tiles by key would do it; squares of 2, 5 and 10 m nest in the cube's 50 m cells). |
 | Sag model's fall zone (2026-11-14) | 6 m by default (3 m before): the user's words at the line-volume task's gate 2, "set the default to 6m for sag and formula" (the formula already keeps 6 m below its limit, built in: unchanged; the no-fall zone at the ends, `--end-zone`, untouched). The task's measurement: with sag alone, 6 m keeps 3-35 % of the lines 3 m finds in its four cases, with a 5 m no-fall zone and 2 m A-frames 39-75 %. Stored sag requests of the web app without the value keep 3 m (migration 17 of jobs.sqlite); runs keep their own; Slovakia's cube was counted at 3 m until its recount. |
+| Basic search form (2026-11-14, line volume) | Specified, built next ([spec-search.md](line-volume/spec-search.md) section 1): a tab "Basic · Advanced", Basic opened at every visit; 'My rig' sets the rigging (several named rigs saved with the account, at most 10, the privacy wording approved by the user), five goals replace today's three presets (Advanced adds "Custom"), Basic's radius 500 m, a size word before Start; Basic always uses the square rule at 5 (G-11 a); 'Sea cliffs' loses its wall-angle limit after a count (a fault). |
+| Size of a search before it runs (2026-11-14, line volume) | The web worker counts a 2 % sample of the anchors before the full pair search and refuses a search well above the line limit at once; the form's size word stays a hint (G-04 a; [spec-search.md](line-volume/spec-search.md) section 2). The command line and the regression set never sample. With the square rule on, an estimator of kept lines is measured first. |
+| Ease of access to the anchors (2026-11-14, line volume) | A mark of three states per anchor (can walk to it, cannot, cannot tell), no limit, nothing left out (G-09 a; [spec-search.md](line-volume/spec-search.md) section 3); where it shows: a mock-up first. |
+| Fewer, better anchors (2026-11-14, line volume) | Today's anchors stay (G-07 a). Lip anchors (K-26 'Rim anchors: the lip, steep pixel or not') are measured first with four truth-check passes; they become a search option only if they keep at least 98 % of the matched known lines (the user's closing answer; [spec-search.md](line-volume/spec-search.md) section 4). |
+| No cap and no heavy lane in the search (2026-11-14, line volume) | No cap of lines per spot in the search: the square rule decides what is stored, the page shows the best (G-12 a); if searches are still refused, K-13 'Beaten by a margin, not by a hair' is the cap to take. No heavy lane for large searches (G-05 a): no lane holds the goal case, the square rule does; the refusal advice was re-ranked instead. |
+| A run's files (2026-11-14, line volume) | One Arrow store per run read by the page as columns (G-06 a); `lines.csv` and `lines.geojson` are exports made for each download, none kept; the text files and opening a map from disk (`file://`) end, `findaline.py view` opens a run through the app; brotli at saving (the package compared first, confirmed by the user); old runs are removed, not converted, on the public site and on the PC, when the text files end, only on the user's word at that time after a `--dry-run` list ([spec-store.md](line-volume/spec-store.md) sections 1, 2, 4). The regression set's checksums stay: they are taken of the CSV export, the same bytes as today's `lines.csv`. |
+| Ranges of a kept line (2026-11-14, line volume) | With the square rule a kept line carries the least and the most of six values over the lines it stands for: length, clearance, highest point, A-frames needed with and without the no-fall zone, and the mean height (G-03 b; the user's closing answer); a filter on them never misses a found line; every other filter tests the kept line ([spec-store.md](line-volume/spec-store.md) section 3). |
+| "Best" and the tight mark (2026-11-14, line volume) | A spot's best line is the one with the highest mean height (the user: "mean", "Use mean"); clearance stays the test and a number in every row; a line under 1 m of clearance gets a mark, nothing is hidden (G-10 a; [spec-view.md](line-volume/spec-view.md) part A). |
+| The result view (2026-11-14, line volume) | Mock-up 2, version 7, accepted: levels Auto, Area, Spots, Lines with "Best 10 / 30 / 100 / All"; numbered best lines; "Lines from here" for a press on an anchor; a list of numbered rows over a tree of sectors; spots fixed at saving (no regrouping in the page); at most 5 000 strokes drawn (D-11 d, D-12 a, G-08 a, G-12 a; [spec-view.md](line-volume/spec-view.md) part B). |
+| "Top level only" (2026-11-14, line volume) | A filter of the result view, on at the start (G-08 a, the user: "default on"), by K-17 'Higher wins on a face' (the user's closing answer, as the mock-up). The user's note: K-18 'Higher wins unless clearance loses' kept 590 of the 592 matched known lines against K-17's 589, so it "might be useful for increasing % of lines found from slack map": a candidate to measure when the share of known lines found is worked on. |
 
 ## Order
 Chosen to keep the cost and the risk of errors low: a safety net first, foundations before what builds on them, nothing built twice.
@@ -95,6 +105,260 @@ Rules for every step:
    - *To do*: read the failed requests' settings by class (`tools/job_stats.py` could list failed jobs by code
      and class), then what the form could offer when a search finds nothing (the message names the settings to
      widen today), and whether the slope threshold of priority 2 is part of it.
+
+## Line volume: too many lines (2026-11-10 to 2026-11-14, branch `line-volume`)
+
+In the rig people really use (the sag model with a fall zone of 6 m, a no-fall zone of 5 m at the ends, A-frames of
+2 m) the search finds far more lines than the site can keep, send or show: 24 480 100 on the Gozo coast, the goal
+case, against the public limit of 1.5 M lines; 3 of 16 reference cases passed the public limits. The user's aim: "set
+of solutions for limiting observable effects. Both on server side and client (code and UI with UX)". The task
+measured the effects, ran three gates of decisions with the user and two accepted mock-ups (the Basic search form;
+how a result is organised), built the low-effort part and specified the rest.
+
+- **Built** (rows in "Decisions" above): the sag model's fall zone of 6 m by default; the refusal's advice in the
+  measured order, the square rule offered first when it is off; the square rule `--same-line-square` (off by
+  default; with it the goal case keeps 503 651 lines in 90 s); the audit tool `tools/prune_study.py`.
+- **Specified, not built:** [line-volume/spec.md](line-volume/spec.md), with its three parts (before and during the
+  search; stored and sent; shown). It names every decision with the user's words, the open choices (its section 6.3)
+  and phase 4's findings (its section 7; the bugs among them are in docs/known-bugs.md).
+- **The order of building** (the specification's section 5): first the owed measurements (every goal with the square
+  rule; an estimator of kept lines from a sample; lip anchors against the known lines, when the PC is free); then the
+  next tier, largely in parallel: "best" by mean height and the tight mark in today's page, the Basic form with 'My
+  rig' (the rigs' migration, then the page), the size from a sample, the access mark (after its mock-up); then the
+  store: columns in the page from today's `data.js`, the Arrow store beside today's files, exports per download, then
+  the end of the text files and of `file://` with old runs removed on the user's word; brotli and caching, the ranges
+  and renaming a run beside them; last the result view of mock-up 2 (its first wave before the text files end).
+- **A note for the share of known lines found** (the user, 2026-11-14): K-18 'Higher wins unless clearance loses'
+  kept 590 of 592 matched known lines against K-17's 589 and "might be useful for increasing % of lines found from
+  slack map": measure it when that share is worked on.
+
+### Parked ideas of the line-volume task
+Written down, not evaluated: 153 ideas parked at gate 2 (2026-11-13) and the items parked at gate 3 (2026-11-14). Each
+keeps its id and title from the task's idea board (F: files and sending, K: what a line is, O: other, S: the search,
+T: the search form and its texts, V: the view).
+
+**Parked at gate 3 and by the specification**
+- S-40 Admit large searches to a heavy lane
+- S-28 Keep step 1 for a quick retry
+- K-03 Lines you can slide between are one line
+- K-10 Line prominence: keep lines that stand out
+- Caps in the search: 10 lines per spot stored by mean height (G-12 b), or K-13 Beaten by a margin, not by a
+  hair, stored (G-12 c)
+- Patches of a kept line: K-04 A line becomes two anchor patches with ranges; the count, ranges, anchor patches
+  and three examples (G-03 c)
+- K-07 Guidebook order: sector, wall pair, span, variant
+- F-21 Data and grouping in a Web Worker (revisited)
+- F-20 Grouping core first, details later
+- F-13 Keep opened runs in the browser (OPFS)
+- F-31 Light view for share links and phones
+- F-24 Tiered result for tens of millions of lines
+- K-33 Three nested results by rigging
+- F-32 Exports people can open (filtered exports, GeoPackage, KML)
+
+**Lines that need the zone or A-frames**
+- K-31 Zone-only lines: one per place
+- K-32 Zone and A-frame lines as counts
+- O-04 Run difference: only what a setting added
+- S-18 Budget filled by the rigging a line needs
+
+**Fewer, better anchors**
+- K-29 Anchors need a wall under them
+- K-55 Coarse places, one polished line each
+- S-20 Cap partners per anchor and direction
+- S-22 Coarse pass first, fine pass where it pays
+
+**What counts as the same line**
+- K-02 Distinct lines as small classes under spots
+- K-09 A stable name for a line
+- K-37 Fans: partners thinned by angle
+- S-14 Per 5 m pair: best and highest line
+
+**Which variants a place keeps**
+- K-11 Unbeaten on clearance and length per spot
+- K-12 The filter-proof set of lines
+- K-38 A spread-out sample per spot
+- K-51 A clear line beats its twin over trees
+- S-15 Keep each place's Pareto front while searching
+- S-17 A fair random sample per place, with counts
+
+**Stacked levels and easy access**
+- K-20 Easier to reach wins in a stack
+- K-21 Snap a line up to the top edge
+- K-24 Paths from OpenStreetMap as the access measure
+- T-16 Ease of access as order, not filter
+- V-19 Wall section: a spot's levels side-on
+
+**The good line and its tests**
+- K-15 The middle of a family, not its edge
+- K-34 Least rigging wins among near-identical lines
+- K-35 The most riggable line stands for a spot
+- K-41 Quality tiers for lines and spots
+- K-42 A good-line score with a visible recipe
+- K-43 Line kinds: highline, midline, waterline
+- K-44 Known lines as the private referee
+- K-45 Learn what a rigged line looks like
+- V-34 'Rigged nearby' badge without the line
+
+**A cap on the result**
+- K-39 A line budget shared out among spots
+- S-11 Line budget: keep the best N
+- S-12 Budget with a quota per place
+- S-16 Thin the densest places only, as needed
+- S-26 All lines below the limit, a budget above
+- S-48 A budget in bytes from the size targets
+
+**Place records, variants on demand**
+- K-48 A spot record instead of a spot's lines
+- K-54 The span map: a family as a picture
+- S-30 Save places with summaries, not lines
+- S-31 A place's variants recomputed on request
+- V-56 Distinct lines first, variants on request
+
+**Estimating lines before the search**
+- S-04 Counted pre-flight between download and compute
+- S-05 Line estimate in the form for cached places
+- S-08 Open-direction share as a cheap warning
+- S-09 Estimate from earlier searches and a model
+- T-21 A sample count in the estimate
+
+**Size told before Start**
+- S-06 What-if table from one count or sample
+- T-12 A size chip on every preset card
+- T-18 Size meter: light, heavy, too large
+- T-20 "What would help most": one-click lighter settings
+- T-23 Refuse a too-large search at the estimate
+- T-27 Edit shows the last outcome and the risk
+- T-45 Help texts with measured multipliers
+- T-46 Intro and limits name the line limit
+- T-47 The command line gets the same warnings
+
+**When a search reaches the limit**
+- F-27 Store appended while the search runs
+- S-01 Evaluate pairs while searching: a real early stop
+- S-02 Line order independent of the visit order
+- S-07 Refuse by projection, not by the count
+- S-23 At the limit, keep what was found
+- S-24 Even visit order, so a stop covers everything
+- S-25 Promising anchors first (anytime search)
+- S-49 A refused tiled search keeps its finished tiles
+- T-26 Keep and show the partial result
+- T-29 Live count of lines while searching
+- T-30 "Stop and keep" during a search
+
+**After a refusal or nothing found**
+- S-27 A refusal leaves a density map
+- T-24 Refusal texts that name the multipliers
+
+**Run files and exports**
+- F-06 The hand-over files become the saved run
+- F-28 A tiled run's tiles are its store
+- F-33 Export built in the browser from loaded lines
+- S-43 Write each result file in parallel shards
+- S-45 Store lines while searching, text files later
+- S-46 Faster text building with a library
+
+**Compact encoding of lines**
+- F-36 Anchors as grid pixels, coordinates rebuilt exactly
+
+**A big run into the browser**
+- F-02 Read data.js as bytes, parse in blocks
+- F-03 data.js written in parts under the limit
+- F-11 nginx sends run files after the app's check
+- F-14 Lines saved in grouping order: exact progressive spots
+
+**Opening a large run safely**
+- F-01 No script fallback above the limit
+- F-15 A small first-view file, then the rest
+- F-39 Overlays and comparisons from spots only
+- O-03 Place links: share one place
+- O-05 A size class per run, each with a way to open
+- S-47 Tiles shown as they finish
+- T-35 Open the light version by default
+- T-36 Share link visitor: a summary first
+
+**Big results in levels and pieces**
+- F-16 Spot members in chunk files, loaded on open
+- F-17 The worker filters and groups big runs
+- F-18 Where 'small' ends: one line for static
+- F-22 A range-readable run file with a spot index
+- F-23 Zoom pyramid: density far out, lines close up
+- F-40 A SQLite file per run on the server
+- O-01 Three levels, each with its own budget
+- S-29 Count first, lines where the user asks
+- V-37 Overview-only result, lines per place
+
+**Calm map: surface or fewer lines**
+- V-02 Line footprint: where webbing would hang
+- V-03 One best line per screen cell
+- V-04 Spots shown by isolation, like peaks
+- V-06 A spot drawn as a ribbon
+- V-13 Stroke width and opacity carry counts
+- V-18 Grouping distance follows the zoom
+- V-46 Draw the typical line, list the best
+- V-51 Bundled trunks across a gap
+
+**Walls, gaps and anchors**
+- K-08 The anchor graph: standing places joined by spans
+- V-07 Anchor edges coloured, lines on demand
+- V-38 Unrolled coast: a strip of the wall
+- V-40 Wall-to-wall matrix
+
+**Inside a place: direction and choices**
+- F-25 Stored summary per spot, with a direction rose
+- V-09 Direction rose at a spot or anchor
+- V-10 Rose with rings: direction by level
+- V-11 Compass filter for bearing
+- V-17 Drill into a spot: sub-spots on demand
+- V-41 Edge-to-edge chart of one spot
+- V-47 Sketch or lasso to filter
+
+**Where to start, how to choose**
+- V-25 Calm first view, expert switches
+- V-42 Scented filters and result chips
+- V-43 Shortlist tray and side-by-side compare
+- V-44 Sparkline and mini rose per list row
+- V-48 List follows the map by default
+- V-53 The view in the link
+- V-55 Hover peek: a place's facts on the map
+
+**On a phone**
+- V-27 Phone: swipe cards under the map
+- V-29 Phone: labels fanned around the finger
+- V-30 Phone: 3D 'lines from a point' on
+- V-54 Phone legends fold to chips
+
+**Basic and Advanced search**
+- T-02 Basic cut by experience, not by goal
+- T-03 Basic cut by terrain type
+- T-22 Ask for the result's size, not settings
+- T-42 Soft guardrails in Basic
+- T-43 Phone-aware Basic
+
+**Goal presets**
+- S-35 Basic presets that bound the count
+- S-36 Measure presets with counts before choosing
+- T-48 "Search like this" from shared runs
+
+**Storage, memory and huge runs**
+- F-29 Old large runs compacted, favourites kept
+- O-06 Pin to keep: runs expire, places stay
+- S-37 A memory check for every search
+- S-39 Step 1 of large areas within the budget
+- S-41 Check the run quota before saving
+- S-42 Lines on disk for very large local runs
+- T-37 Storage in searches, largest first
+- T-44 Confirm before an uncapped heavy search
+
+**Other**
+- K-46 Favourites as votes for places
+- O-07 Field verdicts on lines
+- O-08 The layer as the public first screen
+- S-10 Estimate from the country cube where one exists
+- S-19 Budget floor fed back into the kernel
+- S-50 Pixel checks of lines on a GPU
+- S-51 The same sample also predicts 'no lines'
+- T-31 Nothing found: show where lines were lost
+- T-32 Nothing found: one-click relaxations
 
 ## Done: the no-fall zone at the ends and the A-frames (2026-11-06/07, branch `end-zone`)
 
