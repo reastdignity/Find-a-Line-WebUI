@@ -263,6 +263,7 @@
   "error.overpass_day_max": "The {{max}} OpenStreetMap queries (Overpass) this site may send per day are used up. Coast and cliff areas work again tomorrow (UTC); until then searches near the sea use the Copernicus sea outline.",
   "error.coast_fallback": "OpenStreetMap did not answer. The search uses the Copernicus sea outline: it can be up to 70 m wrong near the shore. Lines near the shore can be missing.",
   "error.no_surface": "There is no data of trees and buildings for {{percent}} % of the area. Lines there are checked against the ground only.",
+  "error.terrain_fallback": "{{percent}} % of the land in the area has no {{source}} data. Its heights come from {{fallback}}, which is coarser, so lines there are less exact and some may be missing.",
   "error.shore_uncertain": "The terrain model has no data at the foot of about {{surface}} m of shore where the surface model stands in, and {{sea}} m where the sea does. The map shows where (the layer Uncertain shore). Lines ending or passing there are less certain.",
   "error.area_too_large": "The area is {{km2}} km². The limit on this site is {{max}} km². Draw a smaller area or use a smaller Band width.",
   "error.circle_too_large": "The circle is {{km2}} km². The limit on this site is {{max}} km². Use a smaller Search radius.",

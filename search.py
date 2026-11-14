@@ -142,6 +142,9 @@ PATCH_NO_DATA = -32768  # the int16 value of a sample without data
 # The uncertain shore (sources.filling.shore_segments) of a search this long or longer gets a warning
 SHORE_WARN_M = 100
 SHORE_FILE = "shore.json"  # a tiled search's shore in its run folder (search_lines: resuming keeps it)
+# The fallbacks' share of the search area's land (sources.filling.terrain_origins) from which a search warns
+FALLBACK_WARN_SHARE = 0.10
+ORIGINS_FILE = "terrain_sources.json"  # a tiled search's terrain_origins in its run folder (as SHORE_FILE)
 PATCH_ROWS = 512  # rows encoded at a time (float64 temporaries of a block only)
 # The reach of a fixed anchor (reach_of_anchor, docs/3d-view-contract.md, "/api/reach"): every sample of the
 # patch is a target while at most REACH_FULL_TARGETS lie within the run's limits, else every second one;
@@ -317,6 +320,9 @@ class Data:
     # (shore="kinds", uint8 memory-mapped); None without water filling or when not asked
     shore: Optional[Dict] = None
     shore_kinds: Optional[np.ndarray] = None
+    # Where the terrain of the search area's land came from (sources.filling.terrain_origins): the source's
+    # own data, the neighbours', the fallbacks' with their regions; None when nothing was filled or not counted
+    terrain_sources: Optional[Dict] = None
     # The count mode across a border (Plan.partners): the partner of each pixel, uint8 memory-mapped
     # (sources.filling.resolve_partners: 0 inside the outline, beyond the reach and on the pixels of no
     # partner, 1-6 a neighbour of Source.neighbours, 7 the source's own data where none's boxes reach);
@@ -333,6 +339,8 @@ class Lines:
     terrain: Optional[Dict] = None
     # The uncertain shore of the whole search area (sources.filling.shore_segments), None when not known
     shore: Optional[Dict] = None
+    # Where the terrain of the search area's land came from (sources.filling.terrain_origins), None when not known
+    terrain_sources: Optional[Dict] = None
 
 
 @dataclass
@@ -942,6 +950,34 @@ def _share_rows(numerator: Callable[[int, int], np.ndarray], denominator: Callab
     return above / below if below else 0.0
 
 
+def _terrain_sources(plan: Plan, elevation_path: str, mask, joined_path: Optional[str], joined: list,
+                     steps: List[str], filled: list, wbm, sea_zone, rows: Optional[int]) -> Optional[Dict]:
+    """Where the terrain of the search area's land came from after the gap filling
+    (sources.filling.terrain_origins), with an info line of the shares and a warning
+    (terrain_fallback) when the fallbacks gave FALLBACK_WARN_SHARE of it or more; None when nothing
+    was filled."""
+    if not any(px for _, px in joined + filled):
+        return None
+    source = plan.source
+    progress.compute.start("terrain origins", 1, unit="step")
+    origins = src.filling.terrain_origins(
+        elevation_path, mask, plan.grid, (source.name, source.nmt.native_res), joined_path,
+        [n.name for n, px in joined if px], steps, [(f.name, f.nmt.native_res) for f, _ in filled],
+        wbm=wbm, sea_zone=sea_zone, sea_value=source.sea_fill, rows=rows)
+    progress.compute.update(1)
+    progress.compute.finish()
+    plan.emit("info", "Terrain of the search area's land: " + ", ".join(
+        f"{100 * layer['share']:.1f}% {layer['name']}" for layer in origins["layers"]))
+    share = origins["fallback_share"]
+    if share >= FALLBACK_WARN_SHARE:
+        names = " and ".join(layer["name"] for layer in origins["layers"] if layer["role"] == "fallback")
+        plan.emit("warning", messages.Note(
+            f"{100 * share:.0f}% of the land in the search area has no {source.name} data; its heights come from "
+            f"{names}, which is coarser.\nLines there are less exact, and some may be missing.",
+            "terrain_fallback", percent=round(100 * share), source=source.name, fallback=names))
+    return origins
+
+
 def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = True, strips: bool = False,
                  shore: str = "segments") -> Data:
     """Step 1: download what is missing and build the grids (terrain, surface, water, gaps).
@@ -999,6 +1035,7 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                                              p.update, download=False, rows=rows)
         # Order matters: where the sea is, then gaps on land (outside the sea), then the water
         water_path = filled_path = covered_path = joined_path = sea_zone = wbm = terrain = tile_terrain = None
+        terrain_sources = None
         face_path = shore_segments = shore_kinds_path = None
         if p.water == "fill":
             wbm = src.water_body_mask(grid, cache_dir, os.path.join(work, "wbm.npy"), p.update, download=False,
@@ -1061,16 +1098,19 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 elevation_path, surface_path, grid, [src.SOURCES[n] for n in source.neighbours] if plan.border else [],
                 cache_dir, os.path.join(work, "joined.npy"), p.update, exclude=sea_zone, rows=rows,
                 partner=partner)
-            filled = []
+            filled, steps = [], []
             if source.fallback:
                 filled_path, filled = src.fill_gaps_chain(elevation_path, surface_path, grid,
                                                           [src.SOURCES[f] for f in source.fallbacks], cache_dir,
                                                           os.path.join(work, "filled.npy"), p.update, exclude=sea_zone,
-                                                          rows=rows)
+                                                          rows=rows, steps=steps)
             for fallback, filled_px in joined + filled:
                 if filled_px:
                     emit("info", f"Filled {filled_px * plan.resolution ** 2 / 1e6:.2f} km² of gaps in the data "
                                  f"from {fallback.name}")
+            if with_data is not None and shore == "segments":  # a run's search (not a country's tile, a profile)
+                terrain_sources = _terrain_sources(plan, elevation_path, mask, joined_path, joined, steps, filled,
+                                                   wbm, sea_zone, rows)
         if partner_path:
             progress.compute.start("partner territories", 1, unit="step")
             src.filling.resolve_partners(partner, zone, plan.territories or [], grid, rows or grid.height,
@@ -1184,13 +1224,13 @@ def prepare_data(plan: Plan, core: Optional[tuple] = None, statistics: bool = Tr
                 np.load(joined_path, mmap_mode="r") if joined_path else None, mask, terrain, tile_terrain,
                 covered=np.load(covered_path, mmap_mode="r") if covered_path else None, shore=shore_segments,
                 shore_kinds=np.load(shore_kinds_path, mmap_mode="r") if shore_kinds_path else None,
-                partner=np.load(partner_path, mmap_mode="r") if partner_path else None)
+                partner=np.load(partner_path, mmap_mode="r") if partner_path else None, terrain_sources=terrain_sources)
 
 
 def find_lines(plan: Plan, data: Data) -> Lines:
     """Steps 2-4: anchors, line search, coordinates and profiles, groups."""
     results, groups = _lines(plan, data)
-    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore)
+    return Lines(results, groups, hy.statistics(data.terrain, plan.resolution), data.shore, data.terrain_sources)
 
 
 def _lines(plan: Plan, data: Data, core: Optional[tuple] = None, before: int = 0) -> Tuple[sh.LineTable, mp.Groups]:
@@ -1801,6 +1841,10 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
     if area is not None and area.shore is not None:
         with open(shore_path, "w", encoding="utf-8") as f:
             json.dump(area.shore, f, separators=(",", ":"))
+    origins_path = os.path.join(run["path"], ORIGINS_FILE)  # where the area's terrain came from, as the shore
+    if area is not None and area.terrain_sources is not None:
+        with open(origins_path, "w", encoding="utf-8") as f:
+            json.dump(area.terrain_sources, f, separators=(",", ":"))
     for k, (core, tile) in enumerate(plan.tiles):
         path = os.path.join(folder, TILE_FILE.format(k))
         terrain_path = os.path.join(folder, TERRAIN_FILE.format(k))
@@ -1859,11 +1903,14 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         progress.compute.finish()
         src.used_data[:] = used
     progress.set_step("")
-    shore = None
+    shore = origins = None
     if os.path.isfile(shore_path):
         with open(shore_path, encoding="utf-8") as f:
             shore = json.load(f)
-    return Lines(results, groups, hy.statistics(terrain, plan.resolution), shore), run
+    if os.path.isfile(origins_path):
+        with open(origins_path, encoding="utf-8") as f:
+            origins = json.load(f)
+    return Lines(results, groups, hy.statistics(terrain, plan.resolution), shore, origins), run
 
 
 def _merged_data() -> List[Dict]:
@@ -1979,6 +2026,8 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
                     "profiles": "all" if circle and len(results.profiles) == len(results) else "representatives"},
         "terrain": lines.terrain,  # the land with data of the search area (hypsometry.statistics)
         "shore": lines.shore,  # the uncertain shore (sources.filling.shore_segments), None when not known
+        # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
+        "terrain_sources": lines.terrain_sources,
     }
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map

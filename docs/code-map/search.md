@@ -98,7 +98,12 @@ file, loaded with it on resuming; a finished tile without one makes the run's te
 (`sources.filling.shore_segments`): `prepare_data(shore="segments")` into `Data.shore` after the water filling (the
 bar "uncertain shore"; a `messages.Note` `shore_uncertain` from `SHORE_WARN_M`), `Lines.shore` (`find_lines`;
 `search_lines` keeps the area's in the run folder's `SHORE_FILE` for a resumed search), `meta["shore"]` of run.json
-and data.js; `shore="kinds"` for the 3D view's patch (`Data.shore_kinds`, `work/shore.npy`), `shore="none"` for a
+and data.js; where the land's terrain came from (`sources.filling.terrain_origins`, `_terrain_sources`): after
+the gap filling, only for a run's search (`shore="segments"`, `plan.border`), an info line of the shares and a
+`messages.Note` `terrain_fallback` from `FALLBACK_WARN_SHARE` (10 %) of the land from fallbacks, into
+`Data.terrain_sources`, `Lines.terrain_sources` (a tiled search's in `ORIGINS_FILE`, as the shore's),
+`meta["terrain_sources"]` of run.json and the head of data.js only when known (not lines.js, not runs.js);
+`shore="kinds"` for the 3D view's patch (`Data.shore_kinds`, `work/shore.npy`), `shore="none"` for a
 profile and the country layer's tiles; `--min-elevation`/`--max-elevation` keep the anchors within the band in
 `_anchors` right after they are found (float32 heights; before `ANCHORS_MAX`, the prominence and the drop, so the
 funnel's `anchors_kept` counts it; `no_anchors_in_elevation_range`), `_search_hash` drops them when unset; the no-fall
