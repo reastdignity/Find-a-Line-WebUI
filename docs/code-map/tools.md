@@ -341,7 +341,7 @@ The test lock of parallel sessions and agents:
 `run [--exclusive | --heavy] [--memory GB] [--resource NAME] [--first] -- <command>` waits in one
 first-come-first-served queue (SQLite in `<git common dir>/findaline-locks/`, an OS lock per entry, so a killed
 wrapper leaves nothing behind; `PRAGMA user_version` 1: the kinds of `uv run --frozen ...` with uv's own options
-skipped, older rows migrated; a new table by `SCHEMA`'s `CREATE TABLE IF NOT EXISTS`, a new column of `entries` by the
+skipped, 2: full pytest runs with -n of kind `pytest-all-xdist`, older rows migrated each time (`_migrate`); a new table by `SCHEMA`'s `CREATE TABLE IF NOT EXISTS`, a new column of `entries` by the
 `ALTER TABLE` loop of `Queue.__init__`, so older wrappers keep working), `status` lists it (the user's state first,
 then the RAM line: free, total, the lock's budget); three modes (`MODES`): shared commands (`SLOTS` 6, below the
 normal priority, threads capped to cores / `THREAD_SHARE` 3 whatever the slots: chosen from the lock monitor's data of
@@ -392,7 +392,26 @@ state), Stop asked once, a refresh every 3 s; `serve [--port N]`, `install` (Win
 test lock page" at logon, the main checkout's `.venv` pythonw and its copy of the script, restarted every minute on
 failure, started at once, by PowerShell's `Register-ScheduledTask`; the desktop shortcut `Test lock.lnk` running
 `msedge --app=http://127.0.0.1:8771/`, Edge from the registry's App Paths), `uninstall`, both with `--dry-run` (an
-agent runs neither for real: the user installs it); `tests/test_test_lock.py`, `tests/test_test_lock_page.py`
+agent runs neither for real: the user installs it); a full pytest in parallel processes (pytest-xdist): a command
+of kind `pytest-all` gets `-n MODE_WORKERS[mode] --dist loadfile` after the word pytest when it is queued
+(`parallel_command`; 4 workers shared, 8 heavy and exclusive), unless it names its own `-n`/`--numprocesses`/
+`--dist`/`--tx`/`--maxprocesses` or `-p no:xdist` (`-n 0`: a serial full run), gives one of `SERIAL_ONLY` (--pdb,
+--trace, -s, --collect-only, --looponfail, --stepwise) or its Python has no xdist (`xdist_available`: a probe import;
+a line says it runs serially); kind `pytest-all-xdist` (`PARALLEL_KIND`, `pytest_workers`), so its estimates and
+peaks stay apart; `WORKER_THREADS` 3 threads a worker (`_environment(workers=)`; tamed: `tamed_workers`, at most
+`HEAVY_TAMED_THREADS` in all, the entry's command rewritten, `Queue.set_command`); a shared one counts
+`slot_weight` = ceil(workers / `WORKERS_PER_SLOT` 2) slots and, waiting for them, keeps them reserved in `startable`
+(a later shared one passes it only by the backfill rule, so it is never starved); with no history its peak is
+`MEMORY_BASE_GB` 6.0 + `MEMORY_PER_WORKER_GB` 0.65 a worker; `status` adds "4 workers x 3 threads, 2 slots"
+(`_parallel_text`); `tests/test_test_lock.py`, `tests/test_test_lock_parallel.py`, `tests/test_test_lock_page.py`
+
+## `tools/test_times.py`
+
+Run by hand: where a pytest run's time goes, from its JUnit files (`show`: seconds per file and per test with shares,
+the counts at ≥ 1/5/10/30 s), two runs compared id by id (`compare A B`: ids in one only, outcomes that differ,
+seconds per file side by side; exit 1 on a difference; a serial and a pytest-xdist run write the same ids), and setup
+/ call / teardown from pytest's `--durations` lines (`durations LOG`); standard library only;
+`tests/test_test_times.py`
 
 ## `tools/clean_temp.py`
 

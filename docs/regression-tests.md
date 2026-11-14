@@ -25,7 +25,7 @@ uv run tests/regression.py R1 --update --write-doc   # store new results, rewrit
 - R17 (`kind: osm`, set `network`) builds the coastline and cliff tiles of Malta from the Geofabrik extract and fetches them from Overpass: the features and geometries must be the same. It is skipped without the extract (`findaline.py osm download malta`) or when Overpass does not answer.
 - After upgrading libraries (`uv lock`), checksums may change with identical lines: compare two log folders' `lines.csv` files to see what changed (the run before the upgrade with `--keep`), then re-baseline.
 - The table below is generated from `tests/regression.json` (`--write-doc`); edit the JSON, not the table. The log folder (each test's runs, map and output) is printed at the end and kept when a test differs or with `--keep`; otherwise it is removed (`tools/clean_temp.py` removes the kept ones later).
-- The offline tests (`uv run pytest`, ~25 s) need no network and no cache: a synthetic canyon and a 600 × 600 m clip of Żabi Koń (`tests/data`, cut by `make_fixture.py`).
+- The offline tests (`uv run pytest`: about 45 min in one process, about 6-11 min in parallel processes under the test lock, docs/workflow.md) need no network and no cache: a synthetic canyon and a 600 × 600 m clip of Żabi Koń (`tests/data`, cut by `make_fixture.py`).
 
 ## When a number differs
 1. A difference after a code change that should not affect results is a regression.

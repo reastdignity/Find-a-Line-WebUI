@@ -23,6 +23,21 @@ other things. A command waits in one first-come-first-served queue until it may 
 - --first: waits ahead of every waiting command (never of a running one; several of them in
   their order). Only with the user's permission.
 
+A pytest of the whole suite (kind pytest-all: no test named or selected) runs its files in
+parallel processes (pytest-xdist): the lock inserts `-n MODE_WORKERS[mode] --dist loadfile` after
+the word pytest when it queues it (`--dist loadfile`: each file whole on one worker, in its order,
+so module fixtures are built once per file as in a serial run), unless the caller chose (an own
+-n, --numprocesses, --dist, --tx, --maxprocesses or `-p no:xdist`; `-n 0` asks for a serial full
+run), an option xdist cannot run with is given (SERIAL_ONLY: --pdb, --trace, -s, --collect-only,
+--looponfail, --stepwise) or the command's Python has no xdist (a worktree of an older branch: a
+line says so). Its kind is then pytest-all-xdist, so its estimates and peaks stay apart from the
+serial runs', and `status`, the page and `history` show the command as it runs. Each worker gets
+WORKER_THREADS threads of numba, OpenMP, BLAS and GDAL (a tamed heavy one: at most
+HEAVY_TAMED_THREADS in all, fewer workers); a shared one counts ceil(workers / WORKERS_PER_SLOT) of
+the SLOTS, and while it waits for them it keeps them reserved: a later shared command takes a freed
+slot only if the reserved ones still fit, or by the backfill below. With no history its expected
+peak is MEMORY_BASE_GB + MEMORY_PER_WORKER_GB a worker. A pytest of chosen files stays serial.
+
 A command waits for a running one it conflicts with (either exclusive, both heavy, or a resource
 in common) and for every earlier waiting one it conflicts with, so a waiting --exclusive keeps new
 shared commands out, a waiting --heavy only new heavy and exclusive ones, and shared commands take
@@ -94,11 +109,13 @@ counted), 124 killed after --timeout, 125 stopped from the test lock page, 130 C
 """
 
 import argparse
+import math
 import ntpath
 import os
 import re
 import secrets
 import shlex
+import shutil
 import signal
 import sqlite3
 import subprocess
@@ -141,11 +158,24 @@ UV = ("uv", "uvx")    # after them, uv's own options are skipped too (uv run --f
 UV_VALUES = ("--project", "--directory", "--with", "--with-editable", "--with-requirements", "--group",
              "--only-group", "--no-group", "--extra", "--no-extra", "--python", "-p", "--package",
              "--env-file", "--index", "--config-file", "--cache-dir")   # uv's options taking a value
-QUEUE_VERSION = 1     # PRAGMA user_version of the queue: 1 = history's kinds with uv's options skipped
+QUEUE_VERSION = 2     # PRAGMA user_version of the queue: 1 = history's kinds with uv's options skipped,
+                      # 2 = full pytest runs with -n (pytest-xdist) of kind pytest-all-xdist
 PYTEST_VALUES = ("-p", "-W", "-o", "-c", "-n", "-r", "--deselect", "--ignore", "--ignore-glob", "--rootdir",
-                 "--tb", "--maxfail", "--basetemp", "--timeout", "--durations")  # options taking a value
+                 "--tb", "--maxfail", "--basetemp", "--timeout", "--durations", "--durations-min", "--junitxml",
+                 "--numprocesses", "--dist", "--tx", "--maxprocesses", "--max-worker-restart",
+                 "--capture")  # options taking a value (pytest's and pytest-xdist's)
 THREAD_VARS = ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                "GDAL_NUM_THREADS")
+# A full pytest in parallel processes (pytest-xdist; see the docstring). The numbers are the user's,
+# from the measurements of 2026-11-13 (local/test-speed-2026-11-13/wave1/results.md and wave2/)
+MODE_WORKERS = {"shared": 4, "heavy": 8, "exclusive": 8}   # -n of a full pytest by mode
+WORKER_THREADS = 3       # numba/OpenMP/BLAS/GDAL threads of each worker (8 x 8 took 2713 s CPU, 8 x 3 1954 s)
+WORKERS_PER_SLOT = 2     # a shared parallel pytest counts ceil(workers / this) of the SLOTS
+MEMORY_BASE_GB, MEMORY_PER_WORKER_GB = 6.0, 0.65   # its expected peak with no history (8.6 GB at 4 workers)
+PARALLEL_KIND = "pytest-all-xdist"
+OWN_XDIST = ("-n", "--numprocesses", "--dist", "--tx", "--maxprocesses")   # the caller chose: nothing added
+SERIAL_ONLY = ("--pdb", "--trace", "-s", "--capture=no", "--co", "--collect-only", "-f", "--looponfail", "--sw",
+               "--stepwise", "--sw-skip", "--stepwise-skip")             # xdist cannot run with these
 TASKKILL = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "taskkill.exe")
 STATES = ("free", "heavy-ok", "busy", "quiet")   # the user's state, from the most to the least permissive
 FREE = "free"
@@ -278,6 +308,7 @@ def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], 
     guarded one's (expected peak, budget left for it)."""
     started = {e.id: e.started for e in entries if e.started is not None}
     by_id = {e.id: e for e in entries}
+    weights = {e.id: slot_weight(e, slots) for e in entries}
     seconds = {e.id: estimate(e) for e in entries}
     passing = passing or estimate
     peaks: Dict[int, Optional[float]] = {}
@@ -293,12 +324,17 @@ def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], 
         return now if seconds[id] is None else max(now, started[id] + seconds[id])
 
     held_up: Dict[int, float] = {}   # waiting ones not admitted → the end a later one passing them may not exceed
+    slot_waiting: Dict[int, int] = {}   # shared ones waiting for slots → the slots they keep reserved
     for entry in sorted((e for e in entries if e.started is None), key=order):
         if held(entry, state) is not None:
             continue
         blocking = [i for i in started if conflicts(entry, by_id[i])]
-        full = entry.mode == "shared" and sum(by_id[i].mode == "shared" for i in started) >= slots
+        shared = entry.mode == "shared"
+        used = sum(weights[i] for i in started if by_id[i].mode == "shared") if shared else 0
+        full = shared and used + weights[entry.id] > slots
         passed = [i for i in held_up if conflicts(entry, by_id[i])]
+        if shared and used + sum(slot_waiting.values()) + weights[entry.id] > slots:
+            passed += [i for i in slot_waiting if i not in passed]   # their reserved slots: pass them in time
         own = passing(entry) if passed else None
         passes = all(own is not None and now + own <= held_up[i] for i in passed)
         need = peak_of(entry) if budget is not None and entry.mode != "exclusive" else None
@@ -310,6 +346,9 @@ def startable(entries: Sequence[Entry], now: float, estimate: Callable[[Entry], 
             if need is not None:
                 budget -= need
         else:
+            if full:  # it waits for the slots of the running and admitted shared ones, and keeps them
+                blocking += [i for i in started if i not in blocking and by_id[i].mode == "shared"]
+                slot_waiting[entry.id] = weights[entry.id]
             if tight:  # it waits for the memory of the running and admitted ones with a peak too
                 blocking += [i for i in started if i not in blocking and by_id[i].mode != "exclusive"
                              and peak_of(by_id[i]) is not None]
@@ -410,14 +449,126 @@ def command_key(command: Sequence[str]) -> str:
 def command_kind(command: Sequence[str]) -> Optional[str]:
     """pytest, pytest-all, regression.py, npm, ...: the program, or the script run by Python or uv;
     None for `python -c`. A pytest of the whole suite (no test named or selected) is pytest-all:
-    it takes ten minutes where most chosen tests take seconds. uv's own options are skipped
-    (`uv run --frozen --project X pytest`): an option of it taking a value not in UV_VALUES
-    gives the kind of its value."""
+    it takes ten minutes where most chosen tests take seconds; with workers (-n other than 0)
+    pytest-all-xdist. uv's own options are skipped (`uv run --frozen --project X pytest`): an
+    option of it taking a value not in UV_VALUES gives the kind of its value."""
     i = program_index(command)
     if i == len(command) or command[i].startswith("-"):
         return None
     kind = _name(command[i])
-    return "pytest-all" if kind == "pytest" and not _selects(command[i + 1:]) else kind
+    if kind != "pytest" or _selects(command[i + 1:]):
+        return kind
+    return PARALLEL_KIND if pytest_workers(command) else "pytest-all"
+
+
+def _pytest_args(command: Sequence[str]) -> Sequence[str]:
+    """pytest's arguments of a command that runs pytest (after the word pytest), else none."""
+    i = program_index(command)
+    return command[i + 1:] if i < len(command) and _name(command[i]) == "pytest" else []
+
+
+def pytest_workers(command: Sequence[str]) -> Optional[int]:
+    """The workers of a pytest command's -n / --numprocesses (auto: the physical cores, logical:
+    the logical ones, as pytest-xdist counts them), 0 for -n 0, None without the option."""
+    args, found = list(_pytest_args(command)), None
+    for k, arg in enumerate(args):
+        if arg in ("-n", "--numprocesses"):
+            found = args[k + 1] if k + 1 < len(args) else None
+        elif arg.startswith("--numprocesses="):
+            found = arg.split("=", 1)[1]
+        elif arg.startswith("-n") and not arg.startswith("--"):
+            found = arg[2:].lstrip("=")
+    if found is None:
+        return None
+    if found in ("auto", "logical"):
+        count = psutil.cpu_count(logical=found == "logical") if psutil is not None else None
+        return count or os.cpu_count() or 1
+    try:
+        return max(0, int(found))
+    except ValueError:
+        return None
+
+
+def _serial_only(arg: str) -> bool:
+    """An option pytest-xdist cannot run with (SERIAL_ONLY), also -s inside short flags (-xs, -sv)."""
+    return arg in SERIAL_ONLY or bool(re.fullmatch(r"-[qvxl]*s[qvxl]*", arg))
+
+
+def parallel_command(command: Sequence[str], workers: int) -> Optional[List[str]]:
+    """The full pytest with `-n workers --dist loadfile` after the word pytest, or None when the
+    command is no full pytest (pytest-all), the caller chose the workers or the distribution
+    (OWN_XDIST, `-p no:xdist`), gives an option xdist cannot run with (SERIAL_ONLY) or workers < 2."""
+    if workers < 2 or command_kind(command) != "pytest-all":
+        return None
+    args = list(_pytest_args(command))
+    for k, arg in enumerate(args):
+        own = arg in OWN_XDIST or any(arg.startswith(f"{o}=") for o in OWN_XDIST if o.startswith("--")) or \
+            (arg.startswith("-n") and not arg.startswith("--"))
+        no_xdist = arg in ("-pno:xdist", "-p=no:xdist") or (arg == "-p" and args[k + 1:k + 2] == ["no:xdist"])
+        capture = arg == "--capture" and args[k + 1:k + 2] == ["no"]
+        if own or no_xdist or capture or _serial_only(arg):
+            return None
+    i = program_index(command) + 1
+    return [*command[:i], "-n", str(workers), "--dist", "loadfile", *command[i:]]
+
+
+def xdist_available(command: Sequence[str]) -> bool:
+    """Whether the Python a pytest command runs with can import pytest-xdist: the interpreter
+    before `-m pytest`, `uv run [options] python` for `uv run [options] pytest`, or the python
+    beside the pytest program."""
+    i = program_index(command)
+    prefix = [word for word in command[:i] if word != "-m"]
+    if prefix and _name(prefix[0]) in UV:
+        probe = [*prefix, "python"]
+    elif prefix:
+        probe = prefix
+    else:
+        program = shutil.which(command[i]) if i < len(command) else None
+        python = os.path.join(os.path.dirname(program), "python.exe" if os.name == "nt" else "python") \
+            if program else ""
+        if not os.path.isfile(python):
+            return False
+        probe = [python]
+    try:
+        return subprocess.run([*probe, "-c", "import xdist"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                              timeout=120).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def with_workers(command: Sequence[str], workers: int) -> List[str]:
+    """The command with the value of its -n changed to workers (the lock's own `-n K`)."""
+    out = list(command)
+    for k, arg in enumerate(out[:-1]):
+        if arg == "-n":
+            out[k + 1] = str(workers)
+            break
+    return out
+
+
+def worker_threads(workers: int, tamed: bool = False) -> int:
+    """The threads of each worker of a parallel pytest: WORKER_THREADS, for a tamed heavy one at
+    most HEAVY_TAMED_THREADS in all."""
+    return max(1, min(WORKER_THREADS, _tamed_threads() // max(1, workers))) if tamed else WORKER_THREADS
+
+
+def tamed_workers(workers: int) -> int:
+    """The workers of a parallel pytest started tamed: as many as fit HEAVY_TAMED_THREADS with
+    WORKER_THREADS each (at least 2)."""
+    return max(2, min(workers, _tamed_threads() // WORKER_THREADS))
+
+
+def slot_weight(entry: Entry, slots: int = SLOTS) -> int:
+    """The slots a shared entry counts: ceil(workers / WORKERS_PER_SLOT) for a parallel full pytest
+    (at most all of them), else 1."""
+    if entry.mode != "shared":
+        return 1
+    try:
+        command = shlex.split(entry.command)
+    except ValueError:
+        return 1
+    workers = pytest_workers(command) if command_kind(command) == PARALLEL_KIND else None
+    return max(1, min(slots, math.ceil(workers / WORKERS_PER_SLOT))) if workers else 1
 
 
 def program_index(command: Sequence[str]) -> int:
@@ -508,7 +659,8 @@ class Queue:
                 self._migrate()
 
     def _migrate(self) -> None:
-        """Version 1: the kinds of the runs before it again, with uv's options skipped (they had none)."""
+        """The kinds of the runs before the version again (command_kind): version 1, uv's options
+        skipped (they had none); version 2, full pytest runs with -n are pytest-all-xdist."""
         self.db.execute("BEGIN IMMEDIATE")
         try:
             for id, key, kind in self.db.execute("SELECT id, key, kind FROM history").fetchall():
@@ -579,7 +731,8 @@ class Queue:
     def peak(self, entry: Entry) -> Optional[int]:
         """The bytes the entry's command is expected to take at most (the RAM guard): --memory, else
         the largest peak of the last SAME_RUNS runs of the same command with one, else the 90th
-        percentile of the last KIND_RUNS runs of its kind with one; None without (not guarded)."""
+        percentile of the last KIND_RUNS runs of its kind with one, else for a parallel full pytest
+        MEMORY_BASE_GB + MEMORY_PER_WORKER_GB a worker; None without (not guarded)."""
         if entry.memory is not None:
             return entry.memory
         try:
@@ -594,7 +747,11 @@ class Queue:
             return same
         runs = sorted(p for (p,) in self.db.execute("SELECT peak_bytes FROM history WHERE kind = ? AND peak_bytes "
                                                      "IS NOT NULL ORDER BY id DESC LIMIT ?", (kind, KIND_RUNS)))
-        return runs[(9 * len(runs) + 9) // 10 - 1] if runs else None
+        if runs:
+            return runs[(9 * len(runs) + 9) // 10 - 1]
+        if kind == PARALLEL_KIND:  # a first parallel full pytest: about 8.6 GB at 4 workers (measured 7.6-8.6)
+            return int((MEMORY_BASE_GB + MEMORY_PER_WORKER_GB * (pytest_workers(command) or 1)) * GB)
+        return None
 
     def record(self, command: Sequence[str], seconds: float, code: int, peak: Optional[int] = None) -> None:
         """A finished command's time and the peak RSS of its process tree (None: not sampled), for
@@ -676,6 +833,10 @@ class Queue:
 
     def remove(self, token: str) -> None:
         self.db.execute("DELETE FROM entries WHERE token = ?", (token,))
+
+    def set_command(self, token: str, command: str) -> None:
+        """The command an entry runs, as it starts (a tamed parallel pytest with fewer workers)."""
+        self.db.execute("UPDATE entries SET command = ? WHERE token = ?", (command, token))
 
     def ram_share(self) -> float:
         """The share of all memory the RAM guard allows (the user's setting, else RAM_SHARE), read
@@ -802,6 +963,9 @@ def _describe(entry: Entry, now: float, expected: Optional[float] = None, hold: 
         details.append(f"uses {entry.rss / GB:.1f} GB")
     if details:
         text += f" ({', '.join(details)})"
+    parallel = _parallel_text(entry)
+    if parallel:
+        text += f" ({parallel})"
     if entry.mode == "heavy" and entry.tamed:
         text += " (tamed)"
     elif untamed(entry, state):
@@ -815,6 +979,19 @@ def _describe(entry: Entry, now: float, expected: Optional[float] = None, hold: 
     return f"#{entry.id} {entry.mode}{resources}{first} {text} owner={entry.owner} pid={entry.pid}: {entry.command}"
 
 
+def _parallel_text(entry: Entry) -> str:
+    """'4 workers x 3 threads, 2 slots' for a parallel full pytest, else ''."""
+    try:
+        command = shlex.split(entry.command)
+    except ValueError:
+        return ""
+    workers = pytest_workers(command) if command_kind(command) == PARALLEL_KIND else None
+    if not workers:
+        return ""
+    text = f"{workers} workers x {worker_threads(workers, entry.tamed)} threads"
+    return text + (f", {slot_weight(entry)} slots" if entry.mode == "shared" else "")
+
+
 def _room_text(room: tuple) -> str:
     """What the RAM guard holds a command by: its expected peak, the budget left for it, the use."""
     need, budget, available, total, share = room
@@ -826,12 +1003,14 @@ def _tamed_threads() -> int:
     return max(1, min(HEAVY_TAMED_THREADS, os.cpu_count() or 1))
 
 
-def _environment(mode: str, tamed: bool = False) -> dict:
+def _environment(mode: str, tamed: bool = False, workers: Optional[int] = None) -> dict:
     """The command's environment: FINDALINE_TEST_LOCK names its mode (heavy-tamed for a tamed heavy
     one); the threads of numba, OpenMP, BLAS and GDAL capped for a shared or tamed one, all the
-    cores otherwise."""
+    cores otherwise; for a parallel pytest (workers) those of each worker (worker_threads)."""
     env = dict(os.environ, FINDALINE_TEST_LOCK="heavy-tamed" if tamed else mode)
-    if mode == "shared" or tamed:
+    if workers:
+        env.update({name: str(worker_threads(workers, tamed)) for name in THREAD_VARS})
+    elif mode == "shared" or tamed:
         threads = str(_tamed_threads() if tamed else max(1, (os.cpu_count() or 1) // THREAD_SHARE))
         env.update({name: threads for name in THREAD_VARS})
     return env
@@ -873,6 +1052,13 @@ def run(args) -> int:
     mode = "exclusive" if args.exclusive else "heavy" if args.heavy else "shared"
     memory = None if args.memory is None else int(args.memory * GB)
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    parallel = parallel_command(command, MODE_WORKERS[mode])
+    if parallel is not None:
+        if xdist_available(command):
+            command = parallel
+        else:
+            print("test lock: pytest-xdist is not installed for this command: the full pytest runs serially",
+                  file=sys.stderr)
     text = shlex.join(command)
     queue = Queue(lock_dir())
     token = secrets.token_hex(8)
@@ -930,9 +1116,17 @@ def run(args) -> int:
         if tamed:
             print(f"test lock: heavy starts tamed (the user's state is heavy-ok): below the normal priority, "
                   f"{_tamed_threads()} threads", file=sys.stderr)
+        workers = pytest_workers(command) if command_kind(command) == PARALLEL_KIND else None
+        if workers and tamed and parallel is not None and tamed_workers(workers) < workers:
+            workers = tamed_workers(workers)
+            command = with_workers(command, workers)
+            queue.set_command(token, shlex.join(command))
+        if workers and parallel is not None:
+            print(f"test lock: the full pytest runs in parallel: {workers} workers x {worker_threads(workers, tamed)} "
+                  f"threads (-n {workers} --dist loadfile; -n 0 for a serial run)", file=sys.stderr)
         began = time.time()
         deadline = began + timeout
-        process = subprocess.Popen(command, env=_environment(mode, tamed), start_new_session=os.name != "nt",
+        process = subprocess.Popen(command, env=_environment(mode, tamed, workers), start_new_session=os.name != "nt",
                                    **_priority(mode, tamed))
         code, peak = None, None
         tree, listed = [], None   # the command's processes, listed at that time (TREE_EVERY)

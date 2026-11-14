@@ -3595,3 +3595,37 @@ the other:
   the count mode to keep the bucket minima (`zones`, docs/country-precompute/contract.md, section 6:
   not measured, a few per cent of step 3's work by the circle study's kernels). The decision is the
   user's (extra computing: the rule of 2026-11-05).
+
+## The test suite (2026-11-13/14, tag `history/test-speed`)
+
+The full `pytest` (about 1780 tests) ran in one process: 2194 s on 2026-11-12, 2872 s and 4031 s on 2026-11-13
+(the second beside other sessions' runs), 0.85 cores busy on average, 3.7 GB at its peak. Under the test lock a
+full run is now parallel (pytest-xdist, `--dist loadfile`: a file whole on one worker; `tools/test_lock.py`
+`MODE_WORKERS`, docs/workflow.md). Every number in the table is of a run beside other sessions' commands, from
+`tools/test_times.py` and the lock's history; the user chose the lock's numbers from them. The exclusive pair is
+the last bullet.
+
+| Workers × threads | Runs | Wall s | CPU s | Peak GB |
+| --- | ---: | ---: | ---: | ---: |
+| 1 (serial) | 2 | 2872, 4031 | 2463, 3400 | 3.7 |
+| 4 × 8 | 1 | 606 | 2582 | 7.6 |
+| 4 × 3 | 2 | 486, 641 | 1711, 2101 | 7.4-8.3 |
+| 4 × 3, two suites side by side (shared) | 2 | 655, 658 | 2016, 2022 | 8.4-8.6 each |
+| 6 × 8 | 2 | 389, 415 | 2429, 2491 | 7.8-8.8 |
+| 6 × 3 | 1 | 422 | 2068 | 9.1 |
+| 8 × 8 | 2 | 342, 355 | 2657, 2713 | 8.9-9.5 |
+| 8 × 3 | 3 | 304, 337, 368 | 1954-2368 | 9.4-9.8 |
+| 12 × 8 | 1 | 316 | 2961 | 13.4 |
+
+- From 8 workers on, `tests/test_web.py` alone sets the wall (254-309 s): 12 workers gain nothing.
+- 8 threads a worker cost about 28 % more CPU than 3 for a slower wall (64 compute threads on 24 cores); 2 and 3
+  were within the spread. The lock gives 3 (CI 2: its hosted runners have 4 cores).
+- What the serial time went into, besides the tests' own work: a GDAL request made holding the GIL against the
+  tests' in-process server (one test 496 s in 2 of 20 runs, once 2 h: fixed in 73708f8, 9439929); the same
+  Żabi Koń search run 19 times for 4 distinct argument lists (fixture setups 204 → 70 s: `tests/clip_runs.py`);
+  the test HTTP server's 0.5 s shutdown poll in 185 tests (teardowns 85 → 2 s); `net._sleep`'s backoff in the
+  country tests' offline relief fetches (113 s → 0; the refused connects to the tests' dead proxy, about 99 s,
+  remain: docs/roadmap.md, "Retries with backoff when nothing answers at all").
+- Exclusive (nothing else running, 2026-11-14, the task's merged code, 1818 tests): serial (`-n 0`, 8 threads)
+  **1778 s**, CPU 2026 s, 1.14 cores busy, 3.55 GB; 8 × 3 **276 s**, CPU 1962 s, 7.11 cores busy, 9.86 GB; the
+  same ids and outcomes in both (1814 passed, 4 skipped). The slowest worker held `tests/test_web.py`, 270 s of it.
