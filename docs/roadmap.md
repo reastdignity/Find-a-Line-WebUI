@@ -857,7 +857,7 @@ Researched 2026-10-25 (how: docs/data-sources.md). Order: Slovakia (DSM needs a 
 - **Measured**: El Capitan (R22) on an empty cache 18 s with 9 blocks of 1 km, 15 MB (the two files hold 560 MB); Moab Rim (R23) composed from 2020 and 2018; Mount Juneau (R24) 2 IfSAR blocks of 5 km, 4 MB. `cache update usa` with the index aged: the index and the 1/3″ blocks checked, nothing changed. A job of the web app at Yosemite: estimate and run through the queue.
 - **Orthophoto**: USGS Imagery (NAIP) tiles up to zoom 16 (`base_max_zoom`); the USDA NAIP WMS did not answer (2026-10-30).
 - **Measured 2026-11-07/08** ([usa-data.md](usa-data.md)): coverage of the 1 m DEM, OPR DEMs and point clouds (95 % of CONUS land each, the same projects; western Oregon has lidar but no 1 m DEM), OPR formats (0.5–3 m, feet and State Plane in places), the DSM options with a trial DSM from the EPT copy at the Oregon coast (works with a cap on height above the terrain; the Planetary Computer DSM stands 3.8 m low under trees), Alaska's IfSAR DSM (ZIPs only). The fixes for the five places a user reported are tasks in [tasks-usa.md](tasks-usa.md): the fallback made visible, a sag rig for long lines, a hint to the end zone, OPR as a terrain layer, a DSM from the point clouds.
-- **Open**: the surface model (below: Planetary Computer or our own from the point clouds; see usa-data.md); S1M when its coverage grows (2026-10-30: 16 093 tiles of about 80 000 for CONUS, about 20%: the southern Sierra and the California deserts, WV, NC, NY, none in Utah or Washington nor at Yosemite Valley, Moab or Boulder; built from the OPR DEMs, GEOID18, project seams smoothed, voids filled from 1/3″ and 1/9″; EPSG:6350 Albers, which means up to about 1% scale error on its grid or bilinear smoothing when reprojected to UTM; 250–450 MB per tile, readable in blocks the same way; it lags the projects: Boulder's S1M is from the 2020 project although 2023/2026 exist); Alaska's OPR lidar DEMs; Guam and American Samoa (1/3″ only, `--source usgs10m` by hand); the Aleutians west of 180° (outside the Alaska box: `usa` and 1/3″); the overviews of the files for coarse grids (a 5 m search reads the 1 m blocks).
+- **Open**: the surface model (below: Planetary Computer or our own from the point clouds; see usa-data.md); S1M when its coverage grows (2026-11-14: 16 665 tiles, still none at Yosemite Valley, Moab, Boulder or the Oregon cove of docs/tasks-usa.md; its tiles change under new dated names, see *Seamless 1 m DEM* below; 2026-10-30: 16 093 tiles of about 80 000 for CONUS, about 20%: the southern Sierra and the California deserts, WV, NC, NY, none in Utah or Washington nor at Yosemite Valley, Moab or Boulder; built from the OPR DEMs, GEOID18, project seams smoothed, voids filled from 1/3″ and 1/9″; EPSG:6350 Albers, which means up to about 1% scale error on its grid or bilinear smoothing when reprojected to UTM; 250–450 MB per tile, readable in blocks the same way; it lags the projects: Boulder's S1M is from the 2020 project although 2023/2026 exist); Alaska's OPR lidar DEMs; Guam and American Samoa (1/3″ only, `--source usgs10m` by hand); the Aleutians west of 180° (outside the Alaska box: `usa` and 1/3″); the overviews of the files for coarse grids (a 5 m search reads the 1 m blocks).
 
 **Summary**
 - **Terrain (DTM): yes, at 1 m.** USGS (3D Elevation Program, 3DEP) publishes free 1 m ground elevation for nearly all of the USA, in the public domain. Each 10 km tile is a file, and a newer survey of the same place is another file. It could be added like the Polish or Swiss data.
@@ -879,7 +879,14 @@ Checked at Yosemite (El Capitan), Moab and Boulder (Flatirons) with the TNM API,
   - Smaller files, but the CRS and units differ between projects.
 - *Seamless 1 m DEM (S1M)*, TNM dataset `Seamless 1-m DEM (S1M)`, new in 2025:
   - 10 km COG tiles in EPSG:6350 with NAVD88 (GEOID18) heights, built from the best 1 m DEMs of each place.
-  - Voids wider than 10 m are filled from the 1/3″ or 1/9″ DEMs. There are no versions to choose between.
+  - Voids wider than 10 m are filled from the 1/3″ or 1/9″ DEMs. One file per tile, so no surveys to choose between
+    as for the 1 m projects; but a tile is not fixed (checked 2026-11-14 with the TNM API and the bucket's listing):
+    its files are named `S1M_<tile>_<yyyymmdd>` (`.tif`, `.xml`, `.gpkg`, `.jpg`), each tile's folder holds one set
+    only, and the date changes. The ten tiles of the southern Sierra (-118.6..-118.4, 36.4..36.6) carry 20261030,
+    20261104 and 20261109, uploaded 2026-11-02 to 2026-11-13, although S1M covered the southern Sierra on 2026-10-30:
+    files there were made again under new names and the older ones removed (likely; their names of 2026-10-30 were not
+    recorded, so not proven tile by tile). A layer of it would need an index renewed as `usa`'s (`TnmBlocks`, 180 days)
+    and a tile's newer name read again in `cache update`, as for geoportal's newer sheets.
   - "Limited availability": the API returned nothing at any of the three places. To watch.
 - *ImageServer* `https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer`:
   - Best available data, 1 m where it exists, in any CRS, float32 TIFF or LERC, up to 8000×8000 px per request.
@@ -923,7 +930,7 @@ Checked at Yosemite (El Capitan), Moab and Boulder (Flatirons) with the TNM API,
 - ImageServer pixels against a 1 m file.
 - Choosing between the projects of one tile.
 - Range reads of the files that are not COGs.
-- When S1M reaches the climbing areas.
+- When S1M reaches the climbing areas (2026-11-14: not yet at Yosemite Valley, Moab, Boulder or the Oregon cove).
 - How often lines in US places pass over trees or buildings, that is, how much a missing DSM would change the results.
 
 ## Cache layout and updates
