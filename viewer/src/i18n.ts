@@ -21,8 +21,8 @@ export const label = (field: string): string => t(`field.${field}.label`);
 export interface ErrorInfo { code: string; params?: Record<string, unknown> }
 
 /** The text of a coded error ("error.<code>") in the page's language, as messages.Coded.web_text: a
- *  parameter "field" gives the label ("label"), "advice" the text "advice_text". `fallback` (the server's English text) when the
- *  catalogue has no such code (a newer server). */
+ *  parameter "field" gives the label ("label"), "advice" the text "advice_text". `fallback` (the
+ *  server's English text) when the catalogue has no such code (a newer server). */
 export function errorText(info: ErrorInfo, fallback?: string): string {
   const key = `error.${info.code}`;
   const params: Record<string, unknown> = {...(info.params || {})};
