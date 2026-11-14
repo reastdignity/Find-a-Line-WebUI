@@ -69,8 +69,11 @@ before, never missing, one printed line per split tile, the pieces at `SPLIT_RAT
 land at the Welsh border (Hay-on-Wye, 161_121) failed whole and in quarters while 500 and 250 px pieces on its English
 side answered, and 16 px boxes fail on their own; measured 2026-11-08), `tilebases.py` `TileBases` (our own tiles: the
 mirror, then URLs; `grid_tile_name`, `MIRROR_ENV`), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets;
-a UTF-8 BOM left out, an XYZ split into its regular grids by their offset from the listed resolution's lattice (`_lattices`: GUGiK's survey 70159 holds 5 m
-grids and 1 + 5 m patchworks in sheets listed at 1 m), one grid written at its own spacing, several on the finest
+a UTF-8 BOM left out, an XYZ split into its regular grids by their offset from the listed resolution's lattice
+(`_lattices`: GUGiK's survey 70159 holds 5 m grids and 1 + 5 m patchworks in sheets listed at 1 m), each grid's
+spacing (`_step`) the smallest step between points one after another that `STEP_SUPPORT` (1 %) of them share, moves
+under res / `MAX_FINER` (4) left out as jitter, snapped within `STEP_SNAP` (1 %) to k·res or res/k: a stray
+near-duplicate never makes a grid of millimetres; one grid written at its own spacing, several on the finest
 with the others resampled bilinearly into its empty pixels, a few malformed lines left out (`MALFORMED_SHARE`), an
 empty file in a valid ZIP no data, an ".asc" GDAL does not recognise read as XYZ, errors naming the sheet; with
 `members`, a regex: every matching member of one ZIP (GeoTIFF, XYZ, ASCII grid) merged on its pixels (`_merge`) in the

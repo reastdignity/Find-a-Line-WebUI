@@ -29,6 +29,17 @@ BOM = b"\xef\xbb\xbf"
 # Lines of an XYZ text that are not "x y z" are left out when at most this share of its lines (one broken line of a
 # 400 000-line GUGiK sheet had 4 fields, 2026-11-13): more is not an XYZ grid, an error
 MALFORMED_SHARE = 0.001
+# The spacing of an XYZ grid (_step) is a step between points one after another that at least this share of them
+# share: the smallest step alone made one pair of near-duplicate points (millimetres apart) a grid of millimetres,
+# (res / step)² times the pixels (review of 2026-11-14; a guard, not a measured value)
+STEP_SUPPORT = 0.01
+# A step within this share of a multiple of the listed resolution, or of a fraction 1/k of it, is that exactly: steps
+# between coordinates written to the millimetre differ by up to 2 mm (0.4 % at 0.5 m)
+STEP_SNAP = 0.01
+# Moves between points under the listed resolution / MAX_FINER are not a grid's step but the other coordinate's
+# jitter along a row (millimetres), so a group's raster is never more than MAX_FINER² times the pixels at the listed
+# resolution (no publisher's sheet was seen finer than listed; a grid finer than this splits by lattice offset first)
+MAX_FINER = 4
 # A line of three numbers (blank lines are skipped by np.loadtxt): any other line with something on it is malformed
 _NOT_XYZ = re.compile(rb"^(?![ \t]*[-+.\deE]+[ \t]+[-+.\deE]+[ \t]+[-+.\deE]+[ \t]*\r?$)[^\n]*\S[^\n]*$", re.M)
 
@@ -271,15 +282,27 @@ def _lattices(xyz: np.ndarray, res: float) -> List[Tuple[np.ndarray, float]]:
 
 def _step(points: np.ndarray, res: float) -> float:
     """The spacing of a regular grid's points: the smallest step in x or y between points one after another in
-    the file (along a row or a column), res when it is res (within 0.1 %) or the points are on one spot."""
+    the file (along a row or a column) that at least STEP_SUPPORT of that axis's steps share (to res / 1000),
+    so a stray pair of near-duplicate points does not count; res when no step is shared so (the points are on
+    one spot, or too few). Moves under res / MAX_FINER are not steps (the other coordinate's jitter along a
+    row), so the raster has at most MAX_FINER² times the pixels at res. A step within STEP_SNAP of a multiple
+    of res, or of res / k, is that exactly (coordinates written to the millimetre)."""
+    quantum = res * 1e-3
     steps = []
     for axis in (0, 1):
         moves = np.abs(np.diff(points[:, axis]))
-        moves = moves[moves > res * 1e-3]
+        moves = moves[moves >= res / MAX_FINER]
         if moves.size:
-            steps.append(float(moves.min()))
+            values, counts = np.unique(np.rint(moves / quantum).astype(np.int64), return_counts=True)
+            shared = values[counts >= max(2, STEP_SUPPORT * moves.size)]
+            if shared.size:
+                steps.append(float(shared[0]) * quantum)
     step = min(steps) if steps else res
-    return res if np.isclose(step, res, rtol=1e-3) else round(step, 6)
+    k = max(1, round(step / res)) if step >= res else max(1, round(res / step))
+    snapped = k * res if step >= res else res / k
+    if abs(step - snapped) <= STEP_SNAP * snapped:
+        step = snapped
+    return res if step == res else round(step, 6)
 
 
 def _grid_of(points: np.ndarray, step: float) -> Tuple[np.ndarray, Affine]:

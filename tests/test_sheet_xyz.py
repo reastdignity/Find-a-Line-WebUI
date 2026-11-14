@@ -119,6 +119,36 @@ def test_a_few_broken_lines_are_left_out(capsys):
         sf._xyz_grid(b"\r\n".join(lines), 1.0, CRS)
 
 
+def test_a_near_duplicate_point_does_not_set_the_spacing():
+    """A point repeated 3 mm off right after itself (same lattice offset, millimetre coordinates): the smallest step
+    alone made a raster of 3 mm cells; the grid stays 1 m and its size."""
+    points = _grid_points(6430400, 5800000, 1.0, 30, 30, 7)
+    x, y, z = points[100]
+    points.insert(101, (x + 0.003, y, z))
+    band, transform = sf._xyz_grid(_lines(points, decimals=3), 1.0, CRS, "sheet")
+    assert band.shape == (30, 30) and transform == from_origin(6430400, 5800000, 1.0, 1.0)
+    assert np.isfinite(band).all()
+
+
+def test_millimetre_jitter_keeps_the_listed_spacing():
+    """A 0.5 m grid whose coordinates are off by up to 1 mm: written at exactly 0.5 m on the grid's own cells."""
+    rng = np.random.default_rng(8)
+    points = [(x + rng.uniform(-0.001, 0.001), y + rng.uniform(-0.001, 0.001), z)
+              for x, y, z in _grid_points(6430400, 5800000, 0.5, 40, 40, 8)]
+    band, transform = sf._xyz_grid(_lines(points, decimals=4), 0.5, CRS, "sheet")
+    assert band.shape == (40, 40) and np.isfinite(band).all()
+    assert abs(transform.a - 0.5) < 1e-12 and abs(transform.e + 0.5) < 1e-12
+
+
+def test_the_spacing_is_never_much_finer_than_listed():
+    """Moves under res / MAX_FINER are no step: every point repeated 5 mm off gives no 5 mm grid (40 000 times the
+    pixels) but 1 m, and a half-resolution grid keeps its step."""
+    near = np.array([(6430400.5 + i // 2 + 0.005 * (i % 2), 5800000.5, 50.0) for i in range(400)])
+    assert sf._step(near, 1.0) == 1.0
+    half = np.array(_grid_points(6430400, 5800000, 0.5, 10, 10, 9))
+    assert sf._step(half, 1.0) == 0.5
+
+
 def test_no_points_is_an_error():
     with pytest.raises(RuntimeError, match="no x y z lines"):
         sf._xyz_grid(sf.BOM + b"\r\n", 1.0, CRS)
