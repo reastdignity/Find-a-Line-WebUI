@@ -493,8 +493,8 @@ lines and 3.4 times the spots in these places.
 
 The same 1 024 clusters (`clusters.json` of the first pass) searched again from the cache with the default fall zone
 of 6 m (the line-volume task's branch `line-volume-w2`; `run --parallel 4` under the heavy lane, 4 096 s of searches,
-about 20 min from start to end, not timed exactly), `analyse` and `report`; the same 3 Polish places failed (the byte order mark). Against the first pass
-at 3 m:
+about 20 min from start to end, not timed exactly), `analyse` and `report`; the same 3 Polish places failed (the
+byte order mark). Against the first pass at 3 m:
 
 | | 3 m (first pass) | 6 m |
 | --- | ---: | ---: |
