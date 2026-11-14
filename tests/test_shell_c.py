@@ -578,6 +578,9 @@ const click = (p) => {
   document.elementFromPoint(x, y).dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, clientX: x, clientY: y, view: window}));
 };
 const selectedIs = (g) => !!model().selected && model().selected.group === g;
+/** The spot a row of the choice names ("Spot k": the list's k-th row): the click's own order of two spots about as
+ *  near may differ from `crowded`'s by a fraction of a pixel. */
+const spotOf = (row) => model().rows[+row.textContent.match(/Spot (\\d+)/)[1] - 1].group;
 /** Zoomed out, a point where several spots lie about as near (in the map's free part): [the point, the spots near it]. */
 const crowded = (zoom) => {
   map().setZoom(zoom, {animate: false});
@@ -629,8 +632,10 @@ run({
         const rows = $$(".r-choose [role=option]"), panel = rect(".r-choose"), col = rect(".c-col-map");
         result.list = [rows.length, !$(".r-choose-dock"), panel.left >= col.left && panel.right <= col.right
                        && panel.top >= col.top && panel.bottom <= col.bottom, !!document.activeElement.closest(".r-choose")];
+        const wanted = spotOf(rows[1]);
         rows[1].click();
-        later(() => { result.chosen = [selectedIs(near[1].group), !$(".r-choose")]; next(); });
+        later(() => { result.chosen = [selectedIs(wanted) && near.slice(0, 2).some((c) => c.group === wanted),
+                                       !$(".r-choose")]; next(); });
       });
     });
   },
@@ -1016,8 +1021,10 @@ run({
     later(() => {
       const panel = $(".r-choose");
       result.list = [$$(".r-choose [role=option]").length, !!panel && panel.classList.contains("r-choose-dock")];
+      const wanted = spotOf($$(".r-choose [role=option]")[1]);
       $$(".r-choose [role=option]")[1].click();
-      later(() => { result.chosen = [selectedIs(near[1].group), !$(".r-choose")]; next(); });
+      later(() => { result.chosen = [selectedIs(wanted) && near.slice(0, 2).some((c) => c.group === wanted),
+                                     !$(".r-choose")]; next(); });
     });
   },
   view3d(next) {

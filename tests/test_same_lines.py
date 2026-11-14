@@ -528,10 +528,11 @@ run({
       const counts = model().needCounts(), k = counts.indexOf(Math.max(...counts));
       result.counts = [counts, k];
       $$(".r-why-row input")[k].click();
-      wait(() => model().shown.lines < result.n, () => {
+      // the page drawn again after the model changed: its count of hidden lines and "Clear all"
+      wait(() => model().shown.lines < result.n && text(".r-summary-count").includes("hidden") && button("Clear all"), () => {
         result.hidden = [result.n - model().shown.lines, text(".r-summary-count"), $$(".r-why-row input").map((i) => i.checked)];
         button("Clear all").click();
-        wait(() => model().shown.lines === result.n, () => {
+        wait(() => model().shown.lines === result.n && !text(".r-summary-count").includes("hidden"), () => {
           result.cleared = $$(".r-why-row input").map((i) => i.checked);
           next();
         });
