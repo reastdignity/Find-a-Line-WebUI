@@ -20,7 +20,7 @@ const finish = () => {
 
 const shown = (e: Element | null | undefined) => !!e && (e as HTMLElement).offsetParent !== null;
 
-try {
+(async () => { try {
   const root = document.createElement("div");
   root.className = "ui";
   const div = document.createElement("div");
@@ -71,6 +71,14 @@ try {
               // the opened text scrolled up under the title, which stays in sight
               textUp: Math.abs(more.getBoundingClientRect().top - box.querySelector(".u-shore-head")!.getBoundingClientRect().bottom) < 6,
               titleTop: Math.round(box.querySelector(".u-shore-head")!.getBoundingClientRect().top - boxRect.top)};
+  // The scale's corner raised as result/view/corners.ts does above a sheet or a card (its style, no map event):
+  // the opened box follows, still ending above it, once the page's pending callbacks ran
+  const corner = div.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left")!;
+  corner.style.bottom = "200px";
+  await new Promise((done) => setTimeout(done, 0));
+  out.raised = {bottom: Math.round(box.getBoundingClientRect().bottom), cornerTop: Math.round(corner.getBoundingClientRect().top)};
+  corner.style.bottom = "";
+  await new Promise((done) => setTimeout(done, 0));
   fold.click();
   out.folded = {...state(), expanded: chip.getAttribute("aria-expanded"), focus: document.activeElement === chip,
                 helpClosed: more.hidden};
@@ -81,4 +89,4 @@ try {
 } catch (e) {
   out.error = String(e && (e as Error).stack || e);
 }
-finish();
+finish(); })();

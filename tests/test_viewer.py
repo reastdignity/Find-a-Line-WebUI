@@ -774,6 +774,8 @@ def test_shore_chip_in_edge(tmp_path):
     assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
     assert hint["textUp"] is True and hint["titleTop"] <= 1
+    # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
+    assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
     folded = phone["folded"]
     assert {k: folded[k] for k in closed} == closed and folded["expanded"] == "false" and folded["focus"] is True
     assert folded["helpClosed"] is True
@@ -787,6 +789,7 @@ def test_shore_chip_in_edge(tmp_path):
         assert {k: desktop[step][k] for k in always} == always, step
     hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
     assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
     assert desktop["away"]["holder"] is False
 
 

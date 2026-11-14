@@ -141,9 +141,26 @@ export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPositi
     chip.setAttribute("aria-label", t("ui.shore.unfold", {total}));
     fit();
   };
+  // The bottom corners move without a map event: result/view/corners.ts raises them above a phone's sheet or a
+  // desktop's profile card (their style's bottom), and the credits unfold (their size). Watched while on the map.
+  const corners = () => [...map.getContainer().querySelectorAll<HTMLElement>(".leaflet-bottom")];
+  const placed = new MutationObserver(fit);
+  const sized = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
   const Control = L.Control.extend({
-    onAdd() { map.on("moveend zoomend resize", update); update(); return holder; },
-    onRemove() { map.off("moveend zoomend resize", update); },
+    onAdd() {
+      map.on("moveend zoomend resize", update);
+      for (const corner of corners()) {
+        placed.observe(corner, {attributes: true, attributeFilter: ["style"]});
+        sized?.observe(corner);
+      }
+      update();
+      return holder;
+    },
+    onRemove() {
+      map.off("moveend zoomend resize", update);
+      placed.disconnect();
+      sized?.disconnect();
+    },
   });
   return new Control({position}).addTo(map);
 }
