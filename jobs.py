@@ -1043,6 +1043,8 @@ class Jobs:
                    values: Optional[Dict] = None):
         """Rename a user's rig and/or change its values (None: as they are). KeyError for a rig not the
         user's, UserError "rig_name_taken" for the name of another of the user's rigs."""
+        if not 0 < rig_id < 2 ** 62:  # (an id SQLite cannot hold is no rig)
+            raise KeyError(rig_id)
         with self._write() as db:
             if not db.execute("SELECT 1 FROM rigs WHERE id = ? AND user_id IS ?", (rig_id, user_id)).fetchone():
                 raise KeyError(rig_id)
@@ -1054,6 +1056,8 @@ class Jobs:
 
     def delete_rig(self, user_id: Optional[int], rig_id: int):
         """Delete a user's rig; KeyError for a rig not the user's."""
+        if not 0 < rig_id < 2 ** 62:
+            raise KeyError(rig_id)
         with self._write() as db:
             if not db.execute("DELETE FROM rigs WHERE id = ? AND user_id IS ?", (rig_id, user_id)).rowcount:
                 raise KeyError(rig_id)

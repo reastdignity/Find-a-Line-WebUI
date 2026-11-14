@@ -1385,6 +1385,95 @@ def test_favourite_folders(run_people, tmp_path, monkeypatch):
     assert not any("name" in e["detail"] for e in log)  # the names stay out of the log
 
 
+def test_rigs(run_people, tmp_path):
+    """Saved rigs (the Basic form's): a user's own (another's answers 404, without a session 401, a
+    pending account 403), listed by id with the most one may keep, made, renamed, changed and deleted;
+    names and values are checked (the bounds with SearchParams' codes), a name once per user in any
+    case; the 11th rig is refused (409 "rigs_max") with a "refused" row; the audit log records "rig" with
+    what was done and no name or value; no answer of an error holds a name."""
+    import audit
+    import jobs as jb
+    a, b, ids = run_people["a"], run_people["b"], run_people["ids"]
+    assert a.get("/api/rigs").json() == {"rigs": [], "max": jb.RIGS_MAX}
+    made = a.post("/api/rigs", json={"name": "  Gozo   heavy ", "values": RIG})
+    assert made.status_code == 200, made.text
+    first = made.json()["id"]
+    light = {**RIG, "end_zone": 0, "anchor_lift": 2.5}
+    second = a.post("/api/rigs", json={"name": "Light", "values": light}).json()["id"]
+    assert a.get("/api/rigs").json() == {"rigs": [{"id": first, "name": "Gozo heavy", "values": RIG},
+                                                  {"id": second, "name": "Light", "values": light}],
+                                         "max": jb.RIGS_MAX}
+    assert b.get("/api/rigs").json()["rigs"] == []
+    assert b.post("/api/rigs", json={"name": "Light", "values": RIG}).status_code == 200  # b's own name
+
+    taken = a.post("/api/rigs", json={"name": "LIGHT", "values": RIG})
+    assert taken.status_code == 400 and taken.json()["detail"] == {
+        "message": "You already have a rig of that name.", "code": "rig_name_taken", "params": {}}
+    for name in ("", "  ", "x" * (jb.RIG_NAME_MAX + 1), "a\nb", 5, None):
+        wrong = a.post("/api/rigs", json={"name": name, "values": RIG})
+        assert wrong.status_code == 400 and wrong.json()["detail"]["code"] == "rig_name", name
+    for values, code in (({**RIG, "end_zone": 21}, "end_zone_range"), ({**RIG, "anchor_lift": 3.5}, "anchor_lift_range"),
+                         ({**RIG, "pretension": 0}, "positive"), ({**RIG, "athlete_mass": -1}, "not_negative")):
+        wrong = a.post("/api/rigs", json={"name": "Odd", "values": values})
+        assert wrong.status_code == 400 and wrong.json()["detail"]["code"] == code, values
+    for values in (None, {**RIG, "stretch": "5"}, {**RIG, "model": "sag"}, {k: v for k, v in RIG.items()
+                                                                            if k != "fall_zone"}):
+        assert a.post("/api/rigs", json={"name": "Odd", "values": values}).status_code == 400, values
+    assert a.post("/api/rigs", json=["Odd", RIG]).status_code == 422  # (FastAPI's: the body is no object)
+
+    change = lambda client, rig, body: client.post(f"/api/rigs/{rig}", json=body)  # noqa: E731
+    assert change(a, second, {"name": "light"}).status_code == 200  # its own name in another case
+    assert change(a, second, {"values": RIG}).status_code == 200
+    assert change(a, first, {"name": "Rig 3", "values": light}).status_code == 200
+    assert a.get("/api/rigs").json()["rigs"] == [{"id": first, "name": "Rig 3", "values": light},
+                                                 {"id": second, "name": "light", "values": RIG}]
+    assert change(a, first, {"name": "LIGHT"}).json()["detail"]["code"] == "rig_name_taken"
+    assert change(a, first, {}).status_code == 400 and change(a, first, {"values": {**RIG, "end_zone": -1}}).status_code == 400
+    assert change(a, first, {"name": "x\x00"}).status_code == 400
+    for client, rig in ((b, first), (a, 999), (a, 2 ** 70)):
+        assert change(client, rig, {"name": "Mine"}).status_code == 404, rig
+        assert client.delete(f"/api/rigs/{rig}").status_code == 404, rig
+    assert change(a, "x", {"name": "Mine"}).status_code == 422
+    assert run_people["anonymous"].get("/api/rigs").status_code == 401
+    assert run_people["anonymous"].post("/api/rigs", json={"name": "X", "values": RIG}).status_code == 401
+    assert run_people["pending"].get("/api/rigs").status_code == 403
+    assert a.post("/api/rigs", json={"name": "X", "values": RIG}, headers={"x-findaline-token": "wrong"}).status_code == 403
+
+    assert a.delete(f"/api/rigs/{second}").status_code == 200 and a.delete(f"/api/rigs/{second}").status_code == 404
+    for k in range(jb.RIGS_MAX - 1):
+        assert a.post("/api/rigs", json={"name": f"Rig {k + 4}", "values": RIG}).status_code == 200
+    full = a.post("/api/rigs", json={"name": "One more", "values": RIG})
+    assert full.status_code == 409 and full.json()["detail"] == {
+        "message": f"You can keep {jb.RIGS_MAX} rigs. Delete one first.", "code": "rigs_max",
+        "params": {"max": jb.RIGS_MAX}}
+    assert len(a.get("/api/rigs").json()["rigs"]) == jb.RIGS_MAX
+
+    log = audit.Audit(str(tmp_path)).entries(ids["a"])
+    rigs = [e for e in log if e["action"] == "rig"]
+    assert [e["detail"] for e in rigs] == [{"do": "add"}] * 2 + [{"do": "change"}] * 3 + [{"do": "delete"}] \
+        + [{"do": "add"}] * (jb.RIGS_MAX - 1)
+    assert rigs[0]["target"] == str(first)
+    assert [e["detail"]["status"] for e in log if e["action"] == "refused"] == [409]
+    everything = json.dumps(audit.Audit(str(tmp_path)).entries())
+    for secret in ("Gozo", "Light", "light", "One more", "Rig 3", "end_zone", "70.0", "2.5"):
+        assert secret not in everything, secret
+
+
+def test_local_rigs(tmp_path, settings, account_settings, providers):
+    """The local app: its one user's rigs (user_id NULL) through the same routes, with its token; when
+    the data folder goes public they go to the first administrator."""
+    with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as local:
+        assert local.post("/api/rigs", json={"name": "My rig", "values": RIG}).status_code == 403  # without the token
+        local.headers["x-findaline-token"] = TOKEN
+        rig = local.post("/api/rigs", json={"name": "My rig", "values": RIG}).json()["id"]
+        assert local.get("/api/rigs").json() == {"rigs": [{"id": rig, "name": "My rig", "values": RIG}], "max": 10}
+        assert local.post(f"/api/rigs/{rig}", json={"name": "Mine"}).status_code == 200
+    _public_app(tmp_path, settings, account_settings, providers)  # adopts the runs, favourites and rigs
+    admin = ac.Accounts(str(tmp_path), account_settings).first_admin()
+    from jobs import Jobs
+    assert [r["name"] for r in Jobs(str(tmp_path)).rigs(admin)] == ["Mine"] and Jobs(str(tmp_path)).rigs(None) == []
+
+
 def test_problem_reports(run_people, tmp_path, monkeypatch):
     """Problem reports: signed-in users send them (category, text, the page's context; the server adds the
     User-Agent and leaves out a run the user may not open), within the report rate; administrators list
@@ -1585,6 +1674,12 @@ def test_privacy_and_about_pages(run_people):
                  "Your totals of searched area are counted from these", "the country of your browser&#x27;s time "
                  "zone (only the country, e.g. PL)", "shown in your account menu"):
         assert fact in text, fact
+    # the saved rigs (the user's approved wording, docs/line-volume/spec-search.md 1.4)
+    assert "<dt>Rigs</dt><dd>" + web.html.escape(
+        "The rigs you save for your searches: the name you give each and its values (no-fall zone, A-frame height, "
+        "leash fall space, pretension, webbing stretch and weight, athlete mass); at most 10. Why: to fill your "
+        "searches with them. Kept until you delete them.") + "</dd>" in text
+    assert "rigs saved, changed and deleted (not their names or values)" in text
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
