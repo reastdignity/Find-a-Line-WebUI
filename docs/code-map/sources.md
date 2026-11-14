@@ -10,7 +10,9 @@ Data sources, a package (`__init__.py` re-exports what the app uses; its modules
 vertical, credit, layer, composed, readers, indexes, source, layers, catalogue, choose, mosaic, filling): `net.py`
 HTTP (`_get` with retries, `_sleep`; `session()`: a keep-alive `requests.Session` per thread; `HOST_CA_OF` and
 `verify`: a host's missing intermediate certificate from `sources/certs/` on top of certifi's roots, for its requests
-only), `host_slot` and `tile_lock`, the `.part` names, `_gdal_http` (GDAL's settings for remote reads: retry codes
+only), `rate_turn` (a `share` of the host's rate: a second, slower bucket on top of the host's), `host_slot` (the
+threads of a process first queue for the slots in the order asked, `_Queue`, then a lock file of the folder) and
+`tile_lock`, the `.part` names, `_gdal_http` (GDAL's settings for remote reads: retry codes
 with 0, one thread) and `gdal_errors` (GDAL's errors of a thread, also of reads that returned); `credit.py` `Credit`
 and the shared licences (`YEAR`, `{year}` in an attribution, notice, orthophoto attribution or note: the run's year,
 filled by `search.save_run` with `dated`/`dated_credit`; `YEAR_TEXT` on the about page); `layer.py` `Layer` (one
@@ -61,11 +63,16 @@ noise); a tile wholly outside the coverage extent is missing after any error or 
 is known, a box straddling its edge asked again clipped to it after a failure too; `split_on_error`: a box answered
 HTTP 5xx after `net._get`'s retries asked again as a quadtree of pieces down to `SPLIT_MIN_PX` (250 px) composed on
 the tile's pixels, a piece failing at the floor left without data, a tile none of whose pieces answered an error as
-before, never missing, one printed line per split tile; England's two layers: the Environment Agency's 500 is
-positional, for any box not wholly covered by its granules, which follow England's outline, so a 2 km tile of real
+before, never missing, one printed line per split tile, the pieces at `SPLIT_RATE_SHARE` (a third) of the host's rate
+(England's 1798 answers of 429 at the full rate, 2026-11-10 to 13); England's two layers: the Environment Agency's
+500 is positional, for any box not wholly covered by its granules, which follow England's outline, so a 2 km tile of real
 land at the Welsh border (Hay-on-Wye, 161_121) failed whole and in quarters while 500 and 250 px pieces on its English
 side answered, and 16 px boxes fail on their own; measured 2026-11-08), `tilebases.py` `TileBases` (our own tiles: the
-mirror, then URLs; `grid_tile_name`, `MIRROR_ENV`), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets; with
+mirror, then URLs; `grid_tile_name`, `MIRROR_ENV`), `sheetfile.py` `SheetFile` (zipped ASCII grid or XYZ sheets;
+a UTF-8 BOM left out, an XYZ split into its regular grids by their offset from the listed resolution's lattice (`_lattices`: GUGiK's survey 70159 holds 5 m
+grids and 1 + 5 m patchworks in sheets listed at 1 m), one grid written at its own spacing, several on the finest
+with the others resampled bilinearly into its empty pixels, a few malformed lines left out (`MALFORMED_SHARE`), an
+empty file in a valid ZIP no data, an ".asc" GDAL does not recognise read as XYZ, errors naming the sheet; with
 `members`, a regex: every matching member of one ZIP (GeoTIFF, XYZ, ASCII grid) merged on its pixels (`_merge`) in the
 request's CRS, `max_bytes`/`member_bytes` caps; a ZIP without a matching member and without any raster member
 (`RASTER_MEMBERS`: .tif, .tiff, .asc, .xyz) is missing with a printed note naming its members (LGL's DOM1 ZIPs of

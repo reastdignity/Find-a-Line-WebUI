@@ -3,13 +3,16 @@ members of one ZIP) and saved as a GeoTIFF."""
 
 import io
 import re
+import warnings
 import zipfile
 from typing import List, Optional, Tuple
 
 import numpy as np
 from affine import Affine
+from rasterio.errors import RasterioIOError
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
+from rasterio.warp import Resampling, reproject
 
 from .. import net
 from ..layer import Fetched, _clean, _write_tile
@@ -20,6 +23,14 @@ from ..composed import Reader
 # 379 KB each, dated 2026-07-03: two CSV lines of tile metadata, the licence PDF and a Meta-...txt, no raster;
 # measured 2026-11-08). A .txt is metadata here, never an XYZ grid without a matching name.
 RASTER_MEMBERS = (".tif", ".tiff", ".asc", ".xyz")
+# The UTF-8 byte order mark some XYZ files start with (GUGiK's NMT sheets of survey 70159, 2018, in PL-2000 zone 6:
+# np.loadtxt read it as part of the first number and failed; 2026-11-14)
+BOM = b"\xef\xbb\xbf"
+# Lines of an XYZ text that are not "x y z" are left out when at most this share of its lines (one broken line of a
+# 400 000-line GUGiK sheet had 4 fields, 2026-11-13): more is not an XYZ grid, an error
+MALFORMED_SHARE = 0.001
+# A line of three numbers (blank lines are skipped by np.loadtxt): any other line with something on it is malformed
+_NOT_XYZ = re.compile(rb"^(?![ \t]*[-+.\deE]+[ \t]+[-+.\deE]+[ \t]+[-+.\deE]+[ \t]*\r?$)[^\n]*\S[^\n]*$", re.M)
 
 
 class SheetFile(Reader):
@@ -60,18 +71,25 @@ class SheetFile(Reader):
             band, transform = parts
             _write_tile(path, _clean(band), tile.crs, transform)
             return Fetched.of(response, tile.url)
-        name, data = tile.url.lower(), response.content
-        while name.endswith(".zip"):  # sometimes zipped twice
-            with zipfile.ZipFile(io.BytesIO(data)) as archive:
-                name = next(n for n in archive.namelist() if n.lower().endswith((".asc", ".xyz", ".txt", ".zip")))
-                data = archive.read(name)
-                name = name.lower()
-        if name.endswith(".asc"):
-            with MemoryFile(data, ext=".asc") as memfile, memfile.open() as src:
-                band = src.read(1, masked=True).astype(np.float32).filled(np.nan)
-                transform = src.transform
-        else:
-            band, transform = _xyz_grid(data, tile.res)
+        where = f"{self.description} sheet {tile.godlo}"
+        name, data, zipped = tile.url.lower(), response.content, False
+        try:
+            while name.endswith(".zip"):  # sometimes zipped twice
+                with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                    name = next(n for n in archive.namelist()
+                                if n.lower().endswith((".asc", ".xyz", ".txt", ".zip")))
+                    data = archive.read(name)
+                    name, zipped = name.lower(), True
+            if not data.strip(BOM + b" \t\r\n"):
+                if not zipped:  # an empty answer, not the publisher's file
+                    raise RuntimeError("the answer is empty")
+                print(f"{where}: the file in its ZIP is empty; no data")
+                return Fetched(0, tile.url)
+            grid = _ascii_grid(data, tile.res, tile.crs, where) if name.endswith(".asc") \
+                else _xyz_grid(data, tile.res, tile.crs, where)
+        except (ValueError, RuntimeError, RasterioIOError, zipfile.BadZipFile, StopIteration) as e:
+            raise RuntimeError(f"{where}: {str(e) or type(e).__name__}") from e
+        band, transform = grid
         _write_tile(path, _clean(band), tile.crs, transform)
         return Fetched.of(response, tile.url)
 
@@ -103,20 +121,38 @@ class SheetFile(Reader):
                     content = member.read(self.member_bytes + 1)
                 if len(content) > self.member_bytes:
                     raise RuntimeError(f"{where}: {info.filename} unpacks to more than {self.member_bytes} bytes")
-                parts.append(_member_grid(info.filename, content, tile.res))
+                parts.append(_member_grid(info.filename, content, tile.res, tile.crs, f"{where} {info.filename}"))
         return _merge(parts, tile.res, where)
 
 
-def _member_grid(name: str, data: bytes, res: float) -> Tuple[np.ndarray, Affine]:
-    """The raster of one member: a GeoTIFF or ASCII grid as GDAL reads it (its nodata as NaN),
-    or "x y z" lines of cell centres."""
+def _member_grid(name: str, data: bytes, res: float, crs: str, where: str) -> Tuple[np.ndarray, Affine]:
+    """The raster of one member: a GeoTIFF as GDAL reads it (its nodata as NaN), an ASCII grid
+    (_ascii_grid) or "x y z" lines of cell centres (_xyz_grid)."""
     lower = name.lower()
-    if lower.endswith((".tif", ".tiff", ".asc")):
-        with MemoryFile(data, ext=".asc" if lower.endswith(".asc") else ".tif") as memfile, memfile.open() as src:
+    if lower.endswith(".asc"):
+        return _ascii_grid(data, res, crs, where)
+    if lower.endswith((".tif", ".tiff")):
+        with MemoryFile(data, ext=".tif") as memfile, memfile.open() as src:
             if src.count != 1:
                 raise RuntimeError(f"{name}: {src.count} bands, one expected")
             return src.read(1, masked=True).astype(np.float32).filled(np.nan), src.transform
-    return _xyz_grid(data, res)
+    return _xyz_grid(data, res, crs, where)
+
+
+def _ascii_grid(data: bytes, res: float, crs: str, where: str) -> Tuple[np.ndarray, Affine]:
+    """An ".asc" file as GDAL reads it (an ARC/INFO ASCII grid, or ARSO's "x;y;z" text by GDAL's XYZ driver; its
+    nodata as NaN), a UTF-8 BOM left out (GDAL knows neither format behind one). A file GDAL does not recognise
+    is read as "x y z" lines (_xyz_grid), and is an error when it is not that either."""
+    if data.startswith(BOM):
+        data = data[len(BOM):]
+    try:
+        with MemoryFile(data, ext=".asc") as memfile, memfile.open() as src:
+            return src.read(1, masked=True).astype(np.float32).filled(np.nan), src.transform
+    except RasterioIOError as e:
+        if "not recognized" not in str(e):
+            raise
+    print(f"{where}: not a raster GDAL recognises, read as x y z lines")
+    return _xyz_grid(data, res, crs, where)
 
 
 def _merge(parts: List[Tuple[np.ndarray, Affine]], res: float, where: str) -> Tuple[np.ndarray, Affine]:
@@ -146,13 +182,112 @@ def _merge(parts: List[Tuple[np.ndarray, Affine]], res: float, where: str) -> Tu
     return merged, from_origin(left, top, res, res)
 
 
-def _xyz_grid(data: bytes, res: float) -> Tuple[np.ndarray, Affine]:
-    """A raster from "x y z" lines of a regular grid (cell centres)."""
-    xyz = np.loadtxt(io.BytesIO(data), dtype=np.float64, ndmin=2)  # ~30x faster than np.fromstring
-    x, y, z = xyz[:, 0], xyz[:, 1], xyz[:, 2]
+def _xyz_grid(data: bytes, res: float, crs: str, where: str = "") -> Tuple[np.ndarray, Affine]:
+    """A raster from "x y z" lines of cell centres (_xyz_points), the sheet's CRS crs.
+
+    Usually one regular grid at res, written on its own pixels. Some files hold another spacing or several grids
+    (GUGiK's NMT survey 70159 of 2018 in PL-2000 zone 6, sheets listed at 1 m: 5 m grids on whole metres, alone
+    or a patchwork with 1 m grids of centres on .5; 2026-11-14). So the points are split into grids by their
+    offset from the lattice of res, each at its own spacing (the smallest step between points one after another):
+    one grid is written at its spacing (the mosaic resamples it as any coarser raster), several on the finest one
+    over their union, the others filling the pixels it has no point for, resampled bilinearly (as the mosaic
+    does coarser data). Said in a line when the file is not one grid at res."""
+    xyz = _xyz_points(data, where)
+    grids = sorted(_lattices(xyz, res), key=lambda g: (g[1], -len(g[0])))  # the finest, then the most points
+    rasters = [_grid_of(points, step) for points, step in grids]
+    steps = [step for _, step in grids]
+    if len(rasters) == 1:
+        if steps[0] != res:
+            print(f"{where}: points {steps[0]:g} m apart, not the {res:g} m listed; written at {steps[0]:g} m")
+        return rasters[0]
+    step = steps[0]
+    first, at = rasters[0]
+    edges = [(t.c, t.f, t.c + b.shape[1] * t.a, t.f + b.shape[0] * t.e) for b, t in rasters]
+    left = at.c - np.ceil((at.c - min(e[0] for e in edges)) / step - 1e-9) * step
+    top = at.f + np.ceil((max(e[1] for e in edges) - at.f) / step - 1e-9) * step
+    width = int(np.ceil((max(e[2] for e in edges) - left) / step - 1e-9))
+    height = int(np.ceil((top - min(e[3] for e in edges)) / step - 1e-9))
+    transform = from_origin(left, top, step, step)
+    band = np.full((height, width), np.nan, dtype=np.float32)
+    row, col = round((top - at.f) / step), round((at.c - left) / step)
+    band[row:row + first.shape[0], col:col + first.shape[1]] = first
+    for other, other_at in rasters[1:]:
+        resampled = np.full_like(band, np.nan)
+        reproject(other, resampled, src_transform=other_at, src_crs=crs, dst_transform=transform, dst_crs=crs,
+                  src_nodata=np.nan, dst_nodata=np.nan, resampling=Resampling.bilinear)
+        free = np.isnan(band)
+        band[free] = resampled[free]
+    counts = ", ".join(f"{len(points)} at {s:g} m" for points, s in grids)
+    print(f"{where}: {len(grids)} grids in one file ({counts}); written at {step:g} m, the others filling it")
+    return band, transform
+
+
+def _xyz_points(data: bytes, where: str = "") -> np.ndarray:
+    """The x, y, z columns of "x y z" lines (more columns are left out, as ever), a UTF-8 BOM left out. Lines that
+    are not three numbers are left out and said when they are at most MALFORMED_SHARE of the lines (at least
+    one); more, or no line at all, is an error."""
+    if data.startswith(BOM):
+        data = data[len(BOM):]
+    try:
+        xyz = _loadtxt(data)
+    except ValueError:
+        bad = [m.span() for m in _NOT_XYZ.finditer(data)]
+        lines = data.count(b"\n") + 1
+        if not bad:
+            raise
+        first = data[bad[0][0]:bad[0][1]][:80]
+        if len(bad) > max(1.0, MALFORMED_SHARE * lines):
+            raise RuntimeError(f"{len(bad)} of {lines} lines are not x y z (the first: {first!r})") from None
+        kept, pos = [], 0
+        for start, end in bad:
+            kept.append(data[pos:start])
+            pos = end
+        kept.append(data[pos:])
+        xyz = _loadtxt(b"".join(kept))
+        print(f"{where}: {len(bad)} of {lines} lines are not x y z and are left out (the first: {first!r})")
+    if xyz.shape[0] == 0:
+        raise RuntimeError("no x y z lines in the file")
+    if xyz.shape[1] < 3:
+        raise RuntimeError(f"lines of {xyz.shape[1]} number(s), x y z expected")
+    return xyz[:, :3]
+
+
+def _loadtxt(data: bytes) -> np.ndarray:
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # "input contained no data": _xyz_points says it
+        return np.loadtxt(io.BytesIO(data), dtype=np.float64, ndmin=2)  # ~30x faster than np.fromstring
+
+
+def _lattices(xyz: np.ndarray, res: float) -> List[Tuple[np.ndarray, float]]:
+    """The points split by their offset from the lattice of res (in hundredths of res, x and y: coordinates
+    written to the millimetre stay in one group), in the file's order, each group with its spacing (_step)."""
+    phase = np.rint(np.mod(xyz[:, :2], res) / res * 100).astype(np.int64) % 100
+    if (phase == phase[0]).all():
+        return [(xyz, _step(xyz, res))]
+    keys, inverse = np.unique(phase, axis=0, return_inverse=True)
+    groups = [xyz[inverse.ravel() == i] for i in range(len(keys))]
+    return [(points, _step(points, res)) for points in groups]
+
+
+def _step(points: np.ndarray, res: float) -> float:
+    """The spacing of a regular grid's points: the smallest step in x or y between points one after another in
+    the file (along a row or a column), res when it is res (within 0.1 %) or the points are on one spot."""
+    steps = []
+    for axis in (0, 1):
+        moves = np.abs(np.diff(points[:, axis]))
+        moves = moves[moves > res * 1e-3]
+        if moves.size:
+            steps.append(float(moves.min()))
+    step = min(steps) if steps else res
+    return res if np.isclose(step, res, rtol=1e-3) else round(step, 6)
+
+
+def _grid_of(points: np.ndarray, step: float) -> Tuple[np.ndarray, Affine]:
+    """The raster of the points of one regular grid (cell centres step apart), north up, NaN without a point."""
+    x, y, z = points[:, 0], points[:, 1], points[:, 2]
     left, top = x.min(), y.max()
-    cols = np.rint((x - left) / res).astype(np.int64)
-    rows = np.rint((top - y) / res).astype(np.int64)
+    cols = np.rint((x - left) / step).astype(np.int64)
+    rows = np.rint((top - y) / step).astype(np.int64)
     band = np.full((rows.max() + 1, cols.max() + 1), np.nan, dtype=np.float32)
     band[rows, cols] = z
-    return band, from_origin(left - res / 2, top + res / 2, res, res)
+    return band, from_origin(left - step / 2, top + step / 2, step, step)

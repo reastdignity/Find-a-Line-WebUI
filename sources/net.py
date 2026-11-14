@@ -10,7 +10,7 @@ import re
 import tempfile
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 import rasterio as rio
@@ -164,17 +164,28 @@ def _host(url: Optional[str]) -> Optional[str]:
     return urlsplit(url).hostname if url and re.match(r"https?://", url) else None
 
 
-def rate_turn(url: Optional[str]):
+def rate_turn(url: Optional[str], share: float = 1.0):
     """Wait for this request's turn when the host of url has a rate (HOST_RATES_OF), the turns
     spread evenly (one every 60/n s) over every thread and process of the machine: a pyrate-limiter
     SQLite bucket per host in RATES_DB, its writes serialised by a file lock (as osm's Nominatim
     turns). The limits are per client address, so the bucket is in the system's temporary folder,
     not in a data folder (in a container its /tmp: the worker's container is the one that asks).
-    RuntimeError after RATE_WAIT_S. Other hosts, and local paths, return at once."""
+    RuntimeError after RATE_WAIT_S. Other hosts, and local paths, return at once.
+
+    share < 1: a kind of request that must go slower than the host's rate (the pieces of a split WCS
+    tile) also takes a turn of a bucket of its own at that share of the rate (at least 1 a minute), after
+    the host's turn: the host's rate still bounds every request, and these stay under their share."""
     host = _host(url)
     per_minute = HOST_RATES_OF.get(host) if host else None
     if not per_minute:
         return
+    _turn(host, per_minute)
+    if share < 1:
+        _turn(host, max(1, int(per_minute * share)))
+
+
+def _turn(host: str, per_minute: int):
+    """A turn of the bucket of host at per_minute requests a minute (rate_turn)."""
     path = RATES_DB or os.path.join(tempfile.gettempdir(), "findaline-rates.sqlite")
     key = (path, host, per_minute)
     with _rate_lock:
@@ -285,18 +296,66 @@ def _locks(cache_dir: str, kind: str) -> str:
     return folder
 
 
+class _Queue:
+    """n places taken in the order asked (a ticket each): threading.Semaphore lets a thread that has just
+    released take its place back before a waiter woken for it, so a waiter can lose for an hour."""
+
+    def __init__(self, n: int):
+        self.free, self.next_ticket, self.serving = n, 0, 0
+        self.cond = threading.Condition()
+
+    def acquire(self):
+        with self.cond:
+            ticket, self.next_ticket = self.next_ticket, self.next_ticket + 1
+            while ticket != self.serving or not self.free:
+                self.cond.wait()
+            self.serving, self.free = self.serving + 1, self.free - 1
+            self.cond.notify_all()  # the next ticket may take a place still free
+
+    def release(self):
+        with self.cond:
+            self.free += 1
+            self.cond.notify_all()
+
+
+_queues: Dict[Tuple[str, str, int], _Queue] = {}  # (lock folder, host, slots) -> its _Queue in this process
+_queues_lock = threading.Lock()
+
+
 @contextlib.contextmanager
 def host_slot(cache_dir: str, url: Optional[str]):
     """One of the HOST_SLOTS (HOST_SLOTS_OF) download slots of the host of url, across the
     threads and processes of a data folder: lock files <host>.<n>.lock, each tried in turn,
     waiting while all are taken. A file lock of the OS: a killed process releases it, and the
-    files are a fixed few per host. Nothing to wait for without a remote host (a local mirror)."""
+    files are a fixed few per host. Nothing to wait for without a remote host (a local mirror).
+
+    The threads of one process first queue for as many places as there are slots (_Queue: in the
+    order they asked, without a time limit, as they wait only for each other's downloads), so the
+    file locks are tried by at most that many of them and LOCK_WAIT_S is spent waiting for other
+    processes only. Polled at random, the 8 download threads of Slovenia's pass for ARSO's 2 slots
+    let a thread lose for an hour to its own siblings ("busy with the downloads of other searches",
+    2026-11-13)."""
     host = _host(url)
     if not host:
         yield
         return
     folder = _locks(cache_dir, "hosts")
     slots = list(range(HOST_SLOTS_OF.get(host, HOST_SLOTS)))
+    key = (folder, host, len(slots))
+    with _queues_lock:
+        queue = _queues.setdefault(key, _Queue(len(slots)))
+    queue.acquire()
+    try:
+        with _file_slot(folder, host, slots):
+            yield
+    finally:
+        queue.release()
+
+
+@contextlib.contextmanager
+def _file_slot(folder: str, host: str, slots: List[int]):
+    """A free lock file of the host's slots (host_slot), waiting up to LOCK_WAIT_S while other processes
+    hold them all."""
     deadline = time.monotonic() + LOCK_WAIT_S
     while True:
         random.shuffle(slots)  # waiters spread over the slots

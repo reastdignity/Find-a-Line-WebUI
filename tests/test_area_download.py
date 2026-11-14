@@ -20,6 +20,15 @@ import cache  # noqa: E402
 import sources as src  # noqa: E402
 from sources.layer import Fetched, Layer  # noqa: E402
 
+REAL_MACHINE_FREE_GB = ad.machine_free_gb  # before plenty_of_memory replaces it
+
+
+@pytest.fixture(autouse=True)
+def plenty_of_memory(monkeypatch):
+    """The machine's memory as plenty (1000 GB available, 2 kept), so no pass here restarts for what the
+    machine running the tests has free; a test of the machine's limit sets its own."""
+    monkeypatch.setattr(ad, "machine_free_gb", lambda: (1000.0, 2.0))
+
 
 class FakeLayer(Layer):
     """Tiles 0..n-1, each a small file; those in `bad` fail, as a sheet the server cannot give."""
@@ -243,7 +252,7 @@ def _reporter(failures):
     """A Reporter without its thread and state file: what __call__ reads."""
     reporter = ad.Reporter.__new__(ad.Reporter)
     reporter.failures, reporter.free_gb, reporter.mb_pass, reporter.tiles_pass = failures, None, 0.0, 0
-    reporter.tiles_offset, reporter.mb_offset, reporter.over_budget = 0, 0.0, False
+    reporter.tiles_offset, reporter.mb_offset, reporter.over_budget = 0, 0.0, None
     reporter.state, reporter.memory_gb = {"message": ""}, 0.0
     reporter.area = ad.Area("a", "b", "c", 1.0, "d", "e", min_free_gb=0, max_memory_gb=0)
     return reporter
@@ -286,6 +295,43 @@ def test_a_pass_over_its_memory_budget_is_started_again(setup, monkeypatch):
     assert state["memory_gb"] == 100.0 and state["memory_peak_gb"] == 100.0 and state["stage"] == "downloading"
     assert len(layer.fetched) < 40
     assert ad.run_pass(dataclasses.replace(area, max_memory_gb=0), 2) == ad.EXIT_DONE  # 0: no budget
+
+
+def test_the_message_names_the_sample_over_the_budget(monkeypatch):
+    """The reason keeps the sample that crossed the budget, not a later lower one (the server's log of 2026-11-14
+    read "memory 15.4 GB over the budget of 16.7 GB")."""
+    values = iter([17.2, 15.4])
+    monkeypatch.setattr(ad, "memory_gb", lambda: next(values))
+    reporter = _reporter(ad.Failures("cache"))
+    reporter.area = dataclasses.replace(reporter.area, max_memory_gb=16.7)
+    reporter.memory_peak_gb = 0.0
+    reporter.sample_memory()
+    reporter.sample_memory()
+    assert reporter.memory_gb == 15.4 and reporter.memory_peak_gb == 17.2
+    with pytest.raises(ad.Stop, match=r"^memory 17\.2 GB over the budget of 16\.7 GB, the pass is started again$"):
+        reporter({"bar": "Download", "unit": "tile", "count": 1, "extra": {}, "done": False})
+
+
+@pytest.mark.parametrize("held, restarts", [(3.0, True), (0.7, False)])
+def test_a_big_pass_restarts_when_the_machine_runs_short(setup, monkeypatch, held, restarts):
+    """Under its budget (none here), a pass of BIG_PASS_GB or more is started again while the machine has less
+    memory available than it keeps; a small one goes on."""
+    monkeypatch.setattr(ad, "memory_gb", lambda: held)
+    monkeypatch.setattr(ad, "machine_free_gb", lambda: (1.5, 3.1))
+    area = setup(SlowLayer(40))
+    assert ad.run_pass(area, 1) == (ad.EXIT_RESTART if restarts else ad.EXIT_DONE)
+    message = ad.read_state(area.state_dir, "land")["message"]
+    if restarts:
+        assert message == ("the machine has 1.5 GB of memory available, under the 3.1 GB kept, and this pass holds "
+                           "3.0 GB, the pass is started again")
+
+
+def test_memory_kept_free_on_the_machine(monkeypatch):
+    """psutil's available memory, and a twentieth of the memory kept, at least 2 GB."""
+    import psutil
+    for total, kept in ((64e9, 3.2), (16e9, 2.0)):
+        monkeypatch.setattr(psutil, "virtual_memory", lambda total=total: SimpleNamespace(total=total, available=5e9))
+        assert REAL_MACHINE_FREE_GB() == pytest.approx((5.0, kept))
 
 
 def test_memory_in_the_state_and_the_history(setup, monkeypatch):

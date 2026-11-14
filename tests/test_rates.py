@@ -140,6 +140,97 @@ def test_no_turn_in_time(rates, monkeypatch):
         net.rate_turn("https://slow.example/b")
 
 
+def test_a_share_of_the_rate_takes_turns_of_its_own(rates, monkeypatch):
+    """share < 1 takes the host's turn and then one of a bucket at that share of the rate (at least 1 a minute):
+    six such requests at a third of 600 a minute are 300 ms apart; the host's own requests keep its rate."""
+    asked = []
+    turn = net._turn
+    monkeypatch.setattr(net, "_turn", lambda host, per_minute: (asked.append(per_minute), turn(host, per_minute)))
+    start = time.monotonic()
+    for _ in range(6):
+        net.rate_turn(f"https://{HOST}/piece", share=1 / 3)
+    assert time.monotonic() - start >= 5 * 0.3 - SLACK
+    assert asked == [600, 200] * 6
+    asked.clear()
+    net.rate_turn(f"https://{HOST}/tile")
+    net.rate_turn("https://other.example/piece", share=1 / 3)  # no rate: nothing
+    assert asked == [600]
+    monkeypatch.setattr(net, "HOST_RATES_OF", {HOST: 2})
+    asked.clear()
+    net.rate_turn(f"https://{HOST}/x", share=0.1)
+    assert asked == [2, 1]
+
+
+def test_split_pieces_take_the_lower_rate(monkeypatch):
+    """A piece of a split WCS tile asks its turn at SPLIT_RATE_SHARE of the host's rate (England's 429s at the full
+    rate, November 2026)."""
+    from sources.readers import wcsreader
+    turns = []
+    monkeypatch.setattr(net, "rate_turn", lambda url, share=1.0: turns.append(share))
+
+    class Answer:
+        status_code, headers, content, text = 200, {"content-type": "image/tiff"}, b"II*\x00", ""
+    monkeypatch.setattr(wcsreader.requests, "get", lambda *a, **kw: Answer())
+    reader = wcsreader.WcsReader("test", "https://ea.example/wcs", "dtm", "EPSG:27700", 1.0, 250, "image/tiff",
+                                 ("E", "N"), None, False, split_on_error=True)
+    assert reader._request_piece(0, 0, 250, 250, 1.0).content == b"II*\x00"
+    assert turns == [wcsreader.SPLIT_RATE_SHARE] and 0 < wcsreader.SPLIT_RATE_SHARE < 1
+
+
+def test_the_threads_of_a_process_queue_for_the_slots_in_turn():
+    """net._Queue gives its places in the order asked: a thread releasing a place and asking again at once goes
+    behind those already waiting (threading.Semaphore let it take the place back, so a waiter could lose for an
+    hour: Slovenia's pass, 8 threads for ARSO's 2 slots, 2026-11-13)."""
+    queue, order = net._Queue(1), []
+    queue.acquire()
+
+    def wait(name):
+        queue.acquire()
+        order.append(name)
+        queue.release()
+    threads = []
+    for name in "abc":
+        tickets = queue.next_ticket
+        threads.append(threading.Thread(target=wait, args=(name,)))
+        threads[-1].start()
+        while queue.next_ticket == tickets:  # its ticket taken: it waits
+            time.sleep(0.001)
+    queue.release()
+    queue.acquire()  # at once again: behind a, b and c
+    order.append("main")
+    queue.release()
+    for t in threads:
+        t.join()
+    assert order == ["a", "b", "c", "main"]
+
+
+def test_slots_of_a_process_never_time_out_on_its_own_threads(tmp_path, monkeypatch):
+    """Eight threads of one process for a host of 2 slots, each holding it for longer than LOCK_WAIT_S: they wait
+    for each other in the queue, never for the file locks (which LOCK_WAIT_S bounds: other processes)."""
+    monkeypatch.setitem(net.HOST_SLOTS_OF, "queue.example", 2)
+    monkeypatch.setattr(net, "LOCK_WAIT_S", 0.05)
+    errors, inside, most = [], [0], [0]
+    lock = threading.Lock()
+
+    def download():
+        try:
+            with net.host_slot(str(tmp_path), "https://queue.example/x"):
+                with lock:
+                    inside[0] += 1
+                    most[0] = max(most[0], inside[0])
+                time.sleep(0.1)
+                with lock:
+                    inside[0] -= 1
+        except RuntimeError as e:
+            errors.append(e)
+    threads = [threading.Thread(target=download) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [] and most[0] == 2
+
+
 def test_get_waits_before_every_attempt(http_server, monkeypatch):
     """net._get asks for a turn before each attempt; a 429 or 503 backs off longer (_sleep(attempt + 3)),
     other failures as before (_sleep(attempt))."""
