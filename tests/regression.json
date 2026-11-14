@@ -1697,5 +1697,31 @@
     },
     "seconds": 4.6,
     "notes": "--source auto picks british_columbia (the centre is in CA-BC); first run on an empty cache: 4 blocks of 1 km per model from the 2024 programme's 1:2 500 strip tiles (082e023_3_2_2, _3_2_4, _4_1_1, ...; about 4 MB read a block, the rows whole), 6 + 6 blocks and 23 MB in 19 s at radius 600 m; nothing filled (LidarBC covers the circle; an older NDMP 2017 tile fills only holes of 2024). Every spot's anchors lie within 2 px of a pixel steeper than 60 degrees: the bluff's face and the gullies below it, the best 155 m with 39 m of clearance. Narrowed from radius 600 m and 50-400 m (210 425 lines in 1 150 spots, 93 s on an empty cache) and radius 300 m with 50-400 m (127 750 lines): the face is steep over its whole height; over_trees (obstacles.RULE A2 on BC's DSM, which equals its DTM on bare ground): tools/obstacle_study.py (CHMv2 and WorldCover, 2026-11-03) finds 598 of the 36 942 over rock only (11 objects) and 26 383 over a tree or building, while the rule leaves 36 992 lines over a tree unmarked (the pines next to the walls, within the envelope's 2 px)"
+  },
+  "R65": {
+    "place": "as R3 with a no-fall zone of 5 m, A-frames of 2 m and the square rule: one line per pair of 5 m anchor squares (the lines kept; the lines found are in run.json's summary)",
+    "extends": "R3",
+    "args": "--end-zone 5 --anchor-lift 2 --same-line-square 5",
+    "sets": [
+      "pl",
+      "search"
+    ],
+    "expected": {
+      "anchors": 4503,
+      "open": 4503,
+      "checked": 424410,
+      "lines": 3491,
+      "spots": 121,
+      "csv_sha256": "c28cbcf7db991f84d69b7b4a489229007e0c55a166fce5c73880ec856660462d",
+      "length_km": 372.826,
+      "clearance_min": 0.0,
+      "clearance_mean": 2.163,
+      "clearance_max": 19.93,
+      "over_trees": 2246,
+      "coverage": 100.0,
+      "empty_tiles": 0
+    },
+    "notes": "added 2026-11-14 with the square rule (--same-line-square, samelines.py): R3's search with the no-fall zone and A-frames finds 60 002 lines (run.json's summary.found), of which one per pair of 5 m anchor squares is kept: 3 491 lines in 121 spots, each with the lines it stands for (stands_for, the last column of lines.csv, in the checksum); every anchor has an open direction with the A-frames; a circle of this size keeps every kept line's profile",
+    "seconds": 11.3
   }
 }

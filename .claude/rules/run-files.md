@@ -61,7 +61,11 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
 - A row of `data.js` ends with the profile (`row[-1]`); new columns go before it (`toLine` in `types.ts`); the head's
   `ends` names the values before the profile of a run with the no-fall zone or the A-frames (`runs.END_FIELDS` =
   `helpers.END_VALUES` = `types.ts` `END_VALUES`: `lift_needed`, `lift_no_zone`; a run without them has no such key,
-  no such columns in `lines.csv`/`lines.geojson`, and today's bytes).
+  no such columns in `lines.csv`/`lines.geojson`, and today's bytes). A run made with the square rule
+  (`--same-line-square`) has the lines' column `stands_for` (`samelines.COLUMN` = `runs.STANDS_FOR` = `types.ts`
+  `STANDS_FOR`): the last column of `lines.csv`, the last property of a feature, the last name of `ends` and value
+  before the profile, with `square` and `found` in the heads (`mapping.map_heads` from run.json's
+  `params.same_line_side` and `summary.found`); `Line.stands_for` is never sent with a favourite.
 - The uncertain shore: `sources.filling.shore_segments`' dict is run.json's and data.js's `shore`
   (`mapping.map_heads`, not lines.js; `runs._listed` leaves it out) and `Shore`/`ShoreSegment` of
   `viewer/src/types.ts` (`shore.ts`, `shoreLayer.ts`); runs saved before 2026-11-05 have none and show no layer. The

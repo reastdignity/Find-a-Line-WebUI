@@ -513,6 +513,36 @@ The reasons before the clearance do not move (`structure_anchor` 444, `no_steep_
 113 → 135). With the no-fall zone of 5 m and A-frames of 2 m, 438 of the 676 clearance misses at 6 m have a valid
 pair.
 
+### The square rule (2026-11-14)
+
+The same 1 024 clusters searched once more at the fall zone of 6 m with `--same-line-square 5` added to every search
+(branch `line-volume-w4`: one line kept per pair of 5 m anchor squares, `samelines.py`; `run --parallel 4` under the
+heavy lane, 1 558 s of searches), `analyse` and `report`; the same searches end with lines, without and failed. The
+pass without the rule is the one above (6 m):
+
+| | rule off | `--same-line-square 5` |
+| --- | ---: | ---: |
+| searches with lines / without / failed | 399 / 622 / 3 | 399 / 622 / 3 |
+| lines found | 2.40 million | 2.40 million (2 402 283) |
+| lines kept | all | 220 279 (9.2 %) |
+| verifiable | 1 771 (1 242 / 529) | 1 770 (1 241 / 529) |
+| matched | 306 (299 / 7) | 283 (276 / 7) |
+| recall | 17 % (24 % / 1 %) | 16 % (22 % / 1 %) |
+| terrain recall | 21 % (27 % / 2 %): 183 of 883 | 19 % (25 % / 2 %): 171 of 882 |
+| matched: shown as a spot | 36 | 70 |
+| matched: clearance of the best match, p10 / p50 / p90 | 0.54 / 3.41 / 13.73 m | 0.37 / 2.50 / 11.00 m |
+| `clearance_near_anchor` / `clearance_mid` | 672 / 4 | 673 / 5 |
+| `unexplained` | 0 | 20 |
+
+23 of the 306 matched lines (all highlines, 12 of them with both ends on terrain) lose their match within the
+tolerance: the kept line of their pair of squares lies up to a square's diagonal from the dropped ones at each end,
+outside the known line's 10 m. The analysis does not know the rule, so 20 of them are `unexplained` (a valid pair of
+anchors within the tolerance that the search did not save), one each moves to `unverifiable`, `clearance_near_anchor`
+and `clearance_mid`; the reasons before the clearance do not move, the zone × lift table of the clearance misses by at
+most one line a cell. The kept line is more often the one its spot shows (70 of 283 against 36 of 306), and
+the best match's clearance is lower (the mean height, not the clearance, decides inside a pair). Here a pair of
+squares holds 11 lines on average: small circles in the default rig; the line volume study's target rig holds 24-65.
+
 ### The pilot
 
 Before the pass, 12 Polish clusters (92 known lines) with the formula model: recall 8 % (7 of 89). Its misses led to

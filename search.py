@@ -63,6 +63,7 @@ import osm
 import runs as rn
 import saving
 import sag as sg
+import samelines
 import sources as src
 from settings import Limits
 from params import SearchParams
@@ -107,7 +108,13 @@ PIXEL_BYTES = 50
 # search of smaller groups holds more). The found pairs need no term of their own: as many
 # as the valid lines on all 15 captures (at most 1.0001 times; lines left out by --min-height or
 # --max-wall-angle would add about 190 B per pair to step 3, still below step 4 up to 2.3 pairs
-# per line)
+# per line).
+# With the square rule (--same-line-square, samelines.py) step 3 holds the reducer's rows instead of the
+# found lines: 216 B a row (the columns of a part with the A-frame heights, its count and six key columns
+# of 8 B), about 260 B while a merge sorts them (two negated columns, the index, a column held twice); with
+# a check at most 9/8 of the lines the limits allow and one part are held (BestPerSquarePair merges at
+# once when the rows held would be refused), so step 3 stays below a kept line's 450 B, and steps 4-5 hold
+# 8 B more per kept line (the count). Counted from the dtypes, not measured with the tool (2026-11-14)
 LINE_BYTES = 450
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
@@ -270,6 +277,13 @@ class Plan:
     def lift(self) -> float:
         """The A-frames' height at both anchors, metres (--anchor-lift; 0: none)."""
         return float(self.params.anchor_lift)
+
+    @property
+    def square(self) -> float:
+        """The side of the anchor squares of the square rule, metres (--same-line-square on this
+        resolution: samelines.side; 0: off, every line is kept)."""
+        p = self.params
+        return samelines.side(p.same_line_square, self.resolution) if p.same_line_square else 0.0
 
 
 STEPS = 5
@@ -1425,7 +1439,11 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
                  check: Optional[Callable[[int], None]] = None,
                  sink: Optional[Callable[[sh.LineTable], None]] = None) -> Optional[sh.LineTable]:
     """Step 3's line search (linesearch.find_valid_lines) with the arguments of the plan: with
-    core (bounds), pairs only from the anchors in it (the overlap is for partners). With Data.partner
+    core (bounds), pairs only from the anchors in it (the overlap is for partners). With the square rule
+    (Plan.square; not with a sink, the count mode) the evaluated parts go to a reducer that keeps one
+    line per pair of anchor squares (samelines.BestPerSquarePair: the lines of this grid's core only), so
+    the found lines are never held; `check` then gets the kept lines so far, and the table returned
+    has the column samelines.COLUMN (the found lines each line stands for). With Data.partner
     (the count mode across a border) the pairs also start from the partner anchors (the first-anchor
     mask: the core's anchors and the partners), and find_valid_lines' partner marks the partners and
     the country's anchors outside the core: a partner pairs only with the country's anchors in the
@@ -1472,14 +1490,34 @@ def _pair_search(plan: Plan, data: Data, found: Anchors, core: Optional[tuple], 
         end_values(part)
         sink(part)
 
-    lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
-                                p.min_length, p.max_length, plan.nmpt, line_threads(p),
-                                sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
-                                p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
-                                                            p.min_high_share, p.max_wall_angle),
-                                values, found.strong, stats=plan.funnel, check=check,
-                                sink=ended if ends and sink is not None else sink,
-                                end_zone=plan.end_zone, lift=plan.lift, zones=zones, partner=marked)
+    reducer = None
+    if plan.square and sink is None:
+        reducer = samelines.BestPerSquarePair(plan.square, grid, core, check)
+        sink, check = reducer, None  # find_valid_lines takes a sink or a check: the reducer asks the check
+    try:
+        lines = ls.find_valid_lines(data.elevation, data.surface, anchors, plan.resolution,
+                                    p.min_length, p.max_length, plan.nmpt, line_threads(p),
+                                    sag_table, p.max_anchor_diff / 100, p.max_anchor_diff_m, first,
+                                    p.high_above, sh.LineLimits(p.min_height, p.min_mean_height,
+                                                                p.min_high_share, p.max_wall_angle),
+                                    values, found.strong, stats=plan.funnel, check=check,
+                                    sink=ended if ends and sink is not None else sink,
+                                    end_zone=plan.end_zone, lift=plan.lift, zones=zones, partner=marked)
+    except SearchError:
+        if reducer is not None:  # the reducer's check stopped the search: the bar of the pairs is still open
+            progress.compute.finish(f"{reducer.counts()['kept']} kept, stopped")
+        raise
+    if reducer is not None:
+        counts = reducer.counts()
+        lines = reducer.table()
+        if ends and sh.END_VALUES[0] not in lines.columns:  # no line at all: the empty table's columns, in order
+            count = lines.columns.pop(samelines.COLUMN)
+            end_values(lines)
+            lines.columns[samelines.COLUMN] = count
+        if counts["found"]:
+            plan.emit("info", f"Square rule: {counts['kept']} of {counts['found']} lines kept, one per pair of "
+                              f"{plan.square:g} m anchor squares")
+        return lines.reorder(np.argsort(-lines.columns["length"], kind="stable"))  # longest first, as without
     if ends and sink is None:
         end_values(lines)
     return lines
@@ -1633,7 +1671,11 @@ def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int
     (with limits), and against Plan.memory with grids of this many pixels but no profiles (for a
     user without limits too: a compute slot's budget is a safeguard; a lower bound of what
     _check_lines asks for these lines, so it refuses only what that would refuse). None with the
-    switch off or nothing to check: _check_lines decides on the exact count."""
+    switch off or nothing to check: _check_lines decides on the exact count. With the square rule
+    (Plan.square) both count the kept lines, never the found ones: the reducer of _pair_search calls
+    this check with its kept lines so far (they only grow: still a lower bound), and a tiled search
+    counts the lines its tiles kept, which it holds until the join (a pair of squares with lines of
+    two tiles counts twice until then)."""
     lines_max = plan.limits.lines_max if plan.limits else None
     if not plan.early_stop or (not lines_max and plan.memory is None):
         return None
@@ -1675,7 +1717,7 @@ def _search_hash(plan: Plan) -> str:
     for name in ("min_elevation", "max_elevation"):  # unset: the hash of before (its tiles resume)
         if p[name] is None:
             del p[name]
-    for name in ("end_zone", "anchor_lift"):  # 0: the hash of before
+    for name in ("end_zone", "anchor_lift", "same_line_square"):  # 0: the hash of before
         if p[name] == 0:
             del p[name]
     # The formula never reads fall_zone (its lines, profiles and limits take the leash fall; only the rigging
@@ -1890,6 +1932,11 @@ def search_lines(plan: Plan) -> Tuple[Lines, Optional[Dict]]:
         raise SearchError("No lines found matching elevation requirements.", "no_lines")
     results = sh.LineTable.join(tables)  # column by column, each tile's column released once joined
     del tables
+    if plan.square:  # a pair of squares may hold a line of each of two tiles: one of them, standing for both
+        samelines.reduce_table(results, plan.square)
+        if len(results) < count:
+            plan.emit("info", f"Square rule: {len(results)} of the tiles' {count} lines kept (pairs of squares "
+                              f"with lines of two tiles)")
     _fixed_order(plan, results)  # with an end zone or A-frames: the order of one grid
     progress.set_step(f"Step 4/{STEPS}: groups of all tiles")
     groups = mp.group_lines(results, plan.group_distance, plan.params.group_by)
@@ -1991,6 +2038,10 @@ def _run_params(plan: Plan) -> Dict:
         params["end_zone"] = p.end_zone
     if plan.lift:
         params["anchor_lift"] = p.anchor_lift
+    # The square rule only when set, with the side its squares really had (samelines.side): run.json of before
+    if plan.square:
+        params["same_line_square"] = p.same_line_square
+        params["same_line_side"] = plan.square
     return params
 
 
@@ -2038,6 +2089,9 @@ def save_run(plan: Plan, lines: Lines, run: Optional[Dict] = None) -> Result:
         # where the terrain of the area's land came from (sources.filling.terrain_origins), None when not known
         "terrain_sources": lines.terrain_sources,
     }
+    if samelines.COLUMN in results.columns:  # the square rule: the lines found, which the kept lines stand for
+        meta["summary"]["found"] = int(results.columns[samelines.COLUMN].sum())
+        emit("info", f"Square rule: {len(results)} lines kept of {meta['summary']['found']} found")
     meta["description"] = rn.params_summary(meta)
     meta["attribution"] = _credits(plan, meta["data"])  # also ATTRIBUTION.txt and the map
     if not circle:
