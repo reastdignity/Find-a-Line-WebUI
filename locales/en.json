@@ -291,6 +291,7 @@
   "error.too_many_lines_early": "More than {{max}} lines found, the limit of this site: the search stopped there. {{advice_text}}",
   "error.advice.list": "To find fewer lines, set one of these, the strongest first: {{items}}. Or search a smaller area or shorter lines.",
   "error.advice.none": "To find fewer lines, search a smaller area or shorter lines.",
+  "error.advice.same_line_square": "One line per pair of anchor squares to {{value}} m",
   "error.advice.zone_lift_off": "No-fall zone at the ends and A-frame height both to 0",
   "error.advice.zone_off": "No-fall zone at the ends to 0",
   "error.advice.formula": "Clearance model to Simple formula",

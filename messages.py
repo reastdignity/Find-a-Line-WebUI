@@ -85,11 +85,16 @@ def web_params(params: Dict, language: str = LANGUAGE) -> Dict:
 # sag (6, 40 %), the anchors' height difference 5 m (5, 39 %) or halved (5, 52 %), the A-frames off
 # (4, 54 %), the anchor steepness +10° (4, 61 %); then a smaller area or shorter lines. A higher
 # prominence of one anchor helped most but kept 4 % and was not judged: not offered; the highest
-# point and the drop (1 of 15, 96-100 % kept) no longer. ---
+# point and the drop (1 of 15, 96-100 % kept) no longer. Before all of them, while it is off, the
+# square rule at 5 (--same-line-square, one line per pair of anchor squares; the user's decision of
+# 2026-11-14): measured in the line-volume study it keeps 1.5 to 4.2 % of the lines, and the Gozo
+# coast in the target rig ends with 503 651 kept of 24 480 100 found; no other change comes near. ---
 
 ADVICE_MAX = 4  # changes named, the strongest first; the smaller area always closes the list
 SLOPE_ADVICE_MAX = 85.0  # the anchor steepness the advice raises to at most (as measured)
-_ADVICE_CLI = {"zone_lift_off": "--end-zone 0 --anchor-lift 0", "zone_off": "--end-zone 0",
+SQUARE_ADVICE = 5  # the square rule's side the advice names (m; on data coarser than 1 m, pixels)
+_ADVICE_CLI = {"same_line_square": "--same-line-square {value}",
+               "zone_lift_off": "--end-zone 0 --anchor-lift 0", "zone_off": "--end-zone 0",
                "formula": "--model formula", "anchor_diff_m": "--max-anchor-diff-m {value}",
                "anchor_diff_half": "--max-anchor-diff-m {value} --max-anchor-diff {percent}",
                "lift_off": "--anchor-lift 0", "slope": "--slope-threshold {value}"}
@@ -100,6 +105,8 @@ def line_advice(p) -> list:
     many lines: only those that change something in it, in the measured order, at most ADVICE_MAX,
     as {"key": the text "error.advice.<key>", and its values}."""
     advice = []
+    if not p.same_line_square:
+        advice.append({"key": "same_line_square", "value": SQUARE_ADVICE})
     if p.end_zone and p.anchor_lift:
         advice.append({"key": "zone_lift_off"})
     if p.end_zone:

@@ -2969,33 +2969,55 @@ def test_coded_errors():
 
 def test_refusal_advice_follows_the_settings():
     """The advice of a refusal for too many lines names only the changes that apply to the search, in
-    the measured order (zone and A-frames off, zone off, the formula, the anchors' height difference,
-    A-frames off, steeper anchors), at most four, never the highest point or the drop; each text uses
-    its field's label in the page and the option's name on the command line."""
+    the measured order (the square rule while it is off, zone and A-frames off, zone off, the formula,
+    the anchors' height difference, A-frames off, steeper anchors), at most four, never the highest
+    point or the drop; each text uses its field's label in the page and the option's name on the
+    command line."""
     import messages
     import params as pm
 
     def keys(**values):
+        values = {"same_line_square": 5, **values}  # the square rule on: the other advice's order
         return [a["key"] for a in messages.line_advice(pm.SearchParams(lat=50, lon=19, **values))]
 
+    # the square rule off (the default): offered first, at 5, the others behind it, four in all
+    assert keys(same_line_square=0, model="sag", end_zone=5, anchor_lift=2) == ["same_line_square", "zone_lift_off",
+                                                                                "zone_off", "formula"]
+    assert keys(same_line_square=0) == ["same_line_square", "anchor_diff_m", "slope"]
+    assert keys(same_line_square=0, max_anchor_diff_m=0, slope_threshold=85) == ["same_line_square"]
+    assert messages.line_advice(pm.SearchParams(lat=50, lon=19))[0] == {"key": "same_line_square", "value": 5}
+    # the square rule on (any side): never offered again
+    for square in (2, 5, 20):
+        assert "same_line_square" not in keys(same_line_square=square, model="sag", end_zone=5)
     assert keys(model="sag", end_zone=5, anchor_lift=2) == ["zone_lift_off", "zone_off", "formula", "anchor_diff_m"]
     assert keys(model="sag", end_zone=5) == ["zone_off", "formula", "anchor_diff_m", "slope"]
     assert keys(model="sag", anchor_lift=2) == ["formula", "anchor_diff_m", "lift_off", "slope"]
     assert keys() == ["anchor_diff_m", "slope"]  # a formula search without a zone: neither is named
     assert keys(max_anchor_diff_m=4, max_anchor_diff=3, slope_threshold=85) == ["anchor_diff_half"]
-    half = messages.line_advice(pm.SearchParams(lat=50, lon=19, max_anchor_diff_m=4, max_anchor_diff=3))[0]
+    half = messages.line_advice(pm.SearchParams(lat=50, lon=19, same_line_square=5, max_anchor_diff_m=4,
+                                                max_anchor_diff=3))[0]
     assert half == {"key": "anchor_diff_half", "value": 2, "percent": 1.5}
     assert messages.line_advice(pm.SearchParams(lat=50, lon=19, slope_threshold=80))[-1] == {"key": "slope",
                                                                                            "value": 85}
     assert keys(max_anchor_diff_m=0, slope_threshold=85) == []
     texts = messages.catalogue()
-    for key, fields in {"zone_lift_off": ["end_zone", "anchor_lift"], "zone_off": ["end_zone"],
+    for key, fields in {"same_line_square": ["same_line_square"],
+                        "zone_lift_off": ["end_zone", "anchor_lift"], "zone_off": ["end_zone"],
                         "anchor_diff_m": ["max_anchor_diff_m"], "anchor_diff_half": ["max_anchor_diff"],
                         "lift_off": ["anchor_lift"], "slope": ["slope_threshold"], "formula": ["model"]}.items():
         for field in fields:
             assert texts[f"field.{field}.label"] in texts[f"error.advice.{key}"], (key, field)
     assert texts["choice.model.formula"] in texts["error.advice.formula"]
-    advice = messages.line_advice(pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2))
+    off = messages.line_advice(pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2))
+    assert messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5, "advice": off})) == (
+        "9 lines found, limit 5. To find fewer lines, set one of these, the strongest first: One line per pair of "
+        "anchor squares to 5 m; No-fall zone at the ends and A-frame height both to 0; No-fall zone at the ends to 0; "
+        "Clearance model to Simple formula. Or search a smaller area or shorter lines.")
+    assert messages.advice_cli(off) == ("fewer lines with, the strongest first: --same-line-square 5; --end-zone 0 "
+                                        "--anchor-lift 0; --end-zone 0; --model formula; or a smaller area or a lower "
+                                        "--max-length")
+    advice = messages.line_advice(pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2,
+                                                  same_line_square=5))
     web = messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5, "advice": advice}))
     assert web == ("9 lines found, limit 5. To find fewer lines, set one of these, the strongest first: No-fall zone "
                    "at the ends and A-frame height both to 0; No-fall zone at the ends to 0; Clearance model to Simple "
