@@ -138,14 +138,15 @@ def _edge(port: int, page: str, profile, size: str = "1280,800") -> dict:
 
 @pytest.fixture(scope="module")
 def big_clip(tmp_path_factory):
-    """The folder of a run of the Żabi Koń clip with its surface model (the sag model: about 27,000 lines), computed once, offline."""
+    """The folder of a run of the Żabi Koń clip with its surface model (the sag model with the fall zone of 3 m,
+    the default until 2026-11-14: about 27,000 lines), computed once, offline."""
     import clip_runs  # the search once per session, this module's own copy
     data = os.path.join(REPO, "tests", "data")
     folder = clip_runs.data_copy(tmp_path_factory, "c-clip", [
         "--elevation-file", os.path.join(data, "zabi_kon_nmt.tif"),
         "--surface-file", os.path.join(data, "zabi_kon_nmpt.tif"), "--northing", "254608", "--easting", "553966",
-        "--radius", "150", "--model", "sag", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
-        "--ortho", "never"])
+        "--radius", "150", "--model", "sag", "--fall-zone", "3", "--water", "off", "--fill-gaps", "off",
+        "--no-plot", "--yes", "--ortho", "never"])
     runs = folder / "runs"
     return next(runs / d for d in os.listdir(runs) if (runs / d / "run.json").is_file())
 

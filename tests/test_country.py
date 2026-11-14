@@ -74,7 +74,8 @@ def env(tmp_path_factory):
                          "slope_threshold": 45, "core_m": 400, "layer": True},
                         {"name": "C", "lengths": [60, 150], "resolution": 2.0, "model": "formula",
                          "slope_threshold": 45, "core_m": 400, "layer": False}],
-              "tension": [[30, 2.5], [300, 6.0]], "rig": {"webbing_weight": 41.0, "stretch": 2.1},
+              # the fall zone of 3 m (the default until 2026-11-14): the M band's lines across the border
+              "tension": [[30, 2.5], [300, 6.0]], "rig": {"webbing_weight": 41.0, "stretch": 2.1, "fall_zone": 3.0},
               "options": {"nmpt": "off", "water": "off", "coastline": "copernicus", "fill_gaps": "off",
                           "elevation_file": _krovak_clip(str(base))}}
     yield {"base": base, "config": config}
@@ -206,7 +207,7 @@ def test_cube_equals_one_grid(env, full):
     assert m["params"] == {"source": "files", "min_length": 150, "max_length": 300, "resolution": 2.0,
                            "model": "sag", "slope_threshold": 45, "nmpt": "off", "water": "off",
                            "coastline": "copernicus", "fill_gaps": "off", "pretension": 6.0, "stretch": 2.1,
-                           "webbing_weight": 41.0}
+                           "webbing_weight": 41.0, "fall_zone": 3.0}
     assert os.path.exists(os.path.join(folder, "cube", "area.geojson"))
     # every tile's meta: the config, the origin, the counts, the data used
     import countcube

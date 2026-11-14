@@ -157,7 +157,7 @@ class SearchParams(BaseModel):
     stretch: float = field(5, "webbing stretch at 10 kN in %", "rigging")
     webbing_weight: float = field(70, "webbing weight in g/m", "rigging")
     athlete_mass: float = field(80, "athlete mass in kg", "rigging")
-    fall_zone: float = field(3, "height below the sagged webbing that must stay free (leash fall), m", "rigging")
+    fall_zone: float = field(6, "height below the sagged webbing that must stay free (leash fall), m", "rigging")
     end_zone: float = field(0, "no-fall zone at both ends, m: within this distance of each anchor (at most a "
                                "quarter of the line's length) the terrain need only stay below the loaded "
                                "webbing, not the leash fall space below it; 0 to 20, 0: off (finds many more "
