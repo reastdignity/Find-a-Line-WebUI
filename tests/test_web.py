@@ -2238,7 +2238,8 @@ def test_schema_has_labels_topics_and_presets(client):
     assert all(f["label"] and f["topic"] in schema["topics"] for f in schema["fields"])
     assert schema["topics"]["lines"] == "Lines" and "groups" not in schema  # only the old form had them
     presets = {p["id"]: p for p in schema["presets"]}
-    assert [p["label"] for p in schema["presets"]] == ["Typical highline", "Long lines", "Short & low", "Custom"]
+    assert [p["label"] for p in schema["presets"]] == ["The best lines here", "Long and exposed", "First highline",
+                                                       "Sea cliffs", "Everything", "Custom"]
     for preset in presets.values():
         if preset["values"]:
             web.check_request({"params": {"lat": 50.1, "lon": 19.7, **preset["values"]}})

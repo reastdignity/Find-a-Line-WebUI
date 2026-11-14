@@ -199,19 +199,27 @@ def schema(limits: Optional[Limits] = None, hidden_sources=()) -> List[Dict]:
 
 
 def presets(limits: Optional[Limits] = None) -> List[Dict]:
-    """The presets of params.PRESETS for the form: each with its values for every field of
+    """The goals (presets) of params.PRESETS for the form: each with its values for every field of
     PRESET_FIELDS (None: "custom", the values stay as they are) and whether it is available under
-    `limits`. A value outside a user's bounds, or a field the site does not allow, makes the preset
-    unavailable (with the reason): clamping it would give another kind of lines under the same name."""
+    `limits`. A value the goal sets that is outside a user's bounds, or a field (or choice) the site does
+    not allow, makes the goal unavailable (with the reason): clamping it would give another kind of lines
+    under the same name. A field the goal leaves at its default is not sent (so the site may forbid setting
+    it), but its default must be within the bounds ("Everything" asks for the default's longest lines)."""
     import sources as src
     answer = []
     for preset in pm.PRESETS:
         values = pm.preset_values(preset)
         problems = []
         for name, value in (values or {}).items():
-            if limits and not limits.allows(name):
+            if not limits:
+                continue
+            sent = value != pm.SearchParams.model_fields[name].default
+            if sent and not limits.allows(name):
                 problems.append(messages.UserError.web("not_allowed", field=name))
-            elif limits:
+            elif sent and isinstance(value, str) and not limits.allows(name, value):
+                problems.append(messages.UserError.web("not_allowed_value", field=name,
+                                                       value=messages.text(f"choice.{name}.{value}")))
+            elif isinstance(value, (int, float)):
                 problems += limits.outside(name, value, src.MIN_RESOLUTION)
         answer.append({"id": preset, "label": messages.text(f"preset.{preset}"), "values": values,
                        "available": not problems,

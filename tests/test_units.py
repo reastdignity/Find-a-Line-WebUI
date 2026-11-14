@@ -2812,9 +2812,10 @@ def test_shared_run_files_one_process_at_a_time(tmp_path):
 def test_labels_topics_and_presets():
     """Every field the web may set has a label, a unit and a hint in the message catalogue
     (locales/en.json), and every choice of a choice field a label; every such field belongs to one
-    topic of the form (params.TOPICS), every topic and preset has a title; each preset sets only
-    fields of PRESET_FIELDS and validates as SearchParams; a preset outside a user's bounds is
-    unavailable."""
+    topic of the form (params.TOPICS), every topic and preset (the form's goals) has a title and a text
+    (goal.<id>.text); each goal sets only fields of PRESET_FIELDS (the eleven GOAL_FIELDS), gives all of them
+    and validates as SearchParams with the rig values a Basic search adds; 'Sea cliffs' has no wall-angle
+    limit (docs/line-volume/spec-search.md 5.4); a goal outside a user's bounds is unavailable."""
     import messages
     import web
     from settings import Limits
@@ -2833,22 +2834,37 @@ def test_labels_topics_and_presets():
     topics = [n for names in pm.TOPICS.values() for n in names]
     assert sorted(topics) == sorted(web_fields), set(topics) ^ set(web_fields)
     assert all(f"topic.{t}" in texts for t in pm.TOPICS) and all(f"preset.{p}" in texts for p in pm.PRESETS)
+    assert all(texts[f"goal.{p}.text"] for p in pm.PRESETS) and pm.GOAL_FIELDS == pm.PRESET_FIELDS
+    assert len(pm.PRESET_FIELDS) == 11 and set(pm.PRESET_FIELDS) <= set(web_fields)
+    defaults = {n: pm.SearchParams.model_fields[n].default for n in pm.PRESET_FIELDS}
+    starting_rig = {"model": "sag", "pretension": 2.5, "stretch": 5, "webbing_weight": 70, "athlete_mass": 80,
+                    "fall_zone": 6, "end_zone": 5, "anchor_lift": 0, "same_line_square": 5}
     for preset, values in pm.PRESETS.items():
         assert (values is None or set(values) <= set(pm.PRESET_FIELDS)), preset
         full = pm.preset_values(preset)
         if full is not None:
-            assert set(full) == set(pm.PRESET_FIELDS)
-            pm.SearchParams(lat=50.1, lon=19.7, **full)  # valid on its own
-    assert pm.preset_values("typical") == {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10}
-    assert pm.preset_values("long")["max_anchor_diff_m"] == pm.SearchParams.model_fields["max_anchor_diff_m"].default
+            assert full == {**defaults, **values}, preset
+            p = pm.SearchParams(lat=50.1, lon=19.7, **full, **starting_rig)  # valid as a Basic search sends it
+            assert all(getattr(p, n) == v for n, v in full.items()), preset
+            web.check_request({"params": {"lat": 50.1, "lon": 19.7, **full, **starting_rig}},
+                              Limits.load(public=True))
+    assert list(pm.PRESETS) == ["best", "long", "first", "sea", "everything", "custom"]
+    assert pm.preset_values("best") == {**defaults, "min_length": 30, "max_length": 300, "max_anchor_diff_m": 10}
+    assert pm.preset_values("first")["nmpt"] == "reject" and pm.preset_values("everything") == defaults
+    sea = pm.preset_values("sea")
+    assert sea["max_wall_angle"] is None and (sea["min_length"], sea["max_length"], sea["min_drop"]) == (30, 300, 30)
+    assert pm.preset_values("long")["min_high_share"] == 50 and pm.preset_values("long")["high_above"] == 20
     offered = {p["id"]: p for p in web.presets(Limits.load(public=True))}
-    assert list(offered) == ["typical", "long", "short", "custom"] and all(p["available"] for p in offered.values())
-    assert offered["custom"]["values"] is None
+    assert list(offered) == list(pm.PRESETS) and all(p["available"] for p in offered.values())
+    assert offered["custom"]["values"] is None and offered["sea"]["values"] == sea
     tight = {p["id"]: p for p in web.presets(Limits(max_length_max=200))}
-    assert tight["typical"]["available"] and not tight["long"]["available"]
+    assert tight["first"]["available"] and not tight["best"]["available"] and not tight["everything"]["available"]
     assert tight["long"]["reason"] == "Longest line: at most 200 m on this site."
+    no_reject = {p["id"]: p for p in web.presets(Limits(not_allowed=["nmpt=reject", "max_wall_angle"]))}
+    assert not no_reject["first"]["available"] and no_reject["sea"]["available"]  # a field left at its default
+    assert no_reject["first"]["reason"] == 'Trees and buildings: "Remove these lines" cannot be used on this site.'
     fields = {f["name"]: f for f in web.schema()}
-    assert offered["short"]["label"] == "Short & low" and fields["nmpt"]["choice_labels"]["off"] == "Do not check"
+    assert offered["first"]["label"] == "First highline" and fields["nmpt"]["choice_labels"]["off"] == "Do not check"
     assert fields["max_anchor_diff_m"]["label"] == "Anchor height difference"
     assert fields["max_anchor_diff_m"]["unit"] == "m" and fields["max_anchor_diff_m"]["topic"] == "lines"
     assert fields["source"]["choice_labels"]["auto"] == "Automatic"

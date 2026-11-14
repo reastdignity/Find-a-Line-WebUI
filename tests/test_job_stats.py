@@ -54,6 +54,7 @@ def test_tables_match_the_app():
     assert js.PRESET_FIELDS == pm.PRESET_FIELDS
     assert js.PRESETS == {k: v for k, v in pm.PRESETS.items() if v is not None}
     assert set(pm.PRESETS) == set(js.PRESETS) | {"custom"}
+    assert not set(js.LEGACY_PRESETS) & set(pm.PRESETS) and set(js.LEGACY_FIELDS) <= set(js.PRESET_FIELDS)
     assert (js.STEP_KEYS, js.STAGE_KEYS, js.FUNNEL_STEPS) == (jb.STEP_KEYS, jb.STAGE_KEYS, jb.FUNNEL_STEPS)
     for name in pm.PRESETS:
         values = pm.preset_values(name)
@@ -78,8 +79,15 @@ def test_events_of_a_search_from_before():
 def test_classes():
     assert [js.resolution_class(r) for r in (0.5, 1, 1.5, 5, 8, 25, None)] == ["1", "1", "2", "5", "10", "30", "?"]
     assert [js.length_class(v) for v in (60, 150, 400, 1000, 2000)] == ["<=150", "<=150", "<=400", "<=1000", ">1000"]
-    assert js.preset_of({}) == "custom" and js.preset_of({"min_length": 100, "max_length": 400}) == "long"
-    assert js.preset_of({"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10.0}) == "typical"
+    # every value at its default is the goal "everything"; the old presets name the searches made with them
+    assert js.preset_of({}) == "everything" and js.preset_of({"min_length": 100, "max_length": 400}) == "long (old)"
+    assert js.preset_of({"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10.0}) == "typical (old)"
+    assert js.preset_of({"min_length": 15, "max_length": 60, "nmpt": "off"}) == "short (old)"
+    assert js.preset_of({"min_length": 15.0, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject"}) == "first"
+    assert js.preset_of({"min_length": 30, "max_length": 300, "min_drop": 30, "max_wall_angle": None}) == "sea"
+    assert js.preset_of({"min_length": 30, "max_length": 300, "min_drop": 30, "max_wall_angle": 30}) == "custom"
+    assert js.preset_of({"min_length": 30, "max_length": 300, "max_anchor_diff_m": 10, "model": "sag",
+                         "end_zone": 5, "same_line_square": 5}) == "best"  # the rig is not the goal's
 
 
 def _search(jobs, params, title, geometry=None):
@@ -115,12 +123,12 @@ def test_report_of_a_database(tmp_path, capsys):
     db.close()
     assert set(rows) == {("formula", "circle"), ("sag", "area")}
     first, second = rows["formula", "circle"], rows["sag", "area"]
-    assert (first["resolution"], first["length"], first["preset"], first["jobs"]) == ("2", "<=150", "typical", 1)
+    assert (first["resolution"], first["length"], first["preset"], first["jobs"]) == ("2", "<=150", "typical (old)", 1)
     assert (first["ends"], second["ends"]) == ("on", "off")  # a no-fall zone at the ends (or A-frames) set
     assert first["step 3 s"] == 10.0 and first["step 3 cpu"] == 70.0 and first["step 1 s"] is None
     assert first["stage anchor pairs cpu"] == 50.0 and first["open/anchors_kept"] == 0.5
     assert first["found/checked"] == 0.2 and first["valid/found"] == 0.5 and first["compute_s"] >= 0
-    assert (second["resolution"], second["length"], second["preset"]) == ("1", "<=1000", "custom")
+    assert (second["resolution"], second["length"], second["preset"]) == ("1", "<=1000", "everything")
     assert second["stage anchor pairs s"] == 3720 and second["stage anchor pairs cpu"] is None
     assert second["funnel checked"] == 8467347
     checkpoint = sqlite3.connect(path)  # an immutable read skips the WAL, as of a copy of the file
@@ -134,7 +142,7 @@ def test_report_of_a_database(tmp_path, capsys):
     assert js.main(["--db", path, "--days", "1"]) == 0
     assert js.main(["--db", path, "--phases"]) == 0
     text = open(out_csv, encoding="utf-8").read() + capsys.readouterr().out
-    assert "| sag | 1 | <=1000 | area | custom | off | 1 |" in text
+    assert "| sag | 1 | <=1000 | area | everything | off | 1 |" in text
     assert "## Phases of the jobs" in text and "| all |" in text
     for secret in (new, old, osm, SECRET["title"], SECRET["place"], "an old search", "Gozo", "19.75"):
         assert secret not in text, secret

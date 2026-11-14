@@ -333,9 +333,9 @@ def check_rig(values) -> dict:
     return found
 
 
-# --- What the web form shows (web.schema): the fields by topic (the form's "More settings") and presets
-# of the key fields. Their labels, units, hints and titles are in the message catalogue
-# (locales/en.json: field.<name>.label|unit|help, topic.<id>, preset.<id>; messages.py) ---
+# --- What the web form shows (web.schema): the fields by topic (the form's "More settings") and the goals
+# (presets). Their labels, units, hints and titles are in the message catalogue
+# (locales/en.json: field.<name>.label|unit|help, topic.<id>, preset.<id>, goal.<id>.text; messages.py) ---
 
 # topic -> fields in the form's order; "where" is the place part of the form, not "More settings"
 TOPICS = {
@@ -353,20 +353,27 @@ TOPICS = {
 }
 TOPIC_OF = {name: topic for topic, names in TOPICS.items() for name in names}
 
-# The fields a preset sets: one it leaves out gets its default
-PRESET_FIELDS = ("min_length", "max_length", "max_anchor_diff_m")
-# Presets of the kind of lines (the form's chips or cards): id -> values; "custom" sets nothing
-# (the values stay as they are: the defaults, or those of the search being edited)
+# The fields a goal sets (the Basic form's GOAL_FIELDS, viewer/src/search/basic.ts): one it leaves out
+# gets its default, so values "fit a goal" when all of them equal it
+PRESET_FIELDS = ("min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
+                 "min_height", "min_mean_height", "min_high_share", "max_wall_angle", "min_drop")
+GOAL_FIELDS = PRESET_FIELDS
+# The goals of the form ("What are you looking for?" in Basic, "Lines to look for" in Advanced; titles
+# preset.<id>, texts goal.<id>.text): id -> values; "custom" sets nothing (the values stay as they are: the
+# defaults, or those of the search being edited). Basic adds the rig in use, the sag model and the square
+# rule of 5; "Sea cliffs" also switches Where to the coast (the page's rule). docs/line-volume/spec-search.md 1.2
 PRESETS = {
-    "typical": {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10},
-    "long": {"min_length": 100, "max_length": 400},
-    "short": {"min_length": 15, "max_length": 60},
+    "best": {"min_length": 30, "max_length": 300, "max_anchor_diff_m": 10},
+    "long": {"min_length": 100, "max_length": 600, "max_anchor_diff_m": 30, "min_height": 30, "min_high_share": 50},
+    "first": {"min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject"},
+    "sea": {"min_length": 30, "max_length": 300, "min_drop": 30},  # no wall-angle limit (spec-search 5.4, U-2 a)
+    "everything": {},
     "custom": None,
 }
 
 
 def preset_values(preset: str) -> Optional[dict]:
-    """The values of a preset for every field of PRESET_FIELDS (defaults for those it leaves out);
+    """The values of a goal for every field of PRESET_FIELDS (defaults for those it leaves out);
     None for "custom"."""
     values = PRESETS[preset]
     if values is None:

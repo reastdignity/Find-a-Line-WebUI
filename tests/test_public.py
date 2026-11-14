@@ -2056,6 +2056,29 @@ def test_rig_names():
         assert "a\nb" not in str(error.value)
 
 
+def test_rig_names_composed_and_decomposed(tmp_path):
+    """A name spelt with composed letters (NFC) and one spelt with decomposed ones (a letter and a combining
+    mark: NFD) are one name: stored composed, taken once per user in either spelling and in any case."""
+    import unicodedata
+
+    import jobs as jb
+    composed, decomposed = "Łódź rig", unicodedata.normalize("NFD", "Łódź rig")
+    assert composed != decomposed and len(decomposed) > len(composed)
+    assert jb.rig_name(decomposed) == composed and jb.rig_key(jb.rig_name(decomposed)) == jb.rig_key(composed)
+    jobs = jb.Jobs(str(tmp_path))
+    first = jobs.add_rig(None, jb.rig_name(decomposed), RIG)
+    assert [r["name"] for r in jobs.rigs(None)] == [composed]
+    for taken in (composed, unicodedata.normalize("NFD", "ŁÓDŹ RIG"), "łódź  RIG"):
+        with pytest.raises(jb.UserError) as error:
+            jobs.add_rig(None, jb.rig_name(taken), RIG)
+        assert error.value.code == "rig_name_taken", taken
+    other = jobs.add_rig(None, "Other", RIG)
+    with pytest.raises(jb.UserError):
+        jobs.change_rig(None, other, jb.rig_name(unicodedata.normalize("NFD", "łódź rig")))
+    jobs.change_rig(None, first, jb.rig_name(unicodedata.normalize("NFD", "ŁÓDŹ rig")))  # its own name, recased
+    assert [r["name"] for r in jobs.rigs(None)] == ["ŁÓDŹ rig", "Other"]
+
+
 def test_adopt_runs_gives_rigs(tmp_path):
     """When the local app's data folder goes public, the first administrator gets the local user's rigs
     while it holds fewer than RIGS_MAX and none of the name (casefolded); the others stay the local

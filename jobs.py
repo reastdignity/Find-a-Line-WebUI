@@ -308,14 +308,20 @@ RIG_NAME_MAX = 30  # characters of a rig's name
 
 
 def rig_name(value) -> str:
-    """A rig's name as stored: its runs of whitespace collapsed to one space, stripped; 1 to RIG_NAME_MAX
-    characters, no control characters (UserError "rig_name" otherwise; the error never holds the name)."""
+    """A rig's name as stored: in Unicode's composed form (NFC, so a composed and a decomposed spelling are
+    one name), its runs of whitespace collapsed to one space, stripped; 1 to RIG_NAME_MAX characters, no
+    control characters (UserError "rig_name" otherwise; the error never holds the name)."""
     if isinstance(value, str) and not any(unicodedata.category(c) == "Cc" for c in value):
-        name = " ".join(value.split())
+        name = " ".join(unicodedata.normalize("NFC", value).split())
         if 0 < len(name) <= RIG_NAME_MAX:
             return name
     raise UserError(f"a rig's name: 1 to {RIG_NAME_MAX} characters, no control characters", "rig_name",
                     max=RIG_NAME_MAX)
+
+
+def rig_key(name: str) -> str:
+    """The key a rig's name (of rig_name) is compared by, once per user: casefolded, composed again (NFC)."""
+    return unicodedata.normalize("NFC", name.casefold())
 
 
 # An absolute path on the server: C:\... (or C:/...), or /dir/... not in a URL (http://host/...: the
@@ -1035,9 +1041,9 @@ class Jobs:
             count = db.execute("SELECT COUNT(*) FROM rigs WHERE user_id IS ?", (user_id,)).fetchone()[0]
             if count >= RIGS_MAX:
                 raise QuotaExceeded(f"at most {RIGS_MAX} rigs: delete one first", 409, "rigs_max", max=RIGS_MAX)
-            self._rig_name_free(db, user_id, name.casefold())
+            self._rig_name_free(db, user_id, rig_key(name))
             return db.execute("INSERT INTO rigs (user_id, name, name_key, rig) VALUES (?, ?, ?, ?)",
-                              (user_id, name, name.casefold(), json.dumps(values))).lastrowid
+                              (user_id, name, rig_key(name), json.dumps(values))).lastrowid
 
     def change_rig(self, user_id: Optional[int], rig_id: int, name: Optional[str] = None,
                    values: Optional[Dict] = None):
@@ -1049,8 +1055,8 @@ class Jobs:
             if not db.execute("SELECT 1 FROM rigs WHERE id = ? AND user_id IS ?", (rig_id, user_id)).fetchone():
                 raise KeyError(rig_id)
             if name is not None:
-                self._rig_name_free(db, user_id, name.casefold(), rig_id)
-                db.execute("UPDATE rigs SET name = ?, name_key = ? WHERE id = ?", (name, name.casefold(), rig_id))
+                self._rig_name_free(db, user_id, rig_key(name), rig_id)
+                db.execute("UPDATE rigs SET name = ?, name_key = ? WHERE id = ?", (name, rig_key(name), rig_id))
             if values is not None:
                 db.execute("UPDATE rigs SET rig = ? WHERE id = ?", (json.dumps(values), rig_id))
 
