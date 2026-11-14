@@ -512,10 +512,11 @@ run({
     result.first = [!!rows()[0].querySelector(".r-tight"), rows()[0].querySelector(".r-clr").textContent];
     result.key = text(".r-tight-key");
     rows()[0].click();
-    wait(() => $(".r-kv"), () => {
+    wait(() => $(".r-kv") && $(".r-card .fal-profile-title"), () => {
       result.facts = $$(".r-kv dt").map((dt) => [dt.textContent, dt.nextElementSibling.textContent]);
       result.stands = model().selected.line.stands_for;
       result.tightLine = text(".r-tight-line");
+      result.card = text(".r-card");  // the profile's title: the line's clearance as the rows write it
       next();
     });
   }); },
@@ -524,8 +525,11 @@ run({
     if (!link) { result.why = null; return next(); }
     link.click();
     wait(() => $(".r-why"), () => {
-      result.why = {text: text(".r-why-text"), rows: $$(".r-why-row").map((r) => r.textContent)};
-      const counts = model().needCounts(), k = counts.indexOf(Math.max(...counts));
+      result.why = {text: text(".r-why-text"), rows: $$(".r-why-row").map((r) => r.textContent),
+                    bar: !!$(".r-why-bar")};
+      const counts = model().needCounts();
+      if (!counts) { result.counts = null; return next(); }  // without the zone and A-frames: the first sentence only
+      const k = counts.indexOf(Math.max(...counts));
       result.counts = [counts, k];
       $$(".r-why-row input")[k].click();
       // the page drawn again after the model changed: its count of hidden lines and "Clear all"
@@ -564,7 +568,8 @@ def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
     rigging (adding up to its lines; a cleared "Show" hides that class like a filter, "Clear all" shows it again);
     a line's details how many found lines it stands for. The tight mark on every row under 1 m and on no other,
     its key above the list only while a row is tight, its words with the A-frames, and without them on a run
-    without A-frames. A run without the option shows no second line and no box."""
+    without A-frames, the profile card's clearance rounded down as the rows'. A run without the option shows no
+    second line and no box; one made with it without the no-fall zone and A-frames only the box's first sentence."""
     import test_web as tw
     monkeypatch.delenv("ESRI_API_KEY", raising=False)
     monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
@@ -577,6 +582,15 @@ def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
         r = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile=f"edge-{name}"))
         assert "timeout" not in r and r["at"] == "end" and "error" not in r, r
         results[name] = (r, json.loads(_read(str(folder), "run.json"))["summary"])
+    # the run without the option, its head given a count of found lines: a run made with the square rule without
+    # the no-fall zone and A-frames (no new search)
+    page = tw._map_page(folder, "plain_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN,
+                        after_data=TIGHT_LINE + " FINDALINE_RUN.found = 12345; FINDALINE_RUN.square = 5;")
+    plain = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile="edge-plain"))
+    assert "timeout" not in plain and plain["at"] == "end" and "error" not in plain, plain
+    assert plain["foundLine"] == f"{_spaced(12345)} found. Why so many?" and plain["counts"] is None, plain
+    assert plain["why"] == {"text": f"Each line stands for the found lines a few metres from it: {_spaced(12345)} in all.",
+                            "rows": [], "bar": False}, plain
     r, summary = results["on"]
     found, n = summary["found"], summary["lines"]
     assert found > 2 * n and r["sum"] == found and r["found"][:2] == [found, 5] and r["n"] == n, r
@@ -595,6 +609,7 @@ def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
     assert r["marks"] and r["first"] == [True, "0.9 m"] and r["keyAfter"] == [False, 0], r
     assert r["key"] == "Tight: under 1 m clear at the tightest point, with the 2 m A-frames up.", r
     assert r["tightLine"] == "Tight: 0.9 m clear at its tightest point, with the 2 m A-frames up.", r
+    assert "min. clearance 0.9 m" in r["card"] and "min. clearance 1.0 m" not in r["card"], r
     r, summary = results["off"]
     assert "found" not in summary and "found" not in r["summary"] and r["found"] == [None, None, None], r
     assert r["summary"].endswith(f"{_spaced(summary['lines'])} lines") and r["sum"] == 0 and r["stands"] is None, r
