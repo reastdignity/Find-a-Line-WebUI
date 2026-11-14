@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { ResultModel } from "../model";
 import { COLORS } from "../../style";
 import type { Line } from "../../types";
+import { t } from "../../i18n";
+import { clearanceText, isTight, tightKey } from "../../tight";
 import "./result.css";
 import "../../profile.css";
 
@@ -30,12 +32,36 @@ export function Swatch({color, class: cls}: {color: string; class?: string}) {
   return <i class={"r-sw" + (cls ? " " + cls : "")} style={{background: color}} aria-hidden="true" />;
 }
 
-/** The first cells of a line's row (the list, the choice of spots on the map): its colour, length,
- *  clearance and height. */
-export function LineCells({line: l}: {line: Line}) {
+/** A count with a no-break space as the thousands separator: 2 010 351. */
+export function count(n: number): string {
+  return Math.round(n).toLocaleString("en").replace(/,/g, " ");
+}
+
+/** The ring with "!" of a tight line (tight.ts), before its clearance; its title says what it means. */
+export function TightMark({lift}: {lift?: number | null}) {
+  return <i class="r-tight" role="img" aria-label={t("ui.tight.label")} title={tightKey(lift)} />;
+}
+
+/** A line's clearance in a row: the tight mark and the clearance rounded down for a tight line. */
+export function Clearance({line: l, lift}: {line: Line; lift?: number | null}) {
+  return <span class="r-clr">{isTight(l.clr) && <TightMark lift={lift} />}{clearanceText(l.clr)} m</span>;
+}
+
+/** The key line of the tight mark, under a list that holds a tight line. */
+export function TightKey({lift}: {lift?: number | null}) {
+  return <p class="u-small r-tight-key"><i class="r-tight" aria-hidden="true" />{tightKey(lift)}</p>;
+}
+
+/** The first cells of a line's row (the list, the choice of spots on the map): its colour, length, height
+ *  (the mean height, or the highest point with `height` "hmax") and clearance (with the tight mark; `lift`:
+ *  the run's A-frame height for the mark's words). */
+export function LineCells({line: l, height = "hmean", lift}: {line: Line; height?: "hmean" | "hmax"; lift?: number | null}) {
+  const h = height === "hmax" ? l.hmax : l.hmean;
   return <>
     <Swatch color={lineColor(l)} />
-    <span>{num(l.len)} m</span><span>{num(l.clr, 1)} m</span><span>{isFinite(l.hmax) ? num(l.hmax) + " m" : "–"}</span>
+    <span>{num(l.len)} m</span>
+    <span>{Number.isFinite(h) ? num(h, height === "hmax" ? 0 : 1) + " m" : "–"}</span>
+    <Clearance line={l} lift={lift} />
   </>;
 }
 

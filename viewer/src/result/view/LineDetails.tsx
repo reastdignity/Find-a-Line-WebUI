@@ -12,13 +12,14 @@ import type { ResultModel } from "../model";
 import { canReport, openReport } from "../../report";
 import { FavouritePicker } from "./FavouritePicker";
 import { ResultNote } from "./ResultSummary";
-import { cx, num, Swatch, useModel } from "./common";
+import { count, cx, num, Swatch, useModel } from "./common";
+import { clearanceText, isTight, tightLine } from "../../tight";
 import { day } from "../../time";
 import { t } from "../../i18n";
 import { shortMetres } from "../../endzone";
 
-const BY_LABEL: Record<string, string> = {clearance: "the most clearance", longest: "the longest",
-                                          height: "the highest above the ground"};
+// The rank of a spot's first line, by "Show per spot" (model.state.by; texts ui.details.first_<by>)
+const BY_LABEL = ["mean", "clearance", "longest", "height"];
 const DOTS = 12;  // dots of the spot's lines; more are a number only
 
 /** The app's link to a line: its address with `#run=<id>&line=<lat1,lon1,lat2,lon2>`. */
@@ -95,9 +96,10 @@ export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; 
   facts.push(["Anchor 1", `${l.lat1.toFixed(6)}, ${l.lon1.toFixed(6)} · ${num(l.e1, 1)} m${pct(l.pct1)}`]);
   facts.push(["Anchor 2", `${l.lat2.toFixed(6)}, ${l.lon2.toFixed(6)} · ${num(l.e2, 1)} m${pct(l.pct2)}`]);
   if (l.clrN !== null) facts.push(["Over trees/buildings", `${num(l.clrN, 1)} m clear`]);
-  if (isFinite(l.hmax)) {
-    facts.push(["Above the ground", `up to ${num(l.hmax)} m, mean ${num(l.hmean)} m, ` +
-                                    `${num(l.highPct)}% of the line ${highAbove} m or more`]);
+  // the highest point and the mean height are the stats above the facts
+  facts.push([t("ui.details.dh"), t("ui.details.dh_value", {m: num(dh(l), 1)})]);
+  if (Number.isFinite(l.highPct)) {
+    facts.push([t("ui.details.above"), t("ui.details.above_value", {pct: num(l.highPct), m: highAbove})]);
   }
   if (isFinite(l.angle1)) facts.push(["Angle to the wall", `A1 ${num(l.angle1)}°, A2 ${num(l.angle2)}° (0° straight out)`]);
   const m = (v: number | null) => v === null ? "–" : num(v) + " m";
@@ -110,7 +112,7 @@ export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; 
   if (rigging) facts.push([t("ui.details.rigging"), rigging]);
   // a run made with the square rule: the found lines between the same two anchor squares this line stands for
   if (typeof l.stands_for === "number") {
-    facts.push([t("ui.details.stands_for"), t("ui.details.stands_for_n", {count: l.stands_for})]);
+    facts.push([t("ui.details.stands_for"), t("ui.details.stands_for_n", {count: l.stands_for, n: count(l.stands_for)})]);
   }
   return facts;
 }
@@ -137,6 +139,7 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
   if (!sel) return note ? <ResultNote model={model} /> : null;
   const {group, line: l} = sel;
   const k = model.position, n = model.rows.length, size = group.members.length, at = model.variantIndex();
+  const members = model.membersOf(group), lift = model.liftOf(l);
   const pressed = (e: Event) => { refocus = (e.currentTarget as HTMLElement).getAttribute("aria-label"); };
   const step = (by: 1 | -1, e: Event) => {
     pressed(e);
@@ -144,9 +147,11 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
   };
   const variant = (to: number, e?: Event) => {
     if (e) pressed(e);
-    model.choose(group, group.members[to]);
-    onStep?.(group.members[to]);
+    const line = members[to];
+    model.choose(group, line);
+    onStep?.(line);
   };
+  const by = BY_LABEL.includes(model.state.by) ? model.state.by : "clearance";
   const link = () => {
     const text = (linkOf || ((x: Line) => appLink(model, x)))(l);
     copy(text).then((ok) => setCopied({line: l, ok, text}));
@@ -156,7 +161,7 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
   const head = <div class="r-dhead">
     <div class="u-grow">
       <div class="r-eyebrow">{k >= 0 ? `Spot ${k + 1} of ${n}` : "Spot"}{size > 1 && ` · ${size} similar`}</div>
-      <div class="r-dtitle">{l.run && <Swatch color={l.run.color} />}{num(l.len)} m · {num(l.clr, 1)} m clear</div>
+      <div class="r-dtitle">{l.run && <Swatch color={l.run.color} />}{num(l.len)} m · {clearanceText(l.clr)} m clear</div>
     </div>
     <div class="r-pager">
       <IconButton icon="back" label="Previous spot" disabled={k <= 0 && k !== -1} onClick={(e) => step(-1, e)} />
@@ -170,19 +175,20 @@ export function LineDetails({model, linkOf, view3dOf, onZoom, onStep, part = "al
     {part === "all" && head}
     {note && <ResultNote model={model} />}
     <Stats>
-      <Stat value={num(l.len)} unit="m" label="long" />
-      <Stat value={num(l.clr, 1)} unit="m" label={l.over ? "clear of terrain" : "clearance"} />
-      <Stat value={num(l.hmax)} unit="m" label="max height" />
-      <Stat value={num(dh(l), 1)} unit="m" label="Δh anchors" />
+      <Stat value={num(l.len)} unit="m" label={t("ui.details.stat.long")} />
+      <Stat value={num(l.hmean, 1)} unit="m" label={t("ui.details.stat.mean")} />
+      <Stat value={clearanceText(l.clr)} unit="m" label={t(l.over ? "ui.details.stat.clear_terrain" : "ui.details.stat.clear")} />
+      <Stat value={num(l.hmax)} unit="m" label={t("ui.details.stat.highest")} />
     </Stats>
+    {isTight(l.clr) && <p class="r-tight-line"><i class="r-tight" aria-hidden="true" />{tightLine(l.clr, lift)}</p>}
     {l.over && <p class="r-warn"><Icon name="warn" />Passes over trees or buildings: check it on the photo.</p>}
     {size > 1 && <div class="r-var">
       <IconButton icon="back" label="Previous line of the spot" plain disabled={at <= 0}
                   onClick={(e) => variant(at - 1, e)} />
-      {size <= DOTS && <span class="r-dots" aria-hidden="true">{group.members.map((_, i) =>
+      {size <= DOTS && <span class="r-dots" aria-hidden="true">{members.map((_, i) =>
         <i key={i} class={i === at ? "r-on" : ""} />)}</span>}
       <span class="u-grow"><b>{at + 1} of {size}</b> similar lines
-        {at === 0 ? ` · ${BY_LABEL[model.state.by] || BY_LABEL.clearance}`
+        {at === 0 ? ` · ${t(`ui.details.first_${by}`)}`
           : <> · <button type="button" class="r-link" onClick={() => variant(0)}>back to the first</button></>}</span>
       <IconButton icon="next" label="Next line of the spot" plain disabled={at >= size - 1}
                   onClick={(e) => variant(at + 1, e)} />

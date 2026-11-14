@@ -15,6 +15,7 @@ import { t } from "./i18n";
 import { estimateWidth, textWidth, type PlacedLabel } from "./labels";
 import { chartFrame, chartLabels, frameLeg, MARGIN as M, type ChartMarks, type MarkerMark } from "./profilechart";
 import * as Sag from "./sag";
+import { clearanceText } from "./tight";
 import { COLORS } from "./style";
 import type { Line, Rigging } from "./types";
 
@@ -193,7 +194,9 @@ export function ProfilePanel(props: ProfileProps) {
   const markerOf = (min: [number, number], label: string, at: MarkerMark["at"]): MarkerMark | null => {
     const topZ = limit(min[0]);
     if (!isFinite(topZ)) return null;
-    return {d: min[0], top: topZ, bottom: topZ - min[1], texts: [label + " " + min[1].toFixed(1) + " m"], at};
+    // the clearance as the rows write it (tight.ts: a tight line's rounded down); over the trees as before
+    const value = label === "min. clearance" ? clearanceText(min[1]) : min[1].toFixed(1);
+    return {d: min[0], top: topZ, bottom: topZ - min[1], texts: [label + " " + value + " m"], at};
   };
   const minMark = minTerrain ? markerOf(minTerrain, "min. clearance", "below") : null;
   const treesMark = minTerrain && minSurface && minSurface[1] < minTerrain[1] - 0.05
@@ -329,10 +332,10 @@ export function ProfilePanel(props: ProfileProps) {
   // A found line's anchors are the ground's (on A-frames the webbing starts higher), a measured one's its ends'
   const t1 = measured ? l.e1 : props.line.e1, t2 = measured ? l.e2 : props.line.e2;
   const ends = "A1 " + t1.toFixed(1) + " m → A2 " + t2.toFixed(1) + " m", delta = "Δh " + Math.abs(t1 - t2).toFixed(1) + " m";
-  let clearance = "min. clearance " + l.clr.toFixed(1) + " m", verdict = "";
+  let clearance = "min. clearance " + clearanceText(l.clr) + " m", verdict = "";
   if (measured) {
     const clr = minTerrain ? minTerrain[1] : NaN, clrN = minSurface ? minSurface[1] : null;
-    clearance = "min. clearance " + (isFinite(clr) ? clr.toFixed(1) + " m" : "–") +
+    clearance = "min. clearance " + (isFinite(clr) ? clearanceText(clr) + " m" : "–") +
       (clrN !== null ? " (over trees/buildings " + clrN.toFixed(1) + " m)" : "");
     verdict = !isFinite(clr) ? "" : clr < 0 ? "does not fit" : clrN !== null && clrN < 0 ? "fits over terrain only"
       : "fits";

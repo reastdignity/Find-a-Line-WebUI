@@ -222,7 +222,7 @@ run({
       result.columns = [!!$(".c-col-list .r-summary"), !!$(".c-col-list .r-filters"), text(".c-col-details .c-pick"),
                         location.hash, text(".r-col.r-on"), !!button("Edit & run again"), text(".c-run-name")];
       const model = window.FINDALINE_RESULT.model;
-      result.sorted = model.rows.slice(0, 5).every((r, k, all) => k === 0 || all[k - 1].line.clr >= r.line.clr);
+      result.sorted = model.rows.slice(0, 5).every((r, k, all) => k === 0 || all[k - 1].line.hmean >= r.line.hmean);
       next();
     });
   },
@@ -323,7 +323,7 @@ def test_shell_c_desktop(data, tmp_path):
     """Home: the runs as cards, the small run's mini map with its lines, the big one's box only (its lines.js not
     loaded); New search starts with "Typical highline", Start is enabled after the estimate and returns home
     with the new card highlighted, which runs (progress) and turns done with its run; the card opens the
-    result in three columns sorted by clearance, a row selects its line (details, the profile in its card over the
+    result in three columns sorted by mean height, a row selects its line (details, the profile in its card over the
     map, the hash),
     ‹ › and a filter chip; a favourite shows in home's aside; Back and Forward; the copied link (without ?ui=)
     opens the line; Edit & run again opens the form with the job's request; no CSP violations."""
@@ -343,7 +343,7 @@ def test_shell_c_desktop(data, tmp_path):
     assert r["done"][1] == 1 and "spots" in r["done"][0], r
     columns = r["columns"]
     assert columns[0] and columns[1] and columns[2].startswith("Select a line"), r
-    assert columns[3] == f"#run={SMALL}" and columns[4].startswith("Clear.") and columns[5], r
+    assert columns[3] == f"#run={SMALL}" and columns[4].startswith("Mean height") and columns[5], r
     assert columns[6] == "Small run" and r["sorted"], r
     assert r["selected"][0].startswith("Spot 1 of ") and r["selected"][1].startswith("Profile") and r["selected"][2], r
     assert r["stepped"][0].startswith("Spot 2 of ") and r["stepped"][1] == 1, r
@@ -578,6 +578,9 @@ const click = (p) => {
   document.elementFromPoint(x, y).dispatchEvent(new MouseEvent("click", {bubbles: true, cancelable: true, clientX: x, clientY: y, view: window}));
 };
 const selectedIs = (g) => !!model().selected && model().selected.group === g;
+/** The spot a row of the choice names ("Spot k": the list's k-th row): the click's own order of two spots about as
+ *  near may differ from `crowded`'s by a fraction of a pixel. */
+const spotOf = (row) => model().rows[+row.textContent.match(/Spot (\\d+)/)[1] - 1].group;
 /** Zoomed out, a point where several spots lie about as near (in the map's free part): [the point, the spots near it]. */
 const crowded = (zoom) => {
   map().setZoom(zoom, {animate: false});
@@ -629,8 +632,10 @@ run({
         const rows = $$(".r-choose [role=option]"), panel = rect(".r-choose"), col = rect(".c-col-map");
         result.list = [rows.length, !$(".r-choose-dock"), panel.left >= col.left && panel.right <= col.right
                        && panel.top >= col.top && panel.bottom <= col.bottom, !!document.activeElement.closest(".r-choose")];
+        const wanted = spotOf(rows[1]);
         rows[1].click();
-        later(() => { result.chosen = [selectedIs(near[1].group), !$(".r-choose")]; next(); });
+        later(() => { result.chosen = [selectedIs(wanted) && near.slice(0, 2).some((c) => c.group === wanted),
+                                       !$(".r-choose")]; next(); });
       });
     });
   },
@@ -1016,8 +1021,10 @@ run({
     later(() => {
       const panel = $(".r-choose");
       result.list = [$$(".r-choose [role=option]").length, !!panel && panel.classList.contains("r-choose-dock")];
+      const wanted = spotOf($$(".r-choose [role=option]")[1]);
       $$(".r-choose [role=option]")[1].click();
-      later(() => { result.chosen = [selectedIs(near[1].group), !$(".r-choose")]; next(); });
+      later(() => { result.chosen = [selectedIs(wanted) && near.slice(0, 2).some((c) => c.group === wanted),
+                                     !$(".r-choose")]; next(); });
     });
   },
   view3d(next) {
