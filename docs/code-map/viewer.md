@@ -21,7 +21,12 @@ layers, `keys.ts` keys of lines, `favourites.ts` favourites, their folders' requ
 the folder tree, `shore.ts` the uncertain shore's pure parts (`segmentBox`, `metresInView`, `SHORE_COLOURS`) and
 `shoreLayer.ts` its Leaflet overlay (in the layer control of `result/view/ResultColumns.tsx`, on by default) and the
 control `.u-shore` at the map's top left: a legend of the two kinds with the metres of each in view and a "?" opening
-`ui.shore.help`, shown only while the view holds some (`addShore`)), bundled by esbuild into `dist/` (committed);
+`ui.shore.help`, shown only while the view holds some (`addShore`); `coarser.ts` the pure parts of a run's
+`terrain_sources` (where its land's terrain came from: `km2InView`, `warns` from `FALLBACK_WARN_SHARE` =
+`search.FALLBACK_WARN_SHARE`, `sharesText`) and `coarserLayer.ts` the "Coarser terrain" overlay (the fallbacks'
+regions hatched by an SVG pattern of their renderer, colour `--coarse-map`) with its box `.u-coarse` under the
+shore's (each fallback's km² in view, `ui.coarse.help`; `addCoarser`, whose `fit` is `ResultModel.coarserFit`, the
+"Show on map" of `ResultSummary`'s `CoarserNote`), the shares under More filters (`FilterBar`)), bundled by esbuild into `dist/` (committed);
 copied to `runs/_viewer/` by every run. The app (`app/app.tsx`: the app's one interface, C (`app/c`); B and D were
 removed on 2026-11-04, so `?ui=` chooses only the kits and a stale `b` or `d` gives C, `ui/choice.ts`; "Copy link"
 gives no `?ui=`; the old app with tabs was removed on 2026-10-30; docs/roadmap.md, "UI prototypes B, C and D"): `ui/`

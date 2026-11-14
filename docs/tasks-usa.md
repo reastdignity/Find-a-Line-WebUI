@@ -16,6 +16,15 @@ Indian Beach (45.930699, −123.979594) is a second check for task 4. It is not 
 
 ## Task 1: say when the terrain came from a fallback
 
+**Done 2026-11-14** (branch `fallback-share`). The decisions: the warning `terrain_fallback` from 10 % of the
+search area's land filled from fallbacks (neighbours' national data never count); the shares and the fallbacks'
+regions in run.json and data.js (`terrain_sources`); the result's head says it from 10 % with "Show on map", the
+map has a "Coarser terrain" layer with the km² in view and the shares stand under More filters; `usa` names
+`usgs10m` where its 1 m DEM has no data within 2 km (`instead_without_data`, as `alaska`). Measured at the Oregon
+cove: as `usa` (a 1 m grid interpolated from the 10 m fallback) 0 lines; as `usgs10m` on its own 10 m grid 529
+lines in 119 spots (roadmap, "To check": interpolating to a finer grid lowers the number of lines). The text
+below is the task as it was handed over.
+
 **Goal.** A user sees, in the run's messages, `run.json` and the map, when most of the search area's terrain comes from a coarser fallback layer, not from the source the run names.
 
 **Why.**
