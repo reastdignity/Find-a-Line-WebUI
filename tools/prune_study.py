@@ -140,6 +140,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "tools"))
 if __name__ == "__main__":  # a rules file's `import prune_study` must give this module, not a second copy
     sys.modules.setdefault("prune_study", sys.modules["__main__"])
+    for stream in (sys.stdout, sys.stderr):  # UTF-8 when redirected (progress.utf8_output, inline)
+        stream.reconfigure(encoding="utf-8", errors="replace")
 
 import numba  # noqa: E402
 import numpy as np  # noqa: E402
