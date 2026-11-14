@@ -408,7 +408,7 @@ failure, started at once, by PowerShell's `Register-ScheduledTask`; the desktop 
 `msedge --app=http://127.0.0.1:8771/`, Edge from the registry's App Paths), `uninstall`, both with `--dry-run` (an
 agent runs neither for real: the user installs it); a full pytest in parallel processes (pytest-xdist): a command
 of kind `pytest-all` gets `-n MODE_WORKERS[mode] --dist loadfile` after the word pytest when it is queued
-(`parallel_command`; 4 workers shared, 8 heavy and exclusive), unless it names its own `-n`/`--numprocesses`/
+(`parallel_command`; 6 workers shared, 8 heavy and exclusive), unless it names its own `-n`/`--numprocesses`/
 `--dist`/`--tx`/`--maxprocesses` or `-p no:xdist` (`-n 0`: a serial full run), gives one of `SERIAL_ONLY` (--pdb,
 --trace, -s, --collect-only, --looponfail, --stepwise) or its Python has no xdist (`xdist_available`: a probe import;
 a line says it runs serially); kind `pytest-all-xdist` (`PARALLEL_KIND`, `pytest_workers`), so its estimates and
@@ -416,7 +416,7 @@ peaks stay apart; `WORKER_THREADS` 3 threads a worker (`_environment(workers=)`;
 `HEAVY_TAMED_THREADS` in all, the entry's command rewritten, `Queue.set_command`); a shared one counts
 `slot_weight` = ceil(workers / `WORKERS_PER_SLOT` 2) slots and, waiting for them, keeps them reserved in `startable`
 (a later shared one passes it only by the backfill rule, so it is never starved); with no history its peak is
-`MEMORY_BASE_GB` 6.0 + `MEMORY_PER_WORKER_GB` 0.65 a worker; `status` adds "4 workers x 3 threads, 2 slots"
+`MEMORY_BASE_GB` 6.0 + `MEMORY_PER_WORKER_GB` 0.65 a worker; `status` adds "6 workers x 3 threads, 3 slots"
 (`_parallel_text`); `tests/test_test_lock.py`, `tests/test_test_lock_parallel.py`, `tests/test_test_lock_page.py`
 
 ## `tools/test_times.py`

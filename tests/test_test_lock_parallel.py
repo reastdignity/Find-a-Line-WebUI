@@ -166,12 +166,13 @@ def test_xdist_found_in_the_commands_python(tmp_path):
 
 
 def test_the_wrapper_runs_a_full_pytest_in_parallel(tmp_path):
-    """A full pytest of a small project under the lock: its line, `-n 4 --dist loadfile` in the run's
-    history (kind pytest-all-xdist), WORKER_THREADS threads in each of its 4 workers; `-n 0` serial."""
+    """A full pytest of a small project under the lock: its line, `-n MODE_WORKERS["shared"] --dist loadfile`
+    in the run's history (kind pytest-all-xdist), WORKER_THREADS threads in each worker; `-n 0` serial."""
+    workers = tl.MODE_WORKERS["shared"]
     project = tmp_path / "project"
     (project / "tests").mkdir(parents=True)
     (project / "pytest.ini").write_text("[pytest]\ntestpaths = tests\n", encoding="utf-8")
-    for k in range(4):
+    for k in range(workers):  # one file a worker
         (project / "tests" / f"test_{k}.py").write_text(
             "import os\n"
             "def test_threads():\n"
@@ -188,13 +189,13 @@ def test_the_wrapper_runs_a_full_pytest_in_parallel(tmp_path):
     result = subprocess.run(command, cwd=project, env=env, capture_output=True, text=True, encoding="utf-8",
                             timeout=300)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "test lock: the full pytest runs in parallel: 4 workers x 3 threads" in result.stderr
-    assert sorted(os.listdir(out)) == [f"gw{k}.txt" for k in range(4)]
+    assert f"test lock: the full pytest runs in parallel: {workers} workers x 3 threads" in result.stderr
+    assert sorted(os.listdir(out)) == sorted(f"gw{k}.txt" for k in range(workers))
     assert {(out / name).read_text() for name in os.listdir(out)} == {str(tl.WORKER_THREADS)}
     db = sqlite3.connect(str(tmp_path / "locks" / "queue.sqlite"))
     key, kind = db.execute("SELECT key, kind FROM history").fetchone()
     db.close()
-    assert "pytest -n 4 --dist loadfile -q" in key and kind == tl.PARALLEL_KIND
+    assert f"pytest -n {workers} --dist loadfile -q" in key and kind == tl.PARALLEL_KIND
     for name in os.listdir(out):
         os.remove(out / name)
     result = subprocess.run([*command, "-n", "0"], cwd=project, env=env, capture_output=True, text=True,

@@ -3602,7 +3602,8 @@ The full `pytest` (about 1780 tests) ran in one process: 2194 s on 2026-11-12, 2
 (the second beside other sessions' runs), 0.85 cores busy on average, 3.7 GB at its peak. Under the test lock a
 full run is now parallel (pytest-xdist, `--dist loadfile`: a file whole on one worker; `tools/test_lock.py`
 `MODE_WORKERS`, docs/workflow.md). Every number in the table is of a run beside other sessions' commands, from
-`tools/test_times.py` and the lock's history; the user chose the lock's numbers from them. The exclusive pair is
+`tools/test_times.py` and the lock's history; the user chose the lock's numbers from them (shared mode 4 × 3 at
+first, 6 × 3 since 2026-11-14: 3 of the 6 shared slots, so two suites side by side fill them). The exclusive pair is
 the last bullet.
 
 | Workers × threads | Runs | Wall s | CPU s | Peak GB |

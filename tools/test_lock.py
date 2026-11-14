@@ -167,11 +167,12 @@ PYTEST_VALUES = ("-p", "-W", "-o", "-c", "-n", "-r", "--deselect", "--ignore", "
 THREAD_VARS = ("NUMBA_NUM_THREADS", "OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
                "GDAL_NUM_THREADS")
 # A full pytest in parallel processes (pytest-xdist; see the docstring). The numbers are the user's,
-# from the measurements of 2026-11-13 (local/test-speed-2026-11-13/wave1/results.md and wave2/)
-MODE_WORKERS = {"shared": 4, "heavy": 8, "exclusive": 8}   # -n of a full pytest by mode
+# from the measurements of 2026-11-13 (local/test-speed-2026-11-13/wave1/results.md and wave2/); shared 4 -> 6 on
+# 2026-11-14 (6 x 3 422 s against 4 x 3 486-658 s; 3 of the 6 slots, so two suites side by side fill them)
+MODE_WORKERS = {"shared": 6, "heavy": 8, "exclusive": 8}   # -n of a full pytest by mode
 WORKER_THREADS = 3       # numba/OpenMP/BLAS/GDAL threads of each worker (8 x 8 took 2713 s CPU, 8 x 3 1954 s)
 WORKERS_PER_SLOT = 2     # a shared parallel pytest counts ceil(workers / this) of the SLOTS
-MEMORY_BASE_GB, MEMORY_PER_WORKER_GB = 6.0, 0.65   # its expected peak with no history (8.6 GB at 4 workers)
+MEMORY_BASE_GB, MEMORY_PER_WORKER_GB = 6.0, 0.65   # its expected peak with no history (9.9 GB at 6 workers)
 PARALLEL_KIND = "pytest-all-xdist"
 OWN_XDIST = ("-n", "--numprocesses", "--dist", "--tx", "--maxprocesses")   # the caller chose: nothing added
 SERIAL_ONLY = ("--pdb", "--trace", "-s", "--capture=no", "--co", "--collect-only", "-f", "--looponfail", "--sw",
@@ -749,7 +750,7 @@ class Queue:
                                                      "IS NOT NULL ORDER BY id DESC LIMIT ?", (kind, KIND_RUNS)))
         if runs:
             return runs[(9 * len(runs) + 9) // 10 - 1]
-        if kind == PARALLEL_KIND:  # a first parallel full pytest: about 8.6 GB at 4 workers (measured 7.6-8.6)
+        if kind == PARALLEL_KIND:  # a first parallel full pytest: about 9.9 GB at 6 workers (measured 7.8-9.1)
             return int((MEMORY_BASE_GB + MEMORY_PER_WORKER_GB * (pytest_workers(command) or 1)) * GB)
         return None
 
@@ -980,7 +981,7 @@ def _describe(entry: Entry, now: float, expected: Optional[float] = None, hold: 
 
 
 def _parallel_text(entry: Entry) -> str:
-    """'4 workers x 3 threads, 2 slots' for a parallel full pytest, else ''."""
+    """'6 workers x 3 threads, 3 slots' for a parallel full pytest, else ''."""
     try:
         command = shlex.split(entry.command)
     except ValueError:
