@@ -47,6 +47,9 @@ MAX_NAME = 100  # characters of a run name
 MAX_AREA_TEXT = 200  # characters of --within, and of an --area that is no file (osm:<name>)
 END_ZONE_MAX = 20  # metres of --end-zone
 ANCHOR_LIFT_MAX = 3  # metres of --anchor-lift
+# --same-line-square (samelines.py), when not 0: a square of one pixel joins nothing, and squares of 10 m
+# already leave lines without a kept line within 8 m (docs/roadmap.md, the line volume study)
+SAME_LINE_SQUARE_MIN, SAME_LINE_SQUARE_MAX = 2, 20
 
 
 class SearchParams(BaseModel):
@@ -148,6 +151,12 @@ class SearchParams(BaseModel):
     tile_size: Optional[float] = field(None, "large areas are computed in square tiles of this size in metres "
                                              "(plus an overlap of --max-length); default: from the free memory",
                                        "search")
+    same_line_square: float = field(0, "the square rule: of all valid lines between the same two anchor squares "
+                                       "keep only one (the one that needs the least rigging, then the highest "
+                                       "mean height above the terrain), which knows how many found lines it "
+                                       "stands for; the squares' side in metres, on data coarser than 1 m in "
+                                       "pixels (5: 5 m squares at 1 m, 10 m at 2 m); 2 to 20, 0: off, every "
+                                       "line is kept", "search")
 
     # Clearance model
     model: Literal["formula", "sag"] = field("formula", "'formula': maximum elevation formula (see README); "
@@ -244,6 +253,10 @@ class SearchParams(BaseModel):
                 raise UserError("--prominence-span and --drop-radius must be positive", "positive", field=name)
         if self.tile_size is not None and self.tile_size < 100:
             raise UserError("--tile-size must be at least 100 m", "tile_size_min", min=100)
+        if self.same_line_square != 0 and not SAME_LINE_SQUARE_MIN <= self.same_line_square <= SAME_LINE_SQUARE_MAX:
+            raise UserError(f"--same-line-square is 0 (off) or {SAME_LINE_SQUARE_MIN:g} to "
+                            f"{SAME_LINE_SQUARE_MAX:g}", "same_line_square_range",
+                            min=SAME_LINE_SQUARE_MIN, max=SAME_LINE_SQUARE_MAX)
         for name, value in (("area", self.area), ("within", self.within)):
             if value is not None and any(unicodedata.category(c) == "Cc" for c in value):
                 raise UserError(f"--{name}: no control characters", "control_characters", field=name)
@@ -299,7 +312,8 @@ TOPICS = {
     "height": ["nmpt", "high_above", "min_height", "min_mean_height", "min_high_share"],
     "anchors": ["slope_threshold", "min_elevation", "max_elevation", "min_prominence", "min_prominence_both",
                 "prominence_span", "min_drop", "drop_radius"],
-    "lines": ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "max_wall_angle"],
+    "lines": ["min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "max_wall_angle",
+              "same_line_square"],
     "data": ["source", "resolution", "water", "coastline", "shore_buffer", "fill_gaps", "update"],
     "rigging": ["model", "pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone", "end_zone",
                 "anchor_lift"],

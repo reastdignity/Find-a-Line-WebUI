@@ -42,6 +42,9 @@
   "field.max_wall_angle.label": "Angle to the wall, at most",
   "field.max_wall_angle.unit": "°",
   "field.max_wall_angle.help": "How far the line turns from the fall line of the wall at each anchor. 0°: the line goes straight out over the drop. 90°: the line goes along the wall. Use 30–45° for clean exits from a wall.",
+  "field.same_line_square.label": "One line per pair of anchor squares",
+  "field.same_line_square.unit": "m",
+  "field.same_line_square.help": "Most found lines are the same line with an anchor moved by a pixel or two. With this set, the ground is cut into squares this wide, and of all lines between the same two squares only one is kept: the one that needs the least rigging, then the one highest above the ground on average. It knows how many found lines it stands for. On data coarser than 1 m the squares are this many pixels wide. 2 to 20; 5 is a good value. 0: off, every line is kept. Far fewer lines are saved, so larger areas fit the limits.",
 
   "field.slope_threshold.label": "Anchor steepness",
   "field.slope_threshold.unit": "°",
@@ -218,6 +221,7 @@
   "error.wall_angle_range": "Angle to the wall is 0 to 180°.",
   "error.end_zone_range": "No-fall zone at the ends is 0 to {{max}} m.",
   "error.anchor_lift_range": "A-frame height is 0 to {{max}} m.",
+  "error.same_line_square_range": "One line per pair of anchor squares is 0 (off) or {{min}} to {{max}} m.",
   "error.elevation_range": "Anchor elevation: the lower limit cannot be above the upper limit.",
   "error.slope_range": "Anchor steepness is more than 0° and at most 90°.",
   "error.tile_size_min": "Tile size must be at least {{min}} m.",
