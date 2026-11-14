@@ -192,8 +192,8 @@ run({
     wait(() => window.FINDALINE_PLACE && $(".s-panel") && $(".c-bar .s-start"), () => {
       result.newPage = [location.hash, text(".s-card.u-on b"), $(".c-bar .s-start").disabled];
       window.FINDALINE_PLACE.map.fire("click", {latlng: POINT});
-      wait(() => text(".c-bar .s-bar-line").startsWith("Ready"), () => {
-        result.ready = [text(".c-bar .s-bar-line"), $(".c-bar .s-start").disabled, ESTIMATES.length];
+      wait(() => $(".c-bar .s-bar").dataset.estimate === "ready", () => {
+        result.ready = [$(".c-bar .s-bar").dataset.estimate, $(".c-bar .s-start").disabled, ESTIMATES.length];
         $(".c-bar .s-start").click();
         wait(() => location.hash === "#home" && $(".c-card-new"), () => {
           job = $(".c-card-new").dataset.job;
@@ -321,7 +321,7 @@ run({
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_shell_c_desktop(data, tmp_path):
     """Home: the runs as cards, the small run's mini map with its lines, the big one's box only (its lines.js not
-    loaded); New search starts with "Typical highline", Start is enabled after the estimate and returns home
+    loaded); New search starts with "The best lines here", Start is enabled after the estimate and returns home
     with the new card highlighted, which runs (progress) and turns done with its run; the card opens the
     result in three columns sorted by mean height, a row selects its line (details, the profile in its card over the
     map, the hash),
@@ -336,8 +336,8 @@ def test_shell_c_desktop(data, tmp_path):
     assert r["smallThumb"] == ["lines", SMALL_LINES, r["smallThumb"][2]] and r["smallThumb"][2] >= 1, r
     assert r["bigThumb"][:2] == ["outline", 0] and int(r["bigThumb"][2].split()[0].replace(",", "")) > 3000, r
     assert not r["bigLinesLoaded"], r
-    assert r["newPage"] == ["#new", "Typical highline", True], r
-    assert r["ready"][0] == "Ready to search" and r["ready"][1] is False and r["ready"][2] >= 1, r
+    assert r["newPage"] == ["#new", "The best lines here", True], r
+    assert r["ready"][0] == "ready" and r["ready"][1] is False and r["ready"][2] >= 1, r
     assert r["started"][0] and r["started"][1] == "waiting", r
     assert r["running"][0].upper().startswith("RUNNING · ") and r["running"][1], r
     assert r["done"][1] == 1 and "spots" in r["done"][0], r

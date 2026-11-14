@@ -2246,6 +2246,10 @@ def test_schema_has_labels_topics_and_presets(client):
 
 
 
+# What every Basic request carries explicitly with the starting rig (spec-search 1.2)
+BASIC_RIG = {"model": "sag", "pretension": 2.5, "stretch": 5, "webbing_weight": 70, "athlete_mass": 80, "fall_zone": 6,
+             "end_zone": 5, "anchor_lift": 0, "same_line_square": 5}
+
 # The search panel's demo page (?ui=kit-search): no event stream; the estimates are answered here and
 # recorded (their bodies), RATE_LIMITED of them answered with 429 first, SLOW_FIRST delays the first one
 SEARCH_STUBS = CSP_STUB + """
@@ -2279,8 +2283,10 @@ const $ = (selector) => document.querySelector(selector);
 const text = (selector) => ($(selector) || {}).textContent || "";
 const button = (label) => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === label);
 const wait = (ok, then, tries = 150) => ok() ? then() : tries ? setTimeout(() => wait(ok, then, tries - 1), 100)
-                                                  : say("timeout", text(".s-bar-line") + " | " + text(".s-panel").slice(0, 200));
-const status = () => text(".s-bar-line");  // the estimate's bar
+                                                  : say("timeout", status() + " | " + text(".s-panel").slice(0, 200));
+// the bar: the estimate's state (data-estimate), its line, else the receipt (or the problem that replaces it)
+const status = () => text(".s-bar-line") || text(".s-receipt");
+const ready = () => ($(".s-bar") || {dataset: {}}).dataset.estimate === "ready";
 const stats = () => [...document.querySelectorAll(".s-bar .s-stat")].map((s) => s.textContent).join(" ");
 const fieldValue = (label) => [...document.querySelectorAll(".u-field-lab")].find((l) => l.textContent.startsWith(label))
   ?.querySelector("b")?.textContent;
@@ -2290,17 +2296,17 @@ const setRange = (input, value) => { input.value = String(value); input.dispatch
 SEARCH_SCRIPT = SEARCH_HELPERS + """
 wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   const map = window.FINDALINE_PLACE.map;
-  say("initial", {estimate: status(), preset: text(".s-card.u-on b")});
+  say("initial", {estimate: status(), preset: text(".s-card.u-on b"), radius: fieldValue("Search radius"),
+                  tab: text(".s-tabs [aria-selected=true]")});
   map.fire("click", {latlng: {lat: 50.1559508, lng: 19.7562722}});
   setTimeout(() => setRange($(".s-where input[type=range]"), 150), 100);
-  wait(() => status().startsWith("Ready"), () => {
+  wait(() => ready(), () => {
     say("point", {centre: text(".s-point"), radius: fieldValue("Search radius"), calls: ESTIMATES.length,
                   stats: stats(), body: ESTIMATES[ESTIMATES.length - 1]});
-    [...document.querySelectorAll(".s-card")].find((c) => c.querySelector("b").textContent === "Typical highline").click();
+    $(".s-card[data-goal=first]").click();
     setTimeout(() => {
-      say("preset", {length: fieldValue("Line length"), diff: fieldValue("Anchor height difference"),
-                     on: text(".s-card.u-on b")});
-      wait(() => ESTIMATES.length === 2 && status().startsWith("Ready"), () => {
+      say("preset", {on: text(".s-card.u-on b"), receipt: text(".s-receipt")});
+      wait(() => ESTIMATES.length === 2 && ready(), () => {
         say("again", {source: stats(), body: ESTIMATES[1].params});
         button("Start search").click();
         wait(() => $(".s-started") && $(".s-job"), () => {
@@ -2341,23 +2347,27 @@ def _result_of(dom: str) -> dict:
 
 @pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
 def test_search_panel(tmp_path):
-    """The search panel (?ui=kit-search): a click on the map sets the centre, the estimate comes by
-    itself once the changes stop (one request for the click and the radius), a preset's card sets the
-    length fields (and asks again), Start search queues the job that useJobs lists; the usage meters
-    show; no CSP violations."""
+    """The search panel (?ui=kit-search): it opens Basic with "The best lines here", the starting rig and a radius
+    of 500 m; a click on the map sets the centre, the estimate comes by itself once the changes stop (one request
+    for the click and the radius) with Basic's request (the model, the rig and the square rule explicit), a goal's
+    card changes it (and asks again), Start search queues the job that useJobs lists; the usage meters show; no
+    CSP violations."""
     page = _search_page(tmp_path, SEARCH_SCRIPT)
     dom = _edge_page(tmp_path, page + "?ui=kit-search&theme=light", size="1280,900")
     r = _result_of(dom)
     assert "timeout" not in r, r
-    assert r["initial"]["estimate"].startswith("Select the centre of the search") and r["initial"]["preset"] == "Custom", r
+    assert r["initial"] == {"estimate": messages.text("error.no_centre"), "preset": "The best lines here",
+                            "radius": "500 m", "tab": "Basic"}, r
     point = r["point"]
     assert "50.15595, 19.75627" in point["centre"] and point["radius"] == "150 m", point
     assert point["calls"] == 1, point  # debounced: the click and the radius are one estimate
-    assert point["body"] == {"params": {"lat": 50.1559508, "lon": 19.7562722, "radius": 150}, "geometry": None}
+    assert point["body"] == {"params": {"max_length": 300, "max_anchor_diff_m": 10, **BASIC_RIG, "lat": 50.1559508,
+                                        "lon": 19.7562722, "radius": 150}, "geometry": None}, point
     assert "0.07 km²" in point["stats"] and "test-1" in point["stats"], point  # π × 150² for a circle
-    assert r["preset"] == {"length": "30 – 150 m", "diff": "≤ 10 m", "on": "Typical highline"}, r
-    assert r["again"]["body"] == {"lat": 50.1559508, "lon": 19.7562722, "radius": 150, "max_length": 150,
-                                  "max_anchor_diff_m": 10}, r  # min_length 30 is the default: not sent
+    assert r["preset"]["on"] == "First highline", r
+    assert r["preset"]["receipt"].startswith("15–60 m · anchors within 3 m of height · clear of trees · Rig: sag"), r
+    assert r["again"]["body"] == {"min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject",
+                                  **BASIC_RIG, "lat": 50.1559508, "lon": 19.7562722, "radius": 150}, r
     started = r["started"]
     assert started["id"] == started["job"] and "waiting" in started["card"], started
     assert started["meters"] == ["runs_gb", "jobs_day", "jobs_active"], started  # locally: no km² counted
@@ -2375,7 +2385,7 @@ wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   // A change while the first estimate is in flight: its (slow) answer is dropped
   wait(() => ESTIMATES.length === 1, () => {
     setRange($(".s-where input[type=range]"), 200);
-    wait(() => ESTIMATES.length === 2 && status().startsWith("Ready"), () => {
+    wait(() => ESTIMATES.length === 2 && ready(), () => {
       setTimeout(() => {
         say("dropped", {stats: stats(), calls: ESTIMATES.length});
         // Too many estimates: paused, asked again once after RETRY_MS, never more
@@ -2426,7 +2436,7 @@ wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   setTimeout(() => {
     say("draw", {tools: !!$(".leaflet-pm-toolbar"), buffer: fieldValue("Band width")});
     place.loadDrawn(shapes);
-    wait(() => text(".s-areas") && status().startsWith("Ready"), () => {
+    wait(() => text(".s-areas") && ready(), () => {
       say("area", {areas: text(".s-areas"), features: last().geometry.features.length, buffer: last().params.buffer});
       button("Named OSM area").click();
       setTimeout(() => {
@@ -2444,7 +2454,7 @@ wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
               button("File").click();
               setTimeout(() => load("crag.kml", () => {
                 say("file", {help: text(".s-where"), areas: text(".s-areas")});
-                wait(() => last().geometry && status().startsWith("Ready"), () => {
+                wait(() => last().geometry && ready(), () => {
                   button("Start search").click();
                   wait(() => $(".s-started"), () => say("started", $(".s-started").dataset.started));
                 });
@@ -2471,7 +2481,8 @@ def test_search_panel_modes(tmp_path):
     assert r["draw"] == {"tools": True, "buffer": "100 m"}, r
     assert r["area"]["areas"].startswith("2 separate areas (3 shapes") and r["area"]["features"] == 3, r
     assert r["area"]["buffer"] == 100, r
-    assert r["osm"] == {"params": {"buffer": 100, "area": "osm:Gozo"}, "geometry": None}, r
+    basic = {"max_length": 300, "max_anchor_diff_m": 10, **BASIC_RIG}  # Basic's "The best lines here"
+    assert r["osm"] == {"params": {**basic, "buffer": 100, "area": "osm:Gozo"}, "geometry": None}, r
     assert r["cliffs"]["line"] == messages.text("error.within_missing") and not r["cliffs"]["tools"], r
     within = r["within"]
     assert within["area"] == "cliffs" and len(within["within"].split(",")) == 4, within  # S,W,N,E of the view
@@ -2485,7 +2496,7 @@ def test_search_panel_modes(tmp_path):
 PHONE_SEARCH_SCRIPT = SEARCH_HELPERS + """
 wait(() => window.FINDALINE_PLACE && $(".s-panel"), () => {
   window.FINDALINE_PLACE.map.fire("click", {latlng: {lat: 50.1559508, lng: 19.7562722}});
-  wait(() => status().startsWith("Ready"), () => {
+  wait(() => ready(), () => {
     const start = button("Start search").getBoundingClientRect(), map = $(".s-kit-map").getBoundingClientRect();
     const form = $(".s-c-form").getBoundingClientRect();
     say("phone", {width: innerWidth, scroll: document.documentElement.scrollWidth, sheet: !!$(".u-sheet"),
@@ -2509,3 +2520,243 @@ def test_search_panel_on_a_phone(tmp_path):
     assert not r["sheet"] and r["mapOnTop"] and r["jobs"], r
     assert r["modes"][:2] == ["Point", "Area"] and r["modes"][2:4] == ["Cliffs", "File"] and r["start"], r
     assert _violations(dom) == []
+
+
+def _playwright() -> bool:
+    import importlib.util
+    return importlib.util.find_spec("playwright") is not None
+
+
+STARTING_RIG = {k: v for k, v in BASIC_RIG.items() if k not in ("model", "same_line_square")}
+POINT_JS = "window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
+WAIT = 30000  # ms: the deadline of every wait for the page (an event, never a fixed pause)
+# A button by its whole text (a text= selector matches a sentence that holds the words first), in the open dialog
+BUTTON = "button:text-is(\"%s\")"
+IN_DIALOG = "dialog[open] button:text-is(\"%s\")"
+
+
+def _basic_page(tmp_path, port, browser, hash_="#new", **context):
+    """The app's new search (C) over the server of tmp_path in Playwright's Edge: the event stream stubbed and the
+    estimates answered (SEARCH_STUBS), the intros put away; waits for the form."""
+    page = browser.new_page(**context)
+    page.goto(f"http://127.0.0.1:{port}/runs/basictest/index.html?ui=c{hash_}")
+    page.wait_for_selector(".s-panel .s-tabs", timeout=WAIT)
+    return page
+
+
+def _ready(page):
+    """Wait until the bar's estimate is ready (data-estimate, EstimateBar)."""
+    page.wait_for_function("() => document.querySelector('.s-bar')?.dataset.estimate === 'ready'", timeout=WAIT)
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_basic_form_rigs_tabs_and_edit(tmp_path):
+    """The Basic search form (spec-search 1.2, 1.7) in Playwright's Edge, every wait an event with a deadline: a
+    first visit opens Basic with the starting rig; "Yes, save it"; Esc closes the rig's window unsaved and the focus
+    goes back; rename and change; "Save as a new rig" with a taken name, then a free one; choosing a rig (kept per
+    browser); deleting one with its question; Start sends Basic's request with the rig in use; "Edit & run again"
+    of that job opens Basic, of a job made before the form Advanced; the dialog of going back to Basic (Stay,
+    Reset); the receipt opens its field in Advanced; a dot, its badge and "reset"; "Save into"; ten rigs."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    jobs = Jobs(str(tmp_path))
+    old = jobs.add({"params": {"lat": 50.1559508, "lon": 19.7562722, "radius": 300, "max_length": 300,
+                               "max_anchor_diff_m": 10, "model": "sag", "end_zone": 5}, "geometry": None}, "old", None)
+    names = lambda: [(r["name"], r["values"]) for r in jobs.rigs(None)]  # noqa: E731
+    r = {}
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _basic_page(tmp_path, port, browser, viewport={"width": 1280, "height": 900})
+            # A first visit: Basic, "The best lines here", the starting rig, 500 m
+            r["first"] = page.evaluate("""() => [document.querySelector('.s-tabs [aria-selected=true]').textContent,
+                document.querySelector('.s-card.u-on b').textContent, document.querySelector('.s-rig-state').textContent,
+                !!document.querySelector('.s-rig-box'), document.querySelector('.s-where .u-field-lab b').textContent]""")
+            page.click(BUTTON % 'Yes, save it')
+            page.wait_for_selector(".s-rig-pick", timeout=WAIT)
+            r["saved"] = (names(), page.text_content(".s-rig-pick"), page.evaluate("localStorage.getItem('findaline.rig')"),
+                          str(jobs.rigs(None)[0]["id"]))
+            # Esc closes the window unsaved, the focus back on "Change"
+            page.click(".s-rig-change")
+            page.wait_for_selector("dialog[open] .s-rig-form", timeout=WAIT)
+            r["edit_title"] = page.text_content("dialog[open] h2")
+            page.fill("dialog[open] input[type=text]", "Gone")
+            page.keyboard.press("Escape")
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            r["escaped"] = (names()[0][0], page.evaluate("document.activeElement.className"))
+            # Rename and change a value
+            page.click(".s-rig-change")
+            page.fill("dialog[open] input[type=text]", "Light")
+            page.fill("dialog[open] [data-rig-field=end_zone]", "3")
+            page.click("dialog[open] button[type=submit]")
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            page.wait_for_function("() => document.querySelector('.s-rig-pick')?.textContent.startsWith('Light')",
+                                   timeout=WAIT)
+            r["renamed"] = (names(), page.text_content(".s-rig .s-rig-sum"))
+            # A copy: the taken name refused in the page's words, then a free one; it is in use
+            page.click(".s-rig-change")
+            page.click(IN_DIALOG % 'Save as a new rig')
+            page.wait_for_selector("dialog[open] .s-rig-problem", timeout=WAIT)
+            r["taken"] = page.text_content("dialog[open] .s-rig-problem")
+            page.fill("dialog[open] input[type=text]", "Heavy")
+            page.fill("dialog[open] [data-rig-field=anchor_lift]", "2")
+            page.click(IN_DIALOG % 'Save as a new rig')
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            page.wait_for_function("() => document.querySelector('.s-rig-pick')?.textContent.startsWith('Heavy')",
+                                   timeout=WAIT)
+            heavy = jobs.rigs(None)[1]["id"]
+            r["copied"] = ([n for n, _ in names()], page.text_content(".s-rig-state"),
+                           page.evaluate("localStorage.getItem('findaline.rig')"), str(heavy))
+            # Choose "Light" from the list
+            light = jobs.rigs(None)[0]["id"]
+            page.click(".s-rig-pick")
+            page.click(f".s-rig-item[data-rig='{light}']")
+            page.wait_for_function("() => document.querySelector('.s-rig-pick')?.textContent.startsWith('Light')",
+                                   timeout=WAIT)
+            r["chosen"] = page.evaluate("localStorage.getItem('findaline.rig')")
+            # Delete it: the question, "No, keep it", then "Yes, delete it"; the first rig takes its place
+            page.click(".s-rig-change")
+            page.click(IN_DIALOG % 'Delete this rig')
+            r["ask"] = page.text_content("dialog[open] .s-rig-foot .s-note")
+            page.click(IN_DIALOG % 'No, keep it')
+            page.click(IN_DIALOG % 'Delete this rig')
+            page.click(IN_DIALOG % 'Yes, delete it')
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            page.wait_for_function("() => document.querySelector('.s-rig-pick')?.textContent.startsWith('Heavy')",
+                                   timeout=WAIT)
+            r["deleted"] = [n for n, _ in names()]
+            # Start: Basic's request with the rig in use
+            page.evaluate(POINT_JS)
+            _ready(page)
+            r["receipt"] = page.text_content(".s-receipt")
+            page.click(".s-start")
+            page.wait_for_function("() => location.hash === '#home'", timeout=WAIT)
+            started = [j for j in jobs.all() if j["id"] != old][0]["id"]
+            r["request"] = json.loads(jobs.get(started)["request"])["params"]
+            # "Edit & run again": the Basic job opens Basic, the old one Advanced
+            page.close()
+            page = _basic_page(tmp_path, port, browser, f"#new&edit={started}", viewport={"width": 1280, "height": 900})
+            r["edit_basic"] = page.evaluate("() => [window.FINDALINE_SEARCH.tab, window.FINDALINE_SEARCH.goal]")
+            page.close()
+            page = _basic_page(tmp_path, port, browser, f"#new&edit={old}", viewport={"width": 1280, "height": 900})
+            r["edit_old"] = page.evaluate("() => [window.FINDALINE_SEARCH.tab, document.querySelector('.s-from').textContent]")
+            # Back to Basic: the dialog, "Stay in Advanced" focused; again, "Reset them to Basic's values"
+            page.click(".s-tabs [data-tab=basic]")
+            page.wait_for_selector("dialog[open] .n-actions", timeout=WAIT)
+            r["dialog"] = page.evaluate("""() => [document.querySelector('dialog[open] h2').textContent,
+                [...document.querySelectorAll('dialog[open] li')].map((li) => li.textContent),
+                document.querySelector('dialog[open] .s-note').textContent, document.activeElement.textContent]""")
+            page.click(IN_DIALOG % 'Stay in Advanced')
+            page.wait_for_selector("dialog[open]", state="detached", timeout=WAIT)
+            page.wait_for_function("() => document.activeElement?.dataset.tab === 'advanced'", timeout=WAIT)
+            r["stayed"] = page.evaluate("() => [window.FINDALINE_SEARCH.tab, document.activeElement.dataset.tab]")
+            page.click(".s-tabs [data-tab=basic]")
+            page.click(IN_DIALOG % "Reset them to Basic's values")
+            page.wait_for_function("() => window.FINDALINE_SEARCH.tab === 'basic'", timeout=WAIT)
+            # The receipt opens its field in Advanced, filled from Basic: nothing differs
+            page.evaluate(POINT_JS)
+            page.click(".s-receipt button[data-field=max_anchor_diff_m]")
+            page.wait_for_function("() => document.activeElement?.closest('[data-field=max_anchor_diff_m]')",
+                                   timeout=WAIT)
+            r["opened"] = page.evaluate("() => [window.FINDALINE_SEARCH.tab, document.querySelector('.s-from').textContent]")
+            # A dot: More settings, Clearance model, pretension; its badge, the note; "reset"; then "Save into"
+            page.click(".s-more-head")
+            page.click(".s-topic[data-topic=rigging] > summary")
+            field = page.locator(".s-setting[data-field=pretension] input")
+            field.fill("3")
+            field.dispatch_event("change")
+            page.wait_for_selector(".s-setting[data-field=pretension] .s-changed", timeout=WAIT)
+            r["dot"] = page.evaluate("""() => [document.querySelector('.s-topic[data-topic=rigging] .u-badge')?.textContent,
+                document.querySelector('.s-from').textContent, !document.querySelector('.s-rig-save button').disabled]""")
+            page.click(".s-setting[data-field=pretension] .s-reset")
+            page.wait_for_selector(".s-setting[data-field=pretension] .s-changed", state="detached", timeout=WAIT)
+            r["reset"] = page.evaluate("() => [document.querySelector('.s-from').textContent, "
+                                       "document.querySelector('.s-rig-save button').disabled]")
+            field = page.locator(".s-setting[data-field=pretension] input")
+            field.fill("4")
+            field.dispatch_event("change")
+            page.click(BUTTON % 'Save into “Heavy”')
+            page.wait_for_function("() => document.querySelector('.s-rig-save .u-small')?.textContent.startsWith('Saved into')",
+                                   timeout=WAIT)
+            r["saved_into"] = (page.text_content(".s-rig-save .u-small"), jobs.rigs(None)[0]["values"]["pretension"],
+                               page.evaluate("() => document.querySelector('.s-setting[data-field=pretension] .s-changed')"))
+            page.close()
+            # Ten rigs: "+ Add a rig" disabled with its sentence, Advanced's "Save as a new rig" too
+            for k in range(9):
+                jobs.add_rig(None, f"Spare {k}", STARTING_RIG)
+            page = _basic_page(tmp_path, port, browser, viewport={"width": 1280, "height": 900})
+            page.click(".s-rig-pick")
+            r["ten"] = page.evaluate("""() => [document.querySelector('.s-rig-state').textContent,
+                document.querySelector('.s-rig-add').disabled, document.querySelector('.s-rig-add').textContent,
+                document.querySelectorAll('.s-rig-item:not(.s-rig-add)').length]""")
+            page.click(".s-tabs [data-tab=advanced]")
+            page.click(".s-more-head")
+            page.click(".s-topic[data-topic=rigging] > summary")
+            r["ten_new"] = page.evaluate("() => [...document.querySelectorAll('.s-rig-save button')].map((b) => [b.textContent, b.disabled])")
+            r["csp"] = page.evaluate("() => window.CSP_VIOLATIONS")
+        finally:
+            browser.close()
+    assert r["first"] == ["Basic", "The best lines here", "not set yet", True, "500 m"], r
+    assert r["saved"][0] == [("My rig", STARTING_RIG)] and r["saved"][1].startswith("My rig"), r
+    assert r["saved"][2] == r["saved"][3], r  # the new rig is in use, kept in this browser
+    assert r["edit_title"] == "Change a rig" and r["escaped"] == ("My rig", "u-btn s-rig-change"), r
+    assert r["renamed"] == ([("Light", {**STARTING_RIG, "end_zone": 3})], "sag · no-fall zone 3 m · no A-frames"), r
+    assert r["taken"] == "Give the copy a new name: “Light” is taken.", r
+    assert r["copied"] == (["Light", "Heavy"], "2 rigs", r["copied"][3], r["copied"][3]), r
+    assert r["chosen"] == str(light), r
+    assert r["ask"] == "Delete “Light”?" and r["deleted"] == ["Heavy"], r
+    assert r["receipt"] == "30–300 m · anchors within 10 m of height · trees marked · Heavy: sag, no-fall zone 3 m, A-frames 2 m", r
+    heavy_values = {**STARTING_RIG, "end_zone": 3, "anchor_lift": 2}
+    assert r["request"] == {"max_length": 300, "max_anchor_diff_m": 10, "model": "sag", **heavy_values,
+                            "same_line_square": 5, "lat": 50.1559508, "lon": 19.7562722, "radius": 500}, r
+    assert r["edit_basic"] == ["basic", "best"], r
+    assert r["edit_old"][0] == "advanced", r
+    assert r["edit_old"][1] == ("Filled from Basic: The best lines here, Heavy. 3 values differ from Basic's: they have a "
+                                "dot. “reset” puts Basic's value back."), r
+    title, items, note, focused = r["dialog"]
+    assert title == "Basic cannot show 3 of your settings" and focused == "Stay in Advanced", r
+    assert sorted(items) == ["A-frame height 0 m", "No-fall zone at the ends 5 m", "One line per pair of anchor squares 0 m"], r
+    assert note == ("Stay in Advanced to keep them. Or reset them to Basic's values: The best lines here; Heavy: sag, "
+                    "no-fall zone 3 m, A-frames 2 m."), r
+    assert r["stayed"] == ["advanced", "advanced"], r
+    assert r["opened"] == ["advanced", "Filled from Basic: The best lines here, Heavy. Nothing differs from Basic yet. "
+                                       "A value you change gets a dot."], r
+    assert r["dot"][0] == "1" and "1 value differs from Basic's: it has a dot." in r["dot"][1] and r["dot"][2], r
+    assert "Nothing differs from Basic yet." in r["reset"][0] and r["reset"][1] is True, r
+    assert r["saved_into"] == ("Saved into “Heavy”. Every Basic search uses it now.", 4.0, None), r
+    assert r["ten"] == ["10 rigs, the most you can keep", True,
+                        "You have 10 rigs: the most you can keep. Delete one to add another.", 10], r
+    assert r["ten_new"][-1] == ["Save as a new rig", True], r
+    assert r["csp"] == [], r
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE) or not _playwright(), reason="needs Microsoft Edge and Playwright (group ui)")
+def test_basic_form_on_a_phone(tmp_path):
+    """On a phone of 390 × 844 px (touch, pixel ratio 3) the form keeps at least 396 px between the map and the
+    compact bar (spec-search 1.8: the accepted mock-up's 396 px); the bar's one line "<goal> · <lengths> · <rig>"
+    unfolds the receipt and the source; the page does not scroll sideways."""
+    from playwright.sync_api import sync_playwright
+    _search_page(tmp_path, "", folder_name="basictest")
+    with _server(tmp_path) as port, sync_playwright() as p:
+        browser = p.chromium.launch(channel="msedge", headless=True)
+        try:
+            page = _basic_page(tmp_path, port, browser, viewport={"width": 390, "height": 844}, device_scale_factor=3,
+                               is_mobile=True, has_touch=True)
+            page.evaluate(POINT_JS)
+            _ready(page)
+            r = page.evaluate("""() => ({form: document.querySelector('.c-form').getBoundingClientRect().height,
+                bar: document.querySelector('.c-bar').getBoundingClientRect().height,
+                line: document.querySelector('.s-sum').textContent, receipt: getComputedStyle(document.querySelector('.s-receipt')).display,
+                scroll: document.documentElement.scrollWidth, width: innerWidth})""")
+            page.click(".s-sum")
+            page.wait_for_function("() => getComputedStyle(document.querySelector('.s-receipt')).display !== 'none'",
+                                   timeout=WAIT)
+            r["open"] = page.evaluate("() => [document.querySelector('.s-receipt').innerText, "
+                                      "document.querySelector('.s-stat-source')?.textContent]")
+        finally:
+            browser.close()
+    assert r["form"] >= 396 and r["bar"] < 110, r
+    assert r["line"].startswith("The best lines here · 30–300 m · Rig") and r["receipt"] == "none", r
+    assert r["scroll"] <= r["width"], r
+    assert r["open"][0].startswith("30–300 m · anchors within 10 m of height · Rig: sag"), r  # no "trees marked" on a phone
+    assert r["open"][1] == "test-1" + "1 m grid", r

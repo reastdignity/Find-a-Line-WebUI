@@ -343,7 +343,8 @@ Everything has a key (a text console has no mouse); `tests/test_area_rows.py`, `
 
 Run by hand (also on the VPS host with its `python3`: standard library only): where the computing time of the finished
 searches goes, read-only from a `jobs.sqlite` (`--immutable` for a copy): by model, resolution, longest line,
-circle/area and preset, the computing seconds (sum, median, p90), seconds and CPU seconds per step and per stage, the
+circle/area and goal of the form (its copy of `params.PRESETS`; the three presets before the goals as "typical (old)",
+"long (old)", "short (old)" for the searches made with them), the computing seconds (sum, median, p90), seconds and CPU seconds per step and per stage, the
 funnel's ratios; `--phases`: the seconds between a job's timestamps (the waits for a download and a compute slot, the
 phases), the computing seconds outside its steps, the steps `orthophoto` and `other`, and the tiles of an area
 (number, the largest one's Mpx) from its "--- Tile k of N" lines; jobs from before migration 16 from their info

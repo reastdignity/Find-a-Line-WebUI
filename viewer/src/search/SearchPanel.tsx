@@ -255,7 +255,7 @@ function SaveRig({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   const asNew = () => {
     const problem = rigProblem(shown);
     if (problem) { setMessage(problem); return; }
-    onRig({mode: r.inUse ? "new" : "first", values: shown});
+    onRig({mode: r.inUse ? "new" : "first", values: shown, from: "advanced"});
   };
   const note = message || (full && !same && r.inUse ? t("basic.full_save_into", {max: r.max, name: r.inUse.name})
     : r.inUse && same ? t("basic.same_values", {name: r.inUse.name}) : t("basic.rig_keeps"));
@@ -396,7 +396,7 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
     : s.preset && s.preset !== "custom" ? s.goalOf(s.preset)?.label ?? null : null;
   const parts = receiptParts(s.resolved, s.defaults, s.rigs.inUse, s.name);
   const unfolded = open && !problem;
-  return <div class={cx("s-bar", `s-${state}`, phone && "s-compact", unfolded && "s-open")}>
+  return <div class={cx("s-bar", `s-${state}`, phone && "s-compact", unfolded && "s-open")} data-estimate={status}>
     {phone && <button type="button" class={cx("s-sum", problem && "s-bad")} aria-expanded={unfolded}
                       disabled={!!problem} title={t("basic.receipt.toggle")} onClick={() => setOpen(!open)}>
       <span class="u-grow">{problem || receiptShort(s.resolved, goal, s.rigs.inUse)}</span>
@@ -417,8 +417,8 @@ export function EstimateBar({search: s, usage, phone}: {search: SearchState; usa
       {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
         <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}
       {s.error && <span class="s-problem"> {s.error}</span>}</p>}
-    <Button kind="primary" large disabled={!s.canStart} onClick={s.start} class="s-start">
-      {s.busy ? "Starting…" : "Start search ›"}</Button>
+    <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
+      {s.busy ? "Starting…" : "Start search"}</Button>
     {!phone && size.lighter && <p class="s-heavy-line">{t("basic.size.lighter")}{" "}
       <button type="button" class="s-link" onClick={() => s.toAdvanced("model")}>{t("basic.size.lighter_link")}</button>.{" "}
       {t("basic.size.lighter_more")}</p>}
@@ -484,6 +484,6 @@ export function SearchPanel({search: s, usage, phone}: SearchPanelProps) {
       ? <BasicPane s={s} where={where} onRig={setRig} onEvery={() => { s.toAdvanced(); focusTab("advanced"); }} />
       : <AdvancedPane s={s} where={where} onRig={setRig} />}
     {rig && <RigWindow s={s} ask={rig} onClose={() => setRig(null)} />}
-    {ask && <ReturnDialog s={s} ask={ask} onClose={() => setAsk(null)} onStay={() => focusTab("advanced")} />}
+    {ask && <ReturnDialog s={s} ask={ask} onClose={() => setAsk(null)} />}
   </div>;
 }

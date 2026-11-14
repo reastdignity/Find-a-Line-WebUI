@@ -53,8 +53,9 @@ function SeaHint({s}: {s: SearchState}) {
 // ---- the rig in use ------------------------------------------------------------------------------------
 
 export type RigMode = "first" | "edit" | "new";
-/** What the rig's window opens with: its kind and the values it is filled with (null: the rig in use's). */
-export interface RigAsk { mode: RigMode; values: RigValues | null }
+/** What the rig's window opens with: its kind, the values it is filled with (null: the rig in use's) and whether
+ *  Advanced opened it (the focus goes back there). */
+export interface RigAsk { mode: RigMode; values: RigValues | null; from?: "advanced" }
 
 /** "Rigged as": the starting rig's box ("Is this how you rig?"), or the rig in use with the list of the saved rigs. */
 function RigRow({s, onOpen}: {s: SearchState; onOpen(ask: RigAsk): void}) {
@@ -128,11 +129,15 @@ export function BasicPane({s, where, onRig, onEvery}:
 
 // ---- dialogs -----------------------------------------------------------------------------------------------
 
-/** A native modal <dialog> while mounted (Esc and a press outside call onClose; the focus goes back to where it
- *  was), its own .ui root with the shell's theme (as ui/Intro.tsx). */
-function Modal({onClose, label: labelledBy, class: cls, children}:
-               {onClose(): void; label: string; class?: string; children: ComponentChildren}) {
+/** A native modal <dialog> while mounted (Esc and a press outside call onClose), its own .ui root with the shell's
+ *  theme (as ui/Intro.tsx). When it goes the focus goes to `focusAfter()`'s element, else back to where it was
+ *  (read when it goes: the page under it is drawn by then, so a button that replaced the opener is there). */
+function Modal({onClose, label: labelledBy, class: cls, focusAfter, children}:
+               {onClose(): void; label: string; class?: string; focusAfter?: () => Element | null;
+                children: ComponentChildren}) {
   const ref = useRef<HTMLDialogElement>(null);
+  const after = useRef(focusAfter);
+  after.current = focusAfter;
   useEffect(() => {
     const dialog = ref.current!;
     const back = document.activeElement as HTMLElement | null;
@@ -141,7 +146,8 @@ function Modal({onClose, label: labelledBy, class: cls, children}:
     if (!dialog.open) dialog.showModal();
     return () => {
       if (dialog.open) dialog.close();
-      if (back && document.contains(back)) back.focus();
+      const target = (after.current?.() as HTMLElement | null) ?? (back && document.contains(back) ? back : null);
+      target?.focus();
     };
   }, []);
   return <dialog ref={ref} class={cx("ui u-dialog s-dialog", cls)} aria-labelledby={labelledBy}
@@ -208,7 +214,6 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
     try {
       await r.remove(editing.id);
       onClose();
-      setTimeout(() => document.querySelector<HTMLButtonElement>(".s-rig-change, .s-rig-change0")?.focus());
     } catch (e) {
       setProblem((e as Error).message);
       setAsking(false);
@@ -230,7 +235,10 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
   };
   const cost = [t("rig.cost.sag"), draft.end_zone > 0 && t("rig.cost.zone"), draft.anchor_lift > 0 && t("rig.cost.lift")]
     .filter(Boolean).join(" ");
-  return <Modal onClose={onClose} label={titleId} class="s-rig-dialog">
+  // The focus back on Basic's "Change" (the one of the rig's row now: a first rig saved, the last deleted), or on
+  // Advanced's button that opened it
+  const focusAfter = () => ask.from === "advanced" ? null : document.querySelector(".s-rig-change, .s-rig-change0");
+  return <Modal onClose={onClose} label={titleId} class="s-rig-dialog" focusAfter={focusAfter}>
     <form class="s-rig-form" noValidate onSubmit={(e) => { e.preventDefault(); save(false); }}>
       <h2 class="u-h" id={titleId}>{t(editing ? "rig.title.edit" : ask.mode === "new" ? "rig.title.new" : "rig.title.first")}</h2>
       <p class="s-note">{t("rig.intro")}</p>
@@ -276,19 +284,22 @@ export function RigWindow({s, ask, onClose}: {s: SearchState; ask: RigAsk; onClo
 
 /** Going back to Basic with values it cannot show: the list in words, "Stay in Advanced" (focused) or "Reset
  *  them to Basic's values". */
-export function ReturnDialog({s, ask, onClose, onStay}: {s: SearchState; ask: ReturnAsk; onClose(): void; onStay(): void}) {
+export function ReturnDialog({s, ask, onClose}: {s: SearchState; ask: ReturnAsk; onClose(): void}) {
   const titleId = useId("s-return-title");
   const stay = useRef<HTMLButtonElement>(null);
+  const tabAfter = useRef<string | null>(null);  // the tab whose button gets the focus: Stay's Advanced
   useEffect(() => { stay.current?.focus(); }, []);
   const goal = s.goalOf(ask.goal);
   const rig = s.rigs.inUse;
   const basic = `${goal?.label ?? ask.goal}; ${rig ? `${rig.name}: ` : ""}${rigSummary(s.rigs.values, true, ", ")}`;
-  return <Modal onClose={onClose} label={titleId} class="s-return-dialog">
+  const focusAfter = () => tabAfter.current ? document.querySelector(`.s-tabs [data-tab="${tabAfter.current}"]`) : null;
+  return <Modal onClose={onClose} label={titleId} class="s-return-dialog" focusAfter={focusAfter}>
     <h2 class="u-h" id={titleId}>{t("basic.return_title", {count: ask.fields.length})}</h2>
     <ul>{ask.fields.map((k) => <li key={k}>{s.byName[k] ? valueText(s.byName[k], s.resolved[k]) : k}</li>)}</ul>
     <p class="s-note">{t("basic.return_note", {basic})}</p>
     <div class="n-actions">
-      <button type="button" ref={stay} class="u-btn u-pri" onClick={() => { onClose(); onStay(); }}>{t("basic.return_stay")}</button>
+      <button type="button" ref={stay} class="u-btn u-pri" onClick={() => { tabAfter.current = "advanced"; onClose(); }}>
+        {t("basic.return_stay")}</button>
       <Button onClick={() => { s.resetToBasic(ask.goal); onClose(); }}>{t("basic.return_reset")}</Button>
     </div>
   </Modal>;
