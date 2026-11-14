@@ -53,6 +53,7 @@ try {
   out.totals = [shoreTotal(3000), shoreTotal(820), shoreTotal(999.4), shoreTotal(999.6), shoreTotal(1049)];
   out.start = {...state(), text: chip.textContent, label: chip.getAttribute("aria-label"),
                expanded: chip.getAttribute("aria-expanded"), swatches: swatches()};
+  chip.focus();  // as from the keyboard: the focus moves to the fold button and back
   chip.click();
   out.unfolded = {...state(), expanded: chip.getAttribute("aria-expanded"), focus: document.activeElement === fold,
                   text: box.textContent};
@@ -66,7 +67,10 @@ try {
   const scale = div.querySelector<HTMLElement>(".leaflet-bottom.leaflet-left")!.getBoundingClientRect();
   out.help = {open: !more.hidden, bottom: Math.round(boxRect.bottom), scaleTop: Math.round(scale.top),
               mapBottom: Math.round(mapRect.bottom), scrolls: box.scrollHeight > box.clientHeight,
-              overflow: getComputedStyle(box).overflowY};
+              overflow: getComputedStyle(box).overflowY,
+              // the opened text scrolled up under the title, which stays in sight
+              textUp: Math.abs(more.getBoundingClientRect().top - box.querySelector(".u-shore-head")!.getBoundingClientRect().bottom) < 6,
+              titleTop: Math.round(box.querySelector(".u-shore-head")!.getBoundingClientRect().top - boxRect.top)};
   fold.click();
   out.folded = {...state(), expanded: chip.getAttribute("aria-expanded"), focus: document.activeElement === chip,
                 helpClosed: more.hidden};

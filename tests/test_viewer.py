@@ -730,7 +730,8 @@ def test_shore_chip_in_edge(tmp_path):
     """shoreLayer.ts with the app's CSS in headless Edge: on the phone layout (under 768 px) the control starts
     folded into a chip (the kinds' swatches, "Uncertain shore", the total in view), unfolds into the box and folds
     again from its title, stays unfolded across a map move, hides with no shore in view, and the opened box with
-    its "?" text keeps within the map (scrolling inside); from 768 px up the box as before, no chip."""
+    its "?" text keeps within the map (scrolling inside); from 768 px up the box as before, no chip, also kept
+    within the map."""
     import re
     import test_web  # the app on a real server, its CSP stubs
     folder = tmp_path / "runs" / "shore-test"
@@ -772,6 +773,7 @@ def test_shore_chip_in_edge(tmp_path):
     hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
     assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
     assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    assert hint["textUp"] is True and hint["titleTop"] <= 1
     folded = phone["folded"]
     assert {k: folded[k] for k in closed} == closed and folded["expanded"] == "false" and folded["focus"] is True
     assert folded["helpClosed"] is True
@@ -783,7 +785,8 @@ def test_shore_chip_in_edge(tmp_path):
     always = {"holder": True, "chip": False, "box": True, "fold": False, "title": True}
     for step in ("start", "unfolded", "moved", "folded", "back"):
         assert {k: desktop[step][k] for k in always} == always, step
-    assert desktop["help"]["overflow"] == "visible"
+    hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
+    assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
     assert desktop["away"]["holder"] is False
 
 

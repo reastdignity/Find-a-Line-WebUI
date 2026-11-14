@@ -23,8 +23,6 @@ export function shoreLayer(shore: Shore, renderer: L.Renderer = L.svg({padding: 
   return group;
 }
 
-/** The app's phone layout (ui/components.tsx `DESKTOP` is its opposite; ui.css `max-width: 767px`). */
-const PHONE = "(max-width: 767px)";
 let controls = 0;  // the ids of the boxes a chip controls
 
 /** The total in view in the chip: from 1 km up in km with one decimal ("3.0 km"), below in metres ("820 m"). */
@@ -40,10 +38,11 @@ function chevron(up: boolean): string {
 
 /** The control of the uncertain shore in the map's view: a legend of the two kinds with the metres of each in
  *  view (updated on every move), and a "?" opening a longer explanation; hidden while the view holds none; at
- *  the top left of the map. On the phone layout (under 768 px, ui.css) it starts folded into a one-line chip (the
- *  swatches of the kinds in view, "Uncertain shore", the total in view, a chevron) that unfolds into the box; the
- *  box's title folds it again, and it stays as it is while the map moves; there the opened box keeps within the
- *  map (its text scrolls inside). From 768 px up the box is always open, no chip and no fold button.
+ *  the top left of the map. On the phone layout (under 768 px, ui.css; ui/components.tsx `DESKTOP` is its
+ *  opposite) it starts folded into a one-line chip (the swatches of the kinds in view, "Uncertain shore", the total
+ *  in view, a chevron) that unfolds into the box; the box's title folds it again, and it stays as it is while the
+ *  map moves. From 768 px up the box is always open, no chip and no fold button. On both the opened box keeps
+ *  within the map (its text scrolls inside).
  *  `shoreControl(map, shore).remove()` takes it off. */
 export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPosition = "topleft"): L.Control {
   const boxes = shore.segments.map(segmentBox);
@@ -91,12 +90,12 @@ export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPositi
   const more = L.DomUtil.create("p", "u-shore-more", box);
   more.textContent = t("ui.shore.help");
   more.hidden = true;
-  const phone = window.matchMedia?.(PHONE);
-  // On a phone the opened box ends above the map's bottom corners (the scale and the credits, raised above the
-  // sheet by result/view/corners.ts) or the map's bottom: a longer text scrolls inside it (ui.css)
+  // The opened box ends above the map's bottom corners (the scale and the credits; on a phone raised above the
+  // sheet by result/view/corners.ts) or the map's bottom: a longer text scrolls inside it (ui.css). A phone's map
+  // is short, and so is a desktop's in a low window (under about 560 px its "?" text ran under the credits).
   const fit = () => {
     box.style.maxHeight = "";
-    if (!phone?.matches || holder.hidden || box.offsetParent === null) return;
+    if (holder.hidden || box.offsetParent === null) return;
     const area = map.getContainer().getBoundingClientRect(), top = box.getBoundingClientRect();
     let bottom = area.bottom;
     for (const corner of map.getContainer().querySelectorAll<HTMLElement>(".leaflet-bottom")) {
@@ -109,6 +108,10 @@ export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPositi
     more.hidden = !more.hidden;
     help.setAttribute("aria-expanded", String(!more.hidden));
     fit();
+    // where the box scrolls (a phone), the opened text comes up under the box's title (sticky there, ui.css)
+    if (!more.hidden && box.scrollHeight > box.clientHeight) {
+      box.scrollTop += more.getBoundingClientRect().top - head.getBoundingClientRect().bottom - 2;
+    }
   };
   const setFolded = (folded: boolean) => {
     holder.classList.toggle("u-shore-folded", folded);
@@ -117,8 +120,10 @@ export function shoreControl(map: L.Map, shore: Shore, position: L.ControlPositi
       more.hidden = true;
       help.setAttribute("aria-expanded", "false");
     }
+    // the focus follows from a focused button (the keyboard; a tap on a phone mostly focuses none): no ring after a tap
+    const focused = document.activeElement === chip || document.activeElement === fold;
     fit();
-    (folded ? chip : fold).focus({preventScroll: true});
+    if (focused) (folded ? chip : fold).focus({preventScroll: true});
   };
   chip.onclick = () => setFolded(false);
   fold.onclick = () => setFolded(true);
