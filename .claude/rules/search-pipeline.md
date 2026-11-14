@@ -73,6 +73,13 @@ it: read `.claude/rules/line-test.md` before changing what the kernels are given
   again with it. `search._early_check` refuses only what `_check_lines` would refuse too (the same tests without the
   profile points: a lower bound of the need), so a refusal never depends on the size of the evaluated parts: change
   both together.
+- The estimate before the pairs (`sample_estimate`, `_estimate_check`; docs/line-volume/spec-search.md 2) runs only
+  where `_early_check` checks (`_samples`: never the command line, so the regression's files and seconds stay) and
+  refuses on a prediction, not a lower bound: an estimate over `REFUSE_FACTOR` times a limit may be a search under it
+  (1 of 390 at 2 %), so the full search's checks always stay and decide at its end. It samples the anchors pairs
+  start from (`_open_anchors` repeats `find_valid_lines`' set-up of `free_directions`: change both together;
+  `tests/test_sample_estimate.py`), with the square rule its squares and the keys seen from their first square (the
+  lines kept, as the limits count them), and its result never depends on the number of threads.
 - The square rule (`--same-line-square`, `samelines.py`; off by default): with it off no file of a run, no tile file
   and no hash changes by a byte (`tests/test_same_lines.py` pins `lines.csv` of two clip searches); with it on, the
   order of a pair's lines must stay total and the same for every part, tile and thread ("first of a key" and "sum of
