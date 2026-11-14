@@ -9,11 +9,11 @@ import { Button, Chip, Chips, Segmented } from "../../ui/components";
 import { Icon } from "../../ui/icons";
 import { IntroLink, useIntro } from "../../ui/Intro";
 import { t } from "../../i18n";
-import { active, liftNeed, NO_FILTERS, type Filters } from "../../filters";
+import { active, liftNeed, NEED_FILTERS, NO_FILTERS, type Filters } from "../../filters";
 import { liftChoices, shortMetres } from "../../endzone";
 import { COLORS } from "../../style";
 import { sharesText } from "../../coarser";
-import type { ResultModel } from "../model";
+import { BY_MEAN, type ResultModel } from "../model";
 import { Limit, Swatch, num, useModel } from "./common";
 import { ResultIntro } from "./ResultIntro";
 
@@ -30,10 +30,10 @@ export interface FilterBarProps {
 
 const set = (model: ResultModel, change: Partial<Filters>) => model.setFilters({...model.filters, ...change});
 
-/** How many filters are set beyond the chips (the "More filters" badge). */
+/** How many filters are set beyond the chips (the "More filters" badge; the rigging classes are the head's). */
 function moreActive(model: ResultModel): number {
   const f = model.filters;
-  const main = MAIN_KEYS.filter((k) => f[k] !== NO_FILTERS[k]).length;
+  const main = [...MAIN_KEYS, ...NEED_FILTERS].filter((k) => f[k] !== NO_FILTERS[k]).length;
   return active(f) - main + (!model.state.showClean ? 1 : 0);
 }
 
@@ -269,8 +269,8 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
         <Distance value={s.distance} max={maxDistance} onChange={(distance) => model.setState({...s, distance})} />
         <div class="r-field-lab">Show per spot</div>
         <Segmented label="Show per spot" value={s.by} onChange={(by) => model.setState({...s, by})}
-                   options={[{value: "clearance", label: "Most clearance"}, {value: "longest", label: "Longest"},
-                             {value: "height", label: "Highest"}]} />
+                   options={[{value: BY_MEAN, label: t("ui.filter.by_mean")}, {value: "clearance", label: "Most clearance"},
+                             {value: "longest", label: "Longest"}, {value: "height", label: "Highest"}]} />
         {limit("Lines in a spot at least", "groupMin", r.group, 1, "min", "")}
       </>}
     </div>

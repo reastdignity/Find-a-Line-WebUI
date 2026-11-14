@@ -1,6 +1,7 @@
-// The sortable list of the spots of a result (model.rows): length, clearance, height, lines in the
-// spot and the favourite star; the selected row highlighted with the shell's details under it, a
-// spot's lines unfolded under its row (the shown one marked), "only in the map's view" (the selected
+// The sortable list of the spots of a result (model.rows): length, mean height, clearance (a tight line
+// marked, with the mark's key above the list), lines in the spot and the favourite star; the selected row
+// highlighted with the shell's details under it, a spot's lines unfolded under its row in the spot's order
+// (model.membersOf; the shown one marked), "only in the map's view" (the selected
 // spot stays, marked outside the view), the first 100 rows and then more. Rows take the focus; Enter
 // selects. Sorting is model.list (list.ts).
 
@@ -13,15 +14,21 @@ import { formatValue, sortKey, SORT_KEYS, type SortKey } from "../../list";
 import type { Line } from "../../types";
 import type { ResultModel, Spot } from "../model";
 import type { ResultMap } from "../ResultMap";
-import { cx, LineCells, useModel } from "./common";
+import { cx, LineCells, TightKey, useModel } from "./common";
+import { isTight } from "../../tight";
+import { t } from "../../i18n";
 
 const PAGE = 100;
-const COLUMNS: {key: string; head: string; title: string}[] = [
-  {key: "len", head: "Length", title: "length of the line"},
-  {key: "clr", head: "Clear.", title: "smallest clearance under the webbing"},
-  {key: "hmax", head: "Height", title: "highest point of the webbing above the ground"},
-  {key: "n", head: "Lines", title: "similar lines in the spot"},
-];
+type Column = {key: string; head: string; title: string};
+const LENGTH: Column = {key: "len", head: "ui.list.col.length", title: "ui.list.col.length_title"};
+const MEAN: Column = {key: "hmean", head: "ui.list.col.mean", title: "ui.list.col.mean_title"};
+const HIGHEST: Column = {key: "hmax", head: "ui.list.col.highest", title: "ui.list.col.highest_title"};
+const CLEAR: Column = {key: "clr", head: "ui.list.col.clear", title: "ui.list.col.clear_title"};
+const LINES: Column = {key: "n", head: "ui.list.col.lines", title: "ui.list.col.lines_title"};
+
+/** The list's columns (their texts' keys): length, the mean height (sorted by the highest point: that value in its
+ *  place), clearance, the lines of the spot. */
+const columnsOf = (sort: string): Column[] => [LENGTH, sort === "hmax" ? HIGHEST : MEAN, CLEAR, LINES];
 
 export interface LinesTableProps {
   model: ResultModel;
@@ -114,7 +121,11 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
               onClick={(e) => { e.stopPropagation(); model.toggleFavourite(l); }}>
         <Icon name="star" fav={model.isFavourite(l)} /></button>
     : <span />;
-  const cells = (l: Line) => <LineCells line={l} />;
+  const height = key.key === "hmax" ? "hmax" : "hmean";
+  const cells = (l: Line) => <LineCells line={l} height={height} lift={model.liftOf(l)} />;
+  const shownRows = rows.slice(0, limit);
+  const unfoldedRow = shownRows.find((r) => unfolded === model.keyOf(r.group.rep) && r.n > 1);
+  const tight = shownRows.some((r) => isTight(r.line.clr)) || !!unfoldedRow?.members?.some((m) => isTight(m.clr));
 
   return <div class="r-table" ref={listRef}>
     <div class="r-table-tools">
@@ -131,18 +142,19 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
                                                      onChange={(e) => model.setList({...list, inView: e.currentTarget.checked})} />
         Only in the map's view</label>}
     </div>
+    {tight && <TightKey lift={model.data.lift} />}
     <div class="r-row r-head" role="presentation">
       <span />
-      {COLUMNS.map((c) => <button type="button" key={c.key} title={c.title}
-                                 class={cx("r-col", key.key === c.key && "r-on")}
-                                 aria-sort={key.key === c.key ? (list.desc ? "descending" : "ascending") : undefined}
-                                 onClick={() => sortBy(c.key)}>
-        {c.head}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button>)}
+      {columnsOf(key.key).map((c) => <button type="button" key={c.key} title={t(c.title)}
+                                             class={cx("r-col", key.key === c.key && "r-on")}
+                                             aria-sort={key.key === c.key ? (list.desc ? "descending" : "ascending") : undefined}
+                                             onClick={() => sortBy(c.key)}>
+        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button>)}
       <span />
     </div>
     <div class="r-rows" role="listbox" aria-label="Lines">
       {rows.length === 0 && <p class="u-small r-empty">{inView ? "No lines in the map's view." : "No lines pass the filters."}</p>}
-      {rows.slice(0, limit).map((r) => {
+      {shownRows.map((r) => {
         const isSel = selected?.group === r.group, open = unfolded === model.keyOf(r.group.rep) && r.n > 1;
         const outside = inView && isSel && !view!.inView(r.line);
         return <div class={cx("r-spot", isSel && "r-spot-sel")} key={model.keyOf(r.group.rep)}>
@@ -158,7 +170,7 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
               : <span class="r-muted">1</span>}
             {star(r.line)}
           </div>
-          {open && r.members!.map((m, k) => {
+          {open && model.membersOf(r.group).map((m, k) => {
             const shown = m === r.line;
             return <div key={k} class={cx("r-row r-member", shown && "r-shown", isSel && shown && "r-sel")}
                         role="option" aria-selected={isSel && shown} tabIndex={0}

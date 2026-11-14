@@ -38,6 +38,34 @@
 /* Summary, legend and note */
 .ui .r-summary { display: flex; flex-direction: column; gap: 8px; }
 .ui .r-summary-count { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+/* A run made with the square rule: "… found. Why so many?" and its box (ResultSummary's WhyBox) */
+.ui .r-found-line { margin: -4px 0 0; color: var(--muted); }
+.ui .r-why-link { font-size: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.ui .r-why { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px 12px; border: 1px solid var(--line);
+  border-radius: 10px; background: var(--surface-2); }
+.ui .r-why-head { display: flex; align-items: center; gap: 8px; font: 600 16px/1.2 var(--display); margin-right: -4px; }
+.ui .r-why-text { margin: 0; color: var(--ink-2); }
+.ui .r-why-bar { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; }
+.ui .r-why-bar i { display: block; min-width: 3px; flex-basis: 0; }
+.ui .r-why-bar i.r-off { opacity: .25; }
+.ui .r-why-k0 { background: var(--layer-3); }
+.ui .r-why-k1 { background: var(--layer-2); }
+.ui .r-why-k2 { background: var(--layer-1); }
+.ui .r-why-row { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+.ui .r-why-row > i { width: 10px; height: 10px; border-radius: 2px; flex: none; }
+.ui .r-why-show { display: inline-flex; align-items: center; gap: 5px; color: var(--ink-2); white-space: nowrap; }
+.ui .r-why-show input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+@media (pointer: coarse) { .ui .r-why-row { min-height: 40px; } }
+/* The mark of a tight line (tight.ts): a ring with "!" before the clearance, its key and the details' line */
+.ui .r-tight { display: inline-block; position: relative; width: 13px; height: 13px; margin-right: 3px; flex: none;
+  border-radius: 50%; border: 1.5px solid var(--warn); vertical-align: -2px; font-style: normal; box-sizing: border-box; }
+.ui .r-tight::before { content: "!"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font: 700 9px/1 var(--font); color: var(--warn); }
+.ui .r-clr { white-space: nowrap; }
+.ui .r-tight-key { margin: 0; padding: 0 8px 4px; color: var(--ink-2); }
+.ui .r-tight-key .r-tight { margin-right: 6px; }
+.ui .r-tight-line { margin: 0; padding: 6px 9px; border-radius: 8px; background: var(--warn-soft); color: var(--ink); font-size: 13px; }
+.ui .r-tight-line .r-tight { margin-right: 6px; }
 .ui .r-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--ink-2); }
 .ui .r-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .ui .r-note { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 10px;
@@ -83,7 +111,7 @@
 .ui .r-row.r-head { min-height: 30px; cursor: default; position: sticky; top: 0; z-index: 1; background: var(--surface); }
 .ui .r-row.r-head:hover { background: var(--surface); }
 .ui .r-col { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; white-space: nowrap;
-  font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  font: 500 11px/1.15 var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .ui .r-col.r-on { color: var(--accent); }
 .ui .r-member { min-height: 32px; font-size: 12.5px; color: var(--ink-2); padding-left: 22px; grid-template-columns: 14px 1fr 1fr 1fr 48px 30px; }
 .ui .r-member.r-shown { color: var(--ink); font-weight: 500; }

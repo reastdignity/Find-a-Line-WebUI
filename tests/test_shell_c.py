@@ -222,7 +222,7 @@ run({
       result.columns = [!!$(".c-col-list .r-summary"), !!$(".c-col-list .r-filters"), text(".c-col-details .c-pick"),
                         location.hash, text(".r-col.r-on"), !!button("Edit & run again"), text(".c-run-name")];
       const model = window.FINDALINE_RESULT.model;
-      result.sorted = model.rows.slice(0, 5).every((r, k, all) => k === 0 || all[k - 1].line.clr >= r.line.clr);
+      result.sorted = model.rows.slice(0, 5).every((r, k, all) => k === 0 || all[k - 1].line.hmean >= r.line.hmean);
       next();
     });
   },
@@ -323,7 +323,7 @@ def test_shell_c_desktop(data, tmp_path):
     """Home: the runs as cards, the small run's mini map with its lines, the big one's box only (its lines.js not
     loaded); New search starts with "Typical highline", Start is enabled after the estimate and returns home
     with the new card highlighted, which runs (progress) and turns done with its run; the card opens the
-    result in three columns sorted by clearance, a row selects its line (details, the profile in its card over the
+    result in three columns sorted by mean height, a row selects its line (details, the profile in its card over the
     map, the hash),
     ‹ › and a filter chip; a favourite shows in home's aside; Back and Forward; the copied link (without ?ui=)
     opens the line; Edit & run again opens the form with the job's request; no CSP violations."""
@@ -343,7 +343,7 @@ def test_shell_c_desktop(data, tmp_path):
     assert r["done"][1] == 1 and "spots" in r["done"][0], r
     columns = r["columns"]
     assert columns[0] and columns[1] and columns[2].startswith("Select a line"), r
-    assert columns[3] == f"#run={SMALL}" and columns[4].startswith("Clear.") and columns[5], r
+    assert columns[3] == f"#run={SMALL}" and columns[4].startswith("Mean height") and columns[5], r
     assert columns[6] == "Small run" and r["sorted"], r
     assert r["selected"][0].startswith("Spot 1 of ") and r["selected"][1].startswith("Profile") and r["selected"][2], r
     assert r["stepped"][0].startswith("Spot 2 of ") and r["stepped"][1] == 1, r

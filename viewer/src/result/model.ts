@@ -4,7 +4,7 @@
 // draw it with ResultMap and their own panels. Plain TypeScript (no DOM but fetch), so tests run it
 // under Node.
 
-import { dh, drop, lowerAnchor, NO_FILTERS, passes, prominence, range as valueRange, saveFilters, savedFilters,
+import { dh, drop, lowerAnchor, needClass, NO_FILTERS, passes, prominence, range as valueRange, saveFilters, savedFilters,
          upperAnchor, wallAngle, type FilterRanges, type Filters, type LinesState, type Range } from "../filters";
 import { groupLines, type Group } from "../grouping";
 import { detailMessage } from "../i18n";
@@ -80,6 +80,23 @@ export interface ResultOptions {
   /** The list's sorting while the user has kept no choice of their own (default: list.ts LIST_DEFAULTS);
    *  not saved until the user changes the list. */
   list?: Partial<ListState>;
+}
+
+/** "Show per spot" (LinesState.by) of the highest line on average: the spots are the run's grouping (`data.by`),
+ *  a spot shows its line with the highest mean height and orders its lines so (byMean). The other choices
+ *  ("clearance", "longest", "height") group by that rank and show the group's representative first. */
+export const BY_MEAN = "mean";
+
+const known = (v: number | null | undefined): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** A spot's order of its lines under BY_MEAN, best first: the highest mean height (not known: last), then the
+ *  most clearance, the longest, then the line's row in its run (`row`). */
+export function byMean(row: (l: Line) => number) {
+  return (a: Line, b: Line): number => {
+    const ka = known(a.hmean), kb = known(b.hmean);
+    if (ka !== kb) return ka ? -1 : 1;
+    return (ka ? b.hmean - a.hmean : 0) || (b.clr - a.clr) || (b.len - a.len) || (row(a) - row(b));
+  };
 }
 
 const fromServer = () => typeof location !== "undefined" && location.protocol.startsWith("http");
@@ -164,6 +181,11 @@ export class ResultModel {
   private counts = {clean: 0, over: 0};
   private grouped: Group<Line>[] = [];  // groupLines' groups, before the group size filter
   private valueRanges: {of: Line[]; ranges: FilterRanges} | null = null;  // lineRanges of `all`
+  // A spot's best line and its lines in the spot's order (BY_MEAN), per group of the last compute
+  private best = new WeakMap<Group<Line>, Line>();
+  private ordered = new WeakMap<Group<Line>, Line[]>();
+  private rows_: Map<Line, number> | null = null;  // a line's row in its run: made when a tie needs it
+  private readonly compareMean = byMean((l) => this.rowOf(l));
 
   constructor(data: RunData, options: ResultOptions = {}) {
     this.data = data;
@@ -175,7 +197,7 @@ export class ResultModel {
     const app = appFlags();
     this.wantFavourites = options.favourites ?? app?.favourites ?? fromServer();
     this.canCompute = options.profiles ?? app?.profiles ?? fromServer();
-    this.state = {group: true, distance: data.distance, by: data.by, showClean: true, showOver: true};
+    this.state = {group: true, distance: data.distance, by: BY_MEAN, showClean: true, showOver: true};
     this.filters = savedFilters();
     this.list = options.list && !hasSavedList() ? {...savedList(), ...options.list} : savedList();
     this.compute();
@@ -209,6 +231,18 @@ export class ResultModel {
     this.allLines = this.lines.concat(...Array.from(this.others.values()).map((r) => r.lines));
     const over = this.allLines.reduce((n, l) => n + +l.over, 0);
     this.counts = {clean: this.allLines.length - over, over};
+    this.rows_ = null;
+  }
+
+  /** A line's row in its run's data (the last tie of byMean). */
+  private rowOf(l: Line): number {
+    if (!this.rows_) {
+      const rows = new Map<Line, number>();
+      this.lines.forEach((x, k) => rows.set(x, k));
+      this.others.forEach((r) => r.lines.forEach((x, k) => rows.set(x, k)));
+      this.rows_ = rows;
+    }
+    return this.rows_.get(l) ?? 0;
   }
 
   /** The key of a line among the runs shown (keys.lineKey). */
@@ -219,6 +253,12 @@ export class ResultModel {
     return l.run ? l.run.info.id : this.runId;
   }
 
+  /** The A-frame height of a line's run, for the words of the tight mark: this run's (`data.lift`; none without
+   *  A-frames); another run's line has none known here. */
+  liftOf(l: Line): number | undefined {
+    return l.run ? undefined : this.data.lift || undefined;
+  }
+
   /** The `#line=` value of a link to a line of this run (keys.lineCoords). */
   lineLink(l: Line): string {
     return lineCoords(l);
@@ -226,10 +266,40 @@ export class ResultModel {
 
   // --- what is shown ---
 
-  /** The line a group shows: the one chosen in it, else the user's favourite in it, else its representative. */
+  /** The line a group shows: the one chosen in it, else the user's favourite in it, else its best (bestOf). */
   shownOf(g: Group<Line>): Line {
-    if (this.chosen.size === 0 && this.favouriteSet.size === 0) return g.rep;
-    return g.members.find((m) => this.chosen.has(m)) || g.members.find((m) => this.favouriteSet.has(m)) || g.rep;
+    if (this.chosen.size === 0 && this.favouriteSet.size === 0) return this.bestOf(g);
+    return g.members.find((m) => this.chosen.has(m)) || g.members.find((m) => this.favouriteSet.has(m)) || this.bestOf(g);
+  }
+
+  /** The first line of a spot: under BY_MEAN its line with the highest mean height (byMean), else the
+   *  representative of the grouping. */
+  bestOf(g: Group<Line>): Line {
+    if (this.state.by !== BY_MEAN || g.members.length < 2) return g.rep;
+    let best = this.best.get(g);
+    if (!best) {
+      best = g.members.reduce((a, b) => this.compareMean(b, a) < 0 ? b : a);
+      this.best.set(g, best);
+    }
+    return best;
+  }
+
+  /** A spot's lines in the order the page shows them (the stepper, the unfolded rows, `alsoOf`), best first:
+   *  under BY_MEAN by byMean, else the grouping's order (the representative first). The members of the groups
+   *  stay those of groupLines, in its order. */
+  membersOf(g: Group<Line>): Line[] {
+    if (this.state.by !== BY_MEAN || g.members.length < 2) return g.members;
+    let lines = this.ordered.get(g);
+    if (!lines) {
+      lines = g.members.slice().sort(this.compareMean);
+      this.ordered.set(g, lines);
+    }
+    return lines;
+  }
+
+  /** The grouping's rank: the run's (`data.by`) under BY_MEAN. */
+  private groupBy(): string {
+    return this.state.by === BY_MEAN ? this.data.by : this.state.by;
   }
 
   /** Is the line shown for its group the user's favourite rather than a choice. */
@@ -251,7 +321,7 @@ export class ResultModel {
     const planar = framed ? inLocalPlane(visible, this.data.center[0], this.data.center[1]) : visible;
     const original = framed ? new Map<Line, Line>(planar.map((p, k) => [p, visible[k]])) : null;
     this.grouped = timed("fal:run:group", () => s.group
-      ? groupLines(planar, s.distance, s.by).map((g) => original ? {rep: original.get(g.rep)!,
+      ? groupLines(planar, s.distance, this.groupBy()).map((g) => original ? {rep: original.get(g.rep)!,
                                                                     members: g.members.map((m) => original.get(m)!)} : g)
       : visible.map((l) => ({rep: l, members: [l]})), {count: visible.length});
     this.largestGroup = this.grouped.reduce((m, g) => Math.max(m, g.members.length), 1);
@@ -333,15 +403,15 @@ export class ResultModel {
     return this.groups.find((g) => g.members.includes(l));
   }
 
-  /** The other lines of the spot of `l` (its group among the groups shown) that belong to its run, in the group's
-   *  order, at most `max`: what the 3D view's link hands over besides the line itself (`&also=`). A line alone in its
-   *  spot, or not among the groups shown, has none. */
+  /** The other lines of the spot of `l` (its group among the groups shown) that belong to its run, in the spot's
+   *  order (membersOf: the highest on average first), at most `max`: what the 3D view's link hands over besides
+   *  the line itself (`&also=`). A line alone in its spot, or not among the groups shown, has none. */
   alsoOf(l: Line, max = 20): Line[] {
     const sel = this.selected?.group;
     const group = sel && sel.members.includes(l) ? sel : this.groupOf(l);
     if (!group) return [];
     const run = this.runOf(l);
-    return group.members.filter((m) => m !== l && this.runOf(m) === run).slice(0, max);
+    return this.membersOf(group).filter((m) => m !== l && this.runOf(m) === run).slice(0, max);
   }
 
   // --- changes ---
@@ -442,10 +512,27 @@ export class ResultModel {
     this.notify();
   }
 
-  /** The index of the shown line among its group's members (the selected group's by default); -1: none. */
+  /** The index of the shown line among its spot's lines in their order (membersOf; the selected group's by
+   *  default); -1: none. */
   variantIndex(g: Group<Line> | undefined = this.selected?.group): number {
-    return g ? g.members.indexOf(this.shownOf(g)) : -1;
+    return g ? this.membersOf(g).indexOf(this.shownOf(g)) : -1;
   }
+
+  /** How many of this run's lines need each class of rigging (filters.needClass: none, the no-fall zone,
+   *  A-frames); null for a run without the zone and the A-frames. */
+  needCounts(): [number, number, number] | null {
+    if (!this.data.end_zone && !this.data.lift) return null;
+    if (!this.needs) {
+      const n: [number, number, number] = [0, 0, 0];
+      for (const l of this.lines) {
+        const k = needClass(l);
+        if (k !== null) n[k]++;
+      }
+      this.needs = n;
+    }
+    return this.needs;
+  }
+  private needs: [number, number, number] | null = null;
 
   // --- favourites ---
 
