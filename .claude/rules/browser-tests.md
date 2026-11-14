@@ -51,3 +51,12 @@ run them from PowerShell (CLAUDE.md, "This PC").
   (`test_view3d_only_valid_lines` passed only while a frame lagged). `test_view3d_lines_from_a_point[phone]` missed
   once in 18 runs under load (the page's first script, `stubs.js`, apparently never ran): add access logging to the
   test server's static files if it recurs.
+- **Full runs are parallel** (pytest-xdist under the test lock and in CI, 2026-11-14): a module's tests stay on one
+  worker in their order, but which modules share a process and come first changes from run to run, and the machine is
+  loaded: a test that waits a fixed time for a page, or reads a rate limiter's clock, fails now and then (waits for
+  the event that ends what it measures; limiters on a held clock: `test_public._hold_rate_clock`). Each worker's
+  basetemp is `<basetemp>/popen-gwN`: keep `--basetemp` short (point 3). A test that starts a nested pytest drops
+  `PYTEST_XDIST_WORKER`/`_COUNT` from the child's environment.
+- **A run of the Żabi Koń clip** comes from the fixtures `clip_data`, `clip_run`, `big_clip` or
+  `clip_runs.data_copy`, never from a module's own `findaline.py` call: each distinct search runs once per session
+  (shared by the workers) and every module gets its own copy of the data folder (`tests/clip_runs.py`).

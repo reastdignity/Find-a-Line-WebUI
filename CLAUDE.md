@@ -24,8 +24,9 @@ Read the section you need, not the whole file (several are over 200 KB).
 ## Commands
 - Python 3.12+. `uv sync`, `uv run findaline.py ...`; `--help` lists everything. After changing
   dependencies: `uv lock` and the full regression set.
-- `pytest`: offline. The viewer's tests need Node and `npm install` in `viewer/`, the TUI's
-  `uv sync --group tui`; without them they are skipped.
+- `pytest`: offline, about 45 min in one process. Under the test lock a full run is parallel by itself
+  (pytest-xdist, workers by mode; `-n 0` for a serial one): docs/workflow.md. The viewer's tests need
+  Node and `npm install` in `viewer/`, the TUI's `uv sync --group tui`; without them they are skipped.
 - `python tests/regression.py`: real searches (docs/regression-tests.md).
 - After changing `viewer/src` or `locales/`: `cd viewer; npm run check; npm run build` (under the test
   lock: `node build.mjs`), and commit `viewer/dist`.

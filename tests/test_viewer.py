@@ -220,16 +220,13 @@ def test_ortho_attribution_url(tmp_path):
 def clip_data(tmp_path_factory):
     """data.js of a run of the Żabi Koń clip with the surface model (clear lines and lines over trees),
     computed once, offline: (its JSON text, the value)."""
-    data = tmp_path_factory.mktemp("clip")
-    env = {**os.environ, "HTTP_PROXY": "http://127.0.0.1:9", "HTTPS_PROXY": "http://127.0.0.1:9", "NO_PROXY": ""}
+    import clip_runs  # the search once per session, this module's own copy
     tests_data = os.path.join(REPO, "tests", "data")
-    result = subprocess.run(
-        [sys.executable, "findaline.py", "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
-         "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
-         "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
-         "--ortho", "never", "--data-dir", str(data)],
-        cwd=REPO, capture_output=True, text=True, encoding="utf-8", timeout=600, env=env)
-    assert result.returncode == 0, result.stdout + result.stderr
+    data = clip_runs.data_copy(tmp_path_factory, "clip", [
+        "--elevation-file", os.path.join(tests_data, "zabi_kon_nmt.tif"),
+        "--surface-file", os.path.join(tests_data, "zabi_kon_nmpt.tif"), "--northing", "254608",
+        "--easting", "553966", "--radius", "150", "--water", "off", "--fill-gaps", "off", "--no-plot", "--yes",
+        "--ortho", "never"])
     path = next((data / "runs").glob("*/data.js"))
     text = path.read_text(encoding="utf-8").partition(" = ")[2].rstrip().rstrip(";")
     return text, json.loads(text)
@@ -1308,8 +1305,8 @@ const state = () => {{
   await im.set("esri");
   state();
   mode = "ok";
-  scene.noticeAction.onClick();  // Try again
-  await wait(300);
+  scene.noticeAction.onClick();  // Try again: the loading it starts ends with the clear of the pill's count
+  for (const t0 = Date.now(); !activity.some((e) => e[0] === "clear" && e[1] === "imagery") && Date.now() - t0 < 10000;) await wait(5);
   out.again = state();
   mode = "one"; bad = null;
   await im.set("esri");

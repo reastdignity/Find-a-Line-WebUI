@@ -206,7 +206,10 @@ class Reporter:
                       "tiles_done": 0, "tiles_total": 0, "failed": 0, "mb": self.mb_before,
                       "restarts": before.get("restarts", 0), "memory_gb": 0.0, "memory_peak_gb": 0.0,
                       "tiles_missing": 0}
-        self.next_minute = 0.0
+        self.next_minute = 0.0  # the free space and status.html
+        # the history's next row: its own timer, so a listing's beats (no tiles_total yet) do not spend the first
+        # row's minute (it was written up to HISTORY_SECONDS after the listing, or never in a short pass)
+        self.next_row = 0.0
         self._indexes: Optional[List[Tuple[str, set]]] = None   # _index_folders, once
         self.lock = threading.Lock()  # the thread and the end of the pass both write
         self.quit = threading.Event()
@@ -303,7 +306,8 @@ class Reporter:
                 self.next_minute = now + HISTORY_SECONDS
                 self.free_gb = state["free_gb"] = self._free()
             write_state(self.area.state_dir, self.area.name, dict(state))
-            if minute and self.tiles_total:
+            if self.tiles_total and now >= self.next_row:  # its values all of this write: now, tiles, MB, memory
+                self.next_row = now + HISTORY_SECONDS
                 with open(self.area.file(".history.csv"), "a", encoding="utf-8", newline="") as f:
                     csv.writer(f).writerow([round(now), state["tiles_done"], round(state["mb"], 1),
                                             round(self.memory_gb, 2)])
