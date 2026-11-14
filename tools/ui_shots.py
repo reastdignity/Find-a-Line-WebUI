@@ -141,6 +141,12 @@ PAGES = {
     # More filters: Rigging (a run with a no-fall zone or A-frames, --run; the clip's has no such section)
     "c-result-rigging": ("c", "#run={run}", [".r-filters .u-chip.u-add", "wait:document.querySelector('.r-lift')",
                                               "js:" + RIGGING_SHOWN]),
+    # a run made with the square rule (--run): "Why so many?" opened under the head's counts
+    "c-result-why": ("c", "#run={run}", ".r-why-link"),
+    "c-result-unfold": ("c", "#run={run}", ".r-rows .r-unfold"),  # the first spot's lines unfolded, in its order
+    # More filters: Grouping, its "Show per spot" ("Highest on average" first)
+    "c-result-grouping": ("c", "#run={run}", [".r-filters .u-chip.u-add",
+                                               "js:document.querySelector('.r-group')?.scrollIntoView({block: 'center'})"]),
     "c-result-rails": ("c", "#run={run}&line={line}", None),  # both panels collapsed to rails (LAYOUTS)
     "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
