@@ -1812,7 +1812,8 @@ def sample_estimate(plan: Plan, data: Data, found: Anchors, core: Optional[tuple
     such an anchor, every one of them in a sampled square starts pairs, and the distinct keys
     (samelines.square_keys) of the lines whose first anchor lies in the key's first square, times n / k,
     estimate the lines kept, which the limits count (a key whose lines all start in its second square is
-    never seen: at a fraction of 1 up to 0.1 % under the kept lines where measured). The variance is
+    never seen: at a fraction of 1 about 0.1 % under the kept lines where measured, more in tiles of a few
+    hundred metres, whose edges cut many pairs of squares). The variance is
     Horvitz-Thompson's of a simple random sample, n² (1 - k / n) s² / k, s² of the lines (keys) per
     sampled unit. The search is not changed (its funnel and messages left alone, find_valid_lines' printed
     lines dropped), and the result is the same for any number of threads."""

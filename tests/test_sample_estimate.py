@@ -246,6 +246,45 @@ def test_no_sample_without_limits_or_the_early_stop(tmp_path, offline, monkeypat
         gc.collect()
 
 
+def test_the_worker_tells_the_estimate(tmp_path, offline, monkeypatch):
+    """The web worker (jobs.run_phase on the public site): a job far over the line limit fails with the
+    estimate's refusal, its page's text and code; one under it gets the note of the estimate as an event in
+    the page's words, and the estimate beside the lines in the funnel (job_funnel)."""
+    import sqlite3
+    import jobs as jb
+    import osm
+    import progress
+    from settings import Limits
+    monkeypatch.setattr(sys, "stdout", sys.stdout)  # run_phase in this process: what it changes is put back
+    monkeypatch.setattr(progress, "TEXT_INTERVAL", progress.TEXT_INTERVAL)
+    monkeypatch.setattr(progress, "_listeners", list(progress._listeners))
+    monkeypatch.setattr(osm, "BEFORE_REQUEST", osm.BEFORE_REQUEST)
+    jobs = jb.Jobs(str(tmp_path), public=True)
+    request = {"params": {"elevation_file": CLIP, "water": "off", "fill_gaps": "off", "nmpt": "off", "ortho": "never",
+                          **POINT}, "geometry": None}
+    rows = {}
+    for name, lines_max in (("refused", 10), ("accepted", 1_000_000)):
+        limits = Limits(lines_max=lines_max)
+        job = jobs.add(request, name, user_id=7)
+        jobs.claim("queued", "downloading", "w1")
+        jb.run_phase(str(tmp_path), job, "download", limits, True)
+        jobs.claim("ready", "computing", "w1")
+        jb.run_phase(str(tmp_path), job, "compute", limits, True)
+        rows[name] = (jobs.get(job), [e["data"] for e in jobs.events(0, job) if e["kind"] in ("info", "warning")])
+        gc.collect()
+    row, said = rows["refused"]
+    assert row["status"] == "failed" and json.loads(row["error_info"])["code"] == "too_many_lines_estimate", row
+    assert row["error"].startswith("About ") and "million on this site. To find fewer lines" in row["error"], row
+    row, said = rows["accepted"]
+    assert row["status"] == "done", row["error"]
+    estimate = [text for text in said if "lines with these settings." in text]
+    assert len(estimate) == 1 and "--" not in estimate[0] and "estimated" not in estimate[0], said
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    funnel = dict(db.execute("SELECT step, count FROM job_funnel WHERE job_id = ?", (row["id"],)).fetchall())
+    db.close()
+    assert funnel["estimate"] > 0 and funnel["lines"] > 0, funnel
+
+
 def test_the_estimates_texts(monkeypatch):
     """The texts of the estimate (spec-search.md 2.2, "Seen"): the page's in millions of two digits, the
     note of a search under 0.1 million, the warning that it is close, both refusals with the advice."""
