@@ -282,7 +282,9 @@ them). Exit codes: `EXIT_DONE` 0, `EXIT_FAILED` 3 (tiles that failed, in `<name>
 `FAILURES_IN_A_ROW`, a disk under `--min-free-gb`), `EXIT_RESTART` 5 (`Stop(code=EXIT_RESTART)` at the first tile
 after the beat saw the process over `--max-memory-gb` (`memory_gb`, a quarter of the machine's memory by default, 0 no
 budget), or holding `BIG_PASS_GB` (2) or more while the machine has less available than `machine_free_gb` keeps
-(`MACHINE_FREE_SHARE` 5 %, at least 2 GB: four big areas at once filled the Unraid server, 2026-11-14); the message
+(`MACHINE_FREE_SHARE` 5 %, at least 2 GB: four big areas at once filled the Unraid server, 2026-11-14), and only
+when it is the largest running pass of the state folder (`biggest_running`: the other areas' states written within
+`RUNNING_STATE_S`, stage listing or downloading; a tie by name), so big areas restart one a beat; the message
 keeps the sample that crossed: the supervisor starts the next pass at once and counts `restarts` in the state),
 `EXIT_NOTHING` 6 (no tile under the outline, or every tile without data). After the pool `_count_missing` (`cache.count_missing`: the rows
 "missing", one query per top-level folder) puts each layer's tiles without data into the state (`layers[k].missing`,

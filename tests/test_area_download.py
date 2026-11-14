@@ -326,6 +326,39 @@ def test_a_big_pass_restarts_when_the_machine_runs_short(setup, monkeypatch, hel
                            "3.0 GB, the pass is started again")
 
 
+def _states(state_dir, now, **areas):
+    """State files of areas: name -> (stage, memory_gb, seconds since written)."""
+    os.makedirs(state_dir, exist_ok=True)
+    for name, (stage, held, age) in areas.items():
+        updated = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - age))
+        with open(ad.state_file(state_dir, name, ".state.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": name, "stage": stage, "memory_gb": held, "updated": updated}, f)
+
+
+def test_only_the_largest_running_pass_restarts(tmp_path):
+    """Short of memory, only the pass holding the most of the folder's running passes restarts; one waiting
+    between passes, a stale state, a small pass and a finished area do not count; a tie goes to the name first."""
+    state_dir, now = str(tmp_path), time.time()
+    _states(state_dir, now, france=("downloading", 9.0, 2), canada=("listing", 6.0, 5), poland=("downloading", 4.0, 1),
+            slovenia=("downloading", 0.7, 1), utah=("waiting", 20.0, 1), alaska=("downloading", 30.0, 600),
+            spain=("done", 25.0, 1))
+    assert ad.biggest_running(state_dir, "france", 9.0, now)
+    assert not ad.biggest_running(state_dir, "canada", 6.0, now)
+    assert not ad.biggest_running(state_dir, "poland", 4.0, now)
+    assert ad.biggest_running(state_dir, "canada", 9.0, now)   # a tie: canada before france
+    assert not ad.biggest_running(state_dir, "poland", 9.0, now)   # france before poland
+    assert ad.biggest_running(str(tmp_path / "alone"), "france", 2.5, now)
+
+
+def test_a_big_pass_waits_while_a_bigger_one_runs(setup, monkeypatch):
+    """Short of memory with a bigger pass of another area running, a big pass goes on (that one restarts)."""
+    monkeypatch.setattr(ad, "memory_gb", lambda: 3.0)
+    monkeypatch.setattr(ad, "machine_free_gb", lambda: (1.5, 3.1))
+    area = setup(SlowLayer(10))
+    _states(area.state_dir, time.time(), france=("downloading", 9.0, 0))
+    assert ad.run_pass(area, 1) == ad.EXIT_DONE
+
+
 def test_memory_kept_free_on_the_machine(monkeypatch):
     """psutil's available memory, and a twentieth of the memory kept, at least 2 GB."""
     import psutil

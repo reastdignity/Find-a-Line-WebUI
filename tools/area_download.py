@@ -82,11 +82,13 @@ GDAL_CACHEMAX_MB = 512      # GDAL's block cache of a pass (supervise), unless t
 # The machine's memory kept free: each pass's budget is a quarter of the memory, so four big areas at once fill it
 # (the Unraid server, 2026-11-14: France, Canada, British Columbia and Poland held 47 of 62 GB, 3 GB available, no
 # swap; the kernel's OOM killer had ended passes on 2026-11-07 and 2026-11-08). With less available than this share
-# of the memory (at least MACHINE_FREE_MIN_GB), a pass holding BIG_PASS_GB or more is started again, as over its
-# budget; the small ones (Slovenia's 0.7 GB) go on
+# of the memory (at least MACHINE_FREE_MIN_GB), the largest pass of the state folder holding BIG_PASS_GB or more is
+# started again, as over its budget, one a beat (biggest_running); the small ones (Slovenia's 0.7 GB) go on
 MACHINE_FREE_SHARE = 0.05
 MACHINE_FREE_MIN_GB = 2.0
 BIG_PASS_GB = 2.0
+RUNNING_STAGES = ("listing", "downloading")   # the stages of a pass that holds memory (biggest_running)
+RUNNING_STATE_S = 3 * STATE_SECONDS   # a state older than this is no running pass (biggest_running)
 LOG_TAIL_BYTES = 65536      # what the supervisor reads of the log for a crashed pass's last line
 FINISHED = ("done", "stopped", "needs attention")
 NO_CONTACT = "no contact in the User-Agent: set the contact in the settings or export FINDALINE_CONTACT"
@@ -153,6 +155,31 @@ def machine_free_gb() -> Tuple[float, float]:
     free (MACHINE_FREE_SHARE of the memory, at least MACHINE_FREE_MIN_GB), in GB."""
     memory = psutil.virtual_memory()
     return memory.available / 1e9, max(MACHINE_FREE_MIN_GB, memory.total * MACHINE_FREE_SHARE / 1e9)
+
+
+def biggest_running(state_dir: str, name: str, held_gb: float, now: Optional[float] = None) -> bool:
+    """Whether the pass of area `name`, holding held_gb, is the one to restart when the machine runs short: no other
+    area of state_dir has a running pass (stage listing or downloading, its state written within RUNNING_STATE_S)
+    of BIG_PASS_GB or more holding more (a tie: the name first in order restarts). An area waiting between passes
+    holds nothing; a pass outside the folder is not seen, so a pass alone restarts as ever. Started together on
+    2026-11-14, France, Canada, British Columbia and Poland would each have restarted in the same beat."""
+    now = time.time() if now is None else now
+    held = round(held_gb, 2)   # as the states hold it
+    for path in glob.glob(state_file(glob.escape(state_dir), "*", ".state.json")):
+        other = os.path.basename(path)[:-len(".state.json")]
+        if other == name:
+            continue
+        state = read_state(state_dir, other)
+        try:
+            age = now - _seconds(state["updated"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        theirs = state.get("memory_gb") or 0.0
+        if state.get("stage") not in RUNNING_STAGES or age > RUNNING_STATE_S or theirs < BIG_PASS_GB:
+            continue
+        if theirs > held or (theirs == held and other < name):
+            return False
+    return True
 
 
 def default_max_memory_gb() -> float:
@@ -251,7 +278,9 @@ class Reporter:
         """The process's memory now and its peak; over the budget the next tile stops the pass (EXIT_RESTART): a
         group of a window layer holds its window whole, and a pass is cheap to start again. So is a pass of
         BIG_PASS_GB or more while the machine has less memory available than it keeps (machine_free_gb): what
-        the passes of several areas hold together. The reason keeps the sample that crossed the line."""
+        the passes of several areas hold together. Only the largest pass of the state folder restarts
+        (biggest_running), the others look again at the next beat, so several big areas never all restart in
+        the same beat. The reason keeps the sample that crossed the line."""
         self.memory_gb = memory_gb()
         self.memory_peak_gb = max(self.memory_peak_gb, self.memory_gb)
         if self.over_budget:
@@ -259,8 +288,10 @@ class Reporter:
         if self.area.max_memory_gb and self.memory_gb > self.area.max_memory_gb:
             self.over_budget = f"memory {self.memory_gb:.1f} GB over the budget of {self.area.max_memory_gb:g} GB"
             return
+        if self.memory_gb < BIG_PASS_GB:
+            return
         available, keep = machine_free_gb()
-        if self.memory_gb >= BIG_PASS_GB and available < keep:
+        if available < keep and biggest_running(self.area.state_dir, self.area.name, self.memory_gb):
             self.over_budget = (f"the machine has {available:.1f} GB of memory available, under the {keep:.1f} GB "
                                 f"kept, and this pass holds {self.memory_gb:.1f} GB")
 
