@@ -271,7 +271,7 @@ export function MoreFilters({model, onClose}: MoreFiltersProps) {
         {/* four choices in two rows: in one they do not fit the list's column */}
         <div class="r-by"><Segmented label="Show per spot" value={s.by} onChange={(by) => model.setState({...s, by})}
           options={[{value: BY_MEAN, label: t("ui.filter.by_mean")}, {value: "clearance", label: "Most clearance"},
-                    {value: "longest", label: "Longest"}, {value: "height", label: "Highest"}]} /></div>
+                    {value: "longest", label: "Longest"}, {value: "height", label: t("ui.filter.by_height")}]} /></div>
         {limit("Lines in a spot at least", "groupMin", r.group, 1, "min", "")}
       </>}
     </div>

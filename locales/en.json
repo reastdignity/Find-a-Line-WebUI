@@ -491,6 +491,7 @@
   "ui.filter.lift_count": "{{shown}} of {{total}} lines of this run",
   "ui.filter.lift_axis": "{{m}} m",
   "ui.filter.by_mean": "Highest on average",
+  "ui.filter.by_height": "Highest point",
   "ui.details.rigging": "Rigging",
   "ui.details.zone": "no-fall zone {{m}} m at the ends",
   "ui.details.no_zone": "no no-fall zone",
