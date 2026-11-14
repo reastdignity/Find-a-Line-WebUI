@@ -108,6 +108,10 @@ export function lineFacts(l: Line, highAbove: number, run?: {end_zone?: number; 
   if (l.filled > 0) facts.push(["Over filled gaps", `${num(l.filled)} m (less precise data)`]);
   const rigging = riggingText(l, run);
   if (rigging) facts.push([t("ui.details.rigging"), rigging]);
+  // a run made with the square rule: the found lines between the same two anchor squares this line stands for
+  if (typeof l.stands_for === "number") {
+    facts.push([t("ui.details.stands_for"), t("ui.details.stands_for_n", {count: l.stands_for})]);
+  }
   return facts;
 }
 

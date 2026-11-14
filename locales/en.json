@@ -430,6 +430,8 @@
   "ui.result.loading_download_unknown": "Downloading the run… {{done}} MB",
   "ui.result.loading_parse": "Reading the lines…",
   "ui.result.loading_groups": "Grouping the lines…",
+  "ui.result.found": "{{n}} found",
+  "ui.result.found_title": "Lines found by the search. One line is kept for each pair of {{m}} m anchor squares; it stands for the lines found between them.",
 
   "ui.profile.anchor_lift": "+{{m}}",
   "ui.profile.aframe": "A-frame {{m}} m",
@@ -460,6 +462,9 @@
   "ui.details.needs_none": "this line needs no A-frame",
   "ui.details.without": "(without the zone: {{m}} m)",
   "ui.details.without_none": "(without the zone: none)",
+  "ui.details.stands_for": "Stands for",
+  "ui.details.stands_for_n_one": "this line only: no other was found between its two anchor squares",
+  "ui.details.stands_for_n_other": "{{count}} found lines between the same two anchor squares",
 
   "ui.view3d.open": "3D view",
   "ui.view3d.title": "3D view of a line",

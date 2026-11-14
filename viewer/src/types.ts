@@ -35,8 +35,8 @@ export interface Profile {
 //  metres over water, metres over filled gaps, largest and mean height of the webbing above the
 //  terrain, % of the line at least high_above, wall angle at anchor 1 and 2 (degrees from the
 //  downslope direction), prominence of anchor 1 and 2, drop below anchor 1 and 2 (null: not
-//  known), then in a run with an end zone or A-frames the values its head's `ends` names (END_VALUES),
-//  profile] (lines.js leaves out the profile)
+//  known), then the values its head's `ends` names (in a run with an end zone or A-frames END_VALUES, in a
+//  run made with the square rule STANDS_FOR last), profile] (lines.js leaves out the profile)
 export type LineRow = [number, number, number, number, number, number, number, number, number, number,
   number | null, number, number, boolean, number, number, number, number, number, number, number,
   number | null, number | null, number | null, number | null, ...(number | Profile | null)[]];
@@ -46,6 +46,9 @@ const ROW_VALUES = 25;
 /** The extra values of a run with an end zone or A-frames, in the order its head's `ends` gives them
  *  (helpers.END_VALUES): the A-frame height each line needs with the run's zone, and without a zone. */
 export const END_VALUES = ["lift_needed", "lift_no_zone"];
+/** The last of a head's `ends` in a run made with the square rule (--same-line-square; runs.STANDS_FOR): the
+ *  found lines between the same two anchor squares that the row's line stands for (itself among them). */
+export const STANDS_FOR = "stands_for";
 
 export interface Line {
   lat1: number; lon1: number; lat2: number; lon2: number;
@@ -62,6 +65,9 @@ export interface Line {
   // the A-frame height (m, both ends) the line needs with its run's end zone, and without a zone (it may
   // exceed the run's A-frames: the line then needs the zone); null or missing: a run without the options
   lift_needed?: number | null; lift_no_zone?: number | null;
+  // the found lines this line stands for (the square rule: one line kept per pair of anchor squares); null or
+  // missing: a run without the rule. Not saved with a favourite
+  stands_for?: number | null;
   prof: Profile | null;
   run?: OtherRun;  // set for the lines of another run
 }
@@ -85,6 +91,8 @@ export interface RunLines {
   area: Geometry;
   terrain?: Terrain | null;  // runs saved before 2026-11-03 have none
   ends?: string[];  // the names of the rows' values before the profile (RunData.ends)
+  square?: number;  // RunData.square
+  found?: number;   // RunData.found
   lines: LineRow[];  // without the profile at the end
 }
 
@@ -169,7 +177,9 @@ export interface RunData {
   terrain_sources?: TerrainSources;  // where the land's terrain came from; only when something was filled
   end_zone?: number;              // m: the run's no-fall zone at the ends (none: off)
   lift?: number;                  // m: the run's A-frame height (none: off)
-  ends?: string[];                // the names of the rows' values before the profile (END_VALUES); none: no such
+  ends?: string[];                // the names of the rows' values before the profile (END_VALUES, STANDS_FOR); none: no such
+  square?: number;                // m: the side of the anchor squares of a run made with the square rule (none: off)
+  found?: number;                 // the lines such a run found, which its lines stand for (the sum of their counts)
   lines: LineRow[];
 }
 
@@ -215,6 +225,6 @@ export function toLine(d: LineRow, run?: OtherRun, terrain?: Terrain | null, end
           hmax: d[16], hmean: d[17], highPct: d[18], angle1: d[19], angle2: d[20], prom1: d[21], prom2: d[22],
           drop1: d[23], drop2: d[24],
           pct1: q ? percentileRank(d[11], q) : null, pct2: q ? percentileRank(d[12], q) : null,
-          lift_needed: extra("lift_needed"), lift_no_zone: extra("lift_no_zone"),
+          lift_needed: extra("lift_needed"), lift_no_zone: extra("lift_no_zone"), stands_for: extra(STANDS_FOR),
           prof: profiled ? (last as Profile | null) || null : null, run};
 }

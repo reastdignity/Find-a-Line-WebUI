@@ -491,3 +491,53 @@ def test_form_field_round_trip(tmp_path, monkeypatch):
     assert meta["params"]["same_line_square"] == 5 and meta["params"]["same_line_side"] == 5
     assert meta["summary"]["found"] > 2 * meta["summary"]["lines"] > 0
     assert any("Square rule:" in str(e["data"]) for e in jobs.events(0, job) if e["kind"] == "info")
+
+
+# --- the page: the lines found, and what a line stands for ---
+
+PAGE_SCRIPT = """
+run({
+  loaded(next) { wait(() => model() && rows().length, () => {
+    result.summary = text(".r-summary-count");
+    result.found = [model().data.found, model().data.square, ($(".r-found") || {title: null}).title];
+    result.sum = model().all.reduce((n, l) => n + (l.stands_for || 0), 0);
+    rows()[0].click();
+    wait(() => $(".r-kv"), () => {
+      result.facts = $$(".r-kv dt").map((dt) => [dt.textContent, dt.nextElementSibling.textContent]);
+      result.stands = model().selected.line.stands_for;
+      next();
+    });
+  }); },
+});
+"""
+
+
+@pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+                    reason="needs Microsoft Edge")
+def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
+    """The result page of a run made with the option: the head says the lines found after the lines shown
+    ("… lines · 1,234 found", with what that means as its title) and a line's details how many found lines
+    it stands for; a run without the option shows neither."""
+    import test_web as tw
+    monkeypatch.delenv("ESRI_API_KEY", raising=False)
+    monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
+    results = {}
+    for name, extra in (("on", ("--same-line-square", "5")), ("off", ())):
+        run_id = tw._clip_run(tmp_path, monkeypatch, "--name", name, *extra)
+        folder = tmp_path / "runs" / run_id
+        page = tw._map_page(folder, "square_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN)
+        r = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile=f"edge-{name}"))
+        assert "timeout" not in r and r["at"] == "end" and "error" not in r, r
+        results[name] = (r, json.loads(_read(str(folder), "run.json"))["summary"])
+    r, summary = results["on"]
+    found = summary["found"]
+    assert found > 2 * summary["lines"] and r["sum"] == found and r["found"][:2] == [found, 5], r
+    assert r["summary"].endswith(f"{summary['lines']} lines · {found:,} found"), r
+    assert "5 m anchor squares" in r["found"][2], r
+    stands = dict(r["facts"])["Stands for"]
+    assert stands == (f"{r['stands']} found lines between the same two anchor squares" if r["stands"] > 1 else
+                      "this line only: no other was found between its two anchor squares"), r
+    r, summary = results["off"]
+    assert "found" not in summary and "found" not in r["summary"] and r["found"] == [None, None, None], r
+    assert r["summary"].endswith(f"{summary['lines']} lines") and r["sum"] == 0 and r["stands"] is None, r
+    assert "Stands for" not in dict(r["facts"]), r
