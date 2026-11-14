@@ -149,7 +149,7 @@ export function LinesTable({model, view, details, onSelect, page = PAGE, follow 
                                              class={cx("r-col", key.key === c.key && "r-on")}
                                              aria-sort={key.key === c.key ? (list.desc ? "descending" : "ascending") : undefined}
                                              onClick={() => sortBy(c.key)}>
-        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button>)}
+        {t(c.head)}{key.key === c.key && (list.desc ? " ↓" : " ↑")}</button>)}
       <span />
     </div>
     <div class="r-rows" role="listbox" aria-label="Lines">

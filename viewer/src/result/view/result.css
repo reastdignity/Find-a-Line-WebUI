@@ -93,6 +93,7 @@
 .ui .r-more-head { display: flex; align-items: center; gap: 8px; }
 .ui .r-more-sec { display: flex; flex-direction: column; gap: 8px; }
 .ui .r-more-sec > h3, .ui .r-field-lab { margin: 0; font: 500 11px var(--mono); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.ui .r-by .u-seg { display: grid; grid-template-columns: 1fr 1fr; }  /* "Show per spot": four choices in two rows */
 .ui .r-terrain { margin-top: 4px; }  /* the area's terrain: apart from the slider above, with the percentiles below */
 @media (pointer: coarse) { .ui .r-num { min-height: 40px; font-size: 16px; } }
 
@@ -113,6 +114,9 @@
 .ui .r-col { border: 0; background: none; padding: 0; text-align: left; cursor: pointer; white-space: nowrap;
   font: 500 11px/1.15 var(--mono); text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .ui .r-col.r-on { color: var(--accent); }
+/* the list's headings may take two lines ("Mean height ↓" in a phone's narrow column) */
+.ui .r-table .r-row.r-head { padding-block: 4px; }
+.ui .r-table .r-row.r-head .r-col { white-space: normal; }
 .ui .r-member { min-height: 32px; font-size: 12.5px; color: var(--ink-2); padding-left: 22px; grid-template-columns: 14px 1fr 1fr 1fr 48px 30px; }
 .ui .r-member.r-shown { color: var(--ink); font-weight: 500; }
 .ui .r-unfold { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 999px;
