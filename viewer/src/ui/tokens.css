@@ -10,7 +10,8 @@
   --map-bg: #ecebdf; --water: #93c3e3; --rock: #8a7b63;
   --clear: #e10fd6; --trees: #ef8300; --fav: #f0c400; --halo: #ffffff;
   --terrain: #bba680; --tree-fill: #80ae6b; --limit: #d62728;
-  --coarse: #3b3f5c;  /* the coarser terrain's hatch and outline (coarserLayer.ts) */
+  /* the coarser terrain (coarserLayer.ts): its box's swatch; on the map, whose tiles stay light, one slate */
+  --coarse: #3b3f5c; --coarse-map: #3b3f5c;
   --layer-1: #86b6ef; --layer-2: #3987e5; --layer-3: #256abf; --layer-4: #184f95; --layer-5: #0d366b;  /* the highline layer's density classes (app/c/LayerPage.tsx) */
   --shadow: 0 1px 2px rgb(20 30 25 / .08), 0 8px 24px rgb(20 30 25 / .10);
   --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);

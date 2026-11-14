@@ -43,6 +43,10 @@
 .ui .r-note { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px; border-radius: 10px;
   background: var(--warn-soft); color: var(--warn); font-size: 13px; }
 .ui .r-note .u-btn { min-height: 28px; color: inherit; }
+/* The coarser terrain's note (ResultSummary's CoarserNote): the text beside the icon, its button under it */
+.ui .r-coarse { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 2px 8px; padding: 8px 10px; }
+.ui .r-coarse > .u-icon, .ui .r-coarse > svg { margin-top: 2px; }
+.ui .r-coarse .u-btn { grid-column: 2; justify-self: start; margin-left: -8px; }
 
 /* Filters */
 .ui .r-filters { display: flex; flex-direction: column; gap: 10px; }

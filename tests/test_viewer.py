@@ -793,7 +793,7 @@ console.log(JSON.stringify({{
     assert found["every"] == [0, 0, 0.4, 0.15] and found["first"] == [0, 0, 0.4, 0] and found["none"] == [0, 0, 0, 0]
     assert found["has"] == [True, False, False]
     assert found["warns"] == [True, False, True, False] and found["limit"] == search.FALLBACK_WARN_SHARE
-    assert found["shares"] == "65 % Own, 1 m · 5 % Next · 20 % Coarse, 5 m · 10 % Coarser, 10 m"
+    assert found["shares"] == "65 % Own (1 m) · 5 % Next · 20 % Coarse (5 m) · 10 % Coarser (10 m)"
     assert found["pct"] == ["97.6", "100", "2.4", "0"]
     assert found["km2"] == ["0.40", "0.019", "under 0.001"]
 

@@ -54,9 +54,9 @@ export function percent(share: number): string {
   return (Math.round(share * 1000) / 10).toFixed(1).replace(/\.0$/, "");
 }
 
-/** A layer's name with its resolution ("USGS 3DEP (1/3 arc-second DEM), 10 m"). */
+/** A layer's name with its resolution ("FABDEM + Copernicus DEM (30 m)"). */
 export function layerName(layer: TerrainLayer): string {
-  return layer.resolution ? `${layer.name}, ${layer.resolution} m` : layer.name;
+  return layer.resolution ? `${layer.name} (${layer.resolution} m)` : layer.name;
 }
 
 /** The fallbacks of a run, in their order. */
@@ -64,7 +64,7 @@ export function fallbacks(sources: TerrainSources): TerrainLayer[] {
   return sources.layers.filter((l) => l.role === "fallback");
 }
 
-/** The shares of every layer that gave some land ("97.6 % geoportal.gov.pl, 1 m · 2.4 % FABDEM …, 30 m"). */
+/** The shares of every layer that gave some land ("97.6 % geoportal.gov.pl (1 m) · 2.4 % FABDEM … (30 m)"). */
 export function sharesText(sources: TerrainSources): string {
   return sources.layers.filter((l) => l.share > 0).map((l) => `${percent(l.share)} % ${layerName(l)}`).join(" · ");
 }
