@@ -11,7 +11,8 @@ vertical, credit, layer, composed, readers, indexes, source, layers, catalogue, 
 HTTP (`_get` with retries, `_sleep`; `session()`: a keep-alive `requests.Session` per thread; `HOST_CA_OF` and
 `verify`: a host's missing intermediate certificate from `sources/certs/` on top of certifi's roots, for its requests
 only), `rate_turn` (a `share` of the host's rate: a second, slower bucket on top of the host's), `host_slot` (the
-threads of a process first queue for the slots in the order asked, `_Queue`, then a lock file of the folder) and
+threads of a process first queue for the slots in the order asked, `_Queue`, up to `QUEUE_WAIT_S` (6 h: a hang), a
+waiter leaving early giving its ticket up, then a lock file of the folder) and
 `tile_lock`, the `.part` names, `_gdal_http` (GDAL's settings for remote reads: retry codes
 with 0, one thread) and `gdal_errors` (GDAL's errors of a thread, also of reads that returned); `credit.py` `Credit`
 and the shared licences (`YEAR`, `{year}` in an attribution, notice, orthophoto attribution or note: the run's year,

@@ -231,6 +231,81 @@ def test_slots_of_a_process_never_time_out_on_its_own_threads(tmp_path, monkeypa
     assert errors == [] and most[0] == 2
 
 
+def _queued(queue, n):
+    """Wait until n tickets are taken (their threads wait in the queue)."""
+    while queue.next_ticket < n:
+        time.sleep(0.001)
+
+
+def test_a_waiter_that_times_out_gives_its_ticket_up():
+    """A waiter whose time runs out leaves the queue: the ticket behind it is served when a place frees, not
+    stuck behind a ticket nobody will take."""
+    queue, got = net._Queue(1), []
+    queue.acquire()
+    late = threading.Thread(target=lambda: got.append(("late", queue.acquire(0.05))))
+    late.start()
+    _queued(queue, 2)
+    after = threading.Thread(target=lambda: got.append(("after", queue.acquire(30))))
+    after.start()
+    _queued(queue, 3)
+    late.join()
+    queue.release()
+    after.join()
+    assert got == [("late", False), ("after", True)] and queue.abandoned == set()
+
+
+def test_a_waiter_leaving_by_an_exception_gives_its_ticket_up(monkeypatch):
+    """Any exception in the wait (an interrupt) leaves the ticket unserved: the next one is not stuck behind it."""
+    queue, got = net._Queue(1), []
+    queue.acquire()
+    real_wait, first = queue.cond.wait, [True]
+
+    def wait(timeout=None):
+        if threading.current_thread().name == "broken" and first[0]:
+            first[0] = False
+            raise KeyboardInterrupt
+        return real_wait(timeout)
+    monkeypatch.setattr(queue.cond, "wait", wait)
+
+    def broken():
+        try:
+            queue.acquire()
+        except KeyboardInterrupt:
+            got.append("interrupted")
+    t1 = threading.Thread(target=broken, name="broken")
+    t1.start()
+    t1.join()
+    t2 = threading.Thread(target=lambda: got.append(queue.acquire(30)))
+    t2.start()
+    _queued(queue, 3)
+    queue.release()
+    t2.join()
+    assert got == ["interrupted", True]
+
+
+def test_a_hung_sibling_is_an_error_after_the_queue_wait(tmp_path, monkeypatch):
+    """A thread waiting longer than QUEUE_WAIT_S for its process's own downloads from a host: an error saying so,
+    not the message of other searches; the place it waited for still serves the next thread."""
+    monkeypatch.setitem(net.HOST_SLOTS_OF, "hang.example", 1)
+    monkeypatch.setattr(net, "QUEUE_WAIT_S", 0.05)
+    release, holding = threading.Event(), threading.Event()
+
+    def hung():
+        with net.host_slot(str(tmp_path), "https://hang.example/x"):
+            holding.set()
+            release.wait(30)
+    t = threading.Thread(target=hung)
+    t.start()
+    holding.wait(30)
+    with pytest.raises(RuntimeError, match="hang.example is busy with this process's own downloads"):
+        with net.host_slot(str(tmp_path), "https://hang.example/x"):
+            pass
+    release.set()
+    t.join()
+    with net.host_slot(str(tmp_path), "https://hang.example/x"):
+        pass
+
+
 def test_get_waits_before_every_attempt(http_server, monkeypatch):
     """net._get asks for a turn before each attempt; a 429 or 503 backs off longer (_sleep(attempt + 3)),
     other failures as before (_sleep(attempt))."""

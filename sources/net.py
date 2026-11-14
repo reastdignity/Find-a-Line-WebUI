@@ -114,6 +114,9 @@ HOST_SLOTS_OF: Dict[str, int] = {
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
+# Longest wait of a thread for its turn among the threads of its own process (host_slot's _Queue): they take turns in
+# order, so it waits for a few downloads ahead of it; this long only a download that hangs (review of 2026-11-14)
+QUEUE_WAIT_S = 6 * 3600
 RETRIES = 3
 
 # Requests per minute to a host, for the hosts whose provider publishes a limit (rate_turn): one
@@ -298,19 +301,46 @@ def _locks(cache_dir: str, kind: str) -> str:
 
 class _Queue:
     """n places taken in the order asked (a ticket each): threading.Semaphore lets a thread that has just
-    released take its place back before a waiter woken for it, so a waiter can lose for an hour."""
+    released take its place back before a waiter woken for it, so a waiter can lose for an hour.
+
+    A waiter that leaves before its turn (its timeout, or any exception in the wait) gives its ticket up
+    (abandoned): the tickets behind it are served as if it had never asked, never stuck behind it."""
 
     def __init__(self, n: int):
         self.free, self.next_ticket, self.serving = n, 0, 0
+        self.abandoned: set = set()
         self.cond = threading.Condition()
 
-    def acquire(self):
+    def acquire(self, timeout: Optional[float] = None) -> bool:
+        """A place, waiting in turn; False after timeout seconds without one (None: no limit)."""
+        deadline = None if timeout is None else time.monotonic() + timeout
         with self.cond:
             ticket, self.next_ticket = self.next_ticket, self.next_ticket + 1
-            while ticket != self.serving or not self.free:
-                self.cond.wait()
+            try:
+                while ticket != self.serving or not self.free:
+                    left = None if deadline is None else deadline - time.monotonic()
+                    if left is not None and left <= 0:
+                        self._give_up(ticket)
+                        return False
+                    self.cond.wait(left)
+            except BaseException:
+                self._give_up(ticket)
+                raise
             self.serving, self.free = self.serving + 1, self.free - 1
+            self._skip()
             self.cond.notify_all()  # the next ticket may take a place still free
+            return True
+
+    def _give_up(self, ticket: int):
+        """A ticket left unserved (under self.cond): skipped when its turn comes, or now when it is due."""
+        self.abandoned.add(ticket)
+        self._skip()
+        self.cond.notify_all()
+
+    def _skip(self):
+        while self.serving in self.abandoned:
+            self.abandoned.discard(self.serving)
+            self.serving += 1
 
     def release(self):
         with self.cond:
@@ -330,11 +360,11 @@ def host_slot(cache_dir: str, url: Optional[str]):
     files are a fixed few per host. Nothing to wait for without a remote host (a local mirror).
 
     The threads of one process first queue for as many places as there are slots (_Queue: in the
-    order they asked, without a time limit, as they wait only for each other's downloads), so the
-    file locks are tried by at most that many of them and LOCK_WAIT_S is spent waiting for other
-    processes only. Polled at random, the 8 download threads of Slovenia's pass for ARSO's 2 slots
-    let a thread lose for an hour to its own siblings ("busy with the downloads of other searches",
-    2026-11-13)."""
+    order they asked, waiting only for each other's downloads, so up to QUEUE_WAIT_S: a real hang,
+    not a busy host), so the file locks are tried by at most that many of them and LOCK_WAIT_S is
+    spent waiting for other processes only. Polled at random, the 8 download threads of Slovenia's
+    pass for ARSO's 2 slots let a thread lose for an hour to its own siblings ("busy with the
+    downloads of other searches", 2026-11-13)."""
     host = _host(url)
     if not host:
         yield
@@ -344,7 +374,9 @@ def host_slot(cache_dir: str, url: Optional[str]):
     key = (folder, host, len(slots))
     with _queues_lock:
         queue = _queues.setdefault(key, _Queue(len(slots)))
-    queue.acquire()
+    if not queue.acquire(QUEUE_WAIT_S):
+        raise RuntimeError(f"{host} is busy with this process's own downloads from it "
+                           f"(waited {QUEUE_WAIT_S // 60} min); try again later")
     try:
         with _file_slot(folder, host, slots):
             yield
