@@ -2921,6 +2921,51 @@ def test_coded_errors():
     assert messages.quantity("slope_threshold", 45.0) == "45°" and messages.quantity("ortho_detail", 5) == "5"
 
 
+def test_refusal_advice_follows_the_settings():
+    """The advice of a refusal for too many lines names only the changes that apply to the search, in
+    the measured order (zone and A-frames off, zone off, the formula, the anchors' height difference,
+    A-frames off, steeper anchors), at most four, never the highest point or the drop; each text uses
+    its field's label in the page and the option's name on the command line."""
+    import messages
+    import params as pm
+
+    def keys(**values):
+        return [a["key"] for a in messages.line_advice(pm.SearchParams(lat=50, lon=19, **values))]
+
+    assert keys(model="sag", end_zone=5, anchor_lift=2) == ["zone_lift_off", "zone_off", "formula", "anchor_diff_m"]
+    assert keys(model="sag", end_zone=5) == ["zone_off", "formula", "anchor_diff_m", "slope"]
+    assert keys(model="sag", anchor_lift=2) == ["formula", "anchor_diff_m", "lift_off", "slope"]
+    assert keys() == ["anchor_diff_m", "slope"]  # a formula search without a zone: neither is named
+    assert keys(max_anchor_diff_m=4, max_anchor_diff=3, slope_threshold=85) == ["anchor_diff_half"]
+    half = messages.line_advice(pm.SearchParams(lat=50, lon=19, max_anchor_diff_m=4, max_anchor_diff=3))[0]
+    assert half == {"key": "anchor_diff_half", "value": 2, "percent": 1.5}
+    assert messages.line_advice(pm.SearchParams(lat=50, lon=19, slope_threshold=80))[-1] == {"key": "slope",
+                                                                                           "value": 85}
+    assert keys(max_anchor_diff_m=0, slope_threshold=85) == []
+    texts = messages.catalogue()
+    for key, fields in {"zone_lift_off": ["end_zone", "anchor_lift"], "zone_off": ["end_zone"],
+                        "anchor_diff_m": ["max_anchor_diff_m"], "anchor_diff_half": ["max_anchor_diff"],
+                        "lift_off": ["anchor_lift"], "slope": ["slope_threshold"], "formula": ["model"]}.items():
+        for field in fields:
+            assert texts[f"field.{field}.label"] in texts[f"error.advice.{key}"], (key, field)
+    assert texts["choice.model.formula"] in texts["error.advice.formula"]
+    advice = messages.line_advice(pm.SearchParams(lat=50, lon=19, model="sag", end_zone=5, anchor_lift=2))
+    web = messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5, "advice": advice}))
+    assert web == ("9 lines found, limit 5. To find fewer lines, set one of these, the strongest first: No-fall zone "
+                   "at the ends and A-frame height both to 0; No-fall zone at the ends to 0; Clearance model to Simple "
+                   "formula; Anchor height difference to 5 m. Or search a smaller area or shorter lines.")
+    for text in [web] + [messages.text(f"error.{c}", **messages.web_params({"n": 9, "max": 5, "advice": advice}))
+                         for c in ("too_many_lines_memory", "too_many_lines_early", "too_many_lines_memory_early")]:
+        assert "Highest point" not in text and "Drop below" not in text and "{{" not in text, text
+    assert messages.advice_cli(advice) == ("fewer lines with, the strongest first: --end-zone 0 --anchor-lift 0; "
+                                           "--end-zone 0; --model formula; --max-anchor-diff-m 5; or a smaller area "
+                                           "or a lower --max-length")
+    # a refusal stored before the advice (no "advice") and one with nothing to advise
+    assert messages.text("error.too_many_lines", **messages.web_params({"n": 9, "max": 5})) == \
+        "9 lines found, limit 5. To find fewer lines, search a smaller area or shorter lines."
+    assert messages.advice_cli([]) == "fewer lines with a smaller area or a lower --max-length"
+
+
 def test_elevation_band_validation():
     """--min-elevation/--max-elevation: either bound alone, or both in order (equal is a band of one
     height); a lower bound above the upper one is refused with its code."""

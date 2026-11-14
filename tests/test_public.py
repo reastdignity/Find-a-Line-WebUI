@@ -3015,18 +3015,27 @@ def test_bounding_box_limits_before_requests(tmp_path, monkeypatch, settings, ac
 
 
 def test_search_limits_of_anchors_and_lines(tmp_path):
-    """Too many anchors or lines stop the search with a hint, before the profiles."""
+    """Too many anchors or lines stop the search with a hint, before the profiles; the lines' hint is
+    the advice that applies to the search's settings (messages.line_advice)."""
+    import messages
     import search
     from settings import Limits
     point = {"northing": 254608, "easting": 553966, "radius": 150}
-    for limits, text, code in ((Limits(anchors_max=10), "anchors, at most 10", "too_many_anchors"),
-                               (Limits(lines_max=5, lines_early_stop=False), "lines, at most 5", "too_many_lines"),
-                               (Limits(lines_max=5), "more than 5 lines (the search stopped at", "too_many_lines_early")):
-        plan = _plan(tmp_path, limits, **point)
+    for limits, text, code, extra in (
+            (Limits(anchors_max=10), "anchors, at most 10", "too_many_anchors", {}),
+            (Limits(lines_max=5, lines_early_stop=False), "lines, at most 5", "too_many_lines", {}),
+            (Limits(lines_max=5), "more than 5 lines (the search stopped at", "too_many_lines_early",
+             {"model": "sag", "end_zone": 3})):
+        plan = _plan(tmp_path, limits, **point, **extra)
         with pytest.raises(search.SearchError) as error:
             search.find_lines(plan, search.prepare_data(plan))
-        assert text in str(error.value) and "--resolution" in str(error.value), error.value
+        hint = "--resolution" if code == "too_many_anchors" else "a lower --max-length"
+        assert text in str(error.value) and hint in str(error.value), error.value
+        assert "--min-height" not in str(error.value) and "--min-drop" not in str(error.value), error.value
         assert error.value.code == code and error.value.params["max"] in (5, 10), error.value.params
+        if code != "too_many_anchors":
+            assert error.value.params["advice"] == messages.line_advice(plan.params), error.value.params
+            assert ("--end-zone 0" in str(error.value)) == bool(extra), error.value
         import gc
         gc.collect()
 
@@ -3035,6 +3044,7 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
     """Lines that would not fit with the grids into the memory free when the search started are
     refused before their coordinates; the command line (no limits) never checks it."""
     from types import SimpleNamespace
+    import params as pm
     import mapping
     import search
     from settings import Limits
@@ -3063,7 +3073,7 @@ def test_lines_refused_for_memory(tmp_path, monkeypatch):
     import gc
     gc.collect()
     # A circle keeps the profile of every line: 10 lines fit without their profiles, 4 with them
-    plan = SimpleNamespace(limits=None, memory=int(search.memory_needed(0, 10)))
+    plan = SimpleNamespace(limits=None, memory=int(search.memory_needed(0, 10)), params=pm.SearchParams(lat=50, lon=19))
     search._check_lines(plan, 10)
     points = 10 * (search.LINE_BYTES // search.PROFILE_POINT_BYTES)  # each profile as large as its line
     with pytest.raises(search.SearchError) as error:

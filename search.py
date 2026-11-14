@@ -1614,15 +1614,17 @@ def _check_lines(plan: Plan, count: int, pixels: int = 0, points: int = 0):
     profiles of this many points: a circle's) into the memory free when the search started
     (before their coordinates, profiles, groups and files)."""
     if plan.limits and plan.limits.lines_max and count > plan.limits.lines_max:
-        raise SearchError(f"{count} lines, at most {plan.limits.lines_max} on this site: a higher --min-prominence "
-                          f"(or --min-height, --min-drop), a coarser --resolution or a smaller area", "too_many_lines",
-                          n=count, max=plan.limits.lines_max)
+        advice = messages.line_advice(plan.params)
+        raise SearchError(f"{count} lines, at most {plan.limits.lines_max} on this site; "
+                          f"{messages.advice_cli(advice)}", "too_many_lines",
+                          n=count, max=plan.limits.lines_max, advice=advice)
     if plan.memory is not None and memory_needed(pixels, count, points) > plan.memory:
         per_line = memory_needed(0, 1, points / max(count, 1))  # with the mean profile of these lines
         fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // per_line))
-        raise SearchError(f"{count} lines, at most {fits} fit into the memory of this site: a higher --min-prominence "
-                          f"(or --min-height, --min-drop), a coarser --resolution or a smaller area",
-                          "too_many_lines_memory", n=count, max=fits)
+        advice = messages.line_advice(plan.params)
+        raise SearchError(f"{count} lines, at most {fits} fit into the memory of this site; "
+                          f"{messages.advice_cli(advice)}",
+                          "too_many_lines_memory", n=count, max=fits, advice=advice)
 
 
 def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int], None]]:
@@ -1639,16 +1641,18 @@ def _early_check(plan: Plan, before: int, pixels: int) -> Optional[Callable[[int
     def check(count: int):
         total = before + count
         if lines_max and total > lines_max:
+            advice = messages.line_advice(plan.params)
             raise SearchError(f"more than {lines_max} lines (the search stopped at {total}), at most "
-                              f"{lines_max} on this site: a higher --min-prominence (or --min-height, "
-                              f"--min-drop), a coarser --resolution or a smaller area", "too_many_lines_early",
-                              n=total, max=lines_max)
+                              f"{lines_max} on this site; "
+                              f"{messages.advice_cli(advice)}", "too_many_lines_early",
+                              n=total, max=lines_max, advice=advice)
         if plan.memory is not None and memory_needed(pixels, total) > plan.memory:
             fits = max(0, int((plan.memory - memory_needed(pixels, 0)) // LINE_BYTES))
+            advice = messages.line_advice(plan.params)
             raise SearchError(f"more than {fits} lines (the search stopped at {total}), at most {fits} fit into the "
-                              f"memory of this site: a higher --min-prominence (or --min-height, --min-drop), a "
-                              f"coarser --resolution or a smaller area", "too_many_lines_memory_early",
-                              n=total, max=fits)
+                              f"memory of this site; "
+                              f"{messages.advice_cli(advice)}", "too_many_lines_memory_early",
+                              n=total, max=fits, advice=advice)
     return check
 
 
