@@ -73,13 +73,17 @@ def confirmer(assume_yes: bool):
 def print_lines(lines: search.Lines, group_distance: float, group_by: str, all_lines: bool) -> List[Dict]:
     """Print the spots (or every line); returns the lines shown, as dicts (helpers.LineTable.row)."""
     results = lines.results
+    # With the square rule (--same-line-square) the lines are the kept ones, each standing for the lines found
+    # between its two anchor squares
+    found = (f"Kept {len(results)} of {int(results.columns[rn.STANDS_FOR].sum())} valid lines (one per pair of "
+             f"anchor squares)" if rn.STANDS_FOR in results.columns else f"Found {len(results)} valid lines")
     if all_lines:
         groups = mp.Groups.each_alone(len(results))
-        print(f"\nFound {len(results)} valid lines")
+        print(f"\n{found}")
     else:
         groups = lines.spot_groups
         shown = {"clearance": "largest clearance", "longest": "longest", "height": "highest"}[group_by]
-        print(f"\nFound {len(results)} valid lines in {len(groups)} spots "
+        print(f"\n{found} in {len(groups)} spots "
               f"(lines with both anchors within {group_distance:g}m are grouped, "
               f"showing the one with the {shown}; use --all-lines to list every line)")
     print("GPS Coordinates (lat, lon):")

@@ -108,7 +108,13 @@ PIXEL_BYTES = 50
 # search of smaller groups holds more). The found pairs need no term of their own: as many
 # as the valid lines on all 15 captures (at most 1.0001 times; lines left out by --min-height or
 # --max-wall-angle would add about 190 B per pair to step 3, still below step 4 up to 2.3 pairs
-# per line)
+# per line).
+# With the square rule (--same-line-square, samelines.py) step 3 holds the reducer's rows instead of the
+# found lines: 216 B a row (the columns of a part with the A-frame heights, its count and six key columns
+# of 8 B), about 260 B while a merge sorts them (two negated columns, the index, a column held twice); with
+# a check at most 9/8 of the lines the limits allow and one part are held (BestPerSquarePair merges at
+# once when the rows held would be refused), so step 3 stays below a kept line's 450 B, and steps 4-5 hold
+# 8 B more per kept line (the count). Counted from the dtypes, not measured with the tool (2026-11-14)
 LINE_BYTES = 450
 # A profile takes up to PROFILE_POINTS points (its max_points, the anchors and the smallest
 # clearances): as lists of Python floats (helpers.line_profile) 64-100 B per point; as arrays
