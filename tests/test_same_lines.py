@@ -532,7 +532,7 @@ def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
     r, summary = results["on"]
     found = summary["found"]
     assert found > 2 * summary["lines"] and r["sum"] == found and r["found"][:2] == [found, 5], r
-    assert r["summary"].endswith(f"{summary['lines']} lines · {found:,} found"), r
+    assert r["summary"].endswith(f"{summary['lines']:,} lines · {found:,} found"), r
     assert "5 m anchor squares" in r["found"][2], r
     stands = dict(r["facts"])["Stands for"]
     assert stands == (f"{r['stands']} found lines between the same two anchor squares" if r["stands"] > 1 else

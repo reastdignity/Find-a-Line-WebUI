@@ -50,15 +50,17 @@ export function ResultSummary({model, legend = true, note = true}: ResultSummary
   const {spots, lines} = model.shown, total = model.all.length, hidden = total - lines;
   const grouped = model.state.group;
   // A run made with the square rule: one line was kept per pair of anchor squares, of `found` lines found
-  const {found, square} = model.data;
-  const rest = [grouped && `${lines} ${lines === 1 ? "line" : "lines"}`, hidden > 0 && `${hidden} hidden by filters`]
-    .filter(Boolean).join(" · ");
+  // (its counts with thousands separators; a run without the rule keeps the text of before)
+  const {found, square} = model.data, known = typeof found === "number";
+  const count = (n: number) => known ? n.toLocaleString("en") : String(n);
+  const linesText = `${count(lines)} ${lines === 1 ? "line" : "lines"}`;
   return <div class="r-summary">
     <div class="r-summary-count">
-      <span class="u-h">{grouped ? `${spots} ${spots === 1 ? "spot" : "spots"}` : `${lines} ${lines === 1 ? "line" : "lines"}`}</span>
-      <span class="u-small">{rest}{typeof found === "number" && <>{rest && " · "}
-        <span class="r-found" title={t("ui.result.found_title", {m: square})}>
-          {t("ui.result.found", {n: found.toLocaleString("en")})}</span></>}</span>
+      <span class="u-h">{grouped ? `${count(spots)} ${spots === 1 ? "spot" : "spots"}` : linesText}</span>
+      <span class="u-small">{grouped && linesText}
+        {known && <>{grouped && " · "}<span class="r-found" title={t("ui.result.found_title", {m: square})}>
+          {t("ui.result.found", {n: (found as number).toLocaleString("en")})}</span></>}
+        {hidden > 0 && `${grouped || known ? " · " : ""}${count(hidden)} hidden by filters`}</span>
     </div>
     {legend && <div class="r-legend">
       <span><Swatch color={COLORS.clean} />Clear</span>

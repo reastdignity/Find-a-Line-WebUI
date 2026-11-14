@@ -44,7 +44,7 @@
   "field.max_wall_angle.help": "How far the line turns from the fall line of the wall at each anchor. 0°: the line goes straight out over the drop. 90°: the line goes along the wall. Use 30–45° for clean exits from a wall.",
   "field.same_line_square.label": "One line per pair of anchor squares",
   "field.same_line_square.unit": "m",
-  "field.same_line_square.help": "Most found lines are the same line with an anchor moved by a pixel or two. With this set, the ground is cut into squares this wide, and of all lines between the same two squares only one is kept: the one that needs the least rigging, then the one highest above the ground on average. It knows how many found lines it stands for. On data coarser than 1 m the squares are this many pixels wide. 2 to 20; 5 is a good value. 0: off, every line is kept. Far fewer lines are saved, so larger areas fit the limits.",
+  "field.same_line_square.help": "Most found lines are the same line with an anchor moved by a pixel or two. With this set, the ground is cut into squares this wide, and of all lines between the same two squares one is kept: the one that needs the least rigging, then the one highest above the ground on average. It knows how many found lines it stands for. 2 to 20 (on data coarser than 1 m: pixels); 5 is a good value. 0: off, every line is kept. Far fewer lines are saved, so larger areas fit the limits.",
 
   "field.slope_threshold.label": "Anchor steepness",
   "field.slope_threshold.unit": "°",
