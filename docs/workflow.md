@@ -66,6 +66,8 @@ monitoring of the VPS and the app (phases 1 to 4 built: `deploy/monitoring/`, `m
 - Code, comments, docs and commit messages in English; conversation with the user and reports in English too (the
   user's word of 2026-11-05; Polish before that).
 - Match the existing style (docstrings, comment density). Commit messages end with the `Co-Authored-By` line.
+- Work larger than a few edits follows [agent-workflow.md](agent-workflow.md): scope first with the user's answers
+  as design guides, a contract and briefs, worker agents, scope and code reviewers, `main` on the user's word.
 - One branch per task, started from the current `main` and named after it (e.g. `cliff-angles`, `source-austria`);
   never commit to `main` directly. Parallel agents each work in their own worktree (`.claude/worktrees/<task>`,
   `git worktree add`), so they never share a checkout. A finished task goes into `main` as one commit, its commits
