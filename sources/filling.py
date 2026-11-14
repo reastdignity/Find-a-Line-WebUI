@@ -403,8 +403,9 @@ def terrain_origins(elevation_path: str, area: np.ndarray, grid: Grid, source: T
                     rows: Optional[int] = None) -> Dict:
     """Where the terrain of a search area's land came from, after the neighbours' and the fallbacks'
     filling (fill_from_neighbours, fill_gaps_chain) and before the water's (run.json and data.js
-    "terrain_sources"). The land is the terrain statistics' (hypsometry.py): the area's pixels with
-    data, less water_with_data. Its pixels are counted by origin: the source's own data, the
+    "terrain_sources"). The land takes the terrain statistics' rule (hypsometry.py) after the filling:
+    the area's pixels with data, less water_with_data (so the source's own share is the statistics'
+    land, counted before the filling). Its pixels are counted by origin: the source's own data, the
     neighbours' (joined_path; one entry naming those that filled pixels: equal data, never weak) and
     each fallback's. fallback_paths are fill_gaps_chain's `steps`: the first all the fallbacks'
     pixels, each later one its fallback's own. The fallbacks' regions on the land are outlined as

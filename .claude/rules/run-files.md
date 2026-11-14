@@ -72,8 +72,9 @@ What each module holds: docs/code-map/search.md and docs/code-map/viewer.md. Rel
   (`search.SHORE_FILE`) is work state of the run folder: not in `web.RUN_FILES`.
 - Where a run's terrain came from: `sources.filling.terrain_origins`' dict is run.json's `terrain_sources` (None when
   nothing was filled) and data.js's head only when known (`mapping.map_heads`: a run without it keeps the head of
-  before; not lines.js; `runs._listed` leaves it out), and `TerrainSources` of `viewer/src/types.ts`; its land is the
-  statistics' (`water_with_data`), so its km² and the run's `terrain.km2` count the same pixels.
+  before; not lines.js; `runs._listed` leaves it out), and `TerrainSources` of `viewer/src/types.ts`; its land takes
+  the statistics' rule (`water_with_data`) after the gap filling, so `land_km2` less the neighbours' and fallbacks'
+  km² is the run's `terrain.km2` (the source's own land, counted before the filling).
 - Favourite lines are known by the anchors of their rows in `data.js`/`lines.js` joined (`keys.lineCoords`, also the
   `#line=` of a map's link): a change of how `mapping.save_map` rounds the anchors loses everyone's favourites (decide
   their migration). Their values, `web.FavouriteLine`, are the fields of `Line` in `types.ts`
