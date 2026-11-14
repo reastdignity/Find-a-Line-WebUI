@@ -258,6 +258,39 @@ def test_a_longer_burst_and_a_layer_that_is_gone(http_server, tmp_path, monkeypa
     assert len(http_server.requests("/gone")) == net.RETRIES * (1 + wmsr.TRANSIENT_ROUNDS)
 
 
+def test_an_answer_without_georeferencing_is_asked_again(http_server, tmp_path, monkeypatch):
+    """IGN answers now and then a GeoTIFF of the size asked without any georeferencing (19 tiles of France's
+    passes in November 2026, each fine when asked again): asked again in the transient rounds, the tile from the
+    next answer; one that stays so is an error after them, no file."""
+    import warnings
+    from rasterio.errors import NotGeoreferencedWarning
+    from rasterio.io import MemoryFile
+    from sources.readers import wmsr
+    slept = []
+    monkeypatch.setattr(net, "_sleep", slept.append)
+    tiff = open(os.path.join(RECORDED, "verdon", "001.tif"), "rb").read()
+    with MemoryFile(tiff) as memfile, memfile.open() as src:
+        values = src.read(1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", NotGeoreferencedWarning)
+        with MemoryFile() as memfile:
+            with memfile.open(driver="GTiff", width=values.shape[1], height=values.shape[0], count=1,
+                              dtype=values.dtype) as dst:
+                dst.write(values, 1)
+            bare = memfile.read()
+    answers = [Answer(200, bare, {"Content-Type": "image/geotiff"}),
+               Answer(200, tiff, {"Content-Type": "image/geotiff"})]
+    http_server.route("/bare", lambda request: answers.pop(0))
+    path = str(tmp_path / "x.tif")
+    WmsrReader("test", http_server.url("/bare/wms"), MNT, L93).fetch(_box(*BOX, 0.5), path)
+    assert same_tile(_read(path)[0], _answer("verdon", 1)) and slept == [3]
+    http_server.route("/always", lambda request: Answer(200, bare, {"Content-Type": "image/geotiff"}))
+    with pytest.raises(RuntimeError, match="another grid"):
+        WmsrReader("test", http_server.url("/always/wms"), MNT, L93).fetch(_box(*BOX, 0.5), str(tmp_path / "y.tif"))
+    assert len(http_server.requests("/always")) == 1 + wmsr.TRANSIENT_ROUNDS
+    assert not os.path.exists(tmp_path / "y.tif")
+
+
 def test_probe_asks_a_small_getmap(http_server, tmp_path, monkeypatch):
     """The source probe asks a GetMap of 16 x 16 px at the top left of the first tile, as the reader writes
     it (the probe's strategy "getmap"); an exception report fails it."""

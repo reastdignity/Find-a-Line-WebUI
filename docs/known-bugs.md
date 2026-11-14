@@ -48,15 +48,6 @@ folders its children leave; the command line and the web worker do not (the work
 folders later). A fix would release the grids (drop the references, close the views) before the removal, or remove
 the folder after the exception has been handled.
 
-## An XYZ sheet beginning with a UTF-8 byte order mark fails the search
-
-Seen 2026-11-08 to 2026-11-10 by the truth check: `sources/readers/sheetfile.py` `_xyz_grid` reads an XYZ sheet
-with `np.loadtxt`, which takes a UTF-8 byte order mark for part of the first number
-(`ValueError: could not convert string 'ï»¿640160.00'`), so the tile's download fails and the search with it.
-Three of geoportal.gov.pl's sheets begin with one; the 3 places of the truth check over them (6 known lines) failed
-on every repeat and stay out of its numbers. A fix would open the text as `utf-8-sig` (or skip the three bytes
-EF BB BF); afterwards `tools/truth_study.py run --failed`, `analyse` and `report` on the pass bring those places in.
-
 ## The end zone's 25 % cap is one step too long on some diagonal lines
 
 Seen 2026-11-08 by the truth check: `helpers.zone_steps` takes the `ceil` of `min(end_zone, ZONE_CAP·L)·steps/L`.
