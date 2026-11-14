@@ -38,7 +38,8 @@ changing it, `tools/coverage_data.py`), `search-pipeline.md` (step 1).
   (`tests/test_border_study.py::test_neighbour_boxes_along_the_borders`). Pixels from a neighbour are a seam
   (`Data.joined`: no anchors on its edge), never `filled` (`filled_m`, the map's filter); a filling layer that filled
   no pixel is not credited (FABDEM too). `filling.terrain_origins` tells the fallbacks apart by `fill_gaps_chain`'s
-  `steps` (the first mask the union, the later ones disjoint): a chain that writes its masks otherwise changes both. Help texts name no countries, they point to the table.
+  `steps` (the first mask the union, the later ones disjoint): a chain that writes its masks otherwise changes both.
+  Help texts name no countries, they point to the table.
 - The cache's tile encoding: `sources.layer._write_tile`'s profile (LERC_ZSTD within `MAX_Z_ERROR`), `old_encoding`
   (what counts as written before it), `Download.fetch` (a provider's one-band float file is written through it after
   its sha256 check; integer files, NASADEM and the water mask, as they came), `tools/sk_tiles.py` `_write_averaged`
