@@ -65,3 +65,58 @@ steps, one more than 25 % of the line. Its twins repeat the arithmetic (`linesea
 `endzone.ts` `zoneSteps`), so the three agree with each other and the tests comparing them pass. A fix changes all
 three together and the results of searches with a no-fall zone (the relaxed test reaches one pixel less at each
 end), so it needs the checks of `.claude/rules/line-test.md`, "Must stay in sync", for the end zone.
+
+## A tiled area on a grid not exact in binary crashes
+
+Seen 2026-11-14 by the line-volume task's review of the square rule, on a grid made for it, and older than the rule
+(already on `line-volume` before it): a tiled area search on a grid whose resolution or origin is not exact in binary
+(an own elevation file with 1.2 m pixels, corners on 0.6 + 1.2 k) always stops with "the tile … lies outside the
+grid", raised by `search._tile_window`: the tile's clipped right edge is rounded up one pixel, so the tile reaches
+past the area's grid. Grids whose resolution and origin are exact in binary (1, 2 or 2.5 m on whole or half metres)
+are not concerned. A fix would place a tile's edges by the area grid's pixel indices (whole numbers) instead of by
+coordinates.
+
+## The square rule: a tiled search's line limit counts a pair of squares twice
+
+Seen 2026-11-14 (the line-volume task, confirmed by a run): with `--same-line-square`, a tiled search checks the
+line limit against the lines each tile kept, before the tiles are joined; a pair of anchor squares with lines in two
+tiles then counts once per tile until the join keeps one. R65 searched as an area in 400 m tiles counted 3 497
+against 3 491 after the join (a limit of exactly 3 491 refused the tiled search and accepted the one-grid search);
+the Gozo coast 503 718 against 503 651. So a search within about 0.2 % under the line limit can be refused when
+tiled, and the refusal names the larger count. The memory check is right to count those lines (they are held until
+the join). Kept as a known finding by the user's choice (2026-11-14). A fix counts distinct pairs of squares across
+the tiles for the line limit (each tile's keys kept, also in the early check) and leaves the memory check as it is.
+
+## The square rule: a tile's squares can differ from one grid's on grids not exact in binary (latent)
+
+Found 2026-11-14 by computing, not by a search: the square of an anchor comes from `grid.pixel_to_xy` in a tile's
+reducer and from `a1_xy` on the join. On grids of 1, 2, 2.5 and 3 m the two are bit-identical; on a 1.2 m grid with
+origin 0.6, 12 804 pixel centres differ and 3 408 fall into another square, so a tiled search could keep other lines
+than the same search on one grid. Not reachable today: such a tiled search crashes first (the entry above). A fix,
+before that crash is fixed: the squares from coordinates rounded to the millimetre, or from whole-lattice pixel
+indices.
+
+## An unfinished tiled sag job starts over after migration 17
+
+Seen 2026-11-14 (the sag model's fall zone default of 6 m): migration 17 of `jobs.sqlite` writes 3 into stored sag
+requests that had no `fall_zone`, and the worker validates it as the float 3.0, while the job's hash of before
+(`search._search_hash`) was taken with the default's int 3. The hashes differ, so a tiled sag job of the web app that
+was unfinished at the deploy, searched again, starts over instead of resuming from its finished tiles; its results
+are the same. Not normalised: that would move the hash of command-line sag searches given `--fall-zone 3`. Only jobs
+unfinished at that one deploy are affected.
+
+## A search stopped early by the square rule's check writes no funnel counts for that grid
+
+Seen 2026-11-14 (the line-volume task): when the early check inside the square rule's reducer refuses a search
+(the line limit or the memory budget during the pair search), `Plan.funnel` of that grid is not filled, so the job's
+`job_funnel` rows lack the line search's counts for it. The refusal itself is right. A fix would add the counts
+reached so far before the refusal is raised.
+
+## The truth check has no reason for a known line the square rule dropped
+
+Seen 2026-11-14 in the truth check's pass with `--same-line-square 5` (docs/truth-check.md, "The square rule"):
+`tools/truth_analysis.py` gives a known line that no found line matches a reason from the line's tests (clearance,
+height difference, a structure as an anchor …); a line whose valid pair was found and then dropped by the square
+rule (another line of the same pair of squares kept) fails none of them, so it reads `unexplained` (20 known lines
+in that pass). A fix gives such a line its own reason, for example
+`square_rule`, found by applying the rule's key to the best valid pair.
