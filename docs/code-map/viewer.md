@@ -11,17 +11,20 @@ app's result view, `result/view/ResultColumns.tsx`, loading the run's data.js it
 written before 2026-11-04 loads it by a tag first, which it still takes), `#line=` in its hash, the way back to
 `../index.html` from disk or to the app, none on a share link; the old map with popups and panels was removed on
 2026-10-30), `filters.ts` filters and their ranges (`liftMax`/`liftNoZone`: the A-frame needed, on a run with the
-options only), `endzone.ts` the zone's TypeScript twin of `helpers.zone_steps` and the chart's limit with the zone and
+options only; `hideNeed*`: the classes of rigging of the head's "Why so many?" box, `needClass`, not kept), `tight.ts`
+the tight mark (`TIGHT` = 1 m, `clearanceText` rounds a tight clearance down, the mark's words with and without A-frames), `endzone.ts` the zone's TypeScript twin of `helpers.zone_steps` and the chart's limit with the zone and
 the lift (`limits`, `riggingNeed`, `liftChoices`), `labels.ts` the chart's label layout (`layoutLabels`: no two boxes
 intersect, priority anchors > min clearance > A-frame > zone > highest, a label that does not fit is dropped),
 `profilechart.ts` the chart's geometry, `Profile.tsx` the chart (the A-frame posts, the zone bands, the pill of the
-rigging need), `list.ts` the sortable list of lines, `leaflet.ts` Leaflet's CSS and marker images for both bundles,
+rigging need), `list.ts` the sortable list of lines (kept under `findaline.list.v2`, mean height first), `leaflet.ts` Leaflet's CSS and marker images for both bundles,
 `layers.ts` the data credits and Esri's tile URL (no Leaflet: the 3D view imports it too), `baselayers.ts` the base
 layers, `keys.ts` keys of lines, `favourites.ts` favourites, their folders' requests and their export, `folders.ts`
 the folder tree, `shore.ts` the uncertain shore's pure parts (`segmentBox`, `metresInView`, `SHORE_COLOURS`) and
 `shoreLayer.ts` its Leaflet overlay (in the layer control of `result/view/ResultColumns.tsx`, on by default) and the
 control `.u-shore` at the map's top left: a legend of the two kinds with the metres of each in view and a "?" opening
-`ui.shore.help`, shown only while the view holds some (`addShore`); `coarser.ts` the pure parts of a run's
+`ui.shore.help`, shown only while the view holds some (`addShore`); on the phone layout (under 768 px) it starts
+folded into a one-line chip (`.u-shore-ctl`: the kinds in view and `shoreTotal`) that unfolds into the box, whose
+text then scrolls within the map; `coarser.ts` the pure parts of a run's
 `terrain_sources` (where its land's terrain came from: `km2InView`, `warns` from `FALLBACK_WARN_SHARE` =
 `search.FALLBACK_WARN_SHARE`, `sharesText`) and `coarserLayer.ts` the "Coarser terrain" overlay (the fallbacks'
 regions hatched by an SVG pattern of their renderer, colour `--coarse-map`) with its box `.u-coarse` under the
@@ -46,7 +49,8 @@ Content-Length; the 3D view's patch too) and read by `parseRunScript` (JSON.pars
 a file it refuses (NaN, Infinity) and every load from disk as a script, `LoadProgress` to `RunLoading.tsx` (the phases
 and a bar; `model.ts buildModel` builds the model after a paint, `paint.ts nextPaint`), `orthoForApp` its orthophoto's
 cache for the app's page; `model.ts` `ResultModel`: filters → groups → rows, selection, next/previous spot,
-favourites; `ResultMap.ts` its Leaflet layer (one canvas, no line interactive: a second canvas took every click of the
+favourites; a spot's first line and its order (`BY_MEAN` "Highest on average", the default of "Show per spot":
+`bestOf`/`membersOf` by `byMean`, the groups and their members stay `groupLines`'), `needCounts`; `ResultMap.ts` its Leaflet layer (one canvas, no line interactive: a second canvas took every click of the
 map; a click takes the nearest line within `REACH_MOUSE`, a finger's within `REACH_TOUCH`, known by the last
 pointerdown since WebKit's click after a tap is a "mouse" one; spots within `TIE_*` of the nearest go to `onChoose`,
 the workspace's `view/LineChooser.tsx`); `view/` the panel pieces (`ResultColumns.tsx`: C's result, shared by

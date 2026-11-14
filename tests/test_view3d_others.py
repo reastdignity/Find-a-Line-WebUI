@@ -194,7 +194,8 @@ console.log(JSON.stringify(out));""")
 
 @node
 def test_the_2d_result_hands_the_spot_over(tmp_path, run_data):
-    """result/model.ts `alsoOf`: the other lines of the opened line's spot in the group's order, of its run, at most the
+    """result/model.ts `alsoOf`: the other lines of the opened line's spot in the spot's order (`membersOf`: the highest
+    on average first, not the grouping's), of its run, at most the
     cap; none for a line alone in its spot or outside the groups shown; with page.ts `alsoParam` the link of a line
     alone is what it always was."""
     text, data = run_data
@@ -208,7 +209,7 @@ const out = {spots: model.groups.length, sizes: model.groups.map((g) => g.member
 const wide = model.groups.find((g) => g.members.length > 2), alone = model.groups.find((g) => g.members.length === 1);
 if (wide) {
   const l = wide.members[1];
-  out.wide = {size: wide.members.length, line: key(l), also: model.alsoOf(l).map(key), order: wide.members.filter((x) => x !== l).map(key),
+  out.wide = {size: wide.members.length, line: key(l), also: model.alsoOf(l).map(key), order: model.membersOf(wide).filter((x) => x !== l).map(key),
               capped: model.alsoOf(l, 1).map(key), selectedAlso: (model.select(l), model.alsoOf(l).map(key))};
 }
 if (alone) out.alone = model.alsoOf(alone.members[0]).map(key);

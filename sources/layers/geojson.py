@@ -116,8 +116,8 @@ class XyzFile(SheetFile):
         if body is None:
             return Fetched(0, tile.url)
         try:
-            band, transform = _xyz_grid(body, tile.res)
-        except (ValueError, IndexError) as e:
+            band, transform = _xyz_grid(body, tile.res, tile.crs, where)
+        except (ValueError, IndexError, RuntimeError) as e:
             raise RuntimeError(f"{where}: not an XYZ grid ({str(e)[:100]})") from None
         _write_tile(path, _clean(band), tile.crs, transform)
         return Fetched(len(body), tile.url, response.headers.get("ETag"), response.headers.get("Last-Modified"))

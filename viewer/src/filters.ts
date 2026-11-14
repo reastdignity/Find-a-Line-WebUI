@@ -26,13 +26,21 @@ export interface Filters {
   liftMax: number | null;     // A-frame height needed at most (null: the run's own, everything shown; lines of a
                               // run without the options pass)
   liftNoZone: boolean;        // ... without the no-fall zone (lift_no_zone instead of lift_needed)
+  // The classes of rigging a line needs (needClass), hidden by the head's "Why so many?" box of a run made with
+  // the square rule; lines without the values pass. The page's own, like favOnly: not kept in the browser
+  hideNeedNone: boolean;      // lines that need no no-fall zone and no A-frames
+  hideNeedZone: boolean;      // lines that need the no-fall zone (no A-frames)
+  hideNeedLift: boolean;      // lines that need A-frames
   favOnly: boolean;           // only favourite lines (applied by result/model.ts, which knows them)
 }
 
 export const NO_FILTERS: Filters = {lenMin: null, lenMax: null, clrMin: null, clrNMin: null, dhMax: null,
                                     elevMin: null, elevMax: null, pctMin: null, pctMax: null, heightMin: null, meanMin: null, highPctMin: null,
                                     angleMax: null, promMin: null, promBothMin: null, dropMin: null, water: "all", hideFilled: false, groupMin: null,
-                                    liftMax: null, liftNoZone: false, favOnly: false};
+                                    liftMax: null, liftNoZone: false, hideNeedNone: false, hideNeedZone: false, hideNeedLift: false,
+                                    favOnly: false};
+/** The filters of the rigging classes, in needClass's order. */
+export const NEED_FILTERS = ["hideNeedNone", "hideNeedZone", "hideNeedLift"] as const;
 const STORAGE_KEY = "findaline.filters";
 
 export const dh = (l: Line) => Math.abs(l.e1 - l.e2);
@@ -50,12 +58,25 @@ export const liftNeed = (l: Line, noZone: boolean): number | null => {
   return typeof v === "number" ? v : null;
 };
 
+/** The rigging a line needs, as the head's "Why so many?" box counts it: 0 no no-fall zone and no A-frames
+ *  (`lift_no_zone` 0), 1 the no-fall zone (`lift_no_zone` > 0, `lift_needed` 0), 2 A-frames (`lift_needed` > 0);
+ *  null: a line without the values (a run without the zone and the A-frames). */
+export function needClass(l: Line): 0 | 1 | 2 | null {
+  if (typeof l.lift_needed !== "number") return null;
+  if (l.lift_needed > 0) return 2;
+  return typeof l.lift_no_zone === "number" && l.lift_no_zone > 0 ? 1 : 0;
+}
+
 /** Whether a line passes the filters; `lift`: its run's A-frame height, the limit of "A-frame needed at most" while
  *  that is not set (with the switch "without the no-fall zone" on, the lines that need more without the zone go). */
 export function passes(l: Line, f: Filters, lift?: number): boolean {
   if (f.liftMax !== null || f.liftNoZone) {
     const need = liftNeed(l, f.liftNoZone), max = f.liftMax ?? lift ?? Infinity;
     if (need !== null && need > max + 1e-9) return false;
+  }
+  if (f.hideNeedNone || f.hideNeedZone || f.hideNeedLift) {
+    const k = needClass(l);
+    if (k !== null && f[NEED_FILTERS[k]]) return false;
   }
   return (f.lenMin === null || l.len >= f.lenMin) && (f.lenMax === null || l.len <= f.lenMax) &&
     (f.clrMin === null || l.clr >= f.clrMin) &&
@@ -128,7 +149,8 @@ export function range(lines: Line[], value: (l: Line) => number | null): Range |
 
 export function savedFilters(): Filters {
   try {
-    return {...NO_FILTERS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"), favOnly: false};
+    return {...NO_FILTERS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"), favOnly: false,
+            hideNeedNone: false, hideNeedZone: false, hideNeedLift: false};
   } catch {
     return {...NO_FILTERS};
   }

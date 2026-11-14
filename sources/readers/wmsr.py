@@ -1,8 +1,10 @@
 """WmsrReader: a tile of raw heights from a WMS GetMap answered as a GeoTIFF (IGN's Géoplateforme WMS-R)."""
 
+import warnings
 from typing import List, NamedTuple, Optional, Tuple
 
 import numpy as np
+from rasterio.errors import NotGeoreferencedWarning
 from rasterio.io import MemoryFile
 from rasterio.transform import from_origin
 
@@ -15,6 +17,8 @@ from . import TIFF_MAGIC
 # a hundred requests on 2026-11-02): LayerNotDefined with HTTP 400, or a 502/503/504 of their gateway
 TRANSIENT = ("LayerNotDefined", "HTTP 502", "HTTP 503", "HTTP 504")
 TRANSIENT_ROUNDS = 2  # more rounds of net._get's retries after such an answer, longer apart
+# IGN also answers a GeoTIFF of the size asked without any georeferencing now and then (19 tiles in France's passes
+# of 2026-11-10 to 2026-11-14, each one fine when asked again by the next pass): asked again in the same rounds
 
 
 class MapRequest(NamedTuple):
@@ -54,7 +58,8 @@ class WmsrReader(Reader):
     A request larger than max_px a side (IGN's MaxWidth/MaxHeight, 5010) is refused before it is made.
     IGN's servers forget a layer now and then for a second or two (LayerNotDefined), or their gateway
     answers 502: after net._get's retries such an answer gets TRANSIENT_ROUNDS more rounds of them, the
-    first after net._sleep(3) (4-12 s), so a short burst never fails a search.
+    first after net._sleep(3) (4-12 s), so a short burst never fails a search. A TIFF without any
+    georeferencing (IGN's other glitch) is asked again in the same rounds, an error after the last.
     """
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
@@ -78,31 +83,37 @@ class WmsrReader(Reader):
         if max(request.width, request.height) > self.max_px:
             raise ValueError(f"{self.description}: {request.width} x {request.height} px is more than the "
                              f"service's {self.max_px} px a side")
+        res_x = (request.right - request.left) / request.width
+        res_y = (request.top - request.bottom) / request.height
+        transform = from_origin(request.left, request.top, res_x, res_y)
         for round_ in range(TRANSIENT_ROUNDS + 1):
             try:
                 response = net._get(self.service_url, self.getmap_params(request))
-                break
             except RuntimeError as e:
                 if round_ == TRANSIENT_ROUNDS or not any(t in str(e) for t in TRANSIENT):
                     raise RuntimeError(f"Could not download {self.description} tile {self._name(request)}: {e}")
                 net._sleep(round_ + 3)
-        if response is None:
-            return Fetched(0, self.service_url)
-        data = response.content
-        if data[:4] not in TIFF_MAGIC:
-            text = data[:300].decode("utf-8", "replace").strip()
-            raise RuntimeError(f"Could not download {self.description} tile {self._name(request)}: not a GeoTIFF "
-                               f"({response.headers.get('content-type', '')}): {text}")
-        res_x = (request.right - request.left) / request.width
-        res_y = (request.top - request.bottom) / request.height
-        transform = from_origin(request.left, request.top, res_x, res_y)
-        with MemoryFile(data, ext=".tif") as memfile, memfile.open() as src:
-            if (src.height, src.width) != (request.height, request.width) or \
-                    not src.transform.almost_equals(transform, precision=1e-6 * min(res_x, res_y)):
-                raise RuntimeError(f"{self.description} tile {self._name(request)}: the answer is "
-                                   f"{src.width} x {src.height} px on another grid ({src.transform}), not the size "
-                                   f"{request.width} x {request.height} px asked")
-            band = src.read(1, masked=True).astype(np.float32).filled(np.nan)
+                continue
+            if response is None:
+                return Fetched(0, self.service_url)
+            data = response.content
+            if data[:4] not in TIFF_MAGIC:
+                text = data[:300].decode("utf-8", "replace").strip()
+                raise RuntimeError(f"Could not download {self.description} tile {self._name(request)}: not a "
+                                   f"GeoTIFF ({response.headers.get('content-type', '')}): {text}")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", NotGeoreferencedWarning)  # said below when it stays so
+                with MemoryFile(data, ext=".tif") as memfile, memfile.open() as src:
+                    if src.transform.is_identity and round_ < TRANSIENT_ROUNDS:
+                        net._sleep(round_ + 3)  # not georeferenced: IGN's passing glitch, asked again
+                        continue
+                    if (src.height, src.width) != (request.height, request.width) or \
+                            not src.transform.almost_equals(transform, precision=1e-6 * min(res_x, res_y)):
+                        raise RuntimeError(f"{self.description} tile {self._name(request)}: the answer is "
+                                           f"{src.width} x {src.height} px on another grid ({src.transform}), not "
+                                           f"the size {request.width} x {request.height} px asked")
+                    band = src.read(1, masked=True).astype(np.float32).filled(np.nan)
+            break
         band = _clean(band)
         if not np.isfinite(band).any():  # all nodata: the service has no data there
             return Fetched(0, self.service_url)

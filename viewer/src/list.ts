@@ -4,7 +4,8 @@ import { dh, drop, lowerAnchor, prominence, wallAngle } from "./filters";
 import type { Line } from "./types";
 
 /** A row of the list: a line and the size of its group (1 without grouping), with the lines of its
- * group in their order (the first is the representative). */
+ * group in the grouping's order (the first is the representative; the order a spot shows them in is
+ * result/model.ts membersOf). */
 export interface Row<T = Line> {
   line: T;
   n: number;
@@ -78,18 +79,29 @@ export interface ListState {
   open: boolean;    // the list is unfolded
 }
 
-export const LIST_DEFAULTS: ListState = {sort: "len", desc: true, inView: false, open: false};
-const STORAGE_KEY = "findaline.list";
+// The highest on average first (docs/line-volume/spec-view.md A.2)
+export const LIST_DEFAULTS: ListState = {sort: "hmean", desc: true, inView: false, open: false};
+// The list's state since spots show their highest line on average; the key before it (OLD_KEY) kept a sorting by
+// length or clearance that would hide the new first order: only its "in view" and "unfolded" are taken over
+const STORAGE_KEY = "findaline.list.v2";
+const OLD_KEY = "findaline.list";
 
 export function savedList(): ListState {
   try {
-    return {...LIST_DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}")};
+    const kept = localStorage.getItem(STORAGE_KEY);
+    if (kept !== null) return {...LIST_DEFAULTS, ...JSON.parse(kept)};
+    const old = JSON.parse(localStorage.getItem(OLD_KEY) || "{}");
+    const taken: Partial<ListState> = {};
+    if (typeof old.inView === "boolean") taken.inView = old.inView;
+    if (typeof old.open === "boolean") taken.open = old.open;
+    return {...LIST_DEFAULTS, ...taken};
   } catch {
     return {...LIST_DEFAULTS};
   }
 }
 
-/** Has the user chosen how to sort the list (any map or the app kept a choice in this browser)? */
+/** Has the user chosen how to sort the list (any map or the app kept a choice in this browser since the new
+ *  key)? */
 export function hasSavedList(): boolean {
   try {
     return localStorage.getItem(STORAGE_KEY) !== null;

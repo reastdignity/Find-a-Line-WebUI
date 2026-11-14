@@ -1,14 +1,17 @@
 // The choice of spots a click on the map reached about as near (ResultMap's onChoose): a small panel
 // next to the click's point, kept within the free part of the map (on a phone at the bottom of the
 // screen, over the sheet, where it hides neither the point nor the lines), a row per spot (its line's colour,
-// length, clearance, height and its place in the list); the pointer over a row or its focus highlights
+// length, mean height, clearance with the tight mark, and its place in the list; the mark's key under the rows
+// when a row is tight); the pointer over a row or its focus highlights
 // its line, a click or Enter selects it. Esc, a press outside, the map moving and any change of the model
 // close it. Styles in result.css (r-choose).
 
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ResultModel } from "../model";
 import type { Choice, ResultMap } from "../ResultMap";
-import { cx, LineCells } from "./common";
+import { cx, LineCells, TightKey } from "./common";
+import { isTight } from "../../tight";
+import { t } from "../../i18n";
 
 /** A rectangle of the viewport (client px). */
 export interface Area { left: number; top: number; right: number; bottom: number }
@@ -84,7 +87,8 @@ export function LineChooser({model, view, choices, at, area, dock = false, onClo
               aria-label="Spots at this point" style={style}>
     <p class="u-small r-choose-title">{choices.length} spots here: which one?</p>
     <div class="r-row r-head" role="presentation">
-      <span /><span class="r-col">Length</span><span class="r-col">Clear.</span><span class="r-col">Height</span><span />
+      <span /><span class="r-col">{t("ui.list.col.length")}</span><span class="r-col">{t("ui.list.col.mean")}</span>
+      <span class="r-col">{t("ui.list.col.clear")}</span><span />
     </div>
     <div role="listbox" aria-label="Spots">
       {choices.map((c, k) => <div key={k} class={cx("r-row", c.group === selected && "r-sel", c.line.over && "r-over")}
@@ -92,8 +96,9 @@ export function LineChooser({model, view, choices, at, area, dock = false, onClo
                                   onClick={() => choose(c)} onKeyDown={(e) => keys(e, c)}
                                   onFocus={() => view.highlight(c.line)}
                                   onPointerEnter={() => view.highlight(c.line)} onPointerLeave={() => view.highlight(null)}>
-        <LineCells line={c.line} /><span class="r-muted">{spot(c)}</span>
+        <LineCells line={c.line} lift={model.liftOf(c.line)} /><span class="r-muted">{spot(c)}</span>
       </div>)}
     </div>
+    {choices.some((c) => isTight(c.line.clr)) && <TightKey lift={model.data.lift} />}
   </div>;
 }

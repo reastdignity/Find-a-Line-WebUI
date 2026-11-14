@@ -25,6 +25,11 @@ from ..composed import Reader
 # 1000 px quarters, 200 with valid heights for 500 and 250 px pieces on its English side, and 500 for a 16 px box
 # where 100 px answered 200 (measured 2026-11-08); below about 250 px the service misbehaves on its own
 SPLIT_MIN_PX = 250
+# The pieces of a split tile take turns at this share of the host's rate (net.rate_turn's share), on top of its
+# own: England's passes of 2026-11-10 to 2026-11-13 split hundreds of tiles at the full 180 a minute (under the
+# Environment Agency's published 200) and got 1798 answers of HTTP 429 ("You are making too many requests"),
+# until 50 failures in a row stopped the area; the tiles asked whole keep the full rate
+SPLIT_RATE_SHARE = 1 / 3
 # The content types of a coverage answer (net._get's default: an answer of another type is an error, not data)
 BINARY_TYPES = ("image", "octet", "tiff", "multipart")
 
@@ -55,10 +60,11 @@ class WcsReader(Reader):
     (and its part inside the coverage extent) keeps net._get's three attempts; a piece is asked
     once on a 5xx (_request_piece: the 500 is positional and deterministic, the same box answered
     the same every time; connection errors and 429/503 are still tried again with the backoff),
-    with no sleep between pieces beyond its turn (net.rate_turn). A 2 km tile wholly beyond the
-    granules costs 1 + 4 + 16 + 64 = 85 requests and about half a minute under the Environment
-    Agency's rate (net.HOST_RATES_OF, 180 a minute), so England's about 1100 such tiles (its
-    waters, about 560 a layer) are about 95 000 requests once; with three attempts and the
+    with no sleep between pieces beyond its turn (net.rate_turn at SPLIT_RATE_SHARE of the host's
+    rate). A 2 km tile wholly beyond the granules costs 1 + 4 + 16 + 64 = 85 requests and about a
+    minute and a half at a third of the Environment Agency's 180 a minute, so England's about 1100
+    such tiles (its waters, about 560 a layer) are about 95 000 requests and a day once; with three
+    attempts and the
     backoff a tile took 255 requests and about ten minutes.
 
     params: more parameters of every GetCoverage (GeoServer's GEOTIFF:COMPRESSION=DEFLATE
@@ -259,7 +265,7 @@ class WcsReader(Reader):
         for attempt in range(net.RETRIES):
             slow_down = final = False
             try:
-                net.rate_turn(url)
+                net.rate_turn(url, share=SPLIT_RATE_SHARE)
                 with servicecounts.request(url) as counted:
                     response = counted.got(requests.get(url, params=params, timeout=300,
                                                         headers=cache.http_headers(), verify=net.verify(url)))

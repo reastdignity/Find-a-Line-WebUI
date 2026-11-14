@@ -291,8 +291,12 @@ them). Exit codes: `EXIT_DONE` 0, `EXIT_FAILED` 3 (tiles that failed, in `<name>
 `sources.download_layers(on_error=)`, `Failures`), `EXIT_STOPPED` 4 (`Stop`: the plan, an index out of reach,
 `FAILURES_IN_A_ROW`, a disk under `--min-free-gb`), `EXIT_RESTART` 5 (`Stop(code=EXIT_RESTART)` at the first tile
 after the beat saw the process over `--max-memory-gb` (`memory_gb`, a quarter of the machine's memory by default, 0 no
-budget): the supervisor starts the next pass at once and counts `restarts` in the state), `EXIT_NOTHING` 6 (no tile
-under the outline, or every tile without data). After the pool `_count_missing` (`cache.count_missing`: the rows
+budget), or holding `BIG_PASS_GB` (2) or more while the machine has less available than `machine_free_gb` keeps
+(`MACHINE_FREE_SHARE` 5 %, at least 2 GB: four big areas at once filled the Unraid server, 2026-11-14), and only
+when it is the largest running pass of the state folder (`biggest_running`: the other areas' states written within
+`RUNNING_STATE_S`, stage listing or downloading; a tie by name), so big areas restart one a beat; the message
+keeps the sample that crossed: the supervisor starts the next pass at once and counts `restarts` in the state),
+`EXIT_NOTHING` 6 (no tile under the outline, or every tile without data). After the pool `_count_missing` (`cache.count_missing`: the rows
 "missing", one query per top-level folder) puts each layer's tiles without data into the state (`layers[k].missing`,
 `tiles_missing`: the table, the page and the window's row show them). The supervisor: `EXIT_DONE` ends; `EXIT_RESTART`
 at once when the pass made progress (`tiles_done` or `mb` grew), else after `RETRY_SECONDS`, and `ATTENTION_PASSES`
@@ -404,7 +408,7 @@ failure, started at once, by PowerShell's `Register-ScheduledTask`; the desktop 
 `msedge --app=http://127.0.0.1:8771/`, Edge from the registry's App Paths), `uninstall`, both with `--dry-run` (an
 agent runs neither for real: the user installs it); a full pytest in parallel processes (pytest-xdist): a command
 of kind `pytest-all` gets `-n MODE_WORKERS[mode] --dist loadfile` after the word pytest when it is queued
-(`parallel_command`; 4 workers shared, 8 heavy and exclusive), unless it names its own `-n`/`--numprocesses`/
+(`parallel_command`; 6 workers shared, 8 heavy and exclusive), unless it names its own `-n`/`--numprocesses`/
 `--dist`/`--tx`/`--maxprocesses` or `-p no:xdist` (`-n 0`: a serial full run), gives one of `SERIAL_ONLY` (--pdb,
 --trace, -s, --collect-only, --looponfail, --stepwise) or its Python has no xdist (`xdist_available`: a probe import;
 a line says it runs serially); kind `pytest-all-xdist` (`PARALLEL_KIND`, `pytest_workers`), so its estimates and
@@ -412,7 +416,7 @@ peaks stay apart; `WORKER_THREADS` 3 threads a worker (`_environment(workers=)`;
 `HEAVY_TAMED_THREADS` in all, the entry's command rewritten, `Queue.set_command`); a shared one counts
 `slot_weight` = ceil(workers / `WORKERS_PER_SLOT` 2) slots and, waiting for them, keeps them reserved in `startable`
 (a later shared one passes it only by the backfill rule, so it is never starved); with no history its peak is
-`MEMORY_BASE_GB` 6.0 + `MEMORY_PER_WORKER_GB` 0.65 a worker; `status` adds "4 workers x 3 threads, 2 slots"
+`MEMORY_BASE_GB` 6.0 + `MEMORY_PER_WORKER_GB` 0.65 a worker; `status` adds "6 workers x 3 threads, 3 slots"
 (`_parallel_text`); `tests/test_test_lock.py`, `tests/test_test_lock_parallel.py`, `tests/test_test_lock_page.py`
 
 ## `tools/test_times.py`

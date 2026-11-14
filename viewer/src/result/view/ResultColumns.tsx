@@ -424,7 +424,7 @@ export function ResultColumns(props: ResultColumnsProps) {
     setProgress(null);
     setError("");
     (props.data ? Promise.resolve(props.data) : loadRun(props.runId, props.base, report))
-      .then((d) => live ? buildModel(d, {list: {sort: "clr", desc: true}}, report) : null)
+      .then((d) => live ? buildModel(d, {list: {sort: "hmean", desc: true}}, report) : null)
       .then((m) => { if (live && m) setModel(m); }, (e) => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [props.runId]);

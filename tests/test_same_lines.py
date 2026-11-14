@@ -503,45 +503,117 @@ PAGE_SCRIPT = """
 run({
   loaded(next) { wait(() => model() && rows().length, () => {
     result.summary = text(".r-summary-count");
+    result.foundLine = text(".r-found-line");
     result.found = [model().data.found, model().data.square, ($(".r-found") || {title: null}).title];
     result.sum = model().all.reduce((n, l) => n + (l.stands_for || 0), 0);
+    result.n = model().lines.length;
+    // the tight mark: on every row under 1 m and on no other; the first row is the line made tight (TIGHT_LINE)
+    result.marks = rows().every((r, k) => !!r.querySelector(".r-tight") === (model().rows[k].line.clr < 1));
+    result.first = [!!rows()[0].querySelector(".r-tight"), rows()[0].querySelector(".r-clr").textContent];
+    result.key = text(".r-tight-key");
     rows()[0].click();
-    wait(() => $(".r-kv"), () => {
+    wait(() => $(".r-kv") && $(".r-card .fal-profile-title"), () => {
       result.facts = $$(".r-kv dt").map((dt) => [dt.textContent, dt.nextElementSibling.textContent]);
       result.stands = model().selected.line.stands_for;
+      result.tightLine = text(".r-tight-line");
+      result.card = text(".r-card");  // the profile's title: the line's clearance as the rows write it
       next();
     });
   }); },
+  why(next) {
+    const link = $(".r-why-link");
+    if (!link) { result.why = null; return next(); }
+    link.click();
+    wait(() => $(".r-why"), () => {
+      result.why = {text: text(".r-why-text"), rows: $$(".r-why-row").map((r) => r.textContent),
+                    bar: !!$(".r-why-bar")};
+      const counts = model().needCounts();
+      if (!counts) { result.counts = null; return next(); }  // without the zone and A-frames: the first sentence only
+      const k = counts.indexOf(Math.max(...counts));
+      result.counts = [counts, k];
+      $$(".r-why-row input")[k].click();
+      // the page drawn again after the model changed: its count of hidden lines and "Clear all"
+      wait(() => model().shown.lines < result.n && text(".r-summary-count").includes("hidden") && button("Clear all"), () => {
+        result.hidden = [result.n - model().shown.lines, text(".r-summary-count"), $$(".r-why-row input").map((i) => i.checked)];
+        button("Clear all").click();
+        wait(() => model().shown.lines === result.n && !text(".r-summary-count").includes("hidden"), () => {
+          result.cleared = $$(".r-why-row input").map((i) => i.checked);
+          next();
+        });
+      });
+    });
+  },
+  noTight(next) {
+    model().setFilters({...model().filters, clrMin: 1});
+    later(() => { result.keyAfter = [!!$(".r-tight-key"), $$(".r-rows .r-tight").length]; next(); });
+  },
 });
 """
+
+# The first line of the run made tight (0.99 m) and the highest on average, so its spot is the list's first row
+TIGHT_LINE = "FINDALINE_RUN.lines[0][9] = 0.99; FINDALINE_RUN.lines[0][17] = 10000;"
+
+
+def _spaced(n: int) -> str:
+    """A count as the page writes it: a no-break space as the thousands separator."""
+    return f"{n:,}".replace(",", " ")
 
 
 @pytest.mark.skipif(not os.path.exists(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
                     reason="needs Microsoft Edge")
 def test_page_says_found_and_what_a_line_stands_for(tmp_path, monkeypatch):
-    """The result page of a run made with the option: the head says the lines found after the lines shown
-    ("… lines · 1,234 found", with what that means as its title) and a line's details how many found lines
-    it stands for; a run without the option shows neither."""
+    """The result page of a run made with the option (here with the no-fall zone and A-frames): the head's counts
+    with a no-break space as the thousands separator, a second line "1 234 found. Why so many?" (with what that
+    means as its title) whose box says what the found lines are and how many of the run's lines need each class of
+    rigging (adding up to its lines; a cleared "Show" hides that class like a filter, "Clear all" shows it again);
+    a line's details how many found lines it stands for. The tight mark on every row under 1 m and on no other,
+    its key above the list only while a row is tight, its words with the A-frames, and without them on a run
+    without A-frames, the profile card's clearance rounded down as the rows'. A run without the option shows no
+    second line and no box; one made with it without the no-fall zone and A-frames only the box's first sentence."""
     import test_web as tw
     monkeypatch.delenv("ESRI_API_KEY", raising=False)
     monkeypatch.setattr("settings.SECRETS_DIR", str(tmp_path / "no-secrets"))
     results = {}
-    for name, extra in (("on", ("--same-line-square", "5")), ("off", ())):
+    for name, extra in (("on", ("--same-line-square", "5", "--end-zone", "5", "--anchor-lift", "2")), ("off", ())):
         run_id = tw._clip_run(tmp_path, monkeypatch, "--name", name, *extra)
         folder = tmp_path / "runs" / run_id
-        page = tw._map_page(folder, "square_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN)
+        page = tw._map_page(folder, "square_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN,
+                            after_data=TIGHT_LINE)
         r = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile=f"edge-{name}"))
         assert "timeout" not in r and r["at"] == "end" and "error" not in r, r
         results[name] = (r, json.loads(_read(str(folder), "run.json"))["summary"])
+    # the run without the option, its head given a count of found lines: a run made with the square rule without
+    # the no-fall zone and A-frames (no new search)
+    page = tw._map_page(folder, "plain_test", tw.MAP_HELPERS + PAGE_SCRIPT, before_data=tw.INTROS_SEEN,
+                        after_data=TIGHT_LINE + " FINDALINE_RUN.found = 12345; FINDALINE_RUN.square = 5;")
+    plain = tw._result_in(tw._edge_page(tmp_path, f"runs/{run_id}/{page}", size="1280,800", profile="edge-plain"))
+    assert "timeout" not in plain and plain["at"] == "end" and "error" not in plain, plain
+    assert plain["foundLine"] == f"{_spaced(12345)} found. Why so many?" and plain["counts"] is None, plain
+    assert plain["why"] == {"text": f"Each line stands for the found lines a few metres from it: {_spaced(12345)} in all.",
+                            "rows": [], "bar": False}, plain
     r, summary = results["on"]
-    found = summary["found"]
-    assert found > 2 * summary["lines"] and r["sum"] == found and r["found"][:2] == [found, 5], r
-    assert r["summary"].endswith(f"{summary['lines']:,} lines · {found:,} found"), r
-    assert "5 m anchor squares" in r["found"][2], r
+    found, n = summary["found"], summary["lines"]
+    assert found > 2 * n and r["sum"] == found and r["found"][:2] == [found, 5] and r["n"] == n, r
+    assert f"{_spaced(n)} lines" in r["summary"] and "found" not in r["summary"] and found >= 1000, r
+    assert r["foundLine"] == f"{_spaced(found)} found. Why so many?" and "5 m anchor squares" in r["found"][2], r
+    assert r["why"]["text"] == (f"Each line stands for the found lines a few metres from it: {_spaced(found)} in all. "
+                                f"Of all {_spaced(n)} lines of the result:"), r
+    counts, k = r["counts"]
+    assert sum(counts) == n and r["hidden"][0] == counts[k] > 0, r
+    assert f"{_spaced(counts[k])} hidden by filters" in r["hidden"][1] and r["hidden"][2] == [j != k for j in range(3)], r
+    assert r["cleared"] == [True] * 3 and len(r["why"]["rows"]) == 3, r
+    assert r["why"]["rows"][2].startswith(f"{_spaced(counts[2])} need") and r["why"]["rows"][2].endswith("A-framesShow"), r
     stands = dict(r["facts"])["Stands for"]
-    assert stands == (f"{r['stands']} found lines between the same two anchor squares" if r["stands"] > 1 else
+    assert stands == (f"{_spaced(r['stands'])} found lines between the same two anchor squares" if r["stands"] > 1 else
                       "this line only: no other was found between its two anchor squares"), r
+    assert r["marks"] and r["first"] == [True, "0.9 m"] and r["keyAfter"] == [False, 0], r
+    assert r["key"] == "Tight: under 1 m clear at the tightest point, with the 2 m A-frames up.", r
+    assert r["tightLine"] == "Tight: 0.9 m clear at its tightest point, with the 2 m A-frames up.", r
+    assert "min. clearance 0.9 m" in r["card"] and "min. clearance 1.0 m" not in r["card"], r
     r, summary = results["off"]
     assert "found" not in summary and "found" not in r["summary"] and r["found"] == [None, None, None], r
-    assert r["summary"].endswith(f"{summary['lines']} lines") and r["sum"] == 0 and r["stands"] is None, r
-    assert "Stands for" not in dict(r["facts"]), r
+    assert r["summary"].endswith(f"{_spaced(summary['lines'])} lines") and r["sum"] == 0 and r["stands"] is None, r
+    assert "Stands for" not in dict(r["facts"]) and r["foundLine"] == "" and r["why"] is None, r
+    assert r["marks"] and r["first"] == [True, "0.9 m"] and r["keyAfter"] == [False, 0], r
+    assert r["key"] == "Tight: under 1 m clear at the tightest point." and r["tightLine"] == (
+        "Tight: 0.9 m clear at its tightest point."), r

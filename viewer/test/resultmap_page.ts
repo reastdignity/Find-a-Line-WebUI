@@ -54,7 +54,7 @@ const runId = decodeURIComponent(location.pathname.split("/")[2]);
     const overlays: Record<string, L.Layer> = {};
     const shoreBox = addShore(map, shore, overlays);
     map.setView([lat, lon], 17, {animate: false});
-    const shoreEl = div.querySelector<HTMLElement>(".u-shore");
+    const shoreEl = div.querySelector<HTMLElement>(".u-shore-ctl");  // the chip and the box (shore_page.ts)
     const more = shoreEl?.querySelector<HTMLElement>(".u-shore-more"), helpButton = shoreEl?.querySelector<HTMLButtonElement>(".u-shore-help");
     const closed = !!more?.hidden;
     helpButton?.click();

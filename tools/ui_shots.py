@@ -72,6 +72,11 @@ ANCHORS_SHOWN = ("(() => { const t = document.querySelector('.r-terrain'); if (t
                  "?.scrollIntoView({block: 'start'}); })()")
 # The filter of a run with a no-fall zone or A-frames ("A-frame needed at most", FilterBar.tsx LiftFilter) in view
 RIGGING_SHOWN = "document.querySelector('.r-lift')?.scrollIntoView({block: 'center'})"
+# The uncertain shore's control shown (shoreLayer.ts), and its chip unfolded (a click whether the chip is shown or not:
+# from 768 px up it is hidden and the box is open anyway)
+SHORE_SHOWN = ["js:(window.FINDALINE_MAP.zoomOut(1, {animate: false}), new Promise((done) => setTimeout(done, 1500)))",
+               "wait:document.querySelector('.u-shore-ctl:not([hidden])')"]  # zoomed out: a coast at the area's edge
+SHORE_UNFOLD = "document.querySelector('.u-shore-chip').click()"
 # The profile of the selected line in view (phones: further down the sheet; a desktop's card is over the map)
 PROFILE_IN_VIEW = "document.querySelector('.r-dock .fal-profile-chart')?.scrollIntoView({block: 'center'})"
 # A click at the map's centre on what is there (the cells' canvas: Leaflet finds the cell under it)
@@ -141,9 +146,21 @@ PAGES = {
     # More filters: Rigging (a run with a no-fall zone or A-frames, --run; the clip's has no such section)
     "c-result-rigging": ("c", "#run={run}", [".r-filters .u-chip.u-add", "wait:document.querySelector('.r-lift')",
                                               "js:" + RIGGING_SHOWN]),
+    # a run made with the square rule (--run): "Why so many?" opened under the head's counts
+    "c-result-why": ("c", "#run={run}", ".r-why-link"),
+    "c-result-unfold": ("c", "#run={run}", ".r-rows .r-unfold"),  # the first spot's lines unfolded, in its order
+    # More filters: Grouping, its "Show per spot" ("Highest on average" first)
+    "c-result-grouping": ("c", "#run={run}", [".r-filters .u-chip.u-add",
+                                               "js:document.querySelector('.r-by')?.scrollIntoView({block: 'center'})"]),
     "c-result-rails": ("c", "#run={run}&line={line}", None),  # both panels collapsed to rails (LAYOUTS)
     "c-result-card": ("c", "#run={run}&line={line}", None),  # the card narrowed from the left (LAYOUTS)
     "c-result-credits": ("c", "#run={run}", ".u-credits-toggle"),  # the data credits unfolded (phones: no card)
+    # a run with an uncertain shore in view (--run): phones fold its box into a chip; unfolded, and with its "?" text
+    # opened (scrolling inside the box); a desktop shows the box, always open
+    "c-result-shore-folded": ("c", "#run={run}", SHORE_SHOWN),
+    "c-result-shore": ("c", "#run={run}", SHORE_SHOWN + ["js:" + SHORE_UNFOLD]),
+    "c-result-shore-help": ("c", "#run={run}", SHORE_SHOWN + ["js:" + SHORE_UNFOLD,
+                                                 "js:document.querySelector('.u-shore-ctl .u-shore-help').click()"]),
     "c-layer": ("c", "#layer", None),             # the highline layer of the sample cube (tests/test_country_web.py)
     "c-layer-world": ("c", "#layer&view=49.42,19.66,8", None),  # both sample cubes in view (Slovakia, Testland)
     "c-layer-study": ("c", "#layer&country=sk-part", None),  # the study area, alone

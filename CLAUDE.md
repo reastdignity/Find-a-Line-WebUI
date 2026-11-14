@@ -20,6 +20,9 @@ Read the section you need, not the whole file (several are over 200 KB).
 - docs/code-map/: what each module and tool holds, in detail, one file per area (table below).
 - [docs/workflow.md](docs/workflow.md): the environment, finishing a task (squash, tag), the test lock's
   modes and the conventions, in full.
+- [docs/agent-workflow.md](docs/agent-workflow.md): work larger than a few edits: scope first with the
+  user's answers recorded as design guides, a contract and briefs, worker agents, a scope reviewer and a
+  code reviewer before every merge, `main` only on the user's word.
 
 ## Commands
 - Python 3.12+. `uv sync`, `uv run findaline.py ...`; `--help` lists everything. After changing

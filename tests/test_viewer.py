@@ -110,6 +110,62 @@ console.log(JSON.stringify([true, false].map((desc) => m.sortRows(rows, key, des
     assert found == [[3, 1, 5, 6, 2, 4], [6, 1, 5, 3, 2, 4]]
 
 
+def test_list_kept_under_a_new_key(tmp_path):
+    """The list's state is kept under findaline.list.v2: a sorting kept under the old key (by clearance, smallest
+    first) does not decide the new list's order, its "in view" and "unfolded" are taken over; the new key, once
+    written, is read as it is."""
+    found = run_ts(tmp_path, "list", """
+const store = new Map();
+globalThis.localStorage = {getItem: (k) => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, String(v)),
+                           removeItem: (k) => store.delete(k)};
+const out = {none: [m.savedList(), m.hasSavedList()]};
+store.set("findaline.list", JSON.stringify({sort: "clr", desc: false, inView: true, open: true}));
+out.old = [m.savedList(), m.hasSavedList()];
+m.saveList({sort: "len", desc: false, inView: false, open: true});
+out.saved = [m.savedList(), m.hasSavedList(), JSON.parse(store.get("findaline.list")).sort];
+console.log(JSON.stringify(out));""")
+    defaults = {"sort": "hmean", "desc": True, "inView": False, "open": False}
+    assert found["none"] == [defaults, False]
+    assert found["old"] == [{**defaults, "inView": True, "open": True}, False]
+    assert found["saved"] == [{"sort": "len", "desc": False, "inView": False, "open": True}, True, "clr"]
+
+
+def test_best_by_mean_tight_mark_and_rigging_classes(tmp_path):
+    """A spot's order by mean height: ties by clearance, then length, then the row; a line without a known mean
+    height last. The tight mark: under 1 m, its clearance rounded down (0.99 m reads "0.9"), 1.0 m not marked; its
+    words with and without the A-frames. The rigging classes of the "Why so many?" box and their filters (lines
+    without the values pass)."""
+    found = run_ts(tmp_path, "tight", """
+const model = require(require("path").join(__dirname, "model.cjs"));
+const f = require(require("path").join(__dirname, "filters.cjs"));
+const L = (k, hmean, clr, len) => ({k, hmean, clr, len});
+const lines = [L(0, 20, 3, 100), L(1, NaN, 9, 300), L(2, 25, 1, 50), L(3, 25, 2, 40), L(4, 25, 2, 60), L(5, null, 9, 9),
+               L(6, 20, 3, 100)];
+const order = lines.slice().sort(model.byMean((l) => l.k)).map((l) => l.k);
+const tight = [0.99, 1.0, 0.3, 0.05, 0, 1.04, 12.345].map((c) => [m.isTight(c), m.clearanceText(c)]);
+const words = [m.tightKey(2), m.tightKey(0), m.tightKey(undefined), m.tightLine(0.87, 2), m.tightLine(0.87, null)];
+const need = (lift_needed, lift_no_zone) => ({lift_needed, lift_no_zone});
+const rigged = [need(0, 0), need(0, 1.5), need(0.5, 2.5), need(undefined, undefined), need(null, null)];
+const pass = (hide) => rigged.map((l) => f.passes({...l, len: 1, clr: 1, clrN: null, e1: 0, e2: 0, pct1: null, pct2: null,
+                                                  hmax: 1, hmean: 1, highPct: 1, angle1: 0, angle2: 0, prom1: 1, prom2: 1,
+                                                  drop1: 1, drop2: 1, water: 0, filled: 0}, {...f.NO_FILTERS, ...hide}));
+console.log(JSON.stringify({order, tight, words, classes: rigged.map(f.needClass), all: pass({}),
+                            noLift: pass({hideNeedLift: true}), noneOrZone: pass({hideNeedNone: true, hideNeedZone: true}),
+                            active: f.active({...f.NO_FILTERS, hideNeedZone: true})}));""",
+                   bundles={"model": "result/model", "filters": "filters"})
+    assert found["order"] == [4, 3, 2, 0, 6, 1, 5]
+    assert found["tight"] == [[True, "0.9"], [False, "1.0"], [True, "0.3"], [True, "0.0"], [True, "0.0"],
+                              [False, "1.0"], [False, "12.3"]]
+    assert found["words"] == ["Tight: under 1 m clear at the tightest point, with the 2 m A-frames up.",
+                              "Tight: under 1 m clear at the tightest point.",
+                              "Tight: under 1 m clear at the tightest point.",
+                              "Tight: 0.8 m clear at its tightest point, with the 2 m A-frames up.",
+                              "Tight: 0.8 m clear at its tightest point."]
+    assert found["classes"] == [0, 1, 2, None, None]
+    assert found["all"] == [True] * 5 and found["noLift"] == [True, True, False, True, True]
+    assert found["noneOrZone"] == [False, False, True, True, True] and found["active"] == 1
+
+
 def test_favourites_export(tmp_path):
     """The export of favourite lines: lines.csv's column names, text quoted and kept from being read as
     a formula, unknown values empty (CSV) or null (GeoJSON), the anchors as a LineString."""
@@ -306,9 +362,34 @@ const out = {};
   out.rowLen = model.rows.map((r) => r.line.len);
   out.shown = model.shown;
   out.ranges = {len: model.ranges.len, group: model.ranges.group, favourites: model.ranges.favourites};
+  // "Highest on average" (the default): a spot shows its highest line on average and orders its lines so; the
+  // stepper walks them in that order and the 3D view's `also` are the first 20 of them
+  const line = (l) => [l.lat1, l.lon1, l.lat2, l.lon2].join(",");
+  out.by = model.state.by;
+  out.list = model.list;
+  out.shownLines = model.groups.map((g) => line(model.shownOf(g)));
+  out.ordered = model.groups.map((g) => model.membersOf(g).map(line));
+  out.rowsShown = model.rows.map((r) => line(r.line));
+  const biggest = model.groups.reduce((a, g) => g.members.length > a.members.length ? g : a);
+  model.select(biggest);
+  const stepped = [line(model.selected.line)];
+  for (let k = 1; k < Math.min(5, biggest.members.length); k++) {
+    model.choose(biggest, model.membersOf(biggest)[model.variantIndex() + 1]);
+    stepped.push(line(model.selected.line));
+  }
+  out.stepped = stepped;
+  out.also = {biggest: biggest.members.length, of: model.alsoOf(model.membersOf(biggest)[0]).map(line),
+              first: model.membersOf(biggest).slice(1, 21).map(line)};
+  model.select(null);
+  model = new m.ResultModel(data, {favourites: true, api});  // nothing chosen
+  model.subscribe(() => notified++);
+  // The other choices show the grouping's representative, in the grouping's order
+  model.setState({...model.state, by: "clearance"});
+  out.byClearance = {shown: model.groups.map((g) => model.shownOf(g) === g.rep).every(Boolean),
+                     ordered: model.groups.every((g) => model.membersOf(g) === g.members)};
   model.setState({...model.state, by: "longest", distance: 7});
   out.longest = model.groups.map(keys);
-  model.setState({...model.state, by: data.by, distance: data.distance});
+  model.setState({...model.state, by: m.BY_MEAN, distance: data.distance});
   model.setList({...model.list, sort: "clr", desc: false});
   out.byClr = model.rows.map((r) => r.line.clr);
   model.setList({...model.list, sort: "len", desc: true});
@@ -336,12 +417,13 @@ const out = {};
   const big = model.rows.findIndex((r) => r.n >= 3);
   const group = model.rows[big].group, before = JSON.stringify(model.groups.map(keys));
   model.select(group);
-  model.choose(group, group.members[2]);
+  const third = model.membersOf(group)[2];
+  model.choose(group, third);
   out.choose = {same: JSON.stringify(model.groups.map(keys)) === before, variant: model.variantIndex(),
-                selected: model.selected.line === group.members[2], row: model.rows[big].line === group.members[2]};
+                selected: model.selected.line === third, row: model.rows[big].line === third};
   // A link to a line: found, chosen and selected in its group; hidden by filters: a note, its action clears them
   const multi = model.groups.filter((g) => g.members.length > 1)[1];
-  const linked = multi.members[1], link = "#line=" + model.lineLink(linked);
+  const linked = model.membersOf(multi)[1], link = "#line=" + model.lineLink(linked);
   model.select(null);
   const found = model.openLinked(link);
   out.link = {found: found === linked, selected: model.selected.line === linked, variant: model.variantIndex(),
@@ -424,11 +506,24 @@ def test_result_model(tmp_path, clip_data):
     out = json.loads(result.stdout)
     distance, by = data["distance"], data["by"]
     groups = _python_groups(rows, distance, by)
-    assert out["groups"] == groups
-    # The list sorted by length (the default), stable: equal lengths keep the groups' order
-    length = {_key(r): r[8] for r in rows}
-    assert out["rows"] == [g[0] for g in sorted(groups, key=lambda g: -length[g[0]])]
+    assert out["groups"] == groups  # the spots are Python's grouping
+    # A spot's lines by mean height (not known: last), then clearance, length, the row in the run
+    at = {_key(r): k for k, r in enumerate(rows)}
+    finite = lambda v: v is not None and math.isfinite(v)  # noqa: E731
+    rank = lambda key: (0, -rows[at[key]][17]) if finite(rows[at[key]][17]) else (1, 0)  # noqa: E731
+    by_mean = [sorted(g, key=lambda key: (*rank(key), -rows[at[key]][9], -rows[at[key]][8], at[key])) for g in groups]
+    assert out["by"] == "mean" and out["ordered"] == by_mean
+    assert out["shownLines"] == [g[0] for g in by_mean] != [g[0] for g in groups]  # not the representative
+    # The list sorted by the shown line's mean height (the default), stable: equal values keep the groups' order
+    assert out["list"] == {"sort": "hmean", "desc": True, "inView": False, "open": False}
+    order = sorted(range(len(groups)), key=lambda k: rank(by_mean[k][0]))
+    assert out["rows"] == [groups[k][0] for k in order] and out["rowsShown"] == [by_mean[k][0] for k in order]
+    biggest = max(by_mean, key=len)  # the first of the largest
+    assert out["stepped"] == biggest[:min(5, len(biggest))] and len(biggest) > 2
+    assert out["also"] == {"biggest": len(biggest), "of": biggest[1:21], "first": biggest[1:21]}
+    assert out["byClearance"] == {"shown": True, "ordered": True}
     assert out["shown"] == {"spots": len(groups), "lines": len(rows)}
+    length = {_key(r): r[8] for r in rows}
     assert out["ranges"] == {"len": {"min": min(length.values()), "max": max(length.values())},
                              "group": {"min": 1, "max": max(len(g) for g in groups)}, "favourites": True}
     assert out["longest"] == _python_groups(rows, 7, "longest")
@@ -628,6 +723,74 @@ def test_result_map_in_edge(tmp_path, clip_data):
     assert out["coarseOff"] is True and out["coarseAway"] is True
     assert out["coarseFit"] == {"back": True, "holds": True, "shown": True}
     assert test_web._violations(dom) == []
+
+
+@pytest.mark.skipif(not os.path.exists(EDGE), reason="needs Microsoft Edge")
+def test_shore_chip_in_edge(tmp_path):
+    """shoreLayer.ts with the app's CSS in headless Edge: on the phone layout (under 768 px) the control starts
+    folded into a chip (the kinds' swatches, "Uncertain shore", the total in view), unfolds into the box and folds
+    again from its title, stays unfolded across a map move, hides with no shore in view, and the opened box with
+    its "?" text keeps within the map (scrolling inside); from 768 px up the box as before, no chip, also kept
+    within the map."""
+    import re
+    import test_web  # the app on a real server, its CSP stubs
+    folder = tmp_path / "runs" / "shore-test"
+    folder.mkdir(parents=True)
+    subprocess.run(["node", "-e", "require('esbuild').buildSync({entryPoints: ['test/shore_page.ts'], "
+                                  "bundle: true, format: 'iife', target: 'es2020', "
+                                  "loader: {'.png': 'dataurl', '.woff2': 'empty', '.woff': 'empty'}, "
+                                  f"outdir: {json.dumps(str(folder))}}})"], cwd=VIEWER, check=True)
+    (folder / "csp_stub.js").write_text(test_web.CSP_STUB, encoding="utf-8")
+    (folder / "shore_test.html").write_text(
+        '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">'
+        '<link rel="stylesheet" href="shore_page.css"><script src="csp_stub.js"></script></head>'
+        '<body><script src="shore_page.js"></script></body></html>', encoding="utf-8")
+
+    def page(size: str, profile: str) -> dict:
+        dom = test_web._edge_page(tmp_path, "runs/shore-test/shore_test.html", size=size, profile=profile)
+        found = re.search(r'<pre id="result">(.*?)</pre>', dom, re.S)
+        assert found, dom[-2000:]
+        out = json.loads(found.group(1).replace("&quot;", '"').replace("&amp;", "&"))
+        assert "error" not in out, out["error"]
+        assert test_web._violations(dom) == []
+        return out
+
+    phone = page("600,900", "edge-phone")
+    assert phone["phone"] is True
+    assert phone["totals"] == ["3.0 km", "820 m", "999 m", "1.0 km", "1.0 km"]
+    closed = {"holder": True, "chip": True, "box": False, "fold": False, "title": False}
+    opened = {"holder": True, "chip": False, "box": True, "fold": True, "title": False}
+    start = phone["start"]
+    assert {k: start[k] for k in closed} == closed  # every map starts folded
+    assert start["text"] == "Uncertain shore3.0 km" and start["swatches"] == ["surface", "sea"]
+    assert start["label"] == "Uncertain shore in view, 3.0 km. Show the details" and start["expanded"] == "false"
+    unfolded = phone["unfolded"]
+    assert {k: unfolded[k] for k in opened} == opened and unfolded["expanded"] == "true" and unfolded["focus"] is True
+    assert "1200 m: the foot of the cliff" in unfolded["text"] and "1800 m: the sea" in unfolded["text"]
+    moved = phone["moved"]  # still unfolded, its metres updated, the chip's total and swatches too
+    assert {k: moved[k] for k in opened} == opened and "0 m: the foot" in moved["text"]
+    assert moved["chipText"] == "Uncertain shore1.8 km" and moved["swatches"] == ["sea"]
+    hint = phone["help"]  # the "?" text inside the box, the box above the scale, within the map
+    assert hint["open"] is True and hint["overflow"] == "auto" and hint["scrolls"] is True
+    assert hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    assert hint["textUp"] is True and hint["titleTop"] <= 1
+    # a bottom corner raised without a map event (corners.ts above the sheet): the opened box ends above it
+    assert phone["raised"]["bottom"] <= phone["raised"]["cornerTop"] < hint["scaleTop"]
+    folded = phone["folded"]
+    assert {k: folded[k] for k in closed} == closed and folded["expanded"] == "false" and folded["focus"] is True
+    assert folded["helpClosed"] is True
+    assert phone["away"]["holder"] is False and not phone["away"]["chip"] and not phone["away"]["box"]
+    assert phone["back"] == closed
+
+    desktop = page("1000,900", "edge-desktop")  # from 768 px up: the box, always open, no chip, no fold button
+    assert desktop["phone"] is False
+    always = {"holder": True, "chip": False, "box": True, "fold": False, "title": True}
+    for step in ("start", "unfolded", "moved", "folded", "back"):
+        assert {k: desktop[step][k] for k in always} == always, step
+    hint = desktop["help"]  # within the map too (a desktop's map in a low window is short)
+    assert hint["overflow"] == "auto" and hint["bottom"] <= hint["scaleTop"] <= hint["mapBottom"]
+    assert desktop["raised"]["bottom"] <= desktop["raised"]["cornerTop"] < hint["scaleTop"]  # a card raised it
+    assert desktop["away"]["holder"] is False
 
 
 def test_messages_match_python(tmp_path):

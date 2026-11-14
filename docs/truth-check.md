@@ -403,7 +403,7 @@ error:
 | cause | places | known lines | searched again |
 | --- | ---: | ---: | --- |
 | ARSO's server for Slovenia's DMR 1 m sheets answered HTTP 503 ("No server is available to handle this request") on the evening of 2026-11-08, and again in the night of 2026-11-09 | 35 | 79 | 2026-11-10, when the server answered again: 29 found lines, 6 none |
-| three Polish XYZ sheets begin with a UTF-8 byte order mark, which `np.loadtxt` in `sources/readers/sheetfile.py` reads as part of the first number ("could not convert string 'ï»¿6426840.00'"): a production bug, open | 3 | 6 | failed again on 2026-11-09 and 2026-11-10 |
+| three Polish XYZ sheets begin with a UTF-8 byte order mark, which `np.loadtxt` in `sources/readers/sheetfile.py` reads as part of the first number ("could not convert string 'ï»¿6426840.00'"): a production bug, fixed 2026-11-14 (the sheets of survey 70159 in PL-2000 zone 6; some are 5 m grids or patchworks of 1 and 5 m, read as such since) | 3 | 6 | failed again on 2026-11-09 and 2026-11-10; to search again |
 | the Environment Agency's WCS answered HTTP 500 for one tile of its DSM | 1 | 1 | 2026-11-09: found lines |
 
 `run --failed` searched them again (2026-11-09 from 01:08, when ARSO still answered 503, and 2026-11-10 with
@@ -615,8 +615,8 @@ The outputs:
 
 ## 5. Open
 
-- **The failed searches**: 3 Polish places (6 known lines: 1 / 5) fail on the byte order mark of their sheets until
-  `sources/readers/sheetfile.py` is fixed; then `run --failed`, `analyse`, `report`.
+- **The failed searches**: 3 Polish places (6 known lines: 1 / 5) failed on the byte order mark of their sheets;
+  `sources/readers/sheetfile.py` reads them since 2026-11-14: `run --failed`, `analyse`, `report` are left.
 - **The ISA's answer**: whether the aggregate statistics may stay published, the overlay, a copy of the lines, the
   details' heights. Until then everything of section 1 holds.
 - **The details** (`slackmap_data.py details`) of the misses and a sample of the matches are not fetched yet: their
@@ -628,9 +628,9 @@ The outputs:
 - **`analyse --profiles`** on the whole pass, the cross-check against production's profiles.
 - **Production findings**, not fixed in the task: `findaline.py` on Windows cannot delete its work folder after a
   search that stops without lines (the memory-mapped grids are still referenced by the exception in flight; `run`
-  removes the folders its children leave); `sources/readers/sheetfile.py` reads an XYZ sheet beginning with a UTF-8
-  byte order mark as a number with three stray characters and fails (three Polish sheets); `helpers.zone_steps`
-  rounds the 25 % cap of the end zone up one step on slightly diagonal lines (`ceil` of 15.000000000000002 gives 16
+  removes the folders its children leave); `sources/readers/sheetfile.py` read an XYZ sheet beginning with a UTF-8
+  byte order mark as a number with three stray characters and failed (three Polish sheets; fixed 2026-11-14);
+  `helpers.zone_steps` rounds the 25 % cap of the end zone up one step on slightly diagonal lines (`ceil` of 15.000000000000002 gives 16
   steps).
 - **Decisions the numbers prepare** (none taken): structures as anchors (34 % of the misses), the default end zone
   and A-frames, `--max-anchor-diff`, the 30 m fallback where it is all a search has, the obstacle mark on more than a
