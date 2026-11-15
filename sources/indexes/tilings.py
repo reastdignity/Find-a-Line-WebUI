@@ -1,5 +1,6 @@
 """Fixed tilings: the tiles over a grid computed from its bounds, no service asked."""
 
+import hashlib
 import math
 import os
 import re
@@ -439,7 +440,9 @@ class GeoPixelTiling(GeoCellTiling):
     corner (j = -1 is the top row of tiles, so j grows northwards as in the other tilings). Each tile is asked
     as a GeoBox whose edges are computed from whole pixels, so the service answers on its own pixels
     (Geoscience Australia's 5 m lidar DEM: EPSG:4283, 5.506e-5 x 5.160e-5 degrees, which WcsTiling's square
-    metric pixels cannot express). Cached as <folder>/<crs>-<tile_px>px/<i>_<j>.tif."""
+    metric pixels cannot express). Cached as <folder>/<crs>-<tile_px>px-g<grid>/<i>_<j>.tif, <grid> the first 8
+    hex digits of the sha256 of the corner, pixel and size (their repr), so tiles of a changed grid are never
+    taken for this one's (as WcsTiling names its origin)."""
 
     def __init__(self, crs: str, folder: str, tile_px: int, corner: Tuple[float, float],
                  pixel: Tuple[float, float], size: Tuple[int, int]):
@@ -447,7 +450,8 @@ class GeoPixelTiling(GeoCellTiling):
         self.tile_px, self.corner, self.pixel, self.size = tile_px, corner, pixel, size
         within = (0, -math.ceil(rows / tile_px), math.ceil(cols / tile_px) - 1, -1)
         super().__init__(crs, folder, (tile_px * dx, tile_px * dy), (west, north), within)
-        self._dir = f"{crs.lower().replace(':', '')}-{tile_px}px"
+        grid = hashlib.sha256(repr((tuple(corner), tuple(pixel), tuple(size))).encode()).hexdigest()[:8]
+        self._dir = f"{crs.lower().replace(':', '')}-{tile_px}px-g{grid}"
 
     def box(self, tile) -> GeoBox:
         """The pixels of a tile within the grid, with their edges."""
