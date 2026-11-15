@@ -78,7 +78,7 @@ def test_the_list_by_continent_with_its_settings(settings):
     rows = ar.rows_of(settings)
     assert [row.continent for row in rows] == sorted((row.continent for row in rows),
                                                      key=ar.CONTINENTS.index)
-    assert sum(row.continent == "Oceania" for row in rows) == 3
+    assert sum(row.continent == "Oceania" for row in rows) == 4  # New Zealand, Tasmania, Queensland, Australia
     utah = _row(rows, "utah")
     assert (utah.title, utah.source, utah.resolution, utah.km2) == ("United States: Utah", "usa", 1.0, 219900)
     assert _row(rows, "poland").host_slots == ("opendata.geoportal.gov.pl=2",)

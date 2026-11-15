@@ -1,5 +1,6 @@
 """France (mainland and Corsica): IGN's LiDAR HD terrain and surface models (MNT / MNS, 0.5 m) by GetMaps of raw
-heights from the Géoplateforme's WMS-R; IGN's RGE ALTI 1 m fills their gaps (no key)."""
+heights from the Géoplateforme's WMS-R; IGN's RGE ALTI 1 m fills their gaps (no key). The overseas territories of
+the Antilles, French Guiana and Saint-Pierre-et-Miquelon: RGE ALTI 1 m from the same WMS-R, one layer each."""
 
 from typing import List
 
@@ -81,6 +82,71 @@ FR_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed: mosaicked onto the workin
            "and southern ends (Corsica).")
 
 
+# RGE ALTI 1 m of the overseas territories: one WMS-R layer per territory in its own CRS, float32, centimetres in
+# most places (French Guiana's values are not on centimetres), nodata -99999, every pixel -99999 at sea and outside
+# the territory (Sint Maarten). As the service answered on 2026-11-15: the Antilles' and Saint-Pierre-et-Miquelon's
+# pixel CENTRES lie on whole metres (edges on .5: a GetMap at 0.5 m repeats each value in 2 x 2 blocks starting on
+# the half metres, 100 % at Soufrière, the Pitons du Carbet and Saint-Pierre), unlike the mainland's RGE ALTI and
+# French Guiana's (edges on whole metres, blocks on the whole metres 100 % at the Mahury); a GetMap on the stored
+# edges answers the stored pixels, one off them the nearest pixel (no interpolation). The layers name IGN's own CRS
+# codes; asked by the equivalent EPSG code the answer is the same pixels (equal bytes of values at every point
+# tried). Vertical datums (IGN's product records): Guadeloupe GUAD88 (La Désirade GUAD92LD, Marie-Galante GUAD88MG,
+# Les Saintes GUAD88LS, Saint-Barthélemy GUAD88SB, Saint-Martin GUAD88SM), Martinique MART87, French Guiana NGG77
+# (GUYA77), Saint-Pierre-et-Miquelon Danger 1950 (STPM50). Editions: Guadeloupe 2013-2014, Saint-Barthélemy and
+# Saint-Martin 2019, Martinique 2015, French Guiana 2023, Saint-Pierre-et-Miquelon 2017. Réunion
+# (RGEALTI-MNT_PYR-ZIP_REU_RGR92UTM40S_WMS) and Mayotte (..._MYT_RGM04UTM38S_WMS) exist too: not declared yet
+HALF_METRE = (0.5, 0.5)
+
+
+def _rgealti_overseas(zone: str, where: str, layer: str, crs: str, origin=(0.0, 0.0)) -> WmsrTiles:
+    return WmsrTiles(f"RGE ALTI 1 m (terrain) {where}", FR_WMSR, layer, crs, f"france/rgealti-1m-{zone}/live",
+                     native_res=1.0, fetch_res=(1.0,), tile_m=1000, origin=origin, bytes_per_tile=2e6)
+
+
+OVERSEAS_NOTE = ("Data: IGN, Licence Ouverte 2.0 (processed). RGE ALTI 1 m has no surface model: trees and buildings "
+                 "are not in the data, check the photo.")
+
+
+def _overseas(id_: str, name: str, where: str, layer: WmsrTiles, crs: str, grid_origin, bbox, offline,
+              sample, areas, listing: str) -> Source:
+    return Source(
+        id=id_, name=f"IGN (RGE ALTI 1 m, {name})",
+        description=f"IGN ({where}): RGE ALTI 1 m terrain model from the Géoplateforme's WMS-R, {crs}",
+        nmt=layer, countries=("fr",), bbox=bbox, crs=crs, grid_origin=grid_origin, ortho=FR_ORTHO,
+        credits=(FR_RGEALTI_CREDIT,), fallback="europe", offline=tuple(("fr", box) for box in offline),
+        listing=ReadmeRow(listing, "IGN RGE ALTI, 1 m (WMS-R)", ortho="IGN BD ORTHO"), sample=sample,
+        note=OVERSEAS_NOTE, coverage=Coverage(provider="IGN", added="2026-11-15", areas=areas))
+
+
+# Nominatim names every one of them "fr" (zoom 3, 2026-11-15: its ISO 3166-2 codes are fr-971, fr-972, fr-gf /
+# fr-973, fr-pm, fr-bl, fr-mf), so each is chosen by its bbox, outside the mainland's FR_BOX; Sint Maarten is "nl".
+# Their boxes hold no other source's (Canada's offline box holds Saint-Pierre-et-Miquelon: France comes first in
+# FAMILIES, and its box stops west of Newfoundland's Green Island)
+OVERSEAS: List[Source] = [
+    _overseas("france_guadeloupe", "Guadeloupe", "Guadeloupe, Saint-Barthélemy, Saint-Martin",
+              _rgealti_overseas("glp", "Guadeloupe", "RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS", "EPSG:32620",
+                                HALF_METRE), "EPSG:32620", HALF_METRE, (15.80, 18.13, -63.16, -60.95),
+              ((15.80, 16.55, -61.85, -60.95), (17.85, 17.98, -62.95, -62.77), (18.04, 18.13, -63.16, -62.95)),
+              (16.0868, -61.6592),  # the gorge above the Grand Saut d'Eau (R66)
+              ("fr-gp", "bl", "mf"), "Guadeloupe, Saint-Barthélemy, Saint-Martin (France)"),
+    _overseas("france_martinique", "Martinique", "Martinique",
+              _rgealti_overseas("mtq", "Martinique", "RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS", "EPSG:32620",
+                                HALF_METRE), "EPSG:32620", HALF_METRE, (14.38, 14.89, -61.24, -60.80),
+              ((14.38, 14.89, -61.24, -60.80),), (14.7050, -61.1000),  # the Pitons du Carbet
+              ("fr-mq",), "Martinique (France)"),
+    _overseas("france_guiana", "French Guiana", "French Guiana",
+              _rgealti_overseas("guf", "French Guiana", "RGEALTI-MNT_PYR-ZIP_GUF_UTM22RGFG95_WMS", "EPSG:2972"),
+              "EPSG:2972", (0.0, 0.0), (2.10, 5.80, -54.60, -51.60), ((2.10, 5.80, -54.60, -51.60),),
+              (4.8800, -52.2700),  # the Montagne du Mahury
+              ("fr-gf",), "French Guiana (France)"),
+    _overseas("france_spm", "Saint-Pierre-et-Miquelon", "Saint-Pierre-et-Miquelon",
+              _rgealti_overseas("spm", "Saint-Pierre-et-Miquelon", "RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS",
+                                "EPSG:4467", HALF_METRE), "EPSG:4467", HALF_METRE, (46.74, 47.15, -56.53, -56.11),
+              ((46.74, 47.15, -56.53, -56.11),), (46.7800, -56.1800),  # Saint-Pierre
+              ("pm",), "Saint-Pierre-et-Miquelon (France)"),
+]
+
+
 SOURCES: List[Source] = [
     Source(
         id="france", name="IGN (LiDAR HD MNT / MNS)",
@@ -105,7 +171,7 @@ SOURCES: List[Source] = [
                  ("fr", (47.85, 49.00, 5.90, 7.50)), ("fr", (49.00, 49.40, 5.90, 6.50)),
                  ("fr", (43.00, 45.80, 5.90, 6.60)), ("fr", (43.00, 44.10, 6.60, 7.40)),
                  ("fr", (42.50, 43.40, 2.00, 5.90)), ("fr", (43.05, 43.40, -1.00, 2.00)),
-                 ("fr", (42.80, 43.05, 1.00, 2.00)), ("fr", (41.30, 43.05, 8.50, 9.60))),
+                 ("fr", (42.80, 43.05, 1.00, 2.00)), ("fr", (41.32, 43.05, 8.50, 9.60))),
         sample=(43.7655, 6.3580),  # the Verdon, Escalès (R43)
         note=FR_NOTE,
         coverage=Coverage(provider="IGN", added="2026-11-02", survey="lidar_hd")),
@@ -120,4 +186,6 @@ SOURCES: List[Source] = [
         note="Data: IGN, Licence Ouverte 2.0 (processed). RGE ALTI 1 m is LiDAR in the mountains, forests and along "
              "coasts and rivers, elsewhere older and smoother (aerial photographs): LiDAR HD (the source france) is "
              "better wherever it has data."),
+    # The overseas territories after the mainland: no box of theirs touches its boxes
+    *OVERSEAS,
 ]

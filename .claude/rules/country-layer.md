@@ -22,6 +22,10 @@ docs/country-precompute/contract.md; the measurements: docs/country-precompute.m
 
 ## Must stay in sync
 
+- A source declares at most six neighbours (`countcube.PARTNERS`, the cube's partner index;
+  `tests/test_country.py::test_neighbour_cubes`); a neighbour is appended last so existing indices keep their
+  order, and every declared neighbour has an entry in `country.NEIGHBOUR_CUBES`. Full in 2026-11: austria, france,
+  swisstopo, lower_saxony.
 - The country layer's count mode and the search (docs/country-precompute/contract.md): `search._lines` and
   `search.count_tile` share step 2 (`_anchors`) and step 3's arguments (`_pair_search`), so a change of the anchors,
   the limits or `find_valid_lines`' arguments reaches both (the end zone and the lift too: a country's `options` may

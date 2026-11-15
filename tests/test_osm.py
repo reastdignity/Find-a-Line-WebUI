@@ -445,7 +445,7 @@ def test_catalogue_extracts(tmp_path):
                  "france": "FR",
                  "germany": "DE", "italy": "IT", "united-kingdom": "GB",
                  "new-zealand": "NZ", "canada": "CA",
-                 "slovenia": "SI"}
+                 "slovenia": "SI", "australia": "AU", "uruguay": "UY", "netherlands": "NL", "faroe-islands": "FO"}
     features = [{"properties": {"id": rid, "name": rid, "parent": "europe", "iso3166-1:alpha2": [code]},
                  "geometry": None} for rid, code in countries.items()]
     features += [{"properties": {"id": rid, "name": rid, "parent": "us", "iso3166-1:alpha2": [code],
@@ -457,7 +457,8 @@ def test_catalogue_extracts(tmp_path):
                              "sachsen", "baden-wuerttemberg",
                              "bayern", "rheinland-pfalz",
                              "scotland", "nordrhein-westfalen", "tasmania", "brandenburg", "berlin",
-                             "schleswig-holstein", "queensland", "saarland")]
+                             "schleswig-holstein", "queensland", "saarland",
+                             "guadeloupe", "martinique", "guyane", "isole")]
     features += [{"properties": {"id": "greenland", "name": "Greenland", "parent": "north-america",
                                  "iso3166-1:alpha2": ["GL"]}, "geometry": None},
                  {"properties": {"id": "nunavut", "name": "Nunavut", "parent": "canada", "iso3166-2": ["CA-NU"]},
@@ -478,7 +479,8 @@ def test_catalogue_extracts(tmp_path):
          "france", "sachsen", "baden-wuerttemberg",
          "bayern", "rheinland-pfalz",
          "scotland", "nordrhein-westfalen", "tasmania", "brandenburg", "schleswig-holstein", "saarland",
-         "slovenia", "queensland", "greenland", "nunavut", "british-columbia", "iceland"])
+         "slovenia", "queensland", "greenland", "nunavut", "british-columbia", "iceland",
+         "guadeloupe", "martinique", "guyane", "australia", "uruguay", "isole", "italy", "netherlands", "faroe-islands"])
     # A region Geofabrik does not have: named among the missing, not guessed
     (tmp_path / "osm" / "geofabrik-index.json").write_text(json.dumps(
         {"features": [f for f in features if f["properties"]["id"] != "hessen"]}))

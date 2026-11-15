@@ -225,6 +225,11 @@ def test_declared_neighbours():
                                                      "brandenburg")
     assert src.SOURCES["austria"].neighbours == ("swisstopo", "south_tyrol", "slovakia", "czechia", "bavaria",
                                                     "slovenia")
+    # TINITALY after the regional sources at the Italian border (not Austria's nor France's: they have six, the
+    # country layer's most); the regional sources' own chain ends in europe beyond Italy
+    assert src.SOURCES["tinitaly"].neighbours == ("swisstopo", "slovenia")
+    for sid in ("south_tyrol", "trento", "sardinia"):
+        assert src.SOURCES[sid].fallbacks == ["tinitaly", "europe"], sid
     assert src.SOURCES["europe"].neighbours == () and src.SOURCES["usa"].neighbours == ("canada", "british_columbia")
     assert src.SOURCES["nunavut"].neighbours == ("canada",)
     assert src.SOURCES["canada"].neighbours == ("usa", "alaska", "alaska_ifsar", "nunavut")

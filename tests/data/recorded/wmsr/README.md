@@ -23,3 +23,9 @@ added the reader (not kept in the repository): `requests.get` of each URL with t
 
 Licence: IGN's LiDAR HD and RGE ALTI, [Licence Ouverte / Open Licence 2.0](https://www.etalab.gouv.fr/licence-ouverte-open-licence/)
 (Etalab): source IGN, data of the Géoplateforme as served on 2026-11-02.
+
+`overseas/` (recorded 2026-11-15 the same way, 1 s apart, for `tests/test_france_overseas.py`): Guadeloupe's RGE ALTI
+1 m (`RGEALTI-MNT_PYR-ZIP_GLP_WGS84UTM20_WMS`, EPSG:32620) at the Soufrière (642912.5-642944.5 E, 1774240.5-1774272.5
+N: the layer's pixel edges lie on half metres): `001` the box at 1 m, `002` the same box at 0.5 m (each stored pixel
+repeated in a 2 x 2 block), `003` a box on Sint Maarten (493632.5 E, 1993504.5 N: HTTP 200, every pixel -99999).
+Added the same day, each a 32 m box on its layer's declared pixel edges at 1 m and the same box at 0.5 m: Martinique (`RGEALTI-MNT_PYR-ZIP_MTQ_WGS84UTM20_WMS`, EPSG:32620, edges on half metres) at the Pitons du Carbet (704544.5 E, 1626528.5 N: `004`, `005`), French Guiana (`RGEALTI-MNT_PYR-ZIP_GUF_UTM22RGFG95_WMS`, EPSG:2972, edges on whole metres) at the Montagne du Mahury (359168 E, 539520 N: `006`, `007`), Saint-Pierre-et-Miquelon (`RGEALTI-MNT_PYR-ZIP_SPM_RGSPM06U21_WMS`, EPSG:4467, edges on half metres) at Saint-Pierre (562592.5 E, 5181024.5 N: `008`, `009`). Not with tools/record_answers.py (its recipes record index services; WMS-R has none): a script of the session asked `WmsrReader.getmap_params` of each box, 1 s apart. Licence as above (data of the Géoplateforme as served on 2026-11-15).

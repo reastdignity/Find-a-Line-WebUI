@@ -12,6 +12,14 @@ whole-metre heights, tiles without data (a ZIP member read again by Range throug
 `/vsizip//vsicurl/`); on a grid of `search.plan_search(with_margin=False)`; PASS/WARN/FAIL, `--json`;
 `tests/test_check_source.py`
 
+## `tools/au_coverage.py`
+
+The static cells mask of Geoscience Australia's 5 m lidar DEM (`sources/catalogue/australia_dem5m_cells.npz`):
+the WCS grid sampled every 88 × 80 of its pixels (about 485 ×
+412 m) in 2 × 2 requests of at most 4096 px, a cell of 4 × 4 samples (about 1.9 × 1.65 km) has data when any sample
+is non-zero; `GeoWcsTiles.has_data_near` reads it. Run it again when GA adds surveys and commit the file
+(`tests/test_australia_uruguay.py` pins the places).
+
 ## `tools/source_docs.py`
 
 Writes README's "Data sources" table and the ids of the `--source` row from `Source.listing` and the catalogue

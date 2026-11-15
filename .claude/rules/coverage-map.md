@@ -15,7 +15,7 @@ What each part holds: docs/code-map/viewer.md (`coverage/`) and docs/code-map/to
   per area; `viewer/src/coverage/coverage.json` is generated from them (`tools/coverage_data.py`, `--check` in
   `tests/test_coverage.py`), its schema is `viewer/src/coverage/types.ts` (with the outlines' and contrast.json's:
   change the tools and the types together). A new area needs its outline, its Nominatim name in `sources.AREA_NAMES`
-  and a row in `tools/area_rows.py` (a new country's title in `COUNTRIES`:
+  and a row in `tools/area_rows.py` (a new country's title in `COUNTRIES`, a new continent in `CONTINENTS`:
   `tests/test_area_rows.py::test_every_area_of_the_map_is_a_row`) (`tools/coverage_shapes.py`; `shapes.json` is LF
   everywhere (`.gitattributes`) and copied byte for byte to `dist/coverage-shapes.json`), a new region area
   `region.<id>`, a new note or survey code `note.<code>`/`survey.<code>`, in both `locales/coverage/en.json` and

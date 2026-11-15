@@ -3536,12 +3536,12 @@ SOFTWARE_3D = ("The maps, the app and the 3D view include open-source libraries 
                "and others); their licences and copyright notices: ")
 ABOUT_RING = ("<p>Terrain around the 3D view: © Mapterhorn (<a href='https://mapterhorn.com/attribution'>"
               "mapterhorn.com/attribution</a>), from open elevation data under the licences of its sources.</p>")
-RING_ORIGINS = ("https://ags.cuzk.gov.cz", "https://basemap.nationalmap.gov", "https://data.geopf.fr",
+RING_ORIGINS = ("https://ags.cuzk.gov.cz", "https://api.ellipsis-drive.com", "https://basemap.nationalmap.gov", "https://data.geopf.fr",
                 "https://geo4.service24.rlp.de", "https://geodata.npolar.no", "https://geodienste.sachsen.de",
-                "https://geoportal.saarland.de", "https://geoservices.bayern.de", "https://geoservices.buergernetz.bz.it", "https://gis.natt.is",
-                "https://isk.geobasis-bb.de", "https://malta.coverage.wetransform.eu", "https://mapsneu.wien.gv.at",
+                "https://geoportal.saarland.de", "https://geoservices.bayern.de", "https://geoservices.buergernetz.bz.it", "https://gis.natt.is", "https://gis.us.fo",
+                "https://isk.geobasis-bb.de", "https://malta.coverage.wetransform.eu", "https://mapas.ide.uy", "https://mapsneu.wien.gv.at",
                 "https://mapy.geoportal.gov.pl", "https://opendata.lgln.niedersachsen.de", "https://owsproxy.lgl-bw.de",
-                "https://service.gdi-sh.de", "https://services.thelist.tas.gov.au",
+                "https://service.gdi-sh.de", "https://service.pdok.nl", "https://services.thelist.tas.gov.au",
                 "https://spatial-img.information.qld.gov.au", "https://storitve.eprostor.gov.si",
                 "https://wmts.geo.admin.ch", "https://wmts1.geoportail.lu", "https://www.gds-srv.hessen.de",
                 "https://www.geodaten-mv.de", "https://www.geodatenportal.sachsen-anhalt.de", "https://www.ign.es",

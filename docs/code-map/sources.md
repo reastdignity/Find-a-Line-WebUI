@@ -117,6 +117,13 @@ through `net`: 206 with the asked Content-Range only, a 200 `RangeRefused` and c
 `RANGE_MIN` bytes), `drop_below(floor, ring)` (pixels below a floor and a square ring around them as no data:
 Saarland's 0 m patches)
 
+Batch 5: `windows.py` `Windows(force_crs=)` and `FileBlocks(force_crs=)` read a file that names only a local CRS
+(LOCAL_CS or an engineering CRS, `_local`) in the layer's CRS (`_wrong_crs`: a file with a real CRS is checked as
+before, another real CRS still raises `WrongCrs`): the Caribbean Netherlands' AHN files; `wcsreader.py`
+`GeoWcsReader`: WCS 1.0.0 in a geographic CRS, the BBOX to 17 significant digits (`WcsReader`'s `.3f` is about 10 cm
+in degrees), pixels checked to 1/1000 px and resampled by nearest only when the service answers on others, a 404 or
+an answer without a valid pixel missing (Geoscience Australia).
+
 ## `sources/indexes/`
 
 Which tiles cover a grid: `tilings.py` fixed tilings (`WcsTiling`, `MetricTiling`, `DegreeTiling`,
@@ -177,6 +184,13 @@ its version: `<e>_<n>_<year>_<crc8>.tif`); `arcgis.py` `query_features` (an ArcG
 paged by `resultOffset`, `QUERY_BYTES_MAX` an answer, an error JSON also with HTTP 200 or a non-JSON answer
 `IndexUnavailable`)
 
+Batch 5: `tilings.py` `GeoCellTiling` (a geographic grid of non-square cells within a cell range), `GeoBox`,
+`GeoPixelTiling` (tiles of N × N service pixels from the grid's corner, the last ones cut at its size; the folder
+names the grid by a hash of corner, pixel and size) and `GeoSheetTiling` (cell → sheet name → URL, or None);
+`listings.py` `WfsFeatures` (one GeoServer WFS 2.0 type of tile footprints asked as GeoJSON per 0.25° tile, BBOX in
+EPSG:4326, SRSNAME the files' CRS so the extents match the files; an exception report, an answer that is not a
+FeatureCollection or numberMatched > numberReturned raise `IndexUnavailable`: Sardinia).
+
 ## `sources/layers/`
 
 One module per kind of layer, each a thin `ComposedLayer` building its parts with the constructor and attributes the
@@ -218,6 +232,10 @@ Saarland), `lidarbc.py` `LidarBcBlocks` (an `S3Blocks`: `LidarBcFiles` asks the 
 (DEM layers 6 and 5, DSM 3 and 1), then lists the bucket under each (sheet, survey folder) it names and keeps the
 listed keys only (the index lists LAZ files as `.tif` and paths that answer 404), the ETag in an item's name; each
 file's CRS from its name (`_utmNN`), its `projection` or its footprint (`file_crs`); `bc_utm_crs`: British Columbia)
+
+Batch 5: `wcs.py` `GeoWcsTiles` (`GeoPixelTiling` + `GeoWcsReader`; `cells=` a packaged mask of cells with data for
+`has_data_near`), `geosheets.py` `GeoSheetTiles` (`GeoSheetTiling` + `Download`: Uruguay), `sheets.py`
+`WfsFeatureTiles` (`WfsFeatures` + `NewestPerSheet` + `SheetFile`: Sardinia).
 
 ## `sources/catalogue/`
 
@@ -268,6 +286,19 @@ gap filler of the Arctic), NASADEM and the water mask), each with its services, 
 `SOURCES`; `__init__.py` joins them in `FAMILIES` (the order `--source auto` tries them) into `SOURCES` and holds
 `AREA_NAMES` (each area of the coverage map, `Source.map_areas`, by its name for Nominatim: the area downloads'
 outlines and the country layer's territories)
+
+Batch 5 (2026-11-15): `france` also holds `OVERSEAS` (`_overseas()`: RGE ALTI 1 m of Guadeloupe with
+Saint-Barthélemy and Saint-Martin, Martinique, French Guiana and Saint-Pierre-et-Miquelon, one WMS-R layer each in its
+native CRS (32620, 32620, 2972, 4467), chosen by bbox since Nominatim names them all "fr"; `HALF_METRE` origins
+except Guiana's); `italy` holds `tinitaly` (INGV's 10 m WCS, `zero_is_nodata`: the open sea is 0 without a tag; the
+filler of the Italian regional sources before `europe`; `IT_BOXES`) and `sardinia` (the coastal lidar 2008 by
+`WfsFeatureTiles`, region it-88); `netherlands` (`netherlands`: PDOK's AHN4 WCS; `saba`, `sint_eustatius`, `bonaire`:
+whole-island AHN files with `force_crs`, an `Island` each, chosen by bbox; `NL_OFFLINE` keeps off German and Belgian
+land; before `germany` in FAMILIES), `faroe` (`faroe_islands`: the DSM 2015 2 m in `FileBlocks` from its fractional
+corner, gaps from `copernicus`), `australia` gains `australia` (GA's 5 m lidar DEM by `GeoWcsTiles` in EPSG:4283,
+`au_mga_crs`, the cells mask `australia_dem5m_cells.npz` for `has_data_near`, `instead_without_data="europe"`, no
+neighbours) and `uruguay` (`uruguay`: IDE's 2.5 m sheets by `GeoSheetTiles`, `uy_sheet`/`uy_cell` name a sheet from
+its 0.06° × 0.045° cell, `UY_REMESAS` the static table of their folders, `uy_crs` 5382/5383 by zone).
 
 ## `sources/choose.py`, `mosaic.py`, `filling.py`
 
@@ -378,6 +409,9 @@ exportImage (a layer with zones: its default CRS); `text`: the first KB of a `Ge
 `blocks`: a `LidarBcBlocks` layer's index, then 16 × 16 px at the centre of its first block from the newest file,
 never a byte range 0-0); nothing written to the cache, its own requests under `host_slot`; 120 s per source (a daemon
 thread); `tests/test_probe.py`
+
+Batch 5 kinds: `geowcs` (a 16 × 16 px GetCoverage at the sample, no index), `sheet` (`Range: bytes=0-7`, a TIFF's
+first bytes), `zipfile` (`_zip_head`: the first KB without a Range header); the deep probe runs on `row.read == OK`.
 
 ## `cache.py`
 

@@ -103,6 +103,9 @@ def _on_server(layer, server, years=None):
     if isinstance(layer, src.TnmBlocks):
         return type(layer)(layer.description, layer.dataset, layer.prefix, layer.folder, layer.native_res,
                            layer.block_m, layer.bytes_per_tile(), api=server.url(path))
+    if isinstance(layer, src.WfsFeatureTiles):
+        return src.WfsFeatureTiles(layer.description, server.url(path), layer.typename, layer.link, layer.name,
+                                   layer.prefix, layer.folder, layer.crs, layer.native_res, layer.year)
     if isinstance(layer, src.LidarBcBlocks):  # its FeatureServer and its bucket both on the server
         return src.LidarBcBlocks(layer.description, server.url(path), layer.layers,
                                  server.url(urlsplit(layer.bucket).path), layer.prefix, layer.folder)
@@ -111,7 +114,7 @@ def _on_server(layer, server, years=None):
 
 def test_recorded_cases_exist():
     assert CASES == ["arcgis/lidarbc-dem", "stac/lgln-dgm1", "stac/swisstopo-swissalti3d", "tnm/dem1m",
-                     "tnm/ifsar5m", "wfs/geoportal-error", "wfs/geoportal-nmt"]
+                     "tnm/ifsar5m", "wfs/geoportal-error", "wfs/geoportal-nmt", "wfs/sardinia-dtm"]
     assert ERROR_CASES == ["wfs/geoportal-error"]
 
 

@@ -1,0 +1,22 @@
+{
+ "recipe": "wfs-sardinia",
+ "recorded": "2026-11-15",
+ "case": {
+  "source": "sardinia",
+  "layer": "nmt",
+  "lat": 40.25,
+  "lon": 9.5
+ },
+ "hosts": [
+  "https://webgis.regione.sardegna.it"
+ ],
+ "answers": [
+  {
+   "method": "GET",
+   "url": "https://webgis.regione.sardegna.it/geoserver/ows?SERVICE=WFS&VERSION=2.0.0&REQUEST=GetFeature&TYPENAMES=dbu%3AQU2k_fasciacostiera2008_DTM_DSM1m&OUTPUTFORMAT=application%2Fjson&SRSNAME=urn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A32632&COUNT=2000&BBOX=40.25%2C9.5%2C40.5%2C9.75%2Curn%3Aogc%3Adef%3Acrs%3AEPSG%3A%3A4326",
+   "status": 200,
+   "content_type": "application/json;charset=UTF-8",
+   "body": "001.json.gz"
+  }
+ ]
+}

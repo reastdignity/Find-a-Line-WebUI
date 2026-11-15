@@ -13,6 +13,27 @@
    "survey": "mosaic",
    "trees": "yes"
   },
+  "au": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": true,
+   "provider": "Geoscience Australia",
+   "res": [
+    5,
+    30
+   ],
+   "source": "australia",
+   "survey": "2001–2015",
+   "trees": "no"
+  },
   "au-qld": {
    "added": "2026-11-03",
    "level": 1,
@@ -65,6 +86,23 @@
     2
    ],
    "source": "finland",
+   "survey": "",
+   "trees": "no"
+  },
+  "bl": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guadeloupe",
    "survey": "",
    "trees": "no"
   },
@@ -405,6 +443,26 @@
    "survey": "",
    "trees": "no"
   },
+  "fo": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 30
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "Umhvørvisstovan",
+   "res": [
+    2
+   ],
+   "source": "faroe_islands",
+   "survey": "2015",
+   "trees": "surface"
+  },
   "fr": {
    "added": "2026-11-02",
    "level": 1,
@@ -424,6 +482,57 @@
    "source": "france",
    "survey": "lidar_hd",
    "trees": "yes"
+  },
+  "fr-gf": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guiana",
+   "survey": "",
+   "trees": "no"
+  },
+  "fr-gp": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guadeloupe",
+   "survey": "",
+   "trees": "no"
+  },
+  "fr-mq": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_martinique",
+   "survey": "",
+   "trees": "no"
   },
   "gb-eng": {
    "added": "2026-11-01",
@@ -504,10 +613,66 @@
    "survey": "",
    "trees": "surface"
   },
+  "it": {
+   "added": "2026-11-15",
+   "level": 3,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "smoothed"
+    },
+    {
+     "code": "short",
+     "params": {
+      "m": 60
+     }
+    }
+   ],
+   "partial": false,
+   "provider": "INGV",
+   "res": [
+    10
+   ],
+   "source": "tinitaly",
+   "survey": "mosaic",
+   "trees": "no"
+  },
+  "it-88": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "mixed"
+    },
+    {
+     "code": "old_survey",
+     "params": {
+      "years": "2008"
+     }
+    }
+   ],
+   "partial": true,
+   "provider": "Regione Sardegna",
+   "res": [
+    1,
+    10
+   ],
+   "source": "sardinia",
+   "survey": "2008",
+   "trees": "yes"
+  },
   "it-bz": {
    "added": "2026-11-01",
    "level": 2,
    "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    },
     {
      "code": "old_survey",
      "params": {
@@ -533,7 +698,14 @@
   "it-tn": {
    "added": "2026-11-02",
    "level": 1,
-   "notes": [],
+   "notes": [
+    {
+     "code": "gaps",
+     "params": {
+      "res": 10
+     }
+    }
+   ],
    "partial": false,
    "provider": "Provincia di Trento",
    "res": [
@@ -569,6 +741,23 @@
    "survey": "2024",
    "trees": "yes"
   },
+  "mf": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_guadeloupe",
+   "survey": "",
+   "trees": "no"
+  },
   "mt": {
    "added": "2026-10-23",
    "level": 1,
@@ -584,6 +773,58 @@
    ],
    "source": "malta",
    "survey": "2018",
+   "trees": "yes"
+  },
+  "nl": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [],
+   "partial": false,
+   "provider": "PDOK",
+   "res": [
+    1
+   ],
+   "source": "netherlands",
+   "survey": "2020–2022",
+   "trees": "yes"
+  },
+  "nl-bq1": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [],
+   "partial": false,
+   "provider": "Het Waterschapshuis",
+   "res": [
+    2
+   ],
+   "source": "bonaire",
+   "survey": "2023–2024",
+   "trees": "yes"
+  },
+  "nl-bq2": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [],
+   "partial": false,
+   "provider": "Het Waterschapshuis",
+   "res": [
+    2
+   ],
+   "source": "saba",
+   "survey": "2023–2024",
+   "trees": "yes"
+  },
+  "nl-bq3": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [],
+   "partial": false,
+   "provider": "Het Waterschapshuis",
+   "res": [
+    2
+   ],
+   "source": "sint_eustatius",
+   "survey": "2023–2024",
    "trees": "yes"
   },
   "no": {
@@ -671,6 +912,23 @@
    "source": "geoportal",
    "survey": "sheets",
    "trees": "part"
+  },
+  "pm": {
+   "added": "2026-11-15",
+   "level": 1,
+   "notes": [
+    {
+     "code": "no_trees"
+    }
+   ],
+   "partial": false,
+   "provider": "IGN",
+   "res": [
+    1
+   ],
+   "source": "france_spm",
+   "survey": "",
+   "trees": "no"
   },
   "pr": {
    "added": "2026-10-30",
@@ -775,6 +1033,26 @@
    "survey": "2012–2019",
    "trees": "no"
   },
+  "uy": {
+   "added": "2026-11-15",
+   "level": 2,
+   "notes": [
+    {
+     "code": "no_trees"
+    },
+    {
+     "code": "smoothed"
+    }
+   ],
+   "partial": false,
+   "provider": "IDE Uruguay",
+   "res": [
+    2.5
+   ],
+   "source": "uruguay",
+   "survey": "2017–2018",
+   "trees": "no"
+  },
   "vi": {
    "added": "2026-10-30",
    "level": 1,
@@ -799,12 +1077,8 @@
    "trees": "no"
   }
  },
- "countries": 23,
+ "countries": 26,
  "partly": {
-  "au": [
-   "au-qld",
-   "au-tas"
-  ],
   "de": [
    "de-bb",
    "de-be",
@@ -824,10 +1098,6 @@
    "gb-eng",
    "gb-sct",
    "gb-wls"
-  ],
-  "it": [
-   "it-bz",
-   "it-tn"
   ]
  },
  "start": "2025-11-05",

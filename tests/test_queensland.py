@@ -229,5 +229,5 @@ def test_sources(tmp_path, monkeypatch):
     monkeypatch.setattr(src.choose.osm, "reverse", offline)
     for lat, lon, sid in ((-26.927, 152.947, "queensland"), (-27.983, 152.620, "queensland"),
                           (-20.7256, 139.4927, "queensland"), (-10.58, 142.22, "queensland"),
-                          (-42.893, 147.237, "tasmania"), (-33.87, 151.21, "europe"), (-28.64, 153.61, "europe")):
+                          (-42.893, 147.237, "tasmania"), (-33.87, 151.21, "australia"), (-28.64, 153.61, "australia")):
         assert src.choose_source("auto", lat, lon, str(tmp_path))[0].id == sid, (lat, lon)

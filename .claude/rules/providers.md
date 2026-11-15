@@ -72,6 +72,17 @@ What each catalogue module holds: docs/code-map/sources.md. The general rules of
   `GTIFF_POINT_GEO_IGNORE` does not fix (measured at the Chief and at Skaha). On BC's DSM (equal to its DTM on bare
   ground) `obstacles.RULE` misses about half of the lines over a tree at R64 (pines within its 2 px envelope of the
   walls).
+- **Batch 5** (2026-11-15): Nominatim names every French overseas territory "fr" and Caribbean Netherlands and Sint
+  Maarten "nl" (their ISO 3166-2 codes only at zoom 8-10): those sources are chosen by bbox, and a new "fr" or "nl"
+  source must keep its boxes off the others' islands. IGN's overseas RGE ALTI layers differ in alignment (Guadeloupe,
+  Martinique, SPM: centres on whole metres; Guiana and the mainland: edges); check with a GetMap at half the resolution
+  (2 x 2 blocks). The AHN's Caribbean files name only a LOCAL_CS (`force_crs`); basisdata.nl went silent for this PC
+  after parallel reads at 4 connections. TINITALY's WCS and GA's 5 m WCS answer 0 without a nodata tag where they
+  hold nothing (`zero_is_nodata`); GA's covers about 3 % of Australia: `auto` picks `australia` only where its static
+  cells mask has data (`tools/au_coverage.py`, refreshed by hand). Sardinia's WFS keeps footprints in EPSG:3003: ask
+  with SRSNAME 32632. Italian regional sources fall back on `tinitaly`, so a run it fills alone is CC BY. Queensland
+  (CC BY-SA) is never a neighbour of a source filled by FABDEM. IDE Uruguay's sheets each have an origin off whole
+  metres (`check_source`'s alignment WARN is expected).
 - **geoportal orthophoto**: `ORTO/WMS/HighResolution` holds only sheets of 10 cm or finer (mostly towns) and answers
   elsewhere with a white JPEG (667 bytes), not an error; the gaps come from the base tiles (`OrthoService.base_url`:
   the `ORTO/WMTS/StandardResolution` GetTile in EPSG:3857, zoom 0–19). The `ORTO/WMS/StandardResolution` answers about

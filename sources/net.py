@@ -111,6 +111,38 @@ HOST_SLOTS_OF: Dict[str, int] = {
     # published limit: a courtesy cap
     "data.slackmap.com": 2,
     "api.slackmap.com": 1,
+    # Geoscience Australia's WCS of the national 5 m lidar DEM (Australia): no published limits (the WCS's
+    # capabilities, https://services.ga.gov.au/gis/services/DEM_LiDAR_5m_2025/MapServer/WCSServer?service=WCS&
+    # request=GetCapabilities, its eCat record and https://www.ga.gov.au/copyright, read 2026-11-15; CloudFront's
+    # firewall guards the server): courtesy, two at once
+    "services.ga.gov.au": 2,
+    # IDE Uruguay's file server (the national 2.5 m DTM's sheets, about 20 MB each): no published limits (its
+    # Licencia de Datos Abiertos and the download pages, https://visualizador.ide.uy/descargas/datos/, read
+    # 2026-11-15): courtesy, two at once
+    "visualizador.ide.uy": 2,
+    # INGV's GeoServer of TINITALY (Italy's 10 m WCS): no published limits (the WCS's capabilities, Fees and
+    # AccessConstraints NONE; https://tinitaly.pi.ingv.it/ and its Download_Area1_1.html, read 2026-11-15): a
+    # research institute's server, two at once
+    "tinitaly.pi.ingv.it": 2,
+    # Regione Sardegna's GeoServer (the WFS of the coastal lidar's tiles) and its download folder on the same host
+    # (the tiles' ZIPs): no published limits (the WFS's capabilities, Fees and AccessConstraints none; the
+    # geoportal's legal notes, https://www.sardegnageoportale.it/note-legali/, and the record R_SARDEG:BFPNM, read
+    # 2026-11-15): courtesy, two at once
+    "webgis.regione.sardegna.it": 2,
+    # PDOK (the Netherlands' AHN4 WCS): no published limits (the WCS's Fees "NONE" and AccessConstraints CC0;
+    # https://www.pdok.nl/Serviceniveau, /how-to-faq1 (a limit of 1 000 features for its WFS only) and /copyright,
+    # read 2026-11-15); its MapServer refuses more than 4000 px a side: courtesy
+    "service.pdok.nl": 4,
+    # Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' whole-island AHN files, redirected to Hetzner's
+    # fsn1.your-objectstorage.com): no published limits (the dataroom page https://www.beeldmateriaal.nl/
+    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15). It stopped answering this
+    # PC's connections on 2026-11-15 after about 18 parallel window reads per island at 4 connections (an outage or
+    # a block, unknown): two at once
+    "basisdata.nl": 2,
+    # Umhvørvisstovan's file server (the Faroe Islands' DSM): its terms (https://www.foroyakort.fo/um-foeroyakort/
+    # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
+    # continued provision of data": courtesy, two at once
+    "cdn.foroyakort.fo": 2,
 }
 TILE_LOCKS = 4096  # lock files of tiles (tile_lock): a tile's lock is one of these, by its path
 LOCK_WAIT_S = 3600  # longest wait for a host slot or a tile's lock (a download in another job)
