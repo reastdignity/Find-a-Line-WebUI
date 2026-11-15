@@ -753,13 +753,15 @@ def test_timeout_and_giving_up(runs):
 def test_busy_holds_an_exclusive_not_the_shared(runs):
     """While the user is busy an exclusive one waits, saying so, without that time counting toward
     its --wait, and a shared one that came after it starts; once free, the exclusive one waits for
-    the shared one, and that time counts."""
+    the shared one, and that time counts. --wait 3: the poll round in which the state turns free
+    counts as waiting, and one round took over 1 s on a loaded CI runner (it gave up before saying
+    what it waits for)."""
     runs.set_state("busy", note="call")
-    e = runs.start("e", "--exclusive", "--wait", "1")
+    e = runs.start("e", "--exclusive", "--wait", "3")
     runs.wait_for(lambda: runs.queued("exclusive") == 1)
     c = runs.start("c")
     runs.wait_for(lambda: runs.started("c"))
-    time.sleep(2.5)
+    time.sleep(4)
     assert e.poll() is None and not runs.started("e")             # held for longer than its --wait
     runs.set_state("free")
     assert e.wait(timeout=60) == 75
