@@ -818,3 +818,51 @@ def test_todays_page_reads_the_run_as_without_the_option(tmp_path, scene_runs):
         out = json.loads(result.stdout)
         assert out == {"n": out["n"], "rows": True, "cols": True, "same": True} and out["n"] > 50, (file, out)
         assert re.search(r'"ends":\["access1","access2"\]', (scene_runs["on"] / file).read_text(encoding="utf-8"))
+
+
+ACCESS_STORE_SCRIPT = r"""
+const fs = require("fs");
+const folder = process.argv[2];
+const bytes = (p) => { const b = fs.readFileSync(p), ab = new ArrayBuffer(b.length); new Uint8Array(ab).set(b); return ab; };
+const window = {};
+new Function("window", fs.readFileSync(folder + "/data.js", "utf-8"))(window);
+const data = window.FINDALINE_RUN;
+const table = m.tableFromIPC(new Uint8Array(bytes(folder + "/lines.arrow")));
+const at = (name) => data.ends.indexOf(name);
+const bad = [];
+for (const name of ["access1", "access2"]) {
+  const column = table.getChild(name);
+  if (!column) { bad.push([name, "no column"]); continue; }
+  const k = 25 + at(name), type = column.type.toString();
+  if (type !== "Uint8") bad.push([name, type]);
+  data.lines.forEach((row, i) => { if (column.get(i) !== row[k]) bad.push([name, i, row[k], column.get(i)]); });
+}
+console.log(JSON.stringify({bad: bad.slice(0, 20), n: data.lines.length, rows: table.numRows, ends: data.ends}));
+"""
+
+
+@pytest.mark.skipif(shutil.which("node") is None or not os.path.isdir(os.path.join(VIEWER, "node_modules", "esbuild")),
+                    reason="needs Node and `npm install` in viewer/")
+def test_the_page_reads_the_store_of_a_run_with_the_option(tmp_path, scene_runs):
+    """The page's store reader (result/load.ts readStore, types.ts storedColumns) reads a run made with --access with
+    the same Line values, profiles, keys and head as its data.js, and the page's model on it gives data.js's spots and
+    counts (test_viewer.py's STORE_SCRIPT); the store's access1, access2 (apache-arrow, the page's library) are uint8
+    with each row's values of data.js (named by its "ends")."""
+    sys.path.insert(0, os.path.join(REPO, "tests"))
+    from test_viewer import STORE_SCRIPT, _run_node, _store_bundle
+    folder = scene_runs["on"]
+    cases = tmp_path / "cases.json"
+    cases.write_text(json.dumps({"access": str(folder).replace("\\", "/")}), encoding="utf-8")
+    out = _run_node(tmp_path, _store_bundle(tmp_path), STORE_SCRIPT, cases)["access"]
+    assert out["bad"] == [] and out["head"] and out["n"] == out["length"] > 50, out
+    assert out["model"]["differ"] == [] and out["model"]["lines"] == out["n"]
+    entry = tmp_path / "arrow_entry.ts"
+    entry.write_text('export { tableFromIPC } from "apache-arrow";' + chr(10), encoding="utf-8")
+    bundle = tmp_path / "arrow.cjs"
+    subprocess.run(["node", "-e", f"require('esbuild').buildSync({{entryPoints: [{json.dumps(str(entry))}], "
+                                  f"bundle: true, format: 'cjs', platform: 'node', outfile: {json.dumps(str(bundle))}, "
+                                  f"nodePaths: [{json.dumps(os.path.join(VIEWER, 'node_modules'))}]}})"],
+                   cwd=VIEWER, check=True)
+    access_out = _run_node(tmp_path, bundle, ACCESS_STORE_SCRIPT, folder)
+    assert access_out["bad"] == [] and access_out["n"] == access_out["rows"] > 50, access_out
+    assert access_out["ends"] == ["access1", "access2"]
