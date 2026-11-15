@@ -117,8 +117,10 @@ HOST_SLOTS_OF: Dict[str, int] = {
     "service.pdok.nl": 4,
     # Het Waterschapshuis' basisdata.nl (Caribbean Netherlands' whole-island AHN files, redirected to Hetzner's
     # fsn1.your-objectstorage.com): no published limits (the dataroom page https://www.beeldmateriaal.nl/
-    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15): courtesy
-    "basisdata.nl": 4,
+    # dataroom-caribisch-nederland and https://www.ahn.nl/dataroom, read 2026-11-15). It stopped answering this
+    # PC's connections on 2026-11-15 after about 18 parallel window reads per island at 4 connections (an outage or
+    # a block, unknown): two at once
+    "basisdata.nl": 2,
     # Umhvørvisstovan's file server (the Faroe Islands' DSM): its terms (https://www.foroyakort.fo/um-foeroyakort/
     # terms-and-conditions-in-english, June 2019, read 2026-11-15) give no numbers and do "not guarantee the
     # continued provision of data": courtesy, two at once
