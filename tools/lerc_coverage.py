@@ -2,7 +2,7 @@
 next to the catalogue (its `cells`, e.g. sources/catalogue/northern_ireland_dtm_cells.npz), read by
 `LercTiles.has_data_near`, so `--source auto` takes the source's `instead_without_data` where the cache has no data
 near the centre (Northern Ireland's coastal DTM covers the coast only: Belfast's centre and the Mournes take
-`europe`), and by `MercatorTiling`, so a search asks no tile far from any data.
+`northern_ireland_10m`), and by `MercatorTiling`, so a search asks no tile far from any data.
 
 The cache is walked down from START_LEVEL to LEVEL over the source's boxes (its `offline` boxes and `bbox`): a tile
 with a valid sample (the LERC mask's, at or above the reader's `floor`) has its four children asked at the next
