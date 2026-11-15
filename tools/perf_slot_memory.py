@@ -384,6 +384,9 @@ def child(argv: List[str]):
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, HERE)
+    from progress import utf8_output
+    utf8_output()  # the stage labels and warnings in UTF-8, not the Windows code page
     if len(sys.argv) > 1 and sys.argv[1] == CHILD:
         child(sys.argv[2:])
     else:
