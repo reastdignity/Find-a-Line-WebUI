@@ -126,6 +126,44 @@ def test_no_other_search_resumes_the_run_of_before(tmp_path, params, owner):
     assert _state(os.path.join(runs, "owner7"))["search"] == BEFORE[7]
 
 
+
+def test_progress_is_written_whole(tmp_path, monkeypatch):
+    """_progress replaces progress.json at once (a .part beside it): a write that fails midway leaves the state of
+    before, readable; a write that succeeds leaves no .part."""
+    from datetime import datetime
+    folder = _unfinished(str(tmp_path), BEFORE[None])
+    run = {"path": folder, "search": "today", "tile_core": 400, "name": "Gozo",
+           "created": datetime(2026, 11, 13, 10)}
+    real = json.dump
+
+    def broken(data, f):
+        f.write('{"status": "do')  # half of it, then it fails
+        raise RuntimeError("the process dies")
+    monkeypatch.setattr(search.json, "dump", broken)
+    with pytest.raises(RuntimeError):
+        search._progress(run, "done")
+    assert _state(folder)["search"] == BEFORE[None] and _state(folder)["status"] == "running"
+    monkeypatch.setattr(search.json, "dump", real)
+    search._progress(run, "done")
+    assert _state(folder) == {"status": "done", "search": "today", "tile_core": 400, "name": "Gozo",
+                              "created": "2026-11-13T10:00:00"}
+    assert sorted(os.listdir(folder)) == ["progress.json", "tiles"]
+
+
+def test_unreadable_progress_is_skipped(tmp_path):
+    """An empty progress.json (a process killed while the code before this fix wrote it), one cut short and one that
+    is no object do not stop a tiled search: it resumes its own run, or starts a new one."""
+    runs = str(tmp_path)
+    plan = _plan(_migrated(), None, runs)
+    for name, text in (("zz-empty", ""), ("zz-cut", '{"status": "runn'), ("zz-list", "[]")):
+        os.makedirs(os.path.join(runs, name))
+        with open(os.path.join(runs, name, "progress.json"), "w", encoding="utf-8") as f:
+            f.write(text)
+    folder = _unfinished(runs, search._search_hash(plan))
+    assert search._open_run(plan)["path"] == folder  # found after the three unreadable ones (sorted newest first)
+    other = _plan(_web({"model": "sag", "fall_zone": 4.5, "name": "other"}), None, runs)
+    assert os.path.basename(search._open_run(other)["path"]) not in ("zz-empty", "zz-cut", "zz-list", "unfinished")
+
 # --- the funnel counts of a search the square rule's early check stops ---
 
 DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
@@ -199,17 +237,19 @@ def test_funnel_of_a_search_stopped_without_the_rule_as_before(tmp_path, small_p
 # --- the truth analysis' reason for a known line the square rule dropped (made-up data: the synthetic canyon of
 # tests/test_truth_analysis.py, no known line of SlackMap) ---
 
-def _canyon(tmp_path, side, keep):
+def _canyon(tmp_path, side, keep, **params):
     """test_truth_analysis's canyon with its known line "m1" (row 15, from the left rim to the right one), as a
     search with the square rule of `side` metres saved it (None: without the rule): production's found lines
-    less every line within m1's tolerance, the others kept where keep(lines.npz's rows of anchor pixels) holds."""
+    less every line within m1's tolerance, the others kept where keep(lines.npz's rows of anchor pixels) holds;
+    params: more of grid.json's params."""
     import dataclasses as dc
     sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tools"))
     import test_truth_analysis as tta
     import truth_analysis as ta
     cases = [case for case in tta.known_lines() if case[0].id == "m1"]
-    folder = tta.write_capture(str(tmp_path / f"canyon-{side}"), cases)
+    folder = tta.write_capture(str(tmp_path / f"canyon-{side}-{len(params)}"), cases)
     c = ta.load_capture(folder)
+    c.grid["params"] = {**c.grid["params"], **params}
     if side is not None:
         c.grid["params"] = {**c.grid["params"], "same_line_square": side, "same_line_side": float(side)}
     line = c.known[0]
@@ -292,3 +332,15 @@ def test_truth_analysis_squares_are_the_rules(tmp_path):
     assert ta._square_kept(c, a1, a2).all()
     assert not ta._square_kept(c, np.array([[105, 30], [5, 30]]), np.array([[105, 90], [5, 31]])).any()
     assert ta._square_kept(dc.replace(c, grid={**c.grid, "params": tta.PARAMS}, _cache={}), a1, a2).sum() == 0
+
+
+def test_truth_analysis_square_rule_with_min_prominence(tmp_path):
+    """With --min-prominence set the capture lacks the strong anchors, so a pair passing every test may not have been
+    a line of the search: same_line_square carries the same note as unexplained does then."""
+    ta, c, line, _ = _canyon(tmp_path, 20, lambda p: True, min_prominence=10.0)
+    r = ta.diagnose(c, line, None)
+    assert r["reason"] == "same_line_square" and r["note"] == ta.PROMINENCE_NOTE
+    ta, c, line, _ = _canyon(tmp_path, None, lambda p: True, min_prominence=10.0)
+    r = ta.diagnose(c, line, None)
+    assert r["reason"] == "unexplained" and r["note"] == "a_pair_passes; " + ta.PROMINENCE_NOTE
+    assert ta.PROMINENCE_NOTE == "min_prominence set: the strong anchors are not in the capture"  # as before

@@ -2021,12 +2021,18 @@ def _search_key(plan: Plan) -> Dict:
 def _open_run(plan: Plan) -> Dict:
     """The run folder of a tiled search: an unfinished one of the same search (whose tile
     size is then used again, so its finished tiles fit), or a new one. A run found under a key of before
-    (_search_keys) goes on under today's key."""
+    (_search_keys) goes on under today's key. A progress.json that cannot be read (an empty one, left by a
+    process killed while _progress wrote it before it wrote whole) is skipped: its run never resumes."""
     keys = _search_keys(plan)
     key = keys[0]
     for path in sorted(glob.glob(os.path.join(plan.paths.runs, "*", "progress.json")), reverse=True):
-        with open(path, encoding="utf-8") as f:
-            state = json.load(f)
+        try:
+            with open(path, encoding="utf-8") as f:
+                state = json.load(f)
+        except (OSError, ValueError):
+            continue
+        if not isinstance(state, dict):
+            continue
         if state.get("status") == "running" and state.get("search") in keys:
             folder = os.path.dirname(path)
             if state["tile_core"] != plan.tile_core:
@@ -2049,10 +2055,13 @@ def _open_run(plan: Plan) -> Dict:
 
 
 def _progress(run: Dict, status: str):
-    """progress.json of a tiled run: its state while running (run.json is written at the end)."""
-    with open(os.path.join(run["path"], "progress.json"), "w", encoding="utf-8") as f:
+    """progress.json of a tiled run: its state while running (run.json is written at the end). Written whole
+    (a .part beside it, then replaced), so another search's _open_run never reads it half written."""
+    path = os.path.join(run["path"], "progress.json")
+    with open(path + ".part", "w", encoding="utf-8") as f:
         json.dump({"status": status, "search": run["search"], "tile_core": run["tile_core"],
                    "name": run["name"], "created": run["created"].isoformat()}, f)
+    os.replace(path + ".part", path)
 
 
 TILE_FILE = "{}.table.pkl.gz"  # a finished tile's lines; "<k>.pkl.gz" of before held a dict per line
