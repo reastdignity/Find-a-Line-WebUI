@@ -571,7 +571,8 @@ def test_estimate_lists_the_layers_at_once():
             return self.n, self.n, self.n * 10.0
     lines = []
     plan = types.SimpleNamespace(
-        params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None, fill_gaps="off"),
+        params=types.SimpleNamespace(update=None, water="off", coastline="osm", slope_file=None, fill_gaps="off",
+                                     access=False),
         nmpt="mark", obstacles=None,
         emit=lambda kind, text: lines.append(text), layers=[Layer("terrain", 2), Layer("surface", 3)],
         grid=Grid(left=0.0, top=1000.0, res=10.0, height=100, width=100, crs="EPSG:2180"),
