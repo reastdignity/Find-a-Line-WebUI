@@ -569,3 +569,32 @@ def test_mosaic_resamples_web_mercator_by_its_ground_size():
     assert mosaic.src_pixel_m(SimpleNamespace(res=(2.0, 2.0)), CRS.from_epsg(2157), ni_grid) == 2.0
     assert mosaic.src_pixel_m(SimpleNamespace(res=(1 / 3600,) * 2), CRS.from_epsg(4326), ni_grid) == \
         pytest.approx(111320 / 3600)
+
+
+
+def test_mosaic_place_averages_a_northern_ireland_tile(tmp_path, monkeypatch):
+    """mosaic._place itself: a level-17 tile of EPSG:3857 at 55.2° N placed on a 1 m ITM grid is warped with
+    Resampling.average (its 1.19 m pixels are 0.68 m on the ground); the same tile on a 2 m grid too, and on a
+    0.5 m grid bilinear."""
+    from rasterio.enums import Resampling
+    from sources import mosaic
+    tile = (17, 41315, 63294)
+    path = str(tmp_path / "t.tif")
+    t = lerc.tile_transform(*tile)
+    rows, cols = np.mgrid[0:256, 0:256]
+    src.layer._write_tile(path, (100 + rows * 0.1 + cols * 0.2).astype(np.float32), "EPSG:3857", t)
+    used = []
+    original = mosaic._warp
+
+    def spy(src_, src_crs, grid, moved, shift, clean, part, bounds, resampling):
+        used.append(resampling)
+        return original(src_, src_crs, grid, moved, shift, clean, part, bounds, resampling)
+    monkeypatch.setattr(mosaic, "_warp", spy)
+    left, bottom, right, top = rio.warp.transform_bounds("EPSG:3857", "EPSG:2157", *tile_box(*tile))
+    for res, want in ((1.0, Resampling.average), (2.0, Resampling.average), (0.5, Resampling.bilinear)):
+        grid = make_grid((left + 20, bottom + 20, right - 20, top - 20), res, "EPSG:2157")
+        out = np.full((grid.height, grid.width), np.nan, dtype=np.float32)
+        with rio.open(path) as raster:
+            mosaic._place(raster, grid, out)
+        assert used[-1] == want, res
+        assert np.isfinite(out).all()

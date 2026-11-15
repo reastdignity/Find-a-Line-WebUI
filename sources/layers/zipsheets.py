@@ -120,6 +120,8 @@ class ZipSheetIndex(Index):
             try:
                 url = signed_location(link)
                 head, length, headers = ranged(url, 0, 1)
+                if length is None:  # "bytes 0-1/*": no length, so no directory to find
+                    raise RuntimeError("the archive's length is not stated (Content-Range bytes 0-1/*)")
                 etag = headers.get("ETag")
                 old = before.get(link)
                 if old and etag and old.get("etag") == etag and old.get("length") == length:
@@ -226,14 +228,19 @@ class ZipSheetReader(Reader):
     """A sheet's members, each read by one Range of its local header and data on the address its archive's link
     sends to now (signed_location: a signed address expires), inflated and checked against its CRC-32 (ZipMember),
     then their "x y z" lines of cell centres made one raster at res in crs (readers.sheetfile._xyz_grid) and
-    written (float32, NaN where no point: the sea and beyond the sheet). A member not where the kept directory said
-    (ArchiveChanged: the archive was replaced) makes the directories be read again (renew) and the sheet tried once
-    more. A sheet whose members hold no point is missing."""
+    written (float32, NaN where no point: the sea and beyond the sheet). A sheet that cannot be read (a member not
+    where the kept directory said, ArchiveChanged; or one whose CRC-32 or size still differs after the retries: a
+    member replaced in place, as an archive's first member always is) makes the directories be read again (renew)
+    and the sheet tried once more when they list it otherwise; it is then written under its new key (its cached
+    name) and renewed(new path, sheet, url) records it and deletes the sheet's other versions. Members without a
+    point (empty text) make the sheet missing. Messages pass cache.clean_error: a signed address's query never
+    reaches a text."""
     rewrites = True  # the cached tile is written by _write_tile: reencode / cache migrate may convert it
 
     def __init__(self, description: str, res: float, crs: str,
-                 renew: Optional[Callable[[ZipSheetTile], Optional[ZipSheetTile]]] = None):
-        self.description, self.res, self.crs, self.renew = description, res, crs, renew
+                 renew: Optional[Callable[[ZipSheetTile], Optional[ZipSheetTile]]] = None,
+                 renewed: Optional[Callable[[str, ZipSheetTile, Optional[str]], None]] = None):
+        self.description, self.res, self.crs, self.renew, self.renewed = description, res, crs, renew, renewed
         self._zip = ZipMember(description)
 
     def url(self, request: ZipSheetTile) -> Optional[str]:
@@ -252,27 +259,32 @@ class ZipSheetReader(Reader):
 
     def fetch(self, request: ZipSheetTile, path: str) -> Fetched:
         where = f"{self.description} sheet {request.sheet}"
+        renewed: Optional[ZipSheetTile] = None
         try:
             texts, received = self._read(request, where)
-        except ArchiveChanged as e:
+        except (ArchiveChanged, requests.RequestException, RuntimeError) as e:
             renewed = self.renew(request) if self.renew else None
             if renewed is None:
-                raise RuntimeError(f"Could not download {where}: {e}") from None
+                raise RuntimeError(f"Could not download {where}: {cache.clean_error(e)}") from None
             try:
                 texts, received = self._read(renewed, where)
-            except ArchiveChanged as again:
-                raise RuntimeError(f"Could not download {where}: {again}") from None
-        except (requests.RequestException, RuntimeError) as e:
-            raise RuntimeError(f"Could not download {where}: {cache.clean_error(e)}") from None
+            except (ArchiveChanged, requests.RequestException, RuntimeError) as again:
+                raise RuntimeError(f"Could not download {where}: {cache.clean_error(again)}") from None
+            path = os.path.join(os.path.dirname(path), f"{renewed.sheet:03d}_{renewed.key}.tif")
+        sheet = renewed or request
+        if not any(t.strip() for t in texts):  # members without a point
+            return Fetched(0, self.url(sheet))
         try:
             band, transform = _xyz_grid(b"\n".join(t.rstrip() for t in texts), self.res, self.crs, where)
         except (ValueError, IndexError, RuntimeError) as e:
-            raise RuntimeError(f"{where}: not an XYZ grid ({str(e)[:100]})") from None
+            raise RuntimeError(f"{where}: not an XYZ grid ({cache.clean_error(str(e)[:100])})") from None
         band = _clean(band)
         if not np.isfinite(band).any():
-            return Fetched(0, self.url(request))
+            return Fetched(0, self.url(sheet))
         _write_tile(path, band, self.crs, transform)
-        return Fetched(received, self.url(request))
+        if renewed is not None and self.renewed:
+            self.renewed(path, renewed, self.url(sheet))
+        return Fetched(received, self.url(sheet))
 
 
 class ZipSheetTiles(ComposedLayer):
@@ -286,23 +298,43 @@ class ZipSheetTiles(ComposedLayer):
         self.description, self.folder, self.crs, self.native_res = description, folder, crs, native_res
         self.archives, self._bytes = tuple(archives), bytes_per_tile
         self.index = ZipSheetIndex(archives, member, sheets, crs, folder, key, margin)
-        self.reader = ZipSheetReader(description, native_res, crs, renew=self._renew)
+        self.reader = ZipSheetReader(description, native_res, crs, renew=self._renew, renewed=self._renewed)
 
     def _renew(self, tile: ZipSheetTile) -> Optional[ZipSheetTile]:
-        """The sheet as the directories, read again now, list it (None: unchanged or gone)."""
+        """The sheet as the directories, read again now, list it (None: unchanged or gone). The tiles kept for the
+        last grid are forgotten, so the next listing has the new key."""
         table = self.index.table(force=True)
+        self.index._memo = None
         renewed = self.index.sheet_tile(tile.sheet, table) if table else None
         return renewed if renewed is not None and renewed.members != tile.members else None
 
+    def _renewed(self, path: str, tile: ZipSheetTile, url: Optional[str]):
+        """A renewed sheet written at path: recorded in the cache's index and the sheet's other versions deleted
+        (as ZipPerTile prunes a changed member's older file)."""
+        import glob
+        cache_dir = self.index.cache_dir
+        if cache_dir:
+            cache.record(cache_dir, path, "ok", url)
+        for other in glob.glob(os.path.join(os.path.dirname(path), f"{tile.sheet:03d}_*.tif")):
+            if os.path.normcase(other) != os.path.normcase(path):
+                try:
+                    os.remove(other)
+                except OSError:  # open in another process (Windows): left for a later prune
+                    pass
+
     def _cached(self, grid: Grid, cache_dir: str) -> List[str]:
+        """The cached sheets over the grid without the directories: of each sheet its newest file (the latest
+        written), never two versions."""
         import glob
         left, bottom, right, top = transform_bounds(grid.crs, self.crs, *grid.bounds)
         found = []
-        for sheet, (a, b, c, d) in self.index.sheets.items():
-            m = self.index.margin
+        m = self.index.margin
+        for sheet, (a, b, c, d) in sorted(self.index.sheets.items()):
             if a - m < right and c + m > left and b - m < top and d + m > bottom:
-                found += glob.glob(os.path.join(cache_dir, self.folder, f"{sheet:03d}_*.tif"))
-        return sorted(found)
+                versions = glob.glob(os.path.join(cache_dir, self.folder, f"{sheet:03d}_*.tif"))
+                if versions:
+                    found.append(max(versions, key=lambda p: (os.path.getmtime(p), p)))
+        return found
 
     def missing(self, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
         self.index.use(cache_dir, update)

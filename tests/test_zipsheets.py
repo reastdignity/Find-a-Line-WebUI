@@ -37,7 +37,8 @@ def no_sleep(monkeypatch):
 
 
 def _height(x, y):
-    return 100.0 + (x - 300000) * 0.5 + (y - 440000) * 0.25
+    """A plane within every kilometre square (sheet 1, 2 and the piece of sheet 11 lie within one each)."""
+    return 100.0 + ((x - 300000) % 1000) * 0.5 + ((y - 440000) % 1000) * 0.25
 
 
 def _xyz(box, step=10.0, holes=False) -> bytes:
@@ -142,7 +143,14 @@ def test_sheets_downloaded_and_stitched(http_server, tmp_path):
     beach_grid = _grid((263000, 431000, 266000, 433000))
     assert [t.sheet for t in layer.tiles(beach_grid)] == [11]
     src.prepare_layer(layer, beach_grid, cache_dir, str(tmp_path / "w" / "b.npy"), "terrain")
-    assert len(layer.tiles(beach_grid)[0].members) == 2 and np.isfinite(np.load(str(tmp_path / "w" / "b.npy"))).any()
+    assert len(layer.tiles(beach_grid)[0].members) == 2
+    beach = np.load(str(tmp_path / "w" / "b.npy"))
+    rows, cols = np.mgrid[0:beach_grid.height, 0:beach_grid.width]
+    bx, by = beach_grid.transform @ (cols + 0.5, rows + 0.5)
+    second = (bx > 264800) & (bx < 264900) & (by > 431200) & (by < 431300)  # Sheet011v4.txt's points
+    assert second.sum() == 100 and np.abs(beach[second] - _height(bx[second], by[second])).max() < 0.01
+    first = (bx > 263970) & (bx < 264790) & (by > 431420) & (by < 432930)  # the recorded beach (011a)
+    assert np.isfinite(beach[first]).mean() > 0.8
     asked = http_server.requests("/files/")
     assert asked and all(r.method == "GET" and r.headers.get("range", "").startswith("bytes=") for r in asked)
     assert "bytes=0-0" not in [r.headers.get("range") for r in asked]
@@ -200,8 +208,9 @@ def test_a_replaced_archive_is_read_again(http_server, tmp_path):
     tile = layer.tiles(grid)[0]
     second = _archive([("Sheet002v4.txt", _xyz(SHEETS[2])), ("Sheet001v4.txt", _xyz(SHEETS[1]))])
     http_server.add("/files/a.zip", second, "application/zip", headers={"ETag": '"other"'})
-    fetched = layer.download_tile(tile, str(tmp_path / "t.tif"))
-    assert fetched.received > 0 and os.path.exists(tmp_path / "t.tif")
+    fetched = layer.download_tile(tile, str(tmp_path / f"001_{tile.key}.tif"))
+    written = [n for n in os.listdir(tmp_path) if n.startswith("001_")]
+    assert fetched.received > 0 and written == [f"001_{tile.key}.tif"]  # the same CRC-32: the same key, another offset
 
 
 def test_catalogue_chain():
@@ -215,3 +224,109 @@ def test_catalogue_chain():
     assert ten.nmt.has_data_near(54.1802, -5.9208, "unused") and not ten.nmt.has_data_near(53.35, -6.26, "unused")
     from sources import probe
     assert probe.strategy(ten.nmt) == "zipsheets"
+
+
+
+SIGNED = "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=CRED123&X-Amz-Signature=SIG456&X-Amz-Security-Token=TOK789"
+
+
+def test_signed_queries_are_masked():
+    """cache.clean_url and clean_error mask a signed URL's X-Amz-* values (and Signature=), also URL-encoded."""
+    url = "https://bucket.example.r2.cloudflarestorage.com/a.zip" + SIGNED
+    for text in (cache.clean_url(url), cache.clean_error(f"HTTP 404 for {url}"),
+                 cache.clean_error("redirected to X-Amz-Signature%3DSIG456&X-Amz-Credential=CRED123 then"),
+                 cache.clean_url("https://h/a?Signature=SIG456&x=1")):
+        assert "CRED123" not in text and "SIG456" not in text and "TOK789" not in text, text
+    assert cache.clean_url(url).startswith("https://bucket.example.r2.cloudflarestorage.com/a.zip?X-Amz-Algorithm=...")
+
+
+def _signed_serve(server, name, body, etag='"1"'):
+    """An archive at a signed-looking address (its query X-Amz-*), its stable link redirecting there."""
+    query = SIGNED.lstrip("?")
+    server.add(f"/files/{name}?{query}", body, "application/zip", headers={"ETag": etag})
+    server.add(f"/dl/{name}", b"", "text/html", status=302,
+               headers={"Location": server.url(f"/files/{name}?{query}")})
+    return server.url(f"/dl/{name}")
+
+
+def test_no_signed_query_in_an_error(http_server, tmp_path):
+    """The archive gone after its directory was kept (a 404 at the signed address; renew keeps the directory it
+    had): the error names the sheet, never the signed address's query."""
+    body = _archive([("Sheet001v4.txt", _xyz(SHEETS[1]))])
+    link = _signed_serve(http_server, "a.zip", body)
+    layer = _layer([link])
+    layer.index.use(str(tmp_path / "cache"))
+    tile = layer.tiles(_grid(SHEETS[1]))[0]
+    http_server.answers = {k: v for k, v in http_server.answers.items() if k[1] != "/files/a.zip"}
+    with pytest.raises(RuntimeError) as raised:
+        layer.download_tile(tile, str(tmp_path / "t.tif"))
+    text = str(raised.value)
+    assert "sheet 1" in text and "SIG456" not in text and "CRED123" not in text and "TOK789" not in text
+
+
+def test_a_member_replaced_in_place(http_server, tmp_path):
+    """The archive's first member replaced in place (same name and offset, other heights): its CRC-32 differs after
+    the retries, the directories are read again, the sheet written under its new key and the older version deleted
+    and recorded in the cache's index as the new key."""
+    link = _signed_serve(http_server, "a.zip", _archive([("Sheet001v4.txt", _xyz(SHEETS[1]))]))
+    layer = _layer([link])
+    cache_dir = str(tmp_path / "cache")
+    grid = _grid(SHEETS[1])
+    src.prepare_layer(layer, grid, cache_dir, str(tmp_path / "w" / "a.npy"), "terrain")
+    old = layer.tiles(grid)[0]
+    old_path = layer.tile_path(cache_dir, old)
+    assert os.path.exists(old_path)
+    other = _xyz(SHEETS[1]).replace(b"     1", b"     2")  # other heights, the same name and offset
+    query = SIGNED.lstrip("?")
+    http_server.add(f"/files/a.zip?{query}", _archive([("Sheet001v4.txt", other)]), "application/zip",
+                    headers={"ETag": '"2"'})
+    fetched = layer.download_tile(old, old_path)
+    new = layer.tiles(grid)[0]
+    new_path = layer.tile_path(cache_dir, new)
+    assert fetched.received > 0 and new.key != old.key and os.path.exists(new_path) and not os.path.exists(old_path)
+    assert cache.states(cache_dir, [new_path]) == ["ok"]
+
+
+def test_a_length_not_stated_keeps_the_directories(http_server, tmp_path, capsys):
+    """An archive answering the first two bytes with "Content-Range: bytes 0-1/*" (no length): the directories
+    cannot be read again, the kept ones are used."""
+    body = _archive([("Sheet001v4.txt", _xyz(SHEETS[1]))])
+    links = _serve(http_server, {"a.zip": body})
+    layer = _layer(links)
+    layer.index.use(str(tmp_path / "cache"))
+    grid = _grid(SHEETS[1])
+    assert [t.sheet for t in layer.tiles(grid)] == [1]
+    del http_server.answers[("GET", "/files/a.zip", ())]
+    http_server.route("/files/a.zip", lambda request: Answer(206, body[:2], {
+        "Content-Range": "bytes 0-1/*", "Content-Type": "application/zip"}, ranges=False))
+    assert layer.index.table(force=True) is not None
+    assert "length is not stated" in capsys.readouterr().out
+    assert [t.sheet for t in layer.tiles(grid)] == [1]
+
+
+def test_cached_sheets_without_directories_take_the_newest(tmp_path):
+    """No kept directories and no answer (the links are gone): each sheet's newest cached file, never two."""
+    import time
+    from rasterio.transform import from_origin
+    layer = _layer(["http://127.0.0.1:9/dl/none.zip"])
+    cache_dir = str(tmp_path / "cache")
+    folder = os.path.join(cache_dir, layer.folder)
+    os.makedirs(folder)
+    for key in ("ffffffff", "00000000"):  # the second written later, though its key sorts first
+        with rio.open(os.path.join(folder, f"001_{key}.tif"), "w", driver="GTiff", width=2, height=2, count=1,
+                      dtype="float32", crs=CRS, transform=from_origin(300000, 440100, 10, 10)) as dst:
+            dst.write(np.ones((1, 2, 2), dtype=np.float32))
+        time.sleep(0.05)
+    os.utime(os.path.join(folder, "001_ffffffff.tif"), (1_000_000, 1_000_000))
+    files = layer.files(_grid(SHEETS[1]), cache_dir)
+    assert [os.path.basename(f) for f in files] == ["001_00000000.tif"]
+
+
+def test_an_empty_member_is_missing(http_server, tmp_path):
+    """A sheet whose member holds no point (blank lines only): missing, no file, no error."""
+    links = _serve(http_server, {"a.zip": _archive([("Sheet001v4.txt", b" \n \n")])})
+    layer = _layer(links)
+    layer.index.use(str(tmp_path / "cache"))
+    tile = layer.tiles(_grid(SHEETS[1]))[0]
+    path = str(tmp_path / "t.tif")
+    assert layer.download_tile(tile, path).received == 0 and not os.path.exists(path)

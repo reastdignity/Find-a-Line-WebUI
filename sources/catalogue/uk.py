@@ -188,7 +188,7 @@ SOURCES: List[Source] = [
         id="northern_ireland", name="DAERA 2021 coastal lidar DTM (Northern Ireland)",
         description="DAERA's 2021 NI 3D Coastal Survey: the bare-earth DTM of its lidar (0.25 m, the coast and about "
                     "200 m inland) from its elevation tile cache, reprojected onto Irish Transverse Mercator, "
-                    "Belfast Lough datum; inland FABDEM",
+                    "Belfast Lough datum; inland OSNI's 10 m DTM",
         nmt=NI_DTM, countries=("gb",), regions=("gb-nir",), crs=ITM, credits=(NI_CREDIT,),
         listing=ReadmeRow("Northern Ireland (GB), its coast",
                           "DAERA 2021 NI 3D Coastal Survey DTM, 0.25 m (elevation tiles)", "–", NO_ORTHO),
