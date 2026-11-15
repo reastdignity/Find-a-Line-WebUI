@@ -294,12 +294,15 @@ def test_download_faults(http_server, tmp_path):
     http_server.route("/z/short_gr.zip", lambda request: Answer(200, good[:len(good) // 2],
                                                                {"Content-Type": "application/x-zip-compressed"}))
     http_server.add("/z/good_gr.zip", good, "application/x-zip-compressed")
+    # A transfer cut short: the whole file's Content-Length, half of its bytes, then the connection closed
+    http_server.add("/z/cut_gr.zip", good, "application/x-zip-compressed")
+    http_server.fault("/z/cut_gr.zip", "truncate", lambda n, header: True, plain=True)
     sleeps = []
     original = src.net._sleep
     src.net._sleep = lambda attempt: sleeps.append(attempt)
     try:
         for bad, message in (("page", "a ZIP expected"), ("empty", "0 ArcInfo GRIDs"), ("two", "2 ArcInfo GRIDs"),
-                             ("short", "not a ZIP")):
+                             ("short", "not a ZIP"), ("cut", "Could not download")):
             with pytest.raises(RuntimeError, match=message):
                 reader.fetch(tile._replace(url=http_server.url(f"/z/{bad}_gr.zip")), path)
             assert not os.path.exists(path)
@@ -318,7 +321,7 @@ def test_download_faults(http_server, tmp_path):
         src.net._sleep = original
     cached = inegi.InegiIndex("fake/mx/t", "T", http_server.url("/ok"), http_server.url("/contenidos/"),
                               mexico.MX_SHEETS, "fake/mx", 365)
-    http_server.add("/ok", b"[]", "text/html")
+    http_server.route("/ok", lambda request: Answer(200, b"[]", {"Content-Type": "text/html"}))
     assert cached.answer(str(tmp_path / "c2"), name) == []
     cached.index_url = http_server.url("/gone-500")
     http_server.route("/gone-500", lambda request: Answer(500, b"down", {"Content-Type": "text/html"}))
@@ -434,3 +437,108 @@ def test_check_source_reads_the_grid(http_server, tmp_path):
     source = check_source._read_grid(layer, tile.url, tile, profile)
     result = check_source.compare(values, source)
     assert result["max_abs_m"] <= 0.0051 and result["same_nodata"] == 1.0 and np.isnan(values).any()
+
+
+def test_index_answers_that_are_errors(http_server, tmp_path, capsys):
+    """For a cell of the mask, a 404, an answer that is no JSON, a GRID outside INEGI's file server and an edition
+    that is no year are errors: never cached as "no sheet"; the cached answer is used when there is one, else the
+    sheet is left out with its printed line. An empty list (200) is "no product" and is cached."""
+    name = "G14C15B2"
+    i, j = inegi.inegi_cell(name)
+    with open(os.path.join(RECORDED, "expected.json"), encoding="utf-8") as f:
+        good = [dict(item, url_descarga=item["url_descarga"].replace("https://www.inegi.org.mx", http_server.base))
+                for item in json.load(f)[name]]
+    answers = {"404": Answer(404, b"not found", {"Content-Type": "text/html"}),
+               "html": Answer(200, b"<html>moved</html>", {"Content-Type": "text/html;charset=UTF-8"}),
+               "elsewhere": Answer(200, json.dumps([dict(good[1], url_descarga="https://evil.example/x/1")]).encode(),
+                                   {"Content-Type": "text/html;charset=UTF-8"}),
+               "edition": Answer(200, json.dumps([dict(good[1], edicion="s/f")]).encode(),
+                                 {"Content-Type": "text/html;charset=UTF-8"}),
+               "good": Answer(200, json.dumps(good).encode(), {"Content-Type": "text/html;charset=UTF-8"}),
+               "empty": Answer(200, b"[]", {"Content-Type": "text/html;charset=UTF-8"})}
+    for kind, answer in answers.items():
+        http_server.route(f"/{kind}/idx", lambda request, a=answer: a)
+    original = src.net._sleep
+    src.net._sleep = lambda attempt: None
+    try:
+        for kind in ("404", "html", "elsewhere", "edition"):
+            index = inegi.InegiIndex("fake/mx/t", "T", http_server.url(f"/{kind}/idx"),
+                                     http_server.url("/contenidos/productos/"), mexico.MX_SHEETS, "fake/mx", 365)
+            cache_dir = str(tmp_path / kind)
+            with pytest.raises(RuntimeError):
+                index.answer(cache_dir, name)
+            assert not os.path.exists(index.answer_path(cache_dir, name)), kind  # never cached
+            capsys.readouterr()
+            assert index.sheets([(i, j)], cache_dir, None) == []
+            assert "left out" in capsys.readouterr().out, kind
+            # With a good answer cached, an update that meets the error keeps it
+            index.index_url = http_server.url("/good/idx")
+            assert index.answer(cache_dir, name) == good
+            index.index_url = http_server.url(f"/{kind}/idx")
+            assert index.answer(cache_dir, name, "all") == good
+            assert [t.name for t in index.sheets([(i, j)], cache_dir, "all")] == [name]
+        # An empty list is cached as no product
+        empty = inegi.InegiIndex("fake/mx/t", "T", http_server.url("/empty/idx"),
+                                 http_server.url("/contenidos/productos/"), mexico.MX_SHEETS, "fake/mx", 365)
+        assert empty.answer(str(tmp_path / "e"), name) == [] and os.path.exists(empty.answer_path(str(tmp_path / "e"), name))
+        assert empty.sheets([(i, j)], str(tmp_path / "e"), None) == []
+        # A bad answer cached by an older code: the sheet left out with its line, the search goes on
+        old = inegi.InegiIndex("fake/mx/t", "T", http_server.url("/good/idx"),
+                               http_server.url("/contenidos/productos/"), mexico.MX_SHEETS, "fake/mx", 365)
+        path = old.answer_path(str(tmp_path / "o"), name)
+        os.makedirs(os.path.dirname(path))
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump([dict(good[1], edicion="s/f")], f)
+        cache.record(str(tmp_path / "o"), path)
+        capsys.readouterr()
+        assert old.sheets([(i, j)], str(tmp_path / "o"), None) == [] and "left out" in capsys.readouterr().out
+    finally:
+        src.net._sleep = original
+
+
+def test_cut_keeps_ten_metres_and_refuses_an_empty_sheet():
+    """The cut keeps the pixels whose centres lie within 10 m of the cell (some between 5 and 10 m outside, none
+    farther); a GRID with no pixel within its cell is an error, never an empty tile."""
+    from area import project
+    from shapely import points
+    from shapely.geometry import box
+    crs = "EPSG:4487"
+    name = "G14C15B2"
+    i, j = inegi.inegi_cell(name)
+    tile = inegi.InegiSheet(i, j, name, 2012, "https://x/", crs)
+    band, left, top = _fake_grid(name, crs, lambda x, y: 600 + 0 * x)
+    from rasterio.transform import from_origin
+    cut, transform = inegi.InegiGrid("Fake")._cut(band.copy(), from_origin(left, top, 5, 5), tile)
+    rows, cols = np.nonzero(np.isfinite(cut))
+    xs, ys = transform * (cols + 0.5, rows + 0.5)
+    cell = project(box(*inegi._CELLS.edges((i, j))).segmentize(0.002), "EPSG:4326", crs)
+    outside = cell.exterior.distance(points(xs, ys)) * ~cell.contains(points(xs, ys))
+    assert outside.max() <= 10.0 + 1e-6 and outside.max() > 7.0
+    # Every pixel within 10 m kept (none dropped inside the margin)
+    full_rows, full_cols = np.mgrid[0:band.shape[0], 0:band.shape[1]]
+    fx, fy = from_origin(left, top, 5, 5) * (full_cols.ravel() + 0.5, full_rows.ravel() + 0.5)
+    near = cell.buffer(9.9).contains(points(fx, fy)).sum()
+    assert np.isfinite(cut).sum() >= near
+    far = inegi.InegiSheet(i + 5, j, inegi.inegi_sheet(i + 5, j), 2012, "https://x/", crs)  # another cell's GRID
+    with pytest.raises(RuntimeError, match="no pixel"):
+        inegi.InegiGrid("Fake")._cut(band.copy(), from_origin(left, top, 5, 5), far)
+
+
+def test_record_answers_of_an_error_recipe(monkeypatch, tmp_path):
+    """tools/record_answers.py: a recipe that raises on purpose (wfs-geoportal-error) writes its answers and says
+    what it raised (no expected.json read); no network: the layer is a fake."""
+    import requests
+    import record_answers
+
+    class Fake:
+        class index:
+            listing = None
+
+        def update_index_tile(self, cache_dir, lat, lon):
+            raise requests.RequestException("an exception report")
+    monkeypatch.setattr(record_answers, "with_years", lambda layer, years: Fake())
+    text = record_answers.record("wfs-geoportal-error", 54.75, 18.5, str(tmp_path))
+    assert text.startswith("wfs-geoportal-error: 0 answers, raised RequestException")
+    folder = tmp_path / "wfs" / "geoportal-error"
+    assert (folder / "answers.json").exists() and not (folder / "expected.json").exists()
+    assert json.loads((folder / "answers.json").read_text(encoding="utf-8"))["raises"] == "RequestException"

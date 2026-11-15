@@ -99,7 +99,11 @@ def grid_entry(items: List[Dict], mod: str, url_prefix: str) -> Optional[Tuple[i
         url = f"{str(item.get('url_descarga') or '').rstrip('/')}{archivo}"
         if not url.startswith(url_prefix):
             raise RuntimeError(f"a download outside {url_prefix}: {cache.clean_url(url)}")
-        found.append((int(item.get("edicion") or 0), url))
+        try:
+            edition = int(item.get("edicion"))
+        except (TypeError, ValueError):
+            raise RuntimeError(f"an edition that is no year: {item.get('edicion')!r}") from None
+        found.append((edition, url))
     return max(found) if found else None
 
 
@@ -155,17 +159,24 @@ class InegiIndex(GeoCellTiling):
         return os.path.join(cache_dir, self.top, "sheet-index", self.mod.lower(), f"{name}.json")
 
     def _ask(self, name: str) -> List[Dict]:
-        """The JSON items of a sheet ([] for none); RuntimeError when it cannot be asked or is no list."""
+        """The JSON items of a sheet (an empty list: INEGI has no product of it); RuntimeError when it cannot be
+        asked, answers 404 (only cells of the mask are asked: a 404 is a moved or broken endpoint, never "no
+        sheet"), is no JSON list, or names a GRID that grid_entry refuses (a download elsewhere, an edition that is
+        no year): such an answer is never cached."""
         url = f"{self.index_url}?res=5&mod={self.mod}&cve={name}"
         response = net._get(url, timeout=60, binary_types=("text", "json"))
         if response is None:
-            return []
+            raise RuntimeError(f"sheet {name}: the index answered 404 for a sheet of the mask")
         try:
             items = json.loads(response.content)
         except ValueError:
             raise RuntimeError(f"sheet {name}: the index answered no JSON ({response.content[:100]!r})") from None
         if not isinstance(items, list):
             raise RuntimeError(f"sheet {name}: the index answered {type(items).__name__}, a list expected")
+        try:
+            grid_entry(items, self.mod, self.url_prefix)
+        except RuntimeError as e:
+            raise RuntimeError(f"sheet {name}: {e}") from None
         return items
 
     def answer(self, cache_dir: str, name: str, update: Optional[str] = None) -> Optional[List[Dict]]:
@@ -201,10 +212,10 @@ class InegiIndex(GeoCellTiling):
             name = inegi_sheet(i, j)
             try:
                 items = self.answer(cache_dir, name, update)
+                entry = grid_entry(items, self.mod, self.url_prefix)  # a cached answer of an older code too
             except RuntimeError as e:
                 failed.append((name, e))
                 continue
-            entry = grid_entry(items, self.mod, self.url_prefix)
             if entry is not None:
                 found.append(InegiSheet(i, j, name, entry[0], entry[1], inegi_crs(name)))
         if failed:
@@ -365,8 +376,8 @@ class InegiGrid(Reader):
         outside = geometry_mask([cell], band.shape, transform)
         band[outside] = np.nan
         rows, cols = np.nonzero(~np.isnan(band))
-        if rows.size == 0:
-            return band[:1, :1], transform
+        if rows.size == 0:  # never a tile without a pixel recorded as "ok" (the product is frozen)
+            raise RuntimeError(f"sheet {tile.name}: no pixel of its GRID lies within its cell")
         r0, r1, c0, c1 = rows.min(), rows.max() + 1, cols.min(), cols.max() + 1
         return np.ascontiguousarray(band[r0:r1, c0:c1]), transform @ Affine.translation(int(c0), int(r0))
 

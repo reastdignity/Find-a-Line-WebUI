@@ -133,8 +133,11 @@ def record(recipe: str, lat: float, lon: float, out: str = OUT) -> str:
                    "hosts": hosts, "answers": answers}, f, indent=1)
         f.write("\n")
     size = sum(os.path.getsize(os.path.join(folder, n)) for n in os.listdir(folder))
-    listed = json.loads(expected)
-    result = f"raised {raises}" if raises else f"{len(listed['sheets'] if 'sheets' in listed else listed)} listed"
+    if raises:
+        result = f"raised {raises}"
+    else:  # expected exists only when nothing was raised
+        listed = json.loads(expected)
+        result = f"{len(listed['sheets'] if 'sheets' in listed else listed)} listed"
     return f"{recipe}: {len(answers)} answers, {result}, {size / 1e3:.0f} kB"
 
 
