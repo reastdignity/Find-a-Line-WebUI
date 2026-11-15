@@ -3,12 +3,15 @@ server of its own (the search, the Keycloak form, cookies, redirects to a signed
 reaches the real host or reads the real credentials: the environment's CDD_USER / CDD_PASSWORD are replaced."""
 
 import ast
+import errno
 import hashlib
 import json
 import os
 import re
 import secrets
 import signal
+import socket
+import struct
 import sys
 import threading
 import time
@@ -21,7 +24,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO, "tools"))
 import cdd_fetch as cf  # noqa: E402
 
-REAL_SITE, REAL_AUTH = cf.SITE, cf.AUTH_URL  # read before any fixture replaces them; never requested
+REAL_SITE, REAL_AUTH, REAL_SCHEMES = cf.SITE, cf.AUTH_URL, cf.SCHEMES  # before any fixture; never requested
 USER = "user-SECRET-u1"
 PASSWORD = "pw SECRET&p1"  # a space and an ampersand: masked in the form's encoding too
 TIFF = b"II*\x00"
@@ -57,6 +60,9 @@ class Fake:
         self.down = 0             # the next n requests: the connection closed without an answer (an outage)
         self.repeat_paging = False  # every page is the first one again, with the same next token
         self.search_throttle = 0  # the next n searches: 429
+        self.search_list = False  # searches answer a JSON list
+        self.stop_at_root = False  # GET / sets the tool's stop (a SIGTERM during the sign-in)
+        self.elsewhere = None     # where actions "ftp" and "file" redirect a download
         self.marked = False       # set when a file of action "mark" starts coming
         self.stall_form = 0       # the next n login pages: headers, then nothing for a second
         self.login_location = "/realms/dgterritorio/protocol/openid-connect/auth?state=s1"
@@ -143,7 +149,10 @@ class Fake:
 
     def route(self, h, method, parts):
         path = parts.path
-        if method == "GET" and path == "/":
+        if method == "GET" and path == "/" and self.stop_at_root:
+            cf.STOP.set()
+            self.send(h, 200, b"<html>site</html>", {"Content-Type": "text/html"})
+        elif method == "GET" and path == "/":
             self.send(h, 200, b"<html>site</html>", {"Content-Type": "text/html",
                                                       "Set-Cookie": "site=%s; Path=/" % self.secret("site")})
         elif method == "GET" and path == "/auth/login":
@@ -188,6 +197,9 @@ class Fake:
                 self.search_throttle -= 1
                 self.send(h, 429, b"slow down", {"Content-Type": "text/plain", "Retry-After": "7"})
                 return
+            if self.search_list:
+                self.send(h, 200, b"[1, 2]", {"Content-Type": "application/json"})
+                return
             self.send(h, 200, json.dumps(self.search(body)).encode(), {"Content-Type": "application/geo+json"})
         elif method == "GET" and path.startswith("/dgt-be/v1/download/"):
             item_id = self.tokens.get(path.rsplit("/", 1)[-1])
@@ -203,6 +215,12 @@ class Fake:
                 self.send(h, int(action), b"slow down", {"Content-Type": "text/plain", "Retry-After": "7"})
             elif action in ("401", "403"):
                 self.send(h, int(action), b"who are you", {"Content-Type": "text/plain"})
+            elif action == "close":  # the connection closed before any answer: the network, not the file
+                h.close_connection = True
+            elif action == "badloc":
+                self.send(h, 302, headers={"Location": "http://[bad/x"})
+            elif action in ("ftp", "file"):
+                self.send(h, 302, headers={"Location": self.elsewhere})
             elif action == "404":
                 self.send(h, 404, b"gone", {"Content-Type": "text/plain"})
             elif action == "500":
@@ -244,7 +262,22 @@ class Fake:
             for i in range(0, len(body), 100):
                 h.wfile.write(body[i:i + 100])
                 h.wfile.flush()
-                time.sleep(0.02)
+                time.sleep(0.05)
+        elif action in ("stall", "reset"):  # headers and half the body, then nothing for a while, or a reset
+            h.send_response(200)
+            h.send_header("Content-Length", str(len(body)))
+            h.end_headers()
+            h.wfile.write(body[:len(body) // 2])
+            h.wfile.flush()
+            if action == "stall":
+                time.sleep(0.6)
+            else:
+                h.connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+            h.close_connection = True
+            try:
+                h.connection.shutdown(socket.SHUT_RDWR) if action == "stall" else h.connection.close()
+            except OSError:
+                pass
         elif action == "mark":
             self.marked = True
             self.send(h, 200, body, {"Content-Type": "image/tiff"})
@@ -313,6 +346,7 @@ def nowhere(monkeypatch):
     monkeypatch.setenv("CDD_PASSWORD", PASSWORD)
     monkeypatch.setattr(cf, "SITE", "http://127.0.0.1:9")
     monkeypatch.setattr(cf, "AUTH_URL", "http://127.0.0.1:9/realms/x/auth")
+    monkeypatch.setattr(cf, "SCHEMES", {"https", "http"})  # the fake server speaks http
 
 
 @pytest.fixture
@@ -604,6 +638,7 @@ def test_an_outage_waits_longer_each_time_and_fails_no_file(fake, tmp_path, monk
     fake.down = 0
     fake.add("MDT-50cm", "MDT-50cm-090300-07-2024")
     planned(fake, tmp_path)
+    os.remove(tmp_path / "portugal" / "signins.json")  # no 60 s gap after the first run's sign-in in this list
     fake.down, fake.waits[:] = 6, []
     assert fetch(tmp_path) == 0
     assert fake.waits == [30.0, 60.0, 120.0, 240.0, 480.0, 900.0]  # doubling up to 15 min
@@ -619,7 +654,7 @@ def test_an_outage_longer_than_the_limit_stops(fake, tmp_path):
         "stopped (exit code 4)"
 
 
-def test_a_stalled_login_page_is_an_outage(fake, tmp_path, monkeypatch):
+def test_a_stalled_login_page_is_a_failed_attempt(fake, tmp_path, monkeypatch):
     monkeypatch.setattr(cf, "TIMEOUT", 0.3)
     mainland(fake, 2)
     planned(fake, tmp_path)
@@ -716,6 +751,7 @@ def test_a_redirect_elsewhere_during_the_sign_in_is_not_followed(fake, tmp_path,
 def test_the_sign_in_stays_on_https_and_the_two_hosts(monkeypatch):
     monkeypatch.setattr(cf, "SITE", REAL_SITE)
     monkeypatch.setattr(cf, "AUTH_URL", REAL_AUTH)
+    monkeypatch.setattr(cf, "SCHEMES", REAL_SCHEMES)
     monkeypatch.setattr(cf, "REQUEST_PAUSE", 0)
     client = cf.Http(cf.Scrub())
     client.guard = cf.signin_hosts()
@@ -728,21 +764,32 @@ def test_the_sign_in_stays_on_https_and_the_two_hosts(monkeypatch):
             client.before(url)
     client.guard = None
     client.before("https://objects.example/bucket/file.tif?X-Amz-Signature=1")  # a download's store: allowed
+    for url in ("http://objects.example/file.tif", "ftp://objects.example/file.tif", "file:///etc/passwd"):
+        with pytest.raises(cf.BadFile):  # only https outside a sign-in too
+            client.before(url)
 
 
 def test_requests_are_paced_per_host(fake, tmp_path, monkeypatch):
     mainland(fake, 3)
     planned(fake, tmp_path)
-    monkeypatch.setattr(cf, "REQUEST_PAUSE", 0.2)
-    monkeypatch.setattr(cf, "_wait", time.sleep)
-    fake.times.clear()
+    clock = [1000.0]  # a fake clock the pauses move on: the gate's arithmetic, independent of the PC's load
+    monkeypatch.setattr(cf, "REQUEST_PAUSE", 1.5)
+    monkeypatch.setattr(cf, "_clock", lambda: clock[0])
+    monkeypatch.setattr(cf, "_wait", lambda seconds: clock.__setitem__(0, clock[0] + max(seconds, 0)))
+    sent, before = [], cf.Http.before
+
+    def recorded(self, url):
+        before(self, url)
+        sent.append((clock[0], cf._host(url)[1]))
+    monkeypatch.setattr(cf.Http, "before", recorded)
+    asked = len(fake.log)
     assert fetch(tmp_path) == 0
+    assert len(sent) == len(fake.log) - asked >= 12  # every request (sign-in steps, searches, redirects) passed
     hosts = {}
-    for when, host in fake.times:
+    for when, host in sent:
         hosts.setdefault(host, []).append(when)
-    assert sum(len(t) for t in hosts.values()) >= 12  # the sign-in's steps, searches, downloads, redirects
     for times in hosts.values():
-        assert all(b - a >= 0.17 for a, b in zip(times, times[1:])), times  # 0.2 s less the clocks' jitter
+        assert all(b - a >= 1.5 for a, b in zip(times, times[1:])), times
 
 
 def test_sign_ins_have_a_ceiling(fake, tmp_path):
@@ -869,7 +916,7 @@ def test_401_and_403_on_a_download_are_a_lost_session(fake, tmp_path, status):
 def test_the_size_is_checked_on_the_stream_without_a_content_length(fake, tmp_path):
     mainland(fake, 2)
     fake.actions["MDT-50cm-090200-07-2024"] = ["nolength-more"] * 2
-    fake.actions["MDT-50cm-090201-07-2024"] = ["nolength-short"] * 2
+    fake.actions["MDT-50cm-090201-07-2024"] = ["nolength-short"] * 3  # a cut body: three tries, then failed
     planned(fake, tmp_path)
     assert fetch(tmp_path, "--retries", "1") == 0
     assert not os.path.exists(tmp_path / "portugal" / "done.jsonl")
@@ -881,7 +928,9 @@ def test_the_size_is_checked_on_the_stream_without_a_content_length(fake, tmp_pa
 
 
 def test_a_file_that_trickles_fails(fake, tmp_path, monkeypatch):
-    monkeypatch.setattr(cf, "RATE_WINDOW", 0.1)
+    # the slow file comes at about 2 kB/s for 1.5 s; the good one in one piece: only a stall of 0.5 s within its
+    # few milliseconds could fail it
+    monkeypatch.setattr(cf, "RATE_WINDOW", 0.5)
     mainland(fake, 2)
     fake.actions["MDT-50cm-090200-07-2024"] = ["slow"] * 3
     planned(fake, tmp_path)
@@ -961,6 +1010,257 @@ def test_the_scrubber():
     assert "https://cdd.dgterritorio.gov.pt/..." in text and "https://bucket.objects.example/..." in text
     scrub.add("ab")  # too short to mask: refused before (fetch stops with a short credential)
     assert "ab" in scrub.text("ab")
+
+
+def _status(tmp_path, area="portugal"):
+    return json.load(open(tmp_path / area / "status.json", encoding="utf-8"))
+
+
+def _failed(tmp_path, area="portugal"):
+    path = tmp_path / area / "failed.jsonl"
+    return [json.loads(line) for line in open(path, encoding="utf-8")] if path.exists() else []
+
+
+def test_a_file_whose_body_always_stalls_fails_and_the_rest_come(fake, tmp_path, monkeypatch):
+    monkeypatch.setattr(cf, "TIMEOUT", 0.2)
+    mainland(fake, 3)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["stall"] * 10
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert sorted(r["id"] for r in done_rows(tmp_path)) == ["MDT-50cm-090201-07-2024", "MDT-50cm-090202-07-2024"]
+    failed = _failed(tmp_path)
+    assert [f["id"] for f in failed] == ["MDT-50cm-090200-07-2024"] and "(3 times)" in failed[0]["error"]
+    assert [w for w in fake.waits if w] == [30.0, 60.0]  # two waits between the three tries, no outage wait
+    assert len([p for _, p, _ in fake.log if p == "/store/MDT-50cm-090200-07-2024"]) == 3
+    assert _status(tmp_path)["state"] == "finished this run, 1 left"
+    assert fetch(tmp_path) == 0 and len(_failed(tmp_path)) == 2  # the next run tries it again, last
+
+
+def test_a_reset_within_a_long_file_is_tried_again(fake, plain, tmp_path):
+    fake.actions["A_MNT.zip"] = ["reset"]
+    assert run(tmp_path, "fetch-list", "wallonia", "--pause", "0") == 0
+    assert [w for w in fake.waits if w] == [30.0] and not _failed(tmp_path, "wallonia")
+    rows = [json.loads(line) for line in open(tmp_path / "wallonia" / "done.jsonl", encoding="utf-8")]
+    assert {r["id"]: r["sha256"] for r in rows} == {n: hashlib.sha256(b).hexdigest() for n, b in plain.items()}
+
+
+def test_an_outage_ends_at_any_answer(fake, tmp_path, monkeypatch):
+    """The outage clock starts at the first network error after the last answer: answers between the errors (the
+    address search answers, then the download's connection closes) keep the errors from adding up."""
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    clock = [0.0]
+    monkeypatch.setattr(cf, "_clock", lambda: clock[0])
+    monkeypatch.setattr(cf, "_wait", lambda s: (fake.waits.append(s), clock.__setitem__(0, clock[0] + s)))
+    fake.actions["MDT-50cm-090200-07-2024"] = ["close"] * 3  # 3 x 30 s: 90 s of errors in all, never 36 in a row
+    assert fetch(tmp_path, "--outage-hours", "0.01") == 0
+    assert len(done_rows(tmp_path)) == 2 and not _failed(tmp_path)
+    assert [w for w in fake.waits if w] == [30.0, 30.0, 30.0]
+    fake.actions["MDT-50cm-090300-07-2024"] = ["close"] * 3
+    fake.add("MDT-50cm", "MDT-50cm-090300-07-2024")
+    planned(fake, tmp_path)
+    fake.down = 1000  # nothing answers: the same limit stops the run
+    assert fetch(tmp_path, "--outage-hours", "0.01") == cf.EXIT_FAILURES and not _failed(tmp_path)
+
+
+def test_a_malformed_redirect_fails_that_file_only(fake, tmp_path):
+    mainland(fake, 2)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["badloc"] * 3
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090201-07-2024"]
+    assert all("malformed" in f["error"] for f in _failed(tmp_path)) and len(_failed(tmp_path)) == 3
+
+
+@pytest.fixture
+def listener():
+    """A socket where an ftp or a stray connection would land; the test asserts nothing came."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    server.setblocking(False)
+    yield server
+    with pytest.raises(BlockingIOError):
+        server.accept()
+    server.close()
+
+
+@pytest.mark.parametrize("where", ["ftp", "file"])
+def test_a_redirect_to_ftp_or_file_during_the_sign_in(fake, tmp_path, listener, where):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    fake.login_location = "ftp://127.0.0.1:%d/x" % listener.getsockname()[1] if where == "ftp" else \
+        "file:///C:/Windows/win.ini"
+    assert fetch(tmp_path) == cf.EXIT_CREDENTIALS and fake.posts == 0
+
+
+@pytest.mark.parametrize("where", ["ftp", "file"])
+def test_a_redirect_to_ftp_or_file_on_a_download(fake, tmp_path, listener, where):
+    mainland(fake, 2)
+    fake.elsewhere = "ftp://127.0.0.1:%d/x" % listener.getsockname()[1] if where == "ftp" else "file:///etc/hosts"
+    fake.actions["MDT-50cm-090200-07-2024"] = [where] * 3
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    assert [r["id"] for r in done_rows(tmp_path)] == ["MDT-50cm-090201-07-2024"]
+    assert all("refused" in f["error"] for f in _failed(tmp_path))
+
+
+def test_no_request_after_a_stop(fake, tmp_path):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    fake.stop_at_root = True
+    asked = len(fake.log)
+    assert fetch(tmp_path) == 0
+    assert [p for _, p, _ in fake.log[asked:]] == ["/"] and fake.posts == 0
+    assert _status(tmp_path)["state"] == "stopped by a signal"
+
+
+def test_a_held_lock_and_a_filesystem_without_locks(fake, tmp_path, monkeypatch, capsys):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+
+    def refuse(code):
+        def lock_file(f):
+            raise OSError(code, os.strerror(code))
+        monkeypatch.setattr(cf, "_lock_file", lock_file)
+    refuse(errno.EAGAIN)
+    assert fetch(tmp_path) == cf.EXIT_LOCKED
+    refuse(errno.ENOLCK)
+    capsys.readouterr()
+    assert fetch(tmp_path) == cf.EXIT_ERROR and "--no-lock" in capsys.readouterr().err
+    assert not (tmp_path / "portugal" / "fetch.log").exists()
+    assert fetch(tmp_path, "--no-lock") == 0 and len(done_rows(tmp_path)) == 1
+
+
+def test_lines_of_the_state_files_that_cannot_be_read_are_skipped(fake, tmp_path, capsys):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    assert fetch(tmp_path, "--limit", "1") == 0
+    with open(tmp_path / "portugal" / "done.jsonl", "ab") as f:
+        f.write(b"\xff\xfe not utf-8\n")
+    capsys.readouterr()
+    assert fetch(tmp_path) == 0
+    assert "done.jsonl, line 2: not UTF-8 or not JSON, skipped" in capsys.readouterr().err
+    assert len(cf._read_jsonl(str(tmp_path / "portugal" / "done.jsonl"))) == 2
+
+
+def test_a_state_file_that_cannot_be_opened_ends_the_run_with_its_state(fake, tmp_path):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    cf._write_json(str(tmp_path / "portugal" / "status.json"), {"state": "running"})
+    (tmp_path / "portugal" / "done.jsonl").mkdir()  # not a file
+    assert fetch(tmp_path) == cf.EXIT_ERROR
+    assert _status(tmp_path)["state"].startswith("stopped: error (")
+
+
+def test_two_runs_share_the_sign_in_ceiling(fake, tmp_path, capsys):
+    mainland(fake, 3)
+    planned(fake, tmp_path)
+    assert fetch(tmp_path, "--limit", "1", "--max-signins-per-hour", "2") == 0
+    fake.waits.clear()
+    assert fetch(tmp_path, "--limit", "1", "--max-signins-per-hour", "2") == 0
+    assert [w for w in fake.waits if w > 50]  # the 60 s gap held across the restart
+    capsys.readouterr()
+    assert fetch(tmp_path, "--max-signins-per-hour", "2") == cf.EXIT_SIGNINS and fake.posts == 2
+    assert "sent 2 times within the last hour" in capsys.readouterr().err
+    times = json.load(open(tmp_path / "portugal" / "signins.json", encoding="utf-8"))
+    assert len(times) == 2 and all(isinstance(t, float) for t in times)
+
+
+def test_a_sign_in_time_in_the_future_counts_as_now(fake, tmp_path):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    cf._write_json(str(tmp_path / "portugal" / "signins.json"), [time.time() + 86400])  # a clock set back
+    assert fetch(tmp_path) == 0
+    assert [w for w in fake.waits if w > 50]
+
+
+def test_the_ceiling_says_the_sign_ins_did_not_complete(fake, tmp_path, capsys):
+    mainland(fake, 4)
+    planned(fake, tmp_path)
+    fake.form_fails = 10
+    assert fetch(tmp_path, "--max-signins-per-hour", "2") == cf.EXIT_SIGNINS
+    assert "of this run's 2 sendings 2 did not complete a sign-in" in capsys.readouterr().err
+
+
+def test_the_state_says_when_the_server_asked_to_wait(fake, tmp_path, monkeypatch):
+    mainland(fake, 1)
+    fake.actions["MDT-50cm-090200-07-2024"] = ["429"]
+    planned(fake, tmp_path)
+    states = []
+    monkeypatch.setattr(cf, "_wait", lambda s: states.append(_status(tmp_path)["state"]))
+    monkeypatch.setattr(cf, "WAIT_BASE", 2.0)
+    assert fetch(tmp_path) == 0
+    assert "waiting: server asked to wait (7 s)" in states
+
+
+def test_a_newer_version_after_a_new_plan_is_reported_not_fetched(fake, tmp_path, capsys):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    assert fetch(tmp_path) == 0
+    collection, item_id, props = fake.items[0]
+    fake.items[0] = (collection, item_id, dict(props, version="02", **{"file:size": 3500}))
+    planned(fake, tmp_path)
+    capsys.readouterr()
+    downloads = len([p for _, p, _ in fake.log if p.startswith("/store/")])
+    assert fetch(tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "1 items have a newer version in the manifest" in out and item_id in out
+    assert len([p for _, p, _ in fake.log if p.startswith("/store/")]) == downloads
+    assert run(tmp_path, "status") == 0 and "1 items have a newer version" in capsys.readouterr().out
+
+
+def test_a_full_disk_while_writing_stops(fake, tmp_path, monkeypatch):
+    mainland(fake, 2)
+    planned(fake, tmp_path)
+    real_open = open
+
+    class Full:
+        def __init__(self, f):
+            self.f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.f.close()
+
+        def write(self, data):
+            raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(cf, "open", lambda path, *a, **k: Full(real_open(path, *a, **k))
+                        if str(path).endswith(".tif.part") else real_open(path, *a, **k), raising=False)
+    assert fetch(tmp_path) == cf.EXIT_DISK
+    assert not [p for p in tifs(tmp_path) if p.endswith(".part")]
+
+
+def test_an_id_listed_by_two_collections_is_one_row(fake, tmp_path):
+    mainland(fake, 1)
+    fake.items.append(("MDS-50cm", "MDT-50cm-090200-07-2024", {"version": "01", "file:size": 3000}))
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm", "MDS-50cm") == 0
+    rows = [json.loads(line) for line in open(tmp_path / "portugal" / "manifest.jsonl", encoding="utf-8")]
+    assert [r["id"] for r in rows] == ["MDT-50cm-090200-07-2024"]
+
+
+def test_a_username_too_short_to_mask_is_refused(fake, tmp_path, monkeypatch):
+    mainland(fake, 1)
+    planned(fake, tmp_path)
+    monkeypatch.setenv("CDD_USER", "ab")
+    assert fetch(tmp_path) == cf.EXIT_CREDENTIALS
+
+
+def test_a_search_answering_a_list_ends_the_plan(fake, tmp_path, capsys):
+    mainland(fake, 1)
+    fake.search_list = True
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm") == cf.EXIT_ERROR
+    assert "not an object" in capsys.readouterr().err
+
+
+def test_a_walk_beyond_max_pages_ends_the_plan(fake, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(cf, "MAX_PAGES", 2)
+    mainland(fake, 5)  # three pages of two
+    assert run(tmp_path, "plan", "--collections", "MDT-50cm") == cf.EXIT_ERROR
+    assert len(fake.searches) == 2 and "never ends" in capsys.readouterr().err
 
 
 # fetch-list

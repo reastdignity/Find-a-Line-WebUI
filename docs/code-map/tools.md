@@ -63,12 +63,14 @@ Runs on another machine (a home server, a stock Python container), not in the ap
 import of the project. Bulk copies for the mirror into `downloads/` beside the script: `plan` walks the CDD's public
 search (Portugal's MDT/MDS 50 cm and the Azores' 1 m models; pages by the `next` body's token; the newest version of
 each sheet; no address stored: a search mints a new one each time), `fetch` signs in through the Keycloak form
-(`CDD_USER`, `CDD_PASSWORD`; only https to the site's and the realm's hosts, at most 6 an hour, 60 s apart),
-resolves addresses 20 ids per search and fetches one file at a time, 1.5 s between requests to a host (TIFF magic
-and stated size, sha256 into `done.jsonl`; a session lost means one sign-in and one retry, three sign-ins without a
-file stop; 429/503 and network outages wait, the latter up to `--outage-hours`; five failures in a row, low disk or
-SIGTERM stop cleanly; `fetch.lock`: one fetch per folder), `fetch-list wallonia` the embedded list of SPW's ten
-province ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked in every output (`Scrub`);
+(`CDD_USER`, `CDD_PASSWORD`; only https to the site's and the realm's hosts, at most 6 an hour, 60 s apart, kept
+across restarts in `signins.json`), resolves addresses 20 ids per search and fetches one file at a time, 1.5 s
+between requests to a host, https only, none after a stop (TIFF magic and stated size, sha256 into `done.jsonl`; a
+session lost means one sign-in and one retry, three sign-ins without a file stop; 429/503 wait; an error before an
+answer's headers is an outage (waits up to `--outage-hours`, ended by any answer), one after them that file's
+attempt (three, then failed); five failures in a row, low disk or SIGTERM stop cleanly; `fetch.lock`: one fetch per
+folder, `--no-lock` for a filesystem without locks), `fetch-list wallonia` the embedded list of SPW's ten province
+ZIPs (no Range: a broken file starts again), `status` both. Secrets are masked in every output (`Scrub`);
 `tests/test_cdd_fetch.py` runs it against a fake CDD.
 
 ## `tools/source_docs.py`

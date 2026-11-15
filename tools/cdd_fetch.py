@@ -7,15 +7,17 @@ Cutting the files into mirror tiles is a later step, not this tool's.
 
     python cdd_fetch.py plan [--collections MDT-50cm MDS-50cm ...] [--bbox S N W E]
     python cdd_fetch.py fetch [--pause 3] [--retries 2] [--min-free-gb 50] [--limit N] [--outage-hours 6]
-                              [--max-signins-per-hour 6] [--min-rate-kb 20]
+                              [--max-signins-per-hour 6] [--min-rate-kb 20] [--no-lock]
     python cdd_fetch.py fetch-list wallonia
     python cdd_fetch.py status
 
 Everything lives in `--out`, by default `downloads/` beside the script: `downloads/portugal/` (manifest.jsonl,
-plan.json, done.jsonl, failed.jsonl, status.json, fetch.log, fetch.lock and `<collection>/<folder>/<item id>.tif`:
-the folder is a mainland sheet's first three digits or an Azores island's code) and `downloads/wallonia/` (the ZIPs
-under their own names and the same state files). The tool never deletes a fetched file, only its own `.part` files.
-One fetch at a time per folder: a second one exits at once (fetch.lock, freed by the system when its holder ends).
+plan.json, done.jsonl, failed.jsonl, status.json, signins.json (the times the credentials were sent in the last
+hour), fetch.log, fetch.lock and `<collection>/<folder>/<item id>.tif`: the folder is a mainland sheet's first three
+digits or an Azores island's code) and `downloads/wallonia/` (the ZIPs under their own names and the same state
+files). The tool never deletes a fetched file, only its own `.part` files. One fetch at a time per folder: a second
+one exits at once (fetch.lock, freed by the system when its holder ends); on a filesystem without locks the run stops
+with exit 1 and names `--no-lock`, to be used only when you are sure no other fetch runs on that folder.
 
 `plan` asks the public search (POST /dgt-be/v1/search, CQL2-JSON `s_intersects` for `--bbox`, no login) for every
 item of the collections, page after page (1000 items, the `next` link's body token; a repeated page ends it with an
@@ -23,25 +25,33 @@ error), keeps the newest version of each sheet and writes one line per item (col
 version, size). A download address is minted anew by every search (two searches for one item gave two addresses,
 2026-11-15), so none is stored: `fetch` resolves them from the signed-in search just before use, 20 ids per search.
 
-Every request, redirects included, comes at least 1.5 s after the previous one to the same host, one at a time.
+Every request, redirects included, comes at least 1.5 s after the previous one to the same host, one at a time,
+only over https (no ftp:, file: or data: handler; a redirect elsewhere fails that file) and none after a stop.
 
 `fetch` signs in through the site's Keycloak form (credentials only from the environment: CDD_USER, CDD_PASSWORD;
 each of 3 characters at least, as a shorter value could not be masked). The sign-in never leaves https and the
 site's and the realm's hosts (a redirect or a form action elsewhere stops the run before anything is sent there);
-the credentials are sent at most --max-signins-per-hour times an hour, 60 s apart at least. It then fetches every
+the credentials are sent at most --max-signins-per-hour times an hour, 60 s apart at least, across restarts too
+(signins.json, written before they are sent; a time in the future counts as now). It then fetches every
 file of the manifest not yet done, a pause between files, into `<file>.part`, synced and renamed when it checks
 (TIFF magic, the item's stated size); its sha256 goes into done.jsonl. A download answered by the login page, a
 401/403 or an HTML page means: sign in again and retry the file once; a 404 means: a fresh address and one retry;
 three sign-ins without a file between them stop the run; a refused sign-in stops it at once (no loop against the
-login form). 429/503: a growing wait honouring Retry-After (at most 30 min, 6 times a file). A network error (no
-route, DNS, a reset, a timeout) waits 30 s doubling to 15 min and fails no file until the outage has lasted
---outage-hours (status.json: "waiting: network"). A failed file is tried again at the end of the run (at most
+login form). 429/503: a growing wait honouring Retry-After (at most 30 min, 6 times a file; status.json: "waiting:
+server asked to wait"). A network error before an answer's headers (no route, DNS, a reset, a timeout) waits 30 s
+doubling to 15 min and fails no file until the outage has lasted --outage-hours (status.json: "waiting: network");
+any answer from a server ends the outage, so hours of a good transfer never count. An error after the headers (the
+body stalls, is reset or cut short) is that file's attempt: tried again after 30 s and 60 s, the third time it counts
+as failed (not again in this run). A malformed answer (a bad redirect, a broken status line) fails the file. A
+failed file is tried again at the end of the run (at most
 `--retries` times) and at the next run, after the others; five failed files in a row stop the run; a file slower
 than --min-rate-kb for 5 minutes fails. Free space under `--min-free-gb` (plus the next file) stops it. SIGTERM or
 Ctrl-C drops the current `.part` and exits 0 with the state saved; a second `fetch` continues where it stopped.
 `status.json` is rewritten every few files and every 1 GB of a long file; an unexpected error leaves it at "stopped:
-error (...)". done.jsonl decides what is done: a file deleted by hand after it was recorded (cut into tiles) is not
-fetched again.
+error (...)". A line of done.jsonl or failed.jsonl that is not UTF-8 or JSON is skipped with a log line. done.jsonl
+decides what is done: a file deleted by hand after it was recorded (cut into tiles) is not fetched again, nor an item
+a new plan lists with another version or size (fetch and status count them and say how to fetch them again: remove
+their lines from done.jsonl).
 
 `fetch-list wallonia` fetches the embedded list (addresses and sizes read 2026-11-15) the same way without a login;
 that server ignores Range, so a broken file starts again from zero; the size must equal the list's (a different
@@ -51,9 +61,10 @@ the last error, the time left at the measured rate.
 Secrets never appear in any output: the username, the password, cookies and download addresses (their tokens and
 queries) are masked in every printed or written text (`Scrub`); the item id names a file in the log.
 
-Exit codes: 0 done or stopped by a signal; 1 an error; 2 credentials missing, refused or the sign-in leading
-elsewhere; 3 three sign-ins without a file, or too many in an hour; 4 five failed files in a row, or an outage longer
-than --outage-hours; 5 the disk is full (under --min-free-gb); 6 another fetch holds the folder.
+Exit codes: 0 done or stopped by a signal; 1 an error (a filesystem without locks too); 2 credentials missing,
+refused or the sign-in leading elsewhere; 3 three sign-ins without a file, or too many in an hour; 4 five failed
+files in a row, or an outage longer than --outage-hours; 5 the disk is full (under --min-free-gb); 6 another fetch
+holds the folder.
 
 On a home server, the script in its own folder with an env file `cdd.env` beside it (two lines,
 `CDD_USER=...` and `CDD_PASSWORD=...`, readable by its owner only; a password with `$`, `#` or quotes may be read
@@ -118,6 +129,8 @@ MAX_PAGES = 10_000     # pages of one collection at most (92 on 2026-11-15)
 RESOLVE_BATCH = 20     # ids per search resolving download addresses
 ADDRESS_SECONDS = 900  # a resolved address is used within this time, else resolved again
 REQUEST_PAUSE = 1.5    # seconds between two requests to one host (redirects and sign-in steps included)
+SCHEMES = {"https"}    # the only scheme asked (the tests' fake server adds http)
+BODY_TRIES = 3         # body failures of one file in one run before it counts as failed (30 s, 60 s between)
 TIMEOUT = 120          # seconds a socket may wait
 CHUNK = 1 << 20
 STATUS_EVERY = 5       # files between rewrites of status.json
@@ -166,6 +179,9 @@ HTTPException = http.client.HTTPException
 def _wait(seconds):
     """A pause that a stop ends early (tests replace it)."""
     STOP.wait(max(seconds, 0))
+
+
+_clock = time.monotonic  # the pacing's clock (tests give it a fake one with _wait)
 
 
 def default_out():
@@ -230,17 +246,21 @@ def _write_json(path, data):
     os.replace(path + ".part", path)
 
 
-def _read_jsonl(path):
+def _read_jsonl(path, log=None):
+    """The JSON rows of a file (none if it is missing); a line that is not UTF-8 or not JSON (one cut by a kill)
+    is skipped, each with a log line naming the file and the line. A file that cannot be opened raises."""
     rows = []
     if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
+        with open(path, "rb") as f:
+            for number, raw in enumerate(f, 1):
+                try:
+                    line = raw.decode("utf-8").strip()
+                    if line:
                         rows.append(json.loads(line))
-                    except ValueError:
-                        pass  # a line cut by a kill
+                except ValueError:  # UnicodeDecodeError too
+                    if log is not None:
+                        log("%s, line %d: not UTF-8 or not JSON, skipped" % (os.path.basename(path), number),
+                            error=True)
     return rows
 
 
@@ -272,7 +292,11 @@ class BadFile(Exception):
 
 
 class NetworkDown(BadFile):
-    """No answer: no route, a name not resolved, a reset or a timeout."""
+    """No answer: no route, a name not resolved, a reset or a timeout before an answer's headers came."""
+
+
+class BodyFailed(BadFile):
+    """The answer's headers came, then its body stalled, was reset or cut short: that file's failed attempt."""
 
 
 class UnsafeLogin(Exception):
@@ -321,7 +345,8 @@ def signin_hosts():
 
 
 class _Gate(urllib.request.BaseHandler):
-    """Every request passes here, each redirect too: Http.before (the pause, the sign-in's hosts)."""
+    """Every request passes here, each redirect too: Http.before (the stop, the scheme, the pause, the sign-in's
+    hosts)."""
 
     def __init__(self, owner):
         self.owner = owner
@@ -333,49 +358,103 @@ class _Gate(urllib.request.BaseHandler):
     https_request = http_request
 
 
+class _Redirects(urllib.request.HTTPRedirectHandler):
+    """urllib's redirects, the target checked first (Http.check): a scheme other than SCHEMES (ftp:, file:) or a
+    malformed Location is refused before any connection to it."""
+
+    def __init__(self, owner):
+        self.owner = owner
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        location = headers.get("location") or headers.get("uri")
+        if location:
+            try:
+                target = urllib.parse.urljoin(req.full_url, location)
+                urllib.parse.urlsplit(target).port  # a malformed address raises here, not in urllib
+            except ValueError:
+                fp.close()
+                raise BadFile("a malformed redirect") from None
+            try:
+                self.owner.check(target)
+            except BaseException:
+                fp.close()
+                raise
+        return super().http_error_302(req, fp, code, msg, headers)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
+
+
 class Http:
-    """One opener with a cookie jar kept in memory only; one request at a time, at least REQUEST_PAUSE after the
-    previous one to the same host; while `guard` is set (a sign-in) a request elsewhere raises UnsafeLogin before
-    it is sent; every cookie value is masked."""
+    """One opener with a cookie jar kept in memory only and only the handlers it needs (http, https, cookies,
+    redirects, errors: no ftp, file or data); one request at a time, at least REQUEST_PAUSE after the previous one
+    to the same host, none after a stop; only SCHEMES; while `guard` is set (a sign-in) a request elsewhere raises
+    UnsafeLogin before it is sent; every cookie value is masked. `answered`: when the last headers came."""
 
     def __init__(self, scrub):
         self.scrub = scrub
         self.jar = http.cookiejar.CookieJar()
-        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.jar), _Gate(self))
+        self.opener = urllib.request.OpenerDirector()
+        for handler in (urllib.request.HTTPHandler(), urllib.request.HTTPSHandler(),
+                        urllib.request.HTTPDefaultErrorHandler(), _Redirects(self),
+                        urllib.request.HTTPErrorProcessor(), urllib.request.HTTPCookieProcessor(self.jar),
+                        _Gate(self)):
+            self.opener.add_handler(handler)
         self.opener.addheaders = [("User-Agent", AGENT)]
         self.last = {}     # host -> when it was last asked
         self.guard = None  # the (scheme, host) pairs a sign-in may reach
+        self.answered = -1e18
+
+    def check(self, url):
+        """UnsafeLogin (during a sign-in) or BadFile for an address the tool must not ask."""
+        scheme, host = _host(url)
+        if scheme not in SCHEMES or (self.guard is not None and (scheme, host) not in self.guard):
+            where = "%s://%s" % (scheme, urllib.parse.urlsplit(url).hostname or "")
+            if self.guard is not None:
+                raise UnsafeLogin(where)
+            raise BadFile("an address on %s refused (only %s)" % (where, ", ".join(sorted(SCHEMES))))
 
     def before(self, url):
-        scheme, host = _host(url)
-        if self.guard is not None and (scheme, host) not in self.guard:
-            raise UnsafeLogin("%s://%s" % (scheme, urllib.parse.urlsplit(url).hostname))
-        pause = REQUEST_PAUSE - (time.monotonic() - self.last.get(host, -1e9))
+        if STOP.is_set():
+            raise Stopped()
+        self.check(url)
+        host = _host(url)[1]
+        pause = REQUEST_PAUSE - (_clock() - self.last.get(host, -1e9))
         if pause > 0:
             _wait(pause)
-        self.last[host] = time.monotonic()
+            if STOP.is_set():
+                raise Stopped()
+        self.last[host] = _clock()
 
     def open(self, url, data=None, headers=None):
-        """The answer (an HTTPError is an answer too; no answer raises NetworkDown); the caller closes it."""
+        """The answer (an HTTPError is an answer too); no answer (a connection, DNS, a reset or a timeout before
+        the headers) raises NetworkDown, a malformed one BadFile; the caller closes it."""
+        self.check(url)
         request = urllib.request.Request(url, data=data, headers=headers or {})
         try:
             answer = self.opener.open(request, timeout=TIMEOUT)
         except urllib.error.HTTPError as error:
             answer = error
-        except (urllib.error.URLError, OSError, HTTPException) as error:
-            raise NetworkDown("network: %s %s" % (type(error).__name__, getattr(error, "reason", ""))) from None
+        except urllib.error.URLError as error:
+            if isinstance(error.reason, OSError):
+                raise NetworkDown("network: %s" % type(error.reason).__name__) from None
+            raise BadFile("refused: %s" % error.reason) from None
+        except OSError as error:  # a reset or a timeout waiting for the status line
+            raise NetworkDown("network: %s" % type(error).__name__) from None
+        except (HTTPException, ValueError) as error:  # a malformed answer: this file's failure
+            raise BadFile("a malformed answer: %s" % type(error).__name__) from None
         finally:
             for cookie in self.jar:
                 self.scrub.add(cookie.value)
+        self.answered = _clock()
         return answer
 
     def page(self, url, data=None, headers=None, cap=2_000_000):
-        """(status, final address, body) of a small answer, read whole; a broken read raises NetworkDown."""
+        """(status, final address, body) of a small answer, read whole; a broken body raises BodyFailed."""
         with self.open(url, data, headers) as answer:
             try:
                 return answer.getcode(), answer.geturl(), answer.read(cap)
-            except (OSError, HTTPException) as error:
-                raise NetworkDown("network: %s while reading" % type(error).__name__) from None
+            except (OSError, HTTPException, ValueError) as error:
+                raise BodyFailed("the answer broke off: %s" % type(error).__name__) from None
 
     def json(self, url, body):
         """A search's answer, a JSON object."""
@@ -387,8 +466,8 @@ class Http:
                 raise Throttled(status, _retry_after(answer.headers))
             try:
                 raw = answer.read(100_000_000)
-            except (OSError, HTTPException) as error:
-                raise NetworkDown("network: %s while reading the search" % type(error).__name__) from None
+            except (OSError, HTTPException, ValueError) as error:
+                raise BodyFailed("the search's answer broke off: %s" % type(error).__name__) from None
         if status != 200:
             raise BadFile("the search answered HTTP %d" % status)
         try:
@@ -403,8 +482,8 @@ class Http:
 # Planning
 
 MAINLAND = re.compile(r"(?P<product>MD[TS])-50cm-(?P<sheet>\d{6})-(?P<block>\d{2})-(?P<year>\d{4})")
-AZORES = re.compile(r"(?P<year>\d{4})_(?P<island>[A-Z]{3})_(?P<places>(?:[A-Z]{3}_){1,6})(?P<sheet>[0-9A-Z][0-9A-Z_-]*?)"
-                    r"_(?P<version>\d{2})_(?P<product>MDE|MDS)")
+AZORES = re.compile(r"(?P<year>\d{4})_(?P<island>[A-Z]{3})_(?P<places>(?:[A-Z]{3}_){1,6})"
+                    r"(?P<sheet>[0-9A-Z][0-9A-Z_-]*?)_(?P<version>\d{2})_(?P<product>MDE|MDS)")
 SAFE_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,200}")
 
 
@@ -557,7 +636,7 @@ class CddJob(Job):
         self.user, self.password = user, password
         self.addresses = {}  # id -> (address, when resolved): in memory only
         self.per_hour = per_hour
-        self.posts = deque()  # when the credentials were sent, within the last hour
+        self.sent = self.completed = 0  # this run's sendings of the credentials and the sign-ins they completed
 
     def signin(self, http, log):
         """The Keycloak form as the site leads to it. Every request of it, redirects included, stays on the site's
@@ -593,21 +672,34 @@ class CddJob(Job):
             raise CredentialsRefused()
         if status >= 400:
             raise BadFile("the sign-in answered HTTP %d" % status)
+        self.completed += 1
         log("signed in")
 
     def _turn(self):
-        """Waits for the gap since the previous sending of the credentials; SigninCeiling beyond per_hour."""
-        while self.posts and time.monotonic() - self.posts[0] > 3600:
-            self.posts.popleft()
-        if len(self.posts) >= self.per_hour:
-            raise SigninCeiling()
-        if self.posts:
-            gap = SIGNIN_GAP - (time.monotonic() - self.posts[-1])
+        """Waits for the gap since the previous sending of the credentials and records this one in signins.json
+        (wall-clock times of the last hour, written before the credentials are sent): the gap and the ceiling hold
+        across restarts; a time in the future (a clock set back) counts as now. SigninCeiling beyond per_hour."""
+        path = os.path.join(self.area, "signins.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                times = [float(t) for t in json.load(f)]
+        except (OSError, ValueError, TypeError):
+            times = []
+        clock = time.time()
+        times = [min(t, clock) for t in times if clock - min(t, clock) <= 3600]
+        if len(times) >= self.per_hour:
+            raise SigninCeiling(
+                "the credentials were sent %d times within the last hour (--max-signins-per-hour %d); of this run's "
+                "%d sendings %d did not complete a sign-in" % (len(times), self.per_hour, self.sent,
+                                                               self.sent - self.completed))
+        if times:
+            gap = SIGNIN_GAP - (clock - max(times))
             if gap > 0:
                 _wait(gap)
             if STOP.is_set():
                 raise Stopped()
-        self.posts.append(time.monotonic())
+        _write_json(path, times + [time.time()])
+        self.sent += 1
 
     def address(self, http, item, pending):
         found = self.addresses.get(item["id"])
@@ -657,9 +749,10 @@ def _login_form(body):
 
 def download(http, url, part, size, magic, min_free, sign_aware, progress=None, min_rate=0):
     """One GET of url into part, checked and synced to disk: (bytes, sha256). Raises SessionLost, Throttled,
-    Stale, BadFile (NetworkDown when the connection breaks or stalls), DiskLow, Stopped; the .part is removed on
-    any failure. Every DISK_EVERY bytes the free space is checked and progress(bytes so far) called; a file
-    coming slower than min_rate bytes/s over RATE_WINDOW seconds fails."""
+    Stale, BadFile (NetworkDown before the headers came, BodyFailed after them: the body stalled, was reset or cut
+    short), DiskLow, Stopped; the .part is removed on any failure. Every DISK_EVERY bytes the free space is
+    checked and progress(bytes so far) called; a file coming slower than min_rate bytes/s over RATE_WINDOW seconds
+    fails."""
     answer = http.open(url)
     with answer:
         status = answer.getcode()
@@ -677,8 +770,8 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None, 
         def take(n):
             try:
                 return read(n)
-            except (OSError, HTTPException) as error:
-                raise NetworkDown("network: %s while reading" % type(error).__name__) from None
+            except (OSError, HTTPException, ValueError) as error:  # after the headers: this file's attempt
+                raise BodyFailed("the body broke off: %s" % type(error).__name__) from None
 
         first = b""
         while len(first) < 8:
@@ -724,7 +817,7 @@ def download(http, url, part, size, magic, min_free, sign_aware, progress=None, 
                 os.fsync(f.fileno())
             expected = size if size is not None else int(length) if length and length.isdigit() else None
             if expected is not None and done != expected:
-                raise BadFile("cut short: %d of %d bytes" % (done, expected))
+                raise BodyFailed("cut short: %d of %d bytes" % (done, expected))
         except OSError as error:  # writing: a full disk stops the run, anything else ends it with its state
             _remove(part)
             if error.errno == errno.ENOSPC:
@@ -780,9 +873,9 @@ class Run:
         self.job, self.log = job, log
         for name in ("done.jsonl", "failed.jsonl"):
             _repair(os.path.join(job.area, name))
-        self.done = {row["id"]: row for row in _read_jsonl(os.path.join(job.area, "done.jsonl"))
+        self.done = {row["id"]: row for row in _read_jsonl(os.path.join(job.area, "done.jsonl"), log)
                      if isinstance(row, dict) and "id" in row}
-        self.failed_before = {row.get("id") for row in _read_jsonl(os.path.join(job.area, "failed.jsonl"))
+        self.failed_before = {row.get("id") for row in _read_jsonl(os.path.join(job.area, "failed.jsonl"), log)
                               if isinstance(row, dict)}
         self.failed = {}
         self.last_error = None
@@ -799,7 +892,7 @@ class Run:
 
     def record_done(self, item, size, sha):
         row = {"id": item["id"], "group": item["group"], "path": item["path"], "size": size, "sha256": sha,
-               "time": now()}
+               "version": item.get("version"), "time": now()}
         _append_jsonl(os.path.join(self.job.area, "done.jsonl"), row)
         self.done[item["id"]] = row
 
@@ -843,14 +936,19 @@ class TooManySignins(Exception):
 def fetch_run(job, args, http, log):
     """Fetch every item of job not yet done (see the module's docstring); the exit code. Anything unexpected ends
     the run with its state written ("stopped: error ..."), never left at "running"."""
-    run = Run(job, log)
+    run = None
     try:
+        run = Run(job, log)
         return _fetch_loop(job, args, http, log, run)
     except Exception as error:
-        run.state = "stopped: error (%s)" % type(error).__name__
+        state = "stopped: error (%s)" % type(error).__name__
         log("error: %s: %s" % (type(error).__name__, error), error=True)
         try:
-            run.save()
+            if run is not None:
+                run.state = state
+                run.save()
+            else:  # the state files could not be read: status.json says so, never "running"
+                _write_json(os.path.join(job.area, "status.json"), {"updated": now(), "state": state})
         except OSError:
             pass
         return EXIT_ERROR
@@ -888,11 +986,33 @@ def _queue(job, run, args, log):
     return deque(pending[:args.limit] if args.limit is not None else pending)
 
 
+def _newer(items, done):
+    """The ids done whose manifest row now has another version or size than the file fetched."""
+    found = []
+    for item in items:
+        row = done.get(item["id"])
+        if row is None:
+            continue
+        if (item.get("size") is not None and row.get("size") not in (None, item["size"])) or \
+                (item.get("version") is not None and row.get("version") not in (None, item["version"])):
+            found.append(item["id"])
+    return found
+
+
+def _newer_line(ids):
+    return ("%d items have a newer version in the manifest (another version or size than the file fetched); they "
+            "are not fetched again (done.jsonl decides): to fetch them, remove their lines from done.jsonl: %s%s" % (
+                len(ids), ", ".join(ids[:5]), ", ..." if len(ids) > 5 else ""))
+
+
 def _fetch_loop(job, args, http, log, run):
     pending = _queue(job, run, args, log)
+    newer = _newer(job.items, run.done)
+    if newer:
+        log(_newer_line(newer))
     log("%d files to fetch, %d done before" % (len(pending), len(run.done)))
     run.save()
-    attempts, code = {}, EXIT_OK
+    attempts, bodies, code = {}, {}, EXIT_OK  # bodies: body failures per file in this run
     failed_in_row = signins = net_waits = 0
     signed_in, outage = False, None
     min_free = args.min_free_gb * 1e9
@@ -922,7 +1042,10 @@ def _fetch_loop(job, args, http, log, run):
                     raise BadFile("HTTP 429/503 %d times" % throttled) from None
                 seconds = min(max(WAIT_BASE * 2 ** (throttled - 1), t.retry_after or 0), WAIT_MAX)
                 log(item["id"], ": the server asks to slow down (%s), waiting %d s" % (t, seconds))
+                run.state = "waiting: server asked to wait (%d s)" % seconds
+                run.save()
                 _wait(seconds)
+                run.state = "running"
                 if STOP.is_set():
                     raise Stopped() from None
             except SessionLost:
@@ -960,9 +1083,10 @@ def _fetch_loop(job, args, http, log, run):
                     break
                 except NetworkDown as e:  # an outage: waits that grow, no failed file until it lasts too long
                     job.forget(item)
-                    outage = outage if outage is not None else time.monotonic()
-                    if time.monotonic() - outage >= args.outage_hours * 3600:
-                        log("no network for %.1f h: stopping (%s)" % ((time.monotonic() - outage) / 3600, e),
+                    if outage is None or http.answered >= outage:  # any answer since ends the outage before
+                        outage, net_waits = _clock(), 0
+                    if _clock() - outage >= args.outage_hours * 3600:
+                        log("no network for %.1f h: stopping (%s)" % ((_clock() - outage) / 3600, e),
                             error=True)
                         code = EXIT_FAILURES
                         raise Stopped() from None
@@ -971,6 +1095,19 @@ def _fetch_loop(job, args, http, log, run):
                     run.state = "waiting: network"
                     run.save()
                     log(item["id"], ": %s; waiting %d s" % (e, seconds))
+                    _wait(seconds)
+                    if STOP.is_set():
+                        raise Stopped() from None
+                except BodyFailed as e:  # the server answered, then the body broke: tried again after a wait
+                    job.forget(item)
+                    bodies[item["id"]] = bodies.get(item["id"], 0) + 1
+                    if bodies[item["id"]] >= BODY_TRIES:
+                        error = "%s (%d times)" % (e, bodies[item["id"]])
+                        break
+                    seconds = NET_WAIT_BASE * 2 ** (bodies[item["id"]] - 1)
+                    run.state = "waiting: the file broke off (%d s)" % seconds
+                    run.save()
+                    log(item["id"], ": %s; trying again in %d s" % (e, seconds))
                     _wait(seconds)
                     if STOP.is_set():
                         raise Stopped() from None
@@ -1001,7 +1138,7 @@ def _fetch_loop(job, args, http, log, run):
                     error=True)
                 code = EXIT_FAILURES
                 break
-            if attempts[item["id"]] <= args.retries:
+            if attempts[item["id"]] <= args.retries and bodies.get(item["id"], 0) < BODY_TRIES:
                 pending.append(item)
     except Stopped:
         pass
@@ -1018,8 +1155,8 @@ def _fetch_loop(job, args, http, log, run):
     except TooManySignins:
         log("%d sign-ins in a row without a fetched file: stopping" % MAX_SIGNINS, error=True)
         code = EXIT_SIGNINS
-    except SigninCeiling:
-        log("more than %d sign-ins within an hour: stopping" % getattr(job, "per_hour", 0), error=True)
+    except SigninCeiling as e:
+        log("stopping: %s" % e, error=True)
         code = EXIT_SIGNINS
     left = sum(1 for item in job.items if item["id"] not in run.done)
     if STOP.is_set() and code == EXIT_OK:
@@ -1041,22 +1178,38 @@ class Locked(Exception):
     pass
 
 
+class CannotLock(Exception):
+    pass
+
+
+# The errors of a lock another process holds: EWOULDBLOCK/EAGAIN (flock), EACCES (fcntl elsewhere, and Windows'
+# msvcrt.locking on a locked region), EDEADLOCK (msvcrt's other answer)
+HELD = {errno.EWOULDBLOCK, errno.EAGAIN, errno.EACCES, getattr(errno, "EDEADLOCK", errno.EDEADLK), errno.EDEADLK}
+
+
+def _lock_file(f):
+    if os.name == "nt":
+        import msvcrt
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+    else:
+        import fcntl
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 def _lock(area):
     """<area>/fetch.lock, locked for this process's life (the system frees it when the process ends, killed
-    or not); Locked when another process holds it. The open file, to pass to _unlock."""
+    or not); Locked when another process holds it, CannotLock when the folder's filesystem has no locks (any
+    other error). The open file, to pass to _unlock."""
     os.makedirs(area, exist_ok=True)
     f = open(os.path.join(area, "fetch.lock"), "a+")
     try:
-        if os.name == "nt":
-            import msvcrt
-            f.seek(0)
-            msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        else:
-            import fcntl
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
+        _lock_file(f)
+    except OSError as error:
         f.close()
-        raise Locked() from None
+        if error.errno in HELD:
+            raise Locked() from None
+        raise CannotLock("%s (errno %s)" % (type(error).__name__, error.errno)) from None
     return f
 
 
@@ -1071,19 +1224,29 @@ def _unlock(f):
     f.close()
 
 
-def _locked_run(area, log, run):
-    """run() while holding the area's lock; a second fetch on the same folder stops at once, touching nothing."""
-    try:
-        lock = _lock(area)
-    except Locked:
-        log("another fetch holds %s: this one stops and changes nothing" % os.path.join(area, "fetch.lock"),
-            error=True)
-        return EXIT_LOCKED
+def _locked_run(area, log, run, no_lock=False):
+    """run() while holding the area's lock; a second fetch on the same folder stops at once, touching nothing.
+    no_lock: without the guard (a filesystem without locks; only when one fetch surely runs)."""
+    lock = None
+    if not no_lock:
+        try:
+            lock = _lock(area)
+        except Locked:
+            log("another fetch holds %s: this one stops and changes nothing" % os.path.join(area, "fetch.lock"),
+                error=True)
+            return EXIT_LOCKED
+        except CannotLock as e:
+            log("the filesystem of %s cannot lock fetch.lock (%s): run with --no-lock only when you are sure no "
+                "other fetch runs on this folder" % (area, e), error=True)
+            return EXIT_ERROR
+    else:
+        os.makedirs(area, exist_ok=True)
     try:
         log.path = os.path.join(area, "fetch.log")
         return run()
     finally:
-        _unlock(lock)
+        if lock is not None:
+            _unlock(lock)
 
 
 def _portugal_items(area, collections):
@@ -1095,12 +1258,13 @@ def _portugal_items(area, collections):
         if not isinstance(row, dict) or row.get("id") in seen or (collections and row.get("collection") not in
                                                                    collections):
             continue
-        if not SAFE_ID.fullmatch(str(row.get("id"))) or not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(row.get("folder"))):
+        if not SAFE_ID.fullmatch(str(row.get("id"))) or \
+                not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", str(row.get("folder"))):
             continue
         seen.add(row["id"])
         items.append({"id": row["id"], "group": row["collection"], "collection": row["collection"],
                       "path": "%s/%s/%s.tif" % (row["collection"], row["folder"], row["id"]),
-                      "size": row.get("size"), "asset": row.get("asset") or "data"})
+                      "size": row.get("size"), "asset": row.get("asset") or "data", "version": row.get("version")})
     return items
 
 
@@ -1149,7 +1313,7 @@ def fetch(args, scrub, log):
             "the output)", error=True)
         return EXIT_CREDENTIALS
     job = CddJob(area, items, user, password, args.max_signins_per_hour)
-    return _locked_run(area, log, lambda: fetch_run(job, args, Http(scrub), log))
+    return _locked_run(area, log, lambda: fetch_run(job, args, Http(scrub), log), args.no_lock)
 
 
 def fetch_list(args, scrub, log):
@@ -1159,13 +1323,14 @@ def fetch_list(args, scrub, log):
     def run():
         log("list %s (addresses and sizes read %s)" % (args.name, spec["read"]))
         return fetch_run(Job(area, _list_items(args.name), spec["magic"]), args, Http(scrub), log)
-    return _locked_run(area, log, run)
+    return _locked_run(area, log, run, args.no_lock)
 
 
 # Status
 
 def _area_status(area, items):
-    done = {row["id"]: row for row in _read_jsonl(os.path.join(area, "done.jsonl"))}
+    done = {row["id"]: row for row in _read_jsonl(os.path.join(area, "done.jsonl"))
+            if isinstance(row, dict) and "id" in row}
     saved = {}
     if os.path.exists(os.path.join(area, "status.json")):
         try:
@@ -1173,6 +1338,8 @@ def _area_status(area, items):
                 saved = json.load(f)
         except (OSError, ValueError):
             pass
+    if not isinstance(saved, dict):
+        saved = {}
     lines, left_bytes = [], 0
     groups = {}
     for item in items:
@@ -1197,6 +1364,9 @@ def _area_status(area, items):
     if saved.get("last_error"):
         e = saved["last_error"]
         lines.append("  last error: %s %s: %s" % (e.get("time"), e.get("id"), e.get("error")))
+    newer = _newer(items, done)
+    if newer:
+        lines.append("  " + _newer_line(newer))
     return lines
 
 
@@ -1253,6 +1423,8 @@ def _parser():
                        help="network errors wait (30 s doubling to 15 min) until they last this long (default 6)")
         p.add_argument("--min-rate-kb", type=float, default=20.0,
                        help="a file slower than this (kB/s) for 5 minutes fails (default 20)")
+        p.add_argument("--no-lock", action="store_true",
+                       help="run without fetch.lock (a filesystem without locks; only when one fetch surely runs)")
     common(sub.add_parser("status", help="files and bytes done and left, the last error"))
     return parser
 
