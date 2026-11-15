@@ -1385,6 +1385,114 @@ def test_favourite_folders(run_people, tmp_path, monkeypatch):
     assert not any("name" in e["detail"] for e in log)  # the names stay out of the log
 
 
+def test_rigs(run_people, tmp_path):
+    """Saved rigs (the Basic form's): a user's own (another's answers 404, without a session 401, a
+    pending account 403), listed by id with the most one may keep, made, renamed, changed and deleted;
+    names and values are checked (the bounds with SearchParams' codes), a name once per user in any
+    case; the 11th rig is refused (409 "rigs_max") with a "refused" row; the audit log records "rig" with
+    what was done and no name or value; no answer of an error holds a name."""
+    import audit
+    import jobs as jb
+    a, b, ids = run_people["a"], run_people["b"], run_people["ids"]
+    assert a.get("/api/rigs").json() == {"rigs": [], "max": jb.RIGS_MAX}
+    made = a.post("/api/rigs", json={"name": "  Gozo   heavy ", "values": RIG})
+    assert made.status_code == 200, made.text
+    first = made.json()["id"]
+    light = {**RIG, "end_zone": 0, "anchor_lift": 2}
+    second = a.post("/api/rigs", json={"name": "Light", "values": light}).json()["id"]
+    assert a.get("/api/rigs").json() == {"rigs": [{"id": first, "name": "Gozo heavy", "values": RIG},
+                                                  {"id": second, "name": "Light", "values": light}],
+                                         "max": jb.RIGS_MAX}
+    assert b.get("/api/rigs").json()["rigs"] == []
+    assert b.post("/api/rigs", json={"name": "Light", "values": RIG}).status_code == 200  # b's own name
+
+    taken = a.post("/api/rigs", json={"name": "LIGHT", "values": RIG})
+    assert taken.status_code == 400 and taken.json()["detail"] == {
+        "message": "You already have a rig of that name.", "code": "rig_name_taken", "params": {}}
+    for name in ("", "  ", "x" * (jb.RIG_NAME_MAX + 1), "a\nb", 5, None):
+        wrong = a.post("/api/rigs", json={"name": name, "values": RIG})
+        assert wrong.status_code == 400 and wrong.json()["detail"]["code"] == "rig_name", name
+    for values, code in (({**RIG, "end_zone": 21}, "end_zone_range"), ({**RIG, "anchor_lift": 3.5}, "anchor_lift_range"),
+                         ({**RIG, "pretension": 0}, "positive"), ({**RIG, "athlete_mass": -1}, "not_negative")):
+        wrong = a.post("/api/rigs", json={"name": "Odd", "values": values})
+        assert wrong.status_code == 400 and wrong.json()["detail"]["code"] == code, values
+    for values in (None, {**RIG, "stretch": "5"}, {**RIG, "model": "sag"}, {k: v for k, v in RIG.items()
+                                                                            if k != "fall_zone"}):
+        assert a.post("/api/rigs", json={"name": "Odd", "values": values}).status_code == 400, values
+    assert a.post("/api/rigs", json=["Odd", RIG]).status_code == 422  # (FastAPI's: the body is no object)
+    # Within SearchParams' bounds but beyond the site's limits of a limited user (5 m, 2 m): refused as the search
+    # refuses it, so no saved rig blocks every Basic search; a user without limits keeps SearchParams' bounds
+    for values, words in (({**RIG, "end_zone": 10}, "No-fall zone at the ends: at most 5 m on this site."),
+                          ({**RIG, "anchor_lift": 2.5}, "A-frame height: at most 2 m on this site.")):
+        beyond = a.post("/api/rigs", json={"name": "Big", "values": values})
+        assert beyond.status_code == 400 and beyond.json()["detail"]["code"] == "at_most", beyond.text
+        assert beyond.json()["detail"]["message"] == words
+        assert a.post(f"/api/rigs/{first}", json={"values": values}).json()["detail"]["code"] == "at_most"
+    big = run_people["unlimited"].post("/api/rigs", json={"name": "Big", "values": {**RIG, "end_zone": 10,
+                                                                                     "anchor_lift": 3}})
+    assert big.status_code == 200, big.text
+
+    change = lambda client, rig, body: client.post(f"/api/rigs/{rig}", json=body)  # noqa: E731
+    assert change(a, second, {"name": "light"}).status_code == 200  # its own name in another case
+    assert change(a, second, {"values": RIG}).status_code == 200
+    assert change(a, first, {"name": "Rig 3", "values": light}).status_code == 200
+    assert a.get("/api/rigs").json()["rigs"] == [{"id": first, "name": "Rig 3", "values": light},
+                                                 {"id": second, "name": "light", "values": RIG}]
+    assert change(a, first, {"name": "LIGHT"}).json()["detail"]["code"] == "rig_name_taken"
+    assert change(a, first, {}).status_code == 400 and change(a, first, {"values": {**RIG, "end_zone": -1}}).status_code == 400
+    assert change(a, first, {"name": "x\x00"}).status_code == 400
+    missing = {"message": "This rig no longer exists.", "code": "rig_missing", "params": {}}
+    for client, rig in ((b, first), (a, 999), (a, 2 ** 70)):
+        answer = change(client, rig, {"name": "Mine"})
+        assert answer.status_code == 404 and answer.json()["detail"] == missing, rig
+        gone = client.delete(f"/api/rigs/{rig}")
+        assert gone.status_code == 404 and gone.json()["detail"] == missing, rig
+    assert change(a, "x", {"name": "Mine"}).status_code == 422
+    assert run_people["anonymous"].get("/api/rigs").status_code == 401
+    assert run_people["anonymous"].post("/api/rigs", json={"name": "X", "values": RIG}).status_code == 401
+    assert run_people["pending"].get("/api/rigs").status_code == 403
+    assert a.post("/api/rigs", json={"name": "X", "values": RIG}, headers={"x-findaline-token": "wrong"}).status_code == 403
+
+    assert a.delete(f"/api/rigs/{second}").status_code == 200 and a.delete(f"/api/rigs/{second}").status_code == 404
+    for k in range(jb.RIGS_MAX - 1):
+        assert a.post("/api/rigs", json={"name": f"Rig {k + 4}", "values": RIG}).status_code == 200
+    full = a.post("/api/rigs", json={"name": "One more", "values": RIG})
+    assert full.status_code == 409 and full.json()["detail"] == {
+        "message": f"You can keep {jb.RIGS_MAX} rigs. Delete one first.", "code": "rigs_max",
+        "params": {"max": jb.RIGS_MAX}}
+    assert len(a.get("/api/rigs").json()["rigs"]) == jb.RIGS_MAX
+
+    log = audit.Audit(str(tmp_path)).entries(ids["a"])
+    rigs = [e for e in log if e["action"] == "rig"]
+    assert [e["detail"] for e in rigs] == [{"do": "add"}] * 2 + [{"do": "change"}] * 3 + [{"do": "delete"}] \
+        + [{"do": "add"}] * (jb.RIGS_MAX - 1)
+    assert rigs[0]["target"] == str(first)
+    assert [e["detail"]["status"] for e in log if e["action"] == "refused"] == [409]
+    everything = json.dumps(audit.Audit(str(tmp_path)).entries())
+    for secret in ("Gozo", "Light", "light", "One more", "Rig 3", "end_zone", "70.0", "2.5"):
+        assert secret not in everything, secret
+
+
+def test_local_rigs(tmp_path, settings, account_settings, providers):
+    """The local app: its one user's rigs (user_id NULL) through the same routes, with its token; when
+    the data folder goes public they go to the first administrator."""
+    with TestClient(web.create_app(str(tmp_path), token=TOKEN, start_scheduler=False), base_url=LOCAL) as local:
+        assert local.post("/api/rigs", json={"name": "My rig", "values": RIG}).status_code == 403  # without the token
+        local.headers["x-findaline-token"] = TOKEN
+        rig = local.post("/api/rigs", json={"name": "My rig", "values": RIG}).json()["id"]
+        assert local.get("/api/rigs").json() == {"rigs": [{"id": rig, "name": "My rig", "values": RIG}], "max": 10}
+        assert local.post(f"/api/rigs/{rig}", json={"name": "Mine"}).status_code == 200
+        # The local app has no limits: SearchParams' bounds (0-20 m, 0-3 m)
+        assert local.post(f"/api/rigs/{rig}", json={"values": {**RIG, "end_zone": 10, "anchor_lift": 3}}).status_code == 200
+        wide = local.post(f"/api/rigs/{rig}", json={"values": {**RIG, "end_zone": 21}})
+        assert wide.status_code == 400 and wide.json()["detail"]["code"] == "end_zone_range"
+        assert local.post(f"/api/rigs/{rig}", json={"values": RIG}).status_code == 200
+    _public_app(tmp_path, settings, account_settings, providers)  # adopts the runs, favourites and rigs
+    admin = ac.Accounts(str(tmp_path), account_settings).first_admin()
+    from jobs import Jobs
+    assert [r["name"] for r in Jobs(str(tmp_path)).rigs(admin)] == ["Mine"] and Jobs(str(tmp_path)).rigs(None) == []
+
+
 def test_problem_reports(run_people, tmp_path, monkeypatch):
     """Problem reports: signed-in users send them (category, text, the page's context; the server adds the
     User-Agent and leaves out a run the user may not open), within the report rate; administrators list
@@ -1585,6 +1693,12 @@ def test_privacy_and_about_pages(run_people):
                  "Your totals of searched area are counted from these", "the country of your browser&#x27;s time "
                  "zone (only the country, e.g. PL)", "shown in your account menu"):
         assert fact in text, fact
+    # the saved rigs (the user's approved wording, docs/line-volume/spec-search.md 1.4)
+    assert "<dt>Rigs</dt><dd>" + web.html.escape(
+        "The rigs you save for your searches: the name you give each and its values (no-fall zone, A-frame height, "
+        "leash fall space, pretension, webbing stretch and weight, athlete mass); at most 10. Why: to fill your "
+        "searches with them. Kept until you delete them.") + "</dd>" in text
+    assert "rigs saved, changed and deleted (not their names or values)" in text
     for source in src.SOURCES.values():
         for credit in source.credits:
             assert web.html.escape(credit.data) in about.text, credit.data
@@ -1885,6 +1999,134 @@ def test_jobs_database_gets_folders(tmp_path):
     db = sqlite3.connect(tmp_path / "jobs.sqlite")
     assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) >= 9
     db.close()
+
+
+RIG = {"pretension": 2.5, "stretch": 5.0, "webbing_weight": 70.0, "athlete_mass": 80.0, "fall_zone": 6.0,
+       "end_zone": 5.0, "anchor_lift": 0.0}  # the Basic form's starting rig
+
+
+def test_jobs_database_gets_rigs(tmp_path):
+    """jobs.sqlite of version 17 gets the table of saved rigs (migration 18, an empty table); its jobs,
+    runs, favourites and folders stay. A rig's name is once per user compared casefolded (the local
+    user's, NULL, too), at most RIGS_MAX per user."""
+    import sqlite3
+
+    import cache
+    import jobs as jb
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    cache.migrate(db, jb.MIGRATIONS[:17])
+    db.execute("INSERT INTO jobs (id, created, status, request, title, user_id) "
+               "VALUES ('old', '', 'done', '{\"params\": {}}', 'Old', 3)")
+    db.execute("INSERT INTO runs (run_id, user_id) VALUES ('run', 3)")
+    db.execute("INSERT INTO favourite_folders (id, user_id, name) VALUES (5, 3, 'Trips')")
+    db.execute("INSERT INTO favourites (user_id, run_id, line, data, created, folder_id) "
+               "VALUES (3, 'run', '1,2,3,4', '{}', '', 5)")
+    db.commit()
+    db.close()
+    jobs = jb.Jobs(str(tmp_path))
+    db = sqlite3.connect(tmp_path / "jobs.sqlite")
+    assert db.execute("PRAGMA user_version").fetchone()[0] == len(jb.MIGRATIONS) == 18
+    assert db.execute("SELECT COUNT(*) FROM rigs").fetchone()[0] == 0
+    db.close()
+    assert [(j["id"], j["title"], j["user_id"]) for j in jobs.all()] == [("old", "Old", 3)]
+    assert json.loads(jobs.get("old")["request"]) == {"params": {}}
+    assert jobs.run("run")["user_id"] == 3 and jobs.favourites(3)[0]["folder_id"] == 5
+    assert [f["name"] for f in jobs.folders(3)] == ["Trips"]
+
+    for user in (3, None):
+        first = jobs.add_rig(user, "My rig", RIG)
+        with pytest.raises(jb.UserError) as taken:
+            jobs.add_rig(user, "MY RIG", RIG)
+        assert taken.value.code == "rig_name_taken"
+        second = jobs.add_rig(user, "Rig 2", {**RIG, "end_zone": 0.0})
+        assert jobs.rigs(user) == [{"id": first, "name": "My rig", "values": RIG},
+                                   {"id": second, "name": "Rig 2", "values": {**RIG, "end_zone": 0.0}}]
+        jobs.change_rig(user, second, name="rig 2")  # its own name in another case
+        with pytest.raises(jb.UserError):
+            jobs.change_rig(user, second, name="my RIG")
+        jobs.change_rig(user, second, values=RIG)
+        assert jobs.rigs(user)[1] == {"id": second, "name": "rig 2", "values": RIG}
+        jobs.delete_rig(user, second)
+        assert [r["id"] for r in jobs.rigs(user)] == [first]
+    assert jobs.add_rig(4, "My rig", RIG)  # another user's name
+    for wrong in ((4, first), (None, 999)):
+        with pytest.raises(KeyError):
+            jobs.change_rig(*wrong, name="x")
+        with pytest.raises(KeyError):
+            jobs.delete_rig(*wrong)
+    for k in range(jb.RIGS_MAX - 1):
+        jobs.add_rig(3, f"Rig {k + 2}", RIG)
+    with pytest.raises(jb.QuotaExceeded) as full:
+        jobs.add_rig(3, "One more", RIG)
+    assert (full.value.status, full.value.code, full.value.params) == (409, "rigs_max", {"max": jb.RIGS_MAX})
+    assert len(jobs.rigs(3)) == jb.RIGS_MAX
+
+
+def test_rig_names():
+    """A rig's name: whitespace collapsed and stripped, 1 to RIG_NAME_MAX characters, no control
+    characters; the error never holds the name."""
+    import jobs as jb
+    assert jb.rig_name("  My    rig ") == "My rig" and jb.rig_name("x" * jb.RIG_NAME_MAX) == "x" * jb.RIG_NAME_MAX
+    assert jb.rig_name("Łódź rig") == "Łódź rig"
+    for wrong in ("", "   ", "x" * (jb.RIG_NAME_MAX + 1), "a\nb", "a\tb", "a\x00b", "a\x85b", 5, None, ["a"]):
+        with pytest.raises(jb.UserError) as error:
+            jb.rig_name(wrong)
+        assert error.value.code == "rig_name" and error.value.params == {"max": jb.RIG_NAME_MAX}
+        assert "a\nb" not in str(error.value)
+
+
+def test_rig_names_composed_and_decomposed(tmp_path):
+    """A name spelt with composed letters (NFC) and one spelt with decomposed ones (a letter and a combining
+    mark: NFD) are one name: stored composed, taken once per user in either spelling and in any case."""
+    import unicodedata
+
+    import jobs as jb
+    composed, decomposed = "Łódź rig", unicodedata.normalize("NFD", "Łódź rig")
+    assert composed != decomposed and len(decomposed) > len(composed)
+    assert jb.rig_name(decomposed) == composed and jb.rig_key(jb.rig_name(decomposed)) == jb.rig_key(composed)
+    jobs = jb.Jobs(str(tmp_path))
+    first = jobs.add_rig(None, jb.rig_name(decomposed), RIG)
+    assert [r["name"] for r in jobs.rigs(None)] == [composed]
+    for taken in (composed, unicodedata.normalize("NFD", "ŁÓDŹ RIG"), "łódź  RIG"):
+        with pytest.raises(jb.UserError) as error:
+            jobs.add_rig(None, jb.rig_name(taken), RIG)
+        assert error.value.code == "rig_name_taken", taken
+    other = jobs.add_rig(None, "Other", RIG)
+    with pytest.raises(jb.UserError):
+        jobs.change_rig(None, other, jb.rig_name(unicodedata.normalize("NFD", "łódź rig")))
+    jobs.change_rig(None, first, jb.rig_name(unicodedata.normalize("NFD", "ŁÓDŹ rig")))  # its own name, recased
+    assert [r["name"] for r in jobs.rigs(None)] == ["ŁÓDŹ rig", "Other"]
+
+
+def test_a_deleted_rigs_id_is_never_given_again(tmp_path):
+    """A deleted rig's id (the highest one) is not given to the next rig of anyone (AUTOINCREMENT): a browser that
+    keeps it as the rig in use (findaline.rig) falls back to the first rig instead of finding another one."""
+    import jobs as jb
+    jobs = jb.Jobs(str(tmp_path))
+    first = jobs.add_rig(None, "A", RIG)
+    second = jobs.add_rig(None, "B", RIG)
+    jobs.delete_rig(None, second)
+    third = jobs.add_rig(None, "C", RIG)
+    other = jobs.add_rig(4, "D", RIG)
+    assert first < second < third < other, (first, second, third, other)
+    assert [r["id"] for r in jobs.rigs(None)] == [first, third]
+
+
+def test_adopt_runs_gives_rigs(tmp_path):
+    """When the local app's data folder goes public, the first administrator gets the local user's rigs
+    while it holds fewer than RIGS_MAX and none of the name (casefolded); the others stay the local
+    user's."""
+    import jobs as jb
+    jobs = jb.Jobs(str(tmp_path))
+    for k in range(jb.RIGS_MAX - 2):
+        jobs.add_rig(7, f"Admin {k}", RIG)
+    jobs.add_rig(7, "My rig", RIG)
+    local = [jobs.add_rig(None, name, RIG) for name in ("MY RIG", "Light", "Heavy", "Spare")]
+    jobs.adopt_runs(str(tmp_path / "runs"), 7)
+    assert [r["name"] for r in jobs.rigs(7)][-1:] == ["Light"] and len(jobs.rigs(7)) == jb.RIGS_MAX
+    assert [r["id"] for r in jobs.rigs(None)] == [local[0], local[2], local[3]]
+    jobs.adopt_runs(str(tmp_path / "runs"), None)  # without an administrator nothing moves
+    assert len(jobs.rigs(None)) == 3
 
 
 def test_jobs_database_gets_reports(tmp_path):

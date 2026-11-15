@@ -1,18 +1,23 @@
-// The search panel: where (Point · Area · Along cliffs · File), the run's name, the kind of lines
-// (presets as cards) with the key fields and "More settings" by topic; the live estimate with the start
-// is a bar of its own (EstimateBar), which the page places under the panel (NewSearch's bottom bar).
-// UsageMeters shows the user's quotas; SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
+// The search panel: the switch "Basic · Advanced" (docs/line-volume/spec-search.md 1.2). Basic (BasicPane.tsx):
+// the goals, Where, the rig in use. Advanced: Where, the run's name, the goals as cards with "Custom", the key
+// fields and "More settings" by topic, a dot on every value that differs from Basic's ("reset" puts Basic's back)
+// and, in "Clearance model", the rigging saved as a rig. Where (Point · Area · Along cliffs · File) is one block
+// shown in either tab. The bar with the size word, the receipt and the start is a bar of its own (EstimateBar),
+// which the page places under the panel (NewSearch's bottom bar). UsageMeters shows the user's quotas;
+// SearchIntro, "How a search works", opens once. Styles in search.css (s-*), under the kit's .ui root.
 
-import { useState } from "preact/hooks";
-import type { Field as SchemaField, Preset, Usage, UsageItem } from "../app/api";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
+import type { Field as SchemaField, Usage, UsageItem } from "../app/api";
 import { parseValue, withValue } from "../app/request";
 import { errorText, label, t } from "../i18n";
-import { Button, Field, Progress, Range, RangePair, Segmented, StatusChip, type Option } from "../ui/components";
+import { Button, Field, Hint, Progress, Range, RangePair, Segmented, type Option } from "../ui/components";
 import { Icon } from "../ui/icons";
 import { IntroLink, useIntro } from "../ui/Intro";
+import { differing, receiptParts, receiptShort, rigOf, rigProblem, sameRig, sizeOf, withBasicValue } from "./basic";
+import { BasicBottom, BasicTop, GoalCards, ReturnDialog, RigWindow, type RigAsk } from "./BasicPane";
 import { PlaceBox } from "./PlaceBox";
 import { SearchIntro } from "./SearchIntro";
-import { fmt, KEY_FIELDS, withinLimits, type SearchMode, type SearchState } from "./useSearch";
+import { fmt, KEY_FIELDS, withinLimits, type ReturnAsk, type SearchMode, type SearchState } from "./useSearch";
 import "./search.css";
 
 const cx = (...names: (string | false | null | undefined)[]) => names.filter(Boolean).join(" ");
@@ -59,6 +64,7 @@ function BufferField({s}: {s: SearchState}) {
   </Field>;
 }
 
+/** Where a search goes: one block, shown in Basic and in Advanced. */
 function Where({s, phone}: {s: SearchState; phone?: boolean}) {
   const radiusField = s.byName.radius;
   const id = useId("s-where");
@@ -111,33 +117,26 @@ function Where({s, phone}: {s: SearchState; phone?: boolean}) {
       {areas}
       <BufferField s={s} />
     </>}
+    <div class="s-row-end">
+      <Button kind="ghost" icon="close" onClick={s.clear}>Clear the place</Button>
+    </div>
   </div>;
 }
 
-// ---- presets and key fields ------------------------------------------------------------------
+// ---- Advanced: the goal cards, the key fields, the dots ---------------------------------------
 
-/** What a preset sets, in words. */
-export function describePreset(preset: Preset, byName: Record<string, SchemaField>): string {
-  if (!preset.values) return "your own values";
-  const v = preset.values;
-  const parts = [`${v.min_length}–${v.max_length} m`];
-  const diff = byName.max_anchor_diff_m;
-  if (v.max_anchor_diff_m !== undefined && (!diff || v.max_anchor_diff_m !== diff.default)) {
-    parts.push(`anchors within ${v.max_anchor_diff_m} m of height`);
-  }
-  return parts.join(", ");
-}
+/** A field's label with Advanced's dot when its value differs from Basic's. */
+const Dotted = ({on, children}: {on: boolean; children: string}) => <span class={cx(on && "s-changed")}>{children}</span>;
 
-function Presets({s}: {s: SearchState}) {
-  const presets = s.schema.presets;
-  if (!presets.length) return null;
-  const title = t("hint.presets.label");
-  return <Field label={title} hint={t("hint.presets.help")}><div class="s-cards" role="radiogroup" aria-label={title}>
-    {presets.map((p) => <button type="button" key={p.id} role="radio" aria-checked={p.id === s.preset}
-                                class={cx("s-card", p.id === s.preset && "u-on")} disabled={!p.available}
-                                title={p.reason ?? undefined} onClick={() => s.applyPreset(p.id)}>
-      <b>{p.label}</b><span>{p.available ? describePreset(p, s.byName) : p.reason}</span></button>)}
-  </div></Field>;
+/** "reset": Basic's value back, the focus to the field. */
+function ResetButton({s, names, focusId}: {s: SearchState; names: string[]; focusId?: string}) {
+  if (!names.some((n) => s.differs(n))) return null;
+  return <button type="button" class="s-reset" title={t("basic.reset_title")}
+                 onClick={() => {
+                   s.setValues(names.reduce((v, n) => withBasicValue(v, n, s.base, s.defaults), s.values));
+                   // the button goes with the change: the focus to the field
+                   if (focusId) setTimeout(() => document.getElementById(focusId)?.focus());
+                 }}>{t("basic.reset")}</button>;
 }
 
 function KeyFields({s}: {s: SearchState}) {
@@ -148,30 +147,32 @@ function KeyFields({s}: {s: SearchState}) {
   const diffMax = Math.max(100, diff);
   const source = byName.source;
   const sourceId = useId("s-source");
-  const changed = (name: string) => name in s.values;
   return <div class="s-keys">
-    {byName.min_length && byName.max_length && <Field
-      label={<span class={cx(changed("min_length") || changed("max_length") ? "s-changed" : "")}>{t("hint.length.label")}</span>}
+    {byName.min_length && byName.max_length && <div data-field="min_length"><Field
+      label={<Dotted on={s.differs("min_length") || s.differs("max_length")}>{t("hint.length.label")}</Dotted>}
       hintLabel={t("hint.length.label")}
       hint={[t("hint.length.help"), boundsText(byName.min_length.min, byName.max_length.max, "m")].filter(Boolean).join(" ")}
-      value={`${low} – ${high} m`} help={s.problems.min_length && <span class="s-problem">{s.problems.min_length}</span>}>
+      value={<>{`${low} – ${high} m`} <ResetButton s={s} names={["min_length", "max_length"]} /></>}
+      help={s.problems.min_length && <span class="s-problem">{s.problems.min_length}</span>}>
       <RangePair label={t("hint.length.label")} low={low} high={high} min={5} max={lengthMax} step={5}
                  onInput={(a, b) => s.setValues(withLengths(s, a, b))} />
-    </Field>}
-    {byName.max_anchor_diff_m && <Field
-      label={<span class={cx(changed("max_anchor_diff_m") && "s-changed")}>{label("max_anchor_diff_m")}</span>}
-      hintLabel={label("max_anchor_diff_m")} hint={hintOf(byName.max_anchor_diff_m)} value={`≤ ${diff} m`}>
+    </Field></div>}
+    {byName.max_anchor_diff_m && <div data-field="max_anchor_diff_m"><Field
+      label={<Dotted on={s.differs("max_anchor_diff_m")}>{label("max_anchor_diff_m")}</Dotted>}
+      hintLabel={label("max_anchor_diff_m")} hint={hintOf(byName.max_anchor_diff_m)}
+      value={<>{`≤ ${diff} m`} <ResetButton s={s} names={["max_anchor_diff_m"]} /></>}>
       <Range label={label("max_anchor_diff_m")} value={diff} min={0} max={diffMax} step={1}
              onInput={(v) => s.setValue("max_anchor_diff_m", v)} />
-    </Field>}
-    {source && <Field label={<span class={cx(changed("source") && "s-changed")}>{label("source")}</span>} htmlFor={sourceId}
+    </Field></div>}
+    {source && <div data-field="source"><Field label={<Dotted on={s.differs("source")}>{label("source")}</Dotted>} htmlFor={sourceId}
                       hintLabel={label("source")} hint={hintOf(source)}
+                      value={<ResetButton s={s} names={["source"]} focusId={sourceId} />}
                       help={<a href="/coverage" target="_blank" rel="noopener">{t("ui.coverage.where")}</a>}>
       <select id={sourceId} class="u-input" value={String(s.value("source"))}
               onChange={(e) => s.setValue("source", e.currentTarget.value)}>
         {source.choices!.map((c) => <option value={c}>{source.choice_labels?.[c] ?? c}</option>)}
       </select>
-    </Field>}
+    </Field></div>}
   </div>;
 }
 
@@ -217,20 +218,12 @@ function ParamInput({field, value, onChange, id, invalid}:
 
 function Setting({s, field}: {s: SearchState; field: SchemaField}) {
   const id = useId("s-f");
-  const changed = field.name in s.values;
+  const changed = s.differs(field.name);
   const problem = s.problems[field.name];
   return <div class={cx("s-setting", changed && "s-is-changed")} data-field={field.name}>
-    <Field htmlFor={id} label={<span class={cx(changed && "s-changed")}>{label(field.name)}</span>}
+    <Field htmlFor={id} label={<Dotted on={changed}>{label(field.name)}</Dotted>}
            hintLabel={label(field.name)} hint={hintOf(field)}
-           value={changed ? <button type="button" class="s-reset" title="Back to the default"
-                                    onClick={() => {
-                                      const next = {...s.values};
-                                      delete next[field.name];
-                                      s.setValues(next);
-                                      // the button goes with the change: the focus to the field
-                                      setTimeout(() => document.getElementById(id)?.focus());
-                                    }}>
-             reset</button> : undefined}
+           value={<ResetButton s={s} names={[field.name]} focusId={id} />}
            help={problem && <span class="s-problem">{problem}</span>}>
       <ParamInput id={id} field={field} value={s.values[field.name]} invalid={!!problem}
                   onChange={(v) => s.setValue(field.name, v)} />
@@ -238,71 +231,206 @@ function Setting({s, field}: {s: SearchState; field: SchemaField}) {
   </div>;
 }
 
-/** A topic of More settings: open at first when it is "lines" or has changed values, then as the user
- *  leaves it (a reset does not fold it under the pointer). */
-function Topic({s, topic, title, fields}: {s: SearchState; topic: string; title: string; fields: SchemaField[]}) {
-  const count = fields.filter((f) => f.name in s.values).length;
-  const [open, setOpen] = useState(() => topic === "lines" || count > 0);
-  return <details class="s-topic" open={open}
+/** "Clearance model" ends with the rigging shown saved as a rig: into the rig in use (at once), or as a new rig
+ *  (the rig's window, filled). */
+function SaveRig({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
+  const r = s.rigs;
+  const shown = rigOf(s.resolved);
+  const same = r.inUse ? sameRig(shown, r.inUse.values) : false;
+  const full = r.rigs.length >= r.max;
+  const [message, setMessage] = useState("");
+  const key = JSON.stringify(shown);
+  useEffect(() => setMessage(""), [key]);  // a new value: the last save's words go (not when the rig in use changes)
+  const into = async () => {
+    const problem = rigProblem(shown, s.byName);
+    if (problem) { setMessage(problem); return; }
+    const target = r.inUse!;
+    try {
+      await r.change(target.id, {values: shown});
+      setMessage(t("basic.saved_into", {name: target.name}));
+    } catch (e) {
+      setMessage((e as Error).message);  // a coded answer: its text from the catalogue (ApiError, i18n.detailMessage)
+    }
+  };
+  // The rig in use gone (deleted on another device: "rig_missing" reloads the list, or found so when the page
+  // loaded): another rig stands in for Basic, but "Save into" stays off until the user chooses a rig in Basic, so a
+  // save never moves to a rig the user did not pick
+  const lost = r.lost;
+  const asNew = () => {
+    const problem = rigProblem(shown, s.byName);
+    if (problem) { setMessage(problem); return; }
+    onRig({mode: r.inUse ? "new" : "first", values: shown, from: "advanced"});
+  };
+  const note = message || (lost ? t("error.rig_missing")
+    : full && !same && r.inUse ? t("basic.full_save_into", {max: r.max, name: r.inUse.name})
+    : r.inUse && same ? t("basic.same_values", {name: r.inUse.name}) : t("basic.rig_keeps"));
+  return <div class="s-rig-save">
+    <div class="s-rig-ask">
+      {r.inUse && <Button disabled={same || lost} onClick={into}>{t("basic.save_into", {name: r.inUse.name})}</Button>}
+      <Button disabled={full} onClick={asNew}>{t(r.inUse ? "basic.save_new" : "basic.save_mine")}</Button>
+    </div>
+    <p class="u-small" aria-live="polite">{note}</p>
+  </div>;
+}
+
+/** A topic of More settings: open at first when it is "lines" or has values that differ from Basic's, then as the
+ *  user leaves it (a reset does not fold it under the pointer); opened when a field of it is asked for. */
+function Topic({s, topic, title, fields, onRig}:
+               {s: SearchState; topic: string; title: string; fields: SchemaField[]; onRig(ask: RigAsk): void}) {
+  const count = fields.filter((f) => s.differs(f.name)).length;
+  const asked = () => !!s.focus && fields.some((f) => f.name === s.focus!.field);
+  const [open, setOpen] = useState(() => topic === "lines" || count > 0 || asked());
+  useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);  // before AdvancedPane focuses the field
+  return <details class="s-topic" open={open} data-topic={topic}
                   onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}>
     <summary><span class="u-grow">{title}</span>{count > 0 && <span class="u-badge">{count}</span>}</summary>
-    <div class="s-topic-body">{fields.map((f) => <Setting key={f.name} s={s} field={f} />)}</div>
+    <div class="s-topic-body">
+      {fields.map((f) => <Setting key={f.name} s={s} field={f} />)}
+      {topic === "rigging" && <SaveRig s={s} onRig={onRig} />}
+    </div>
   </details>;
 }
 
-function MoreSettings({s}: {s: SearchState}) {
-  const [open, setOpen] = useState(false);
+function MoreSettings({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
   const topics = Object.entries(s.schema.topics).filter(([t]) => t !== "where");
   const fields = s.schema.fields.filter((f) => f.topic && f.topic !== "where" && !KEY_FIELDS.includes(f.name));
-  const changed = fields.filter((f) => f.name in s.values).length;
-  return <div class="s-more">
+  const changed = fields.filter((f) => s.differs(f.name)).length;
+  const asked = () => !!s.focus && (s.focus.field === "more" || fields.some((f) => f.name === s.focus!.field));
+  const [open, setOpen] = useState(asked);
+  useLayoutEffect(() => { if (asked()) setOpen(true); }, [s.focus?.n]);
+  return <div class="s-more" data-field="more">
     <button type="button" class="s-more-head" aria-expanded={open} onClick={() => setOpen(!open)}>
       <Icon name="filter" /><span class="u-grow">More settings · height, anchors, data, rigging model, output</span>
-      {changed > 0 && <span class="u-badge">{changed} changed</span>}
+      {changed > 0 && <span class="u-badge">{t("basic.changed", {count: changed})}</span>}
       <span class="u-badge u-n">{fields.length}</span><Icon name={open ? "down" : "next"} />
     </button>
     {open && <div class="s-topics">
       {topics.map(([topic, title]) => {
         const these = fields.filter((f) => f.topic === topic);
         if (!these.length) return null;
-        return <Topic key={topic} s={s} topic={topic} title={title} fields={these} />;
+        return <Topic key={topic} s={s} topic={topic} title={title} fields={these} onRig={onRig} />;
       })}
     </div>}
   </div>;
 }
 
-// ---- estimate and start ----------------------------------------------------------------------
+/** The Advanced tab above Where: "Filled from Basic: <goal>, <rig>." (only when its values came from Basic, not from
+ *  a request opened in Advanced) and how many values differ from Basic's. */
+function AdvancedTop({s}: {s: SearchState}) {
+  const dots = differing(s.resolved, s.base).length;
+  const goal = s.goalOf(s.goal);
+  const rig = s.rigs.inUse ? s.rigs.inUse.name : t("basic.from_starting");
+  return <p class="s-from">{s.filled && <>{t("basic.from", {goal: goal?.label ?? s.goal, rig})}{" "}</>}
+    {dots ? t("basic.differ", {count: dots}) : t("basic.differ_none")}</p>;
+}
 
-/** The live estimate and the start: one line with "Start search" (a bottom bar). */
-export function EstimateBar({search: s, usage}: {search: SearchState; usage?: Usage | null}) {
+/** The Advanced tab under Where: the run's name, the goal cards, the key fields, More settings. */
+function AdvancedBottom({s, onRig}: {s: SearchState; onRig(ask: RigAsk): void}) {
+  const nameField = s.byName.name;
+  const nameId = useId("s-name");
+  // A field asked for (the receipt, "Lighter"): MoreSettings and its Topic open it (their layout effects), then it
+  // is focused once it is drawn (a few frames at most)
+  useEffect(() => {
+    if (!s.focus) return;
+    const field = s.focus.field;
+    let timer: ReturnType<typeof setTimeout> | undefined, tries = 10;
+    const focus = () => {
+      const box = field === "name" ? document.getElementById(nameId)?.parentElement
+        : document.querySelector(`.s-pane [data-field="${field}"]`);
+      const target = field === "more" ? box?.querySelector<HTMLElement>(".s-more-head")
+        : box?.querySelector<HTMLElement>("input, select, button.s-more-head");
+      if (target && target.getClientRects().length) {
+        box?.scrollIntoView?.({block: "center"});
+        target.focus();
+      } else if (tries-- > 0) timer = setTimeout(focus, 50);
+    };
+    timer = setTimeout(focus);
+    return () => clearTimeout(timer);
+  }, [s.focus?.n]);
+  return <>
+    {nameField && <Field label={label("name")} htmlFor={nameId} hint={hintOf(nameField)}>
+      <input id={nameId} class="u-input" type="text" value={s.name} placeholder="from OpenStreetMap"
+             onInput={(e) => s.setName(e.currentTarget.value)} />
+    </Field>}
+    <h2 class="u-h s-gap">Lines</h2>
+    <Field label={t("hint.presets.label")} hint={t("hint.presets.help")}><GoalCards s={s} /></Field>
+    <KeyFields s={s} />
+    <MoreSettings s={s} onRig={onRig} />
+  </>;
+}
+
+// ---- the bar: the size word, the receipt and the start -----------------------------------------
+
+/** The size word with its "?": the causes, the measured factors (part M3: kept lines, a leash fall space of 6 m,
+ *  the square rule), the example, "a rough guide". */
+function SizeWord({s, phone}: {s: SearchState; phone?: boolean}) {
+  const size = sizeOf(s.resolved, s.km2);
+  const why = size.causes.length ? t("basic.size.why", {word: size.word, causes: size.causes.join(", ")})
+    : t("basic.size.why_none", {word: size.word});
+  return <div class="s-size">
+    <span class={`sz sz-${size.level}`} data-size={size.level}>{size.word}</span>
+    <Hint label={t("basic.size.label")}>
+      <span class="s-tip-p">{why}</span>
+      <span class="s-tip-p">{t("basic.size.factors")}</span>
+      <span class="s-tip-p">{t("basic.size.example")}</span>
+      <span class="s-tip-p">{t("basic.size.rough")}</span>
+    </Hint>
+    {!phone && size.causes.length > 0 && <span class="s-size-why">{size.causes.join(", ")}</span>}
+  </div>;
+}
+
+/** The bottom bar (both tabs): the size word, km², the data source and grid of the estimate, the receipt (each part
+ *  opens its field in Advanced; a Where problem or a refusal replaces it), the estimate's state when it is not
+ *  simply ready, "Start search". On a phone (`phone`) the compact bar: one line "<goal or Custom> · <lengths> ·
+ *  <rig>" that unfolds the receipt, the source and the grid. */
+export function EstimateBar({search: s, usage, phone}: {search: SearchState; usage?: Usage | null; phone?: boolean}) {
   const {status, estimate, message} = s.estimate;
+  const [open, setOpen] = useState(false);
   const limit = withinLimits(usage ?? null, estimate, s.km2);
   const state = status === "ready" ? (limit && !limit.ok ? "warn" : "ok")
     : status === "refused" ? "bad" : status === "paused" || status === "unavailable" ? "warn" : "idle";
-  const line = status === "incomplete" ? message
-    : status === "waiting" || status === "loading" ? "Estimating…"
+  // A Where problem (the request is a message) or a refusal of the estimate replaces the receipt
+  const problem = status === "incomplete" || status === "refused" ? message : "";
+  const estimating = status === "waiting" || status === "loading";
+  const line = problem ? ""
     : status === "paused" ? `Estimate paused: ${message}.${s.estimate.retrying ? " Trying again in a moment." : ""}`
-    : status === "refused" ? message
     : status === "unavailable" ? `No estimate: ${message}`
-    : limit ? limit.text : "Ready to search";
-  const stats = estimate && <>
-    {s.km2 !== null && <div class="s-stat"><b>{fmt(s.km2)} km²</b><span>area</span></div>}
-    <div class="s-stat"><b>{estimate.source}</b><span>{estimate.resolution} m grid</span></div>
-    <div class="s-stat"><b>~{fmt(estimate.download_mb)} MB</b><span>download</span></div>
-    {estimate.tiles > 1 && <div class="s-stat"><b>{estimate.tiles}</b><span>tiles</span></div>}
-  </>;
+    : limit ? limit.text : "";
   const warnings = estimate ? [...estimate.reasons,
     ...estimate.messages.filter(([kind]) => kind === "warning")
       .map(([, text, info]) => info ? errorText(info, text) : text)] : [];
-  return <div class={cx("s-bar", `s-${state}`)}>
-    <StatusChip status={state === "ok" ? "done" : state === "bad" ? "failed" : state === "warn" ? "shared" : "waiting"}>
-      {state === "ok" ? "Ready" : state === "bad" ? "Refused" : status === "loading" || status === "waiting"
-        ? "Estimating" : state === "warn" ? "Check" : "Not ready"}</StatusChip>
-    {stats}
-    <span class="u-grow s-bar-line">{line}{warnings.length > 0 && ` · ${warnings.length} warning(s)`}</span>
-    {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
-      <button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button>}
-    {s.error && <span class="s-problem">{s.error}</span>}
+  const goal = s.tab === "basic" ? s.goalOf(s.goal)?.label ?? null
+    : s.preset && s.preset !== "custom" ? s.goalOf(s.preset)?.label ?? null : null;
+  const parts = receiptParts(s.resolved, s.defaults, s.rigs.inUse, s.name);
+  const unfolded = open && !problem;
+  // Only the daily limit's "within" text may fold away on a phone; a warning, a refusal or an error always shows
+  const quiet = state === "ok" && !warnings.length;
+  return <div class={cx("s-bar", `s-${state}`, phone && "s-compact", unfolded && "s-open")} data-estimate={status}>
+    {phone && <button type="button" class={cx("s-sum", problem && "s-bad")} aria-expanded={unfolded}
+                      aria-disabled={problem ? true : undefined} title={t("basic.receipt.toggle")}
+                      onClick={() => { if (!problem) setOpen(!open); }}>
+      <span class="u-grow">{problem || receiptShort(s.resolved, goal, s.rigs.inUse)}</span>
+      {!problem && <span aria-hidden="true">{unfolded ? "▴" : "▾"}</span>}</button>}
+    {/* On a phone the receipt may be folded away (display: none): what it says is read out from here */}
+    {phone && <p class="u-sr" aria-live="polite">
+      {problem || parts.filter((p) => !p.wide).map((p) => p.text).join(" · ")}</p>}
+    {s.error && <p class="s-problem s-bar-error" role="alert">{s.error}</p>}
+    <SizeWord s={s} phone={phone} />
+    {s.km2 !== null && <div class="s-stat s-stat-area"><b>{fmt(s.km2)} km²</b>{!phone && <span>area</span>}</div>}
+    {estimate && <div class="s-stat s-stat-source"><b>{estimate.source}</b><span>{estimate.resolution} m grid</span></div>}
+    {estimating && <div class="s-stat s-stat-source s-estimating"><span>Estimating…</span></div>}
+    {estimate && estimate.tiles > 1 && <div class="s-stat s-stat-source"><b>{estimate.tiles}</b><span>tiles</span></div>}
+    <p class="s-receipt" aria-live={phone ? undefined : "polite"}>
+      {problem ? <span class="s-problem">{problem}</span> : parts.map((p, i) =>
+        <span key={p.field + i} class={cx(p.wide && "s-wide-only")}>{i > 0 && " · "}
+          <button type="button" data-field={p.field} title={t("basic.receipt.open")}
+                  onClick={() => s.toAdvanced(p.field)}>{p.text}</button></span>)}
+    </p>
+    {(line || warnings.length > 0) &&
+      <p class={cx("s-bar-line", state === "warn" && "s-warn", quiet && "s-quiet")}>
+        {line}{warnings.length > 0 && `${line ? " · " : ""}${warnings.length} warning(s)`}
+        {(status === "paused" && !s.estimate.retrying || status === "unavailable") &&
+          <>{" "}<button type="button" class="s-link" onClick={s.estimate.retry}>Try again</button></>}</p>}
     <Button kind="primary" large disabled={!s.canStart} onClick={s.start} iconRight="next" class="s-start">
       {s.busy ? "Starting…" : "Start search"}</Button>
   </div>;
@@ -345,28 +473,51 @@ export interface SearchPanelProps {
   phone?: boolean;                 // shorter mode labels
 }
 
+const TABS = ["basic", "advanced"] as const;
+
 /** The panel of the state `search`. */
 export function SearchPanel({search: s, usage, phone}: SearchPanelProps) {
   const intro = useIntro("search");
-  const nameField = s.byName.name;
-  const nameId = useId("s-name");
-  // The run's name, under Where
-  const name = nameField && <Field label={label("name")} htmlFor={nameId} hint={hintOf(nameField)}>
-    <input id={nameId} class="u-input" type="text" value={s.name} placeholder="from OpenStreetMap"
-           onInput={(e) => s.setName(e.currentTarget.value)} />
-  </Field>;
+  const [ask, setAsk] = useState<ReturnAsk | null>(null);
+  const [rig, setRig] = useState<RigAsk | null>(null);
+  const tabs = useRef<HTMLDivElement>(null);
+  const ids = useId("s-tab");
+  const focusTab = (tab: string) => setTimeout(() => tabs.current?.querySelector<HTMLElement>(`[data-tab="${tab}"]`)?.focus());
+  const choose = (tab: typeof TABS[number]) => {
+    if (tab === s.tab) return;
+    if (tab === "advanced") s.toAdvanced();
+    else { const asked = s.toBasic(); if (asked) setAsk(asked); }
+  };
+  // The tabs as WAI-ARIA's (manual activation): ←/→ (Home/End) move the focus between them, Enter or Space (a click)
+  // chooses one; the tab not chosen is out of the Tab order
+  const key = (e: KeyboardEvent) => {
+    const at = TABS.indexOf((e.target as HTMLElement).dataset.tab as typeof TABS[number]);
+    const to = e.key === "ArrowRight" ? (at + 1) % TABS.length : e.key === "ArrowLeft" ? (at + TABS.length - 1) % TABS.length
+      : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : -1;
+    if (at < 0 || to < 0) return;
+    e.preventDefault();
+    tabs.current?.querySelector<HTMLElement>(`[data-tab="${TABS[to]}"]`)?.focus();
+  };
+  // One panel for both tabs: its first and last parts are the tab's own, Where between them is the same element in
+  // both (keyed), so a tab switch keeps the place box's text and the map's state
   return <div class="s-panel">
+    <div class="u-seg s-tabs" role="tablist" aria-label={t("basic.tabs")} ref={tabs} onKeyDown={key}>
+      {TABS.map((tab) => <button type="button" key={tab} role="tab" data-tab={tab} id={`${ids}-${tab}`}
+                                 aria-selected={s.tab === tab} aria-controls={`${ids}-panel`} tabIndex={s.tab === tab ? 0 : -1}
+                                 class={s.tab === tab ? "u-on" : ""} onClick={() => choose(tab)}>
+        {t(`basic.tab.${tab}`)}</button>)}
+    </div>
     <SearchIntro state={intro} usage={usage ?? null} />
     <p class="s-intro"><IntroLink state={intro}><Icon name="info" />{t("intro.search.link")}</IntroLink></p>
-    <h2 class="u-h">Where</h2>
-    <Where s={s} phone={phone} />
-    {name}
-    <h2 class="u-h s-gap">Lines</h2>
-    <Presets s={s} />
-    <KeyFields s={s} />
-    <MoreSettings s={s} />
-    <div class="s-row-end">
-      <Button kind="ghost" icon="close" onClick={s.clear}>Clear the place</Button>
+    <div class="s-pane" role="tabpanel" id={`${ids}-panel`} aria-labelledby={`${ids}-${s.tab}`} data-tab-panel={s.tab}>
+      {s.tab === "basic" ? <BasicTop key="basic-top" s={s} /> : <AdvancedTop key="advanced-top" s={s} />}
+      <h2 key="where-title" class={cx("u-h", s.tab === "basic" && "s-gap")}>{t("basic.where")}</h2>
+      <Where key="where" s={s} phone={phone} />
+      {s.tab === "basic"
+        ? <BasicBottom key="basic-bottom" s={s} onRig={setRig} onEvery={() => { s.toAdvanced(); focusTab("advanced"); }} />
+        : <AdvancedBottom key="advanced-bottom" s={s} onRig={setRig} />}
     </div>
+    {rig && <RigWindow s={s} ask={rig} onClose={() => setRig(null)} />}
+    {ask && <ReturnDialog s={s} ask={ask} onClose={() => setAsk(null)} />}
   </div>;
 }

@@ -64,15 +64,24 @@ layout (localStorage `findaline.layout`, `sanitize`, `fitColumns` and `maxColumn
 `fitPanels`/`maxPanelWidth`, which the highline layer's panels share with their own `LAYER_LIMITS` and kept value,
 `sanitizeLayer`, `findaline.layer.layout`; `cardInsets`, `moveCardEdge`, `LIMITS`) and `useLayout.ts` its state;
 `credits.ts` `useRunCredits`), `view/ResultIntro.tsx` "How to read the result" (mounted by `FilterBar.tsx`), demo
-`?ui=kit-result`), `search/` the new search panel (`useSearch`: modes, presets, live estimate; `PlaceBox.tsx` the
-place-name box; `SearchIntro.tsx` "How a search works" with the user's limits from `/api/usage`; demo
-`?ui=kit-search`), `app/useJobs.ts`, `app/request.ts` (the search's request), `app/areas.ts` and `app/files.ts` (areas
+`?ui=kit-result`), `search/` the new search panel (`useSearch`: the tabs Basic and Advanced, Basic's goal and the
+rig in use, Advanced's values, Where's modes, the live estimate; `SearchPanel.tsx` the tabs, Where, Advanced (the goal
+cards, a dot and "reset" for a value that differs from Basic's, "Save into" / "Save as a new rig" in Clearance
+model) and `EstimateBar`, the bar of both tabs (the size word, the receipt, Start; a phone's compact bar);
+`BasicPane.tsx` the Basic tab, the rig's window and the dialog of going back to Basic; `basic.ts` the form's rules
+as pure functions (spec-search 1.2: `basicRequestValues` (every value explicit), `basicProblem` (a site that leaves
+out a field Basic must send), `matchGoal`, `notInBasic`, `openingTab`, `receiptParts`, `sizeOf`, the rig's words and
+checks with the site's bounds (`rigProblem`, `rigMax`), `whereForGoal`, `findaline.rig` the rig in use per browser),
+tested in Node; Where is one element kept between the tabs' own parts (`BasicTop`/`BasicBottom`, `AdvancedTop`/
+`AdvancedBottom`) in one tab panel (the WAI-ARIA tabs, manual activation); `useRigs.ts` the
+saved rigs, `/api/rigs`; `PlaceBox.tsx` the place-name box; `SearchIntro.tsx` "How a search works" with the user's
+limits from `/api/usage`; demo `?ui=kit-search`), `app/useJobs.ts`, `app/request.ts` (the search's request), `app/areas.ts` and `app/files.ts` (areas
 of drawn shapes, area files) shared by the shells, `app/BetaNotice.tsx` (the notice after a sign-in: the cookie
 `web.WELCOME_COOKIE`) and `app/ReportDialog.tsx` with `report.ts` (Report a problem, opened by a window event from
 anywhere; both mounted by `app.tsx`), `app/c/` the app's shell (`AppC.tsx`: the header, the pages and the phones'
 bottom navigation; hash routes in `route.ts`; `ResultPage.tsx` wraps `result/view/ResultColumns.tsx`; `NewSearch.tsx`
-the search, whose panel `search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search`
-shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
+the search (it waits for the saved rigs: a request to edit opens Basic or Advanced by them), whose panel
+`search/SearchPanel.tsx` has one layout since its variant of B went (the demo `?ui=kit-search` shows it); `AdminC.tsx`, `OsmC.tsx` the admin and OSM pages; `LayerPage.tsx` the highline layer (`#layer`; the local
 app and administrators, from the account menu; `MapPage` with an `aside`: two side panels as the result's
 (`ui/SidePanel.tsx`; `layout.ts` `fitPanels` with `LAYER_LIMITS`: left 320-560 px, right 300-640, the map at least
 360; kept under `findaline.layer.layout`), each one's content in a scroll box, the rails' labels from the page

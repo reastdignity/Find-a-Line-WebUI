@@ -15,7 +15,12 @@ and accounts not approved; who may open a run: `may_open` (owner, administrators
 token a map's changes need, a map being a static page; POST marks or unmarks one (into a folder), its values checked
 by `FavouriteLine` (`lift_needed`/`lift_no_zone` optional, `OPTIONAL`: null dropped), `/favourites/folder` moves one;
 `/api/favourites`: all of them in runs the user may open, with the user's folders; `/api/favourites/folders`: make,
-rename/move (POST `/<id>`), delete with what is in it; audit `favourite`, `favourite_folder`), the admin tab's
+rename/move (POST `/<id>`), delete with what is in it; audit `favourite`, `favourite_folder`), the saved rigs of
+the Basic form (`/api/rigs`: GET the user's with `max`, POST makes one (`jobs.rig_name`, `params.check_rig`, and
+`rig_within`: the user's bounds of the search, `at_most`/`at_least` as the search refuses, so a saved rig never blocks
+every Basic search; the local app without limits keeps SearchParams' bounds); POST `/<id>` renames and/or changes it,
+DELETE; another's or a gone rig 404 `rig_missing`, the 11th `rigs_max` (409); audit `rig` with `do` only, no name or
+value), the admin tab's
 `/api/admin/*` (status, users, runs), `/api/osm` and the demo flag behind `require_admin`; the Admin page is
 `viewer/src/app/c/AdminC.tsx` (public site only), the OSM extracts `app/c/OsmC.tsx` (locally and for administrators)),
 the highline layer of a country (`Countries`: one `countcube.Cube` per version of
@@ -67,8 +72,10 @@ locally nothing stored); the sign-in page's total of everyone's searched km² (`
 `EVERYONE_SECONDS`); `/api/reports` (a problem report: `checked_report`, the User-Agent added by the server,
 `report_rate`; `/api/admin/reports` lists, marks done and deletes them; audit `report`); the sign-in leaves
 `WELCOME_COOKIE` for the beta notice; `/api/schema` also gives the form's labels, units, hints, choice labels and
-topics (from the message catalogue, `messages.text`; the fields of each topic: `params.TOPICS`) and the presets
-(`params.PRESETS`, `web.presets`: unavailable when a value is outside the user's bounds); the privacy and about pages
+topics (from the message catalogue, `messages.text`; the fields of each topic: `params.TOPICS`) and the goals of the
+Basic form and Advanced's cards (`params.PRESETS`: best, long, first, sea, everything and custom, each with all
+eleven `PRESET_FIELDS` = `GOAL_FIELDS`, `preset_values`; `web.presets`: unavailable when a value it sends is outside the
+user's bounds or not allowed, or a default it leaves is outside them); the privacy and about pages
 (`privacy_page`, `about_page`, `PAGE_HTML`; server-rendered, no script); `/coverage` (public in both modes,
 `COVERAGE_HTML`: a shell of `dist/coverage.js`, nothing stored); `font/woff2` registered with `mimetypes` (Python on
 Windows has no type for it); the audit log through `record`; the page is `viewer/src/app`
@@ -76,8 +83,8 @@ Windows has no type for it); the audit log through `record`; the page is `viewer
 ## `messages.py`, `locales/`
 
 The message catalogue of the web interface: `locales/<language>.json` (English only now: `en.json`), flat namespaced
-keys (`field.<name>.label`/`unit`/`help`, `choice.<field>.<value>`, `topic.<id>`, `preset.<id>`, `hint.*`,
-`error.<code>`, `ui.*`), i18next's JSON v4 (`{{name}}`, plurals `_zero`/`_one`/`_other`); `messages.text` formats it
+keys (`field.<name>.label`/`unit`/`help`, `choice.<field>.<value>`, `topic.<id>`, `preset.<id>` and `goal.<id>.text`
+(the goals), `basic.*` and `rig.*` (the Basic form, its rigs), `hint.*`, `error.<code>`, `ui.*`), i18next's JSON v4 (`{{name}}`, plurals `_zero`/`_one`/`_other`); `messages.text` formats it
 on the server as i18next does, `viewer/src/i18n.ts` (i18next core, no React bindings: `t`, `label`) in the page. The
 CLI keeps its own texts (`params.py` descriptions). Coded errors and notes: `messages.UserError` (a ValueError),
 `ServiceError` (a RuntimeError), `Note` (a str: a search's warning), `search.SearchError` and `jobs.QuotaExceeded`
@@ -120,7 +127,10 @@ downloaded (table `layer_downloads`: `add_layer_downloads`, the writer of `servi
 owners, visibility, share-link hash and size (table `runs`: `add_run`, `adopt_runs`, `runs_of`, `set_share`,
 `shared_run`, `set_visibility`/`demo_runs`: private or demo), the events and the workers' leases; the favourite lines
 (table `favourites`: `favourites`, `set_favourite`, `move_favourite`, at most `FAVOURITES_MAX` per user, deleted with
-their run, the local user's (NULL) given to the first administrator by `adopt_runs`) the users' problem reports (table
+their run, the local user's (NULL) given to the first administrator by `adopt_runs`), the saved rigs (table `rigs`,
+migration 18: `rigs`, `add_rig`, `change_rig`, `delete_rig`; `RIGS_MAX`, `RIG_NAME_MAX`, `rig_name` stores a name
+composed (NFC), `rig_key` compares it once per user casefolded; the local user's given by `adopt_runs` while the administrator holds fewer than `RIGS_MAX` and none of
+the name), the users' problem reports (table
 `reports`: `add_report`, `reports`, `set_report_status`, `delete_report`; `REPORT_CATEGORIES`, `REPORT_TEXT_MAX`) and
 the folders of favourites (table `favourite_folders`, nested: `folders`, `add_folder`, `change_folder`,
 `delete_folder` with what is in it; `FOLDERS_MAX`, `FOLDER_DEPTH_MAX`, `FOLDER_NAME_MAX`; `folders.ts` repeats the

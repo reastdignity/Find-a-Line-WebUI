@@ -62,14 +62,92 @@
 .ui .s-topic[open] > summary::before { transform: rotate(90deg); }
 .ui .s-topic-body { display: flex; flex-direction: column; gap: 14px; padding: 4px 12px 14px; }
 
-/* The estimate and the start: a bottom bar */
-.ui .s-bar { display: flex; align-items: center; gap: 18px; min-height: 72px; padding: 10px 24px; background: var(--surface);
+/* The tabs, the panes; Basic: the goals' hint, "Everything", the rig in use (BasicPane.tsx) */
+.ui .s-pane { display: flex; flex-direction: column; gap: 14px; }
+.ui .s-pane .u-h.s-gap, .ui .s-pane .s-gap { margin-top: 6px; }
+.ui .s-tabs { flex: none; }
+.ui .s-card b { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ui .s-card.s-wide { grid-column: 1 / -1; }
+.ui .s-heavy { font: 500 11px/1.2 var(--mono); font-style: normal; letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px;
+  border-radius: 999px; background: var(--bad-soft); color: var(--bad); }
+.ui .s-note { margin: 0; font-size: 13px; color: var(--ink-2); }
+.ui .s-from { margin: 0; padding: 8px 11px; border-radius: 8px; background: var(--accent-soft); color: var(--ink); font-size: 13px; }
+.ui .s-every { font-size: 14px; }
+.ui .s-rig { display: flex; flex-direction: column; gap: 6px; }
+.ui .s-rig-row { display: flex; align-items: flex-start; gap: 10px; }
+.ui .s-rig-sum { font-weight: 500; }
+.ui .s-rig-box { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px;
+  background: var(--surface-2); }
+.ui .s-rig-ask { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ui .s-rig-ask > span { flex: 1; min-width: 140px; font-weight: 500; }
+.ui .s-rig-pick { justify-content: space-between; min-width: 0; font-weight: 600; }
+.ui .s-rig-pick span:first-child { overflow: hidden; text-overflow: ellipsis; }
+.ui .s-rig-list { display: flex; flex-direction: column; gap: 2px; padding: 6px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); box-shadow: var(--shadow); }
+.ui .s-rig-item { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 1px; min-height: var(--touch, 36px);
+  padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.ui .s-rig-item:hover, .ui .s-rig-item[aria-pressed="true"] { background: var(--accent-soft); }
+.ui .s-rig-item b { font-weight: 600; }
+.ui .s-rig-item span { font-size: 12.5px; color: var(--ink-2); }
+.ui .s-rig-add { color: var(--accent); font-weight: 500; }
+.ui .s-rig-add:disabled { color: var(--muted); cursor: default; font-weight: 400; background: none; }
+.ui .s-rig-save { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.ui .s-rig-save .u-small { margin: 0; }
+
+/* The rig's window and the dialog of going back to Basic (native <dialog>s, app/notices.css u-dialog) */
+.ui.u-dialog.s-dialog { width: min(460px, calc(100vw - 32px)); padding: 18px 20px; }
+.ui.u-dialog.s-dialog > *, .ui.u-dialog.s-dialog form > * { margin: 0 0 12px; }
+.ui.u-dialog.s-dialog ul { color: var(--ink-2); }
+.ui .s-rig-grid { display: grid; grid-template-columns: minmax(0, 1fr) 118px; gap: 10px 12px; align-items: center; }
+.ui .s-rig-grid label { font-weight: 500; min-width: 0; }
+.ui .s-fx { display: block; font: 400 11.5px var(--mono); color: var(--muted); }
+.ui .s-rig-more { border-top: 1px solid var(--line); padding-top: 8px; }
+.ui .s-rig-more > summary { cursor: pointer; font-weight: 500; color: var(--ink-2); padding: 4px 0; }
+.ui .s-rig-more .s-rig-grid { margin-top: 8px; }
+.ui .s-rig-cost { padding: 8px 11px; border-radius: 8px; background: var(--surface-2); color: var(--ink-2); font-size: 13px; }
+.ui .s-rig-foot { flex-wrap: wrap; align-items: center; }
+.ui .s-rig-foot .s-left { margin-right: auto; }
+
+/* The bottom bar (both tabs): the size word, km², the source, the receipt, the start */
+.ui .s-bar { display: flex; align-items: center; gap: 8px 18px; min-height: 72px; padding: 10px 24px; background: var(--surface);
   border-top: 1px solid var(--line); flex-wrap: wrap; }
 .ui .s-stat { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
-.ui .s-stat b { font: 600 17px/1.15 var(--display); font-variant-numeric: tabular-nums; }
-.ui .s-stat span { font-size: 11.5px; color: var(--ink-2); }
-.ui .s-bar-line { font-size: 13px; color: var(--ink-2); }
-.ui .s-bar.s-bad .s-bar-line { color: var(--bad); }
+.ui .s-stat b { font: 600 17px/1.15 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ui .s-stat span { font-size: 11.5px; color: var(--ink-2); white-space: nowrap; }
+.ui .s-bar-line { margin: 0; flex-basis: 100%; order: -1; font-size: 13px; color: var(--ink-2); }
+.ui .s-bar-line.s-warn { color: var(--warn); }
+.ui .s-bar-error { margin: 0; flex-basis: 100%; order: -1; font-size: 13px; }  /* the start's error: always shown */
+.ui .s-size { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; max-width: 240px; }
+.ui .sz { font: 600 12px/1.2 var(--mono); letter-spacing: .04em; text-transform: uppercase; padding: 4px 9px; border-radius: 999px;
+  white-space: nowrap; }
+.ui .sz-0 { background: var(--ok-soft); color: var(--ok); }
+.ui .sz-1 { background: var(--accent-soft); color: var(--accent); }
+.ui .sz-2 { background: var(--warn-soft); color: var(--warn); }
+.ui .sz-3 { background: var(--bad-soft); color: var(--bad); }
+.ui .s-size-why { flex-basis: 100%; font-size: 11.5px; color: var(--ink-2); }
+.ui .s-tip-p { display: block; }
+.ui .s-tip-p + .s-tip-p { margin-top: 6px; }
+.ui .s-receipt { flex: 1 1 260px; min-width: 0; margin: 0; font-size: 13px; color: var(--ink-2); }
+.ui .s-receipt button { border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left;
+  text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+.ui .s-receipt button:hover { color: var(--accent); text-decoration-color: var(--accent); }
+/* The compact bar of a phone: one line that unfolds the receipt and the source */
+.ui .s-sum { display: none; }
+.ui .s-bar.s-compact { gap: 6px 10px; padding: 6px 12px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
+.ui .s-bar.s-compact .s-sum { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; order: -1; min-width: 0; min-height: 28px;
+  padding: 0; border: 0; background: none; color: var(--ink-2); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ui .s-sum .u-grow { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui .s-sum.s-bad { color: var(--bad); font-weight: 500; cursor: default; }
+.ui .s-sum.s-bad .u-grow { white-space: normal; }
+.ui .s-bar.s-compact .s-size { max-width: none; }
+.ui .s-bar.s-compact .s-stat b { font-size: 14.5px; }
+.ui .s-bar.s-compact .s-receipt, .ui .s-bar.s-compact .s-stat-source,
+.ui .s-bar.s-compact .s-bar-line.s-quiet { display: none; }
+.ui .s-bar.s-compact.s-open .s-receipt { display: block; flex: 1 1 100%; order: -3; }
+.ui .s-bar.s-compact.s-open .s-stat-source { display: flex; order: -2; }
+.ui .s-bar.s-compact.s-open .s-bar-line { display: block; order: -2; }
+.ui .s-bar.s-compact .s-wide-only { display: none; }
+.ui .s-bar.s-compact .s-start { flex: 0 0 auto; margin-left: auto; min-height: 44px; padding: 0 14px; font-size: 15px; }
 
 /* Usage meters */
 .ui .s-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px 14px; }
@@ -88,9 +166,6 @@
 .ui.s-kit .s-c-form { grid-area: form; overflow-y: auto; padding: 20px 24px; background: var(--surface); border-right: 1px solid var(--line); }
 .ui.s-kit .s-c-bar { grid-area: bar; position: relative; z-index: 1001; }
 .ui.s-kit.s-narrow .s-c-form { border-right: 0; padding: 14px 16px; }
-.ui.s-kit.s-narrow .s-bar { gap: 6px 12px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
-.ui.s-kit.s-narrow .s-bar-line { flex-basis: 100%; order: 5; }
-.ui.s-kit.s-narrow .s-start { flex: 1 1 100%; order: 6; }
 .ui.s-kit .s-searches { display: flex; flex-direction: column; gap: 12px; }
 .ui.s-kit .s-jobs { display: flex; flex-direction: column; gap: 8px; }
 .ui.s-kit .s-job { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }

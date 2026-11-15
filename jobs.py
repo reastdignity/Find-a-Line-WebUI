@@ -39,6 +39,7 @@ import sqlite3
 import sys
 import threading
 import time
+import unicodedata
 import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, NamedTuple, Optional, Set, Tuple
@@ -169,6 +170,13 @@ MIGRATIONS = [
     # the form changed, so a sag request of before without one gets the 3 m it was made with ("search again",
     # a job still waiting, the form's edit); formula requests stay as they are (the formula never reads it)
     lambda db: _sag_fall_zone(db),
+    # 18: a user's saved rigs (the Basic search form's; NULL: the local app's user): the name, its key (rig_key:
+    # composed and casefolded, once per user), and the seven values of params.RIG_FIELDS (JSON); no times. The id
+    # is never given again (AUTOINCREMENT): a browser that keeps a deleted rig's id as the rig in use must not
+    # find another rig under it
+    """CREATE TABLE rigs (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, name TEXT NOT NULL,
+                          name_key TEXT NOT NULL, rig TEXT NOT NULL);
+       CREATE UNIQUE INDEX rigs_name ON rigs (IFNULL(user_id, 0), name_key);""",
 ]
 # The column of a status's start (claim), or of the end of the download ("ready", set by its process)
 PHASE_TIME = {"downloading": "downloading_at", "ready": "ready_at", "computing": "computing_at"}
@@ -305,6 +313,25 @@ FOLDER_NAME_MAX = 100   # characters of a folder's name
 REPORT_CATEGORIES = ("results", "water", "interface", "other")  # of a problem report
 REPORT_TEXT_MAX = 4000  # characters of a problem report
 REPORT_STATUSES = ("open", "done")
+RIGS_MAX = 10      # saved rigs of a user (a safeguard, the same for everyone; the privacy page names it)
+RIG_NAME_MAX = 30  # characters of a rig's name
+
+
+def rig_name(value) -> str:
+    """A rig's name as stored: in Unicode's composed form (NFC, so a composed and a decomposed spelling are
+    one name), its runs of whitespace collapsed to one space, stripped; 1 to RIG_NAME_MAX characters, no
+    control characters (UserError "rig_name" otherwise; the error never holds the name)."""
+    if isinstance(value, str) and not any(unicodedata.category(c) == "Cc" for c in value):
+        name = " ".join(unicodedata.normalize("NFC", value).split())
+        if 0 < len(name) <= RIG_NAME_MAX:
+            return name
+    raise UserError(f"a rig's name: 1 to {RIG_NAME_MAX} characters, no control characters", "rig_name",
+                    max=RIG_NAME_MAX)
+
+
+def rig_key(name: str) -> str:
+    """The key a rig's name (of rig_name) is compared by, once per user: casefolded, composed again (NFC)."""
+    return unicodedata.normalize("NFC", name.casefold())
 
 
 # An absolute path on the server: C:\... (or C:/...), or /dir/... not in a URL (http://host/...: the
@@ -806,7 +833,8 @@ class Jobs:
     def adopt_runs(self, runs_dir: str, user_id: Optional[int]) -> int:
         """Give the runs without an owner to `user_id` (the first administrator), as private runs:
         those of the folder without a row (saved before the public mode, or on the command line) and
-        rows without a user (the local app's), with the local app's favourite lines. Runs in progress
+        rows without a user (the local app's), with the local app's favourite lines and the rigs it may
+        take (fewer than RIGS_MAX, a name it has not; the rest stay the local app's). Runs in progress
         (no run.json yet) are left to their job. Nothing is deleted. Returns how many runs were given."""
         import runs as rn
         found = []
@@ -827,6 +855,16 @@ class Jobs:
             if user_id is not None:  # the local app's favourites and their folders go with its runs
                 db.execute("UPDATE OR IGNORE favourites SET user_id = ? WHERE user_id IS NULL", (user_id,))
                 db.execute("UPDATE favourite_folders SET user_id = ? WHERE user_id IS NULL", (user_id,))
+                # and its rigs, by id, while the administrator holds fewer than RIGS_MAX and none of the
+                # name; the others stay the local app's
+                count = db.execute("SELECT COUNT(*) FROM rigs WHERE user_id = ?", (user_id,)).fetchone()[0]
+                taken = {r[0] for r in db.execute("SELECT name_key FROM rigs WHERE user_id = ?", (user_id,))}
+                for rig_id, key in db.execute("SELECT id, name_key FROM rigs WHERE user_id IS NULL ORDER BY id"
+                                              ).fetchall():
+                    if count < RIGS_MAX and key not in taken:
+                        db.execute("UPDATE rigs SET user_id = ? WHERE id = ?", (user_id, rig_id))
+                        count += 1
+                        taken.add(key)
         return len(new) + given
 
     def set_share(self, run_id: str, share_hash: Optional[str]):
@@ -990,6 +1028,55 @@ class Jobs:
                                (user_id, *inside)).rowcount
             db.execute(f"DELETE FROM favourite_folders WHERE id IN ({marks})", inside)
         return {"folders": len(inside), "favourites": lines}
+
+    # --- Saved rigs (the Basic search form's "Rigged as"; checked by rig_name and params.check_rig) ---
+
+    def rigs(self, user_id: Optional[int]) -> List[Dict]:
+        """A user's rigs, by id: id, name, values (a dict of params.RIG_FIELDS)."""
+        with self._db() as db:
+            rows = db.execute("SELECT id, name, rig FROM rigs WHERE user_id IS ? ORDER BY id", (user_id,)).fetchall()
+        return [{"id": r["id"], "name": r["name"], "values": json.loads(r["rig"])} for r in rows]
+
+    @staticmethod
+    def _rig_name_free(db, user_id: Optional[int], key: str, rig_id: Optional[int] = None):
+        """UserError "rig_name_taken" when another rig of the user has this casefolded name."""
+        if db.execute("SELECT 1 FROM rigs WHERE user_id IS ? AND name_key = ? AND id IS NOT ?",
+                      (user_id, key, rig_id)).fetchone():
+            raise UserError("a rig of that name exists already", "rig_name_taken")
+
+    def add_rig(self, user_id: Optional[int], name: str, values: Dict) -> int:
+        """A new rig of a user (a checked name and values); its id. QuotaExceeded (409) beyond RIGS_MAX,
+        UserError "rig_name_taken" for a name the user has (compared casefolded)."""
+        with self._write() as db:
+            count = db.execute("SELECT COUNT(*) FROM rigs WHERE user_id IS ?", (user_id,)).fetchone()[0]
+            if count >= RIGS_MAX:
+                raise QuotaExceeded(f"at most {RIGS_MAX} rigs: delete one first", 409, "rigs_max", max=RIGS_MAX)
+            self._rig_name_free(db, user_id, rig_key(name))
+            return db.execute("INSERT INTO rigs (user_id, name, name_key, rig) VALUES (?, ?, ?, ?)",
+                              (user_id, name, rig_key(name), json.dumps(values))).lastrowid
+
+    def change_rig(self, user_id: Optional[int], rig_id: int, name: Optional[str] = None,
+                   values: Optional[Dict] = None):
+        """Rename a user's rig and/or change its values (None: as they are). KeyError for a rig not the
+        user's, UserError "rig_name_taken" for the name of another of the user's rigs."""
+        if not 0 < rig_id < 2 ** 62:  # (an id SQLite cannot hold is no rig)
+            raise KeyError(rig_id)
+        with self._write() as db:
+            if not db.execute("SELECT 1 FROM rigs WHERE id = ? AND user_id IS ?", (rig_id, user_id)).fetchone():
+                raise KeyError(rig_id)
+            if name is not None:
+                self._rig_name_free(db, user_id, rig_key(name), rig_id)
+                db.execute("UPDATE rigs SET name = ?, name_key = ? WHERE id = ?", (name, rig_key(name), rig_id))
+            if values is not None:
+                db.execute("UPDATE rigs SET rig = ? WHERE id = ?", (json.dumps(values), rig_id))
+
+    def delete_rig(self, user_id: Optional[int], rig_id: int):
+        """Delete a user's rig; KeyError for a rig not the user's."""
+        if not 0 < rig_id < 2 ** 62:
+            raise KeyError(rig_id)
+        with self._write() as db:
+            if not db.execute("DELETE FROM rigs WHERE id = ? AND user_id IS ?", (rig_id, user_id)).rowcount:
+                raise KeyError(rig_id)
 
     # --- Problem reports (the users send them, administrators read them) ---
 

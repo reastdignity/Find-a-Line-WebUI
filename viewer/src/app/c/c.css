@@ -308,9 +308,7 @@
 .ui.c-narrow .c-thumb-label { right: 4px; bottom: 4px; font-size: 10.5px; }
 .ui.c-narrow .c-newsearch { grid-template: "top" auto "map" 34vh "form" minmax(0, 1fr) "bar" auto / minmax(0, 1fr); }
 .ui.c-narrow .c-newsearch .c-form { border-right: 0; padding: 14px 16px; }
-.ui.c-narrow .c-bar .s-bar { gap: 6px 12px; padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px)); min-height: 0; }
-.ui.c-narrow .c-bar .s-bar-line { flex-basis: 100%; order: 5; }
-.ui.c-narrow .c-bar .s-start { flex: 1 1 100%; order: 6; }
+/* the bar on phones: search.css's compact bar (EstimateBar phone) */
 /* A map page on phones as the new search: the map on top (it stays), the panel scrolls under it */
 .ui.c-narrow .c-mappage { flex-direction: column; overflow: hidden; }
 .ui.c-narrow .c-mappage .c-newmap { order: -1; flex: none; height: 34vh; border-bottom: 1px solid var(--line); }

@@ -1,7 +1,7 @@
 """
 Where the computing time of the web app's searches goes (F19 of docs/monitoring.md), from a
 jobs.sqlite: the finished searches by class (model, resolution, longest line, circle or area,
-preset, no-fall zone or A-frames), their computing seconds (sum, median, p90), the seconds and CPU seconds of every step
+goal of the form or an old preset, no-fall zone or A-frames), their computing seconds (sum, median, p90), the seconds and CPU seconds of every step
 (job_steps) and of the stages of the line search (job_stages), and the ratios of its funnel
 (job_funnel). Jobs from before migration 16 have no stages or funnel: those are read from their
 "info" events (the lines the search prints, whole seconds; no CPU).
@@ -32,15 +32,28 @@ from datetime import datetime
 from typing import Dict, Iterable, List, Optional, Tuple
 
 # What the tool needs of params.SearchParams and params.PRESETS (tests/test_job_stats.py checks it):
-# the defaults of the fields a class depends on, and the values of the presets of the kind of lines
+# the defaults of the fields a class depends on, and the values of the goals of the search form
 DEFAULTS = {"model": "formula", "min_length": 30, "max_length": 1000, "max_anchor_diff_m": 50, "resolution": None,
-            "end_zone": 0, "anchor_lift": 0}
+            "end_zone": 0, "anchor_lift": 0, "max_anchor_diff": 5, "nmpt": "mark", "high_above": 20,
+            "min_height": None, "min_mean_height": None, "min_high_share": None, "max_wall_angle": None,
+            "min_drop": None}
 PRESETS = {
-    "typical": {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10},
-    "long": {"min_length": 100, "max_length": 400},
-    "short": {"min_length": 15, "max_length": 60},
+    "best": {"min_length": 30, "max_length": 300, "max_anchor_diff_m": 10},
+    "long": {"min_length": 100, "max_length": 600, "max_anchor_diff_m": 30, "min_height": 30, "min_high_share": 50},
+    "first": {"min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject"},
+    "sea": {"min_length": 30, "max_length": 300, "min_drop": 30},
+    "everything": {},
 }
-PRESET_FIELDS = ("min_length", "max_length", "max_anchor_diff_m")
+PRESET_FIELDS = ("min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
+                 "min_height", "min_mean_height", "min_high_share", "max_wall_angle", "min_drop")
+# The presets of the form before the goals (2026-11-15), kept to name the searches made with them: matched on
+# their three fields only, as then, after the goals
+LEGACY_PRESETS = {
+    "typical (old)": {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10},
+    "long (old)": {"min_length": 100, "max_length": 400},
+    "short (old)": {"min_length": 15, "max_length": 60},
+}
+LEGACY_FIELDS = ("min_length", "max_length", "max_anchor_diff_m")
 # jobs.STEP_KEYS, jobs.STAGE_KEYS, jobs.FUNNEL_STEPS (the tool imports nothing of the app)
 STEP_KEYS = ("1", "2", "3", "4", "5", "orthophoto", "other")
 STAGE_KEYS = ("finding anchors", "anchor prominence and drop", "sag estimator table", "free directions",
@@ -169,12 +182,20 @@ def length_class(max_length: float) -> str:
     return next((f"<={top}" for top in (150, 400, 1000) if max_length <= top), ">1000")
 
 
+def _same(a, b) -> bool:
+    """Two values of a field alike: numbers as floats (30 and 30.0), others as they are."""
+    def number(v):
+        return isinstance(v, (int, float)) and not isinstance(v, bool)
+    return float(a) == float(b) if number(a) and number(b) else a == b
+
+
 def preset_of(params: Dict) -> str:
-    """The preset whose values a search has (the defaults for those it leaves out), else custom."""
-    values = {k: float(params.get(k, DEFAULTS[k])) for k in PRESET_FIELDS}
-    for name, preset in PRESETS.items():
-        if values == {k: float(preset.get(k, DEFAULTS[k])) for k in PRESET_FIELDS}:
-            return name
+    """The goal whose values a search has in all of PRESET_FIELDS (the defaults for those it leaves out),
+    else an old preset whose three values it has (LEGACY_PRESETS), else custom."""
+    for presets, fields in ((PRESETS, PRESET_FIELDS), (LEGACY_PRESETS, LEGACY_FIELDS)):
+        for name, preset in presets.items():
+            if all(_same(params.get(k, DEFAULTS[k]), preset.get(k, DEFAULTS[k])) for k in fields):
+                return name
     return "custom"
 
 

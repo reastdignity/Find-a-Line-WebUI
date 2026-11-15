@@ -96,17 +96,23 @@ height · trees marked · <rig>: sag, no-fall zone 5 m, A-frames 2 m · access m
 saved rig's name, "Rig" (the starting rig) or "Rig for this search"; "+ N more settings" counts other fields off the
 app's default, `same_line_square` at 5 counting as covered; "named “…”". A Where problem ("Select the centre of the
 search: click the map.", …) replaces it and disables Start. "access marked": U-4. Phones: the compact bar: one line
-"<goal or Custom> · <lengths> · <rig>" that unfolds the receipt, km², source and grid; "Lighter: …" moves into "?".
+"<goal or Custom> · <lengths> · <rig>" that unfolds the receipt, km², source and grid.
 
 **The size word** (N-05 'A rough size word in the form'; G-04 a "the word in the form as a hint"): "Light",
 "Heavier", "Heavy", "Very heavy": one step each for sag, a no-fall zone, A-frames, and one for lines spanning 900 m or
-more, else an area above 3.2 km²; the causes named ("sag, no-fall zone 5 m, A-frames 2 m"). Its "?" with the factors
-measured in the study (part P4): "sag ×7 to ×113 (×15 in the middle), the no-fall zone of 5 m ×2 to ×25 (×4.5),
-A-frames of 2 m ×1.3 to ×4.6 (×1.9); a leash fall space of 6 m instead of 3 m ×0.08 to ×0.75 (×0.56)"; "One 1 km
-circle in Poland: 2 015 lines with the simple formula, 605 729 with sag, a no-fall zone of 5 m and A-frames of 2 m"
-(KOB, parts E1 and P1); "This is a rough guide from other places, not a count for this one." At "Very heavy" with
-sag: "Lighter: the simple formula, in Advanced. Usually about 15 times fewer lines (7 to 113)." The mock-up's note
-"Measured with 3 m of leash fall space" goes. Changed texts: U-3. **Start** posts `/api/jobs` as today.
+more, else an area above 3.2 km²; the causes named ("sag, no-fall zone 5 m, A-frames 2 m"). Its "?", as built (the
+user, 2026-11-15: "1. ok 2. ok c)"), with the factors of the lines the search keeps, measured again with a leash fall
+space of 6 m and the square rule of 5 (part M3 of round 2: the reference cases with the goals 'best' and
+'everything', ranges by part P4's rule): "More lines than the simple formula alone: sag ×1.2 to ×3.8 (×1.6 in the middle), the
+no-fall zone of 5 m ×1.6 to ×36 (×4.1), A-frames of 2 m ×1.2 to ×3.4 (×1.6); a leash fall space of 6 m instead of 3 m
+×0.14 to ×0.82 (×0.52)."; "One 1 km circle in Poland: 531 lines with the simple formula, 25 349 with sag, a no-fall
+zone of 5 m and A-frames of 2 m." (KOB, 'everything', kept lines, part M3); "This is a rough guide from other places,
+not a count for this one." The rig's window names the same factors: "With this rig: sag gives about 1.2 to 3.8 times
+the lines of the simple formula. The no-fall zone multiplies them by 1.6 to 36. A-frames multiply them by 1.2 to 3.4."
+(only the parts the rig has), and beside its fields "on: ×1.6 to ×36 lines" and "on: ×1.2 to ×3.4 lines". There is no
+"Lighter" hint (the user, 2026-11-15, "c"): the bar, the "?" and the phones offer no shortcut to the simple formula.
+The mock-up's note "Measured with 3 m of leash fall space" goes. Changed texts: U-3. **Start** posts `/api/jobs` as
+today.
 
 ### 1.3 Data
 - **The rigs** in `jobs.sqlite` (beside the favourites), by the next free migration number when it is built (17 is

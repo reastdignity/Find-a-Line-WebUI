@@ -56,6 +56,7 @@ import accounts as ac
 import cache
 import messages
 from audit import KEEP_DAYS as AUDIT_DAYS, Audit
+import jobs as jb
 import params as pm
 from jobs import EVENTS_LIMIT, TICK, Jobs, QuotaExceeded, Scheduler, search_params, warm_up_wanted
 from settings import AccountSettings, Limits, PublicSettings, ViewSettings, web_key
@@ -198,24 +199,44 @@ def schema(limits: Optional[Limits] = None, hidden_sources=()) -> List[Dict]:
 
 
 def presets(limits: Optional[Limits] = None) -> List[Dict]:
-    """The presets of params.PRESETS for the form: each with its values for every field of
+    """The goals (presets) of params.PRESETS for the form: each with its values for every field of
     PRESET_FIELDS (None: "custom", the values stay as they are) and whether it is available under
-    `limits`. A value outside a user's bounds, or a field the site does not allow, makes the preset
-    unavailable (with the reason): clamping it would give another kind of lines under the same name."""
+    `limits`. The goal is judged by what the Basic form sends (viewer/src/search/basic.ts
+    basicRequestValues: every goal field with a value, defaults included, but a field the site does not allow,
+    which the schema leaves out): a value outside a user's bounds, a choice the site does not allow (also the
+    default's: "nmpt=mark"), or a field it does not allow set to another value than its default makes the goal
+    unavailable (with the reason); clamping it would give another kind of lines under the same name."""
     import sources as src
     answer = []
     for preset in pm.PRESETS:
         values = pm.preset_values(preset)
         problems = []
         for name, value in (values or {}).items():
-            if limits and not limits.allows(name):
-                problems.append(messages.UserError.web("not_allowed", field=name))
-            elif limits:
+            if not limits or value is None:  # no value: not sent
+                continue
+            if not limits.allows(name):  # left out of the schema: sent only if the goal needs another value
+                if value != pm.SearchParams.model_fields[name].default:
+                    problems.append(messages.UserError.web("not_allowed", field=name))
+            elif isinstance(value, str) and not limits.allows(name, value):
+                problems.append(messages.UserError.web("not_allowed_value", field=name,
+                                                       value=messages.text(f"choice.{name}.{value}")))
+            elif isinstance(value, (int, float)):
                 problems += limits.outside(name, value, src.MIN_RESOLUTION)
         answer.append({"id": preset, "label": messages.text(f"preset.{preset}"), "values": values,
                        "available": not problems,
                        "reason": " ".join(p.web_text() for p in problems) or None})
     return answer
+
+
+def rig_within(values: Dict, limits: Optional[Limits] = None):
+    """A saved rig's values (params.check_rig's) within a user's bounds of the search (None: none): a rig beyond
+    them would be refused in every Basic search, so it is refused when it is saved, with the search's own codes and
+    words (Limits.outside: "at_most", "at_least")."""
+    import sources as src
+    for name, value in values.items():
+        problems = limits.outside(name, value, src.MIN_RESOLUTION) if limits else []
+        if problems:
+            raise problems[0]
 
 
 def check_request(request: Dict, limits: Optional[Limits] = None, hidden_sources=()) -> Dict:
@@ -1649,6 +1670,62 @@ def create_app(data_dir: str, token: Optional[str] = None, port: int = PORT, sta
         record("favourite_folder", user, str(folder), {"do": "delete", **gone})
         return gone
 
+    # --- Saved rigs: the Basic search form's "Rigged as" (a user's own; the audit log has no name or value) ---
+
+    @app.get("/api/rigs")
+    def list_rigs(user: ac.User = Depends(current_user)):
+        """The user's rigs by id ({"id", "name", "values": params.RIG_FIELDS}) and how many one may keep."""
+        return {"rigs": jobs.rigs(user.id), "max": jb.RIGS_MAX}
+
+    @app.post("/api/rigs")
+    def add_rig(body: Dict, user: ac.User = Depends(current_user)):
+        """A new rig: {"name", "values": the seven of params.RIG_FIELDS, within the user's bounds of the search};
+        its id. At most jobs.RIGS_MAX (409 "rigs_max"); a name the user has (compared casefolded) is 400
+        "rig_name_taken"."""
+        try:
+            if not isinstance(body, dict):
+                raise ValueError("name and values")
+            name = jb.rig_name(body.get("name"))
+            values = pm.check_rig(body.get("values"))
+            rig_within(values, user_limits(user))
+            rig = jobs.add_rig(user.id, name, values)
+        except QuotaExceeded as e:  # a ValueError too
+            refused(user, "rigs", str(e), e.status)
+            raise HTTPException(e.status, error_detail(e))
+        except ValueError as e:
+            raise HTTPException(400, error_detail(e))
+        record("rig", user, str(rig), {"do": "add"})
+        return {"id": rig}
+
+    @app.post("/api/rigs/{rig}")
+    def change_rig(rig: int, body: Dict, user: ac.User = Depends(current_user)):
+        """Rename an own rig ({"name"}) and/or change its values ({"values": all seven}, within the user's bounds of
+        the search); a rig that is not the user's (or gone) is 404 "rig_missing"."""
+        if not isinstance(body, dict) or not ({"name", "values"} & body.keys()):
+            raise HTTPException(400, "name and/or values")
+        try:
+            name = jb.rig_name(body["name"]) if "name" in body else None
+            values = pm.check_rig(body["values"]) if "values" in body else None
+            if values is not None:
+                rig_within(values, user_limits(user))
+            jobs.change_rig(user.id, rig, name, values)
+        except KeyError:
+            raise HTTPException(404, error_detail(messages.UserError.web("rig_missing")))
+        except ValueError as e:
+            raise HTTPException(400, error_detail(e))
+        record("rig", user, str(rig), {"do": "change"})
+        return {"ok": True}
+
+    @app.delete("/api/rigs/{rig}")
+    def delete_rig(rig: int, user: ac.User = Depends(current_user)):
+        """Delete an own rig (404 "rig_missing" for one not the user's, or gone)."""
+        try:
+            jobs.delete_rig(user.id, rig)
+        except KeyError:
+            raise HTTPException(404, error_detail(messages.UserError.web("rig_missing")))
+        record("rig", user, str(rig), {"do": "delete"})
+        return {"ok": True}
+
     @app.post("/api/reports")
     def add_report(body: Dict, request: Request, user: ac.User = Depends(current_user)):
         """A problem report of the user (the app's "Report a problem"): {"category", "text", "context":
@@ -2203,6 +2280,9 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"run is deleted."),
         ("Folders of favourites", f"The names you give them, which folder each is in and when you made it; at most "
          f"{jb.FOLDERS_MAX}. Kept until you delete them (with what is in them)."),
+        ("Rigs", f"The rigs you save for your searches: the name you give each and its values (no-fall zone, A-frame "
+         f"height, leash fall space, pretension, webbing stretch and weight, athlete mass); at most {jb.RIGS_MAX}. "
+         f"Why: to fill your searches with them. Kept until you delete them."),
         ("Problem reports", "What you write in Report a problem, its kind and when you sent it, with the page, the "
          "run and line it was sent from, the size of the window and your browser's identification (its User-Agent: "
          "browser, version, system). Why: to find and fix what goes wrong. Read by the administrators; kept until "
@@ -2211,7 +2291,8 @@ def privacy_page(contact: str, keep_events_days: Optional[float], ring: bool = F
          f"downloaded and how many uncached Nominatim requests they made, with the time; deleted after {2 * jb.DAY / 86400:g} days. Request rates are counted in memory only."),
         ("Audit log", f"Sign-ins and sign-ups, approvals and blocks, searches started and cancelled, share links "
          f"made, renewed and revoked, deleted runs, the demo flag, favourite lines marked, unmarked and moved, "
-         f"folders of favourites made, changed and deleted (not their names), changes of your account's country, problem reports sent (not their "
+         f"folders of favourites made, changed and deleted (not their names), rigs saved, changed and deleted (not "
+         f"their names or values), changes of your account's country, problem reports sent (not their "
          f"text), other "
          f"administrators' actions and refusals by a "
          f"limit: the time, the action, the user id and what it concerned. Why: to find abuse and mistakes. "

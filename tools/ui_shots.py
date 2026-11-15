@@ -52,8 +52,8 @@ ACCOUNTS = {"FINDALINE_SESSION_SECRET": "ui-shots-" * 5, "FINDALINE_ADMINS": "gi
 # name -> (interface ("map": the run's map.html, "shared": it by its share link), hash, actions after loading or None: a CSS selector to click, "scroll:<selector>" to
 # scroll that element (or the page) to its end, "js:<expression>" to evaluate it in the page, "low:<selector>" to click the last one scrolled to the
 # bottom of its panel (a "?" near the bottom: its bubble opens upwards), "wait:<expression>" to wait until it is true,
-# or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, or "visitor",
-# not signed in]); a step "full" takes the whole page, not only the viewport;
+# or a list of such steps[, the user: "admin" (default), "walker", an approved user with the site's limits, one of
+# RIGGERS (with saved rigs), or "visitor", not signed in]); a step "full" takes the whole page, not only the viewport;
 # "{run}" is the clip's run, "{line}" its first line (keys.lineCoords); an interface starting with "/" is a path of
 # web.py's pages (the server-rendered ones and the 3D view's)
 # Leaflet's layer control opened as its expand() does (hover on a desktop, a tap on a phone: neither is the
@@ -84,7 +84,24 @@ CELL_AT_CENTRE = ("(() => { const map = window.FINDALINE_PLACE.map, box = map.ge
                   "const p = map.getSize().divideBy(2), x = box.left + p.x, y = box.top + p.y; "
                   "const init = {bubbles: true, clientX: x, clientY: y}, e = document.elementFromPoint(x, y); "
                   "e.dispatchEvent(new MouseEvent('mousemove', init)); e.dispatchEvent(new MouseEvent('click', init)); })()")
-MORE = [".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
+ADVANCED = ".s-tabs [data-tab=advanced]"  # the search form's tab Advanced (a new search opens Basic)
+MORE = [ADVANCED, ".s-more-head", ".s-topic:nth-of-type(2) > summary"]  # More settings, Anchors opened (Lines is)
+# The Basic search form (spec-search 1.6): the centre set at the clip's place, so the bar shows the receipt
+POINT = "js:window.FINDALINE_PLACE.map.fire('click', {latlng: {lat: 50.1559508, lng: 19.7562722}})"
+READY = "wait:document.querySelector('.s-bar')?.dataset.estimate === 'ready'"  # the source and grid in the bar
+SEA_VIEW = "js:(window.FINDALINE_PLACE.map.setView([36.055, 14.20], 14, {animate: false}), " + \
+           "new Promise((done) => setTimeout(done, 1500)))"  # a coast in view (Gozo, Dwejra)
+FORM_END = "scroll:.c-form"  # the rig's row at the end of Basic (phones)
+RETURN = ["js:(window.FINDALINE_SEARCH.setValue('pretension', 4), window.FINDALINE_SEARCH.setValue('min_drop', 50))",
+          ".s-tabs [data-tab=basic]"]  # two values Basic cannot show, then back to Basic: its dialog
+# The users with saved rigs (the Basic form's states; approved, without the site's limits): name -> (subject, rigs)
+TARGET_RIG = {"pretension": 2.5, "stretch": 5, "webbing_weight": 70, "athlete_mass": 80, "fall_zone": 6, "end_zone": 5,
+              "anchor_lift": 2}
+STARTING_RIG = {**TARGET_RIG, "anchor_lift": 0}
+LONG_RIG = {**TARGET_RIG, "pretension": 4, "stretch": 3, "webbing_weight": 60, "anchor_lift": 3}
+THREE_RIGS = [("My rig", TARGET_RIG), ("Park lines", STARTING_RIG), ("Long lines", LONG_RIG)]
+RIGGERS = {"one-rig": ("21", THREE_RIGS[:1]), "three-rigs": ("22", THREE_RIGS),
+           "ten-rigs": ("23", THREE_RIGS + [(f"Rig {n}", STARTING_RIG if n % 2 else TARGET_RIG) for n in range(4, 11)])}
 # The highline layer's selected cell at the top of its panel, the notes under it ("c-layer-border")
 BORDER_CARD_SHOWN = "document.querySelector('.c-layer-cell')?.scrollIntoView({block: 'start'})"
 # The highline layer's fold "More filters" in view ("c-layer-chips", "c-layer-fold")
@@ -180,6 +197,28 @@ PAGES = {
     "map-esri": ("map", "", "js:" + ESRI_ON),  # the satellite layer shown (ESRI_API_KEY set; else as "map")
     "map-shared-credits": ("shared", "", ".u-credits-toggle"),
     "c-new-coverage": ("c", "#new", [".n-coverage-btn", "js:" + ZOOM_OUT]),  # the data coverage on the place map
+    # The Basic search form (spec-search 1.6): the first visit (no rig saved: the starting rig), a saved rig, three
+    # rigs, the rig chooser, ten rigs, each goal, the rig's window (the first, a change), Advanced, the dialog of going
+    # back to Basic, the size word's "?", the phones' compact bar unfolded
+    "c-basic-first": ("c", "#new", [POINT, READY]),
+    "c-basic-rig": ("c", "#new", [POINT, READY], "one-rig"),
+    "c-basic-rigs": ("c", "#new", [POINT, READY, FORM_END], "three-rigs"),
+    "c-basic-chooser": ("c", "#new", [POINT, READY, ".s-rig-pick", FORM_END], "three-rigs"),
+    "c-basic-ten": ("c", "#new", [POINT, READY, ".s-rig-pick", FORM_END], "ten-rigs"),
+    "c-basic-long": ("c", "#new", [POINT, READY, "[data-goal=long]", READY], "one-rig"),
+    "c-basic-firstline": ("c", "#new", [POINT, READY, "[data-goal=first]", READY], "one-rig"),
+    # the map moved to a coast (Gozo's west) first: "Sea cliffs" takes the view as its limit (the clip's place has none)
+    "c-basic-sea": ("c", "#new", [POINT, READY, SEA_VIEW, "[data-goal=sea]", READY], "one-rig"),
+    "c-basic-everything": ("c", "#new", [POINT, READY, "[data-goal=everything]", READY], "one-rig"),
+    "c-basic-window": ("c", "#new", [POINT, READY, ".s-rig-change0"]),
+    "c-basic-window-edit": ("c", "#new", [POINT, READY, ".s-rig-change", ".s-rig-more > summary"], "three-rigs"),
+    "c-basic-advanced": ("c", "#new", [POINT, READY, ADVANCED, READY], "one-rig"),
+    "c-basic-advanced-rigging": ("c", "#new", [POINT, READY, ADVANCED, READY, ".s-more-head", ".s-topic[data-topic=rigging] > summary",
+                                               "js:document.querySelector('.s-rig-save')?.scrollIntoView({block: 'center'})"],
+                                 "one-rig"),
+    "c-basic-return": ("c", "#new", [POINT, READY, ADVANCED] + RETURN + [READY], "one-rig"),
+    "c-basic-size": ("c", "#new", [POINT, READY, ".s-size .u-hint"], "one-rig"),
+    "c-basic-compact": ("c", "#new", [POINT, READY, ".s-sum"], "one-rig"),
     "page-signin": ("/", "", None, "visitor"),
     "page-privacy": ("/privacy", "", None),
     "page-about": ("/about", "", None),
@@ -403,6 +442,13 @@ def serve(data: str, run_folder: str | None = None):
     users.set_status(walker.id, "approved")
     cookies = {"admin": cookie, "walker": users.new_session(walker.id)[0]}
     jobs = Jobs(data, public=True)
+    for name, (subject, rigs) in RIGGERS.items():  # the Basic form's users with saved rigs
+        rigger = users.sign_in("github", subject, name)
+        users.set_status(rigger.id, "approved")
+        users.set_unlimited(rigger.id, True)
+        for rig_name, values in rigs:
+            jobs.add_rig(rigger.id, rig_name, values)
+        cookies[name] = users.new_session(rigger.id)[0]
     run = saved_run(data, run_folder) if run_folder else clip_run(data)
     sys.path.insert(0, os.path.join(REPO, "tests"))
     from test_country_web import OUTLINE2, OUTLINE_STUDY, sample_cube

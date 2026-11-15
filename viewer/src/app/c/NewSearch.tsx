@@ -1,27 +1,28 @@
-// C's focused new search (c2): the form (SearchPanel) in a column, the map on the right
-// and the live estimate with "Start search" in a bar at the bottom. A new search starts with the
-// "Typical highline" preset; "Edit & run again" (#new&edit=<job>) starts with the job's request, "Search a
-// cell" (#new&cell=<id>:<band>:<level>:<i>:<j>, from the highline layer) with the cell's (api.countryRequest). On
-// phones the map is on top, the form scrolls under it and the bar stays at the bottom.
+// C's focused new search (c2): the form (SearchPanel) in a column, the map on the right and the size word,
+// the receipt and "Start search" in a bar at the bottom. Every new search opens Basic with "The best lines
+// here" and the rig in use; "Edit & run again" (#new&edit=<job>) starts with the job's request, "Search a cell"
+// (#new&cell=<id>:<band>:<level>:<i>:<j>, from the highline layer) with the cell's (api.countryRequest): Basic
+// when the request fits a goal and the rig in use, else Advanced (useSearch openingTab), so the form waits for
+// the saved rigs. On phones the map is on top, the form scrolls under it and the compact bar stays at the bottom.
 
 import { useEffect, useRef, useState } from "preact/hooks";
 import { Button } from "../../ui/components";
-import { EstimateBar, SearchPanel, useSearch, type UsageState } from "../../search";
+import { EstimateBar, SearchPanel, useRigs, useSearch, type RigsState, type UsageState } from "../../search";
 import { api, type Schema, type SearchRequest } from "../api";
 import { PlaceMap } from "../PlaceMap";
 import { layerHash, parseCell } from "./route";
 
-/** The form and the bar, once the map, the schema and the request to edit are there. */
-function Form({place, schema, initial, usage, wide, onStarted}:
-              {place: PlaceMap; schema: Schema; initial: SearchRequest | null; usage: UsageState; wide: boolean;
-               onStarted(id: string): void}) {
-  const search = useSearch({place, schema, onStarted, initial, preset: initial ? undefined : "typical"});
+/** The form and the bar, once the map, the schema, the saved rigs and the request to edit are there. */
+function Form({place, schema, rigs, initial, usage, wide, onStarted}:
+              {place: PlaceMap; schema: Schema; rigs: RigsState; initial: SearchRequest | null; usage: UsageState;
+               wide: boolean; onStarted(id: string): void}) {
+  const search = useSearch({place, schema, rigs, onStarted, initial});
   (window as any).FINDALINE_SEARCH = search;  // for tests and the browser console
   return <>
     <aside class="c-form" aria-label="New search">
       <SearchPanel search={search} usage={usage.usage} phone={!wide} />
     </aside>
-    <footer class="c-bar"><EstimateBar search={search} usage={usage.usage} /></footer>
+    <footer class="c-bar"><EstimateBar search={search} usage={usage.usage} phone={!wide} /></footer>
   </>;
 }
 
@@ -31,6 +32,7 @@ export function NewSearch({edit, cell = null, schema, usage, wide, onStarted}:
   const mapRef = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<PlaceMap | null>(null);
   const [initial, setInitial] = useState<SearchRequest | null | undefined>(edit || cell ? undefined : null);
+  const rigs = useRigs();
   const ofCell = cell ? parseCell(cell) : null;
   const [error, setError] = useState("");
 
@@ -59,8 +61,8 @@ export function NewSearch({edit, cell = null, schema, usage, wide, onStarted}:
     </div>
     <div class="c-newmap" ref={mapRef} />
     {error && <p class="c-error c-form">{error}</p>}
-    {!error && place && schema && initial !== undefined &&
-      <Form key={edit || cell || "new"} place={place} schema={schema} initial={initial} usage={usage} wide={wide}
-            onStarted={onStarted} />}
+    {!error && place && schema && initial !== undefined && rigs.loaded &&
+      <Form key={edit || cell || "new"} place={place} schema={schema} rigs={rigs} initial={initial} usage={usage}
+            wide={wide} onStarted={onStarted} />}
   </div>;
 }

@@ -10,6 +10,7 @@ fields (a drawn geometry) are set by the web app's server, not by its form or th
 """
 
 import argparse
+import math
 import os
 import typing
 import unicodedata
@@ -290,21 +291,51 @@ class SearchParams(BaseModel):
             if getattr(self, name) < 0:
                 raise UserError("--max-anchor-diff and --max-anchor-diff-m cannot be negative", "not_negative",
                                 field=name)
-        for name in ("pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"):
-            value = getattr(self, name)
-            if value < 0 or (value == 0 and name in ("pretension", "stretch")):
-                raise UserError("rigging values must be positive", "positive" if value <= 0 and name in (
-                    "pretension", "stretch") else "not_negative", field=name)
-        if not 0 <= self.end_zone <= END_ZONE_MAX:
-            raise UserError(f"--end-zone is 0 to {END_ZONE_MAX:g} m", "end_zone_range", max=END_ZONE_MAX)
-        if not 0 <= self.anchor_lift <= ANCHOR_LIFT_MAX:
-            raise UserError(f"--anchor-lift is 0 to {ANCHOR_LIFT_MAX:g} m", "anchor_lift_range", max=ANCHOR_LIFT_MAX)
+        _check_rigging({name: getattr(self, name) for name in RIG_FIELDS})
         return self
 
 
-# --- What the web form shows (web.schema): the fields by topic (the form's "More settings") and presets
-# of the key fields. Their labels, units, hints and titles are in the message catalogue
-# (locales/en.json: field.<name>.label|unit|help, topic.<id>, preset.<id>; messages.py) ---
+# The values of a rig (the web app's saved rigs, jobs.Jobs.rigs): the sag model's rigging, in the order of the
+# form; kN, %, g/m, kg, m, m, m
+RIG_FIELDS = ("pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone", "end_zone", "anchor_lift")
+
+
+def _check_rigging(values: dict):
+    """The bounds of the rigging values (SearchParams.check, check_rig): UserError with their codes."""
+    for name in ("pretension", "stretch", "webbing_weight", "athlete_mass", "fall_zone"):
+        value = values[name]
+        if value < 0 or (value == 0 and name in ("pretension", "stretch")):
+            raise UserError("rigging values must be positive", "positive" if value <= 0 and name in (
+                "pretension", "stretch") else "not_negative", field=name)
+    if not 0 <= values["end_zone"] <= END_ZONE_MAX:
+        raise UserError(f"--end-zone is 0 to {END_ZONE_MAX:g} m", "end_zone_range", max=END_ZONE_MAX)
+    if not 0 <= values["anchor_lift"] <= ANCHOR_LIFT_MAX:
+        raise UserError(f"--anchor-lift is 0 to {ANCHOR_LIFT_MAX:g} m", "anchor_lift_range", max=ANCHOR_LIFT_MAX)
+
+
+def check_rig(values) -> dict:
+    """The seven values of a saved rig (RIG_FIELDS: all of them, nothing else, finite numbers) with
+    SearchParams' bounds and codes; returns them as floats. ValueError for another shape, UserError for a
+    value out of bounds (the same code SearchParams gives it)."""
+    if not isinstance(values, dict) or set(values) != set(RIG_FIELDS):
+        raise ValueError(f"values: an object of {', '.join(RIG_FIELDS)}")
+    found = {}
+    for name in RIG_FIELDS:
+        value = values[name]
+        try:
+            number = None if isinstance(value, bool) or not isinstance(value, (int, float)) else float(value)
+        except OverflowError:  # an integer beyond a float's range
+            number = None
+        if number is None or not math.isfinite(number):
+            raise ValueError(f"values: {name} is a number")
+        found[name] = number
+    _check_rigging(found)
+    return found
+
+
+# --- What the web form shows (web.schema): the fields by topic (the form's "More settings") and the goals
+# (presets). Their labels, units, hints and titles are in the message catalogue
+# (locales/en.json: field.<name>.label|unit|help, topic.<id>, preset.<id>, goal.<id>.text; messages.py) ---
 
 # topic -> fields in the form's order; "where" is the place part of the form, not "More settings"
 TOPICS = {
@@ -322,20 +353,27 @@ TOPICS = {
 }
 TOPIC_OF = {name: topic for topic, names in TOPICS.items() for name in names}
 
-# The fields a preset sets: one it leaves out gets its default
-PRESET_FIELDS = ("min_length", "max_length", "max_anchor_diff_m")
-# Presets of the kind of lines (the form's chips or cards): id -> values; "custom" sets nothing
-# (the values stay as they are: the defaults, or those of the search being edited)
+# The fields a goal sets (the Basic form's GOAL_FIELDS, viewer/src/search/basic.ts): one it leaves out
+# gets its default, so values "fit a goal" when all of them equal it
+PRESET_FIELDS = ("min_length", "max_length", "max_anchor_diff_m", "max_anchor_diff", "nmpt", "high_above",
+                 "min_height", "min_mean_height", "min_high_share", "max_wall_angle", "min_drop")
+GOAL_FIELDS = PRESET_FIELDS
+# The goals of the form ("What are you looking for?" in Basic, "Lines to look for" in Advanced; titles
+# preset.<id>, texts goal.<id>.text): id -> values; "custom" sets nothing (the values stay as they are: the
+# defaults, or those of the search being edited). Basic adds the rig in use, the sag model and the square
+# rule of 5; "Sea cliffs" also switches Where to the coast (the page's rule). docs/line-volume/spec-search.md 1.2
 PRESETS = {
-    "typical": {"min_length": 30, "max_length": 150, "max_anchor_diff_m": 10},
-    "long": {"min_length": 100, "max_length": 400},
-    "short": {"min_length": 15, "max_length": 60},
+    "best": {"min_length": 30, "max_length": 300, "max_anchor_diff_m": 10},
+    "long": {"min_length": 100, "max_length": 600, "max_anchor_diff_m": 30, "min_height": 30, "min_high_share": 50},
+    "first": {"min_length": 15, "max_length": 60, "max_anchor_diff_m": 3, "nmpt": "reject"},
+    "sea": {"min_length": 30, "max_length": 300, "min_drop": 30},  # no wall-angle limit (spec-search 5.4, U-2 a)
+    "everything": {},
     "custom": None,
 }
 
 
 def preset_values(preset: str) -> Optional[dict]:
-    """The values of a preset for every field of PRESET_FIELDS (defaults for those it leaves out);
+    """The values of a goal for every field of PRESET_FIELDS (defaults for those it leaves out);
     None for "custom"."""
     values = PRESETS[preset]
     if values is None:
