@@ -1723,5 +1723,62 @@
     },
     "notes": "added 2026-11-14 with the square rule (--same-line-square, samelines.py): R3's search with the no-fall zone and A-frames finds 60 002 lines (run.json's summary.found), of which one per pair of 5 m anchor squares is kept: 3 491 lines in 121 spots, each with the lines it stands for (stands_for, the last column of lines.csv, in the checksum); every anchor has an open direction with the A-frames; a circle of this size keeps every kept line's profile",
     "seconds": 11.3
+  },
+  "R67": {
+    "place": "Montagna Spaccata and the cliffs of Monte Orlando above the sea, Gaeta, Lazio, Italy: INGV's TINITALY 1.1 (10 m, a TIN of contours and spot heights) from its WCS in WGS 84 / UTM 32N",
+    "args": "--lat 41.2060 --lon 13.5740 --radius 800 --min-length 40 --max-length 250",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "expected": {
+      "anchors": 666,
+      "open": 595,
+      "checked": 623,
+      "lines": 98,
+      "spots": 30,
+      "csv_sha256": "d9d35e64b5aad362437df7e21593a5621cb9d7c38a0e89a72a23c1c3f192f7e7",
+      "length_km": 8.337,
+      "clearance_min": 0.16,
+      "clearance_mean": 7.386,
+      "clearance_max": 28.09,
+      "over_trees": 0,
+      "coverage": 47.82,
+      "empty_tiles": 0,
+      "filled_km2": 0.03,
+      "filled_from": "FABDEM + Copernicus DEM",
+      "sea_km2": 3.11,
+      "water_lines": 85,
+      "water_spots": 25
+    },
+    "seconds": 3.6,
+    "notes": "--source auto picks tinitaly (the centre is in IT; outside the regions of South Tyrol, Trento and Sardinia); first run on an empty cache: one WCS tile of 10 km (1000 px at 10 m, 3.3 MB deflated); no surface model (NMPT off); the sea off Monte Orlando is -9999 in TINITALY, 0.03 km² of the shore filled from FABDEM; the spots are on the sea cliffs of Montagna Spaccata and Monte Orlando (41.204-41.208 N, 13.570-13.582 E), 85 of the 98 lines over the water, the best 54 m with 28 m of clearance. A circle of 1500 m at Gaeta gave 99 lines in 31 spots, Corno Piccolo (Gran Sasso) 3685 lines in 708 spots on the smoothed 10 m flanks of the whole massif: Gaeta's cliffs kept"
+  },
+  "R68": {
+    "place": "The sea cliffs south of Cala Gonone towards the Bue Marino grotto, Gulf of Orosei, Sardinia (IT-88): Regione Sardegna's coastal lidar DTM and DSM 1 m (2008), ZIPs of ASCII grids listed by its WFS, inland gaps from TINITALY",
+    "args": "--lat 40.2585 --lon 9.6175 --radius 700 --min-length 20 --max-length 150",
+    "sets": [
+      "sources",
+      "it"
+    ],
+    "expected": {
+      "anchors": 212481,
+      "open": 14116,
+      "checked": 130923,
+      "lines": 21846,
+      "spots": 624,
+      "csv_sha256": "f5b6782012b1652facea7f6e9af44d2b830831e8d36324a1feef20da64d2d697",
+      "length_km": 1674.041,
+      "clearance_min": 0.0,
+      "clearance_mean": 1.451,
+      "clearance_max": 17.83,
+      "over_trees": 9214,
+      "coverage": 100.0,
+      "empty_tiles": 0,
+      "water_lines": 19,
+      "water_spots": 3
+    },
+    "seconds": 10.2,
+    "notes": "--source auto picks sardinia (the centre is in IT-88); 4 lidar tiles per model (ZIPs of 3-4.4 MB, about 1.45 x 1.15 km each) listed by the WFS's answer of one 0.25° tile; nothing filled (the lidar strip covers the circle; inland of it TINITALY fills, 1.87 km² of a circle of 2500 m around 40.275, 9.625); the spots cross the gullies and walls of the coast between Cala Gonone and the Bue Marino grotto (40.252-40.264 N, 9.608-9.624 E), where a circle of 2500 m around the bay found most of its 957 spots; Cala Gonone's own centre (40.285, 9.630, radius 1000 m) gave 417 lines in 7 spots, all in one gully: moved onto the steep pixels"
   }
 }
