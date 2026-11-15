@@ -140,9 +140,10 @@ def test_member_names(sid, kind, tiles, east, north):
         assert all(("__" in n) == (kind == "nmt") for n, m in zip(names, matched) if m)
 
 
-def test_the_partial_surface_tiles_are_rectangles_in_the_record():
+def test_the_surface_covers_part_of_the_terrains_tiles_in_the_record():
     """Bremerhaven's DOM1 covers the city only: 114 tiles of the DGM1's 188, 41 of them with fewer points than a
-    full km (inflated under 90 % of the median)."""
+    full km (inflated under 90 % of the median; the twelve read on 2026-11-16 were rectangles of part of it, which GDAL
+    reads as they are, and xyz_rows reads one that is not)."""
     archives = _recorded()
     bhv = {url: a for url, a in archives.items() if "_BHV_" in url}
     dom = next(a for url, a in bhv.items() if "DOM1" in url)

@@ -393,11 +393,15 @@ HB_CREDIT = Credit("DGM1 / DOM1 (Landesamt GeoInformation Bremen)", f"{HB_ATTRIB
 #   double underscore; 188 tiles, E 466-477, N 5924-5940, Lower Saxony's land around the city in them) at x.5, columns
 #   north to south, millimetres: its values are samples at those points (against LGLN's DGM1 of 2020-2025 on five
 #   tiles: at 474_5936 RMS 0.150 m at no shift, 0.19-0.24 at half a pixel), so its edges lie on whole metres (grid_origin
-#   0). The DOM1 (dom1_32<E>_<N>_1_hb.xyz, one underscore; 114 tiles of the city only, 41 of them a rectangle of
-#   part of the km, a full one 1001 x 1000 points) at whole metres, columns south to north: its values sit at those
-#   points (against LGLN's DOM1 of 2025 at 474_5936: NCC 0.400 at no shift, 0.364-0.371 at half a pixel; against its
-#   own DGM1 on bare ground within a quarter of a pixel of no shift), half a pixel off its own terrain: written as it
-#   lies and interpolated onto the terrain's grid by the mosaic (bilinear, as any off-grid raster)
+#   0). The DOM1 (dom1_32<E>_<N>_1_hb.xyz, one underscore; 114 tiles of the city only, 41 with fewer points than a
+#   full km: the 12 read so far each a rectangle of part of it; a full one 1001 x 1000 points) at whole metres, columns
+#   south to north: its values sit at those points (against LGLN's DOM1 of 2025, the NCC of the high-passed rasters at
+#   no shift and the best at half a pixel on both axes: 474_5936 0.400 / 0.371, 472_5938 0.282 / 0.265, 471_5938
+#   0.165 / 0.159; two small partial tiles of NCC 0.12-0.17 scatter, neither peak at half a pixel on both axes), half a
+#   pixel off its own terrain: written as it lies and interpolated onto the terrain's grid by the mosaic (bilinear, as
+#   any off-grid raster; a choice for the user). Outside the city each partial tile's rectangle is filled with
+#   constant planes (475_5937: 3.19 m over 23 ha, 1.4 m below the terrain, and 17.35 m over 15 ha, 13 m above it),
+#   left as they are
 HB_DATA = "https://gdi2.geo.bremen.de/inspire/download/{kind}/data/Gitternetz_{kind}1_{year}_{city}_ASCII_XYZ.zip"
 HB_NAME = r"(?i)(?:^|/){kind}1_32(?P<east>\d{{3}})_{{1,2}}(?P<north>\d{{4}})_1_hb\.xyz$"
 BHV_ZONE = -32_000_000.0  # Bremerhaven's eastings less the zone 32's prefix
