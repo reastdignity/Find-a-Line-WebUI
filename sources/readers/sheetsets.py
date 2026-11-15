@@ -11,7 +11,7 @@ from affine import Affine
 
 from ..composed import Reader
 from ..layer import Fetched, _clean, _write_tile
-from .sheetfile import SheetFile
+from .sheetfile import BOM, SheetFile, _member_grid, _xyz_points
 
 
 class SheetSetRequest(NamedTuple):
@@ -62,16 +62,53 @@ class SheetSetFile(Reader):
     def url(self, request: SheetSetRequest) -> Optional[str]:
         return request.files[0][1] if request.files else None
 
+    def _member(self, request: SheetSetRequest):
+        """SheetFile._parts' reader of one member, on the sheet's own pixels: a GeoTIFF as GDAL reads it (placed by
+        paste); text lines ("x y z", or "n,x,y,z,flag") gridded straight onto the sheet's pixels at the layer's
+        resolution (each point in the pixel holding it: the step is the layer's, never guessed from the points,
+        so a sparse member, every other point or rows 1 m apart, is read as it is); an empty member is no data
+        (None: an older survey fills the sheet). Points off the sheet are left out; a member none of whose points
+        lies on the sheet is an error naming the points' box against the sheet's."""
+        at, (rows, cols) = request.transform, request.shape
+        res = at.a
+        left, top = at.c, at.f
+        box = (left, top - rows * res, left + cols * res, top)
+
+        def grid(name: str, data: bytes, member_res: float, crs: str, where: str):
+            if name.lower().endswith((".tif", ".tiff", ".asc")):
+                return _member_grid(name, data, member_res, crs, where)
+            if not data.strip(BOM + b" \t\r\n"):
+                print(f"{where}: an empty member; no data")
+                return None
+            try:
+                xyz = _xyz_points(data, where)
+            except (ValueError, RuntimeError) as e:
+                raise RuntimeError(f"{where}: {e}") from e
+            col = np.floor((xyz[:, 0] - left) / res).astype(np.int64)
+            row = np.floor((top - xyz[:, 1]) / res).astype(np.int64)
+            inside = (col >= 0) & (col < cols) & (row >= 0) & (row < rows)
+            if not inside.any():
+                raise RuntimeError(
+                    f"{where}: none of its {len(xyz)} points lies on the sheet (points x {xyz[:, 0].min():.2f}.."
+                    f"{xyz[:, 0].max():.2f}, y {xyz[:, 1].min():.2f}..{xyz[:, 1].max():.2f}; the sheet x "
+                    f"{box[0]:.2f}..{box[2]:.2f}, y {box[1]:.2f}..{box[3]:.2f})")
+            band = np.full((rows, cols), np.nan, dtype=np.float32)
+            band[row[inside], col[inside]] = xyz[inside, 2]
+            return band, at
+        return grid
+
     def _read(self, name: str, url: str, request: SheetSetRequest) -> Tuple[Optional[Tuple[np.ndarray, Affine]], int]:
-        """A file's raster (None: its ZIP holds no raster) and the bytes received."""
+        """A file's raster (None: its ZIP holds no data) and the bytes received."""
         res = request.transform.a
         tile = SimpleNamespace(url=url, godlo=f"{request.godlo} ({name})", crs=request.crs, res=res)
         response = self.sheet.download(tile)
-        parts = self.sheet._parts(tile, response.content)
+        parts = self.sheet._parts(tile, response.content, member_grid=self._member(request))
         return (None if parts is None else (_clean(parts[0]), parts[1])), len(response.content)
 
     def fetch(self, request: SheetSetRequest, path: str) -> Fetched:
         band = np.full(request.shape, np.nan, dtype=np.float32)
+        at = request.transform
+        sheet_box = (at.c, at.f - request.shape[0] * at.a, at.c + request.shape[1] * at.a, at.f)
         gave: List[Tuple[str, int, int]] = []  # name, year, pixels
         received = 0
         for year, files in itertools.groupby(request.files, key=lambda f: f[2]):
@@ -83,20 +120,36 @@ class SheetSetFile(Reader):
                 received += size
                 if raster is not None:
                     read.append((int(np.count_nonzero(~np.isnan(raster[0]))), name, raster))
-            for _, name, (values, transform) in sorted(read, key=lambda r: (-r[0], r[1])):  # the fuller first
+            for count, name, (values, transform) in sorted(read, key=lambda r: (-r[0], r[1])):  # the fuller first
+                where = f"{self.description} sheet {request.godlo} ({name})"
+                r_box = (transform.c, transform.f + values.shape[0] * transform.e,
+                         transform.c + values.shape[1] * transform.a, transform.f)
+                if count and not (r_box[0] < sheet_box[2] and r_box[2] > sheet_box[0] and r_box[1] < sheet_box[3]
+                                  and r_box[3] > sheet_box[1]):
+                    raise RuntimeError(f"{where}: its data lie off the sheet (x {r_box[0]:.2f}..{r_box[2]:.2f}, "
+                                       f"y {r_box[1]:.2f}..{r_box[3]:.2f}; the sheet x {sheet_box[0]:.2f}.."
+                                       f"{sheet_box[2]:.2f}, y {sheet_box[1]:.2f}..{sheet_box[3]:.2f})")
                 try:
                     pixels = paste(band, request.transform, values, transform)
                 except ValueError as e:
-                    raise RuntimeError(f"{self.description} sheet {request.godlo} ({name}): {e}") from e
+                    raise RuntimeError(f"{where}: {e}") from e
                 if pixels:
                     gave.append((name, year, pixels))
         url = self.url(request)
         if not gave:
             return Fetched(0, url)
         tags = {"sources": ",".join(g[0] for g in gave), "years": ",".join(str(g[1]) for g in gave),
-                "pixels": ",".join(str(g[2]) for g in gave)}
+                "pixels": ",".join(str(g[2]) for g in gave), "files": ",".join(f[0] for f in request.files)}
         _write_tile(path, band, request.crs, request.transform, tags=tags)
         return Fetched(received, url)
+
+
+def set_files(path: str) -> List[str]:
+    """The names of the files a cached sheet's set was made of (tag "files"; before it, those that gave pixels)."""
+    import rasterio as rio
+    with rio.open(path) as src:
+        tags = src.tags()
+    return [n for n in (tags.get("files") or tags.get("sources", "")).split(",") if n]
 
 
 def gave_pixels(path: str) -> List[Tuple[str, int, int]]:

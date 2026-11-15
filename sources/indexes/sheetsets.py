@@ -17,11 +17,16 @@ import cache
 import osm
 from grid import Grid
 
-from ..readers.sheetsets import SheetSetRequest
+from ..readers.sheetsets import SheetSetRequest, set_files
 from .cached import CachedIndex, Versions, index_tiles
 from .tilings import MetricCellTiling
 
 File = Tuple[str, str, int, int]  # name, url, survey year, bytes
+
+
+def _stem(name: str) -> str:
+    """A listed file's name without its version (the ETag after "@")."""
+    return name.split("@", 1)[0]
 
 
 @dataclass(frozen=True)
@@ -50,13 +55,24 @@ class SheetSets(Versions):
     the folders and the code from the level's names: s/OF/04/2019_08OF0485_1a2b3c4d.tif).
 
     Newest first across the levels too: the mosaic places the sheets in the order given (the first wins), sorted
-    by year; a sheet of one level whose files are both newer and older than a sheet of another level over it is
-    split there into two sheets of its own (the files of each side), so an older file never wins over a newer
-    survey of the other level (Shizuoka: 39 sheets of 400 x 300 m of FY2021 and FY2025 under FY2022's 1000 x 750 m
-    sheets, 2026-11-15)."""
+    by year. A sheet of a level is split at each of its level's `splits` years (the years of another level's
+    survey, Shizuoka's FY2022 on its quadrant sheets): its files newer and older than such a year make two sheets
+    of their own, so an older file never wins over a newer survey of the other level (39 sheets of 400 x 300 m of
+    FY2021 and FY2025 under FY2022's 1000 x 750 m sheets, 2026-11-15). The split is decided from the sheet's own
+    files and these fixed years, never from the other level's items seen: a sheet's sets, and so its keys, are the
+    same whichever index tiles a grid touches (until 2026-11-16 a sheet was split only when the quadrant sheet
+    over it was among the items seen, so two searches gave it two keys and each pruned the other's file); a sheet
+    of FY2021 and FY2025 outside the quadrant sheets (5 of 44) is split as well, its FY2021 part then read even
+    without holes in FY2025's.
 
-    def __init__(self, folder: str, crs: str, native_res: float, levels: Dict[str, MetricCellTiling]):
+    A file listed twice (a sheet straddling two index tiles whose answers were asked at different times, the file
+    re-uploaded in between) is taken from the answer with its newer upload (LastModified, then the newer listing),
+    so it gets one key whichever answer comes first."""
+
+    def __init__(self, folder: str, crs: str, native_res: float, levels: Dict[str, MetricCellTiling],
+                 splits: Optional[Dict[str, Sequence[int]]] = None):
         self.folder, self.crs, self.native_res, self.levels = folder, crs, native_res, levels
+        self.splits = {level: tuple(years) for level, years in (splits or {}).items()}
 
     # --- the sets of files -------------------------------------------------------------------------------
     @staticmethod
@@ -66,35 +82,24 @@ class SheetSets(Versions):
     def _box(self, level: str, i: int, j: int) -> Tuple[float, float, float, float]:
         return self.levels[level].edges((i, j))
 
-    def _overlapping(self, level: str, i: int, j: int, groups: Dict[Tuple[str, int, int], List[Dict]]) -> List[int]:
-        """The years of the files of other levels' sheets over a sheet."""
-        left, bottom, right, top = self._box(level, i, j)
-        years = []
-        for other, tiling in self.levels.items():
-            if other == level:
-                continue
-            (i0, j0), (i1, j1) = tiling.cell_of(left + 1e-6, bottom + 1e-6), tiling.cell_of(right - 1e-6, top - 1e-6)
-            for oi in range(i0, i1 + 1):
-                for oj in range(j0, j1 + 1):
-                    years += [item["year"] for item in groups.get((other, oi, oj), ())]
-        return years
-
     def sets(self, items: Sequence[Dict]) -> List[SheetSet]:
-        """The sheets of the listed files, newest first (then by level and place), each split where a sheet of
-        another level holds a year between its files' years."""
-        groups: Dict[Tuple[str, int, int], List[Dict]] = {}
-        seen = set()
+        """The sheets of the listed files, newest first (then by level and place), each split at its level's
+        `splits` years; a file listed more than once taken from its newest upload."""
+        newest: Dict[str, Dict] = {}
         for item in items:
-            if item["url"] in seen:
-                continue
-            seen.add(item["url"])
+            old = newest.get(item["url"])
+            if old is None or (item.get("modified", ""), item.get("listed", "")) > \
+                    (old.get("modified", ""), old.get("listed", "")):
+                newest[item["url"]] = item
+        groups: Dict[Tuple[str, int, int], List[Dict]] = {}
+        for item in newest.values():
             groups.setdefault((item["level"], *item["cell"]), []).append(item)
         found = []
         for (level, i, j), files in groups.items():
-            barriers = self._overlapping(level, i, j, groups)
+            barriers = self.splits.get(level, ())
             parts: Dict[int, List[File]] = {}
             for item in files:
-                part = sum(1 for b in set(barriers) if item["year"] < b)
+                part = sum(1 for b in barriers if item["year"] < b)
                 parts.setdefault(part, []).append((item["name"], item["url"], item["year"], item["size"]))
             for part in parts.values():
                 part.sort(key=lambda f: (-f[2], f[0]))
@@ -124,7 +129,20 @@ class SheetSets(Versions):
         return kept
 
     def query(self, index: CachedIndex, grid: Grid, cache_dir: str, update: Optional[str]) -> list:
-        items = [item for lat, lon in index_tiles(grid) for item in index.answers(cache_dir, lat, lon, update)]
+        """The sheets over the grid. A sheet over the grid that reaches into index tiles the grid does not touch
+        is made from the answers of all of its tiles (asked if not cached), so its set is the same whichever of
+        its tiles a grid touches (a file uploaded again between two tiles' answers: the newer upload)."""
+        tiles = index_tiles(grid)
+        items = [item for lat, lon in tiles for item in index.answers(cache_dir, lat, lon, update)]
+        g_left, g_bottom, g_right, g_top = transform_bounds(grid.crs, self.crs, *grid.bounds)
+        more = set()
+        for item in items:
+            left, bottom, right, top = self._box(item["level"], *item["cell"])
+            if left < g_right and right > g_left and bottom < g_top and top > g_bottom:
+                west, south, east, north = transform_bounds(self.crs, "EPSG:4326", left, bottom, right, top)
+                more.update(osm.tiles(west, south, east, north))
+        for lat, lon in sorted(more - set(tiles)):
+            items += index.answers(cache_dir, lat, lon, update)
         return self._within(self.sets(items), grid)
 
     # --- the cached files ------------------------------------------------------------------------------------
@@ -164,27 +182,27 @@ class SheetSets(Versions):
         sheets = [s for s in (self._sheet_of(p) for p in self._cached_paths(cache_dir)) if s is not None]
         return sorted(self._within(sheets, grid), key=lambda s: (-s.year, s.level, -s.j, s.i))
 
-    def _others(self, cache_dir: str, sheet: SheetSet, keep: set) -> List[str]:
-        """The cached files of the same sheet made from other sets of files than those in keep."""
-        folder = os.path.dirname(self.path(cache_dir, sheet))
-        found = [os.path.join(folder, n) for n in os.listdir(folder)] if os.path.isdir(folder) else []
-        place = (sheet.level, sheet.i, sheet.j)
-        return [p for p in found if (s := self._sheet_of(p)) is not None and (s.level, s.i, s.j) == place
-                and s.key not in keep]
-
     def prune(self, cache_dir: str, tiles: List[SheetSet]) -> int:
-        """Delete the cached files of the sheets made from sets no longer listed (a sheet split in two keeps
-        both parts); how many."""
-        keys: Dict[Tuple[str, int, int], set] = {}
+        """Delete the cached files of the sheets that hold only older versions of the files of a current, cached
+        set of the same sheet (every file name of theirs, without its ETag, is one of that set's, under another
+        ETag or not at all): an upload in place, a survey added. A file another current key of the sheet names is
+        never deleted, nor one of other files (a part of a split sheet); how many."""
+        current: Dict[Tuple[str, int, int], List[SheetSet]] = {}
         for s in tiles:
-            keys.setdefault((s.level, s.i, s.j), set()).add(s.key)
-        older, done = [], set()
-        for s in tiles:
-            place = (s.level, s.i, s.j)
-            if place in done or not os.path.exists(self.path(cache_dir, s)):
-                continue
-            done.add(place)
-            older += self._others(cache_dir, s, keys[place])
+            if os.path.exists(self.path(cache_dir, s)):
+                current.setdefault((s.level, s.i, s.j), []).append(s)
+        older = []
+        for place, sheets in current.items():
+            keys = {s.key for s in sheets}
+            folder = os.path.dirname(self.path(cache_dir, sheets[0]))
+            for name in os.listdir(folder):
+                path = os.path.join(folder, name)
+                other = self._sheet_of(path)
+                if other is None or (other.level, other.i, other.j) != place or other.key in keys:
+                    continue
+                stems = {_stem(n) for n in set_files(path)}
+                if stems and any(stems <= {_stem(f[0]) for f in s.files} for s in sheets):
+                    older.append(path)
         cache.forget(cache_dir, older)
         return len(older)
 

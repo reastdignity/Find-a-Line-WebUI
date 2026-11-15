@@ -47,6 +47,10 @@ _NOT_XYZ = re.compile(rb"^(?![ \t]*[-+.\deE]+[ \t]+[-+.\deE]+[ \t]+[-+.\deE]+[ \
 _CSV_NXYZF = re.compile(rb"[ \t]*-?\d+(?:[ \t]*,[ \t]*[-+.\deE]+){4}[ \t]*\r?(?:\n|$)")
 
 
+class ListedFileMissing(RuntimeError):
+    """A file the publisher's listing names answered 404 (SheetFile(listed=True))."""
+
+
 class SheetFile(Reader):
     """A Sheet's file (geoportal.gov.pl): an ARC/INFO ASCII grid or "x y z" lines of a regular
     grid, sometimes zipped (twice), saved as a float32 GeoTIFF in the sheet's CRS.
@@ -85,8 +89,8 @@ class SheetFile(Reader):
         except RuntimeError as e:
             raise RuntimeError(f"Could not download {self.description} sheet {tile.godlo}: {e}")
         if response is None and self.listed:
-            raise RuntimeError(f"Could not download {self.description} sheet {tile.godlo}: HTTP 404 for a "
-                               f"listed file")
+            raise ListedFileMissing(f"Could not download {self.description} sheet {tile.godlo}: HTTP 404 for a "
+                                    f"listed file")
         return response
 
     def fetch(self, tile, path: str) -> Fetched:
@@ -122,9 +126,12 @@ class SheetFile(Reader):
         _write_tile(path, _clean(band), tile.crs, transform)
         return Fetched.of(response, tile.url)
 
-    def _parts(self, tile, data: bytes) -> Optional[Tuple[np.ndarray, Affine]]:
+    def _parts(self, tile, data: bytes, member_grid=None) -> Optional[Tuple[np.ndarray, Affine]]:
         """The members of a ZIP matching self.members, merged into one raster; None (said) when the ZIP
-        holds no raster at all (RASTER_MEMBERS), RuntimeError when it holds one of another name."""
+        holds no raster at all (RASTER_MEMBERS), RuntimeError when it holds one of another name.
+        member_grid(name, data, res, crs, where): a member's raster instead of _member_grid's (SheetSetFile: on the
+        sheet's own pixels); None from it: the member holds no data, and when no member holds any, the ZIP is
+        no data (None)."""
         where = f"{self.description} sheet {tile.godlo}"
         if len(data) > self.max_bytes:
             raise RuntimeError(f"{where}: the file has {len(data)} bytes, more than {self.max_bytes}")
@@ -150,7 +157,13 @@ class SheetFile(Reader):
                     content = member.read(self.member_bytes + 1)
                 if len(content) > self.member_bytes:
                     raise RuntimeError(f"{where}: {info.filename} unpacks to more than {self.member_bytes} bytes")
-                parts.append(_member_grid(info.filename, content, tile.res, tile.crs, f"{where} {info.filename}"))
+                grid_of = member_grid or _member_grid
+                parts.append(grid_of(info.filename, content, tile.res, tile.crs, f"{where} {info.filename}"))
+        if member_grid is not None:
+            parts = [p for p in parts if p is not None]
+            if not parts:
+                print(f"{where}: no data in its members")
+                return None
         return _merge(parts, tile.res, where)
 
 

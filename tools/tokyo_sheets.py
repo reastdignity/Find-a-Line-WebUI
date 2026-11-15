@@ -110,12 +110,14 @@ def save(path: str, found: Dict[str, Set[int]]):
                         folders=np.array([f for _, f in rows], dtype=np.int16))
 
 
-def fetch(url: str) -> bytes:
+def fetch(url: str, cache_dir: str) -> bytes:
     """A tile's bytes; b"" when the bucket has none (403 or 404: S3 answers 403 for a missing key when listing
-    is denied); RuntimeError for anything else."""
+    is denied); RuntimeError for anything else. Under one of the host's slots of the data folder (net.host_slot,
+    as the app's downloads), so the tool never adds a third connection to a search's two."""
     import cache
     from sources import net
-    response = net.session().get(url, headers=cache.http_headers(), timeout=60, stream=True)
+    with net.host_slot(cache_dir, url):
+        response = net.session().get(url, headers=cache.http_headers(), timeout=60, stream=True)
     with response:
         if response.status_code in (403, 404):
             return b""
@@ -133,6 +135,7 @@ def main(argv=None):
     parser.add_argument("--work", default=os.path.join(HERE, "work", "tokyo-sheets"),
                         help="folder of the tiles (kept: a second run asks only those not there)")
     parser.add_argument("--out", default=os.path.join(HERE, "sources", "catalogue", "tokyo_sheets.npz"))
+    parser.add_argument("--data-dir", help="the data folder whose host slots the requests take (default: the app's)")
     args = parser.parse_args(argv)
     todo = asked()
     if args.count:
@@ -140,11 +143,13 @@ def main(argv=None):
             print(f"{folder}/{name}: {sum(1 for t in todo if t[:2] == (folder, name))} tiles at zoom {ZOOM}")
         print(f"{len(todo)} requests at most, {len(todo) * PAUSE_S / 60:.1f} min at {PAUSE_S:g} s apart")
         return
+    import cache
+    cache_dir = os.path.join(cache.data_dir(args.data_dir), "cache")
     features, tiles, empty = [], 0, 0
     for folder, name, x, y in todo:
         path = os.path.join(args.work, f"{folder}-{name}", str(ZOOM), str(x), f"{y}.pbf")
         if not os.path.exists(path):
-            data = fetch(tile_url(folder, name, ZOOM, x, y))
+            data = fetch(tile_url(folder, name, ZOOM, x, y), cache_dir)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "wb") as out:
                 out.write(data)

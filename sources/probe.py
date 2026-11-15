@@ -114,8 +114,9 @@ STRATEGIES: Sequence[Tuple[type, str]] = (
     (WmsrTiles, "getmap"), (ImageServerTiles, "imageserver"), (ZippedTiles, "tiles"), (S3Blocks, "index"),
     (GeoWcsTiles, "geowcs"), (GeoSheetTiles, "sheet"), (InegiSheets, "zipfile"), (MetricSheetTiles, "sheet"),
     (LercTiles, "lerc"), (ZipSheetTiles, "zipsheets"))
-# Sheets composed from whole ZIPs (Tokyo's table, Shizuoka's bucket listing: S3SheetSets is an IndexedTiles): the first
-# KB of the first file of the first sheet, never a byte range 0-0. S3SheetSets ahead of IndexedTiles, of which it is one
+# Sheets composed from whole ZIPs (Tokyo's table, Shizuoka's bucket listing): the first KB of the first file of the
+# first sheet, never a byte range 0-0. The first class a layer is an instance of decides (strategy), S3SheetSets is an
+# IndexedTiles, whose "index" strategy would read a byte range 0-0 of its ZIP: so it goes first, before IndexedTiles
 STRATEGIES = ((S3SheetSets, "sheetset"),) + STRATEGIES + ((CellSheetTiles, "sheetset"),)
 WINDOW_PX = 16          # the window read of a FileBlocks layer
 OK, FAILED, NONE, SKIPPED = "ok", "FAIL", "-", "skip"

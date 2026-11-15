@@ -113,7 +113,9 @@ def code_of_name(name: str) -> str:
 # "Area", nodata 1.70141e38; the wards' name a PROJCS "JGD2011 / Japan Plane Rectangular CS IX" without an EPSG code,
 # AREA_OR_POINT=Point (GDAL's transform lands on the sheet's box: tests/test_japan.py) and nodata -32767: read in
 # EPSG:6677 whatever they name. Island coasts hold bathymetry (Mikurajima's 09RD8410: -12.2 to -6.5 m on 1.6 % of
-# the sheet): no floor is built (the water handling decides; the measurement in the source's description). The
+# the sheet): no floor is built. The water handling keeps such data as water at their heights and fills the sea
+# without data at 0 m; at Mikurajima (radius 800 m, 2026-11-15) 12 % of the data lay below 0 m, 49 of 341 lines (4
+# of 26 spots) joined two points of that 0 m fill across the seabed: a floor is being decided (wave 1's report). The
 # bucket denies listing, so a missing key answers 403: a static table of the sheets (tools/tokyo_sheets.py, from the
 # publisher's index vector tiles) says which exist, a sheet outside it is never asked, a 403 or 404 for one in it is
 # an error of that tile. Files may be smaller than their sheet (the edge of a survey), and the sheets along the line
@@ -144,6 +146,9 @@ def tk_files(i: int, j: int) -> List[Tuple[str, str, int]]:
     return [(f"{folder}_{code}", f"{TK_BUCKET}/{folder}/dig/grd50/{code}.zip", folder) for folder in folders]
 
 
+# bytes_per_tile: the ZIPs of a land sheet are 1.4-1.9 MB (wave 0's samples); 169 MB for 117 sheets at Okutama
+# (tools/check_source.py, 2026-11-15): 1.45 MB a sheet; 1.7 MB, in the upper part of the samples' range, so the
+# estimate (and the quota) errs on the side of more
 TK_DTM = CellSheetTiles("Tokyo Digital Twin grid 0.5 m (terrain)", "tokyo/grd50/2022-2023", TK_CRS, SHEET_500, 0.5,
                         lambda i, j: sheet_name(jp_sheet(TK_ZONE, i, j)),
                         lambda name: jp_cell(TK_ZONE, code_of_name(name)), tk_files, r"\.tif$", bytes_per_tile=1.7e6)
@@ -243,7 +248,8 @@ SZ_2022_CREDIT = Credit("VIRTUAL SHIZUOKA point cloud data, LP grids FY2022 (Shi
 # key (379 GB / 64 304, 2026-11-15) stands for a sheet whose listing is not at hand
 SZ_DTM = S3SheetSets("VIRTUAL SHIZUOKA LP grid 0.5 m (terrain)", SZ_BUCKET, r"\d{4}/", sz_prefixes, sz_key,
                      "lp-grid", SZ_FOLDER, SZ_CRS, 0.5, SZ_LEVELS, r"\.txt$", bytes_per_tile=5.9e6,
-                     level_credits={"q": ("FY2022 Southern Alps", SZ_2022_CREDIT)}, credit=SZ_CREDIT)
+                     level_credits={"q": ("FY2022 Southern Alps", SZ_2022_CREDIT)}, credit=SZ_CREDIT,
+                     splits={"s": SZ_QUAD_YEARS})
 
 # Offline boxes: Shizuoka's outline in bands of 0.05 degrees (with its sea), cut east of Atami and Hatsushima to
 # keep off Kanagawa's land; Yamanashi's land south of Mount Fuji's five lakes and of Minobu stays in some bands
